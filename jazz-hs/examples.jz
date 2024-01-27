@@ -1,0 +1,6 @@
+
+let val myConst = 5
+
+let filteredMods = (lst: List[I64] ->
+  List.filter (i -> mod i 2 == 0)
+)

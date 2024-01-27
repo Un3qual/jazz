@@ -1,0 +1,126 @@
+cabal-version: 2.2
+
+-- This file has been generated from package.yaml by hpack version 0.36.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:           jazz
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/jazz#readme>
+homepage:       https://github.com/githubuser/jazz#readme
+bug-reports:    https://github.com/githubuser/jazz/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2024 Author name here
+license:        BSD-3-Clause
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/jazz
+
+library
+  exposed-modules:
+      Calc
+      Calc.Compile.RunLLVM
+      Calc.Compile.ToLLVM
+      Calc.ExprUtils
+      Calc.Interpreter
+      Calc.Parser
+      Calc.Parser.Expr
+      Calc.Parser.Primitives
+      Calc.Parser.Shared
+      Calc.Parser.Types
+      Calc.Repl
+      Calc.Types
+      Calc.Types.Annotation
+      Calc.Types.Expr
+      Calc.Types.Prim
+      Error.Diagnose.Compat.Hints
+      Error.Diagnose.Compat.Megaparsec
+      Lib
+  other-modules:
+      Paths_jazz
+  autogen-modules:
+      Paths_jazz
+  hs-source-dirs:
+      src
+  default-extensions:
+      OverloadedStrings
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      base >=4.7 && <5
+    , containers
+    , diagnose
+    , directory
+    , file-embed
+    , haskeline
+    , llvm-hs-pure
+    , megaparsec
+    , parser-combinators
+    , process
+    , string-conversions
+    , text
+    , unix
+  default-language: Haskell2010
+
+executable jazz-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_jazz
+  autogen-modules:
+      Paths_jazz
+  hs-source-dirs:
+      app
+  default-extensions:
+      OverloadedStrings
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , containers
+    , diagnose
+    , directory
+    , file-embed
+    , haskeline
+    , jazz
+    , llvm-hs-pure
+    , megaparsec
+    , parser-combinators
+    , process
+    , string-conversions
+    , text
+    , unix
+  default-language: Haskell2010
+
+test-suite jazz-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_jazz
+  autogen-modules:
+      Paths_jazz
+  hs-source-dirs:
+      test
+  default-extensions:
+      OverloadedStrings
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , containers
+    , diagnose
+    , directory
+    , file-embed
+    , haskeline
+    , jazz
+    , llvm-hs-pure
+    , megaparsec
+    , parser-combinators
+    , process
+    , string-conversions
+    , text
+    , unix
+  default-language: Haskell2010

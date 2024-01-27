@@ -1,0 +1,15 @@
+resolver: lts-14.0
+packages:
+- '.'
+- '../'
+- ../llvm-hs-pure
+- ../llvm-hs
+
+# extra-deps:
+
+
+
+flags:
+  llvm-hs:
+    shared-llvm: true
+
