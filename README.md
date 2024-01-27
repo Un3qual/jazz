@@ -1,5 +1,5 @@
 # Jazz
-![Jazz logo](https://github.com/un3qual/jazz/blob/main/image.jpg?raw=true)
+![Jazz logo](https://github.com/un3qual/jazz/blob/main/jazz_logo.png?raw=true)
 
 ### Notes for grader
 I discussed with Prof. Toal about doing the project in Haskell and compiling to LLVM instead of Javascript with Ohm, so I am unable to do some of the js-specific requirements for grading HW1.
