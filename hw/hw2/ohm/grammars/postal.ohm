@@ -1,0 +1,7 @@
+Postal {
+  postal = forwardSortationArea singleSpace localDeliveryUnit
+  forwardSortationArea = allowedLetter digit allowedLetter
+  localDeliveryUnit = digit allowedLetter digit
+  singleSpace = " "
+  allowedLetter = "A" .. "C" | "E" | "G" .. "H" | "J" .. "N" | "P" .. "R" | "S" .. "Y"  // Excludes D, F, I, O, Q, U
+}

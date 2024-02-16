@@ -1,0 +1,11 @@
+RestrictedFloats {
+  match = numWithDecimal exponentPart
+
+  // Constants
+  e = "e" | "E"
+  sign = "+" | "-"
+  
+  // Partials
+  numWithDecimal = digit+ ("." digit+)?
+  exponentPart = e sign? digit digit? digit?
+}

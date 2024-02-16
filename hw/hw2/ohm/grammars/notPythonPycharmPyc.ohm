@@ -1,0 +1,3 @@
+NotPythonPycharmPyc {
+  match = ~(("python" | "pycharm" | "pyc") end) letter*
+}

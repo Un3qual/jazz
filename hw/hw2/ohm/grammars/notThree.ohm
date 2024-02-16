@@ -1,0 +1,4 @@
+NotThree {
+  notThree = ~(letter letterO letterO end) letter*
+  letterO = "O" | "o"
+}

@@ -1,0 +1,37 @@
+PyString {
+  string = stringLiteral | bytesLiteral
+  
+  // Strings
+  stringLiteral = stringPrefix? (longString | shortString)
+
+  stringPrefix = "fr" | "Fr" | "fR" | "FR" | "rf" | "rF" | "Rf" | "RF"
+                | "r" | "u" | "R" | "U" | "f" | "F" 
+
+  shortString = "'" shortStringItem* "'" | "\"" shortStringItem* "\""
+  longString = "'''" longStringItem* "'''" | "\"\"\"" longStringItem* "\"\"\""
+  
+  shortStringItem = shortStringChar | stringEscapeSeq
+  longStringItem = longStringChar | stringEscapeSeq
+
+  shortStringChar = ~("\\" | "\n" | "'" | "\"") any
+  longStringChar = ~("\\" | "\"\"\"" | "'''") any
+
+  // Bytes
+  bytesLiteral = bytesPrefix (longBytes | shortBytes)
+
+  bytesPrefix = "br" | "Br" | "bR" | "BR" | "rb" | "rB" | "Rb" | "RB" | "b" | "B"
+
+  shortBytes = "'" shortBytesItem* "'" | "\"" shortBytesItem* "\""
+  longBytes = "'''" longBytesItem* "'''" | "\"\"\"" longBytesItem* "\"\"\""
+
+  shortBytesItem = shortBytesChar | bytesEscapeSeq
+  longBytesItem = longBytesChar | bytesEscapeSeq
+  
+  shortBytesChar = ~("\\" | "\n" | "'" | "\"") ascii
+  longBytesChar = ~("\\" | "\"\"\"" | "'''") ascii
+  
+  // Utils
+  stringEscapeSeq = "\\" any
+  bytesEscapeSeq = "\\" ascii
+  ascii = "\u{0000}".."\u{007f}"
+}

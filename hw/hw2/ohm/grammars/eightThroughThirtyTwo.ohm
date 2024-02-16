@@ -1,0 +1,8 @@
+EightThroughThirtyTwo {
+  match = singleDigit | doubleDigit
+  singleDigit = "8".."9"
+  doubleDigit = digit_1_2 digit | "3" digit_0_2
+
+  digit_1_2 = "1".."2"
+  digit_0_2 = "0".."2"
+}

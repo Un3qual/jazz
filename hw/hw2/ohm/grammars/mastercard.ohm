@@ -1,0 +1,16 @@
+MasterCard {
+  masterCard = mc5Start fourteenDigits | mc22Start twelveDigits
+  mc5Start   = "5" digit1_5
+  mc22Start  = "222" digit | "22" mc22Post | "27" mc27Post | "2" mc2Post | "272" "0"
+  mc22Post   = digit3_9 digit 
+  mc2Post    = digit3_6 digit digit
+  mc27Post   = digit0_1 digit
+
+  digit3_9   = "3" .. "9"
+  digit3_6   = "3" .. "6"
+  digit1_5   = "1" .. "5"
+  digit0_1   = "0" .. "1"
+
+  twelveDigits  = digit digit digit digit digit digit digit digit digit digit digit digit
+  fourteenDigits = twelveDigits digit digit
+}
