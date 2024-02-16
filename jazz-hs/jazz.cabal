@@ -25,6 +25,7 @@ source-repository head
 
 library
   exposed-modules:
+      AST
       Calc
       Calc.Compile.RunLLVM
       Calc.Compile.ToLLVM
@@ -43,6 +44,8 @@ library
       Error.Diagnose.Compat.Hints
       Error.Diagnose.Compat.Megaparsec
       Lib
+      Parser
+      Types
   other-modules:
       Paths_jazz
   autogen-modules:

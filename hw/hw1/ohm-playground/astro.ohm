@@ -1,0 +1,49 @@
+Astro {
+  Program     = Statement+
+  Statement   = id "=" Exp ";"                         --assignment
+              | print Exp ";"                          --print
+              | "if" "(" Exp ")" Block ElsePart        --if
+              | "while" "(" Exp ")" Block              --while
+  ElsePart    = "else" (Block | Statement_if)          --else
+  Block       = "{" Statement* "}"
+  Exp         = Exp ("+" | "-") Term                   --binary
+              | Term
+              | RelExp
+  RelExp      = Term ("<=" | ">=" | "<" | ">" | "==" | "!=") Term --relational
+  Term        = Term ("*" | "/" | "%") Factor          --binary
+              | Factor
+  Factor      = Primary "**" Factor                    --binary
+              | "-" Primary                            --negation
+              | Primary
+  Primary     = id "(" ListOf<Exp, ","> ")"            --call
+              | numeral                                --num
+              | id                                     --id
+              | "(" Exp ")"                            --parens
+  numeral     = digit+ ("." digit+)? (("E" | "e") ("+" | "-")? digit+)?
+  print       = "print" ~idchar
+  idchar      = letter | digit | "_"
+  id          = ~print letter idchar*
+  space      += "//" (~"\n" any)*                      --comment
+}
+// Astro {
+//   Program     = Statement+
+//   Statement   = id "=" Exp ";"                         --assignment
+//               | print Exp ";"                          --print
+//   Exp         = Exp ("+" | "-") Term                   --binary
+//               | Term
+//               | RelExp
+//   Term        = Term ("*" | "/" | "%") Factor          --binary
+//               | Factor
+//   Factor      = Primary "**" Factor                    --binary
+//               | "-" Primary                            --negation
+//               | Primary
+//   Primary     = id "(" ListOf<Exp, ","> ")"            --call
+//               | numeral                                --num
+//               | id                                     --id
+//               | "(" Exp ")"                            --parens
+//   numeral     = digit+ ("." digit+)? (("E" | "e") ("+" | "-")? digit+)?
+//   print       = "print" ~idchar
+//   idchar      = letter | digit | "_"
+//   id          = ~print letter idchar*
+//   space      += "//" (~"\n" any)*                      --comment
+// }

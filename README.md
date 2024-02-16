@@ -52,6 +52,11 @@ let powersOf2 = myArr.map(i => Math.pow(2, i))
 
 #### Functions
 In Jazz, functions are pure by default and are declared with `def`. Impure functions must be denoted with `WIP` and can not be called from pure functions. Function syntax and requirements are currently a work in progress.
+
+- Multiline functions must use curly braces
+- Impure functions must end with a `!` e.g:
+  - ```def println!(str: String) ...```
+- 
 ##### Jazz
 ```
 # Implicit types
