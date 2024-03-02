@@ -5,25 +5,47 @@
 module Parser where
 
 import AST
-import           Control.Applicative hiding (many, some)
-import           Data.Functor (($>))
-import           Data.Void
--- import           Data.Map (Map)
--- import qualified Data.Map as Map
-import           Data.Text (Text)
-import           Text.Megaparsec
-import           Text.Megaparsec.Char
-import qualified Data.Text as T
-import qualified Text.Megaparsec.Char.Lexer as L
+import Parser.Lib  (Parser, symbolP)
+import Parser.Lang (rootExprP)
+
+import Text.Megaparsec
+
+programP :: Parser Program
+programP = sepBy rootExprP (symbolP ";")
+
+  -- <|> multiplicativeP
+  -- <|> additiveP
+  -- <|> termP
+  -- <|> factorP
+  -- <|> numP
+  -- <|> functionP
+  -- <|> try (ASqrt <$> (symbolP "sqrt" *> inParens exprP))
+  -- <|> (AParen <$> (inParens exprP))
+  -- <|> try functionP
+  -- <|> numP
 
 
-type Parser = Parsec Void Text
 
-sc :: Parser ()
-sc = L.space space1 (L.skipLineComment "//") (L.skipBlockComment "(*" "*)")
 
-symbolP :: Text -> Parser Text
-symbolP = L.symbol sc
+-- factorP :: Parser ArithExp
+-- factorP = try (AFact <$> (((inParens exprP) <|> numP) <* symbolP "@"))
+--       -- <|> try (ASqrt <$> (symbolP "sqrt" *> inParens exprP))
+--       <|> (AParen <$> (inParens exprP))
+--       <|> try functionP
+--       <|> numP
 
-lexemeP :: Parser a -> Parser a
-lexemeP = L.lexeme sc
+-- multiplicativeP :: Parser Expr
+-- multiplicativeP = do
+--   lhs <- factorP
+--   rhs <- many $ flip <$> operatorP <*> factorP
+--   pure $ foldl (\expr f -> f expr) lhs rhs
+--   where
+--     operatorP = (symbolP "*" $> AMul) <|> (symbolP "/" $> ADiv)
+
+-- additiveP :: Parser Expr
+-- additiveP = do
+--   lhs <- termP
+--   rhs <- many $ flip <$> operatorP <*> termP
+--   pure $ foldl (\expr f -> f expr) lhs rhs
+--   where
+--     operatorP = (symbolP "+" $> AAdd) <|> (symbolP "-" $> ASub)

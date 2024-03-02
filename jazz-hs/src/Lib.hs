@@ -15,83 +15,87 @@ import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import qualified Data.Text as T
 import qualified Text.Megaparsec.Char.Lexer as L
+import Text.Show.Pretty
+import Parser
+import Parser.Lib (Parser)
+import AST
 
 
-type Parser = Parsec Void Text
+-- type Parser = Parsec Void Text
 
-data ArithPrefixFunc
-  --       Base    Exponent
-  = APFPow ArithExp ArithExp
-  | APFSqrt ArithExp
-  | APFUnsupported
-  deriving (Show, Eq)
+-- data ArithPrefixFunc
+--   --       Base    Exponent
+--   = APFPow ArithExp ArithExp
+--   | APFSqrt ArithExp
+--   | APFUnsupported
+--   deriving (Show, Eq)
 
-data ArithExp
-  = AAdd   ArithExp ArithExp
-  | ASub   ArithExp ArithExp
-  | AMul   ArithExp ArithExp
-  | ADiv   ArithExp ArithExp
-  | AFact  ArithExp
-  | ASqrt  ArithExp
-  | ANum   Integer
-  | AParen ArithExp
-  | AFunc  ArithPrefixFunc
-  deriving (Show, Eq)
+-- data ArithExp
+--   = AAdd   ArithExp ArithExp
+--   | ASub   ArithExp ArithExp
+--   | AMul   ArithExp ArithExp
+--   | ADiv   ArithExp ArithExp
+--   | AFact  ArithExp
+--   | ASqrt  ArithExp
+--   | ANum   Integer
+--   | AParen ArithExp
+--   | AFunc  ArithPrefixFunc
+--   deriving (Show, Eq)
 
 
-sc :: Parser ()
-sc = L.space space1 empty empty
+-- sc :: Parser ()
+-- sc = L.space space1 empty empty
 
-symbolP :: Text -> Parser Text
-symbolP = L.symbol sc
+-- symbolP :: Text -> Parser Text
+-- symbolP = L.symbol sc
 
-lexemeP :: Parser a -> Parser a
-lexemeP = L.lexeme sc
+-- lexemeP :: Parser a -> Parser a
+-- lexemeP = L.lexeme sc
 
-functionP :: Parser ArithExp
-functionP = do
-  name <- lexemeP $ T.pack <$> some letterChar
-  args <- inParens $ sepBy exprP (symbolP ",")
-  constructedName <- case name of
-    "pow" -> pure $ (APFPow (args !! 0) (args !! 1))
-    "sqrt" -> pure $ (APFSqrt (args !! 0))
-    _ -> fail $ "Unsupported function: " ++ T.unpack name
-  pure $ AFunc constructedName
+-- functionP :: Parser ArithExp
+-- functionP = do
+--   name <- lexemeP $ T.pack <$> some letterChar
+--   args <- inParens $ sepBy exprP (symbolP ",")
+--   constructedName <- case name of
+--     "pow" -> pure $ (APFPow (args !! 0) (args !! 1))
+--     "sqrt" -> pure $ (APFSqrt (args !! 0))
+--     _ -> fail $ "Unsupported function: " ++ T.unpack name
+--   pure $ AFunc constructedName
 
-numP :: Parser ArithExp
-numP = ANum <$> lexemeP L.decimal
+-- numP :: Parser ArithExp
+-- numP = ANum <$> lexemeP L.decimal
 
-inParens :: Parser a -> Parser a
-inParens = between (symbolP "(") (symbolP ")")
+-- inParens :: Parser a -> Parser a
+-- inParens = between (symbolP "(") (symbolP ")")
 
-factorP :: Parser ArithExp
-factorP = try (AFact <$> (((inParens exprP) <|> numP) <* symbolP "@"))
-      -- <|> try (ASqrt <$> (symbolP "sqrt" *> inParens exprP))
-      <|> (AParen <$> (inParens exprP))
-      <|> try functionP
-      <|> numP
+-- factorP :: Parser ArithExp
+-- factorP = try (AFact <$> (((inParens exprP) <|> numP) <* symbolP "@"))
+--       -- <|> try (ASqrt <$> (symbolP "sqrt" *> inParens exprP))
+--       <|> (AParen <$> (inParens exprP))
+--       <|> try functionP
+--       <|> numP
 
-termP :: Parser ArithExp
-termP = do
-  lhs <- factorP
-  rhs <- many $ flip <$> operatorP <*> factorP
-  pure $ foldl (\expr f -> f expr) lhs rhs
-  where
-    operatorP = (symbolP "*" $> AMul) <|> (symbolP "/" $> ADiv)
+-- termP :: Parser ArithExp
+-- termP = do
+--   lhs <- factorP
+--   rhs <- many $ flip <$> operatorP <*> factorP
+--   pure $ foldl (\expr f -> f expr) lhs rhs
+--   where
+--     operatorP = (symbolP "*" $> AMul) <|> (symbolP "/" $> ADiv)
 
-exprP :: Parser ArithExp
-exprP = do
-  lhs <- termP
-  rhs <- many $ flip <$> operatorP <*> termP
-  pure $ foldl (\expr f -> f expr) lhs rhs
-  where
-    operatorP = (symbolP "+" $> AAdd) <|> (symbolP "-" $> ASub)
+-- exprP :: Parser ArithExp
+-- exprP = do
+--   lhs <- termP
+--   rhs <- many $ flip <$> operatorP <*> termP
+--   pure $ foldl (\expr f -> f expr) lhs rhs
+--   where
+--     operatorP = (symbolP "+" $> AAdd) <|> (symbolP "-" $> ASub)
 
-parseExpression :: Parser ArithExp
-parseExpression = do
-  expr <- exprP
+parseProgram :: Parser Program
+parseProgram = do
+  prog <- programP
   eof
-  return expr
+  return prog
 
 
 -- calculate :: ArithExp -> Integer
@@ -116,13 +120,18 @@ parseExpression = do
 -- pipeline :: ArithExp -> Integer
 -- pipeline e = calculate $ optimize e
 
--- someFunc :: IO ()
--- someFunc = do
---   input <- fmap (T.pack . head) getArgs
---   putStrLn ("Input: " ++ show input)
---   case parse parseExpression "" input of
---     Left err -> putStrLn $ errorBundlePretty err
---     Right expr -> do
---       print (calculate expr) 
---       print expr
---       print (optimize expr)
+
+getAstFromParser :: T.Text -> Program
+getAstFromParser prog = case parse parseProgram "" prog of
+  Left err -> []
+  Right ast -> ast
+
+
+someFunc :: IO ()
+someFunc = do
+  input <- fmap (T.pack . head) getArgs
+  putStrLn ("Input: " ++ show input)
+  case parse parseProgram "" input of
+    Left err -> putStrLn $ errorBundlePretty err
+    Right prog -> do
+      pPrint prog

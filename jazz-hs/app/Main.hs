@@ -1,10 +1,9 @@
--- module Main (main) where
+module Main (main) where
 
--- import Lib
--- import Url
--- main :: IO ()
--- main = someFunc
-import Calc (repl)
-
+import Lib
 main :: IO ()
-main = repl
+main = someFunc
+-- import Calc (repl)
+
+-- main :: IO ()
+-- main = repl

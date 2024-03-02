@@ -9,8 +9,15 @@ data Literal
   = LInt Integer
   | LFloat Double
   | LBool Bool
-  | LString String
+  | LString T.Text
   deriving (Eq, Show)
+
+-- Allowed characters for infix operators: !#$%&*+./<=>?@\^|-~:
+-- data InfixExpr = InfixExpr
+--   { ieSymbol :: T.Text
+--   , ieLhs :: Expr
+--   , ieRhs :: Expr
+--   } deriving (Eq, Show)
 
 data Type
   = TVar T.Text
@@ -21,27 +28,29 @@ data Type
   | TBool
   | TList Type
   | TTuple [Type]
-  | TConstructor String [Type]
-  | TypePoly String Type
+  | TConstructor T.Text [Type]
+  | TypePoly T.Text Type
+  | TFunction Type Type
   deriving (Show, Eq)
 
 data Variable = Variable {
-  varName :: T.Text,
-  varType :: T.Text
+  varName :: T.Text
+, varType :: Maybe Type
 } deriving (Show, Eq)
 
 data Expr
   = ELiteral Literal
   | EVar Variable
   | ETuple [Expr]
-  | ASTLambda [FunParam] Expr -- Lambda function with a list of arguments for supporting currying
-  | ASTApply Expr Expr -- Function application
-  | ASTLet Variable Expr Expr -- Let bindings for immutable variables
-  | ASTData String [Type] [Constructor] -- Algebraic data type definitions with type parameters and constructors
-  | ASTTypeAnnotation Expr Type -- Type annotations for expressions
+  | ELambda [FunParam] Expr -- Lambda function with a list of arguments for supporting currying
+  | EApply Expr Expr -- Function application
+  | ELet Variable Expr --Expr -- Let bindings for immutable variables
+  | EData T.Text [Type] [Constructor] -- Algebraic data type definitions with type parameters and constructors
+  | ETypeAnnotation Expr Type -- Type annotations for expressions
+  -- | EInfixExpr InfixExpr
   deriving (Show, Eq)
 
-data Constructor = Constructor String [Type]
+data Constructor = Constructor T.Text [Type]
   deriving (Show, Eq)
 
 data FunParam 
@@ -55,6 +64,7 @@ data FunId = FunId {
   funName :: T.Text,
   funReturnType :: Type,
   funParams :: [FunParam],
+  funIsInfix :: Bool,
   funIsPure :: Bool
 } deriving (Show, Eq)
 
@@ -63,7 +73,7 @@ data Pattern
   | PatternVar Variable
   | PatternTuple [Pattern]
   | PatternList [Pattern]
-  | PatternConstructor String [Pattern]
+  | PatternConstructor T.Text [Pattern]
   deriving (Show, Eq)
 
 -- data Expr

@@ -33,6 +33,14 @@ dependencies:
 - unix
 - diagnose
 - haskeline
+- prettyprinter
+- prettyprinter-ansi-terminal
+- pretty-show
+- tasty
+- tasty-hunit
+- tasty-hspec
+- hspec
+- string-qq
 # - llvm-hs-pretty
 # - bytestring
 
