@@ -15,10 +15,10 @@ main = do
   simpleFunctionCallTests <- testSpec "Simple Function Call Tests" simpleFunctionCallSpecs
   simpleProgramTests <- testSpec "Simple Program Tests" simpleProgramSpecs
   let tests = testGroup "Jazz Tests" [ 
-                                      --  simpleExprTests
-                                    --  , multipleExprTests
-                                    --  , simpleLambdaTests
-                                    --  , simpleFunctionCallTests
-                                      simpleProgramTests
+                                       simpleExprTests
+                                     , multipleExprTests
+                                     , simpleLambdaTests
+                                     , simpleFunctionCallTests
+                                     , simpleProgramTests
                                      ]
   defaultMain tests

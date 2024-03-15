@@ -1,0 +1,6 @@
+module Prelude {
+  # head = \([hd | rest]: [a]): a -> = hd
+  # tail = \([_ | tl]: [a]): [a] -> = tl
+  head = \([hd | rest]: [Int]): Int -> = hd
+  tail = \([_ | tl]: [Int]): [Int] -> = tl
+}

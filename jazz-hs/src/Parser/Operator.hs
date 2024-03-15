@@ -23,22 +23,22 @@ operatorTable :: [[Operator Parser Expr]]
 operatorTable =
   [
     [ InfixL (buildInfixExpr "*" )
-    , InfixL (buildInfixExpr "/" )
+    -- , InfixL (buildInfixExpr "/" )
     ]
-  , [ InfixL (buildInfixExpr "." ) ]
+  -- , [ InfixL (buildInfixExpr "." ) ]
   , [ InfixL (buildInfixExpr "+" )
-    , InfixL (buildInfixExpr "-" )
+    -- , InfixL (buildInfixExpr "-" )
     ]
   , [ Prefix (EApply (EVar $ Variable "-" Nothing) <$ symbolP "-") ]
 
-  , [ InfixL (buildInfixExpr "|" ) ]
-  , [ InfixL (buildInfixExpr "==")
-    , InfixL (buildInfixExpr "!=")
-    , InfixL (buildInfixExpr "<" )
-    , InfixL (buildInfixExpr "<=")
-    , InfixL (buildInfixExpr ">=")
-    , InfixL (buildInfixExpr ">" )
-    ]
+  -- , [ InfixL (buildInfixExpr "|" ) ]
+  -- , [ InfixL (buildInfixExpr "==")
+  --   , InfixL (buildInfixExpr "!=")
+  --   , InfixL (buildInfixExpr "<" )
+  --   , InfixL (buildInfixExpr "<=")
+  --   , InfixL (buildInfixExpr ">=")
+  --   , InfixL (buildInfixExpr ">" )
+  --   ]
   , [ InfixR (EApply <$ maybeDbg "operatorTable::symbol$" (symbolP "$")) ]
   ]
 

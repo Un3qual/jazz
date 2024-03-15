@@ -5,47 +5,20 @@
 module Parser where
 
 import AST
-import Parser.Lib  (Parser, symbolP)
+import Parser.Lib  (Parser, symbolP, maybeDbg)
 import Parser.Lang (rootExprP)
 
 import Text.Megaparsec
+import Text.Megaparsec.Char (eol, hspace)
+
+parseProgram :: Parser Program
+parseProgram = do
+  prog <- maybeDbg "parseProgram::programP" programP
+  maybeDbg "parseProgram::eof" eof
+  return prog
 
 programP :: Parser Program
-programP = sepBy rootExprP (symbolP ";")
-
-  -- <|> multiplicativeP
-  -- <|> additiveP
-  -- <|> termP
-  -- <|> factorP
-  -- <|> numP
-  -- <|> functionP
-  -- <|> try (ASqrt <$> (symbolP "sqrt" *> inParens exprP))
-  -- <|> (AParen <$> (inParens exprP))
-  -- <|> try functionP
-  -- <|> numP
-
-
-
-
--- factorP :: Parser ArithExp
--- factorP = try (AFact <$> (((inParens exprP) <|> numP) <* symbolP "@"))
---       -- <|> try (ASqrt <$> (symbolP "sqrt" *> inParens exprP))
---       <|> (AParen <$> (inParens exprP))
---       <|> try functionP
---       <|> numP
-
--- multiplicativeP :: Parser Expr
--- multiplicativeP = do
---   lhs <- factorP
---   rhs <- many $ flip <$> operatorP <*> factorP
---   pure $ foldl (\expr f -> f expr) lhs rhs
---   where
---     operatorP = (symbolP "*" $> AMul) <|> (symbolP "/" $> ADiv)
-
--- additiveP :: Parser Expr
--- additiveP = do
---   lhs <- termP
---   rhs <- many $ flip <$> operatorP <*> termP
---   pure $ foldl (\expr f -> f expr) lhs rhs
---   where
---     operatorP = (symbolP "+" $> AAdd) <|> (symbolP "-" $> ASub)
+programP = do
+  maybeDbg "programP::skipEol" (skipMany eol)
+  maybeDbg "programP::separatedExprs" (sepEndBy1 (maybeDbg "programP::rootExprP" rootExprP) (maybeDbg "programP::rootSeparator" (symbolP ".")))
+-- programP = maybeDbg "programP" $ skipMany (maybeDbg "parseProgram::eol" eol) *> sepEndBy (maybeDbg "programP::rootExprP" rootExprP) (many (maybeDbg "programP::eol" eol))

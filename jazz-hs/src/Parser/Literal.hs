@@ -26,8 +26,11 @@ stringLiteralP = LString . T.pack <$> (char '"' *> manyTill stringChar (char '"'
 boolLiteralP :: Parser Literal
 boolLiteralP = (symbolP "True" $> LBool True) <|> (symbolP "False" $> LBool False)
 
-literalP :: Parser Expr
-literalP = ELiteral <$> (stringLiteralP 
+literalP :: Parser Literal
+literalP = stringLiteralP <|> try floatLiteralP <|> intLiteralP <|> boolLiteralP
+
+literalExprP :: Parser Expr
+literalExprP = ELiteral <$> (stringLiteralP
                     <|> try floatLiteralP
                     <|> intLiteralP
                     <|> boolLiteralP)

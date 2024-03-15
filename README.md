@@ -23,7 +23,7 @@ Jazz is a functional language that takes inspiration from Elixir and Haskell.
 #### Hello World
 ##### Jazz
 ```
-println "Hello, world"
+println! "Hello, world"
 ```
 ##### Javascript
 ```js
@@ -34,8 +34,10 @@ console.log("Hello, world")
 ##### Jazz
 ```
 myArr = [1, 2, 3, 4, 5]
-evens = filter myArr \i -> mod(i, 2) == 0
-powersOf2 = map myArr &Num.pow(2, i)
+evens = filter myArr \(i: Int): Int -> mod(i, 2) == 0
+powersOf2 = map myArr \Num.pow(2, \0)
+# Is the same as
+powersOf2 = map myArr \(i: Int): Int -> Num.pow(2, i)
 ```
 ##### Javascript
 ```js
@@ -60,14 +62,22 @@ In Jazz, functions are pure by default and are declared with `def`. Impure funct
 ##### Jazz
 ```
 # Implicit types
-def isEven(i) = mod(i, 2) == 0
+isEven = \i -> mod(i, 2) == 0
 # Explicit types
-def isEven(i: Int): Bool = mod(i, 2) == 0
+isEven = \(i: Int): Bool -> mod(i, 2) == 0
 
 # Multiline functions
-defio greet = {
-  name = getLine
-  println("Hello, ${name}")
+greet! = \(): Void -> {
+  name = getLine!
+  println!("Hello, ${name}")
+}
+
+greet2! = \(name: String): Void -> {
+  println! "Hello, ${name}"
+}
+
+greet3 = \(name: String): String -> {
+  "Hello, ${name}"
 }
 ```
 ##### Javascript
@@ -83,7 +93,7 @@ const isEven = i => i % 2 == 0
 ##### Jazz
 ```
 mod Person::Organs::Heart {
-  def beat() = # do stuff
+  beat = # do stuff
 }
 ```
 ##### Javascript
