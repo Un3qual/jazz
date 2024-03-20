@@ -6,6 +6,7 @@ import Test.Tasty.Hspec
 import Test.Hspec
 
 import ParserSpec
+import AnalyzerSpec
 
 main :: IO ()
 main = do
@@ -14,11 +15,16 @@ main = do
   simpleLambdaTests <- testSpec "Simple Lambda Tests" simpleLambdaSpecs
   simpleFunctionCallTests <- testSpec "Simple Function Call Tests" simpleFunctionCallSpecs
   simpleProgramTests <- testSpec "Simple Program Tests" simpleProgramSpecs
-  let tests = testGroup "Jazz Tests" [ 
-                                       simpleExprTests
-                                     , multipleExprTests
-                                     , simpleLambdaTests
-                                     , simpleFunctionCallTests
-                                     , simpleProgramTests
-                                     ]
+
+  simpleAnalyzerTests <- testSpec "Simple Analyzer Tests" simpleAnalyzerSpecs
+  let parserTests = [ 
+                      simpleExprTests
+                    , multipleExprTests
+                    , simpleLambdaTests
+                    , simpleFunctionCallTests
+                    , simpleProgramTests
+                    ]
+  let analyzerTests = [
+                      simpleAnalyzerTests]
+  let tests = testGroup "Jazz Tests" $ concat [parserTests, analyzerTests]
   defaultMain tests

@@ -10,6 +10,8 @@ data Literal
   | LFloat Double
   | LBool Bool
   | LString T.Text
+  | LList [Expr]
+  | LTuple [Expr]
   deriving (Eq, Show)
 
 -- Allowed characters for infix operators: !#$%&*+./<=>?@\^|-~:
@@ -50,6 +52,11 @@ data Expr
   -- | EInfixExpr InfixExpr
   deriving (Show, Eq)
 
+data Statement 
+  = SLet Variable Expr
+  | SExpr Expr
+  deriving (Show, Eq)
+
 data Constructor = Constructor T.Text [Type]
   deriving (Show, Eq)
 
@@ -71,8 +78,8 @@ data FunId = FunId {
 data Pattern
   = PatternLiteral Literal
   | PatternVar Variable
-  | PatternTuple [Pattern]
-  | PatternList [Pattern]
+  | PatternTuple [FunParam]
+  | PatternList [FunParam]
   | PatternConstructor T.Text [Pattern]
   deriving (Show, Eq)
 

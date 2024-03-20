@@ -48,17 +48,50 @@ typeP = choice
   , symbolP "Int" $> TInt
   , symbolP "Float" $> TFloat
   , symbolP "Bool" $> TBool
+  , try tupleTypeP
+  , listTypeP
   , parensP typeP
   , TVar . T.pack <$> some letterChar
   , TCon . T.pack <$> some letterChar
   ]
+
+tupleTypeP :: Parser Type
+tupleTypeP = do
+  maybeDbg "tupleTypeP::symbol(" $ symbolP "("
+  elements <- maybeDbg "tupleTypeP::elements" $ sepBy typeP (symbolP ",")
+  maybeDbg "tupleTypeP::symbol)" $ symbolP ")"
+  pure $ TTuple elements
+
+listTypeP :: Parser Type
+listTypeP = do
+  maybeDbg "listTypeP::symbol[" $ symbolP "["
+  elementType <- maybeDbg "listTypeP::elementType" typeP
+  maybeDbg "listTypeP::symbol]" $ symbolP "]"
+  pure $ TList elementType
+-- funParamTypeP :: Parser Type
+-- funParamTypeP = choice
+--   [ symbolP "String" $> TString
+--   , symbolP "Int" $> TInt
+--   , symbolP "Float" $> TFloat
+--   , symbolP "Bool" $> TBool
+--   , parensP typeP
+--   , TVar . T.pack <$> some letterChar
+--   , TCon . T.pack <$> some letterChar
+--   ]
 
 listLiteralP :: Parser Expr
 listLiteralP = do
   maybeDbg "listLiteralP::symbol[" $ symbolP "["
   elements <- maybeDbg "listLiteralP::elements" $ sepBy exprP (symbolP ",")
   maybeDbg "listLiteralP::symbol]" $ symbolP "]"
-  pure $ EList elements
+  pure $ ELiteral (LList elements)
+
+tupleLiteralP :: Parser Expr
+tupleLiteralP = do
+  maybeDbg "tupleLiteralP::symbol(" $ symbolP "("
+  elements <- maybeDbg "tupleLiteralP::elements" $ sepBy2 exprP (symbolP ",")
+  maybeDbg "tupleLiteralP::symbol)" $ symbolP ")"
+  pure $ ELiteral (LTuple elements)
 
 variableUsageP :: Parser Expr
 variableUsageP = do
@@ -67,12 +100,13 @@ variableUsageP = do
 
 baseExprP :: Parser Expr
 baseExprP = maybeDbg "baseExprP" (
-            maybeDbg "baseExprP::parensP exprP"   (try $ parensP exprP)
-        <|> maybeDbg "baseExprP::listLiteralP"    (listLiteralP)
-        <|> maybeDbg "baseExprP::lambdaP"         (lambdaP)
-        <|> maybeDbg "baseExprP::literalP"        (literalP)
-        <|> maybeDbg "baseExprP::funApplicationP" (try funApplicationP)
-        <|> maybeDbg "baseExprP::variableUsageP"  (variableUsageP)
+            maybeDbg "baseExprP::parensP exprP"    (try $ parensP exprP)
+        <|> maybeDbg "baseExprP::listLiteralP"     (listLiteralP)
+        <|> maybeDbg "baseExprP::tupleLiteralP"    (try tupleLiteralP)
+        <|> maybeDbg "baseExprP::lambdaP"          (lambdaP)
+        <|> maybeDbg "baseExprP::literalP"         (literalExprP)
+        <|> maybeDbg "baseExprP::funApplicationP"  (try funApplicationP)
+        <|> maybeDbg "baseExprP::variableUsageP"   (variableUsageP)
         )
 
 variableTypeP :: Parser (Maybe Type)
@@ -122,19 +156,21 @@ lambdaP = do
   pure $ ELambda params body
 
 lambdaParamsP :: Parser [FunParam]
-lambdaParamsP = choice [parensP (sepBy funParamP (symbolP ",")), sepBy funParamP (symbolP ",")]
+lambdaParamsP = parensP (sepBy lambdaParamP (symbolP ","))
+
+lambdaParamP :: Parser FunParam
+lambdaParamP = choice [funParamSimpleP, lambdaParamPatternP]
   where
-    funParamP = choice [
-      funParamSimpleP
-    , funParamPatternP
-    ]
     funParamSimpleP = do
       varName <- lexemeP $ T.pack <$> some letterChar
       FPSimple . Variable varName <$> variableTypeP
-    funParamPatternP = do
-      pattern <- patternP
-      pure $ FPPattern pattern
-    patternP
+
+lambdaParamPatternP :: Parser FunParam
+lambdaParamPatternP = choice [patternLiteralP, patternTupleP, patternListP]
+  where
+    patternLiteralP = FPPattern . PatternLiteral <$> (maybeDbg "lambdaParamPatternP::patternLiteralP" literalP)
+    patternTupleP = FPPattern . PatternTuple <$> maybeDbg "lambdaParamPatternP::patternTupleP" (parensP (sepBy lambdaParamP (symbolP ",")))
+    patternListP = FPPattern . PatternList <$> bracketsP (sepBy lambdaParamP (symbolP "|"))
 
 funApplicationP :: Parser Expr
 funApplicationP = do
@@ -145,9 +181,10 @@ funApplicationP = do
     funApp' = maybeDbg "funApp'" (
               maybeDbg "funApp'::infixOpAsPrefixP" (try infixOpAsPrefixP)
           <|> maybeDbg "funApp'::parensP exprP"    (try $ parensP exprP)
-          <|> maybeDbg "baseExprP::listLiteralP"   (listLiteralP)
+          <|> maybeDbg "funApp'::listLiteralP"     (listLiteralP)
+          <|> maybeDbg "funApp'::tupleLiteralP"    (try tupleLiteralP)
           <|> maybeDbg "funApp'::lambdaP"          (lambdaP)
-          <|> maybeDbg "funApp'::literalP"         (literalP)
+          <|> maybeDbg "funApp'::literalP"         (literalExprP)
           <|> maybeDbg "funApp'::variableUsageP"   (variableUsageP)
         )
 

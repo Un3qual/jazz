@@ -1,9 +1,11 @@
 {-# LANGUAGE OverloadedStrings, GeneralizedNewtypeDeriving, TypeOperators #-}
 module Parser.Lib ( Parser
                   , sc
+                  , sepBy2
                   , symbolP
                   , lexemeP
                   , parensP
+                  , bracketsP
                   , integerP
                   , maybeDbg
                   ) where
@@ -28,6 +30,13 @@ sc :: Parser ()
 sc = L.space hspace (L.skipLineComment "//") (L.skipBlockComment "(*" "*)")
 -- sc = L.space (void $ some (char ' ' <|> char '\t')) (L.skipLineComment "//") (L.skipBlockComment "(*" "*)")
 -- sc = L.space space1 (L.skipLineComment "//") (L.skipBlockComment "(*" "*)")
+
+sepBy2 :: MonadParsec e s m => m a -> m sep -> m [a]
+sepBy2 p sep = do
+  first <- p
+  second <- sep >> p
+  rest <- many (sep >> p)
+  return $ first : second : rest
 
 symbolP :: Text -> Parser Text
 symbolP = L.symbol scn

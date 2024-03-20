@@ -25,6 +25,7 @@ source-repository head
 
 library
   exposed-modules:
+      Analyze
       AST
       Calc
       Calc.Compile.RunLLVM
@@ -124,6 +125,7 @@ test-suite jazz-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      AnalyzerSpec
       ParserSpec
       Paths_jazz
   autogen-modules:

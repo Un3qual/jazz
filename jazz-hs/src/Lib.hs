@@ -2,9 +2,7 @@ module Lib where
 
 {-# LANGUAGE OverloadedStrings #-}
 
-
 import System.Environment
-
 import           Control.Applicative hiding (many, some)
 import           Data.Functor (($>))
 import           Data.Void
