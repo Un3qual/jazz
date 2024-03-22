@@ -105,12 +105,12 @@ simpleExprSpecs = describe "Simple tests of single expressions" $ do
     it "Should handle a right partial prefix function call" $
       getAstFromParser "(*2) 1" `shouldBe` [EApply
                                               (ELambda
-                                                [FPSimple (Variable {varName = "__partialInfixLambdaParam0", varType = Nothing})]
+                                                (Just $ FPSimple (Variable {varName = "__partialInfixLambdaParam0", varType = Nothing}))
                                                 (EApply
                                                   (EApply
                                                     (EVar (Variable {varName = "*", varType = Nothing}))
                                                     (EVar (Variable {varName = "__partialInfixLambdaParam0", varType = Nothing})))
-                                                  (ELiteral (LInt 2))))
+                                                  (ELiteral (LInt 2))) Nothing)
                                               (ELiteral (LInt 1))
                                             ]
 
@@ -118,12 +118,13 @@ simpleExprSpecs = describe "Simple tests of single expressions" $ do
     it "Should handle a right partial prefix function call with a literal operator" $
       getAstFromParser "(+2) 1" `shouldBe` [EApply
                                               (ELambda
-                                                [FPSimple (Variable {varName = "__partialInfixLambdaParam0", varType = Nothing})]
+                                                (Just $ FPSimple (Variable {varName = "__partialInfixLambdaParam0", varType = Nothing}))
                                                 (EApply
                                                   (EApply
                                                     (EVar (Variable {varName = "+", varType = Nothing}))
                                                     (EVar (Variable {varName = "__partialInfixLambdaParam0", varType = Nothing})))
-                                                  (ELiteral (LInt 2))))
+                                                  (ELiteral (LInt 2)))
+                                                Nothing)
                                               (ELiteral (LInt 1))
                                             ]
   
@@ -178,12 +179,13 @@ simpleLambdaSpecs = describe "Simple tests of lambda expressions" $ do
   context "when given a lambda expression" $ do
     it "Should turn \\(i: Int): Int -> i + i into an ELambda" $
       getAstFromParser "\\(i: Int): Int -> i + i" `shouldBe` [ELambda
-                                                                [FPSimple (Variable "i" (Just TInt))]
+                                                                (Just $ FPSimple (Variable "i" (Just TInt)))
                                                                 (EApply
                                                                   (EApply
                                                                     (EVar (Variable "+" Nothing))
                                                                     (EVar (Variable "i" Nothing)))
                                                                   (EVar (Variable "i" Nothing)))
+                                                                Nothing
                                                              ]
 
     
@@ -191,25 +193,25 @@ simpleLambdaSpecs = describe "Simple tests of lambda expressions" $ do
       getAstFromParser "f = \\(i: Int): Int -> i + i" `shouldBe` [ELet
                                                                     (Variable "f" Nothing)
                                                                     (ELambda
-                                                                      [FPSimple (Variable "i" (Just TInt))]
+                                                                      (Just $ FPSimple (Variable "i" (Just TInt)))
                                                                       (EApply
                                                                         (EApply
                                                                           (EVar (Variable "+" Nothing))
                                                                           (EVar (Variable "i" Nothing)))
-                                                                        (EVar (Variable "i" Nothing))))
+                                                                        (EVar (Variable "i" Nothing)))
+                                                                      Nothing)
                                                                   ]
     it "Should handle a lambda with complex type declaration" $
       getAstFromParser "f = \\((x: Int, y: Int), z: Int): Int -> x"
         `shouldBe` [ELet
                       (Variable "f" Nothing)
                       (ELambda
-                        [
-                          FPPattern
-                            (PatternTuple [FPSimple (Variable "x" (Just TInt)), 
-                                           FPSimple (Variable "y" (Just TInt))]),
-                          FPSimple (Variable "z" (Just TInt))
-                        ]
-                        (EVar (Variable "x" Nothing)))
+                        (Just $ FPPattern
+                          (PatternTuple [FPSimple (Variable "x" (Just TInt)), 
+                                          FPSimple (Variable "y" (Just TInt))])
+                        )
+                        (ELambda (Just $ FPSimple (Variable "z" (Just TInt))) (EVar (Variable "x" Nothing)) Nothing)
+                        Nothing)
                     ]
 
   context "when given multiple types for the same parameter" $ do
@@ -222,8 +224,18 @@ simpleLambdaSpecs = describe "Simple tests of lambda expressions" $ do
         `shouldBe` [ELet
                       (Variable "f" Nothing)
                       (ELambda
-                        [FPPattern (PatternLiteral (LInt 1))]
-                        (ELiteral (LInt 2)))
+                        (Just $ FPPattern (PatternLiteral (LInt 1)))
+                        (ELiteral (LInt 2))
+                        Nothing)
+                    ]
+    it "Should match an empty list as a lambda parameter" $ 
+      getAstFromParser "f = \\([]): Int -> 2"
+        `shouldBe` [ELet
+                      (Variable "f" Nothing)
+                      (ELambda
+                        (Just $ FPPattern (PatternList []))
+                        (ELiteral (LInt 2))
+                        Nothing)
                     ]
     
     it "Should match a tuple as a lambda parameter" $
@@ -231,29 +243,32 @@ simpleLambdaSpecs = describe "Simple tests of lambda expressions" $ do
         `shouldBe` [ELet
                       (Variable "f" Nothing)
                       (ELambda
-                        [FPPattern (PatternTuple [FPPattern (PatternLiteral (LInt 1)), FPSimple (Variable "x" (Just TInt))])
-                        ]
-                        (EVar (Variable "x" Nothing)))
+                        (Just $ FPPattern (PatternTuple [FPPattern (PatternLiteral (LInt 1)), FPSimple (Variable "x" (Just TInt))]))
+                        (EVar (Variable "x" Nothing))
+                        Nothing)
                     ]
     it "Should match a list as a lambda parameter" $
       getAstFromParser "head = \\([hd | tl]): Int -> hd"
         `shouldBe` [ELet
                       (Variable "head" Nothing)
                       (ELambda
-                        [ FPPattern (PatternList [FPSimple (Variable "hd" Nothing),
-                          FPSimple (Variable "tl" Nothing)])]
-                        (EVar (Variable "hd" Nothing)))
+                        (Just $ FPPattern (PatternList [FPSimple (Variable "hd" Nothing),
+                                                 FPSimple (Variable "tl" Nothing)]))
+                        (EVar (Variable "hd" Nothing))
+                        Nothing)
                     ]
+                    
     it "Should match complex lambda parameters" $
       getAstFromParser "f = \\((1, [hd | tl], x: Int)): Int -> x"
         `shouldBe` [ELet
                       (Variable "f" Nothing)
                       (ELambda
-                        [FPPattern (PatternTuple [FPPattern (PatternLiteral (LInt 1)), 
+                        (Just $ FPPattern (PatternTuple [FPPattern (PatternLiteral (LInt 1)), 
                                                   FPPattern (PatternList [FPSimple (Variable "hd" Nothing), 
                                                     FPSimple (Variable "tl" Nothing)]), 
-                                                  FPSimple (Variable "x" (Just TInt))])]
-                        (EVar (Variable "x" Nothing)))
+                                                  FPSimple (Variable "x" (Just TInt))]))
+                        (EVar (Variable "x" Nothing))
+                        Nothing)
                     ]
                     
 
@@ -269,13 +284,18 @@ simpleFunctionCallSpecs = describe "Simple tests of function calls" $ do
     it "Should handle function calls with multiple aruments" $
       getAstFromParser "f 5 6" `shouldBe` [EApply (EApply (EVar (Variable "f" Nothing)) (ELiteral (LInt 5))) (ELiteral (LInt 6))]
 
+    it "Should handle function calls with multiple variable arguments" $
+      getAstFromParser "f a b" `shouldBe` [EApply (EApply (EVar (Variable "f" Nothing)) (EVar (Variable "a" Nothing))) (EVar (Variable "b" Nothing))]
+
   context "when given a $ function application" $ do
     it "Should turn f 5 $ g 6" $
       getAstFromParser "f 5 $ g 6" `shouldBe` [EApply
-                                                (EVar (Variable {varName = "f", varType = Nothing}))
                                                 (EApply
-                                                  (ELiteral (LInt 5))
-                                                  (EApply (EVar (Variable {varName = "g", varType = Nothing})) (ELiteral (LInt 6))))
+                                                  (EVar (Variable {varName = "f", varType = Nothing}))
+                                                  (ELiteral (LInt 5)))
+                                                (EApply
+                                                  (EVar (Variable {varName = "g", varType = Nothing}))
+                                                  (ELiteral (LInt 6)))
                                               ]
 
 simpleProgramSpecs :: Spec
@@ -299,23 +319,45 @@ main = \() -> double 5.|] `shouldBe` [
                       ELet
                         (Variable {varName = "double", varType = Nothing})
                         (ELambda
-                          [FPSimple (Variable {varName = "i", varType = Just TInt})]
+                          (Just $ FPSimple (Variable {varName = "i", varType = Just TInt}))
                           (EApply
                             (EApply
                               (EVar (Variable {varName = "+", varType = Nothing}))
                               (EVar (Variable {varName = "i", varType = Nothing})))
                             (EVar (Variable {varName = "i", varType = Nothing})))
+                          Nothing
                         ),
                       ELet
                         (Variable {varName = "main", varType = Nothing})
                         (ELambda
-                          []
+                          Nothing
                           (EApply
                             (EVar (Variable {varName = "double", varType = Nothing}))
                             (ELiteral (LInt 5)))
+                          Nothing
                         )
                     ]
 
+-- class Eq a {
+--   (==) = \(_: a, _: a): Bool -> _
+-- }
+class Foldable t {
+  foldl = \(fun: (a -> b -> b), init: b, foldable: t a): b
+  foldl = \(fun: \(_: a, _: b): a, init: b, foldable: t a): b
+}
+
+
+
+-- TODO:
+-- parse types for lambdas in decls (e.g add = \(a: Int, b: Int): Int -> a + b) results in add being of the type (Int -> Int -> Int)
+-- multi-head functions in interpreter
+-- polymorphic types
+-- make prelude with folds
+-- modules?
+-- imports?
+-- typeclasses
+-- ADTs
+-- need magic hashes that result in directly calling haskell/native code
 -- intentSpecs :: Spec
 -- intentSpecs = describe "Tests of indentation" $ do
 --   context "when indenting the body of a top level lambda" $ do

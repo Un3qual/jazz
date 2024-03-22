@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings, GeneralizedNewtypeDeriving, TypeOperators #-}
-module Analyze
+module Analyzer
  where
 
 import AST
@@ -9,7 +9,8 @@ inferTypesExpr :: Expr -> Expr
 inferTypesExpr = id
 
 inferTypes :: Program -> Program
-inferTypes p = map inferTypesExpr p
+-- inferTypes p = map inferTypesExpr p
+inferTypes = id
 
 analysisStages :: [Program -> Program]
 analysisStages = [inferTypes]

@@ -41,6 +41,7 @@ dependencies:
 - tasty-hspec
 - hspec
 - string-qq
+- mtl
 # - llvm-hs-pretty
 # - bytestring
 

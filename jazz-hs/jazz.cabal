@@ -25,7 +25,7 @@ source-repository head
 
 library
   exposed-modules:
-      Analyze
+      Analyzer
       AST
       Calc
       Calc.Compile.RunLLVM
@@ -71,6 +71,7 @@ library
     , hspec
     , llvm-hs-pure
     , megaparsec
+    , mtl
     , parser-combinators
     , pretty-show
     , prettyprinter
@@ -107,6 +108,7 @@ executable jazz-exe
     , jazz
     , llvm-hs-pure
     , megaparsec
+    , mtl
     , parser-combinators
     , pretty-show
     , prettyprinter
@@ -146,6 +148,7 @@ test-suite jazz-test
     , jazz
     , llvm-hs-pure
     , megaparsec
+    , mtl
     , parser-combinators
     , pretty-show
     , prettyprinter

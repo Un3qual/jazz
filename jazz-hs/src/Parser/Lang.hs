@@ -15,29 +15,37 @@ import Parser.Operator
 import           Control.Applicative hiding (many, some)
 import           Control.Monad.Combinators.Expr
 import           Data.Functor (($>))
+import           Data.Maybe (fromJust)
 import           Data.Void
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import           Text.Megaparsec.Debug
+import           Data.Foldable (foldl')
 
 
 reservedWords :: [Text]
-reservedWords = ["import", "module", "if", "else"]
+reservedWords = ["import", "module", "if", "else", "let", "data", "as", "case"]
 
 allowedIdentiferChars :: Parser Char
 allowedIdentiferChars = letterChar <|> digitChar <|> char '_' <|> char '\''
 
 variableIdentifierP :: Parser Text
-variableIdentifierP = lexemeP $ T.pack <$> ((:) <$> lowerChar <*> many allowedIdentiferChars)
+variableIdentifierP = identifierP lowerChar
 
-identifierP :: Parser Text
-identifierP = lexemeP $ T.pack <$> ((:) <$> letterChar <*> many allowedIdentiferChars)
+identifierP :: Parser Char -> Parser Text
+identifierP firstCharP = (lexemeP . try) (p >>= ensureNotReserved)
+  where
+    p = T.pack <$> ((:) <$> firstCharP <*> many allowedIdentiferChars)
+    ensureNotReserved x = if x `elem` reservedWords
+      then fail $ "keyword " ++ T.unpack x ++ "is reserved, and cannot be an identifier"
+      else pure x
 
 -- TODO: add handling for polymorphic types (e.g foo: a -> a)
+-- this should really be called typeclassIdentifierP
 typeIdentifierP :: Parser Text
-typeIdentifierP = upperChar *> identifierP
+typeIdentifierP = identifierP upperChar
 
 -- moduleIdentifierP :: Parser [Text]
 -- moduleIdentifierP = sepBy typeIdentifierP (symbolP "/")
@@ -51,8 +59,9 @@ typeP = choice
   , try tupleTypeP
   , listTypeP
   , parensP typeP
-  , TVar . T.pack <$> some letterChar
-  , TCon . T.pack <$> some letterChar
+  , lambdaTypeP
+  , TVar <$> variableIdentifierP
+  -- , TCon . T.pack <$> some letterChar
   ]
 
 tupleTypeP :: Parser Type
@@ -109,8 +118,15 @@ baseExprP = maybeDbg "baseExprP" (
         <|> maybeDbg "baseExprP::variableUsageP"   (variableUsageP)
         )
 
-variableTypeP :: Parser (Maybe Type)
-variableTypeP = optional $ (symbolP ":") *> typeP
+-- variableTypeP :: Parser (Maybe Type)
+-- variableTypeP = optional $ (symbolP ":") *> typeP
+
+-- typeSignatureP :: Parser Expr
+-- typeSignatureP = do
+--   varName <- maybeDbg "typeSignatureP::varName" variableIdentifierP
+--   maybeDbg "typeSignatureP::symbol::" (symbolP "::")
+--   varType <- maybeDbg "typeSignatureP::varType" typeP
+--   pure $ ETypeSignature (Variable varName Nothing) [Variable varName Nothing] varType
 
 infixOpAsPrefixP :: Parser Expr
 infixOpAsPrefixP = choice [
@@ -130,16 +146,16 @@ infixOpAsPrefixP = choice [
     rightPartialInfixOpP = parensP $ do
       op <- maybeDbg "infixOpAsPrefixP::right::op" rawInfixOpP
       right <- maybeDbg "infixOpAsPrefixP::right::expr" baseExprP
-      pure $ ELambda [FPSimple $ Variable "__partialInfixLambdaParam0" Nothing] (EApply
-                                                                                 (EApply
-                                                                                   (EVar (Variable op Nothing))
-                                                                                   (EVar (Variable "__partialInfixLambdaParam0" Nothing)))
-                                                                                 right)
+      pure $ ELambda (Just $ FPSimple $ Variable "__partialInfixLambdaParam0" Nothing) (EApply
+                                                                                        (EApply
+                                                                                          (EVar (Variable op Nothing))
+                                                                                          (EVar (Variable "__partialInfixLambdaParam0" Nothing)))
+                                                                                        right) Nothing
 
 -- TODO: handle type constructor and diff between type, poly, data, variable, etc
 declaractionP :: Parser Expr
 declaractionP = do
-  varName <- maybeDbg "declaractionP::varName" identifierP
+  varName <- maybeDbg "declaractionP::varName" variableIdentifierP
   varType <- maybeDbg "declaractionP::varType" variableTypeP
   maybeDbg "declaractionP::symbol=" (symbolP "=")
   varValue <- maybeDbg "declaractionP::varValue" exprP
@@ -153,10 +169,10 @@ lambdaP = do
   returnType <- maybeDbg "lambdaP::returnType" $ optional (symbolP ":" *> typeP)
   symbolP "->"
   body <- maybeDbg "lambdaP::body" exprP
-  pure $ ELambda params body
+  pure $ foldr (\param acc -> ELambda param acc Nothing) body params
 
-lambdaParamsP :: Parser [FunParam]
-lambdaParamsP = parensP (sepBy lambdaParamP (symbolP ","))
+lambdaParamsP :: Parser [Maybe FunParam]
+lambdaParamsP = parensP (sepBy (optional lambdaParamP) (symbolP ","))
 
 lambdaParamP :: Parser FunParam
 lambdaParamP = choice [funParamSimpleP, lambdaParamPatternP]
@@ -175,7 +191,7 @@ lambdaParamPatternP = choice [patternLiteralP, patternTupleP, patternListP]
 funApplicationP :: Parser Expr
 funApplicationP = do
   fun <- maybeDbg "funApplicationP::fun" funApp'
-  args <- maybeDbg "funApplicationP::args" $ some exprP
+  args <- maybeDbg "funApplicationP::args" $ some nonFunAppP
   pure $ foldl EApply fun args
   where
     funApp' = maybeDbg "funApp'" (
@@ -187,6 +203,14 @@ funApplicationP = do
           <|> maybeDbg "funApp'::literalP"         (literalExprP)
           <|> maybeDbg "funApp'::variableUsageP"   (variableUsageP)
         )
+    nonFunAppP = maybeDbg "nonFunAppP" (
+            maybeDbg "nonFunAppP::parensP exprP"    (try $ parensP exprP)
+        <|> maybeDbg "nonFunAppP::listLiteralP"     (listLiteralP)
+        <|> maybeDbg "nonFunAppP::tupleLiteralP"    (try tupleLiteralP)
+        <|> maybeDbg "nonFunAppP::lambdaP"          (lambdaP)
+        <|> maybeDbg "nonFunAppP::literalP"         (literalExprP)
+        <|> maybeDbg "nonFunAppP::variableUsageP"   (variableUsageP)
+      )
 
 
 

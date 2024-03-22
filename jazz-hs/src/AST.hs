@@ -31,8 +31,10 @@ data Type
   | TList Type
   | TTuple [Type]
   | TConstructor T.Text [Type]
-  | TypePoly T.Text Type
-  | TFunction Type Type
+  | TPoly T.Text Type -- here for "forall stuff"
+  | TLambda Type Type
+  | TVoid
+  | TUnit
   deriving (Show, Eq)
 
 data Variable = Variable {
@@ -44,11 +46,12 @@ data Expr
   = ELiteral Literal
   | EVar Variable
   | ETuple [Expr]
-  | ELambda [FunParam] Expr -- Lambda function with a list of arguments for supporting currying
+  | ELambda (Maybe FunParam) Expr (Maybe Type) -- Lambda function with a list of arguments for supporting currying
   | EApply Expr Expr -- Function application
   | ELet Variable Expr --Expr -- Let bindings for immutable variables
   | EData T.Text [Type] [Constructor] -- Algebraic data type definitions with type parameters and constructors
-  | ETypeAnnotation Expr Type -- Type annotations for expressions
+  | ETypeSignature Variable [Variable] 
+  -- | ETypeAnnotation Expr Type -- Type annotations for expressions
   -- | EInfixExpr InfixExpr
   deriving (Show, Eq)
 
