@@ -6,6 +6,7 @@ module Parser.Lib ( Parser
                   , lexemeP
                   , parensP
                   , bracketsP
+                  , curlyBraceP
                   , integerP
                   , maybeDbg
                   ) where
@@ -27,7 +28,7 @@ scn :: Parser ()
 scn = L.space space1 (L.skipLineComment "//") (L.skipBlockComment "(*" "*)")
 
 sc :: Parser ()
-sc = L.space hspace (L.skipLineComment "//") (L.skipBlockComment "(*" "*)")
+sc = L.space space1 (L.skipLineComment "//") (L.skipBlockComment "(*" "*)")
 -- sc = L.space (void $ some (char ' ' <|> char '\t')) (L.skipLineComment "//") (L.skipBlockComment "(*" "*)")
 -- sc = L.space space1 (L.skipLineComment "//") (L.skipBlockComment "(*" "*)")
 
@@ -46,21 +47,24 @@ lexemeP = L.lexeme scn
 
 openParenP :: Parser Text
 openParenP = maybeDbg "parensP::(" (symbolP "(")
-
 closeParenP :: Parser Text
 closeParenP = maybeDbg "parensP::)" (symbolP ")")
-
 parensP :: Parser a -> Parser a
 parensP = between openParenP closeParenP
 
 openBracketP :: Parser Text
 openBracketP = maybeDbg "bracketsP::[" (symbolP "[")
-
 closeBracketP :: Parser Text
 closeBracketP = maybeDbg "bracketsP::]" (symbolP "]")
-
 bracketsP :: Parser a -> Parser a
 bracketsP = between openBracketP closeBracketP
+
+openCurlyBraceP :: Parser Text
+openCurlyBraceP = maybeDbg "curlyBraceP::{" (symbolP "{")
+closeCurlyBraceP :: Parser Text
+closeCurlyBraceP = maybeDbg "curlyBraceP::}" (symbolP "}")
+curlyBraceP :: Parser a -> Parser a
+curlyBraceP = between openCurlyBraceP closeCurlyBraceP
 
 integerP :: Parser Integer
 integerP = lexemeP L.decimal

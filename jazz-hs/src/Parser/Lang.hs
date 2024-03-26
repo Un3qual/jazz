@@ -3,6 +3,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Redundant bracket" #-}
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
+{-# LANGUAGE LambdaCase #-}
 -- {-# HLINT ignore "Use <$>" #-}
 
 module Parser.Lang where
@@ -52,17 +53,35 @@ typeIdentifierP = identifierP upperChar
 
 typeP :: Parser Type
 typeP = choice
-  [ symbolP "String" $> TString
+  [
+    lambdaTypeP
+  , symbolP "String" $> TString
   , symbolP "Int" $> TInt
   , symbolP "Float" $> TFloat
   , symbolP "Bool" $> TBool
   , try tupleTypeP
   , listTypeP
   , parensP typeP
-  , lambdaTypeP
   , TVar <$> variableIdentifierP
   -- , TCon . T.pack <$> some letterChar
   ]
+
+lambdaTypeP :: Parser Type
+lambdaTypeP = sepBy2 nonLambdaTypeP (symbolP "->") >>= \case
+  [x] -> pure x
+  (x:xs) -> pure $ foldl TLambda x xs
+  _ -> fail "Invalid lambda type"
+  where
+    nonLambdaTypeP = choice
+      [ symbolP "String" $> TString
+      , symbolP "Int" $> TInt
+      , symbolP "Float" $> TFloat
+      , symbolP "Bool" $> TBool
+      , try tupleTypeP
+      , listTypeP
+      , parensP typeP
+      , TVar <$> variableIdentifierP
+      ]
 
 tupleTypeP :: Parser Type
 tupleTypeP = do
@@ -77,16 +96,9 @@ listTypeP = do
   elementType <- maybeDbg "listTypeP::elementType" typeP
   maybeDbg "listTypeP::symbol]" $ symbolP "]"
   pure $ TList elementType
--- funParamTypeP :: Parser Type
--- funParamTypeP = choice
---   [ symbolP "String" $> TString
---   , symbolP "Int" $> TInt
---   , symbolP "Float" $> TFloat
---   , symbolP "Bool" $> TBool
---   , parensP typeP
---   , TVar . T.pack <$> some letterChar
---   , TCon . T.pack <$> some letterChar
---   ]
+
+
+
 
 listLiteralP :: Parser Expr
 listLiteralP = do
@@ -114,19 +126,28 @@ baseExprP = maybeDbg "baseExprP" (
         <|> maybeDbg "baseExprP::tupleLiteralP"    (try tupleLiteralP)
         <|> maybeDbg "baseExprP::lambdaP"          (lambdaP)
         <|> maybeDbg "baseExprP::literalP"         (literalExprP)
+        <|> maybeDbg "baseExprP::typeSignatureP"   (try typeSignatureP)
         <|> maybeDbg "baseExprP::funApplicationP"  (try funApplicationP)
         <|> maybeDbg "baseExprP::variableUsageP"   (variableUsageP)
         )
 
--- variableTypeP :: Parser (Maybe Type)
--- variableTypeP = optional $ (symbolP ":") *> typeP
+variableTypeP :: Parser (Maybe Type)
+variableTypeP = optional $ (symbolP ":") *> typeP
 
--- typeSignatureP :: Parser Expr
--- typeSignatureP = do
---   varName <- maybeDbg "typeSignatureP::varName" variableIdentifierP
---   maybeDbg "typeSignatureP::symbol::" (symbolP "::")
---   varType <- maybeDbg "typeSignatureP::varType" typeP
---   pure $ ETypeSignature (Variable varName Nothing) [Variable varName Nothing] varType
+typeSignatureP :: Parser Expr
+typeSignatureP = do
+  varName <- maybeDbg "typeSignatureP::varName" variableIdentifierP
+  maybeDbg "typeSignatureP::symbol::" (symbolP "::")
+  typeclassConstraints <- (maybeDbg "typeSignatureP::typeclassConstraintsP" typeclassConstraintsP) <|> pure []
+  varType <- maybeDbg "typeSignatureP::varType" typeP
+  pure $ ETypeSignature (Variable varName Nothing) typeclassConstraints varType
+  where
+    typeclassConstraintsP = do
+      symbolP "@"
+      tcConstraints <- curlyBraceP (sepBy ((,) <$> typeIdentifierP <*> variableIdentifierP) (symbolP ","))
+      symbolP ":"
+      pure $ map (\(tc, var) -> Variable var (Just $ TCon tc)) tcConstraints
+
 
 infixOpAsPrefixP :: Parser Expr
 infixOpAsPrefixP = choice [
@@ -156,10 +177,10 @@ infixOpAsPrefixP = choice [
 declaractionP :: Parser Expr
 declaractionP = do
   varName <- maybeDbg "declaractionP::varName" variableIdentifierP
-  varType <- maybeDbg "declaractionP::varType" variableTypeP
+  -- varType <- maybeDbg "declaractionP::varType" variableTypeP
   maybeDbg "declaractionP::symbol=" (symbolP "=")
   varValue <- maybeDbg "declaractionP::varValue" exprP
-  pure $ ELet (Variable varName varType) varValue
+  pure $ ELet (Variable varName Nothing) varValue
 
 -- \(i: Int): Bool -> mod(i, 2) == 0
 lambdaP :: Parser Expr
@@ -191,7 +212,7 @@ lambdaParamPatternP = choice [patternLiteralP, patternTupleP, patternListP]
 funApplicationP :: Parser Expr
 funApplicationP = do
   fun <- maybeDbg "funApplicationP::fun" funApp'
-  args <- maybeDbg "funApplicationP::args" $ some nonFunAppP
+  args <- maybeDbg "funApplicationP::args" $ some nonFunAppExprP
   pure $ foldl EApply fun args
   where
     funApp' = maybeDbg "funApp'" (
@@ -203,7 +224,7 @@ funApplicationP = do
           <|> maybeDbg "funApp'::literalP"         (literalExprP)
           <|> maybeDbg "funApp'::variableUsageP"   (variableUsageP)
         )
-    nonFunAppP = maybeDbg "nonFunAppP" (
+    nonFunAppExprP = maybeDbg "nonFunAppP" (
             maybeDbg "nonFunAppP::parensP exprP"    (try $ parensP exprP)
         <|> maybeDbg "nonFunAppP::listLiteralP"     (listLiteralP)
         <|> maybeDbg "nonFunAppP::tupleLiteralP"    (try tupleLiteralP)

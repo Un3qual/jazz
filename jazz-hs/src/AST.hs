@@ -44,13 +44,13 @@ data Variable = Variable {
 
 data Expr
   = ELiteral Literal
-  | EVar Variable
+  | EVar Variable -- for usage of a variable
   | ETuple [Expr]
   | ELambda (Maybe FunParam) Expr (Maybe Type) -- Lambda function with a list of arguments for supporting currying
   | EApply Expr Expr -- Function application
   | ELet Variable Expr --Expr -- Let bindings for immutable variables
   | EData T.Text [Type] [Constructor] -- Algebraic data type definitions with type parameters and constructors
-  | ETypeSignature Variable [Variable] 
+  | ETypeSignature Variable [Variable] Type -- Variable name, class constraints, type
   -- | ETypeAnnotation Expr Type -- Type annotations for expressions
   -- | EInfixExpr InfixExpr
   deriving (Show, Eq)

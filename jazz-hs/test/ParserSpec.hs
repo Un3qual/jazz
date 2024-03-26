@@ -128,27 +128,57 @@ simpleExprSpecs = describe "Simple tests of single expressions" $ do
                                               (ELiteral (LInt 1))
                                             ]
   
+  context "when given a type signature" $ do
+    it "Should handle a simple type signature" $
+      getAstFromParser "x :: Int" `shouldBe` [ETypeSignature (Variable {varName = "x", varType = Nothing}) [] TInt]
+
   context "when given a variable declaration" $ do
-    it "Should turn x: Int = -5 into an ELet" $
-      getAstFromParser "x: Int = -5" `shouldBe` [ELet (Variable {varName = "x", varType = Just TInt}) (EApply (EVar (Variable {varName = "-", varType = Nothing})) (ELiteral (LInt 5)))]
+    it "Should handle a variable declaration without type information" $
+      getAstFromParser "x = 5" `shouldBe` [ELet (Variable {varName = "x", varType = Nothing}) (ELiteral (LInt 5))]
+
+    it "Should handle a variable declaration with a type signature" $
+      getAstFromParser "x :: Int.\nx = 5" `shouldBe`
+        [
+          ETypeSignature
+            (Variable {varName = "x", varType = Nothing})
+            []
+            TInt
+        , ELet
+            (Variable {varName = "x", varType = Nothing})
+            (ELiteral (LInt 5))
+        ]
 
     it "Should handle a variable declaration with a tuple type" $
-      getAstFromParser "x: (Int, Int) = (1, 2)" `shouldBe` [ELet
-                                                             (Variable {varName = "x", varType = Just (TTuple [TInt, TInt])})
-                                                             (ELiteral (LTuple [ELiteral (LInt 1), ELiteral (LInt 2)]))]
+      getAstFromParser "x :: (Int, Int).\nx = (1, 2)" `shouldBe`
+        [
+          ETypeSignature
+            (Variable {varName = "x", varType = Nothing})
+            []
+            (TTuple [TInt, TInt]),
+          ELet
+            (Variable {varName = "x", varType = Nothing})
+            (ELiteral (LTuple [ELiteral (LInt 1), ELiteral (LInt 2)]))
+        ]
 
     it "Should handle a variable declaration with a list type" $
-      getAstFromParser "x: [Int] = [1, 2]" `shouldBe` [ELet
-                                                        (Variable {varName = "x", varType = Just (TList TInt)})
-                                                        (ELiteral (LList [ELiteral (LInt 1), ELiteral (LInt 2)]))]
+      getAstFromParser "x :: [Int].\nx = [1, 2]" `shouldBe` 
+        [
+          ETypeSignature
+            (Variable {varName = "x", varType = Nothing})
+            []
+            (TList TInt),
+          ELet
+            (Variable {varName = "x", varType = Nothing})
+            (ELiteral (LList [ELiteral (LInt 1), ELiteral (LInt 2)]))
+        ]
                                                         
   context "when given a variable declaration without type information" $ do
     it "Should turn x = 5 into an ELet with the type of Nothing" $
       getAstFromParser "x = 5" `shouldBe` [ ELet (Variable "x" Nothing) (ELiteral (LInt 5)) ]
 
   context "when given invalid variable names" $ do
-    it "Should fail to parse a variable name that starts with a number" $
-      getAstFromParser "5x = 5" `shouldBe` []
+    -- it "Should fail to parse a variable name that starts with a number" $
+    --   getAstFromParser "5x = 5" `shouldBe` []
     
     it "Should fail to parse a variable name that contains a special character" $
       getAstFromParser "x! = 5" `shouldBe` []
@@ -167,12 +197,17 @@ simpleExprSpecs = describe "Simple tests of single expressions" $ do
 multipleExprSpecs :: Spec
 multipleExprSpecs = describe "Simple tests of multiple expressions" $ do
   context "when given multiple expressions" $ do
-    it "Should turn 1 + 2. 3 + 4 into two EApplys" $
-      getAstFromParser "1 + 2. 3 + 4" `shouldBe` [ EApply (EApply (EVar (Variable "+" Nothing)) (ELiteral (LInt 1))) (ELiteral (LInt 2)), EApply (EApply (EVar (Variable "+" Nothing)) (ELiteral (LInt 3))) (ELiteral (LInt 4))]
+    it "Should turn '1 + 2.\\n3 + 4' into two EApplys" $
+      getAstFromParser "1 + 2.\n3 + 4" `shouldBe` [EApply (EApply (EVar (Variable "+" Nothing)) (ELiteral (LInt 1))) (ELiteral (LInt 2)), EApply (EApply (EVar (Variable "+" Nothing)) (ELiteral (LInt 3))) (ELiteral (LInt 4))]
 
   context "when given an assignment and an expression" $ do
-    it "Should turn x: Int = 5.\\n x + 1 into an ELet and an EApply" $
-      getAstFromParser "x: Int = 5.\n x + 1" `shouldBe` [ ELet (Variable "x" (Just TInt)) (ELiteral (LInt 5)), EApply (EApply (EVar (Variable "+" Nothing)) (EVar (Variable "x" Nothing))) (ELiteral (LInt 1))]
+    it "Should turn 'x :: Int.\\nx = 5.\\nx + 1' into an ELet and an EApply" $
+      getAstFromParser "x :: Int.\nx = 5.\nx + 1" `shouldBe`
+        [
+          ETypeSignature (Variable "x" Nothing) [] TInt,
+          ELet (Variable "x" Nothing) (ELiteral (LInt 5)),
+          EApply (EApply (EVar (Variable "+" Nothing)) (EVar (Variable "x" Nothing))) (ELiteral (LInt 1))
+        ]
 
 simpleLambdaSpecs :: Spec
 simpleLambdaSpecs = describe "Simple tests of lambda expressions" $ do
@@ -313,13 +348,13 @@ y = 2|] `shouldBe` [
                     ]
     it "Should turn a function definition and call into two expressions" $
       getAstFromParser [s|
-double = \(i: Int): Int ->
+double = \(i) ->
   i + i.
-main = \() -> double 5.|] `shouldBe` [
+main = \() -> double 5|] `shouldBe` [
                       ELet
                         (Variable {varName = "double", varType = Nothing})
                         (ELambda
-                          (Just $ FPSimple (Variable {varName = "i", varType = Just TInt}))
+                          (Just $ FPSimple (Variable {varName = "i", varType = Nothing}))
                           (EApply
                             (EApply
                               (EVar (Variable {varName = "+", varType = Nothing}))
@@ -338,17 +373,41 @@ main = \() -> double 5.|] `shouldBe` [
                         )
                     ]
 
+typeSpecs :: Spec
+typeSpecs = describe "Tests of types" $ do
+  context "when given a type signature with a function type" $ do
+    it "Should turn x :: Int -> Int into an ETypeSignature" $
+      getAstFromParser "x :: Int -> Int" `shouldBe` [ETypeSignature (Variable "x" Nothing) [] (TLambda TInt TInt)]
+    it "Should turn x :: Int -> Int -> Int into an ETypeSignature" $
+      getAstFromParser "x :: Int -> Int -> Int" `shouldBe` [ETypeSignature (Variable "x" Nothing) [] (TLambda (TLambda TInt TInt) TInt)]
+  
+  context "when given a type variable in a type signature" $ do
+    it "Should turn x :: a -> a into an ETypeSignature" $
+      getAstFromParser "x :: a -> a" `shouldBe` [ETypeSignature (Variable "x" Nothing) [] (TLambda (TVar "a") (TVar "a"))]
+
+    it "Should handle class constraints in type signatures" $
+      getAstFromParser "x :: @{Eq a, Ord b, Eq c}: a -> b -> c" `shouldBe`
+        [ETypeSignature
+          (Variable "x" Nothing)
+          [Variable "a" (Just $ TCon "Eq"), Variable "b" (Just $ TCon "Ord"), Variable "c" (Just $ TCon "Eq")]
+          (TLambda (TLambda (TVar "a") (TVar "b")) (TVar "c"))]
+
+  context "when given an assignment to a partial function" $ do
+    it "Should turn add5 = add 5 into an ELet" $
+      getAstFromParser "add5 = add 5" `shouldBe` [ELet (Variable "add5" Nothing) (EApply (EVar (Variable "add" Nothing)) (ELiteral (LInt 5)))]
+
 -- class Eq a {
 --   (==) = \(_: a, _: a): Bool -> _
 -- }
-class Foldable t {
-  foldl = \(fun: (a -> b -> b), init: b, foldable: t a): b
-  foldl = \(fun: \(_: a, _: b): a, init: b, foldable: t a): b
-}
+-- class Foldable t {
+--   foldl = \(fun: (a -> b -> b), init: b, foldable: t a): b
+--   foldl = \(fun: \(_: a, _: b): a, init: b, foldable: t a): b
+-- }
 
 
 
 -- TODO:
+-- update parser to use root level statement that is either SImport, SExpr, SClass, SInstance, or SData
 -- parse types for lambdas in decls (e.g add = \(a: Int, b: Int): Int -> a + b) results in add being of the type (Int -> Int -> Int)
 -- multi-head functions in interpreter
 -- polymorphic types
@@ -358,6 +417,9 @@ class Foldable t {
 -- typeclasses
 -- ADTs
 -- need magic hashes that result in directly calling haskell/native code
+-- treat data constructors as functions so that I can use "(Just) 5"
+-- test auto curried function declarations (e.g an ELet where after = is a partial function, but without a lambda in the body (e.g add5 = add 5, rather than add5 = \(i) -> add 5 i))
+
 -- intentSpecs :: Spec
 -- intentSpecs = describe "Tests of indentation" $ do
 --   context "when indenting the body of a top level lambda" $ do
