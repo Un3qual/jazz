@@ -35,7 +35,7 @@ resolver:
 #   - wai
 packages:
 - .
-- ./local-deps/llvm-hs-pure
+# - ./local-deps/llvm-hs-pure
 # - ./local-deps/llvm-hs-pretty
 # Dependency packages to be pulled from upstream that are not in the resolver.
 # These entries can reference officially published versions as well as
@@ -49,6 +49,9 @@ extra-deps:
   # commit: 0f17c071d0b00f56a5aabe06f756863d0baca13f
 # - diagnose-2.5.1@sha256:853fd268d7fe0191b79d73187104bf7b4bc5ce3bc3483cb088dc10b09f18abc8,5977
 - diagnose-2.5.1
+- qbe-1.1.0.0@sha256:6c4a3863e80b45e69e2f6f9b26192d6c95b6b2ff63f1a779004fdc36e5d1ba6b,2987
+# - git: https://github.com/luc-tielen/llvm-codegen.git
+#   commit: 83b04cb576208ea74ddd62016e4fa03f0df138ac
 # - llvm-hs-pure-9.0.0
 # - llvm-hs-pretty-0.9.0.0
 # - bytestring-0.11.2.0

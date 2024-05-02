@@ -1,0 +1,14 @@
+{
+  "name": "hw5",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "assert": "^2.1.0",
+    "mocha": "^10.4.0"
+  },
+  "scripts": {
+    "test": "mocha"
+  }
+}

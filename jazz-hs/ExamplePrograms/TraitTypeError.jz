@@ -1,0 +1,7 @@
+add10Int :: Integer -> Integer.
+add10Int = \(x) -> x + 10.
+
+i :: Float.
+i = 1.0.
+
+add10Int(i).

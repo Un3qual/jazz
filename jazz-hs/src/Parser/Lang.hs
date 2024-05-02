@@ -1,10 +1,6 @@
-{-# LANGUAGE OverloadedStrings, GeneralizedNewtypeDeriving, TypeOperators #-}
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Redundant bracket" #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 {-# LANGUAGE LambdaCase #-}
--- {-# HLINT ignore "Use <$>" #-}
 
 module Parser.Lang where
 
@@ -16,7 +12,6 @@ import Parser.Operator
 import           Control.Applicative hiding (many, some)
 import           Control.Monad.Combinators.Expr
 import           Data.Functor (($>))
-import           Data.Maybe (fromJust)
 import           Data.Void
 import           Data.Text (Text)
 import qualified Data.Text as T
@@ -24,47 +19,76 @@ import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import           Text.Megaparsec.Debug
 import           Data.Foldable (foldl')
+import Data.Type.Coercion (sym)
 
+programP :: Parser SpannedProgram
+programP = do
+  maybeDbg "programP::skipEol" (skipMany eol)
+  maybeDbg "programP::separatedExprs" (sepEndBy (maybeDbg "programP::rootExprP" rootExprP) (maybeDbg "programP::rootSeparator" (symbolP ".")))
 
-reservedWords :: [Text]
-reservedWords = ["import", "module", "if", "else", "let", "data", "as", "case"]
+baseExpressionsDoNotUse :: [Parser SpannedExpr]
+baseExpressionsDoNotUse = [
+    (try . parensP) exprP
+  , try blockP
+  , try importP
+  , try moduleDeclP
+  , try typeclassDeclP
+  , try typeclassImplP
+  , try dataDeclP
+  , try caseP
+  , listLiteralExprP
+  , try tupleLiteralExprP
+  , lambdaP
+  , literalExprP
+  , try typeSignatureP]
 
-allowedIdentiferChars :: Parser Char
-allowedIdentiferChars = letterChar <|> digitChar <|> char '_' <|> char '\''
-
-variableIdentifierP :: Parser Text
-variableIdentifierP = identifierP lowerChar
+baseExprP :: Parser SpannedExpr
+baseExprP = choice $ baseExpressionsDoNotUse <> [try funApplicationP, try infixOpAsPrefixP, variableUsageP]
 
 identifierP :: Parser Char -> Parser Text
 identifierP firstCharP = (lexemeP . try) (p >>= ensureNotReserved)
   where
-    p = T.pack <$> ((:) <$> firstCharP <*> many allowedIdentiferChars)
+    p = T.pack <$> (try internalIdentifier <|> try normalIdentifier <|> (pure <$> char '_'))
     ensureNotReserved x = if x `elem` reservedWords
       then fail $ "keyword " ++ T.unpack x ++ "is reserved, and cannot be an identifier"
       else pure x
+    normalIdentifier = (:) <$> firstCharP <*> many allowedIdentiferChars
+    internalIdentifier = (:) <$> char '$' <*> ((:) <$> firstCharP <*> many allowedIdentiferChars)
+
+variableIdentifierP :: Parser Text
+variableIdentifierP = identifierP lowerChar <|> parensP rawInfixOpP
+
+functionNameIdentiferP :: Parser Text
+functionNameIdentiferP = variableIdentifierP <|> identifierP upperChar
 
 -- TODO: add handling for polymorphic types (e.g foo: a -> a)
 -- this should really be called typeclassIdentifierP
 typeIdentifierP :: Parser Text
 typeIdentifierP = identifierP upperChar
 
--- moduleIdentifierP :: Parser [Text]
--- moduleIdentifierP = sepBy typeIdentifierP (symbolP "/")
+blockP :: Parser SpannedExpr
+blockP = withSpan $ EBlock <$> curlyBraceP programP
+
+baseTypesForParsing :: [Parser Type]
+baseTypesForParsing = [
+    maybeDbg "typeP::lambda" $ try lambdaTypeP
+  -- , maybeDbg "typeP::String" $ symbolP "String" $> TString
+  -- , maybeDbg "typeP::Int" $ try (symbolP "Int" $> TInt)
+  -- , maybeDbg "typeP::Float" $ symbolP "Float" $> TFloat
+  -- , maybeDbg "typeP::Bool" $ symbolP "Bool" $> TBool
+  , maybeDbg "typeP::TCon" $ try constructorTypeP
+  , maybeDbg "typeP::tuple" $ try tupleTypeP
+  , maybeDbg "typeP::list" $ try listTypeP
+  , maybeDbg "typeP::parens" $ try (parensP typeP)
+  , maybeDbg "typeP::TVar" $ TVar . TV <$> variableIdentifierP
+  
+  ]
 
 typeP :: Parser Type
-typeP = choice
-  [
-    lambdaTypeP
-  , symbolP "String" $> TString
-  , symbolP "Int" $> TInt
-  , symbolP "Float" $> TFloat
-  , symbolP "Bool" $> TBool
-  , try tupleTypeP
-  , listTypeP
-  , parensP typeP
-  , TVar <$> variableIdentifierP
-  -- , TCon . T.pack <$> some letterChar
-  ]
+typeP = choice baseTypesForParsing
+
+typeParametersP :: Parser [Type]
+typeParametersP = parensP (sepBy typeP (symbolP ",")) <|> pure []
 
 lambdaTypeP :: Parser Type
 lambdaTypeP = sepBy2 nonLambdaTypeP (symbolP "->") >>= \case
@@ -72,189 +96,202 @@ lambdaTypeP = sepBy2 nonLambdaTypeP (symbolP "->") >>= \case
   (x:xs) -> pure $ foldl TLambda x xs
   _ -> fail "Invalid lambda type"
   where
-    nonLambdaTypeP = choice
-      [ symbolP "String" $> TString
-      , symbolP "Int" $> TInt
-      , symbolP "Float" $> TFloat
-      , symbolP "Bool" $> TBool
-      , try tupleTypeP
-      , listTypeP
-      , parensP typeP
-      , TVar <$> variableIdentifierP
-      ]
+    nonLambdaTypeP = (choice . tail) baseTypesForParsing
 
 tupleTypeP :: Parser Type
-tupleTypeP = do
-  maybeDbg "tupleTypeP::symbol(" $ symbolP "("
-  elements <- maybeDbg "tupleTypeP::elements" $ sepBy typeP (symbolP ",")
-  maybeDbg "tupleTypeP::symbol)" $ symbolP ")"
-  pure $ TTuple elements
+tupleTypeP = TTuple <$> parensP (sepBy2 typeP (symbolP ","))
 
 listTypeP :: Parser Type
-listTypeP = do
-  maybeDbg "listTypeP::symbol[" $ symbolP "["
-  elementType <- maybeDbg "listTypeP::elementType" typeP
-  maybeDbg "listTypeP::symbol]" $ symbolP "]"
-  pure $ TList elementType
-
-
-
-
-listLiteralP :: Parser Expr
-listLiteralP = do
-  maybeDbg "listLiteralP::symbol[" $ symbolP "["
-  elements <- maybeDbg "listLiteralP::elements" $ sepBy exprP (symbolP ",")
-  maybeDbg "listLiteralP::symbol]" $ symbolP "]"
-  pure $ ELiteral (LList elements)
-
-tupleLiteralP :: Parser Expr
-tupleLiteralP = do
-  maybeDbg "tupleLiteralP::symbol(" $ symbolP "("
-  elements <- maybeDbg "tupleLiteralP::elements" $ sepBy2 exprP (symbolP ",")
-  maybeDbg "tupleLiteralP::symbol)" $ symbolP ")"
-  pure $ ELiteral (LTuple elements)
-
-variableUsageP :: Parser Expr
-variableUsageP = do
-  varName <- maybeDbg "variableUsageP" variableIdentifierP
-  pure $ EVar $ Variable varName Nothing
-
-baseExprP :: Parser Expr
-baseExprP = maybeDbg "baseExprP" (
-            maybeDbg "baseExprP::parensP exprP"    (try $ parensP exprP)
-        <|> maybeDbg "baseExprP::listLiteralP"     (listLiteralP)
-        <|> maybeDbg "baseExprP::tupleLiteralP"    (try tupleLiteralP)
-        <|> maybeDbg "baseExprP::lambdaP"          (lambdaP)
-        <|> maybeDbg "baseExprP::literalP"         (literalExprP)
-        <|> maybeDbg "baseExprP::typeSignatureP"   (try typeSignatureP)
-        <|> maybeDbg "baseExprP::funApplicationP"  (try funApplicationP)
-        <|> maybeDbg "baseExprP::variableUsageP"   (variableUsageP)
-        )
+listTypeP = TList <$> bracketsP typeP
 
 variableTypeP :: Parser (Maybe Type)
-variableTypeP = optional $ (symbolP ":") *> typeP
+variableTypeP = optional $ symbolP ":" *> typeP
 
-typeSignatureP :: Parser Expr
-typeSignatureP = do
+constructorTypeP :: Parser Type
+constructorTypeP = do
+  constructorName <- typeIdentifierP
+  TCon (TC constructorName) <$> typeParametersP
+
+typeSignatureP :: Parser SpannedExpr
+typeSignatureP = withSpan $ do
   varName <- maybeDbg "typeSignatureP::varName" variableIdentifierP
   maybeDbg "typeSignatureP::symbol::" (symbolP "::")
-  typeclassConstraints <- (maybeDbg "typeSignatureP::typeclassConstraintsP" typeclassConstraintsP) <|> pure []
+  typeclassConstraints <- try typeclassConstraintsP <|> pure []
   varType <- maybeDbg "typeSignatureP::varType" typeP
-  pure $ ETypeSignature (Variable varName Nothing) typeclassConstraints varType
-  where
-    typeclassConstraintsP = do
-      symbolP "@"
-      tcConstraints <- curlyBraceP (sepBy ((,) <$> typeIdentifierP <*> variableIdentifierP) (symbolP ","))
-      symbolP ":"
-      pure $ map (\(tc, var) -> Variable var (Just $ TCon tc)) tcConstraints
+  pure $ ETypeSignature (Variable varName) typeclassConstraints varType
 
+typeclassConstraintsP :: Parser [Type]
+typeclassConstraintsP = do
+  maybeDbg "typeclassConstraintsP::symbol@" $ symbolP "@"
+  tcConstraints <- curlyBraceP (sepBy constructorTypeP (symbolP ","))
+  symbolP ":"
+  pure tcConstraints
 
-infixOpAsPrefixP :: Parser Expr
-infixOpAsPrefixP = choice [
-    try leftPartialInfixOpP,
-    try rightPartialInfixOpP,
-    try (do
-      op <- unappliedInfixOpP
-      pure $ EVar $ Variable op Nothing
-    )
-  ]
+moduleNameP :: Parser ModuleName
+moduleNameP = do
+  currentCtxPrefix <- optional $ symbolP "::"
+  modNameRest <- sepBy1 moduleNamePartP (symbolP "::")
+  case currentCtxPrefix of
+    Just _ -> pure $ ModuleNameChild modNameRest
+    Nothing -> pure $ ModuleNameGlobal modNameRest
   where
-    unappliedInfixOpP = maybeDbg "infixOpAsPrefixP::parenthRawInfixOpP" (parensP rawInfixOpP)
-    leftPartialInfixOpP = parensP $ do
-      left <- maybeDbg "infixOpAsPrefixP::left::expr" baseExprP
-      op <- maybeDbg "infixOpAsPrefixP::left::op" rawInfixOpP
-      pure $ EApply (EVar $ Variable op Nothing) left
-    rightPartialInfixOpP = parensP $ do
-      op <- maybeDbg "infixOpAsPrefixP::right::op" rawInfixOpP
-      right <- maybeDbg "infixOpAsPrefixP::right::expr" baseExprP
-      pure $ ELambda (Just $ FPSimple $ Variable "__partialInfixLambdaParam0" Nothing) (EApply
-                                                                                        (EApply
-                                                                                          (EVar (Variable op Nothing))
-                                                                                          (EVar (Variable "__partialInfixLambdaParam0" Nothing)))
-                                                                                        right) Nothing
+    moduleNamePartP :: Parser Text
+    moduleNamePartP = typeIdentifierP
+
+importP :: Parser SpannedExpr
+importP = withSpan $ do
+  symbolP "import"
+  moduleName <- moduleNameP
+  qualifier <- optional $ choice [moduleQualiferP, importQualiferP]
+  pure $ EImport (ImportStatement moduleName qualifier)
+  where
+    moduleQualiferP = ModuleQualified <$> (symbolP "as" *> typeIdentifierP)
+    importQualiferP = FunctionQualified <$> parensP (sepBy1 functionNameIdentiferP (symbolP ","))
+
+moduleDeclP :: Parser SpannedExpr
+moduleDeclP = withSpan $ do
+  symbolP "module"
+  moduleName <- moduleNameP
+  EModule moduleName <$> blockP
+
+typeclassDeclP :: Parser SpannedExpr
+typeclassDeclP = withSpan $ do
+  maybeDbg "typeclassDeclP::classSymbol" $ symbolP "class"
+  classConstraints <- try typeclassConstraintsP <|> pure []
+  classConstructor <- constructorTypeP
+  EClass classConstraints classConstructor <$> blockP
+
+typeclassImplP :: Parser SpannedExpr
+typeclassImplP = withSpan $ do
+  symbolP "impl"
+  classConstraints <- typeclassConstraintsP
+  className <- typeIdentifierP
+  classType <- TCon (TC className) <$> typeParametersP
+  EClassImpl classConstraints classType <$> blockP
+
+dataDeclP :: Parser SpannedExpr
+dataDeclP = withSpan $ do
+  maybeDbg "dataDeclP::" $ symbolP "data"
+  dataName <- maybeDbg "dataDeclP::dataName" typeIdentifierP
+  dataParams <- maybeDbg "dataDeclP::dataParams" typeParametersP
+  constructors <- maybeDbg "dataDeclP::constructors" $ curlyBraceP (sepBy constructorDeclP (symbolP ","))
+  pure $ EData dataName dataParams constructors
+
+constructorDeclP :: Parser Constructor
+constructorDeclP = Constructor <$> typeIdentifierP <*> typeParametersP
+
+caseP :: Parser SpannedExpr
+caseP = withSpan $ do
+  symbolP "case"
+  caseExpr <- exprP
+  cases <- curlyBraceP (some caseBranchP)
+  if length cases < 2
+    then fail "Case statements must have at least 2 branches."
+    else pure $ ECase caseExpr cases
+
+caseBranchP :: Parser (SpannedPattern, SpannedExpr)
+caseBranchP = do
+  symbolP "|"
+  branchPattern <- patternP
+  symbolP "->"
+  expr <- exprP
+  pure (branchPattern, expr)
+
+-- TODO: refactor the list and tuple literal parsers into global literalP (if possible)
+listLiteralP :: Parser SpannedLiteral
+listLiteralP = withSpan $ LList <$> bracketsP (sepBy exprP (symbolP ","))
+listLiteralExprP :: Parser SpannedExpr
+listLiteralExprP = withSpan $ ELiteral <$> listLiteralP
+
+tupleLiteralP :: Parser SpannedLiteral
+tupleLiteralP = withSpan $ LTuple <$> parensP (sepBy2 exprP (symbolP ","))
+tupleLiteralExprP :: Parser SpannedExpr
+tupleLiteralExprP = withSpan $ ELiteral <$> tupleLiteralP
+
+variableUsageP :: Parser SpannedExpr
+variableUsageP = withSpan $ EVar . Variable <$> functionNameIdentiferP
+
+infixOpAsPrefixP :: Parser SpannedExpr
+infixOpAsPrefixP = maybeDbg "infixOpAsPrefixP" $ parensP $ choice [maybeDbg "infixOpAsPrefixP::leftPartialInfixOpP" leftPartialInfixOpP, maybeDbg "infixOpAsPrefixP::rightPartialInfixOpP" rightPartialInfixOpP]
+  where
+    leftPartialInfixOpP = withSpan $ do
+      left <- maybeDbg "infixOpAsPrefixP::baseExprP" baseExprP
+      op <- withSpan $ EVar . Variable <$> (maybeDbg "infixOpAsPrefixP::rawInfixOpP" rawInfixOpP)
+      pure $ EApply op left
+    rightPartialInfixOpP = withSpan $ do
+      op <- withSpan $ EVar . Variable <$> (maybeDbg "leftPartialInfixOpP::rawInfixOpP" rawInfixOpP)
+      ELambda
+        (Just (Ann nullSpan $ FPSimple (Variable "__partialInfixLambdaParam0"))) . Ann nullSpan . EApply
+          (Ann nullSpan (EApply
+            op
+            (Ann nullSpan $ EVar (Variable "__partialInfixLambdaParam0")))) <$> (maybeDbg "rightPartialInfixOpP::baseExprP" baseExprP)
 
 -- TODO: handle type constructor and diff between type, poly, data, variable, etc
-declaractionP :: Parser Expr
-declaractionP = do
-  varName <- maybeDbg "declaractionP::varName" variableIdentifierP
-  -- varType <- maybeDbg "declaractionP::varType" variableTypeP
-  maybeDbg "declaractionP::symbol=" (symbolP "=")
-  varValue <- maybeDbg "declaractionP::varValue" exprP
-  pure $ ELet (Variable varName Nothing) varValue
+declarationP :: Parser SpannedExpr
+declarationP = withSpan $ do
+  varName <- maybeDbg "declarationP::varName" variableIdentifierP
+  maybeDbg "declarationP::symbol=" (symbolP "=")
+  varValue <- maybeDbg "declarationP::varValue" exprP
+  pure $ ELet (Variable varName) varValue
 
--- \(i: Int): Bool -> mod(i, 2) == 0
-lambdaP :: Parser Expr
+lambdaP :: Parser SpannedExpr
 lambdaP = do
-  maybeDbg "lambdaP::symbol\\" $ symbolP "\\"
-  params <- maybeDbg "lambdaP::params" lambdaParamsP
-  returnType <- maybeDbg "lambdaP::returnType" $ optional (symbolP ":" *> typeP)
-  symbolP "->"
-  body <- maybeDbg "lambdaP::body" exprP
-  pure $ foldr (\param acc -> ELambda param acc Nothing) body params
+  maybeDbg "regularLambdaP::symbol\\" $ symbolP "\\"
+  singleLambdaHeadP
 
-lambdaParamsP :: Parser [Maybe FunParam]
+-- caseLambdaP :: Parser SpannedExpr
+-- caseLambdaP = withSpan $ do
+--   maybeDbg "caseLambdaP::symbol\\" $ symbolP "\\"
+--   maybeDbg "caseLambdaP::symbol|" $ lookAhead (symbolP "|")
+--   params <- maybeDbg "caseLambdaP::params" lambdaParamsP
+--   symbolP "->"
+--   body <- maybeDbg "caseLambdaP::body" $ choice [blockP, exprP]
+--   pure $ foldr ELambda body params
+
+singleLambdaHeadP :: Parser SpannedExpr
+singleLambdaHeadP = do
+  start <- getSourcePos
+  params <- maybeDbg "singleLambdaHeadP::param" lambdaParamsP
+  symbolP "->"
+  body <- maybeDbg "singleLambdaHeadP::body" $ choice [blockP, exprP]
+  end <- getSourcePos
+  pure $ foldr (\p b -> Ann (Span start end) (ELambda p b)) body params
+
+lambdaParamsP :: Parser [Maybe SpannedParam]
 lambdaParamsP = parensP (sepBy (optional lambdaParamP) (symbolP ","))
 
-lambdaParamP :: Parser FunParam
-lambdaParamP = choice [funParamSimpleP, lambdaParamPatternP]
-  where
-    funParamSimpleP = do
-      varName <- lexemeP $ T.pack <$> some letterChar
-      FPSimple . Variable varName <$> variableTypeP
+lambdaParamP :: Parser SpannedParam
+lambdaParamP = withSpan $ try (FPPattern <$> patternP) <|> (FPSimple . Variable <$> variableIdentifierP)
 
-lambdaParamPatternP :: Parser FunParam
-lambdaParamPatternP = choice [patternLiteralP, patternTupleP, patternListP]
+patternP :: Parser SpannedPattern
+patternP = choice [patternWildcardP, patternLiteralP, patternTupleP, patternListP, patternConstructorP]
   where
-    patternLiteralP = FPPattern . PatternLiteral <$> (maybeDbg "lambdaParamPatternP::patternLiteralP" literalP)
-    patternTupleP = FPPattern . PatternTuple <$> maybeDbg "lambdaParamPatternP::patternTupleP" (parensP (sepBy lambdaParamP (symbolP ",")))
-    patternListP = FPPattern . PatternList <$> bracketsP (sepBy lambdaParamP (symbolP "|"))
+    patternWildcardP = withSpan $ PatternWildcard <$ symbolP "_"
+    patternLiteralP  = withSpan $ PatternLiteral <$> maybeDbg "patternP::patternLiteralP" literalP
+    patternTupleP    = withSpan $ PatternTuple <$> maybeDbg "patternP::patternTupleP" (parensP (sepBy lambdaParamP (symbolP ",")))
+    patternListP     = withSpan $ PatternList <$> bracketsP (sepBy lambdaParamP (symbolP "|"))
 
-funApplicationP :: Parser Expr
+patternConstructorP :: Parser SpannedPattern
+patternConstructorP = withSpan $ do
+  consName <- maybeDbg "lambdaPatternConstructorParamP::varName" typeIdentifierP
+  consParams <- parensP (sepBy lambdaParamP (symbolP ","))
+  pure $ PatternConstructor consName consParams
+
+funApplicationP :: Parser SpannedExpr
 funApplicationP = do
   fun <- maybeDbg "funApplicationP::fun" funApp'
-  args <- maybeDbg "funApplicationP::args" $ some nonFunAppExprP
-  pure $ foldl EApply fun args
+  args <- maybeDbg "funApplicationP::args" $ some funApp'
+  pure $ foldl argFold fun args
   where
-    funApp' = maybeDbg "funApp'" (
-              maybeDbg "funApp'::infixOpAsPrefixP" (try infixOpAsPrefixP)
-          <|> maybeDbg "funApp'::parensP exprP"    (try $ parensP exprP)
-          <|> maybeDbg "funApp'::listLiteralP"     (listLiteralP)
-          <|> maybeDbg "funApp'::tupleLiteralP"    (try tupleLiteralP)
-          <|> maybeDbg "funApp'::lambdaP"          (lambdaP)
-          <|> maybeDbg "funApp'::literalP"         (literalExprP)
-          <|> maybeDbg "funApp'::variableUsageP"   (variableUsageP)
-        )
-    nonFunAppExprP = maybeDbg "nonFunAppP" (
-            maybeDbg "nonFunAppP::parensP exprP"    (try $ parensP exprP)
-        <|> maybeDbg "nonFunAppP::listLiteralP"     (listLiteralP)
-        <|> maybeDbg "nonFunAppP::tupleLiteralP"    (try tupleLiteralP)
-        <|> maybeDbg "nonFunAppP::lambdaP"          (lambdaP)
-        <|> maybeDbg "nonFunAppP::literalP"         (literalExprP)
-        <|> maybeDbg "nonFunAppP::variableUsageP"   (variableUsageP)
-      )
+    funApp' = choice $ baseExpressionsDoNotUse <> [try infixOpAsPrefixP, variableUsageP]
+    argFold :: SpannedExpr -> SpannedExpr -> SpannedExpr
+    argFold f a@(Ann sp _) = Ann sp (EApply f a)
 
-
-
--- moduleP :: Parser Expr
--- moduleP = do
---   maybeDbg "moduleP::symbolModule" $ symbolP "module"
---   moduleName <- maybeDbg "moduleP::moduleName" $ lexemeP $ T.pack <$> some (letterChar <|> char '/')
---   maybeDbg "moduleP::symbol{" $ symbolP "{"
---   maybeDbg "moduleP::moduleBody" $ many (maybeDbg "moduleP::moduleBody::rootExprP" rootExprP)
---   maybeDbg "moduleP::symbol}" $ symbolP "}"
---   pure $ EVar $ Variable moduleName Nothing
-
--- importP :: Parser Expr
--- importP = do
---   maybeDbg "importP::symbolImport" $ symbolP "import"
---   importPath <- maybeDbg "importP::importPath" $ lexemeP $ T.pack <$> some (letterChar <|> char '/')
---   pure $ TLImport importPath
-
-infixExprP :: Parser Expr
+infixExprP :: Parser SpannedExpr
 infixExprP = maybeDbg "infixExprP" $ makeExprParser (maybeDbg "infixExprP::baseExprP" baseExprP) operatorTable
 
-exprP :: Parser Expr
+exprP :: Parser SpannedExpr
 exprP = maybeDbg "exprP::infixExprP" infixExprP
 
-rootExprP :: Parser Expr
-rootExprP = maybeDbg "rootExprP" $ (maybeDbg "rootExprP::declaractionP" (try declaractionP)) <|> (maybeDbg "rootExprP::exprP" exprP)
+rootExprP :: Parser SpannedExpr
+rootExprP = maybeDbg "rootExprP" $ maybeDbg "rootExprP::declarationP" (try declarationP) <|> maybeDbg "rootExprP::exprP" exprP

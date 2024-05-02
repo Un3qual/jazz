@@ -26,26 +26,18 @@ source-repository head
 library
   exposed-modules:
       Analyzer
+      Analyzer.ScopeAnalyzer
+      Analyzer.TypeInference
       AST
-      Calc
-      Calc.Compile.RunLLVM
-      Calc.Compile.ToLLVM
-      Calc.ExprUtils
-      Calc.Interpreter
-      Calc.Parser
-      Calc.Parser.Expr
-      Calc.Parser.Primitives
-      Calc.Parser.Shared
-      Calc.Parser.Types
-      Calc.Repl
-      Calc.Types
-      Calc.Types.Annotation
-      Calc.Types.Expr
-      Calc.Types.Prim
+      CodeGen.Builtins
+      CodeGen.Javascript
       Error.Diagnose.Compat.Hints
       Error.Diagnose.Compat.Megaparsec
+      Errors
       Interpreter
       Lib
+      Optimizer
+      Optimizer.ConstantFolding
       Parser
       Parser.Lang
       Parser.Lib
@@ -69,20 +61,23 @@ library
     , file-embed
     , haskeline
     , hspec
-    , llvm-hs-pure
+    , lens
     , megaparsec
     , mtl
     , parser-combinators
+    , pretty
     , pretty-show
     , prettyprinter
     , prettyprinter-ansi-terminal
     , process
+    , qbe
     , string-conversions
     , string-qq
     , tasty
     , tasty-hspec
     , tasty-hunit
     , text
+    , time
     , unix
   default-language: Haskell2010
 
@@ -106,20 +101,23 @@ executable jazz-exe
     , haskeline
     , hspec
     , jazz
-    , llvm-hs-pure
+    , lens
     , megaparsec
     , mtl
     , parser-combinators
+    , pretty
     , pretty-show
     , prettyprinter
     , prettyprinter-ansi-terminal
     , process
+    , qbe
     , string-conversions
     , string-qq
     , tasty
     , tasty-hspec
     , tasty-hunit
     , text
+    , time
     , unix
   default-language: Haskell2010
 
@@ -127,7 +125,10 @@ test-suite jazz-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      Analyzer.ScopeAnalyzerSpec
+      Analyzer.TypeInferenceSpec
       AnalyzerSpec
+      OptimizerSpec
       ParserSpec
       Paths_jazz
   autogen-modules:
@@ -146,19 +147,22 @@ test-suite jazz-test
     , haskeline
     , hspec
     , jazz
-    , llvm-hs-pure
+    , lens
     , megaparsec
     , mtl
     , parser-combinators
+    , pretty
     , pretty-show
     , prettyprinter
     , prettyprinter-ansi-terminal
     , process
+    , qbe
     , string-conversions
     , string-qq
     , tasty
     , tasty-hspec
     , tasty-hunit
     , text
+    , time
     , unix
   default-language: Haskell2010

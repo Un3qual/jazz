@@ -1,0 +1,3 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYG{l+s+sr}{/\PYGZca{}(?!py(thon|c?(harm)?)\PYGZdl{}).*\PYGZdl{}/u}
+\end{Verbatim}

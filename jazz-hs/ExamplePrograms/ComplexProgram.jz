@@ -1,0 +1,16 @@
+i = 0 + 1. // The 0 + 1 will get optimized out into just "1"
+nums = [1, 2, 3, 4, 5, 6, 7, 8, 9].
+
+addTen = (+10).
+// Another way to implement addTen:
+// addTen = \(x) -> x + 10
+
+addTenToAllInList = map addTen.
+newNums = addTenToAllInList nums.
+
+print! (addTen i).
+print! newNums.
+print! $ (hd newNums) == 11.
+print! $ (hd newNums) == 12.
+// Adding 10 to the first element of newNums and printing
+print! $ addTen $ hd newNums.

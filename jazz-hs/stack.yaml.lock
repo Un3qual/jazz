@@ -11,6 +11,13 @@ packages:
       size: 1401
   original:
     hackage: diagnose-2.5.1
+- completed:
+    hackage: qbe-1.1.0.0@sha256:6c4a3863e80b45e69e2f6f9b26192d6c95b6b2ff63f1a779004fdc36e5d1ba6b,2987
+    pantry-tree:
+      sha256: 633e60fffefffb254617a2bf3bee197a518349f895697165bae77d9f7fc18bf6
+      size: 1195
+  original:
+    hackage: qbe-1.1.0.0@sha256:6c4a3863e80b45e69e2f6f9b26192d6c95b6b2ff63f1a779004fdc36e5d1ba6b,2987
 snapshots:
 - completed:
     sha256: a81fb3877c4f9031e1325eb3935122e608d80715dc16b586eb11ddbff8671ecd

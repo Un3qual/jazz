@@ -1,0 +1,5 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+/\PYGZca{}(?:(?:br|Br|bR|BR|rb|rB|Rb|RB|b|B|r|R|u|U|f|F|fr|Fr|fR|FR|rf|rF|Rf|RF)?
+(?:\PYGZsq{}\PYGZsq{}\PYGZsq{}(?:\PYGZbs{}\PYGZbs{}.|[\PYGZca{}\PYGZbs{}\PYGZbs{}\PYGZsq{}]|\PYGZsq{}\PYGZob{}1,2\PYGZcb{}(?!\PYGZsq{}))*\PYGZsq{}\PYGZsq{}\PYGZsq{}
+|\PYGZdq{}\PYGZdq{}\PYGZdq{}(?:\PYGZbs{}\PYGZbs{}.|[\PYGZca{}\PYGZbs{}\PYGZbs{}\PYGZdq{}]|\PYGZdq{}\PYGZob{}1,2\PYGZcb{}(?!\PYGZdq{}))*\PYGZdq{}\PYGZdq{}\PYGZdq{}|\PYGZsq{}(?:\PYGZbs{}\PYGZbs{}.|[\PYGZca{}\PYGZbs{}\PYGZbs{}\PYGZbs{}n\PYGZsq{}])*\PYGZsq{}|\PYGZdq{}(?:\PYGZbs{}\PYGZbs{}.|[\PYGZca{}\PYGZbs{}\PYGZbs{}\PYGZbs{}n\PYGZdq{}])*\PYGZdq{}))\PYGZdl{}/
+\end{Verbatim}

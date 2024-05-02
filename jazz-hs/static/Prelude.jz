@@ -1,6 +1,136 @@
-module Prelude {
-  # head = \([hd | rest]: [a]): a -> = hd
-  # tail = \([_ | tl]: [a]): [a] -> = tl
-  head = \([hd | rest]: [Int]): Int -> = hd
-  tail = \([_ | tl]: [Int]): [Int] -> = tl
-}
+module Std {
+  id :: a -> a.
+  id = \(a) -> a.
+
+  head :: [a] -> a.
+  head = \([hd | rest]) -> hd.
+
+  tail :: [a] -> [a].
+  tail = \([_ | tl]) -> tl.
+
+  module Data {
+    data Bool {
+      True,
+      False
+    }.
+
+    module Ord {
+      data Ordering {
+        GT,
+        LT,
+        EQ
+      }.
+
+      trait Ord(a) {
+        cmp :: a -> a -> Ordering.
+
+        (>) :: a -> a -> Bool.
+        (>) = \(lhs, rhs) -> (cmp lhs rhs) == GT.
+
+        (<) :: a -> a -> Bool.
+        (<) = \(lhs, rhs) -> (cmp lhs rhs) == LT.
+
+        (>=) :: a -> a -> Bool.
+        (>=) = \(lhs, rhs) -> contains [GT, EQ] (cmp lhs rhs).
+
+        (<=) :: a -> a -> Bool.
+        (<=) = \(lhs, rhs) -> contains [LT, EQ] (cmp lhs rhs).
+
+      }.
+    }.
+
+    module Eq {
+      trait Eq(a) {
+        (==) :: a -> a -> Bool.
+        (/=) :: a -> a -> Bool.
+      }.
+    }.
+
+    module Collection {
+      trait Collection(a) {
+        cEmpty :: a.
+        cAppend :: a -> a -> a.
+      }.
+    }.
+
+    module List {
+      data List(a) {
+        Empty,
+        Cons(a, List(a))
+      }.
+    }.
+
+    module Num {
+      class Num(a) {
+        (+) :: a -> a -> a.
+        (-) :: a -> a -> a.
+        (*) :: a -> a -> a.
+        (/) :: a -> a -> a.
+
+        toInt :: a -> b.
+        toFloat :: a -> b.
+      }.
+
+      module Int {
+        data Int {
+          Int($Int)
+        }.
+
+        impl Num(Int) {
+          (+) = \((Int a), (Int b)) -> $intAdd a b.
+          (-) = \((Int a), (Int b)) -> $intSub a b.
+          (*) = \((Int a), (Int b)) -> $intMul a b.
+          (/) = \((Int a), (Int b)) -> $intDiv a b.
+
+          toInt = id.
+
+          toFloat :: Int -> Float.
+          toFloat = $intToFloat.
+        }.
+
+        impl Eq Int {
+          (==) = \((Int lhs), (Int rhs)) -> $intEq lhs rhs.
+          (/=) = \((Int lhs), (Int rhs)) -> $intNeq lhs rhs.
+        }.
+
+        impl Ord Int {
+          cmp = $intCmp.
+        }.
+      }.
+
+      module Float {
+        data Float {
+          Float($Float)
+        }.
+
+        impl Num Float {
+          (+) = \((Float a), (Float b)) -> $floatAdd a b.
+          (-) = \((Float a), (Float b)) -> $floatSub a b.
+          (*) = \((Float a), (Float b)) -> $floatMul a b.
+          (/) = \((Float a), (Float b)) -> $floatDiv a b.
+
+          toInt :: Float -> Int.
+          toInt = $floatToInt.
+
+          toFloat = id.
+        }.
+
+        impl Eq Float {
+          (==) = \((Float lhs), (Float rhs)) -> $floatEq lhs rhs.
+          (/=) = \((Float lhs), (Float rhs)) -> $floatNeq lhs rhs.
+        }.
+
+        impl Ord Float {
+          cmp = $floatCmp.
+        }.
+
+        floor :: Float -> Float.
+        floor = $floatFloor.
+        
+        ceil :: Float -> Float
+        ceil = $floatCeil.
+
+      }.
+    }.
+  }.
+}.

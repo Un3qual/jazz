@@ -12,25 +12,26 @@ import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 
-intLiteralP :: Parser Literal
-intLiteralP = LInt <$> integerP
+intLiteralP :: Parser SpannedLiteral
+intLiteralP = withSpan $ LInt <$> integerP
 
-floatLiteralP :: Parser Literal
-floatLiteralP = LFloat <$> L.float
+floatLiteralP :: Parser SpannedLiteral
+floatLiteralP = withSpan $ LFloat <$> L.float
 
-stringLiteralP :: Parser Literal
-stringLiteralP = LString . T.pack <$> (char '"' *> manyTill stringChar (char '"'))
+stringLiteralP :: Parser SpannedLiteral
+stringLiteralP = withSpan $ LString . T.pack <$> (char '"' *> manyTill stringChar (char '"'))
   where
     stringChar = (char '\\' *> (char '\"' <|> char '\\')) <|> L.charLiteral
 
-boolLiteralP :: Parser Literal
-boolLiteralP = (symbolP "True" $> LBool True) <|> (symbolP "False" $> LBool False)
+boolLiteralP :: Parser SpannedLiteral
+boolLiteralP = withSpan $ (symbolP "True" $> LBool True) <|> (symbolP "False" $> LBool False)
 
-literalP :: Parser Literal
+
+literalP :: Parser SpannedLiteral
 literalP = stringLiteralP <|> try floatLiteralP <|> intLiteralP <|> boolLiteralP
 
-literalExprP :: Parser Expr
-literalExprP = ELiteral <$> (stringLiteralP
-                    <|> try floatLiteralP
-                    <|> intLiteralP
-                    <|> boolLiteralP)
+literalExprP :: Parser SpannedExpr
+literalExprP = withSpan $ ELiteral <$> (stringLiteralP
+                                    <|> try floatLiteralP
+                                    <|> intLiteralP
+                                    <|> boolLiteralP)
