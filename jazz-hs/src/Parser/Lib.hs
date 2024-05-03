@@ -32,7 +32,8 @@ import           Text.Megaparsec.Debug
 import AST
 
 
-type Parser = Parsec Void Text
+newtype JazzParser a = JazzParser (StateT Int (Parsec Void Text) a)
+  deriving (Functor, Applicative, Alternative, MonadPlus, Monad, MonadState Int, MonadParsec Void Text)
 
 scn :: Parser ()
 scn = L.space space1 (L.skipLineComment "//") (L.skipBlockComment "{*" "*}")
