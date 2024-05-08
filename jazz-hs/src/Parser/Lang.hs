@@ -23,8 +23,9 @@ import Data.Type.Coercion (sym)
 
 programP :: Parser SpannedProgram
 programP = do
-  maybeDbg "programP::skipEol" (skipMany eol)
-  maybeDbg "programP::separatedExprs" (sepEndBy (maybeDbg "programP::rootExprP" rootExprP) (maybeDbg "programP::rootSeparator" (symbolP ".")))
+  skipMany eol
+  sepEndBy (maybeDbg "programP::rootExprP" rootExprP) (maybeDbg "programP::rootSeparator" (symbolP "."))
+  -- maybeDbg "programP::separatedExprs" (sepEndBy (maybeDbg "programP::rootExprP" rootExprP) (maybeDbg "programP::rootSeparator" (symbolP ".")))
 
 baseExpressionsDoNotUse :: [Parser SpannedExpr]
 baseExpressionsDoNotUse = [

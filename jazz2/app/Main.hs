@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Lib
+import Jazz.Lib
 
 main :: IO ()
 main = someFunc

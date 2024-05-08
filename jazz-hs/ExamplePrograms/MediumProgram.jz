@@ -1,0 +1,1809 @@
+i = 0 + 1. // The 0 + 1 will get optimized out into just "1"
+nums = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199,200,201,202,203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255,256,257,258,259,260,261,262,263,264,265,266,267,268,269,270,271,272,273,274,275,276,277,278,279,280,281,282,283,284,285,286,287,288,289,290,291,292,293,294,295,296,297,298,299,300,301,302,303,304,305,306,307,308,309,310,311,312,313,314,315,316,317,318,319,320,321,322,323,324,325,326,327,328,329,330,331,332,333,334,335,336,337,338,339,340,341,342,343,344,345,346,347,348,349,350,351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,366,367,368,369,370,371,372,373,374,375,376,377,378,379,380,381,382,383,384,385,386,387,388,389,390,391,392,393,394,395,396,397,398,399,400,401,402,403,404,405,406,407,408,409,410,411,412,413,414,415,416,417,418,419,420,421,422,423,424,425,426,427,428,429,430,431,432,433,434,435,436,437,438,439,440,441,442,443,444,445,446,447,448,449,450,451,452,453,454,455,456,457,458,459,460,461,462,463,464,465,466,467,468,469,470,471,472,473,474,475,476,477,478,479,480,481,482,483,484,485,486,487,488,489,490,491,492,493,494,495,496,497,498,499,500,501,502,503,504,505,506,507,508,509,510,511,512,513,514,515,516,517,518,519,520,521,522,523,524,525,526,527,528,529,530,531,532,533,534,535,536,537,538,539,540,541,542,543,544,545,546,547,548,549,550,551,552,553,554,555,556,557,558,559,560,561,562,563,564,565,566,567,568,569,570,571,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587,588,589,590,591,592,593,594,595,596,597,598,599,600,601,602,603,604,605,606,607,608,609,610,611,612,613,614,615,616,617,618,619,620,621,622,623,624,625,626,627,628,629,630,631,632,633,634,635,636,637,638,639,640,641,642,643,644,645,646,647,648,649,650,651,652,653,654,655,656,657,658,659,660,661,662,663,664,665,666,667,668,669,670,671,672,673,674,675,676,677,678,679,680,681,682,683,684,685,686,687,688,689,690,691,692,693,694,695,696,697,698,699,700,701,702,703,704,705,706,707,708,709,710,711,712,713,714,715,716,717,718,719,720,721,722,723,724,725,726,727,728,729,730,731,732,733,734,735,736,737,738,739,740,741,742,743,744,745,746,747,748,749,750,751,752,753,754,755,756,757,758,759,760,761,762,763,764,765,766,767,768,769,770,771,772,773,774,775,776,777,778,779,780,781,782,783,784,785,786,787,788,789,790,791,792,793,794,795,796,797,798,799,800,801,802,803,804,805,806,807,808,809,810,811,812,813,814,815,816,817,818,819,820,821,822,823,824,825,826,827,828,829,830,831,832,833,834,835,836,837,838,839,840,841,842,843,844,845,846,847,848,849,850,851,852,853,854,855,856,857,858,859,860,861,862,863,864,865,866,867,868,869,870,871,872,873,874,875,876,877,878,879,880,881,882,883,884,885,886,887,888,889,890,891,892,893,894,895,896,897,898,899,900,901,902,903,904,905,906,907,908,909,910,911,912,913,914,915,916,917,918,919,920,921,922,923,924,925,926,927,928,929,930,931,932,933,934,935,936,937,938,939,940,941,942,943,944,945,946,947,948,949,950,951,952,953,954,955,956,957,958,959,960,961,962,963,964,965,966,967,968,969,970,971,972,973,974,975,976,977,978,979,980,981,982,983,984,985,986,987,988,989,990,991,992,993,994,995,996,997,998,999,1000].
+
+add1 = (+1).
+add2 = (+2).
+add3 = (+3).
+add4 = (+4).
+add5 = (+5).
+add6 = (+6).
+add7 = (+7).
+add8 = (+8).
+add9 = (+9).
+add10 = (+10).
+add11 = (+11).
+add12 = (+12).
+add13 = (+13).
+add14 = (+14).
+add15 = (+15).
+add16 = (+16).
+add17 = (+17).
+add18 = (+18).
+add19 = (+19).
+add20 = (+20).
+add21 = (+21).
+add22 = (+22).
+add23 = (+23).
+add24 = (+24).
+add25 = (+25).
+add26 = (+26).
+add27 = (+27).
+add28 = (+28).
+add29 = (+29).
+add30 = (+30).
+add31 = (+31).
+add32 = (+32).
+add33 = (+33).
+add34 = (+34).
+add35 = (+35).
+add36 = (+36).
+add37 = (+37).
+add38 = (+38).
+add39 = (+39).
+add40 = (+40).
+add41 = (+41).
+add42 = (+42).
+add43 = (+43).
+add44 = (+44).
+add45 = (+45).
+add46 = (+46).
+add47 = (+47).
+add48 = (+48).
+add49 = (+49).
+add50 = (+50).
+add51 = (+51).
+add52 = (+52).
+add53 = (+53).
+add54 = (+54).
+add55 = (+55).
+add56 = (+56).
+add57 = (+57).
+add58 = (+58).
+add59 = (+59).
+add60 = (+60).
+add61 = (+61).
+add62 = (+62).
+add63 = (+63).
+add64 = (+64).
+add65 = (+65).
+add66 = (+66).
+add67 = (+67).
+add68 = (+68).
+add69 = (+69).
+add70 = (+70).
+add71 = (+71).
+add72 = (+72).
+add73 = (+73).
+add74 = (+74).
+add75 = (+75).
+add76 = (+76).
+add77 = (+77).
+add78 = (+78).
+add79 = (+79).
+add80 = (+80).
+add81 = (+81).
+add82 = (+82).
+add83 = (+83).
+add84 = (+84).
+add85 = (+85).
+add86 = (+86).
+add87 = (+87).
+add88 = (+88).
+add89 = (+89).
+add90 = (+90).
+add91 = (+91).
+add92 = (+92).
+add93 = (+93).
+add94 = (+94).
+add95 = (+95).
+add96 = (+96).
+add97 = (+97).
+add98 = (+98).
+add99 = (+99).
+add100 = (+100).
+add101 = (+101).
+add102 = (+102).
+add103 = (+103).
+add104 = (+104).
+add105 = (+105).
+add106 = (+106).
+add107 = (+107).
+add108 = (+108).
+add109 = (+109).
+add110 = (+110).
+add111 = (+111).
+add112 = (+112).
+add113 = (+113).
+add114 = (+114).
+add115 = (+115).
+add116 = (+116).
+add117 = (+117).
+add118 = (+118).
+add119 = (+119).
+add120 = (+120).
+add121 = (+121).
+add122 = (+122).
+add123 = (+123).
+add124 = (+124).
+add125 = (+125).
+add126 = (+126).
+add127 = (+127).
+add128 = (+128).
+add129 = (+129).
+add130 = (+130).
+add131 = (+131).
+add132 = (+132).
+add133 = (+133).
+add134 = (+134).
+add135 = (+135).
+add136 = (+136).
+add137 = (+137).
+add138 = (+138).
+add139 = (+139).
+add140 = (+140).
+add141 = (+141).
+add142 = (+142).
+add143 = (+143).
+add144 = (+144).
+add145 = (+145).
+add146 = (+146).
+add147 = (+147).
+add148 = (+148).
+add149 = (+149).
+add150 = (+150).
+add151 = (+151).
+add152 = (+152).
+add153 = (+153).
+add154 = (+154).
+add155 = (+155).
+add156 = (+156).
+add157 = (+157).
+add158 = (+158).
+add159 = (+159).
+add160 = (+160).
+add161 = (+161).
+add162 = (+162).
+add163 = (+163).
+add164 = (+164).
+add165 = (+165).
+add166 = (+166).
+add167 = (+167).
+add168 = (+168).
+add169 = (+169).
+add170 = (+170).
+add171 = (+171).
+add172 = (+172).
+add173 = (+173).
+add174 = (+174).
+add175 = (+175).
+add176 = (+176).
+add177 = (+177).
+add178 = (+178).
+add179 = (+179).
+add180 = (+180).
+add181 = (+181).
+add182 = (+182).
+add183 = (+183).
+add184 = (+184).
+add185 = (+185).
+add186 = (+186).
+add187 = (+187).
+add188 = (+188).
+add189 = (+189).
+add190 = (+190).
+add191 = (+191).
+add192 = (+192).
+add193 = (+193).
+add194 = (+194).
+add195 = (+195).
+add196 = (+196).
+add197 = (+197).
+add198 = (+198).
+add199 = (+199).
+add200 = (+200).
+add201 = (+201).
+add202 = (+202).
+add203 = (+203).
+add204 = (+204).
+add205 = (+205).
+add206 = (+206).
+add207 = (+207).
+add208 = (+208).
+add209 = (+209).
+add210 = (+210).
+add211 = (+211).
+add212 = (+212).
+add213 = (+213).
+add214 = (+214).
+add215 = (+215).
+add216 = (+216).
+add217 = (+217).
+add218 = (+218).
+add219 = (+219).
+add220 = (+220).
+add221 = (+221).
+add222 = (+222).
+add223 = (+223).
+add224 = (+224).
+add225 = (+225).
+add226 = (+226).
+add227 = (+227).
+add228 = (+228).
+add229 = (+229).
+add230 = (+230).
+add231 = (+231).
+add232 = (+232).
+add233 = (+233).
+add234 = (+234).
+add235 = (+235).
+add236 = (+236).
+add237 = (+237).
+add238 = (+238).
+add239 = (+239).
+add240 = (+240).
+add241 = (+241).
+add242 = (+242).
+add243 = (+243).
+add244 = (+244).
+add245 = (+245).
+add246 = (+246).
+add247 = (+247).
+add248 = (+248).
+add249 = (+249).
+add250 = (+250).
+add251 = (+251).
+add252 = (+252).
+add253 = (+253).
+add254 = (+254).
+add255 = (+255).
+add256 = (+256).
+add257 = (+257).
+add258 = (+258).
+add259 = (+259).
+add260 = (+260).
+add261 = (+261).
+add262 = (+262).
+add263 = (+263).
+add264 = (+264).
+add265 = (+265).
+add266 = (+266).
+add267 = (+267).
+add268 = (+268).
+add269 = (+269).
+add270 = (+270).
+add271 = (+271).
+add272 = (+272).
+add273 = (+273).
+add274 = (+274).
+add275 = (+275).
+add276 = (+276).
+add277 = (+277).
+add278 = (+278).
+add279 = (+279).
+add280 = (+280).
+add281 = (+281).
+add282 = (+282).
+add283 = (+283).
+add284 = (+284).
+add285 = (+285).
+add286 = (+286).
+add287 = (+287).
+add288 = (+288).
+add289 = (+289).
+add290 = (+290).
+add291 = (+291).
+add292 = (+292).
+add293 = (+293).
+add294 = (+294).
+add295 = (+295).
+add296 = (+296).
+add297 = (+297).
+add298 = (+298).
+add299 = (+299).
+add300 = (+300).
+
+add1ToAllInList = map add1.
+add2ToAllInList = map add2.
+add3ToAllInList = map add3.
+add4ToAllInList = map add4.
+add5ToAllInList = map add5.
+add6ToAllInList = map add6.
+add7ToAllInList = map add7.
+add8ToAllInList = map add8.
+add9ToAllInList = map add9.
+add10ToAllInList = map add10.
+add11ToAllInList = map add11.
+add12ToAllInList = map add12.
+add13ToAllInList = map add13.
+add14ToAllInList = map add14.
+add15ToAllInList = map add15.
+add16ToAllInList = map add16.
+add17ToAllInList = map add17.
+add18ToAllInList = map add18.
+add19ToAllInList = map add19.
+add20ToAllInList = map add20.
+add21ToAllInList = map add21.
+add22ToAllInList = map add22.
+add23ToAllInList = map add23.
+add24ToAllInList = map add24.
+add25ToAllInList = map add25.
+add26ToAllInList = map add26.
+add27ToAllInList = map add27.
+add28ToAllInList = map add28.
+add29ToAllInList = map add29.
+add30ToAllInList = map add30.
+add31ToAllInList = map add31.
+add32ToAllInList = map add32.
+add33ToAllInList = map add33.
+add34ToAllInList = map add34.
+add35ToAllInList = map add35.
+add36ToAllInList = map add36.
+add37ToAllInList = map add37.
+add38ToAllInList = map add38.
+add39ToAllInList = map add39.
+add40ToAllInList = map add40.
+add41ToAllInList = map add41.
+add42ToAllInList = map add42.
+add43ToAllInList = map add43.
+add44ToAllInList = map add44.
+add45ToAllInList = map add45.
+add46ToAllInList = map add46.
+add47ToAllInList = map add47.
+add48ToAllInList = map add48.
+add49ToAllInList = map add49.
+add50ToAllInList = map add50.
+add51ToAllInList = map add51.
+add52ToAllInList = map add52.
+add53ToAllInList = map add53.
+add54ToAllInList = map add54.
+add55ToAllInList = map add55.
+add56ToAllInList = map add56.
+add57ToAllInList = map add57.
+add58ToAllInList = map add58.
+add59ToAllInList = map add59.
+add60ToAllInList = map add60.
+add61ToAllInList = map add61.
+add62ToAllInList = map add62.
+add63ToAllInList = map add63.
+add64ToAllInList = map add64.
+add65ToAllInList = map add65.
+add66ToAllInList = map add66.
+add67ToAllInList = map add67.
+add68ToAllInList = map add68.
+add69ToAllInList = map add69.
+add70ToAllInList = map add70.
+add71ToAllInList = map add71.
+add72ToAllInList = map add72.
+add73ToAllInList = map add73.
+add74ToAllInList = map add74.
+add75ToAllInList = map add75.
+add76ToAllInList = map add76.
+add77ToAllInList = map add77.
+add78ToAllInList = map add78.
+add79ToAllInList = map add79.
+add80ToAllInList = map add80.
+add81ToAllInList = map add81.
+add82ToAllInList = map add82.
+add83ToAllInList = map add83.
+add84ToAllInList = map add84.
+add85ToAllInList = map add85.
+add86ToAllInList = map add86.
+add87ToAllInList = map add87.
+add88ToAllInList = map add88.
+add89ToAllInList = map add89.
+add90ToAllInList = map add90.
+add91ToAllInList = map add91.
+add92ToAllInList = map add92.
+add93ToAllInList = map add93.
+add94ToAllInList = map add94.
+add95ToAllInList = map add95.
+add96ToAllInList = map add96.
+add97ToAllInList = map add97.
+add98ToAllInList = map add98.
+add99ToAllInList = map add99.
+add100ToAllInList = map add100.
+add101ToAllInList = map add101.
+add102ToAllInList = map add102.
+add103ToAllInList = map add103.
+add104ToAllInList = map add104.
+add105ToAllInList = map add105.
+add106ToAllInList = map add106.
+add107ToAllInList = map add107.
+add108ToAllInList = map add108.
+add109ToAllInList = map add109.
+add110ToAllInList = map add110.
+add111ToAllInList = map add111.
+add112ToAllInList = map add112.
+add113ToAllInList = map add113.
+add114ToAllInList = map add114.
+add115ToAllInList = map add115.
+add116ToAllInList = map add116.
+add117ToAllInList = map add117.
+add118ToAllInList = map add118.
+add119ToAllInList = map add119.
+add120ToAllInList = map add120.
+add121ToAllInList = map add121.
+add122ToAllInList = map add122.
+add123ToAllInList = map add123.
+add124ToAllInList = map add124.
+add125ToAllInList = map add125.
+add126ToAllInList = map add126.
+add127ToAllInList = map add127.
+add128ToAllInList = map add128.
+add129ToAllInList = map add129.
+add130ToAllInList = map add130.
+add131ToAllInList = map add131.
+add132ToAllInList = map add132.
+add133ToAllInList = map add133.
+add134ToAllInList = map add134.
+add135ToAllInList = map add135.
+add136ToAllInList = map add136.
+add137ToAllInList = map add137.
+add138ToAllInList = map add138.
+add139ToAllInList = map add139.
+add140ToAllInList = map add140.
+add141ToAllInList = map add141.
+add142ToAllInList = map add142.
+add143ToAllInList = map add143.
+add144ToAllInList = map add144.
+add145ToAllInList = map add145.
+add146ToAllInList = map add146.
+add147ToAllInList = map add147.
+add148ToAllInList = map add148.
+add149ToAllInList = map add149.
+add150ToAllInList = map add150.
+add151ToAllInList = map add151.
+add152ToAllInList = map add152.
+add153ToAllInList = map add153.
+add154ToAllInList = map add154.
+add155ToAllInList = map add155.
+add156ToAllInList = map add156.
+add157ToAllInList = map add157.
+add158ToAllInList = map add158.
+add159ToAllInList = map add159.
+add160ToAllInList = map add160.
+add161ToAllInList = map add161.
+add162ToAllInList = map add162.
+add163ToAllInList = map add163.
+add164ToAllInList = map add164.
+add165ToAllInList = map add165.
+add166ToAllInList = map add166.
+add167ToAllInList = map add167.
+add168ToAllInList = map add168.
+add169ToAllInList = map add169.
+add170ToAllInList = map add170.
+add171ToAllInList = map add171.
+add172ToAllInList = map add172.
+add173ToAllInList = map add173.
+add174ToAllInList = map add174.
+add175ToAllInList = map add175.
+add176ToAllInList = map add176.
+add177ToAllInList = map add177.
+add178ToAllInList = map add178.
+add179ToAllInList = map add179.
+add180ToAllInList = map add180.
+add181ToAllInList = map add181.
+add182ToAllInList = map add182.
+add183ToAllInList = map add183.
+add184ToAllInList = map add184.
+add185ToAllInList = map add185.
+add186ToAllInList = map add186.
+add187ToAllInList = map add187.
+add188ToAllInList = map add188.
+add189ToAllInList = map add189.
+add190ToAllInList = map add190.
+add191ToAllInList = map add191.
+add192ToAllInList = map add192.
+add193ToAllInList = map add193.
+add194ToAllInList = map add194.
+add195ToAllInList = map add195.
+add196ToAllInList = map add196.
+add197ToAllInList = map add197.
+add198ToAllInList = map add198.
+add199ToAllInList = map add199.
+add200ToAllInList = map add200.
+add201ToAllInList = map add201.
+add202ToAllInList = map add202.
+add203ToAllInList = map add203.
+add204ToAllInList = map add204.
+add205ToAllInList = map add205.
+add206ToAllInList = map add206.
+add207ToAllInList = map add207.
+add208ToAllInList = map add208.
+add209ToAllInList = map add209.
+add210ToAllInList = map add210.
+add211ToAllInList = map add211.
+add212ToAllInList = map add212.
+add213ToAllInList = map add213.
+add214ToAllInList = map add214.
+add215ToAllInList = map add215.
+add216ToAllInList = map add216.
+add217ToAllInList = map add217.
+add218ToAllInList = map add218.
+add219ToAllInList = map add219.
+add220ToAllInList = map add220.
+add221ToAllInList = map add221.
+add222ToAllInList = map add222.
+add223ToAllInList = map add223.
+add224ToAllInList = map add224.
+add225ToAllInList = map add225.
+add226ToAllInList = map add226.
+add227ToAllInList = map add227.
+add228ToAllInList = map add228.
+add229ToAllInList = map add229.
+add230ToAllInList = map add230.
+add231ToAllInList = map add231.
+add232ToAllInList = map add232.
+add233ToAllInList = map add233.
+add234ToAllInList = map add234.
+add235ToAllInList = map add235.
+add236ToAllInList = map add236.
+add237ToAllInList = map add237.
+add238ToAllInList = map add238.
+add239ToAllInList = map add239.
+add240ToAllInList = map add240.
+add241ToAllInList = map add241.
+add242ToAllInList = map add242.
+add243ToAllInList = map add243.
+add244ToAllInList = map add244.
+add245ToAllInList = map add245.
+add246ToAllInList = map add246.
+add247ToAllInList = map add247.
+add248ToAllInList = map add248.
+add249ToAllInList = map add249.
+add250ToAllInList = map add250.
+add251ToAllInList = map add251.
+add252ToAllInList = map add252.
+add253ToAllInList = map add253.
+add254ToAllInList = map add254.
+add255ToAllInList = map add255.
+add256ToAllInList = map add256.
+add257ToAllInList = map add257.
+add258ToAllInList = map add258.
+add259ToAllInList = map add259.
+add260ToAllInList = map add260.
+add261ToAllInList = map add261.
+add262ToAllInList = map add262.
+add263ToAllInList = map add263.
+add264ToAllInList = map add264.
+add265ToAllInList = map add265.
+add266ToAllInList = map add266.
+add267ToAllInList = map add267.
+add268ToAllInList = map add268.
+add269ToAllInList = map add269.
+add270ToAllInList = map add270.
+add271ToAllInList = map add271.
+add272ToAllInList = map add272.
+add273ToAllInList = map add273.
+add274ToAllInList = map add274.
+add275ToAllInList = map add275.
+add276ToAllInList = map add276.
+add277ToAllInList = map add277.
+add278ToAllInList = map add278.
+add279ToAllInList = map add279.
+add280ToAllInList = map add280.
+add281ToAllInList = map add281.
+add282ToAllInList = map add282.
+add283ToAllInList = map add283.
+add284ToAllInList = map add284.
+add285ToAllInList = map add285.
+add286ToAllInList = map add286.
+add287ToAllInList = map add287.
+add288ToAllInList = map add288.
+add289ToAllInList = map add289.
+add290ToAllInList = map add290.
+add291ToAllInList = map add291.
+add292ToAllInList = map add292.
+add293ToAllInList = map add293.
+add294ToAllInList = map add294.
+add295ToAllInList = map add295.
+add296ToAllInList = map add296.
+add297ToAllInList = map add297.
+add298ToAllInList = map add298.
+add299ToAllInList = map add299.
+add300ToAllInList = map add300.
+
+newNums1 = add1ToAllInList nums.
+newNums2 = add2ToAllInList nums.
+newNums3 = add3ToAllInList nums.
+newNums4 = add4ToAllInList nums.
+newNums5 = add5ToAllInList nums.
+newNums6 = add6ToAllInList nums.
+newNums7 = add7ToAllInList nums.
+newNums8 = add8ToAllInList nums.
+newNums9 = add9ToAllInList nums.
+newNums10 = add10ToAllInList nums.
+newNums11 = add11ToAllInList nums.
+newNums12 = add12ToAllInList nums.
+newNums13 = add13ToAllInList nums.
+newNums14 = add14ToAllInList nums.
+newNums15 = add15ToAllInList nums.
+newNums16 = add16ToAllInList nums.
+newNums17 = add17ToAllInList nums.
+newNums18 = add18ToAllInList nums.
+newNums19 = add19ToAllInList nums.
+newNums20 = add20ToAllInList nums.
+newNums21 = add21ToAllInList nums.
+newNums22 = add22ToAllInList nums.
+newNums23 = add23ToAllInList nums.
+newNums24 = add24ToAllInList nums.
+newNums25 = add25ToAllInList nums.
+newNums26 = add26ToAllInList nums.
+newNums27 = add27ToAllInList nums.
+newNums28 = add28ToAllInList nums.
+newNums29 = add29ToAllInList nums.
+newNums30 = add30ToAllInList nums.
+newNums31 = add31ToAllInList nums.
+newNums32 = add32ToAllInList nums.
+newNums33 = add33ToAllInList nums.
+newNums34 = add34ToAllInList nums.
+newNums35 = add35ToAllInList nums.
+newNums36 = add36ToAllInList nums.
+newNums37 = add37ToAllInList nums.
+newNums38 = add38ToAllInList nums.
+newNums39 = add39ToAllInList nums.
+newNums40 = add40ToAllInList nums.
+newNums41 = add41ToAllInList nums.
+newNums42 = add42ToAllInList nums.
+newNums43 = add43ToAllInList nums.
+newNums44 = add44ToAllInList nums.
+newNums45 = add45ToAllInList nums.
+newNums46 = add46ToAllInList nums.
+newNums47 = add47ToAllInList nums.
+newNums48 = add48ToAllInList nums.
+newNums49 = add49ToAllInList nums.
+newNums50 = add50ToAllInList nums.
+newNums51 = add51ToAllInList nums.
+newNums52 = add52ToAllInList nums.
+newNums53 = add53ToAllInList nums.
+newNums54 = add54ToAllInList nums.
+newNums55 = add55ToAllInList nums.
+newNums56 = add56ToAllInList nums.
+newNums57 = add57ToAllInList nums.
+newNums58 = add58ToAllInList nums.
+newNums59 = add59ToAllInList nums.
+newNums60 = add60ToAllInList nums.
+newNums61 = add61ToAllInList nums.
+newNums62 = add62ToAllInList nums.
+newNums63 = add63ToAllInList nums.
+newNums64 = add64ToAllInList nums.
+newNums65 = add65ToAllInList nums.
+newNums66 = add66ToAllInList nums.
+newNums67 = add67ToAllInList nums.
+newNums68 = add68ToAllInList nums.
+newNums69 = add69ToAllInList nums.
+newNums70 = add70ToAllInList nums.
+newNums71 = add71ToAllInList nums.
+newNums72 = add72ToAllInList nums.
+newNums73 = add73ToAllInList nums.
+newNums74 = add74ToAllInList nums.
+newNums75 = add75ToAllInList nums.
+newNums76 = add76ToAllInList nums.
+newNums77 = add77ToAllInList nums.
+newNums78 = add78ToAllInList nums.
+newNums79 = add79ToAllInList nums.
+newNums80 = add80ToAllInList nums.
+newNums81 = add81ToAllInList nums.
+newNums82 = add82ToAllInList nums.
+newNums83 = add83ToAllInList nums.
+newNums84 = add84ToAllInList nums.
+newNums85 = add85ToAllInList nums.
+newNums86 = add86ToAllInList nums.
+newNums87 = add87ToAllInList nums.
+newNums88 = add88ToAllInList nums.
+newNums89 = add89ToAllInList nums.
+newNums90 = add90ToAllInList nums.
+newNums91 = add91ToAllInList nums.
+newNums92 = add92ToAllInList nums.
+newNums93 = add93ToAllInList nums.
+newNums94 = add94ToAllInList nums.
+newNums95 = add95ToAllInList nums.
+newNums96 = add96ToAllInList nums.
+newNums97 = add97ToAllInList nums.
+newNums98 = add98ToAllInList nums.
+newNums99 = add99ToAllInList nums.
+newNums100 = add100ToAllInList nums.
+newNums101 = add101ToAllInList nums.
+newNums102 = add102ToAllInList nums.
+newNums103 = add103ToAllInList nums.
+newNums104 = add104ToAllInList nums.
+newNums105 = add105ToAllInList nums.
+newNums106 = add106ToAllInList nums.
+newNums107 = add107ToAllInList nums.
+newNums108 = add108ToAllInList nums.
+newNums109 = add109ToAllInList nums.
+newNums110 = add110ToAllInList nums.
+newNums111 = add111ToAllInList nums.
+newNums112 = add112ToAllInList nums.
+newNums113 = add113ToAllInList nums.
+newNums114 = add114ToAllInList nums.
+newNums115 = add115ToAllInList nums.
+newNums116 = add116ToAllInList nums.
+newNums117 = add117ToAllInList nums.
+newNums118 = add118ToAllInList nums.
+newNums119 = add119ToAllInList nums.
+newNums120 = add120ToAllInList nums.
+newNums121 = add121ToAllInList nums.
+newNums122 = add122ToAllInList nums.
+newNums123 = add123ToAllInList nums.
+newNums124 = add124ToAllInList nums.
+newNums125 = add125ToAllInList nums.
+newNums126 = add126ToAllInList nums.
+newNums127 = add127ToAllInList nums.
+newNums128 = add128ToAllInList nums.
+newNums129 = add129ToAllInList nums.
+newNums130 = add130ToAllInList nums.
+newNums131 = add131ToAllInList nums.
+newNums132 = add132ToAllInList nums.
+newNums133 = add133ToAllInList nums.
+newNums134 = add134ToAllInList nums.
+newNums135 = add135ToAllInList nums.
+newNums136 = add136ToAllInList nums.
+newNums137 = add137ToAllInList nums.
+newNums138 = add138ToAllInList nums.
+newNums139 = add139ToAllInList nums.
+newNums140 = add140ToAllInList nums.
+newNums141 = add141ToAllInList nums.
+newNums142 = add142ToAllInList nums.
+newNums143 = add143ToAllInList nums.
+newNums144 = add144ToAllInList nums.
+newNums145 = add145ToAllInList nums.
+newNums146 = add146ToAllInList nums.
+newNums147 = add147ToAllInList nums.
+newNums148 = add148ToAllInList nums.
+newNums149 = add149ToAllInList nums.
+newNums150 = add150ToAllInList nums.
+newNums151 = add151ToAllInList nums.
+newNums152 = add152ToAllInList nums.
+newNums153 = add153ToAllInList nums.
+newNums154 = add154ToAllInList nums.
+newNums155 = add155ToAllInList nums.
+newNums156 = add156ToAllInList nums.
+newNums157 = add157ToAllInList nums.
+newNums158 = add158ToAllInList nums.
+newNums159 = add159ToAllInList nums.
+newNums160 = add160ToAllInList nums.
+newNums161 = add161ToAllInList nums.
+newNums162 = add162ToAllInList nums.
+newNums163 = add163ToAllInList nums.
+newNums164 = add164ToAllInList nums.
+newNums165 = add165ToAllInList nums.
+newNums166 = add166ToAllInList nums.
+newNums167 = add167ToAllInList nums.
+newNums168 = add168ToAllInList nums.
+newNums169 = add169ToAllInList nums.
+newNums170 = add170ToAllInList nums.
+newNums171 = add171ToAllInList nums.
+newNums172 = add172ToAllInList nums.
+newNums173 = add173ToAllInList nums.
+newNums174 = add174ToAllInList nums.
+newNums175 = add175ToAllInList nums.
+newNums176 = add176ToAllInList nums.
+newNums177 = add177ToAllInList nums.
+newNums178 = add178ToAllInList nums.
+newNums179 = add179ToAllInList nums.
+newNums180 = add180ToAllInList nums.
+newNums181 = add181ToAllInList nums.
+newNums182 = add182ToAllInList nums.
+newNums183 = add183ToAllInList nums.
+newNums184 = add184ToAllInList nums.
+newNums185 = add185ToAllInList nums.
+newNums186 = add186ToAllInList nums.
+newNums187 = add187ToAllInList nums.
+newNums188 = add188ToAllInList nums.
+newNums189 = add189ToAllInList nums.
+newNums190 = add190ToAllInList nums.
+newNums191 = add191ToAllInList nums.
+newNums192 = add192ToAllInList nums.
+newNums193 = add193ToAllInList nums.
+newNums194 = add194ToAllInList nums.
+newNums195 = add195ToAllInList nums.
+newNums196 = add196ToAllInList nums.
+newNums197 = add197ToAllInList nums.
+newNums198 = add198ToAllInList nums.
+newNums199 = add199ToAllInList nums.
+newNums200 = add200ToAllInList nums.
+newNums201 = add201ToAllInList nums.
+newNums202 = add202ToAllInList nums.
+newNums203 = add203ToAllInList nums.
+newNums204 = add204ToAllInList nums.
+newNums205 = add205ToAllInList nums.
+newNums206 = add206ToAllInList nums.
+newNums207 = add207ToAllInList nums.
+newNums208 = add208ToAllInList nums.
+newNums209 = add209ToAllInList nums.
+newNums210 = add210ToAllInList nums.
+newNums211 = add211ToAllInList nums.
+newNums212 = add212ToAllInList nums.
+newNums213 = add213ToAllInList nums.
+newNums214 = add214ToAllInList nums.
+newNums215 = add215ToAllInList nums.
+newNums216 = add216ToAllInList nums.
+newNums217 = add217ToAllInList nums.
+newNums218 = add218ToAllInList nums.
+newNums219 = add219ToAllInList nums.
+newNums220 = add220ToAllInList nums.
+newNums221 = add221ToAllInList nums.
+newNums222 = add222ToAllInList nums.
+newNums223 = add223ToAllInList nums.
+newNums224 = add224ToAllInList nums.
+newNums225 = add225ToAllInList nums.
+newNums226 = add226ToAllInList nums.
+newNums227 = add227ToAllInList nums.
+newNums228 = add228ToAllInList nums.
+newNums229 = add229ToAllInList nums.
+newNums230 = add230ToAllInList nums.
+newNums231 = add231ToAllInList nums.
+newNums232 = add232ToAllInList nums.
+newNums233 = add233ToAllInList nums.
+newNums234 = add234ToAllInList nums.
+newNums235 = add235ToAllInList nums.
+newNums236 = add236ToAllInList nums.
+newNums237 = add237ToAllInList nums.
+newNums238 = add238ToAllInList nums.
+newNums239 = add239ToAllInList nums.
+newNums240 = add240ToAllInList nums.
+newNums241 = add241ToAllInList nums.
+newNums242 = add242ToAllInList nums.
+newNums243 = add243ToAllInList nums.
+newNums244 = add244ToAllInList nums.
+newNums245 = add245ToAllInList nums.
+newNums246 = add246ToAllInList nums.
+newNums247 = add247ToAllInList nums.
+newNums248 = add248ToAllInList nums.
+newNums249 = add249ToAllInList nums.
+newNums250 = add250ToAllInList nums.
+newNums251 = add251ToAllInList nums.
+newNums252 = add252ToAllInList nums.
+newNums253 = add253ToAllInList nums.
+newNums254 = add254ToAllInList nums.
+newNums255 = add255ToAllInList nums.
+newNums256 = add256ToAllInList nums.
+newNums257 = add257ToAllInList nums.
+newNums258 = add258ToAllInList nums.
+newNums259 = add259ToAllInList nums.
+newNums260 = add260ToAllInList nums.
+newNums261 = add261ToAllInList nums.
+newNums262 = add262ToAllInList nums.
+newNums263 = add263ToAllInList nums.
+newNums264 = add264ToAllInList nums.
+newNums265 = add265ToAllInList nums.
+newNums266 = add266ToAllInList nums.
+newNums267 = add267ToAllInList nums.
+newNums268 = add268ToAllInList nums.
+newNums269 = add269ToAllInList nums.
+newNums270 = add270ToAllInList nums.
+newNums271 = add271ToAllInList nums.
+newNums272 = add272ToAllInList nums.
+newNums273 = add273ToAllInList nums.
+newNums274 = add274ToAllInList nums.
+newNums275 = add275ToAllInList nums.
+newNums276 = add276ToAllInList nums.
+newNums277 = add277ToAllInList nums.
+newNums278 = add278ToAllInList nums.
+newNums279 = add279ToAllInList nums.
+newNums280 = add280ToAllInList nums.
+newNums281 = add281ToAllInList nums.
+newNums282 = add282ToAllInList nums.
+newNums283 = add283ToAllInList nums.
+newNums284 = add284ToAllInList nums.
+newNums285 = add285ToAllInList nums.
+newNums286 = add286ToAllInList nums.
+newNums287 = add287ToAllInList nums.
+newNums288 = add288ToAllInList nums.
+newNums289 = add289ToAllInList nums.
+newNums290 = add290ToAllInList nums.
+newNums291 = add291ToAllInList nums.
+newNums292 = add292ToAllInList nums.
+newNums293 = add293ToAllInList nums.
+newNums294 = add294ToAllInList nums.
+newNums295 = add295ToAllInList nums.
+newNums296 = add296ToAllInList nums.
+newNums297 = add297ToAllInList nums.
+newNums298 = add298ToAllInList nums.
+newNums299 = add299ToAllInList nums.
+newNums300 = add300ToAllInList nums.
+
+print! newNums1.
+print! newNums2.
+print! newNums3.
+print! newNums4.
+print! newNums5.
+print! newNums6.
+print! newNums7.
+print! newNums8.
+print! newNums9.
+print! newNums10.
+print! newNums11.
+print! newNums12.
+print! newNums13.
+print! newNums14.
+print! newNums15.
+print! newNums16.
+print! newNums17.
+print! newNums18.
+print! newNums19.
+print! newNums20.
+print! newNums21.
+print! newNums22.
+print! newNums23.
+print! newNums24.
+print! newNums25.
+print! newNums26.
+print! newNums27.
+print! newNums28.
+print! newNums29.
+print! newNums30.
+print! newNums31.
+print! newNums32.
+print! newNums33.
+print! newNums34.
+print! newNums35.
+print! newNums36.
+print! newNums37.
+print! newNums38.
+print! newNums39.
+print! newNums40.
+print! newNums41.
+print! newNums42.
+print! newNums43.
+print! newNums44.
+print! newNums45.
+print! newNums46.
+print! newNums47.
+print! newNums48.
+print! newNums49.
+print! newNums50.
+print! newNums51.
+print! newNums52.
+print! newNums53.
+print! newNums54.
+print! newNums55.
+print! newNums56.
+print! newNums57.
+print! newNums58.
+print! newNums59.
+print! newNums60.
+print! newNums61.
+print! newNums62.
+print! newNums63.
+print! newNums64.
+print! newNums65.
+print! newNums66.
+print! newNums67.
+print! newNums68.
+print! newNums69.
+print! newNums70.
+print! newNums71.
+print! newNums72.
+print! newNums73.
+print! newNums74.
+print! newNums75.
+print! newNums76.
+print! newNums77.
+print! newNums78.
+print! newNums79.
+print! newNums80.
+print! newNums81.
+print! newNums82.
+print! newNums83.
+print! newNums84.
+print! newNums85.
+print! newNums86.
+print! newNums87.
+print! newNums88.
+print! newNums89.
+print! newNums90.
+print! newNums91.
+print! newNums92.
+print! newNums93.
+print! newNums94.
+print! newNums95.
+print! newNums96.
+print! newNums97.
+print! newNums98.
+print! newNums99.
+print! newNums100.
+print! newNums101.
+print! newNums102.
+print! newNums103.
+print! newNums104.
+print! newNums105.
+print! newNums106.
+print! newNums107.
+print! newNums108.
+print! newNums109.
+print! newNums110.
+print! newNums111.
+print! newNums112.
+print! newNums113.
+print! newNums114.
+print! newNums115.
+print! newNums116.
+print! newNums117.
+print! newNums118.
+print! newNums119.
+print! newNums120.
+print! newNums121.
+print! newNums122.
+print! newNums123.
+print! newNums124.
+print! newNums125.
+print! newNums126.
+print! newNums127.
+print! newNums128.
+print! newNums129.
+print! newNums130.
+print! newNums131.
+print! newNums132.
+print! newNums133.
+print! newNums134.
+print! newNums135.
+print! newNums136.
+print! newNums137.
+print! newNums138.
+print! newNums139.
+print! newNums140.
+print! newNums141.
+print! newNums142.
+print! newNums143.
+print! newNums144.
+print! newNums145.
+print! newNums146.
+print! newNums147.
+print! newNums148.
+print! newNums149.
+print! newNums150.
+print! newNums151.
+print! newNums152.
+print! newNums153.
+print! newNums154.
+print! newNums155.
+print! newNums156.
+print! newNums157.
+print! newNums158.
+print! newNums159.
+print! newNums160.
+print! newNums161.
+print! newNums162.
+print! newNums163.
+print! newNums164.
+print! newNums165.
+print! newNums166.
+print! newNums167.
+print! newNums168.
+print! newNums169.
+print! newNums170.
+print! newNums171.
+print! newNums172.
+print! newNums173.
+print! newNums174.
+print! newNums175.
+print! newNums176.
+print! newNums177.
+print! newNums178.
+print! newNums179.
+print! newNums180.
+print! newNums181.
+print! newNums182.
+print! newNums183.
+print! newNums184.
+print! newNums185.
+print! newNums186.
+print! newNums187.
+print! newNums188.
+print! newNums189.
+print! newNums190.
+print! newNums191.
+print! newNums192.
+print! newNums193.
+print! newNums194.
+print! newNums195.
+print! newNums196.
+print! newNums197.
+print! newNums198.
+print! newNums199.
+print! newNums200.
+print! newNums201.
+print! newNums202.
+print! newNums203.
+print! newNums204.
+print! newNums205.
+print! newNums206.
+print! newNums207.
+print! newNums208.
+print! newNums209.
+print! newNums210.
+print! newNums211.
+print! newNums212.
+print! newNums213.
+print! newNums214.
+print! newNums215.
+print! newNums216.
+print! newNums217.
+print! newNums218.
+print! newNums219.
+print! newNums220.
+print! newNums221.
+print! newNums222.
+print! newNums223.
+print! newNums224.
+print! newNums225.
+print! newNums226.
+print! newNums227.
+print! newNums228.
+print! newNums229.
+print! newNums230.
+print! newNums231.
+print! newNums232.
+print! newNums233.
+print! newNums234.
+print! newNums235.
+print! newNums236.
+print! newNums237.
+print! newNums238.
+print! newNums239.
+print! newNums240.
+print! newNums241.
+print! newNums242.
+print! newNums243.
+print! newNums244.
+print! newNums245.
+print! newNums246.
+print! newNums247.
+print! newNums248.
+print! newNums249.
+print! newNums250.
+print! newNums251.
+print! newNums252.
+print! newNums253.
+print! newNums254.
+print! newNums255.
+print! newNums256.
+print! newNums257.
+print! newNums258.
+print! newNums259.
+print! newNums260.
+print! newNums261.
+print! newNums262.
+print! newNums263.
+print! newNums264.
+print! newNums265.
+print! newNums266.
+print! newNums267.
+print! newNums268.
+print! newNums269.
+print! newNums270.
+print! newNums271.
+print! newNums272.
+print! newNums273.
+print! newNums274.
+print! newNums275.
+print! newNums276.
+print! newNums277.
+print! newNums278.
+print! newNums279.
+print! newNums280.
+print! newNums281.
+print! newNums282.
+print! newNums283.
+print! newNums284.
+print! newNums285.
+print! newNums286.
+print! newNums287.
+print! newNums288.
+print! newNums289.
+print! newNums290.
+print! newNums291.
+print! newNums292.
+print! newNums293.
+print! newNums294.
+print! newNums295.
+print! newNums296.
+print! newNums297.
+print! newNums298.
+print! newNums299.
+print! newNums300.
+
+print! $ (hd newNums1) == 11.
+print! $ (hd newNums2) == 11.
+print! $ (hd newNums3) == 11.
+print! $ (hd newNums4) == 11.
+print! $ (hd newNums5) == 11.
+print! $ (hd newNums6) == 11.
+print! $ (hd newNums7) == 11.
+print! $ (hd newNums8) == 11.
+print! $ (hd newNums9) == 11.
+print! $ (hd newNums10) == 11.
+print! $ (hd newNums11) == 11.
+print! $ (hd newNums12) == 11.
+print! $ (hd newNums13) == 11.
+print! $ (hd newNums14) == 11.
+print! $ (hd newNums15) == 11.
+print! $ (hd newNums16) == 11.
+print! $ (hd newNums17) == 11.
+print! $ (hd newNums18) == 11.
+print! $ (hd newNums19) == 11.
+print! $ (hd newNums20) == 11.
+print! $ (hd newNums21) == 11.
+print! $ (hd newNums22) == 11.
+print! $ (hd newNums23) == 11.
+print! $ (hd newNums24) == 11.
+print! $ (hd newNums25) == 11.
+print! $ (hd newNums26) == 11.
+print! $ (hd newNums27) == 11.
+print! $ (hd newNums28) == 11.
+print! $ (hd newNums29) == 11.
+print! $ (hd newNums30) == 11.
+print! $ (hd newNums31) == 11.
+print! $ (hd newNums32) == 11.
+print! $ (hd newNums33) == 11.
+print! $ (hd newNums34) == 11.
+print! $ (hd newNums35) == 11.
+print! $ (hd newNums36) == 11.
+print! $ (hd newNums37) == 11.
+print! $ (hd newNums38) == 11.
+print! $ (hd newNums39) == 11.
+print! $ (hd newNums40) == 11.
+print! $ (hd newNums41) == 11.
+print! $ (hd newNums42) == 11.
+print! $ (hd newNums43) == 11.
+print! $ (hd newNums44) == 11.
+print! $ (hd newNums45) == 11.
+print! $ (hd newNums46) == 11.
+print! $ (hd newNums47) == 11.
+print! $ (hd newNums48) == 11.
+print! $ (hd newNums49) == 11.
+print! $ (hd newNums50) == 11.
+print! $ (hd newNums51) == 11.
+print! $ (hd newNums52) == 11.
+print! $ (hd newNums53) == 11.
+print! $ (hd newNums54) == 11.
+print! $ (hd newNums55) == 11.
+print! $ (hd newNums56) == 11.
+print! $ (hd newNums57) == 11.
+print! $ (hd newNums58) == 11.
+print! $ (hd newNums59) == 11.
+print! $ (hd newNums60) == 11.
+print! $ (hd newNums61) == 11.
+print! $ (hd newNums62) == 11.
+print! $ (hd newNums63) == 11.
+print! $ (hd newNums64) == 11.
+print! $ (hd newNums65) == 11.
+print! $ (hd newNums66) == 11.
+print! $ (hd newNums67) == 11.
+print! $ (hd newNums68) == 11.
+print! $ (hd newNums69) == 11.
+print! $ (hd newNums70) == 11.
+print! $ (hd newNums71) == 11.
+print! $ (hd newNums72) == 11.
+print! $ (hd newNums73) == 11.
+print! $ (hd newNums74) == 11.
+print! $ (hd newNums75) == 11.
+print! $ (hd newNums76) == 11.
+print! $ (hd newNums77) == 11.
+print! $ (hd newNums78) == 11.
+print! $ (hd newNums79) == 11.
+print! $ (hd newNums80) == 11.
+print! $ (hd newNums81) == 11.
+print! $ (hd newNums82) == 11.
+print! $ (hd newNums83) == 11.
+print! $ (hd newNums84) == 11.
+print! $ (hd newNums85) == 11.
+print! $ (hd newNums86) == 11.
+print! $ (hd newNums87) == 11.
+print! $ (hd newNums88) == 11.
+print! $ (hd newNums89) == 11.
+print! $ (hd newNums90) == 11.
+print! $ (hd newNums91) == 11.
+print! $ (hd newNums92) == 11.
+print! $ (hd newNums93) == 11.
+print! $ (hd newNums94) == 11.
+print! $ (hd newNums95) == 11.
+print! $ (hd newNums96) == 11.
+print! $ (hd newNums97) == 11.
+print! $ (hd newNums98) == 11.
+print! $ (hd newNums99) == 11.
+print! $ (hd newNums100) == 11.
+print! $ (hd newNums101) == 11.
+print! $ (hd newNums102) == 11.
+print! $ (hd newNums103) == 11.
+print! $ (hd newNums104) == 11.
+print! $ (hd newNums105) == 11.
+print! $ (hd newNums106) == 11.
+print! $ (hd newNums107) == 11.
+print! $ (hd newNums108) == 11.
+print! $ (hd newNums109) == 11.
+print! $ (hd newNums110) == 11.
+print! $ (hd newNums111) == 11.
+print! $ (hd newNums112) == 11.
+print! $ (hd newNums113) == 11.
+print! $ (hd newNums114) == 11.
+print! $ (hd newNums115) == 11.
+print! $ (hd newNums116) == 11.
+print! $ (hd newNums117) == 11.
+print! $ (hd newNums118) == 11.
+print! $ (hd newNums119) == 11.
+print! $ (hd newNums120) == 11.
+print! $ (hd newNums121) == 11.
+print! $ (hd newNums122) == 11.
+print! $ (hd newNums123) == 11.
+print! $ (hd newNums124) == 11.
+print! $ (hd newNums125) == 11.
+print! $ (hd newNums126) == 11.
+print! $ (hd newNums127) == 11.
+print! $ (hd newNums128) == 11.
+print! $ (hd newNums129) == 11.
+print! $ (hd newNums130) == 11.
+print! $ (hd newNums131) == 11.
+print! $ (hd newNums132) == 11.
+print! $ (hd newNums133) == 11.
+print! $ (hd newNums134) == 11.
+print! $ (hd newNums135) == 11.
+print! $ (hd newNums136) == 11.
+print! $ (hd newNums137) == 11.
+print! $ (hd newNums138) == 11.
+print! $ (hd newNums139) == 11.
+print! $ (hd newNums140) == 11.
+print! $ (hd newNums141) == 11.
+print! $ (hd newNums142) == 11.
+print! $ (hd newNums143) == 11.
+print! $ (hd newNums144) == 11.
+print! $ (hd newNums145) == 11.
+print! $ (hd newNums146) == 11.
+print! $ (hd newNums147) == 11.
+print! $ (hd newNums148) == 11.
+print! $ (hd newNums149) == 11.
+print! $ (hd newNums150) == 11.
+print! $ (hd newNums151) == 11.
+print! $ (hd newNums152) == 11.
+print! $ (hd newNums153) == 11.
+print! $ (hd newNums154) == 11.
+print! $ (hd newNums155) == 11.
+print! $ (hd newNums156) == 11.
+print! $ (hd newNums157) == 11.
+print! $ (hd newNums158) == 11.
+print! $ (hd newNums159) == 11.
+print! $ (hd newNums160) == 11.
+print! $ (hd newNums161) == 11.
+print! $ (hd newNums162) == 11.
+print! $ (hd newNums163) == 11.
+print! $ (hd newNums164) == 11.
+print! $ (hd newNums165) == 11.
+print! $ (hd newNums166) == 11.
+print! $ (hd newNums167) == 11.
+print! $ (hd newNums168) == 11.
+print! $ (hd newNums169) == 11.
+print! $ (hd newNums170) == 11.
+print! $ (hd newNums171) == 11.
+print! $ (hd newNums172) == 11.
+print! $ (hd newNums173) == 11.
+print! $ (hd newNums174) == 11.
+print! $ (hd newNums175) == 11.
+print! $ (hd newNums176) == 11.
+print! $ (hd newNums177) == 11.
+print! $ (hd newNums178) == 11.
+print! $ (hd newNums179) == 11.
+print! $ (hd newNums180) == 11.
+print! $ (hd newNums181) == 11.
+print! $ (hd newNums182) == 11.
+print! $ (hd newNums183) == 11.
+print! $ (hd newNums184) == 11.
+print! $ (hd newNums185) == 11.
+print! $ (hd newNums186) == 11.
+print! $ (hd newNums187) == 11.
+print! $ (hd newNums188) == 11.
+print! $ (hd newNums189) == 11.
+print! $ (hd newNums190) == 11.
+print! $ (hd newNums191) == 11.
+print! $ (hd newNums192) == 11.
+print! $ (hd newNums193) == 11.
+print! $ (hd newNums194) == 11.
+print! $ (hd newNums195) == 11.
+print! $ (hd newNums196) == 11.
+print! $ (hd newNums197) == 11.
+print! $ (hd newNums198) == 11.
+print! $ (hd newNums199) == 11.
+print! $ (hd newNums200) == 11.
+print! $ (hd newNums201) == 11.
+print! $ (hd newNums202) == 11.
+print! $ (hd newNums203) == 11.
+print! $ (hd newNums204) == 11.
+print! $ (hd newNums205) == 11.
+print! $ (hd newNums206) == 11.
+print! $ (hd newNums207) == 11.
+print! $ (hd newNums208) == 11.
+print! $ (hd newNums209) == 11.
+print! $ (hd newNums210) == 11.
+print! $ (hd newNums211) == 11.
+print! $ (hd newNums212) == 11.
+print! $ (hd newNums213) == 11.
+print! $ (hd newNums214) == 11.
+print! $ (hd newNums215) == 11.
+print! $ (hd newNums216) == 11.
+print! $ (hd newNums217) == 11.
+print! $ (hd newNums218) == 11.
+print! $ (hd newNums219) == 11.
+print! $ (hd newNums220) == 11.
+print! $ (hd newNums221) == 11.
+print! $ (hd newNums222) == 11.
+print! $ (hd newNums223) == 11.
+print! $ (hd newNums224) == 11.
+print! $ (hd newNums225) == 11.
+print! $ (hd newNums226) == 11.
+print! $ (hd newNums227) == 11.
+print! $ (hd newNums228) == 11.
+print! $ (hd newNums229) == 11.
+print! $ (hd newNums230) == 11.
+print! $ (hd newNums231) == 11.
+print! $ (hd newNums232) == 11.
+print! $ (hd newNums233) == 11.
+print! $ (hd newNums234) == 11.
+print! $ (hd newNums235) == 11.
+print! $ (hd newNums236) == 11.
+print! $ (hd newNums237) == 11.
+print! $ (hd newNums238) == 11.
+print! $ (hd newNums239) == 11.
+print! $ (hd newNums240) == 11.
+print! $ (hd newNums241) == 11.
+print! $ (hd newNums242) == 11.
+print! $ (hd newNums243) == 11.
+print! $ (hd newNums244) == 11.
+print! $ (hd newNums245) == 11.
+print! $ (hd newNums246) == 11.
+print! $ (hd newNums247) == 11.
+print! $ (hd newNums248) == 11.
+print! $ (hd newNums249) == 11.
+print! $ (hd newNums250) == 11.
+print! $ (hd newNums251) == 11.
+print! $ (hd newNums252) == 11.
+print! $ (hd newNums253) == 11.
+print! $ (hd newNums254) == 11.
+print! $ (hd newNums255) == 11.
+print! $ (hd newNums256) == 11.
+print! $ (hd newNums257) == 11.
+print! $ (hd newNums258) == 11.
+print! $ (hd newNums259) == 11.
+print! $ (hd newNums260) == 11.
+print! $ (hd newNums261) == 11.
+print! $ (hd newNums262) == 11.
+print! $ (hd newNums263) == 11.
+print! $ (hd newNums264) == 11.
+print! $ (hd newNums265) == 11.
+print! $ (hd newNums266) == 11.
+print! $ (hd newNums267) == 11.
+print! $ (hd newNums268) == 11.
+print! $ (hd newNums269) == 11.
+print! $ (hd newNums270) == 11.
+print! $ (hd newNums271) == 11.
+print! $ (hd newNums272) == 11.
+print! $ (hd newNums273) == 11.
+print! $ (hd newNums274) == 11.
+print! $ (hd newNums275) == 11.
+print! $ (hd newNums276) == 11.
+print! $ (hd newNums277) == 11.
+print! $ (hd newNums278) == 11.
+print! $ (hd newNums279) == 11.
+print! $ (hd newNums280) == 11.
+print! $ (hd newNums281) == 11.
+print! $ (hd newNums282) == 11.
+print! $ (hd newNums283) == 11.
+print! $ (hd newNums284) == 11.
+print! $ (hd newNums285) == 11.
+print! $ (hd newNums286) == 11.
+print! $ (hd newNums287) == 11.
+print! $ (hd newNums288) == 11.
+print! $ (hd newNums289) == 11.
+print! $ (hd newNums290) == 11.
+print! $ (hd newNums291) == 11.
+print! $ (hd newNums292) == 11.
+print! $ (hd newNums293) == 11.
+print! $ (hd newNums294) == 11.
+print! $ (hd newNums295) == 11.
+print! $ (hd newNums296) == 11.
+print! $ (hd newNums297) == 11.
+print! $ (hd newNums298) == 11.
+print! $ (hd newNums299) == 11.
+print! $ (hd newNums300) == 11.
+
+// Adding 10 to the first element of newNums and printing
+print! $ add10 $ hd newNums1.
+print! $ add10 $ hd newNums2.
+print! $ add10 $ hd newNums3.
+print! $ add10 $ hd newNums4.
+print! $ add10 $ hd newNums5.
+print! $ add10 $ hd newNums6.
+print! $ add10 $ hd newNums7.
+print! $ add10 $ hd newNums8.
+print! $ add10 $ hd newNums9.
+print! $ add10 $ hd newNums10.
+print! $ add10 $ hd newNums11.
+print! $ add10 $ hd newNums12.
+print! $ add10 $ hd newNums13.
+print! $ add10 $ hd newNums14.
+print! $ add10 $ hd newNums15.
+print! $ add10 $ hd newNums16.
+print! $ add10 $ hd newNums17.
+print! $ add10 $ hd newNums18.
+print! $ add10 $ hd newNums19.
+print! $ add10 $ hd newNums20.
+print! $ add10 $ hd newNums21.
+print! $ add10 $ hd newNums22.
+print! $ add10 $ hd newNums23.
+print! $ add10 $ hd newNums24.
+print! $ add10 $ hd newNums25.
+print! $ add10 $ hd newNums26.
+print! $ add10 $ hd newNums27.
+print! $ add10 $ hd newNums28.
+print! $ add10 $ hd newNums29.
+print! $ add10 $ hd newNums30.
+print! $ add10 $ hd newNums31.
+print! $ add10 $ hd newNums32.
+print! $ add10 $ hd newNums33.
+print! $ add10 $ hd newNums34.
+print! $ add10 $ hd newNums35.
+print! $ add10 $ hd newNums36.
+print! $ add10 $ hd newNums37.
+print! $ add10 $ hd newNums38.
+print! $ add10 $ hd newNums39.
+print! $ add10 $ hd newNums40.
+print! $ add10 $ hd newNums41.
+print! $ add10 $ hd newNums42.
+print! $ add10 $ hd newNums43.
+print! $ add10 $ hd newNums44.
+print! $ add10 $ hd newNums45.
+print! $ add10 $ hd newNums46.
+print! $ add10 $ hd newNums47.
+print! $ add10 $ hd newNums48.
+print! $ add10 $ hd newNums49.
+print! $ add10 $ hd newNums50.
+print! $ add10 $ hd newNums51.
+print! $ add10 $ hd newNums52.
+print! $ add10 $ hd newNums53.
+print! $ add10 $ hd newNums54.
+print! $ add10 $ hd newNums55.
+print! $ add10 $ hd newNums56.
+print! $ add10 $ hd newNums57.
+print! $ add10 $ hd newNums58.
+print! $ add10 $ hd newNums59.
+print! $ add10 $ hd newNums60.
+print! $ add10 $ hd newNums61.
+print! $ add10 $ hd newNums62.
+print! $ add10 $ hd newNums63.
+print! $ add10 $ hd newNums64.
+print! $ add10 $ hd newNums65.
+print! $ add10 $ hd newNums66.
+print! $ add10 $ hd newNums67.
+print! $ add10 $ hd newNums68.
+print! $ add10 $ hd newNums69.
+print! $ add10 $ hd newNums70.
+print! $ add10 $ hd newNums71.
+print! $ add10 $ hd newNums72.
+print! $ add10 $ hd newNums73.
+print! $ add10 $ hd newNums74.
+print! $ add10 $ hd newNums75.
+print! $ add10 $ hd newNums76.
+print! $ add10 $ hd newNums77.
+print! $ add10 $ hd newNums78.
+print! $ add10 $ hd newNums79.
+print! $ add10 $ hd newNums80.
+print! $ add10 $ hd newNums81.
+print! $ add10 $ hd newNums82.
+print! $ add10 $ hd newNums83.
+print! $ add10 $ hd newNums84.
+print! $ add10 $ hd newNums85.
+print! $ add10 $ hd newNums86.
+print! $ add10 $ hd newNums87.
+print! $ add10 $ hd newNums88.
+print! $ add10 $ hd newNums89.
+print! $ add10 $ hd newNums90.
+print! $ add10 $ hd newNums91.
+print! $ add10 $ hd newNums92.
+print! $ add10 $ hd newNums93.
+print! $ add10 $ hd newNums94.
+print! $ add10 $ hd newNums95.
+print! $ add10 $ hd newNums96.
+print! $ add10 $ hd newNums97.
+print! $ add10 $ hd newNums98.
+print! $ add10 $ hd newNums99.
+print! $ add10 $ hd newNums100.
+print! $ add10 $ hd newNums101.
+print! $ add10 $ hd newNums102.
+print! $ add10 $ hd newNums103.
+print! $ add10 $ hd newNums104.
+print! $ add10 $ hd newNums105.
+print! $ add10 $ hd newNums106.
+print! $ add10 $ hd newNums107.
+print! $ add10 $ hd newNums108.
+print! $ add10 $ hd newNums109.
+print! $ add10 $ hd newNums110.
+print! $ add10 $ hd newNums111.
+print! $ add10 $ hd newNums112.
+print! $ add10 $ hd newNums113.
+print! $ add10 $ hd newNums114.
+print! $ add10 $ hd newNums115.
+print! $ add10 $ hd newNums116.
+print! $ add10 $ hd newNums117.
+print! $ add10 $ hd newNums118.
+print! $ add10 $ hd newNums119.
+print! $ add10 $ hd newNums120.
+print! $ add10 $ hd newNums121.
+print! $ add10 $ hd newNums122.
+print! $ add10 $ hd newNums123.
+print! $ add10 $ hd newNums124.
+print! $ add10 $ hd newNums125.
+print! $ add10 $ hd newNums126.
+print! $ add10 $ hd newNums127.
+print! $ add10 $ hd newNums128.
+print! $ add10 $ hd newNums129.
+print! $ add10 $ hd newNums130.
+print! $ add10 $ hd newNums131.
+print! $ add10 $ hd newNums132.
+print! $ add10 $ hd newNums133.
+print! $ add10 $ hd newNums134.
+print! $ add10 $ hd newNums135.
+print! $ add10 $ hd newNums136.
+print! $ add10 $ hd newNums137.
+print! $ add10 $ hd newNums138.
+print! $ add10 $ hd newNums139.
+print! $ add10 $ hd newNums140.
+print! $ add10 $ hd newNums141.
+print! $ add10 $ hd newNums142.
+print! $ add10 $ hd newNums143.
+print! $ add10 $ hd newNums144.
+print! $ add10 $ hd newNums145.
+print! $ add10 $ hd newNums146.
+print! $ add10 $ hd newNums147.
+print! $ add10 $ hd newNums148.
+print! $ add10 $ hd newNums149.
+print! $ add10 $ hd newNums150.
+print! $ add10 $ hd newNums151.
+print! $ add10 $ hd newNums152.
+print! $ add10 $ hd newNums153.
+print! $ add10 $ hd newNums154.
+print! $ add10 $ hd newNums155.
+print! $ add10 $ hd newNums156.
+print! $ add10 $ hd newNums157.
+print! $ add10 $ hd newNums158.
+print! $ add10 $ hd newNums159.
+print! $ add10 $ hd newNums160.
+print! $ add10 $ hd newNums161.
+print! $ add10 $ hd newNums162.
+print! $ add10 $ hd newNums163.
+print! $ add10 $ hd newNums164.
+print! $ add10 $ hd newNums165.
+print! $ add10 $ hd newNums166.
+print! $ add10 $ hd newNums167.
+print! $ add10 $ hd newNums168.
+print! $ add10 $ hd newNums169.
+print! $ add10 $ hd newNums170.
+print! $ add10 $ hd newNums171.
+print! $ add10 $ hd newNums172.
+print! $ add10 $ hd newNums173.
+print! $ add10 $ hd newNums174.
+print! $ add10 $ hd newNums175.
+print! $ add10 $ hd newNums176.
+print! $ add10 $ hd newNums177.
+print! $ add10 $ hd newNums178.
+print! $ add10 $ hd newNums179.
+print! $ add10 $ hd newNums180.
+print! $ add10 $ hd newNums181.
+print! $ add10 $ hd newNums182.
+print! $ add10 $ hd newNums183.
+print! $ add10 $ hd newNums184.
+print! $ add10 $ hd newNums185.
+print! $ add10 $ hd newNums186.
+print! $ add10 $ hd newNums187.
+print! $ add10 $ hd newNums188.
+print! $ add10 $ hd newNums189.
+print! $ add10 $ hd newNums190.
+print! $ add10 $ hd newNums191.
+print! $ add10 $ hd newNums192.
+print! $ add10 $ hd newNums193.
+print! $ add10 $ hd newNums194.
+print! $ add10 $ hd newNums195.
+print! $ add10 $ hd newNums196.
+print! $ add10 $ hd newNums197.
+print! $ add10 $ hd newNums198.
+print! $ add10 $ hd newNums199.
+print! $ add10 $ hd newNums200.
+print! $ add10 $ hd newNums201.
+print! $ add10 $ hd newNums202.
+print! $ add10 $ hd newNums203.
+print! $ add10 $ hd newNums204.
+print! $ add10 $ hd newNums205.
+print! $ add10 $ hd newNums206.
+print! $ add10 $ hd newNums207.
+print! $ add10 $ hd newNums208.
+print! $ add10 $ hd newNums209.
+print! $ add10 $ hd newNums210.
+print! $ add10 $ hd newNums211.
+print! $ add10 $ hd newNums212.
+print! $ add10 $ hd newNums213.
+print! $ add10 $ hd newNums214.
+print! $ add10 $ hd newNums215.
+print! $ add10 $ hd newNums216.
+print! $ add10 $ hd newNums217.
+print! $ add10 $ hd newNums218.
+print! $ add10 $ hd newNums219.
+print! $ add10 $ hd newNums220.
+print! $ add10 $ hd newNums221.
+print! $ add10 $ hd newNums222.
+print! $ add10 $ hd newNums223.
+print! $ add10 $ hd newNums224.
+print! $ add10 $ hd newNums225.
+print! $ add10 $ hd newNums226.
+print! $ add10 $ hd newNums227.
+print! $ add10 $ hd newNums228.
+print! $ add10 $ hd newNums229.
+print! $ add10 $ hd newNums230.
+print! $ add10 $ hd newNums231.
+print! $ add10 $ hd newNums232.
+print! $ add10 $ hd newNums233.
+print! $ add10 $ hd newNums234.
+print! $ add10 $ hd newNums235.
+print! $ add10 $ hd newNums236.
+print! $ add10 $ hd newNums237.
+print! $ add10 $ hd newNums238.
+print! $ add10 $ hd newNums239.
+print! $ add10 $ hd newNums240.
+print! $ add10 $ hd newNums241.
+print! $ add10 $ hd newNums242.
+print! $ add10 $ hd newNums243.
+print! $ add10 $ hd newNums244.
+print! $ add10 $ hd newNums245.
+print! $ add10 $ hd newNums246.
+print! $ add10 $ hd newNums247.
+print! $ add10 $ hd newNums248.
+print! $ add10 $ hd newNums249.
+print! $ add10 $ hd newNums250.
+print! $ add10 $ hd newNums251.
+print! $ add10 $ hd newNums252.
+print! $ add10 $ hd newNums253.
+print! $ add10 $ hd newNums254.
+print! $ add10 $ hd newNums255.
+print! $ add10 $ hd newNums256.
+print! $ add10 $ hd newNums257.
+print! $ add10 $ hd newNums258.
+print! $ add10 $ hd newNums259.
+print! $ add10 $ hd newNums260.
+print! $ add10 $ hd newNums261.
+print! $ add10 $ hd newNums262.
+print! $ add10 $ hd newNums263.
+print! $ add10 $ hd newNums264.
+print! $ add10 $ hd newNums265.
+print! $ add10 $ hd newNums266.
+print! $ add10 $ hd newNums267.
+print! $ add10 $ hd newNums268.
+print! $ add10 $ hd newNums269.
+print! $ add10 $ hd newNums270.
+print! $ add10 $ hd newNums271.
+print! $ add10 $ hd newNums272.
+print! $ add10 $ hd newNums273.
+print! $ add10 $ hd newNums274.
+print! $ add10 $ hd newNums275.
+print! $ add10 $ hd newNums276.
+print! $ add10 $ hd newNums277.
+print! $ add10 $ hd newNums278.
+print! $ add10 $ hd newNums279.
+print! $ add10 $ hd newNums280.
+print! $ add10 $ hd newNums281.
+print! $ add10 $ hd newNums282.
+print! $ add10 $ hd newNums283.
+print! $ add10 $ hd newNums284.
+print! $ add10 $ hd newNums285.
+print! $ add10 $ hd newNums286.
+print! $ add10 $ hd newNums287.
+print! $ add10 $ hd newNums288.
+print! $ add10 $ hd newNums289.
+print! $ add10 $ hd newNums290.
+print! $ add10 $ hd newNums291.
+print! $ add10 $ hd newNums292.
+print! $ add10 $ hd newNums293.
+print! $ add10 $ hd newNums294.
+print! $ add10 $ hd newNums295.
+print! $ add10 $ hd newNums296.
+print! $ add10 $ hd newNums297.
+print! $ add10 $ hd newNums298.
+print! $ add10 $ hd newNums299.
+print! $ add10 $ hd newNums300.

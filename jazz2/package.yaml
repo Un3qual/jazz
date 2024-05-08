@@ -1,10 +1,10 @@
 name:                jazz
 version:             0.1.0.0
-github:              "githubuser/jazz"
-license:             BSD-3-Clause
-author:              "Author name here"
+github:              "un3qual/jazz"
+license:             MIT
+author:              "Ryan Ramsdell"
 maintainer:          "example@example.com"
-copyright:           "2024 Author name here"
+copyright:           "2024 Ryan Ramsdell"
 
 extra-source-files:
 - README.md
@@ -21,6 +21,31 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - base >= 4.7 && < 5
+- megaparsec
+- text
+- containers
+- parser-combinators
+- process
+- file-embed
+- string-conversions
+- directory
+- unix
+- diagnose
+- haskeline
+- prettyprinter
+- prettyprinter-ansi-terminal
+- pretty-show
+- tasty
+- tasty-hunit
+- tasty-hspec
+- hspec
+- string-qq
+- mtl
+- pretty
+- time
+- lens
+- criterion
+- bifunctors
 
 ghc-options:
 - -Wall

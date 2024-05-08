@@ -21,6 +21,7 @@ import           Control.Monad.Reader
 import           Control.Monad.State
 import           Data.List (partition)
 import qualified Data.Map as Map
+import qualified Data.Map.Strict as SMap
 import qualified Data.Set as Set
 import           Data.Text (Text, pack, unpack)
 import Debug.Trace

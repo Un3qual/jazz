@@ -1,4 +1,4 @@
-cabal-version: 2.2
+cabal-version: 1.12
 
 -- This file has been generated from package.yaml by hpack version 0.36.0.
 --
@@ -7,12 +7,12 @@ cabal-version: 2.2
 name:           jazz
 version:        0.1.0.0
 description:    Please see the README on GitHub at <https://github.com/githubuser/jazz#readme>
-homepage:       https://github.com/githubuser/jazz#readme
-bug-reports:    https://github.com/githubuser/jazz/issues
-author:         Author name here
+homepage:       https://github.com/un3qual/jazz#readme
+bug-reports:    https://github.com/un3qual/jazz/issues
+author:         Ryan Ramsdell
 maintainer:     example@example.com
-copyright:      2024 Author name here
-license:        BSD-3-Clause
+copyright:      2024 Ryan Ramsdell
+license:        MIT
 license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
@@ -21,34 +21,86 @@ extra-source-files:
 
 source-repository head
   type: git
-  location: https://github.com/githubuser/jazz
+  location: https://github.com/un3qual/jazz
 
 library
   exposed-modules:
-      Lib
+      Jazz
+      Jazz.AST
+      Jazz.AST.Declaration
+      Jazz.Lib
+      Jazz.Parser
+      Jazz.Parser.Lexer
+      Jazz.Parser.Monad
   other-modules:
-      Paths_jazz
-  autogen-modules:
       Paths_jazz
   hs-source-dirs:
       src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       base >=4.7 && <5
+    , bifunctors
+    , containers
+    , criterion
+    , diagnose
+    , directory
+    , file-embed
+    , haskeline
+    , hspec
+    , lens
+    , megaparsec
+    , mtl
+    , parser-combinators
+    , pretty
+    , pretty-show
+    , prettyprinter
+    , prettyprinter-ansi-terminal
+    , process
+    , string-conversions
+    , string-qq
+    , tasty
+    , tasty-hspec
+    , tasty-hunit
+    , text
+    , time
+    , unix
   default-language: Haskell2010
 
 executable jazz-exe
   main-is: Main.hs
   other-modules:
       Paths_jazz
-  autogen-modules:
-      Paths_jazz
   hs-source-dirs:
       app
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
+    , bifunctors
+    , containers
+    , criterion
+    , diagnose
+    , directory
+    , file-embed
+    , haskeline
+    , hspec
     , jazz
+    , lens
+    , megaparsec
+    , mtl
+    , parser-combinators
+    , pretty
+    , pretty-show
+    , prettyprinter
+    , prettyprinter-ansi-terminal
+    , process
+    , string-conversions
+    , string-qq
+    , tasty
+    , tasty-hspec
+    , tasty-hunit
+    , text
+    , time
+    , unix
   default-language: Haskell2010
 
 test-suite jazz-test
@@ -56,12 +108,35 @@ test-suite jazz-test
   main-is: Spec.hs
   other-modules:
       Paths_jazz
-  autogen-modules:
-      Paths_jazz
   hs-source-dirs:
       test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
+    , bifunctors
+    , containers
+    , criterion
+    , diagnose
+    , directory
+    , file-embed
+    , haskeline
+    , hspec
     , jazz
+    , lens
+    , megaparsec
+    , mtl
+    , parser-combinators
+    , pretty
+    , pretty-show
+    , prettyprinter
+    , prettyprinter-ansi-terminal
+    , process
+    , string-conversions
+    , string-qq
+    , tasty
+    , tasty-hspec
+    , tasty-hunit
+    , text
+    , time
+    , unix
   default-language: Haskell2010
