@@ -107,6 +107,7 @@ test-suite jazz-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      ASTSpec
       Paths_jazz
   hs-source-dirs:
       test
