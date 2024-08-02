@@ -1,7 +1,0 @@
-Visa {
-  visa = "4" remainingDigits
-  remainingDigits = fifteenDigits | twelveDigits
-  twelveDigits  = digit digit digit digit digit digit digit digit digit digit digit digit
-  fifteenDigits = twelveDigits digit digit digit 
-  
-}
