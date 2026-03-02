@@ -9,6 +9,7 @@
 - [x] Included checkbox progress tracking in each plan
 - [x] Included commit checkpoints in each plan
 - [x] Included Nix reproducibility commands in each plan
+- [x] Locked clarifications from maintainer decisions (2026-03-02)
 - [ ] Execute clarification plans (future work)
 
 ## Scope Boundary
@@ -24,6 +25,14 @@ These plans cover additional clarity work beyond current spec-cleanup plans in:
 - [10-stdlib-boundary-selfhosted-vs-hardcoded.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md)
 - [11-adt-and-pattern-matching-positioning.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md)
 - [12-backend-target-strategy.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/runtime/12-backend-target-strategy.md)
+- [12a-haskell-interpreter-implementation.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md)
+
+## Locked Clarifications (Approved 2026-03-02)
+
+- [x] ADT and pattern matching positioning: `CORE`
+- [x] Backend target strategy: `Haskell interpreter only` for now
+- [x] JavaScript backend: out of active scope
+- [x] LLVM backend: out of active scope
 
 ## Planning Notes
 

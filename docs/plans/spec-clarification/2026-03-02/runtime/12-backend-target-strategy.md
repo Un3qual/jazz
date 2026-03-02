@@ -1,252 +1,152 @@
-# Spec Clarification Item #12 Plan: Backend Target Strategy
+# Spec Clarification Item #12: Backend Target Strategy (Locked: Haskell Interpreter Only)
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to execute this plan phase-by-phase.
 
-**Goal:** Resolve backend ambiguity by adopting one authoritative strategy: `JavaScript only`, `LLVM only`, or `dual target`.
+**Goal:** Remove backend ambiguity by committing to one execution strategy now: a Haskell interpreter, with no JavaScript or LLVM backend targets in active scope.
 
-**Architecture:** Separate clarification from implementation. First freeze contradictions and decision criteria, then produce comparable option dossiers, then ratify one ADR-backed strategy and documentation contract before any backend refactor.
+**Architecture:** Treat interpreter execution as the only supported runtime path. De-scope JS and LLVM code generation from the near-term roadmap, then align docs/tests/build configuration accordingly.
 
-**Tech Stack:** Markdown docs, git history evidence, `jazz-hs` sources/tests, Nix shell validation commands.
+**Tech Stack:** Haskell (`jazz-hs` parser/analyzer/interpreter/tests), Markdown specs/ADRs, Stack, Nix shell validation commands.
 
 ---
 
 ## Progress Tracker
 
-- [x] Baseline contradiction inventory completed from current code/specs (2026-03-02)
-- [x] Historical drift sampled from old commits (2026-03-02)
-- [ ] Phase 1 complete: Decision rubric and constraints frozen
-- [ ] Phase 2 complete: JS-only vs LLVM-only vs dual dossiers completed
-- [ ] Phase 3 complete: ADR decision ratified and top-level docs aligned
-- [ ] Phase 4 complete: Documentation contract + validation matrix adopted
+- [x] Contradiction inventory captured (JS pipeline + LLVM aspirations)
+- [x] Strategy lock approved by maintainer (2026-03-02)
+- [ ] ADR + policy docs updated to interpreter-only strategy
+- [ ] Build/test/docs updated to remove JS/LLVM active-target language
+- [ ] Interpreter execution path documented as canonical runtime
 
-## Verification Evidence (Path-Based Contradictions)
+## Decision Lock (Approved 2026-03-02)
 
-- **C1: Public docs advertise LLVM direction while executable pipeline is JS-only.**
-  - Claim: `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md:10` says "Will generate LLVM IR in the future."
-  - Implementation: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Lib.hs:19` imports only `CodeGen.Javascript`.
-  - Implementation: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Lib.hs:61` defines `generateJSForJazz` as the exposed compile path.
-  - Implementation: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/app/Main.hs:18` always prints JS output from `generateJSForJazz`.
+- [x] No JavaScript backend in active scope.
+- [x] No LLVM backend in active scope.
+- [x] Backend strategy is Haskell interpreter only for now.
 
-- **C2: Current state doc confirms JS reality but still marks backend target unresolved.**
-  - Current-state fact: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:26` says current end-to-end implementation compiles to JavaScript.
-  - Aspirational/spec signal: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:36` says eventually LLVM-backed.
-  - Explicit unresolved item: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:399` says target is undecided (`JavaScript`, `LLVM`, or both).
+## Verification Evidence (Why Clarification Was Needed)
 
-- **C3: Repo contains dormant LLVM/QBE-era artifacts without active backend wiring.**
-  - Legacy design comment: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs:101` references a runtime linked with LLVM code.
-  - Stub module: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Builtins.hs:3` imports `Language.QBE`, but `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Builtins.hs:6` onward is commented scaffolding only.
-  - Build config drift: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/stack.yaml:38` and `:39` keep LLVM local deps commented out; `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/stack.yaml:53` to `:56` keep `llvm-codegen`/`llvm-hs` lines commented.
-  - Build deps mismatch signal: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/jazz.cabal:73`, `:113`, `:159` include `qbe`, while no active non-JS backend module is exposed beyond `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs`.
-
-- **C4: Historical code shows target drift (stronger LLVM package inclusion in old code, absent in current execution path).**
-  - Old code evidence: `5888271:jazz-hs/stack.yaml:38` had `- ./local-deps/llvm-hs-pure` uncommented in packages.
-  - Current code evidence: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/stack.yaml:38` has that same line commented (`# - ./local-deps/llvm-hs-pure`).
-
-- **C5: `jazz2` cannot currently resolve backend strategy as an authority.**
-  - Incomplete parser pipeline: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz2/src/Jazz/Parser/Lexer.hs:6` is `undefined`.
-  - Incomplete parser exports: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz2/src/Jazz/Parser.hs:1` to `:8` is mostly commented placeholders.
-
-**Conclusion:** Backend target policy is currently under-specified and contradicted across README claims, active compiler behavior, and legacy artifacts.
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md:10` still references future LLVM IR.
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Lib.hs:19` currently imports `CodeGen.Javascript`.
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/app/Main.hs:18` currently emits JS output.
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:399` had backend target as unresolved.
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Builtins.hs:3` and cabal/stack metadata retain legacy LLVM/QBE traces.
 
 ## Scope Guardrails
 
-- [ ] This clarification item chooses/documents strategy; it does not implement backend rewrites.
-- [ ] Every strategy statement must cite concrete repository evidence (path + line).
-- [ ] Decision output must distinguish `implemented now`, `committed next`, and `long-term aspirational`.
-- [ ] Do not treat `jazz2` as behavioral authority for current backend decisions.
+In scope:
+- ratify interpreter-only strategy,
+- make docs and planning consistent,
+- define migration steps from codegen pipeline to interpreter pipeline.
 
-## Suggested File Split (Recommended)
+Out of scope (for this item):
+- implementing every interpreter feature immediately,
+- deleting all historical LLVM/QBE files in one pass.
 
-If this item is split into additional documents, use these exact paths:
+## Phase 0: ADR and Policy Freeze
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/00-evidence-inventory.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/01-decision-rubric.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/02-option-js-only.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/03-option-llvm-only.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/04-option-dual-target.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/decisions/adr-0012-backend-target-strategy.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/05-backend-contract.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/06-validation-matrix.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/07-migration-playbook.md`
+- [ ] Create ADR documenting interpreter-only backend policy.
+- [ ] Mark JS/LLVM as explicitly deferred/archived targets, not active roadmap targets.
+- [ ] Define conditions that would justify revisiting backend targets later.
 
-## Phased Clarification Plan
+Create:
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/decisions/adr-0012-interpreter-only-runtime.md`
 
-### Phase 1: Freeze Decision Rubric and Constraints
+Modify:
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/runtime/12-backend-target-strategy.md`
 
-**Milestone:** A shared scoring model exists before debating options.
-
-**Tasks:**
-- [ ] Create evidence inventory with contradiction IDs (`C1..Cn`) and source links.
-- [ ] Define mandatory decision criteria (semantics fidelity, implementation cost, tooling burden, test complexity, migration risk, contributor ergonomics).
-- [ ] Define scoring policy (for example 1-5) and tie-break rule.
-- [ ] Leave criteria weighting open for executor+maintainer choice after evidence review.
-
-**Validation Criteria:**
-- [ ] Each criterion has a definition and a measurable acceptance test.
-- [ ] Each contradiction in this plan appears in the evidence inventory with exact path anchors.
-- [ ] No option-specific recommendation appears before rubric signoff.
-
-**Commit checkpoint:**
-
-Commit message:
-
-`docs(backend): freeze evidence inventory and decision rubric`
-
-Exact `git add` targets:
+Commit checkpoint:
 
 ```bash
-git add \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/runtime/12-backend-target-strategy.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/00-evidence-inventory.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/01-decision-rubric.md
+git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/decisions/adr-0012-interpreter-only-runtime.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/runtime/12-backend-target-strategy.md
+git commit -m "docs(decision): lock backend policy to haskell interpreter only"
 ```
 
-### Phase 2: Produce Comparable Option Dossiers
+## Phase 1: Runtime Contract and CLI Alignment Plan
 
-**Milestone:** Three strategy dossiers are complete and scoreable on the same rubric.
+- [ ] Define canonical compile/execute contract: parse -> analyze -> interpret.
+- [ ] Define CLI behavior for running programs through interpreter.
+- [ ] Define error-reporting and exit-code behavior for interpreter mode.
 
-**Tasks:**
-- [ ] Write JS-only dossier with explicit de-scoping of LLVM artifacts and compatibility impact.
-- [ ] Write LLVM-only dossier with migration boundary from current JS pipeline and bootstrap path.
-- [ ] Write dual-target dossier with shared IR/runtime contract assumptions and parity obligations.
-- [ ] For each option, include short-term (`0-3 months`), medium-term (`3-9 months`), and long-term (`9+ months`) milestones.
-- [ ] For each option, include explicit unknowns where executor research is required before a go/no-go.
+Create:
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/runtime/interpreter-runtime-contract.md`
 
-**Validation Criteria:**
-- [ ] All three dossiers include: architecture sketch, migration cost, risk register, test strategy, and rollback plan.
-- [ ] All three dossiers use the same rubric headings for apples-to-apples scoring.
-- [ ] No dossier claims implementation status without evidence.
+Modify:
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/app/Main.hs`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Lib.hs`
 
-**Commit checkpoint:**
-
-Commit message:
-
-`docs(backend): add js-only llvm-only dual-target option dossiers`
-
-Exact `git add` targets:
+Commit checkpoint:
 
 ```bash
-git add \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/02-option-js-only.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/03-option-llvm-only.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/04-option-dual-target.md
+git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/runtime/interpreter-runtime-contract.md /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/app/Main.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Lib.hs
+git commit -m "feat(runtime): define interpreter runtime contract and cli path"
 ```
 
-### Phase 3: Ratify Strategy in ADR + Align Product Docs
+## Phase 2: Interpreter-Focused Test Matrix
 
-**Milestone:** One backend strategy is authoritative and visible in top-level docs.
+- [ ] Add interpreter test coverage as primary runtime verification.
+- [ ] Move or replace backend tests that assume JS codegen output.
+- [ ] Add smoke tests for example programs through interpreter path.
 
-**Tasks:**
-- [ ] Select winning strategy using rubric totals plus maintainer override rationale (if any).
-- [ ] Record decision in ADR with rejected alternatives and future revisit triggers.
-- [ ] Update top-level docs so strategy language is consistent across README and language-state docs.
-- [ ] Explicitly mark whether non-selected strategies are `deferred` or `rejected`.
+Create/Modify:
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/ComplexProgram.jz`
 
-**Validation Criteria:**
-- [ ] ADR contains: status, date, context, decision, consequences, alternatives considered.
-- [ ] `/README.md` and `/docs/jazz-language-state.md` no longer conflict on target strategy wording.
-- [ ] Unresolved target ambiguity item is replaced with the adopted policy statement.
-
-**Commit checkpoint:**
-
-Commit message:
-
-`docs(decision): adopt backend target strategy and align repository docs`
-
-Exact `git add` targets:
+Commit checkpoint:
 
 ```bash
-git add \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/decisions/adr-0012-backend-target-strategy.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/README.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md
+git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/ComplexProgram.jz
+git commit -m "test(runtime): prioritize interpreter execution coverage"
 ```
 
-### Phase 4: Publish Documentation Contract + Validation Matrix
+## Phase 3: JS/LLVM De-scope Cleanup Plan
 
-**Milestone:** Anti-drift contracts and repeatable validation commands are in place.
+- [ ] Update docs to remove active-target language for JS/LLVM.
+- [ ] Mark legacy codegen modules as deprecated/internal-only until removed.
+- [ ] Track removal/deprecation of unused backend dependencies in cabal/stack files.
 
-**Tasks:**
-- [ ] Define backend documentation contract (source-of-truth files, required synchronized updates, ownership).
-- [ ] Define per-strategy acceptance matrix (what must pass for JS-only, LLVM-only, or dual target).
-- [ ] Define migration playbook for legacy artifacts (for example `qbe`/commented LLVM deps/stubs) based on selected strategy.
-- [ ] Define review gate checklist required before closing Item #12.
+Modify:
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/jazz.cabal`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/stack.yaml`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/feature-status.md` (if created by item #5 execution)
 
-**Validation Criteria:**
-- [ ] Contract names exactly which file is authoritative for policy (`ADR`) vs implementation status (`language-state`).
-- [ ] Validation matrix includes command-level checks and expected outcomes.
-- [ ] Playbook explicitly labels each legacy artifact as keep/remove/archive with rationale.
-
-**Commit checkpoint:**
-
-Commit message:
-
-`docs(contract): define backend target contract validation matrix and migration playbook`
-
-Exact `git add` targets:
+Commit checkpoint:
 
 ```bash
-git add \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/05-backend-contract.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/06-validation-matrix.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/backend-target/07-migration-playbook.md
+git add /Users/admin/.codex/worktrees/8c77/jazz-main/README.md /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/jazz.cabal /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/stack.yaml /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/feature-status.md
+git commit -m "docs(build): remove active JS/LLVM target commitments"
 ```
 
-## Documentation Contracts (What Must Be True After Phase 4)
+(If `docs/spec/feature-status.md` does not exist yet, omit it.)
 
-- [ ] **Contract A (Policy Authority):** `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/decisions/adr-0012-backend-target-strategy.md` is the only canonical target-policy source.
-- [ ] **Contract B (Implementation Status):** `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md` tracks what is actually implemented today.
-- [ ] **Contract C (Public Summary):** `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md` may summarize strategy, but must link to ADR + language-state and avoid unstated commitments.
-- [ ] **Contract D (Change Discipline):** Any PR changing backend behavior must update policy/status docs in the same PR or document a deliberate deferral.
-- [ ] **Contract E (Legacy Artifact Registry):** All LLVM/QBE-related remnants are cataloged with `keep/remove/defer` status.
+## Follow-On Plan (Interpreter Implementation)
 
-## Nix Reproducibility Commands for Validation
+- [x] Dedicated implementation plan path is defined:
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md`
 
-### Baseline command set (works without repo `flake.nix`)
+## Nix Reproducibility Commands
 
 ```bash
 export NIXPKGS_REF='github:NixOS/nixpkgs/68cc97d306d3187c142cfb2378852f28d47bc098'
 nix --extra-experimental-features 'nix-command flakes' shell \
-  "$NIXPKGS_REF#git" \
-  "$NIXPKGS_REF#ripgrep" \
   "$NIXPKGS_REF#stack" \
   "$NIXPKGS_REF#ghc" \
-  "$NIXPKGS_REF#nodejs_22" \
-  --command zsh -lc '
-    cd /Users/admin/.codex/worktrees/8c77/jazz-main &&
-    rg -n "Will generate LLVM IR in the future" README.md &&
-    rg -n "compiled to JavaScript|eventual target is JavaScript, LLVM, or both" docs/jazz-language-state.md &&
-    rg -n "CodeGen.Javascript|generateJSForJazz" jazz-hs/src/Lib.hs jazz-hs/app/Main.hs &&
-    rg -n "llvm|qbe|Language.QBE" jazz-hs/src/Types.hs jazz-hs/stack.yaml jazz-hs/src/CodeGen/Builtins.hs jazz-hs/jazz.cabal &&
-    cd jazz-hs &&
-    stack test &&
-    stack run -- ExamplePrograms/ComplexProgram.jz > /tmp/jazz-backend-check.js &&
-    node /tmp/jazz-backend-check.js
+  "$NIXPKGS_REF#ripgrep" \
+  -c bash -lc '
+    set -euo pipefail
+    cd /Users/admin/.codex/worktrees/8c77/jazz-main
+    rg -n "JavaScript|LLVM|backend" README.md docs/jazz-language-state.md docs/plans/spec-clarification/2026-03-02/runtime/12-backend-target-strategy.md
+    cd jazz-hs
+    stack test
   '
 ```
 
-### Post-ADR strategy validation templates (executor finalizes exact commands)
+## Definition of Done
 
-- [ ] JS-only acceptance command template (must include full `stack test` + generated JS runtime check under pinned Nix shell).
-- [ ] LLVM-only acceptance command template (must include backend selection invocation, IR emission check, and compile/link smoke test under pinned Nix shell).
-- [ ] Dual-target acceptance command template (must include target parity suite: same input program, same observable semantics across JS and LLVM outputs).
-
-### Future migration to `nix develop`
-
-- [ ] If repo-level `flake.nix` is added later, mirror every command above as `nix develop -c <command>` and keep both command paths documented until legacy path is removed.
-
-## Final Exit Criteria for Item #12
-
-- [ ] One target strategy is explicitly selected (or a time-boxed dual-phase decision is documented).
-- [ ] Contradictions `C1..C5` are either resolved or explicitly accepted with owner + follow-up date.
-- [ ] ADR + README + language-state are aligned with no target-policy conflict.
-- [ ] Validation matrix commands are runnable in pinned Nix environment.
-- [ ] Legacy backend artifact policy (`keep/remove/defer`) is published.
-
-## Checkbox Summary
-
-- [x] Verification evidence captured with exact path-based contradictions
-- [x] Detailed phased plan with milestones and validation criteria defined
-- [x] Commit checkpoints include messages and exact `git add` targets
-- [x] Nix reproducibility command set included
-- [x] Suggested split file paths provided
+- [ ] Backend policy is documented as interpreter-only in ADR + language-state + README.
+- [ ] Interpreter runtime path is the canonical execution path in docs and CLI contract.
+- [ ] JS/LLVM are no longer described as active targets.
+- [ ] Follow-on interpreter implementation plan is in place and linked.

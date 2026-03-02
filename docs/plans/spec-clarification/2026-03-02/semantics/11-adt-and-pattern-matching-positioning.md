@@ -1,320 +1,154 @@
-# Spec Clarification Item #11: ADT and Pattern-Matching Positioning
+# Spec Clarification Item #11: ADT and Pattern-Matching Positioning (Locked: CORE)
+
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to execute this plan phase-by-phase.
+
+**Goal:** Treat ADTs and pattern matching as core language commitments and define a concrete, testable path to full parser/analyzer/interpreter support.
+
+**Architecture:** Keep parser coverage, fill analyzer gaps first, then implement runtime behavior in a Haskell interpreter path. Remove ambiguity from docs/tests by making ADT/pattern support release-critical.
+
+**Tech Stack:** Haskell (`jazz-hs` parser/analyzer/interpreter/tests), Markdown specs, Nix-based reproducible command flow.
+
+---
 
 ## Progress Tracker
 
-- [x] Gather old-code + current-spec evidence for ADT/pattern ambiguity
-- [x] Define decision gate (`core commitment` vs `optional scaffolding`)
-- [x] Define spec/testing priority implications for each outcome
-- [x] Define phased execution plan with commit checkpoints
-- [x] Define Nix-based verification matrix
-- [ ] Execute clarification and land chosen track
+- [x] Ambiguity evidence gathered from old code/specs
+- [x] Positioning decision locked by maintainer: `CORE` (2026-03-02)
+- [ ] Core semantics spec finalized
+- [ ] Analyzer support for core ADT/pattern forms implemented and verified
+- [ ] Interpreter support for core ADT/pattern forms implemented and verified
+- [ ] Documentation and status tracking aligned
 
-## Clarification Goal
+## Decision Lock (Approved 2026-03-02)
 
-Decide whether ADTs and pattern matching are:
+- [x] ADTs are `CORE` language functionality.
+- [x] Pattern matching is `CORE` language functionality.
+- [x] Testing priority for ADT/pattern behavior is `P0` (release-blocking once implemented in interpreter pipeline).
 
-1. **Core language commitments** (normative semantics with high implementation/test priority), or
-2. **Optional scaffolding** (legacy/experimental parse surface with lower priority or planned removal).
+## Verification Evidence (Why This Needed Clarification)
 
-Then encode that choice in spec ownership, test tiers, and cleanup sequencing.
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md:8` and `:15` claim ADTs/pattern matching as features.
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:398` still listed ADT/pattern positioning as unresolved.
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs:173-191` parses `data` and `case`.
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs:179-181` still errors for unsupported expressions.
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/ScopeAnalyzer.hs:103` has `EData` as `undefined`.
 
-## Verification Evidence (Ambiguity Is Real)
+## Core Commitment Contract
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md:8` and `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md:15`
-  Observation: Top-level feature list claims both `ADTs` and `Pattern matching` as language features.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:320`
-  Observation: Language-state doc says README strongly presents ADTs/pattern matching as features.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:398`
-  Observation: Explicit unresolved question asks whether ADTs/pattern matching are central design vs inherited scaffolding.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/AST.hs:122`, `:129`, `:161`, `:169`
-  Observation: AST includes `EData`, `ECase`, `FPPattern`, and constructor patterns (strong structural support).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs:173-191`, `:265-279`
-  Observation: Parser accepts `data`, `case`, lambda pattern params, and constructor patterns.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs:179-181`, `:226-229`, `:456-458`
-  Observation: Inference/substitution error for unsupported expressions and explicitly for pattern params (`not implemented yet`).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/ScopeAnalyzer.hs:103`, `:130`
-  Observation: `EData` path is `undefined`; pattern-param scope analysis also `not implemented`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs:37`, `:43`, `:59`
-  Observation: Tuple and pattern-param codegen fail with explicit `not implemented` errors; unsupported expressions (including `EData`/`ECase`) hit catch-all failure.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs:578-631`
-  Observation: `case` parser tests exist but are commented out (feature present but not confidently enforced even at parser-test level).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs:13-45`
-  Observation: Test runner emphasizes parser + simple inference + optimizer coverage; no end-to-end ADT/case execution track.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/ComplexProgram.jz:1-17`
-  Observation: Example programs exercise arithmetic/list/builtins and avoid ADT/case usage (practical surface excludes them).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz:12-60`, `:80-120`
-  Observation: Prelude models ADT/pattern-heavy intended design, but with dialect mismatch (`trait`/`impl` forms not aligned with active parser expectations), suggesting aspirational direction rather than current behavior.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz2/src/Jazz/AST.hs:145-157` and `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz2/src/Jazz/Parser/Lexer.hs:6`
-  Observation: Rewrite AST retains constructor patterns and `ECase`, but parser/lexer are unfinished (`undefined`), so this does not resolve current semantic authority.
+1. `data` declarations must have defined typing/runtime behavior.
+2. Constructor usage must be typechecked and executable.
+3. `case` evaluation semantics must be explicit and executable.
+4. Pattern forms (`literal`, `wildcard`, `tuple`, `list`, `constructor`) must have deterministic match rules.
+5. Pattern-matching failures and non-exhaustive behavior must have explicit diagnostics.
+6. Docs cannot advertise partial support as complete support.
 
-## Decision Gate (What Must Be Explicitly Chosen)
+## Phase 0: Core Semantics Spec Freeze
 
-- [ ] **Positioning:** `CORE` or `OPTIONAL`
-- [ ] **Normative source:** which file becomes semantic authority for this area
-- [ ] **Compiler obligation level:** required now vs deferred
-- [ ] **Test tier:** parser-only, pipeline-required, or release-blocking
-- [ ] **Migration policy:** if optional now, whether to remove or isolate syntax
+- [ ] Create core semantics docs with explicit evaluation and typing rules.
+- [ ] Record non-goals (advanced exhaustiveness analysis, GADT-like semantics, effect typing interactions).
 
-### Gate Criteria (Weighted)
+Create:
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/adt-pattern-semantics.md`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/pattern-matching-semantics.md`
 
-1. End-to-end implementability in current `jazz-hs` architecture.
-2. Consistency with already locked spec-cleanup decisions (syntax/class/map/purity).
-3. User-facing documentation truthfulness (avoid feature over-claim).
-4. Testability with reproducible Nix commands.
-5. Cost/risk of keeping parse-only constructs alive.
-
-## Spec/Testing Priority Rules By Outcome
-
-### If Outcome = `CORE`
-
-- [ ] Spec priority P0: define normative semantics for `data`, constructors, `case`, pattern forms, and match failure/exhaustiveness policy.
-- [ ] Testing priority P0: add parser + type inference + codegen + runtime smoke coverage for ADT/pattern workflows.
-- [ ] Reliability requirement: no catch-all `not implemented` path for committed ADT/pattern forms.
-- [ ] Documentation rule: README may claim ADT/pattern as implemented only after pipeline support exists.
-
-### If Outcome = `OPTIONAL`
-
-- [ ] Spec priority P0: mark ADT/pattern as non-core (experimental, parse-only, or deprecated).
-- [ ] Testing priority P0: enforce explicit boundary behavior (either parser rejection or clearly labeled experimental parser-only tests).
-- [ ] Reliability requirement: remove ambiguous claims from user-facing feature lists.
-- [ ] Cleanup rule: either remove unsupported syntax or isolate behind explicit non-core status with no implied runtime contract.
-
-## Phased Clarification Plan
-
-### Phase 0: Freeze Evidence and Draft Decision Matrix
-
-- [ ] Create an evidence-backed matrix for each construct:
-  - `data` declarations
-  - constructor invocation
-  - constructor patterns
-  - list/tuple patterns
-  - `case` expressions
-  - pattern parameters in lambdas
-- [ ] For each row, capture: parser support, inference support, codegen support, runtime support, tests, docs claims.
-- [ ] Mark each row as `Core Candidate`, `Optional Candidate`, or `Undecided`.
-
-**Commit checkpoint**
-
-Message:
-`docs(spec-clarification-11): add adt-pattern evidence matrix and decision gate`
-
-Exact `git add` targets:
+Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/semantics/11-evidence-matrix.md
+git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/adt-pattern-semantics.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/pattern-matching-semantics.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md
+git commit -m "docs(spec): lock core semantics contract for ADT and pattern matching"
 ```
 
-### Phase 1: Positioning Decision Record (Core vs Optional)
+## Phase 1: Analyzer Completion (TDD)
 
-- [ ] Run a decision pass using the gate criteria and matrix from Phase 0.
-- [ ] Produce one authoritative decision record with:
-  - selected positioning (`CORE` or `OPTIONAL`)
-  - rationale tied to concrete evidence
-  - explicit non-goals and deferrals
-  - required next-plan branches.
-- [ ] Cross-link this decision to existing spec-cleanup item #6 planning so ownership is not split.
+- [ ] Add failing tests for `EData`, `ECase`, constructor patterns, and lambda pattern parameters.
+- [ ] Implement missing analyzer logic in minimal slices.
+- [ ] Remove `undefined`/fallback errors for committed ADT/pattern forms.
 
-**Commit checkpoint**
+Modify:
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/ScopeAnalyzer.hs`
 
-Message:
-`docs(spec-clarification-11): lock adt-pattern positioning decision`
-
-Exact `git add` targets:
+Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/semantics/11-decision-record.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/compiler/06-parse-only-features-resolution.md
+git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/ScopeAnalyzer.hs
+git commit -m "feat(analyzer): implement core ADT and pattern matching analysis"
 ```
 
-### Phase 2A: Core-Commitment Execution Track (Run Only If `CORE`)
+## Phase 2: Interpreter Semantics (No JS Backend Dependency)
 
-- [ ] Write normative semantics sections:
-  - ADT declaration and constructor typing
-  - Pattern match resolution order
-  - `case` branch selection semantics
-  - wildcard/default behavior
-  - exhaustiveness policy (required warning/error behavior).
-- [ ] Add failing tests first for committed behavior:
-  - parser acceptance
-  - type inference for constructor/case/pattern params
-  - JS generation for committed forms
-  - runtime smoke examples.
-- [ ] Implement missing analyzer/codegen behavior in minimal slices, each with tests.
-- [ ] Update README/state docs to keep ADT/pattern claims consistent with shipped behavior.
+- [ ] Add failing interpreter tests for constructor creation, case matching, and pattern-parameter lambdas.
+- [ ] Implement runtime value representation and pattern matching evaluation.
+- [ ] Ensure interpreter diagnostics align with core semantics docs.
 
-**Commit checkpoint A1 (spec)**
+Create/Modify:
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Interpreter.hs`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs`
 
-Message:
-`docs(spec): define core adt-pattern semantics and obligations`
-
-Exact `git add` targets:
+Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/adt-pattern-semantics.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/semantics/11a-core-adt-pattern-semantics.md
+git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Interpreter.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs
+git commit -m "feat(interpreter): add core ADT and pattern matching runtime execution"
 ```
 
-**Commit checkpoint A2 (tests first)**
+## Phase 3: Parser and Example Conformance
 
-Message:
-`test(adt-pattern): add failing end-to-end expectations for core commitment`
+- [ ] Re-enable and expand parser tests for `case` and constructor patterns.
+- [ ] Add example programs that exercise ADT/pattern core behavior.
 
-Exact `git add` targets:
+Modify:
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/ComplexProgram.jz`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/MediumProgram.jz`
+
+Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs
+git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/ComplexProgram.jz /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/MediumProgram.jz
+git commit -m "test(parser): enforce core ADT and pattern syntax expectations"
 ```
 
-**Commit checkpoint A3 (implementation)**
+## Phase 4: Documentation and Status Closure
 
-Message:
-`feat(adt-pattern): implement committed inference/codegen semantics`
+- [ ] Update language-state and README to mark this area as core and implemented (only when verification passes).
+- [ ] Link implementation evidence and tests.
 
-Exact `git add` targets:
+Modify:
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
+- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/README.md`
+
+Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/ScopeAnalyzer.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs
+git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md /Users/admin/.codex/worktrees/8c77/jazz-main/README.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/README.md
+git commit -m "docs: close ADT and pattern-matching positioning as core"
 ```
 
-### Phase 2B: Optional-Scaffolding Execution Track (Run Only If `OPTIONAL`)
-
-- [ ] Decide strict handling mode per construct:
-  - remove parser support, or
-  - keep parser support but mark as non-core/unsupported (explicitly).
-- [ ] Align tests with selected handling mode:
-  - parser rejection tests for removed forms, or
-  - parser-only experimental tests with explicit non-core markers.
-- [ ] Remove README language that implies production support.
-- [ ] Keep language-state/spec docs explicit about non-core status and future decision point.
-
-**Commit checkpoint B1 (policy/spec)**
-
-Message:
-`docs(spec): classify adt-pattern as optional scaffolding and define boundaries`
-
-Exact `git add` targets:
+## Nix Verification Commands
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/feature-status.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/semantics/11b-optional-adt-pattern-scaffolding.md
+export NIXPKGS_REF='github:NixOS/nixpkgs/68cc97d306d3187c142cfb2378852f28d47bc098'
+nix --extra-experimental-features 'nix-command flakes' shell \
+  "$NIXPKGS_REF#stack" \
+  "$NIXPKGS_REF#ghc" \
+  "$NIXPKGS_REF#ripgrep" \
+  -c bash -lc '
+    set -euo pipefail
+    cd /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs
+    stack test --test-arguments "--match case"
+    stack test --test-arguments "--match constructor"
+    stack test --test-arguments "--match Interpreter"
+    stack test
+  '
 ```
 
-**Commit checkpoint B2 (parser/tests alignment)**
+## Definition of Done
 
-Message:
-`refactor(parser): align adt-pattern surface with optional-scaffolding policy`
-
-Exact `git add` targets:
-
-```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs
-```
-
-### Phase 3: Testing-Priority Enforcement (Both Tracks)
-
-- [ ] Introduce an explicit ADT/pattern test matrix with priority labels:
-  - `P0` release-blocking
-  - `P1` required but non-blocking
-  - `P2` exploratory/experimental.
-- [ ] Ensure matrix matches chosen positioning:
-  - `CORE`: ADT/pattern pipeline tests become `P0`.
-  - `OPTIONAL`: boundary/absence tests become `P0`.
-- [ ] Wire targeted test commands into reproducible Nix command list.
-
-**Commit checkpoint**
-
-Message:
-`test(strategy): enforce adt-pattern priority matrix from positioning decision`
-
-Exact `git add` targets:
-
-```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/testing/adt-pattern-priority-matrix.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs
-```
-
-### Phase 4: Documentation Closure and Traceability
-
-- [ ] Update top-level language claims to match chosen positioning.
-- [ ] Record closure note in language-state/spec-cleanup docs with commit references.
-- [ ] Ensure future contributors can tell, from docs alone, whether ADT/pattern semantics are mandatory or optional.
-
-**Commit checkpoint**
-
-Message:
-`docs: close adt-pattern positioning ambiguity with traceable status`
-
-Exact `git add` targets:
-
-```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/README.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/feature-status.md
-```
-
-## Nix-Based Verification Commands
-
-Run from repo root unless noted otherwise.
-
-### Environment Readiness
-
-```bash
-nix --version
-nix develop ./jazz-hs -c stack --version
-nix develop ./jazz-hs -c ghc --version
-```
-
-### Baseline (Current Behavior Snapshot)
-
-```bash
-nix develop ./jazz-hs -c stack test --test-arguments "--match \"Constructor Tests\""
-nix develop ./jazz-hs -c stack test --test-arguments "--match \"Simple Lambda Tests\""
-nix develop ./jazz-hs -c stack test --test-arguments "--match \"Simple Expression Type Inference Tests\""
-nix develop ./jazz-hs -c stack test
-```
-
-### Core Track Verification (If `CORE`)
-
-```bash
-nix develop ./jazz-hs -c stack test --test-arguments "--match \"case\""
-nix develop ./jazz-hs -c stack test --test-arguments "--match \"constructor pattern\""
-nix develop ./jazz-hs -c bash -lc 'cd jazz-hs && stack run -- ExamplePrograms/ComplexProgram.jz > /tmp/jazz-core-track.js'
-nix develop ./jazz-hs -c node /tmp/jazz-core-track.js
-```
-
-### Optional Track Verification (If `OPTIONAL`)
-
-```bash
-nix develop ./jazz-hs -c stack test --test-arguments "--match \"Statement Tests\""
-nix develop ./jazz-hs -c stack test --test-arguments "--match \"Constructor Tests\""
-nix develop ./jazz-hs -c stack test
-```
-
-### Final Sanity
-
-```bash
-git -C /Users/admin/.codex/worktrees/8c77/jazz-main diff --name-only
-```
-
-## Planned Branch-Out Documents (Create Only As Needed)
-
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/semantics/11-evidence-matrix.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/semantics/11-decision-record.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/semantics/11a-core-adt-pattern-semantics.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/semantics/11b-optional-adt-pattern-scaffolding.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/testing/11c-adt-pattern-test-priority.md`
-
-## Short Checkbox Summary
-
-- [x] Ambiguity evidence captured from specs + old code
-- [x] Core-vs-optional decision gate defined
-- [x] Phased plan includes commit messages and exact `git add` targets
-- [x] Nix-based verification command matrix included
-- [x] Branch-out plan paths listed for follow-up research/execution
+- [ ] ADT/pattern core semantics are documented and linked.
+- [ ] Analyzer + interpreter support core ADT/pattern forms without `undefined`/fallback gaps.
+- [ ] Parser + interpreter tests cover the committed behavior.
+- [ ] Docs no longer describe this area as unresolved.
