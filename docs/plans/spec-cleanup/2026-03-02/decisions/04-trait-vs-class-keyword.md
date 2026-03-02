@@ -14,10 +14,15 @@
 
 - [x] Verify item #4 is still unfinished in current sources.
 - [ ] Establish Nix-based execution environment and baseline test status.
-- [ ] Run decision gate and record canonical keyword + rationale.
+- [x] Run decision gate and record canonical keyword + rationale.
 - [ ] Implement compatibility parsing/deprecation messaging for non-canonical keyword.
 - [ ] Normalize docs/examples to canonical keyword.
 - [ ] Validate parser/tests/docs end-to-end and finalize item #4 as resolved.
+
+## Decision Lock (Approved 2026-03-02)
+
+- [x] Canonical abstraction keyword is `class`.
+- [x] `trait` is non-canonical and should follow the deprecation path defined in this plan.
 
 ## Verification Evidence (Item Is Still Unfinished)
 
@@ -70,7 +75,7 @@
    - docs/readability alignment (`README.md`, `Prelude.jz`, language narrative)
    - migration effort/risk
    - long-term naming clarity
-2. [ ] Pick one canonical keyword and record:
+2. [x] Pick one canonical keyword and record:
    - chosen keyword
    - why not the alternative
    - compatibility window start/end conditions
@@ -78,8 +83,8 @@
 
 **Executor Choice Rule:**
 
-- [ ] If scores are close (difference <= 1), prefer lower migration risk (likely parser-aligned `class`).
-- [ ] If scores are clearly higher for readability/usability with manageable migration, choose that option and proceed.
+- [x] Canonical keyword is fixed to parser-aligned `class`.
+- [ ] Define migration window specifics for `trait` compatibility and warning-to-error timeline.
 
 **Commit Checkpoint 1: Decision Docs**
 
@@ -166,10 +171,9 @@ git commit -m "docs(lang): canonicalize abstraction keyword and add migration no
 2. [ ] Phase 2 (next cleanup milestone): warnings become hard failures in CI/doc validation unless an explicit legacy mode is enabled.
 3. [ ] Phase 3 (subsequent milestone): non-canonical keyword parsing removed by default; legacy mode (if retained) is explicitly temporary and documented with removal target.
 
-**Required conditional wording (must appear in docs):**
+**Required wording (must appear in docs):**
 
-- [ ] If canonical is `class`: "`trait` is deprecated; use `class`."
-- [ ] If canonical is `trait`: "`class` is deprecated; use `trait`."
+- [ ] "`trait` is deprecated; use `class`."
 
 **Commit Checkpoint 4: Deprecation Policy Finalization**
 

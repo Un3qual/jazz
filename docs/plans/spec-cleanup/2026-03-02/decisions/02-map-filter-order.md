@@ -24,11 +24,18 @@
 ## Plan Progress
 
 - [ ] Phase 0: Baseline lock and decision rubric
-- [ ] Phase 1: Canonical order decision + compatibility mode
+- [x] Phase 1: Canonical order decision + compatibility mode (order locked, compatibility mode pending)
 - [ ] Phase 2: Implement chosen order in compiler/runtime/tests
 - [ ] Phase 3: Migration and docs convergence
 - [ ] Phase 4: Nix environment + command wiring
 - [ ] Phase 5: Verification and closure
+
+## Decision Lock (Approved 2026-03-02)
+
+- [x] Canonical order for collection combinators is function-first.
+- [x] `map` canonical call form: `map f xs`.
+- [x] `filter` canonical call form: `filter p xs`.
+- [ ] Compatibility policy still to choose (hard switch vs temporary alias window).
 
 ## Phase 0: Baseline lock and decision rubric
 
@@ -50,8 +57,7 @@ git commit -m "docs(spec): capture map/filter decision rubric"
 
 ## Phase 1: Canonical order decision + compatibility mode
 
-- [ ] Decision Gate 1: choose canonical order for both `map` and `filter`.
-- [ ] Preferred default if no new contrary evidence emerges: function-first, because `jazz-hs` runtime type + parser tests already match it.
+- [x] Decision Gate 1: canonical order for both `map` and `filter` is function-first.
 - [ ] Decision Gate 2: choose compatibility strategy.
 - [ ] Mode 1: hard switch (only canonical order accepted immediately).
 - [ ] Mode 2: temporary compatibility window (accept both forms; non-canonical form emits deprecation warning).

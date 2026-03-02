@@ -7,6 +7,7 @@
 - [x] Generated one detailed plan file per unresolved item
 - [x] Organized plans by subfolder (`decisions/`, `documentation/`, `compiler/`)
 - [x] Included Nix environment considerations in every plan
+- [x] Locked cross-item product decisions from maintainer approval (2026-03-02)
 - [ ] Execute plans (future work)
 
 ## Item Status (Verified Unresolved)
@@ -17,6 +18,12 @@
 4. [x] Canonical abstraction keyword (`trait` vs `class`) is not finalized
 5. [x] Top-level docs do not cleanly separate implemented vs planned
 6. [x] Parse-only feature handling (`remove` vs `fully implement`) is not finalized
+
+## Locked Decisions (Approved 2026-03-02)
+
+- [x] Canonical abstraction keyword: `class` (`trait` becomes non-canonical/deprecated alias during migration)
+- [x] Canonical `map`/`filter` order: function-first (`map f xs`, `filter p xs`)
+- [x] `!` purity semantics: compiler-enforced, delivered first as a stubbed V1 enforcement pass
 
 ## Plan Files
 

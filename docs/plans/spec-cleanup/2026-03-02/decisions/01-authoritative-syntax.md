@@ -13,10 +13,16 @@
 ## Plan Progress Checklist
 
 - [ ] Discovery complete
-- [ ] Design decision complete
+- [x] Design decision complete
 - [ ] Implementation complete
 - [ ] Verification complete
 - [ ] Docs updates complete
+
+## Decision Lock (Approved 2026-03-02)
+
+- [x] Canonical abstraction keyword is `class`/`impl`.
+- [x] Canonical collection combinator order is function-first (`map f xs`, `filter p xs`).
+- [x] Function/module surface continues parser-first style (`name = expr.`, `module A::B { ... }`, `import A::B`).
 
 ## Verification Evidence (Item Is Still Unfinished)
 
@@ -50,11 +56,11 @@ Use these criteria to pick the final syntax if tradeoffs appear:
 3. Make docs/examples executable against current implementation.
 4. Keep migration cost bounded (prefer one canonical form + explicit deprecation note).
 
-Default recommendation unless new evidence appears:
+Locked canonical syntax:
 - Functions: `name = <expr>.` with optional `name :: <type>.`, lambda `\(args) -> expr`.
 - Modules/imports: `module A::B { ... }`, `import A::B`, optional `as`/function qualifier.
 - Traits: canonical `class`/`impl` (because parser/AST currently use this).
-- Collections: list literals/types stay `[x]` / `[a]`; collection combinator style documented as curried function-first (`map f xs`) to match current `Types.hs` + codegen.
+- Collections: list literals/types stay `[x]` / `[a]`; collection combinator style is curried function-first (`map f xs`, `filter p xs`).
 
 ## Concrete Files To Modify During Execution
 
@@ -110,12 +116,7 @@ git commit -m "build(nix): add reproducible dev shell for spec-cleanup"
   - `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz`
   - `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs`
 
-**Step 2: Capture 2-3 viable syntax options with tradeoffs**
-- Option A: parser-first (`class` canonical).
-- Option B: prelude-first (`trait` canonical).
-- Option C: dual-accept parser + single canonical docs.
-
-**Step 3: Finalize one canonical syntax and document migration policy**
+**Step 2: Record the approved canonical syntax and migration policy**
 - Decision record must include:
   - canonical grammar examples
   - accepted legacy forms (if any) and sunset plan
