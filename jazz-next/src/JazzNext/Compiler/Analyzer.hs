@@ -120,8 +120,6 @@ collectScopeDiagnostics settings outerScope statements =
                             signatureDeclSpan
                             bindingName
                         ]
-              visible = currentVisibleBindings scopeBindings
-              (valueWarnings, valueErrors) = collectExprDiagnostics settings visible valueExpr
               rebindingWarning =
                 case Map.lookup bindingName scopeBindings of
                   Just previousSpan
@@ -129,6 +127,8 @@ collectScopeDiagnostics settings outerScope statements =
                         [mkSameScopeRebindingWarning bindingName bindingSpan previousSpan]
                   _ -> []
               nextScope = Map.insert bindingName bindingSpan scopeBindings
+              visible = currentVisibleBindings nextScope
+              (valueWarnings, valueErrors) = collectExprDiagnostics settings visible valueExpr
               warningsWithValue = appendWarnings warningsRev valueWarnings
               errorsWithValue =
                 appendErrors (appendErrors errorsRev errorsFromSignature) valueErrors

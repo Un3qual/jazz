@@ -31,7 +31,8 @@ tests =
     ("signature separated from binding by expression is rejected", testSignatureSeparatedFromBinding),
     ("signature must match immediate binding name", testSignatureNameMismatch),
     ("use-before-definition is rejected", testUseBeforeDefinition),
-    ("nested scope resolves outer bindings", testNestedScopeResolvesOuterBinding)
+    ("nested scope resolves outer bindings", testNestedScopeResolvesOuterBinding),
+    ("self-recursive binding is accepted", testSelfRecursiveBinding)
   ]
 
 testSignatureDirectlyAboveBinding :: IO ()
@@ -112,4 +113,15 @@ nestedScopeProgram =
             [ SExpr (EVar "x")
             ]
         )
+    ]
+
+testSelfRecursiveBinding :: IO ()
+testSelfRecursiveBinding = do
+  result <- compileExpr defaultWarningSettings selfRecursiveProgram
+  assertEqual "compile errors" [] (compileErrors result)
+
+selfRecursiveProgram :: Expr
+selfRecursiveProgram =
+  EScope
+    [ SLet "f" (SourceSpan 1 1) (EVar "f")
     ]
