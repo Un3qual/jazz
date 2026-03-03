@@ -43,7 +43,7 @@ inferExpression :: WarningSettings -> Expr -> IO InferenceResult
 inferExpression settings expr = do
   let canonicalExpr = desugarExpr expr
   AnalysisResult _ warnings errors <- analyzeProgram settings canonicalExpr
-  let typeErrors = collectIfTypeErrors canonicalExpr
+  let typeErrors = collectExprTypeErrors canonicalExpr
   pure
     InferenceResult
       { inferredExpr = canonicalExpr,
@@ -59,8 +59,8 @@ data ExpressionType
   | TBoolType
   deriving (Eq, Show)
 
-collectIfTypeErrors :: Expr -> [Text]
-collectIfTypeErrors expr = snd (inferExprType Map.empty expr)
+collectExprTypeErrors :: Expr -> [Text]
+collectExprTypeErrors expr = snd (inferExprType Map.empty expr)
 
 inferExprType :: Map Text ExpressionType -> Expr -> (Maybe ExpressionType, [Text])
 inferExprType env expr =
