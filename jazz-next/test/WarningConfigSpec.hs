@@ -42,7 +42,9 @@ tests =
     run "parseCliWarningDirective parses all phase-1 forms" testParseCliWarningDirectiveForms,
     run "resolveWarningSettings handles standalone -Werror=<category>" testCliPromoteCategoryStandalone,
     run "resolveWarningSettings applies CLI > env > config > default" testPrecedenceOrder,
+    run "resolveWarningSettings applies env error directives after env warning directives" testEnvErrorOverridesEnvWarning,
     run "resolveWarningSettings defaults to all warnings disabled" testDefaultDisabled,
+    run "resolveWarningSettings rejects malformed env warning token list" testMalformedEnvWarningTokenList,
     run "resolveWarningSettings fails on unknown CLI category" testUnknownCliCategory,
     run "resolveWarningSettings fails on unknown env category" testUnknownEnvCategory,
     run "resolveWarningSettings fails on unknown config category" testUnknownConfigCategory
@@ -140,12 +142,31 @@ testCliPromoteCategoryStandalone =
         assertCategoryState settings DeprecatedSyntax False False
     )
 
+testEnvErrorOverridesEnvWarning :: IO ()
+testEnvErrorOverridesEnvWarning =
+  assertRight
+    "env error overrides env warning for same category"
+    ( resolveWarningSettings
+        []
+        (Just "-same-scope-rebinding")
+        (Just "same-scope-rebinding")
+        Nothing
+    )
+    (\settings -> assertWarningState settings True True)
+
 testDefaultDisabled :: IO ()
 testDefaultDisabled =
   assertRight
     "default config"
     (resolveWarningSettings [] Nothing Nothing Nothing)
     (\settings -> assertWarningState settings False False)
+
+testMalformedEnvWarningTokenList :: IO ()
+testMalformedEnvWarningTokenList =
+  assertLeftContains
+    "malformed env warning token list"
+    "empty warning token"
+    (resolveWarningSettings [] (Just "same-scope-rebinding,,unused-binding") Nothing Nothing)
 
 testUnknownCliCategory :: IO ()
 testUnknownCliCategory =

@@ -36,6 +36,12 @@ warningCode = metadataCode . warningMetadata
 warningToken :: WarningCategory -> String
 warningToken = metadataToken . warningMetadata
 
+tokenCatalog :: [(String, WarningCategory)]
+tokenCatalog =
+  [ (metadataToken (warningMetadata category), category)
+    | category <- allWarningCategories
+  ]
+
 parseWarningCategory :: String -> Either String WarningCategory
 parseWarningCategory rawToken =
   case lookup normalizedToken tokenCatalog of
@@ -49,10 +55,6 @@ parseWarningCategory rawToken =
         )
   where
     normalizedToken = normalize rawToken
-    tokenCatalog =
-      [ (metadataToken (warningMetadata category), category)
-        | category <- allWarningCategories
-      ]
 
 warningMetadata :: WarningCategory -> WarningMetadata
 warningMetadata category =

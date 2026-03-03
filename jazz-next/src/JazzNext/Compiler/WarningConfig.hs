@@ -155,11 +155,17 @@ parseEnvErrorToken rawToken
 
 parseCommaSeparatedTokens :: String -> Either String [String]
 parseCommaSeparatedTokens rawValue =
-  let tokens = map normalize (splitCommas rawValue)
-      nonEmptyTokens = filter (not . null) tokens
-   in if null nonEmptyTokens
-        then Left "expected at least one warning token"
-        else Right nonEmptyTokens
+  let rawTokens = splitCommas rawValue
+      tokens = map normalize rawTokens
+   in if all null tokens
+        then
+          if length tokens > 1
+            then Left "empty warning token"
+            else Left "expected at least one warning token"
+        else
+          if any null tokens
+            then Left "empty warning token"
+            else Right tokens
 
 lineTokens :: String -> [String]
 lineTokens line =
