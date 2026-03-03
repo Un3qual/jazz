@@ -12,6 +12,7 @@ This checklist tracks verification and fixes for the second batch of CodeRabbit 
 - [x] Applied spec-cleanup stale-Nix/path fixes (`04`, `05`).
 - [x] Re-ran grep-based validation for all reported patterns.
 - [x] Committed fixes in logical batches.
+- [x] Pushed branch updates and posted PR update comment.
 
 ## Findings Checklist
 
@@ -51,3 +52,8 @@ rg -n '/Users/admin/.codex/worktrees/8c77/jazz-main|jazz-hs/flake.nix|jazz-hs/fl
 
 - [x] `be4d0d5` `docs(spec-clarification): normalize flake targets links and terminology`
 - [x] `e11a940` `docs(spec-cleanup): replace workstation paths and stale nix assumptions`
+- [x] `a526795` `docs(plans): track round-2 inline finding remediation checklist`
+
+## PR Update
+
+- [x] PR comment posted: `https://github.com/Un3qual/jazz/pull/1#issuecomment-3988299238`
