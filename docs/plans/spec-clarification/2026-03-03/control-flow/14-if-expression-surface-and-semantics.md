@@ -24,7 +24,7 @@ Execution note:
 - [x] Canonical `if` spec published (Track A0)
 - [x] Tests and docs aligned
 - [x] Batch 2 desugaring + source pipeline alignment executed in `jazz-next`
-- [ ] Clarification closed
+- [x] Clarification closed
 
 ## Decision Lock (Approved 2026-03-03)
 
@@ -102,7 +102,7 @@ Modify:
 
 ### Phase A3: Runtime Path Alignment
 
-- [ ] Keep runtime branch semantics aligned with spec (JS path or interpreter path, depending on active backend).
+- [x] Keep runtime branch semantics aligned with spec (JS path or interpreter path, depending on active backend).
 - [x] Add pipeline test showing parser->analyzer->runtime roundtrip for `if`.
 
 Modify:
@@ -175,7 +175,7 @@ runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionTypeSpec.
 ## Definition of Done
 
 1. [x] `if` inclusion/exclusion is explicit and documented.
-1. [ ] No AST/parser/analyzer/runtime drift remains for control-flow surface.
+1. [x] No AST/parser/analyzer/runtime drift remains for control-flow surface.
 1. [x] Tests enforce the chosen control-flow contract.
 
 ## Implementation Status Verification (2026-03-03, Batch 2)
@@ -195,3 +195,12 @@ runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionTypeSpec.
 - [x] Updated CLI compile flow to compile from source text through the new driver source path.
 - [x] Added/updated tests for parse->lower->desugar and source-pipeline `if` behavior in `jazz-next/test/IfExpressionParserSpec.hs`, `jazz-next/test/IfExpressionTypeSpec.hs`, and `jazz-next/test/CLISpec.hs`.
 - [x] Ran `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionParserSpec.hs`, `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionTypeSpec.hs`, and `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`.
+
+## Implementation Status Verification (2026-03-03, Batch 4)
+
+- [x] Re-verified unchecked candidate steps in Track A3 before implementation and confirmed runtime execution semantics were still missing in active `jazz-next` paths.
+- [x] Added explicit runtime evaluation semantics in `jazz-next/src/JazzNext/Compiler/Runtime.hs` for `EIf`/`ECase` branch selection, ensuring only the selected branch is evaluated.
+- [x] Added driver runtime entrypoints in `jazz-next/src/JazzNext/Compiler/Driver.hs` (`runExpr`, `runSource`) while preserving existing compile-mode behavior.
+- [x] Added CLI run mode in `jazz-next/src/JazzNext/CLI/Main.hs` (`--run`) to execute source through runtime semantics.
+- [x] Added runtime regression coverage in `jazz-next/test/RuntimeSemanticsSpec.hs` and CLI run-mode coverage in `jazz-next/test/CLISpec.hs`.
+- [x] Ran `bash jazz-next/scripts/test-warning-config.sh` with the new runtime suite included.

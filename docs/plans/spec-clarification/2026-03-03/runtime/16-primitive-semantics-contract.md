@@ -21,6 +21,7 @@ Execution note:
 - [x] Equality decision gate finalized
 - [x] Remaining decision gates finalized (`numeric behavior`, `primitive errors`)
 - [x] Runtime/typechecker conformance tests added
+- [x] Batch 2 runtime evaluator + fatal runtime diagnostic path executed in `jazz-next`
 - [x] Docs and trackers aligned
 
 ## Decision Lock (Approved 2026-03-03)
@@ -110,7 +111,7 @@ git commit -m "test(jazz-next): add primitive semantics conformance tests"
 
 - [ ] Align primitive implementations with the semantic contract.
 - [x] Remove backend-specific behavior that violates contract (for example coercive equality if disallowed).
-- [ ] Keep fatal diagnostics consistent across runtime paths for invalid primitive uses that escape compile-time checks.
+- [x] Keep fatal diagnostics consistent across runtime paths for invalid primitive uses that escape compile-time checks.
 
 Modify (active `jazz-next` path):
 - `jazz-next/src/JazzNext/Compiler/AST.hs`
@@ -168,4 +169,13 @@ runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpe
 - [x] Re-verified strict equality behavior remained non-coercive in active `jazz-next` compile paths and test coverage.
 - [x] Added the primitive semantics suite to `jazz-next/scripts/test-warning-config.sh` so it runs in the default verification loop.
 - [x] Ran `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpec.hs` and `bash jazz-next/scripts/test-warning-config.sh`.
-- [ ] Full primitive-family conformance remains open until list/runtime primitive domains (`map`, `hd`, `tl`, runtime fatal paths) are executable in the active `jazz-next` pipeline.
+- [ ] Full primitive-family conformance remains open until list primitive domains (`map`, `hd`, `tl`) are executable in the active `jazz-next` pipeline.
+
+## Implementation Status Verification (2026-03-03, Batch 4)
+
+- [x] Re-verified unchecked candidate steps before implementation and confirmed runtime evaluation and fatal runtime diagnostics were still open in active `jazz-next` paths.
+- [x] Added runtime primitive execution semantics for the current AST subset in `jazz-next/src/JazzNext/Compiler/Runtime.hs` (arithmetic, comparison, strict equality/inequality).
+- [x] Added fatal runtime division-by-zero diagnostics (`E3001`) and runtime fallback diagnostics for invalid runtime primitive/operator usage (`E3002+`).
+- [x] Added driver runtime entrypoints in `jazz-next/src/JazzNext/Compiler/Driver.hs` (`runExpr`, `runSource`) to execute primitives after compile-time checks pass.
+- [x] Added runtime primitive conformance coverage in `jazz-next/test/RuntimeSemanticsSpec.hs` and CLI run-mode fatal-path coverage in `jazz-next/test/CLISpec.hs`.
+- [x] Ran `bash jazz-next/scripts/test-warning-config.sh` with runtime semantics tests included.

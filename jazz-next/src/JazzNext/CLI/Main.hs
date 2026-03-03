@@ -20,7 +20,9 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
-    compileSource
+    RunResult (..),
+    compileSource,
+    runSource
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -35,7 +37,8 @@ import System.IO (stderr, stdout)
 
 data CliOptions = CliOptions
   { cliWarningFlags :: [Text],
-    cliWarningsConfigPath :: Maybe FilePath
+    cliWarningsConfigPath :: Maybe FilePath,
+    cliRunMode :: Bool
   }
   deriving (Eq, Show)
 
@@ -48,7 +51,7 @@ data CliOutput = CliOutput
 
 -- Parse only the currently supported warning-related flags.
 parseCliOptions :: [String] -> Either Text CliOptions
-parseCliOptions args = finalize <$> go (CliOptions [] Nothing) args
+parseCliOptions args = finalize <$> go (CliOptions [] Nothing False) args
   where
     finalize options =
       options {cliWarningFlags = reverse (cliWarningFlags options)}
@@ -57,6 +60,8 @@ parseCliOptions args = finalize <$> go (CliOptions [] Nothing) args
       go options {cliWarningsConfigPath = Just path} rest
     go _ ("--warnings-config" : []) =
       Left "missing path after --warnings-config"
+    go options ("--run" : rest) =
+      go options {cliRunMode = True} rest
     go options (arg : rest)
       | "-W" `isPrefixOf` arg =
           go options {cliWarningFlags = Text.pack arg : cliWarningFlags options} rest
@@ -89,7 +94,9 @@ runCliWith args envLookup configLookup loadSource =
               }
         Right settings -> do
           source <- loadSource
-          runCompile settings source
+          if cliRunMode options
+            then runExecute settings source
+            else runCompile settings source
 
 main :: IO ()
 main = do
@@ -133,6 +140,28 @@ runCompile settings source = do
           Nothing -> ""
       exitCode =
         if null (compileErrors result)
+          then 0
+          else 1
+  pure
+    CliOutput
+      { cliExitCode = exitCode,
+        cliStdout = stdoutOutput,
+        cliStderr = stderrOutput
+      }
+
+runExecute :: WarningSettings -> Text -> IO CliOutput
+runExecute settings source = do
+  result <- runSource settings source
+  let warningLines = map formatWarningLine (runWarnings result)
+      compileErrorLines = map ("error: " <>) (runCompileErrors result)
+      runtimeErrorLines = map ("error: " <>) (runRuntimeErrors result)
+      stderrOutput = renderLines (warningLines ++ compileErrorLines ++ runtimeErrorLines)
+      stdoutOutput =
+        case runOutput result of
+          Just value -> value <> "\n"
+          Nothing -> ""
+      exitCode =
+        if null (runCompileErrors result) && null (runRuntimeErrors result)
           then 0
           else 1
   pure

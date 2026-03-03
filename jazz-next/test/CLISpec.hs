@@ -31,8 +31,11 @@ main = runTestSuite "CLISpec" tests
 tests :: [NamedTest]
 tests =
   [ ("parseCliOptions captures warning flags and config path", testParseOptions),
+    ("parseCliOptions captures run mode", testParseRunMode),
     ("cli run prints warning to stderr while keeping stdout output", testCliWarningOnlyBehavior),
     ("cli run returns non-zero and suppresses stdout when warning promoted", testCliPromotedWarningBehavior),
+    ("cli --run prints evaluated runtime output", testCliRunModeSuccess),
+    ("cli --run reports runtime fatal errors", testCliRunModeFatalRuntimeError),
     ("cli precedence keeps CLI over env over config", testCliPrecedenceBehavior),
     ("cli respects --warnings-config path override", testCliConfigPathOverride),
     ("cli defers source read until after arg validation", testCliDefersSourceReadOnArgError),
@@ -47,6 +50,16 @@ testParseOptions = do
       Right parsed -> pure parsed
   assertEqual "warning flags" ["-Wsame-scope-rebinding"] (cliWarningFlags options)
   assertEqual "config path" (Just "config/warnings.txt") (cliWarningsConfigPath options)
+  assertEqual "run mode" False (cliRunMode options)
+
+testParseRunMode :: IO ()
+testParseRunMode = do
+  options <-
+    case parseCliOptions ["--run"] of
+      Left err -> failTest ("parseCliOptions failed: " <> err)
+      Right parsed -> pure parsed
+  assertEqual "run mode" True (cliRunMode options)
+  assertEqual "warning flags" [] (cliWarningFlags options)
 
 testCliWarningOnlyBehavior :: IO ()
 testCliWarningOnlyBehavior = do
@@ -64,6 +77,27 @@ testCliPromotedWarningBehavior = do
   output <- runCliWith ["-Werror=same-scope-rebinding"] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 1 (cliExitCode output)
   assertContains "stderr includes warning code" "W0001" (cliStderr output)
+  assertContains "stderr includes error marker" "error:" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
+testCliRunModeSuccess :: IO ()
+testCliRunModeSuccess = do
+  output <- runCliWith ["--run"] envLookup configLookup (pure runtimeSuccessSource)
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "runtime stdout" "1\n" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
+testCliRunModeFatalRuntimeError :: IO ()
+testCliRunModeFatalRuntimeError = do
+  output <- runCliWith ["--run"] envLookup configLookup (pure runtimeDivisionByZeroSource)
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "runtime fatal code" "E3001" (cliStderr output)
   assertContains "stderr includes error marker" "error:" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
@@ -127,3 +161,9 @@ sampleSource = "x = 1. x = 2."
 
 signatureMismatchSource :: Text
 signatureMismatchSource = "x :: Int.\nx = True."
+
+runtimeSuccessSource :: Text
+runtimeSuccessSource = "if True 1 else 2."
+
+runtimeDivisionByZeroSource :: Text
+runtimeDivisionByZeroSource = "1 / 0."
