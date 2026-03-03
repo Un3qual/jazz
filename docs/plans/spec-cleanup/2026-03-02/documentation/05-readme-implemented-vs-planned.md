@@ -31,9 +31,9 @@
 - [x] Task 1: Build feature-status source of truth
 - [x] Task 2: Split top-level README into implemented vs planned
 - [x] Task 3: Align `docs/jazz-language-state.md` with the new split
-- [ ] Task 4: Add Nix-aware docs check/formatter tasks (conditional)
+- [x] Task 4: Add Nix-aware docs check/formatter tasks (conditional)
 - [x] Task 5: Add anti-drift maintenance checks
-- [ ] Task 6: Run verification commands and prepare merge notes
+- [x] Task 6: Run verification commands and prepare merge notes
 
 ### Task 1: Build feature-status source of truth
 
@@ -110,11 +110,11 @@ git commit -m "docs: align language-state doc with implemented-vs-planned split"
 - Modify if present: `.pre-commit-config.yaml`
 
 **Steps:**
-- [ ] Use the root `flake.nix` dev shell as the default environment for docs checks (`nix develop`).
-- [ ] Add docs formatter/lint tooling to dev shell packages.
-- [ ] Add a single docs check command hook (for example, `scripts/check-docs.sh`) that validates status-section structure and markdown formatting.
-- [ ] Ensure command is runnable via `nix develop -c <command>`.
-- [ ] Provide an equivalent `nix shell` fallback command only when a non-flake environment must be supported.
+- [x] Use the root `flake.nix` dev shell as the default environment for docs checks (`nix develop`).
+- [x] Add docs formatter/lint tooling to dev shell packages.
+- [x] Add a single docs check command hook (for example, `scripts/check-docs.sh`) that validates status-section structure and markdown formatting.
+- [x] Ensure command is runnable via `nix develop -c <command>`.
+- [x] Provide an equivalent `nix shell` fallback command only when a non-flake environment must be supported.
 
 **Commit checkpoint (only if files changed):**
 ```bash
@@ -146,33 +146,37 @@ git commit -m "docs: add maintenance checklist to prevent feature-status drift"
 ### Task 6: Verification before completion
 
 **Commands:**
-- [ ] Structural split present:
+- [x] Structural split present:
 ```bash
 rg -n "^### Implemented Today|^### Planned / Aspirational" README.md
 ```
-- [ ] Canonical matrix exists and links are present:
+- [x] Canonical matrix exists and links are present:
 ```bash
 rg -n "Implemented Today|Planned / Aspirational|Last verified against commit" docs/feature-status.md
 rg -n "feature-status.md|top-level docs contract" docs/jazz-language-state.md
 ```
-- [ ] Docs-only diff sanity check:
+- [x] Docs-only diff sanity check:
 ```bash
 git diff --name-only -- README.md docs/
 ```
-- [ ] Root flake verification path:
+- [x] Root flake verification path:
 ```bash
 nix develop -c scripts/check-docs.sh
 ```
-- [ ] Explicit fallback path (only if root flake is unavailable):
+- [x] Explicit fallback path (only if root flake is unavailable):
 ```bash
 bash scripts/check-docs.sh
 ```
 
+Execution note for this environment:
+- `nix develop` required explicit feature flags and writable cache path:
+  - `XDG_CACHE_HOME=$PWD/.cache nix --extra-experimental-features 'nix-command flakes' develop -c scripts/check-docs.sh`
+
 **Expected result:**
-- [ ] README clearly separates implemented vs planned features.
-- [ ] Canonical feature status source exists and is linked.
-- [ ] Language-state doc no longer lists item #5 as pending.
-- [ ] Verification commands succeed (or any deliberate skips are documented with reason).
+- [x] README clearly separates implemented vs planned features.
+- [x] Canonical feature status source exists and is linked.
+- [x] Language-state doc no longer lists item #5 as pending.
+- [x] Verification commands succeed (or any deliberate skips are documented with reason).
 
 **Final commit checkpoint (if verification edits were needed):**
 ```bash

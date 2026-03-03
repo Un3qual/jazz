@@ -32,6 +32,8 @@
             ormolu
             hlint
             git
+            ripgrep
+            nodePackages.prettier
           ];
         };
 

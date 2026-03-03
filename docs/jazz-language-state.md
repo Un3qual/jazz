@@ -13,6 +13,7 @@ The codebase is now governed by an explicit authority policy:
 3. `jazz2` is reference-only and non-normative in the current phase.
 
 Policy reference:
+
 - `docs/spec/governance/spec-authority-policy.md`
 
 ## Short Summary
@@ -444,10 +445,12 @@ If you need a practical baseline for continuing Jazz, use this order:
 If this repo is going to become a coherent language project, the highest-value cleanup would be:
 
 Status update for item #1:
+
 - Decision lock is recorded in `docs/spec/authoritative-syntax.md`.
 - Implementation/test alignment is still pending and must be executed in `jazz-next`.
 
 Status update for item #5:
+
 - Implemented-vs-planned split is now published in `README.md`.
 - Canonical evidence-backed feature status is now tracked in `docs/feature-status.md`.
 
