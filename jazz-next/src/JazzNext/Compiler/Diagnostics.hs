@@ -36,11 +36,9 @@ mkSameScopeRebindingWarning variableName primarySpan previousSpan =
       warningPrimarySpan = primarySpan,
       warningPreviousSpan = Just previousSpan,
       warningMessage =
-        "same-scope rebinding for '"
+        "same-scope rebinding: '"
           ++ variableName
-          ++ "' (previous binding at "
-          ++ show previousSpan
-          ++ ")"
+          ++ "' shadows previous same-scope binding (last declaration wins)"
     }
 
 sortWarnings :: [WarningRecord] -> [WarningRecord]

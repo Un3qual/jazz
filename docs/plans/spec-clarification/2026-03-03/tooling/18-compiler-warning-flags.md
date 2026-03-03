@@ -223,10 +223,10 @@ git commit -m "feat(analyzer): emit optional same-scope rebinding warnings"
 
 ## Phase 3: CLI + Lib Integration
 
-- [ ] Parse warning flags in executable entrypoint and resolve config/env inputs.
-- [ ] Thread resolved warning config into analyzer invocation path.
-- [ ] Print warnings to stderr in deterministic order while still emitting generated JS on success.
-- [ ] Ensure warning-as-error returns non-zero and suppresses JS output on promoted warnings.
+- [x] Parse warning flags in executable entrypoint and resolve config/env inputs.
+- [x] Thread resolved warning config into analyzer invocation path.
+- [x] Print warnings to stderr in deterministic order while still emitting generated JS on success.
+- [x] Ensure warning-as-error returns non-zero and suppresses JS output on promoted warnings.
 
 Modify:
 
@@ -319,7 +319,7 @@ Phase 2+ (planned after analyzer and CLI integration):
 ## Definition of Done
 
 - [x] `same-scope-rebinding` warning category is implemented with stable ID (`W0001`).
-- [ ] CLI, env, and config warning controls work with deterministic precedence.
+- [x] CLI, env, and config warning controls work with deterministic precedence.
 - [x] Analyzer emits optional same-scope rebinding diagnostics without changing default semantics.
 - [x] Warning-as-error flow is implemented and tested.
 - [x] Documentation includes clear migration notes for phased adoption.

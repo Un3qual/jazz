@@ -16,8 +16,10 @@ Do not implement new compiler functionality in legacy directories.
 - `src/JazzNext/Compiler/Analyzer.hs`: minimal scope-aware rebinding warning analysis (`W0001`).
 - `src/JazzNext/Compiler/TypeInference.hs`: inference result plumbing that carries optional warnings.
 - `src/JazzNext/Compiler/Driver.hs`: warning-as-error gating and compile-result shaping.
+- `src/JazzNext/CLI/Main.hs`: CLI flag/env/config resolution and warning-aware compile output behavior.
 - `test/WarningConfigSpec.hs`: unit tests for warning-config parsing and precedence.
 - `test/RebindingWarningSpec.hs`: analyzer/driver warning behavior tests.
+- `test/CLISpec.hs`: CLI entrypoint behavior tests (parsing, precedence, stderr/stdout policy).
 - `scripts/test-warning-config.sh`: local test entrypoint.
 
 ## Run tests
