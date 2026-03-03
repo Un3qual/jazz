@@ -6,7 +6,7 @@
 - [x] Mapped already-covered clarification items (`1-12a`) to avoid duplication
 - [x] Identified additional unresolved language-design domains
 - [x] Created a domain evidence matrix (`domain-gap-matrix.md`)
-- [ ] Draft detailed execution plans for each new domain
+- [x] Draft detailed execution plans for each new domain
 - [ ] Validate non-overlap assumptions with maintainer
 - [ ] Execute plans (future work)
 
