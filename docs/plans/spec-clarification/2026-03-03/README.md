@@ -61,7 +61,7 @@ This batch only includes clarification domains that are not already directly pla
 
 Parser/lexer foundation is now in place in `jazz-next`. Continue with domain execution on that baseline:
 
-1. Complete remaining domain 14 work (`if` desugaring-to-`case` pass and runtime/CLI alignment).
+1. Complete remaining domain 14 work (`if` desugaring-to-`case` pass and runtime/CLI alignment in `jazz-next`).
 2. Execute domain 16 primitive conformance tests and semantic alignment in `jazz-next`.
 3. If parser behavior exposes syntax ambiguities, update the relevant spec clarification docs in the same change before proceeding.
 
