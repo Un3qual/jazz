@@ -1,6 +1,6 @@
 # Operator Fixity and Sections Policy Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **For implementers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Define a canonical operator model (fixity, precedence, associativity, and sections) that is explicit, testable, and maintainable.
 
@@ -22,7 +22,7 @@
 
 - [x] User-defined operators will be delivered in staged phases.
 - [x] Stage architecture must preserve easy completion in later phases (no parser rewrite trap).
-- [x] Builtin operator set and fixity are frozen for v1.
+- [x] Built-in operator set and fixity are frozen for v1.
 - [x] Section representation lock (Gate B): explicit AST node for operator sections.
 
 ## Verification Evidence (Current Drift)
@@ -38,7 +38,7 @@
 ## Scope Guardrails
 
 In scope:
-- builtin operator fixity contract,
+- built-in operator fixity contract,
 - partial section semantics,
 - explicit stance on user-defined operators (defer vs implement).
 
@@ -48,9 +48,9 @@ Out of scope:
 
 ## Decision Gates
 
-- [x] Gate A: builtin operator set and fixity are frozen for v1.
-  - [x] Current builtin operator set and precedence/associativity tiers are normative for v1.
-  - [x] New user-defined operators must fit staged extension points and must not silently change existing builtin fixity behavior.
+- [x] Gate A: built-in operator set and fixity are frozen for v1.
+  - [x] Current built-in operator set and precedence/associativity tiers are normative for v1.
+  - [x] New user-defined operators must fit staged extension points and must not silently change existing built-in fixity behavior.
 - [x] Gate B: section semantics policy.
   - [ ] Option B1: keep lambda-desugaring semantics but hide synthetic names from external AST contract.
   - [x] Option B2 (selected): introduce explicit AST node for operator sections.
@@ -70,7 +70,7 @@ Out of scope:
   - Keep parser output stable and independent from synthetic lambda variable names.
   - Lower section nodes in desugaring, not in parser ad hoc branches.
 - [ ] Define stage boundaries and compatibility contract:
-  - Stage 1: frozen builtin operators + parser/runtime cleanup.
+  - Stage 1: frozen built-in operators + parser/runtime cleanup.
   - Stage 2: controlled user-defined operator declarations with fixed precedence tiers.
   - Stage 3: optional custom precedence declarations (only if needed).
 - [ ] Specify extensibility mechanism that keeps later phases low-risk:

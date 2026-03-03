@@ -266,38 +266,38 @@ git add jazz-hs/test/ParserSpec.hs \
 
 ### Nix Environment (Required)
 
-- [ ] Add/maintain a pinned dev shell for `jazz-hs`:
-  - `jazz-hs/flake.nix`
-  - `jazz-hs/flake.lock`
+- [ ] Add/maintain a pinned dev shell in the repository root:
+  - `flake.nix`
+  - `flake.lock`
 - [ ] Ensure shell includes: `stack`, `ghc`, `nodejs`, `bash`, `git`, `ripgrep`.
 
 ### Environment Sanity Commands
 
 ```bash
-nix --extra-experimental-features "nix-command flakes" develop jazz-hs -c stack --version
-nix --extra-experimental-features "nix-command flakes" develop jazz-hs -c ghc --version
-nix --extra-experimental-features "nix-command flakes" develop jazz-hs -c node --version
+nix --extra-experimental-features "nix-command flakes" develop -c stack --version
+nix --extra-experimental-features "nix-command flakes" develop -c ghc --version
+nix --extra-experimental-features "nix-command flakes" develop -c node --version
 ```
 
 ### Parser Checks (Reproducible)
 
 ```bash
-nix --extra-experimental-features "nix-command flakes" develop jazz-hs -c bash -lc 'cd jazz-hs && stack test --ta "--match \"when given an import statement|when given a module definition\""' 
-nix --extra-experimental-features "nix-command flakes" develop jazz-hs -c bash -lc 'cd jazz-hs && stack test --ta "--match \"Should handle a simple program with imports\""' 
+nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd jazz-hs && stack test --ta "--match \"when given an import statement|when given a module definition\""'
+nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd jazz-hs && stack test --ta "--match \"Should handle a simple program with imports\""'
 ```
 
 ### Analyzer/Loader Checks (Reproducible)
 
 ```bash
-nix --extra-experimental-features "nix-command flakes" develop jazz-hs -c bash -lc 'cd jazz-hs && stack test --ta "--match \"Type Inference\""' 
-nix --extra-experimental-features "nix-command flakes" develop jazz-hs -c bash -lc 'cd jazz-hs && stack test --ta "--match \"ModuleResolutionSpec|LoaderSpec\""' 
+nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd jazz-hs && stack test --ta "--match \"Type Inference\""'
+nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd jazz-hs && stack test --ta "--match \"ModuleResolutionSpec|LoaderSpec\""'
 ```
 
 ### Documentation Consistency Checks (Reproducible)
 
 ```bash
-nix --extra-experimental-features "nix-command flakes" develop jazz-hs -c bash -lc 'cd . && rg -n "module|import|resolution|loader|qualified" docs/spec/modules docs/jazz-language-state.md README.md'
-nix --extra-experimental-features "nix-command flakes" develop jazz-hs -c bash -lc 'cd . && bash scripts/check-module-docs.sh'
+nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd . && rg -n "module|import|resolution|loader|qualified" docs/spec/modules docs/jazz-language-state.md README.md'
+nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd . && bash scripts/check-module-docs.sh'
 ```
 
 ## Final Exit Criteria

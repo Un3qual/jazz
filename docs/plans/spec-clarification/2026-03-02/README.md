@@ -15,17 +15,17 @@
 ## Scope Boundary
 
 These plans cover additional clarity work beyond current spec-cleanup plans in:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02`
+- [docs/plans/spec-cleanup/2026-03-02](../../spec-cleanup/2026-03-02)
 
 ## Domain Plans
 
-- [07-type-grammar-and-arrow-associativity.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md)
-- [08-trait-vocabulary-and-capability-model.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/abstractions/08-trait-vocabulary-and-capability-model.md)
-- [09-module-loader-and-import-resolution.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/modules/09-module-loader-and-import-resolution.md)
-- [10-stdlib-boundary-selfhosted-vs-hardcoded.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md)
-- [11-adt-and-pattern-matching-positioning.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md)
-- [12-backend-target-strategy.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/runtime/12-backend-target-strategy.md)
-- [12a-haskell-interpreter-implementation.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md)
+- [07-type-grammar-and-arrow-associativity.md](type-system/07-type-grammar-and-arrow-associativity.md)
+- [08-trait-vocabulary-and-capability-model.md](abstractions/08-trait-vocabulary-and-capability-model.md)
+- [09-module-loader-and-import-resolution.md](modules/09-module-loader-and-import-resolution.md)
+- [10-stdlib-boundary-selfhosted-vs-hardcoded.md](stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md)
+- [11-adt-and-pattern-matching-positioning.md](semantics/11-adt-and-pattern-matching-positioning.md)
+- [12-backend-target-strategy.md](runtime/12-backend-target-strategy.md)
+- [12a-haskell-interpreter-implementation.md](runtime/12a-haskell-interpreter-implementation.md)
 
 ## Locked Clarifications (Approved 2026-03-02)
 

@@ -1,6 +1,6 @@
 # Binding and Signature Coherence Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **For implementers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Define and enforce one coherent semantic contract for declaration order, type-signature attachment, shadowing, and recursive binding behavior.
 
@@ -25,7 +25,7 @@
 - [x] Type signatures are optional when types can be inferred.
 - [x] When present, a type signature must appear directly above its binding.
 - [x] Rebinding is allowed in any scope (top-level and nested), with deterministic same-scope `last wins` semantics.
-- [x] Self recursion is unrestricted (implementation may extend to broader recursion forms under the same gate).
+- [x] Self-recursion is unrestricted (implementation may extend to broader recursion forms under the same gate).
 
 ## Verification Evidence (Current Ambiguity)
 

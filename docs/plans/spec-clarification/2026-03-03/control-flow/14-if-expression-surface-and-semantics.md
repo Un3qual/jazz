@@ -35,19 +35,21 @@
 ## Scope Guardrails
 
 In scope:
-- decision on `if` surface inclusion,
-- syntax and typing contract (if included),
-- cleanup of dead AST/runtime branches (if excluded).
+
+1. decision on `if` surface inclusion,
+1. syntax and typing contract (if included),
+1. cleanup of dead AST/runtime branches (if excluded).
 
 Out of scope:
-- pattern-match guard syntax,
-- advanced control-flow sugar (`unless`, `cond`, guards) unless explicitly added after gate approval.
+
+1. pattern-match guard syntax,
+1. advanced control-flow sugar (`unless`, `cond`, guards) unless explicitly added after gate approval.
 
 ## Decision Gate
 
-- [x] Gate A: Is `if` a canonical language construct in current phase?
-  - [x] Option A1 (selected): Include now (recommended if interpreter-first roadmap needs direct branching syntax).
-  - [ ] Option A2: Exclude now (rely on `case` only and remove scaffolding).
+1. [x] Gate A: Is `if` a canonical language construct in current phase?
+   1. [x] Option A1 (selected): Include now (recommended if interpreter-first roadmap needs direct branching syntax).
+   1. [ ] Option A2: Exclude now (rely on `case` only and remove scaffolding).
 
 ## Track A: Include `if` in Surface Language
 
@@ -157,6 +159,6 @@ stack test
 
 ## Definition of Done
 
-- [ ] `if` inclusion/exclusion is explicit and documented.
-- [ ] No AST/parser/analyzer/runtime drift remains for control-flow surface.
-- [ ] Tests enforce the chosen control-flow contract.
+1. [ ] `if` inclusion/exclusion is explicit and documented.
+1. [ ] No AST/parser/analyzer/runtime drift remains for control-flow surface.
+1. [ ] Tests enforce the chosen control-flow contract.
