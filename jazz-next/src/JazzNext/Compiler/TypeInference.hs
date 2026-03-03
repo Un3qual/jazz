@@ -97,9 +97,15 @@ inferExprType env expr =
           (rightType, rightErrors) = inferExprType env rightExpr
           resultType = inferBinaryResultType operatorSymbol leftType rightType
           binaryErrors =
-            case (resultType, leftType, rightType) of
-              (Nothing, Just leftOperandType, Just rightOperandType) ->
-                [mkBinaryTypeError operatorSymbol leftOperandType rightOperandType]
+            case (leftType, rightType) of
+              (Just leftOperandType, Just rightOperandType)
+                -- Keep equality mismatch diagnostics specific so strict
+                -- type-directed equality has a stable contract and error code.
+                | operatorSymbol == "==" || operatorSymbol == "!=",
+                  leftOperandType /= rightOperandType ->
+                    [mkStrictEqualityTypeError operatorSymbol leftOperandType rightOperandType]
+                | resultType == Nothing ->
+                    [mkBinaryTypeError operatorSymbol leftOperandType rightOperandType]
               _ -> []
        in
         (resultType, leftErrors ++ rightErrors ++ binaryErrors)
@@ -172,6 +178,15 @@ mkBinaryTypeError operatorSymbol leftType rightType =
   "E2003: cannot apply operator '"
     <> operatorSymbol
     <> "' to operands of type "
+    <> renderType leftType
+    <> " and "
+    <> renderType rightType
+
+mkStrictEqualityTypeError :: Text -> ExpressionType -> ExpressionType -> Text
+mkStrictEqualityTypeError operatorSymbol leftType rightType =
+  "E2004: strict equality operator '"
+    <> operatorSymbol
+    <> "' requires operands of the same type, found "
     <> renderType leftType
     <> " and "
     <> renderType rightType

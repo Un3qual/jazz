@@ -16,6 +16,7 @@
 - [x] Bootstrap `jazz-next` lexer/parser foundation before additional domain execution (surface parser + parse/lower boundary + tests)
 - [x] Execute domain 14 batch 1 in `jazz-next` (`if` parser/lowering/type-contract tests + diagnostics)
 - [x] Execute domain 15 batch 1 in `jazz-next` (operator fixity/sections parser + AST/lowering + tests)
+- [x] Execute domain 16 batch 1 in `jazz-next` (primitive conformance tests + strict-equality mismatch diagnostics)
 - [ ] Execute plans (future work)
 
 ## Scope Boundary
@@ -43,6 +44,7 @@ This batch only includes clarification domains that are not already directly pla
 - [x] 15 operator fixity and sections
 - [x] 15a operator fixity/sections parser-alignment batch (`jazz-next` operator table + precedence parser + section AST/tests)
 - [ ] 16 primitive semantics contract
+- [x] 16a primitive semantics phase-1 conformance batch (`jazz-next` primitive test suite + `E2004` strict-equality mismatch diagnostics)
 - [x] 17 jazz2 alignment and spec authority
 
 ## Implementation Status Verification (2026-03-03 Batch)
@@ -62,7 +64,7 @@ This batch only includes clarification domains that are not already directly pla
 Parser/lexer foundation is now in place in `jazz-next`. Continue with domain execution on that baseline:
 
 1. Complete remaining domain 14 work (`if` desugaring-to-`case` pass and runtime/CLI alignment in `jazz-next`).
-2. Execute domain 16 primitive conformance tests and semantic alignment in `jazz-next`.
+2. Continue domain 16 runtime alignment beyond phase-1 tests (`map`/`hd`/`tl` semantics + runtime fatal diagnostic path in active `jazz-next` pipeline).
 3. If parser behavior exposes syntax ambiguities, update the relevant spec clarification docs in the same change before proceeding.
 
 ## Locked Governance Clarifications (2026-03-03)
