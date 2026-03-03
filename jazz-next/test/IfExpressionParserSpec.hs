@@ -35,6 +35,8 @@ tests =
     ("rejects missing else branch", testRejectsMissingElse),
     ("rejects extra else branch", testRejectsExtraElse),
     ("treats if and else as reserved keywords", testRejectsKeywordAsBindingName),
+    ("rejects True as binding name", testRejectsTrueAsBindingName),
+    ("rejects False as signature name", testRejectsFalseAsSignatureName),
     ("lowers parsed if surface nodes into analyzer AST", testLowerIfExpression)
   ]
 
@@ -92,6 +94,20 @@ testRejectsKeywordAsBindingName =
     "keyword binding name"
     "expected expression"
     (parseSurfaceProgram "if = 1.")
+
+testRejectsTrueAsBindingName :: IO ()
+testRejectsTrueAsBindingName =
+  assertLeftContains
+    "True binding rejection"
+    "reserved literal 'True' cannot be used as a binding name"
+    (parseSurfaceProgram "True = 1.")
+
+testRejectsFalseAsSignatureName :: IO ()
+testRejectsFalseAsSignatureName =
+  assertLeftContains
+    "False signature rejection"
+    "reserved literal 'False' cannot be used as a binding name"
+    (parseSurfaceProgram "False :: Bool.")
 
 testLowerIfExpression :: IO ()
 testLowerIfExpression =

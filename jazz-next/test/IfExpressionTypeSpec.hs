@@ -30,7 +30,8 @@ tests =
   [ ("if condition must be Bool", testRejectsNonBoolCondition),
     ("if condition accepts int equality as Bool", testAcceptsEqualityCondition),
     ("if branches must have matching types", testRejectsMismatchedBranchTypes),
-    ("if with Bool condition and aligned branches compiles", testAcceptsWellTypedIf)
+    ("if with Bool condition and aligned branches compiles", testAcceptsWellTypedIf),
+    ("binary operator rejects mismatched operand types", testRejectsBinaryTypeMismatch)
   ]
 
 testRejectsNonBoolCondition :: IO ()
@@ -61,34 +62,38 @@ testAcceptsWellTypedIf = do
   assertEqual "compile errors" [] (compileErrors result)
   assertJust "generated JS is present" (generatedJs result)
 
-nonBoolConditionProgram :: Expr
-nonBoolConditionProgram =
+mkProgram :: Expr -> Expr
+mkProgram expr =
   EScope
     [ SExpr
         (SourceSpan 1 1)
-        (EIf (EInt 1) (EInt 2) (EInt 3))
+        expr
     ]
+
+nonBoolConditionProgram :: Expr
+nonBoolConditionProgram =
+  mkProgram (EIf (EInt 1) (EInt 2) (EInt 3))
 
 equalityConditionProgram :: Expr
 equalityConditionProgram =
-  EScope
-    [ SExpr
-        (SourceSpan 1 1)
-        (EIf (EBinary "==" (EInt 1) (EInt 2)) (EInt 2) (EInt 3))
-    ]
+  mkProgram (EIf (EBinary "==" (EInt 1) (EInt 2)) (EInt 2) (EInt 3))
 
 mismatchedBranchProgram :: Expr
 mismatchedBranchProgram =
-  EScope
-    [ SExpr
-        (SourceSpan 1 1)
-        (EIf (EBool True) (EInt 1) (EBool False))
-    ]
+  mkProgram (EIf (EBool True) (EInt 1) (EBool False))
 
 validIfProgram :: Expr
 validIfProgram =
-  EScope
-    [ SExpr
-        (SourceSpan 1 1)
-        (EIf (EBool True) (EInt 1) (EInt 2))
-    ]
+  mkProgram (EIf (EBool True) (EInt 1) (EInt 2))
+
+testRejectsBinaryTypeMismatch :: IO ()
+testRejectsBinaryTypeMismatch = do
+  result <- compileExpr defaultWarningSettings binaryTypeMismatchProgram
+  assertSingleErrorContains
+    "binary type error"
+    "cannot apply operator '+'"
+    (compileErrors result)
+
+binaryTypeMismatchProgram :: Expr
+binaryTypeMismatchProgram =
+  mkProgram (EBinary "+" (EInt 1) (EBool True))

@@ -61,10 +61,29 @@ parseStatement tokens =
     -- Statement-level forms take precedence over expression parsing when the
     -- leading identifier is followed by declaration syntax.
     (nameToken : afterName@(Token {tokenKind = TColonColon} : _))
+      | TIdentifier name <- tokenKind nameToken,
+        isReservedLiteralName name ->
+          Left
+            ( "reserved literal '"
+                ++ name
+                ++ "' cannot be used as a binding name at "
+                ++ renderSpan (tokenSpan nameToken)
+            )
       | TIdentifier name <- tokenKind nameToken -> parseSignature name nameToken afterName
     (nameToken : afterName@(Token {tokenKind = TEquals} : _))
+      | TIdentifier name <- tokenKind nameToken,
+        isReservedLiteralName name ->
+          Left
+            ( "reserved literal '"
+                ++ name
+                ++ "' cannot be used as a binding name at "
+                ++ renderSpan (tokenSpan nameToken)
+            )
       | TIdentifier name <- tokenKind nameToken -> parseLet name nameToken afterName
     _ -> parseExprStatement tokens
+
+isReservedLiteralName :: String -> Bool
+isReservedLiteralName name = name == "True" || name == "False"
 
 parseSignature :: String -> Token -> [Token] -> Either String (SurfaceStatement, [Token])
 parseSignature name nameToken tokensAfterName =
