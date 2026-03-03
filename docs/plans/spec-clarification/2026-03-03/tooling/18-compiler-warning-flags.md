@@ -20,6 +20,7 @@ Execution note:
 - [x] Warning category model and naming locked.
 - [x] CLI flag contract locked.
 - [x] Config/env contract and precedence locked.
+- [x] Phase 1 warning-config plumbing implemented in `jazz-next`.
 - [ ] Analyzer warning plumbing implemented for same-scope rebinding.
 - [ ] Warning tests (unit + integration) passing.
 - [x] Documentation and migration notes published.
@@ -120,22 +121,21 @@ Precedence:
 
 Core compiler plumbing:
 
-- Create: `jazz-hs/src/Compiler/Warnings.hs`
-- Create: `jazz-hs/src/Compiler/WarningConfig.hs`
-- Modify: `jazz-hs/src/Analyzer.hs`
-- Modify: `jazz-hs/src/Analyzer/TypeInference.hs`
-- Modify: `jazz-hs/src/Errors.hs`
-- Modify: `jazz-hs/src/Lib.hs`
-- Modify: `jazz-hs/app/Main.hs`
-- Modify: `jazz-hs/package.yaml`
-- Modify: `jazz-hs/jazz.cabal` (regenerate or sync with `package.yaml`)
+- Create: `jazz-next/src/JazzNext/Compiler/Warnings.hs`
+- Create: `jazz-next/src/JazzNext/Compiler/WarningConfig.hs`
+- Modify: `jazz-next/src/JazzNext/Compiler/Analyzer.hs` (Phase 2 planned)
+- Modify: `jazz-next/src/JazzNext/Compiler/TypeInference.hs` (Phase 2 planned)
+- Modify: `jazz-next/src/JazzNext/Compiler/Diagnostics.hs` (Phase 2 planned)
+- Modify: `jazz-next/src/JazzNext/CLI/Main.hs` (Phase 3 planned)
+- Modify: `jazz-next/src/JazzNext/Compiler/Driver.hs` (Phase 3 planned)
 
 Tests:
 
-- Create: `jazz-hs/test/Compiler/WarningConfigSpec.hs`
-- Create: `jazz-hs/test/Analyzer/RebindingWarningSpec.hs`
-- Modify: `jazz-hs/test/Analyzer/TypeInferenceSpec.hs` (if shared helpers are preferable)
-- Modify: `jazz-hs/test/Spec.hs`
+- Create: `jazz-next/test/WarningConfigSpec.hs`
+- Create: `jazz-next/test/RebindingWarningSpec.hs` (Phase 4 planned)
+- Modify: `jazz-next/test/TypeInferenceSpec.hs` (if shared helpers are preferable)
+- Modify: `jazz-next/test/Spec.hs` (if suite aggregation is used)
+- Create: `jazz-next/scripts/test-warning-config.sh`
 
 Docs:
 
@@ -171,27 +171,30 @@ git commit -m "docs(tooling): define compiler warning flag contract"
 
 ## Phase 1: Warning Config and Resolution Plumbing
 
-- [ ] Add warning category and severity data types.
-- [ ] Add parser utilities for category tokens and `-W`-style flags.
-- [ ] Implement config/env loading and precedence merge (`CLI > env > config > default`).
-- [ ] Implement unknown-category handling (diagnostic + non-zero exit for invalid flags/config).
+- [x] Add warning category and severity data types.
+- [x] Add parser utilities for category tokens and `-W`-style flags.
+- [x] Implement config/env loading and precedence merge (`CLI > env > config > default`).
+- [x] Implement unknown-category handling (diagnostic + non-zero exit for invalid flags/config).
 
 Create:
 
-- `jazz-hs/src/Compiler/Warnings.hs`
-- `jazz-hs/src/Compiler/WarningConfig.hs`
+- `jazz-next/src/JazzNext/Compiler/Warnings.hs`
+- `jazz-next/src/JazzNext/Compiler/WarningConfig.hs`
+- `jazz-next/test/WarningConfigSpec.hs`
+- `jazz-next/scripts/test-warning-config.sh`
 
 Modify:
 
-- `jazz-hs/package.yaml`
-- `jazz-hs/jazz.cabal`
+- `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`
 
 ### Commit Checkpoint (Phase 1)
 
 ```bash
-git add jazz-hs/src/Compiler/Warnings.hs \
-  jazz-hs/src/Compiler/WarningConfig.hs \
-  jazz-hs/package.yaml jazz-hs/jazz.cabal
+git add jazz-next/src/JazzNext/Compiler/Warnings.hs \
+  jazz-next/src/JazzNext/Compiler/WarningConfig.hs \
+  jazz-next/test/WarningConfigSpec.hs \
+  jazz-next/scripts/test-warning-config.sh \
+  docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md
 git commit -m "feat(compiler): add warning category and config resolution plumbing"
 ```
 
@@ -205,16 +208,16 @@ git commit -m "feat(compiler): add warning category and config resolution plumbi
 
 Modify:
 
-- `jazz-hs/src/Analyzer.hs`
-- `jazz-hs/src/Analyzer/TypeInference.hs`
-- `jazz-hs/src/Errors.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Diagnostics.hs`
 
 ### Commit Checkpoint (Phase 2)
 
 ```bash
-git add jazz-hs/src/Analyzer.hs \
-  jazz-hs/src/Analyzer/TypeInference.hs \
-  jazz-hs/src/Errors.hs
+git add jazz-next/src/JazzNext/Compiler/Analyzer.hs \
+  jazz-next/src/JazzNext/Compiler/TypeInference.hs \
+  jazz-next/src/JazzNext/Compiler/Diagnostics.hs
 git commit -m "feat(analyzer): emit optional same-scope rebinding warnings"
 ```
 
@@ -227,13 +230,14 @@ git commit -m "feat(analyzer): emit optional same-scope rebinding warnings"
 
 Modify:
 
-- `jazz-hs/app/Main.hs`
-- `jazz-hs/src/Lib.hs`
+- `jazz-next/src/JazzNext/CLI/Main.hs`
+- `jazz-next/src/JazzNext/Compiler/Driver.hs`
 
 ### Commit Checkpoint (Phase 3)
 
 ```bash
-git add jazz-hs/app/Main.hs jazz-hs/src/Lib.hs
+git add jazz-next/src/JazzNext/CLI/Main.hs \
+  jazz-next/src/JazzNext/Compiler/Driver.hs
 git commit -m "feat(cli): wire warning flags and diagnostics into compiler entrypoint"
 ```
 
@@ -254,21 +258,21 @@ git commit -m "feat(cli): wire warning flags and diagnostics into compiler entry
 
 Create:
 
-- `jazz-hs/test/Compiler/WarningConfigSpec.hs`
-- `jazz-hs/test/Analyzer/RebindingWarningSpec.hs`
+- `jazz-next/test/WarningConfigSpec.hs`
+- `jazz-next/test/RebindingWarningSpec.hs`
 
 Modify:
 
-- `jazz-hs/test/Spec.hs`
-- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs` (optional helper reuse)
+- `jazz-next/test/Spec.hs`
+- `jazz-next/test/TypeInferenceSpec.hs` (optional helper reuse)
 
 ### Commit Checkpoint (Phase 4)
 
 ```bash
-git add jazz-hs/test/Compiler/WarningConfigSpec.hs \
-  jazz-hs/test/Analyzer/RebindingWarningSpec.hs \
-  jazz-hs/test/Spec.hs \
-  jazz-hs/test/Analyzer/TypeInferenceSpec.hs
+git add jazz-next/test/WarningConfigSpec.hs \
+  jazz-next/test/RebindingWarningSpec.hs \
+  jazz-next/test/Spec.hs \
+  jazz-next/test/TypeInferenceSpec.hs
 git commit -m "test(compiler): add warning flag and rebinding warning coverage"
 ```
 
@@ -300,51 +304,16 @@ git commit -m "docs(tooling): publish warning flags guide and migration notes"
 
 ## Verification Commands
 
-Baseline and targeted tests:
+Phase 1 (completed in this batch):
 
 ```bash
-cd jazz-hs
-stack test --ta '--match "WarningConfig"'
-stack test --ta '--match "RebindingWarning"'
-stack test
+bash jazz-next/scripts/test-warning-config.sh
 ```
 
-CLI behavior checks:
+Phase 2+ (planned after analyzer and CLI integration):
 
 ```bash
-printf 'x = 1.\nx = 2.\nx.\n' > /tmp/rebind.jz
-
-# Default: silent
-stack exec jazz-exe -- /tmp/rebind.jz >/tmp/rebind-default.js 2>/tmp/rebind-default.stderr
-test ! -s /tmp/rebind-default.stderr
-
-# Enable warning by CLI flag
-stack exec jazz-exe -- -Wsame-scope-rebinding /tmp/rebind.jz >/tmp/rebind-warn.js 2>/tmp/rebind-warn.stderr
-rg -n "W0001|same-scope-rebinding" /tmp/rebind-warn.stderr
-
-# Enable warning by env var
-JAZZ_WARNING_FLAGS=same-scope-rebinding stack exec jazz-exe -- /tmp/rebind.jz >/tmp/rebind-env.js 2>/tmp/rebind-env.stderr
-rg -n "W0001|same-scope-rebinding" /tmp/rebind-env.stderr
-
-# Escalate to error
-stack exec jazz-exe -- -Wsame-scope-rebinding -Werror=same-scope-rebinding /tmp/rebind.jz >/tmp/rebind-err.js 2>/tmp/rebind-err.stderr && false || true
-rg -n "error|W0001|same-scope-rebinding" /tmp/rebind-err.stderr
-```
-
-Config precedence checks:
-
-```bash
-cat > /tmp/.jazz-warnings <<'EOF'
-same-scope-rebinding
-EOF
-
-# Config enables warning
-stack exec jazz-exe -- --warnings-config /tmp/.jazz-warnings /tmp/rebind.jz >/tmp/rebind-config.js 2>/tmp/rebind-config.stderr
-rg -n "W0001|same-scope-rebinding" /tmp/rebind-config.stderr
-
-# CLI disable overrides config
-stack exec jazz-exe -- --warnings-config /tmp/.jazz-warnings -Wno-same-scope-rebinding /tmp/rebind.jz >/tmp/rebind-config-off.js 2>/tmp/rebind-config-off.stderr
-test ! -s /tmp/rebind-config-off.stderr
+# Add analyzer + CLI integration checks once Phase 2 and 3 land.
 ```
 
 ## Definition of Done
