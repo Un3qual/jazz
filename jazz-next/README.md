@@ -12,7 +12,12 @@ Do not implement new compiler functionality in legacy directories.
 
 - `src/JazzNext/Compiler/Warnings.hs`: warning category/severity definitions and category parsing.
 - `src/JazzNext/Compiler/WarningConfig.hs`: `-W` token parsing and precedence merge (`CLI > env > config > default`).
-- `test/WarningConfigSpec.hs`: unit tests for warning-config phase-1 behavior.
+- `src/JazzNext/Compiler/Diagnostics.hs`: warning payload shape and deterministic warning sorting.
+- `src/JazzNext/Compiler/Analyzer.hs`: minimal scope-aware rebinding warning analysis (`W0001`).
+- `src/JazzNext/Compiler/TypeInference.hs`: inference result plumbing that carries optional warnings.
+- `src/JazzNext/Compiler/Driver.hs`: warning-as-error gating and compile-result shaping.
+- `test/WarningConfigSpec.hs`: unit tests for warning-config parsing and precedence.
+- `test/RebindingWarningSpec.hs`: analyzer/driver warning behavior tests.
 - `scripts/test-warning-config.sh`: local test entrypoint.
 
 ## Run tests
