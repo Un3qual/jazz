@@ -44,13 +44,18 @@ testIfTrueSkipsElseRuntimeFailure = do
 testDivisionByZeroRuntimeError :: IO ()
 testDivisionByZeroRuntimeError = do
   result <- runSource defaultWarningSettings "1 / 0."
+  let runtimeErrors = runRuntimeErrors result
   assertEqual "compile errors" [] (runCompileErrors result)
   assertSingleErrorContains
     "runtime fatal division by zero"
     "E3001"
-    (runRuntimeErrors result)
-  assertContains
-    "runtime fatal mentions division by zero"
-    "division by zero"
-    (head (runRuntimeErrors result))
+    runtimeErrors
+  case runtimeErrors of
+    [] ->
+      fail "expected division-by-zero runtime error, but got no runtime errors"
+    runtimeError : _ ->
+      assertContains
+        "runtime fatal mentions division by zero"
+        "division by zero"
+        runtimeError
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
