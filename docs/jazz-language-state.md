@@ -430,6 +430,15 @@ If you need a practical baseline for continuing Jazz, use this order:
 - Non-semantic/internal changes may be implementation-first only when docs/tests are updated in the same change.
 - Policy details and examples are in `docs/spec/governance/spec-authority-policy.md`.
 
+## Top-level Docs Contract
+
+- `README.md` is a high-level summary and must keep language claims split into:
+  - "Implemented Today (verified)"
+  - "Planned / Aspirational"
+- `docs/feature-status.md` is the canonical feature-status matrix and evidence source.
+- If README and matrix wording diverge, treat `docs/feature-status.md` as authoritative and bring README back in sync.
+- Feature status changes must include evidence paths and a verification commit reference in `docs/feature-status.md`.
+
 ## Recommended Next Spec Cleanup
 
 If this repo is going to become a coherent language project, the highest-value cleanup would be:
@@ -437,6 +446,10 @@ If this repo is going to become a coherent language project, the highest-value c
 Status update for item #1:
 - Decision lock is recorded in `docs/spec/authoritative-syntax.md`.
 - Implementation/test alignment is still pending and must be executed in `jazz-next`.
+
+Status update for item #5:
+- Implemented-vs-planned split is now published in `README.md`.
+- Canonical evidence-backed feature status is now tracked in `docs/feature-status.md`.
 
 1. Implement `if` semantics in `jazz-next` according to `docs/spec/control-flow/if-expressions.md`.
 2. Implement operator/fixity/section semantics in `jazz-next` according to `docs/spec/syntax/operators.md`.

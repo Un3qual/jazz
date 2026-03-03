@@ -22,17 +22,17 @@
 
 ## Scope Guardrails
 
-- [ ] Only documentation and docs-tooling files are in scope.
-- [ ] Do not change compiler/runtime/parser/typechecker behavior for this item.
-- [ ] Keep claims evidence-backed by current repository behavior (primarily `jazz-hs`).
+- [x] Only documentation and docs-tooling files are in scope.
+- [x] Do not change compiler/runtime/parser/typechecker behavior for this item.
+- [x] Keep claims evidence-backed by current repository behavior (primarily `jazz-hs`).
 
 ## Progress Tracker
 
-- [ ] Task 1: Build feature-status source of truth
-- [ ] Task 2: Split top-level README into implemented vs planned
-- [ ] Task 3: Align `docs/jazz-language-state.md` with the new split
+- [x] Task 1: Build feature-status source of truth
+- [x] Task 2: Split top-level README into implemented vs planned
+- [x] Task 3: Align `docs/jazz-language-state.md` with the new split
 - [ ] Task 4: Add Nix-aware docs check/formatter tasks (conditional)
-- [ ] Task 5: Add anti-drift maintenance checks
+- [x] Task 5: Add anti-drift maintenance checks
 - [ ] Task 6: Run verification commands and prepare merge notes
 
 ### Task 1: Build feature-status source of truth
@@ -47,13 +47,13 @@
   - `jazz-hs/src/Types.hs`
 
 **Steps:**
-- [ ] Create a short rubric defining exactly three labels:
+- [x] Create a short rubric defining exactly three labels:
   - `Implemented Today` (end-to-end in current repo)
   - `Partially Implemented / Parse-Only`
   - `Planned / Aspirational`
-- [ ] Add a feature table with one row per user-visible feature claim from top-level docs.
-- [ ] For each row, include a short evidence pointer (file path + short rationale).
-- [ ] Add `Last verified against commit: <sha>` placeholder so future updates can anchor to a revision.
+- [x] Add a feature table with one row per user-visible feature claim from top-level docs.
+- [x] For each row, include a short evidence pointer (file path + short rationale).
+- [x] Add `Last verified against commit: <sha>` placeholder so future updates can anchor to a revision.
 
 **Commit checkpoint:**
 ```bash
@@ -68,13 +68,13 @@ git commit -m "docs: add canonical feature status matrix"
 - Reference: `docs/feature-status.md`
 
 **Steps:**
-- [ ] Replace the current single `### Features` list with two explicit sections:
+- [x] Replace the current single `### Features` list with two explicit sections:
   - `### Implemented Today (verified)`
   - `### Planned / Aspirational`
-- [ ] Move each existing feature bullet into the correct section using Task 1 rubric.
-- [ ] Keep copy concise in README; link to `docs/feature-status.md` for detailed status/evidence.
-- [ ] Ensure future-tense language appears only in the planned section.
-- [ ] If examples include non-implemented behavior, mark them as aspirational or move them under planned notes.
+- [x] Move each existing feature bullet into the correct section using Task 1 rubric.
+- [x] Keep copy concise in README; link to `docs/feature-status.md` for detailed status/evidence.
+- [x] Ensure future-tense language appears only in the planned section.
+- [x] If examples include non-implemented behavior, mark them as aspirational or move them under planned notes.
 
 **Commit checkpoint:**
 ```bash
@@ -89,11 +89,11 @@ git commit -m "docs(readme): separate implemented features from planned features
 - Reference: `docs/feature-status.md`
 
 **Steps:**
-- [ ] Add a short "Top-level docs contract" section that defines:
+- [x] Add a short "Top-level docs contract" section that defines:
   - README = high-level summary
   - `docs/feature-status.md` = canonical status matrix
-- [ ] Update the "Recommended Next Spec Cleanup" list so item #5 is marked done once split is merged.
-- [ ] Add links between the two docs to keep navigation obvious.
+- [x] Update the "Recommended Next Spec Cleanup" list so item #5 is marked done once split is merged.
+- [x] Add links between the two docs to keep navigation obvious.
 
 **Commit checkpoint:**
 ```bash
@@ -130,12 +130,12 @@ git commit -m "chore(nix): add docs check/format hooks for status-doc maintenanc
 - Optional if introduced: `CONTRIBUTING.md`
 
 **Steps:**
-- [ ] Add a "Maintenance Checklist" section with explicit update triggers:
+- [x] Add a "Maintenance Checklist" section with explicit update triggers:
   - parser/typechecker/codegen feature changes
   - builtin/runtime changes
   - new examples added to README
-- [ ] Require each feature-status change to include evidence path(s) and commit SHA.
-- [ ] Add a short reviewer checklist item: "Does README status match `docs/feature-status.md`?"
+- [x] Require each feature-status change to include evidence path(s) and commit SHA.
+- [x] Add a short reviewer checklist item: "Does README status match `docs/feature-status.md`?"
 
 **Commit checkpoint:**
 ```bash
