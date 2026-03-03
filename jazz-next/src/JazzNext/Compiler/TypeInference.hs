@@ -92,8 +92,13 @@ inferExprType env expr =
       let (leftType, leftErrors) = inferExprType env leftExpr
           (rightType, rightErrors) = inferExprType env rightExpr
           resultType = inferBinaryResultType operatorSymbol leftType rightType
+          binaryErrors =
+            case (resultType, leftType, rightType) of
+              (Nothing, Just leftOperandType, Just rightOperandType) ->
+                [mkBinaryTypeError operatorSymbol leftOperandType rightOperandType]
+              _ -> []
        in
-        (resultType, leftErrors ++ rightErrors)
+        (resultType, leftErrors ++ rightErrors ++ binaryErrors)
     ESectionLeft leftExpr _ ->
       let (_, leftErrors) = inferExprType env leftExpr
        in (Nothing, leftErrors)
@@ -157,6 +162,15 @@ inferBinaryResultType operatorSymbol leftType rightType =
     ("!=", Just leftOperandType, Just rightOperandType)
       | leftOperandType == rightOperandType -> Just TBoolType
     _ -> Nothing
+
+mkBinaryTypeError :: String -> ExpressionType -> ExpressionType -> String
+mkBinaryTypeError operatorSymbol leftType rightType =
+  "E2003: cannot apply operator '"
+    ++ operatorSymbol
+    ++ "' to operands of type "
+    ++ renderType leftType
+    ++ " and "
+    ++ renderType rightType
 
 mkIfConditionTypeError :: ExpressionType -> String
 mkIfConditionTypeError foundType =
