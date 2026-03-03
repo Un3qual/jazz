@@ -25,5 +25,5 @@ lowerSurfaceStatement surfaceStatement =
       SLet name spanValue (lowerSurfaceExpr valueExpr)
     SSSignature name spanValue signatureText ->
       SSignature name spanValue signatureText
-    SSExpr _ expr ->
-      SExpr (lowerSurfaceExpr expr)
+    SSExpr spanValue expr ->
+      SExpr spanValue (lowerSurfaceExpr expr)

@@ -16,5 +16,5 @@ data Expr
 data Statement
   = SLet String SourceSpan Expr
   | SSignature String SourceSpan String
-  | SExpr Expr
+  | SExpr SourceSpan Expr
   deriving (Eq, Show)

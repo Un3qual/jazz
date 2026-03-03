@@ -92,7 +92,7 @@ collectScopeDiagnostics settings outerScope statements =
       (Map String SourceSpan, Maybe PendingSignature, [WarningRecord], [String])
     step (scopeBindings, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
       case statement of
-        SExpr expr ->
+        SExpr _ expr ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
               visible = currentVisibleBindings scopeBindings
               (exprWarnings, exprErrors) = collectExprDiagnostics settings visible expr
@@ -335,7 +335,7 @@ freeVarsScopeWithBound initialBound statements =
     step (boundNames, freeNames) statement =
       case statement of
         SSignature _ _ _ -> (boundNames, freeNames)
-        SExpr expr ->
+        SExpr _ expr ->
           ( boundNames,
             Set.union freeNames (freeVarsExprWithBound boundNames expr)
           )

@@ -32,11 +32,13 @@ tests :: [NamedTest]
 tests =
   [ ("parses let binding and expression statement", testParseLetAndExpr),
     ("parses signature statement with source span", testParseSignatureSpan),
+    ("tracks tab-aligned expression spans", testTabAlignedExpressionSpan),
     ("parses nested scope expression", testParseNestedScopeExpression),
     ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
     ("rejects missing statement terminator", testRejectsMissingDotTerminator),
     ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot),
-    ("rejects integer literal overflow", testRejectsIntOverflow)
+    ("rejects integer literal overflow", testRejectsIntOverflow),
+    ("rejects negative literal syntax for now", testRejectsNegativeLiteralSyntax)
   ]
 
 testParseLetAndExpr :: IO ()
@@ -65,6 +67,18 @@ testParseSignatureSpan =
     )
     (parseSurfaceProgram "x :: Int.\nx = 1.")
 
+testTabAlignedExpressionSpan :: IO ()
+testTabAlignedExpressionSpan =
+  assertEqual
+    "tab-aligned span"
+    ( Right
+        ( SEScope
+            [ SSExpr (SourceSpan 1 9) (SEVar "x")
+            ]
+        )
+    )
+    (parseSurfaceProgram "\tx.")
+
 testParseNestedScopeExpression :: IO ()
 testParseNestedScopeExpression =
   assertEqual
@@ -92,7 +106,7 @@ testLowerSurfaceProgram =
     expectedProgram =
       EScope
         [ SLet "x" (SourceSpan 1 1) (EInt 1),
-          SExpr (EVar "x")
+          SExpr (SourceSpan 2 1) (EVar "x")
         ]
 
 testRejectsMissingDotTerminator :: IO ()
@@ -115,3 +129,10 @@ testRejectsIntOverflow =
     "integer overflow"
     "integer literal out of range"
     (parseSurfaceProgram "x = 9999999999999999999999999999999999999.")
+
+testRejectsNegativeLiteralSyntax :: IO ()
+testRejectsNegativeLiteralSyntax =
+  assertLeftContains
+    "negative literal unsupported"
+    "unexpected character '-'"
+    (parseSurfaceProgram "x = -9999999999999999999999999999999999999.")

@@ -36,6 +36,7 @@ tokenize = go 1 1
     go _ _ [] = Right []
     go line column (char : rest)
       | char == '\n' = go (line + 1) 1 rest
+      | char == '\t' = go line (column + tabStep column) rest
       | isSpace char = go line (column + 1) rest
       | isDigit char =
           let (digits, trailing) = span isDigit (char : rest)
@@ -104,6 +105,12 @@ tokenize = go 1 1
     isIdentifierContinuation :: Char -> Bool
     isIdentifierContinuation char =
       isAlphaNum char || char == '_' || char == '\'' || char == '!'
+
+    tabWidth :: Int
+    tabWidth = 8
+
+    tabStep :: Int -> Int
+    tabStep column = tabWidth - ((column - 1) `mod` tabWidth)
 
 renderSpan :: Int -> Int -> String
 renderSpan line column = show line ++ ":" ++ show column
