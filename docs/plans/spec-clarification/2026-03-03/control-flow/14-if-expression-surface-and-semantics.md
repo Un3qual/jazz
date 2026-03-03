@@ -36,7 +36,7 @@ Execution note:
 - `jazz-hs/src/AST.hs`: `EIf` node exists.
 - `jazz-hs/src/CodeGen/Javascript.hs`: `EIf` has lowering branch.
 - `jazz-hs/src/Parser/Lib.hs`: `if` and `else` are reserved words.
-- `jazz-hs/src/Parser/Lang.hs`: no parser production constructs `EIf`.
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`: pre-batch parser state had no production constructing `EIf`.
 - `jazz-hs/src/Analyzer/TypeInference.hs`: no `EIf` inference branch; unsupported expressions fall through to runtime `error`.
 
 ## Scope Guardrails
