@@ -43,7 +43,9 @@ evalScope initialEnv statements = go initialEnv Nothing statements
     go :: RuntimeEnv -> Maybe RuntimeValue -> [Statement] -> Either Text (Maybe RuntimeValue)
     go env lastExprValue remainingStatements =
       case remainingStatements of
-        [] -> Right lastExprValue
+        [] ->
+          -- Declaration-only scopes intentionally remain `Nothing` until a terminal `SExpr` sets a value.
+          Right lastExprValue
         statement : rest ->
           case statement of
             SSignature {} ->
