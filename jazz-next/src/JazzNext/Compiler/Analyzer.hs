@@ -7,6 +7,7 @@ module JazzNext.Compiler.Analyzer
   ) where
 
 import qualified Data.Map.Strict as Map
+import Data.List (foldl')
 import Data.Map.Strict (Map)
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan,
@@ -63,16 +64,18 @@ collectScopeWarnings ::
   [Statement] ->
   [WarningRecord]
 collectScopeWarnings settings initialScope statements =
-  snd (foldl step (initialScope, []) statements)
+  reverse finalWarningsRev
   where
+    (_, finalWarningsRev) = foldl' step (initialScope, []) statements
+
     step ::
       (Map String SourceSpan, [WarningRecord]) ->
       Statement ->
       (Map String SourceSpan, [WarningRecord])
-    step (scopeBindings, warnings) statement =
+    step (scopeBindings, warningsRev) statement =
       case statement of
         SExpr expr ->
-          (scopeBindings, warnings ++ collectExprWarnings settings expr)
+          (scopeBindings, appendWarnings warningsRev (collectExprWarnings settings expr))
         SLet bindingName bindingSpan valueExpr ->
           let valueWarnings = collectExprWarnings settings valueExpr
               rebindingWarning =
@@ -82,4 +85,8 @@ collectScopeWarnings settings initialScope statements =
                         [mkSameScopeRebindingWarning bindingName bindingSpan previousSpan]
                   _ -> []
               nextScope = Map.insert bindingName bindingSpan scopeBindings
-           in (nextScope, warnings ++ valueWarnings ++ rebindingWarning)
+              warningsWithValue = appendWarnings warningsRev valueWarnings
+           in (nextScope, appendWarnings warningsWithValue rebindingWarning)
+
+    appendWarnings :: [WarningRecord] -> [WarningRecord] -> [WarningRecord]
+    appendWarnings = foldl' (flip (:))
