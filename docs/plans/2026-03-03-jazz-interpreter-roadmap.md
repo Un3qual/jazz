@@ -63,7 +63,7 @@ Verification run in this snapshot:
 Jazz does **not** yet have a working interpreter in the active implementation path (`jazz-next/`).
 
 Current `jazz-next` behavior is a compiler front-end skeleton with:
-- parsing/lowering for a very small syntax subset,
+- parsing/lowering for a minimal syntax subset,
 - structural semantic checks,
 - warning policy infrastructure,
 - placeholder output (`"/* jazz-next codegen placeholder */"`) instead of runtime execution.
