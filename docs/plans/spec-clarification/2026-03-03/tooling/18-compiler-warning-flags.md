@@ -21,8 +21,8 @@ Execution note:
 - [x] CLI flag contract locked.
 - [x] Config/env contract and precedence locked.
 - [x] Phase 1 warning-config plumbing implemented in `jazz-next`.
-- [ ] Analyzer warning plumbing implemented for same-scope rebinding.
-- [ ] Warning tests (unit + integration) passing.
+- [x] Analyzer warning plumbing implemented for same-scope rebinding.
+- [x] Warning tests (unit + integration) passing.
 - [x] Documentation and migration notes published.
 
 ## Decision Lock (Inherited from Item 13)
@@ -200,11 +200,11 @@ git commit -m "feat(compiler): add warning category and config resolution plumbi
 
 ## Phase 2: Analyzer Warning Emission for Same-Scope Rebinding
 
-- [ ] Add analyzer output shape that can carry warnings without breaking default call sites.
-- [ ] Detect same-scope rebinding in `ELet` handling (current scope only, not outer-scope shadowing).
-- [ ] Emit `W0001` warning payload with variable name and source span(s).
-- [ ] Apply warning-as-error escalation based on resolved warning config.
-- [ ] Keep default analyzer behavior unchanged when warning category is disabled.
+- [x] Add analyzer output shape that can carry warnings without breaking default call sites.
+- [x] Detect same-scope rebinding in scope-local `let` handling (current scope only, not outer-scope shadowing).
+- [x] Emit `W0001` warning payload with variable name and source span(s).
+- [x] Apply warning-as-error escalation based on resolved warning config.
+- [x] Keep default analyzer behavior unchanged when warning category is disabled.
 
 Modify:
 
@@ -223,10 +223,10 @@ git commit -m "feat(analyzer): emit optional same-scope rebinding warnings"
 
 ## Phase 3: CLI + Lib Integration
 
-- [ ] Parse warning flags in executable entrypoint and resolve config/env inputs.
-- [ ] Thread resolved warning config into analyzer invocation path.
-- [ ] Print warnings to stderr in deterministic order while still emitting generated JS on success.
-- [ ] Ensure warning-as-error returns non-zero and suppresses JS output on promoted warnings.
+- [x] Parse warning flags in executable entrypoint and resolve config/env inputs.
+- [x] Thread resolved warning config into analyzer invocation path.
+- [x] Print warnings to stderr in deterministic order while still emitting generated JS on success.
+- [x] Ensure warning-as-error returns non-zero and suppresses JS output on promoted warnings.
 
 Modify:
 
@@ -243,18 +243,18 @@ git commit -m "feat(cli): wire warning flags and diagnostics into compiler entry
 
 ## Phase 4: Test Matrix (Parser, Precedence, Analyzer, CLI)
 
-- [ ] Add warning-config parser tests:
+- [x] Add warning-config parser tests:
   - category parsing,
   - invalid token handling,
   - precedence resolution order.
-- [ ] Add analyzer tests for same-scope rebinding:
+- [x] Add analyzer tests for same-scope rebinding:
   - warning disabled -> no warning,
   - warning enabled -> one warning,
   - repeated rebinds -> deterministic warning order,
   - nested-scope shadowing -> no `same-scope-rebinding` warning.
-- [ ] Add warning-as-error tests:
+- [x] Add warning-as-error tests:
   - enabled + promoted category fails compilation.
-- [ ] Wire new spec modules into test runner.
+- [x] Wire new spec modules into test runner.
 
 Create:
 
@@ -318,8 +318,8 @@ Phase 2+ (planned after analyzer and CLI integration):
 
 ## Definition of Done
 
-- [ ] `same-scope-rebinding` warning category is implemented with stable ID (`W0001`).
-- [ ] CLI, env, and config warning controls work with deterministic precedence.
-- [ ] Analyzer emits optional same-scope rebinding diagnostics without changing default semantics.
-- [ ] Warning-as-error flow is implemented and tested.
+- [x] `same-scope-rebinding` warning category is implemented with stable ID (`W0001`).
+- [x] CLI, env, and config warning controls work with deterministic precedence.
+- [x] Analyzer emits optional same-scope rebinding diagnostics without changing default semantics.
+- [x] Warning-as-error flow is implemented and tested.
 - [x] Documentation includes clear migration notes for phased adoption.
