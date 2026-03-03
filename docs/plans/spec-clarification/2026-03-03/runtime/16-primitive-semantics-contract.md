@@ -20,7 +20,7 @@ Execution note:
 - [x] Primitive inventory and contract table published
 - [x] Equality decision gate finalized
 - [x] Remaining decision gates finalized (`numeric behavior`, `primitive errors`)
-- [ ] Runtime/typechecker conformance tests added
+- [x] Runtime/typechecker conformance tests added
 - [x] Docs and trackers aligned
 
 ## Decision Lock (Approved 2026-03-03)
@@ -91,9 +91,9 @@ git commit -m "docs(spec): define primitive semantics contract table"
 
 ## Phase 1: Conformance Test Design
 
-- [ ] Add tests for primitive behavior contracts in analyzer/runtime path.
-- [ ] Include explicit mismatch tests (for equality and invalid primitive uses).
-- [ ] Ensure tests can run regardless of active backend by targeting shared semantic entrypoints.
+- [x] Add tests for primitive behavior contracts in analyzer/runtime path.
+- [x] Include explicit mismatch tests (for equality and invalid primitive uses).
+- [x] Ensure tests can run regardless of active backend by targeting shared semantic entrypoints.
 
 Modify/Create:
 - `jazz-next/test/PrimitiveSemanticsSpec.hs`
@@ -158,3 +158,13 @@ runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpe
 - [x] Primitive semantics are defined in language terms, not backend accident.
 - [x] Equality and numeric behavior are explicitly locked.
 - [ ] Conformance tests exist for each primitive family.
+
+## Implementation Status Verification (2026-03-03, Batch 3)
+
+- [x] Re-verified unchecked candidate steps before implementation and confirmed phase-1 gaps were still open in `jazz-next`.
+- [x] Added `jazz-next/test/PrimitiveSemanticsSpec.hs` conformance coverage for current primitive behavior in the active AST subset (numeric/equality/comparison operators).
+- [x] Added explicit strict-equality mismatch assertions (`==`, `!=`) and arithmetic/comparison mismatch assertions.
+- [x] Added a dedicated strict-equality mismatch diagnostic code (`E2004`) in `jazz-next/src/JazzNext/Compiler/TypeInference.hs`.
+- [x] Added the primitive semantics suite to `jazz-next/scripts/test-warning-config.sh` so it runs in the default verification loop.
+- [x] Ran `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpec.hs` and `bash jazz-next/scripts/test-warning-config.sh`.
+- [ ] Full primitive-family conformance remains open until list/runtime primitive domains (`map`, `hd`, `tl`, runtime fatal paths) are executable in the active `jazz-next` pipeline.
