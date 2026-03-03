@@ -1,9 +1,11 @@
 # Jazz Interpreter Roadmap (2026-03-03)
 
 ## Purpose
+
 This document summarizes the current state of Jazz, what has been completed, what remains, which detailed plans already exist, and where the current planning is incomplete for reaching a fully working interpreter.
 
 ## Evidence Baseline
+
 This roadmap is based on the current repository state as of 2026-03-03, including:
 
 - `README.md`
@@ -57,6 +59,7 @@ Verification run in this snapshot:
 ## 2) Where We Are Now
 
 ### Current working interpreter status
+
 Jazz does **not** yet have a working interpreter in the active implementation path (`jazz-next/`).
 
 Current `jazz-next` behavior is a compiler front-end skeleton with:
@@ -66,6 +69,7 @@ Current `jazz-next` behavior is a compiler front-end skeleton with:
 - placeholder output (`"/* jazz-next codegen placeholder */"`) instead of runtime execution.
 
 ### Important reality check
+
 - The repository contains plans for interpreter work (`12`, `12a`), ADT/pattern runtime work (`11`), module loader (`09`), stdlib boundary (`10`), and type-grammar clarification (`07`), but these are mostly written against legacy `jazz-hs` paths.
 - Current workspace guardrails require all net-new compiler/runtime behavior work in `jazz-next/`.
 
@@ -99,29 +103,34 @@ Current `jazz-next` behavior is a compiler front-end skeleton with:
 ## 4) What Is Left To Reach a Fully Working Interpreter
 
 ### Phase A: Re-anchor execution plans to `jazz-next` (required first)
+
 1. Convert legacy-targeted runtime plans (`11`, `12`, `12a`) into `jazz-next` execution plans.
 2. Rebase module/stdlib/type-grammar plans (`07`, `09`, `10`) onto `jazz-next` parser/analyzer/runtime architecture.
 3. Explicitly mark legacy `jazz-hs` plans as evidence-only where they are no longer execution targets.
 
 ### Phase B: Expand parser + AST + lowering to spec contracts
+
 1. Implement `if` surface parse + lowering path (plan `14`).
 2. Implement operator table/fixity/section AST forms (plan `15`).
 3. Expand expression grammar beyond int/var/scope to support canonical forms required by specs.
 4. Add parser contract tests for each new grammar slice before analyzer/runtime work.
 
 ### Phase C: Implement actual type system behavior (in `jazz-next`)
+
 1. Replace current analyzer-only structural checks with real type inference/checking slices.
 2. Enforce primitive typing and equality contract (`16`).
 3. Add type representation for parsed signatures (currently signature text is raw `String`).
 4. Establish error code taxonomy for type errors (parallel to existing `E1001+` binding diagnostics).
 
 ### Phase D: Build interpreter runtime core
+
 1. Introduce runtime value model (ints, bools, strings, lists, functions, constructors).
 2. Implement evaluator for literals, variables, lexical scope, let bindings, function application.
 3. Implement runtime primitive behavior per `docs/spec/runtime/primitive-semantics.md`.
 4. Replace placeholder codegen output with interpreter execution path in driver/CLI.
 
 ### Phase E: Core language semantics required for "fully working"
+
 1. ADT declarations, constructor values, and pattern matching runtime (`11`).
 2. `case` execution semantics and diagnostics.
 3. Purity/effect stub enforcement for `!` (`03`).
@@ -129,6 +138,7 @@ Current `jazz-next` behavior is a compiler front-end skeleton with:
 5. Stdlib ownership boundary and prelude strategy (`10`).
 
 ### Phase F: Product hardening and closure
+
 1. CLI should compile/execute real user source (not sample AST only).
 2. Add integration test suites that run end-to-end programs through interpreter path.
 3. Align README + feature matrix to interpreter-backed reality.
@@ -137,41 +147,49 @@ Current `jazz-next` behavior is a compiler front-end skeleton with:
 ## 5) Plan Holes and Missing Considerations
 
 ### Hole 1: No `jazz-next` native interpreter implementation plan
+
 The main interpreter plan (`12a`) is written for `jazz-hs`, but active execution is now `jazz-next`.
 
 **Needed:** create a `jazz-next` interpreter plan with concrete file targets, milestones, and tests.
 
 ### Hole 2: Missing architecture doc for `jazz-next` runtime pipeline
+
 There is no explicit runtime architecture for parser -> lowering -> analyzer/typecheck -> interpreter eval in `jazz-next`.
 
 **Needed:** a runtime architecture spec with data flow, error flow, and phase ownership.
 
 ### Hole 3: Type system plan mismatch with implementation reality
+
 Current `jazz-next` "TypeInference" module forwards analyzer checks; it does not implement real inference.
 
 **Needed:** explicit phased HM-style (or chosen model) implementation plan in `jazz-next`.
 
 ### Hole 4: Signature representation is under-specified
+
 Signatures are currently stored as raw text in AST (`String`), which blocks robust type checking.
 
 **Needed:** parsed type AST and signature parser plan.
 
 ### Hole 5: Runtime diagnostics contract not fully planned
+
 Spec defines primitive/runtime diagnostics expectations, but current implementation uses plain strings and no runtime error framework.
 
 **Needed:** diagnostic model for runtime failures (codes, spans, formatting, fatal behavior).
 
 ### Hole 6: CLI product gap
+
 Current CLI runs a hardcoded sample program. It is not yet a real user-facing compiler/interpreter entrypoint.
 
 **Needed:** file/module input pipeline plan with deterministic exit codes and diagnostics.
 
 ### Hole 7: Module loader + stdlib plans are legacy-implementation bound
+
 Plans `09` and `10` are detailed but structured around `jazz-hs` internals.
 
 **Needed:** re-authored versions targeting `jazz-next` modules and test harness.
 
 ### Hole 8: Feature-status narrative can drift from active implementation
+
 Some docs still blend legacy behavior evidence with active target claims.
 
 **Needed:** tighten matrix language to clearly separate:
@@ -180,16 +198,19 @@ Some docs still blend legacy behavior evidence with active target claims.
 - legacy `jazz-hs` evidence only.
 
 ### Hole 9: No single critical-path dependency map
+
 Plans exist, but there is no consolidated dependency DAG for execution order.
 
 **Needed:** one "execution dependency map" doc linking 13/14/15/16 -> runtime core -> ADT/pattern/modules/stdlib.
 
 ### Hole 10: Test strategy gap for future domains
+
 There are strong tests for current warning/binding/parser foundation slices, but no committed harness for upcoming domains (`if`, operators, primitives, interpreter runtime, module loader).
 
 **Needed:** agreed test matrix templates and CI gating for each domain before implementation starts.
 
 ## 6) Recommended Next Batch (Practical Order)
+
 1. Write `jazz-next` interpreter architecture + execution plan (replacement for `12a` in active path).
 2. Execute domain `14` (`if`) in parser/lowering/tests.
 3. Execute domain `15` (operators/sections) in parser/lowering/tests.
