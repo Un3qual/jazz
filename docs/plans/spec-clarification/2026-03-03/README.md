@@ -55,7 +55,7 @@ This batch only includes clarification domains that are not already directly pla
 
 ## Next Agent Kickoff (Post-Bootstrap)
 
-Parser/lexer foundation is now in place in `jazz-next`. Continue with domain execution on top of that baseline:
+Parser/lexer foundation is now in place in `jazz-next`. Continue with domain execution on that baseline:
 
 1. Implement domain 14 (`if`) on top of the parser surface, not by extending analyzer-only hand-built AST fixtures.
 2. Implement domain 15 (operators/sections) on top of the same parser and lowering boundary.
