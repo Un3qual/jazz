@@ -15,7 +15,7 @@
 - [x] Evidence gathered for declaration/signature drift
 - [x] Signature-placement decision gate finalized
 - [x] Remaining declaration-semantics gates finalized
-- [ ] Normative binding/signature spec doc published
+- [x] Normative binding/signature spec doc published
 - [ ] Parser/analyzer tests aligned to the chosen contract
 - [ ] Analyzer implementation aligned and verified
 - [ ] Language-state/docs updated and item closed
@@ -25,7 +25,9 @@
 - [x] Type signatures are optional when types can be inferred.
 - [x] When present, a type signature must appear directly above its binding.
 - [x] Rebinding is allowed in any scope (top-level and nested), with deterministic same-scope `last wins` semantics.
-- [x] Self-recursion is unrestricted (implementation may extend to broader recursion forms under the same gate).
+- [x] Recursion is unrestricted, including mutual recursion groups.
+- [x] Non-recursive use-before-definition is invalid and must fail at compile-time.
+- [x] Rebinding warnings are optional and deferred behind future compiler warning flags (default behavior remains silent).
 
 ## Verification Evidence (Current Ambiguity)
 
@@ -65,24 +67,33 @@ Out of scope:
   - [ ] Option C1: allow self-recursion only when signature is present.
   - [x] Option C2 (selected): allow unrestricted recursion with fixpoint treatment.
   - [ ] Option C3: disallow recursion in current phase and emit explicit diagnostics.
+- [x] Gate D: Forward-reference policy.
+  - [x] Option D1 (selected): non-recursive use-before-definition is invalid.
+  - [ ] Option D2: allow forward references in the same scope by deferred resolution.
+- [x] Gate E: Rebinding warning policy.
+  - [ ] Option E1: always warn for same-scope rebinding.
+  - [x] Option E2 (selected): warning path exists behind optional compiler flags; default stays silent.
+  - [ ] Option E3: never warn and provide no warning option.
 
 ## Phase 0: Baseline Matrix and Decision Record
 
-- [ ] Create a decision matrix that enumerates current parser/analyzer behavior for:
+- [x] Create a decision matrix that enumerates current parser/analyzer behavior for:
   - declaration with no signature (inference path),
   - signature directly above declaration,
   - declaration before signature (expected invalid path),
   - signature separated from declaration by non-signature statements (expected invalid path),
   - duplicate declarations,
   - recursive references.
-- [ ] Record expected behavior under each candidate decision option.
-- [ ] Lock selected gates A/B/C with rationale.
+- [x] Record expected behavior under each candidate decision option.
+- [x] Lock selected gates A/B/C with rationale.
+- [x] Lock forward-reference and warning-policy gates (D/E) with rationale.
 
 Create:
 - `docs/spec/semantics/bindings-and-signatures.md`
 
 Modify:
 - `docs/plans/spec-clarification/2026-03-03/semantics/13-binding-and-signature-coherence.md`
+- `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md` (future warning-flag execution plan)
 
 ### Commit Checkpoint (Phase 0)
 
