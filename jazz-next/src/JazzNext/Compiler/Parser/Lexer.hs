@@ -12,6 +12,8 @@ import Text.Read (readMaybe)
 
 data TokenKind
   = TIdentifier String
+  | TIf
+  | TElse
   | TInt Int
   | TEquals
   | TColonColon
@@ -55,9 +57,14 @@ tokenize = go 1 1
       | isIdentifierStart char =
           let (ident, trailing) = span isIdentifierContinuation (char : rest)
               width = length ident
+              kind =
+                case ident of
+                  "if" -> TIf
+                  "else" -> TElse
+                  _ -> TIdentifier ident
               token =
                 Token
-                  { tokenKind = TIdentifier ident,
+                  { tokenKind = kind,
                     tokenLexeme = ident,
                     tokenSpan = SourceSpan line column
                   }

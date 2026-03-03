@@ -10,7 +10,9 @@ import JazzNext.Compiler.Diagnostics
 -- Analyzer-facing core AST after parser lowering.
 data Expr
   = EInt Int
+  | EBool Bool
   | EVar String
+  | EIf Expr Expr Expr
   | EScope [Statement]
   deriving (Eq, Show)
 

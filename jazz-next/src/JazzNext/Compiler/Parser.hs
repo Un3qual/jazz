@@ -108,7 +108,12 @@ parseExpr tokens =
     token : rest ->
       case tokenKind token of
         TInt value -> Right (SEInt value, rest)
-        TIdentifier name -> Right (SEVar name, rest)
+        TIdentifier name ->
+          case name of
+            "True" -> Right (SEBool True, rest)
+            "False" -> Right (SEBool False, rest)
+            _ -> Right (SEVar name, rest)
+        TIf -> parseIfExpr token rest
         TLParen -> do
           -- Parentheses are grouping only; the parser returns the inner node.
           (innerExpr, afterInner) <- parseExpr rest
@@ -125,6 +130,28 @@ parseExpr tokens =
                 ++ renderSpan (tokenSpan token)
                 ++ "; expected expression"
             )
+
+parseIfExpr :: Token -> [Token] -> Either String (SurfaceExpr, [Token])
+parseIfExpr ifToken tokensAfterIf = do
+  (conditionExpr, afterCondition) <- parseExpr tokensAfterIf
+  (thenExpr, afterThenExpr) <- parseExpr afterCondition
+  case afterThenExpr of
+    Token {tokenKind = TElse} : afterElse -> do
+      (elseExpr, remaining) <- parseExpr afterElse
+      pure (SEIf conditionExpr thenExpr elseExpr, remaining)
+    [] ->
+      Left
+        ( "expected 'else' before end of input after 'if' at "
+            ++ renderSpan (tokenSpan ifToken)
+        )
+    token : _ ->
+      Left
+        ( "expected 'else' at "
+            ++ renderSpan (tokenSpan token)
+            ++ ", found '"
+            ++ tokenLexeme token
+            ++ "'"
+        )
 
 collectUntilDot :: [Token] -> Either String ([Token], [Token])
 collectUntilDot = go []

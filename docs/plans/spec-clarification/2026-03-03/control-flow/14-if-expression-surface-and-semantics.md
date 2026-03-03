@@ -22,7 +22,7 @@ Execution note:
 - [x] Gate decision recorded (`if` included)
 - [x] Selected execution track chosen (Track A)
 - [x] Canonical `if` spec published (Track A0)
-- [ ] Tests and docs aligned
+- [x] Tests and docs aligned
 - [ ] Clarification closed
 
 ## Decision Lock (Approved 2026-03-03)
@@ -77,8 +77,8 @@ Create:
 
 ### Phase A1: Tests First
 
-- [ ] Add parser tests for valid and invalid `if` syntax.
-- [ ] Add type inference tests for condition and branch-type constraints.
+- [x] Add parser tests for valid and invalid `if` syntax.
+- [x] Add type inference tests for condition and branch-type constraints.
 
 Modify:
 - `jazz-next/test/IfExpressionParserSpec.hs`
@@ -86,10 +86,10 @@ Modify:
 
 ### Phase A2: Parser + Analyzer Implementation
 
-- [ ] Add `if` parser production in `Parser.Lang` that constructs `EIf`.
+- [x] Add `if` parser production in `Parser.Lang` that constructs `EIf`.
 - [ ] Add an explicit desugaring phase that rewrites `EIf` to `ECase` before analysis.
 - [ ] Keep analyzer canonical on post-desugared forms; avoid permanent duplicate typing logic if `EIf` is always lowered pre-analysis.
-- [ ] Add error messages for non-`Bool` condition and branch mismatch.
+- [x] Add error messages for non-`Bool` condition and branch mismatch.
 
 Modify:
 - `jazz-next/src/JazzNext/Compiler/Parser.hs`
@@ -175,4 +175,13 @@ runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionTypeSpec.
 
 1. [x] `if` inclusion/exclusion is explicit and documented.
 1. [ ] No AST/parser/analyzer/runtime drift remains for control-flow surface.
-1. [ ] Tests enforce the chosen control-flow contract.
+1. [x] Tests enforce the chosen control-flow contract.
+
+## Implementation Status Verification (2026-03-03, Batch 2)
+
+- [x] Verified `if` remained unimplemented in `jazz-next` parser/AST/lowering/type checks before starting this batch.
+- [x] Added parser coverage for valid/invalid `if` syntax and nearest-`else` association.
+- [x] Added type-contract coverage for non-`Bool` conditions and branch type mismatches.
+- [x] Implemented parser/lowering/core-AST support for `if` and `Bool` literals in `jazz-next`.
+- [x] Added type-check diagnostics (`E2001`/`E2002`) for `if` condition and branch constraints.
+- [x] Verified the full `jazz-next` script suite passes after the batch.

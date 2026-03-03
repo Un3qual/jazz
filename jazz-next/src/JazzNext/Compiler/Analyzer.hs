@@ -66,10 +66,22 @@ collectExprDiagnostics ::
 collectExprDiagnostics settings visibleBindings expr =
   case expr of
     EInt _ -> ([], [])
+    EBool _ -> ([], [])
     EVar name ->
       case Map.lookup name visibleBindings of
         Just _ -> ([], [])
         Nothing -> ([], [mkUnboundVariableError name])
+    EIf conditionExpr thenExpr elseExpr ->
+      let (conditionWarnings, conditionErrors) =
+            collectExprDiagnostics settings visibleBindings conditionExpr
+          (thenWarnings, thenErrors) =
+            collectExprDiagnostics settings visibleBindings thenExpr
+          (elseWarnings, elseErrors) =
+            collectExprDiagnostics settings visibleBindings elseExpr
+       in
+        ( conditionWarnings ++ thenWarnings ++ elseWarnings,
+          conditionErrors ++ thenErrors ++ elseErrors
+        )
     EScope statements -> collectScopeDiagnostics settings visibleBindings statements
 
 collectScopeDiagnostics ::
@@ -346,9 +358,16 @@ freeVarsExprWithBound :: Set String -> Expr -> Set String
 freeVarsExprWithBound bound expr =
   case expr of
     EInt _ -> Set.empty
+    EBool _ -> Set.empty
     EVar name
       | Set.member name bound -> Set.empty
       | otherwise -> Set.singleton name
+    EIf conditionExpr thenExpr elseExpr ->
+      Set.unions
+        [ freeVarsExprWithBound bound conditionExpr,
+          freeVarsExprWithBound bound thenExpr,
+          freeVarsExprWithBound bound elseExpr
+        ]
     EScope statements -> freeVarsScopeWithBound bound statements
 
 freeVarsScopeWithBound :: Set String -> [Statement] -> Set String

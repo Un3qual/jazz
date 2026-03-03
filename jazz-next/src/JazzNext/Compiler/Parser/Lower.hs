@@ -18,7 +18,13 @@ lowerSurfaceExpr :: SurfaceExpr -> Expr
 lowerSurfaceExpr surfaceExpr =
   case surfaceExpr of
     SEInt value -> EInt value
+    SEBool value -> EBool value
     SEVar name -> EVar name
+    SEIf conditionExpr thenExpr elseExpr ->
+      EIf
+        (lowerSurfaceExpr conditionExpr)
+        (lowerSurfaceExpr thenExpr)
+        (lowerSurfaceExpr elseExpr)
     SEScope statements -> EScope (map lowerSurfaceStatement statements)
 
 lowerSurfaceStatement :: SurfaceStatement -> Statement
