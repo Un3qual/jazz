@@ -42,8 +42,9 @@ require_pattern "docs/feature-status.md" "reviewer checklist item" 'Does README 
 
 require_pattern "docs/jazz-language-state.md" "top-level docs contract section" '^## Top-level Docs Contract'
 require_pattern "docs/jazz-language-state.md" "feature status reference" 'docs/feature-status.md'
-require_pattern "docs/jazz-language-state.md" "item #5 status update" 'Status update for item #5'
-
+require_pattern "docs/jazz-language-state.md" "item `#5` status update" 'Status update for item `#5`'
+require_pattern "docs/feature-status.md" "active compiler path reference" 'jazz-next/'
+require_pattern "README.md" "active compiler path reference" 'jazz-next/'
 if command -v prettier >/dev/null 2>&1 && [[ -n "${IN_NIX_SHELL:-}" ]]; then
   markdown_files=(
     "README.md"

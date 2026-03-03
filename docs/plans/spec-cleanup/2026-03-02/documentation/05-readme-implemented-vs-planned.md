@@ -24,7 +24,7 @@
 
 - [x] Only documentation and docs-tooling files are in scope.
 - [x] Do not change compiler/runtime/parser/typechecker behavior for this item.
-- [x] Keep claims evidence-backed by current repository behavior (primarily `jazz-hs`).
+- [x] Keep claims evidence-backed by current repository behavior (primarily `jazz-next/`; `jazz-hs` only as legacy evidence where explicitly noted).
 
 ## Progress Tracker
 
