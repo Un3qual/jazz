@@ -25,6 +25,15 @@ lowerSurfaceExpr surfaceExpr =
         (lowerSurfaceExpr conditionExpr)
         (lowerSurfaceExpr thenExpr)
         (lowerSurfaceExpr elseExpr)
+    SEBinary operatorSymbol leftExpr rightExpr ->
+      EBinary
+        operatorSymbol
+        (lowerSurfaceExpr leftExpr)
+        (lowerSurfaceExpr rightExpr)
+    SESectionLeft leftExpr operatorSymbol ->
+      ESectionLeft (lowerSurfaceExpr leftExpr) operatorSymbol
+    SESectionRight operatorSymbol rightExpr ->
+      ESectionRight operatorSymbol (lowerSurfaceExpr rightExpr)
     SEScope statements -> EScope (map lowerSurfaceStatement statements)
 
 lowerSurfaceStatement :: SurfaceStatement -> Statement

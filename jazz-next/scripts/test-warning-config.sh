@@ -11,3 +11,6 @@ runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/BindingSignatureCoher
 runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/ParserFoundationSpec.hs
 runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionParserSpec.hs
 runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionTypeSpec.hs
+runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/OperatorFixitySpec.hs
+runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/OperatorSectionSpec.hs
+runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/OperatorInvalidSyntaxSpec.hs

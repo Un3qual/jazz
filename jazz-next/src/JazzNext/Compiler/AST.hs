@@ -13,6 +13,9 @@ data Expr
   | EBool Bool
   | EVar String
   | EIf Expr Expr Expr
+  | EBinary String Expr Expr
+  | ESectionLeft Expr String
+  | ESectionRight String Expr
   | EScope [Statement]
   deriving (Eq, Show)
 

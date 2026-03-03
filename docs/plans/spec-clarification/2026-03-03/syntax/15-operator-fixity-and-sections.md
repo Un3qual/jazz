@@ -22,7 +22,7 @@ Execution note:
 - [x] Fixity model decision locked
 - [x] Section semantics decision locked
 - [x] Canonical operator/fixity spec published (Phase 0)
-- [ ] Parser/tests aligned with canonical contract
+- [x] Parser/tests aligned with canonical contract
 - [x] User-defined operator roadmap direction decided (staged)
 
 ## Decision Lock (Approved 2026-03-03)
@@ -97,8 +97,8 @@ git commit -m "docs(spec): define canonical operator fixity and section rules"
 
 ## Phase 1: Tests-First Alignment
 
-- [ ] Add parser tests that assert canonical fixity behavior and section AST contract.
-- [ ] Add explicit invalid-case tests for ambiguous or unsupported operator forms.
+- [x] Add parser tests that assert canonical fixity behavior and section AST contract.
+- [x] Add explicit invalid-case tests for ambiguous or unsupported operator forms.
 
 Modify:
 - `jazz-next/test/OperatorFixitySpec.hs`
@@ -116,9 +116,9 @@ git commit -m "test(parser): codify operator fixity and section contract"
 
 ## Phase 2: Parser Refactor
 
-- [ ] Align `Parser.Operator` with the published fixity table.
-- [ ] Replace synthetic-name leakage in section semantics (either AST refactor or internal hygiene pass).
-- [ ] If Gate C enables user-defined operators, implement only approved scope.
+- [x] Align `Parser.Operator` with the published fixity table.
+- [x] Replace synthetic-name leakage in section semantics (either AST refactor or internal hygiene pass).
+- [x] If Gate C enables user-defined operators, implement only approved scope.
 
 Modify:
 - `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs`
@@ -168,5 +168,14 @@ runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/OperatorInvalidSyntax
 ## Definition of Done
 
 - [x] Operator precedence/associativity is explicitly specified.
-- [ ] Section behavior is explicit and test-protected.
-- [ ] User-defined operator status is no longer implicit/TODO-only.
+- [x] Section behavior is explicit and test-protected.
+- [x] User-defined operator status is no longer implicit/TODO-only.
+
+## Implementation Status Verification (2026-03-03, Batch 2)
+
+- [x] Verified domain-15 parser/test implementation was absent in `jazz-next` before this batch.
+- [x] Added parser contract tests for precedence, associativity, sections, and invalid operator syntax.
+- [x] Added centralized `Parser.Operator` metadata for the frozen v1 operator table.
+- [x] Implemented precedence-climbing parser logic and explicit section-node parsing.
+- [x] Added surface/core AST and lowering support for `binary` and `section` forms.
+- [x] Verified full `jazz-next` script suite passes with domain-15 tests enabled.

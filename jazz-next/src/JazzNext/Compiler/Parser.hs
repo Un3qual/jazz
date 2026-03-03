@@ -14,6 +14,11 @@ import JazzNext.Compiler.Parser.Lexer
     TokenKind (..),
     tokenize
   )
+import JazzNext.Compiler.Parser.Operator
+  ( Associativity (..),
+    OperatorInfo (..),
+    lookupOperatorInfo
+  )
 
 -- Parses the current minimal surface language into a scope-wrapped program.
 -- Every top-level form is dot-terminated and represented as a statement.
@@ -102,7 +107,51 @@ parseExprStatement tokens = do
       pure (SSExpr (tokenSpan firstToken) expr, remaining)
 
 parseExpr :: [Token] -> Either String (SurfaceExpr, [Token])
-parseExpr tokens =
+parseExpr = parseExprWithMinPrecedence 1
+
+parseExprWithMinPrecedence :: Int -> [Token] -> Either String (SurfaceExpr, [Token])
+parseExprWithMinPrecedence minPrecedence tokens = do
+  (leftExpr, remainingTokens) <- parsePrimaryExpr tokens
+  parseInfixTail minPrecedence leftExpr remainingTokens
+
+parseInfixTail :: Int -> SurfaceExpr -> [Token] -> Either String (SurfaceExpr, [Token])
+parseInfixTail minPrecedence leftExpr tokens =
+  case tokens of
+    operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : tokensAfterOperator
+      | shouldStopForSectionBoundary tokensAfterOperator ->
+          Right (leftExpr, tokens)
+      | otherwise ->
+          case lookupOperatorInfo operatorSymbol of
+            Nothing ->
+              Left
+                ( "unsupported operator '"
+                    ++ operatorSymbol
+                    ++ "' at "
+                    ++ renderSpan (tokenSpan operatorToken)
+                )
+            Just operatorInfo
+              | operatorPrecedence operatorInfo < minPrecedence ->
+                  Right (leftExpr, tokens)
+              | otherwise -> do
+                  let nextMinPrecedence =
+                        case operatorAssociativity operatorInfo of
+                          AssocLeft -> operatorPrecedence operatorInfo + 1
+                          AssocRight -> operatorPrecedence operatorInfo
+                  (rightExpr, remainingAfterRight) <-
+                    parseExprWithMinPrecedence nextMinPrecedence tokensAfterOperator
+                  parseInfixTail
+                    minPrecedence
+                    (SEBinary operatorSymbol leftExpr rightExpr)
+                    remainingAfterRight
+    _ -> Right (leftExpr, tokens)
+  where
+    shouldStopForSectionBoundary remainingAfterOperator =
+      case remainingAfterOperator of
+        Token {tokenKind = TRParen} : _ -> True
+        _ -> False
+
+parsePrimaryExpr :: [Token] -> Either String (SurfaceExpr, [Token])
+parsePrimaryExpr tokens =
   case tokens of
     [] -> Left "expected expression before end of input"
     token : rest ->
@@ -114,11 +163,7 @@ parseExpr tokens =
             "False" -> Right (SEBool False, rest)
             _ -> Right (SEVar name, rest)
         TIf -> parseIfExpr token rest
-        TLParen -> do
-          -- Parentheses are grouping only; the parser returns the inner node.
-          (innerExpr, afterInner) <- parseExpr rest
-          remaining <- consumeRightParen afterInner
-          Right (innerExpr, remaining)
+        TLParen -> parseParenExpr rest
         TLBrace -> do
           (statements, afterBrace) <- parseStatementsUntilBrace rest
           Right (SEScope statements, afterBrace)
@@ -130,6 +175,22 @@ parseExpr tokens =
                 ++ renderSpan (tokenSpan token)
                 ++ "; expected expression"
             )
+
+parseParenExpr :: [Token] -> Either String (SurfaceExpr, [Token])
+parseParenExpr tokensAfterLeftParen =
+  case tokensAfterLeftParen of
+    Token {tokenKind = TOperator operatorSymbol} : rest -> do
+      (rightExpr, afterRightExpr) <- parseExpr rest
+      remaining <- consumeRightParen afterRightExpr
+      pure (SESectionRight operatorSymbol rightExpr, remaining)
+    _ -> do
+      (innerExpr, afterInnerExpr) <- parseExpr tokensAfterLeftParen
+      case afterInnerExpr of
+        Token {tokenKind = TOperator operatorSymbol} : Token {tokenKind = TRParen} : rest ->
+          Right (SESectionLeft innerExpr operatorSymbol, rest)
+        _ -> do
+          remaining <- consumeRightParen afterInnerExpr
+          Right (innerExpr, remaining)
 
 parseIfExpr :: Token -> [Token] -> Either String (SurfaceExpr, [Token])
 parseIfExpr ifToken tokensAfterIf = do

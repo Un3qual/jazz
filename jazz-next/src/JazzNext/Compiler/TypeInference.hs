@@ -88,6 +88,22 @@ inferExprType env expr =
             ++ elseErrors
             ++ branchTypeErrors
         )
+    EBinary _ leftExpr rightExpr ->
+      let (leftType, leftErrors) = inferExprType env leftExpr
+          (rightType, rightErrors) = inferExprType env rightExpr
+          resultType =
+            case (leftType, rightType) of
+              (Just TIntType, Just TIntType) -> Just TIntType
+              (Just TBoolType, Just TBoolType) -> Just TBoolType
+              _ -> Nothing
+       in
+        (resultType, leftErrors ++ rightErrors)
+    ESectionLeft leftExpr _ ->
+      let (_, leftErrors) = inferExprType env leftExpr
+       in (Nothing, leftErrors)
+    ESectionRight _ rightExpr ->
+      let (_, rightErrors) = inferExprType env rightExpr
+       in (Nothing, rightErrors)
     EScope statements -> inferScopeType env statements
 
 inferScopeType ::

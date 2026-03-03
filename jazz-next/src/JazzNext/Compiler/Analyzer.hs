@@ -82,6 +82,17 @@ collectExprDiagnostics settings visibleBindings expr =
         ( conditionWarnings ++ thenWarnings ++ elseWarnings,
           conditionErrors ++ thenErrors ++ elseErrors
         )
+    EBinary _ leftExpr rightExpr ->
+      let (leftWarnings, leftErrors) =
+            collectExprDiagnostics settings visibleBindings leftExpr
+          (rightWarnings, rightErrors) =
+            collectExprDiagnostics settings visibleBindings rightExpr
+       in
+        (leftWarnings ++ rightWarnings, leftErrors ++ rightErrors)
+    ESectionLeft leftExpr _ ->
+      collectExprDiagnostics settings visibleBindings leftExpr
+    ESectionRight _ rightExpr ->
+      collectExprDiagnostics settings visibleBindings rightExpr
     EScope statements -> collectScopeDiagnostics settings visibleBindings statements
 
 collectScopeDiagnostics ::
@@ -368,6 +379,14 @@ freeVarsExprWithBound bound expr =
           freeVarsExprWithBound bound thenExpr,
           freeVarsExprWithBound bound elseExpr
         ]
+    EBinary _ leftExpr rightExpr ->
+      Set.union
+        (freeVarsExprWithBound bound leftExpr)
+        (freeVarsExprWithBound bound rightExpr)
+    ESectionLeft leftExpr _ ->
+      freeVarsExprWithBound bound leftExpr
+    ESectionRight _ rightExpr ->
+      freeVarsExprWithBound bound rightExpr
     EScope statements -> freeVarsScopeWithBound bound statements
 
 freeVarsScopeWithBound :: Set String -> [Statement] -> Set String

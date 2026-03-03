@@ -396,8 +396,10 @@ Based on the full repo, these areas still require implementation convergence eve
   - `jazz-next/test/BindingSignatureCoherenceSpec.hs`
 - Implementing locked `if` surface semantics in `jazz-next`:
   - `docs/spec/control-flow/if-expressions.md`
-- Implementing locked operator/fixity/sections semantics in `jazz-next`:
+- Extending staged operator roadmap work in `jazz-next` beyond implemented v1 parser/fixity/sections behavior:
   - `docs/spec/syntax/operators.md`
+  - `jazz-next/test/OperatorFixitySpec.hs`
+  - `jazz-next/test/OperatorSectionSpec.hs`
 - Implementing locked primitive semantics in `jazz-next`:
   - `docs/spec/runtime/primitive-semantics.md`
 - Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding` category:
@@ -456,7 +458,7 @@ Status update for item #5:
 - Canonical evidence-backed feature status is now tracked in `docs/feature-status.md`.
 
 1. Implement `if` semantics in `jazz-next` according to `docs/spec/control-flow/if-expressions.md`.
-2. Implement operator/fixity/section semantics in `jazz-next` according to `docs/spec/syntax/operators.md`.
+2. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.
 3. Implement primitive semantics conformance in `jazz-next` according to `docs/spec/runtime/primitive-semantics.md`.
 4. Implement warning-flag plumbing in `jazz-next` according to `docs/spec/tooling/compiler-warning-flags.md`.
 5. Finish authoritative-syntax parser/analyzer/tests alignment in `jazz-next`.
