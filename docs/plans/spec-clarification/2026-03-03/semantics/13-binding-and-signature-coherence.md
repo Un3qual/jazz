@@ -14,7 +14,7 @@
 
 - [x] Evidence gathered for declaration/signature drift
 - [x] Signature-placement decision gate finalized
-- [ ] Remaining declaration-semantics gates finalized
+- [x] Remaining declaration-semantics gates finalized
 - [ ] Normative binding/signature spec doc published
 - [ ] Parser/analyzer tests aligned to the chosen contract
 - [ ] Analyzer implementation aligned and verified
@@ -24,8 +24,8 @@
 
 - [x] Type signatures are optional when types can be inferred.
 - [x] When present, a type signature must appear directly above its binding.
-- [ ] Redeclaration policy lock (Gate B) still required.
-- [ ] Recursion policy lock (Gate C) still required.
+- [x] Rebinding is allowed in any scope (top-level and nested), with deterministic same-scope `last wins` semantics.
+- [x] Self recursion is unrestricted (implementation may extend to broader recursion forms under the same gate).
 
 ## Verification Evidence (Current Ambiguity)
 
@@ -57,14 +57,14 @@ Out of scope:
   - [x] Option A1 (selected): signature must appear immediately before binding.
   - [ ] Option A2: signature may appear before or after, resolved by name within same scope.
   - [ ] Option A3: remove standalone signature syntax from current surface until full binding groups are implemented.
-- [ ] Gate B: Redeclaration policy.
-  - Option B1: reject same-scope rebinds.
-  - Option B2: allow shadowing in nested scopes only.
-  - Option B3: allow local rebind in same block with deterministic "last wins" rule.
-- [ ] Gate C: Recursion policy.
-  - Option C1: allow self-recursion only when signature is present.
-  - Option C2: allow unrestricted recursion with fixpoint treatment.
-  - Option C3: disallow recursion in current phase and emit explicit diagnostics.
+- [x] Gate B: Redeclaration policy.
+  - [ ] Option B1: reject same-scope rebinds.
+  - [ ] Option B2: allow shadowing in nested scopes only.
+  - [x] Option B3 (selected): allow same-scope rebind with deterministic "last wins" rule.
+- [x] Gate C: Recursion policy.
+  - [ ] Option C1: allow self-recursion only when signature is present.
+  - [x] Option C2 (selected): allow unrestricted recursion with fixpoint treatment.
+  - [ ] Option C3: disallow recursion in current phase and emit explicit diagnostics.
 
 ## Phase 0: Baseline Matrix and Decision Record
 

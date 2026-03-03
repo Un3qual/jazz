@@ -22,7 +22,7 @@
 
 - [x] `if` is included as a language surface construct.
 - [x] Initial implementation should desugar `if` to `case`.
-- [ ] Exact parser/lowering form lock (direct parse to `ECase` vs parse `EIf` then immediate lowering) still required.
+- [x] Exact parser/lowering form lock: parse to `EIf`, then lower in a later explicit desugaring phase.
 
 ## Verification Evidence (Current Drift)
 
@@ -77,12 +77,16 @@ Modify:
 
 ### Phase A2: Parser + Analyzer Implementation
 
-- [ ] Add `if` parser production in `Parser.Lang` and lower to `case` in the same phase.
-- [ ] Keep analyzer canonical on `ECase`; only add `EIf` inference branch if an intermediate `EIf` node remains after parsing.
+- [ ] Add `if` parser production in `Parser.Lang` that constructs `EIf`.
+- [ ] Add an explicit desugaring phase that rewrites `EIf` to `ECase` before analysis.
+- [ ] Keep analyzer canonical on post-desugared forms; avoid permanent duplicate typing logic if `EIf` is always lowered pre-analysis.
 - [ ] Add error messages for non-`Bool` condition and branch mismatch.
 
 Modify:
 - `jazz-hs/src/Parser/Lang.hs`
+- `jazz-hs/src/Desugar.hs` (create if missing)
+- `jazz-hs/src/Desugar/ControlFlow.hs` (optional split if desugar surface grows)
+- `jazz-hs/src/Lib.hs` (wire parse -> desugar -> analyze pipeline)
 - `jazz-hs/src/Analyzer/TypeInference.hs`
 - `jazz-hs/src/Errors.hs` (if needed)
 
