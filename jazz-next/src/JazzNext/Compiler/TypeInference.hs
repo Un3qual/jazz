@@ -6,8 +6,10 @@ module JazzNext.Compiler.TypeInference
 
 import JazzNext.Compiler.Analyzer
   ( AnalysisResult (..),
-    Expr,
     analyzeProgram
+  )
+import JazzNext.Compiler.AST
+  ( Expr
   )
 import JazzNext.Compiler.Diagnostics
   ( WarningRecord

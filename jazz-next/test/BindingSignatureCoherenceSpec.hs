@@ -80,14 +80,14 @@ validSignatureProgram =
   EScope
     [ SSignature "x" (SourceSpan 1 1) "Int",
       SLet "x" (SourceSpan 2 1) (EInt 1),
-      SExpr (EVar "x")
+      SExpr (SourceSpan 3 1) (EVar "x")
     ]
 
 separatedSignatureProgram :: Expr
 separatedSignatureProgram =
   EScope
     [ SSignature "x" (SourceSpan 1 1) "Int",
-      SExpr (EInt 1),
+      SExpr (SourceSpan 2 1) (EInt 1),
       SLet "x" (SourceSpan 3 1) (EInt 2)
     ]
 
@@ -101,7 +101,7 @@ mismatchedSignatureProgram =
 useBeforeDefinitionProgram :: Expr
 useBeforeDefinitionProgram =
   EScope
-    [ SExpr (EVar "x"),
+    [ SExpr (SourceSpan 1 1) (EVar "x"),
       SLet "x" (SourceSpan 2 1) (EInt 1)
     ]
 
@@ -110,8 +110,9 @@ nestedScopeProgram =
   EScope
     [ SLet "x" (SourceSpan 1 1) (EInt 1),
       SExpr
+        (SourceSpan 2 1)
         ( EScope
-            [ SExpr (EVar "x")
+            [ SExpr (SourceSpan 3 1) (EVar "x")
             ]
         )
     ]
@@ -160,7 +161,7 @@ mutualRecursionProgram =
   EScope
     [ SLet "even" (SourceSpan 1 1) (EVar "odd"),
       SLet "odd" (SourceSpan 2 1) (EVar "even"),
-      SExpr (EVar "even")
+      SExpr (SourceSpan 3 1) (EVar "even")
     ]
 
 threeNodeMutualRecursionProgram :: Expr
@@ -169,7 +170,7 @@ threeNodeMutualRecursionProgram =
     [ SLet "a" (SourceSpan 1 1) (EVar "b"),
       SLet "b" (SourceSpan 2 1) (EVar "c"),
       SLet "c" (SourceSpan 3 1) (EVar "a"),
-      SExpr (EVar "a")
+      SExpr (SourceSpan 4 1) (EVar "a")
     ]
 
 nonRecursiveForwardReferenceProgram :: Expr
@@ -177,7 +178,7 @@ nonRecursiveForwardReferenceProgram =
   EScope
     [ SLet "x" (SourceSpan 1 1) (EVar "y"),
       SLet "y" (SourceSpan 2 1) (EInt 1),
-      SExpr (EVar "x")
+      SExpr (SourceSpan 3 1) (EVar "x")
     ]
 
 retroactiveRebindingProgram :: Expr
@@ -186,5 +187,5 @@ retroactiveRebindingProgram =
     [ SLet "x" (SourceSpan 1 1) (EVar "y"),
       SLet "y" (SourceSpan 2 1) (EInt 1),
       SLet "y" (SourceSpan 3 1) (EVar "x"),
-      SExpr (EVar "x")
+      SExpr (SourceSpan 4 1) (EVar "x")
     ]

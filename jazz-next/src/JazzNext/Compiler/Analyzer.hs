@@ -12,6 +12,10 @@ import Data.List (foldl')
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
+import JazzNext.Compiler.AST
+  ( Expr (..),
+    Statement (..)
+  )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan,
     WarningRecord,
@@ -27,18 +31,6 @@ import JazzNext.Compiler.WarningConfig
 import JazzNext.Compiler.Warnings
   ( WarningCategory (..)
   )
-
-data Expr
-  = EInt Int
-  | EVar String
-  | EScope [Statement]
-  deriving (Eq, Show)
-
-data Statement
-  = SLet String SourceSpan Expr
-  | SSignature String SourceSpan String
-  | SExpr Expr
-  deriving (Eq, Show)
 
 data AnalysisResult = AnalysisResult
   { analyzedExpr :: Expr,
@@ -100,7 +92,7 @@ collectScopeDiagnostics settings outerScope statements =
       (Map String SourceSpan, Maybe PendingSignature, [WarningRecord], [String])
     step (scopeBindings, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
       case statement of
-        SExpr expr ->
+        SExpr _ expr ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
               visible = currentVisibleBindings scopeBindings
               (exprWarnings, exprErrors) = collectExprDiagnostics settings visible expr
@@ -343,7 +335,7 @@ freeVarsScopeWithBound initialBound statements =
     step (boundNames, freeNames) statement =
       case statement of
         SSignature _ _ _ -> (boundNames, freeNames)
-        SExpr expr ->
+        SExpr _ expr ->
           ( boundNames,
             Set.union freeNames (freeVarsExprWithBound boundNames expr)
           )

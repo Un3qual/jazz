@@ -125,9 +125,10 @@ nestedScopeProgram =
   EScope
     [ SLet "x" (SourceSpan 1 1) (EInt 1),
       SExpr
+        (SourceSpan 2 1)
         ( EScope
             [ SLet "x" (SourceSpan 2 1) (EInt 2)
             ]
         ),
-      SExpr (EVar "x")
+      SExpr (SourceSpan 4 1) (EVar "x")
     ]

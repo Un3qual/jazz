@@ -81,8 +81,8 @@ Create:
 - [ ] Add type inference tests for condition and branch-type constraints.
 
 Modify:
-- `jazz-hs/test/ParserSpec.hs`
-- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
+- `jazz-next/test/IfExpressionParserSpec.hs`
+- `jazz-next/test/IfExpressionTypeSpec.hs`
 
 ### Phase A2: Parser + Analyzer Implementation
 
@@ -92,12 +92,12 @@ Modify:
 - [ ] Add error messages for non-`Bool` condition and branch mismatch.
 
 Modify:
-- `jazz-hs/src/Parser/Lang.hs`
-- `jazz-hs/src/Desugar.hs` (create if missing)
-- `jazz-hs/src/Desugar/ControlFlow.hs` (optional split if desugar surface grows)
-- `jazz-hs/src/Lib.hs` (wire parse -> desugar -> analyze pipeline)
-- `jazz-hs/src/Analyzer/TypeInference.hs`
-- `jazz-hs/src/Errors.hs` (if needed)
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Diagnostics.hs` (if needed)
 
 ### Phase A3: Runtime Path Alignment
 
@@ -105,8 +105,8 @@ Modify:
 - [ ] Add pipeline test showing parser->analyzer->runtime roundtrip for `if`.
 
 Modify:
-- `jazz-hs/src/CodeGen/Javascript.hs` (if still exercised)
-- `jazz-hs/src/Interpreter.hs` (if interpreter path is active)
+- `jazz-next/src/JazzNext/Compiler/Driver.hs`
+- `jazz-next/src/JazzNext/CLI/Main.hs`
 
 ### Commit Checkpoints (Track A)
 
@@ -115,10 +115,15 @@ git add docs/spec/control-flow/if-expressions.md \
   docs/plans/spec-clarification/2026-03-03/control-flow/14-if-expression-surface-and-semantics.md
 git commit -m "docs(spec): define if-expression grammar and typing contract"
 
-git add jazz-hs/test/ParserSpec.hs jazz-hs/test/Analyzer/TypeInferenceSpec.hs
+git add jazz-next/test/IfExpressionParserSpec.hs jazz-next/test/IfExpressionTypeSpec.hs
 git commit -m "test(control-flow): add if-expression parser and type tests"
 
-git add jazz-hs/src/Parser/Lang.hs jazz-hs/src/Analyzer/TypeInference.hs jazz-hs/src/Errors.hs
+git add jazz-next/src/JazzNext/Compiler/Parser.hs \
+  jazz-next/src/JazzNext/Compiler/Parser/AST.hs \
+  jazz-next/src/JazzNext/Compiler/Parser/Lower.hs \
+  jazz-next/src/JazzNext/Compiler/AST.hs \
+  jazz-next/src/JazzNext/Compiler/TypeInference.hs \
+  jazz-next/src/JazzNext/Compiler/Diagnostics.hs
 git commit -m "feat(control-flow): implement if-expression parsing and typing"
 ```
 
@@ -139,9 +144,9 @@ Create:
 - [ ] Ensure parser reserved words and docs do not imply unsupported `if` surface.
 
 Modify:
-- `jazz-hs/src/AST.hs`
-- `jazz-hs/src/CodeGen/Javascript.hs`
-- `jazz-hs/src/Parser/Lib.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Driver.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
 - `docs/jazz-language-state.md`
 
 ### Commit Checkpoints (Track B)
@@ -151,17 +156,19 @@ git add docs/spec/control-flow/branching-policy.md \
   docs/plans/spec-clarification/2026-03-03/control-flow/14-if-expression-surface-and-semantics.md
 git commit -m "docs(spec): lock branching policy and if exclusion"
 
-git add jazz-hs/src/AST.hs jazz-hs/src/CodeGen/Javascript.hs jazz-hs/src/Parser/Lib.hs docs/jazz-language-state.md
+git add jazz-next/src/JazzNext/Compiler/AST.hs \
+  jazz-next/src/JazzNext/Compiler/Driver.hs \
+  jazz-next/src/JazzNext/Compiler/Parser.hs \
+  docs/jazz-language-state.md
 git commit -m "refactor(control-flow): remove unsupported if-expression scaffolding"
 ```
 
 ## Verification Commands
 
 ```bash
-cd jazz-hs
-stack test --ta '--match "if"'
-stack test --ta '--match "case"'
-stack test
+bash jazz-next/scripts/test-warning-config.sh
+runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionParserSpec.hs
+runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionTypeSpec.hs
 ```
 
 ## Definition of Done
