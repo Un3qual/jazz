@@ -8,12 +8,18 @@ import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace)
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)
   )
+import JazzNext.Compiler.Parser.Operator
+  ( isBuiltinOperatorSymbol
+  )
 import Text.Read (readMaybe)
 
 data TokenKind
   = TIdentifier String
+  | TIf
+  | TElse
   | TInt Int
   | TEquals
+  | TOperator String
   | TColonColon
   | TDot
   | TLBrace
@@ -55,9 +61,14 @@ tokenize = go 1 1
       | isIdentifierStart char =
           let (ident, trailing) = span isIdentifierContinuation (char : rest)
               width = length ident
+              kind =
+                case ident of
+                  "if" -> TIf
+                  "else" -> TElse
+                  _ -> TIdentifier ident
               token =
                 Token
-                  { tokenKind = TIdentifier ident,
+                  { tokenKind = kind,
                     tokenLexeme = ident,
                     tokenSpan = SourceSpan line column
                   }
@@ -70,7 +81,29 @@ tokenize = go 1 1
                   withSingleToken TColonColon "::" 2 line column after
                 _ ->
                   Left ("unexpected ':' at " ++ renderSpan line column ++ "; expected '::'")
-            '=' -> withSingleToken TEquals "=" 1 line column rest
+            '=' ->
+              case rest of
+                '=' : after -> withOperatorToken "==" 2 line column after
+                _ -> withSingleToken TEquals "=" 1 line column rest
+            '!' ->
+              case rest of
+                '=' : after -> withOperatorToken "!=" 2 line column after
+                _ ->
+                  Left ("unexpected character '!' at " ++ renderSpan line column)
+            '<' ->
+              case rest of
+                '=' : after -> withOperatorToken "<=" 2 line column after
+                _ -> withOperatorToken "<" 1 line column rest
+            '>' ->
+              case rest of
+                '=' : after -> withOperatorToken ">=" 2 line column after
+                _ -> withOperatorToken ">" 1 line column rest
+            '+' -> withOperatorToken "+" 1 line column rest
+            '-' -> withOperatorToken "-" 1 line column rest
+            '*' -> withOperatorToken "*" 1 line column rest
+            '/' -> withOperatorToken "/" 1 line column rest
+            '|' -> withOperatorToken "|" 1 line column rest
+            '$' -> withOperatorToken "$" 1 line column rest
             '.' -> withSingleToken TDot "." 1 line column rest
             '{' -> withSingleToken TLBrace "{" 1 line column rest
             '}' -> withSingleToken TRBrace "}" 1 line column rest
@@ -100,6 +133,31 @@ tokenize = go 1 1
                 tokenSpan = SourceSpan line column
               }
        in (token :) <$> go line (column + width) trailing
+
+    withOperatorToken ::
+      String ->
+      Int ->
+      Int ->
+      Int ->
+      String ->
+      Either String [Token]
+    withOperatorToken symbol width line column trailing =
+      if isBuiltinOperatorSymbol symbol
+        then
+          let token =
+                Token
+                  { tokenKind = TOperator symbol,
+                    tokenLexeme = symbol,
+                    tokenSpan = SourceSpan line column
+                  }
+           in (token :) <$> go line (column + width) trailing
+        else
+          Left
+            ( "unsupported operator '"
+                ++ symbol
+                ++ "' at "
+                ++ renderSpan line column
+            )
 
     isIdentifierStart :: Char -> Bool
     isIdentifierStart char = isAlpha char || char == '_'

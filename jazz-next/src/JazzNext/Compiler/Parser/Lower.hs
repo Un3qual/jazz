@@ -18,7 +18,22 @@ lowerSurfaceExpr :: SurfaceExpr -> Expr
 lowerSurfaceExpr surfaceExpr =
   case surfaceExpr of
     SEInt value -> EInt value
+    SEBool value -> EBool value
     SEVar name -> EVar name
+    SEIf conditionExpr thenExpr elseExpr ->
+      EIf
+        (lowerSurfaceExpr conditionExpr)
+        (lowerSurfaceExpr thenExpr)
+        (lowerSurfaceExpr elseExpr)
+    SEBinary operatorSymbol leftExpr rightExpr ->
+      EBinary
+        operatorSymbol
+        (lowerSurfaceExpr leftExpr)
+        (lowerSurfaceExpr rightExpr)
+    SESectionLeft leftExpr operatorSymbol ->
+      ESectionLeft (lowerSurfaceExpr leftExpr) operatorSymbol
+    SESectionRight operatorSymbol rightExpr ->
+      ESectionRight operatorSymbol (lowerSurfaceExpr rightExpr)
     SEScope statements -> EScope (map lowerSurfaceStatement statements)
 
 lowerSurfaceStatement :: SurfaceStatement -> Statement

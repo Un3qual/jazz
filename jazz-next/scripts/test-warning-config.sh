@@ -4,8 +4,24 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/WarningConfigSpec.hs
-runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/RebindingWarningSpec.hs
-runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs
-runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/BindingSignatureCoherenceSpec.hs
-runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/ParserFoundationSpec.hs
+RUNGHC_INCLUDES=(
+  -i./jazz-next/src
+  -i./jazz-next/test
+)
+
+TEST_FILES=(
+  jazz-next/test/WarningConfigSpec.hs
+  jazz-next/test/RebindingWarningSpec.hs
+  jazz-next/test/CLISpec.hs
+  jazz-next/test/BindingSignatureCoherenceSpec.hs
+  jazz-next/test/ParserFoundationSpec.hs
+  jazz-next/test/IfExpressionParserSpec.hs
+  jazz-next/test/IfExpressionTypeSpec.hs
+  jazz-next/test/OperatorFixitySpec.hs
+  jazz-next/test/OperatorSectionSpec.hs
+  jazz-next/test/OperatorInvalidSyntaxSpec.hs
+)
+
+for test_file in "${TEST_FILES[@]}"; do
+  runghc "${RUNGHC_INCLUDES[@]}" "$test_file"
+done

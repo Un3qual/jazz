@@ -66,10 +66,33 @@ collectExprDiagnostics ::
 collectExprDiagnostics settings visibleBindings expr =
   case expr of
     EInt _ -> ([], [])
+    EBool _ -> ([], [])
     EVar name ->
       case Map.lookup name visibleBindings of
         Just _ -> ([], [])
         Nothing -> ([], [mkUnboundVariableError name])
+    EIf conditionExpr thenExpr elseExpr ->
+      let (conditionWarnings, conditionErrors) =
+            collectExprDiagnostics settings visibleBindings conditionExpr
+          (thenWarnings, thenErrors) =
+            collectExprDiagnostics settings visibleBindings thenExpr
+          (elseWarnings, elseErrors) =
+            collectExprDiagnostics settings visibleBindings elseExpr
+       in
+        ( conditionWarnings ++ thenWarnings ++ elseWarnings,
+          conditionErrors ++ thenErrors ++ elseErrors
+        )
+    EBinary _ leftExpr rightExpr ->
+      let (leftWarnings, leftErrors) =
+            collectExprDiagnostics settings visibleBindings leftExpr
+          (rightWarnings, rightErrors) =
+            collectExprDiagnostics settings visibleBindings rightExpr
+       in
+        (leftWarnings ++ rightWarnings, leftErrors ++ rightErrors)
+    ESectionLeft leftExpr _ ->
+      collectExprDiagnostics settings visibleBindings leftExpr
+    ESectionRight _ rightExpr ->
+      collectExprDiagnostics settings visibleBindings rightExpr
     EScope statements -> collectScopeDiagnostics settings visibleBindings statements
 
 collectScopeDiagnostics ::
@@ -346,9 +369,24 @@ freeVarsExprWithBound :: Set String -> Expr -> Set String
 freeVarsExprWithBound bound expr =
   case expr of
     EInt _ -> Set.empty
+    EBool _ -> Set.empty
     EVar name
       | Set.member name bound -> Set.empty
       | otherwise -> Set.singleton name
+    EIf conditionExpr thenExpr elseExpr ->
+      Set.unions
+        [ freeVarsExprWithBound bound conditionExpr,
+          freeVarsExprWithBound bound thenExpr,
+          freeVarsExprWithBound bound elseExpr
+        ]
+    EBinary _ leftExpr rightExpr ->
+      Set.union
+        (freeVarsExprWithBound bound leftExpr)
+        (freeVarsExprWithBound bound rightExpr)
+    ESectionLeft leftExpr _ ->
+      freeVarsExprWithBound bound leftExpr
+    ESectionRight _ rightExpr ->
+      freeVarsExprWithBound bound rightExpr
     EScope statements -> freeVarsScopeWithBound bound statements
 
 freeVarsScopeWithBound :: Set String -> [Statement] -> Set String

@@ -134,5 +134,5 @@ testRejectsNegativeLiteralSyntax :: IO ()
 testRejectsNegativeLiteralSyntax =
   assertLeftContains
     "negative literal unsupported"
-    "unexpected character '-'"
-    (parseSurfaceProgram "x = -9999999999999999999999999999999999999.")
+    "expected expression"
+    (parseSurfaceProgram "x = -1.")
