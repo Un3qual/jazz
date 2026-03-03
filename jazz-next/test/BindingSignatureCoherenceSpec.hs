@@ -220,70 +220,54 @@ signatureTypeMismatchProgram =
       SLet "x" (SourceSpan 2 1) (EBool True)
     ]
 
-testSourceAcceptsSignatureAdjacency :: IO ()
-testSourceAcceptsSignatureAdjacency = do
-  result <- compileSource defaultWarningSettings "x :: Int.\nx = 1.\nx."
+assertSourceOk :: Text.Text -> IO ()
+assertSourceOk src = do
+  result <- compileSource defaultWarningSettings src
   assertEqual "compile errors" [] (compileErrors result)
   assertJust "generated JS is present" (generatedJs result)
+
+assertSourceErrorContains :: Text.Text -> Text.Text -> IO ()
+assertSourceErrorContains src needle = do
+  result <- compileSource defaultWarningSettings src
+  assertContains "source error" needle (Text.unlines (compileErrors result))
+
+assertSourceSingleErrorContains :: Text.Text -> Text.Text -> IO ()
+assertSourceSingleErrorContains src needle = do
+  result <- compileSource defaultWarningSettings src
+  assertSingleErrorContains "source error" needle (compileErrors result)
+
+testSourceAcceptsSignatureAdjacency :: IO ()
+testSourceAcceptsSignatureAdjacency =
+  assertSourceOk "x :: Int.\nx = 1.\nx."
 
 testSourceRejectsSeparatedSignature :: IO ()
-testSourceRejectsSeparatedSignature = do
-  result <- compileSource defaultWarningSettings "x :: Int.\n1.\nx = 2."
-  assertContains
-    "source separated signature error"
-    "E1002"
-    (Text.unlines (compileErrors result))
+testSourceRejectsSeparatedSignature =
+  assertSourceErrorContains "x :: Int.\n1.\nx = 2." "E1002"
 
 testSourceRejectsSignatureNameMismatch :: IO ()
-testSourceRejectsSignatureNameMismatch = do
-  result <- compileSource defaultWarningSettings "x :: Int.\ny = 2."
-  assertContains
-    "source signature name mismatch error"
-    "E1003"
-    (Text.unlines (compileErrors result))
+testSourceRejectsSignatureNameMismatch =
+  assertSourceErrorContains "x :: Int.\ny = 2." "E1003"
 
 testSourceRejectsNonRecursiveForwardReference :: IO ()
-testSourceRejectsNonRecursiveForwardReference = do
-  result <- compileSource defaultWarningSettings "x = y.\ny = 1.\nx."
-  assertContains
-    "source forward reference error"
-    "E1001"
-    (Text.unlines (compileErrors result))
+testSourceRejectsNonRecursiveForwardReference =
+  assertSourceErrorContains "x = y.\ny = 1.\nx." "E1001"
 
 testSourceRejectsRetroactiveRebindingRecursion :: IO ()
-testSourceRejectsRetroactiveRebindingRecursion = do
-  result <- compileSource defaultWarningSettings "x = y.\ny = 1.\ny = x.\nx."
-  assertContains
-    "source retroactive recursion error"
-    "E1001"
-    (Text.unlines (compileErrors result))
+testSourceRejectsRetroactiveRebindingRecursion =
+  assertSourceErrorContains "x = y.\ny = 1.\ny = x.\nx." "E1001"
 
 testSourceAcceptsMutualRecursionGroup :: IO ()
-testSourceAcceptsMutualRecursionGroup = do
-  result <- compileSource defaultWarningSettings "even = odd.\nodd = even.\neven."
-  assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
+testSourceAcceptsMutualRecursionGroup =
+  assertSourceOk "even = odd.\nodd = even.\neven."
 
 testSourceRejectsSignatureTypeMismatch :: IO ()
-testSourceRejectsSignatureTypeMismatch = do
-  result <- compileSource defaultWarningSettings "x :: Int.\nx = True."
-  assertSingleErrorContains
-    "source signature type mismatch error"
-    "E2005"
-    (compileErrors result)
+testSourceRejectsSignatureTypeMismatch =
+  assertSourceSingleErrorContains "x :: Int.\nx = True." "E2005"
 
 testSourceReportsSignedRecursiveRhsTypeError :: IO ()
-testSourceReportsSignedRecursiveRhsTypeError = do
-  result <- compileSource defaultWarningSettings "x :: Bool.\nx = x + 1."
-  assertSingleErrorContains
-    "signed recursive rhs type error"
-    "E2003"
-    (compileErrors result)
+testSourceReportsSignedRecursiveRhsTypeError =
+  assertSourceSingleErrorContains "x :: Bool.\nx = x + 1." "E2003"
 
 testSignatureMismatchKeepsDeclaredTypeDownstream :: IO ()
-testSignatureMismatchKeepsDeclaredTypeDownstream = do
-  result <- compileSource defaultWarningSettings "x :: Int.\nx = True.\ny = x + 1."
-  assertSingleErrorContains
-    "signature mismatch should not cascade downstream"
-    "E2005"
-    (compileErrors result)
+testSignatureMismatchKeepsDeclaredTypeDownstream =
+  assertSourceSingleErrorContains "x :: Int.\nx = True.\ny = x + 1." "E2005"
