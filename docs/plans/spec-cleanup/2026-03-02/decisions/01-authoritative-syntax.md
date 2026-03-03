@@ -12,7 +12,7 @@
 
 ## Plan Progress Checklist
 
-- [ ] Discovery complete
+- [x] Discovery complete
 - [x] Design decision complete
 - [ ] Implementation complete
 - [ ] Verification complete
@@ -101,6 +101,11 @@ Modify:
 git add /Users/admin/.codex/worktrees/8c77/jazz-main/flake.nix /Users/admin/.codex/worktrees/8c77/jazz-main/flake.lock
 git commit -m "build(nix): add reproducible dev shell for spec-cleanup"
 ```
+
+**Task 1 Execution Tracking (2026-03-02, worktree `5b7d`)**
+- [x] Step 1 complete: Added root `flake.nix` with `devShells.default` (`stack`, `ghc`, `cabal-install`, `ormolu`, `hlint`, `git`) and `checks.parser-tests`.
+- [x] Step 2 complete: Verified `nix flake show`, `nix develop -c stack --version`, and `nix flake check` using `NIX_CONFIG='experimental-features = nix-command flakes'`.
+- [x] Step 3 complete: Committed the Nix bootstrap checkpoint.
 
 ### Task 2: Write and Ratify the Authoritative Syntax Decision Record
 
