@@ -13,7 +13,7 @@
 ## Progress
 
 - [x] Operator drift evidence captured
-- [ ] Fixity model decision locked
+- [x] Fixity model decision locked
 - [x] Section semantics decision locked
 - [ ] Parser/tests aligned with canonical contract
 - [x] User-defined operator roadmap direction decided (staged)
@@ -22,7 +22,7 @@
 
 - [x] User-defined operators will be delivered in staged phases.
 - [x] Stage architecture must preserve easy completion in later phases (no parser rewrite trap).
-- [ ] Builtin fixity table lock (Gate A) still required.
+- [x] Builtin operator set and fixity are frozen for v1.
 - [x] Section representation lock (Gate B): explicit AST node for operator sections.
 
 ## Verification Evidence (Current Drift)
@@ -48,7 +48,9 @@ Out of scope:
 
 ## Decision Gates
 
-- [ ] Gate A: builtin operator set and fixity are frozen for v1.
+- [x] Gate A: builtin operator set and fixity are frozen for v1.
+  - [x] Current builtin operator set and precedence/associativity tiers are normative for v1.
+  - [x] New user-defined operators must fit staged extension points and must not silently change existing builtin fixity behavior.
 - [x] Gate B: section semantics policy.
   - [ ] Option B1: keep lambda-desugaring semantics but hide synthetic names from external AST contract.
   - [x] Option B2 (selected): introduce explicit AST node for operator sections.
