@@ -1,0 +1,427 @@
+# Jazz Language State
+
+This document consolidates what the repository currently says about Jazz across:
+
+- the top-level [README](../README.md)
+- the older Haskell implementation in [jazz-hs](../jazz-hs)
+- the later rewrite attempt in [jazz2](../jazz2)
+
+The codebase does not currently contain a single consistent spec. The best reading is:
+
+1. The top-level README is the high-level design pitch.
+2. `jazz-hs` is the only implementation that meaningfully defines concrete syntax and behavior.
+3. `jazz2` is mostly an unfinished redesign sketch.
+
+## Short Summary
+
+Jazz appears intended to be a statically typed, mostly functional language inspired by Haskell and Elixir, with:
+
+- simple syntax
+- strong type inference
+- curried functions by default
+- immutable bindings
+- algebraic data types and pattern matching
+- a trait/typeclass-like abstraction system
+
+Today, the only end-to-end implemented subset is much smaller. In practice, `jazz-hs` supports a small expression language that can be parsed, type-checked, optimized a little, and compiled to JavaScript. Many richer features parse but do not work end to end.
+
+## What The Top-Level README Claims
+
+The top-level [README](../README.md) describes Jazz as:
+
+- a functional language inspired by Haskell and Elixir
+- easier for beginners than Haskell's more category-theory-heavy style
+- strongly and statically typed
+- highly inference-driven
+- eventually LLVM-backed for performance
+- built around more approachable typeclasses such as `Collection` and `Orderable`
+
+It explicitly claims or strongly implies the following language features:
+
+- ADTs
+- pattern matching
+- tuples
+- first-class functions
+- curried functions
+- immutable variables
+- pure-by-default functions
+- impure functions marked with `!`
+- module namespaces like `module Person::Organs::Heart { ... }`
+- statement/declaration terminators written as `.`
+- type annotations written with `::`
+- a right-associative `$` application operator
+
+The README examples also imply:
+
+- lambdas use `\(args) -> expr`
+- multiline function bodies use `{ ... }`
+- lists use `[ ... ]`
+- function application can be space-separated
+
+## What `jazz-hs` Actually Implements
+
+`jazz-hs` is the main concrete source of truth. Its local [README](../jazz-hs/README.md) is empty, so the real spec lives in parser, AST, type inference, tests, and example programs.
+
+### Active Pipeline
+
+The implemented pipeline in [jazz-hs/src/Lib.hs](../jazz-hs/src/Lib.hs) is:
+
+1. parse source text
+2. run analysis (currently type inference only)
+3. run optimizer
+4. generate JavaScript
+
+The Haskell interpreter in [jazz-hs/src/Interpreter.hs](../jazz-hs/src/Interpreter.hs) is mostly commented out and should be treated as non-functional.
+
+### Concrete Syntax In `jazz-hs`
+
+The parser in [jazz-hs/src/Parser/Lang.hs](../jazz-hs/src/Parser/Lang.hs) and tests in [jazz-hs/test/ParserSpec.hs](../jazz-hs/test/ParserSpec.hs) define this surface syntax:
+
+- A program is a sequence of root expressions separated by `.`.
+- Blocks use `{ ... }` and contain the same dot-separated program form.
+- Line comments use `//`.
+- Block comments use `{* ... *}`.
+- Lowercase identifiers are normal variable/function names.
+- Uppercase identifiers are used for types, constructors, and module path segments.
+- Internal names may start with `$`, such as `$intAdd` or `$Int`.
+- Function application is left-associative by juxtaposition:
+  - `f x y` means `(f x) y`
+- Parenthesized call syntax also works:
+  - `f(5)`
+- Infix operators are parsed as curried function application:
+  - `1 + 2` becomes `((+) 1) 2`
+- Operator identifiers can be used as functions:
+  - `(+) 1 2`
+- Partial operator sections are supported:
+  - `(+10)`
+  - `(10+)`
+  - `(*2)`
+- `$` is parsed as right-associative low-precedence application.
+
+### Parsed Expression Forms
+
+The parser and AST support:
+
+- integer literals
+- float literals
+- boolean literals: `True`, `False`
+- string literals
+- list literals: `[1, 2, 3]`
+- tuple literals: `(1, 2)`
+- variable references
+- lambdas: `\(x) -> expr`
+- multi-argument lambdas, which desugar into nested unary lambdas
+- blocks
+- variable declarations: `x = expr`
+- type signatures: `x :: Type`
+- imports
+- modules
+- data declarations
+- class declarations
+- class implementations
+- `case` expressions
+
+### Parsed Pattern Forms
+
+Pattern syntax exists in lambda parameters and in the `case` parser:
+
+- literal patterns
+- variable patterns
+- wildcard `_`
+- tuple patterns
+- list patterns, including cons-like forms such as `[hd | tl]`
+- constructor patterns such as `Cons(hd, _)`
+
+### Parsed Declarations
+
+The parser accepts:
+
+- value binding:
+  - `x = 5`
+- type signature:
+  - `x :: Integer`
+- import:
+  - `import Foo::Bar`
+  - `import Foo::Bar as B`
+  - `import Std::List (map, filter)`
+- module:
+  - `module Foo::Bar { ... }`
+- data declaration:
+  - `data Maybe(a) { Just(a), Nothing }`
+- class declaration:
+  - `class @{Ord(a)}: Eq(a) { ... }`
+- class implementation:
+  - `impl @{Ord(a)}: Eq(Integer) { ... }`
+
+### Type Syntax In `jazz-hs`
+
+The parser supports:
+
+- named types:
+  - `Integer`
+  - `Bool`
+  - `Maybe(Integer)`
+- type variables:
+  - `a`
+- list types:
+  - `[a]`
+- tuple types:
+  - `(a, b)`
+- function types:
+  - `a -> b`
+- constrained type signatures:
+  - `x :: @{Eq(a), Ord(b)}: a -> b -> c`
+
+Important caveat: function arrows are currently parsed left-associatively, not right-associatively. In other words:
+
+- `a -> b -> c` is parsed as `(a -> b) -> c`
+- not the more conventional `a -> (b -> c)`
+
+That is almost certainly accidental and should be treated as an implementation bug rather than intended language design.
+
+### Builtins And Type Environment In `jazz-hs`
+
+The hardcoded builtin type environment in [jazz-hs/src/Types.hs](../jazz-hs/src/Types.hs) only includes:
+
+- `+`
+- `-`
+- `*`
+- `/`
+- `==`
+- `print!`
+- `map`
+- `hd`
+- `tl`
+
+The hardcoded trait set includes:
+
+- `Num`
+- `Integral`
+- `Fractional`
+- `Eq`
+- `Ord`
+- `Showable`
+- `Default`
+
+The builtins imply:
+
+- arithmetic is curried
+- `map` is function-first in the implementation type environment:
+  - `map :: (a -> b) -> [a] -> [b]`
+- `hd` and `tl` operate on lists
+
+### What Actually Works End To End
+
+The only features that clearly work through parse -> type inference -> optimization -> JS generation are the smaller core:
+
+- literal expressions
+- top-level sequential bindings
+- simple variable references
+- simple lambdas with plain parameters
+- function application
+- builtin arithmetic
+- list literals
+- simple tuple typing (but not tuple codegen)
+- `print!`
+- `map`
+- `hd`
+- `tl`
+- `$` application
+
+Example programs in [jazz-hs/ExamplePrograms](../jazz-hs/ExamplePrograms) mostly stay within this subset.
+
+### JavaScript Runtime Semantics In `jazz-hs`
+
+The JS backend in [jazz-hs/src/CodeGen/Javascript.hs](../jazz-hs/src/CodeGen/Javascript.hs) lowers builtins to a tiny JS prelude:
+
+- `+`, `-`, `*`, `/` become curried JS helpers
+- `map` becomes `xs.map(f)`
+- `hd` becomes array destructuring of the first element
+- `tl` becomes array destructuring of the tail
+- `==` becomes JavaScript loose equality (`==`)
+- `print!` becomes `console.log(...)`
+
+Constant folding in the optimizer only handles integer `+`, `-`, and `*`.
+
+## `jazz-hs` Features That Exist Mostly As Scaffolding
+
+A large part of the richer language exists in AST and parser form, but is not fully supported by analysis and code generation.
+
+These features appear partially implemented or parse-only:
+
+- `data` declarations
+- `class` declarations
+- `impl` declarations
+- `module` declarations
+- `import` declarations
+- `case` expressions
+- tuple code generation
+- pattern-matching function parameters
+- constructor-aware type inference/runtime behavior
+- true module loading
+- a real prelude/standard library hookup
+
+Key examples:
+
+- `case` has parser support, but type inference does not implement it.
+- tuple literals parse and infer, but JS generation explicitly errors on tuples.
+- lambda pattern parameters parse, but JS generation errors on non-simple parameters.
+- type signatures parse and are analyzed, but JS generation has no branch for `ETypeSignature`.
+- `if` exists in the AST and code generator, but there is no parser for `if ... else ...`, so it is not currently reachable from source code.
+
+## Top-Level README vs `jazz-hs` Mismatches
+
+Several important inconsistencies exist between the aspirational README and the concrete Haskell implementation.
+
+### `map` Argument Order
+
+The top-level README documents:
+
+- `map :: (a -> b) -> [a] -> [b]`
+
+But its example uses:
+
+- `map myArr \(i) -> ...`
+
+That example is collection-first, while `jazz-hs` implements `map` as function-first. The example and the implementation do not agree.
+
+### Function Definition Style
+
+The top-level README says functions are "declared with assignment to a lambda", but also shows:
+
+- `add10 = (+10).`
+- `add10List = map add10.`
+
+So the docs implicitly treat any expression assignment as a function definition, not just lambda assignment.
+
+### Purity / Effects
+
+The top-level README says:
+
+- functions are pure by default
+- impure functions must end with `!`
+- pure functions cannot call impure functions
+
+`jazz-hs` does not implement an effect or purity checker. The `!` suffix is just allowed syntax for identifiers; there is no semantic enforcement of purity.
+
+### Typeclass Naming
+
+The top-level README describes approachable typeclasses like `Collection` and `Orderable`.
+
+`jazz-hs` instead contains:
+
+- parser syntax centered on `class` / `impl`
+- traits in the type system named `Num`, `Eq`, `Ord`, etc.
+
+The names and abstraction model are related, but not stable or consistent.
+
+### Claimed Features vs Working Features
+
+The top-level README strongly presents ADTs, pattern matching, tuples, and modules as language features.
+
+`jazz-hs` only partially supports them:
+
+- many of them parse
+- several infer partially
+- several still fail in code generation or runtime behavior
+
+## `static/Prelude.jz` Looks Like A Different Dialect
+
+The file [jazz-hs/static/Prelude.jz](../jazz-hs/static/Prelude.jz) is valuable because it shows intended direction, but it does not cleanly match the currently working parser/compiler.
+
+It includes:
+
+- nested modules
+- richer data definitions
+- `trait` declarations
+- `impl` blocks
+- internal runtime primitives like `$intAdd`
+- wrapper types like `Int($Int)` and `Float($Float)`
+
+But there are multiple mismatches with the active parser:
+
+- the parser recognizes `class`, not `trait`
+- the parser's `impl` syntax expects constraint syntax like `@{...}:`, while the prelude often uses simpler `impl Num(Int) { ... }`
+- the active compiler does not auto-load this prelude
+- much of the functionality implied by the prelude is not wired into code generation or analysis
+
+Best interpretation: `Prelude.jz` captures intended future language/library design more than current executable behavior.
+
+## What `jazz2` Adds
+
+`jazz2` is a mostly unfinished rewrite. Its local [README](../jazz2/README.md) is empty, the parser entrypoint is effectively empty, the lexer is `undefined`, and the standard library `.jz` files are empty placeholders.
+
+The meaningful information in `jazz2` is mostly in [jazz2/src/Jazz/AST.hs](../jazz2/src/Jazz/AST.hs):
+
+- qualified names are clearly intended
+- there is an expression core with:
+  - variables
+  - constructors
+  - application
+  - lambdas
+  - literals
+  - `let`
+  - `case`
+- there are simple patterns:
+  - variable
+  - wildcard
+  - constructor patterns
+- there is a type core with:
+  - type constructors
+  - type variables
+  - type application
+  - function arrows
+
+However:
+
+- there is no working concrete syntax
+- signatures are structurally incomplete
+- module/import support is mostly commented out
+- richer declarations are mostly commented out
+- there is no operator system yet
+- stdlib files are empty
+
+Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, but not a usable language definition.
+
+## Things That Are Clearly Undecided Or Unclear
+
+Based on the full repo, these areas are not settled:
+
+- Whether collection APIs are function-first (`map f xs`) or collection-first (`map xs f`)
+- Whether the standard abstraction keyword is `trait`, `class`, or both
+- Whether the intended trait vocabulary is Haskell-like (`Eq`, `Ord`, `Num`) or more domain-named (`Collection`, `Orderable`)
+- Whether `!` is only naming convention or a real effect marker
+- Whether tuples are a core runtime feature or just parsed syntax
+- Whether `if` is part of the language surface, since it exists in AST/codegen but not in the parser
+- Whether modules/imports are purely syntactic organization or part of a real file/module loader
+- Whether the standard library is meant to be self-hosted in `.jz` or hardcoded in the compiler/runtime
+- Whether ADTs and pattern matching are central in the current design or just inherited scaffolding
+- Whether the eventual target is JavaScript, LLVM, or both
+
+## Working Assumptions For Future Design Work
+
+If you need a practical baseline for continuing Jazz, the safest assumptions from this repo are:
+
+1. Treat `jazz-hs` as the only implementation with real behavioral authority.
+2. Treat the top-level README as aspirational, not normative.
+3. Treat `static/Prelude.jz` as a future-design sketch, not an exact spec.
+4. Treat `jazz2` as a redesign stub, useful mainly for ideas.
+5. Assume the currently working language is a small curried expression language with:
+   - dot-separated top-level forms
+   - lambdas
+   - application
+   - literals
+   - lists
+   - a few hardcoded builtins
+   - JS code generation
+
+## Recommended Next Spec Cleanup
+
+If this repo is going to become a coherent language project, the highest-value cleanup would be:
+
+1. Pick one authoritative syntax for functions, modules, traits, and collections.
+2. Decide whether `map`/`filter` are function-first or collection-first.
+3. Decide whether purity with `!` is real semantics or only naming.
+4. Decide whether `trait` or `class` is the canonical abstraction keyword.
+5. Separate "implemented today" features from "planned" features in the top-level docs.
+6. Either remove parse-only features from `jazz-hs` or finish typechecking/codegen for them.
