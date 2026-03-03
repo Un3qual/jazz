@@ -25,7 +25,7 @@ Adopt `Data.Text.Text` as the default textual type across compiler internals in 
 ### Intentional `String` Boundaries Kept
 
 - CLI argument/environment boundaries from `System.Environment` (`[String]`, `String -> IO (Maybe String)`).
-- `Text.Read.decimal` return type (`Either String (Integer, Text)`), dictated by library API.
+- `Data.Text.Read.decimal` return type (`Either String (Integer, Text)`), dictated by library API.
 
 These are conversion boundaries, not compiler-internal representation choices.
 

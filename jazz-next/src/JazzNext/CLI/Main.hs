@@ -19,7 +19,8 @@ import JazzNext.Compiler.AST
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
-    WarningRecord (..)
+    WarningRecord (..),
+    renderSourceSpan
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
@@ -149,14 +150,10 @@ formatWarningLine warning =
     <> " ["
     <> warningToken (warningCategory warning)
     <> "] "
-    <> renderSpan (warningPrimarySpan warning)
+    <> renderSourceSpan (warningPrimarySpan warning)
     <> ": "
     <> warningMessage warning
     <> renderPreviousSpan (warningPreviousSpan warning)
-
-renderSpan :: SourceSpan -> Text
-renderSpan spanValue =
-  Text.pack (show (spanLine spanValue)) <> ":" <> Text.pack (show (spanColumn spanValue))
 
 renderLines :: [Text] -> Text
 renderLines [] = ""
@@ -166,7 +163,7 @@ renderPreviousSpan :: Maybe SourceSpan -> Text
 renderPreviousSpan previous =
   case previous of
     Nothing -> ""
-    Just previousSpan -> " (previous " <> renderSpan previousSpan <> ")"
+    Just previousSpan -> " (previous " <> renderSourceSpan previousSpan <> ")"
 
 readConfigMaybe :: FilePath -> IO (Maybe Text)
 readConfigMaybe path =

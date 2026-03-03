@@ -7,7 +7,7 @@ module JazzNext.Compiler.Parser
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( renderSourceSpan
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
@@ -37,7 +37,7 @@ parseSurfaceProgram source = do
         ( "unexpected token '"
             <> tokenLexeme token
             <> "' at "
-            <> renderSpan (tokenSpan token)
+            <> renderSourceSpan (tokenSpan token)
         )
 
 parseStatementsUntilEnd :: [Token] -> Either Text ([SurfaceStatement], [Token])
@@ -71,7 +71,7 @@ parseStatement tokens =
             ( "reserved literal '"
                 <> name
                 <> "' cannot be used as a binding name at "
-                <> renderSpan (tokenSpan nameToken)
+                <> renderSourceSpan (tokenSpan nameToken)
             )
       | TIdentifier name <- tokenKind nameToken -> parseSignature name nameToken afterName
     (nameToken : afterName@(Token {tokenKind = TEquals} : _))
@@ -81,7 +81,7 @@ parseStatement tokens =
             ( "reserved literal '"
                 <> name
                 <> "' cannot be used as a binding name at "
-                <> renderSpan (tokenSpan nameToken)
+                <> renderSourceSpan (tokenSpan nameToken)
             )
       | TIdentifier name <- tokenKind nameToken -> parseLet name nameToken afterName
     _ -> parseExprStatement tokens
@@ -102,7 +102,7 @@ parseSignature name nameToken tokensAfterName =
     _ ->
       Left
         ( "internal parser error at "
-            <> renderSpan (tokenSpan nameToken)
+            <> renderSourceSpan (tokenSpan nameToken)
             <> ": expected '::' after signature name"
         )
 
@@ -116,7 +116,7 @@ parseLet name nameToken tokensAfterName =
     _ ->
       Left
         ( "internal parser error at "
-            <> renderSpan (tokenSpan nameToken)
+            <> renderSourceSpan (tokenSpan nameToken)
             <> ": expected '=' after binding name"
         )
 
@@ -150,7 +150,7 @@ parseInfixTail minPrecedence leftExpr tokens =
                 ( "unsupported operator '"
                     <> operatorSymbol
                     <> "' at "
-                    <> renderSpan (tokenSpan operatorToken)
+                    <> renderSourceSpan (tokenSpan operatorToken)
                 )
             Just operatorInfo
               | operatorPrecedence operatorInfo < minPrecedence ->
@@ -195,7 +195,7 @@ parsePrimaryExpr tokens =
             ( "unexpected token '"
                 <> tokenLexeme token
                 <> "' at "
-                <> renderSpan (tokenSpan token)
+                <> renderSourceSpan (tokenSpan token)
                 <> "; expected expression"
             )
 
@@ -226,12 +226,12 @@ parseIfExpr ifToken tokensAfterIf = do
     [] ->
       Left
         ( "expected 'else' before end of input after 'if' at "
-            <> renderSpan (tokenSpan ifToken)
+            <> renderSourceSpan (tokenSpan ifToken)
         )
     token : _ ->
       Left
         ( "expected 'else' at "
-            <> renderSpan (tokenSpan token)
+            <> renderSourceSpan (tokenSpan token)
             <> ", found '"
             <> tokenLexeme token
             <> "'"
@@ -250,7 +250,7 @@ collectUntilDot = go []
           | null acc ->
               Left
                 ( "expected signature text before '.' at "
-                    <> renderSpan (tokenSpan token)
+                    <> renderSourceSpan (tokenSpan token)
                 )
           | otherwise -> Right (reverse acc, rest)
         _
@@ -259,7 +259,7 @@ collectUntilDot = go []
                 ( "expected '.' before '"
                     <> tokenLexeme token
                     <> "' at "
-                    <> renderSpan (tokenSpan token)
+                    <> renderSourceSpan (tokenSpan token)
                 )
           | otherwise -> go (token : acc) rest
 
@@ -278,7 +278,7 @@ consumeDot tokens =
     token : _ ->
       Left
         ( "expected '.' at "
-            <> renderSpan (tokenSpan token)
+            <> renderSourceSpan (tokenSpan token)
             <> ", found '"
             <> tokenLexeme token
             <> "'"
@@ -292,11 +292,8 @@ consumeRightParen tokens =
     token : _ ->
       Left
         ( "expected ')' at "
-            <> renderSpan (tokenSpan token)
+            <> renderSourceSpan (tokenSpan token)
             <> ", found '"
             <> tokenLexeme token
             <> "'"
         )
-
-renderSpan :: SourceSpan -> Text
-renderSpan spanValue = Text.pack (show (spanLine spanValue)) <> ":" <> Text.pack (show (spanColumn spanValue))

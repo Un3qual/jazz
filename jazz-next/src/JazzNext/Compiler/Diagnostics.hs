@@ -3,12 +3,14 @@
 module JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
     WarningRecord (..),
+    renderSourceSpan,
     mkSameScopeRebindingWarning,
     sortWarnings
   ) where
 
 import Data.List (sortOn)
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.Warnings
   ( WarningCategory (..),
     warningCode
@@ -29,6 +31,10 @@ data WarningRecord = WarningRecord
     warningMessage :: Text
   }
   deriving (Eq, Show)
+
+renderSourceSpan :: SourceSpan -> Text
+renderSourceSpan spanValue =
+  Text.pack (show (spanLine spanValue)) <> ":" <> Text.pack (show (spanColumn spanValue))
 
 mkSameScopeRebindingWarning :: Text -> SourceSpan -> SourceSpan -> WarningRecord
 mkSameScopeRebindingWarning variableName primarySpan previousSpan =

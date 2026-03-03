@@ -15,7 +15,6 @@ import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
-import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
@@ -24,8 +23,7 @@ import JazzNext.Compiler.Diagnostics
   ( SourceSpan,
     WarningRecord,
     mkSameScopeRebindingWarning,
-    spanColumn,
-    spanLine,
+    renderSourceSpan,
     sortWarnings
   )
 import JazzNext.Compiler.WarningConfig
@@ -239,7 +237,7 @@ mkMissingBindingForSignatureError pendingSignature =
   "E1002: signature for '"
     <> pendingSignatureName pendingSignature
     <> "' at "
-    <> renderSpan (pendingSignatureSpan pendingSignature)
+    <> renderSourceSpan (pendingSignatureSpan pendingSignature)
     <> " must be immediately followed by a matching binding"
 
 mkMismatchedSignatureError :: Text -> SourceSpan -> Text -> Text
@@ -247,13 +245,10 @@ mkMismatchedSignatureError signatureName signatureSpan bindingName =
   "E1003: signature for '"
     <> signatureName
     <> "' at "
-    <> renderSpan signatureSpan
+    <> renderSourceSpan signatureSpan
     <> " must annotate the next binding with the same name; found '"
     <> bindingName
     <> "'"
-
-renderSpan :: SourceSpan -> Text
-renderSpan spanValue = Text.pack (show (spanLine spanValue)) <> ":" <> Text.pack (show (spanColumn spanValue))
 
 inferRecursiveGroups ::
   Map Text SourceSpan ->
