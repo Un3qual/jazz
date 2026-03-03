@@ -7,3 +7,4 @@ cd "$ROOT"
 runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/WarningConfigSpec.hs
 runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/RebindingWarningSpec.hs
 runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs
+runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/BindingSignatureCoherenceSpec.hs

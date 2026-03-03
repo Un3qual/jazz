@@ -19,17 +19,19 @@ import JazzNext.Compiler.WarningConfig
 
 data InferenceResult = InferenceResult
   { inferredExpr :: Expr,
-    inferredWarnings :: [WarningRecord]
+    inferredWarnings :: [WarningRecord],
+    inferredErrors :: [String]
   }
   deriving (Eq, Show)
 
 inferExpression :: WarningSettings -> Expr -> IO InferenceResult
 inferExpression settings expr = do
-  AnalysisResult analyzed warnings <- analyzeProgram settings expr
+  AnalysisResult analyzed warnings errors <- analyzeProgram settings expr
   pure
     InferenceResult
       { inferredExpr = analyzed,
-        inferredWarnings = warnings
+        inferredWarnings = warnings,
+        inferredErrors = errors
       }
 
 inferExpressionDefault :: Expr -> IO InferenceResult

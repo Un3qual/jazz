@@ -10,6 +10,8 @@
 - [x] Validate non-overlap assumptions with maintainer
 - [x] Lock maintainer decision gates captured on 2026-03-03
 - [x] Execute Phase-0 spec publication batch for domains 14/15/16 and tooling 18
+- [x] Verify candidate-step implementation status for domains 13/14/15/16 against current `jazz-next` state before selecting next work batch
+- [x] Execute domain 13 batch 1 in `jazz-next` (signature adjacency + use-before-definition diagnostics + tests)
 - [ ] Execute plans (future work)
 
 ## Scope Boundary
@@ -30,6 +32,7 @@ This batch only includes clarification domains that are not already directly pla
 ## Domain Execution Status
 
 - [ ] 13 binding/signature coherence
+- [x] 13a binding/signature coherence batch 1 (`jazz-next` analyzer/tests)
 - [ ] 14 if-expression surface and semantics
 - [ ] 15 operator fixity and sections
 - [ ] 16 primitive semantics contract
@@ -45,7 +48,7 @@ This batch only includes clarification domains that are not already directly pla
 
 ## Follow-On Plans
 
-- `tooling/18-compiler-warning-flags.md` (phase 0 contract lock completed; implementation phases pending)
+- `tooling/18-compiler-warning-flags.md` (implemented in `jazz-next`; retained as execution record)
 
 ## Locked Governance Clarifications (2026-03-03)
 

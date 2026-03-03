@@ -13,6 +13,8 @@ import JazzNext.Compiler.Diagnostics
   ( SourceSpan,
     WarningRecord,
     mkSameScopeRebindingWarning,
+    spanColumn,
+    spanLine,
     sortWarnings
   )
 import JazzNext.Compiler.WarningConfig
@@ -31,53 +33,95 @@ data Expr
 
 data Statement
   = SLet String SourceSpan Expr
+  | SSignature String SourceSpan String
   | SExpr Expr
   deriving (Eq, Show)
 
 data AnalysisResult = AnalysisResult
   { analyzedExpr :: Expr,
-    analysisWarnings :: [WarningRecord]
+    analysisWarnings :: [WarningRecord],
+    analysisErrors :: [String]
   }
   deriving (Eq, Show)
 
 analyzeProgram :: WarningSettings -> Expr -> IO AnalysisResult
 analyzeProgram settings expr =
+  let (warnings, errors) = collectExprDiagnostics settings Map.empty expr
+   in
   pure
     AnalysisResult
       { analyzedExpr = expr,
-        analysisWarnings = sortWarnings (collectExprWarnings settings expr)
+        analysisWarnings = sortWarnings warnings,
+        analysisErrors = errors
       }
 
 analyzeRebindingWarnings :: WarningSettings -> Expr -> IO [WarningRecord]
 analyzeRebindingWarnings settings expr = analysisWarnings <$> analyzeProgram settings expr
 
-collectExprWarnings :: WarningSettings -> Expr -> [WarningRecord]
-collectExprWarnings settings expr =
+collectExprDiagnostics ::
+  WarningSettings ->
+  Map String SourceSpan ->
+  Expr ->
+  ([WarningRecord], [String])
+collectExprDiagnostics settings visibleBindings expr =
   case expr of
-    EInt _ -> []
-    EVar _ -> []
-    EScope statements -> collectScopeWarnings settings Map.empty statements
+    EInt _ -> ([], [])
+    EVar name ->
+      case Map.lookup name visibleBindings of
+        Just _ -> ([], [])
+        Nothing -> ([], [mkUnboundVariableError name])
+    EScope statements -> collectScopeDiagnostics settings visibleBindings statements
 
-collectScopeWarnings ::
+collectScopeDiagnostics ::
   WarningSettings ->
   Map String SourceSpan ->
   [Statement] ->
-  [WarningRecord]
-collectScopeWarnings settings initialScope statements =
-  reverse finalWarningsRev
+  ([WarningRecord], [String])
+collectScopeDiagnostics settings outerScope statements =
+  (reverse finalWarningsRev, reverse errorsWithFinalPending)
   where
-    (_, finalWarningsRev) = foldl' step (initialScope, []) statements
+    (_, finalPendingSignature, finalWarningsRev, finalErrorsRev) =
+      foldl' step (Map.empty, Nothing, [], []) statements
+    errorsWithFinalPending = flushPendingSignature finalPendingSignature finalErrorsRev
 
     step ::
-      (Map String SourceSpan, [WarningRecord]) ->
+      (Map String SourceSpan, Maybe PendingSignature, [WarningRecord], [String]) ->
       Statement ->
-      (Map String SourceSpan, [WarningRecord])
-    step (scopeBindings, warningsRev) statement =
+      (Map String SourceSpan, Maybe PendingSignature, [WarningRecord], [String])
+    step (scopeBindings, pendingSignature, warningsRev, errorsRev) statement =
       case statement of
         SExpr expr ->
-          (scopeBindings, appendWarnings warningsRev (collectExprWarnings settings expr))
+          let errorsWithPending = flushPendingSignature pendingSignature errorsRev
+              visible = currentVisibleBindings scopeBindings
+              (exprWarnings, exprErrors) = collectExprDiagnostics settings visible expr
+           in
+            ( scopeBindings,
+              Nothing,
+              appendWarnings warningsRev exprWarnings,
+              appendErrors errorsWithPending exprErrors
+            )
+        SSignature signatureName signatureSpan _signatureText ->
+          let errorsWithPending = flushPendingSignature pendingSignature errorsRev
+           in
+            ( scopeBindings,
+              Just (PendingSignature signatureName signatureSpan),
+              warningsRev,
+              errorsWithPending
+            )
         SLet bindingName bindingSpan valueExpr ->
-          let valueWarnings = collectExprWarnings settings valueExpr
+          let errorsFromSignature =
+                case pendingSignature of
+                  Nothing -> []
+                  Just (PendingSignature signatureName signatureDeclSpan)
+                    | signatureName == bindingName -> []
+                    | otherwise ->
+                        [ mkMismatchedSignatureError
+                            signatureName
+                            signatureDeclSpan
+                            bindingName
+                        ]
+              visible = currentVisibleBindings scopeBindings
+              (valueWarnings, valueErrors) = collectExprDiagnostics settings visible valueExpr
               rebindingWarning =
                 case Map.lookup bindingName scopeBindings of
                   Just previousSpan
@@ -86,7 +130,59 @@ collectScopeWarnings settings initialScope statements =
                   _ -> []
               nextScope = Map.insert bindingName bindingSpan scopeBindings
               warningsWithValue = appendWarnings warningsRev valueWarnings
-           in (nextScope, appendWarnings warningsWithValue rebindingWarning)
+              errorsWithValue =
+                appendErrors (appendErrors errorsRev errorsFromSignature) valueErrors
+           in
+            ( nextScope,
+              Nothing,
+              appendWarnings warningsWithValue rebindingWarning,
+              errorsWithValue
+            )
+
+    currentVisibleBindings :: Map String SourceSpan -> Map String SourceSpan
+    currentVisibleBindings scopeBindings = scopeBindings `Map.union` outerScope
 
     appendWarnings :: [WarningRecord] -> [WarningRecord] -> [WarningRecord]
     appendWarnings = foldl' (flip (:))
+
+    appendErrors :: [String] -> [String] -> [String]
+    appendErrors = foldl' (flip (:))
+
+data PendingSignature = PendingSignature
+  { pendingSignatureName :: String,
+    pendingSignatureSpan :: SourceSpan
+  }
+
+flushPendingSignature :: Maybe PendingSignature -> [String] -> [String]
+flushPendingSignature pending errorsRev =
+  case pending of
+    Nothing -> errorsRev
+    Just pendingSignature ->
+      appendError errorsRev (mkMissingBindingForSignatureError pendingSignature)
+  where
+    appendError rev errorText = errorText : rev
+
+mkUnboundVariableError :: String -> String
+mkUnboundVariableError variableName =
+  "E1001: unbound variable '" ++ variableName ++ "'"
+
+mkMissingBindingForSignatureError :: PendingSignature -> String
+mkMissingBindingForSignatureError pendingSignature =
+  "E1002: signature for '"
+    ++ pendingSignatureName pendingSignature
+    ++ "' at "
+    ++ renderSpan (pendingSignatureSpan pendingSignature)
+    ++ " must be immediately followed by a matching binding"
+
+mkMismatchedSignatureError :: String -> SourceSpan -> String -> String
+mkMismatchedSignatureError signatureName signatureSpan bindingName =
+  "E1003: signature for '"
+    ++ signatureName
+    ++ "' at "
+    ++ renderSpan signatureSpan
+    ++ " must annotate the next binding with the same name; found '"
+    ++ bindingName
+    ++ "'"
+
+renderSpan :: SourceSpan -> String
+renderSpan spanValue = show (spanLine spanValue) ++ ":" ++ show (spanColumn spanValue)

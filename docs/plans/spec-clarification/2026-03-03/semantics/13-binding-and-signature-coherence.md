@@ -6,7 +6,7 @@
 
 **Architecture:** Resolve declaration semantics in docs first, then lock behavior with parser/analyzer tests before implementation changes in type inference. Keep rules explicit enough to avoid order-dependent behavior regressions.
 
-**Tech Stack:** Haskell (`jazz-hs` parser/analyzer/tests), Markdown spec docs, `stack` (optionally via Nix shell).
+**Tech Stack:** Haskell (`jazz-next` analyzer/tests), Markdown spec docs, shell test runner (`bash jazz-next/scripts/test-warning-config.sh`).
 
 ---
 
@@ -16,8 +16,8 @@
 - [x] Signature-placement decision gate finalized
 - [x] Remaining declaration-semantics gates finalized
 - [x] Normative binding/signature spec doc published
-- [ ] Parser/analyzer tests aligned to the chosen contract
-- [ ] Analyzer implementation aligned and verified
+- [x] Analyzer tests aligned for signature adjacency + use-before-definition in the current `jazz-next` AST subset
+- [ ] Full parser + recursion-group semantics alignment in `jazz-next`
 - [ ] Language-state/docs updated and item closed
 
 ## Decision Lock (Approved 2026-03-03)
@@ -27,7 +27,16 @@
 - [x] Rebinding is allowed in any scope (top-level and nested), with deterministic same-scope `last wins` semantics.
 - [x] Recursion is unrestricted, including mutual recursion groups.
 - [x] Non-recursive use-before-definition is invalid and must fail at compile-time.
-- [x] Rebinding warnings are optional and deferred behind future compiler warning flags (default behavior remains silent).
+- [x] Rebinding warnings are optional and controlled by compiler warning flags; default behavior remains silent.
+
+## Implementation Status Verification (2026-03-02, Batch 1)
+
+- [x] Verified warning-flag rebinding policy is already implemented in `jazz-next` (`W0001`, CLI/env/config controls).
+- [x] Added signature-adjacency analyzer checks in `jazz-next` (`SSignature` must immediately precede matching `SLet`).
+- [x] Added compile-time diagnostics for use-before-definition (`E1001` unbound variable).
+- [x] Added contract tests for valid and invalid signature ordering/name matching.
+- [x] Added lexical-scope regression test proving nested scope can resolve outer bindings.
+- [ ] Recursion-group semantics (self + mutual recursion groups) are still pending in `jazz-next`.
 
 ## Verification Evidence (Current Ambiguity)
 
@@ -105,40 +114,43 @@ git commit -m "docs(spec): lock binding and signature coherence decisions"
 
 ## Phase 1: Tests-First Contract Encoding
 
-- [ ] Add parser/analyzer tests that encode the selected model.
-- [ ] Ensure tests cover both accepted and rejected forms.
-- [ ] Add at least one regression test for the previously broken signature scenario.
+- [x] Add analyzer tests that encode the selected model for the current `jazz-next` AST surface.
+- [x] Ensure tests cover both accepted and rejected forms.
+- [x] Add regression tests for signature ordering/name mismatches.
+- [ ] Add parser-level contract tests once parser surface exists in `jazz-next`.
 
 Modify:
-- `jazz-hs/test/ParserSpec.hs`
-- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
+- `jazz-next/test/BindingSignatureCoherenceSpec.hs`
+- `jazz-next/scripts/test-warning-config.sh`
 
 ### Commit Checkpoint (Phase 1)
 
 ```bash
-git add jazz-hs/test/ParserSpec.hs \
-  jazz-hs/test/Analyzer/TypeInferenceSpec.hs
-git commit -m "test(type-inference): codify binding and signature contract"
+git add jazz-next/test/BindingSignatureCoherenceSpec.hs \
+  jazz-next/scripts/test-warning-config.sh
+git commit -m "test(jazz-next): codify binding/signature coherence contract"
 ```
 
 ## Phase 2: Analyzer Semantics Alignment
 
-- [ ] Refactor declaration/signature handling to enforce the chosen attachment model.
-- [ ] Implement diagnostics for invalid ordering/redeclaration/recursion patterns.
-- [ ] Remove reliance on implicit order-sensitive behavior where it conflicts with chosen policy.
+- [x] Refactor declaration/signature handling to enforce immediate adjacency in the current AST.
+- [x] Implement diagnostics for invalid signature ordering/name mismatch and use-before-definition.
+- [ ] Implement recursion-group semantics (self + mutual recursion) per locked policy.
+- [ ] Remove remaining order-sensitive behavior tied to parser/type-surface gaps.
 
 Modify:
-- `jazz-hs/src/Analyzer/TypeInference.hs`
-- `jazz-hs/src/Errors.hs` (if new diagnostics are needed)
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Driver.hs`
 
 ### Commit Checkpoint (Phase 2)
 
 ```bash
-git add jazz-hs/src/Analyzer/TypeInference.hs jazz-hs/src/Errors.hs
-git commit -m "feat(type-inference): enforce binding and signature coherence rules"
+git add jazz-next/src/JazzNext/Compiler/Analyzer.hs \
+  jazz-next/src/JazzNext/Compiler/TypeInference.hs \
+  jazz-next/src/JazzNext/Compiler/Driver.hs
+git commit -m "feat(jazz-next): enforce binding/signature adjacency and unbound-use diagnostics"
 ```
-
-(If `Errors.hs` is unchanged, omit it.)
 
 ## Phase 3: Docs and Tracker Closure
 
@@ -160,15 +172,12 @@ git commit -m "docs(spec): close binding and signature coherence clarification"
 ## Verification Commands
 
 ```bash
-cd jazz-hs
-stack test --ta '--match "type signature"'
-stack test --ta '--match "multiple expressions"'
-stack test
+bash jazz-next/scripts/test-warning-config.sh
 ```
 
 ## Definition of Done
 
 - [x] One canonical declaration/signature contract is documented.
-- [ ] Broken signature tests are replaced by passing contract tests.
+- [x] Contract tests for signature ordering/name matching and use-before-definition pass in `jazz-next`.
 - [ ] Analyzer behavior and diagnostics match the contract.
 - [ ] Ambiguity no longer appears in language-state tracking.
