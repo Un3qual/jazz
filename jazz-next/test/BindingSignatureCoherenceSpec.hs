@@ -19,6 +19,7 @@ import JazzNext.TestHarness
     assertContains,
     assertEqual,
     assertJust,
+    assertSingleErrorContains,
     runTestSuite
   )
 
@@ -44,29 +45,26 @@ testSignatureDirectlyAboveBinding = do
 testSignatureSeparatedFromBinding :: IO ()
 testSignatureSeparatedFromBinding = do
   result <- compileExpr defaultWarningSettings separatedSignatureProgram
-  assertEqual "compile error count" 1 (length (compileErrors result))
-  assertContains
+  assertSingleErrorContains
     "error text"
     "must be immediately followed by a matching binding"
-    (head (compileErrors result))
+    (compileErrors result)
 
 testSignatureNameMismatch :: IO ()
 testSignatureNameMismatch = do
   result <- compileExpr defaultWarningSettings mismatchedSignatureProgram
-  assertEqual "compile error count" 1 (length (compileErrors result))
-  assertContains
+  assertSingleErrorContains
     "error text"
     "must annotate the next binding with the same name"
-    (head (compileErrors result))
+    (compileErrors result)
 
 testUseBeforeDefinition :: IO ()
 testUseBeforeDefinition = do
   result <- compileExpr defaultWarningSettings useBeforeDefinitionProgram
-  assertEqual "compile error count" 1 (length (compileErrors result))
-  assertContains
+  assertSingleErrorContains
     "error text"
     "unbound variable 'x'"
-    (head (compileErrors result))
+    (compileErrors result)
 
 testNestedScopeResolvesOuterBinding :: IO ()
 testNestedScopeResolvesOuterBinding = do
