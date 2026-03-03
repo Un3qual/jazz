@@ -47,6 +47,7 @@ tests =
     ("source pipeline rejects separated signature", testSourceRejectsSeparatedSignature),
     ("source pipeline rejects signature name mismatch", testSourceRejectsSignatureNameMismatch),
     ("source pipeline rejects non-recursive forward reference", testSourceRejectsNonRecursiveForwardReference),
+    ("source pipeline rejects retroactive rebinding recursion", testSourceRejectsRetroactiveRebindingRecursion),
     ("source pipeline accepts mutual recursion group", testSourceAcceptsMutualRecursionGroup),
     ("source pipeline rejects signature type mismatch", testSourceRejectsSignatureTypeMismatch)
   ]
@@ -244,6 +245,14 @@ testSourceRejectsNonRecursiveForwardReference = do
   result <- compileSource defaultWarningSettings "x = y.\ny = 1.\nx."
   assertContains
     "source forward reference error"
+    "E1001"
+    (Text.unlines (compileErrors result))
+
+testSourceRejectsRetroactiveRebindingRecursion :: IO ()
+testSourceRejectsRetroactiveRebindingRecursion = do
+  result <- compileSource defaultWarningSettings "x = y.\ny = 1.\ny = x.\nx."
+  assertContains
+    "source retroactive recursion error"
     "E1001"
     (Text.unlines (compileErrors result))
 
