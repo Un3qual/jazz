@@ -22,39 +22,61 @@ data WarningSeverity
   | SeverityError
   deriving (Eq, Ord, Show)
 
+data WarningMetadata = WarningMetadata
+  { metadataCode :: String,
+    metadataToken :: String
+  }
+
 allWarningCategories :: [WarningCategory]
 allWarningCategories = [minBound .. maxBound]
 
 warningCode :: WarningCategory -> String
-warningCode category =
-  case category of
-    SameScopeRebinding -> "W0001"
-    ShadowingOuterScope -> "W0002"
-    UnusedBinding -> "W0003"
-    DeprecatedSyntax -> "W0004"
+warningCode = metadataCode . warningMetadata
 
 warningToken :: WarningCategory -> String
-warningToken category =
-  case category of
-    SameScopeRebinding -> "same-scope-rebinding"
-    ShadowingOuterScope -> "shadowing-outer-scope"
-    UnusedBinding -> "unused-binding"
-    DeprecatedSyntax -> "deprecated-syntax"
+warningToken = metadataToken . warningMetadata
 
 parseWarningCategory :: String -> Either String WarningCategory
 parseWarningCategory rawToken =
-  case normalize rawToken of
-    "same-scope-rebinding" -> Right SameScopeRebinding
-    "shadowing-outer-scope" -> Right ShadowingOuterScope
-    "unused-binding" -> Right UnusedBinding
-    "deprecated-syntax" -> Right DeprecatedSyntax
-    unknown ->
+  case lookup normalizedToken tokenCatalog of
+    Just category -> Right category
+    Nothing ->
       Left
         ( "unknown warning category: "
-            ++ unknown
+            ++ normalizedToken
             ++ "; known categories: "
             ++ intercalate ", " (map warningToken allWarningCategories)
         )
+  where
+    normalizedToken = normalize rawToken
+    tokenCatalog =
+      [ (metadataToken (warningMetadata category), category)
+        | category <- allWarningCategories
+      ]
+
+warningMetadata :: WarningCategory -> WarningMetadata
+warningMetadata category =
+  case category of
+    SameScopeRebinding ->
+      WarningMetadata
+        { metadataCode = "W0001",
+          metadataToken = "same-scope-rebinding"
+        }
+    ShadowingOuterScope ->
+      WarningMetadata
+        { metadataCode = "W0002",
+          metadataToken = "shadowing-outer-scope"
+        }
+    UnusedBinding ->
+      WarningMetadata
+        { metadataCode = "W0003",
+          metadataToken = "unused-binding"
+        }
+    DeprecatedSyntax ->
+      WarningMetadata
+        { metadataCode = "W0004",
+          metadataToken = "deprecated-syntax"
+        }
 
 normalize :: String -> String
 normalize = map toLower . trim

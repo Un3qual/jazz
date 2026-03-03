@@ -18,5 +18,8 @@ Do not implement new compiler functionality in legacy directories.
 ## Run tests
 
 ```bash
+# from repository root:
 bash jazz-next/scripts/test-warning-config.sh
+# or from inside jazz-next/:
+# bash scripts/test-warning-config.sh
 ```

@@ -111,7 +111,8 @@ applyDirective settings directive =
         }
     PromoteCategoryToError category ->
       settings
-        { errorCategories = Map.insert category True (errorCategories settings)
+        { enabledCategories = Map.insert category True (enabledCategories settings),
+          errorCategories = Map.insert category True (errorCategories settings)
         }
     PromoteAllEnabledToError ->
       settings {allEnabledAreErrors = True}

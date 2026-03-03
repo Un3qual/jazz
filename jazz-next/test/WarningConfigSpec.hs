@@ -40,6 +40,7 @@ tests =
   [ run "parseWarningCategory accepts known category" testParseWarningCategoryKnown,
     run "parseWarningCategory rejects unknown category" testParseWarningCategoryUnknown,
     run "parseCliWarningDirective parses all phase-1 forms" testParseCliWarningDirectiveForms,
+    run "resolveWarningSettings handles standalone -Werror=<category>" testCliPromoteCategoryStandalone,
     run "resolveWarningSettings applies CLI > env > config > default" testPrecedenceOrder,
     run "resolveWarningSettings defaults to all warnings disabled" testDefaultDisabled,
     run "resolveWarningSettings fails on unknown CLI category" testUnknownCliCategory,
@@ -127,6 +128,18 @@ testPrecedenceOrder =
     )
     (\settings -> assertWarningState settings True False)
 
+testCliPromoteCategoryStandalone :: IO ()
+testCliPromoteCategoryStandalone =
+  assertRight
+    "standalone -Werror promotion"
+    (resolveWarningSettings ["-Werror=same-scope-rebinding"] Nothing Nothing Nothing)
+    (\settings -> do
+        assertWarningState settings True True
+        assertCategoryState settings ShadowingOuterScope False False
+        assertCategoryState settings UnusedBinding False False
+        assertCategoryState settings DeprecatedSyntax False False
+    )
+
 testDefaultDisabled :: IO ()
 testDefaultDisabled =
   assertRight
@@ -165,3 +178,14 @@ assertWarningState settings expectedEnabled expectedError = do
     "error state"
     expectedError
     (isWarningError settings SameScopeRebinding)
+
+assertCategoryState :: WarningSettings -> WarningCategory -> Bool -> Bool -> IO ()
+assertCategoryState settings category expectedEnabled expectedError = do
+  assertEqual
+    ("enabled state for " ++ show category)
+    expectedEnabled
+    (isWarningEnabled settings category)
+  assertEqual
+    ("error state for " ++ show category)
+    expectedError
+    (isWarningError settings category)
