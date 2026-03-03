@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JazzNext.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
@@ -6,13 +8,15 @@ module JazzNext.Compiler.Parser.Operator
     lookupOperatorInfo
   ) where
 
+import Data.Text (Text)
+
 data Associativity
   = AssocLeft
   | AssocRight
   deriving (Eq, Show)
 
 data OperatorInfo = OperatorInfo
-  { operatorSymbol :: String,
+  { operatorSymbol :: Text,
     operatorPrecedence :: Int,
     operatorAssociativity :: Associativity
   }
@@ -36,13 +40,13 @@ builtinOperatorInfos =
     OperatorInfo "$" 1 AssocRight
   ]
 
-isBuiltinOperatorSymbol :: String -> Bool
+isBuiltinOperatorSymbol :: Text -> Bool
 isBuiltinOperatorSymbol symbol =
   case lookupOperatorInfo symbol of
     Just _ -> True
     Nothing -> False
 
-lookupOperatorInfo :: String -> Maybe OperatorInfo
+lookupOperatorInfo :: Text -> Maybe OperatorInfo
 lookupOperatorInfo symbol = go builtinOperatorInfos
   where
     go infos =

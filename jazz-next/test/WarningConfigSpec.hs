@@ -1,5 +1,9 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main (main) where
 
+import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.WarningConfig
   ( WarningDirective (..),
     WarningSettings,
@@ -26,6 +30,7 @@ main = runTestSuite "WarningConfig" tests
 tests :: [NamedTest]
 tests =
   [ ("parseWarningCategory accepts known category", testParseWarningCategoryKnown),
+    ("parseWarningCategory accepts Text token", testParseWarningCategoryTextToken),
     ("parseWarningCategory rejects unknown category", testParseWarningCategoryUnknown),
     ("parseCliWarningDirective parses all phase-1 forms", testParseCliWarningDirectiveForms),
     ("resolveWarningSettings handles standalone -Werror=<category>", testCliPromoteCategoryStandalone),
@@ -45,6 +50,16 @@ testParseWarningCategoryKnown =
     "same-scope-rebinding"
     (Right SameScopeRebinding)
     (parseWarningCategory "same-scope-rebinding")
+
+testParseWarningCategoryTextToken :: IO ()
+testParseWarningCategoryTextToken =
+  let token :: Text
+      token = "same-scope-rebinding"
+   in
+    assertEqual
+      "same-scope-rebinding Text token"
+      (Right SameScopeRebinding)
+      (parseWarningCategory token)
 
 testParseWarningCategoryUnknown :: IO ()
 testParseWarningCategoryUnknown =
@@ -165,10 +180,10 @@ assertWarningState settings expectedEnabled expectedError = do
 assertCategoryState :: WarningSettings -> WarningCategory -> Bool -> Bool -> IO ()
 assertCategoryState settings category expectedEnabled expectedError = do
   assertEqual
-    ("enabled state for " ++ show category)
+    ("enabled state for " <> Text.pack (show category))
     expectedEnabled
     (isWarningEnabled settings category)
   assertEqual
-    ("error state for " ++ show category)
+    ("error state for " <> Text.pack (show category))
     expectedError
     (isWarningError settings category)

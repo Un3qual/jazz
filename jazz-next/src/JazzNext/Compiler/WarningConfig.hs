@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JazzNext.Compiler.WarningConfig
   ( WarningDirective (..),
     WarningSettings,
@@ -11,10 +13,10 @@ module JazzNext.Compiler.WarningConfig
     resolveWarningSettings
   ) where
 
-import Data.Char (isSpace)
-import Data.List (isPrefixOf)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.Warnings
   ( WarningCategory,
     allWarningCategories,
@@ -57,35 +59,35 @@ isWarningError settings category =
            || Map.findWithDefault False category (errorCategories settings)
        )
 
-parseCliWarningDirective :: String -> Either String WarningDirective
+parseCliWarningDirective :: Text -> Either Text WarningDirective
 parseCliWarningDirective rawFlag
-  | "-W" `isPrefixOf` rawFlag = parseDirectiveToken (drop 2 rawFlag)
-  | otherwise = Left ("invalid warning flag: expected -W<token>, got: " ++ rawFlag)
+  | "-W" `Text.isPrefixOf` rawFlag = parseDirectiveToken (Text.drop 2 rawFlag)
+  | otherwise = Left ("invalid warning flag: expected -W<token>, got: " <> rawFlag)
 
-parseEnvWarningDirectives :: String -> Either String [WarningDirective]
+parseEnvWarningDirectives :: Text -> Either Text [WarningDirective]
 parseEnvWarningDirectives rawValue = do
   -- Env warning flags use +/- category toggles, not -W-prefixed tokens.
   tokens <- parseCommaSeparatedTokens rawValue
   traverse parseEnvWarningToken tokens
 
-parseEnvErrorDirectives :: String -> Either String [WarningDirective]
+parseEnvErrorDirectives :: Text -> Either Text [WarningDirective]
 parseEnvErrorDirectives rawValue = do
   -- Env error flags only support category names (or all).
   tokens <- parseCommaSeparatedTokens rawValue
   traverse parseEnvErrorToken tokens
 
-parseConfigDirectives :: String -> Either String [WarningDirective]
+parseConfigDirectives :: Text -> Either Text [WarningDirective]
 parseConfigDirectives contents = do
   -- Config accepts both one-token-per-line and comma-separated forms, with # comments.
-  let tokens = concatMap lineTokens (lines contents)
+  let tokens = concatMap lineTokens (Text.lines contents)
   traverse parseDirectiveToken tokens
 
 resolveWarningSettings ::
-  [String] ->
-  Maybe String ->
-  Maybe String ->
-  Maybe String ->
-  Either String WarningSettings
+  [Text] ->
+  Maybe Text ->
+  Maybe Text ->
+  Maybe Text ->
+  Either Text WarningSettings
 resolveWarningSettings cliFlags envWarningFlags envErrorFlags configContents = do
   configDirectives <- maybe (Right []) parseConfigDirectives configContents
   envWarningDirectives <- maybe (Right []) parseEnvWarningDirectives envWarningFlags
@@ -129,71 +131,65 @@ applyDirective settings directive =
           allEnabledAreErrors = False
         }
 
-parseDirectiveToken :: String -> Either String WarningDirective
+parseDirectiveToken :: Text -> Either Text WarningDirective
 parseDirectiveToken rawToken
-  | token == "" = Left "empty warning token"
+  | Text.null token = Left "empty warning token"
   | token == "none" = Right DisableAllCategories
   | token == "error" = Right PromoteAllEnabledToError
-  | "error=" `isPrefixOf` token =
-      PromoteCategoryToError <$> parseWarningCategory (drop (length "error=") token)
-  | "no-" `isPrefixOf` token =
-      DisableCategory <$> parseWarningCategory (drop 3 token)
+  | "error=" `Text.isPrefixOf` token =
+      PromoteCategoryToError <$> parseWarningCategory (Text.drop (Text.length "error=") token)
+  | "no-" `Text.isPrefixOf` token =
+      DisableCategory <$> parseWarningCategory (Text.drop 3 token)
   | otherwise = EnableCategory <$> parseWarningCategory token
   where
     token = trim rawToken
 
-parseEnvWarningToken :: String -> Either String WarningDirective
+parseEnvWarningToken :: Text -> Either Text WarningDirective
 parseEnvWarningToken rawToken
-  | token == "" = Left "empty JAZZ_WARNING_FLAGS token"
+  | Text.null token = Left "empty JAZZ_WARNING_FLAGS token"
   | token == "none" = Right DisableAllCategories
-  | "-" `isPrefixOf` token = DisableCategory <$> parseWarningCategory (drop 1 token)
+  | "-" `Text.isPrefixOf` token = DisableCategory <$> parseWarningCategory (Text.drop 1 token)
   | otherwise = EnableCategory <$> parseWarningCategory token
   where
     token = trim rawToken
 
-parseEnvErrorToken :: String -> Either String WarningDirective
+parseEnvErrorToken :: Text -> Either Text WarningDirective
 parseEnvErrorToken rawToken
-  | token == "" = Left "empty JAZZ_WARNING_ERROR_FLAGS token"
+  | Text.null token = Left "empty JAZZ_WARNING_ERROR_FLAGS token"
   | token == "all" = Right PromoteAllEnabledToError
   | otherwise = PromoteCategoryToError <$> parseWarningCategory token
   where
     token = trim rawToken
 
-parseCommaSeparatedTokens :: String -> Either String [String]
+parseCommaSeparatedTokens :: Text -> Either Text [Text]
 parseCommaSeparatedTokens rawValue =
   let rawTokens = splitCommas rawValue
       tokens = map trim rawTokens
    in
     -- Reject empty entries (for example trailing commas) so callers get a
     -- deterministic configuration error instead of silently ignored tokens.
-    if all null tokens
-        then
-          if length tokens > 1
-            then Left "empty warning token"
-            else Left "expected at least one warning token"
-        else
-          if any null tokens
-            then Left "empty warning token"
-            else Right tokens
+    if all Text.null tokens
+      then
+        if length tokens > 1
+          then Left "empty warning token"
+          else Left "expected at least one warning token"
+      else
+        if any Text.null tokens
+          then Left "empty warning token"
+          else Right tokens
 
-lineTokens :: String -> [String]
+lineTokens :: Text -> [Text]
 lineTokens line =
   -- Config files allow formatting-oriented empty entries (blank lines, trailing commas).
-  let withoutComment = takeWhile (/= '#') line
+  let withoutComment = Text.takeWhile (/= '#') line
       pieces = splitCommas withoutComment
-   in filter (not . null) (map trim pieces)
+   in filter (not . Text.null) (map trim pieces)
 
-splitCommas :: String -> [String]
-splitCommas value =
-  case break (== ',') value of
-    (chunk, []) -> [chunk]
-    (chunk, _:rest) -> chunk : splitCommas rest
+splitCommas :: Text -> [Text]
+splitCommas = Text.splitOn ","
 
-trim :: String -> String
-trim = dropWhileEnd isSpace . dropWhile isSpace
-
-dropWhileEnd :: (a -> Bool) -> [a] -> [a]
-dropWhileEnd predicate = reverse . dropWhile predicate . reverse
+trim :: Text -> Text
+trim = Text.strip
 
 boolMap :: Bool -> Map WarningCategory Bool
 boolMap value = Map.fromList [(category, value) | category <- allWarningCategories]

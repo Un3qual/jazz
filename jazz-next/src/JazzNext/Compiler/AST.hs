@@ -1,8 +1,11 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
   ) where
 
+import Data.Text (Text)
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan
   )
@@ -11,17 +14,17 @@ import JazzNext.Compiler.Diagnostics
 data Expr
   = EInt Int
   | EBool Bool
-  | EVar String
+  | EVar Text
   | EIf Expr Expr Expr
-  | EBinary String Expr Expr
-  | ESectionLeft Expr String
-  | ESectionRight String Expr
+  | EBinary Text Expr Expr
+  | ESectionLeft Expr Text
+  | ESectionRight Text Expr
   | EScope [Statement]
   deriving (Eq, Show)
 
 -- Dot-terminated top-level or block-level forms.
 data Statement
-  = SLet String SourceSpan Expr
-  | SSignature String SourceSpan String
+  = SLet Text SourceSpan Expr
+  | SSignature Text SourceSpan Text
   | SExpr SourceSpan Expr
   deriving (Eq, Show)

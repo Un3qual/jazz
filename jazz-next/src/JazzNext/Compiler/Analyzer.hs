@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JazzNext.Compiler.Analyzer
   ( Expr (..),
     Statement (..),
@@ -6,12 +8,14 @@ module JazzNext.Compiler.Analyzer
     analyzeRebindingWarnings
   ) where
 
-import qualified Data.Map.Strict as Map
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (foldl')
+import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
@@ -35,7 +39,7 @@ import JazzNext.Compiler.Warnings
 data AnalysisResult = AnalysisResult
   { analyzedExpr :: Expr,
     analysisWarnings :: [WarningRecord],
-    analysisErrors :: [String]
+    analysisErrors :: [Text]
   }
   deriving (Eq, Show)
 
@@ -48,21 +52,21 @@ analyzeProgram :: WarningSettings -> Expr -> IO AnalysisResult
 analyzeProgram settings expr =
   let (warnings, errors) = collectExprDiagnostics settings Map.empty expr
    in
-  pure
-    AnalysisResult
-      { analyzedExpr = expr,
-        analysisWarnings = sortWarnings warnings,
-        analysisErrors = errors
-      }
+    pure
+      AnalysisResult
+        { analyzedExpr = expr,
+          analysisWarnings = sortWarnings warnings,
+          analysisErrors = errors
+        }
 
 analyzeRebindingWarnings :: WarningSettings -> Expr -> IO [WarningRecord]
 analyzeRebindingWarnings settings expr = analysisWarnings <$> analyzeProgram settings expr
 
 collectExprDiagnostics ::
   WarningSettings ->
-  Map String SourceSpan ->
+  Map Text SourceSpan ->
   Expr ->
-  ([WarningRecord], [String])
+  ([WarningRecord], [Text])
 collectExprDiagnostics settings visibleBindings expr =
   case expr of
     EInt _ -> ([], [])
@@ -97,9 +101,9 @@ collectExprDiagnostics settings visibleBindings expr =
 
 collectScopeDiagnostics ::
   WarningSettings ->
-  Map String SourceSpan ->
+  Map Text SourceSpan ->
   [Statement] ->
-  ([WarningRecord], [String])
+  ([WarningRecord], [Text])
 collectScopeDiagnostics settings outerScope statements =
   (reverse finalWarningsRev, reverse errorsWithFinalPending)
   where
@@ -118,9 +122,9 @@ collectScopeDiagnostics settings outerScope statements =
     errorsWithFinalPending = flushPendingSignature finalPendingSignature finalErrorsRev
 
     step ::
-      (Map String SourceSpan, Maybe PendingSignature, [WarningRecord], [String]) ->
+      (Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Text]) ->
       (Int, Statement) ->
-      (Map String SourceSpan, Maybe PendingSignature, [WarningRecord], [String])
+      (Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Text])
     step (scopeBindings, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
       case statement of
         SExpr _ expr ->
@@ -182,14 +186,14 @@ collectScopeDiagnostics settings outerScope statements =
               errorsWithValue
             )
 
-    currentVisibleBindings :: Map String SourceSpan -> Map String SourceSpan
+    currentVisibleBindings :: Map Text SourceSpan -> Map Text SourceSpan
     -- Local scope is left-biased so inner declarations shadow outer bindings.
     currentVisibleBindings scopeBindings = scopeBindings `Map.union` outerScope
 
     withRecursivePeerBindings ::
       Int ->
-      Map String SourceSpan ->
-      Map String SourceSpan
+      Map Text SourceSpan ->
+      Map Text SourceSpan
     withRecursivePeerBindings statementIndex visibleNow =
       let peers =
             Set.delete
@@ -209,15 +213,15 @@ collectScopeDiagnostics settings outerScope statements =
     appendWarnings :: [WarningRecord] -> [WarningRecord] -> [WarningRecord]
     appendWarnings = foldl' (flip (:))
 
-    appendErrors :: [String] -> [String] -> [String]
+    appendErrors :: [Text] -> [Text] -> [Text]
     appendErrors = foldl' (flip (:))
 
 data PendingSignature = PendingSignature
-  { pendingSignatureName :: String,
+  { pendingSignatureName :: Text,
     pendingSignatureSpan :: SourceSpan
   }
 
-flushPendingSignature :: Maybe PendingSignature -> [String] -> [String]
+flushPendingSignature :: Maybe PendingSignature -> [Text] -> [Text]
 flushPendingSignature pending errorsRev =
   case pending of
     Nothing -> errorsRev
@@ -226,33 +230,33 @@ flushPendingSignature pending errorsRev =
   where
     appendError rev errorText = errorText : rev
 
-mkUnboundVariableError :: String -> String
+mkUnboundVariableError :: Text -> Text
 mkUnboundVariableError variableName =
-  "E1001: unbound variable '" ++ variableName ++ "'"
+  "E1001: unbound variable '" <> variableName <> "'"
 
-mkMissingBindingForSignatureError :: PendingSignature -> String
+mkMissingBindingForSignatureError :: PendingSignature -> Text
 mkMissingBindingForSignatureError pendingSignature =
   "E1002: signature for '"
-    ++ pendingSignatureName pendingSignature
-    ++ "' at "
-    ++ renderSpan (pendingSignatureSpan pendingSignature)
-    ++ " must be immediately followed by a matching binding"
+    <> pendingSignatureName pendingSignature
+    <> "' at "
+    <> renderSpan (pendingSignatureSpan pendingSignature)
+    <> " must be immediately followed by a matching binding"
 
-mkMismatchedSignatureError :: String -> SourceSpan -> String -> String
+mkMismatchedSignatureError :: Text -> SourceSpan -> Text -> Text
 mkMismatchedSignatureError signatureName signatureSpan bindingName =
   "E1003: signature for '"
-    ++ signatureName
-    ++ "' at "
-    ++ renderSpan signatureSpan
-    ++ " must annotate the next binding with the same name; found '"
-    ++ bindingName
-    ++ "'"
+    <> signatureName
+    <> "' at "
+    <> renderSpan signatureSpan
+    <> " must annotate the next binding with the same name; found '"
+    <> bindingName
+    <> "'"
 
-renderSpan :: SourceSpan -> String
-renderSpan spanValue = show (spanLine spanValue) ++ ":" ++ show (spanColumn spanValue)
+renderSpan :: SourceSpan -> Text
+renderSpan spanValue = Text.pack (show (spanLine spanValue)) <> ":" <> Text.pack (show (spanColumn spanValue))
 
 inferRecursiveGroups ::
-  Map String SourceSpan ->
+  Map Text SourceSpan ->
   [(Int, Statement)] ->
   Map Int (Set Int)
 inferRecursiveGroups outerScope indexedStatements =
@@ -289,15 +293,15 @@ inferRecursiveGroups outerScope indexedStatements =
       ]
 
     collectDeclaration ::
-      Map String [Int] ->
-      (Int, String, Expr) ->
-      Map String [Int]
+      Map Text [Int] ->
+      (Int, Text, Expr) ->
+      Map Text [Int]
     collectDeclaration declarationsByName (statementIndex, bindingName, _) =
       Map.insertWith (\new old -> old ++ new) bindingName [statementIndex] declarationsByName
 
     addBindingDependencies ::
       Map Int (Set Int) ->
-      (Int, String, Expr) ->
+      (Int, Text, Expr) ->
       Map Int (Set Int)
     addBindingDependencies dependencies (statementIndex, bindingName, valueExpr) =
       let localDependencyNames =
@@ -314,7 +318,7 @@ inferRecursiveGroups outerScope indexedStatements =
        in
         Map.insert statementIndex resolvedDependencies dependencies
 
-    resolveDependencyStatement :: Int -> String -> Maybe Int
+    resolveDependencyStatement :: Int -> Text -> Maybe Int
     resolveDependencyStatement statementIndex dependencyName =
       case Map.lookup dependencyName declarationStatementsByName of
         Nothing -> Nothing
@@ -356,7 +360,7 @@ inferRecursiveGroups outerScope indexedStatements =
 
 collectBindingDeclarations ::
   [(Int, Statement)] ->
-  Map Int (String, SourceSpan)
+  Map Int (Text, SourceSpan)
 collectBindingDeclarations =
   foldl' collect Map.empty
   where
@@ -365,7 +369,7 @@ collectBindingDeclarations =
         SLet name spanValue _ -> Map.insert statementIndex (name, spanValue) declarations
         _ -> declarations
 
-freeVarsExprWithBound :: Set String -> Expr -> Set String
+freeVarsExprWithBound :: Set Text -> Expr -> Set Text
 freeVarsExprWithBound bound expr =
   case expr of
     EInt _ -> Set.empty
@@ -389,11 +393,11 @@ freeVarsExprWithBound bound expr =
       freeVarsExprWithBound bound rightExpr
     EScope statements -> freeVarsScopeWithBound bound statements
 
-freeVarsScopeWithBound :: Set String -> [Statement] -> Set String
+freeVarsScopeWithBound :: Set Text -> [Statement] -> Set Text
 freeVarsScopeWithBound initialBound statements =
   snd (foldl' step (initialBound, Set.empty) statements)
   where
-    step :: (Set String, Set String) -> Statement -> (Set String, Set String)
+    step :: (Set Text, Set Text) -> Statement -> (Set Text, Set Text)
     step (boundNames, freeNames) statement =
       case statement of
         SSignature _ _ _ -> (boundNames, freeNames)

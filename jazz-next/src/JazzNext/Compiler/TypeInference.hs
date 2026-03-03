@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JazzNext.Compiler.TypeInference
   ( InferenceResult (..),
     inferExpression,
@@ -7,6 +9,8 @@ module JazzNext.Compiler.TypeInference
 import Data.Char (isSpace)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.Analyzer
   ( AnalysisResult (..),
     analyzeProgram
@@ -26,7 +30,7 @@ import JazzNext.Compiler.WarningConfig
 data InferenceResult = InferenceResult
   { inferredExpr :: Expr,
     inferredWarnings :: [WarningRecord],
-    inferredErrors :: [String]
+    inferredErrors :: [Text]
   }
   deriving (Eq, Show)
 
@@ -51,10 +55,10 @@ data ExpressionType
   | TBoolType
   deriving (Eq, Show)
 
-collectIfTypeErrors :: Expr -> [String]
+collectIfTypeErrors :: Expr -> [Text]
 collectIfTypeErrors expr = snd (inferExprType Map.empty expr)
 
-inferExprType :: Map String ExpressionType -> Expr -> (Maybe ExpressionType, [String])
+inferExprType :: Map Text ExpressionType -> Expr -> (Maybe ExpressionType, [Text])
 inferExprType env expr =
   case expr of
     EInt _ -> (Just TIntType, [])
@@ -108,9 +112,9 @@ inferExprType env expr =
     EScope statements -> inferScopeType env statements
 
 inferScopeType ::
-  Map String ExpressionType ->
+  Map Text ExpressionType ->
   [Statement] ->
-  (Maybe ExpressionType, [String])
+  (Maybe ExpressionType, [Text])
 inferScopeType initialEnv statements = go initialEnv Nothing [] statements
   where
     go env lastExprType errorsSoFar remainingStatements =
@@ -135,15 +139,15 @@ inferScopeType initialEnv statements = go initialEnv Nothing [] statements
               let (exprType, exprErrors) = inferExprType env expr
                in go env exprType (errorsSoFar ++ exprErrors) rest
 
-parseSignatureType :: String -> Maybe ExpressionType
+parseSignatureType :: Text -> Maybe ExpressionType
 parseSignatureType signatureText =
-  case filter (not . isSpace) signatureText of
+  case Text.filter (not . isSpace) signatureText of
     "Int" -> Just TIntType
     "Bool" -> Just TBoolType
     _ -> Nothing
 
 inferBinaryResultType ::
-  String ->
+  Text ->
   Maybe ExpressionType ->
   Maybe ExpressionType ->
   Maybe ExpressionType
@@ -163,27 +167,27 @@ inferBinaryResultType operatorSymbol leftType rightType =
       | leftOperandType == rightOperandType -> Just TBoolType
     _ -> Nothing
 
-mkBinaryTypeError :: String -> ExpressionType -> ExpressionType -> String
+mkBinaryTypeError :: Text -> ExpressionType -> ExpressionType -> Text
 mkBinaryTypeError operatorSymbol leftType rightType =
   "E2003: cannot apply operator '"
-    ++ operatorSymbol
-    ++ "' to operands of type "
-    ++ renderType leftType
-    ++ " and "
-    ++ renderType rightType
+    <> operatorSymbol
+    <> "' to operands of type "
+    <> renderType leftType
+    <> " and "
+    <> renderType rightType
 
-mkIfConditionTypeError :: ExpressionType -> String
+mkIfConditionTypeError :: ExpressionType -> Text
 mkIfConditionTypeError foundType =
-  "E2001: if condition must have type Bool, found " ++ renderType foundType
+  "E2001: if condition must have type Bool, found " <> renderType foundType
 
-mkIfBranchTypeMismatchError :: ExpressionType -> ExpressionType -> String
+mkIfBranchTypeMismatchError :: ExpressionType -> ExpressionType -> Text
 mkIfBranchTypeMismatchError leftType rightType =
   "E2002: if branches must have matching types, found "
-    ++ renderType leftType
-    ++ " and "
-    ++ renderType rightType
+    <> renderType leftType
+    <> " and "
+    <> renderType rightType
 
-renderType :: ExpressionType -> String
+renderType :: ExpressionType -> Text
 renderType expressionType =
   case expressionType of
     TIntType -> "Int"

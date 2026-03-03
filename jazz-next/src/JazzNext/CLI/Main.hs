@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JazzNext.CLI.Main
   ( CliOptions (..),
     CliOutput (..),
@@ -6,7 +8,11 @@ module JazzNext.CLI.Main
     main
   ) where
 
+import Control.Exception (IOException, evaluate, try)
 import Data.List (isPrefixOf)
+import Data.Text (Text)
+import qualified Data.Text as Text
+import qualified Data.Text.IO as TextIO
 import JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
@@ -26,26 +32,25 @@ import JazzNext.Compiler.WarningConfig
 import JazzNext.Compiler.Warnings
   ( warningToken
   )
-import Control.Exception (IOException, evaluate, try)
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..), exitWith)
-import System.IO (hPutStr, stderr, stdout)
+import System.IO (stderr, stdout)
 
 data CliOptions = CliOptions
-  { cliWarningFlags :: [String],
+  { cliWarningFlags :: [Text],
     cliWarningsConfigPath :: Maybe FilePath
   }
   deriving (Eq, Show)
 
 data CliOutput = CliOutput
   { cliExitCode :: Int,
-    cliStdout :: String,
-    cliStderr :: String
+    cliStdout :: Text,
+    cliStderr :: Text
   }
   deriving (Eq, Show)
 
 -- Parse only the currently supported warning-related flags.
-parseCliOptions :: [String] -> Either String CliOptions
+parseCliOptions :: [String] -> Either Text CliOptions
 parseCliOptions args = finalize <$> go (CliOptions [] Nothing) args
   where
     finalize options =
@@ -57,13 +62,13 @@ parseCliOptions args = finalize <$> go (CliOptions [] Nothing) args
       Left "missing path after --warnings-config"
     go options (arg : rest)
       | "-W" `isPrefixOf` arg =
-          go options {cliWarningFlags = arg : cliWarningFlags options} rest
-      | otherwise = Left ("unknown argument: " ++ arg)
+          go options {cliWarningFlags = Text.pack arg : cliWarningFlags options} rest
+      | otherwise = Left ("unknown argument: " <> Text.pack arg)
 
 runCliWith ::
   [String] ->
   (String -> IO (Maybe String)) ->
-  (FilePath -> IO (Maybe String)) ->
+  (FilePath -> IO (Maybe Text)) ->
   Expr ->
   IO CliOutput
 runCliWith args envLookup configLookup expr =
@@ -73,7 +78,7 @@ runCliWith args envLookup configLookup expr =
         CliOutput
           { cliExitCode = 2,
             cliStdout = "",
-            cliStderr = "error: " ++ parseError ++ "\n"
+            cliStderr = "error: " <> parseError <> "\n"
           }
     Right options -> do
       settingsResult <- resolveSettings options envLookup configLookup
@@ -83,7 +88,7 @@ runCliWith args envLookup configLookup expr =
             CliOutput
               { cliExitCode = 2,
                 cliStdout = "",
-                cliStderr = "error: " ++ configError ++ "\n"
+                cliStderr = "error: " <> configError <> "\n"
               }
         Right settings -> runCompile settings expr
 
@@ -91,18 +96,18 @@ main :: IO ()
 main = do
   args <- getArgs
   output <- runCliWith args lookupEnv readConfigMaybe sampleProgram
-  hPutStr stdout (cliStdout output)
-  hPutStr stderr (cliStderr output)
+  TextIO.hPutStr stdout (cliStdout output)
+  TextIO.hPutStr stderr (cliStderr output)
   exitWith (toExitCode (cliExitCode output))
 
 resolveSettings ::
   CliOptions ->
   (String -> IO (Maybe String)) ->
-  (FilePath -> IO (Maybe String)) ->
-  IO (Either String WarningSettings)
+  (FilePath -> IO (Maybe Text)) ->
+  IO (Either Text WarningSettings)
 resolveSettings options envLookup configLookup = do
-  envWarningFlags <- envLookup "JAZZ_WARNING_FLAGS"
-  envErrorFlags <- envLookup "JAZZ_WARNING_ERROR_FLAGS"
+  envWarningFlags <- fmap Text.pack <$> envLookup "JAZZ_WARNING_FLAGS"
+  envErrorFlags <- fmap Text.pack <$> envLookup "JAZZ_WARNING_ERROR_FLAGS"
   envConfigPath <- envLookup "JAZZ_WARNING_CONFIG"
   let selectedConfigPath =
         case cliWarningsConfigPath options of
@@ -121,11 +126,11 @@ runCompile :: WarningSettings -> Expr -> IO CliOutput
 runCompile settings expr = do
   result <- compileExpr settings expr
   let warningLines = map formatWarningLine (compileWarnings result)
-      errorLines = map ("error: " ++) (compileErrors result)
+      errorLines = map ("error: " <>) (compileErrors result)
       stderrOutput = renderLines (warningLines ++ errorLines)
       stdoutOutput =
         case generatedJs result of
-          Just js -> js ++ "\n"
+          Just js -> js <> "\n"
           Nothing -> ""
       exitCode =
         if null (compileErrors result)
@@ -138,44 +143,44 @@ runCompile settings expr = do
         cliStderr = stderrOutput
       }
 
-formatWarningLine :: WarningRecord -> String
+formatWarningLine :: WarningRecord -> Text
 formatWarningLine warning =
   warningCodeText warning
-    ++ " ["
-    ++ warningToken (warningCategory warning)
-    ++ "] "
-    ++ renderSpan (warningPrimarySpan warning)
-    ++ ": "
-    ++ warningMessage warning
-    ++ renderPreviousSpan (warningPreviousSpan warning)
+    <> " ["
+    <> warningToken (warningCategory warning)
+    <> "] "
+    <> renderSpan (warningPrimarySpan warning)
+    <> ": "
+    <> warningMessage warning
+    <> renderPreviousSpan (warningPreviousSpan warning)
 
-renderSpan :: SourceSpan -> String
+renderSpan :: SourceSpan -> Text
 renderSpan spanValue =
-  show (spanLine spanValue) ++ ":" ++ show (spanColumn spanValue)
+  Text.pack (show (spanLine spanValue)) <> ":" <> Text.pack (show (spanColumn spanValue))
 
-renderLines :: [String] -> String
+renderLines :: [Text] -> Text
 renderLines [] = ""
-renderLines linesOut = unlines linesOut
+renderLines linesOut = Text.unlines linesOut
 
-renderPreviousSpan :: Maybe SourceSpan -> String
+renderPreviousSpan :: Maybe SourceSpan -> Text
 renderPreviousSpan previous =
   case previous of
     Nothing -> ""
-    Just previousSpan -> " (previous " ++ renderSpan previousSpan ++ ")"
+    Just previousSpan -> " (previous " <> renderSpan previousSpan <> ")"
 
-readConfigMaybe :: FilePath -> IO (Maybe String)
+readConfigMaybe :: FilePath -> IO (Maybe Text)
 readConfigMaybe path =
   -- Missing/unreadable config files are treated as absent so default warning
   -- behavior remains usable without setup.
   (eitherToMaybe <$> try readAndForce)
   where
-    readAndForce :: IO String
+    readAndForce :: IO Text
     readAndForce = do
-      contents <- readFile path
-      _ <- evaluate (length contents)
+      contents <- TextIO.readFile path
+      _ <- evaluate (Text.length contents)
       pure contents
 
-    eitherToMaybe :: Either IOException String -> Maybe String
+    eitherToMaybe :: Either IOException Text -> Maybe Text
     eitherToMaybe readResult =
       case readResult of
         Left _ -> Nothing

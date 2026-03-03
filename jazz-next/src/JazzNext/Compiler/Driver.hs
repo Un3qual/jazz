@@ -1,8 +1,11 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JazzNext.Compiler.Driver
   ( CompileResult (..),
     compileExpr
   ) where
 
+import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( Expr
   )
@@ -20,8 +23,8 @@ import JazzNext.Compiler.WarningConfig
 
 data CompileResult = CompileResult
   { compileWarnings :: [WarningRecord],
-    compileErrors :: [String],
-    generatedJs :: Maybe String
+    compileErrors :: [Text],
+    generatedJs :: Maybe Text
   }
   deriving (Eq, Show)
 
@@ -55,8 +58,8 @@ filterWarningsForPromotion _ = id
 isPromoted :: WarningSettings -> WarningRecord -> Bool
 isPromoted settings warning = isWarningError settings (warningCategory warning)
 
-warningToError :: WarningRecord -> String
+warningToError :: WarningRecord -> Text
 warningToError warning =
   warningCodeText warning
-    ++ ": "
-    ++ warningMessage warning
+    <> ": "
+    <> warningMessage warning
