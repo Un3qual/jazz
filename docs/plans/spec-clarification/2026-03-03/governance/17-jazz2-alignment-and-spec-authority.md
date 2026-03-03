@@ -16,9 +16,9 @@
 - [x] `jazz2` status decision locked
 - [x] Source-of-truth hierarchy direction locked
 - [x] Change-acceptance workflow direction locked (hybrid)
-- [ ] Governance policy document published
-- [ ] Docs aligned across repo roots
-- [ ] Anti-drift enforcement added
+- [x] Governance policy document published
+- [x] Docs aligned across repo roots
+- [x] Anti-drift enforcement added
 
 ## Decision Lock (Approved 2026-03-03)
 
@@ -34,6 +34,12 @@
 - `jazz2/src/Jazz/Parser/Lexer.hs`: lexer is `undefined`.
 - `jazz2/src/Jazz/AST.hs`: contains a different structural direction than active `jazz-hs` AST.
 - `docs/jazz-language-state.md`: describes `jazz2` as unfinished, but no formal policy defines whether it is archival, experimental, or migration-target.
+
+## Implementation Status Verification (2026-03-03 Execution Batch)
+
+- [x] Verified `docs/spec/governance/spec-authority-policy.md` did not exist before this batch.
+- [x] Verified root docs had partial status text for `jazz2` but no explicit authority hierarchy or hybrid semantic-change workflow.
+- [x] Verified no anti-drift script existed at `scripts/check-spec-authority.sh`.
 
 ## Scope Guardrails
 
@@ -63,8 +69,8 @@ Out of scope:
 
 ## Phase 0: Governance Policy Draft
 
-- [ ] Write an explicit policy doc covering gates A/B/C and approved process.
-- [ ] Include examples of allowed vs disallowed cross-implementation claims.
+- [x] Write an explicit policy doc covering gates A/B/C and approved process.
+- [x] Include examples of allowed vs disallowed cross-implementation claims.
 
 Create:
 - `docs/spec/governance/spec-authority-policy.md`
@@ -79,9 +85,9 @@ git commit -m "docs(governance): define Jazz spec authority policy"
 
 ## Phase 1: Documentation Convergence
 
-- [ ] Update top-level README to reflect chosen `jazz2` status clearly.
-- [ ] Update `docs/jazz-language-state.md` with source-of-truth hierarchy.
-- [ ] Update planning index docs to link policy for future plans.
+- [x] Update top-level README to reflect chosen `jazz2` status clearly.
+- [x] Update `docs/jazz-language-state.md` with source-of-truth hierarchy.
+- [x] Update planning index docs to link policy for future plans.
 
 Modify:
 - `README.md`
@@ -97,8 +103,8 @@ git commit -m "docs(governance): align repository docs to spec authority policy"
 
 ## Phase 2: Anti-Drift Guardrails
 
-- [ ] Add lightweight docs check that flags unsupported normative claims in `jazz2` paths.
-- [ ] Add maintenance checklist for semantic changes:
+- [x] Add lightweight docs check that flags unsupported normative claims in `jazz2` paths.
+- [x] Add maintenance checklist for semantic changes:
   - update policy references,
   - update authoritative spec docs,
   - update tests in normative implementation.
@@ -124,7 +130,7 @@ bash scripts/check-spec-authority.sh
 
 ## Definition of Done
 
-- [ ] `jazz2` status is explicit and unambiguous.
-- [ ] Source-of-truth hierarchy is documented and linked from top-level docs.
-- [ ] Change-control policy exists for adopting `jazz2` ideas.
-- [ ] Anti-drift checks are in place.
+- [x] `jazz2` status is explicit and unambiguous.
+- [x] Source-of-truth hierarchy is documented and linked from top-level docs.
+- [x] Change-control policy exists for adopting `jazz2` ideas.
+- [x] Anti-drift checks are in place.

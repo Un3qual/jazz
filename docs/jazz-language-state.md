@@ -6,11 +6,14 @@ This document consolidates what the repository currently says about Jazz across:
 - the older Haskell implementation in [jazz-hs](../jazz-hs)
 - the later rewrite attempt in [jazz2](../jazz2)
 
-The codebase does not currently contain a single consistent spec. The best reading is:
+The codebase is now governed by an explicit authority policy:
 
-1. The top-level README is the high-level design pitch.
-2. `jazz-hs` is the only implementation that meaningfully defines concrete syntax and behavior.
-3. `jazz2` is mostly an unfinished redesign sketch.
+1. Canonical language rules belong in `docs/spec/*`.
+2. Until a semantic area is fully specified there, `jazz-hs` behavior/tests are the temporary behavioral authority.
+3. `jazz2` is reference-only and non-normative in the current phase.
+
+Policy reference:
+- `docs/spec/governance/spec-authority-policy.md`
 
 ## Short Summary
 
@@ -349,7 +352,7 @@ Best interpretation: `Prelude.jz` captures intended future language/library desi
 
 ## What `jazz2` Adds
 
-`jazz2` is a mostly unfinished rewrite. Its local [README](../jazz2/README.md) is empty, the parser entrypoint is effectively empty, the lexer is `undefined`, and the standard library `.jz` files are empty placeholders.
+`jazz2` is a reference-only design source and is non-normative for current Jazz behavior. It is also a mostly unfinished rewrite: its local [README](../jazz2/README.md) is empty, the parser entrypoint is effectively empty, the lexer is `undefined`, and the standard library `.jz` files are empty placeholders.
 
 The meaningful information in `jazz2` is mostly in [jazz2/src/Jazz/AST.hs](../jazz2/src/Jazz/AST.hs):
 
@@ -398,15 +401,16 @@ Based on the full repo, these areas are not settled:
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding
 - Whether the eventual target is JavaScript, LLVM, or both
 
-## Working Assumptions For Future Design Work
+## Authority Hierarchy And Working Baseline
 
-If you need a practical baseline for continuing Jazz, the safest assumptions from this repo are:
+If you need a practical baseline for continuing Jazz, use this order:
 
-1. Treat `jazz-hs` as the only implementation with real behavioral authority.
-2. Treat the top-level README as aspirational, not normative.
-3. Treat `static/Prelude.jz` as a future-design sketch, not an exact spec.
-4. Treat `jazz2` as a redesign stub, useful mainly for ideas.
-5. Assume the currently working language is a small curried expression language with:
+1. Treat `docs/spec/*` as the canonical source of truth when a section exists.
+2. For uncovered semantic areas, treat `jazz-hs` behavior/tests as temporary authority.
+3. Treat the top-level README as aspirational/non-normative summary text.
+4. Treat `static/Prelude.jz` as a future-design sketch, not an exact spec.
+5. Treat `jazz2` as a reference-only redesign source, not the active implementation target.
+6. Assume the currently working language is a small curried expression language with:
    - dot-separated top-level forms
    - lambdas
    - application
@@ -414,6 +418,12 @@ If you need a practical baseline for continuing Jazz, the safest assumptions fro
    - lists
    - a few hardcoded builtins
    - JS code generation
+
+## Hybrid Semantic-Change Workflow
+
+- Semantic language changes must be documented by a decision record or RFC before implementation.
+- Non-semantic/internal changes may be implementation-first only when docs/tests are updated in the same change.
+- Policy details and examples are in `docs/spec/governance/spec-authority-policy.md`.
 
 ## Recommended Next Spec Cleanup
 
