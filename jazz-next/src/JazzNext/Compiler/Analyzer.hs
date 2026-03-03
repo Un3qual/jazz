@@ -83,20 +83,22 @@ collectScopeDiagnostics ::
 collectScopeDiagnostics settings outerScope statements =
   (reverse finalWarningsRev, reverse errorsWithFinalPending)
   where
+    indexedStatements = zip [0 ..] statements
+
     -- Build recursion groups from local binding dependencies so mutually recursive
     -- bindings can reference each other independent of declaration order.
-    recursiveGroupsByBinding = inferRecursiveGroups statements
-    firstBindingSpans = collectFirstBindingSpans statements
+    recursiveGroupsByStatement = inferRecursiveGroups outerScope indexedStatements
+    bindingDeclarationsByStatement = collectBindingDeclarations indexedStatements
 
     (_, finalPendingSignature, finalWarningsRev, finalErrorsRev) =
-      foldl' step (Map.empty, Nothing, [], []) statements
+      foldl' step (Map.empty, Nothing, [], []) indexedStatements
     errorsWithFinalPending = flushPendingSignature finalPendingSignature finalErrorsRev
 
     step ::
       (Map String SourceSpan, Maybe PendingSignature, [WarningRecord], [String]) ->
-      Statement ->
+      (Int, Statement) ->
       (Map String SourceSpan, Maybe PendingSignature, [WarningRecord], [String])
-    step (scopeBindings, pendingSignature, warningsRev, errorsRev) statement =
+    step (scopeBindings, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
       case statement of
         SExpr expr ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
@@ -137,7 +139,7 @@ collectScopeDiagnostics settings outerScope statements =
               nextScope = Map.insert bindingName bindingSpan scopeBindings
               visible =
                 withRecursivePeerBindings
-                  bindingName
+                  statementIndex
                   (currentVisibleBindings nextScope)
               (valueWarnings, valueErrors) = collectExprDiagnostics settings visible valueExpr
               warningsWithValue = appendWarnings warningsRev valueWarnings
@@ -154,20 +156,20 @@ collectScopeDiagnostics settings outerScope statements =
     currentVisibleBindings scopeBindings = scopeBindings `Map.union` outerScope
 
     withRecursivePeerBindings ::
-      String ->
+      Int ->
       Map String SourceSpan ->
       Map String SourceSpan
-    withRecursivePeerBindings bindingName visibleNow =
+    withRecursivePeerBindings statementIndex visibleNow =
       let peers =
             Set.delete
-              bindingName
-              (Map.findWithDefault Set.empty bindingName recursiveGroupsByBinding)
+              statementIndex
+              (Map.findWithDefault Set.empty statementIndex recursiveGroupsByStatement)
           peerEntries =
             Map.fromList
               [ (peerName, peerSpan)
-                | peerName <- Set.toList peers,
-                  Map.notMember peerName visibleNow,
-                  Just peerSpan <- [Map.lookup peerName firstBindingSpans]
+                | peerStatementIndex <- Set.toList peers,
+                  Just (peerName, peerSpan) <- [Map.lookup peerStatementIndex bindingDeclarationsByStatement],
+                  Map.notMember peerName visibleNow
               ]
        in visibleNow `Map.union` peerEntries
 
@@ -216,63 +218,113 @@ mkMismatchedSignatureError signatureName signatureSpan bindingName =
 renderSpan :: SourceSpan -> String
 renderSpan spanValue = show (spanLine spanValue) ++ ":" ++ show (spanColumn spanValue)
 
-inferRecursiveGroups :: [Statement] -> Map String (Set String)
-inferRecursiveGroups statements =
+inferRecursiveGroups ::
+  Map String SourceSpan ->
+  [(Int, Statement)] ->
+  Map Int (Set Int)
+inferRecursiveGroups outerScope indexedStatements =
   Map.fromList
-    [ (name, Set.fromList names)
+    [ (statementIndex, Set.fromList componentStatements)
       | component <- stronglyConnComp graphNodes,
-        let names = componentNames component,
+        let componentStatements = componentStatementIndices component,
         isRecursiveComponent component,
-        name <- names
+        statementIndex <- componentStatements
     ]
   where
-    localBindingNames = Set.fromList [name | SLet name _ _ <- statements]
+    declarationInfo =
+      [ (statementIndex, bindingName, valueExpr)
+        | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
+      ]
+    declarationStatementsByName =
+      foldl'
+        collectDeclaration
+        Map.empty
+        declarationInfo
+    outerBindingNames = Map.keysSet outerScope
     baseDependencies =
-      Map.fromSet (const Set.empty) localBindingNames
-    dependenciesByName =
-      foldl' addBindingDependencies baseDependencies statements
+      Map.fromList
+        [ (statementIndex, Set.empty)
+          | (statementIndex, _, _) <- declarationInfo
+        ]
+    dependenciesByStatement =
+      foldl' addBindingDependencies baseDependencies declarationInfo
     graphNodes =
-      [ (name, name, Set.toList dependencies)
-        | (name, dependencies) <- Map.toList dependenciesByName
+      [ (statementIndex, statementIndex, Set.toList dependencies)
+        | (statementIndex, dependencies) <- Map.toList dependenciesByStatement
       ]
 
+    collectDeclaration ::
+      Map String [Int] ->
+      (Int, String, Expr) ->
+      Map String [Int]
+    collectDeclaration declarationsByName (statementIndex, bindingName, _) =
+      Map.insertWith (\new old -> old ++ new) bindingName [statementIndex] declarationsByName
+
     addBindingDependencies ::
-      Map String (Set String) ->
-      Statement ->
-      Map String (Set String)
-    addBindingDependencies dependencies statement =
-      case statement of
-        SLet bindingName _ valueExpr ->
-          let localDependencies =
-                Set.intersection
-                  localBindingNames
-                  (freeVarsExprWithBound (Set.singleton bindingName) valueExpr)
-           in
-            Map.insertWith Set.union bindingName localDependencies dependencies
-        _ -> dependencies
+      Map Int (Set Int) ->
+      (Int, String, Expr) ->
+      Map Int (Set Int)
+    addBindingDependencies dependencies (statementIndex, bindingName, valueExpr) =
+      let localDependencyNames =
+            Set.filter
+              (`Map.member` declarationStatementsByName)
+              (freeVarsExprWithBound (Set.singleton bindingName) valueExpr)
+          resolvedDependencies =
+            Set.fromList
+              [ dependencyStatementIndex
+                | dependencyName <- Set.toList localDependencyNames,
+                  Just dependencyStatementIndex <-
+                    [ resolveDependencyStatement statementIndex dependencyName ]
+              ]
+       in
+        Map.insert statementIndex resolvedDependencies dependencies
 
-    componentNames :: SCC String -> [String]
-    componentNames component =
+    resolveDependencyStatement :: Int -> String -> Maybe Int
+    resolveDependencyStatement statementIndex dependencyName =
+      case Map.lookup dependencyName declarationStatementsByName of
+        Nothing -> Nothing
+        Just declarationStatements ->
+          case closestPriorDeclaration declarationStatements of
+            Just prior -> Just prior
+            Nothing
+              | Set.member dependencyName outerBindingNames -> Nothing
+              | otherwise -> closestFutureDeclaration declarationStatements
+      where
+        closestPriorDeclaration declarations =
+          case filter (< statementIndex) declarations of
+            [] -> Nothing
+            priorDeclarations -> Just (last priorDeclarations)
+
+        closestFutureDeclaration declarations =
+          case filter (> statementIndex) declarations of
+            [] -> Nothing
+            firstFuture : _ -> Just firstFuture
+
+    componentStatementIndices :: SCC Int -> [Int]
+    componentStatementIndices component =
       case component of
-        AcyclicSCC name -> [name]
-        CyclicSCC names -> names
+        AcyclicSCC statementIndex -> [statementIndex]
+        CyclicSCC statementIndices -> statementIndices
 
-    isRecursiveComponent :: SCC String -> Bool
+    isRecursiveComponent :: SCC Int -> Bool
     isRecursiveComponent component =
       case component of
         CyclicSCC _ -> True
-        AcyclicSCC name ->
-          Set.member name (Map.findWithDefault Set.empty name dependenciesByName)
+        AcyclicSCC statementIndex ->
+          Set.member
+            statementIndex
+            (Map.findWithDefault Set.empty statementIndex dependenciesByStatement)
 
-collectFirstBindingSpans :: [Statement] -> Map String SourceSpan
-collectFirstBindingSpans =
+collectBindingDeclarations ::
+  [(Int, Statement)] ->
+  Map Int (String, SourceSpan)
+collectBindingDeclarations =
   foldl' collect Map.empty
   where
-    collect spans statement =
+    collect declarations (statementIndex, statement) =
       case statement of
-        SLet name spanValue _ ->
-          Map.insertWith (\_existing original -> original) name spanValue spans
-        _ -> spans
+        SLet name spanValue _ -> Map.insert statementIndex (name, spanValue) declarations
+        _ -> declarations
 
 freeVarsExprWithBound :: Set String -> Expr -> Set String
 freeVarsExprWithBound bound expr =

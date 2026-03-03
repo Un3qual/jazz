@@ -35,7 +35,8 @@ tests =
     ("self-recursive binding is accepted", testSelfRecursiveBinding),
     ("mutual recursion group is accepted", testMutualRecursionGroup),
     ("three-node mutual recursion group is accepted", testThreeNodeMutualRecursionGroup),
-    ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference)
+    ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference),
+    ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion)
   ]
 
 testSignatureDirectlyAboveBinding :: IO ()
@@ -146,6 +147,14 @@ testNonRecursiveForwardReference = do
     "unbound variable 'y'"
     (compileErrors result)
 
+testRebindingDoesNotCreateRetroactiveRecursion :: IO ()
+testRebindingDoesNotCreateRetroactiveRecursion = do
+  result <- compileExpr defaultWarningSettings retroactiveRebindingProgram
+  assertSingleErrorContains
+    "error text"
+    "unbound variable 'y'"
+    (compileErrors result)
+
 mutualRecursionProgram :: Expr
 mutualRecursionProgram =
   EScope
@@ -168,5 +177,14 @@ nonRecursiveForwardReferenceProgram =
   EScope
     [ SLet "x" (SourceSpan 1 1) (EVar "y"),
       SLet "y" (SourceSpan 2 1) (EInt 1),
+      SExpr (EVar "x")
+    ]
+
+retroactiveRebindingProgram :: Expr
+retroactiveRebindingProgram =
+  EScope
+    [ SLet "x" (SourceSpan 1 1) (EVar "y"),
+      SLet "y" (SourceSpan 2 1) (EInt 1),
+      SLet "y" (SourceSpan 3 1) (EVar "x"),
       SExpr (EVar "x")
     ]
