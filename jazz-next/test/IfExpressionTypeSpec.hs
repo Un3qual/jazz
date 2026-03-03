@@ -31,6 +31,7 @@ tests :: [NamedTest]
 tests =
   [ ("if condition must be Bool", testRejectsNonBoolCondition),
     ("if condition accepts int equality as Bool", testAcceptsEqualityCondition),
+    ("if condition rejects mismatched strict equality operands", testRejectsInvalidEqualityCondition),
     ("if branches must have matching types", testRejectsMismatchedBranchTypes),
     ("if with Bool condition and aligned branches compiles", testAcceptsWellTypedIf),
     ("binary operator rejects mismatched operand types", testRejectsBinaryTypeMismatch)
@@ -49,6 +50,14 @@ testAcceptsEqualityCondition = do
   result <- compileExpr defaultWarningSettings equalityConditionProgram
   assertEqual "compile errors" [] (compileErrors result)
   assertJust "generated JS is present" (generatedJs result)
+
+testRejectsInvalidEqualityCondition :: IO ()
+testRejectsInvalidEqualityCondition = do
+  result <- compileExpr defaultWarningSettings invalidEqualityConditionProgram
+  assertSingleErrorContains
+    "strict equality condition type error"
+    "E2004"
+    (compileErrors result)
 
 testRejectsMismatchedBranchTypes :: IO ()
 testRejectsMismatchedBranchTypes = do
@@ -79,6 +88,10 @@ nonBoolConditionProgram =
 equalityConditionProgram :: Expr
 equalityConditionProgram =
   mkProgram (EIf (EBinary "==" (EInt 1) (EInt 2)) (EInt 2) (EInt 3))
+
+invalidEqualityConditionProgram :: Expr
+invalidEqualityConditionProgram =
+  mkProgram (EIf (EBinary "==" (EInt 1) (EBool True)) (EInt 2) (EInt 3))
 
 mismatchedBranchProgram :: Expr
 mismatchedBranchProgram =
