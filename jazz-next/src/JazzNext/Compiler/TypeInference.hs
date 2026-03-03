@@ -88,14 +88,10 @@ inferExprType env expr =
             ++ elseErrors
             ++ branchTypeErrors
         )
-    EBinary _ leftExpr rightExpr ->
+    EBinary operatorSymbol leftExpr rightExpr ->
       let (leftType, leftErrors) = inferExprType env leftExpr
           (rightType, rightErrors) = inferExprType env rightExpr
-          resultType =
-            case (leftType, rightType) of
-              (Just TIntType, Just TIntType) -> Just TIntType
-              (Just TBoolType, Just TBoolType) -> Just TBoolType
-              _ -> Nothing
+          resultType = inferBinaryResultType operatorSymbol leftType rightType
        in
         (resultType, leftErrors ++ rightErrors)
     ESectionLeft leftExpr _ ->
@@ -139,6 +135,27 @@ parseSignatureType signatureText =
   case filter (not . isSpace) signatureText of
     "Int" -> Just TIntType
     "Bool" -> Just TBoolType
+    _ -> Nothing
+
+inferBinaryResultType ::
+  String ->
+  Maybe ExpressionType ->
+  Maybe ExpressionType ->
+  Maybe ExpressionType
+inferBinaryResultType operatorSymbol leftType rightType =
+  case (operatorSymbol, leftType, rightType) of
+    ("+", Just TIntType, Just TIntType) -> Just TIntType
+    ("-", Just TIntType, Just TIntType) -> Just TIntType
+    ("*", Just TIntType, Just TIntType) -> Just TIntType
+    ("/", Just TIntType, Just TIntType) -> Just TIntType
+    ("<", Just TIntType, Just TIntType) -> Just TBoolType
+    ("<=", Just TIntType, Just TIntType) -> Just TBoolType
+    (">", Just TIntType, Just TIntType) -> Just TBoolType
+    (">=", Just TIntType, Just TIntType) -> Just TBoolType
+    ("==", Just leftOperandType, Just rightOperandType)
+      | leftOperandType == rightOperandType -> Just TBoolType
+    ("!=", Just leftOperandType, Just rightOperandType)
+      | leftOperandType == rightOperandType -> Just TBoolType
     _ -> Nothing
 
 mkIfConditionTypeError :: ExpressionType -> String

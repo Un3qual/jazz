@@ -28,6 +28,7 @@ main = runTestSuite "IfExpressionType" tests
 tests :: [NamedTest]
 tests =
   [ ("if condition must be Bool", testRejectsNonBoolCondition),
+    ("if condition accepts int equality as Bool", testAcceptsEqualityCondition),
     ("if branches must have matching types", testRejectsMismatchedBranchTypes),
     ("if with Bool condition and aligned branches compiles", testAcceptsWellTypedIf)
   ]
@@ -39,6 +40,12 @@ testRejectsNonBoolCondition = do
     "condition type error"
     "if condition must have type Bool"
     (compileErrors result)
+
+testAcceptsEqualityCondition :: IO ()
+testAcceptsEqualityCondition = do
+  result <- compileExpr defaultWarningSettings equalityConditionProgram
+  assertEqual "compile errors" [] (compileErrors result)
+  assertJust "generated JS is present" (generatedJs result)
 
 testRejectsMismatchedBranchTypes :: IO ()
 testRejectsMismatchedBranchTypes = do
@@ -60,6 +67,14 @@ nonBoolConditionProgram =
     [ SExpr
         (SourceSpan 1 1)
         (EIf (EInt 1) (EInt 2) (EInt 3))
+    ]
+
+equalityConditionProgram :: Expr
+equalityConditionProgram =
+  EScope
+    [ SExpr
+        (SourceSpan 1 1)
+        (EIf (EBinary "==" (EInt 1) (EInt 2)) (EInt 2) (EInt 3))
     ]
 
 mismatchedBranchProgram :: Expr
