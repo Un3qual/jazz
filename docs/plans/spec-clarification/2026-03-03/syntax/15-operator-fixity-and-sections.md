@@ -11,6 +11,8 @@
 Execution note:
 - `jazz-hs/` references in this plan are legacy evidence only.
 - All net-new implementation and tests for this item must land in `jazz-next/`.
+- Start by bootstrapping lexer/parser support in `jazz-next` so fixity/section behavior is validated through parser tests rather than analyzer-only fixtures.
+- If implementation uncovers syntax contract gaps, update `docs/spec/syntax/operators.md` and this plan in the same change before moving to the next phase.
 
 ---
 
