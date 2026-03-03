@@ -18,6 +18,7 @@ data WarningCategory
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 data WarningSeverity
+  -- Reserved for phase 2 analyzer diagnostics emission.
   = SeverityWarning
   | SeverityError
   deriving (Eq, Ord, Show)

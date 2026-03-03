@@ -89,6 +89,8 @@ resolveWarningSettings cliFlags envWarningFlags envErrorFlags configContents = d
   cliDirectives <- traverse parseCliWarningDirective cliFlags
 
   -- Layer precedence is part of the external contract.
+  -- PromoteAllEnabledToError only escalates categories that are already enabled;
+  -- it does not implicitly enable any categories on its own.
   let applyBatch = foldl applyDirective
       afterConfig = applyBatch defaultWarningSettings configDirectives
       afterEnvWarnings = applyBatch afterConfig envWarningDirectives
@@ -134,7 +136,7 @@ parseDirectiveToken rawToken
       DisableCategory <$> parseWarningCategory (drop 3 token)
   | otherwise = EnableCategory <$> parseWarningCategory token
   where
-    token = normalize rawToken
+    token = trim rawToken
 
 parseEnvWarningToken :: String -> Either String WarningDirective
 parseEnvWarningToken rawToken
@@ -143,7 +145,7 @@ parseEnvWarningToken rawToken
   | "-" `isPrefixOf` token = DisableCategory <$> parseWarningCategory (drop 1 token)
   | otherwise = EnableCategory <$> parseWarningCategory token
   where
-    token = normalize rawToken
+    token = trim rawToken
 
 parseEnvErrorToken :: String -> Either String WarningDirective
 parseEnvErrorToken rawToken
@@ -151,12 +153,12 @@ parseEnvErrorToken rawToken
   | token == "all" = Right PromoteAllEnabledToError
   | otherwise = PromoteCategoryToError <$> parseWarningCategory token
   where
-    token = normalize rawToken
+    token = trim rawToken
 
 parseCommaSeparatedTokens :: String -> Either String [String]
 parseCommaSeparatedTokens rawValue =
   let rawTokens = splitCommas rawValue
-      tokens = map normalize rawTokens
+      tokens = map trim rawTokens
    in if all null tokens
         then
           if length tokens > 1
@@ -169,18 +171,16 @@ parseCommaSeparatedTokens rawValue =
 
 lineTokens :: String -> [String]
 lineTokens line =
+  -- Config files allow formatting-oriented empty entries (blank lines, trailing commas).
   let withoutComment = takeWhile (/= '#') line
       pieces = splitCommas withoutComment
-   in filter (not . null) (map normalize pieces)
+   in filter (not . null) (map trim pieces)
 
 splitCommas :: String -> [String]
 splitCommas value =
   case break (== ',') value of
     (chunk, []) -> [chunk]
     (chunk, _:rest) -> chunk : splitCommas rest
-
-normalize :: String -> String
-normalize = trim
 
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace

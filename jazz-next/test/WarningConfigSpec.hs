@@ -41,6 +41,7 @@ tests =
     run "parseWarningCategory rejects unknown category" testParseWarningCategoryUnknown,
     run "parseCliWarningDirective parses all phase-1 forms" testParseCliWarningDirectiveForms,
     run "resolveWarningSettings handles standalone -Werror=<category>" testCliPromoteCategoryStandalone,
+    run "resolveWarningSettings promotes enabled warnings via -Werror" testPromoteAllEnabledToError,
     run "resolveWarningSettings applies CLI > env > config > default" testPrecedenceOrder,
     run "resolveWarningSettings applies env error directives after env warning directives" testEnvErrorOverridesEnvWarning,
     run "resolveWarningSettings defaults to all warnings disabled" testDefaultDisabled,
@@ -52,11 +53,11 @@ tests =
 
 run :: String -> IO () -> IO Bool
 run name action = do
-  result <- (action >> pure False) `catchFailure` \message -> do
+  failed <- (action >> pure False) `catchFailure` \message -> do
     putStrLn ("FAIL: " ++ name ++ "\n  " ++ message)
     pure True
-  if not result then putStrLn ("PASS: " ++ name) else pure ()
-  pure result
+  if not failed then putStrLn ("PASS: " ++ name) else pure ()
+  pure failed
 
 catchFailure :: IO a -> (String -> IO a) -> IO a
 catchFailure action handler = action `catch` \(TestFailure msg) -> handler msg
@@ -141,6 +142,13 @@ testCliPromoteCategoryStandalone =
         assertCategoryState settings UnusedBinding False False
         assertCategoryState settings DeprecatedSyntax False False
     )
+
+testPromoteAllEnabledToError :: IO ()
+testPromoteAllEnabledToError =
+  assertRight
+    "-Werror promotes enabled warnings"
+    (resolveWarningSettings ["-Wsame-scope-rebinding", "-Werror"] Nothing Nothing Nothing)
+    (\settings -> assertWarningState settings True True)
 
 testEnvErrorOverridesEnvWarning :: IO ()
 testEnvErrorOverridesEnvWarning =
