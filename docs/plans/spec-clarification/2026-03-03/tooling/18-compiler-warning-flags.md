@@ -6,19 +6,23 @@
 
 **Architecture:** Introduce a small warning-configuration subsystem (warning categories + precedence rules), thread it through CLI -> `Lib` -> analyzer entrypoints, and emit structured same-scope rebinding diagnostics from analyzer plumbing without changing default compile success behavior.
 
-**Tech Stack:** Haskell (`jazz-hs` app/lib/analyzer/tests), Markdown spec docs, `stack`-based verification.
+**Tech Stack:** Markdown spec docs, validation scripts, and future `jazz-next` compiler/analyzer/tests work.
+
+Execution note:
+- `jazz-hs/` references in this plan are legacy evidence only.
+- All net-new implementation and tests for this item must land in `jazz-next/`.
 
 ---
 
 ## Progress
 
 - [x] Upstream semantic gate locked: same-scope rebinding warnings are optional and default-silent.
-- [ ] Warning category model and naming locked.
-- [ ] CLI flag contract locked.
-- [ ] Config/env contract and precedence locked.
+- [x] Warning category model and naming locked.
+- [x] CLI flag contract locked.
+- [x] Config/env contract and precedence locked.
 - [ ] Analyzer warning plumbing implemented for same-scope rebinding.
 - [ ] Warning tests (unit + integration) passing.
-- [ ] Documentation and migration notes published.
+- [x] Documentation and migration notes published.
 
 ## Decision Lock (Inherited from Item 13)
 
@@ -28,6 +32,7 @@
 
 Source of truth:
 - `docs/spec/semantics/bindings-and-signatures.md`
+- `docs/spec/tooling/compiler-warning-flags.md`
 - `docs/plans/spec-clarification/2026-03-03/semantics/13-binding-and-signature-coherence.md`
 
 ## Scope Guardrails
@@ -141,10 +146,10 @@ Docs:
 
 ## Phase 0: Contract Freeze (Docs-First)
 
-- [ ] Lock warning category names and IDs (`W0001` for same-scope rebinding).
-- [ ] Lock CLI/env/config token grammar and precedence.
-- [ ] Lock warning message shape and minimum location metadata requirements.
-- [ ] Add examples for enabled/disabled/error-promoted behavior.
+- [x] Lock warning category names and IDs (`W0001` for same-scope rebinding).
+- [x] Lock CLI/env/config token grammar and precedence.
+- [x] Lock warning message shape and minimum location metadata requirements.
+- [x] Add examples for enabled/disabled/error-promoted behavior.
 
 Create:
 
@@ -271,10 +276,10 @@ git commit -m "test(compiler): add warning flag and rebinding warning coverage"
 
 ## Phase 5: Documentation and Migration Notes
 
-- [ ] Document warning flags, config format, env variables, precedence, and examples.
-- [ ] Add migration notes for teams that want to opt into warnings gradually.
-- [ ] Update language-state tracker to reflect warning tooling is now available.
-- [ ] Mark this plan and batch index progress.
+- [x] Document warning flags, config format, env variables, precedence, and examples.
+- [x] Add migration notes for teams that want to opt into warnings gradually.
+- [x] Update language-state tracker to reflect warning tooling is now available.
+- [x] Mark this plan and batch index progress.
 
 Create/Modify:
 
@@ -348,4 +353,4 @@ test ! -s /tmp/rebind-config-off.stderr
 - [ ] CLI, env, and config warning controls work with deterministic precedence.
 - [ ] Analyzer emits optional same-scope rebinding diagnostics without changing default semantics.
 - [ ] Warning-as-error flow is implemented and tested.
-- [ ] Documentation includes clear migration notes for phased adoption.
+- [x] Documentation includes clear migration notes for phased adoption.

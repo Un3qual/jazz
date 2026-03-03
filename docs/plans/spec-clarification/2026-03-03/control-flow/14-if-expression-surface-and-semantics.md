@@ -6,7 +6,11 @@
 
 **Architecture:** Decide first whether `if` is a first-class surface construct or intentionally unsupported in this phase. Then either implement full parse->analyze->runtime support or remove dead scaffolding.
 
-**Tech Stack:** Haskell (`jazz-hs` parser/analyzer/codegen or interpreter path), Markdown spec docs, `stack` tests.
+**Tech Stack:** Markdown spec docs, validation scripts, and `jazz-next` parser/analyzer/runtime implementation work.
+
+Execution note:
+- `jazz-hs/` references in this plan are legacy evidence only.
+- All net-new implementation and tests for this item must land in `jazz-next/`.
 
 ---
 
@@ -15,6 +19,7 @@
 - [x] Control-flow drift evidence captured
 - [x] Gate decision recorded (`if` included)
 - [x] Selected execution track chosen (Track A)
+- [x] Canonical `if` spec published (Track A0)
 - [ ] Tests and docs aligned
 - [ ] Clarification closed
 
@@ -55,15 +60,15 @@ Out of scope:
 
 ### Phase A0: Spec Freeze
 
-- [ ] Specify grammar and precedence for `if` expression form.
-- [ ] Specify canonical desugaring:
+- [x] Specify grammar and precedence for `if` expression form.
+- [x] Specify canonical desugaring:
   - `if cond thenExpr elseExpr` desugars to
   - `case cond { | True -> thenExpr | False -> elseExpr }`.
-- [ ] Specify typing rules:
+- [x] Specify typing rules:
   - condition must typecheck to `Bool`,
   - branch type unification policy,
   - diagnostics for branch mismatch.
-- [ ] Specify evaluation order and short-circuit behavior.
+- [x] Specify evaluation order and short-circuit behavior.
 
 Create:
 - `docs/spec/control-flow/if-expressions.md`
@@ -159,6 +164,6 @@ stack test
 
 ## Definition of Done
 
-1. [ ] `if` inclusion/exclusion is explicit and documented.
+1. [x] `if` inclusion/exclusion is explicit and documented.
 1. [ ] No AST/parser/analyzer/runtime drift remains for control-flow surface.
 1. [ ] Tests enforce the chosen control-flow contract.

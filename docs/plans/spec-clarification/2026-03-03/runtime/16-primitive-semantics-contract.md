@@ -6,18 +6,22 @@
 
 **Architecture:** Specify primitive semantics in language terms first, then map each backend/runtime path to conformance tests. Prevent backend implementation details (for example JS loose equality) from defining language semantics by accident.
 
-**Tech Stack:** Haskell type environment/runtime modules, docs/spec files, parser/analyzer/runtime tests.
+**Tech Stack:** docs/spec files, validation scripts, and future `jazz-next` analyzer/runtime tests.
+
+Execution note:
+- `jazz-hs/` references in this plan are legacy evidence only.
+- All net-new implementation and tests for this item must land in `jazz-next/`.
 
 ---
 
 ## Progress
 
 - [x] Primitive semantic drift identified
-- [ ] Primitive inventory and contract table published
+- [x] Primitive inventory and contract table published
 - [x] Equality decision gate finalized
 - [x] Remaining decision gates finalized (`numeric behavior`, `primitive errors`)
 - [ ] Runtime/typechecker conformance tests added
-- [ ] Docs and trackers aligned
+- [x] Docs and trackers aligned
 
 ## Decision Lock (Approved 2026-03-03)
 
@@ -61,16 +65,16 @@ Out of scope:
 
 ## Phase 0: Primitive Contract Table
 
-- [ ] Build a table of all current primitive names and signatures.
-- [ ] For each primitive, define:
+- [x] Build a table of all current primitive names and signatures.
+- [x] For each primitive, define:
   - argument/return contract,
   - valid and invalid inputs,
   - deterministic semantics independent of backend implementation language.
-- [ ] Add trait/defaulting extension rules that preserve compatibility with planned numeric widths:
+- [x] Add trait/defaulting extension rules that preserve compatibility with planned numeric widths:
   - signed integer family (`Int8`, `Int16`, `Int32`, `Int64`),
   - unsigned integer family (`UInt8`, `UInt16`, `UInt32`, `UInt64`),
   - floating family (`Float8`, `Float16`, `Float32`, `Float64`).
-- [ ] Include explicit non-coercion equality examples:
+- [x] Include explicit non-coercion equality examples:
   - valid: `1 == 1`, `True == False`.
   - invalid/type error: `1 == True`, `"1" == 1`.
 
@@ -125,8 +129,8 @@ git commit -m "feat(runtime): align primitive implementations with language cont
 
 ## Phase 3: Docs and Tracking Closure
 
-- [ ] Update language-state doc to reference canonical primitive contract.
-- [ ] Ensure plan tracker marks primitive semantics no longer implicit.
+- [x] Update language-state doc to reference canonical primitive contract.
+- [x] Ensure plan tracker marks primitive semantics no longer implicit.
 
 Modify:
 - `docs/jazz-language-state.md`
@@ -150,6 +154,6 @@ stack test
 
 ## Definition of Done
 
-- [ ] Primitive semantics are defined in language terms, not backend accident.
-- [ ] Equality and numeric behavior are explicitly locked.
+- [x] Primitive semantics are defined in language terms, not backend accident.
+- [x] Equality and numeric behavior are explicitly locked.
 - [ ] Conformance tests exist for each primitive family.

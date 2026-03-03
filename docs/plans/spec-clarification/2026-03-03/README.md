@@ -9,6 +9,7 @@
 - [x] Draft detailed execution plans for each new domain
 - [x] Validate non-overlap assumptions with maintainer
 - [x] Lock maintainer decision gates captured on 2026-03-03
+- [x] Execute Phase-0 spec publication batch for domains 14/15/16 and tooling 18
 - [ ] Execute plans (future work)
 
 ## Scope Boundary
@@ -34,9 +35,17 @@ This batch only includes clarification domains that are not already directly pla
 - [ ] 16 primitive semantics contract
 - [x] 17 jazz2 alignment and spec authority
 
+## Implementation Status Verification (2026-03-03 Batch)
+
+- [x] Verified candidate-step status for 13 (bindings/signatures) against current repo state.
+- [x] Verified candidate-step status for 14 (if-expression) against current repo state.
+- [x] Verified candidate-step status for 15 (operator/fixity/sections) against current repo state.
+- [x] Verified candidate-step status for 16 (primitive semantics) against current repo state.
+- [x] Verified candidate-step status for 18 (warning flags) against current repo state.
+
 ## Follow-On Plans
 
-- `tooling/18-compiler-warning-flags.md` (optional warning-flag infrastructure requested by item 13 decision lock)
+- `tooling/18-compiler-warning-flags.md` (phase 0 contract lock completed; implementation phases pending)
 
 ## Locked Governance Clarifications (2026-03-03)
 

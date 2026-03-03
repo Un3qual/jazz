@@ -168,7 +168,7 @@ stack test
 
 ## Definition of Done
 
-- [ ] One canonical declaration/signature contract is documented.
+- [x] One canonical declaration/signature contract is documented.
 - [ ] Broken signature tests are replaced by passing contract tests.
 - [ ] Analyzer behavior and diagnostics match the contract.
 - [ ] Ambiguity no longer appears in language-state tracking.

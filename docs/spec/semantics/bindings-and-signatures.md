@@ -145,4 +145,5 @@ y = 1.
 ## Deferred Work
 
 - Add compiler warning flags and configuration plumbing for optional rebinding warnings.
-- Tracked in: `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`.
+- Normative warning-flag contract: `docs/spec/tooling/compiler-warning-flags.md`.
+- Implementation plan: `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`.

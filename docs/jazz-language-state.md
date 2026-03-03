@@ -386,20 +386,25 @@ However:
 
 Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, but not a usable language definition.
 
-## Things That Are Clearly Undecided Or Unclear
+## Things That Are Still Unsettled Or Implementation-Pending
 
-Based on the full repo, these areas are not settled:
+Based on the full repo, these areas still require implementation convergence even when a decision lock now exists:
 
-- Whether collection APIs are function-first (`map f xs`) or collection-first (`map xs f`)
-- Whether the standard abstraction keyword is `trait`, `class`, or both
-- Whether the intended trait vocabulary is Haskell-like (`Eq`, `Ord`, `Num`) or more domain-named (`Collection`, `Orderable`)
-- Whether `!` is only naming convention or a real effect marker
-- Whether tuples are a core runtime feature or just parsed syntax
-- Whether `if` is part of the language surface, since it exists in AST/codegen but not in the parser
-- Whether modules/imports are purely syntactic organization or part of a real file/module loader
-- Whether the standard library is meant to be self-hosted in `.jz` or hardcoded in the compiler/runtime
-- Whether ADTs and pattern matching are central in the current design or just inherited scaffolding
-- Whether the eventual target is JavaScript, LLVM, or both
+- Implementing locked binding/signature semantics in `jazz-next`:
+  - `docs/spec/semantics/bindings-and-signatures.md`
+- Implementing locked `if` surface semantics in `jazz-next`:
+  - `docs/spec/control-flow/if-expressions.md`
+- Implementing locked operator/fixity/sections semantics in `jazz-next`:
+  - `docs/spec/syntax/operators.md`
+- Implementing locked primitive semantics in `jazz-next`:
+  - `docs/spec/runtime/primitive-semantics.md`
+- Implementing locked warning-flag tooling contract in `jazz-next`:
+  - `docs/spec/tooling/compiler-warning-flags.md`
+- Whether tuples are a core runtime feature or just parsed syntax in active implementation behavior.
+- Whether modules/imports are purely syntactic organization or part of a real file/module loader.
+- Whether the standard library is meant to be self-hosted in `.jz` or hardcoded in the compiler/runtime.
+- Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
+- Whether the eventual target is JavaScript, LLVM, or both.
 
 ## Authority Hierarchy And Working Baseline
 
@@ -433,9 +438,9 @@ Status update for item #1:
 - Decision lock is recorded in `docs/spec/authoritative-syntax.md`.
 - Implementation/test alignment is still pending and must be executed in `jazz-next`.
 
-1. Finish implementation and tests for authoritative syntax in `jazz-next` (decision already locked).
-2. Decide whether `map`/`filter` are function-first or collection-first.
-3. Decide whether purity with `!` is real semantics or only naming.
-4. Decide whether `trait` or `class` is the canonical abstraction keyword.
-5. Separate "implemented today" features from "planned" features in the top-level docs.
-6. Either remove parse-only features from `jazz-hs` or finish typechecking/codegen for them.
+1. Implement `if` semantics in `jazz-next` according to `docs/spec/control-flow/if-expressions.md`.
+2. Implement operator/fixity/section semantics in `jazz-next` according to `docs/spec/syntax/operators.md`.
+3. Implement primitive semantics conformance in `jazz-next` according to `docs/spec/runtime/primitive-semantics.md`.
+4. Implement warning-flag plumbing in `jazz-next` according to `docs/spec/tooling/compiler-warning-flags.md`.
+5. Finish authoritative-syntax parser/analyzer/tests alignment in `jazz-next`.
+6. Keep legacy `jazz-hs` parse-only behavior documented as historical evidence only; do not add new compiler behavior there.

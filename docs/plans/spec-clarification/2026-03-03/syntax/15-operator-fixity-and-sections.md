@@ -6,7 +6,11 @@
 
 **Architecture:** Publish a normative operator contract first, then align parser and tests to that contract. Preserve room for future extensibility but prevent implicit parser hacks from becoming de facto language rules.
 
-**Tech Stack:** Haskell parser (`Megaparsec` in `jazz-hs`), parser tests, Markdown spec docs.
+**Tech Stack:** Markdown spec docs, validation scripts, and future `jazz-next` parser/desugar/test work.
+
+Execution note:
+- `jazz-hs/` references in this plan are legacy evidence only.
+- All net-new implementation and tests for this item must land in `jazz-next/`.
 
 ---
 
@@ -15,6 +19,7 @@
 - [x] Operator drift evidence captured
 - [x] Fixity model decision locked
 - [x] Section semantics decision locked
+- [x] Canonical operator/fixity spec published (Phase 0)
 - [ ] Parser/tests aligned with canonical contract
 - [x] User-defined operator roadmap direction decided (staged)
 
@@ -62,18 +67,18 @@ Out of scope:
 
 ## Phase 0: Normative Operator Spec
 
-- [ ] Write EBNF-like operator grammar and fixity table.
-- [ ] Record precedence and associativity examples, including `$`.
-- [ ] Record section desugaring examples and invalid cases.
-- [ ] Define section AST contract and lowering rules:
+- [x] Write EBNF-like operator grammar and fixity table.
+- [x] Record precedence and associativity examples, including `$`.
+- [x] Record section desugaring examples and invalid cases.
+- [x] Define section AST contract and lowering rules:
   - Add explicit section nodes (for example `ESectionLeft`/`ESectionRight` or equivalent).
   - Keep parser output stable and independent from synthetic lambda variable names.
   - Lower section nodes in desugaring, not in parser ad hoc branches.
-- [ ] Define stage boundaries and compatibility contract:
+- [x] Define stage boundaries and compatibility contract:
   - Stage 1: frozen built-in operators + parser/runtime cleanup.
   - Stage 2: controlled user-defined operator declarations with fixed precedence tiers.
   - Stage 3: optional custom precedence declarations (only if needed).
-- [ ] Specify extensibility mechanism that keeps later phases low-risk:
+- [x] Specify extensibility mechanism that keeps later phases low-risk:
   - parser consumes a centralized operator metadata table,
   - tests assert both current behavior and forward-compatible table format.
 
@@ -152,6 +157,6 @@ stack test
 
 ## Definition of Done
 
-- [ ] Operator precedence/associativity is explicitly specified.
+- [x] Operator precedence/associativity is explicitly specified.
 - [ ] Section behavior is explicit and test-protected.
 - [ ] User-defined operator status is no longer implicit/TODO-only.
