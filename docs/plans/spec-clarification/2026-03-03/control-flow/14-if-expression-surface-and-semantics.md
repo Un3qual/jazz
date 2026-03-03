@@ -86,7 +86,7 @@ Modify:
 
 ### Phase A2: Parser + Analyzer Implementation
 
-- [x] Add `if` parser production in `Parser.Lang` that constructs `EIf`.
+- [x] Add `if` parser production in `Parser` (`Parser.hs`) that constructs `EIf`.
 - [ ] Add an explicit desugaring phase that rewrites `EIf` to `ECase` before analysis.
 - [ ] Keep analyzer canonical on post-desugared forms; avoid permanent duplicate typing logic if `EIf` is always lowered pre-analysis.
 - [x] Add error messages for non-`Bool` condition and branch mismatch.
@@ -184,4 +184,4 @@ runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionTypeSpec.
 - [x] Added type-contract coverage for non-`Bool` conditions and branch type mismatches.
 - [x] Implemented parser/lowering/core-AST support for `if` and `Bool` literals in `jazz-next`.
 - [x] Added type-check diagnostics (`E2001`/`E2002`) for `if` condition and branch constraints.
-- [x] Verified the full `jazz-next` script suite passes after the batch.
+- [x] Ran `bash jazz-next/scripts/test-warning-config.sh`, `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionParserSpec.hs`, and `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionTypeSpec.hs`.
