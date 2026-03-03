@@ -2,6 +2,12 @@
 
 module Main (main) where
 
+import Data.IORef
+  ( IORef,
+    newIORef,
+    readIORef,
+    writeIORef
+  )
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Text (Text)
@@ -28,7 +34,8 @@ tests =
     ("cli run prints warning to stderr while keeping stdout output", testCliWarningOnlyBehavior),
     ("cli run returns non-zero and suppresses stdout when warning promoted", testCliPromotedWarningBehavior),
     ("cli precedence keeps CLI over env over config", testCliPrecedenceBehavior),
-    ("cli respects --warnings-config path override", testCliConfigPathOverride)
+    ("cli respects --warnings-config path override", testCliConfigPathOverride),
+    ("cli defers source read until after arg validation", testCliDefersSourceReadOnArgError)
   ]
 
 testParseOptions :: IO ()
@@ -42,7 +49,7 @@ testParseOptions = do
 
 testCliWarningOnlyBehavior :: IO ()
 testCliWarningOnlyBehavior = do
-  output <- runCliWith ["-Wsame-scope-rebinding"] envLookup configLookup sampleSource
+  output <- runCliWith ["-Wsame-scope-rebinding"] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 0 (cliExitCode output)
   assertContains "stderr includes warning code" "W0001" (cliStderr output)
   assertContains "stderr includes warning category" "same-scope-rebinding" (cliStderr output)
@@ -53,7 +60,7 @@ testCliWarningOnlyBehavior = do
 
 testCliPromotedWarningBehavior :: IO ()
 testCliPromotedWarningBehavior = do
-  output <- runCliWith ["-Werror=same-scope-rebinding"] envLookup configLookup sampleSource
+  output <- runCliWith ["-Werror=same-scope-rebinding"] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 1 (cliExitCode output)
   assertContains "stderr includes warning code" "W0001" (cliStderr output)
   assertContains "stderr includes error marker" "error:" (cliStderr output)
@@ -70,7 +77,7 @@ testCliPrecedenceBehavior = do
       configMap = Map.fromList [(".jazz-warnings", "same-scope-rebinding")]
       envLookup key = pure (Map.lookup key envMap)
       configLookup key = pure (Map.lookup key configMap)
-  output <- runCliWith ["-Wsame-scope-rebinding"] envLookup configLookup sampleSource
+  output <- runCliWith ["-Wsame-scope-rebinding"] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 0 (cliExitCode output)
   assertContains "CLI precedence keeps warning enabled" "W0001" (cliStderr output)
 
@@ -83,9 +90,26 @@ testCliConfigPathOverride = do
           ]
       envLookup _ = pure Nothing
       configLookup key = pure (Map.lookup key configMap)
-  output <- runCliWith ["--warnings-config", "config/warnings.txt"] envLookup configLookup sampleSource
+  output <- runCliWith ["--warnings-config", "config/warnings.txt"] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 0 (cliExitCode output)
   assertContains "custom config enables warning" "W0001" (cliStderr output)
+
+testCliDefersSourceReadOnArgError :: IO ()
+testCliDefersSourceReadOnArgError = do
+  sourceRead <- newIORef False
+  output <- runCliWith ["--bad-arg"] envLookup configLookup (recordSourceRead sourceRead)
+  didRead <- readIORef sourceRead
+  assertEqual "exit code" 2 (cliExitCode output)
+  assertContains "stderr parse error prefix" "error: unknown argument" (cliStderr output)
+  assertEqual "source should not be read when arg parse fails" False didRead
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
+recordSourceRead :: IORef Bool -> IO Text
+recordSourceRead sourceRead = do
+  writeIORef sourceRead True
+  pure sampleSource
 
 sampleSource :: Text
 sampleSource = "x = 1. x = 2."

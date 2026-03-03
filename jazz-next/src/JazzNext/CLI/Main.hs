@@ -66,9 +66,9 @@ runCliWith ::
   [String] ->
   (String -> IO (Maybe String)) ->
   (FilePath -> IO (Maybe Text)) ->
-  Text ->
+  IO Text ->
   IO CliOutput
-runCliWith args envLookup configLookup source =
+runCliWith args envLookup configLookup loadSource =
   case parseCliOptions args of
     Left parseError ->
       pure
@@ -87,13 +87,14 @@ runCliWith args envLookup configLookup source =
                 cliStdout = "",
                 cliStderr = "error: " <> configError <> "\n"
               }
-        Right settings -> runCompile settings source
+        Right settings -> do
+          source <- loadSource
+          runCompile settings source
 
 main :: IO ()
 main = do
   args <- getArgs
-  source <- TextIO.getContents
-  output <- runCliWith args lookupEnv readConfigMaybe source
+  output <- runCliWith args lookupEnv readConfigMaybe TextIO.getContents
   TextIO.hPutStr stdout (cliStdout output)
   TextIO.hPutStr stderr (cliStderr output)
   exitWith (toExitCode (cliExitCode output))
