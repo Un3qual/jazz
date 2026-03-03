@@ -58,7 +58,7 @@ This batch only includes clarification domains that are not already directly pla
 Before continuing domain 14/15/16 implementation, start with parser/lexer foundation in `jazz-next`:
 
 1. Create a minimal lexer + parser surface in `jazz-next` with tests-first coverage for current accepted syntax slices.
-2. Establish a parse-AST to analyzer-AST boundary so existing analyzer tests can consume parser output incrementally.
+2. Define a clear parse-AST -> analyzer-AST boundary so analyzer tests can consume parser output incrementally.
 3. Implement domain 14 (`if`) and domain 15 (operators/sections) on top of that parser surface, not by extending analyzer-only hand-built AST fixtures.
 4. If parser behavior exposes syntax ambiguities, update the relevant spec clarification docs in the same change before proceeding.
 
