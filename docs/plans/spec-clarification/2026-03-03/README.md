@@ -12,6 +12,7 @@
 - [x] Execute Phase-0 spec publication batch for domains 14/15/16 and tooling 18
 - [x] Verify candidate-step implementation status for domains 13/14/15/16 against current `jazz-next` state before selecting next work batch
 - [x] Execute domain 13 batch 1 in `jazz-next` (signature adjacency + use-before-definition diagnostics + tests)
+- [x] Execute domain 13 batch 2 in `jazz-next` (mutual-recursion groups + forward-reference contract tests)
 - [ ] Execute plans (future work)
 
 ## Scope Boundary
@@ -33,6 +34,7 @@ This batch only includes clarification domains that are not already directly pla
 
 - [ ] 13 binding/signature coherence
 - [x] 13a binding/signature coherence batch 1 (`jazz-next` analyzer/tests)
+- [x] 13b binding/signature coherence batch 2 (`jazz-next` recursion-group semantics + tests)
 - [ ] 14 if-expression surface and semantics
 - [ ] 15 operator fixity and sections
 - [ ] 16 primitive semantics contract

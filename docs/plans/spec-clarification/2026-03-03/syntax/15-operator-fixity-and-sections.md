@@ -132,7 +132,7 @@ git commit -m "feat(parser): align operator parsing with canonical fixity policy
 ## Phase 3: Documentation and Drift Prevention
 
 - [ ] Update language-state/operator references to canonical wording.
-- [ ] Add one maintenance checklist section so future operator changes require spec+test updates together.
+- [x] Add one maintenance checklist section so future operator changes require spec+test updates together.
 
 Modify:
 - `docs/jazz-language-state.md`

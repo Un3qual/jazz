@@ -16,7 +16,6 @@ import JazzNext.Compiler.WarningConfig
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
     assertJust,
     assertSingleErrorContains,
@@ -33,7 +32,9 @@ tests =
     ("signature must match immediate binding name", testSignatureNameMismatch),
     ("use-before-definition is rejected", testUseBeforeDefinition),
     ("nested scope resolves outer bindings", testNestedScopeResolvesOuterBinding),
-    ("self-recursive binding is accepted", testSelfRecursiveBinding)
+    ("self-recursive binding is accepted", testSelfRecursiveBinding),
+    ("mutual recursion group is accepted", testMutualRecursionGroup),
+    ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference)
   ]
 
 testSignatureDirectlyAboveBinding :: IO ()
@@ -122,4 +123,34 @@ selfRecursiveProgram :: Expr
 selfRecursiveProgram =
   EScope
     [ SLet "f" (SourceSpan 1 1) (EVar "f")
+    ]
+
+testMutualRecursionGroup :: IO ()
+testMutualRecursionGroup = do
+  result <- compileExpr defaultWarningSettings mutualRecursionProgram
+  assertEqual "compile errors" [] (compileErrors result)
+  assertJust "generated JS is present" (generatedJs result)
+
+testNonRecursiveForwardReference :: IO ()
+testNonRecursiveForwardReference = do
+  result <- compileExpr defaultWarningSettings nonRecursiveForwardReferenceProgram
+  assertSingleErrorContains
+    "error text"
+    "unbound variable 'y'"
+    (compileErrors result)
+
+mutualRecursionProgram :: Expr
+mutualRecursionProgram =
+  EScope
+    [ SLet "even" (SourceSpan 1 1) (EVar "odd"),
+      SLet "odd" (SourceSpan 2 1) (EVar "even"),
+      SExpr (EVar "even")
+    ]
+
+nonRecursiveForwardReferenceProgram :: Expr
+nonRecursiveForwardReferenceProgram =
+  EScope
+    [ SLet "x" (SourceSpan 1 1) (EVar "y"),
+      SLet "y" (SourceSpan 2 1) (EInt 1),
+      SExpr (EVar "x")
     ]
