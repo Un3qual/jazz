@@ -29,6 +29,8 @@ data Token = Token
   }
   deriving (Eq, Show)
 
+-- Tokenizes the current parser foundation grammar while preserving 1-based
+-- line/column spans for diagnostics.
 tokenize :: String -> Either String [Token]
 tokenize = go 1 1
   where
@@ -109,6 +111,7 @@ tokenize = go 1 1
     tabWidth :: Int
     tabWidth = 8
 
+    -- Keep tab alignment deterministic across lexer and parser span tests.
     tabStep :: Int -> Int
     tabStep column = tabWidth - ((column - 1) `mod` tabWidth)
 
@@ -127,6 +130,8 @@ parseIntLiteral line column digits =
         )
     Just value
       | value < minInt || value > maxInt ->
+          -- Parse into Integer first so out-of-range literals become diagnostics
+          -- instead of overflowing during conversion to Int.
           Left
             ( "integer literal out of range at "
                 ++ renderSpan line column

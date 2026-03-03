@@ -39,6 +39,11 @@ data AnalysisResult = AnalysisResult
   }
   deriving (Eq, Show)
 
+-- Entry point for the current analyzer slice:
+-- - unbound variable diagnostics
+-- - signature adjacency/name diagnostics
+-- - optional same-scope rebinding warnings
+-- - recursive-group visibility for self/mutual recursion
 analyzeProgram :: WarningSettings -> Expr -> IO AnalysisResult
 analyzeProgram settings expr =
   let (warnings, errors) = collectExprDiagnostics settings Map.empty expr
@@ -82,6 +87,9 @@ collectScopeDiagnostics settings outerScope statements =
     recursiveGroupsByStatement = inferRecursiveGroups outerScope indexedStatements
     bindingDeclarationsByStatement = collectBindingDeclarations indexedStatements
 
+    -- Internal accumulators are built in reverse for O(1) append.
+    -- `pendingSignature` tracks exactly one immediately-preceding signature that
+    -- must be consumed by the next binding.
     (_, finalPendingSignature, finalWarningsRev, finalErrorsRev) =
       foldl' step (Map.empty, Nothing, [], []) indexedStatements
     errorsWithFinalPending = flushPendingSignature finalPendingSignature finalErrorsRev
@@ -93,6 +101,7 @@ collectScopeDiagnostics settings outerScope statements =
     step (scopeBindings, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
       case statement of
         SExpr _ expr ->
+          -- Any signature followed by a non-binding is invalid by contract.
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
               visible = currentVisibleBindings scopeBindings
               (exprWarnings, exprErrors) = collectExprDiagnostics settings visible expr
@@ -103,6 +112,8 @@ collectScopeDiagnostics settings outerScope statements =
               appendErrors errorsWithPending exprErrors
             )
         SSignature signatureName signatureSpan _signatureText ->
+          -- Signature payload text is carried forward for future type parsing.
+          -- This pass only enforces placement/name coherence.
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
            in
             ( scopeBindings,
@@ -111,6 +122,8 @@ collectScopeDiagnostics settings outerScope statements =
               errorsWithPending
             )
         SLet bindingName bindingSpan valueExpr ->
+          -- Bindings consume a pending signature if names match. Rebinding
+          -- stays semantically valid but may emit an optional warning.
           let errorsFromSignature =
                 case pendingSignature of
                   Nothing -> []
@@ -130,6 +143,8 @@ collectScopeDiagnostics settings outerScope statements =
                   _ -> []
               nextScope = Map.insert bindingName bindingSpan scopeBindings
               visible =
+                -- Recursive peer names in the same SCC are visible while
+                -- analyzing the binding body.
                 withRecursivePeerBindings
                   statementIndex
                   (currentVisibleBindings nextScope)
@@ -145,6 +160,7 @@ collectScopeDiagnostics settings outerScope statements =
             )
 
     currentVisibleBindings :: Map String SourceSpan -> Map String SourceSpan
+    -- Local scope is left-biased so inner declarations shadow outer bindings.
     currentVisibleBindings scopeBindings = scopeBindings `Map.union` outerScope
 
     withRecursivePeerBindings ::
@@ -161,6 +177,8 @@ collectScopeDiagnostics settings outerScope statements =
               [ (peerName, peerSpan)
                 | peerStatementIndex <- Set.toList peers,
                   Just (peerName, peerSpan) <- [Map.lookup peerStatementIndex bindingDeclarationsByStatement],
+                  -- Do not override currently visible names (for example due to
+                  -- local rebinding) when adding recursive peers.
                   Map.notMember peerName visibleNow
               ]
        in visibleNow `Map.union` peerEntries
@@ -223,6 +241,8 @@ inferRecursiveGroups outerScope indexedStatements =
         statementIndex <- componentStatements
     ]
   where
+    -- Track only binding statements; signatures/expr statements do not form
+    -- recursion nodes.
     declarationInfo =
       [ (statementIndex, bindingName, valueExpr)
         | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
@@ -276,6 +296,10 @@ inferRecursiveGroups outerScope indexedStatements =
       case Map.lookup dependencyName declarationStatementsByName of
         Nothing -> Nothing
         Just declarationStatements ->
+          -- For a given dependency name:
+          -- 1) prefer the nearest earlier declaration (rebinding snapshot),
+          -- 2) if none and name exists in outer scope, keep it as outer reference,
+          -- 3) otherwise use the first later declaration (forward edge).
           case closestPriorDeclaration declarationStatements of
             Just prior -> Just prior
             Nothing
@@ -340,6 +364,7 @@ freeVarsScopeWithBound initialBound statements =
             Set.union freeNames (freeVarsExprWithBound boundNames expr)
           )
         SLet bindingName _ valueExpr ->
+          -- Bindings are visible in their own RHS for self-recursion analysis.
           let boundWithSelf = Set.insert bindingName boundNames
            in
             ( boundWithSelf,

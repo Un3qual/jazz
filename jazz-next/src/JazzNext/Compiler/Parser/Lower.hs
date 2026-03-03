@@ -11,6 +11,9 @@ import JazzNext.Compiler.Parser.AST
     SurfaceStatement (..)
   )
 
+-- Converts parser-surface nodes into analyzer nodes. This pass currently
+-- preserves structure and spans 1:1 while keeping the parse/lower boundary
+-- explicit for future desugaring.
 lowerSurfaceExpr :: SurfaceExpr -> Expr
 lowerSurfaceExpr surfaceExpr =
   case surfaceExpr of

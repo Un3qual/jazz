@@ -7,6 +7,8 @@ import JazzNext.Compiler.Diagnostics
   ( SourceSpan
   )
 
+-- Parser-surface tree. This remains separate from analyzer AST so parsing can
+-- evolve (desugaring, richer syntax) without forcing analyzer shape changes.
 data SurfaceExpr
   = SEInt Int
   | SEVar String

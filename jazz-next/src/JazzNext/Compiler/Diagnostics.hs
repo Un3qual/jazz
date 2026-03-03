@@ -42,6 +42,7 @@ mkSameScopeRebindingWarning variableName primarySpan previousSpan =
     }
 
 sortWarnings :: [WarningRecord] -> [WarningRecord]
+-- Keep warning output deterministic so tests and CLI behavior are stable.
 sortWarnings =
   sortOn
     ( \warning ->
