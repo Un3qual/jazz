@@ -15,6 +15,8 @@ import JazzNext.Compiler.Parser.Lexer
     tokenize
   )
 
+-- Parses the current minimal surface language into a scope-wrapped program.
+-- Every top-level form is dot-terminated and represented as a statement.
 parseSurfaceProgram :: String -> Either String SurfaceExpr
 parseSurfaceProgram source = do
   tokens <- tokenize source
@@ -51,6 +53,8 @@ parseStatementsUntilBrace = go []
 parseStatement :: [Token] -> Either String (SurfaceStatement, [Token])
 parseStatement tokens =
   case tokens of
+    -- Statement-level forms take precedence over expression parsing when the
+    -- leading identifier is followed by declaration syntax.
     (nameToken : afterName@(Token {tokenKind = TColonColon} : _))
       | TIdentifier name <- tokenKind nameToken -> parseSignature name nameToken afterName
     (nameToken : afterName@(Token {tokenKind = TEquals} : _))
@@ -106,6 +110,7 @@ parseExpr tokens =
         TInt value -> Right (SEInt value, rest)
         TIdentifier name -> Right (SEVar name, rest)
         TLParen -> do
+          -- Parentheses are grouping only; the parser returns the inner node.
           (innerExpr, afterInner) <- parseExpr rest
           remaining <- consumeRightParen afterInner
           Right (innerExpr, remaining)
@@ -124,6 +129,9 @@ parseExpr tokens =
 collectUntilDot :: [Token] -> Either String ([Token], [Token])
 collectUntilDot = go []
   where
+    -- Type signatures currently keep the type text as raw tokens joined by
+    -- spaces. This helper stops exactly at the signature terminator and guards
+    -- against accidentally consuming the next statement start.
     go acc [] = Left "expected '.' before end of input"
     go acc allTokens@(token : rest) =
       case tokenKind token of
