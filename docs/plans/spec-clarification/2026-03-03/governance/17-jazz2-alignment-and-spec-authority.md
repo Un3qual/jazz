@@ -13,10 +13,17 @@
 ## Progress
 
 - [x] Drift evidence collected (`jazz2` intent vs active implementation)
-- [ ] Governance policy decision locked
-- [ ] Source-of-truth hierarchy documented
+- [x] `jazz2` status decision locked
+- [x] Source-of-truth hierarchy direction locked
+- [ ] Governance policy document published
 - [ ] Docs aligned across repo roots
 - [ ] Anti-drift enforcement added
+
+## Decision Lock (Approved 2026-03-03)
+
+- [x] `jazz2` is a reference/design source for future compiler ideas (for example type families/GADTs), not a normative implementation target right now.
+- [x] Normative language behavior is anchored to active implementation + canonical spec docs (`jazz-hs` + `docs/spec/*`).
+- [ ] Change-acceptance workflow gate (Gate C) still required.
 
 ## Verification Evidence (Current Ambiguity)
 
@@ -38,14 +45,14 @@ Out of scope:
 
 ## Decision Gates
 
-- [ ] Gate A: `jazz2` status.
-  - Option A1: archival reference only.
-  - Option A2: experimental design sandbox with explicit non-normative status.
-  - Option A3: active migration target with milestone commitments.
-- [ ] Gate B: source-of-truth hierarchy.
-  - Option B1: `jazz-hs` behavior + `docs/spec/*` are normative.
-  - Option B2: docs-only normative with implementation treated as lagging target.
-  - Option B3: dual-source model (discouraged due drift risk).
+- [x] Gate A: `jazz2` status.
+  - [x] Option A1 (selected, refined): reference-only design source; explicitly non-normative.
+  - [ ] Option A2: experimental design sandbox with explicit non-normative status.
+  - [ ] Option A3: active migration target with milestone commitments.
+- [x] Gate B: source-of-truth hierarchy.
+  - [x] Option B1 (selected): `jazz-hs` behavior + `docs/spec/*` are normative.
+  - [ ] Option B2: docs-only normative with implementation treated as lagging target.
+  - [ ] Option B3: dual-source model (discouraged due drift risk).
 - [ ] Gate C: acceptance workflow for semantic changes inspired by `jazz2`.
   - Option C1: RFC-style decision record required before implementation.
   - Option C2: implementation-first allowed if tests/docs updated in same change.

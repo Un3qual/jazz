@@ -7,7 +7,8 @@
 - [x] Identified additional unresolved language-design domains
 - [x] Created a domain evidence matrix (`domain-gap-matrix.md`)
 - [x] Draft detailed execution plans for each new domain
-- [ ] Validate non-overlap assumptions with maintainer
+- [x] Validate non-overlap assumptions with maintainer
+- [x] Lock maintainer decision gates captured on 2026-03-03
 - [ ] Execute plans (future work)
 
 ## Scope Boundary

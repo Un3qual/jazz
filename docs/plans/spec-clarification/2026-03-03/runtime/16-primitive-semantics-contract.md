@@ -14,9 +14,17 @@
 
 - [x] Primitive semantic drift identified
 - [ ] Primitive inventory and contract table published
-- [ ] Decision gates finalized (`==`, numeric behavior, primitive errors)
+- [x] Equality decision gate finalized
+- [ ] Remaining decision gates finalized (`numeric behavior`, `primitive errors`)
 - [ ] Runtime/typechecker conformance tests added
 - [ ] Docs and trackers aligned
+
+## Decision Lock (Approved 2026-03-03)
+
+- [x] Equality is strict and type-directed.
+- [x] No backend coercive equality semantics in the canonical language contract.
+- [ ] Numeric behavior gate (B) still required.
+- [ ] Primitive error model gate (C) still required.
 
 ## Verification Evidence (Current Ambiguity)
 
@@ -39,10 +47,10 @@ Out of scope:
 
 ## Decision Gates
 
-- [ ] Gate A: Equality contract.
-  - Option A1: strict type-directed equality only.
-  - Option A2: structural equality for compatible value families.
-  - Option A3: retain JS-like coercive behavior (not recommended for interpreter-first direction).
+- [x] Gate A: Equality contract.
+  - [x] Option A1 (selected): strict type-directed equality only.
+  - [ ] Option A2: structural equality for compatible value families.
+  - [ ] Option A3: retain JS-like coercive behavior (not recommended for interpreter-first direction).
 - [ ] Gate B: Numeric behavior.
   - Option B1: integer/float operations remain trait-driven with explicit defaulting rules.
   - Option B2: explicit literal suffixing or syntax to avoid defaulting ambiguity.
@@ -57,6 +65,9 @@ Out of scope:
   - argument/return contract,
   - valid and invalid inputs,
   - deterministic semantics independent of backend implementation language.
+- [ ] Include explicit non-coercion equality examples:
+  - valid: `1 == 1`, `True == False`.
+  - invalid/type error: `1 == True`, `"1" == 1`.
 
 Create:
 - `docs/spec/runtime/primitive-semantics.md`

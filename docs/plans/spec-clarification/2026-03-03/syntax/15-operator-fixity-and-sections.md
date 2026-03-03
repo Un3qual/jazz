@@ -16,7 +16,14 @@
 - [ ] Fixity model decision locked
 - [ ] Section semantics decision locked
 - [ ] Parser/tests aligned with canonical contract
-- [ ] Optional user-defined operator roadmap decided
+- [x] User-defined operator roadmap direction decided (staged)
+
+## Decision Lock (Approved 2026-03-03)
+
+- [x] User-defined operators will be delivered in staged phases.
+- [x] Stage architecture must preserve easy completion in later phases (no parser rewrite trap).
+- [ ] Builtin fixity table lock (Gate A) still required.
+- [ ] Section representation lock (Gate B) still required.
 
 ## Verification Evidence (Current Drift)
 
@@ -46,16 +53,23 @@ Out of scope:
   - Option B1: keep lambda-desugaring semantics but hide synthetic names from external AST contract.
   - Option B2: introduce explicit AST node for operator sections.
   - Option B3: limit section support to one side for now (documented restriction).
-- [ ] Gate C: user-defined operators.
-  - Option C1: defer with explicit non-goal.
-  - Option C2: staged support with restricted characters and fixed precedence tiers.
-  - Option C3: full declarations now (highest complexity).
+- [x] Gate C: user-defined operators.
+  - [ ] Option C1: defer with explicit non-goal.
+  - [x] Option C2 (selected): staged support with restricted characters and fixed precedence tiers.
+  - [ ] Option C3: full declarations now (highest complexity).
 
 ## Phase 0: Normative Operator Spec
 
 - [ ] Write EBNF-like operator grammar and fixity table.
 - [ ] Record precedence and associativity examples, including `$`.
 - [ ] Record section desugaring examples and invalid cases.
+- [ ] Define stage boundaries and compatibility contract:
+  - Stage 1: frozen builtin operators + parser/runtime cleanup.
+  - Stage 2: controlled user-defined operator declarations with fixed precedence tiers.
+  - Stage 3: optional custom precedence declarations (only if needed).
+- [ ] Specify extensibility mechanism that keeps later phases low-risk:
+  - parser consumes a centralized operator metadata table,
+  - tests assert both current behavior and forward-compatible table format.
 
 Create:
 - `docs/spec/syntax/operators.md`

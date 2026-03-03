@@ -27,4 +27,4 @@ Record unresolved language-spec areas that are still unclear after existing clea
 - [x] Domain list assembled from current code and specs
 - [x] Evidence anchored to concrete files
 - [x] Non-overlap with items `1-12a` documented
-- [ ] Maintainer sign-off on domain priority order
+- [x] Maintainer sign-off on domain priority order

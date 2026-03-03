@@ -13,10 +13,16 @@
 ## Progress
 
 - [x] Control-flow drift evidence captured
-- [ ] Gate decision recorded (`if` included vs excluded)
-- [ ] Selected track implemented (Include or Exclude)
+- [x] Gate decision recorded (`if` included)
+- [x] Selected execution track chosen (Track A)
 - [ ] Tests and docs aligned
 - [ ] Clarification closed
+
+## Decision Lock (Approved 2026-03-03)
+
+- [x] `if` is included as a language surface construct.
+- [x] Initial implementation should desugar `if` to `case`.
+- [ ] Exact parser/lowering form lock (direct parse to `ECase` vs parse `EIf` then immediate lowering) still required.
 
 ## Verification Evidence (Current Drift)
 
@@ -39,15 +45,18 @@ Out of scope:
 
 ## Decision Gate
 
-- [ ] Gate A: Is `if` a canonical language construct in current phase?
-  - Option A1: Include now (recommended if interpreter-first roadmap needs direct branching syntax).
-  - Option A2: Exclude now (rely on `case` only and remove scaffolding).
+- [x] Gate A: Is `if` a canonical language construct in current phase?
+  - [x] Option A1 (selected): Include now (recommended if interpreter-first roadmap needs direct branching syntax).
+  - [ ] Option A2: Exclude now (rely on `case` only and remove scaffolding).
 
 ## Track A: Include `if` in Surface Language
 
 ### Phase A0: Spec Freeze
 
 - [ ] Specify grammar and precedence for `if` expression form.
+- [ ] Specify canonical desugaring:
+  - `if cond thenExpr elseExpr` desugars to
+  - `case cond { | True -> thenExpr | False -> elseExpr }`.
 - [ ] Specify typing rules:
   - condition must typecheck to `Bool`,
   - branch type unification policy,
@@ -68,8 +77,8 @@ Modify:
 
 ### Phase A2: Parser + Analyzer Implementation
 
-- [ ] Add `if` parser production in `Parser.Lang`.
-- [ ] Add type inference branch for `EIf`.
+- [ ] Add `if` parser production in `Parser.Lang` and lower to `case` in the same phase.
+- [ ] Keep analyzer canonical on `ECase`; only add `EIf` inference branch if an intermediate `EIf` node remains after parsing.
 - [ ] Add error messages for non-`Bool` condition and branch mismatch.
 
 Modify:
@@ -101,6 +110,8 @@ git commit -m "feat(control-flow): implement if-expression parsing and typing"
 ```
 
 ## Track B: Exclude `if` for Current Phase
+
+Not selected by maintainer (2026-03-03). Keep this track only as historical fallback.
 
 ### Phase B0: Decision Doc
 

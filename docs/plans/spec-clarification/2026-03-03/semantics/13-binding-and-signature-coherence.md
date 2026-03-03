@@ -13,11 +13,19 @@
 ## Progress
 
 - [x] Evidence gathered for declaration/signature drift
-- [ ] Decision gates finalized
+- [x] Signature-placement decision gate finalized
+- [ ] Remaining declaration-semantics gates finalized
 - [ ] Normative binding/signature spec doc published
 - [ ] Parser/analyzer tests aligned to the chosen contract
 - [ ] Analyzer implementation aligned and verified
 - [ ] Language-state/docs updated and item closed
+
+## Decision Lock (Approved 2026-03-03)
+
+- [x] Type signatures are optional when types can be inferred.
+- [x] When present, a type signature must appear directly above its binding.
+- [ ] Redeclaration policy lock (Gate B) still required.
+- [ ] Recursion policy lock (Gate C) still required.
 
 ## Verification Evidence (Current Ambiguity)
 
@@ -45,10 +53,10 @@ Out of scope:
 
 ## Decision Gates (Must Be Explicit Before Coding)
 
-- [ ] Gate A: Signature attachment model.
-  - Option A1: signature must appear immediately before binding.
-  - Option A2: signature may appear before or after, resolved by name within same scope.
-  - Option A3: remove standalone signature syntax from current surface until full binding groups are implemented.
+- [x] Gate A: Signature attachment model.
+  - [x] Option A1 (selected): signature must appear immediately before binding.
+  - [ ] Option A2: signature may appear before or after, resolved by name within same scope.
+  - [ ] Option A3: remove standalone signature syntax from current surface until full binding groups are implemented.
 - [ ] Gate B: Redeclaration policy.
   - Option B1: reject same-scope rebinds.
   - Option B2: allow shadowing in nested scopes only.
@@ -61,8 +69,10 @@ Out of scope:
 ## Phase 0: Baseline Matrix and Decision Record
 
 - [ ] Create a decision matrix that enumerates current parser/analyzer behavior for:
-  - declaration before signature,
-  - signature before declaration,
+  - declaration with no signature (inference path),
+  - signature directly above declaration,
+  - declaration before signature (expected invalid path),
+  - signature separated from declaration by non-signature statements (expected invalid path),
   - duplicate declarations,
   - recursive references.
 - [ ] Record expected behavior under each candidate decision option.
