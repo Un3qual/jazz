@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main (main) where
 
 import qualified Data.Map.Strict as Map
@@ -39,7 +41,7 @@ testParseOptions :: IO ()
 testParseOptions = do
   options <-
     case parseCliOptions ["-Wsame-scope-rebinding", "--warnings-config", "config/warnings.txt"] of
-      Left err -> failTest ("parseCliOptions failed: " ++ err)
+      Left err -> failTest ("parseCliOptions failed: " <> err)
       Right parsed -> pure parsed
   assertEqual "warning flags" ["-Wsame-scope-rebinding"] (cliWarningFlags options)
   assertEqual "config path" (Just "config/warnings.txt") (cliWarningsConfigPath options)

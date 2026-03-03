@@ -1,8 +1,11 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceStatement (..)
   ) where
 
+import Data.Text (Text)
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan
   )
@@ -12,16 +15,16 @@ import JazzNext.Compiler.Diagnostics
 data SurfaceExpr
   = SEInt Int
   | SEBool Bool
-  | SEVar String
+  | SEVar Text
   | SEIf SurfaceExpr SurfaceExpr SurfaceExpr
-  | SEBinary String SurfaceExpr SurfaceExpr
-  | SESectionLeft SurfaceExpr String
-  | SESectionRight String SurfaceExpr
+  | SEBinary Text SurfaceExpr SurfaceExpr
+  | SESectionLeft SurfaceExpr Text
+  | SESectionRight Text SurfaceExpr
   | SEScope [SurfaceStatement]
   deriving (Eq, Show)
 
 data SurfaceStatement
-  = SSLet String SourceSpan SurfaceExpr
-  | SSSignature String SourceSpan String
+  = SSLet Text SourceSpan SurfaceExpr
+  | SSSignature Text SourceSpan Text
   | SSExpr SourceSpan SurfaceExpr
   deriving (Eq, Show)

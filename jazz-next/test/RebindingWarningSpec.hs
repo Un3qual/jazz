@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main (main) where
 
 import JazzNext.Compiler.Analyzer
@@ -96,13 +98,13 @@ testDriverSuppressesOutputWhenPromoted = do
 enabledSettings :: IO WarningSettings
 enabledSettings =
   case resolveWarningSettings ["-Wsame-scope-rebinding"] Nothing Nothing Nothing of
-    Left err -> failTest ("failed to resolve enabled settings: " ++ err)
+    Left err -> failTest ("failed to resolve enabled settings: " <> err)
     Right settings -> pure settings
 
 promotedSettings :: IO WarningSettings
 promotedSettings =
   case resolveWarningSettings ["-Werror=same-scope-rebinding"] Nothing Nothing Nothing of
-    Left err -> failTest ("failed to resolve promoted settings: " ++ err)
+    Left err -> failTest ("failed to resolve promoted settings: " <> err)
     Right settings -> pure settings
 
 sampleProgram :: Expr

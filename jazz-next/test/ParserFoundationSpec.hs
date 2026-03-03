@@ -1,5 +1,8 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main (main) where
 
+import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
@@ -31,6 +34,7 @@ main = runTestSuite "ParserFoundation" tests
 tests :: [NamedTest]
 tests =
   [ ("parses let binding and expression statement", testParseLetAndExpr),
+    ("parseSurfaceProgram accepts Text input", testParseSurfaceProgramAcceptsTextInput),
     ("parses signature statement with source span", testParseSignatureSpan),
     ("tracks tab-aligned expression spans", testTabAlignedExpressionSpan),
     ("parses nested scope expression", testParseNestedScopeExpression),
@@ -53,6 +57,21 @@ testParseLetAndExpr =
         )
     )
     (parseSurfaceProgram "x = 1.\nx.")
+
+testParseSurfaceProgramAcceptsTextInput :: IO ()
+testParseSurfaceProgramAcceptsTextInput = do
+  let sourceText :: Text
+      sourceText = "x = 1.\nx."
+  assertEqual
+    "surface AST from Text source"
+    ( Right
+        ( SEScope
+            [ SSLet "x" (SourceSpan 1 1) (SEInt 1),
+              SSExpr (SourceSpan 2 1) (SEVar "x")
+            ]
+        )
+    )
+    (parseSurfaceProgram sourceText)
 
 testParseSignatureSpan :: IO ()
 testParseSignatureSpan =

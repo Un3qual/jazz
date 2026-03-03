@@ -1,9 +1,13 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   ) where
 
+import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( renderSourceSpan
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
@@ -22,7 +26,7 @@ import JazzNext.Compiler.Parser.Operator
 
 -- Parses the current minimal surface language into a scope-wrapped program.
 -- Every top-level form is dot-terminated and represented as a statement.
-parseSurfaceProgram :: String -> Either String SurfaceExpr
+parseSurfaceProgram :: Text -> Either Text SurfaceExpr
 parseSurfaceProgram source = do
   tokens <- tokenize source
   (statements, remaining) <- parseStatementsUntilEnd tokens
@@ -31,12 +35,12 @@ parseSurfaceProgram source = do
     token : _ ->
       Left
         ( "unexpected token '"
-            ++ tokenLexeme token
-            ++ "' at "
-            ++ renderSpan (tokenSpan token)
+            <> tokenLexeme token
+            <> "' at "
+            <> renderSourceSpan (tokenSpan token)
         )
 
-parseStatementsUntilEnd :: [Token] -> Either String ([SurfaceStatement], [Token])
+parseStatementsUntilEnd :: [Token] -> Either Text ([SurfaceStatement], [Token])
 parseStatementsUntilEnd = go []
   where
     go acc [] = Right (reverse acc, [])
@@ -44,10 +48,10 @@ parseStatementsUntilEnd = go []
       (statement, remaining) <- parseStatement tokens
       go (statement : acc) remaining
 
-parseStatementsUntilBrace :: [Token] -> Either String ([SurfaceStatement], [Token])
+parseStatementsUntilBrace :: [Token] -> Either Text ([SurfaceStatement], [Token])
 parseStatementsUntilBrace = go []
   where
-    go acc [] = Left "expected '}' before end of input"
+    go _ [] = Left "expected '}' before end of input"
     go acc allTokens@(token : rest) =
       case tokenKind token of
         TRBrace -> Right (reverse acc, rest)
@@ -55,7 +59,7 @@ parseStatementsUntilBrace = go []
           (statement, remaining) <- parseStatement allTokens
           go (statement : acc) remaining
 
-parseStatement :: [Token] -> Either String (SurfaceStatement, [Token])
+parseStatement :: [Token] -> Either Text (SurfaceStatement, [Token])
 parseStatement tokens =
   case tokens of
     -- Statement-level forms take precedence over expression parsing when the
@@ -65,9 +69,9 @@ parseStatement tokens =
         isReservedLiteralName name ->
           Left
             ( "reserved literal '"
-                ++ name
-                ++ "' cannot be used as a binding name at "
-                ++ renderSpan (tokenSpan nameToken)
+                <> name
+                <> "' cannot be used as a binding name at "
+                <> renderSourceSpan (tokenSpan nameToken)
             )
       | TIdentifier name <- tokenKind nameToken -> parseSignature name nameToken afterName
     (nameToken : afterName@(Token {tokenKind = TEquals} : _))
@@ -75,22 +79,22 @@ parseStatement tokens =
         isReservedLiteralName name ->
           Left
             ( "reserved literal '"
-                ++ name
-                ++ "' cannot be used as a binding name at "
-                ++ renderSpan (tokenSpan nameToken)
+                <> name
+                <> "' cannot be used as a binding name at "
+                <> renderSourceSpan (tokenSpan nameToken)
             )
       | TIdentifier name <- tokenKind nameToken -> parseLet name nameToken afterName
     _ -> parseExprStatement tokens
 
-isReservedLiteralName :: String -> Bool
+isReservedLiteralName :: Text -> Bool
 isReservedLiteralName name = name == "True" || name == "False"
 
-parseSignature :: String -> Token -> [Token] -> Either String (SurfaceStatement, [Token])
+parseSignature :: Text -> Token -> [Token] -> Either Text (SurfaceStatement, [Token])
 parseSignature name nameToken tokensAfterName =
   case tokensAfterName of
     Token {tokenKind = TColonColon} : rest -> do
       (signatureTokens, remainingAfterDot) <- collectUntilDot rest
-      let signatureText = unwords (map tokenLexeme signatureTokens)
+      let signatureText = Text.unwords (map tokenLexeme signatureTokens)
       pure
         ( SSSignature name (tokenSpan nameToken) signatureText,
           remainingAfterDot
@@ -98,11 +102,11 @@ parseSignature name nameToken tokensAfterName =
     _ ->
       Left
         ( "internal parser error at "
-            ++ renderSpan (tokenSpan nameToken)
-            ++ ": expected '::' after signature name"
+            <> renderSourceSpan (tokenSpan nameToken)
+            <> ": expected '::' after signature name"
         )
 
-parseLet :: String -> Token -> [Token] -> Either String (SurfaceStatement, [Token])
+parseLet :: Text -> Token -> [Token] -> Either Text (SurfaceStatement, [Token])
 parseLet name nameToken tokensAfterName =
   case tokensAfterName of
     Token {tokenKind = TEquals} : rest -> do
@@ -112,11 +116,11 @@ parseLet name nameToken tokensAfterName =
     _ ->
       Left
         ( "internal parser error at "
-            ++ renderSpan (tokenSpan nameToken)
-            ++ ": expected '=' after binding name"
+            <> renderSourceSpan (tokenSpan nameToken)
+            <> ": expected '=' after binding name"
         )
 
-parseExprStatement :: [Token] -> Either String (SurfaceStatement, [Token])
+parseExprStatement :: [Token] -> Either Text (SurfaceStatement, [Token])
 parseExprStatement tokens = do
   case tokens of
     [] -> Left "expected expression before end of input"
@@ -125,15 +129,15 @@ parseExprStatement tokens = do
       remaining <- consumeDot afterExpr
       pure (SSExpr (tokenSpan firstToken) expr, remaining)
 
-parseExpr :: [Token] -> Either String (SurfaceExpr, [Token])
+parseExpr :: [Token] -> Either Text (SurfaceExpr, [Token])
 parseExpr = parseExprWithMinPrecedence 1
 
-parseExprWithMinPrecedence :: Int -> [Token] -> Either String (SurfaceExpr, [Token])
+parseExprWithMinPrecedence :: Int -> [Token] -> Either Text (SurfaceExpr, [Token])
 parseExprWithMinPrecedence minPrecedence tokens = do
   (leftExpr, remainingTokens) <- parsePrimaryExpr tokens
   parseInfixTail minPrecedence leftExpr remainingTokens
 
-parseInfixTail :: Int -> SurfaceExpr -> [Token] -> Either String (SurfaceExpr, [Token])
+parseInfixTail :: Int -> SurfaceExpr -> [Token] -> Either Text (SurfaceExpr, [Token])
 parseInfixTail minPrecedence leftExpr tokens =
   case tokens of
     operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : tokensAfterOperator
@@ -144,9 +148,9 @@ parseInfixTail minPrecedence leftExpr tokens =
             Nothing ->
               Left
                 ( "unsupported operator '"
-                    ++ operatorSymbol
-                    ++ "' at "
-                    ++ renderSpan (tokenSpan operatorToken)
+                    <> operatorSymbol
+                    <> "' at "
+                    <> renderSourceSpan (tokenSpan operatorToken)
                 )
             Just operatorInfo
               | operatorPrecedence operatorInfo < minPrecedence ->
@@ -169,7 +173,7 @@ parseInfixTail minPrecedence leftExpr tokens =
         Token {tokenKind = TRParen} : _ -> True
         _ -> False
 
-parsePrimaryExpr :: [Token] -> Either String (SurfaceExpr, [Token])
+parsePrimaryExpr :: [Token] -> Either Text (SurfaceExpr, [Token])
 parsePrimaryExpr tokens =
   case tokens of
     [] -> Left "expected expression before end of input"
@@ -189,13 +193,13 @@ parsePrimaryExpr tokens =
         _ ->
           Left
             ( "unexpected token '"
-                ++ tokenLexeme token
-                ++ "' at "
-                ++ renderSpan (tokenSpan token)
-                ++ "; expected expression"
+                <> tokenLexeme token
+                <> "' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> "; expected expression"
             )
 
-parseParenExpr :: [Token] -> Either String (SurfaceExpr, [Token])
+parseParenExpr :: [Token] -> Either Text (SurfaceExpr, [Token])
 parseParenExpr tokensAfterLeftParen =
   case tokensAfterLeftParen of
     Token {tokenKind = TOperator operatorSymbol} : rest -> do
@@ -211,7 +215,7 @@ parseParenExpr tokensAfterLeftParen =
           remaining <- consumeRightParen afterInnerExpr
           Right (innerExpr, remaining)
 
-parseIfExpr :: Token -> [Token] -> Either String (SurfaceExpr, [Token])
+parseIfExpr :: Token -> [Token] -> Either Text (SurfaceExpr, [Token])
 parseIfExpr ifToken tokensAfterIf = do
   (conditionExpr, afterCondition) <- parseExpr tokensAfterIf
   (thenExpr, afterThenExpr) <- parseExpr afterCondition
@@ -222,18 +226,18 @@ parseIfExpr ifToken tokensAfterIf = do
     [] ->
       Left
         ( "expected 'else' before end of input after 'if' at "
-            ++ renderSpan (tokenSpan ifToken)
+            <> renderSourceSpan (tokenSpan ifToken)
         )
     token : _ ->
       Left
         ( "expected 'else' at "
-            ++ renderSpan (tokenSpan token)
-            ++ ", found '"
-            ++ tokenLexeme token
-            ++ "'"
+            <> renderSourceSpan (tokenSpan token)
+            <> ", found '"
+            <> tokenLexeme token
+            <> "'"
         )
 
-collectUntilDot :: [Token] -> Either String ([Token], [Token])
+collectUntilDot :: [Token] -> Either Text ([Token], [Token])
 collectUntilDot = go []
   where
     -- Type signatures currently keep the type text as raw tokens joined by
@@ -246,16 +250,16 @@ collectUntilDot = go []
           | null acc ->
               Left
                 ( "expected signature text before '.' at "
-                    ++ renderSpan (tokenSpan token)
+                    <> renderSourceSpan (tokenSpan token)
                 )
           | otherwise -> Right (reverse acc, rest)
         _
           | not (null acc) && beginsStatement allTokens ->
               Left
                 ( "expected '.' before '"
-                    ++ tokenLexeme token
-                    ++ "' at "
-                    ++ renderSpan (tokenSpan token)
+                    <> tokenLexeme token
+                    <> "' at "
+                    <> renderSourceSpan (tokenSpan token)
                 )
           | otherwise -> go (token : acc) rest
 
@@ -266,7 +270,7 @@ collectUntilDot = go []
         Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
         _ -> False
 
-consumeDot :: [Token] -> Either String [Token]
+consumeDot :: [Token] -> Either Text [Token]
 consumeDot tokens =
   case tokens of
     Token {tokenKind = TDot} : rest -> Right rest
@@ -274,13 +278,13 @@ consumeDot tokens =
     token : _ ->
       Left
         ( "expected '.' at "
-            ++ renderSpan (tokenSpan token)
-            ++ ", found '"
-            ++ tokenLexeme token
-            ++ "'"
+            <> renderSourceSpan (tokenSpan token)
+            <> ", found '"
+            <> tokenLexeme token
+            <> "'"
         )
 
-consumeRightParen :: [Token] -> Either String [Token]
+consumeRightParen :: [Token] -> Either Text [Token]
 consumeRightParen tokens =
   case tokens of
     Token {tokenKind = TRParen} : rest -> Right rest
@@ -288,11 +292,8 @@ consumeRightParen tokens =
     token : _ ->
       Left
         ( "expected ')' at "
-            ++ renderSpan (tokenSpan token)
-            ++ ", found '"
-            ++ tokenLexeme token
-            ++ "'"
+            <> renderSourceSpan (tokenSpan token)
+            <> ", found '"
+            <> tokenLexeme token
+            <> "'"
         )
-
-renderSpan :: SourceSpan -> String
-renderSpan spanValue = show (spanLine spanValue) ++ ":" ++ show (spanColumn spanValue)

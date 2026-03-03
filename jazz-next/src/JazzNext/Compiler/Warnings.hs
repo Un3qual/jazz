@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JazzNext.Compiler.Warnings
   ( WarningCategory (..),
     WarningSeverity (..),
@@ -7,8 +9,8 @@ module JazzNext.Compiler.Warnings
     warningToken
   ) where
 
-import Data.Char (isSpace, toLower)
-import Data.List (intercalate)
+import Data.Text (Text)
+import qualified Data.Text as Text
 
 -- Warning categories are stable user-facing identifiers. Keep codes/tokens
 -- backward-compatible once published in CLI/docs.
@@ -26,36 +28,32 @@ data WarningSeverity
   deriving (Eq, Ord, Show)
 
 data WarningMetadata = WarningMetadata
-  { metadataCode :: String,
-    metadataToken :: String
+  { metadataCode :: Text,
+    metadataToken :: Text
   }
 
 allWarningCategories :: [WarningCategory]
 allWarningCategories = [minBound .. maxBound]
 
-warningCode :: WarningCategory -> String
+warningCode :: WarningCategory -> Text
 warningCode = metadataCode . warningMetadata
 
-warningToken :: WarningCategory -> String
+warningToken :: WarningCategory -> Text
 warningToken = metadataToken . warningMetadata
 
-tokenCatalog :: [(String, WarningCategory)]
+tokenCatalog :: [(Text, WarningCategory)]
 tokenCatalog =
   [ (metadataToken (warningMetadata category), category)
     | category <- allWarningCategories
   ]
 
-parseWarningCategory :: String -> Either String WarningCategory
+parseWarningCategory :: Text -> Either Text WarningCategory
 parseWarningCategory rawToken =
   case lookup normalizedToken tokenCatalog of
     Just category -> Right category
     Nothing ->
       Left
-        ( "unknown warning category: "
-            ++ normalizedToken
-            ++ "; known categories: "
-            ++ intercalate ", " (map warningToken allWarningCategories)
-        )
+        ("unknown warning category: " <> normalizedToken <> "; known categories: " <> Text.intercalate ", " (map warningToken allWarningCategories))
   where
     normalizedToken = normalize rawToken
 
@@ -83,11 +81,8 @@ warningMetadata category =
           metadataToken = "deprecated-syntax"
         }
 
-normalize :: String -> String
-normalize = map toLower . trim
+normalize :: Text -> Text
+normalize = Text.toLower . trim
 
-trim :: String -> String
-trim = dropWhileEnd isSpace . dropWhile isSpace
-
-dropWhileEnd :: (a -> Bool) -> [a] -> [a]
-dropWhileEnd predicate = reverse . dropWhile predicate . reverse
+trim :: Text -> Text
+trim = Text.strip
