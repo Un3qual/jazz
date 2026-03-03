@@ -92,7 +92,8 @@ runCliWith args envLookup configLookup source =
 main :: IO ()
 main = do
   args <- getArgs
-  output <- runCliWith args lookupEnv readConfigMaybe sampleSource
+  source <- TextIO.getContents
+  output <- runCliWith args lookupEnv readConfigMaybe source
   TextIO.hPutStr stdout (cliStdout output)
   TextIO.hPutStr stderr (cliStderr output)
   exitWith (toExitCode (cliExitCode output))
@@ -178,11 +179,6 @@ readConfigMaybe path =
       case readResult of
         Left _ -> Nothing
         Right contents -> Just contents
-
-sampleSource :: Text
--- Temporary bootstrap program used by the current CLI entrypoint until source
--- file parsing/execution wiring lands.
-sampleSource = "x = 1. x = 2."
 
 toExitCode :: Int -> ExitCode
 toExitCode code =
