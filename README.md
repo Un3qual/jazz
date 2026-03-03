@@ -1,23 +1,36 @@
 # Jazz
+
 <img src="https://github.com/un3qual/jazz/blob/main/jazz_logo.png?raw=true" width="100">
 
 ### Story
-Jazz is a functional language that takes inspiration from Elixir and Haskell. I love writing Haskell, but for beginners, the category theory oriented type system is confusing[^1]. Rather than monads, semigroupoids, etc, I will have a more standard approach to typeclasses, with classes like Collection, Orderable, etc. 
 
-### Features
-- ADTs
-- Easy to understand syntax
-- Performant. Will generate LLVM IR in the future.
-- Strong, static typing
-- Incredible type inferrence
-- Immutable variables
-- First class functions
-- Pattern matching
+Jazz is a functional language that takes inspiration from Elixir and Haskell. I love writing Haskell, but for beginners, the category theory oriented type system is confusing[^1]. Rather than monads, semigroupoids, etc, I will have a more standard approach to typeclasses, with classes like Collection, Orderable, etc.
+
+### Implemented Today (verified)
+
+- Strong, static typing for the core expression subset
+- Type inference for the core expression subset
+- Immutable bindings
+- First-class functions
 - Functions are curried by default
-- First class functions
-- Tuples
+- Basic list runtime helpers (`map`, `hd`, `tl`)
+- Dot-terminated source forms and lambda syntax
+
+### Planned / Aspirational
+
+- ADTs as end-to-end runtime/compiler behavior
+- Pattern matching as end-to-end runtime/compiler behavior
+- Tuple code generation/runtime behavior
+- Full module/import loader semantics
+- Purity/effect enforcement for `!`-suffixed functions
+- LLVM backend and performance target
+- Readability/usability goals such as "easy to understand syntax"
+
+Detailed status/evidence matrix: [docs/feature-status.md](docs/feature-status.md)  
+Implementation baseline details: [docs/jazz-language-state.md](docs/jazz-language-state.md)
 
 ### Repository Governance (Spec Authority)
+
 - `jazz2` is a reference-only design source for future ideas and is non-normative for current language behavior.
 - The canonical language authority is `docs/spec/*` plus the active implementation behavior/tests in `jazz-hs` until spec sections are fully filled in.
 - This top-level README is a project pitch and usage overview, not the normative language specification.
@@ -26,17 +39,25 @@ Jazz is a functional language that takes inspiration from Elixir and Haskell. I 
 - Governance policy details: `docs/spec/governance/spec-authority-policy.md`.
 
 ### Examples
+
+#### Implemented Today
+
 #### Hello World
+
 ##### Jazz
+
 ```
 print! "Hello, world".
 ```
+
 ##### Javascript
+
 ```js
-console.log("Hello, world")
+console.log("Hello, world");
 ```
 
 #### Currying and Partial Application
+
 ```
 // Reference type signatures for built in functions
 // (+) :: Num -> Num -> Num
@@ -57,37 +78,46 @@ print! $ add10List nums.
 
 ```
 
+#### Planned / Aspirational Examples (not fully implemented end-to-end)
+
+The following examples show intended direction but are not all fully implemented through parse/analyze/codegen/runtime in the current compiler subset.
 
 #### Array operations
+
 ##### Jazz
+
 ```
 myArr = [1, 2, 3, 4, 5].
-evens = filter myArr \(i) -> mod(i, 2) == 0.
-powersOf2 = map myArr \Num.pow(2, \0).
+evens = filter (\(i) -> mod(i, 2) == 0) myArr.
+powersOf2 = map (\(i) -> Num.pow(2, i)) myArr.
 // Is the same as
-powersOf2 = map myArr \(i) -> Num.pow(2, i).
+powersOf2 = map (\Num.pow(2, \0)) myArr.
 ```
-##### Javascript
-```js
-const myArr = [1, 2, 3, 4, 5]
 
-let evens = []
+##### Javascript
+
+```js
+const myArr = [1, 2, 3, 4, 5];
+
+let evens = [];
 for (let i in myArr) {
-  if (i % 2 == 0) evens.push(i)
+  if (i % 2 == 0) evens.push(i);
 }
 
 // Functional approach
-let powersOf2 = myArr.map(i => Math.pow(2, i))
+let powersOf2 = myArr.map((i) => Math.pow(2, i));
 ```
 
 #### Functions
+
 In Jazz, functions are pure by default and are declared with assignment to a lambda. Impure functions must be denoted with `!` and can not be called from pure functions.
 
 - Multiline functions must use curly braces
 - Impure functions must end with a `!` e.g:
-  - ```println! = \(str) -> ...```
-- 
+  - `println! = \(str) -> ...`
+
 ##### Jazz
+
 ```
 // Implicit types
 isEven = \(i) -> mod(i, 2) == 0.
@@ -110,23 +140,29 @@ greet3 = \(name) -> {
   "Hello, ${name}".
 }.
 ```
+
 ##### Javascript
+
 ```js
 function isEven(i) {
-  return i % 2 == 0
+  return i % 2 == 0;
 }
 // Or
-const isEven = i => i % 2 == 0
+const isEven = (i) => i % 2 == 0;
 ```
 
 #### Modules
+
 ##### Jazz
+
 ```
 module Person::Organs::Heart {
   beat = # do stuff
 }
 ```
+
 ##### Javascript
+
 ```js
 // In file "./Person/Organs/Heart.js"
 export class Heart {
@@ -135,4 +171,5 @@ export class Heart {
   }
 }
 ```
+
 [^1]: A monad is just a monoid in the category of endofunctors, what's the problem?
