@@ -1,6 +1,6 @@
 # Spec Cleanup Item #5 Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Execution Note:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Separate "implemented today" features from planned/aspirational features in Jazz top-level documentation so readers can trust what works now.
 
@@ -12,11 +12,11 @@
 
 ## Verification Evidence (2026-03-02)
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md:7-18` contains one `### Features` list with mixed status claims; it includes a future statement (`Will generate LLVM IR in the future`) in the same list as present-tense features.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md` has no explicit headings separating implemented vs planned features (`rg -n "Implemented|Planned" README.md` returns no matches).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:26` says the implemented subset is "much smaller" than broader repo claims.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:426` still lists this exact cleanup as pending.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs` currently contains only `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`; there is no dedicated top-level implemented-vs-planned status doc.
+- `README.md:7-18` contains one `### Features` list with mixed status claims; it includes a future statement (`Will generate LLVM IR in the future`) in the same list as present-tense features.
+- `README.md` has no explicit headings separating implemented vs planned features (`rg -n "Implemented|Planned" README.md` returns no matches).
+- `docs/jazz-language-state.md:26` says the implemented subset is "much smaller" than broader repo claims.
+- `docs/jazz-language-state.md:426` still lists this exact cleanup as pending.
+- `docs` currently contains only `docs/jazz-language-state.md`; there is no dedicated top-level implemented-vs-planned status doc.
 
 **Conclusion:** Item #5 is still unfinished.
 
@@ -38,13 +38,13 @@
 ### Task 1: Build feature-status source of truth
 
 **Files:**
-- Create: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/feature-status.md`
+- Create: `docs/feature-status.md`
 - Read for evidence:
-  - `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
-  - `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
-  - `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Lib.hs`
-  - `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs`
-  - `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs`
+  - `README.md`
+  - `docs/jazz-language-state.md`
+  - `jazz-hs/src/Lib.hs`
+  - `jazz-hs/src/Parser/Lang.hs`
+  - `jazz-hs/src/Types.hs`
 
 **Steps:**
 - [ ] Create a short rubric defining exactly three labels:
@@ -64,8 +64,8 @@ git commit -m "docs: add canonical feature status matrix"
 ### Task 2: Split top-level README into implemented vs planned
 
 **Files:**
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
-- Reference: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/feature-status.md`
+- Modify: `README.md`
+- Reference: `docs/feature-status.md`
 
 **Steps:**
 - [ ] Replace the current single `### Features` list with two explicit sections:
@@ -85,8 +85,8 @@ git commit -m "docs(readme): separate implemented features from planned features
 ### Task 3: Align `docs/jazz-language-state.md` with the split
 
 **Files:**
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
-- Reference: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/feature-status.md`
+- Modify: `docs/jazz-language-state.md`
+- Reference: `docs/feature-status.md`
 
 **Steps:**
 - [ ] Add a short "Top-level docs contract" section that defines:
@@ -101,23 +101,20 @@ git add docs/jazz-language-state.md
 git commit -m "docs: align language-state doc with implemented-vs-planned split"
 ```
 
-### Task 4: Nix-aware docs checks and formatter in dev shell (conditional)
+### Task 4: Nix-aware docs checks and formatter in root dev shell
 
-**Files (conditional):**
-- Modify if present: `/Users/admin/.codex/worktrees/8c77/jazz-main/flake.nix`
-- Modify if present: `/Users/admin/.codex/worktrees/8c77/jazz-main/shell.nix`
-- Create/modify if adopted: `/Users/admin/.codex/worktrees/8c77/jazz-main/scripts/check-docs.sh`
-- Modify if present: `/Users/admin/.codex/worktrees/8c77/jazz-main/.pre-commit-config.yaml`
+**Files (root shell + optional):**
+- Modify if present: `flake.nix`
+- Modify if present: `shell.nix`
+- Create/modify if adopted: `scripts/check-docs.sh`
+- Modify if present: `.pre-commit-config.yaml`
 
 **Steps:**
-- [ ] Detect whether a root Nix dev shell exists (`flake.nix` or `shell.nix` at repo root).
-- [ ] If Nix shell exists:
-  - [ ] Add docs formatter/lint tooling to dev shell packages.
-  - [ ] Add a single docs check command hook (for example, `scripts/check-docs.sh`) that validates status-section structure and markdown formatting.
-  - [ ] Ensure command is runnable via `nix develop -c <command>`.
-- [ ] If no root Nix shell exists (current observed state):
-  - [ ] Record "Nix docs hook not applicable yet" in execution notes/PR notes.
-  - [ ] Keep verification commands runnable without Nix for now.
+- [ ] Use the root `flake.nix` dev shell as the default environment for docs checks (`nix develop`).
+- [ ] Add docs formatter/lint tooling to dev shell packages.
+- [ ] Add a single docs check command hook (for example, `scripts/check-docs.sh`) that validates status-section structure and markdown formatting.
+- [ ] Ensure command is runnable via `nix develop -c <command>`.
+- [ ] Provide an equivalent `nix shell` fallback command only when a non-flake environment must be supported.
 
 **Commit checkpoint (only if files changed):**
 ```bash
@@ -128,9 +125,9 @@ git commit -m "chore(nix): add docs check/format hooks for status-doc maintenanc
 ### Task 5: Prevent future drift between docs and implementation
 
 **Files:**
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/feature-status.md`
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
-- Optional if introduced: `/Users/admin/.codex/worktrees/8c77/jazz-main/CONTRIBUTING.md`
+- Modify: `docs/feature-status.md`
+- Modify: `README.md`
+- Optional if introduced: `CONTRIBUTING.md`
 
 **Steps:**
 - [ ] Add a "Maintenance Checklist" section with explicit update triggers:
@@ -162,11 +159,11 @@ rg -n "feature-status.md|top-level docs contract" docs/jazz-language-state.md
 ```bash
 git diff --name-only -- README.md docs/
 ```
-- [ ] Nix path (if configured):
+- [ ] Root flake verification path:
 ```bash
 nix develop -c scripts/check-docs.sh
 ```
-- [ ] Non-Nix fallback (if Nix unavailable):
+- [ ] Explicit fallback path (only if root flake is unavailable):
 ```bash
 bash scripts/check-docs.sh
 ```

@@ -26,10 +26,10 @@
 
 ## Verification Evidence (Item Is Still Unfinished)
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md` contains the open cleanup list and explicitly includes: `1. Pick one authoritative syntax for functions, modules, traits, and collections.` (section `## Recommended Next Spec Cleanup`, around lines 418-423).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md` also documents unresolved syntax conflicts, e.g. parser supports `class` while `Prelude.jz` uses `trait`, and collection API order disagreements (around lines 286-346).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs` currently contains only one file (`jazz-language-state.md`), so there is no existing authoritative syntax decision doc.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02` did not exist before this plan file was created, confirming no prior per-item decision artifact for item #1.
+- `docs/jazz-language-state.md` contains the open cleanup list and explicitly includes: `1. Pick one authoritative syntax for functions, modules, traits, and collections.` (section `## Recommended Next Spec Cleanup`, around lines 418-423).
+- `docs/jazz-language-state.md` also documents unresolved syntax conflicts, e.g. parser supports `class` while `Prelude.jz` uses `trait`, and collection API order disagreements (around lines 286-346).
+- `docs` currently contains only one file (`jazz-language-state.md`), so there is no existing authoritative syntax decision doc.
+- `docs/plans/spec-cleanup/2026-03-02` did not exist before this plan file was created, confirming no prior per-item decision artifact for item #1.
 - Repo-wide search for `authoritative syntax` only points to `docs/jazz-language-state.md`, indicating no completed implementation/decision elsewhere.
 
 ## Scope
@@ -65,40 +65,40 @@ Locked canonical syntax:
 ## Concrete Files To Modify During Execution
 
 Create:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/authoritative-syntax.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/flake.nix`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/flake.lock` (generated)
+- `docs/spec/authoritative-syntax.md`
+- `flake.nix`
+- `flake.lock` (generated)
 
 Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lib.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs` (only if collection call style changes runtime lowering)
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/ComplexProgram.jz`
+- `README.md`
+- `docs/jazz-language-state.md`
+- `jazz-hs/src/Parser/Lang.hs`
+- `jazz-hs/src/Parser/Lib.hs`
+- `jazz-hs/src/Types.hs`
+- `jazz-hs/src/CodeGen/Javascript.hs` (only if collection call style changes runtime lowering)
+- `jazz-hs/test/ParserSpec.hs`
+- `jazz-hs/static/Prelude.jz`
+- `jazz-hs/ExamplePrograms/ComplexProgram.jz`
 
 ### Task 1: Establish Reproducible Nix Dev Environment First
 
 **Files:**
-- Create: `/Users/admin/.codex/worktrees/8c77/jazz-main/flake.nix`
-- Create/Update: `/Users/admin/.codex/worktrees/8c77/jazz-main/flake.lock`
+- Create: `flake.nix`
+- Create/Update: `flake.lock`
 
 **Step 1: Add a minimal flake dev shell for this cleanup work**
 - Include tools needed for this item: `stack`, `ghc`, `cabal-install`, `ormolu`, `hlint`, `git`.
 - Add at least one `checks` entry that runs parser tests (`stack test` in `jazz-hs`).
 
 **Step 2: Validate the shell/checks are usable**
-- Run: `cd /Users/admin/.codex/worktrees/8c77/jazz-main && nix flake show`
-- Run: `cd /Users/admin/.codex/worktrees/8c77/jazz-main && nix develop -c stack --version`
-- Run: `cd /Users/admin/.codex/worktrees/8c77/jazz-main && nix flake check`
+- Run: `cd . && nix flake show`
+- Run: `cd . && nix develop -c stack --version`
+- Run: `cd . && nix flake check`
 - Expected: flake evaluates and check exits 0.
 
 **Step 3: Commit checkpoint**
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/flake.nix /Users/admin/.codex/worktrees/8c77/jazz-main/flake.lock
+git add flake.nix flake.lock
 git commit -m "build(nix): add reproducible dev shell for spec-cleanup"
 ```
 
@@ -110,16 +110,16 @@ git commit -m "build(nix): add reproducible dev shell for spec-cleanup"
 ### Task 2: Write and Ratify the Authoritative Syntax Decision Record
 
 **Files:**
-- Create: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/authoritative-syntax.md`
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
+- Create: `docs/spec/authoritative-syntax.md`
+- Modify: `docs/jazz-language-state.md`
 
 **Step 1: Build a syntax matrix from current sources**
 - Compare syntax in:
-  - `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
-  - `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs`
-  - `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs`
-  - `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz`
-  - `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs`
+  - `README.md`
+  - `jazz-hs/src/Parser/Lang.hs`
+  - `jazz-hs/test/ParserSpec.hs`
+  - `jazz-hs/static/Prelude.jz`
+  - `jazz-hs/src/Types.hs`
 
 **Step 2: Record the approved canonical syntax and migration policy**
 - Decision record must include:
@@ -132,14 +132,14 @@ git commit -m "build(nix): add reproducible dev shell for spec-cleanup"
 
 **Step 5: Commit checkpoint**
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/authoritative-syntax.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md
+git add docs/spec/authoritative-syntax.md docs/jazz-language-state.md
 git commit -m "docs(spec): record authoritative syntax decision for item #1"
 ```
 
 ### Task 3: Add Failing Parser/Surface Tests Before Code Changes
 
 **Files:**
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs`
+- Modify: `jazz-hs/test/ParserSpec.hs`
 
 **Step 1: Add tests for canonical syntax (and rejection/deprecation of non-canonical forms)**
 - Add focused cases for:
@@ -149,23 +149,23 @@ git commit -m "docs(spec): record authoritative syntax decision for item #1"
   - collection call examples consistent with decision
 
 **Step 2: Run targeted tests and confirm failure first**
-- Run: `cd /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs && stack test --ta '--match "Tests of Statements"'`
-- Run: `cd /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs && stack test --ta '--match "typeclass declaration"'`
+- Run: `cd jazz-hs && stack test --ta '--match "Tests of Statements"'`
+- Run: `cd jazz-hs && stack test --ta '--match "typeclass declaration"'`
 - Expected: new tests fail before parser updates.
 
 **Step 3: Commit checkpoint (tests-only baseline)**
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs
+git add jazz-hs/test/ParserSpec.hs
 git commit -m "test(parser): codify authoritative syntax expectations"
 ```
 
 ### Task 4: Implement Parser/Type/Codegen Alignment to Pass New Tests
 
 **Files:**
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs`
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lib.hs`
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs`
-- Modify (conditional): `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs`
+- Modify: `jazz-hs/src/Parser/Lang.hs`
+- Modify: `jazz-hs/src/Parser/Lib.hs`
+- Modify: `jazz-hs/src/Types.hs`
+- Modify (conditional): `jazz-hs/src/CodeGen/Javascript.hs`
 
 **Step 1: Apply minimal parser changes to match the decision**
 - Update keyword parsing and grammar entry points only where needed.
@@ -175,23 +175,23 @@ git commit -m "test(parser): codify authoritative syntax expectations"
 - Ensure `Types.hs` builtin signatures and JS lowering are consistent with canonical collection style.
 
 **Step 3: Re-run parser tests until green**
-- Run: `cd /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs && stack test --ta '--match ParserSpec'`
-- Then run full test suite: `cd /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs && stack test`
+- Run: `cd jazz-hs && stack test --ta '--match ParserSpec'`
+- Then run full test suite: `cd jazz-hs && stack test`
 - Expected: all pass.
 
 **Step 4: Commit checkpoint**
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lib.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs
+git add jazz-hs/src/Parser/Lang.hs jazz-hs/src/Parser/Lib.hs jazz-hs/src/Types.hs jazz-hs/src/CodeGen/Javascript.hs
 git commit -m "feat(parser): enforce authoritative syntax in compiler surface"
 ```
 
 ### Task 5: Sync README, Prelude, and Example Programs with Canonical Syntax
 
 **Files:**
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz`
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/ComplexProgram.jz`
+- Modify: `README.md`
+- Modify: `docs/jazz-language-state.md`
+- Modify: `jazz-hs/static/Prelude.jz`
+- Modify: `jazz-hs/ExamplePrograms/ComplexProgram.jz`
 
 **Step 1: Replace contradictory examples with canonical syntax**
 - Ensure README examples are executable against `jazz-hs` expectations.
@@ -202,31 +202,31 @@ git commit -m "feat(parser): enforce authoritative syntax in compiler surface"
 
 **Step 3: Commit checkpoint**
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/README.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/ComplexProgram.jz
+git add README.md docs/jazz-language-state.md jazz-hs/static/Prelude.jz jazz-hs/ExamplePrograms/ComplexProgram.jz
 git commit -m "docs(jazz): align docs and examples with authoritative syntax"
 ```
 
 ### Task 6: Verification, Reproducibility, and Handoff
 
 **Files:**
-- Modify (if needed for handoff notes): `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
+- Modify (if needed for handoff notes): `docs/jazz-language-state.md`
 
 **Step 1: Run formatter/linter/test checks inside Nix shell**
-- Run: `cd /Users/admin/.codex/worktrees/8c77/jazz-main && nix develop -c ormolu --mode check jazz-hs/src/Parser/Lang.hs jazz-hs/src/Parser/Lib.hs jazz-hs/src/Types.hs jazz-hs/test/ParserSpec.hs`
-- Run: `cd /Users/admin/.codex/worktrees/8c77/jazz-main && nix develop -c hlint jazz-hs/src jazz-hs/test`
-- Run: `cd /Users/admin/.codex/worktrees/8c77/jazz-main && nix develop -c bash -lc 'cd jazz-hs && stack test'`
+- Run: `cd . && nix develop -c ormolu --mode check jazz-hs/src/Parser/Lang.hs jazz-hs/src/Parser/Lib.hs jazz-hs/src/Types.hs jazz-hs/test/ParserSpec.hs`
+- Run: `cd . && nix develop -c hlint jazz-hs/src jazz-hs/test`
+- Run: `cd . && nix develop -c bash -lc 'cd jazz-hs && stack test'`
 
 **Step 2: Reproducible smoke check for syntax in an example**
-- Run: `cd /Users/admin/.codex/worktrees/8c77/jazz-main && nix develop -c bash -lc 'cd jazz-hs && ./run.sh ExamplePrograms/ComplexProgram.jz'`
+- Run: `cd . && nix develop -c bash -lc 'cd jazz-hs && ./run.sh ExamplePrograms/ComplexProgram.jz'`
 - Expected: parser/typecheck/codegen succeeds for the canonical syntax example.
 
 **Step 3: Final repo sanity check**
-- Run: `cd /Users/admin/.codex/worktrees/8c77/jazz-main && git status --short`
+- Run: `cd . && git status --short`
 - Confirm only intended files changed.
 
 **Step 4: Commit checkpoint (if any final edits)**
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md
+git add docs/jazz-language-state.md
 git commit -m "chore(spec): finalize authoritative syntax verification notes"
 ```
 

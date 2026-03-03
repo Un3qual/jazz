@@ -1,6 +1,6 @@
 # Jazz Spec-Cleanup #4 Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Execution Note:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Decide one canonical abstraction keyword (`trait` or `class`) for Jazz, then align parser/docs/examples while providing a staged compatibility and deprecation path for the non-canonical keyword.
 
@@ -26,13 +26,13 @@
 
 ## Verification Evidence (Item Is Still Unfinished)
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:391`
+- `docs/jazz-language-state.md:391`
   Observation: explicitly lists this as undecided: "Whether the standard abstraction keyword is `trait`, `class`, or both".
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:425`
+- `docs/jazz-language-state.md:425`
   Observation: "Recommended Next Spec Cleanup" item 4 is exactly "Decide whether `trait` or `class` is the canonical abstraction keyword."
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs:160`
+- `jazz-hs/src/Parser/Lang.hs:160`
   Observation: parser declaration path currently hardcodes `symbolP "class"` (no `trait` parse branch).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz:24`
+- `jazz-hs/static/Prelude.jz:24`
   Observation: `Prelude.jz` uses `trait` in multiple declarations (and also `class` at line 64), confirming inconsistent keyword usage across repo sources.
 
 ## Scope And Non-Goals
@@ -50,14 +50,14 @@
 1. [ ] Confirm Nix availability.
    Run: `nix --version`
    Expected: prints Nix version.
-2. [ ] Enter ephemeral Nix tool environment for Haskell work (repo has no `flake.nix`/`shell.nix`).
-   Run: `nix shell nixpkgs#stack nixpkgs#ghc nixpkgs#gnumake --command zsh -lc 'stack --version && ghc --version'`
+2. [ ] Enter the root Nix dev environment for Haskell work (use `nix develop`; keep `nix shell` as an explicit fallback only when needed).
+   Run: `nix develop -c zsh -lc 'stack --version && ghc --version'`
    Expected: both tool versions print successfully.
 3. [ ] Capture baseline parser/typeclass test behavior.
-   Run: `nix shell nixpkgs#stack nixpkgs#ghc --command zsh -lc 'cd jazz-hs && stack test --test-arguments=\"--match typeclass\"'`
+   Run: `nix develop -c zsh -lc 'cd jazz-hs && stack test --test-arguments=\"--match typeclass\"'`
    Expected: current tests pass (or failures are documented before any change).
 4. [ ] Capture full `jazz-hs` baseline.
-   Run: `nix shell nixpkgs#stack nixpkgs#ghc --command zsh -lc 'cd jazz-hs && stack test'`
+   Run: `nix develop -c zsh -lc 'cd jazz-hs && stack test'`
    Expected: baseline result recorded for comparison after keyword changes.
 
 **Commit Checkpoint:** none (no repo changes expected).
@@ -65,8 +65,8 @@
 ## Task 2: Decision Gate (Canonical Keyword Selection)
 
 **Files:**
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/decisions/04-trait-vs-class-keyword.md`
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
+- Modify: `docs/plans/spec-cleanup/2026-03-02/decisions/04-trait-vs-class-keyword.md`
+- Modify: `docs/jazz-language-state.md`
 
 **Decision Procedure (must be completed before parser edits):**
 
@@ -98,10 +98,10 @@ git commit -m "docs(spec): decide canonical abstraction keyword for Jazz"
 ## Task 3: Compatibility Layer + Deprecation Warnings (Parser/Test)
 
 **Files:**
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs`
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lib.hs` (if reserved keyword handling needs updates)
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs`
-- Optional Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Errors.hs` (if warning/error messaging is centralized there)
+- Modify: `jazz-hs/src/Parser/Lang.hs`
+- Modify: `jazz-hs/src/Parser/Lib.hs` (if reserved keyword handling needs updates)
+- Modify: `jazz-hs/test/ParserSpec.hs`
+- Optional Modify: `jazz-hs/src/Errors.hs` (if warning/error messaging is centralized there)
 
 **Steps (TDD-first):**
 
@@ -114,8 +114,8 @@ git commit -m "docs(spec): decide canonical abstraction keyword for Jazz"
 
 **Validation Commands:**
 
-- `nix shell nixpkgs#stack nixpkgs#ghc --command zsh -lc 'cd jazz-hs && stack test --test-arguments=\"--match typeclass\"'`
-- `nix shell nixpkgs#stack nixpkgs#ghc --command zsh -lc 'cd jazz-hs && stack test'`
+- `nix develop -c zsh -lc 'cd jazz-hs && stack test --test-arguments=\"--match typeclass\"'`
+- `nix develop -c zsh -lc 'cd jazz-hs && stack test'`
 
 **Commit Checkpoint 2: Parser Compatibility**
 
@@ -131,10 +131,10 @@ If `jazz-hs/src/Errors.hs` was not changed, omit it from `git add`.
 ## Task 4: Canonicalization Of Docs And Examples
 
 **Files:**
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz`
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/decisions/04-trait-vs-class-keyword.md`
+- Modify: `README.md`
+- Modify: `docs/jazz-language-state.md`
+- Modify: `jazz-hs/static/Prelude.jz`
+- Modify: `docs/plans/spec-cleanup/2026-03-02/decisions/04-trait-vs-class-keyword.md`
 
 **Steps:**
 
@@ -148,7 +148,7 @@ If `jazz-hs/src/Errors.hs` was not changed, omit it from `git add`.
 **Validation Commands:**
 
 - `rg -n "\\btrait\\b|\\bclass\\b" README.md docs jazz-hs/static/Prelude.jz -S`
-- `nix shell nixpkgs#stack nixpkgs#ghc --command zsh -lc 'cd jazz-hs && stack test --test-arguments=\"--match typeclass\"'`
+- `nix develop -c zsh -lc 'cd jazz-hs && stack test --test-arguments=\"--match typeclass\"'`
 
 **Commit Checkpoint 3: Docs/Example Canonicalization**
 
@@ -162,8 +162,8 @@ git commit -m "docs(lang): canonicalize abstraction keyword and add migration no
 ## Task 5: Non-Canonical Keyword Deprecation Path (Explicit Policy)
 
 **Files:**
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/decisions/04-trait-vs-class-keyword.md`
-- Modify: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md` (resolution status)
+- Modify: `docs/plans/spec-cleanup/2026-03-02/decisions/04-trait-vs-class-keyword.md`
+- Modify: `docs/jazz-language-state.md` (resolution status)
 
 **Policy to implement and document:**
 
@@ -187,7 +187,7 @@ git commit -m "docs(spec): define deprecation timeline for non-canonical keyword
 ## Final Verification Gate (Before Closing Item #4)
 
 1. [ ] `git status --short` shows only intended files changed.
-2. [ ] `nix shell nixpkgs#stack nixpkgs#ghc --command zsh -lc 'cd jazz-hs && stack test'` passes.
+2. [ ] `nix develop -c zsh -lc 'cd jazz-hs && stack test'` passes.
 3. [ ] `rg -n 'Decide whether \`trait\` or \`class\` is the canonical abstraction keyword' docs/jazz-language-state.md -S` no longer lists item #4 as unresolved.
 4. [ ] Decision doc clearly states canonical keyword and deprecation timeline.
 

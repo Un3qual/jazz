@@ -12,14 +12,14 @@
 
 ## Verification Evidence
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md`: file did not exist before this planning task (`MISSING` check result), so this item had no decision/implementation plan yet.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:390`: explicitly lists collection API order as unresolved (`map f xs` vs `map xs f`).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:423`: lists this exact cleanup item as still pending (`Decide whether map/filter are function-first or collection-first`).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md:57` and `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md:58`: examples use collection-first (`filter myArr ...`, `map myArr ...`).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs:122`: builtin `map` type is function-first (`(a -> b) -> [a] -> [b]`).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs:17`: JS lowering defines `map` as function-first (`f => xs => xs.map(f)`).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs:228`: parser test usage is function-first (`map (2+) myList`).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs` and `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs`: no builtin `filter` entry exists, while docs mention `filter`.
+- `docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md`: file did not exist before this planning task (`MISSING` check result), so this item had no decision/implementation plan yet.
+- `docs/jazz-language-state.md:390`: explicitly lists collection API order as unresolved (`map f xs` vs `map xs f`).
+- `docs/jazz-language-state.md:423`: lists this exact cleanup item as still pending (`Decide whether map/filter are function-first or collection-first`).
+- `README.md:57` and `README.md:58`: examples use collection-first (`filter myArr ...`, `map myArr ...`).
+- `jazz-hs/src/Types.hs:122`: builtin `map` type is function-first (`(a -> b) -> [a] -> [b]`).
+- `jazz-hs/src/CodeGen/Javascript.hs:17`: JS lowering defines `map` as function-first (`f => xs => xs.map(f)`).
+- `jazz-hs/test/ParserSpec.hs:228`: parser test usage is function-first (`map (2+) myList`).
+- `jazz-hs/src/Types.hs` and `jazz-hs/src/CodeGen/Javascript.hs`: no builtin `filter` entry exists, while docs mention `filter`.
 
 ## Plan Progress
 
@@ -39,7 +39,7 @@
 
 ## Phase 0: Baseline lock and decision rubric
 
-- [ ] Re-check current state of these files before coding: `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`, `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`, `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs`, `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs`, `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs`.
+- [ ] Re-check current state of these files before coding: `README.md`, `docs/jazz-language-state.md`, `jazz-hs/src/Types.hs`, `jazz-hs/src/CodeGen/Javascript.hs`, `jazz-hs/test/ParserSpec.hs`.
 - [ ] Build an explicit option matrix in this decision doc:
 - [ ] Option A: function-first (`map f xs`, `filter p xs`).
 - [ ] Option B: collection-first (`map xs f`, `filter xs p`).
@@ -51,7 +51,7 @@
 Suggested commit message: `docs(spec): capture map/filter decision rubric`
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md
+git -C "$(git rev-parse --show-toplevel)" add docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md
 git commit -m "docs(spec): capture map/filter decision rubric"
 ```
 
@@ -70,7 +70,7 @@ git commit -m "docs(spec): capture map/filter decision rubric"
 Suggested commit message: `docs(spec): decide canonical map/filter order and compatibility mode`
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md
+git -C "$(git rev-parse --show-toplevel)" add docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md docs/jazz-language-state.md
 git commit -m "docs(spec): decide canonical map/filter order and compatibility mode"
 ```
 
@@ -78,7 +78,7 @@ git commit -m "docs(spec): decide canonical map/filter order and compatibility m
 
 ### Track A (execute if canonical order is function-first)
 
-- [ ] Keep `map` as function-first in `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs` and `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs`.
+- [ ] Keep `map` as function-first in `jazz-hs/src/Types.hs` and `jazz-hs/src/CodeGen/Javascript.hs`.
 - [ ] Add `filter` builtin with function-first type and JS lowering.
 - [ ] Add parser/analyzer tests for `filter predicate xs` and partial application (`filter predicate`).
 - [ ] If compatibility mode allows collection-first temporarily, implement adapter/normalization plus warning behavior and tests.
@@ -93,20 +93,20 @@ git commit -m "docs(spec): decide canonical map/filter order and compatibility m
 
 ### Likely file touch-set (choose only what changes)
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/AnalyzerSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/MediumProgram.jz`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/LongProgram.jz`
+- `jazz-hs/src/Types.hs`
+- `jazz-hs/src/CodeGen/Javascript.hs`
+- `jazz-hs/test/ParserSpec.hs`
+- `jazz-hs/test/AnalyzerSpec.hs`
+- `jazz-hs/test/Spec.hs`
+- `jazz-hs/ExamplePrograms/MediumProgram.jz`
+- `jazz-hs/ExamplePrograms/LongProgram.jz`
 
 ### Commit checkpoint (Phase 2)
 
 Suggested commit message: `feat(lang): align map/filter behavior with canonical argument order`
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/AnalyzerSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/MediumProgram.jz /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/LongProgram.jz
+git -C "$(git rev-parse --show-toplevel)" add jazz-hs/src/Types.hs jazz-hs/src/CodeGen/Javascript.hs jazz-hs/test/ParserSpec.hs jazz-hs/test/AnalyzerSpec.hs jazz-hs/test/Spec.hs jazz-hs/ExamplePrograms/MediumProgram.jz jazz-hs/ExamplePrograms/LongProgram.jz
 git commit -m "feat(lang): align map/filter behavior with canonical argument order"
 ```
 
@@ -115,7 +115,7 @@ git commit -m "feat(lang): align map/filter behavior with canonical argument ord
 - [ ] Publish the final migration rule with before/after syntax examples for both `map` and `filter`.
 - [ ] If hard switch was chosen, document as a breaking change and include mandatory source edits.
 - [ ] If compatibility window was chosen, document warning text, deprecation timeline, and removal milestone.
-- [ ] Update `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md` and `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md` so examples/spec/runtime all agree.
+- [ ] Update `README.md` and `docs/jazz-language-state.md` so examples/spec/runtime all agree.
 - [ ] Add one concise “current behavior” statement and one “historical note” to prevent future drift.
 
 ### Commit checkpoint (Phase 3)
@@ -123,16 +123,16 @@ git commit -m "feat(lang): align map/filter behavior with canonical argument ord
 Suggested commit message: `docs: migrate map/filter examples and compatibility guidance`
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/README.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md
+git -C "$(git rev-parse --show-toplevel)" add README.md docs/jazz-language-state.md docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md
 git commit -m "docs: migrate map/filter examples and compatibility guidance"
 ```
 
 ## Phase 4: Nix environment + command wiring
 
-- [ ] Baseline confirmation: no repo-root `flake.nix`/`shell.nix` currently exists in `/Users/admin/.codex/worktrees/8c77/jazz-main`.
+- [ ] Baseline confirmation: no repo-root `flake.nix`/`shell.nix` currently exists in `.`.
 - [ ] Decision Gate 4: choose Nix entrypoint style.
-- [ ] Preferred: add `/Users/admin/.codex/worktrees/8c77/jazz-main/flake.nix` with `devShells.default`.
-- [ ] Fallback: add `/Users/admin/.codex/worktrees/8c77/jazz-main/shell.nix` if flake use is blocked.
+- [ ] Preferred: add `flake.nix` with `devShells.default`.
+- [ ] Fallback: add `shell.nix` if flake use is blocked.
 - [ ] Include tools needed for this item: Haskell toolchain (`ghc`, `stack`, optionally `cabal-install`), Node runtime (for generated JS checks), formatter/linter chosen by maintainers (`ormolu` or `fourmolu`, optional `hlint`).
 - [ ] Wire standardized commands for this decision area (choose one wiring style and document):
 - [ ] `test:jazz-hs` (full tests)
@@ -146,7 +146,7 @@ git commit -m "docs: migrate map/filter examples and compatibility guidance"
 Suggested commit message: `chore(dev): add nix shell and test/format command wiring`
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/flake.nix /Users/admin/.codex/worktrees/8c77/jazz-main/shell.nix /Users/admin/.codex/worktrees/8c77/jazz-main/justfile /Users/admin/.codex/worktrees/8c77/jazz-main/Makefile /Users/admin/.codex/worktrees/8c77/jazz-main/scripts/dev/test-jazz-hs.sh /Users/admin/.codex/worktrees/8c77/jazz-main/scripts/dev/format-hs.sh /Users/admin/.codex/worktrees/8c77/jazz-main/README.md
+git -C "$(git rev-parse --show-toplevel)" add flake.nix shell.nix justfile Makefile scripts/dev/test-jazz-hs.sh scripts/dev/format-hs.sh README.md
 git commit -m "chore(dev): add nix shell and test/format command wiring"
 ```
 
@@ -164,7 +164,7 @@ git commit -m "chore(dev): add nix shell and test/format command wiring"
 nix develop -c <format-command>
 nix develop -c <targeted-parser-test-command>
 nix develop -c <full-test-command>
-rg -n "map myArr|filter myArr|map ::|filter ::" /Users/admin/.codex/worktrees/8c77/jazz-main/README.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs
+rg -n "map myArr|filter myArr|map ::|filter ::" "$(git rev-parse --show-toplevel)/README.md" "$(git rev-parse --show-toplevel)/docs/jazz-language-state.md" "$(git rev-parse --show-toplevel)/jazz-hs"
 ```
 
 ### Commit checkpoint (Phase 5)
@@ -172,7 +172,7 @@ rg -n "map myArr|filter myArr|map ::|filter ::" /Users/admin/.codex/worktrees/8c
 Suggested commit message: `chore(spec-cleanup): close item #2 map/filter order`
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/README.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/AnalyzerSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/flake.nix /Users/admin/.codex/worktrees/8c77/jazz-main/shell.nix /Users/admin/.codex/worktrees/8c77/jazz-main/justfile /Users/admin/.codex/worktrees/8c77/jazz-main/Makefile /Users/admin/.codex/worktrees/8c77/jazz-main/scripts/dev/test-jazz-hs.sh /Users/admin/.codex/worktrees/8c77/jazz-main/scripts/dev/format-hs.sh
+git -C "$(git rev-parse --show-toplevel)" add README.md docs/jazz-language-state.md docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md jazz-hs/src/Types.hs jazz-hs/src/CodeGen/Javascript.hs jazz-hs/test/ParserSpec.hs jazz-hs/test/AnalyzerSpec.hs flake.nix shell.nix justfile Makefile scripts/dev/test-jazz-hs.sh scripts/dev/format-hs.sh
 git commit -m "chore(spec-cleanup): close item #2 map/filter order"
 ```
 
