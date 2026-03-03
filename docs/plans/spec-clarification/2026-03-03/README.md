@@ -13,6 +13,7 @@
 - [x] Verify candidate-step implementation status for domains 13/14/15/16 against current `jazz-next` state before selecting next work batch
 - [x] Execute domain 13 batch 1 in `jazz-next` (signature adjacency + use-before-definition diagnostics + tests)
 - [x] Execute domain 13 batch 2 in `jazz-next` (mutual-recursion groups + forward-reference contract tests)
+- [x] Execute domain 13 batch 3 in `jazz-next` (parser-source contract coverage + signature type-mismatch diagnostics + CLI regression)
 - [x] Bootstrap `jazz-next` lexer/parser foundation before additional domain execution (surface parser + parse/lower boundary + tests)
 - [x] Execute domain 14 batch 1 in `jazz-next` (`if` parser/lowering/type-contract tests + diagnostics)
 - [x] Execute domain 14 batch 2 in `jazz-next` (`if` desugaring + source compile/CLI pipeline alignment + tests)
@@ -40,6 +41,7 @@ This batch only includes clarification domains that are not already directly pla
 - [ ] 13 binding/signature coherence
 - [x] 13a binding/signature coherence batch 1 (`jazz-next` analyzer/tests)
 - [x] 13b binding/signature coherence batch 2 (`jazz-next` recursion-group semantics + tests)
+- [x] 13c binding/signature coherence batch 3 (`jazz-next` source-pipeline contract tests + `E2005` signature mismatch diagnostics + CLI coverage)
 - [ ] 14 if-expression surface and semantics
 - [x] 14a if-expression parser + type-contract batch (`jazz-next` parser/AST/lowering/type diagnostics + tests)
 - [x] 14b if-expression desugaring + source compile/CLI pipeline batch (`jazz-next` desugar pass + source-entry driver path + tests)

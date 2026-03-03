@@ -35,7 +35,8 @@ tests =
     ("cli run returns non-zero and suppresses stdout when warning promoted", testCliPromotedWarningBehavior),
     ("cli precedence keeps CLI over env over config", testCliPrecedenceBehavior),
     ("cli respects --warnings-config path override", testCliConfigPathOverride),
-    ("cli defers source read until after arg validation", testCliDefersSourceReadOnArgError)
+    ("cli defers source read until after arg validation", testCliDefersSourceReadOnArgError),
+    ("cli reports signature type mismatch from source input", testCliReportsSignatureTypeMismatch)
   ]
 
 testParseOptions :: IO ()
@@ -111,5 +112,18 @@ recordSourceRead sourceRead = do
   writeIORef sourceRead True
   pure sampleSource
 
+testCliReportsSignatureTypeMismatch :: IO ()
+testCliReportsSignatureTypeMismatch = do
+  output <- runCliWith [] envLookup configLookup (pure signatureMismatchSource)
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "stderr includes signature mismatch code" "E2005" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
 sampleSource :: Text
 sampleSource = "x = 1. x = 2."
+
+signatureMismatchSource :: Text
+signatureMismatchSource = "x :: Int.\nx = True."

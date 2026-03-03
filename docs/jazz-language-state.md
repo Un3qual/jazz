@@ -391,9 +391,10 @@ Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, bu
 
 Based on the full repo, these areas still require implementation convergence even when a decision lock now exists:
 
-- Completing parser-surface coverage for locked binding/signature semantics in `jazz-next` (current analyzer AST contract is implemented and test-covered):
+- Completing type-surface alignment for locked binding/signature semantics in `jazz-next` (parser-source and analyzer contracts are implemented and test-covered; signature text is still represented as raw text in the current parser/type pipeline):
   - `docs/spec/semantics/bindings-and-signatures.md`
   - `jazz-next/test/BindingSignatureCoherenceSpec.hs`
+  - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Implementing locked `if` surface semantics in `jazz-next`:
   - `docs/spec/control-flow/if-expressions.md`
 - Extending staged operator roadmap work in `jazz-next` beyond implemented v1 parser/fixity/sections behavior:

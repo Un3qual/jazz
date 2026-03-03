@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import qualified Data.Text as Text
 import JazzNext.Compiler.Analyzer
   ( Expr (..),
     Statement (..)
@@ -11,13 +12,15 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
-    compileExpr
+    compileExpr,
+    compileSource
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
   )
 import JazzNext.TestHarness
   ( NamedTest,
+    assertContains,
     assertEqual,
     assertJust,
     assertSingleErrorContains,
@@ -30,6 +33,7 @@ main = runTestSuite "BindingSignatureCoherence" tests
 tests :: [NamedTest]
 tests =
   [ ("signature directly above matching binding is accepted", testSignatureDirectlyAboveBinding),
+    ("signature type mismatch is rejected", testSignatureTypeMismatch),
     ("signature separated from binding by expression is rejected", testSignatureSeparatedFromBinding),
     ("signature must match immediate binding name", testSignatureNameMismatch),
     ("use-before-definition is rejected", testUseBeforeDefinition),
@@ -38,7 +42,16 @@ tests =
     ("mutual recursion group is accepted", testMutualRecursionGroup),
     ("three-node mutual recursion group is accepted", testThreeNodeMutualRecursionGroup),
     ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference),
-    ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion)
+    ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion),
+    ("source pipeline accepts adjacent signature and binding", testSourceAcceptsSignatureAdjacency),
+    ("source pipeline rejects separated signature", testSourceRejectsSeparatedSignature),
+    ("source pipeline rejects signature name mismatch", testSourceRejectsSignatureNameMismatch),
+    ("source pipeline rejects non-recursive forward reference", testSourceRejectsNonRecursiveForwardReference),
+    ("source pipeline rejects retroactive rebinding recursion", testSourceRejectsRetroactiveRebindingRecursion),
+    ("source pipeline accepts mutual recursion group", testSourceAcceptsMutualRecursionGroup),
+    ("source pipeline rejects signature type mismatch", testSourceRejectsSignatureTypeMismatch),
+    ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError),
+    ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
   ]
 
 testSignatureDirectlyAboveBinding :: IO ()
@@ -46,6 +59,14 @@ testSignatureDirectlyAboveBinding = do
   result <- compileExpr defaultWarningSettings validSignatureProgram
   assertEqual "compile errors" [] (compileErrors result)
   assertJust "generated JS is present" (generatedJs result)
+
+testSignatureTypeMismatch :: IO ()
+testSignatureTypeMismatch = do
+  result <- compileExpr defaultWarningSettings signatureTypeMismatchProgram
+  assertSingleErrorContains
+    "signature type mismatch error"
+    "E2005"
+    (compileErrors result)
 
 testSignatureSeparatedFromBinding :: IO ()
 testSignatureSeparatedFromBinding = do
@@ -191,3 +212,62 @@ retroactiveRebindingProgram =
       SLet "y" (SourceSpan 3 1) (EVar "x"),
       SExpr (SourceSpan 4 1) (EVar "x")
     ]
+
+signatureTypeMismatchProgram :: Expr
+signatureTypeMismatchProgram =
+  EScope
+    [ SSignature "x" (SourceSpan 1 1) "Int",
+      SLet "x" (SourceSpan 2 1) (EBool True)
+    ]
+
+assertSourceOk :: Text.Text -> IO ()
+assertSourceOk src = do
+  result <- compileSource defaultWarningSettings src
+  assertEqual "compile errors" [] (compileErrors result)
+  assertJust "generated JS is present" (generatedJs result)
+
+assertSourceErrorContains :: Text.Text -> Text.Text -> IO ()
+assertSourceErrorContains src needle = do
+  result <- compileSource defaultWarningSettings src
+  assertContains "source error" needle (Text.unlines (compileErrors result))
+
+assertSourceSingleErrorContains :: Text.Text -> Text.Text -> IO ()
+assertSourceSingleErrorContains src needle = do
+  result <- compileSource defaultWarningSettings src
+  assertSingleErrorContains "source error" needle (compileErrors result)
+
+testSourceAcceptsSignatureAdjacency :: IO ()
+testSourceAcceptsSignatureAdjacency =
+  assertSourceOk "x :: Int.\nx = 1.\nx."
+
+testSourceRejectsSeparatedSignature :: IO ()
+testSourceRejectsSeparatedSignature =
+  assertSourceErrorContains "x :: Int.\n1.\nx = 2." "E1002"
+
+testSourceRejectsSignatureNameMismatch :: IO ()
+testSourceRejectsSignatureNameMismatch =
+  assertSourceErrorContains "x :: Int.\ny = 2." "E1003"
+
+testSourceRejectsNonRecursiveForwardReference :: IO ()
+testSourceRejectsNonRecursiveForwardReference =
+  assertSourceErrorContains "x = y.\ny = 1.\nx." "E1001"
+
+testSourceRejectsRetroactiveRebindingRecursion :: IO ()
+testSourceRejectsRetroactiveRebindingRecursion =
+  assertSourceErrorContains "x = y.\ny = 1.\ny = x.\nx." "E1001"
+
+testSourceAcceptsMutualRecursionGroup :: IO ()
+testSourceAcceptsMutualRecursionGroup =
+  assertSourceOk "even = odd.\nodd = even.\neven."
+
+testSourceRejectsSignatureTypeMismatch :: IO ()
+testSourceRejectsSignatureTypeMismatch =
+  assertSourceSingleErrorContains "x :: Int.\nx = True." "E2005"
+
+testSourceReportsSignedRecursiveRhsTypeError :: IO ()
+testSourceReportsSignedRecursiveRhsTypeError =
+  assertSourceSingleErrorContains "x :: Bool.\nx = x + 1." "E2003"
+
+testSignatureMismatchKeepsDeclaredTypeDownstream :: IO ()
+testSignatureMismatchKeepsDeclaredTypeDownstream =
+  assertSourceSingleErrorContains "x :: Int.\nx = True.\ny = x + 1." "E2005"

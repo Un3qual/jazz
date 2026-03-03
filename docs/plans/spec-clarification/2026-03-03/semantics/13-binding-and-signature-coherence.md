@@ -17,7 +17,7 @@
 - [x] Remaining declaration-semantics gates finalized
 - [x] Normative binding/signature spec doc published
 - [x] Analyzer tests aligned for signature adjacency + use-before-definition in the current `jazz-next` AST subset
-- [ ] Full parser + recursion-group semantics alignment in `jazz-next`
+- [x] Full parser + recursion-group semantics alignment in `jazz-next`
 - [ ] Language-state/docs updated and item closed
 
 ## Decision Lock (Approved 2026-03-03)
@@ -117,7 +117,7 @@ git commit -m "docs(spec): lock binding and signature coherence decisions"
 - [x] Add analyzer tests that encode the selected model for the current `jazz-next` AST surface.
 - [x] Ensure tests cover both accepted and rejected forms.
 - [x] Add regression tests for signature ordering/name mismatches.
-- [ ] Add parser-level contract tests once parser surface exists in `jazz-next`.
+- [x] Add parser-level contract tests once parser surface exists in `jazz-next`.
 
 Modify:
 - `jazz-next/test/BindingSignatureCoherenceSpec.hs`
@@ -181,3 +181,11 @@ bash jazz-next/scripts/test-warning-config.sh
 - [x] Contract tests for signature ordering/name matching and use-before-definition pass in `jazz-next`.
 - [x] Analyzer behavior and diagnostics match the contract for the current `jazz-next` AST surface.
 - [ ] Ambiguity no longer appears in language-state tracking.
+
+## Implementation Status Verification (2026-03-03, Batch 3)
+
+- [x] Re-verified unchecked candidate steps before implementation and confirmed parser-source coverage and signature type-compatibility checks were still open.
+- [x] Added parser-source contract coverage in `jazz-next/test/BindingSignatureCoherenceSpec.hs` using `compileSource` for adjacency mismatch (`E1002`), name mismatch (`E1003`), forward-reference rejection (`E1001`), and valid mutual recursion.
+- [x] Added signature compatibility diagnostics in `jazz-next/src/JazzNext/Compiler/TypeInference.hs` (`E2005`) for mismatched declared vs inferred binding types.
+- [x] Added CLI regression coverage in `jazz-next/test/CLISpec.hs` to assert source-driven signature mismatch reporting.
+- [x] Ran `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/BindingSignatureCoherenceSpec.hs`, `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`, and `bash jazz-next/scripts/test-warning-config.sh`.
