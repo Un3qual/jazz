@@ -1,6 +1,5 @@
 module Main (main) where
 
-import Control.Exception (Exception, catch, throwIO)
 import JazzNext.Compiler.Analyzer
   ( Expr (..),
     Statement (..),
@@ -22,62 +21,26 @@ import JazzNext.Compiler.WarningConfig
 import JazzNext.Compiler.Warnings
   ( WarningCategory (..)
   )
-import System.Exit (exitFailure, exitSuccess)
-
-newtype TestFailure = TestFailure String
-
-instance Show TestFailure where
-  show (TestFailure msg) = msg
-
-instance Exception TestFailure
+import JazzNext.TestHarness
+  ( NamedTest,
+    assertEqual,
+    assertJust,
+    failTest,
+    runTestSuite
+  )
 
 main :: IO ()
-main = do
-  failures <- sequence tests
-  let failed = length (filter id failures)
-  if failed == 0
-    then do
-      putStrLn "All RebindingWarning tests passed."
-      exitSuccess
-    else do
-      putStrLn (show failed ++ " RebindingWarning test(s) failed.")
-      exitFailure
+main = runTestSuite "RebindingWarning" tests
 
-tests :: [IO Bool]
+tests :: [NamedTest]
 tests =
-  [ run "disabled warning category emits nothing" testDisabledCategoryEmitsNoWarnings,
-    run "enabled warning emits one same-scope rebinding warning" testEnabledCategoryEmitsWarning,
-    run "repeated same-scope rebinding order is deterministic" testDeterministicWarningOrder,
-    run "nested scope shadowing does not emit same-scope warning" testNestedScopeShadowingNoWarning,
-    run "driver keeps JS output when warning is not promoted" testDriverKeepsOutputWhenNotPromoted,
-    run "driver suppresses JS output when warning is promoted to error" testDriverSuppressesOutputWhenPromoted
+  [ ("disabled warning category emits nothing", testDisabledCategoryEmitsNoWarnings),
+    ("enabled warning emits one same-scope rebinding warning", testEnabledCategoryEmitsWarning),
+    ("repeated same-scope rebinding order is deterministic", testDeterministicWarningOrder),
+    ("nested scope shadowing does not emit same-scope warning", testNestedScopeShadowingNoWarning),
+    ("driver keeps JS output when warning is not promoted", testDriverKeepsOutputWhenNotPromoted),
+    ("driver suppresses JS output when warning is promoted to error", testDriverSuppressesOutputWhenPromoted)
   ]
-
-run :: String -> IO () -> IO Bool
-run name action = do
-  failed <- (action >> pure False) `catchFailure` \message -> do
-    putStrLn ("FAIL: " ++ name ++ "\n  " ++ message)
-    pure True
-  if not failed then putStrLn ("PASS: " ++ name) else pure ()
-  pure failed
-
-catchFailure :: IO a -> (String -> IO a) -> IO a
-catchFailure action handler = action `catch` \(TestFailure msg) -> handler msg
-
-assertEqual :: (Eq a, Show a) => String -> a -> a -> IO ()
-assertEqual label expected actual =
-  if expected == actual
-    then pure ()
-    else failTest (label ++ ": expected " ++ show expected ++ ", got " ++ show actual)
-
-assertJust :: String -> Maybe a -> IO ()
-assertJust label value =
-  case value of
-    Just _ -> pure ()
-    Nothing -> failTest (label ++ ": expected Just, got Nothing")
-
-failTest :: String -> IO a
-failTest = throwIO . TestFailure
 
 testDisabledCategoryEmitsNoWarnings :: IO ()
 testDisabledCategoryEmitsNoWarnings = do

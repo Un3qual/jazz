@@ -1,9 +1,7 @@
 module Main (main) where
 
-import Control.Exception (Exception, catch, throwIO)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
-import Data.List (isInfixOf)
 import JazzNext.CLI.Main
   ( CliOptions (..),
     CliOutput (..),
@@ -17,61 +15,25 @@ import JazzNext.Compiler.Analyzer
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)
   )
-import System.Exit (exitFailure, exitSuccess)
-
-newtype TestFailure = TestFailure String
-
-instance Show TestFailure where
-  show (TestFailure msg) = msg
-
-instance Exception TestFailure
+import JazzNext.TestHarness
+  ( NamedTest,
+    assertContains,
+    assertEqual,
+    failTest,
+    runTestSuite
+  )
 
 main :: IO ()
-main = do
-  failures <- sequence tests
-  let failed = length (filter id failures)
-  if failed == 0
-    then do
-      putStrLn "All CLISpec tests passed."
-      exitSuccess
-    else do
-      putStrLn (show failed ++ " CLISpec test(s) failed.")
-      exitFailure
+main = runTestSuite "CLISpec" tests
 
-tests :: [IO Bool]
+tests :: [NamedTest]
 tests =
-  [ run "parseCliOptions captures warning flags and config path" testParseOptions,
-    run "cli run prints warning to stderr while keeping stdout output" testCliWarningOnlyBehavior,
-    run "cli run returns non-zero and suppresses stdout when warning promoted" testCliPromotedWarningBehavior,
-    run "cli precedence keeps CLI over env over config" testCliPrecedenceBehavior,
-    run "cli respects --warnings-config path override" testCliConfigPathOverride
+  [ ("parseCliOptions captures warning flags and config path", testParseOptions),
+    ("cli run prints warning to stderr while keeping stdout output", testCliWarningOnlyBehavior),
+    ("cli run returns non-zero and suppresses stdout when warning promoted", testCliPromotedWarningBehavior),
+    ("cli precedence keeps CLI over env over config", testCliPrecedenceBehavior),
+    ("cli respects --warnings-config path override", testCliConfigPathOverride)
   ]
-
-run :: String -> IO () -> IO Bool
-run name action = do
-  failed <- (action >> pure False) `catchFailure` \message -> do
-    putStrLn ("FAIL: " ++ name ++ "\n  " ++ message)
-    pure True
-  if not failed then putStrLn ("PASS: " ++ name) else pure ()
-  pure failed
-
-catchFailure :: IO a -> (String -> IO a) -> IO a
-catchFailure action handler = action `catch` \(TestFailure msg) -> handler msg
-
-assertEqual :: (Eq a, Show a) => String -> a -> a -> IO ()
-assertEqual label expected actual =
-  if expected == actual
-    then pure ()
-    else failTest (label ++ ": expected " ++ show expected ++ ", got " ++ show actual)
-
-assertContains :: String -> String -> String -> IO ()
-assertContains label needle haystack =
-  if needle `isInfixOf` haystack
-    then pure ()
-    else failTest (label ++ ": expected to find '" ++ needle ++ "' in '" ++ haystack ++ "'")
-
-failTest :: String -> IO a
-failTest = throwIO . TestFailure
 
 testParseOptions :: IO ()
 testParseOptions = do

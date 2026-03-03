@@ -1,7 +1,5 @@
 module Main (main) where
 
-import Control.Exception (Exception, catch, throwIO)
-import Data.List (isInfixOf)
 import JazzNext.Compiler.WarningConfig
   ( WarningDirective (..),
     WarningSettings,
@@ -14,76 +12,32 @@ import JazzNext.Compiler.Warnings
   ( WarningCategory (..),
     parseWarningCategory
   )
-import System.Exit (exitFailure, exitSuccess)
-
-newtype TestFailure = TestFailure String
-
-instance Show TestFailure where
-  show (TestFailure msg) = msg
-
-instance Exception TestFailure
+import JazzNext.TestHarness
+  ( NamedTest,
+    assertEqual,
+    assertLeftContains,
+    assertRight,
+    runTestSuite
+  )
 
 main :: IO ()
-main = do
-  failures <- sequence tests
-  let failed = length (filter id failures)
-  if failed == 0
-    then do
-      putStrLn "All WarningConfig tests passed."
-      exitSuccess
-    else do
-      putStrLn (show failed ++ " WarningConfig test(s) failed.")
-      exitFailure
+main = runTestSuite "WarningConfig" tests
 
-tests :: [IO Bool]
+tests :: [NamedTest]
 tests =
-  [ run "parseWarningCategory accepts known category" testParseWarningCategoryKnown,
-    run "parseWarningCategory rejects unknown category" testParseWarningCategoryUnknown,
-    run "parseCliWarningDirective parses all phase-1 forms" testParseCliWarningDirectiveForms,
-    run "resolveWarningSettings handles standalone -Werror=<category>" testCliPromoteCategoryStandalone,
-    run "resolveWarningSettings promotes enabled warnings via -Werror" testPromoteAllEnabledToError,
-    run "resolveWarningSettings applies CLI > env > config > default" testPrecedenceOrder,
-    run "resolveWarningSettings applies env error directives after env warning directives" testEnvErrorOverridesEnvWarning,
-    run "resolveWarningSettings defaults to all warnings disabled" testDefaultDisabled,
-    run "resolveWarningSettings rejects malformed env warning token list" testMalformedEnvWarningTokenList,
-    run "resolveWarningSettings fails on unknown CLI category" testUnknownCliCategory,
-    run "resolveWarningSettings fails on unknown env category" testUnknownEnvCategory,
-    run "resolveWarningSettings fails on unknown config category" testUnknownConfigCategory
+  [ ("parseWarningCategory accepts known category", testParseWarningCategoryKnown),
+    ("parseWarningCategory rejects unknown category", testParseWarningCategoryUnknown),
+    ("parseCliWarningDirective parses all phase-1 forms", testParseCliWarningDirectiveForms),
+    ("resolveWarningSettings handles standalone -Werror=<category>", testCliPromoteCategoryStandalone),
+    ("resolveWarningSettings promotes enabled warnings via -Werror", testPromoteAllEnabledToError),
+    ("resolveWarningSettings applies CLI > env > config > default", testPrecedenceOrder),
+    ("resolveWarningSettings applies env error directives after env warning directives", testEnvErrorOverridesEnvWarning),
+    ("resolveWarningSettings defaults to all warnings disabled", testDefaultDisabled),
+    ("resolveWarningSettings rejects malformed env warning token list", testMalformedEnvWarningTokenList),
+    ("resolveWarningSettings fails on unknown CLI category", testUnknownCliCategory),
+    ("resolveWarningSettings fails on unknown env category", testUnknownEnvCategory),
+    ("resolveWarningSettings fails on unknown config category", testUnknownConfigCategory)
   ]
-
-run :: String -> IO () -> IO Bool
-run name action = do
-  failed <- (action >> pure False) `catchFailure` \message -> do
-    putStrLn ("FAIL: " ++ name ++ "\n  " ++ message)
-    pure True
-  if not failed then putStrLn ("PASS: " ++ name) else pure ()
-  pure failed
-
-catchFailure :: IO a -> (String -> IO a) -> IO a
-catchFailure action handler = action `catch` \(TestFailure msg) -> handler msg
-
-assertEqual :: (Eq a, Show a) => String -> a -> a -> IO ()
-assertEqual label expected actual =
-  if expected == actual
-    then pure ()
-    else failTest (label ++ ": expected " ++ show expected ++ ", got " ++ show actual)
-
-assertLeftContains :: Show a => String -> String -> Either String a -> IO ()
-assertLeftContains label needle value =
-  case value of
-    Left err
-      | needle `isInfixOf` err -> pure ()
-      | otherwise -> failTest (label ++ ": expected error containing '" ++ needle ++ "', got '" ++ err ++ "'")
-    Right ok -> failTest (label ++ ": expected Left, got Right " ++ show ok)
-
-assertRight :: Show e => String -> Either e a -> (a -> IO ()) -> IO ()
-assertRight label value check =
-  case value of
-    Left err -> failTest (label ++ ": expected Right, got Left " ++ show err)
-    Right ok -> check ok
-
-failTest :: String -> IO a
-failTest = throwIO . TestFailure
 
 testParseWarningCategoryKnown :: IO ()
 testParseWarningCategoryKnown =
