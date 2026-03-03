@@ -26,7 +26,7 @@ import JazzNext.Compiler.WarningConfig
 import JazzNext.Compiler.Warnings
   ( warningToken
   )
-import System.Directory (doesFileExist)
+import Control.Exception (IOException, evaluate, try)
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..), exitWith)
 import System.IO (hPutStr, stderr, stdout)
@@ -45,8 +45,10 @@ data CliOutput = CliOutput
   deriving (Eq, Show)
 
 parseCliOptions :: [String] -> Either String CliOptions
-parseCliOptions = go (CliOptions [] Nothing)
+parseCliOptions args = finalize <$> go (CliOptions [] Nothing) args
   where
+    finalize options =
+      options {cliWarningFlags = reverse (cliWarningFlags options)}
     go options [] = Right options
     go options ("--warnings-config" : path : rest) =
       go options {cliWarningsConfigPath = Just path} rest
@@ -54,7 +56,7 @@ parseCliOptions = go (CliOptions [] Nothing)
       Left "missing path after --warnings-config"
     go options (arg : rest)
       | "-W" `isPrefixOf` arg =
-          go options {cliWarningFlags = cliWarningFlags options ++ [arg]} rest
+          go options {cliWarningFlags = arg : cliWarningFlags options} rest
       | otherwise = Left ("unknown argument: " ++ arg)
 
 runCliWith ::
@@ -161,11 +163,20 @@ renderPreviousSpan previous =
     Just previousSpan -> " (previous " ++ renderSpan previousSpan ++ ")"
 
 readConfigMaybe :: FilePath -> IO (Maybe String)
-readConfigMaybe path = do
-  exists <- doesFileExist path
-  if exists
-    then Just <$> readFile path
-    else pure Nothing
+readConfigMaybe path =
+  (eitherToMaybe <$> try readAndForce)
+  where
+    readAndForce :: IO String
+    readAndForce = do
+      contents <- readFile path
+      _ <- evaluate (length contents)
+      pure contents
+
+    eitherToMaybe :: Either IOException String -> Maybe String
+    eitherToMaybe readResult =
+      case readResult of
+        Left _ -> Nothing
+        Right contents -> Just contents
 
 sampleProgram :: Expr
 sampleProgram =
