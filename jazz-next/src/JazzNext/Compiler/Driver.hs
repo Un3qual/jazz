@@ -30,9 +30,10 @@ compileExpr settings expr = do
   inference <- inferExpression settings expr
   let warnings = filterWarningsForPromotion settings (inferredWarnings inference)
       promotedWarnings = filter (isPromoted settings) warnings
-      errors = map warningToError promotedWarnings
+      promotedWarningErrors = map warningToError promotedWarnings
+      errors = inferredErrors inference ++ promotedWarningErrors
       output =
-        if null promotedWarnings
+        if null errors
           then
             -- This module is only responsible for warning/error control flow.
             -- JS generation remains a placeholder until codegen lands in jazz-next.

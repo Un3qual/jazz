@@ -1,6 +1,6 @@
 # Bindings and Signatures Semantics
 
-Status: active (phase 0 contract lock)
+Status: active (phase 1 partial implementation in `jazz-next`)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/semantics/13-binding-and-signature-coherence.md`
 
@@ -31,7 +31,7 @@ Out of scope:
 6. Non-recursive use-before-definition is invalid and must produce a compile-time error.
 7. Recursion is allowed, including both self-recursion and mutual recursion, using fixpoint treatment for recursive groups.
 8. Binding references are value snapshots, not live references. Rebinding a name later does not retroactively change previously evaluated values.
-9. Rebinding diagnostics are silent by default in this phase; warning emission is deferred behind future compiler warning flags.
+9. Rebinding diagnostics are silent by default in this phase; warning emission is available through compiler warning flags.
 
 ## Decision Matrix: Baseline vs Canonical
 
@@ -91,13 +91,13 @@ Expected behavior under D1:
 
 ### Gate E: Rebinding warning policy
 
-- E2 selected: warnings are optional and controlled by compiler warning flags (future work).
+- E2 selected: warnings are optional and controlled by compiler warning flags.
 - E1 rejected: always warn on same-scope rebinding.
 - E3 rejected: permanently silent with no warning pathway.
 
 Expected behavior under E2:
 - current default remains silent,
-- warning pathway is added later via CLI/config flags without changing semantic validity.
+- warning pathway is available via CLI/config flags without changing semantic validity.
 
 ## Canonical Examples
 
@@ -144,6 +144,5 @@ y = 1.
 
 ## Deferred Work
 
-- Add compiler warning flags and configuration plumbing for optional rebinding warnings.
-- Normative warning-flag contract: `docs/spec/tooling/compiler-warning-flags.md`.
-- Implementation plan: `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`.
+- Complete recursion-group semantics in `jazz-next` (self + mutual recursion) so implementation fully matches locked policy.
+- Add parser-surface tests once parser work lands in `jazz-next`.

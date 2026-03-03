@@ -5,6 +5,7 @@ module JazzNext.TestHarness
     assertJust,
     assertLeftContains,
     assertRight,
+    assertSingleErrorContains,
     failTest,
     runTestSuite
   )
@@ -77,6 +78,21 @@ assertRight label value check =
   case value of
     Left err -> failTest (label ++ ": expected Right, got Left " ++ show err)
     Right ok -> check ok
+
+assertSingleErrorContains :: String -> String -> [String] -> IO ()
+assertSingleErrorContains label needle errors =
+  case errors of
+    [err] ->
+      if needle `isInfixOf` err
+        then pure ()
+        else failTest (label ++ ": expected to find '" ++ needle ++ "' in '" ++ err ++ "'")
+    _ ->
+      failTest
+        ( label
+            ++ ": expected exactly 1 error, got "
+            ++ show (length errors)
+            ++ if null errors then "" else ": " ++ show errors
+        )
 
 failTest :: String -> IO a
 failTest = throwIO . TestFailure
