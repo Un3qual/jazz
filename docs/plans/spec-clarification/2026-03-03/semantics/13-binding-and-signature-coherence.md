@@ -36,7 +36,7 @@
 - [x] Added compile-time diagnostics for use-before-definition (`E1001` unbound variable).
 - [x] Added contract tests for valid and invalid signature ordering/name matching.
 - [x] Added lexical-scope regression test proving nested scope can resolve outer bindings.
-- [ ] Recursion-group semantics (self + mutual recursion groups) are still pending in `jazz-next`.
+- [x] Recursion-group semantics (self + mutual recursion groups) are now implemented in the current `jazz-next` analyzer AST subset and covered by tests.
 
 ## Verification Evidence (Current Ambiguity)
 
@@ -135,7 +135,7 @@ git commit -m "test(jazz-next): codify binding/signature coherence contract"
 
 - [x] Refactor declaration/signature handling to enforce immediate adjacency in the current AST.
 - [x] Implement diagnostics for invalid signature ordering/name mismatch and use-before-definition.
-- [ ] Implement recursion-group semantics (self + mutual recursion) per locked policy.
+- [x] Implement recursion-group semantics (self + mutual recursion) per locked policy.
 - [ ] Remove remaining order-sensitive behavior tied to parser/type-surface gaps.
 
 Modify:
@@ -155,7 +155,7 @@ git commit -m "feat(jazz-next): enforce binding/signature adjacency and unbound-
 ## Phase 3: Docs and Tracker Closure
 
 - [ ] Update language state doc to remove binding/signature ambiguity notes.
-- [ ] Link normative spec section and tests as evidence.
+- [x] Link normative spec section and tests as evidence.
 
 Modify:
 - `docs/jazz-language-state.md`
@@ -179,5 +179,5 @@ bash jazz-next/scripts/test-warning-config.sh
 
 - [x] One canonical declaration/signature contract is documented.
 - [x] Contract tests for signature ordering/name matching and use-before-definition pass in `jazz-next`.
-- [ ] Analyzer behavior and diagnostics match the contract.
+- [x] Analyzer behavior and diagnostics match the contract for the current `jazz-next` AST surface.
 - [ ] Ambiguity no longer appears in language-state tracking.

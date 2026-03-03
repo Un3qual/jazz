@@ -11,6 +11,8 @@
 Execution note:
 - `jazz-hs/` references in this plan are legacy evidence only.
 - All net-new implementation and tests for this item must land in `jazz-next/`.
+- Start by bootstrapping lexer/parser support in `jazz-next` so fixity/section behavior is validated through parser tests rather than analyzer-only fixtures.
+- If implementation uncovers syntax contract gaps, update `docs/spec/syntax/operators.md` and this plan in the same change before moving to the next phase.
 
 ---
 
@@ -132,7 +134,7 @@ git commit -m "feat(parser): align operator parsing with canonical fixity policy
 ## Phase 3: Documentation and Drift Prevention
 
 - [ ] Update language-state/operator references to canonical wording.
-- [ ] Add one maintenance checklist section so future operator changes require spec+test updates together.
+- [x] Add one maintenance checklist section so future operator changes require spec+test updates together.
 
 Modify:
 - `docs/jazz-language-state.md`

@@ -391,15 +391,16 @@ Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, bu
 
 Based on the full repo, these areas still require implementation convergence even when a decision lock now exists:
 
-- Implementing locked binding/signature semantics in `jazz-next`:
+- Completing parser-surface coverage for locked binding/signature semantics in `jazz-next` (current analyzer AST contract is implemented and test-covered):
   - `docs/spec/semantics/bindings-and-signatures.md`
+  - `jazz-next/test/BindingSignatureCoherenceSpec.hs`
 - Implementing locked `if` surface semantics in `jazz-next`:
   - `docs/spec/control-flow/if-expressions.md`
 - Implementing locked operator/fixity/sections semantics in `jazz-next`:
   - `docs/spec/syntax/operators.md`
 - Implementing locked primitive semantics in `jazz-next`:
   - `docs/spec/runtime/primitive-semantics.md`
-- Implementing locked warning-flag tooling contract in `jazz-next`:
+- Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding` category:
   - `docs/spec/tooling/compiler-warning-flags.md`
 - Whether tuples are a core runtime feature or just parsed syntax in active implementation behavior.
 - Whether modules/imports are purely syntactic organization or part of a real file/module loader.

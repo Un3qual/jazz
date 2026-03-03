@@ -11,6 +11,8 @@
 Execution note:
 - `jazz-hs/` references in this plan are legacy evidence only.
 - All net-new implementation and tests for this item must land in `jazz-next/`.
+- Start by bootstrapping lexer/parser support in `jazz-next`; do not continue analyzer-only fixtures as the primary implementation path for this item.
+- If parser behavior reveals syntax ambiguity while implementing `if`, update the matching spec clarification text in the same change.
 
 ---
 

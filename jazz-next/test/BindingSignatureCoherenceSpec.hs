@@ -16,7 +16,6 @@ import JazzNext.Compiler.WarningConfig
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
     assertJust,
     assertSingleErrorContains,
@@ -33,7 +32,11 @@ tests =
     ("signature must match immediate binding name", testSignatureNameMismatch),
     ("use-before-definition is rejected", testUseBeforeDefinition),
     ("nested scope resolves outer bindings", testNestedScopeResolvesOuterBinding),
-    ("self-recursive binding is accepted", testSelfRecursiveBinding)
+    ("self-recursive binding is accepted", testSelfRecursiveBinding),
+    ("mutual recursion group is accepted", testMutualRecursionGroup),
+    ("three-node mutual recursion group is accepted", testThreeNodeMutualRecursionGroup),
+    ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference),
+    ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion)
   ]
 
 testSignatureDirectlyAboveBinding :: IO ()
@@ -122,4 +125,66 @@ selfRecursiveProgram :: Expr
 selfRecursiveProgram =
   EScope
     [ SLet "f" (SourceSpan 1 1) (EVar "f")
+    ]
+
+testMutualRecursionGroup :: IO ()
+testMutualRecursionGroup = do
+  result <- compileExpr defaultWarningSettings mutualRecursionProgram
+  assertEqual "compile errors" [] (compileErrors result)
+  assertJust "generated JS is present" (generatedJs result)
+
+testThreeNodeMutualRecursionGroup :: IO ()
+testThreeNodeMutualRecursionGroup = do
+  result <- compileExpr defaultWarningSettings threeNodeMutualRecursionProgram
+  assertEqual "compile errors" [] (compileErrors result)
+  assertJust "generated JS is present" (generatedJs result)
+
+testNonRecursiveForwardReference :: IO ()
+testNonRecursiveForwardReference = do
+  result <- compileExpr defaultWarningSettings nonRecursiveForwardReferenceProgram
+  assertSingleErrorContains
+    "error text"
+    "unbound variable 'y'"
+    (compileErrors result)
+
+testRebindingDoesNotCreateRetroactiveRecursion :: IO ()
+testRebindingDoesNotCreateRetroactiveRecursion = do
+  result <- compileExpr defaultWarningSettings retroactiveRebindingProgram
+  assertSingleErrorContains
+    "error text"
+    "unbound variable 'y'"
+    (compileErrors result)
+
+mutualRecursionProgram :: Expr
+mutualRecursionProgram =
+  EScope
+    [ SLet "even" (SourceSpan 1 1) (EVar "odd"),
+      SLet "odd" (SourceSpan 2 1) (EVar "even"),
+      SExpr (EVar "even")
+    ]
+
+threeNodeMutualRecursionProgram :: Expr
+threeNodeMutualRecursionProgram =
+  EScope
+    [ SLet "a" (SourceSpan 1 1) (EVar "b"),
+      SLet "b" (SourceSpan 2 1) (EVar "c"),
+      SLet "c" (SourceSpan 3 1) (EVar "a"),
+      SExpr (EVar "a")
+    ]
+
+nonRecursiveForwardReferenceProgram :: Expr
+nonRecursiveForwardReferenceProgram =
+  EScope
+    [ SLet "x" (SourceSpan 1 1) (EVar "y"),
+      SLet "y" (SourceSpan 2 1) (EInt 1),
+      SExpr (EVar "x")
+    ]
+
+retroactiveRebindingProgram :: Expr
+retroactiveRebindingProgram =
+  EScope
+    [ SLet "x" (SourceSpan 1 1) (EVar "y"),
+      SLet "y" (SourceSpan 2 1) (EInt 1),
+      SLet "y" (SourceSpan 3 1) (EVar "x"),
+      SExpr (EVar "x")
     ]

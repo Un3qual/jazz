@@ -12,6 +12,8 @@
 - [x] Execute Phase-0 spec publication batch for domains 14/15/16 and tooling 18
 - [x] Verify candidate-step implementation status for domains 13/14/15/16 against current `jazz-next` state before selecting next work batch
 - [x] Execute domain 13 batch 1 in `jazz-next` (signature adjacency + use-before-definition diagnostics + tests)
+- [x] Execute domain 13 batch 2 in `jazz-next` (mutual-recursion groups + forward-reference contract tests)
+- [ ] Bootstrap `jazz-next` lexer/parser foundation before additional domain execution (next-agent start point)
 - [ ] Execute plans (future work)
 
 ## Scope Boundary
@@ -33,6 +35,7 @@ This batch only includes clarification domains that are not already directly pla
 
 - [ ] 13 binding/signature coherence
 - [x] 13a binding/signature coherence batch 1 (`jazz-next` analyzer/tests)
+- [x] 13b binding/signature coherence batch 2 (`jazz-next` recursion-group semantics + tests)
 - [ ] 14 if-expression surface and semantics
 - [ ] 15 operator fixity and sections
 - [ ] 16 primitive semantics contract
@@ -49,6 +52,15 @@ This batch only includes clarification domains that are not already directly pla
 ## Follow-On Plans
 
 - `tooling/18-compiler-warning-flags.md` (implemented in `jazz-next`; retained as execution record)
+
+## Next Agent Kickoff (Parser/Lexer First)
+
+Before continuing domain 14/15/16 implementation, start with parser/lexer foundation in `jazz-next`:
+
+1. Create a minimal lexer + parser surface in `jazz-next` with tests-first coverage for current accepted syntax slices.
+2. Define a clear parse-AST -> analyzer-AST boundary so analyzer tests can consume parser output incrementally.
+3. Implement domain 14 (`if`) and domain 15 (operators/sections) on top of that parser surface, not by extending analyzer-only hand-built AST fixtures.
+4. If parser behavior exposes syntax ambiguities, update the relevant spec clarification docs in the same change before proceeding.
 
 ## Locked Governance Clarifications (2026-03-03)
 
