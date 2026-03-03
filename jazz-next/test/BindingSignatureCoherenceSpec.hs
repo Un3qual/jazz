@@ -34,6 +34,7 @@ tests =
     ("nested scope resolves outer bindings", testNestedScopeResolvesOuterBinding),
     ("self-recursive binding is accepted", testSelfRecursiveBinding),
     ("mutual recursion group is accepted", testMutualRecursionGroup),
+    ("three-node mutual recursion group is accepted", testThreeNodeMutualRecursionGroup),
     ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference)
   ]
 
@@ -131,6 +132,12 @@ testMutualRecursionGroup = do
   assertEqual "compile errors" [] (compileErrors result)
   assertJust "generated JS is present" (generatedJs result)
 
+testThreeNodeMutualRecursionGroup :: IO ()
+testThreeNodeMutualRecursionGroup = do
+  result <- compileExpr defaultWarningSettings threeNodeMutualRecursionProgram
+  assertEqual "compile errors" [] (compileErrors result)
+  assertJust "generated JS is present" (generatedJs result)
+
 testNonRecursiveForwardReference :: IO ()
 testNonRecursiveForwardReference = do
   result <- compileExpr defaultWarningSettings nonRecursiveForwardReferenceProgram
@@ -145,6 +152,15 @@ mutualRecursionProgram =
     [ SLet "even" (SourceSpan 1 1) (EVar "odd"),
       SLet "odd" (SourceSpan 2 1) (EVar "even"),
       SExpr (EVar "even")
+    ]
+
+threeNodeMutualRecursionProgram :: Expr
+threeNodeMutualRecursionProgram =
+  EScope
+    [ SLet "a" (SourceSpan 1 1) (EVar "b"),
+      SLet "b" (SourceSpan 2 1) (EVar "c"),
+      SLet "c" (SourceSpan 3 1) (EVar "a"),
+      SExpr (EVar "a")
     ]
 
 nonRecursiveForwardReferenceProgram :: Expr
