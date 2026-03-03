@@ -49,10 +49,10 @@ evalScope initialEnv statements = go initialEnv Nothing statements
         statement : rest ->
           case statement of
             SSignature {} ->
-              go env lastExprValue rest
+              go env Nothing rest
             SLet name _ valueExpr -> do
               value <- evalValue env valueExpr
-              go (Map.insert name value env) lastExprValue rest
+              go (Map.insert name value env) Nothing rest
             SExpr _ expr -> do
               value <- evalValue env expr
               go env (Just value) rest
