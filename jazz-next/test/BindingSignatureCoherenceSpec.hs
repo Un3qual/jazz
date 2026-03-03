@@ -49,7 +49,9 @@ tests =
     ("source pipeline rejects non-recursive forward reference", testSourceRejectsNonRecursiveForwardReference),
     ("source pipeline rejects retroactive rebinding recursion", testSourceRejectsRetroactiveRebindingRecursion),
     ("source pipeline accepts mutual recursion group", testSourceAcceptsMutualRecursionGroup),
-    ("source pipeline rejects signature type mismatch", testSourceRejectsSignatureTypeMismatch)
+    ("source pipeline rejects signature type mismatch", testSourceRejectsSignatureTypeMismatch),
+    ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError),
+    ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
   ]
 
 testSignatureDirectlyAboveBinding :: IO ()
@@ -267,5 +269,21 @@ testSourceRejectsSignatureTypeMismatch = do
   result <- compileSource defaultWarningSettings "x :: Int.\nx = True."
   assertSingleErrorContains
     "source signature type mismatch error"
+    "E2005"
+    (compileErrors result)
+
+testSourceReportsSignedRecursiveRhsTypeError :: IO ()
+testSourceReportsSignedRecursiveRhsTypeError = do
+  result <- compileSource defaultWarningSettings "x :: Bool.\nx = x + 1."
+  assertSingleErrorContains
+    "signed recursive rhs type error"
+    "E2003"
+    (compileErrors result)
+
+testSignatureMismatchKeepsDeclaredTypeDownstream :: IO ()
+testSignatureMismatchKeepsDeclaredTypeDownstream = do
+  result <- compileSource defaultWarningSettings "x :: Int.\nx = True.\ny = x + 1."
+  assertSingleErrorContains
+    "signature mismatch should not cascade downstream"
     "E2005"
     (compileErrors result)

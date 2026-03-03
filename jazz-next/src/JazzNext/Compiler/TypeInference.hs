@@ -142,7 +142,16 @@ inferScopeType initialEnv statements = go initialEnv Nothing [] Nothing statemen
                       Nothing -> Nothing
                in go env lastExprType errorsSoFar nextPendingSignature rest
             SLet name _ valueExpr ->
-              let (valueType, valueErrors) = inferExprType env valueExpr
+              let envWithPendingSignature =
+                    case pendingSignatureType of
+                      Just pendingSignature
+                        | pendingSignatureName pendingSignature == name ->
+                            Map.insert
+                              name
+                              (pendingSignatureDeclaredType pendingSignature)
+                              env
+                      _ -> env
+                  (valueType, valueErrors) = inferExprType envWithPendingSignature valueExpr
                   signatureMismatchErrors =
                     case (pendingSignatureType, valueType) of
                       (Just pendingSignature, Just inferredType)
@@ -154,19 +163,15 @@ inferScopeType initialEnv statements = go initialEnv Nothing [] Nothing statemen
                                 inferredType
                             ]
                       _ -> []
-                  envWithPendingSignature =
+                  nextEnv =
                     case pendingSignatureType of
                       Just pendingSignature
                         | pendingSignatureName pendingSignature == name ->
-                            Map.insert
-                              name
-                              (pendingSignatureDeclaredType pendingSignature)
-                              env
-                      _ -> env
-                  nextEnv =
-                    case valueType of
-                      Just inferredType -> Map.insert name inferredType envWithPendingSignature
-                      Nothing -> envWithPendingSignature
+                            envWithPendingSignature
+                      _ ->
+                        case valueType of
+                          Just inferredType -> Map.insert name inferredType env
+                          Nothing -> env
                   nextErrors = errorsSoFar ++ valueErrors ++ signatureMismatchErrors
                in go nextEnv lastExprType nextErrors Nothing rest
             SExpr _ expr ->
