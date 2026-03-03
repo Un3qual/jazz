@@ -2,7 +2,8 @@
 
 module JazzNext.Compiler.Driver
   ( CompileResult (..),
-    compileExpr
+    compileExpr,
+    compileSource
   ) where
 
 import Data.Text (Text)
@@ -11,6 +12,12 @@ import JazzNext.Compiler.AST
   )
 import JazzNext.Compiler.Diagnostics
   ( WarningRecord (..)
+  )
+import JazzNext.Compiler.Parser
+  ( parseSurfaceProgram
+  )
+import JazzNext.Compiler.Parser.Lower
+  ( lowerSurfaceExpr
   )
 import JazzNext.Compiler.TypeInference
   ( InferenceResult (..),
@@ -50,6 +57,19 @@ compileExpr settings expr = do
         compileErrors = errors,
         generatedJs = output
       }
+
+compileSource :: WarningSettings -> Text -> IO CompileResult
+compileSource settings source =
+  case parseSurfaceProgram source of
+    Left parseError ->
+      pure
+        CompileResult
+          { compileWarnings = [],
+            compileErrors = ["E0001: parse error: " <> parseError],
+            generatedJs = Nothing
+          }
+    Right surfaceProgram ->
+      compileExpr settings (lowerSurfaceExpr surfaceProgram)
 
 filterWarningsForPromotion :: WarningSettings -> [WarningRecord] -> [WarningRecord]
 -- Placeholder hook for future category-level filtering.

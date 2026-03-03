@@ -15,6 +15,7 @@
 - [x] Execute domain 13 batch 2 in `jazz-next` (mutual-recursion groups + forward-reference contract tests)
 - [x] Bootstrap `jazz-next` lexer/parser foundation before additional domain execution (surface parser + parse/lower boundary + tests)
 - [x] Execute domain 14 batch 1 in `jazz-next` (`if` parser/lowering/type-contract tests + diagnostics)
+- [x] Execute domain 14 batch 2 in `jazz-next` (`if` desugaring + source compile/CLI pipeline alignment + tests)
 - [x] Execute domain 15 batch 1 in `jazz-next` (operator fixity/sections parser + AST/lowering + tests)
 - [x] Execute domain 16 batch 1 in `jazz-next` (primitive conformance tests + strict-equality mismatch diagnostics)
 - [ ] Execute plans (future work)
@@ -41,6 +42,7 @@ This batch only includes clarification domains that are not already directly pla
 - [x] 13b binding/signature coherence batch 2 (`jazz-next` recursion-group semantics + tests)
 - [ ] 14 if-expression surface and semantics
 - [x] 14a if-expression parser + type-contract batch (`jazz-next` parser/AST/lowering/type diagnostics + tests)
+- [x] 14b if-expression desugaring + source compile/CLI pipeline batch (`jazz-next` desugar pass + source-entry driver path + tests)
 - [x] 15 operator fixity and sections
 - [x] 15a operator fixity/sections parser-alignment batch (`jazz-next` operator table + precedence parser + section AST/tests)
 - [ ] 16 primitive semantics contract
@@ -63,7 +65,7 @@ This batch only includes clarification domains that are not already directly pla
 
 Parser/lexer foundation is now in place in `jazz-next`. Continue with domain execution on that baseline:
 
-1. Complete remaining domain 14 work (`if` desugaring-to-`case` pass and runtime/CLI alignment in `jazz-next`).
+1. Complete remaining domain 14 work (runtime branch semantics alignment in active `jazz-next` backend path).
 2. Continue domain 16 runtime alignment beyond phase-1 tests (`map`/`hd`/`tl` semantics + runtime fatal diagnostic path in active `jazz-next` pipeline).
 3. If parser behavior exposes syntax ambiguities, update the relevant spec clarification docs in the same change before proceeding.
 

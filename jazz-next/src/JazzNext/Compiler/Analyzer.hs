@@ -74,6 +74,8 @@ collectExprDiagnostics settings visibleBindings expr =
         Just _ -> ([], [])
         Nothing -> ([], [mkUnboundVariableError name])
     EIf conditionExpr thenExpr elseExpr ->
+      collectExprDiagnostics settings visibleBindings (ECase conditionExpr thenExpr elseExpr)
+    ECase conditionExpr thenExpr elseExpr ->
       let (conditionWarnings, conditionErrors) =
             collectExprDiagnostics settings visibleBindings conditionExpr
           (thenWarnings, thenErrors) =
@@ -373,6 +375,8 @@ freeVarsExprWithBound bound expr =
       | Set.member name bound -> Set.empty
       | otherwise -> Set.singleton name
     EIf conditionExpr thenExpr elseExpr ->
+      freeVarsExprWithBound bound (ECase conditionExpr thenExpr elseExpr)
+    ECase conditionExpr thenExpr elseExpr ->
       Set.unions
         [ freeVarsExprWithBound bound conditionExpr,
           freeVarsExprWithBound bound thenExpr,
