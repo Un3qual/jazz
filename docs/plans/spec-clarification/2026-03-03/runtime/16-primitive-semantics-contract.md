@@ -109,7 +109,7 @@ git commit -m "test(jazz-next): add primitive semantics conformance tests"
 ## Phase 2: Runtime/Backend Alignment
 
 - [ ] Align primitive implementations with the semantic contract.
-- [ ] Remove backend-specific behavior that violates contract (for example coercive equality if disallowed).
+- [x] Remove backend-specific behavior that violates contract (for example coercive equality if disallowed).
 - [ ] Keep fatal diagnostics consistent across runtime paths for invalid primitive uses that escape compile-time checks.
 
 Modify (active `jazz-next` path):
@@ -165,6 +165,7 @@ runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpe
 - [x] Added `jazz-next/test/PrimitiveSemanticsSpec.hs` conformance coverage for current primitive behavior in the active AST subset (numeric/equality/comparison operators).
 - [x] Added explicit strict-equality mismatch assertions (`==`, `!=`) and arithmetic/comparison mismatch assertions.
 - [x] Added a dedicated strict-equality mismatch diagnostic code (`E2004`) in `jazz-next/src/JazzNext/Compiler/TypeInference.hs`.
+- [x] Re-verified strict equality behavior remained non-coercive in active `jazz-next` compile paths and test coverage.
 - [x] Added the primitive semantics suite to `jazz-next/scripts/test-warning-config.sh` so it runs in the default verification loop.
 - [x] Ran `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpec.hs` and `bash jazz-next/scripts/test-warning-config.sh`.
 - [ ] Full primitive-family conformance remains open until list/runtime primitive domains (`map`, `hd`, `tl`, runtime fatal paths) are executable in the active `jazz-next` pipeline.

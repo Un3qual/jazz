@@ -13,10 +13,6 @@ import Data.List (isPrefixOf)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
-import JazzNext.Compiler.AST
-  ( Expr (..),
-    Statement (..)
-  )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
     WarningRecord (..),
@@ -24,7 +20,7 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
-    compileExpr
+    compileSource
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -70,9 +66,9 @@ runCliWith ::
   [String] ->
   (String -> IO (Maybe String)) ->
   (FilePath -> IO (Maybe Text)) ->
-  Expr ->
+  Text ->
   IO CliOutput
-runCliWith args envLookup configLookup expr =
+runCliWith args envLookup configLookup source =
   case parseCliOptions args of
     Left parseError ->
       pure
@@ -91,12 +87,12 @@ runCliWith args envLookup configLookup expr =
                 cliStdout = "",
                 cliStderr = "error: " <> configError <> "\n"
               }
-        Right settings -> runCompile settings expr
+        Right settings -> runCompile settings source
 
 main :: IO ()
 main = do
   args <- getArgs
-  output <- runCliWith args lookupEnv readConfigMaybe sampleProgram
+  output <- runCliWith args lookupEnv readConfigMaybe sampleSource
   TextIO.hPutStr stdout (cliStdout output)
   TextIO.hPutStr stderr (cliStderr output)
   exitWith (toExitCode (cliExitCode output))
@@ -123,9 +119,9 @@ resolveSettings options envLookup configLookup = do
       Nothing -> pure Nothing
   pure (resolveWarningSettings (cliWarningFlags options) envWarningFlags envErrorFlags configContents)
 
-runCompile :: WarningSettings -> Expr -> IO CliOutput
-runCompile settings expr = do
-  result <- compileExpr settings expr
+runCompile :: WarningSettings -> Text -> IO CliOutput
+runCompile settings source = do
+  result <- compileSource settings source
   let warningLines = map formatWarningLine (compileWarnings result)
       errorLines = map ("error: " <>) (compileErrors result)
       stderrOutput = renderLines (warningLines ++ errorLines)
@@ -183,14 +179,10 @@ readConfigMaybe path =
         Left _ -> Nothing
         Right contents -> Just contents
 
-sampleProgram :: Expr
+sampleSource :: Text
 -- Temporary bootstrap program used by the current CLI entrypoint until source
 -- file parsing/execution wiring lands.
-sampleProgram =
-  EScope
-    [ SLet "x" (SourceSpan 1 1) (EInt 1),
-      SLet "x" (SourceSpan 2 1) (EInt 2)
-    ]
+sampleSource = "x = 1. x = 2."
 
 toExitCode :: Int -> ExitCode
 toExitCode code =

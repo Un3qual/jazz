@@ -11,7 +11,8 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
-    compileExpr
+    compileExpr,
+    compileSource
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -34,7 +35,9 @@ tests =
     ("if condition rejects mismatched strict equality operands", testRejectsInvalidEqualityCondition),
     ("if branches must have matching types", testRejectsMismatchedBranchTypes),
     ("if with Bool condition and aligned branches compiles", testAcceptsWellTypedIf),
-    ("binary operator rejects mismatched operand types", testRejectsBinaryTypeMismatch)
+    ("binary operator rejects mismatched operand types", testRejectsBinaryTypeMismatch),
+    ("source pipeline compiles well-typed if expression", testSourcePipelineAcceptsWellTypedIf),
+    ("source pipeline reports if condition type errors", testSourcePipelineRejectsNonBoolCondition)
   ]
 
 testRejectsNonBoolCondition :: IO ()
@@ -112,3 +115,17 @@ testRejectsBinaryTypeMismatch = do
 binaryTypeMismatchProgram :: Expr
 binaryTypeMismatchProgram =
   mkProgram (EBinary "+" (EInt 1) (EBool True))
+
+testSourcePipelineAcceptsWellTypedIf :: IO ()
+testSourcePipelineAcceptsWellTypedIf = do
+  result <- compileSource defaultWarningSettings "x = if True 1 else 2."
+  assertEqual "compile errors" [] (compileErrors result)
+  assertJust "generated JS is present" (generatedJs result)
+
+testSourcePipelineRejectsNonBoolCondition :: IO ()
+testSourcePipelineRejectsNonBoolCondition = do
+  result <- compileSource defaultWarningSettings "x = if 1 2 else 3."
+  assertSingleErrorContains
+    "source condition type error"
+    "E2001"
+    (compileErrors result)

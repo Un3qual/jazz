@@ -19,6 +19,9 @@ import JazzNext.Compiler.Parser.AST
 import JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr
   )
+import JazzNext.Compiler.Desugar
+  ( desugarExpr
+  )
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
@@ -39,7 +42,8 @@ tests =
     ("treats if and else as reserved keywords", testRejectsKeywordAsBindingName),
     ("rejects True as binding name", testRejectsTrueAsBindingName),
     ("rejects False as signature name", testRejectsFalseAsSignatureName),
-    ("lowers parsed if surface nodes into analyzer AST", testLowerIfExpression)
+    ("lowers parsed if surface nodes into analyzer AST", testLowerIfExpression),
+    ("desugars lowered if nodes into canonical case form", testDesugarIfExpression)
   ]
 
 testParsesBasicIfExpression :: IO ()
@@ -124,4 +128,24 @@ testLowerIfExpression =
             "x"
             (SourceSpan 1 1)
             (EIf (EBool True) (EInt 1) (EInt 2))
+        ]
+
+testDesugarIfExpression :: IO ()
+testDesugarIfExpression =
+  assertRight
+    "parse + lower + desugar if"
+    (parseSurfaceProgram "x = if True 1 else 2.")
+    ( \surfaceProgram ->
+        assertEqual
+          "desugared if AST"
+          expectedProgram
+          (desugarExpr (lowerSurfaceExpr surfaceProgram))
+    )
+  where
+    expectedProgram =
+      EScope
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            (ECase (EBool True) (EInt 1) (EInt 2))
         ]

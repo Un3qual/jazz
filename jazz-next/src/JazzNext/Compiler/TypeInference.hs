@@ -22,6 +22,9 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics
   ( WarningRecord
   )
+import JazzNext.Compiler.Desugar
+  ( desugarExpr
+  )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
     defaultWarningSettings
@@ -38,11 +41,12 @@ data InferenceResult = InferenceResult
 -- pipeline is still being built in jazz-next.
 inferExpression :: WarningSettings -> Expr -> IO InferenceResult
 inferExpression settings expr = do
-  AnalysisResult analyzed warnings errors <- analyzeProgram settings expr
-  let typeErrors = collectIfTypeErrors analyzed
+  let canonicalExpr = desugarExpr expr
+  AnalysisResult _ warnings errors <- analyzeProgram settings canonicalExpr
+  let typeErrors = collectIfTypeErrors canonicalExpr
   pure
     InferenceResult
-      { inferredExpr = analyzed,
+      { inferredExpr = canonicalExpr,
         inferredWarnings = warnings,
         inferredErrors = errors ++ typeErrors
       }
@@ -65,6 +69,8 @@ inferExprType env expr =
     EBool _ -> (Just TBoolType, [])
     EVar name -> (Map.lookup name env, [])
     EIf conditionExpr thenExpr elseExpr ->
+      inferExprType env (ECase conditionExpr thenExpr elseExpr)
+    ECase conditionExpr thenExpr elseExpr ->
       let (conditionType, conditionErrors) = inferExprType env conditionExpr
           (thenType, thenErrors) = inferExprType env thenExpr
           (elseType, elseErrors) = inferExprType env elseExpr

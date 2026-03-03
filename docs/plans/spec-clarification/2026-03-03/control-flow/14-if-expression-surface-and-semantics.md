@@ -23,6 +23,7 @@ Execution note:
 - [x] Selected execution track chosen (Track A)
 - [x] Canonical `if` spec published (Track A0)
 - [x] Tests and docs aligned
+- [x] Batch 2 desugaring + source pipeline alignment executed in `jazz-next`
 - [ ] Clarification closed
 
 ## Decision Lock (Approved 2026-03-03)
@@ -87,8 +88,8 @@ Modify:
 ### Phase A2: Parser + Analyzer Implementation
 
 - [x] Add `if` parser production in `Parser` (`Parser.hs`) that constructs `EIf`.
-- [ ] Add an explicit desugaring phase that rewrites `EIf` to `ECase` before analysis.
-- [ ] Keep analyzer canonical on post-desugared forms; avoid permanent duplicate typing logic if `EIf` is always lowered pre-analysis.
+- [x] Add an explicit desugaring phase that rewrites `EIf` to `ECase` before analysis.
+- [x] Keep analyzer canonical on post-desugared forms; avoid permanent duplicate typing logic if `EIf` is always lowered pre-analysis.
 - [x] Add error messages for non-`Bool` condition and branch mismatch.
 
 Modify:
@@ -102,7 +103,7 @@ Modify:
 ### Phase A3: Runtime Path Alignment
 
 - [ ] Keep runtime branch semantics aligned with spec (JS path or interpreter path, depending on active backend).
-- [ ] Add pipeline test showing parser->analyzer->runtime roundtrip for `if`.
+- [x] Add pipeline test showing parser->analyzer->runtime roundtrip for `if`.
 
 Modify:
 - `jazz-next/src/JazzNext/Compiler/Driver.hs`
@@ -185,3 +186,12 @@ runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionTypeSpec.
 - [x] Implemented parser/lowering/core-AST support for `if` and `Bool` literals in `jazz-next`.
 - [x] Added type-check diagnostics (`E2001`/`E2002`) for `if` condition and branch constraints.
 - [x] Ran `bash jazz-next/scripts/test-warning-config.sh`, `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionParserSpec.hs`, and `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionTypeSpec.hs`.
+
+## Implementation Status Verification (2026-03-03, Batch 3)
+
+- [x] Re-verified unchecked candidate steps in Track A2/A3 before implementation and confirmed desugaring + source-pipeline gaps were still open.
+- [x] Added explicit control-flow desugaring pass (`EIf -> ECase`) in `jazz-next/src/JazzNext/Compiler/Desugar.hs` and wired canonicalization in `TypeInference`.
+- [x] Added source-entry compile path in `jazz-next/src/JazzNext/Compiler/Driver.hs` (`parseSurfaceProgram -> lowerSurfaceExpr -> compileExpr`).
+- [x] Updated CLI compile flow to compile from source text through the new driver source path.
+- [x] Added/updated tests for parse->lower->desugar and source-pipeline `if` behavior in `jazz-next/test/IfExpressionParserSpec.hs`, `jazz-next/test/IfExpressionTypeSpec.hs`, and `jazz-next/test/CLISpec.hs`.
+- [x] Ran `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionParserSpec.hs`, `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/IfExpressionTypeSpec.hs`, and `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`.

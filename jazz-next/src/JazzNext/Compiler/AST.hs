@@ -16,6 +16,8 @@ data Expr
   | EBool Bool
   | EVar Text
   | EIf Expr Expr Expr
+  -- Internal canonical branch form used after control-flow desugaring.
+  | ECase Expr Expr Expr
   | EBinary Text Expr Expr
   | ESectionLeft Expr Text
   | ESectionRight Text Expr

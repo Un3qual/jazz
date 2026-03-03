@@ -4,18 +4,12 @@ module Main (main) where
 
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import Data.Text (Text)
 import JazzNext.CLI.Main
   ( CliOptions (..),
     CliOutput (..),
     parseCliOptions,
     runCliWith
-  )
-import JazzNext.Compiler.Analyzer
-  ( Expr (..),
-    Statement (..)
-  )
-import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..)
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -48,7 +42,7 @@ testParseOptions = do
 
 testCliWarningOnlyBehavior :: IO ()
 testCliWarningOnlyBehavior = do
-  output <- runCliWith ["-Wsame-scope-rebinding"] envLookup configLookup sampleProgram
+  output <- runCliWith ["-Wsame-scope-rebinding"] envLookup configLookup sampleSource
   assertEqual "exit code" 0 (cliExitCode output)
   assertContains "stderr includes warning code" "W0001" (cliStderr output)
   assertContains "stderr includes warning category" "same-scope-rebinding" (cliStderr output)
@@ -59,7 +53,7 @@ testCliWarningOnlyBehavior = do
 
 testCliPromotedWarningBehavior :: IO ()
 testCliPromotedWarningBehavior = do
-  output <- runCliWith ["-Werror=same-scope-rebinding"] envLookup configLookup sampleProgram
+  output <- runCliWith ["-Werror=same-scope-rebinding"] envLookup configLookup sampleSource
   assertEqual "exit code" 1 (cliExitCode output)
   assertContains "stderr includes warning code" "W0001" (cliStderr output)
   assertContains "stderr includes error marker" "error:" (cliStderr output)
@@ -76,7 +70,7 @@ testCliPrecedenceBehavior = do
       configMap = Map.fromList [(".jazz-warnings", "same-scope-rebinding")]
       envLookup key = pure (Map.lookup key envMap)
       configLookup key = pure (Map.lookup key configMap)
-  output <- runCliWith ["-Wsame-scope-rebinding"] envLookup configLookup sampleProgram
+  output <- runCliWith ["-Wsame-scope-rebinding"] envLookup configLookup sampleSource
   assertEqual "exit code" 0 (cliExitCode output)
   assertContains "CLI precedence keeps warning enabled" "W0001" (cliStderr output)
 
@@ -89,13 +83,9 @@ testCliConfigPathOverride = do
           ]
       envLookup _ = pure Nothing
       configLookup key = pure (Map.lookup key configMap)
-  output <- runCliWith ["--warnings-config", "config/warnings.txt"] envLookup configLookup sampleProgram
+  output <- runCliWith ["--warnings-config", "config/warnings.txt"] envLookup configLookup sampleSource
   assertEqual "exit code" 0 (cliExitCode output)
   assertContains "custom config enables warning" "W0001" (cliStderr output)
 
-sampleProgram :: Expr
-sampleProgram =
-  EScope
-    [ SLet "x" (SourceSpan 1 1) (EInt 1),
-      SLet "x" (SourceSpan 2 1) (EInt 2)
-    ]
+sampleSource :: Text
+sampleSource = "x = 1. x = 2."
