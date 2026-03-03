@@ -136,6 +136,12 @@ git add docs/spec/authoritative-syntax.md docs/jazz-language-state.md
 git commit -m "docs(spec): record authoritative syntax decision for item #1"
 ```
 
+**Task 2 Execution Tracking (2026-03-02, worktree `8fa2`)**
+- [x] Step 1 complete: built the syntax matrix from `README.md`, legacy parser/tests, prelude reference, and legacy builtin signatures.
+- [x] Step 2 complete: created `docs/spec/authoritative-syntax.md` with canonical syntax, migration notes, and explicit non-goals.
+- [x] Step 4 complete: linked decision status from `docs/jazz-language-state.md` while keeping implementation/testing work open.
+- [x] Step 5 complete: commit this Task 2 docs checkpoint.
+
 ### Task 3: Add Failing Parser/Surface Tests Before Code Changes
 
 **Files:**

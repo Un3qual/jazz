@@ -406,7 +406,7 @@ Based on the full repo, these areas are not settled:
 If you need a practical baseline for continuing Jazz, use this order:
 
 1. Treat `docs/spec/*` as the canonical source of truth when a section exists.
-2. For uncovered semantic areas, treat `jazz-hs` behavior/tests as temporary authority.
+2. For uncovered semantic areas, use `jazz-hs` behavior/tests as legacy evidence and implement convergence work in `jazz-next`.
 3. Treat the top-level README as aspirational/non-normative summary text.
 4. Treat `static/Prelude.jz` as a future-design sketch, not an exact spec.
 5. Treat `jazz2` as a reference-only redesign source, not the active implementation target.
@@ -429,7 +429,11 @@ If you need a practical baseline for continuing Jazz, use this order:
 
 If this repo is going to become a coherent language project, the highest-value cleanup would be:
 
-1. Pick one authoritative syntax for functions, modules, traits, and collections.
+Status update for item #1:
+- Decision lock is recorded in `docs/spec/authoritative-syntax.md`.
+- Implementation/test alignment is still pending and must be executed in `jazz-next`.
+
+1. Finish implementation and tests for authoritative syntax in `jazz-next` (decision already locked).
 2. Decide whether `map`/`filter` are function-first or collection-first.
 3. Decide whether purity with `!` is real semantics or only naming.
 4. Decide whether `trait` or `class` is the canonical abstraction keyword.

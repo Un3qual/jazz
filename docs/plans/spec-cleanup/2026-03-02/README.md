@@ -9,6 +9,7 @@
 - [x] Included Nix environment considerations in every plan
 - [x] Locked cross-item product decisions from maintainer approval (2026-03-02)
 - [x] Started execution with item #1 task #1 (repo-level Nix flake bootstrap)
+- [x] Started execution with item #1 task #2 (authoritative syntax decision record)
 - [ ] Execute plans (future work)
 
 ## Item Status (Verified Unresolved)
