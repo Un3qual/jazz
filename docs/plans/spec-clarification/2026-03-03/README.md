@@ -34,6 +34,10 @@ This batch only includes clarification domains that are not already directly pla
 - [ ] 16 primitive semantics contract
 - [x] 17 jazz2 alignment and spec authority
 
+## Follow-On Plans
+
+- `tooling/18-compiler-warning-flags.md` (optional warning-flag infrastructure requested by item 13 decision lock)
+
 ## Locked Governance Clarifications (2026-03-03)
 
 - `jazz2` is reference-only and non-normative for current language behavior.
