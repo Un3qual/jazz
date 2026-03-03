@@ -14,7 +14,7 @@
 
 - [x] Operator drift evidence captured
 - [ ] Fixity model decision locked
-- [ ] Section semantics decision locked
+- [x] Section semantics decision locked
 - [ ] Parser/tests aligned with canonical contract
 - [x] User-defined operator roadmap direction decided (staged)
 
@@ -23,7 +23,7 @@
 - [x] User-defined operators will be delivered in staged phases.
 - [x] Stage architecture must preserve easy completion in later phases (no parser rewrite trap).
 - [ ] Builtin fixity table lock (Gate A) still required.
-- [ ] Section representation lock (Gate B) still required.
+- [x] Section representation lock (Gate B): explicit AST node for operator sections.
 
 ## Verification Evidence (Current Drift)
 
@@ -49,10 +49,10 @@ Out of scope:
 ## Decision Gates
 
 - [ ] Gate A: builtin operator set and fixity are frozen for v1.
-- [ ] Gate B: section semantics policy.
-  - Option B1: keep lambda-desugaring semantics but hide synthetic names from external AST contract.
-  - Option B2: introduce explicit AST node for operator sections.
-  - Option B3: limit section support to one side for now (documented restriction).
+- [x] Gate B: section semantics policy.
+  - [ ] Option B1: keep lambda-desugaring semantics but hide synthetic names from external AST contract.
+  - [x] Option B2 (selected): introduce explicit AST node for operator sections.
+  - [ ] Option B3: limit section support to one side for now (documented restriction).
 - [x] Gate C: user-defined operators.
   - [ ] Option C1: defer with explicit non-goal.
   - [x] Option C2 (selected): staged support with restricted characters and fixed precedence tiers.
@@ -63,6 +63,10 @@ Out of scope:
 - [ ] Write EBNF-like operator grammar and fixity table.
 - [ ] Record precedence and associativity examples, including `$`.
 - [ ] Record section desugaring examples and invalid cases.
+- [ ] Define section AST contract and lowering rules:
+  - Add explicit section nodes (for example `ESectionLeft`/`ESectionRight` or equivalent).
+  - Keep parser output stable and independent from synthetic lambda variable names.
+  - Lower section nodes in desugaring, not in parser ad hoc branches.
 - [ ] Define stage boundaries and compatibility contract:
   - Stage 1: frozen builtin operators + parser/runtime cleanup.
   - Stage 2: controlled user-defined operator declarations with fixed precedence tiers.
@@ -106,7 +110,8 @@ git commit -m "test(parser): codify operator fixity and section contract"
 Modify:
 - `jazz-hs/src/Parser/Operator.hs`
 - `jazz-hs/src/Parser/Lang.hs`
-- `jazz-hs/src/AST.hs` (only if new section node is introduced)
+- `jazz-hs/src/AST.hs` (required for explicit section nodes)
+- `jazz-hs/src/Desugar.hs` or `jazz-hs/src/Desugar/Operators.hs` (section-node lowering)
 
 ### Commit Checkpoint (Phase 2)
 

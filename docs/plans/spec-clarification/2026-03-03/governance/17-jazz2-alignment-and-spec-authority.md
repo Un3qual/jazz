@@ -15,6 +15,7 @@
 - [x] Drift evidence collected (`jazz2` intent vs active implementation)
 - [x] `jazz2` status decision locked
 - [x] Source-of-truth hierarchy direction locked
+- [x] Change-acceptance workflow direction locked (hybrid)
 - [ ] Governance policy document published
 - [ ] Docs aligned across repo roots
 - [ ] Anti-drift enforcement added
@@ -23,7 +24,9 @@
 
 - [x] `jazz2` is a reference/design source for future compiler ideas (for example type families/GADTs), not a normative implementation target right now.
 - [x] Normative language behavior is anchored to active implementation + canonical spec docs (`jazz-hs` + `docs/spec/*`).
-- [ ] Change-acceptance workflow gate (Gate C) still required.
+- [x] Hybrid change-acceptance workflow:
+  - semantic language changes require a decision record/RFC before implementation,
+  - implementation-first is allowed for non-semantic/internal changes when docs/tests are updated in the same change.
 
 ## Verification Evidence (Current Ambiguity)
 
@@ -53,9 +56,10 @@ Out of scope:
   - [x] Option B1 (selected): `jazz-hs` behavior + `docs/spec/*` are normative.
   - [ ] Option B2: docs-only normative with implementation treated as lagging target.
   - [ ] Option B3: dual-source model (discouraged due drift risk).
-- [ ] Gate C: acceptance workflow for semantic changes inspired by `jazz2`.
-  - Option C1: RFC-style decision record required before implementation.
-  - Option C2: implementation-first allowed if tests/docs updated in same change.
+- [x] Gate C: acceptance workflow for semantic changes inspired by `jazz2`.
+  - [ ] Option C1: RFC-style decision record required before implementation.
+  - [ ] Option C2: implementation-first allowed if tests/docs updated in same change.
+  - [x] Option C3 (selected, hybrid): RFC-first for semantic changes; implementation-first allowed for non-semantic/internal changes with same-change docs/tests updates.
 
 ## Phase 0: Governance Policy Draft
 

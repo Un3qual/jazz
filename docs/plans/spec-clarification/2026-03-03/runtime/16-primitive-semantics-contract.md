@@ -15,7 +15,7 @@
 - [x] Primitive semantic drift identified
 - [ ] Primitive inventory and contract table published
 - [x] Equality decision gate finalized
-- [ ] Remaining decision gates finalized (`numeric behavior`, `primitive errors`)
+- [x] Remaining decision gates finalized (`numeric behavior`, `primitive errors`)
 - [ ] Runtime/typechecker conformance tests added
 - [ ] Docs and trackers aligned
 
@@ -23,8 +23,9 @@
 
 - [x] Equality is strict and type-directed.
 - [x] No backend coercive equality semantics in the canonical language contract.
-- [ ] Numeric behavior gate (B) still required.
-- [ ] Primitive error model gate (C) still required.
+- [x] Numeric behavior remains trait-driven with deterministic defaulting rules.
+- [x] Numeric model must scale to planned width-specific types (`Int8..Int64`, `UInt8..UInt64`, `Float8..Float64`).
+- [x] Primitive runtime failures use fatal diagnostics in v1 (with compile-time prevention preferred where possible).
 
 ## Verification Evidence (Current Ambiguity)
 
@@ -51,12 +52,12 @@ Out of scope:
   - [x] Option A1 (selected): strict type-directed equality only.
   - [ ] Option A2: structural equality for compatible value families.
   - [ ] Option A3: retain JS-like coercive behavior (not recommended for interpreter-first direction).
-- [ ] Gate B: Numeric behavior.
-  - Option B1: integer/float operations remain trait-driven with explicit defaulting rules.
-  - Option B2: explicit literal suffixing or syntax to avoid defaulting ambiguity.
-- [ ] Gate C: Primitive error model.
-  - Option C1: recoverable runtime errors with explicit error values.
-  - Option C2: fatal runtime diagnostics for invalid primitive calls in v1.
+- [x] Gate B: Numeric behavior.
+  - [x] Option B1 (selected): integer/float operations remain trait-driven with explicit defaulting rules.
+  - [ ] Option B2: explicit literal suffixing or syntax to avoid defaulting ambiguity.
+- [x] Gate C: Primitive error model.
+  - [ ] Option C1: recoverable runtime errors with explicit error values.
+  - [x] Option C2 (selected): fatal runtime diagnostics for invalid primitive calls in v1.
 
 ## Phase 0: Primitive Contract Table
 
@@ -65,6 +66,10 @@ Out of scope:
   - argument/return contract,
   - valid and invalid inputs,
   - deterministic semantics independent of backend implementation language.
+- [ ] Add trait/defaulting extension rules that preserve compatibility with planned numeric widths:
+  - signed integer family (`Int8`, `Int16`, `Int32`, `Int64`),
+  - unsigned integer family (`UInt8`, `UInt16`, `UInt32`, `UInt64`),
+  - floating family (`Float8`, `Float16`, `Float32`, `Float64`).
 - [ ] Include explicit non-coercion equality examples:
   - valid: `1 == 1`, `True == False`.
   - invalid/type error: `1 == True`, `"1" == 1`.
@@ -104,7 +109,7 @@ git commit -m "test(runtime): add primitive semantics conformance tests"
 
 - [ ] Align primitive implementations with the semantic contract.
 - [ ] Remove backend-specific behavior that violates contract (for example coercive equality if disallowed).
-- [ ] Keep compatibility note if temporary divergence is intentionally accepted.
+- [ ] Keep fatal diagnostics consistent across runtime paths for invalid primitive uses that escape compile-time checks.
 
 Modify (choose active backend path):
 - `jazz-hs/src/CodeGen/Javascript.hs`
