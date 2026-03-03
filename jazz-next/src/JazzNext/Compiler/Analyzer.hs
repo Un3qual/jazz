@@ -12,6 +12,10 @@ import Data.List (foldl')
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
+import JazzNext.Compiler.AST
+  ( Expr (..),
+    Statement (..)
+  )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan,
     WarningRecord,
@@ -27,18 +31,6 @@ import JazzNext.Compiler.WarningConfig
 import JazzNext.Compiler.Warnings
   ( WarningCategory (..)
   )
-
-data Expr
-  = EInt Int
-  | EVar String
-  | EScope [Statement]
-  deriving (Eq, Show)
-
-data Statement
-  = SLet String SourceSpan Expr
-  | SSignature String SourceSpan String
-  | SExpr Expr
-  deriving (Eq, Show)
 
 data AnalysisResult = AnalysisResult
   { analyzedExpr :: Expr,

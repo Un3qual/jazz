@@ -13,7 +13,7 @@
 - [x] Verify candidate-step implementation status for domains 13/14/15/16 against current `jazz-next` state before selecting next work batch
 - [x] Execute domain 13 batch 1 in `jazz-next` (signature adjacency + use-before-definition diagnostics + tests)
 - [x] Execute domain 13 batch 2 in `jazz-next` (mutual-recursion groups + forward-reference contract tests)
-- [ ] Bootstrap `jazz-next` lexer/parser foundation before additional domain execution (next-agent start point)
+- [x] Bootstrap `jazz-next` lexer/parser foundation before additional domain execution (surface parser + parse/lower boundary + tests)
 - [ ] Execute plans (future work)
 
 ## Scope Boundary
@@ -53,13 +53,13 @@ This batch only includes clarification domains that are not already directly pla
 
 - `tooling/18-compiler-warning-flags.md` (implemented in `jazz-next`; retained as execution record)
 
-## Next Agent Kickoff (Parser/Lexer First)
+## Next Agent Kickoff (Post-Bootstrap)
 
-Before continuing domain 14/15/16 implementation, start with parser/lexer foundation in `jazz-next`:
+Parser/lexer foundation is now in place in `jazz-next`. Continue with domain execution on top of that baseline:
 
-1. Create a minimal lexer + parser surface in `jazz-next` with tests-first coverage for current accepted syntax slices.
-2. Define a clear parse-AST -> analyzer-AST boundary so analyzer tests can consume parser output incrementally.
-3. Implement domain 14 (`if`) and domain 15 (operators/sections) on top of that parser surface, not by extending analyzer-only hand-built AST fixtures.
+1. Implement domain 14 (`if`) on top of the parser surface, not by extending analyzer-only hand-built AST fixtures.
+2. Implement domain 15 (operators/sections) on top of the same parser and lowering boundary.
+3. Add domain 16 primitive conformance tests and semantic alignment in `jazz-next`.
 4. If parser behavior exposes syntax ambiguities, update the relevant spec clarification docs in the same change before proceeding.
 
 ## Locked Governance Clarifications (2026-03-03)

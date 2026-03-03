@@ -101,12 +101,16 @@ git commit -m "docs(spec): define canonical operator fixity and section rules"
 - [ ] Add explicit invalid-case tests for ambiguous or unsupported operator forms.
 
 Modify:
-- `jazz-hs/test/ParserSpec.hs`
+- `jazz-next/test/OperatorFixitySpec.hs`
+- `jazz-next/test/OperatorSectionSpec.hs`
+- `jazz-next/test/OperatorInvalidSyntaxSpec.hs`
 
 ### Commit Checkpoint (Phase 1)
 
 ```bash
-git add jazz-hs/test/ParserSpec.hs
+git add jazz-next/test/OperatorFixitySpec.hs \
+  jazz-next/test/OperatorSectionSpec.hs \
+  jazz-next/test/OperatorInvalidSyntaxSpec.hs
 git commit -m "test(parser): codify operator fixity and section contract"
 ```
 
@@ -117,15 +121,20 @@ git commit -m "test(parser): codify operator fixity and section contract"
 - [ ] If Gate C enables user-defined operators, implement only approved scope.
 
 Modify:
-- `jazz-hs/src/Parser/Operator.hs`
-- `jazz-hs/src/Parser/Lang.hs`
-- `jazz-hs/src/AST.hs` (required for explicit section nodes)
-- `jazz-hs/src/Desugar.hs` or `jazz-hs/src/Desugar/Operators.hs` (section-node lowering)
+- `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs` (explicit section nodes)
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` (section-node lowering)
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
 
 ### Commit Checkpoint (Phase 2)
 
 ```bash
-git add jazz-hs/src/Parser/Operator.hs jazz-hs/src/Parser/Lang.hs jazz-hs/src/AST.hs
+git add jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs \
+  jazz-next/src/JazzNext/Compiler/Parser.hs \
+  jazz-next/src/JazzNext/Compiler/Parser/AST.hs \
+  jazz-next/src/JazzNext/Compiler/Parser/Lower.hs \
+  jazz-next/src/JazzNext/Compiler/AST.hs
 git commit -m "feat(parser): align operator parsing with canonical fixity policy"
 ```
 
@@ -133,7 +142,7 @@ git commit -m "feat(parser): align operator parsing with canonical fixity policy
 
 ## Phase 3: Documentation and Drift Prevention
 
-- [ ] Update language-state/operator references to canonical wording.
+- [x] Update language-state/operator references to canonical wording.
 - [x] Add one maintenance checklist section so future operator changes require spec+test updates together.
 
 Modify:
@@ -150,11 +159,10 @@ git commit -m "docs(spec): close operator fixity clarification and add anti-drif
 ## Verification Commands
 
 ```bash
-cd jazz-hs
-stack test --ta '--match "infix"'
-stack test --ta '--match "partial"'
-stack test --ta '--match "operator"'
-stack test
+bash jazz-next/scripts/test-warning-config.sh
+runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/OperatorFixitySpec.hs
+runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/OperatorSectionSpec.hs
+runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/OperatorInvalidSyntaxSpec.hs
 ```
 
 ## Definition of Done

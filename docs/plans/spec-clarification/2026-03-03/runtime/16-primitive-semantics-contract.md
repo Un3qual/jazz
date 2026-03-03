@@ -96,18 +96,15 @@ git commit -m "docs(spec): define primitive semantics contract table"
 - [ ] Ensure tests can run regardless of active backend by targeting shared semantic entrypoints.
 
 Modify/Create:
-- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
-- `jazz-hs/test/InterpreterSpec.hs` (if interpreter path is active)
-- `jazz-hs/test/Spec.hs`
+- `jazz-next/test/PrimitiveSemanticsSpec.hs`
+- `jazz-next/scripts/test-warning-config.sh`
 
 ### Commit Checkpoint (Phase 1)
 
 ```bash
-git add jazz-hs/test/Analyzer/TypeInferenceSpec.hs jazz-hs/test/InterpreterSpec.hs jazz-hs/test/Spec.hs
-git commit -m "test(runtime): add primitive semantics conformance tests"
+git add jazz-next/test/PrimitiveSemanticsSpec.hs jazz-next/scripts/test-warning-config.sh
+git commit -m "test(jazz-next): add primitive semantics conformance tests"
 ```
-
-(If `InterpreterSpec.hs` does not exist yet, create it or omit it for the selected runtime track.)
 
 ## Phase 2: Runtime/Backend Alignment
 
@@ -115,16 +112,22 @@ git commit -m "test(runtime): add primitive semantics conformance tests"
 - [ ] Remove backend-specific behavior that violates contract (for example coercive equality if disallowed).
 - [ ] Keep fatal diagnostics consistent across runtime paths for invalid primitive uses that escape compile-time checks.
 
-Modify (choose active backend path):
-- `jazz-hs/src/CodeGen/Javascript.hs`
-- `jazz-hs/src/Interpreter.hs`
-- `jazz-hs/src/Types.hs`
+Modify (active `jazz-next` path):
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Driver.hs`
+- `jazz-next/src/JazzNext/Compiler/Diagnostics.hs`
 
 ### Commit Checkpoint (Phase 2)
 
 ```bash
-git add jazz-hs/src/CodeGen/Javascript.hs jazz-hs/src/Interpreter.hs jazz-hs/src/Types.hs
-git commit -m "feat(runtime): align primitive implementations with language contract"
+git add jazz-next/src/JazzNext/Compiler/AST.hs \
+  jazz-next/src/JazzNext/Compiler/Analyzer.hs \
+  jazz-next/src/JazzNext/Compiler/TypeInference.hs \
+  jazz-next/src/JazzNext/Compiler/Driver.hs \
+  jazz-next/src/JazzNext/Compiler/Diagnostics.hs
+git commit -m "feat(jazz-next): align primitive implementations with language contract"
 ```
 
 ## Phase 3: Docs and Tracking Closure
@@ -146,10 +149,8 @@ git commit -m "docs(spec): close primitive semantics clarification"
 ## Verification Commands
 
 ```bash
-cd jazz-hs
-stack test --ta '--match "Type Inference"'
-stack test --ta '--match "Interpreter"'
-stack test
+bash jazz-next/scripts/test-warning-config.sh
+runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpec.hs
 ```
 
 ## Definition of Done

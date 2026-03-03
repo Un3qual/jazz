@@ -3,7 +3,7 @@ module JazzNext.Compiler.Driver
     compileExpr
   ) where
 
-import JazzNext.Compiler.Analyzer
+import JazzNext.Compiler.AST
   ( Expr
   )
 import JazzNext.Compiler.Diagnostics

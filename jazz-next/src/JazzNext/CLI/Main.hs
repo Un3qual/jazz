@@ -7,7 +7,7 @@ module JazzNext.CLI.Main
   ) where
 
 import Data.List (isPrefixOf)
-import JazzNext.Compiler.Analyzer
+import JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
   )
