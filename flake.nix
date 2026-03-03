@@ -13,6 +13,16 @@
           inherit system;
         };
         ghcForStack = pkgs.haskell.compiler.ghc948;
+        hsPkgs = pkgs.haskell.packages.ghc948.override {
+          overrides = self: super: {
+            diagnose = pkgs.haskell.lib.dontCheck
+              (pkgs.haskell.lib.doJailbreak
+                (pkgs.haskell.lib.markUnbroken super.diagnose));
+            qbe = pkgs.haskell.lib.dontCheck
+              (pkgs.haskell.lib.markUnbroken super.qbe);
+          };
+        };
+        jazzHs = hsPkgs.callCabal2nix "jazz" ./jazz-hs { };
       in {
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
@@ -25,31 +35,10 @@
           ];
         };
 
-        checks.parser-tests = pkgs.runCommand "parser-tests" {
-          nativeBuildInputs = [
-            pkgs.stack
-            ghcForStack
-            pkgs.cabal-install
-            pkgs.git
-            pkgs.stdenv.cc
-            pkgs.gnumake
-            pkgs.pkg-config
-            pkgs.libffi
-            pkgs.zlib
-          ];
-        } ''
-          export HOME="$(mktemp -d)"
-          export STACK_ROOT="$HOME/.stack"
-
-          cp -R ${self}/jazz-hs ./jazz-hs
-          chmod -R +w ./jazz-hs
-          cd ./jazz-hs
-
-          # Parse-focused verification check required by the plan.
-          # The suite includes parser groups via `ParserSpec`.
-          stack --system-ghc --no-install-ghc test
-
-          mkdir -p "$out"
-        '';
+        # Use Nix-native package checks to avoid Stack's network-dependent
+        # snapshot/package fetch path inside sandboxed flake checks.
+        checks.jazz-test-suite = pkgs.haskell.lib.overrideCabal jazzHs (_: {
+          doCheck = true;
+        });
       });
 }
