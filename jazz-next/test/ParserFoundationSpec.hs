@@ -34,7 +34,9 @@ tests =
     ("parses signature statement with source span", testParseSignatureSpan),
     ("parses nested scope expression", testParseNestedScopeExpression),
     ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
-    ("rejects missing statement terminator", testRejectsMissingDotTerminator)
+    ("rejects missing statement terminator", testRejectsMissingDotTerminator),
+    ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot),
+    ("rejects integer literal overflow", testRejectsIntOverflow)
   ]
 
 testParseLetAndExpr :: IO ()
@@ -44,7 +46,7 @@ testParseLetAndExpr =
     ( Right
         ( SEScope
             [ SSLet "x" (SourceSpan 1 1) (SEInt 1),
-              SSExpr (SEVar "x")
+              SSExpr (SourceSpan 2 1) (SEVar "x")
             ]
         )
     )
@@ -71,8 +73,9 @@ testParseNestedScopeExpression =
         ( SEScope
             [ SSLet "x" (SourceSpan 1 1) (SEInt 1),
               SSExpr
+                (SourceSpan 2 1)
                 ( SEScope
-                    [SSExpr (SEVar "x")]
+                    [SSExpr (SourceSpan 2 3) (SEVar "x")]
                 )
             ]
         )
@@ -98,3 +101,17 @@ testRejectsMissingDotTerminator =
     "missing dot error"
     "expected '.'"
     (parseSurfaceProgram "x = 1\nx.")
+
+testRejectsMissingSignatureDot :: IO ()
+testRejectsMissingSignatureDot =
+  assertLeftContains
+    "missing signature dot error"
+    "expected '.'"
+    (parseSurfaceProgram "x :: Int\nx = 1.")
+
+testRejectsIntOverflow :: IO ()
+testRejectsIntOverflow =
+  assertLeftContains
+    "integer overflow"
+    "integer literal out of range"
+    (parseSurfaceProgram "x = 9999999999999999999999999999999999999.")

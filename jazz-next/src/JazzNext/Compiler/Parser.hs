@@ -90,9 +90,12 @@ parseLet name nameToken tokensAfterName =
 
 parseExprStatement :: [Token] -> Either String (SurfaceStatement, [Token])
 parseExprStatement tokens = do
-  (expr, afterExpr) <- parseExpr tokens
-  remaining <- consumeDot afterExpr
-  pure (SSExpr expr, remaining)
+  case tokens of
+    [] -> Left "expected expression before end of input"
+    firstToken : _ -> do
+      (expr, afterExpr) <- parseExpr tokens
+      remaining <- consumeDot afterExpr
+      pure (SSExpr (tokenSpan firstToken) expr, remaining)
 
 parseExpr :: [Token] -> Either String (SurfaceExpr, [Token])
 parseExpr tokens =
@@ -122,7 +125,7 @@ collectUntilDot :: [Token] -> Either String ([Token], [Token])
 collectUntilDot = go []
   where
     go acc [] = Left "expected '.' before end of input"
-    go acc (token : rest) =
+    go acc allTokens@(token : rest) =
       case tokenKind token of
         TDot
           | null acc ->
@@ -131,7 +134,22 @@ collectUntilDot = go []
                     ++ renderSpan (tokenSpan token)
                 )
           | otherwise -> Right (reverse acc, rest)
-        _ -> go (token : acc) rest
+        _
+          | not (null acc) && beginsStatement allTokens ->
+              Left
+                ( "expected '.' before '"
+                    ++ tokenLexeme token
+                    ++ "' at "
+                    ++ renderSpan (tokenSpan token)
+                )
+          | otherwise -> go (token : acc) rest
+
+    beginsStatement :: [Token] -> Bool
+    beginsStatement tokens =
+      case tokens of
+        Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
+        Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
+        _ -> False
 
 consumeDot :: [Token] -> Either String [Token]
 consumeDot tokens =

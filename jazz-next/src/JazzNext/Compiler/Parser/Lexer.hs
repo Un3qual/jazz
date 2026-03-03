@@ -8,6 +8,7 @@ import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace)
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)
   )
+import Text.Read (readMaybe)
 
 data TokenKind
   = TIdentifier String
@@ -39,13 +40,15 @@ tokenize = go 1 1
       | isDigit char =
           let (digits, trailing) = span isDigit (char : rest)
               width = length digits
-              token =
-                Token
-                  { tokenKind = TInt (read digits),
-                    tokenLexeme = digits,
-                    tokenSpan = SourceSpan line column
-                  }
-           in (token :) <$> go line (column + width) trailing
+           in do
+                value <- parseIntLiteral line column digits
+                let token =
+                      Token
+                        { tokenKind = TInt value,
+                          tokenLexeme = digits,
+                          tokenSpan = SourceSpan line column
+                        }
+                (token :) <$> go line (column + width) trailing
       | isIdentifierStart char =
           let (ident, trailing) = span isIdentifierContinuation (char : rest)
               width = length ident
@@ -104,3 +107,27 @@ tokenize = go 1 1
 
 renderSpan :: Int -> Int -> String
 renderSpan line column = show line ++ ":" ++ show column
+
+parseIntLiteral :: Int -> Int -> String -> Either String Int
+parseIntLiteral line column digits =
+  case readMaybe digits :: Maybe Integer of
+    Nothing ->
+      Left
+        ( "invalid integer literal '"
+            ++ digits
+            ++ "' at "
+            ++ renderSpan line column
+        )
+    Just value
+      | value < minInt || value > maxInt ->
+          Left
+            ( "integer literal out of range at "
+                ++ renderSpan line column
+                ++ ": '"
+                ++ digits
+                ++ "'"
+            )
+      | otherwise -> Right (fromInteger value)
+  where
+    minInt = toInteger (minBound :: Int)
+    maxInt = toInteger (maxBound :: Int)

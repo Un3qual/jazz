@@ -16,5 +16,5 @@ data SurfaceExpr
 data SurfaceStatement
   = SSLet String SourceSpan SurfaceExpr
   | SSSignature String SourceSpan String
-  | SSExpr SurfaceExpr
+  | SSExpr SourceSpan SurfaceExpr
   deriving (Eq, Show)
