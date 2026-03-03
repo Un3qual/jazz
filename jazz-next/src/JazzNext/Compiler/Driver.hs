@@ -25,6 +25,8 @@ data CompileResult = CompileResult
   }
   deriving (Eq, Show)
 
+-- Compiler driver flow for the current implementation slice:
+-- analyze -> collect warnings/errors -> apply warning-as-error policy.
 compileExpr :: WarningSettings -> Expr -> IO CompileResult
 compileExpr settings expr = do
   inference <- inferExpression settings expr
@@ -47,6 +49,7 @@ compileExpr settings expr = do
       }
 
 filterWarningsForPromotion :: WarningSettings -> [WarningRecord] -> [WarningRecord]
+-- Placeholder hook for future category-level filtering.
 filterWarningsForPromotion _ = id
 
 isPromoted :: WarningSettings -> WarningRecord -> Bool

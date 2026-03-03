@@ -44,6 +44,7 @@ data CliOutput = CliOutput
   }
   deriving (Eq, Show)
 
+-- Parse only the currently supported warning-related flags.
 parseCliOptions :: [String] -> Either String CliOptions
 parseCliOptions args = finalize <$> go (CliOptions [] Nothing) args
   where
@@ -164,6 +165,8 @@ renderPreviousSpan previous =
 
 readConfigMaybe :: FilePath -> IO (Maybe String)
 readConfigMaybe path =
+  -- Missing/unreadable config files are treated as absent so default warning
+  -- behavior remains usable without setup.
   (eitherToMaybe <$> try readAndForce)
   where
     readAndForce :: IO String
@@ -179,6 +182,8 @@ readConfigMaybe path =
         Right contents -> Just contents
 
 sampleProgram :: Expr
+-- Temporary bootstrap program used by the current CLI entrypoint until source
+-- file parsing/execution wiring lands.
 sampleProgram =
   EScope
     [ SLet "x" (SourceSpan 1 1) (EInt 1),

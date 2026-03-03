@@ -21,6 +21,7 @@ import JazzNext.Compiler.Warnings
     parseWarningCategory
   )
 
+-- Normalized internal directives produced from CLI/env/config inputs.
 data WarningDirective
   = EnableCategory WarningCategory
   | DisableCategory WarningCategory
@@ -36,6 +37,7 @@ data WarningSettings = WarningSettings
   }
   deriving (Eq, Show)
 
+-- Default contract: warnings are opt-in and non-fatal.
 defaultWarningSettings :: WarningSettings
 defaultWarningSettings =
   WarningSettings
@@ -62,11 +64,13 @@ parseCliWarningDirective rawFlag
 
 parseEnvWarningDirectives :: String -> Either String [WarningDirective]
 parseEnvWarningDirectives rawValue = do
+  -- Env warning flags use +/- category toggles, not -W-prefixed tokens.
   tokens <- parseCommaSeparatedTokens rawValue
   traverse parseEnvWarningToken tokens
 
 parseEnvErrorDirectives :: String -> Either String [WarningDirective]
 parseEnvErrorDirectives rawValue = do
+  -- Env error flags only support category names (or all).
   tokens <- parseCommaSeparatedTokens rawValue
   traverse parseEnvErrorToken tokens
 
@@ -88,7 +92,7 @@ resolveWarningSettings cliFlags envWarningFlags envErrorFlags configContents = d
   envErrorDirectives <- maybe (Right []) parseEnvErrorDirectives envErrorFlags
   cliDirectives <- traverse parseCliWarningDirective cliFlags
 
-  -- Layer precedence is part of the external contract.
+  -- Layer precedence is part of the external contract and must remain stable.
   -- PromoteAllEnabledToError only escalates categories that are already enabled;
   -- it does not implicitly enable any categories on its own.
   let applyBatch = foldl applyDirective
@@ -159,7 +163,10 @@ parseCommaSeparatedTokens :: String -> Either String [String]
 parseCommaSeparatedTokens rawValue =
   let rawTokens = splitCommas rawValue
       tokens = map trim rawTokens
-   in if all null tokens
+   in
+    -- Reject empty entries (for example trailing commas) so callers get a
+    -- deterministic configuration error instead of silently ignored tokens.
+    if all null tokens
         then
           if length tokens > 1
             then Left "empty warning token"

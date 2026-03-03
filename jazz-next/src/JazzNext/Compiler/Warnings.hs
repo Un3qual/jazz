@@ -10,6 +10,8 @@ module JazzNext.Compiler.Warnings
 import Data.Char (isSpace, toLower)
 import Data.List (intercalate)
 
+-- Warning categories are stable user-facing identifiers. Keep codes/tokens
+-- backward-compatible once published in CLI/docs.
 data WarningCategory
   = SameScopeRebinding
   | ShadowingOuterScope

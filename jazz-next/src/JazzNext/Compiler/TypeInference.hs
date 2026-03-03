@@ -26,6 +26,8 @@ data InferenceResult = InferenceResult
   }
   deriving (Eq, Show)
 
+-- This currently forwards analyzer diagnostics while the richer inference/type
+-- pipeline is still being built in jazz-next.
 inferExpression :: WarningSettings -> Expr -> IO InferenceResult
 inferExpression settings expr = do
   AnalysisResult analyzed warnings errors <- analyzeProgram settings expr
