@@ -28,53 +28,53 @@ Out of scope:
 ## Verification Evidence (Concrete Contradictions/Gaps)
 
 1. Vocabulary contradiction between aspirational docs and implementation authority.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md:5` advertises approachable typeclasses like `Collection`, `Orderable`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs:106`-`112` hardcodes traits as `Num`, `Integral`, `Fractional`, `Eq`, `Ord`, `Showable`, `Default`.
+- `README.md:5` advertises approachable typeclasses like `Collection`, `Orderable`.
+- `jazz-hs/src/Types.hs:106`-`112` hardcodes traits as `Num`, `Integral`, `Fractional`, `Eq`, `Ord`, `Showable`, `Default`.
 - Gap: no canonical naming model is defined for which family is normative.
 
 2. The state doc explicitly records unresolved vocabulary/capability ambiguity.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:316` states abstraction names/model are not stable.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:392` lists unresolved choice: Haskell-like (`Eq`/`Ord`/`Num`) vs domain-like (`Collection`/`Orderable`).
+- `docs/jazz-language-state.md:316` states abstraction names/model are not stable.
+- `docs/jazz-language-state.md:392` lists unresolved choice: Haskell-like (`Eq`/`Ord`/`Num`) vs domain-like (`Collection`/`Orderable`).
 - Gap: unresolved item remains open despite other decisions being locked.
 
 3. Prelude vocabulary is mixed and not in one coherent naming tier.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz:24` uses `trait Ord(a)`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz:43` uses `trait Eq(a)`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz:50` uses `trait Collection(a)`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz:64` uses `class Num(a)`.
+- `jazz-hs/static/Prelude.jz:24` uses `trait Ord(a)`.
+- `jazz-hs/static/Prelude.jz:43` uses `trait Eq(a)`.
+- `jazz-hs/static/Prelude.jz:50` uses `trait Collection(a)`.
+- `jazz-hs/static/Prelude.jz:64` uses `class Num(a)`.
 - Gap: vocabulary + abstraction surface are both mixed in one file, preventing clear capability taxonomy.
 
 4. Capability syntax and prelude instance forms are incompatible.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs:124`-`129` expects constraints as `@{...}:`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs:165`-`171` expects `impl @{...}: Class(Type) { ... }`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz:79` uses `impl Num(Int)` and `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz:91` uses `impl Eq Int`.
+- `jazz-hs/src/Parser/Lang.hs:124`-`129` expects constraints as `@{...}:`.
+- `jazz-hs/src/Parser/Lang.hs:165`-`171` expects `impl @{...}: Class(Type) { ... }`.
+- `jazz-hs/static/Prelude.jz:79` uses `impl Num(Int)` and `jazz-hs/static/Prelude.jz:91` uses `impl Eq Int`.
 - Gap: capability implementation form is not normalized, so vocabulary decisions cannot be validated against executable grammar.
 
 5. Parser supports class/impl AST nodes, but analyzer does not implement their semantics.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs:158`-`171` parses typeclass declarations/impls.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs:131`-`178` handles only `ELet`, `ELiteral`, `EVar`, `EApply`, `ELambda`, `ETypeSignature`, `EBlock`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs:179`-`181` falls through to runtime error for other nodes.
+- `jazz-hs/src/Parser/Lang.hs:158`-`171` parses typeclass declarations/impls.
+- `jazz-hs/src/Analyzer/TypeInference.hs:131`-`178` handles only `ELet`, `ELiteral`, `EVar`, `EApply`, `ELambda`, `ETypeSignature`, `EBlock`.
+- `jazz-hs/src/Analyzer/TypeInference.hs:179`-`181` falls through to runtime error for other nodes.
 - Gap: capability declaration model is parse-level but not semantics-level.
 
 6. Capability extensibility is unclear (parse-open but solver-closed).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs:127` parses arbitrary constructor constraints in `@{...}`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs:230`-`234` rejects traits not in `traitsTable` (`TraitNotInScopeError`).
+- `jazz-hs/src/Parser/Lang.hs:127` parses arbitrary constructor constraints in `@{...}`.
+- `jazz-hs/src/Analyzer/TypeInference.hs:230`-`234` rejects traits not in `traitsTable` (`TraitNotInScopeError`).
 - Gap: syntax suggests open trait naming; solver enforces closed hardcoded registry.
 
 7. Defaulting behavior exists but is undocumented as part of capability semantics.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs:236`-`240` selects default type per trait from `traitsTable`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs:362`-`381` applies defaulting during constraint solving.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs:118`-`129` expects `+` specialization to `Integer -> Integer -> Integer`.
+- `jazz-hs/src/Analyzer/TypeInference.hs:236`-`240` selects default type per trait from `traitsTable`.
+- `jazz-hs/src/Analyzer/TypeInference.hs:362`-`381` applies defaulting during constraint solving.
+- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs:118`-`129` expects `+` specialization to `Integer -> Integer -> Integer`.
 - Gap: no documented policy for when defaulting is desired vs surprising.
 
 8. Collection capability naming exists in docs/prelude, but compiler capability registry has no corresponding trait.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz:49`-`53` defines `Collection(a)` trait.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs:106`-`112` has no `Collection` or `Orderable` entries.
+- `jazz-hs/static/Prelude.jz:49`-`53` defines `Collection(a)` trait.
+- `jazz-hs/src/Types.hs:106`-`112` has no `Collection` or `Orderable` entries.
 - Gap: collection capability naming is not represented in executable trait/capability tables.
 
 9. Approved keyword decision is documented separately and must remain excluded here.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/README.md:24` locks canonical keyword to `class`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/decisions/04-trait-vs-class-keyword.md:24` confirms `class` as canonical.
+- `docs/plans/spec-cleanup/2026-03-02/README.md:24` locks canonical keyword to `class`.
+- `docs/plans/spec-cleanup/2026-03-02/decisions/04-trait-vs-class-keyword.md:24` confirms `class` as canonical.
 - Scope consequence: this clarification item addresses naming/capability semantics only.
 
 ## Clarification Targets (What Must Become Unambiguous)
@@ -143,7 +143,7 @@ Commit checkpoint:
 - Message: `plan(spec): frame trait vocabulary and capability-model clarification`
 - Exact add targets:
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/abstractions/08-trait-vocabulary-and-capability-model.md
+git add docs/plans/spec-clarification/2026-03-02/abstractions/08-trait-vocabulary-and-capability-model.md
 ```
 
 ### Phase 1: Vocabulary Decision Artifact
@@ -153,15 +153,15 @@ git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarificati
 - [ ] Define compatibility wording (`alias`, `deprecated alias`, or `historical note`) for every non-canonical term.
 
 Primary file targets:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/abstractions/08a-vocabulary-decision-matrix.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/abstractions/trait-vocabulary.md`
+- `docs/plans/spec-clarification/2026-03-02/abstractions/08a-vocabulary-decision-matrix.md`
+- `docs/spec/abstractions/trait-vocabulary.md`
 
 Commit checkpoint:
 - Message: `docs(spec): decide canonical abstraction vocabulary model`
 - Exact add targets:
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/abstractions/08a-vocabulary-decision-matrix.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/abstractions/trait-vocabulary.md
+git add docs/plans/spec-clarification/2026-03-02/abstractions/08a-vocabulary-decision-matrix.md \
+  docs/spec/abstractions/trait-vocabulary.md
 ```
 
 ### Phase 2: Capability Model Specification
@@ -172,15 +172,15 @@ git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarificati
 - [ ] State authoritative source order (`compiler behavior`, `spec docs`, `examples`) to prevent future drift.
 
 Primary file targets:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/abstractions/08b-capability-model-semantics.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/abstractions/capability-model.md`
+- `docs/plans/spec-clarification/2026-03-02/abstractions/08b-capability-model-semantics.md`
+- `docs/spec/abstractions/capability-model.md`
 
 Commit checkpoint:
 - Message: `docs(spec): define capability-model semantics and defaulting policy`
 - Exact add targets:
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/abstractions/08b-capability-model-semantics.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/abstractions/capability-model.md
+git add docs/plans/spec-clarification/2026-03-02/abstractions/08b-capability-model-semantics.md \
+  docs/spec/abstractions/capability-model.md
 ```
 
 ### Phase 3: Conformance Alignment Track Selection
@@ -194,19 +194,19 @@ Choose one track after Phases 1-2.
 - [ ] Keep implementation status explicit where behavior remains intentionally limited.
 
 File targets:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/abstractions/trait-vocabulary.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/abstractions/capability-model.md`
+- `README.md`
+- `docs/jazz-language-state.md`
+- `docs/spec/abstractions/trait-vocabulary.md`
+- `docs/spec/abstractions/capability-model.md`
 
 Commit checkpoint:
 - Message: `docs(lang): align abstraction vocabulary and capability semantics`
 - Exact add targets:
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/README.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/abstractions/trait-vocabulary.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/abstractions/capability-model.md
+git add README.md \
+  docs/jazz-language-state.md \
+  docs/spec/abstractions/trait-vocabulary.md \
+  docs/spec/abstractions/capability-model.md
 ```
 
 #### Track 3B: Compiler-Conformance Alignment (if open/staged capability semantics are chosen)
@@ -216,23 +216,23 @@ git add /Users/admin/.codex/worktrees/8c77/jazz-main/README.md \
 - [ ] Add tests that enforce chosen vocabulary and capability behavior.
 
 File targets (select exact subset actually changed):
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz`
+- `jazz-hs/src/Types.hs`
+- `jazz-hs/src/Analyzer/TypeInference.hs`
+- `jazz-hs/src/Parser/Lang.hs`
+- `jazz-hs/test/ParserSpec.hs`
+- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
+- `jazz-hs/static/Prelude.jz`
 
 Commit checkpoint:
 - Message: `feat(typeclass): align compiler capability behavior with clarified model`
 - Exact add targets:
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz
+git add jazz-hs/src/Types.hs \
+  jazz-hs/src/Analyzer/TypeInference.hs \
+  jazz-hs/src/Parser/Lang.hs \
+  jazz-hs/test/ParserSpec.hs \
+  jazz-hs/test/Analyzer/TypeInferenceSpec.hs \
+  jazz-hs/static/Prelude.jz
 ```
 
 ### Phase 4: Closure and Cross-Plan Consistency
@@ -242,53 +242,53 @@ git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs \
 - [ ] Attach final validation evidence logs/command output references.
 
 File targets:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/README.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/abstractions/08-trait-vocabulary-and-capability-model.md`
+- `docs/jazz-language-state.md`
+- `docs/plans/spec-cleanup/2026-03-02/README.md`
+- `docs/plans/spec-clarification/2026-03-02/abstractions/08-trait-vocabulary-and-capability-model.md`
 
 Commit checkpoint:
 - Message: `chore(spec): close abstraction vocabulary and capability-model clarification`
 - Exact add targets:
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/README.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/abstractions/08-trait-vocabulary-and-capability-model.md
+git add docs/jazz-language-state.md \
+  docs/plans/spec-cleanup/2026-03-02/README.md \
+  docs/plans/spec-clarification/2026-03-02/abstractions/08-trait-vocabulary-and-capability-model.md
 ```
 
 ## Nix-Based Reproducible Validation Commands
 
-Run from repo root (`/Users/admin/.codex/worktrees/8c77/jazz-main`).
+Run from repo root (`.`).
 
 1. Baseline vocabulary inventory.
 ```bash
-nix shell nixpkgs#ripgrep nixpkgs#coreutils --command zsh -lc 'cd /Users/admin/.codex/worktrees/8c77/jazz-main && rg -n "\\b(Collection|Orderable|Eq|Ord|Num|Integral|Fractional|Showable|Default)\\b" README.md docs jazz-hs/src jazz-hs/static jazz-hs/test --glob "!jazz-hs/local-deps/**"'
+nix shell nixpkgs#ripgrep nixpkgs#coreutils --command zsh -lc 'cd . && rg -n "\\b(Collection|Orderable|Eq|Ord|Num|Integral|Fractional|Showable|Default)\\b" README.md docs jazz-hs/src jazz-hs/static jazz-hs/test --glob "!jazz-hs/local-deps/**"'
 ```
 
 2. Constraint-surface inventory (`@{...}:` and class/impl grammar references).
 ```bash
-nix shell nixpkgs#ripgrep nixpkgs#coreutils --command zsh -lc 'cd /Users/admin/.codex/worktrees/8c77/jazz-main && rg -n "@\\{|typeclassDeclP|typeclassImplP|traitsTable|defaultTraitType" jazz-hs/src/Parser/Lang.hs jazz-hs/src/Types.hs jazz-hs/src/Analyzer/TypeInference.hs jazz-hs/static/Prelude.jz'
+nix shell nixpkgs#ripgrep nixpkgs#coreutils --command zsh -lc 'cd . && rg -n "@\\{|typeclassDeclP|typeclassImplP|traitsTable|defaultTraitType" jazz-hs/src/Parser/Lang.hs jazz-hs/src/Types.hs jazz-hs/src/Analyzer/TypeInference.hs jazz-hs/static/Prelude.jz'
 ```
 
 3. Parser capability syntax regression slice.
 ```bash
-nix shell nixpkgs#stack nixpkgs#ghc --command zsh -lc 'cd /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs && stack test --test-arguments="--match typeclass"'
+nix shell nixpkgs#stack nixpkgs#ghc --command zsh -lc 'cd jazz-hs && stack test --test-arguments="--match typeclass"'
 ```
 
 4. Full compiler test baseline after any capability/vocabulary change.
 ```bash
-nix shell nixpkgs#stack nixpkgs#ghc --command zsh -lc 'cd /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs && stack test'
+nix shell nixpkgs#stack nixpkgs#ghc --command zsh -lc 'cd jazz-hs && stack test'
 ```
 
 5. Documentation drift check after convergence.
 ```bash
-nix shell nixpkgs#ripgrep nixpkgs#coreutils --command zsh -lc 'cd /Users/admin/.codex/worktrees/8c77/jazz-main && rg -n "Collection|Orderable|Eq|Ord|Num|capability model|trait vocabulary" README.md docs/spec docs/jazz-language-state.md'
+nix shell nixpkgs#ripgrep nixpkgs#coreutils --command zsh -lc 'cd . && rg -n "Collection|Orderable|Eq|Ord|Num|capability model|trait vocabulary" README.md docs/spec docs/jazz-language-state.md'
 ```
 
 ## Suggested Follow-Up Plan Files (if decomposition is needed)
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/abstractions/08a-vocabulary-decision-matrix.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/abstractions/08b-capability-model-semantics.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/abstractions/08c-conformance-and-migration.md`
+- `docs/plans/spec-clarification/2026-03-02/abstractions/08a-vocabulary-decision-matrix.md`
+- `docs/plans/spec-clarification/2026-03-02/abstractions/08b-capability-model-semantics.md`
+- `docs/plans/spec-clarification/2026-03-02/abstractions/08c-conformance-and-migration.md`
 
 ## Risks and Mitigations
 

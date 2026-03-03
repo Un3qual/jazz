@@ -21,16 +21,16 @@
 
 ## Verification Evidence (Exact Paths + Unresolved Contradictions)
 
-- [x] Evidence: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:397` explicitly flags the undecided question: self-hosted `.jz` stdlib vs hardcoded compiler/runtime builtins. Unresolved contradiction: no authoritative boundary contract exists yet.
-- [x] Evidence: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs:114` defines `builtinFuncs` in compiler code (`+`, `-`, `*`, `/`, `==`, `print!`, `map`, `hd`, `tl`). Unresolved contradiction: language-level library surface is compiler-hardcoded instead of prelude-defined.
-- [x] Evidence: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs:105` defines `traitsTable` in compiler code. Unresolved contradiction: trait universe defaults are hardcoded while `Prelude.jz` also models abstraction/typeclass structures.
-- [x] Evidence: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/ScopeAnalyzer.hs:45` seeds scope from `builtinFuncs`; `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs:78` seeds typing env from `builtinFuncs`. Unresolved contradiction: analyzer bootstraps bypass prelude ownership entirely.
-- [x] Evidence: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs:11` injects a hardcoded JS `stdLib` string and maps builtins via fixed lowering rules. Unresolved contradiction: runtime lowering assumes compiler-owned stdlib definitions.
-- [x] Evidence: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Lib.hs:61` compiles only user source (`parse -> analyze -> optimize -> generate`) with no prelude load path. Unresolved contradiction: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz` is present but not in pipeline.
-- [x] Evidence: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs:160` parses `class`; `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz:24` uses `trait`. Unresolved contradiction: prelude dialect and parser authority diverge.
-- [x] Evidence: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs:167` requires `impl` with `@{...}:` constraints; `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz:79` uses `impl Num(Int)` style. Unresolved contradiction: prelude impl syntax is not parser-aligned.
-- [x] Evidence: `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz` references primitives (`$intAdd`, `$floatAdd`, etc.) while `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src` and `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/runtime.c` contain no definitions for these names (`rg` over those exact paths returns no matches). Unresolved contradiction: prelude primitive contract is undocumented and unimplemented in active backend.
-- [x] Evidence: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/decisions/01-authoritative-syntax.md`, `02-map-filter-order.md`, `03-purity-bang-semantics.md`, and `04-trait-vs-class-keyword.md` lock adjacent language decisions but do not define stdlib boundary ownership. Unresolved contradiction: key dependency decisions exist, but stdlib ownership contract is still missing.
+- [x] Evidence: `docs/jazz-language-state.md:397` explicitly flags the undecided question: self-hosted `.jz` stdlib vs hardcoded compiler/runtime builtins. Unresolved contradiction: no authoritative boundary contract exists yet.
+- [x] Evidence: `jazz-hs/src/Types.hs:114` defines `builtinFuncs` in compiler code (`+`, `-`, `*`, `/`, `==`, `print!`, `map`, `hd`, `tl`). Unresolved contradiction: language-level library surface is compiler-hardcoded instead of prelude-defined.
+- [x] Evidence: `jazz-hs/src/Types.hs:105` defines `traitsTable` in compiler code. Unresolved contradiction: trait universe defaults are hardcoded while `Prelude.jz` also models abstraction/typeclass structures.
+- [x] Evidence: `jazz-hs/src/Analyzer/ScopeAnalyzer.hs:45` seeds scope from `builtinFuncs`; `jazz-hs/src/Analyzer/TypeInference.hs:78` seeds typing env from `builtinFuncs`. Unresolved contradiction: analyzer bootstraps bypass prelude ownership entirely.
+- [x] Evidence: `jazz-hs/src/CodeGen/Javascript.hs:11` injects a hardcoded JS `stdLib` string and maps builtins via fixed lowering rules. Unresolved contradiction: runtime lowering assumes compiler-owned stdlib definitions.
+- [x] Evidence: `jazz-hs/src/Lib.hs:61` compiles only user source (`parse -> analyze -> optimize -> generate`) with no prelude load path. Unresolved contradiction: `jazz-hs/static/Prelude.jz` is present but not in pipeline.
+- [x] Evidence: `jazz-hs/src/Parser/Lang.hs:160` parses `class`; `jazz-hs/static/Prelude.jz:24` uses `trait`. Unresolved contradiction: prelude dialect and parser authority diverge.
+- [x] Evidence: `jazz-hs/src/Parser/Lang.hs:167` requires `impl` with `@{...}:` constraints; `jazz-hs/static/Prelude.jz:79` uses `impl Num(Int)` style. Unresolved contradiction: prelude impl syntax is not parser-aligned.
+- [x] Evidence: `jazz-hs/static/Prelude.jz` references primitives (`$intAdd`, `$floatAdd`, etc.) while `jazz-hs/src` and `jazz-hs/static/runtime.c` contain no definitions for these names (`rg` over those exact paths returns no matches). Unresolved contradiction: prelude primitive contract is undocumented and unimplemented in active backend.
+- [x] Evidence: `docs/plans/spec-cleanup/2026-03-02/decisions/01-authoritative-syntax.md`, `02-map-filter-order.md`, `03-purity-bang-semantics.md`, and `04-trait-vs-class-keyword.md` lock adjacent language decisions but do not define stdlib boundary ownership. Unresolved contradiction: key dependency decisions exist, but stdlib ownership contract is still missing.
 
 ## Boundary Contract To Clarify (Decision Gates)
 
@@ -62,7 +62,7 @@
 Suggested commit message: `docs(spec): add stdlib boundary inventory and decision rubric`
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md
+git add docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md
 git commit -m "docs(spec): add stdlib boundary inventory and decision rubric"
 ```
 
@@ -76,16 +76,16 @@ git commit -m "docs(spec): add stdlib boundary inventory and decision rubric"
 
 ### Expected file touch-set
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/stdlib-boundary.md` (create)
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md` (update unresolved-item status/links)
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md` (update progress)
+- `docs/spec/stdlib-boundary.md` (create)
+- `docs/jazz-language-state.md` (update unresolved-item status/links)
+- `docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md` (update progress)
 
 ### Commit checkpoint (Phase 1)
 
 Suggested commit message: `docs(spec): ratify stdlib ownership boundary contract`
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/stdlib-boundary.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md
+git add docs/spec/stdlib-boundary.md docs/jazz-language-state.md docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md
 git commit -m "docs(spec): ratify stdlib ownership boundary contract"
 ```
 
@@ -98,19 +98,19 @@ git commit -m "docs(spec): ratify stdlib ownership boundary contract"
 
 ### Expected file touch-set
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Lib.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser.hs` (only if parse entrypoint changes)
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/ScopeAnalyzerSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz` (syntax sync only if needed for parser compatibility)
+- `jazz-hs/src/Lib.hs`
+- `jazz-hs/src/Parser.hs` (only if parse entrypoint changes)
+- `jazz-hs/test/ParserSpec.hs`
+- `jazz-hs/test/Analyzer/ScopeAnalyzerSpec.hs`
+- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
+- `jazz-hs/static/Prelude.jz` (syntax sync only if needed for parser compatibility)
 
 ### Commit checkpoint (Phase 2)
 
 Suggested commit message: `feat(compiler): load self-hosted prelude with compatibility guard`
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Lib.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/ScopeAnalyzerSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz
+git add jazz-hs/src/Lib.hs jazz-hs/src/Parser.hs jazz-hs/test/ParserSpec.hs jazz-hs/test/Analyzer/ScopeAnalyzerSpec.hs jazz-hs/test/Analyzer/TypeInferenceSpec.hs jazz-hs/static/Prelude.jz
 git commit -m "feat(compiler): load self-hosted prelude with compatibility guard"
 ```
 
@@ -123,18 +123,18 @@ git commit -m "feat(compiler): load self-hosted prelude with compatibility guard
 
 ### Expected file touch-set
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/runtime.c` (only if JS/runtime primitive stubs are introduced/renamed)
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs`
+- `jazz-hs/src/Types.hs`
+- `jazz-hs/src/CodeGen/Javascript.hs`
+- `jazz-hs/static/runtime.c` (only if JS/runtime primitive stubs are introduced/renamed)
+- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
+- `jazz-hs/test/Spec.hs`
 
 ### Commit checkpoint (Phase 3)
 
 Suggested commit message: `feat(runtime): add explicit intrinsic bridge for prelude boundary`
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/runtime.c /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs
+git add jazz-hs/src/Types.hs jazz-hs/src/CodeGen/Javascript.hs jazz-hs/static/runtime.c jazz-hs/test/Analyzer/TypeInferenceSpec.hs jazz-hs/test/Spec.hs
 git commit -m "feat(runtime): add explicit intrinsic bridge for prelude boundary"
 ```
 
@@ -147,21 +147,21 @@ git commit -m "feat(runtime): add explicit intrinsic bridge for prelude boundary
 
 ### Expected file touch-set
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/ScopeAnalyzer.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/ComplexProgram.jz`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
+- `jazz-hs/src/Types.hs`
+- `jazz-hs/src/Analyzer/ScopeAnalyzer.hs`
+- `jazz-hs/src/Analyzer/TypeInference.hs`
+- `jazz-hs/src/CodeGen/Javascript.hs`
+- `jazz-hs/static/Prelude.jz`
+- `jazz-hs/ExamplePrograms/ComplexProgram.jz`
+- `README.md`
+- `docs/jazz-language-state.md`
 
 ### Commit checkpoint (Phase 4)
 
 Suggested commit message: `feat(stdlib): migrate user-facing builtins to self-hosted prelude`
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/ScopeAnalyzer.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/static/Prelude.jz /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/ComplexProgram.jz /Users/admin/.codex/worktrees/8c77/jazz-main/README.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md
+git add jazz-hs/src/Types.hs jazz-hs/src/Analyzer/ScopeAnalyzer.hs jazz-hs/src/Analyzer/TypeInference.hs jazz-hs/src/CodeGen/Javascript.hs jazz-hs/static/Prelude.jz jazz-hs/ExamplePrograms/ComplexProgram.jz README.md docs/jazz-language-state.md
 git commit -m "feat(stdlib): migrate user-facing builtins to self-hosted prelude"
 ```
 
@@ -174,83 +174,61 @@ git commit -m "feat(stdlib): migrate user-facing builtins to self-hosted prelude
 
 ### Expected file touch-set
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/ScopeAnalyzer.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/stdlib-boundary.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md`
+- `jazz-hs/src/Types.hs`
+- `jazz-hs/src/Analyzer/ScopeAnalyzer.hs`
+- `jazz-hs/src/Analyzer/TypeInference.hs`
+- `docs/spec/stdlib-boundary.md`
+- `docs/jazz-language-state.md`
+- `docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md`
 
 ### Commit checkpoint (Phase 5)
 
 Suggested commit message: `refactor(stdlib): reduce compiler hardcoded surface to intrinsic kernel`
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/ScopeAnalyzer.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/stdlib-boundary.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md
+git add jazz-hs/src/Types.hs jazz-hs/src/Analyzer/ScopeAnalyzer.hs jazz-hs/src/Analyzer/TypeInference.hs docs/spec/stdlib-boundary.md docs/jazz-language-state.md docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md
 git commit -m "refactor(stdlib): reduce compiler hardcoded surface to intrinsic kernel"
 ```
 
 ## Nix Reproducibility Commands
 
-Use one pinned ephemeral environment until repo-level flake/shell is standardized.
-
-```bash
-export NIXPKGS_REF='github:NixOS/nixpkgs/68cc97d306d3187c142cfb2378852f28d47bc098'
-```
+Use the repo-level flake as the canonical reproducibility entrypoint.
 
 ### Baseline capture (before migration)
 
 ```bash
-nix --extra-experimental-features 'nix-command flakes' shell \
-  "$NIXPKGS_REF#stack" \
-  "$NIXPKGS_REF#ghc" \
-  "$NIXPKGS_REF#nodejs_20" \
-  "$NIXPKGS_REF#ripgrep" \
-  "$NIXPKGS_REF#git" \
-  -c bash -lc '
-    set -euo pipefail
-    cd /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs
-    stack --version
-    ghc --version
-    node --version
-    stack test
-    ./run.sh ExamplePrograms/ComplexProgram.jz >/tmp/jazz-stdlib-boundary-baseline.js
-  '
+nix flake check
+nix develop . -c bash -lc '
+  set -euo pipefail
+  cd jazz-hs
+  stack --version
+  ghc --version
+  node --version
+  stack test
+  ./run.sh ExamplePrograms/ComplexProgram.jz >/tmp/jazz-stdlib-boundary-baseline.js
+'
 ```
 
 ### Phase-gate verification (run after each phase touching compiler behavior)
 
 ```bash
-nix --extra-experimental-features 'nix-command flakes' shell \
-  "$NIXPKGS_REF#stack" \
-  "$NIXPKGS_REF#nodejs_20" \
-  "$NIXPKGS_REF#ripgrep" \
-  -c bash -lc '
-    set -euo pipefail
-    cd /Users/admin/.codex/worktrees/8c77/jazz-main
-    cd jazz-hs
-    stack test
-    ./run.sh ExamplePrograms/ComplexProgram.jz >/tmp/jazz-stdlib-boundary-current.js
-    node /tmp/jazz-stdlib-boundary-current.js || true
-    cd /Users/admin/.codex/worktrees/8c77/jazz-main
-    rg -n "builtinFuncs|traitsTable|stdLib = \\[s\\|" jazz-hs/src
-    rg -n "\\$intAdd|\\$floatAdd|\\$intEq|\\$floatEq" jazz-hs/static/Prelude.jz jazz-hs/src jazz-hs/static/runtime.c -S || true
-  '
-```
-
-### Optional flake-based path (if a flake is later introduced)
-
-```bash
-cd /Users/admin/.codex/worktrees/8c77/jazz-main
-nix flake check
-nix develop -c bash -lc 'cd jazz-hs && stack test && ./run.sh ExamplePrograms/ComplexProgram.jz >/tmp/jazz-stdlib-boundary-flake.js'
+nix develop . -c bash -lc '
+  set -euo pipefail
+  cd jazz-hs
+  stack test
+  ./run.sh ExamplePrograms/ComplexProgram.jz >/tmp/jazz-stdlib-boundary-current.js
+  node /tmp/jazz-stdlib-boundary-current.js || true
+  cd ..
+  rg -n "builtinFuncs|traitsTable|stdLib = \\[s\\|" jazz-hs/src
+  rg -n "\\$intAdd|\\$floatAdd|\\$intEq|\\$floatEq" jazz-hs/static/Prelude.jz jazz-hs/src jazz-hs/static/runtime.c -S || true
+'
 ```
 
 ## Additional Plan Splits (Create Only If Scope Splits Across Owners)
 
-- [ ] `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/stdlib/10a-stdlib-boundary-contract-matrix.md` (decision matrix + owner sign-off)
-- [ ] `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/stdlib/10b-stdlib-prelude-loader-migration.md` (compiler pipeline integration track)
-- [ ] `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/stdlib/10c-stdlib-intrinsic-kernel-hardening.md` (runtime/kernel isolation track)
+- [ ] `docs/plans/spec-clarification/2026-03-02/stdlib/10a-stdlib-boundary-contract-matrix.md` (decision matrix + owner sign-off)
+- [ ] `docs/plans/spec-clarification/2026-03-02/stdlib/10b-stdlib-prelude-loader-migration.md` (compiler pipeline integration track)
+- [ ] `docs/plans/spec-clarification/2026-03-02/stdlib/10c-stdlib-intrinsic-kernel-hardening.md` (runtime/kernel isolation track)
 
 ## Risks and Rollback Notes
 

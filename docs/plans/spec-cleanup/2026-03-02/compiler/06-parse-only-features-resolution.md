@@ -17,19 +17,19 @@ Make `jazz-hs` internally consistent so no language feature is parser-accepted b
 
 ## Verification Evidence (Item Is Still Unfinished)
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
+- `docs/jazz-language-state.md`
   Observation: The cleanup list still contains item #6 verbatim, indicating it has not been resolved.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs`
+- `jazz-hs/src/Parser/Lang.hs`
   Observation: Parser accepts `import`, `module`, `class`, `impl`, `data`, `case`, tuple literals, and lambda pattern params (`FPPattern`).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs`
+- `jazz-hs/src/Analyzer/TypeInference.hs`
   Observation: `inferExpr` only handles a subset (`ELet`, `ELiteral`, `EVar`, `EApply`, `ELambda`, `ETypeSignature`, `EBlock`) and falls back to `error "Inference not implemented for this expression"` for other AST nodes.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs`
+- `jazz-hs/src/Analyzer/TypeInference.hs`
   Observation: `inferParam` explicitly errors for `FPPattern` (`"Inference for pattern matching not implemented yet."`).
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Javascript.hs`
+- `jazz-hs/src/CodeGen/Javascript.hs`
   Observation: Tuple literal codegen fails (`"JS generation not implemented for tuples."`), pattern params fail (`"Generation for pattern matching not implemented yet."`), and unsupported expressions hit a catch-all `error`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs`
+- `jazz-hs/test/ParserSpec.hs`
   Observation: Parser tests exist for `import/module/class/impl/data` and constructor patterns, but these features are not covered end-to-end; `case` parser tests are present but commented out.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lib.hs` + `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs`
+- `jazz-hs/src/Parser/Lib.hs` + `jazz-hs/src/Parser/Lang.hs`
   Observation: `if`/`else` are reserved words and `EIf` exists in AST/codegen, but no parser path constructs `EIf`; this is additional scaffolding drift to clean up while resolving item #6.
 
 ## Progress Tracker
@@ -71,10 +71,10 @@ git add docs/plans/spec-cleanup/2026-03-02/compiler/06-feature-resolution-matrix
 
 ## Phase 1: Reproducible Environment + Baseline Matrix (Nix Required)
 
-- [ ] Add a pinned Nix dev shell for `jazz-hs`.
+- [ ] Add or update the pinned repo-level Nix dev shell entrypoint.
   - Preferred files:
-    - `jazz-hs/flake.nix`
-    - `jazz-hs/flake.lock`
+    - `flake.nix`
+    - `flake.lock`
 - [ ] Ensure the dev shell contains at minimum: `stack`, compatible `ghc`, `nodejs`, `bash`, `git`.
 - [ ] Add matrix runner scripts:
   - `jazz-hs/scripts/spec-cleanup-06/run-matrix.sh`
@@ -86,14 +86,14 @@ git add docs/plans/spec-cleanup/2026-03-02/compiler/06-feature-resolution-matrix
 ### Reproducible Baseline Commands (from repo root)
 
 ```bash
-nix develop ./jazz-hs -c stack --version
-nix develop ./jazz-hs -c ghc --version
-nix develop ./jazz-hs -c node --version
-nix develop ./jazz-hs -c stack test
-nix develop ./jazz-hs -c stack test --test-arguments "--match \"Statement Tests\""
-nix develop ./jazz-hs -c stack test --test-arguments "--match \"Simple Expression Type Inference Tests\""
-nix develop ./jazz-hs -c stack run -- ExamplePrograms/ComplexProgram.jz > /tmp/jazz-spec6-complex.js
-nix develop ./jazz-hs -c node /tmp/jazz-spec6-complex.js
+nix develop . -c bash -lc 'cd jazz-hs && stack --version'
+nix develop . -c bash -lc 'cd jazz-hs && ghc --version'
+nix develop . -c bash -lc 'cd jazz-hs && node --version'
+nix develop . -c bash -lc 'cd jazz-hs && stack test'
+nix develop . -c bash -lc 'cd jazz-hs && stack test --test-arguments "--match \"Statement Tests\""'
+nix develop . -c bash -lc 'cd jazz-hs && stack test --test-arguments "--match \"Simple Expression Type Inference Tests\""'
+nix develop . -c bash -lc 'cd jazz-hs && stack run -- ExamplePrograms/ComplexProgram.jz > /tmp/jazz-spec6-complex.js'
+nix develop . -c bash -lc 'cd jazz-hs && node /tmp/jazz-spec6-complex.js'
 ```
 
 ### Commit Checkpoint (Phase 1)
@@ -103,8 +103,8 @@ Suggested message:
 
 Exact `git add` targets:
 ```bash
-git add jazz-hs/flake.nix \
-  jazz-hs/flake.lock \
+git add flake.nix \
+  flake.lock \
   jazz-hs/scripts/spec-cleanup-06/run-matrix.sh \
   jazz-hs/scripts/spec-cleanup-06/run-matrix-remove-track.sh \
   jazz-hs/scripts/spec-cleanup-06/run-matrix-implement-track.sh \
@@ -238,12 +238,12 @@ git add README.md \
 Run from repo root in Nix shell:
 
 ```bash
-nix develop ./jazz-hs -c stack test
-nix develop ./jazz-hs -c stack test --test-arguments "--match \"Statement Tests\""
-nix develop ./jazz-hs -c stack test --test-arguments "--match \"Simple Expression Type Inference Tests\""
-nix develop ./jazz-hs -c stack test --test-arguments "--match \"constructor\""
-nix develop ./jazz-hs -c stack run -- ExamplePrograms/ComplexProgram.jz > /tmp/jazz-spec6-final.js
-nix develop ./jazz-hs -c node /tmp/jazz-spec6-final.js
+nix develop . -c bash -lc 'cd jazz-hs && stack test'
+nix develop . -c bash -lc 'cd jazz-hs && stack test --test-arguments "--match \"Statement Tests\""'
+nix develop . -c bash -lc 'cd jazz-hs && stack test --test-arguments "--match \"Simple Expression Type Inference Tests\""'
+nix develop . -c bash -lc 'cd jazz-hs && stack test --test-arguments "--match \"constructor\""'
+nix develop . -c bash -lc 'cd jazz-hs && stack run -- ExamplePrograms/ComplexProgram.jz > /tmp/jazz-spec6-final.js'
+nix develop . -c bash -lc 'cd jazz-hs && node /tmp/jazz-spec6-final.js'
 ```
 
 Track-specific assertions:

@@ -27,11 +27,11 @@
 
 ## Verification Evidence (Why This Needed Clarification)
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md:8` and `:15` claim ADTs/pattern matching as features.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:398` still listed ADT/pattern positioning as unresolved.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs:173-191` parses `data` and `case`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs:179-181` still errors for unsupported expressions.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/ScopeAnalyzer.hs:103` has `EData` as `undefined`.
+- `README.md:8` and `:15` claim ADTs/pattern matching as features.
+- `docs/jazz-language-state.md:398` still listed ADT/pattern positioning as unresolved.
+- `jazz-hs/src/Parser/Lang.hs:173-191` parses `data` and `case`.
+- `jazz-hs/src/Analyzer/TypeInference.hs:179-181` still errors for unsupported expressions.
+- `jazz-hs/src/Analyzer/ScopeAnalyzer.hs:103` has `EData` as `undefined`.
 
 ## Core Commitment Contract
 
@@ -48,13 +48,13 @@
 - [ ] Record non-goals (advanced exhaustiveness analysis, GADT-like semantics, effect typing interactions).
 
 Create:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/adt-pattern-semantics.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/pattern-matching-semantics.md`
+- `docs/spec/adt-pattern-semantics.md`
+- `docs/spec/pattern-matching-semantics.md`
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/adt-pattern-semantics.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/pattern-matching-semantics.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md
+git add docs/spec/adt-pattern-semantics.md docs/spec/pattern-matching-semantics.md docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md
 git commit -m "docs(spec): lock core semantics contract for ADT and pattern matching"
 ```
 
@@ -65,14 +65,14 @@ git commit -m "docs(spec): lock core semantics contract for ADT and pattern matc
 - [ ] Remove `undefined`/fallback errors for committed ADT/pattern forms.
 
 Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/ScopeAnalyzer.hs`
+- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
+- `jazz-hs/src/Analyzer/TypeInference.hs`
+- `jazz-hs/src/Analyzer/ScopeAnalyzer.hs`
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/ScopeAnalyzer.hs
+git add jazz-hs/test/Analyzer/TypeInferenceSpec.hs jazz-hs/src/Analyzer/TypeInference.hs jazz-hs/src/Analyzer/ScopeAnalyzer.hs
 git commit -m "feat(analyzer): implement core ADT and pattern matching analysis"
 ```
 
@@ -83,14 +83,14 @@ git commit -m "feat(analyzer): implement core ADT and pattern matching analysis"
 - [ ] Ensure interpreter diagnostics align with core semantics docs.
 
 Create/Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Interpreter.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs`
+- `jazz-hs/src/Interpreter.hs`
+- `jazz-hs/test/InterpreterSpec.hs`
+- `jazz-hs/test/Spec.hs`
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Interpreter.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs
+git add jazz-hs/src/Interpreter.hs jazz-hs/test/InterpreterSpec.hs jazz-hs/test/Spec.hs
 git commit -m "feat(interpreter): add core ADT and pattern matching runtime execution"
 ```
 
@@ -100,14 +100,14 @@ git commit -m "feat(interpreter): add core ADT and pattern matching runtime exec
 - [ ] Add example programs that exercise ADT/pattern core behavior.
 
 Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/ComplexProgram.jz`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/MediumProgram.jz`
+- `jazz-hs/test/ParserSpec.hs`
+- `jazz-hs/ExamplePrograms/ComplexProgram.jz`
+- `jazz-hs/ExamplePrograms/MediumProgram.jz`
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/ComplexProgram.jz /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/MediumProgram.jz
+git add jazz-hs/test/ParserSpec.hs jazz-hs/ExamplePrograms/ComplexProgram.jz jazz-hs/ExamplePrograms/MediumProgram.jz
 git commit -m "test(parser): enforce core ADT and pattern syntax expectations"
 ```
 
@@ -117,14 +117,14 @@ git commit -m "test(parser): enforce core ADT and pattern syntax expectations"
 - [ ] Link implementation evidence and tests.
 
 Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/README.md`
+- `docs/jazz-language-state.md`
+- `README.md`
+- `docs/plans/spec-cleanup/2026-03-02/README.md`
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md /Users/admin/.codex/worktrees/8c77/jazz-main/README.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/README.md
+git add docs/jazz-language-state.md README.md docs/plans/spec-cleanup/2026-03-02/README.md
 git commit -m "docs: close ADT and pattern-matching positioning as core"
 ```
 
@@ -138,7 +138,7 @@ nix --extra-experimental-features 'nix-command flakes' shell \
   "$NIXPKGS_REF#ripgrep" \
   -c bash -lc '
     set -euo pipefail
-    cd /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs
+    cd jazz-hs
     stack test --test-arguments "--match case"
     stack test --test-arguments "--match constructor"
     stack test --test-arguments "--match Interpreter"

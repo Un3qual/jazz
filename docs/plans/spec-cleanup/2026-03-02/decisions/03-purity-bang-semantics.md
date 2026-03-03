@@ -21,11 +21,11 @@
 
 ## Verification Evidence (Item Is Still Unfinished)
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:424` lists cleanup item #3 as unresolved.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:305` states no purity checker exists today and `!` is currently naming syntax.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md:76` claims pure-by-default + impure restrictions, but compiler does not enforce that today.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lib.hs:98` allows `!` in identifiers, with no purity semantics attached.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs` has no purity/effect context tracking.
+- `docs/jazz-language-state.md:424` lists cleanup item #3 as unresolved.
+- `docs/jazz-language-state.md:305` states no purity checker exists today and `!` is currently naming syntax.
+- `README.md:76` claims pure-by-default + impure restrictions, but compiler does not enforce that today.
+- `jazz-hs/src/Parser/Lib.hs:98` allows `!` in identifiers, with no purity semantics attached.
+- `jazz-hs/src/Analyzer/TypeInference.hs` has no purity/effect context tracking.
 
 ## Decision Lock (Approved 2026-03-02)
 
@@ -54,16 +54,16 @@ These rules are the required behavior for item #3 completion:
 ## Concrete Files To Modify During Execution
 
 Likely modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Errors.hs` (if introducing dedicated purity diagnostics)
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs` (only if parser-level coverage is added for `!` naming assumptions)
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
+- `jazz-hs/src/Analyzer/TypeInference.hs`
+- `jazz-hs/src/Types.hs`
+- `jazz-hs/src/Errors.hs` (if introducing dedicated purity diagnostics)
+- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
+- `jazz-hs/test/ParserSpec.hs` (only if parser-level coverage is added for `!` naming assumptions)
+- `README.md`
+- `docs/jazz-language-state.md`
 
 Optional create:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/purity-semantics.md`
+- `docs/spec/purity-semantics.md`
 
 ## Phase 0: Baseline and Nix Reproducibility
 
@@ -77,7 +77,7 @@ export NIXPKGS_REF='github:NixOS/nixpkgs/68cc97d306d3187c142cfb2378852f28d47bc09
 nix --extra-experimental-features 'nix-command flakes' shell \
   "$NIXPKGS_REF#stack" \
   "$NIXPKGS_REF#nodejs_20" \
-  -c bash -lc 'cd /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs && stack --version && node --version && stack test'
+  -c bash -lc 'cd jazz-hs && stack --version && node --version && stack test'
 ```
 
 Expected: baseline captured; existing failures (if any) recorded unchanged.
@@ -102,13 +102,13 @@ Required test scenarios:
 5. Top-level `print!` expression remains valid entry behavior.
 
 Files:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
-- (optional) `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs`
+- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
+- (optional) `jazz-hs/test/ParserSpec.hs`
 
 Run and verify failure first:
 
 ```bash
-cd /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs
+cd jazz-hs
 stack test --ta '--match "Type Inference"'
 ```
 
@@ -143,14 +143,14 @@ git commit -m "test(purity): add failing tests for bang stub enforcement rules"
 - [ ] Do not change JS runtime semantics for this item; enforcement is compile/analyze time only.
 
 Suggested files:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Errors.hs`
+- `jazz-hs/src/Analyzer/TypeInference.hs`
+- `jazz-hs/src/Types.hs`
+- `jazz-hs/src/Errors.hs`
 
 Validation:
 
 ```bash
-cd /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs
+cd jazz-hs
 stack test --ta '--match "Type Inference"'
 stack test
 ```
@@ -171,9 +171,9 @@ git commit -m "feat(analyzer): enforce stub-v1 purity using bang suffix semantic
 - [ ] Mark item #3 as resolved once code/tests/docs are aligned.
 
 Files:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
-- optional: `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/purity-semantics.md`
+- `README.md`
+- `docs/jazz-language-state.md`
+- optional: `docs/spec/purity-semantics.md`
 
 **Commit checkpoint:**
 
@@ -200,7 +200,7 @@ nix --extra-experimental-features 'nix-command flakes' shell \
   "$NIXPKGS_REF#nodejs_20" \
   -c bash -lc '
     set -euo pipefail
-    cd /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs
+    cd jazz-hs
     stack test
     ./run.sh ExamplePrograms/ComplexProgram.jz >/tmp/jazz-purity-v1-complex.js
   '

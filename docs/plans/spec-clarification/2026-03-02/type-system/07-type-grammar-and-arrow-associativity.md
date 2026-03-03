@@ -24,21 +24,21 @@
 
 ## Verification Evidence (Still Unclear)
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:175`
+- `docs/jazz-language-state.md:175`
   Observation: explicitly says function arrows are currently parsed left-associatively and calls it "almost certainly accidental," which confirms semantic intent is unresolved.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs:95`
+- `jazz-hs/src/Parser/Lang.hs:95`
   Observation: `lambdaTypeP` uses `foldl TLambda`, hard-coding left-associative parse trees for chained `->`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs:491`
+- `jazz-hs/test/ParserSpec.hs:491`
   Observation: parser tests currently assert left-associative output for `Integer -> Integer -> Integer`, codifying current behavior but not language intent.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs:124`
+- `jazz-hs/src/Parser/Lang.hs:124`
   Observation: constrained signatures are parsed as `@{...}:` into `[Type]`, but grammar/meaning rules (ordering, duplicates, scope, normalization) are not specified.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs:169`
+- `jazz-hs/src/Analyzer/TypeInference.hs:169`
   Observation: `ETypeSignature ... tcConstraints ty` ignores `tcConstraints`, so constraint syntax exists without defined semantic effect.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs:158`
+- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs:158`
   Observation: type-signature inference tests are commented out as "Currently broken," leaving constrained signature behavior unverified.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:173`
+- `docs/jazz-language-state.md:173`
   Observation: only gives one constrained signature example and no canonical grammar/precedence/normalization section.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs`
+- `docs`
   Observation: only one language-state doc exists; there is no dedicated canonical type grammar spec doc to resolve parser-vs-intent conflicts.
 
 ## Non-Overlap With Spec-Cleanup #1-#6
@@ -65,7 +65,7 @@
 - [ ] Freeze this matrix before semantic decisions to avoid hindsight edits.
 
 Deliverable file:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/type-system/open-questions.md`
+- `docs/spec/type-system/open-questions.md`
 
 ### Commit Checkpoint 0
 
@@ -75,8 +75,8 @@ Suggested commit message:
 Exact `git add` targets:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/type-system/open-questions.md
+git add docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md \
+  docs/spec/type-system/open-questions.md
 ```
 
 ## Phase 1: Function Arrow Associativity Decision
@@ -98,10 +98,10 @@ Execution tasks:
 - [ ] Add at least one negative or ambiguity test that documents rejected grammar.
 
 Primary files:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/type-system/type-grammar.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
+- `jazz-hs/test/ParserSpec.hs`
+- `jazz-hs/src/Parser/Lang.hs`
+- `docs/spec/type-system/type-grammar.md`
+- `docs/jazz-language-state.md`
 
 ### Commit Checkpoint 1
 
@@ -111,10 +111,10 @@ Suggested commit message:
 Exact `git add` targets:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/type-system/type-grammar.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs
+git add docs/spec/type-system/type-grammar.md \
+  docs/jazz-language-state.md \
+  jazz-hs/test/ParserSpec.hs \
+  jazz-hs/src/Parser/Lang.hs
 ```
 
 ## Phase 2: Constrained Type-Signature Semantic Contract
@@ -133,10 +133,10 @@ Execution tasks:
 - [ ] Document at least one invalid constrained signature form with expected diagnostic.
 
 Primary files:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/AST.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/type-system/type-signatures.md`
+- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
+- `jazz-hs/src/Analyzer/TypeInference.hs`
+- `jazz-hs/src/AST.hs`
+- `docs/spec/type-system/type-signatures.md`
 
 ### Commit Checkpoint 2
 
@@ -146,11 +146,11 @@ Suggested commit message:
 Exact `git add` targets:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/type-system/type-signatures.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/AST.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs
+git add docs/spec/type-system/type-signatures.md \
+  jazz-hs/src/AST.hs \
+  jazz-hs/src/Analyzer/TypeInference.hs \
+  jazz-hs/test/Analyzer/TypeInferenceSpec.hs \
+  jazz-hs/test/ParserSpec.hs
 ```
 
 ## Phase 3: Canonical Type Grammar And Normalization Rules
@@ -167,9 +167,9 @@ git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/type-system/type-
 - [ ] Add explicit non-goals to avoid conflating this work with effect typing and item #6 feature-completeness decisions.
 
 Primary files:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/type-system/type-grammar.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/type-system/type-signatures.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
+- `docs/spec/type-system/type-grammar.md`
+- `docs/spec/type-system/type-signatures.md`
+- `docs/jazz-language-state.md`
 
 ### Commit Checkpoint 3
 
@@ -179,9 +179,9 @@ Suggested commit message:
 Exact `git add` targets:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/type-system/type-grammar.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/type-system/type-signatures.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md
+git add docs/spec/type-system/type-grammar.md \
+  docs/spec/type-system/type-signatures.md \
+  docs/jazz-language-state.md
 ```
 
 ## Phase 4: Reproducible Verification And Closure
@@ -191,25 +191,18 @@ git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/type-system/type-
 - [ ] Confirm spec-cleanup #1-#6 references remain accurate and this clarification scope stays orthogonal.
 - [ ] Record closure note with unresolved follow-up items (if any).
 
-### Reproducible Verification Commands (Pinned Nix Shell)
+### Reproducible Verification Commands (Repo Root Flake)
 
 ```bash
-export NIXPKGS_REF='github:NixOS/nixpkgs/68cc97d306d3187c142cfb2378852f28d47bc098'
-nix --extra-experimental-features 'nix-command flakes' shell \
-  "$NIXPKGS_REF#bash" \
-  "$NIXPKGS_REF#ripgrep" \
-  "$NIXPKGS_REF#stack" \
-  "$NIXPKGS_REF#ghc" \
-  "$NIXPKGS_REF#nodejs_20" \
-  -c bash -lc '
-    set -euo pipefail
-    cd /Users/admin/.codex/worktrees/8c77/jazz-main
-    rg -n -- "a -> b -> c|@\\{|type grammar|left-associatively|right-associatively" \
-      docs/jazz-language-state.md docs/spec/type-system jazz-hs/src/Parser/Lang.hs jazz-hs/test/ParserSpec.hs
-    cd jazz-hs
-    stack test --ta "--match Tests of types"
-    stack test --ta "--match Type Inference"
-  '
+nix flake check
+nix develop . -c bash -lc '
+  set -euo pipefail
+  rg -n -- "a -> b -> c|@\\{|type grammar|left-associatively|right-associatively" \
+    docs/jazz-language-state.md docs/spec/type-system jazz-hs/src/Parser/Lang.hs jazz-hs/test/ParserSpec.hs
+  cd jazz-hs
+  stack test --ta "--match Tests of types"
+  stack test --ta "--match Type Inference"
+'
 ```
 
 Expected verification outcomes:
@@ -225,26 +218,26 @@ Suggested commit message:
 Exact `git add` targets:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/type-system/type-grammar.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/type-system/type-signatures.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Parser/Lang.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Analyzer/TypeInference.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/ParserSpec.hs \
-  /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs
+git add docs/spec/type-system/type-grammar.md \
+  docs/spec/type-system/type-signatures.md \
+  docs/jazz-language-state.md \
+  jazz-hs/src/Parser/Lang.hs \
+  jazz-hs/src/Analyzer/TypeInference.hs \
+  jazz-hs/test/ParserSpec.hs \
+  jazz-hs/test/Analyzer/TypeInferenceSpec.hs
 ```
 
 ## Nix Environment Considerations
 
-- [x] Repo-level `flake.nix`/`shell.nix` is currently absent; only `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/local-deps/llvm-hs-pretty/shell.nix` exists and is not a project-wide entrypoint.
-- [ ] Until project-level Nix files exist, use pinned one-shot `nix shell` commands for reproducibility.
-- [ ] If a repo-level Nix entrypoint is added later, mirror all verification commands under `nix develop -c ...` and keep both paths documented during transition.
+- [x] Repo-level `flake.nix` is available and is the canonical reproducibility entrypoint.
+- [x] Verification commands should run via `nix develop . -c ...` from repo root.
+- [ ] Keep plan snippets aligned with root-flake toolchain updates over time.
 
 ## Suggested Follow-On Sub-Plans (If Scope Splits)
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/type-system/07a-arrow-associativity-decision.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/type-system/07b-constrained-signature-semantics.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/type-system/07c-type-grammar-canonicalization.md`
+- `docs/plans/spec-clarification/2026-03-02/type-system/07a-arrow-associativity-decision.md`
+- `docs/plans/spec-clarification/2026-03-02/type-system/07b-constrained-signature-semantics.md`
+- `docs/plans/spec-clarification/2026-03-02/type-system/07c-type-grammar-canonicalization.md`
 
 Use these splits only if one track blocks others or requires independent review/approval cadence.
 

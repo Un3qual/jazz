@@ -26,11 +26,11 @@
 
 ## Verification Evidence (Why Clarification Was Needed)
 
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md:10` still references future LLVM IR.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Lib.hs:19` currently imports `CodeGen.Javascript`.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/app/Main.hs:18` currently emits JS output.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md:399` had backend target as unresolved.
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/CodeGen/Builtins.hs:3` and cabal/stack metadata retain legacy LLVM/QBE traces.
+- `README.md:10` still references future LLVM IR.
+- `jazz-hs/src/Lib.hs:19` currently imports `CodeGen.Javascript`.
+- `jazz-hs/app/Main.hs:18` currently emits JS output.
+- `docs/jazz-language-state.md:399` had backend target as unresolved.
+- `jazz-hs/src/CodeGen/Builtins.hs:3` and cabal/stack metadata retain legacy LLVM/QBE traces.
 
 ## Scope Guardrails
 
@@ -50,16 +50,16 @@ Out of scope (for this item):
 - [ ] Define conditions that would justify revisiting backend targets later.
 
 Create:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/decisions/adr-0012-interpreter-only-runtime.md`
+- `docs/decisions/adr-0012-interpreter-only-runtime.md`
 
 Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/runtime/12-backend-target-strategy.md`
+- `docs/jazz-language-state.md`
+- `docs/plans/spec-clarification/2026-03-02/runtime/12-backend-target-strategy.md`
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/decisions/adr-0012-interpreter-only-runtime.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/runtime/12-backend-target-strategy.md
+git add docs/decisions/adr-0012-interpreter-only-runtime.md docs/jazz-language-state.md docs/plans/spec-clarification/2026-03-02/runtime/12-backend-target-strategy.md
 git commit -m "docs(decision): lock backend policy to haskell interpreter only"
 ```
 
@@ -70,16 +70,16 @@ git commit -m "docs(decision): lock backend policy to haskell interpreter only"
 - [ ] Define error-reporting and exit-code behavior for interpreter mode.
 
 Create:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/runtime/interpreter-runtime-contract.md`
+- `docs/spec/runtime/interpreter-runtime-contract.md`
 
 Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/app/Main.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Lib.hs`
+- `jazz-hs/app/Main.hs`
+- `jazz-hs/src/Lib.hs`
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/runtime/interpreter-runtime-contract.md /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/app/Main.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Lib.hs
+git add docs/spec/runtime/interpreter-runtime-contract.md jazz-hs/app/Main.hs jazz-hs/src/Lib.hs
 git commit -m "feat(runtime): define interpreter runtime contract and cli path"
 ```
 
@@ -90,14 +90,14 @@ git commit -m "feat(runtime): define interpreter runtime contract and cli path"
 - [ ] Add smoke tests for example programs through interpreter path.
 
 Create/Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/ComplexProgram.jz`
+- `jazz-hs/test/InterpreterSpec.hs`
+- `jazz-hs/test/Spec.hs`
+- `jazz-hs/ExamplePrograms/ComplexProgram.jz`
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/ExamplePrograms/ComplexProgram.jz
+git add jazz-hs/test/InterpreterSpec.hs jazz-hs/test/Spec.hs jazz-hs/ExamplePrograms/ComplexProgram.jz
 git commit -m "test(runtime): prioritize interpreter execution coverage"
 ```
 
@@ -108,15 +108,15 @@ git commit -m "test(runtime): prioritize interpreter execution coverage"
 - [ ] Track removal/deprecation of unused backend dependencies in cabal/stack files.
 
 Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/jazz.cabal`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/stack.yaml`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/feature-status.md` (if created by item #5 execution)
+- `README.md`
+- `jazz-hs/jazz.cabal`
+- `jazz-hs/stack.yaml`
+- `docs/spec/feature-status.md` (if created by item #5 execution)
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/README.md /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/jazz.cabal /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/stack.yaml /Users/admin/.codex/worktrees/8c77/jazz-main/docs/spec/feature-status.md
+git add README.md jazz-hs/jazz.cabal jazz-hs/stack.yaml docs/spec/feature-status.md
 git commit -m "docs(build): remove active JS/LLVM target commitments"
 ```
 
@@ -125,7 +125,7 @@ git commit -m "docs(build): remove active JS/LLVM target commitments"
 ## Follow-On Plan (Interpreter Implementation)
 
 - [x] Dedicated implementation plan path is defined:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md`
+- `docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md`
 
 ## Nix Reproducibility Commands
 
@@ -137,7 +137,7 @@ nix --extra-experimental-features 'nix-command flakes' shell \
   "$NIXPKGS_REF#ripgrep" \
   -c bash -lc '
     set -euo pipefail
-    cd /Users/admin/.codex/worktrees/8c77/jazz-main
+    cd .
     rg -n "JavaScript|LLVM|backend" README.md docs/jazz-language-state.md docs/plans/spec-clarification/2026-03-02/runtime/12-backend-target-strategy.md
     cd jazz-hs
     stack test

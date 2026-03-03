@@ -2,7 +2,7 @@
 
 ## Progress
 
-- [x] Verified unresolved cleanup items from `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
+- [x] Verified unresolved cleanup items from `docs/jazz-language-state.md`
 - [x] Dispatched one subagent per unresolved item
 - [x] Generated one detailed plan file per unresolved item
 - [x] Organized plans by subfolder (`decisions/`, `documentation/`, `compiler/`)
@@ -28,12 +28,12 @@
 
 ## Plan Files
 
-- [01-authoritative-syntax.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/decisions/01-authoritative-syntax.md)
-- [02-map-filter-order.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md)
-- [03-purity-bang-semantics.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/decisions/03-purity-bang-semantics.md)
-- [04-trait-vs-class-keyword.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/decisions/04-trait-vs-class-keyword.md)
-- [05-readme-implemented-vs-planned.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/documentation/05-readme-implemented-vs-planned.md)
-- [06-parse-only-features-resolution.md](/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-cleanup/2026-03-02/compiler/06-parse-only-features-resolution.md)
+- [01-authoritative-syntax.md](decisions/01-authoritative-syntax.md)
+- [02-map-filter-order.md](decisions/02-map-filter-order.md)
+- [03-purity-bang-semantics.md](decisions/03-purity-bang-semantics.md)
+- [04-trait-vs-class-keyword.md](decisions/04-trait-vs-class-keyword.md)
+- [05-readme-implemented-vs-planned.md](documentation/05-readme-implemented-vs-planned.md)
+- [06-parse-only-features-resolution.md](compiler/06-parse-only-features-resolution.md)
 
 ## Nix Coordination Note
 

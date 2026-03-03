@@ -39,13 +39,13 @@ Out of scope:
 - [ ] Create interpreter test module scaffold.
 
 Create/Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs`
+- `jazz-hs/test/InterpreterSpec.hs`
+- `jazz-hs/test/Spec.hs`
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Spec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
+git add jazz-hs/test/InterpreterSpec.hs jazz-hs/test/Spec.hs docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 git commit -m "test(interpreter): add interpreter test scaffold and scope freeze"
 ```
 
@@ -56,13 +56,13 @@ git commit -m "test(interpreter): add interpreter test scaffold and scope freeze
 - [ ] Add failing tests then pass them.
 
 Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Interpreter.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs`
+- `jazz-hs/src/Interpreter.hs`
+- `jazz-hs/test/InterpreterSpec.hs`
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Interpreter.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs
+git add jazz-hs/src/Interpreter.hs jazz-hs/test/InterpreterSpec.hs
 git commit -m "feat(interpreter): implement runtime values and core expression eval"
 ```
 
@@ -74,14 +74,14 @@ git commit -m "feat(interpreter): implement runtime values and core expression e
 - [ ] Add interpreter tests for currying and partial application.
 
 Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Interpreter.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs` (only if shared builtin metadata extraction is needed)
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs`
+- `jazz-hs/src/Interpreter.hs`
+- `jazz-hs/src/Types.hs` (only if shared builtin metadata extraction is needed)
+- `jazz-hs/test/InterpreterSpec.hs`
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Interpreter.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Types.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs
+git add jazz-hs/src/Interpreter.hs jazz-hs/src/Types.hs jazz-hs/test/InterpreterSpec.hs
 git commit -m "feat(interpreter): add closures, application, and builtin runtime"
 ```
 
@@ -95,14 +95,14 @@ git commit -m "feat(interpreter): add closures, application, and builtin runtime
 - [ ] Add exhaustive tests for success/failure pattern-match paths.
 
 Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Interpreter.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs` (for analyzer/runtime contract alignment)
+- `jazz-hs/src/Interpreter.hs`
+- `jazz-hs/test/InterpreterSpec.hs`
+- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs` (for analyzer/runtime contract alignment)
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Interpreter.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/InterpreterSpec.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/test/Analyzer/TypeInferenceSpec.hs
+git add jazz-hs/src/Interpreter.hs jazz-hs/test/InterpreterSpec.hs jazz-hs/test/Analyzer/TypeInferenceSpec.hs
 git commit -m "feat(interpreter): add case and pattern matching runtime semantics"
 ```
 
@@ -113,14 +113,14 @@ git commit -m "feat(interpreter): add case and pattern matching runtime semantic
 - [ ] Keep any legacy codegen entrypoint clearly non-default/deprecated until removed.
 
 Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Lib.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/app/Main.hs`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/run.sh`
+- `jazz-hs/src/Lib.hs`
+- `jazz-hs/app/Main.hs`
+- `jazz-hs/run.sh`
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/src/Lib.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/app/Main.hs /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs/run.sh
+git add jazz-hs/src/Lib.hs jazz-hs/app/Main.hs jazz-hs/run.sh
 git commit -m "feat(runtime): switch cli execution to haskell interpreter"
 ```
 
@@ -131,14 +131,14 @@ git commit -m "feat(runtime): switch cli execution to haskell interpreter"
 - [ ] Record closure in planning trackers.
 
 Modify:
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/README.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md`
-- `/Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/README.md`
+- `README.md`
+- `docs/jazz-language-state.md`
+- `docs/plans/spec-clarification/2026-03-02/README.md`
 
 Commit checkpoint:
 
 ```bash
-git add /Users/admin/.codex/worktrees/8c77/jazz-main/README.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/jazz-language-state.md /Users/admin/.codex/worktrees/8c77/jazz-main/docs/plans/spec-clarification/2026-03-02/README.md
+git add README.md docs/jazz-language-state.md docs/plans/spec-clarification/2026-03-02/README.md
 git commit -m "docs(runtime): document interpreter-first execution and close plan"
 ```
 
@@ -151,7 +151,7 @@ nix --extra-experimental-features 'nix-command flakes' shell \
   "$NIXPKGS_REF#ghc" \
   -c bash -lc '
     set -euo pipefail
-    cd /Users/admin/.codex/worktrees/8c77/jazz-main/jazz-hs
+    cd jazz-hs
     stack test --test-arguments "--match Interpreter"
     stack test
   '
