@@ -127,29 +127,56 @@ inferScopeType ::
   Map Text ExpressionType ->
   [Statement] ->
   (Maybe ExpressionType, [Text])
-inferScopeType initialEnv statements = go initialEnv Nothing [] statements
+inferScopeType initialEnv statements = go initialEnv Nothing [] Nothing statements
   where
-    go env lastExprType errorsSoFar remainingStatements =
+    go env lastExprType errorsSoFar pendingSignatureType remainingStatements =
       case remainingStatements of
         [] -> (lastExprType, errorsSoFar)
         statement : rest ->
           case statement of
             SSignature name _ signatureText ->
-              let nextEnv =
+              let nextPendingSignature =
                     case parseSignatureType signatureText of
-                      Just signatureType -> Map.insert name signatureType env
-                      Nothing -> env
-               in go nextEnv lastExprType errorsSoFar rest
+                      Just signatureType ->
+                        Just (PendingSignatureType name signatureType)
+                      Nothing -> Nothing
+               in go env lastExprType errorsSoFar nextPendingSignature rest
             SLet name _ valueExpr ->
               let (valueType, valueErrors) = inferExprType env valueExpr
+                  signatureMismatchErrors =
+                    case (pendingSignatureType, valueType) of
+                      (Just pendingSignature, Just inferredType)
+                        | pendingSignatureName pendingSignature == name,
+                          pendingSignatureDeclaredType pendingSignature /= inferredType ->
+                            [ mkSignatureTypeMismatchError
+                                name
+                                (pendingSignatureDeclaredType pendingSignature)
+                                inferredType
+                            ]
+                      _ -> []
+                  envWithPendingSignature =
+                    case pendingSignatureType of
+                      Just pendingSignature
+                        | pendingSignatureName pendingSignature == name ->
+                            Map.insert
+                              name
+                              (pendingSignatureDeclaredType pendingSignature)
+                              env
+                      _ -> env
                   nextEnv =
                     case valueType of
-                      Just inferredType -> Map.insert name inferredType env
-                      Nothing -> env
-               in go nextEnv lastExprType (errorsSoFar ++ valueErrors) rest
+                      Just inferredType -> Map.insert name inferredType envWithPendingSignature
+                      Nothing -> envWithPendingSignature
+                  nextErrors = errorsSoFar ++ valueErrors ++ signatureMismatchErrors
+               in go nextEnv lastExprType nextErrors Nothing rest
             SExpr _ expr ->
               let (exprType, exprErrors) = inferExprType env expr
-               in go env exprType (errorsSoFar ++ exprErrors) rest
+               in go env exprType (errorsSoFar ++ exprErrors) Nothing rest
+
+data PendingSignatureType = PendingSignatureType
+  { pendingSignatureName :: Text,
+    pendingSignatureDeclaredType :: ExpressionType
+  }
 
 parseSignatureType :: Text -> Maybe ExpressionType
 parseSignatureType signatureText =
@@ -196,6 +223,15 @@ mkStrictEqualityTypeError operatorSymbol leftType rightType =
     <> renderType leftType
     <> " and "
     <> renderType rightType
+
+mkSignatureTypeMismatchError :: Text -> ExpressionType -> ExpressionType -> Text
+mkSignatureTypeMismatchError bindingName declaredType inferredType =
+  "E2005: binding '"
+    <> bindingName
+    <> "' declared as "
+    <> renderType declaredType
+    <> " but inferred as "
+    <> renderType inferredType
 
 mkIfConditionTypeError :: ExpressionType -> Text
 mkIfConditionTypeError foundType =
