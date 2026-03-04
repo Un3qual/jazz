@@ -133,7 +133,7 @@ testRejectsMissingDotTerminator =
   assertLeftContains
     "missing dot error"
     "expected '.'"
-    (parseSurfaceProgram "x = 1\nx.")
+    (parseSurfaceProgram "x = 1 y = 2.")
 
 testRejectsMissingSignatureDot :: IO ()
 testRejectsMissingSignatureDot =

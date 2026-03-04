@@ -321,11 +321,7 @@ inferSectionLeftType operatorSymbol leftType state =
       ( Nothing,
         addTypeError
           state
-          ( mkBinaryTypeError
-              operatorSymbol
-              (resolveType state leftType)
-              TIntType
-          )
+          (mkUnsupportedSectionOperatorError operatorSymbol)
       )
   where
     requireIntOperand resultType =
@@ -368,11 +364,7 @@ inferSectionRightType operatorSymbol rightType state =
       ( Nothing,
         addTypeError
           state
-          ( mkBinaryTypeError
-              operatorSymbol
-              TIntType
-              (resolveType state rightType)
-          )
+          (mkUnsupportedSectionOperatorError operatorSymbol)
       )
   where
     requireIntOperand resultType =
@@ -591,6 +583,12 @@ mkListElementTypeMismatchError expectedType foundType =
     <> renderType expectedType
     <> " and "
     <> renderType foundType
+
+mkUnsupportedSectionOperatorError :: Text -> Text
+mkUnsupportedSectionOperatorError operatorSymbol =
+  "E2008: unsupported operator section '"
+    <> operatorSymbol
+    <> "'"
 
 mkIfConditionTypeError :: ExpressionType -> Text
 mkIfConditionTypeError foundType =

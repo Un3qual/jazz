@@ -163,7 +163,6 @@ parseApplicationTail functionExpr tokens =
   where
     startsPrimaryExpr allTokens =
       case allTokens of
-        Token {tokenSpan = SourceSpan _ 1} : _ -> False
         Token {tokenKind = TInt _} : _ -> True
         Token {tokenKind = TIdentifier _} : _ -> True
         Token {tokenKind = TIf} : _ -> True
@@ -270,9 +269,9 @@ parseListElements tokens = do
       case allTokens of
         Token {tokenKind = TComma} : rest -> do
           (nextElement, remainingAfterNext) <- parseExpr rest
-          go (elements ++ [nextElement]) remainingAfterNext
+          go (nextElement : elements) remainingAfterNext
         _ ->
-          Right (elements, allTokens)
+          Right (reverse elements, allTokens)
 
 parseIfExpr :: Token -> [Token] -> Either Text (SurfaceExpr, [Token])
 parseIfExpr ifToken tokensAfterIf = do
