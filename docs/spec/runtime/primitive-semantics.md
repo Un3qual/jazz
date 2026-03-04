@@ -13,6 +13,11 @@ Define backend-independent language semantics for primitive operations and value
 - New runtime/typechecker implementation work for this contract lands in `jazz-next/`.
 - `jazz-hs/` and `jazz2/` are legacy evidence only.
 
+## Boundary Contract Link
+
+- Ownership and migration rules for primitive symbols are defined in:
+  - `docs/spec/stdlib-boundary.md`
+
 ## Primitive Contract Table
 
 | Primitive | Canonical type contract | Semantics | Invalid input behavior |

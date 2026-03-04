@@ -21,6 +21,10 @@ import JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
   )
+import JazzNext.Compiler.BuiltinCatalog
+  ( BuiltinSymbol (..),
+    lookupBuiltinSymbol
+  )
 import JazzNext.Compiler.Diagnostics
   ( WarningRecord
   )
@@ -544,14 +548,15 @@ parseSignatureType signatureText =
     _ -> Nothing
 
 instantiateBuiltinType :: Text -> InferState -> Maybe (ExpressionType, InferState)
-instantiateBuiltinType name state
-  | name == "hd" =
+instantiateBuiltinType name state =
+  case lookupBuiltinSymbol name of
+    Just BuiltinHd ->
       let (elementType, stateAfterElement) = freshTypeVar state
        in Just (TFunctionType (TListType elementType) elementType, stateAfterElement)
-  | name == "tl" =
+    Just BuiltinTl ->
       let (elementType, stateAfterElement) = freshTypeVar state
        in Just (TFunctionType (TListType elementType) (TListType elementType), stateAfterElement)
-  | name == "map" =
+    Just BuiltinMap ->
       let (sourceType, stateAfterSource) = freshTypeVar state
           (targetType, stateAfterTarget) = freshTypeVar stateAfterSource
        in
@@ -561,7 +566,7 @@ instantiateBuiltinType name state
               (TFunctionType (TListType sourceType) (TListType targetType)),
             stateAfterTarget
           )
-  | otherwise = Nothing
+    Nothing -> Nothing
 
 freshTypeVar :: InferState -> (ExpressionType, InferState)
 freshTypeVar state =

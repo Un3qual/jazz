@@ -19,6 +19,9 @@ import JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
   )
+import JazzNext.Compiler.BuiltinCatalog
+  ( isBuiltinSymbolName
+  )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan,
     WarningRecord,
@@ -73,7 +76,7 @@ collectExprDiagnostics settings visibleBindings expr =
       case Map.lookup name visibleBindings of
         Just _ -> ([], [])
         Nothing
-          | isBuiltinName name -> ([], [])
+          | isBuiltinSymbolName name -> ([], [])
           | otherwise -> ([], [mkUnboundVariableError name])
     EList elements ->
       collectExprListDiagnostics settings visibleBindings elements
@@ -429,12 +432,6 @@ freeVarsExprWithBound bound expr =
     ESectionRight _ rightExpr ->
       freeVarsExprWithBound bound rightExpr
     EScope statements -> freeVarsScopeWithBound bound statements
-
-isBuiltinName :: Text -> Bool
-isBuiltinName name =
-  name == "map"
-    || name == "hd"
-    || name == "tl"
 
 freeVarsScopeWithBound :: Set Text -> [Statement] -> Set Text
 freeVarsScopeWithBound initialBound statements =

@@ -19,6 +19,7 @@ TEST_FILES=(
   jazz-next/test/IfExpressionTypeSpec.hs
   jazz-next/test/PrimitiveSemanticsSpec.hs
   jazz-next/test/RuntimeSemanticsSpec.hs
+  jazz-next/test/BuiltinCatalogSpec.hs
   jazz-next/test/OperatorFixitySpec.hs
   jazz-next/test/OperatorSectionSpec.hs
   jazz-next/test/OperatorInvalidSyntaxSpec.hs
