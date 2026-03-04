@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
@@ -105,113 +106,107 @@ testRejectsArithmeticTypeMismatch = do
     (compileErrors result)
 
 testSourcePipelineAcceptsHdListLiteral :: IO ()
-testSourcePipelineAcceptsHdListLiteral = do
-  result <- compileSource defaultWarningSettings "x = hd [1, 2, 3]."
-  assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
+testSourcePipelineAcceptsHdListLiteral =
+  assertCompiles "x = hd [1, 2, 3]."
 
 testSourcePipelineAcceptsMapHdNestedLists :: IO ()
-testSourcePipelineAcceptsMapHdNestedLists = do
-  result <- compileSource defaultWarningSettings "x = map hd [[1, 2], [3], [4, 5]]."
-  assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
+testSourcePipelineAcceptsMapHdNestedLists =
+  assertCompiles "x = map hd [[1, 2], [3], [4, 5]]."
 
 testSourcePipelineRejectsHdNonListArgument :: IO ()
-testSourcePipelineRejectsHdNonListArgument = do
-  result <- compileSource defaultWarningSettings "x = hd 1."
-  assertSingleErrorContains
+testSourcePipelineRejectsHdNonListArgument =
+  assertCompileError
+    "x = hd 1."
     "hd argument type mismatch"
     "E2006"
-    (compileErrors result)
 
 testSourcePipelineRejectsTlNonListArgument :: IO ()
-testSourcePipelineRejectsTlNonListArgument = do
-  result <- compileSource defaultWarningSettings "x = tl 1."
-  assertSingleErrorContains
+testSourcePipelineRejectsTlNonListArgument =
+  assertCompileError
+    "x = tl 1."
     "tl argument type mismatch"
     "E2006"
-    (compileErrors result)
 
 testSourcePipelineRejectsMapNonFunctionMapper :: IO ()
-testSourcePipelineRejectsMapNonFunctionMapper = do
-  result <- compileSource defaultWarningSettings "x = map 1 [1, 2]."
-  assertSingleErrorContains
+testSourcePipelineRejectsMapNonFunctionMapper =
+  assertCompileError
+    "x = map 1 [1, 2]."
     "map mapper type mismatch"
     "E2006"
-    (compileErrors result)
 
 testSourcePipelineRejectsMapNonListCollection :: IO ()
-testSourcePipelineRejectsMapNonListCollection = do
-  result <- compileSource defaultWarningSettings "x = map hd 1."
-  assertSingleErrorContains
+testSourcePipelineRejectsMapNonListCollection =
+  assertCompileError
+    "x = map hd 1."
     "map collection type mismatch"
     "E2006"
-    (compileErrors result)
 
 testSourcePipelineAcceptsEqualitySection :: IO ()
-testSourcePipelineAcceptsEqualitySection = do
-  result <- compileSource defaultWarningSettings "x = (True ==) False."
-  assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
+testSourcePipelineAcceptsEqualitySection =
+  assertCompiles "x = (True ==) False."
 
 testSourcePipelineAcceptsDeferredLeftEqualitySection :: IO ()
-testSourcePipelineAcceptsDeferredLeftEqualitySection = do
-  result <- compileSource defaultWarningSettings "x = (hd [] ==) 1."
-  assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
+testSourcePipelineAcceptsDeferredLeftEqualitySection =
+  assertCompiles "x = (hd [] ==) 1."
 
 testSourcePipelineAcceptsDeferredRightEqualitySection :: IO ()
-testSourcePipelineAcceptsDeferredRightEqualitySection = do
-  result <- compileSource defaultWarningSettings "x = (== hd []) 1."
+testSourcePipelineAcceptsDeferredRightEqualitySection =
+  assertCompiles "x = (== hd []) 1."
+
+testSourcePipelineRejectsArithmeticSectionTypeMismatch :: IO ()
+testSourcePipelineRejectsArithmeticSectionTypeMismatch =
+  assertCompileError
+    "x = (True +) 1."
+    "arithmetic section operand mismatch"
+    "E2003"
+
+testSourcePipelineRejectsEqualitySectionTypeMismatch :: IO ()
+testSourcePipelineRejectsEqualitySectionTypeMismatch =
+  assertCompileError
+    "x = (True ==) 1."
+    "equality section operand mismatch"
+    "E2006"
+
+testSourcePipelineRejectsDeferredEqualitySectionListConstraint :: IO ()
+testSourcePipelineRejectsDeferredEqualitySectionListConstraint =
+  assertCompileError
+    "x = (hd [] ==) []."
+    "deferred equality section must still reject unsupported concrete operand family"
+    "E2006"
+
+testSourcePipelineRejectsListEquality :: IO ()
+testSourcePipelineRejectsListEquality =
+  assertCompileError
+    "x = [1] == [1]."
+    "list equality unsupported in runtime subset"
+    "E2004"
+
+testSourcePipelineRejectsUnsupportedSectionOperator :: IO ()
+testSourcePipelineRejectsUnsupportedSectionOperator =
+  assertCompileError
+    "x = ($ 1)."
+    "unsupported section operator"
+    "E2008"
+
+testSourcePipelineRejectsMixedTypeListLiteral :: IO ()
+testSourcePipelineRejectsMixedTypeListLiteral =
+  assertCompileError
+    "x = [1, True]."
+    "list literal element mismatch"
+    "E2007"
+
+assertCompiles :: String -> IO ()
+assertCompiles source = do
+  result <- compileSource defaultWarningSettings (Text.pack source)
   assertEqual "compile errors" [] (compileErrors result)
   assertJust "generated JS is present" (generatedJs result)
 
-testSourcePipelineRejectsArithmeticSectionTypeMismatch :: IO ()
-testSourcePipelineRejectsArithmeticSectionTypeMismatch = do
-  result <- compileSource defaultWarningSettings "x = (True +) 1."
+assertCompileError :: String -> String -> String -> IO ()
+assertCompileError source failureLabel errorCode = do
+  result <- compileSource defaultWarningSettings (Text.pack source)
   assertSingleErrorContains
-    "arithmetic section operand mismatch"
-    "E2003"
-    (compileErrors result)
-
-testSourcePipelineRejectsEqualitySectionTypeMismatch :: IO ()
-testSourcePipelineRejectsEqualitySectionTypeMismatch = do
-  result <- compileSource defaultWarningSettings "x = (True ==) 1."
-  assertSingleErrorContains
-    "equality section operand mismatch"
-    "E2006"
-    (compileErrors result)
-
-testSourcePipelineRejectsDeferredEqualitySectionListConstraint :: IO ()
-testSourcePipelineRejectsDeferredEqualitySectionListConstraint = do
-  result <- compileSource defaultWarningSettings "x = (hd [] ==) []."
-  assertSingleErrorContains
-    "deferred equality section must still reject unsupported concrete operand family"
-    "E2006"
-    (compileErrors result)
-
-testSourcePipelineRejectsListEquality :: IO ()
-testSourcePipelineRejectsListEquality = do
-  result <- compileSource defaultWarningSettings "x = [1] == [1]."
-  assertSingleErrorContains
-    "list equality unsupported in runtime subset"
-    "E2004"
-    (compileErrors result)
-
-testSourcePipelineRejectsUnsupportedSectionOperator :: IO ()
-testSourcePipelineRejectsUnsupportedSectionOperator = do
-  result <- compileSource defaultWarningSettings "x = ($ 1)."
-  assertSingleErrorContains
-    "unsupported section operator"
-    "E2008"
-    (compileErrors result)
-
-testSourcePipelineRejectsMixedTypeListLiteral :: IO ()
-testSourcePipelineRejectsMixedTypeListLiteral = do
-  result <- compileSource defaultWarningSettings "x = [1, True]."
-  assertSingleErrorContains
-    "list literal element mismatch"
-    "E2007"
+    (Text.pack failureLabel)
+    (Text.pack errorCode)
     (compileErrors result)
 
 mkProgram :: Expr -> Expr
