@@ -24,7 +24,9 @@ tests :: [NamedTest]
 tests =
   [ ("if with False condition skips then branch runtime failure", testIfFalseSkipsThenRuntimeFailure),
     ("if with True condition skips else branch runtime failure", testIfTrueSkipsElseRuntimeFailure),
-    ("division by zero produces fatal runtime diagnostic", testDivisionByZeroRuntimeError)
+    ("division by zero produces fatal runtime diagnostic", testDivisionByZeroRuntimeError),
+    ("scope with only declarations has no runtime output", testDeclarationOnlyScopeHasNoOutput),
+    ("scope result requires terminal expression", testScopeDeclarationAfterExprClearsResult)
   ]
 
 testIfFalseSkipsThenRuntimeFailure :: IO ()
@@ -59,3 +61,17 @@ testDivisionByZeroRuntimeError = do
         "division by zero"
         runtimeError
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testDeclarationOnlyScopeHasNoOutput :: IO ()
+testDeclarationOnlyScopeHasNoOutput = do
+  result <- runSource defaultWarningSettings "x = 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "declaration-only scope produces no output" Nothing (runOutput result)
+
+testScopeDeclarationAfterExprClearsResult :: IO ()
+testScopeDeclarationAfterExprClearsResult = do
+  result <- runSource defaultWarningSettings "x = 1. x. y = 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "declaration after expression clears scope result" Nothing (runOutput result)
