@@ -16,7 +16,7 @@
 - [x] Contradictions captured with exact paths
 - [x] Verified candidate-step implementation status against current `jazz-next` state before selecting next batch
 - [x] Executed `jazz-next` intrinsic-boundary hardening batch (shared builtin catalog + conformance checks)
-- [ ] Boundary contract approved (`intrinsic kernel` vs `prelude-owned API`)
+- [x] Boundary contract approved (`intrinsic kernel` vs `prelude-owned API`)
 - [ ] Migration phases executed with compatibility gates
 - [ ] Hardcoded builtin surface reduced to approved kernel
 - [ ] Reproducibility and closure checks completed
@@ -36,17 +36,17 @@
 
 ## Boundary Contract To Clarify (Decision Gates)
 
-- [ ] **Gate A: Minimal hardcoded intrinsic kernel**
-- [ ] Decide exact primitives that must remain compiler/runtime-owned (for example host I/O and backend-native numeric/FFI intrinsics only).
-- [ ] Explicitly exclude user-facing collection/utility APIs from kernel unless proven impossible to self-host.
-- [ ] **Gate B: Prelude ownership**
-- [ ] Decide canonical source of truth for user-visible stdlib APIs (`.jz` prelude modules, versioned in-repo).
+- [x] **Gate A: Minimal hardcoded intrinsic kernel**
+- [x] Decide exact primitives that must remain compiler/runtime-owned (for example host I/O and backend-native numeric/FFI intrinsics only).
+- [x] Explicitly exclude user-facing collection/utility APIs from kernel unless proven impossible to self-host.
+- [x] **Gate B: Prelude ownership**
+- [x] Decide canonical source of truth for user-visible stdlib APIs (`.jz` prelude modules, versioned in-repo).
 - [ ] Define naming/export contract for prelude symbols consumed by user programs.
-- [ ] **Gate C: Compiler/runtime boundary**
-- [ ] Define intrinsic call boundary shape (name scheme, arity contract, typing authority, codegen mapping ownership).
-- [ ] Define whether intrinsic typing lives in compiler tables, prelude declarations, or dual-checked contract files during migration.
-- [ ] **Gate D: Compatibility window**
-- [ ] Decide temporary dual-source policy (`hardcoded builtins + prelude`) and explicit removal criteria/date.
+- [x] **Gate C: Compiler/runtime boundary**
+- [x] Define intrinsic call boundary shape (name scheme, arity contract, typing authority, codegen mapping ownership).
+- [x] Define whether intrinsic typing lives in compiler tables, prelude declarations, or dual-checked contract files during migration.
+- [x] **Gate D: Compatibility window**
+- [x] Decide temporary dual-source policy (`hardcoded builtins + prelude`) and explicit removal criteria/date.
 
 ## Phase 0: Boundary Inventory Freeze and Decision Rubric
 
@@ -70,10 +70,10 @@ git commit -m "docs(spec): add stdlib boundary inventory and decision rubric"
 
 ## Phase 1: Ratify Boundary Contract (No Behavioral Changes Yet)
 
-- [ ] Create canonical boundary spec doc with explicit ownership rules.
-- [ ] Lock kernel list (hardcoded forever or until backend swap).
-- [ ] Lock prelude-owned API list (must be loaded from `.jz`, not hardcoded).
-- [ ] Lock compatibility policy (hard switch vs staged dual support).
+- [x] Create canonical boundary spec doc with explicit ownership rules.
+- [x] Lock kernel list (hardcoded forever or until backend swap).
+- [x] Lock prelude-owned API list (must be loaded from `.jz`, not hardcoded).
+- [x] Lock compatibility policy (hard switch vs staged dual support).
 - [ ] Cross-reference existing locked decisions (`class`, function-first map/filter, purity stub) so prelude syntax/API choices do not regress them.
 
 ### Expected file touch-set
@@ -93,10 +93,10 @@ git commit -m "docs(spec): ratify stdlib ownership boundary contract"
 
 ## Phase 2: Add Prelude Loading Path Behind Compatibility Guard
 
-- [ ] Add a deterministic prelude load strategy in compilation pipeline (prepend/parse-combine/import bootstrap) without removing hardcoded builtins yet.
-- [ ] Keep compatibility mode enabled so existing programs still compile while prelude is integrated.
-- [ ] Add tests that prove prelude definitions are visible at parse/scope/type phases.
-- [ ] Ensure failure modes are explicit when prelude file is missing or parse-invalid.
+- [x] Add a deterministic prelude load strategy in compilation pipeline (prepend/parse-combine/import bootstrap) without removing hardcoded builtins yet.
+- [x] Keep compatibility mode enabled so existing programs still compile while prelude is integrated.
+- [x] Add tests that prove prelude definitions are visible at parse/scope/type phases.
+- [x] Ensure failure modes are explicit when prelude file is missing or parse-invalid.
 
 ### Expected file touch-set
 
@@ -106,6 +106,14 @@ git commit -m "docs(spec): ratify stdlib ownership boundary contract"
 - `jazz-hs/test/Analyzer/ScopeAnalyzerSpec.hs`
 - `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
 - `jazz-hs/static/Prelude.jz` (syntax sync only if needed for parser compatibility)
+
+Executed `jazz-next` touch-set (2026-03-04 Batch 2):
+
+- `jazz-next/src/JazzNext/Compiler/Driver.hs`
+- `jazz-next/src/JazzNext/CLI/Main.hs`
+- `jazz-next/test/CLISpec.hs`
+- `jazz-next/test/PreludeLoadingSpec.hs`
+- `jazz-next/scripts/test-warning-config.sh`
 
 ### Commit checkpoint (Phase 2)
 
@@ -263,6 +271,15 @@ nix develop . -c bash -lc '
   - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/RuntimeSemanticsSpec.hs`
   - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`
   - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/BuiltinCatalogSpec.hs`
+
+## Implementation Status Verification (2026-03-04, Batch 2, `jazz-next`)
+
+- [x] Re-verified candidate unchecked phase items and confirmed prelude loading path plus explicit diagnostics were still missing in active `jazz-next` compile/run entrypoints.
+- [x] Added prelude-aware driver entrypoints in `jazz-next/src/JazzNext/Compiler/Driver.hs` (`compileSourceWithPrelude`, `runSourceWithPrelude`) with deterministic source composition and prelude parse diagnostics (`E0002`).
+- [x] Added CLI compatibility-guard controls in `jazz-next/src/JazzNext/CLI/Main.hs` (`--prelude`, `--no-prelude`, `JAZZ_PRELUDE`) plus explicit missing-prelude diagnostics (`E0003`).
+- [x] Added CLI behavior coverage for prelude success/failure and override cases in `jazz-next/test/CLISpec.hs`.
+- [x] Added dedicated pipeline tests in `jazz-next/test/PreludeLoadingSpec.hs` for prelude binding visibility and parse-failure handling.
+- [x] Added the new suite to the default verification runner: `jazz-next/scripts/test-warning-config.sh`.
 
 ## Short Checkbox Summary
 

@@ -406,7 +406,7 @@ Based on the full repo, these areas still require implementation convergence eve
   - `docs/spec/tooling/compiler-warning-flags.md`
 - Whether tuples are a core runtime feature or just parsed syntax in active implementation behavior.
 - Whether modules/imports are purely syntactic organization or part of a real file/module loader.
-- Whether the standard library is meant to be self-hosted in `.jz` or hardcoded in the compiler/runtime.
+- Standard-library boundary migration remains in progress: ownership contract is now documented in `docs/spec/stdlib-boundary.md` and `jazz-next` supports guarded prelude loading, but `map`/`hd`/`tl` are still kernel-owned in the active runtime subset.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
 - Whether the eventual target is JavaScript, LLVM, or both.
 

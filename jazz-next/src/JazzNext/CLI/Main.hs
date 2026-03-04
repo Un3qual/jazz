@@ -21,8 +21,8 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     RunResult (..),
-    compileSource,
-    runSource
+    compileSourceWithPrelude,
+    runSourceWithPrelude
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -38,7 +38,9 @@ import System.IO (stderr, stdout)
 data CliOptions = CliOptions
   { cliWarningFlags :: [Text],
     cliWarningsConfigPath :: Maybe FilePath,
-    cliRunMode :: Bool
+    cliRunMode :: Bool,
+    cliPreludePath :: Maybe FilePath,
+    cliDisablePrelude :: Bool
   }
   deriving (Eq, Show)
 
@@ -49,17 +51,28 @@ data CliOutput = CliOutput
   }
   deriving (Eq, Show)
 
--- Parse only the currently supported warning-related flags.
+-- Parse currently supported warning and prelude-loading flags.
 parseCliOptions :: [String] -> Either Text CliOptions
-parseCliOptions args = finalize <$> go (CliOptions [] Nothing False) args
+parseCliOptions args = do
+  options <- go (CliOptions [] Nothing False Nothing False) args
+  finalize options
   where
-    finalize options =
-      options {cliWarningFlags = reverse (cliWarningFlags options)}
+    finalize options
+      | cliDisablePrelude options && cliPreludePath options /= Nothing =
+          Left "cannot combine --prelude with --no-prelude"
+      | otherwise =
+          Right options {cliWarningFlags = reverse (cliWarningFlags options)}
     go options [] = Right options
     go options ("--warnings-config" : path : rest) =
       go options {cliWarningsConfigPath = Just path} rest
     go _ ("--warnings-config" : []) =
       Left "missing path after --warnings-config"
+    go options ("--prelude" : path : rest) =
+      go options {cliPreludePath = Just path} rest
+    go _ ("--prelude" : []) =
+      Left "missing path after --prelude"
+    go options ("--no-prelude" : rest) =
+      go options {cliDisablePrelude = True} rest
     go options ("--run" : rest) =
       go options {cliRunMode = True} rest
     go options (arg : rest)
@@ -93,10 +106,20 @@ runCliWith args envLookup configLookup loadSource =
                 cliStderr = "error: " <> configError <> "\n"
               }
         Right settings -> do
-          source <- loadSource
-          if cliRunMode options
-            then runExecute settings source
-            else runCompile settings source
+          preludeSourceResult <- resolvePreludeSource options envLookup configLookup
+          case preludeSourceResult of
+            Left preludeError ->
+              pure
+                CliOutput
+                  { cliExitCode = 2,
+                    cliStdout = "",
+                    cliStderr = "error: " <> preludeError <> "\n"
+                  }
+            Right preludeSource -> do
+              source <- loadSource
+              if cliRunMode options
+                then runExecute settings preludeSource source
+                else runCompile settings preludeSource source
 
 main :: IO ()
 main = do
@@ -128,9 +151,37 @@ resolveSettings options envLookup configLookup = do
       Nothing -> pure Nothing
   pure (resolveWarningSettings (cliWarningFlags options) envWarningFlags envErrorFlags configContents)
 
-runCompile :: WarningSettings -> Text -> IO CliOutput
-runCompile settings source = do
-  result <- compileSource settings source
+resolvePreludeSource ::
+  CliOptions ->
+  (String -> IO (Maybe String)) ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO (Either Text (Maybe Text))
+resolvePreludeSource options envLookup fileLookup = do
+  envPreludePath <- envLookup "JAZZ_PRELUDE"
+  let selectedPreludePath
+        | cliDisablePrelude options = Nothing
+        | otherwise =
+            case cliPreludePath options of
+              Just cliPath -> Just cliPath
+              Nothing -> envPreludePath
+  case selectedPreludePath of
+    Nothing ->
+      pure (Right Nothing)
+    Just preludePath -> do
+      preludeContents <- fileLookup preludePath
+      pure $
+        case preludeContents of
+          Just contents -> Right (Just contents)
+          Nothing ->
+            Left
+              ( "E0003: prelude file could not be read at '"
+                  <> Text.pack preludePath
+                  <> "'"
+              )
+
+runCompile :: WarningSettings -> Maybe Text -> Text -> IO CliOutput
+runCompile settings preludeSource source = do
+  result <- compileSourceWithPrelude settings preludeSource source
   let warningLines = map formatWarningLine (compileWarnings result)
       errorLines = map ("error: " <>) (compileErrors result)
       stderrOutput = renderLines (warningLines ++ errorLines)
@@ -149,9 +200,9 @@ runCompile settings source = do
         cliStderr = stderrOutput
       }
 
-runExecute :: WarningSettings -> Text -> IO CliOutput
-runExecute settings source = do
-  result <- runSource settings source
+runExecute :: WarningSettings -> Maybe Text -> Text -> IO CliOutput
+runExecute settings preludeSource source = do
+  result <- runSourceWithPrelude settings preludeSource source
   let warningLines = map formatWarningLine (runWarnings result)
       compileErrorLines = map ("error: " <>) (runCompileErrors result)
       runtimeErrorLines = map ("error: " <>) (runRuntimeErrors result)
