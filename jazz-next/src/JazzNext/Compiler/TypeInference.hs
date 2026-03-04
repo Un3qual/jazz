@@ -21,6 +21,11 @@ import JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
   )
+import JazzNext.Compiler.BuiltinCatalog
+  ( BuiltinSymbol,
+    builtinSymbolName,
+    lookupBuiltinSymbol
+  )
 import JazzNext.Compiler.Diagnostics
   ( WarningRecord
   )
@@ -544,14 +549,23 @@ parseSignatureType signatureText =
     _ -> Nothing
 
 instantiateBuiltinType :: Text -> InferState -> Maybe (ExpressionType, InferState)
-instantiateBuiltinType name state
-  | name == "hd" =
+instantiateBuiltinType name state =
+  case lookupBuiltinSymbol name of
+    Just builtinSymbol -> instantiateBuiltinSymbolType builtinSymbol state
+    Nothing -> Nothing
+
+instantiateBuiltinSymbolType :: BuiltinSymbol -> InferState -> Maybe (ExpressionType, InferState)
+instantiateBuiltinSymbolType builtinSymbol state =
+  -- Use catalog names here so newly-added symbols safely fall back to `Nothing`
+  -- until an explicit type-instantiation rule is defined.
+  case builtinSymbolName builtinSymbol of
+    "hd" ->
       let (elementType, stateAfterElement) = freshTypeVar state
        in Just (TFunctionType (TListType elementType) elementType, stateAfterElement)
-  | name == "tl" =
+    "tl" ->
       let (elementType, stateAfterElement) = freshTypeVar state
        in Just (TFunctionType (TListType elementType) (TListType elementType), stateAfterElement)
-  | name == "map" =
+    "map" ->
       let (sourceType, stateAfterSource) = freshTypeVar state
           (targetType, stateAfterTarget) = freshTypeVar stateAfterSource
        in
@@ -561,7 +575,7 @@ instantiateBuiltinType name state
               (TFunctionType (TListType sourceType) (TListType targetType)),
             stateAfterTarget
           )
-  | otherwise = Nothing
+    _ -> Nothing
 
 freshTypeVar :: InferState -> (ExpressionType, InferState)
 freshTypeVar state =

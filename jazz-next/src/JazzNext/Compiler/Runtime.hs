@@ -14,18 +14,18 @@ import JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
   )
-
-data BuiltinFunction
-  = BuiltinMap
-  | BuiltinHd
-  | BuiltinTl
-  deriving (Eq, Show)
+import JazzNext.Compiler.BuiltinCatalog
+  ( BuiltinSymbol (..),
+    builtinSymbolArity,
+    builtinSymbolName,
+    lookupBuiltinSymbol
+  )
 
 data RuntimeValue
   = VInt Int
   | VBool Bool
   | VList [RuntimeValue]
-  | VBuiltin BuiltinFunction [RuntimeValue]
+  | VBuiltin BuiltinSymbol [RuntimeValue]
   | VSectionLeft Text RuntimeValue
   | VSectionRight Text RuntimeValue
   deriving (Eq, Show)
@@ -81,7 +81,7 @@ evalValue env expr =
       case Map.lookup name env of
         Just value -> Right value
         Nothing ->
-          case builtinFromName name of
+          case lookupBuiltinSymbol name of
             Just builtinFunction -> Right (VBuiltin builtinFunction [])
             Nothing ->
               Left
@@ -141,20 +141,20 @@ applyRuntimeFunction functionValue argumentValue =
             <> ""
         )
 
-applyBuiltin :: BuiltinFunction -> [RuntimeValue] -> Either Text RuntimeValue
+applyBuiltin :: BuiltinSymbol -> [RuntimeValue] -> Either Text RuntimeValue
 applyBuiltin builtinFunction arguments
-  | length arguments < builtinArity builtinFunction =
+  | length arguments < builtinSymbolArity builtinFunction =
       Right (VBuiltin builtinFunction arguments)
-  | length arguments == builtinArity builtinFunction =
+  | length arguments == builtinSymbolArity builtinFunction =
       evalBuiltin builtinFunction arguments
   | otherwise =
       Left
         ( "E3014: runtime primitive '"
-            <> builtinName builtinFunction
+            <> builtinSymbolName builtinFunction
             <> "' received too many arguments"
         )
 
-evalBuiltin :: BuiltinFunction -> [RuntimeValue] -> Either Text RuntimeValue
+evalBuiltin :: BuiltinSymbol -> [RuntimeValue] -> Either Text RuntimeValue
 evalBuiltin builtinFunction arguments =
   case (builtinFunction, arguments) of
     (BuiltinHd, [VList []]) ->
@@ -193,30 +193,9 @@ evalBuiltin builtinFunction arguments =
     _ ->
       Left
         ( "E3016: runtime primitive '"
-            <> builtinName builtinFunction
+            <> builtinSymbolName builtinFunction
             <> "' received invalid arguments"
         )
-
-builtinArity :: BuiltinFunction -> Int
-builtinArity builtinFunction =
-  case builtinFunction of
-    BuiltinMap -> 2
-    BuiltinHd -> 1
-    BuiltinTl -> 1
-
-builtinName :: BuiltinFunction -> Text
-builtinName builtinFunction =
-  case builtinFunction of
-    BuiltinMap -> "map"
-    BuiltinHd -> "hd"
-    BuiltinTl -> "tl"
-
-builtinFromName :: Text -> Maybe BuiltinFunction
-builtinFromName name
-  | name == "map" = Just BuiltinMap
-  | name == "hd" = Just BuiltinHd
-  | name == "tl" = Just BuiltinTl
-  | otherwise = Nothing
 
 isFunctionValue :: RuntimeValue -> Bool
 isFunctionValue value =

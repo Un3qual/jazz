@@ -14,6 +14,8 @@
 
 - [x] Baseline evidence gathered from old code and current specs
 - [x] Contradictions captured with exact paths
+- [x] Verified candidate-step implementation status against current `jazz-next` state before selecting next batch
+- [x] Executed `jazz-next` intrinsic-boundary hardening batch (shared builtin catalog + conformance checks)
 - [ ] Boundary contract approved (`intrinsic kernel` vs `prelude-owned API`)
 - [ ] Migration phases executed with compatibility gates
 - [ ] Hardcoded builtin surface reduced to approved kernel
@@ -244,6 +246,23 @@ nix develop . -c bash -lc '
 - [ ] Compiler/runtime hardcoded layer is reduced to agreed intrinsic kernel only.
 - [ ] Contradictions listed in `Verification Evidence` are all marked resolved with commit references.
 - [ ] Nix-based reproducibility commands run successfully for baseline and final state.
+
+## Implementation Status Verification (2026-03-04, Batch 1, `jazz-next`)
+
+- [x] Re-verified candidate steps before implementation and confirmed phase-3 intrinsic bridge work was partially present in code but drift-prone due to duplicated builtin tables.
+- [x] Added canonical boundary spec doc for active `jazz-next` runtime subset: `docs/spec/stdlib-boundary.md`.
+- [x] Added shared builtin catalog module: `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`.
+- [x] Refactored analyzer/type-inference/runtime to consume the shared catalog:
+  - `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+  - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+  - `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- [x] Added catalog conformance coverage: `jazz-next/test/BuiltinCatalogSpec.hs`.
+- [x] Added catalog suite to default verification runner: `jazz-next/scripts/test-warning-config.sh`.
+- [x] Ran targeted verification:
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/RuntimeSemanticsSpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/BuiltinCatalogSpec.hs`
 
 ## Short Checkbox Summary
 
