@@ -391,18 +391,17 @@ Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, bu
 
 Based on the full repo, these areas still require implementation convergence even when a decision lock now exists:
 
-- Completing type-surface alignment for locked binding/signature semantics in `jazz-next` (parser-source and analyzer contracts are implemented and test-covered; signature text is still represented as raw text in the current parser/type pipeline):
+- Extending parsed signature type grammar beyond the current `Int`/`Bool` subset in `jazz-next` (binding/signature coherence contract itself is implemented and test-covered):
   - `docs/spec/semantics/bindings-and-signatures.md`
-  - `jazz-next/test/BindingSignatureCoherenceSpec.hs`
   - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
-- Implementing locked `if` surface semantics in `jazz-next`:
-  - `docs/spec/control-flow/if-expressions.md`
 - Extending staged operator roadmap work in `jazz-next` beyond implemented v1 parser/fixity/sections behavior:
   - `docs/spec/syntax/operators.md`
   - `jazz-next/test/OperatorFixitySpec.hs`
   - `jazz-next/test/OperatorSectionSpec.hs`
-- Implementing locked primitive semantics in `jazz-next`:
+- Extending primitive semantics coverage beyond the implemented v1 runtime/type subset (`+`, `-`, `*`, `/`, `==`, `!=`, `map`, `hd`, `tl`) as the runtime surface expands:
   - `docs/spec/runtime/primitive-semantics.md`
+  - `jazz-next/test/PrimitiveSemanticsSpec.hs`
+  - `jazz-next/test/RuntimeSemanticsSpec.hs`
 - Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding` category:
   - `docs/spec/tooling/compiler-warning-flags.md`
 - Whether tuples are a core runtime feature or just parsed syntax in active implementation behavior.
@@ -420,14 +419,13 @@ If you need a practical baseline for continuing Jazz, use this order:
 3. Treat the top-level README as aspirational/non-normative summary text.
 4. Treat `static/Prelude.jz` as a future-design sketch, not an exact spec.
 5. Treat `jazz2` as a reference-only redesign source, not the active implementation target.
-6. Assume the currently working language is a small curried expression language with:
-   - dot-separated top-level forms
-   - lambdas
-   - application
-   - literals
-   - lists
-   - a few hardcoded builtins
-   - JS code generation
+6. Assume the currently working active implementation (`jazz-next`) is a small interpreter-oriented expression language with:
+   - dot-separated statements and scope blocks
+   - application and list literals
+   - `if ... else ...` surface expressions (canonicalized to `case` internally)
+   - built-in operator fixity/section parsing
+   - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, `map`, `hd`, `tl`
+   - runtime execution via `--run` CLI mode plus compile-mode placeholder codegen output
 
 ## Hybrid Semantic-Change Workflow
 
@@ -458,9 +456,9 @@ Status update for item #5:
 - Implemented-vs-planned split is now published in `README.md`.
 - Canonical evidence-backed feature status is now tracked in `docs/feature-status.md`.
 
-1. Implement `if` semantics in `jazz-next` according to `docs/spec/control-flow/if-expressions.md`.
-2. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.
-3. Implement primitive semantics conformance in `jazz-next` according to `docs/spec/runtime/primitive-semantics.md`.
-4. Implement warning-flag plumbing in `jazz-next` according to `docs/spec/tooling/compiler-warning-flags.md`.
-5. Finish authoritative-syntax parser/analyzer/tests alignment in `jazz-next`.
+1. Rebase ADT/pattern execution planning (`domain 11`) onto current `jazz-next` parser/type/runtime architecture and tests.
+2. Rebase module/import loader planning (`domain 09`) onto `jazz-next` with deterministic file-resolution diagnostics.
+3. Rebase stdlib boundary planning (`domain 10`) onto `jazz-next` to lock intrinsic-vs-prelude ownership.
+4. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.
+5. Extend warning-flag plumbing beyond `same-scope-rebinding` in `jazz-next` according to `docs/spec/tooling/compiler-warning-flags.md`.
 6. Keep legacy `jazz-hs` parse-only behavior documented as historical evidence only; do not add new compiler behavior there.

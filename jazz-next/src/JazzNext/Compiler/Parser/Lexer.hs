@@ -30,6 +30,9 @@ data TokenKind
   | TRBrace
   | TLParen
   | TRParen
+  | TLBracket
+  | TRBracket
+  | TComma
   deriving (Eq, Show)
 
 data Token = Token
@@ -115,6 +118,9 @@ tokenize = go 1 1
                 '}' -> withSingleToken TRBrace "}" 1 line column rest
                 '(' -> withSingleToken TLParen "(" 1 line column rest
                 ')' -> withSingleToken TRParen ")" 1 line column rest
+                '[' -> withSingleToken TLBracket "[" 1 line column rest
+                ']' -> withSingleToken TRBracket "]" 1 line column rest
+                ',' -> withSingleToken TComma "," 1 line column rest
                 _ ->
                   Left
                     ( "unexpected character '"

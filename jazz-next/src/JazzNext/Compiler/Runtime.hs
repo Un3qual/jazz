@@ -15,9 +15,17 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 
+data BuiltinFunction
+  = BuiltinMap
+  | BuiltinHd
+  | BuiltinTl
+  deriving (Eq, Show)
+
 data RuntimeValue
   = VInt Int
   | VBool Bool
+  | VList [RuntimeValue]
+  | VBuiltin BuiltinFunction [RuntimeValue]
   deriving (Eq, Show)
 
 evaluateRuntimeExpr :: Expr -> Either Text (Maybe RuntimeValue)
@@ -34,6 +42,9 @@ renderRuntimeValue value =
       if boolValue
         then "True"
         else "False"
+    VList elements ->
+      "[" <> Text.intercalate ", " (map renderRuntimeValue elements) <> "]"
+    VBuiltin _ _ -> "<function>"
 
 type RuntimeEnv = Map Text RuntimeValue
 
@@ -66,11 +77,20 @@ evalValue env expr =
       case Map.lookup name env of
         Just value -> Right value
         Nothing ->
-          Left
-            ( "E3002: runtime unbound variable '"
-                <> name
-                <> "'"
-            )
+          case builtinFromName name of
+            Just builtinFunction -> Right (VBuiltin builtinFunction [])
+            Nothing ->
+              Left
+                ( "E3002: runtime unbound variable '"
+                    <> name
+                    <> "'"
+                )
+    EList elements ->
+      VList <$> mapM (evalValue env) elements
+    EApply functionExpr argumentExpr -> do
+      functionValue <- evalValue env functionExpr
+      argumentValue <- evalValue env argumentExpr
+      applyRuntimeFunction functionValue argumentValue
     EIf conditionExpr thenExpr elseExpr ->
       evalValue env (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr -> do
@@ -98,6 +118,101 @@ evalValue env expr =
           Left
             "E3006: scope expression has no terminal expression result at runtime"
         Right (Just value) -> Right value
+
+applyRuntimeFunction :: RuntimeValue -> RuntimeValue -> Either Text RuntimeValue
+applyRuntimeFunction functionValue argumentValue =
+  case functionValue of
+    VBuiltin builtinFunction capturedArgs ->
+      applyBuiltin builtinFunction (capturedArgs ++ [argumentValue])
+    _ ->
+      Left
+        ( "E3008: runtime cannot apply non-function value of type "
+            <> renderRuntimeType functionValue
+            <> ""
+        )
+
+applyBuiltin :: BuiltinFunction -> [RuntimeValue] -> Either Text RuntimeValue
+applyBuiltin builtinFunction arguments
+  | length arguments < builtinArity builtinFunction =
+      Right (VBuiltin builtinFunction arguments)
+  | length arguments == builtinArity builtinFunction =
+      evalBuiltin builtinFunction arguments
+  | otherwise =
+      Left
+        ( "E3014: runtime primitive '"
+            <> builtinName builtinFunction
+            <> "' received too many arguments"
+        )
+
+evalBuiltin :: BuiltinFunction -> [RuntimeValue] -> Either Text RuntimeValue
+evalBuiltin builtinFunction arguments =
+  case (builtinFunction, arguments) of
+    (BuiltinHd, [VList []]) ->
+      Left "E3009: runtime primitive 'hd' failed: empty list"
+    (BuiltinHd, [VList (headValue : _)]) ->
+      Right headValue
+    (BuiltinHd, [other]) ->
+      Left
+        ( "E3011: runtime primitive 'hd' expects a list argument, found "
+            <> renderRuntimeType other
+        )
+    (BuiltinTl, [VList []]) ->
+      Left "E3010: runtime primitive 'tl' failed: empty list"
+    (BuiltinTl, [VList (_ : tailValues)]) ->
+      Right (VList tailValues)
+    (BuiltinTl, [other]) ->
+      Left
+        ( "E3012: runtime primitive 'tl' expects a list argument, found "
+            <> renderRuntimeType other
+        )
+    (BuiltinMap, [mapper, collection])
+      | not (isFunctionValue mapper) ->
+          Left
+            ( "E3015: runtime primitive 'map' expects a function as its first argument, found "
+                <> renderRuntimeType mapper
+            )
+      | otherwise ->
+          case collection of
+            VList elements ->
+              VList <$> mapM (applyRuntimeFunction mapper) elements
+            other ->
+              Left
+                ( "E3013: runtime primitive 'map' expects a list as its second argument, found "
+                    <> renderRuntimeType other
+                )
+    _ ->
+      Left
+        ( "E3016: runtime primitive '"
+            <> builtinName builtinFunction
+            <> "' received invalid arguments"
+        )
+
+builtinArity :: BuiltinFunction -> Int
+builtinArity builtinFunction =
+  case builtinFunction of
+    BuiltinMap -> 2
+    BuiltinHd -> 1
+    BuiltinTl -> 1
+
+builtinName :: BuiltinFunction -> Text
+builtinName builtinFunction =
+  case builtinFunction of
+    BuiltinMap -> "map"
+    BuiltinHd -> "hd"
+    BuiltinTl -> "tl"
+
+builtinFromName :: Text -> Maybe BuiltinFunction
+builtinFromName name
+  | name == "map" = Just BuiltinMap
+  | name == "hd" = Just BuiltinHd
+  | name == "tl" = Just BuiltinTl
+  | otherwise = Nothing
+
+isFunctionValue :: RuntimeValue -> Bool
+isFunctionValue value =
+  case value of
+    VBuiltin {} -> True
+    _ -> False
 
 evalBinary :: Text -> RuntimeValue -> RuntimeValue -> Either Text RuntimeValue
 evalBinary operatorSymbol leftValue rightValue =
@@ -132,3 +247,5 @@ renderRuntimeType value =
   case value of
     VInt {} -> "Int"
     VBool {} -> "Bool"
+    VList {} -> "List"
+    VBuiltin {} -> "Function"

@@ -22,6 +22,8 @@ Execution note:
 - [x] Remaining decision gates finalized (`numeric behavior`, `primitive errors`)
 - [x] Runtime/typechecker conformance tests added
 - [x] Batch 2 runtime evaluator + fatal runtime diagnostic path executed in `jazz-next`
+- [x] Batch 3 list primitives (`map`/`hd`/`tl`) are executable end-to-end in `jazz-next` (parser/type/runtime/CLI)
+- [x] Batch 4 list-primitive fallback diagnostics are deterministic and conformance-tested (`E3011/E3012/E3013/E3015`)
 - [x] Docs and trackers aligned
 
 ## Decision Lock (Approved 2026-03-03)
@@ -109,7 +111,7 @@ git commit -m "test(jazz-next): add primitive semantics conformance tests"
 
 ## Phase 2: Runtime/Backend Alignment
 
-- [ ] Align primitive implementations with the semantic contract.
+- [x] Align primitive implementations with the semantic contract.
 - [x] Remove backend-specific behavior that violates contract (for example coercive equality if disallowed).
 - [x] Keep fatal diagnostics consistent across runtime paths for invalid primitive uses that escape compile-time checks.
 
@@ -158,7 +160,7 @@ runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpe
 
 - [x] Primitive semantics are defined in language terms, not backend accident.
 - [x] Equality and numeric behavior are explicitly locked.
-- [ ] Conformance tests exist for each primitive family.
+- [x] Conformance tests exist for each primitive family in the active `jazz-next` subset (`+`, `-`, `*`, `/`, `==`, `!=`, `map`, `hd`, `tl`).
 
 ## Implementation Status Verification (2026-03-03, Batch 3)
 
@@ -169,7 +171,7 @@ runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpe
 - [x] Re-verified strict equality behavior remained non-coercive in active `jazz-next` compile paths and test coverage.
 - [x] Added the primitive semantics suite to `jazz-next/scripts/test-warning-config.sh` so it runs in the default verification loop.
 - [x] Ran `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpec.hs` and `bash jazz-next/scripts/test-warning-config.sh`.
-- [ ] Full primitive-family conformance remains open until list primitive domains (`map`, `hd`, `tl`) are executable in the active `jazz-next` pipeline.
+- [x] Full primitive-family conformance gate is now cleared because list primitive domains (`map`, `hd`, `tl`) are executable in the active `jazz-next` pipeline.
 
 ## Implementation Status Verification (2026-03-03, Batch 4)
 
@@ -179,3 +181,20 @@ runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpe
 - [x] Added driver runtime entrypoints in `jazz-next/src/JazzNext/Compiler/Driver.hs` (`runExpr`, `runSource`) to execute primitives after compile-time checks pass.
 - [x] Added runtime primitive conformance coverage in `jazz-next/test/RuntimeSemanticsSpec.hs` and CLI run-mode fatal-path coverage in `jazz-next/test/CLISpec.hs`.
 - [x] Ran `bash jazz-next/scripts/test-warning-config.sh` with runtime semantics tests included.
+
+## Implementation Status Verification (2026-03-03, Batch 5)
+
+- [x] Re-verified unchecked candidate steps before implementation and confirmed list literals, function application surface parsing, and `map`/`hd`/`tl` execution were still open in active `jazz-next`.
+- [x] Added parser/lowering support for list literals and space-application (`jazz-next/src/JazzNext/Compiler/Parser/{Lexer.hs,AST.hs,Parser.hs,Lower.hs}` and `jazz-next/src/JazzNext/Compiler/AST.hs`).
+- [x] Added analyzer/type/runtime support for list/application forms plus builtin list primitives (`map`, `hd`, `tl`) with deterministic diagnostics (`E2006`, `E2007`, `E3009`, `E3010`).
+- [x] Added conformance tests across parser/type/runtime/CLI in `jazz-next/test/{PrimitiveSemanticsSpec.hs,RuntimeSemanticsSpec.hs,CLISpec.hs}`.
+- [x] Ran `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpec.hs`, `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/RuntimeSemanticsSpec.hs`, `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`, and `bash jazz-next/scripts/test-warning-config.sh`.
+
+## Implementation Status Verification (2026-03-04, Batch 6)
+
+- [x] Re-verified candidate steps before execution and confirmed list-primitive execution was already implemented in `jazz-next` (unchecked items were tracker drift, not missing code).
+- [x] Added additional primitive conformance coverage for previously untested list-primitive error paths:
+  - compile-time: `tl` non-list argument and `map` non-list collection (`E2006`) in `jazz-next/test/PrimitiveSemanticsSpec.hs`
+  - runtime fallback: `hd`/`tl` non-list and `map` mapper/collection validation (`E3011/E3012/E3015/E3013`) in `jazz-next/test/RuntimeSemanticsSpec.hs`
+- [x] Fixed runtime primitive contract mismatch in `jazz-next/src/JazzNext/Compiler/Runtime.hs` by validating `map`'s mapper argument before element application, so non-function mappers report `E3015` deterministically instead of generic `E3008`.
+- [x] Ran `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpec.hs`, `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/RuntimeSemanticsSpec.hs`, and `bash jazz-next/scripts/test-warning-config.sh`.

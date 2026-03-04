@@ -16,6 +16,8 @@ data SurfaceExpr
   = SEInt Int
   | SEBool Bool
   | SEVar Text
+  | SEList [SurfaceExpr]
+  | SEApply SurfaceExpr SurfaceExpr
   | SEIf SurfaceExpr SurfaceExpr SurfaceExpr
   | SEBinary Text SurfaceExpr SurfaceExpr
   | SESectionLeft SurfaceExpr Text

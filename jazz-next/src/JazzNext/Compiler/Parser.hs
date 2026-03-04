@@ -7,7 +7,8 @@ module JazzNext.Compiler.Parser
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
-  ( renderSourceSpan
+  ( SourceSpan (..),
+    renderSourceSpan
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
@@ -134,8 +135,42 @@ parseExpr = parseExprWithMinPrecedence 1
 
 parseExprWithMinPrecedence :: Int -> [Token] -> Either Text (SurfaceExpr, [Token])
 parseExprWithMinPrecedence minPrecedence tokens = do
+  (leftExpr, remainingTokens) <- parseApplicationExpr tokens
+  parseInfixTail minPrecedence leftExpr remainingTokens
+
+-- Used by `if` parsing to preserve the existing compact `if cond then else`
+-- surface form without introducing a `then` delimiter.
+parseExprWithoutApplication :: [Token] -> Either Text (SurfaceExpr, [Token])
+parseExprWithoutApplication = parseExprWithoutApplicationWithMinPrecedence 1
+
+parseExprWithoutApplicationWithMinPrecedence :: Int -> [Token] -> Either Text (SurfaceExpr, [Token])
+parseExprWithoutApplicationWithMinPrecedence minPrecedence tokens = do
   (leftExpr, remainingTokens) <- parsePrimaryExpr tokens
   parseInfixTail minPrecedence leftExpr remainingTokens
+
+parseApplicationExpr :: [Token] -> Either Text (SurfaceExpr, [Token])
+parseApplicationExpr tokens = do
+  (functionExpr, remainingTokens) <- parsePrimaryExpr tokens
+  parseApplicationTail functionExpr remainingTokens
+
+parseApplicationTail :: SurfaceExpr -> [Token] -> Either Text (SurfaceExpr, [Token])
+parseApplicationTail functionExpr tokens =
+  case startsPrimaryExpr tokens of
+    True -> do
+      (argumentExpr, remainingAfterArgument) <- parsePrimaryExpr tokens
+      parseApplicationTail (SEApply functionExpr argumentExpr) remainingAfterArgument
+    False -> Right (functionExpr, tokens)
+  where
+    startsPrimaryExpr allTokens =
+      case allTokens of
+        Token {tokenSpan = SourceSpan _ 1} : _ -> False
+        Token {tokenKind = TInt _} : _ -> True
+        Token {tokenKind = TIdentifier _} : _ -> True
+        Token {tokenKind = TIf} : _ -> True
+        Token {tokenKind = TLParen} : _ -> True
+        Token {tokenKind = TLBrace} : _ -> True
+        Token {tokenKind = TLBracket} : _ -> True
+        _ -> False
 
 parseInfixTail :: Int -> SurfaceExpr -> [Token] -> Either Text (SurfaceExpr, [Token])
 parseInfixTail minPrecedence leftExpr tokens =
@@ -190,6 +225,7 @@ parsePrimaryExpr tokens =
         TLBrace -> do
           (statements, afterBrace) <- parseStatementsUntilBrace rest
           Right (SEScope statements, afterBrace)
+        TLBracket -> parseListExpr rest
         _ ->
           Left
             ( "unexpected token '"
@@ -215,9 +251,32 @@ parseParenExpr tokensAfterLeftParen =
           remaining <- consumeRightParen afterInnerExpr
           Right (innerExpr, remaining)
 
+parseListExpr :: [Token] -> Either Text (SurfaceExpr, [Token])
+parseListExpr tokensAfterLeftBracket =
+  case tokensAfterLeftBracket of
+    Token {tokenKind = TRBracket} : rest ->
+      Right (SEList [], rest)
+    _ -> do
+      (elements, afterElements) <- parseListElements tokensAfterLeftBracket
+      remaining <- consumeRightBracket afterElements
+      Right (SEList elements, remaining)
+
+parseListElements :: [Token] -> Either Text ([SurfaceExpr], [Token])
+parseListElements tokens = do
+  (firstElement, remainingAfterFirst) <- parseExpr tokens
+  go [firstElement] remainingAfterFirst
+  where
+    go elements allTokens =
+      case allTokens of
+        Token {tokenKind = TComma} : rest -> do
+          (nextElement, remainingAfterNext) <- parseExpr rest
+          go (elements ++ [nextElement]) remainingAfterNext
+        _ ->
+          Right (elements, allTokens)
+
 parseIfExpr :: Token -> [Token] -> Either Text (SurfaceExpr, [Token])
 parseIfExpr ifToken tokensAfterIf = do
-  (conditionExpr, afterCondition) <- parseExpr tokensAfterIf
+  (conditionExpr, afterCondition) <- parseExprWithoutApplication tokensAfterIf
   (thenExpr, afterThenExpr) <- parseExpr afterCondition
   case afterThenExpr of
     Token {tokenKind = TElse} : afterElse -> do
@@ -292,6 +351,20 @@ consumeRightParen tokens =
     token : _ ->
       Left
         ( "expected ')' at "
+            <> renderSourceSpan (tokenSpan token)
+            <> ", found '"
+            <> tokenLexeme token
+            <> "'"
+        )
+
+consumeRightBracket :: [Token] -> Either Text [Token]
+consumeRightBracket tokens =
+  case tokens of
+    Token {tokenKind = TRBracket} : rest -> Right rest
+    [] -> Left "expected ']' before end of input"
+    token : _ ->
+      Left
+        ( "expected ']' at "
             <> renderSourceSpan (tokenSpan token)
             <> ", found '"
             <> tokenLexeme token

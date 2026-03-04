@@ -15,6 +15,8 @@ data Expr
   = EInt Int
   | EBool Bool
   | EVar Text
+  | EList [Expr]
+  | EApply Expr Expr
   | EIf Expr Expr Expr
   -- Internal canonical branch form used after control-flow desugaring.
   | ECase Expr Expr Expr

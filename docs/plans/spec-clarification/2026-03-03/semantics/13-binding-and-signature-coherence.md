@@ -18,7 +18,7 @@
 - [x] Normative binding/signature spec doc published
 - [x] Analyzer tests aligned for signature adjacency + use-before-definition in the current `jazz-next` AST subset
 - [x] Full parser + recursion-group semantics alignment in `jazz-next`
-- [ ] Language-state/docs updated and item closed
+- [x] Language-state/docs updated and item closed
 
 ## Decision Lock (Approved 2026-03-03)
 
@@ -136,7 +136,7 @@ git commit -m "test(jazz-next): codify binding/signature coherence contract"
 - [x] Refactor declaration/signature handling to enforce immediate adjacency in the current AST.
 - [x] Implement diagnostics for invalid signature ordering/name mismatch and use-before-definition.
 - [x] Implement recursion-group semantics (self + mutual recursion) per locked policy.
-- [ ] Remove remaining order-sensitive behavior tied to parser/type-surface gaps.
+- [x] Remove remaining order-sensitive behavior tied to parser/type-surface gaps.
 
 Modify:
 - `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
@@ -154,7 +154,7 @@ git commit -m "feat(jazz-next): enforce binding/signature adjacency and unbound-
 
 ## Phase 3: Docs and Tracker Closure
 
-- [ ] Update language state doc to remove binding/signature ambiguity notes.
+- [x] Update language state doc to remove binding/signature ambiguity notes.
 - [x] Link normative spec section and tests as evidence.
 
 Modify:
@@ -180,7 +180,7 @@ bash jazz-next/scripts/test-warning-config.sh
 - [x] One canonical declaration/signature contract is documented.
 - [x] Contract tests for signature ordering/name matching and use-before-definition pass in `jazz-next`.
 - [x] Analyzer behavior and diagnostics match the contract for the current `jazz-next` AST surface.
-- [ ] Ambiguity no longer appears in language-state tracking.
+- [x] Ambiguity no longer appears in language-state tracking.
 
 ## Implementation Status Verification (2026-03-03, Batch 3)
 
@@ -189,3 +189,10 @@ bash jazz-next/scripts/test-warning-config.sh
 - [x] Added signature compatibility diagnostics in `jazz-next/src/JazzNext/Compiler/TypeInference.hs` (`E2005`) for mismatched declared vs inferred binding types.
 - [x] Added CLI regression coverage in `jazz-next/test/CLISpec.hs` to assert source-driven signature mismatch reporting.
 - [x] Ran `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/BindingSignatureCoherenceSpec.hs`, `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`, and `bash jazz-next/scripts/test-warning-config.sh`.
+
+## Implementation Status Verification (2026-03-04, Batch 4)
+
+- [x] Re-verified unchecked candidate steps before implementation and confirmed remaining open boxes were tracker/documentation drift rather than missing `jazz-next` behavior.
+- [x] Re-confirmed order-insensitive recursion-group visibility and source-pipeline contract behavior in `jazz-next` analyzer/type/driver tests.
+- [x] Updated language-state/docs trackers to remove stale binding/signature ambiguity notes and mark closure.
+- [x] Ran `bash jazz-next/scripts/test-warning-config.sh` after tracker alignment updates.

@@ -11,7 +11,8 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
-    compileExpr
+    compileExpr,
+    compileSource
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -35,7 +36,14 @@ tests =
     ("strict equality rejects mismatched operand types", testRejectsEqualityTypeMismatch),
     ("strict inequality rejects mismatched operand types", testRejectsInequalityTypeMismatch),
     ("comparison primitives reject non-Int operands", testRejectsComparisonTypeMismatch),
-    ("arithmetic primitives reject mismatched operand types", testRejectsArithmeticTypeMismatch)
+    ("arithmetic primitives reject mismatched operand types", testRejectsArithmeticTypeMismatch),
+    ("source pipeline accepts hd with list literal argument", testSourcePipelineAcceptsHdListLiteral),
+    ("source pipeline accepts map over nested list literals", testSourcePipelineAcceptsMapHdNestedLists),
+    ("source pipeline rejects hd with non-list argument", testSourcePipelineRejectsHdNonListArgument),
+    ("source pipeline rejects tl with non-list argument", testSourcePipelineRejectsTlNonListArgument),
+    ("source pipeline rejects map with non-function mapper", testSourcePipelineRejectsMapNonFunctionMapper),
+    ("source pipeline rejects map with non-list collection", testSourcePipelineRejectsMapNonListCollection),
+    ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral)
   ]
 
 testAcceptsArithmeticIntOperands :: IO ()
@@ -86,6 +94,58 @@ testRejectsArithmeticTypeMismatch = do
   assertSingleErrorContains
     "arithmetic type error"
     "E2003"
+    (compileErrors result)
+
+testSourcePipelineAcceptsHdListLiteral :: IO ()
+testSourcePipelineAcceptsHdListLiteral = do
+  result <- compileSource defaultWarningSettings "x = hd [1, 2, 3]."
+  assertEqual "compile errors" [] (compileErrors result)
+  assertJust "generated JS is present" (generatedJs result)
+
+testSourcePipelineAcceptsMapHdNestedLists :: IO ()
+testSourcePipelineAcceptsMapHdNestedLists = do
+  result <- compileSource defaultWarningSettings "x = map hd [[1, 2], [3], [4, 5]]."
+  assertEqual "compile errors" [] (compileErrors result)
+  assertJust "generated JS is present" (generatedJs result)
+
+testSourcePipelineRejectsHdNonListArgument :: IO ()
+testSourcePipelineRejectsHdNonListArgument = do
+  result <- compileSource defaultWarningSettings "x = hd 1."
+  assertSingleErrorContains
+    "hd argument type mismatch"
+    "E2006"
+    (compileErrors result)
+
+testSourcePipelineRejectsTlNonListArgument :: IO ()
+testSourcePipelineRejectsTlNonListArgument = do
+  result <- compileSource defaultWarningSettings "x = tl 1."
+  assertSingleErrorContains
+    "tl argument type mismatch"
+    "E2006"
+    (compileErrors result)
+
+testSourcePipelineRejectsMapNonFunctionMapper :: IO ()
+testSourcePipelineRejectsMapNonFunctionMapper = do
+  result <- compileSource defaultWarningSettings "x = map 1 [1, 2]."
+  assertSingleErrorContains
+    "map mapper type mismatch"
+    "E2006"
+    (compileErrors result)
+
+testSourcePipelineRejectsMapNonListCollection :: IO ()
+testSourcePipelineRejectsMapNonListCollection = do
+  result <- compileSource defaultWarningSettings "x = map hd 1."
+  assertSingleErrorContains
+    "map collection type mismatch"
+    "E2006"
+    (compileErrors result)
+
+testSourcePipelineRejectsMixedTypeListLiteral :: IO ()
+testSourcePipelineRejectsMixedTypeListLiteral = do
+  result <- compileSource defaultWarningSettings "x = [1, True]."
+  assertSingleErrorContains
+    "list literal element mismatch"
+    "E2007"
     (compileErrors result)
 
 mkProgram :: Expr -> Expr

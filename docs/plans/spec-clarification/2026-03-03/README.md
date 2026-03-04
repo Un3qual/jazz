@@ -40,7 +40,7 @@ This batch only includes clarification domains that are not already directly pla
 
 ## Domain Execution Status
 
-- [ ] 13 binding/signature coherence
+- [x] 13 binding/signature coherence
 - [x] 13a binding/signature coherence batch 1 (`jazz-next` analyzer/tests)
 - [x] 13b binding/signature coherence batch 2 (`jazz-next` recursion-group semantics + tests)
 - [x] 13c binding/signature coherence batch 3 (`jazz-next` source-pipeline contract tests + `E2005` signature mismatch diagnostics + CLI coverage)
@@ -50,9 +50,10 @@ This batch only includes clarification domains that are not already directly pla
 - [x] 14c if-expression runtime alignment batch (`jazz-next` runtime evaluator + `--run` CLI path + runtime tests)
 - [x] 15 operator fixity and sections
 - [x] 15a operator fixity/sections parser-alignment batch (`jazz-next` operator table + precedence parser + section AST/tests)
-- [ ] 16 primitive semantics contract
+- [x] 16 primitive semantics contract
 - [x] 16a primitive semantics phase-1 conformance batch (`jazz-next` primitive test suite + `E2004` strict-equality mismatch diagnostics)
 - [x] 16b primitive semantics runtime batch (`jazz-next` runtime primitive subset + `E3001` fatal runtime diagnostics + runtime tests)
+- [x] 16c primitive semantics fallback-diagnostics batch (`jazz-next` runtime `map` mapper validation order + runtime conformance tests for `E3011/E3012/E3013/E3015`)
 - [x] 17 jazz2 alignment and spec authority
 
 ## Implementation Status Verification (2026-03-03 Batch)
@@ -71,9 +72,9 @@ This batch only includes clarification domains that are not already directly pla
 
 Parser/lexer foundation is now in place in `jazz-next`. Continue with domain execution on that baseline:
 
-1. Continue domain 16 runtime alignment beyond the current runtime subset (`map`/`hd`/`tl` semantics in active `jazz-next` pipeline).
-2. Resolve remaining domain 13 closure work (`docs/jazz-language-state.md` ambiguity cleanup for bindings/signatures).
-3. If parser behavior exposes syntax ambiguities, update the relevant spec clarification docs in the same change before proceeding.
+1. Rebase domain `11` (ADT/pattern matching) implementation planning onto the active `jazz-next` parser/type/runtime pipeline.
+2. Rebase domains `09` (module loader/imports) and `10` (stdlib boundary) onto `jazz-next` architecture and test harness.
+3. Keep docs/spec trackers synchronized in the same change whenever implementation status changes to avoid stale checklist drift.
 
 ## Locked Governance Clarifications (2026-03-03)
 
