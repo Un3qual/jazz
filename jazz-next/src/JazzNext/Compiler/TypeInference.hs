@@ -243,20 +243,33 @@ inferListType env state elements =
                   )
             _ -> (expectedType, stateAfterElement)
 
+data OperatorRule
+  = NumericRule ExpressionType
+  | StrictEqualityRule
+
+lookupOperatorRule :: Text -> Maybe OperatorRule
+lookupOperatorRule operatorSymbol =
+  case operatorSymbol of
+    "+" -> Just (NumericRule TIntType)
+    "-" -> Just (NumericRule TIntType)
+    "*" -> Just (NumericRule TIntType)
+    "/" -> Just (NumericRule TIntType)
+    "<" -> Just (NumericRule TBoolType)
+    "<=" -> Just (NumericRule TBoolType)
+    ">" -> Just (NumericRule TBoolType)
+    ">=" -> Just (NumericRule TBoolType)
+    "==" -> Just StrictEqualityRule
+    "!=" -> Just StrictEqualityRule
+    _ -> Nothing
+
 inferBinaryType :: Text -> ExpressionType -> ExpressionType -> InferState -> (Maybe ExpressionType, InferState)
 inferBinaryType operatorSymbol leftType rightType state =
-  case operatorSymbol of
-    "+" -> requireIntOperands TIntType
-    "-" -> requireIntOperands TIntType
-    "*" -> requireIntOperands TIntType
-    "/" -> requireIntOperands TIntType
-    "<" -> requireIntOperands TBoolType
-    "<=" -> requireIntOperands TBoolType
-    ">" -> requireIntOperands TBoolType
-    ">=" -> requireIntOperands TBoolType
-    "==" -> requireStrictEquality
-    "!=" -> requireStrictEquality
-    _ ->
+  case lookupOperatorRule operatorSymbol of
+    Just (NumericRule resultType) ->
+      applyNumericBinaryRule operatorSymbol resultType leftType rightType state
+    Just StrictEqualityRule ->
+      applyStrictEqualityBinaryRule operatorSymbol leftType rightType state
+    Nothing ->
       ( Nothing,
         addTypeError
           state
@@ -266,16 +279,23 @@ inferBinaryType operatorSymbol leftType rightType state =
               (resolveType state rightType)
           )
       )
-  where
-    requireIntOperands resultType =
-      case unifyTypes leftType TIntType state of
-        Just stateAfterLeft ->
-          case unifyTypes rightType TIntType stateAfterLeft of
-            Just stateAfterRight -> (Just resultType, stateAfterRight)
-            Nothing -> intOperandError stateAfterLeft
-        Nothing -> intOperandError state
 
-    intOperandError errState =
+applyNumericBinaryRule ::
+  Text ->
+  ExpressionType ->
+  ExpressionType ->
+  ExpressionType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+applyNumericBinaryRule operatorSymbol resultType leftType rightType state =
+  case unifyTypes leftType TIntType state of
+    Just stateAfterLeft ->
+      case unifyTypes rightType TIntType stateAfterLeft of
+        Just stateAfterRight -> (Just resultType, stateAfterRight)
+        Nothing -> numericOperandError stateAfterLeft
+    Nothing -> numericOperandError state
+  where
+    numericOperandError errState =
       ( Nothing,
         addTypeError
           errState
@@ -286,19 +306,35 @@ inferBinaryType operatorSymbol leftType rightType state =
           )
       )
 
-    requireStrictEquality =
-      case unifyTypes leftType rightType state of
-        Just unifiedState -> (Just TBoolType, unifiedState)
-        Nothing ->
-          ( Nothing,
-            addTypeError
-              state
-              ( mkStrictEqualityTypeError
-                  operatorSymbol
-                  (resolveType state leftType)
-                  (resolveType state rightType)
-              )
+applyStrictEqualityBinaryRule ::
+  Text ->
+  ExpressionType ->
+  ExpressionType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+applyStrictEqualityBinaryRule operatorSymbol leftType rightType state =
+  case unifyTypes leftType rightType state of
+    Just unifiedState ->
+      let resolvedType = resolveType unifiedState leftType
+       in
+        if supportsRuntimeEqualityType resolvedType
+          then (Just TBoolType, unifiedState)
+          else
+            ( Nothing,
+              addTypeError
+                unifiedState
+                (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedType)
+            )
+    Nothing ->
+      ( Nothing,
+        addTypeError
+          state
+          ( mkStrictEqualityTypeError
+              operatorSymbol
+              (resolveType state leftType)
+              (resolveType state rightType)
           )
+      )
 
 inferSectionLeftType ::
   Text ->
@@ -306,42 +342,55 @@ inferSectionLeftType ::
   InferState ->
   (Maybe ExpressionType, InferState)
 inferSectionLeftType operatorSymbol leftType state =
-  case operatorSymbol of
-    "+" -> requireIntOperand TIntType
-    "-" -> requireIntOperand TIntType
-    "*" -> requireIntOperand TIntType
-    "/" -> requireIntOperand TIntType
-    "<" -> requireIntOperand TBoolType
-    "<=" -> requireIntOperand TBoolType
-    ">" -> requireIntOperand TBoolType
-    ">=" -> requireIntOperand TBoolType
-    "==" -> strictEqualitySection
-    "!=" -> strictEqualitySection
+  case lookupOperatorRule operatorSymbol of
+    Just (NumericRule resultType) ->
+      applyNumericSectionLeftRule operatorSymbol resultType leftType state
+    Just StrictEqualityRule ->
+      applyStrictEqualitySectionLeftRule operatorSymbol leftType state
     _ ->
       ( Nothing,
         addTypeError
           state
           (mkUnsupportedSectionOperatorError operatorSymbol)
       )
-  where
-    requireIntOperand resultType =
-      case unifyTypes leftType TIntType state of
-        Just unifiedState ->
-          (Just (TFunctionType TIntType resultType), unifiedState)
-        Nothing ->
-          ( Nothing,
-            addTypeError
-              state
-              ( mkBinaryTypeError
-                  operatorSymbol
-                  (resolveType state leftType)
-                  TIntType
-              )
-          )
 
-    strictEqualitySection =
-      let resolvedLeftType = resolveType state leftType
-       in (Just (TFunctionType resolvedLeftType TBoolType), state)
+applyNumericSectionLeftRule ::
+  Text ->
+  ExpressionType ->
+  ExpressionType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+applyNumericSectionLeftRule operatorSymbol resultType leftType state =
+  case unifyTypes leftType TIntType state of
+    Just unifiedState ->
+      (Just (TFunctionType TIntType resultType), unifiedState)
+    Nothing ->
+      ( Nothing,
+        addTypeError
+          state
+          ( mkBinaryTypeError
+              operatorSymbol
+              (resolveType state leftType)
+              TIntType
+          )
+      )
+
+applyStrictEqualitySectionLeftRule ::
+  Text ->
+  ExpressionType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+applyStrictEqualitySectionLeftRule operatorSymbol leftType state =
+  let resolvedLeftType = resolveType state leftType
+   in
+    if supportsRuntimeEqualityType resolvedLeftType
+      then (Just (TFunctionType resolvedLeftType TBoolType), state)
+      else
+        ( Nothing,
+          addTypeError
+            state
+            (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedLeftType)
+        )
 
 inferSectionRightType ::
   Text ->
@@ -349,42 +398,55 @@ inferSectionRightType ::
   InferState ->
   (Maybe ExpressionType, InferState)
 inferSectionRightType operatorSymbol rightType state =
-  case operatorSymbol of
-    "+" -> requireIntOperand TIntType
-    "-" -> requireIntOperand TIntType
-    "*" -> requireIntOperand TIntType
-    "/" -> requireIntOperand TIntType
-    "<" -> requireIntOperand TBoolType
-    "<=" -> requireIntOperand TBoolType
-    ">" -> requireIntOperand TBoolType
-    ">=" -> requireIntOperand TBoolType
-    "==" -> strictEqualitySection
-    "!=" -> strictEqualitySection
+  case lookupOperatorRule operatorSymbol of
+    Just (NumericRule resultType) ->
+      applyNumericSectionRightRule operatorSymbol resultType rightType state
+    Just StrictEqualityRule ->
+      applyStrictEqualitySectionRightRule operatorSymbol rightType state
     _ ->
       ( Nothing,
         addTypeError
           state
           (mkUnsupportedSectionOperatorError operatorSymbol)
       )
-  where
-    requireIntOperand resultType =
-      case unifyTypes rightType TIntType state of
-        Just unifiedState ->
-          (Just (TFunctionType TIntType resultType), unifiedState)
-        Nothing ->
-          ( Nothing,
-            addTypeError
-              state
-              ( mkBinaryTypeError
-                  operatorSymbol
-                  TIntType
-                  (resolveType state rightType)
-              )
-          )
 
-    strictEqualitySection =
-      let resolvedRightType = resolveType state rightType
-       in (Just (TFunctionType resolvedRightType TBoolType), state)
+applyNumericSectionRightRule ::
+  Text ->
+  ExpressionType ->
+  ExpressionType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+applyNumericSectionRightRule operatorSymbol resultType rightType state =
+  case unifyTypes rightType TIntType state of
+    Just unifiedState ->
+      (Just (TFunctionType TIntType resultType), unifiedState)
+    Nothing ->
+      ( Nothing,
+        addTypeError
+          state
+          ( mkBinaryTypeError
+              operatorSymbol
+              TIntType
+              (resolveType state rightType)
+          )
+      )
+
+applyStrictEqualitySectionRightRule ::
+  Text ->
+  ExpressionType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+applyStrictEqualitySectionRightRule operatorSymbol rightType state =
+  let resolvedRightType = resolveType state rightType
+   in
+    if supportsRuntimeEqualityType resolvedRightType
+      then (Just (TFunctionType resolvedRightType TBoolType), state)
+      else
+        ( Nothing,
+          addTypeError
+            state
+            (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedRightType)
+        )
 
 inferScopeType :: Map Text ExpressionType -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType initialEnv initialState statements = go initialEnv Nothing Nothing initialState statements
@@ -395,12 +457,17 @@ inferScopeType initialEnv initialState statements = go initialEnv Nothing Nothin
         statement : rest ->
           case statement of
             SSignature name _ signatureText ->
-              let nextPendingSignature =
+              let (nextPendingSignature, nextState) =
                     case parseSignatureType signatureText of
                       Just signatureType ->
-                        Just (PendingSignatureType name signatureType)
-                      Nothing -> Nothing
-               in go env lastExprType nextPendingSignature state rest
+                        (Just (PendingSignatureType name signatureType), state)
+                      Nothing ->
+                        ( Nothing,
+                          addTypeError
+                            state
+                            (mkInvalidSignatureTypeError name signatureText)
+                        )
+               in go env lastExprType nextPendingSignature nextState rest
             SLet name _ valueExpr ->
               let envWithPendingSignature =
                     case pendingSignatureType of
@@ -561,6 +628,13 @@ mkStrictEqualityTypeError operatorSymbol leftType rightType =
     <> " and "
     <> renderType rightType
 
+mkStrictEqualityUnsupportedTypeError :: Text -> ExpressionType -> Text
+mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
+  "E2004: strict equality operator '"
+    <> operatorSymbol
+    <> "' is only supported for Int and Bool operands, found "
+    <> renderType foundType
+
 mkSignatureTypeMismatchError :: Text -> ExpressionType -> ExpressionType -> Text
 mkSignatureTypeMismatchError bindingName declaredType inferredType =
   "E2005: binding '"
@@ -590,6 +664,14 @@ mkUnsupportedSectionOperatorError operatorSymbol =
     <> operatorSymbol
     <> "'"
 
+mkInvalidSignatureTypeError :: Text -> Text -> Text
+mkInvalidSignatureTypeError symbol rawSignature =
+  "E2009: invalid or unsupported signature for '"
+    <> symbol
+    <> "': '"
+    <> rawSignature
+    <> "'"
+
 mkIfConditionTypeError :: ExpressionType -> Text
 mkIfConditionTypeError foundType =
   "E2001: if condition must have type Bool, found " <> renderType foundType
@@ -616,3 +698,12 @@ renderTypeAtom expressionType =
   case expressionType of
     TFunctionType _ _ -> "(" <> renderType expressionType <> ")"
     _ -> renderType expressionType
+
+supportsRuntimeEqualityType :: ExpressionType -> Bool
+supportsRuntimeEqualityType expressionType =
+  -- Keep compile-time acceptance aligned with the currently implemented
+  -- runtime equality evaluator to avoid compile/runtime contract drift.
+  case expressionType of
+    TIntType -> True
+    TBoolType -> True
+    _ -> False

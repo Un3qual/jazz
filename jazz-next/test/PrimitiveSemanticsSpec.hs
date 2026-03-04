@@ -46,6 +46,7 @@ tests =
     ("source pipeline accepts equality section application", testSourcePipelineAcceptsEqualitySection),
     ("source pipeline rejects arithmetic section with non-Int operand", testSourcePipelineRejectsArithmeticSectionTypeMismatch),
     ("source pipeline rejects equality section mismatched application", testSourcePipelineRejectsEqualitySectionTypeMismatch),
+    ("source pipeline rejects list equality until runtime support exists", testSourcePipelineRejectsListEquality),
     ("source pipeline rejects unsupported section operator", testSourcePipelineRejectsUnsupportedSectionOperator),
     ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral)
   ]
@@ -164,6 +165,14 @@ testSourcePipelineRejectsEqualitySectionTypeMismatch = do
   assertSingleErrorContains
     "equality section operand mismatch"
     "E2006"
+    (compileErrors result)
+
+testSourcePipelineRejectsListEquality :: IO ()
+testSourcePipelineRejectsListEquality = do
+  result <- compileSource defaultWarningSettings "x = [1] == [1]."
+  assertSingleErrorContains
+    "list equality unsupported in runtime subset"
+    "E2004"
     (compileErrors result)
 
 testSourcePipelineRejectsUnsupportedSectionOperator :: IO ()

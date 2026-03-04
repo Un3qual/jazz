@@ -136,7 +136,7 @@ parseExpr = parseExprWithMinPrecedence 1
 parseExprWithMinPrecedence :: Int -> [Token] -> Either Text (SurfaceExpr, [Token])
 parseExprWithMinPrecedence minPrecedence tokens = do
   (leftExpr, remainingTokens) <- parseApplicationExpr tokens
-  parseInfixTail minPrecedence leftExpr remainingTokens
+  parseInfixTailWith parseExprWithMinPrecedence minPrecedence leftExpr remainingTokens
 
 -- Used by `if` parsing to preserve the existing compact `if cond then else`
 -- surface form without introducing a `then` delimiter.
@@ -146,7 +146,7 @@ parseExprWithoutApplication = parseExprWithoutApplicationWithMinPrecedence 1
 parseExprWithoutApplicationWithMinPrecedence :: Int -> [Token] -> Either Text (SurfaceExpr, [Token])
 parseExprWithoutApplicationWithMinPrecedence minPrecedence tokens = do
   (leftExpr, remainingTokens) <- parsePrimaryExpr tokens
-  parseInfixTail minPrecedence leftExpr remainingTokens
+  parseInfixTailWith parseExprWithoutApplicationWithMinPrecedence minPrecedence leftExpr remainingTokens
 
 parseApplicationExpr :: [Token] -> Either Text (SurfaceExpr, [Token])
 parseApplicationExpr tokens = do
@@ -171,8 +171,15 @@ parseApplicationTail functionExpr tokens =
         Token {tokenKind = TLBracket} : _ -> True
         _ -> False
 
-parseInfixTail :: Int -> SurfaceExpr -> [Token] -> Either Text (SurfaceExpr, [Token])
-parseInfixTail minPrecedence leftExpr tokens =
+parseInfixTailWith ::
+  (Int -> [Token] -> Either Text (SurfaceExpr, [Token])) ->
+  Int ->
+  SurfaceExpr ->
+  [Token] ->
+  Either Text (SurfaceExpr, [Token])
+-- `if` conditions need infix parsing without enabling application; injecting
+-- the RHS parser keeps the boundary explicit for both modes.
+parseInfixTailWith parseRhs minPrecedence leftExpr tokens =
   case tokens of
     operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : tokensAfterOperator
       | shouldStopForSectionBoundary tokensAfterOperator ->
@@ -195,8 +202,9 @@ parseInfixTail minPrecedence leftExpr tokens =
                           AssocLeft -> operatorPrecedence operatorInfo + 1
                           AssocRight -> operatorPrecedence operatorInfo
                   (rightExpr, remainingAfterRight) <-
-                    parseExprWithMinPrecedence nextMinPrecedence tokensAfterOperator
-                  parseInfixTail
+                    parseRhs nextMinPrecedence tokensAfterOperator
+                  parseInfixTailWith
+                    parseRhs
                     minPrecedence
                     (SEBinary operatorSymbol leftExpr rightExpr)
                     remainingAfterRight
