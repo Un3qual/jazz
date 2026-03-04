@@ -44,8 +44,11 @@ tests =
     ("source pipeline rejects map with non-function mapper", testSourcePipelineRejectsMapNonFunctionMapper),
     ("source pipeline rejects map with non-list collection", testSourcePipelineRejectsMapNonListCollection),
     ("source pipeline accepts equality section application", testSourcePipelineAcceptsEqualitySection),
+    ("source pipeline accepts deferred left equality section once constrained", testSourcePipelineAcceptsDeferredLeftEqualitySection),
+    ("source pipeline accepts deferred right equality section once constrained", testSourcePipelineAcceptsDeferredRightEqualitySection),
     ("source pipeline rejects arithmetic section with non-Int operand", testSourcePipelineRejectsArithmeticSectionTypeMismatch),
     ("source pipeline rejects equality section mismatched application", testSourcePipelineRejectsEqualitySectionTypeMismatch),
+    ("source pipeline rejects deferred equality section constrained to list", testSourcePipelineRejectsDeferredEqualitySectionListConstraint),
     ("source pipeline rejects list equality until runtime support exists", testSourcePipelineRejectsListEquality),
     ("source pipeline rejects unsupported section operator", testSourcePipelineRejectsUnsupportedSectionOperator),
     ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral)
@@ -151,6 +154,18 @@ testSourcePipelineAcceptsEqualitySection = do
   assertEqual "compile errors" [] (compileErrors result)
   assertJust "generated JS is present" (generatedJs result)
 
+testSourcePipelineAcceptsDeferredLeftEqualitySection :: IO ()
+testSourcePipelineAcceptsDeferredLeftEqualitySection = do
+  result <- compileSource defaultWarningSettings "x = (hd [] ==) 1."
+  assertEqual "compile errors" [] (compileErrors result)
+  assertJust "generated JS is present" (generatedJs result)
+
+testSourcePipelineAcceptsDeferredRightEqualitySection :: IO ()
+testSourcePipelineAcceptsDeferredRightEqualitySection = do
+  result <- compileSource defaultWarningSettings "x = (== hd []) 1."
+  assertEqual "compile errors" [] (compileErrors result)
+  assertJust "generated JS is present" (generatedJs result)
+
 testSourcePipelineRejectsArithmeticSectionTypeMismatch :: IO ()
 testSourcePipelineRejectsArithmeticSectionTypeMismatch = do
   result <- compileSource defaultWarningSettings "x = (True +) 1."
@@ -164,6 +179,14 @@ testSourcePipelineRejectsEqualitySectionTypeMismatch = do
   result <- compileSource defaultWarningSettings "x = (True ==) 1."
   assertSingleErrorContains
     "equality section operand mismatch"
+    "E2006"
+    (compileErrors result)
+
+testSourcePipelineRejectsDeferredEqualitySectionListConstraint :: IO ()
+testSourcePipelineRejectsDeferredEqualitySectionListConstraint = do
+  result <- compileSource defaultWarningSettings "x = (hd [] ==) []."
+  assertSingleErrorContains
+    "deferred equality section must still reject unsupported concrete operand family"
     "E2006"
     (compileErrors result)
 

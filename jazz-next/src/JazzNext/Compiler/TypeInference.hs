@@ -9,6 +9,8 @@ module JazzNext.Compiler.TypeInference
 import Data.Char (isSpace)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import qualified Data.Set as Set
+import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Analyzer
@@ -104,6 +106,9 @@ data ExpressionType
 data InferState = InferState
   { inferNextTypeVar :: Int,
     inferSubst :: Map Int ExpressionType,
+    -- Type variables originating from strict-equality sections must eventually
+    -- resolve to runtime-supported equality families.
+    inferStrictEqualityVars :: Set Int,
     inferErrorsRev :: [Text]
   }
 
@@ -112,6 +117,7 @@ initialInferState =
   InferState
     { inferNextTypeVar = 0,
       inferSubst = Map.empty,
+      inferStrictEqualityVars = Set.empty,
       inferErrorsRev = []
     }
 
@@ -383,14 +389,20 @@ applyStrictEqualitySectionLeftRule ::
 applyStrictEqualitySectionLeftRule operatorSymbol leftType state =
   let resolvedLeftType = resolveType state leftType
    in
-    if supportsRuntimeEqualityType resolvedLeftType
-      then (Just (TFunctionType resolvedLeftType TBoolType), state)
-      else
-        ( Nothing,
-          addTypeError
-            state
-            (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedLeftType)
+    case resolvedLeftType of
+      TVarType typeVar ->
+        ( Just (TFunctionType resolvedLeftType TBoolType),
+          addStrictEqualityTypeVarConstraint typeVar state
         )
+      _
+        | supportsRuntimeEqualityType resolvedLeftType ->
+            (Just (TFunctionType resolvedLeftType TBoolType), state)
+        | otherwise ->
+            ( Nothing,
+              addTypeError
+                state
+                (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedLeftType)
+            )
 
 inferSectionRightType ::
   Text ->
@@ -439,14 +451,20 @@ applyStrictEqualitySectionRightRule ::
 applyStrictEqualitySectionRightRule operatorSymbol rightType state =
   let resolvedRightType = resolveType state rightType
    in
-    if supportsRuntimeEqualityType resolvedRightType
-      then (Just (TFunctionType resolvedRightType TBoolType), state)
-      else
-        ( Nothing,
-          addTypeError
-            state
-            (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedRightType)
+    case resolvedRightType of
+      TVarType typeVar ->
+        ( Just (TFunctionType resolvedRightType TBoolType),
+          addStrictEqualityTypeVarConstraint typeVar state
         )
+      _
+        | supportsRuntimeEqualityType resolvedRightType ->
+            (Just (TFunctionType resolvedRightType TBoolType), state)
+        | otherwise ->
+            ( Nothing,
+              addTypeError
+                state
+                (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedRightType)
+            )
 
 inferScopeType :: Map Text ExpressionType -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType initialEnv initialState statements = go initialEnv Nothing Nothing initialState statements
@@ -590,11 +608,26 @@ bindTypeVar :: Int -> ExpressionType -> InferState -> Maybe InferState
 bindTypeVar typeVar replacementType state
   | replacementType == TVarType typeVar = Just state
   | occursInType typeVar replacementType = Nothing
+  -- Preserve compile/runtime contract when deferred section vars later unify.
+  | typeVarIsStrictEqualityConstrained && not (supportsDeferredEqualityOperandType replacementType) =
+      Nothing
   | otherwise =
       Just
         state
-          { inferSubst = Map.insert typeVar replacementType (inferSubst state)
+          { inferSubst = Map.insert typeVar replacementType (inferSubst state),
+            inferStrictEqualityVars = nextStrictEqualityVars
           }
+  where
+    typeVarIsStrictEqualityConstrained =
+      Set.member typeVar (inferStrictEqualityVars state)
+    strictEqualityVarsWithoutTypeVar =
+      Set.delete typeVar (inferStrictEqualityVars state)
+    nextStrictEqualityVars =
+      case replacementType of
+        TVarType replacementVar
+          | typeVarIsStrictEqualityConstrained ->
+              Set.insert replacementVar strictEqualityVarsWithoutTypeVar
+        _ -> strictEqualityVarsWithoutTypeVar
 
 occursInType :: Int -> ExpressionType -> Bool
 occursInType typeVar expressionType =
@@ -609,6 +642,13 @@ occursInType typeVar expressionType =
 addTypeError :: InferState -> Text -> InferState
 addTypeError state errorText =
   state {inferErrorsRev = errorText : inferErrorsRev state}
+
+addStrictEqualityTypeVarConstraint :: Int -> InferState -> InferState
+addStrictEqualityTypeVarConstraint typeVar state =
+  state
+    { inferStrictEqualityVars =
+        Set.insert typeVar (inferStrictEqualityVars state)
+    }
 
 mkBinaryTypeError :: Text -> ExpressionType -> ExpressionType -> Text
 mkBinaryTypeError operatorSymbol leftType rightType =
@@ -707,3 +747,9 @@ supportsRuntimeEqualityType expressionType =
     TIntType -> True
     TBoolType -> True
     _ -> False
+
+supportsDeferredEqualityOperandType :: ExpressionType -> Bool
+supportsDeferredEqualityOperandType expressionType =
+  case expressionType of
+    TVarType _ -> True
+    _ -> supportsRuntimeEqualityType expressionType
