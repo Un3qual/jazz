@@ -118,16 +118,18 @@ collectExprListDiagnostics ::
   [Expr] ->
   ([WarningRecord], [Text])
 collectExprListDiagnostics settings visibleBindings elements =
-  foldl'
-    step
-    ([], [])
-    elements
+  let (warningsRev, errorsRev) =
+        foldl'
+          step
+          ([], [])
+          elements
+   in (concat (reverse warningsRev), concat (reverse errorsRev))
   where
-    step (warningsAcc, errorsAcc) element =
+    step (warningsRev, errorsRev) element =
       let (elementWarnings, elementErrors) =
             collectExprDiagnostics settings visibleBindings element
        in
-        (warningsAcc ++ elementWarnings, errorsAcc ++ elementErrors)
+        (elementWarnings : warningsRev, elementErrors : errorsRev)
 
 collectScopeDiagnostics ::
   WarningSettings ->

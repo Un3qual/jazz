@@ -46,6 +46,7 @@ tests =
     ("source pipeline accepts equality section application", testSourcePipelineAcceptsEqualitySection),
     ("source pipeline rejects arithmetic section with non-Int operand", testSourcePipelineRejectsArithmeticSectionTypeMismatch),
     ("source pipeline rejects equality section mismatched application", testSourcePipelineRejectsEqualitySectionTypeMismatch),
+    ("source pipeline rejects unsupported section operator", testSourcePipelineRejectsUnsupportedSectionOperator),
     ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral)
   ]
 
@@ -163,6 +164,14 @@ testSourcePipelineRejectsEqualitySectionTypeMismatch = do
   assertSingleErrorContains
     "equality section operand mismatch"
     "E2006"
+    (compileErrors result)
+
+testSourcePipelineRejectsUnsupportedSectionOperator :: IO ()
+testSourcePipelineRejectsUnsupportedSectionOperator = do
+  result <- compileSource defaultWarningSettings "x = ($ 1)."
+  assertSingleErrorContains
+    "unsupported section operator"
+    "E2008"
     (compileErrors result)
 
 testSourcePipelineRejectsMixedTypeListLiteral :: IO ()
