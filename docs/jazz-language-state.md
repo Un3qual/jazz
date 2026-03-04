@@ -423,7 +423,7 @@ If you need a practical baseline for continuing Jazz, use this order:
    - dot-separated statements and scope blocks
    - application and list literals
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
-   - built-in operator fixity/section parsing
+   - built-in operator fixity plus executable left/right section semantics
    - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, `map`, `hd`, `tl`
    - runtime execution via `--run` CLI mode plus compile-mode placeholder codegen output
 

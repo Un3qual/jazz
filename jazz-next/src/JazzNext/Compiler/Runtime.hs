@@ -26,6 +26,8 @@ data RuntimeValue
   | VBool Bool
   | VList [RuntimeValue]
   | VBuiltin BuiltinFunction [RuntimeValue]
+  | VSectionLeft Text RuntimeValue
+  | VSectionRight Text RuntimeValue
   deriving (Eq, Show)
 
 evaluateRuntimeExpr :: Expr -> Either Text (Maybe RuntimeValue)
@@ -45,6 +47,8 @@ renderRuntimeValue value =
     VList elements ->
       "[" <> Text.intercalate ", " (map renderRuntimeValue elements) <> "]"
     VBuiltin _ _ -> "<function>"
+    VSectionLeft {} -> "<function>"
+    VSectionRight {} -> "<function>"
 
 type RuntimeEnv = Map Text RuntimeValue
 
@@ -107,10 +111,12 @@ evalValue env expr =
       leftValue <- evalValue env leftExpr
       rightValue <- evalValue env rightExpr
       evalBinary operatorSymbol leftValue rightValue
-    ESectionLeft {} ->
-      Left "E3004: runtime does not yet support evaluating left operator sections"
-    ESectionRight {} ->
-      Left "E3005: runtime does not yet support evaluating right operator sections"
+    ESectionLeft leftExpr operatorSymbol -> do
+      leftValue <- evalValue env leftExpr
+      Right (VSectionLeft operatorSymbol leftValue)
+    ESectionRight operatorSymbol rightExpr -> do
+      rightValue <- evalValue env rightExpr
+      Right (VSectionRight operatorSymbol rightValue)
     EScope statements ->
       case evalScope env statements of
         Left err -> Left err
@@ -122,6 +128,10 @@ evalValue env expr =
 applyRuntimeFunction :: RuntimeValue -> RuntimeValue -> Either Text RuntimeValue
 applyRuntimeFunction functionValue argumentValue =
   case functionValue of
+    VSectionLeft operatorSymbol leftValue ->
+      evalBinary operatorSymbol leftValue argumentValue
+    VSectionRight operatorSymbol rightValue ->
+      evalBinary operatorSymbol argumentValue rightValue
     VBuiltin builtinFunction capturedArgs ->
       applyBuiltin builtinFunction (capturedArgs ++ [argumentValue])
     _ ->
@@ -211,6 +221,8 @@ builtinFromName name
 isFunctionValue :: RuntimeValue -> Bool
 isFunctionValue value =
   case value of
+    VSectionLeft {} -> True
+    VSectionRight {} -> True
     VBuiltin {} -> True
     _ -> False
 
@@ -248,4 +260,6 @@ renderRuntimeType value =
     VInt {} -> "Int"
     VBool {} -> "Bool"
     VList {} -> "List"
+    VSectionLeft {} -> "Function"
+    VSectionRight {} -> "Function"
     VBuiltin {} -> "Function"

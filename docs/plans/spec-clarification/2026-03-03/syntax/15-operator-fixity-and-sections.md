@@ -23,6 +23,7 @@ Execution note:
 - [x] Section semantics decision locked
 - [x] Canonical operator/fixity spec published (Phase 0)
 - [x] Parser/tests aligned with canonical contract
+- [x] Runtime/type/CLI section execution semantics aligned with canonical contract
 - [x] User-defined operator roadmap direction decided (staged)
 
 ## Decision Lock (Approved 2026-03-03)
@@ -179,3 +180,17 @@ runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/OperatorInvalidSyntax
 - [x] Implemented precedence-climbing parser logic and explicit section-node parsing.
 - [x] Added surface/core AST and lowering support for `binary` and `section` forms.
 - [x] Verified full `jazz-next` script suite passes with domain-15 tests enabled.
+
+## Implementation Status Verification (2026-03-04, Batch 3)
+
+- [x] Re-verified candidate steps before execution and confirmed section runtime execution was still missing (`E3004`/`E3005` placeholders).
+- [x] Added compile/runtime/CLI conformance coverage for executable section behavior in:
+  - `jazz-next/test/PrimitiveSemanticsSpec.hs`
+  - `jazz-next/test/RuntimeSemanticsSpec.hs`
+  - `jazz-next/test/CLISpec.hs`
+- [x] Implemented section function-value runtime semantics in `jazz-next/src/JazzNext/Compiler/Runtime.hs`:
+  - `ESectionLeft` and `ESectionRight` now evaluate to callable section closures.
+  - Applying a section closure dispatches through existing binary primitive semantics.
+- [x] Implemented section typing in `jazz-next/src/JazzNext/Compiler/TypeInference.hs` so section misuse is reported at compile time (`E2003`/`E2006`) instead of deferred runtime fallbacks.
+- [x] Updated `docs/spec/syntax/operators.md` to keep section semantics contract aligned with executable runtime behavior.
+- [x] Ran `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpec.hs`, `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/RuntimeSemanticsSpec.hs`, `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`, and `bash jazz-next/scripts/test-warning-config.sh`.

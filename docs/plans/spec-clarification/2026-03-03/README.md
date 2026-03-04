@@ -50,6 +50,7 @@ This batch only includes clarification domains that are not already directly pla
 - [x] 14c if-expression runtime alignment batch (`jazz-next` runtime evaluator + `--run` CLI path + runtime tests)
 - [x] 15 operator fixity and sections
 - [x] 15a operator fixity/sections parser-alignment batch (`jazz-next` operator table + precedence parser + section AST/tests)
+- [x] 15b operator sections runtime/type alignment batch (`jazz-next` section function-value runtime semantics + section type-checking + CLI/runtime conformance tests)
 - [x] 16 primitive semantics contract
 - [x] 16a primitive semantics phase-1 conformance batch (`jazz-next` primitive test suite + `E2004` strict-equality mismatch diagnostics)
 - [x] 16b primitive semantics runtime batch (`jazz-next` runtime primitive subset + `E3001` fatal runtime diagnostics + runtime tests)

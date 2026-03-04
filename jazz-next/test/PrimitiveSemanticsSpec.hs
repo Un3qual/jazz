@@ -43,6 +43,9 @@ tests =
     ("source pipeline rejects tl with non-list argument", testSourcePipelineRejectsTlNonListArgument),
     ("source pipeline rejects map with non-function mapper", testSourcePipelineRejectsMapNonFunctionMapper),
     ("source pipeline rejects map with non-list collection", testSourcePipelineRejectsMapNonListCollection),
+    ("source pipeline accepts equality section application", testSourcePipelineAcceptsEqualitySection),
+    ("source pipeline rejects arithmetic section with non-Int operand", testSourcePipelineRejectsArithmeticSectionTypeMismatch),
+    ("source pipeline rejects equality section mismatched application", testSourcePipelineRejectsEqualitySectionTypeMismatch),
     ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral)
   ]
 
@@ -137,6 +140,28 @@ testSourcePipelineRejectsMapNonListCollection = do
   result <- compileSource defaultWarningSettings "x = map hd 1."
   assertSingleErrorContains
     "map collection type mismatch"
+    "E2006"
+    (compileErrors result)
+
+testSourcePipelineAcceptsEqualitySection :: IO ()
+testSourcePipelineAcceptsEqualitySection = do
+  result <- compileSource defaultWarningSettings "x = (True ==) False."
+  assertEqual "compile errors" [] (compileErrors result)
+  assertJust "generated JS is present" (generatedJs result)
+
+testSourcePipelineRejectsArithmeticSectionTypeMismatch :: IO ()
+testSourcePipelineRejectsArithmeticSectionTypeMismatch = do
+  result <- compileSource defaultWarningSettings "x = (True +) 1."
+  assertSingleErrorContains
+    "arithmetic section operand mismatch"
+    "E2003"
+    (compileErrors result)
+
+testSourcePipelineRejectsEqualitySectionTypeMismatch :: IO ()
+testSourcePipelineRejectsEqualitySectionTypeMismatch = do
+  result <- compileSource defaultWarningSettings "x = (True ==) 1."
+  assertSingleErrorContains
+    "equality section operand mismatch"
     "E2006"
     (compileErrors result)
 

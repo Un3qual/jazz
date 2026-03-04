@@ -35,6 +35,7 @@ tests =
     ("cli run prints warning to stderr while keeping stdout output", testCliWarningOnlyBehavior),
     ("cli run returns non-zero and suppresses stdout when warning promoted", testCliPromotedWarningBehavior),
     ("cli --run prints evaluated runtime output", testCliRunModeSuccess),
+    ("cli --run prints evaluated section runtime output", testCliRunModeSectionSuccess),
     ("cli --run prints evaluated list primitive output", testCliRunModeListPrimitiveSuccess),
     ("cli --run reports runtime fatal errors", testCliRunModeFatalRuntimeError),
     ("cli --run reports hd empty-list fatal runtime error", testCliRunModeHdEmptyListRuntimeError),
@@ -90,6 +91,16 @@ testCliRunModeSuccess = do
   output <- runCliWith ["--run"] envLookup configLookup (pure runtimeSuccessSource)
   assertEqual "exit code" 0 (cliExitCode output)
   assertEqual "runtime stdout" "1\n" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
+testCliRunModeSectionSuccess :: IO ()
+testCliRunModeSectionSuccess = do
+  output <- runCliWith ["--run"] envLookup configLookup (pure runtimeSectionSource)
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "runtime stdout" "3\n" (cliStdout output)
   assertEqual "stderr is empty" "" (cliStderr output)
   where
     envLookup _ = pure Nothing
@@ -187,6 +198,9 @@ signatureMismatchSource = "x :: Int.\nx = True."
 
 runtimeSuccessSource :: Text
 runtimeSuccessSource = "if True 1 else 2."
+
+runtimeSectionSource :: Text
+runtimeSectionSource = "(+ 1) 2."
 
 runtimeDivisionByZeroSource :: Text
 runtimeDivisionByZeroSource = "1 / 0."

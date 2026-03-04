@@ -37,6 +37,8 @@ tests =
   [ ("if with False condition skips then branch runtime failure", testIfFalseSkipsThenRuntimeFailure),
     ("if with True condition skips else branch runtime failure", testIfTrueSkipsElseRuntimeFailure),
     ("division by zero produces fatal runtime diagnostic", testDivisionByZeroRuntimeError),
+    ("left operator section applies at runtime", testLeftOperatorSectionRuntimeSuccess),
+    ("right operator section applies at runtime", testRightOperatorSectionRuntimeSuccess),
     ("map + hd evaluates over nested list literals", testMapHdNestedListsRuntimeSuccess),
     ("tl returns the tail of a non-empty list", testTlReturnsTailRuntimeValue),
     ("hd on empty list produces fatal runtime diagnostic", testHdEmptyListRuntimeError),
@@ -81,6 +83,20 @@ testDivisionByZeroRuntimeError = do
         "division by zero"
         runtimeError
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testLeftOperatorSectionRuntimeSuccess :: IO ()
+testLeftOperatorSectionRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "(1 +) 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testRightOperatorSectionRuntimeSuccess :: IO ()
+testRightOperatorSectionRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "(+ 1) 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
 
 testMapHdNestedListsRuntimeSuccess :: IO ()
 testMapHdNestedListsRuntimeSuccess = do

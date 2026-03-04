@@ -195,12 +195,18 @@ inferExprType env state expr =
             (Just inferredLeftType, Just inferredRightType) ->
               inferBinaryType operatorSymbol inferredLeftType inferredRightType stateAfterRight
             _ -> (Nothing, stateAfterRight)
-    ESectionLeft leftExpr _ ->
-      let (_, stateAfterLeft) = inferExprType env state leftExpr
-       in (Nothing, stateAfterLeft)
-    ESectionRight _ rightExpr ->
-      let (_, stateAfterRight) = inferExprType env state rightExpr
-       in (Nothing, stateAfterRight)
+    ESectionLeft leftExpr operatorSymbol ->
+      let (leftType, stateAfterLeft) = inferExprType env state leftExpr
+       in case leftType of
+            Just inferredLeftType ->
+              inferSectionLeftType operatorSymbol inferredLeftType stateAfterLeft
+            Nothing -> (Nothing, stateAfterLeft)
+    ESectionRight operatorSymbol rightExpr ->
+      let (rightType, stateAfterRight) = inferExprType env state rightExpr
+       in case rightType of
+            Just inferredRightType ->
+              inferSectionRightType operatorSymbol inferredRightType stateAfterRight
+            Nothing -> (Nothing, stateAfterRight)
     EScope statements -> inferScopeType env state statements
 
 inferListType :: Map Text ExpressionType -> InferState -> [Expr] -> (Maybe ExpressionType, InferState)
@@ -293,6 +299,100 @@ inferBinaryType operatorSymbol leftType rightType state =
                   (resolveType state rightType)
               )
           )
+
+inferSectionLeftType ::
+  Text ->
+  ExpressionType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+inferSectionLeftType operatorSymbol leftType state =
+  case operatorSymbol of
+    "+" -> requireIntOperand TIntType
+    "-" -> requireIntOperand TIntType
+    "*" -> requireIntOperand TIntType
+    "/" -> requireIntOperand TIntType
+    "<" -> requireIntOperand TBoolType
+    "<=" -> requireIntOperand TBoolType
+    ">" -> requireIntOperand TBoolType
+    ">=" -> requireIntOperand TBoolType
+    "==" -> strictEqualitySection
+    "!=" -> strictEqualitySection
+    _ ->
+      ( Nothing,
+        addTypeError
+          state
+          ( mkBinaryTypeError
+              operatorSymbol
+              (resolveType state leftType)
+              TIntType
+          )
+      )
+  where
+    requireIntOperand resultType =
+      case unifyTypes leftType TIntType state of
+        Just unifiedState ->
+          (Just (TFunctionType TIntType resultType), unifiedState)
+        Nothing ->
+          ( Nothing,
+            addTypeError
+              state
+              ( mkBinaryTypeError
+                  operatorSymbol
+                  (resolveType state leftType)
+                  TIntType
+              )
+          )
+
+    strictEqualitySection =
+      let resolvedLeftType = resolveType state leftType
+       in (Just (TFunctionType resolvedLeftType TBoolType), state)
+
+inferSectionRightType ::
+  Text ->
+  ExpressionType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+inferSectionRightType operatorSymbol rightType state =
+  case operatorSymbol of
+    "+" -> requireIntOperand TIntType
+    "-" -> requireIntOperand TIntType
+    "*" -> requireIntOperand TIntType
+    "/" -> requireIntOperand TIntType
+    "<" -> requireIntOperand TBoolType
+    "<=" -> requireIntOperand TBoolType
+    ">" -> requireIntOperand TBoolType
+    ">=" -> requireIntOperand TBoolType
+    "==" -> strictEqualitySection
+    "!=" -> strictEqualitySection
+    _ ->
+      ( Nothing,
+        addTypeError
+          state
+          ( mkBinaryTypeError
+              operatorSymbol
+              TIntType
+              (resolveType state rightType)
+          )
+      )
+  where
+    requireIntOperand resultType =
+      case unifyTypes rightType TIntType state of
+        Just unifiedState ->
+          (Just (TFunctionType TIntType resultType), unifiedState)
+        Nothing ->
+          ( Nothing,
+            addTypeError
+              state
+              ( mkBinaryTypeError
+                  operatorSymbol
+                  TIntType
+                  (resolveType state rightType)
+              )
+          )
+
+    strictEqualitySection =
+      let resolvedRightType = resolveType state rightType
+       in (Just (TFunctionType resolvedRightType TBoolType), state)
 
 inferScopeType :: Map Text ExpressionType -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType initialEnv initialState statements = go initialEnv Nothing Nothing initialState statements
