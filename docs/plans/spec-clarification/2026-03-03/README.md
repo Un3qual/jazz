@@ -17,8 +17,10 @@
 - [x] Bootstrap `jazz-next` lexer/parser foundation before additional domain execution (surface parser + parse/lower boundary + tests)
 - [x] Execute domain 14 batch 1 in `jazz-next` (`if` parser/lowering/type-contract tests + diagnostics)
 - [x] Execute domain 14 batch 2 in `jazz-next` (`if` desugaring + source compile/CLI pipeline alignment + tests)
+- [x] Execute domain 14 batch 3 in `jazz-next` (runtime branch semantics alignment + runtime/CLI run-mode tests)
 - [x] Execute domain 15 batch 1 in `jazz-next` (operator fixity/sections parser + AST/lowering + tests)
 - [x] Execute domain 16 batch 1 in `jazz-next` (primitive conformance tests + strict-equality mismatch diagnostics)
+- [x] Execute domain 16 batch 2 in `jazz-next` (runtime primitive evaluator subset + fatal runtime diagnostics + runtime tests)
 - [ ] Execute plans (future work)
 
 ## Scope Boundary
@@ -42,13 +44,15 @@ This batch only includes clarification domains that are not already directly pla
 - [x] 13a binding/signature coherence batch 1 (`jazz-next` analyzer/tests)
 - [x] 13b binding/signature coherence batch 2 (`jazz-next` recursion-group semantics + tests)
 - [x] 13c binding/signature coherence batch 3 (`jazz-next` source-pipeline contract tests + `E2005` signature mismatch diagnostics + CLI coverage)
-- [ ] 14 if-expression surface and semantics
+- [x] 14 if-expression surface and semantics
 - [x] 14a if-expression parser + type-contract batch (`jazz-next` parser/AST/lowering/type diagnostics + tests)
 - [x] 14b if-expression desugaring + source compile/CLI pipeline batch (`jazz-next` desugar pass + source-entry driver path + tests)
+- [x] 14c if-expression runtime alignment batch (`jazz-next` runtime evaluator + `--run` CLI path + runtime tests)
 - [x] 15 operator fixity and sections
 - [x] 15a operator fixity/sections parser-alignment batch (`jazz-next` operator table + precedence parser + section AST/tests)
 - [ ] 16 primitive semantics contract
 - [x] 16a primitive semantics phase-1 conformance batch (`jazz-next` primitive test suite + `E2004` strict-equality mismatch diagnostics)
+- [x] 16b primitive semantics runtime batch (`jazz-next` runtime primitive subset + `E3001` fatal runtime diagnostics + runtime tests)
 - [x] 17 jazz2 alignment and spec authority
 
 ## Implementation Status Verification (2026-03-03 Batch)
@@ -67,8 +71,8 @@ This batch only includes clarification domains that are not already directly pla
 
 Parser/lexer foundation is now in place in `jazz-next`. Continue with domain execution on that baseline:
 
-1. Complete remaining domain 14 work (runtime branch semantics alignment in active `jazz-next` backend path).
-2. Continue domain 16 runtime alignment beyond phase-1 tests (`map`/`hd`/`tl` semantics + runtime fatal diagnostic path in active `jazz-next` pipeline).
+1. Continue domain 16 runtime alignment beyond the current runtime subset (`map`/`hd`/`tl` semantics in active `jazz-next` pipeline).
+2. Resolve remaining domain 13 closure work (`docs/jazz-language-state.md` ambiguity cleanup for bindings/signatures).
 3. If parser behavior exposes syntax ambiguities, update the relevant spec clarification docs in the same change before proceeding.
 
 ## Locked Governance Clarifications (2026-03-03)
