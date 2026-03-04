@@ -35,7 +35,10 @@ tests =
     ("cli run prints warning to stderr while keeping stdout output", testCliWarningOnlyBehavior),
     ("cli run returns non-zero and suppresses stdout when warning promoted", testCliPromotedWarningBehavior),
     ("cli --run prints evaluated runtime output", testCliRunModeSuccess),
+    ("cli --run prints evaluated section runtime output", testCliRunModeSectionSuccess),
+    ("cli --run prints evaluated list primitive output", testCliRunModeListPrimitiveSuccess),
     ("cli --run reports runtime fatal errors", testCliRunModeFatalRuntimeError),
+    ("cli --run reports hd empty-list fatal runtime error", testCliRunModeHdEmptyListRuntimeError),
     ("cli precedence keeps CLI over env over config", testCliPrecedenceBehavior),
     ("cli respects --warnings-config path override", testCliConfigPathOverride),
     ("cli defers source read until after arg validation", testCliDefersSourceReadOnArgError),
@@ -93,12 +96,43 @@ testCliRunModeSuccess = do
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing
 
+testCliRunModeSectionSuccess :: IO ()
+testCliRunModeSectionSuccess = do
+  output <- runCliWith ["--run"] envLookup configLookup (pure runtimeSectionSource)
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "runtime stdout" "3\n" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
+testCliRunModeListPrimitiveSuccess :: IO ()
+testCliRunModeListPrimitiveSuccess = do
+  output <- runCliWith ["--run"] envLookup configLookup (pure runtimeListPrimitiveSource)
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "runtime stdout" "[1, 3, 4]\n" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
 testCliRunModeFatalRuntimeError :: IO ()
 testCliRunModeFatalRuntimeError = do
   output <- runCliWith ["--run"] envLookup configLookup (pure runtimeDivisionByZeroSource)
   assertEqual "exit code" 1 (cliExitCode output)
   assertContains "runtime fatal code" "E3001" (cliStderr output)
   assertContains "stderr includes error marker" "error:" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
+testCliRunModeHdEmptyListRuntimeError :: IO ()
+testCliRunModeHdEmptyListRuntimeError = do
+  output <- runCliWith ["--run"] envLookup configLookup (pure runtimeHdEmptySource)
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "runtime fatal code" "E3009" (cliStderr output)
+  assertContains "runtime fatal message" "empty list" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
@@ -165,5 +199,14 @@ signatureMismatchSource = "x :: Int.\nx = True."
 runtimeSuccessSource :: Text
 runtimeSuccessSource = "if True 1 else 2."
 
+runtimeSectionSource :: Text
+runtimeSectionSource = "(+ 1) 2."
+
 runtimeDivisionByZeroSource :: Text
 runtimeDivisionByZeroSource = "1 / 0."
+
+runtimeListPrimitiveSource :: Text
+runtimeListPrimitiveSource = "map hd [[1, 2], [3], [4, 5]]."
+
+runtimeHdEmptySource :: Text
+runtimeHdEmptySource = "hd []."

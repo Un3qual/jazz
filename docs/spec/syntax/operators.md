@@ -56,13 +56,14 @@ AST-level invariants:
 2. Synthetic internal names are allowed only in lowering artifacts, never in parser-visible AST contracts.
 3. External tests assert section-node shape, not generated variable names.
 
-## Section Lowering Rules
+## Section Evaluation Contract
 
-Lowering occurs in a desugar phase:
+Section forms denote unary function values with deterministic argument order:
 
-1. `(expr <op>)` lowers to `\(x) -> (<op> expr x)`.
-2. `(<op> expr)` lowers to `\(x) -> (<op> x expr)`.
-3. Lowering must preserve source spans for diagnostics.
+1. `(expr <op>) arg` is semantically equivalent to `<op> expr arg`.
+2. `(<op> expr) arg` is semantically equivalent to `<op> arg expr`.
+3. Implementations may realize this either by explicit lambda lowering or by runtime-native section closures, but externally observable behavior must match these equations.
+4. Type and runtime diagnostics must remain deterministic for invalid operand combinations.
 
 ## Invalid and Restricted Forms
 
@@ -75,7 +76,7 @@ Lowering occurs in a desugar phase:
 Stage 1 (current):
 
 1. Frozen built-in operators.
-2. Canonical section AST + lowering.
+2. Canonical section AST + executable section semantics.
 
 Stage 2:
 

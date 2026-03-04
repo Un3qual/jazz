@@ -50,6 +50,7 @@ tests =
     ("source pipeline rejects retroactive rebinding recursion", testSourceRejectsRetroactiveRebindingRecursion),
     ("source pipeline accepts mutual recursion group", testSourceAcceptsMutualRecursionGroup),
     ("source pipeline rejects signature type mismatch", testSourceRejectsSignatureTypeMismatch),
+    ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface),
     ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError),
     ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
   ]
@@ -263,6 +264,10 @@ testSourceAcceptsMutualRecursionGroup =
 testSourceRejectsSignatureTypeMismatch :: IO ()
 testSourceRejectsSignatureTypeMismatch =
   assertSourceSingleErrorContains "x :: Int.\nx = True." "E2005"
+
+testSourceRejectsUnsupportedSignatureSurface :: IO ()
+testSourceRejectsUnsupportedSignatureSurface =
+  assertSourceSingleErrorContains "x :: [Int].\nx = [1]." "E2009"
 
 testSourceReportsSignedRecursiveRhsTypeError :: IO ()
 testSourceReportsSignedRecursiveRhsTypeError =

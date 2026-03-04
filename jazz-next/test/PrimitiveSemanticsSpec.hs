@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
@@ -11,7 +12,8 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
-    compileExpr
+    compileExpr,
+    compileSource
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -35,7 +37,22 @@ tests =
     ("strict equality rejects mismatched operand types", testRejectsEqualityTypeMismatch),
     ("strict inequality rejects mismatched operand types", testRejectsInequalityTypeMismatch),
     ("comparison primitives reject non-Int operands", testRejectsComparisonTypeMismatch),
-    ("arithmetic primitives reject mismatched operand types", testRejectsArithmeticTypeMismatch)
+    ("arithmetic primitives reject mismatched operand types", testRejectsArithmeticTypeMismatch),
+    ("source pipeline accepts hd with list literal argument", testSourcePipelineAcceptsHdListLiteral),
+    ("source pipeline accepts map over nested list literals", testSourcePipelineAcceptsMapHdNestedLists),
+    ("source pipeline rejects hd with non-list argument", testSourcePipelineRejectsHdNonListArgument),
+    ("source pipeline rejects tl with non-list argument", testSourcePipelineRejectsTlNonListArgument),
+    ("source pipeline rejects map with non-function mapper", testSourcePipelineRejectsMapNonFunctionMapper),
+    ("source pipeline rejects map with non-list collection", testSourcePipelineRejectsMapNonListCollection),
+    ("source pipeline accepts equality section application", testSourcePipelineAcceptsEqualitySection),
+    ("source pipeline accepts deferred left equality section once constrained", testSourcePipelineAcceptsDeferredLeftEqualitySection),
+    ("source pipeline accepts deferred right equality section once constrained", testSourcePipelineAcceptsDeferredRightEqualitySection),
+    ("source pipeline rejects arithmetic section with non-Int operand", testSourcePipelineRejectsArithmeticSectionTypeMismatch),
+    ("source pipeline rejects equality section mismatched application", testSourcePipelineRejectsEqualitySectionTypeMismatch),
+    ("source pipeline rejects deferred equality section constrained to list", testSourcePipelineRejectsDeferredEqualitySectionListConstraint),
+    ("source pipeline rejects list equality until runtime support exists", testSourcePipelineRejectsListEquality),
+    ("source pipeline rejects unsupported section operator", testSourcePipelineRejectsUnsupportedSectionOperator),
+    ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral)
   ]
 
 testAcceptsArithmeticIntOperands :: IO ()
@@ -86,6 +103,110 @@ testRejectsArithmeticTypeMismatch = do
   assertSingleErrorContains
     "arithmetic type error"
     "E2003"
+    (compileErrors result)
+
+testSourcePipelineAcceptsHdListLiteral :: IO ()
+testSourcePipelineAcceptsHdListLiteral =
+  assertCompiles "x = hd [1, 2, 3]."
+
+testSourcePipelineAcceptsMapHdNestedLists :: IO ()
+testSourcePipelineAcceptsMapHdNestedLists =
+  assertCompiles "x = map hd [[1, 2], [3], [4, 5]]."
+
+testSourcePipelineRejectsHdNonListArgument :: IO ()
+testSourcePipelineRejectsHdNonListArgument =
+  assertCompileError
+    "x = hd 1."
+    "hd argument type mismatch"
+    "E2006"
+
+testSourcePipelineRejectsTlNonListArgument :: IO ()
+testSourcePipelineRejectsTlNonListArgument =
+  assertCompileError
+    "x = tl 1."
+    "tl argument type mismatch"
+    "E2006"
+
+testSourcePipelineRejectsMapNonFunctionMapper :: IO ()
+testSourcePipelineRejectsMapNonFunctionMapper =
+  assertCompileError
+    "x = map 1 [1, 2]."
+    "map mapper type mismatch"
+    "E2006"
+
+testSourcePipelineRejectsMapNonListCollection :: IO ()
+testSourcePipelineRejectsMapNonListCollection =
+  assertCompileError
+    "x = map hd 1."
+    "map collection type mismatch"
+    "E2006"
+
+testSourcePipelineAcceptsEqualitySection :: IO ()
+testSourcePipelineAcceptsEqualitySection =
+  assertCompiles "x = (True ==) False."
+
+testSourcePipelineAcceptsDeferredLeftEqualitySection :: IO ()
+testSourcePipelineAcceptsDeferredLeftEqualitySection =
+  assertCompiles "x = (hd [] ==) 1."
+
+testSourcePipelineAcceptsDeferredRightEqualitySection :: IO ()
+testSourcePipelineAcceptsDeferredRightEqualitySection =
+  assertCompiles "x = (== hd []) 1."
+
+testSourcePipelineRejectsArithmeticSectionTypeMismatch :: IO ()
+testSourcePipelineRejectsArithmeticSectionTypeMismatch =
+  assertCompileError
+    "x = (True +) 1."
+    "arithmetic section operand mismatch"
+    "E2003"
+
+testSourcePipelineRejectsEqualitySectionTypeMismatch :: IO ()
+testSourcePipelineRejectsEqualitySectionTypeMismatch =
+  assertCompileError
+    "x = (True ==) 1."
+    "equality section operand mismatch"
+    "E2006"
+
+testSourcePipelineRejectsDeferredEqualitySectionListConstraint :: IO ()
+testSourcePipelineRejectsDeferredEqualitySectionListConstraint =
+  assertCompileError
+    "x = (hd [] ==) []."
+    "deferred equality section must still reject unsupported concrete operand family"
+    "E2006"
+
+testSourcePipelineRejectsListEquality :: IO ()
+testSourcePipelineRejectsListEquality =
+  assertCompileError
+    "x = [1] == [1]."
+    "list equality unsupported in runtime subset"
+    "E2004"
+
+testSourcePipelineRejectsUnsupportedSectionOperator :: IO ()
+testSourcePipelineRejectsUnsupportedSectionOperator =
+  assertCompileError
+    "x = ($ 1)."
+    "unsupported section operator"
+    "E2008"
+
+testSourcePipelineRejectsMixedTypeListLiteral :: IO ()
+testSourcePipelineRejectsMixedTypeListLiteral =
+  assertCompileError
+    "x = [1, True]."
+    "list literal element mismatch"
+    "E2007"
+
+assertCompiles :: String -> IO ()
+assertCompiles source = do
+  result <- compileSource defaultWarningSettings (Text.pack source)
+  assertEqual "compile errors" [] (compileErrors result)
+  assertJust "generated JS is present" (generatedJs result)
+
+assertCompileError :: String -> String -> String -> IO ()
+assertCompileError source failureLabel errorCode = do
+  result <- compileSource defaultWarningSettings (Text.pack source)
+  assertSingleErrorContains
+    (Text.pack failureLabel)
+    (Text.pack errorCode)
     (compileErrors result)
 
 mkProgram :: Expr -> Expr

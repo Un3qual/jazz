@@ -72,7 +72,20 @@ collectExprDiagnostics settings visibleBindings expr =
     EVar name ->
       case Map.lookup name visibleBindings of
         Just _ -> ([], [])
-        Nothing -> ([], [mkUnboundVariableError name])
+        Nothing
+          | isBuiltinName name -> ([], [])
+          | otherwise -> ([], [mkUnboundVariableError name])
+    EList elements ->
+      collectExprListDiagnostics settings visibleBindings elements
+    EApply functionExpr argumentExpr ->
+      let (functionWarnings, functionErrors) =
+            collectExprDiagnostics settings visibleBindings functionExpr
+          (argumentWarnings, argumentErrors) =
+            collectExprDiagnostics settings visibleBindings argumentExpr
+       in
+        ( functionWarnings ++ argumentWarnings,
+          functionErrors ++ argumentErrors
+        )
     EIf conditionExpr thenExpr elseExpr ->
       collectExprDiagnostics settings visibleBindings (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr ->
@@ -98,6 +111,25 @@ collectExprDiagnostics settings visibleBindings expr =
     ESectionRight _ rightExpr ->
       collectExprDiagnostics settings visibleBindings rightExpr
     EScope statements -> collectScopeDiagnostics settings visibleBindings statements
+
+collectExprListDiagnostics ::
+  WarningSettings ->
+  Map Text SourceSpan ->
+  [Expr] ->
+  ([WarningRecord], [Text])
+collectExprListDiagnostics settings visibleBindings elements =
+  let (warningsRev, errorsRev) =
+        foldl'
+          step
+          ([], [])
+          elements
+   in (concat (reverse warningsRev), concat (reverse errorsRev))
+  where
+    step (warningsRev, errorsRev) element =
+      let (elementWarnings, elementErrors) =
+            collectExprDiagnostics settings visibleBindings element
+       in
+        (elementWarnings : warningsRev, elementErrors : errorsRev)
 
 collectScopeDiagnostics ::
   WarningSettings ->
@@ -374,6 +406,12 @@ freeVarsExprWithBound bound expr =
     EVar name
       | Set.member name bound -> Set.empty
       | otherwise -> Set.singleton name
+    EList elements ->
+      Set.unions (map (freeVarsExprWithBound bound) elements)
+    EApply functionExpr argumentExpr ->
+      Set.union
+        (freeVarsExprWithBound bound functionExpr)
+        (freeVarsExprWithBound bound argumentExpr)
     EIf conditionExpr thenExpr elseExpr ->
       freeVarsExprWithBound bound (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr ->
@@ -391,6 +429,12 @@ freeVarsExprWithBound bound expr =
     ESectionRight _ rightExpr ->
       freeVarsExprWithBound bound rightExpr
     EScope statements -> freeVarsScopeWithBound bound statements
+
+isBuiltinName :: Text -> Bool
+isBuiltinName name =
+  name == "map"
+    || name == "hd"
+    || name == "tl"
 
 freeVarsScopeWithBound :: Set Text -> [Statement] -> Set Text
 freeVarsScopeWithBound initialBound statements =

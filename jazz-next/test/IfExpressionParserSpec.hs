@@ -37,6 +37,7 @@ tests :: [NamedTest]
 tests =
   [ ("parses basic if expression", testParsesBasicIfExpression),
     ("parses nested if with nearest else binding", testParsesNestedIfNearestElse),
+    ("parses if with infix condition without swallowing then branch", testParsesIfInfixConditionBoundary),
     ("rejects missing else branch", testRejectsMissingElse),
     ("rejects extra else branch", testRejectsExtraElse),
     ("treats if and else as reserved keywords", testRejectsKeywordAsBindingName),
@@ -79,6 +80,21 @@ testParsesNestedIfNearestElse =
         )
     )
     (parseSurfaceProgram "x = if cond if inner a else b else c.")
+
+testParsesIfInfixConditionBoundary :: IO ()
+testParsesIfInfixConditionBoundary =
+  assertEqual
+    "if infix condition boundary"
+    ( Right
+        ( SEScope
+            [ SSLet
+                "x"
+                (SourceSpan 1 1)
+                (SEIf (SEBinary ">" (SEVar "x") (SEInt 0)) (SEInt 1) (SEInt 2))
+            ]
+        )
+    )
+    (parseSurfaceProgram "x = if x > 0 1 else 2.")
 
 testRejectsMissingElse :: IO ()
 testRejectsMissingElse =
