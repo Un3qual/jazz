@@ -100,12 +100,11 @@ git commit -m "docs(spec): ratify stdlib ownership boundary contract"
 
 ### Expected file touch-set
 
-- `jazz-hs/src/Lib.hs`
-- `jazz-hs/src/Parser.hs` (only if parse entrypoint changes)
-- `jazz-hs/test/ParserSpec.hs`
-- `jazz-hs/test/Analyzer/ScopeAnalyzerSpec.hs`
-- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
-- `jazz-hs/static/Prelude.jz` (syntax sync only if needed for parser compatibility)
+- `jazz-next/src/JazzNext/Compiler/Driver.hs`
+- `jazz-next/src/JazzNext/CLI/Main.hs`
+- `jazz-next/test/CLISpec.hs`
+- `jazz-next/test/PreludeLoadingSpec.hs`
+- `jazz-next/scripts/test-warning-config.sh`
 
 Executed `jazz-next` touch-set (2026-03-04 Batch 2):
 
@@ -120,7 +119,7 @@ Executed `jazz-next` touch-set (2026-03-04 Batch 2):
 Suggested commit message: `feat(compiler): load self-hosted prelude with compatibility guard`
 
 ```bash
-git add jazz-hs/src/Lib.hs jazz-hs/src/Parser.hs jazz-hs/test/ParserSpec.hs jazz-hs/test/Analyzer/ScopeAnalyzerSpec.hs jazz-hs/test/Analyzer/TypeInferenceSpec.hs jazz-hs/static/Prelude.jz
+git add jazz-next/src/JazzNext/Compiler/Driver.hs jazz-next/src/JazzNext/CLI/Main.hs jazz-next/test/CLISpec.hs jazz-next/test/PreludeLoadingSpec.hs jazz-next/scripts/test-warning-config.sh
 git commit -m "feat(compiler): load self-hosted prelude with compatibility guard"
 ```
 
@@ -133,18 +132,19 @@ git commit -m "feat(compiler): load self-hosted prelude with compatibility guard
 
 ### Expected file touch-set
 
-- `jazz-hs/src/Types.hs`
-- `jazz-hs/src/CodeGen/Javascript.hs`
-- `jazz-hs/static/runtime.c` (only if JS/runtime primitive stubs are introduced/renamed)
-- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
-- `jazz-hs/test/Spec.hs`
+- `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`
+- `jazz-next/src/JazzNext/Compiler/PreludeContract.hs`
+- `jazz-next/src/JazzNext/Compiler/Driver.hs`
+- `jazz-next/test/BuiltinCatalogSpec.hs`
+- `jazz-next/test/PreludeLoadingSpec.hs`
+- `jazz-next/test/CLISpec.hs`
 
 ### Commit checkpoint (Phase 3)
 
 Suggested commit message: `feat(runtime): add explicit intrinsic bridge for prelude boundary`
 
 ```bash
-git add jazz-hs/src/Types.hs jazz-hs/src/CodeGen/Javascript.hs jazz-hs/static/runtime.c jazz-hs/test/Analyzer/TypeInferenceSpec.hs jazz-hs/test/Spec.hs
+git add jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs jazz-next/src/JazzNext/Compiler/PreludeContract.hs jazz-next/src/JazzNext/Compiler/Driver.hs jazz-next/test/BuiltinCatalogSpec.hs jazz-next/test/PreludeLoadingSpec.hs jazz-next/test/CLISpec.hs
 git commit -m "feat(runtime): add explicit intrinsic bridge for prelude boundary"
 ```
 
