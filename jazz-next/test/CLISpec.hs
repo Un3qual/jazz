@@ -221,6 +221,7 @@ testCliModuleGraphDeclarationMismatch = do
   assertEqual "exit code" 1 (cliExitCode output)
   assertContains "module declaration mismatch code" "E4006" (cliStderr output)
   assertContains "module declaration mismatch details" "Wrong::Name" (cliStderr output)
+  assertContains "module declaration expected module" "App::Main" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
