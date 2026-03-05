@@ -16,7 +16,7 @@
 - [x] Contradictions captured with exact paths
 - [x] Verified candidate-step implementation status against current `jazz-next` state before selecting next batch
 - [x] Executed `jazz-next` intrinsic-boundary hardening batch (shared builtin catalog + conformance checks)
-- [x] Boundary contract approved (`intrinsic kernel` vs `prelude-owned API`)
+- [ ] Boundary contract approval pending (Gate B naming/export contract unresolved)
 - [ ] Migration phases executed with compatibility gates
 - [ ] Hardcoded builtin surface reduced to approved kernel
 - [ ] Reproducibility and closure checks completed
@@ -39,7 +39,7 @@
 - [x] **Gate A: Minimal hardcoded intrinsic kernel**
 - [x] Decide exact primitives that must remain compiler/runtime-owned (for example host I/O and backend-native numeric/FFI intrinsics only).
 - [x] Explicitly exclude user-facing collection/utility APIs from kernel unless proven impossible to self-host.
-- [x] **Gate B: Prelude ownership**
+- [ ] **Gate B: Prelude ownership**
 - [x] Decide canonical source of truth for user-visible stdlib APIs (`.jz` prelude modules, versioned in-repo).
 - [ ] Define naming/export contract for prelude symbols consumed by user programs.
 - [x] **Gate C: Compiler/runtime boundary**
