@@ -37,6 +37,7 @@ tests =
     ("parses import statement with symbol list", testParsesImportSymbolList),
     ("lowers module and import statements into core AST", testLowersModuleImportStatements),
     ("rejects module statement with missing path", testRejectsModuleMissingPath),
+    ("rejects module statement with trailing separator using separator span", testRejectsModuleTrailingSeparatorSpan),
     ("rejects import statement with empty symbol list", testRejectsImportEmptySymbolList),
     ("rejects import statement with alias and symbol list together", testRejectsImportAliasWithSymbolList)
   ]
@@ -104,6 +105,13 @@ testRejectsModuleMissingPath =
     "module missing path error"
     "expected module path segment"
     (parseSurfaceProgram "module .")
+
+testRejectsModuleTrailingSeparatorSpan :: IO ()
+testRejectsModuleTrailingSeparatorSpan =
+  assertLeftContains
+    "module trailing separator span"
+    "1:9"
+    (parseSurfaceProgram "module A::.")
 
 testRejectsImportEmptySymbolList :: IO ()
 testRejectsImportEmptySymbolList =

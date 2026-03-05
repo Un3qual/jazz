@@ -10,6 +10,7 @@ module JazzNext.CLI.Main
 
 import Control.Exception (IOException, evaluate, try)
 import Data.List (isPrefixOf)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
@@ -58,7 +59,7 @@ parseCliOptions args = do
   finalize options
   where
     finalize options
-      | cliDisablePrelude options && cliPreludePath options /= Nothing =
+      | cliDisablePrelude options && isJust (cliPreludePath options) =
           Left "cannot combine --prelude with --no-prelude"
       | otherwise =
           Right options {cliWarningFlags = reverse (cliWarningFlags options)}

@@ -171,26 +171,35 @@ parseModulePath :: [Token] -> Either Text ([Text], [Token])
 parseModulePath tokens =
   case tokens of
     [] -> Left "expected module path before end of input"
-    firstToken@(Token {tokenKind = TIdentifier firstSegment}) : rest ->
+    Token {tokenKind = TIdentifier firstSegment} : rest ->
       go [firstSegment] rest
       where
         go segments allTokens =
           case allTokens of
             Token {tokenKind = TColonColon} : Token {tokenKind = TIdentifier nextSegment} : remaining ->
               go (segments ++ [nextSegment]) remaining
-            Token {tokenKind = TColonColon} : [] ->
+            separatorToken@(Token {tokenKind = TColonColon}) : [] ->
               Left
                 ( "expected module path segment before end of input at "
-                    <> renderSourceSpan (tokenSpan firstToken)
+                    <> renderSourceSpan (tokenSpan separatorToken)
                 )
-            Token {tokenKind = TColonColon} : token : _ ->
-              Left
-                ( "expected module path segment at "
-                    <> renderSourceSpan (tokenSpan token)
-                    <> ", found '"
-                    <> tokenLexeme token
-                    <> "'"
-                )
+            separatorToken@(Token {tokenKind = TColonColon}) : token : _
+              | tokenKind token == TDot ->
+                  Left
+                    ( "expected module path segment at "
+                        <> renderSourceSpan (tokenSpan separatorToken)
+                        <> ", found '"
+                        <> tokenLexeme separatorToken
+                        <> "'"
+                    )
+              | otherwise ->
+                  Left
+                    ( "expected module path segment at "
+                        <> renderSourceSpan (tokenSpan token)
+                        <> ", found '"
+                        <> tokenLexeme token
+                        <> "'"
+                    )
             _ -> Right (segments, allTokens)
     token : _ ->
       Left
