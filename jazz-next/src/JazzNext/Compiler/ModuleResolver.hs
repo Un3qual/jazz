@@ -22,6 +22,10 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import JazzNext.Compiler.Diagnostics
+  ( SourceSpan,
+    renderSourceSpan
+  )
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
@@ -43,6 +47,30 @@ data ResolvedModule = ResolvedModule
     resolvedImports :: [[Text]]
   }
   deriving (Eq, Show)
+
+data ParsedImport = ParsedImport
+  { parsedImportSpan :: SourceSpan,
+    parsedImportModulePath :: [Text],
+    parsedImportAlias :: Maybe Text,
+    parsedImportSymbols :: Maybe [Text]
+  }
+  deriving (Eq, Show)
+
+data ParsedModule = ParsedModule
+  { parsedModuleImports :: [ParsedImport],
+    parsedModuleExports :: Set Text
+  }
+
+data BindingOrigin = BindingOrigin
+  { bindingOriginModulePath :: [Text],
+    bindingOriginSpan :: SourceSpan
+  }
+
+data ResolvedState = ResolvedState
+  { resolvedSetState :: Set [Text],
+    resolvedModulesRevState :: [ResolvedModule],
+    resolvedExportsState :: Map [Text] (Set Text)
+  }
 
 modulePathToRelativeFile :: [Text] -> FilePath
 modulePathToRelativeFile = modulePathToRelativeFileWithExt ".jz"
@@ -100,11 +128,18 @@ resolveModuleGraphWithLookup config loadSource entryModulePath
   | null entryModulePath =
       pure (Left "empty entry module path")
   | otherwise =
-      fmap (fmap (reverse . resolveModulesRev)) (visitModule [] Set.empty [] entryModulePath)
+      fmap (fmap (reverse . resolveModulesRev)) (visitModule [] initialState entryModulePath)
   where
-    visitModule callStack resolvedSet resolvedRev modulePath
-      | modulePath `Set.member` resolvedSet =
-          pure (Right (resolvedSet, resolvedRev))
+    initialState =
+      ResolvedState
+        { resolvedSetState = Set.empty,
+          resolvedModulesRevState = [],
+          resolvedExportsState = Map.empty
+        }
+
+    visitModule callStack state modulePath
+      | modulePath `Set.member` resolvedSetState state =
+          pure (Right state)
       | modulePath `elem` callStack =
           pure (Left (mkCycleError modulePath callStack))
       | otherwise = do
@@ -112,39 +147,56 @@ resolveModuleGraphWithLookup config loadSource entryModulePath
           case sourceResult of
             Left err -> pure (Left err)
             Right (sourcePath, sourceText) ->
-              case parseModuleImports sourcePath modulePath sourceText of
+              case parseModuleDetails sourcePath modulePath sourceText of
                 Left err -> pure (Left err)
-                Right importPaths -> do
+                Right parsedModule -> do
                   let nextStack = modulePath : callStack
-                      sortedImports = sortModulePaths importPaths
+                      sortedImports = sortModulePaths (collectImportPaths (parsedModuleImports parsedModule))
                   resolvedDepsResult <-
                     foldM
                       (visitDependency nextStack)
-                      (Right (resolvedSet, resolvedRev))
+                      (Right state)
                       sortedImports
-                  pure $
-                    case resolvedDepsResult of
-                      Left err -> Left err
-                      Right (resolvedSetAfterDeps, resolvedAfterDeps) ->
-                        let resolvedModule =
-                              ResolvedModule
-                                { resolvedModulePath = modulePath,
-                                  resolvedSourcePath = sourcePath,
-                                  resolvedImports = sortedImports
-                                }
-                         in Right
-                              ( Set.insert modulePath resolvedSetAfterDeps,
-                                resolvedModule : resolvedAfterDeps
-                              )
+                  case resolvedDepsResult of
+                    Left err -> pure (Left err)
+                    Right stateAfterDeps ->
+                      case
+                          validateImportBindings
+                            sourcePath
+                            modulePath
+                            (parsedModuleImports parsedModule)
+                            (resolvedExportsState stateAfterDeps) of
+                        Left err -> pure (Left err)
+                        Right () ->
+                          let resolvedModule =
+                                ResolvedModule
+                                  { resolvedModulePath = modulePath,
+                                    resolvedSourcePath = sourcePath,
+                                    resolvedImports = sortedImports
+                                  }
+                           in pure
+                                ( Right
+                                    stateAfterDeps
+                                      { resolvedSetState =
+                                          Set.insert modulePath (resolvedSetState stateAfterDeps),
+                                        resolvedModulesRevState =
+                                          resolvedModule : resolvedModulesRevState stateAfterDeps,
+                                        resolvedExportsState =
+                                          Map.insert
+                                            modulePath
+                                            (parsedModuleExports parsedModule)
+                                            (resolvedExportsState stateAfterDeps)
+                                      }
+                                )
 
-    resolveModulesRev :: (Set [Text], [ResolvedModule]) -> [ResolvedModule]
-    resolveModulesRev (_, resolvedRev) = resolvedRev
+    resolveModulesRev :: ResolvedState -> [ResolvedModule]
+    resolveModulesRev = resolvedModulesRevState
 
     visitDependency nextStack accumulator importPath =
       case accumulator of
         Left err -> pure (Left err)
-        Right (currentSet, currentRev) ->
-          visitModule nextStack currentSet currentRev importPath
+        Right currentState ->
+          visitModule nextStack currentState importPath
 
     loadModuleSource callStack modulePath = do
       let relativePath = modulePathToRelativeFileWithExt (moduleExtension config) modulePath
@@ -197,8 +249,8 @@ modulePathToRelativeFileWithExt extension modulePath =
   where
     joinSegments segment acc = segment <> "/" <> acc
 
-parseModuleImports :: FilePath -> [Text] -> Text -> Either Text [[Text]]
-parseModuleImports sourcePath expectedModulePath sourceText =
+parseModuleDetails :: FilePath -> [Text] -> Text -> Either Text ParsedModule
+parseModuleDetails sourcePath expectedModulePath sourceText =
   case parseSurfaceProgram sourceText of
     Left parseError ->
       Left
@@ -209,16 +261,36 @@ parseModuleImports sourcePath expectedModulePath sourceText =
         )
     Right surfaceExpr -> do
       validateModuleDeclarations sourcePath expectedModulePath surfaceExpr
-      Right (collectImports surfaceExpr)
+      Right
+        ParsedModule
+          { parsedModuleImports = collectImports surfaceExpr,
+            parsedModuleExports = collectTopLevelBindings surfaceExpr
+          }
 
-collectImports :: SurfaceExpr -> [[Text]]
+collectImports :: SurfaceExpr -> [ParsedImport]
 collectImports surfaceExpr =
   case surfaceExpr of
     SEScope statements ->
-      [ modulePath
-        | SSImport _ modulePath _ _ <- statements
+      [ ParsedImport spanValue modulePath alias importedSymbols
+        | SSImport spanValue modulePath alias importedSymbols <- statements
       ]
     _ -> []
+
+collectImportPaths :: [ParsedImport] -> [[Text]]
+collectImportPaths imports =
+  [ parsedImportModulePath importDecl
+    | importDecl <- imports
+  ]
+
+collectTopLevelBindings :: SurfaceExpr -> Set Text
+collectTopLevelBindings surfaceExpr =
+  case surfaceExpr of
+    SEScope statements ->
+      Set.fromList
+        [ bindingName
+          | SSLet bindingName _ _ <- statements
+        ]
+    _ -> Set.empty
 
 validateModuleDeclarations :: FilePath -> [Text] -> SurfaceExpr -> Either Text ()
 validateModuleDeclarations sourcePath expectedModulePath surfaceExpr =
@@ -254,6 +326,145 @@ collectModuleDeclarations surfaceExpr =
         | SSModule _ modulePath <- statements
       ]
     _ -> []
+
+validateImportBindings ::
+  FilePath ->
+  [Text] ->
+  [ParsedImport] ->
+  Map [Text] (Set Text) ->
+  Either Text ()
+validateImportBindings sourcePath importerPath imports exportsByModule =
+  go Map.empty Map.empty imports
+  where
+    go seenSymbols seenAliases remainingImports =
+      case remainingImports of
+        [] ->
+          Right ()
+        importDecl : rest -> do
+          seenAliasesAfterImport <- validateImportAlias seenAliases importDecl
+          seenSymbolsAfterImport <- validateImportSymbols seenSymbols importDecl
+          go seenSymbolsAfterImport seenAliasesAfterImport rest
+
+    validateImportAlias :: Map Text BindingOrigin -> ParsedImport -> Either Text (Map Text BindingOrigin)
+    validateImportAlias seenAliases importDecl =
+      case parsedImportAlias importDecl of
+        Nothing ->
+          Right seenAliases
+        Just aliasName ->
+          case Map.lookup aliasName seenAliases of
+            Just previousOrigin ->
+              Left (mkImportAliasCollisionError aliasName previousOrigin importDecl)
+            Nothing ->
+              Right
+                ( Map.insert
+                    aliasName
+                    BindingOrigin
+                      { bindingOriginModulePath = parsedImportModulePath importDecl,
+                        bindingOriginSpan = parsedImportSpan importDecl
+                      }
+                    seenAliases
+                )
+
+    validateImportSymbols :: Map Text BindingOrigin -> ParsedImport -> Either Text (Map Text BindingOrigin)
+    validateImportSymbols seenSymbols importDecl =
+      case parsedImportSymbols importDecl of
+        Nothing ->
+          Right seenSymbols
+        Just symbolNames ->
+          case Map.lookup (parsedImportModulePath importDecl) exportsByModule of
+            Nothing ->
+              Left
+                ( "E4010: internal resolver error while validating imports for '"
+                    <> renderModulePath importerPath
+                    <> "': missing exports for module '"
+                    <> renderModulePath (parsedImportModulePath importDecl)
+                    <> "'"
+                )
+            Just exportedSymbols ->
+              foldM
+                (validateImportSymbol importDecl exportedSymbols)
+                seenSymbols
+                symbolNames
+
+    validateImportSymbol ::
+      ParsedImport ->
+      Set Text ->
+      Map Text BindingOrigin ->
+      Text ->
+      Either Text (Map Text BindingOrigin)
+    validateImportSymbol importDecl exportedSymbols seenSymbols symbolName
+      | not (Set.member symbolName exportedSymbols) =
+          Left (mkMissingImportSymbolError symbolName importDecl exportedSymbols)
+      | otherwise =
+          case Map.lookup symbolName seenSymbols of
+            Just previousOrigin ->
+              Left (mkImportSymbolCollisionError symbolName previousOrigin importDecl)
+            Nothing ->
+              Right
+                ( Map.insert
+                    symbolName
+                    BindingOrigin
+                      { bindingOriginModulePath = parsedImportModulePath importDecl,
+                        bindingOriginSpan = parsedImportSpan importDecl
+                      }
+                    seenSymbols
+                )
+
+    mkMissingImportSymbolError :: Text -> ParsedImport -> Set Text -> Text
+    mkMissingImportSymbolError symbolName importDecl exportedSymbols =
+      "E4007: import symbol '"
+        <> symbolName
+        <> "' is not exported by module '"
+        <> renderModulePath (parsedImportModulePath importDecl)
+        <> "' imported by '"
+        <> renderModulePath importerPath
+        <> "' at "
+        <> Text.pack sourcePath
+        <> ":"
+        <> renderSourceSpan (parsedImportSpan importDecl)
+        <> "; available exports: "
+        <> renderExports exportedSymbols
+
+    mkImportSymbolCollisionError :: Text -> BindingOrigin -> ParsedImport -> Text
+    mkImportSymbolCollisionError symbolName previousOrigin importDecl =
+      "E4008: import binding collision for symbol '"
+        <> symbolName
+        <> "' in module '"
+        <> renderModulePath importerPath
+        <> "' at "
+        <> Text.pack sourcePath
+        <> ":"
+        <> renderSourceSpan (parsedImportSpan importDecl)
+        <> "; already imported from '"
+        <> renderModulePath (bindingOriginModulePath previousOrigin)
+        <> "' at "
+        <> renderSourceSpan (bindingOriginSpan previousOrigin)
+        <> ", cannot re-import from '"
+        <> renderModulePath (parsedImportModulePath importDecl)
+        <> "'"
+
+    mkImportAliasCollisionError :: Text -> BindingOrigin -> ParsedImport -> Text
+    mkImportAliasCollisionError aliasName previousOrigin importDecl =
+      "E4009: import alias collision for '"
+        <> aliasName
+        <> "' in module '"
+        <> renderModulePath importerPath
+        <> "' at "
+        <> Text.pack sourcePath
+        <> ":"
+        <> renderSourceSpan (parsedImportSpan importDecl)
+        <> "; already aliased to module '"
+        <> renderModulePath (bindingOriginModulePath previousOrigin)
+        <> "' at "
+        <> renderSourceSpan (bindingOriginSpan previousOrigin)
+        <> ", cannot alias module '"
+        <> renderModulePath (parsedImportModulePath importDecl)
+        <> "'"
+
+    renderExports :: Set Text -> Text
+    renderExports exports
+      | Set.null exports = "<none>"
+      | otherwise = Text.intercalate ", " (sortOn id (Set.toList exports))
 
 sortModulePaths :: [[Text]] -> [[Text]]
 sortModulePaths modulePaths =

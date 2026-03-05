@@ -35,7 +35,11 @@ tests =
     ("reports import cycles with minimal trace", testReportsCycle),
     ("reports parse failures while loading imported modules", testReportsImportedModuleParseFailure),
     ("reports module declaration mismatch for resolved file path", testReportsModuleDeclarationMismatch),
-    ("reports duplicate module declarations in a module file", testReportsDuplicateModuleDeclaration)
+    ("reports duplicate module declarations in a module file", testReportsDuplicateModuleDeclaration),
+    ("accepts symbol-list imports when requested symbols are exported", testAcceptsValidImportSymbolList),
+    ("reports non-exported import symbols with module context", testReportsMissingImportSymbol),
+    ("reports import symbol collisions across imported modules", testReportsImportSymbolCollision),
+    ("reports import alias collisions across imported modules", testReportsImportAliasCollision)
   ]
 
 testRejectsEmptyEntryModulePath :: IO ()
@@ -223,4 +227,79 @@ testReportsDuplicateModuleDeclaration = do
     sourceFiles =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main.\nmodule App::Main.\nmain = 1.")
+        ]
+
+testAcceptsValidImportSymbolList :: IO ()
+testAcceptsValidImportSymbolList =
+  assertRight
+    "valid import symbol list resolves"
+    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (\modules -> assertEqual "resolved modules" expectedModules modules)
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math (add).\nmain = add."),
+          ("src/Lib/Math.jz", "add = 1.\nsub = 2.")
+        ]
+    expectedModules =
+      [ ResolvedModule
+          { resolvedModulePath = ["Lib", "Math"],
+            resolvedSourcePath = "src/Lib/Math.jz",
+            resolvedImports = []
+          },
+        ResolvedModule
+          { resolvedModulePath = ["App", "Main"],
+            resolvedSourcePath = "src/App/Main.jz",
+            resolvedImports = [["Lib", "Math"]]
+          }
+      ]
+
+testReportsMissingImportSymbol :: IO ()
+testReportsMissingImportSymbol = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "missing symbol code" "E4007" result
+  assertLeftContains "missing symbol text" "subtract" result
+  assertLeftContains "imported module context" "Lib::Math" result
+  assertLeftContains "importer context" "App::Main" result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math (subtract).\nmain = 1."),
+          ("src/Lib/Math.jz", "add = 1.")
+        ]
+
+testReportsImportSymbolCollision :: IO ()
+testReportsImportSymbolCollision = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "symbol collision code" "E4008" result
+  assertLeftContains "symbol collision text" "symbol 'map'" result
+  assertLeftContains "first module context" "A::Ops" result
+  assertLeftContains "second module context" "B::Ops" result
+  assertLeftContains "importer context" "App::Main" result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import A::Ops (map).\nimport B::Ops (map).\nmain = map."),
+          ("src/A/Ops.jz", "map = 1."),
+          ("src/B/Ops.jz", "map = 2.")
+        ]
+
+testReportsImportAliasCollision :: IO ()
+testReportsImportAliasCollision = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "alias collision code" "E4009" result
+  assertLeftContains "alias collision text" "alias collision" result
+  assertLeftContains "first module context" "A::Ops" result
+  assertLeftContains "second module context" "B::Ops" result
+  assertLeftContains "importer context" "App::Main" result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import A::Ops as Ops.\nimport B::Ops as Ops.\nmain = 1."),
+          ("src/A/Ops.jz", "map = 1."),
+          ("src/B/Ops.jz", "map = 2.")
         ]
