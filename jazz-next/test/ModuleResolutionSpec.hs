@@ -24,7 +24,8 @@ main = runTestSuite "ModuleResolution" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("accepts lexer-compatible continuation characters in CLI module paths", testParseModulePathContinuations),
+  [ ("rejects empty entry module path before traversal", testRejectsEmptyEntryModulePath),
+    ("accepts lexer-compatible continuation characters in CLI module paths", testParseModulePathContinuations),
     ("maps module path to relative .jz file", testModulePathMapping),
     ("resolves dependency graph in deterministic order", testResolveDependencyGraph),
     ("deduplicates duplicate module roots before ambiguity checks", testDeduplicatesDuplicateRoots),
@@ -33,6 +34,20 @@ tests =
     ("reports import cycles with minimal trace", testReportsCycle),
     ("reports parse failures while loading imported modules", testReportsImportedModuleParseFailure)
   ]
+
+testRejectsEmptyEntryModulePath :: IO ()
+testRejectsEmptyEntryModulePath =
+  assertLeftContains
+    "empty entry path"
+    "empty entry module path"
+    (resolveModuleGraph config sourceFiles [])
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Util.\nutil."),
+          ("src/Lib/Util.jz", "util = 1.")
+        ]
 
 testModulePathMapping :: IO ()
 testModulePathMapping =

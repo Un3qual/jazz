@@ -96,8 +96,11 @@ resolveModuleGraphWithLookup ::
   (FilePath -> m (Maybe Text)) ->
   [Text] ->
   m (Either Text [ResolvedModule])
-resolveModuleGraphWithLookup config loadSource entryModulePath =
-  fmap (fmap (reverse . resolveModulesRev)) (visitModule [] Set.empty [] entryModulePath)
+resolveModuleGraphWithLookup config loadSource entryModulePath
+  | null entryModulePath =
+      pure (Left "empty entry module path")
+  | otherwise =
+      fmap (fmap (reverse . resolveModulesRev)) (visitModule [] Set.empty [] entryModulePath)
   where
     visitModule callStack resolvedSet resolvedRev modulePath
       | modulePath `Set.member` resolvedSet =
