@@ -123,6 +123,7 @@ git commit -m "feat(lang): align map/filter behavior with canonical argument ord
   - `jazz-next/test/BuiltinCatalogSpec.hs`
   - `jazz-next/test/PrimitiveSemanticsSpec.hs`
   - `jazz-next/test/RuntimeSemanticsSpec.hs`
+  - `jazz-next/test/CLISpec.hs`
 - [x] Verified red/green cycle for added tests plus full suite via `bash jazz-next/scripts/test-warning-config.sh`.
 
 ## Phase 3: Migration and docs convergence
