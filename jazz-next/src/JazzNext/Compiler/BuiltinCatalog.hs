@@ -18,6 +18,7 @@ import qualified Data.Text as Text
 -- stdlib boundary contract auditable and drift-resistant.
 data BuiltinSymbol
   = BuiltinMap
+  | BuiltinFilter
   | BuiltinHd
   | BuiltinTl
   | BuiltinPrint
@@ -30,6 +31,7 @@ builtinSymbolName :: BuiltinSymbol -> Text
 builtinSymbolName builtinSymbol =
   case builtinSymbol of
     BuiltinMap -> "map"
+    BuiltinFilter -> "filter"
     BuiltinHd -> "hd"
     BuiltinTl -> "tl"
     BuiltinPrint -> "print!"
@@ -38,6 +40,7 @@ builtinSymbolArity :: BuiltinSymbol -> Int
 builtinSymbolArity builtinSymbol =
   case builtinSymbol of
     BuiltinMap -> 2
+    BuiltinFilter -> 2
     BuiltinHd -> 1
     BuiltinTl -> 1
     BuiltinPrint -> 1
@@ -61,6 +64,7 @@ lookupBuiltinSymbol :: Text -> Maybe BuiltinSymbol
 lookupBuiltinSymbol name =
   case name of
     "map" -> Just BuiltinMap
+    "filter" -> Just BuiltinFilter
     "hd" -> Just BuiltinHd
     "tl" -> Just BuiltinTl
     "print!" -> Just BuiltinPrint

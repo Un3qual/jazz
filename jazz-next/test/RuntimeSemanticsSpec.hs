@@ -40,6 +40,7 @@ tests =
     ("left operator section applies at runtime", testLeftOperatorSectionRuntimeSuccess),
     ("right operator section applies at runtime", testRightOperatorSectionRuntimeSuccess),
     ("map + hd evaluates over nested list literals", testMapHdNestedListsRuntimeSuccess),
+    ("filter keeps only matching list elements", testFilterRuntimeSuccess),
     ("tl returns the tail of a non-empty list", testTlReturnsTailRuntimeValue),
     ("hd on empty list produces fatal runtime diagnostic", testHdEmptyListRuntimeError),
     ("tl on empty list produces fatal runtime diagnostic", testTlEmptyListRuntimeError),
@@ -47,6 +48,9 @@ tests =
     ("runtime fallback rejects tl on non-list values", testRuntimeFallbackRejectsTlNonList),
     ("runtime fallback rejects map with non-function mapper", testRuntimeFallbackRejectsMapNonFunctionMapper),
     ("runtime fallback rejects map with non-list collection", testRuntimeFallbackRejectsMapNonListCollection),
+    ("runtime fallback rejects filter with non-function predicate", testRuntimeFallbackRejectsFilterNonFunctionPredicate),
+    ("runtime fallback rejects filter with non-list collection", testRuntimeFallbackRejectsFilterNonListCollection),
+    ("runtime fallback rejects filter predicate returning non-Bool", testRuntimeFallbackRejectsFilterPredicateNonBool),
     ("print! returns evaluated argument value", testPrintBuiltinReturnsArgument),
     ("scope with only declarations has no runtime output", testDeclarationOnlyScopeHasNoOutput),
     ("scope result requires terminal expression", testScopeDeclarationAfterExprClearsResult)
@@ -105,6 +109,13 @@ testMapHdNestedListsRuntimeSuccess = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[1, 3, 4]") (runOutput result)
+
+testFilterRuntimeSuccess :: IO ()
+testFilterRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "filter (> 1) [1, 2, 3, 1]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[2, 3]") (runOutput result)
 
 testTlReturnsTailRuntimeValue :: IO ()
 testTlReturnsTailRuntimeValue = do
@@ -170,6 +181,21 @@ testRuntimeFallbackRejectsMapNonListCollection :: IO ()
 testRuntimeFallbackRejectsMapNonListCollection = do
   let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "map") (EVar "hd")) (EInt 1)))
   assertRuntimeErrorContains "runtime fallback map collection" "E3013" result
+
+testRuntimeFallbackRejectsFilterNonFunctionPredicate :: IO ()
+testRuntimeFallbackRejectsFilterNonFunctionPredicate = do
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (EInt 1)) (EList [EInt 1])))
+  assertRuntimeErrorContains "runtime fallback filter predicate" "E3017" result
+
+testRuntimeFallbackRejectsFilterNonListCollection :: IO ()
+testRuntimeFallbackRejectsFilterNonListCollection = do
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (ESectionLeft (EInt 1) "<")) (EInt 1)))
+  assertRuntimeErrorContains "runtime fallback filter collection" "E3018" result
+
+testRuntimeFallbackRejectsFilterPredicateNonBool :: IO ()
+testRuntimeFallbackRejectsFilterPredicateNonBool = do
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (ESectionLeft (EInt 1) "+")) (EList [EInt 1])))
+  assertRuntimeErrorContains "runtime fallback filter predicate bool result" "E3019" result
 
 testPrintBuiltinReturnsArgument :: IO ()
 testPrintBuiltinReturnsArgument = do

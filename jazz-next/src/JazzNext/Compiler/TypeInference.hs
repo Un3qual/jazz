@@ -583,6 +583,15 @@ instantiateBuiltinSymbolType builtinSymbol state =
               (TFunctionType (TListType sourceType) (TListType targetType)),
             stateAfterTarget
           )
+    "filter" ->
+      let (elementType, stateAfterElement) = freshTypeVar state
+       in
+        Just
+          ( TFunctionType
+              (TFunctionType elementType TBoolType)
+              (TFunctionType (TListType elementType) (TListType elementType)),
+            stateAfterElement
+          )
     "print!" ->
       -- Stub-v1 runtime keeps `print!` as an impure primitive that returns the
       -- evaluated argument value unchanged so compile/runtime paths stay simple.

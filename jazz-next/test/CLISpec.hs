@@ -41,6 +41,7 @@ tests =
     ("cli --run prints evaluated runtime output", testCliRunModeSuccess),
     ("cli --run prints evaluated section runtime output", testCliRunModeSectionSuccess),
     ("cli --run prints evaluated list primitive output", testCliRunModeListPrimitiveSuccess),
+    ("cli --run prints evaluated filter primitive output", testCliRunModeFilterPrimitiveSuccess),
     ("cli --run with entry module loads module graph and ignores stdin", testCliRunModeModuleGraphSuccess),
     ("cli module graph compile reports resolver diagnostics", testCliModuleGraphCompileError),
     ("cli module graph compile reports missing import symbol diagnostics", testCliModuleGraphMissingImportSymbol),
@@ -164,6 +165,16 @@ testCliRunModeListPrimitiveSuccess = do
   output <- runCliWith ["--run"] envLookup configLookup (pure runtimeListPrimitiveSource)
   assertEqual "exit code" 0 (cliExitCode output)
   assertEqual "runtime stdout" "[1, 3, 4]\n" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
+testCliRunModeFilterPrimitiveSuccess :: IO ()
+testCliRunModeFilterPrimitiveSuccess = do
+  output <- runCliWith ["--run"] envLookup configLookup (pure runtimeFilterPrimitiveSource)
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "runtime stdout" "[2, 3]\n" (cliStdout output)
   assertEqual "stderr is empty" "" (cliStderr output)
   where
     envLookup _ = pure Nothing
@@ -406,6 +417,9 @@ runtimeDivisionByZeroSource = "1 / 0."
 
 runtimeListPrimitiveSource :: Text
 runtimeListPrimitiveSource = "map hd [[1, 2], [3], [4, 5]]."
+
+runtimeFilterPrimitiveSource :: Text
+runtimeFilterPrimitiveSource = "filter (> 1) [1, 2, 3, 1]."
 
 runtimeHdEmptySource :: Text
 runtimeHdEmptySource = "hd []."

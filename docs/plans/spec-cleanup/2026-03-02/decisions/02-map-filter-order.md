@@ -29,6 +29,7 @@
 - [ ] Phase 3: Migration and docs convergence
 - [ ] Phase 4: Nix environment + command wiring
 - [ ] Phase 5: Verification and closure
+- [x] 2026-03-05 `jazz-next` implementation batch: verified candidate steps and added `filter` runtime/type support with tests.
 
 ## Decision Lock (Approved 2026-03-02)
 
@@ -109,6 +110,21 @@ Suggested commit message: `feat(lang): align map/filter behavior with canonical 
 git -C "$(git rev-parse --show-toplevel)" add jazz-hs/src/Types.hs jazz-hs/src/CodeGen/Javascript.hs jazz-hs/test/ParserSpec.hs jazz-hs/test/AnalyzerSpec.hs jazz-hs/test/Spec.hs jazz-hs/ExamplePrograms/MediumProgram.jz jazz-hs/ExamplePrograms/LongProgram.jz
 git commit -m "feat(lang): align map/filter behavior with canonical argument order"
 ```
+
+### 2026-03-05 execution batch (`jazz-next`)
+
+- [x] Re-verified unchecked candidate implementation steps in this plan against active `jazz-next` code before changes.
+- [x] Confirmed `map` already used canonical function-first order in active `jazz-next` type/runtime behavior.
+- [x] Confirmed `filter` was still missing from active `jazz-next` builtin catalog and runtime/type pipeline.
+- [x] Added `filter` builtin catalog support (`BuiltinFilter`, name lookup, arity).
+- [x] Added `filter` type-instantiation contract in `jazz-next` type inference: `(a -> Bool) -> [a] -> [a]`.
+- [x] Added runtime `filter` semantics and diagnostics (`E3017`, `E3018`, `E3019`) in `jazz-next`.
+- [x] Added regression coverage in:
+  - `jazz-next/test/BuiltinCatalogSpec.hs`
+  - `jazz-next/test/PrimitiveSemanticsSpec.hs`
+  - `jazz-next/test/RuntimeSemanticsSpec.hs`
+  - `jazz-next/test/CLISpec.hs`
+- [x] Verified red/green cycle for added tests plus full suite via `bash jazz-next/scripts/test-warning-config.sh`.
 
 ## Phase 3: Migration and docs convergence
 
