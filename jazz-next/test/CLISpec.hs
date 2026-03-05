@@ -43,6 +43,7 @@ tests =
     ("cli --run composes explicit prelude source before user source", testCliRunModePreludeFromFlag),
     ("cli prelude load failures return argument/config error", testCliPreludeLoadFailure),
     ("cli prelude parse failures return compile diagnostics", testCliPreludeParseFailure),
+    ("cli prelude bridge conformance failures return compile diagnostics", testCliPreludeBridgeFailure),
     ("cli --no-prelude disables env-selected prelude path", testCliNoPreludeOverridesEnvPath),
     ("cli --run reports runtime fatal errors", testCliRunModeFatalRuntimeError),
     ("cli --run reports hd empty-list fatal runtime error", testCliRunModeHdEmptyListRuntimeError),
@@ -189,6 +190,16 @@ testCliPreludeParseFailure = do
   where
     envLookup _ = pure Nothing
     configLookup key = pure (Map.lookup key (Map.fromList [("tmp/Prelude.jz", "broken = .")]))
+
+testCliPreludeBridgeFailure :: IO ()
+testCliPreludeBridgeFailure = do
+  output <- runCliWith ["--run", "--prelude", "tmp/Prelude.jz"] envLookup configLookup (pure runtimeSuccessSource)
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "prelude bridge diagnostic code" "E0004" (cliStderr output)
+  assertEqual "stdout is suppressed on compile failure" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    configLookup key = pure (Map.lookup key (Map.fromList [("tmp/Prelude.jz", "__kernel_unknown = unknown.")]))
 
 testCliNoPreludeOverridesEnvPath :: IO ()
 testCliNoPreludeOverridesEnvPath = do

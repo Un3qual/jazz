@@ -5,11 +5,14 @@ module JazzNext.Compiler.BuiltinCatalog
     allBuiltinSymbols,
     builtinSymbolArity,
     builtinSymbolName,
+    kernelBridgeBindingPrefix,
+    kernelBridgeTargetName,
     isBuiltinSymbolName,
     lookupBuiltinSymbol
   ) where
 
 import Data.Text (Text)
+import qualified Data.Text as Text
 
 -- Canonical builtin inventory shared by analyzer/type/runtime to keep the
 -- stdlib boundary contract auditable and drift-resistant.
@@ -35,6 +38,21 @@ builtinSymbolArity builtinSymbol =
     BuiltinMap -> 2
     BuiltinHd -> 1
     BuiltinTl -> 1
+
+-- Prelude/kernel bridge bindings must use this prefix and point to a known
+-- kernel symbol name. Example: __kernel_map = map.
+kernelBridgeBindingPrefix :: Text
+kernelBridgeBindingPrefix = "__kernel_"
+
+kernelBridgeTargetName :: Text -> Maybe Text
+kernelBridgeTargetName bindingName
+  | kernelBridgeBindingPrefix `Text.isPrefixOf` bindingName =
+      let targetName = Text.drop (Text.length kernelBridgeBindingPrefix) bindingName
+       in
+        if Text.null targetName
+          then Nothing
+          else Just targetName
+  | otherwise = Nothing
 
 lookupBuiltinSymbol :: Text -> Maybe BuiltinSymbol
 lookupBuiltinSymbol name =

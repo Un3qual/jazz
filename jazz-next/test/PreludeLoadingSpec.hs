@@ -26,6 +26,8 @@ tests =
   [ ("compile source can reference prelude-defined bindings", testCompileWithPreludeBindingVisibility),
     ("run source can apply prelude-defined section functions", testRunWithPreludeSectionFunction),
     ("invalid prelude source produces prelude parse diagnostic", testPreludeParseDiagnostic),
+    ("prelude bridge with unknown kernel symbol fails conformance checks", testPreludeUnknownBridgeSymbolDiagnostic),
+    ("prelude bridge must be direct symbol reference", testPreludeMalformedBridgeDiagnostic),
     ("compile without prelude keeps missing binding behavior unchanged", testCompileWithoutPreludeStillFailsMissingBinding)
   ]
 
@@ -47,6 +49,22 @@ testPreludeParseDiagnostic = do
   assertSingleErrorContains
     "prelude parse error code"
     "E0002"
+    (compileErrors result)
+
+testPreludeUnknownBridgeSymbolDiagnostic :: IO ()
+testPreludeUnknownBridgeSymbolDiagnostic = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "__kernel_unknown = unknown.") "1."
+  assertSingleErrorContains
+    "unknown kernel bridge symbol code"
+    "E0004"
+    (compileErrors result)
+
+testPreludeMalformedBridgeDiagnostic :: IO ()
+testPreludeMalformedBridgeDiagnostic = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "__kernel_map = inc. inc = (+ 1).") "1."
+  assertSingleErrorContains
+    "malformed kernel bridge code"
+    "E0005"
     (compileErrors result)
 
 testCompileWithoutPreludeStillFailsMissingBinding :: IO ()

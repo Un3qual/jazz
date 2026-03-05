@@ -28,6 +28,9 @@ import JazzNext.Compiler.Parser.AST
 import JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr
   )
+import JazzNext.Compiler.PreludeContract
+  ( validatePreludeKernelBridges
+  )
 import JazzNext.Compiler.Runtime
   ( evaluateRuntimeExpr,
     renderRuntimeValue
@@ -177,8 +180,10 @@ validatePrelude preludeSource =
       case parseSurfaceProgram preludeText of
         Left parseError ->
           Left ("E0002: prelude parse error: " <> parseError)
-        Right _ ->
-          Right ()
+        Right preludeSurfaceExpr ->
+          case validatePreludeKernelBridges (lowerSurfaceExpr preludeSurfaceExpr) of
+            [] -> Right ()
+            firstValidationError : _ -> Left firstValidationError
 
 composeSource :: Maybe Text -> Text -> Text
 composeSource preludeSource source =
