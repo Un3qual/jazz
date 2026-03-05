@@ -19,6 +19,7 @@
 - [x] Executed `jazz-next` resolver/loader integration batches with deterministic module-graph diagnostics and CLI `--entry-module`/`--module-root` flow.
 - [x] Executed `jazz-next` module declaration contract batch (`E4005`/`E4006`) with resolver/loader/CLI regression coverage.
 - [x] Executed `jazz-next` qualified-import parser hardening batch for duplicate symbol-list imports.
+- [x] Executed `jazz-next` qualified-import binding batch with resolver-enforced symbol export validation and alias/symbol collision diagnostics (`E4007`/`E4008`/`E4009`).
 - [ ] Execute clarification phases and publish normative module/import specs.
 - [ ] Implement/verify final semantics in compiler/runtime code after clarification approval.
 
@@ -53,7 +54,7 @@
 - `jazz-hs/static/Prelude.jz:1`
   Observation: nested module-heavy prelude exists, but there is no active loader wiring that imports/links it into compilation.
 
-**Conclusion:** legacy `jazz-hs` behavior remains parse-only, while active `jazz-next` now has executable module-graph resolution/loader behavior with deterministic diagnostics; qualified-import binding semantics and normative docs are still pending.
+**Conclusion:** legacy `jazz-hs` behavior remains parse-only, while active `jazz-next` now has executable module-graph resolution/loader behavior plus resolver-enforced qualified-import binding checks; normative docs are still pending.
 
 ## Scope and Clarification Targets
 
@@ -373,6 +374,29 @@ nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd .
 - [x] Added parser regression coverage in `jazz-next/test/ModuleImportParserSpec.hs`.
 - [x] Re-ran focused parser verification:
   - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/ModuleImportParserSpec.hs`
+- [x] Re-ran full `jazz-next` verification:
+  - `bash jazz-next/scripts/test-warning-config.sh`
+
+## Implementation Status Verification (2026-03-05, Batch 6, `jazz-next`)
+
+- [x] Re-verified candidate Phase-4 qualified-import steps and confirmed parser syntax checks existed, but resolver-level symbol export validation and cross-import alias/symbol collision checks were still missing.
+- [x] Added resolver-level qualified-import binding validation in `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`:
+  - `E4007` for symbol-list imports that request symbols not exported by the imported module.
+  - `E4008` for symbol collisions across symbol-list imports within the same importing module.
+  - `E4009` for alias collisions across `import ... as ...` declarations within the same importing module.
+- [x] Added module export inventory capture (`SSLet` names) during module parse so symbol-list validation is deterministic and independent of parse-order accidents.
+- [x] Added resolver regression coverage in `jazz-next/test/ModuleResolutionSpec.hs` for:
+  - valid symbol-list import acceptance,
+  - missing imported symbol diagnostics,
+  - symbol collision diagnostics,
+  - alias collision diagnostics.
+- [x] Added loader/CLI propagation coverage for missing-symbol diagnostics in:
+  - `jazz-next/test/LoaderSpec.hs`
+  - `jazz-next/test/CLISpec.hs`
+- [x] Re-ran focused verification:
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/ModuleResolutionSpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/LoaderSpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`
 - [x] Re-ran full `jazz-next` verification:
   - `bash jazz-next/scripts/test-warning-config.sh`
 

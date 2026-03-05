@@ -37,6 +37,7 @@ tests =
   [ ("compile module graph succeeds for resolvable entry module", testCompileModuleGraphSuccess),
     ("run module graph produces runtime output from entry module", testRunModuleGraphSuccess),
     ("compile module graph reports unresolved import diagnostics", testCompileModuleGraphUnresolved),
+    ("compile module graph reports missing import symbols", testCompileModuleGraphMissingImportSymbol),
     ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
     ("run module graph reports cycle diagnostics", testRunModuleGraphCycle),
     ("loader reuses memoized source lookup across resolve and replay", testMemoizedLookupReuse)
@@ -101,6 +102,32 @@ testCompileModuleGraphUnresolved = do
     sourceMap =
       Map.fromList
         [("src/App/Main.jz", "import Missing::Thing.\n1.")]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphMissingImportSymbol :: IO ()
+testCompileModuleGraphMissingImportSymbol = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  assertEqual "generated output" Nothing (generatedJs result)
+  case compileErrors result of
+    [err] -> do
+      assertContains "missing symbol code" "E4007" err
+      assertContains "missing symbol text" "subtract" err
+      assertContains "imported module context" "Lib::Math" err
+      assertContains "importer context" "App::Main" err
+    _ -> failTest "expected exactly one missing import symbol error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math (subtract).\n1."),
+          ("src/Lib/Math.jz", "add = 1.")
+        ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
 testCompileModuleGraphModuleDeclarationMismatch :: IO ()
