@@ -39,7 +39,9 @@ tests =
     ("rejects module statement with missing path", testRejectsModuleMissingPath),
     ("rejects module statement with trailing separator using separator span", testRejectsModuleTrailingSeparatorSpan),
     ("rejects import statement with empty symbol list", testRejectsImportEmptySymbolList),
-    ("rejects import statement with alias and symbol list together", testRejectsImportAliasWithSymbolList)
+    ("rejects import statement with empty symbol list using rparen span", testRejectsImportEmptySymbolListSpan),
+    ("rejects import statement with alias and symbol list together", testRejectsImportAliasWithSymbolList),
+    ("rejects import statement with symbol list then alias", testRejectsImportSymbolListWithAlias)
   ]
 
 testParsesModuleDeclaration :: IO ()
@@ -120,9 +122,23 @@ testRejectsImportEmptySymbolList =
     "expected at least one import symbol"
     (parseSurfaceProgram "import Std::List ().")
 
+testRejectsImportEmptySymbolListSpan :: IO ()
+testRejectsImportEmptySymbolListSpan =
+  assertLeftContains
+    "import empty symbol list span"
+    "1:19"
+    (parseSurfaceProgram "import Std::List ().")
+
 testRejectsImportAliasWithSymbolList :: IO ()
 testRejectsImportAliasWithSymbolList =
   assertLeftContains
     "import alias+symbol list error"
     "cannot combine import alias and symbol list"
     (parseSurfaceProgram "import Std::List as List (map).")
+
+testRejectsImportSymbolListWithAlias :: IO ()
+testRejectsImportSymbolListWithAlias =
+  assertLeftContains
+    "import symbol-list+alias error"
+    "cannot combine import alias and symbol list"
+    (parseSurfaceProgram "import Std::List (map) as List.")

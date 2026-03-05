@@ -144,15 +144,22 @@ parseImportTail importToken modulePath tokensAfterModulePath =
             )
     Token {tokenKind = TLParen} : rest -> do
       (symbols, afterSymbols) <- parseImportSymbolList rest
-      remaining <- consumeDot afterSymbols
-      pure
-        ( SSImport
-            (tokenSpan importToken)
-            modulePath
-            Nothing
-            (Just symbols),
-          remaining
-        )
+      case afterSymbols of
+        asToken@(Token {tokenKind = TAs}) : _ ->
+          Left
+            ( "cannot combine import alias and symbol list at "
+                <> renderSourceSpan (tokenSpan asToken)
+            )
+        _ -> do
+          remaining <- consumeDot afterSymbols
+          pure
+            ( SSImport
+                (tokenSpan importToken)
+                modulePath
+                Nothing
+                (Just symbols),
+              remaining
+            )
     [] ->
       Left
         ( "expected '.', 'as', or '(' before end of input after import path at "
@@ -214,8 +221,11 @@ parseModulePath tokens =
 parseImportSymbolList :: [Token] -> Either Text ([Text], [Token])
 parseImportSymbolList tokensAfterLeftParen =
   case tokensAfterLeftParen of
-    Token {tokenKind = TRParen} : _ ->
-      Left "expected at least one import symbol before ')'"
+    token@(Token {tokenKind = TRParen}) : _ ->
+      Left
+        ( "expected at least one import symbol before ')' at "
+            <> renderSourceSpan (tokenSpan token)
+        )
     _ -> do
       (firstSymbol, afterFirstSymbol) <- parseImportSymbol tokensAfterLeftParen
       go [firstSymbol] afterFirstSymbol
