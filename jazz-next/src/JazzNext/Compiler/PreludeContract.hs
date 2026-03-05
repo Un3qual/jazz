@@ -7,12 +7,14 @@ module JazzNext.Compiler.PreludeContract
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
   ( isBuiltinSymbolName,
+    kernelBridgeBindingPrefix,
     kernelBridgeTargetName
   )
 
@@ -37,7 +39,15 @@ validatePreludeKernelBridges preludeExpr =
     validateBridge :: Set Text -> Text -> Expr -> [Text]
     validateBridge seenBindings bindingName bindingExpr =
       case kernelBridgeTargetName bindingName of
-        Nothing -> []
+        Nothing
+          | kernelBridgeBindingPrefix `Text.isPrefixOf` bindingName ->
+              [ "E0005: prelude kernel bridge '"
+                  <> bindingName
+                  <> "' must include a non-empty kernel symbol suffix after '"
+                  <> kernelBridgeBindingPrefix
+                  <> "'"
+              ]
+          | otherwise -> []
         Just targetName
           | not (isBuiltinSymbolName targetName) ->
               [ "E0004: prelude kernel bridge '"

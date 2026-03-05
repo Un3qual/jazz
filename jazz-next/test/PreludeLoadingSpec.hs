@@ -27,6 +27,7 @@ tests =
     ("run source can apply prelude-defined section functions", testRunWithPreludeSectionFunction),
     ("invalid prelude source produces prelude parse diagnostic", testPreludeParseDiagnostic),
     ("prelude bridge with unknown kernel symbol fails conformance checks", testPreludeUnknownBridgeSymbolDiagnostic),
+    ("prelude bridge with missing kernel suffix fails conformance checks", testPreludeBridgeMissingSuffixDiagnostic),
     ("prelude bridge must be direct symbol reference", testPreludeMalformedBridgeDiagnostic),
     ("prelude bridge rejects canonical name rebound earlier in prelude scope", testPreludeBridgeRejectsPriorRebinding),
     ("prelude bridge allows canonical name rebound only after bridge declaration", testPreludeBridgeAllowsLaterRebinding),
@@ -59,6 +60,14 @@ testPreludeUnknownBridgeSymbolDiagnostic = do
   assertSingleErrorContains
     "unknown kernel bridge symbol code"
     "E0004"
+    (compileErrors result)
+
+testPreludeBridgeMissingSuffixDiagnostic :: IO ()
+testPreludeBridgeMissingSuffixDiagnostic = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "__kernel_ = map.") "1."
+  assertSingleErrorContains
+    "missing kernel bridge suffix code"
+    "E0005"
     (compileErrors result)
 
 testPreludeMalformedBridgeDiagnostic :: IO ()

@@ -33,6 +33,7 @@ main = runTestSuite "ModuleImportParser" tests
 tests :: [NamedTest]
 tests =
   [ ("parses module declaration statement", testParsesModuleDeclaration),
+    ("parses import statement bare dot", testParsesImportBare),
     ("parses import statement with alias", testParsesImportAlias),
     ("parses import statement with symbol list", testParsesImportSymbolList),
     ("lowers module and import statements into core AST", testLowersModuleImportStatements),
@@ -56,6 +57,13 @@ testParsesModuleDeclaration =
         )
     )
     (parseSurfaceProgram "module App::Core.\nx = 1.")
+
+testParsesImportBare :: IO ()
+testParsesImportBare =
+  assertEqual
+    "import bare-dot surface AST"
+    (Right (SEScope [SSImport (SourceSpan 1 1) ["A", "B"] Nothing Nothing]))
+    (parseSurfaceProgram "import A::B.")
 
 testParsesImportAlias :: IO ()
 testParsesImportAlias =
