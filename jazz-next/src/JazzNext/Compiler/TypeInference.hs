@@ -97,6 +97,10 @@ canonicalizeStatement statement =
       SLet name spanValue (canonicalizeExpr valueExpr)
     SSignature name spanValue signatureText ->
       SSignature name spanValue signatureText
+    SModule spanValue modulePath ->
+      SModule spanValue modulePath
+    SImport spanValue modulePath alias importedSymbols ->
+      SImport spanValue modulePath alias importedSymbols
     SExpr spanValue expr ->
       SExpr spanValue (canonicalizeExpr expr)
 
@@ -479,6 +483,10 @@ inferScopeType initialEnv initialState statements = go initialEnv Nothing Nothin
         [] -> (lastExprType, state)
         statement : rest ->
           case statement of
+            SModule {} ->
+              go env lastExprType pendingSignatureType state rest
+            SImport {} ->
+              go env lastExprType pendingSignatureType state rest
             SSignature name _ signatureText ->
               let (nextPendingSignature, nextState) =
                     case parseSignatureType signatureText of

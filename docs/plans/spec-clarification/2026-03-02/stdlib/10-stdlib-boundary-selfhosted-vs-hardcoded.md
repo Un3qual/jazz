@@ -126,10 +126,10 @@ git commit -m "feat(compiler): load self-hosted prelude with compatibility guard
 
 ## Phase 3: Introduce Explicit Intrinsic Bridge Contract
 
-- [ ] Define intrinsic symbol naming and mapping table used by codegen/runtime boundary.
-- [ ] Separate intrinsic typing contract from user-facing stdlib APIs.
-- [ ] Add compile-time checks that prelude intrinsic references map to known kernel entries.
-- [ ] Keep fallback path for current hardcoded helpers until parity is proven.
+- [x] Define intrinsic symbol naming and mapping table used by codegen/runtime boundary.
+- [x] Separate intrinsic typing contract from user-facing stdlib APIs.
+- [x] Add compile-time checks that prelude intrinsic references map to known kernel entries.
+- [x] Keep fallback path for current hardcoded helpers until parity is proven.
 
 ### Expected file touch-set
 
@@ -280,6 +280,17 @@ nix develop . -c bash -lc '
 - [x] Added CLI behavior coverage for prelude success/failure and override cases in `jazz-next/test/CLISpec.hs`.
 - [x] Added dedicated pipeline tests in `jazz-next/test/PreludeLoadingSpec.hs` for prelude binding visibility and parse-failure handling.
 - [x] Added the new suite to the default verification runner: `jazz-next/scripts/test-warning-config.sh`.
+
+## Implementation Status Verification (2026-03-04, Batch 3, `jazz-next`)
+
+- [x] Re-verified phase-3 candidate items and confirmed explicit code-level prelude/kernel symbol-conformance checks were still missing.
+- [x] Added bridge contract surface in `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs` (`kernelBridgeBindingPrefix`, `kernelBridgeTargetName`).
+- [x] Added conformance validator in `jazz-next/src/JazzNext/Compiler/PreludeContract.hs` and wired deterministic diagnostics (`E0004` unknown bridge target, `E0005` malformed bridge declaration) in `jazz-next/src/JazzNext/Compiler/Driver.hs`.
+- [x] Added conformance coverage updates in:
+  - `jazz-next/test/BuiltinCatalogSpec.hs`
+  - `jazz-next/test/PreludeLoadingSpec.hs`
+  - `jazz-next/test/CLISpec.hs`
+- [x] Preserved compatibility fallback path for valid programs and bridge-free preludes.
 
 ## Short Checkbox Summary
 

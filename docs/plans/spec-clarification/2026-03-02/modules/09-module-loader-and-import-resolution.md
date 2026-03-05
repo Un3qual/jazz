@@ -15,6 +15,7 @@
 - [x] Collected unresolved semantics evidence from current specs and compiler code.
 - [x] Mapped module/import behavior gaps across parser, analyzer, codegen, CLI loader path, and tests.
 - [x] Defined phased clarification plan with commit checkpoints and reproducible command matrix.
+- [x] Executed `jazz-next` parser/lowering bootstrap batch for module/import declarations (syntax-only; resolver/loader still pending).
 - [ ] Execute clarification phases and publish normative module/import specs.
 - [ ] Implement/verify final semantics in compiler/runtime code after clarification approval.
 
@@ -308,6 +309,20 @@ nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd .
 - [ ] Qualified import/name-binding rules are explicit and testable.
 - [ ] Migration constraints preserve current users while enabling loader rollout.
 - [ ] Nix-based parser/analyzer/doc checks are reproducible and documented.
+
+## Implementation Status Verification (2026-03-04, Batch 1, `jazz-next`)
+
+- [x] Re-verified candidate unchecked steps before implementation and confirmed `jazz-next` still lacked module/import lexer+parser+AST+l lowering support.
+- [x] Added parser-surface module/import statement variants in `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`.
+- [x] Added core lowered statement variants in `jazz-next/src/JazzNext/Compiler/AST.hs` and lowering pass support in `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`.
+- [x] Added lexer keywords (`module`, `import`, `as`) and parser productions for:
+  - `module A::B.`
+  - `import A::B.`
+  - `import A::B as X.`
+  - `import A::B (x, y).`
+- [x] Added no-op handling in analyzer/type-inference/runtime for module/import declarations to preserve current compile/run behavior while resolver work remains out of scope.
+- [x] Added focused parser/lowering coverage in `jazz-next/test/ModuleImportParserSpec.hs` including invalid-case diagnostics.
+- [x] Added the new suite to the default verification runner: `jazz-next/scripts/test-warning-config.sh`.
 
 ## Short Checkbox Summary
 
