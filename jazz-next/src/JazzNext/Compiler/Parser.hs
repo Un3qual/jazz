@@ -174,10 +174,11 @@ parseModulePath tokens =
     Token {tokenKind = TIdentifier firstSegment} : rest ->
       go [firstSegment] rest
       where
-        go segments allTokens =
+        -- Accumulate in reverse to avoid repeated list appends.
+        go revSegments allTokens =
           case allTokens of
             Token {tokenKind = TColonColon} : Token {tokenKind = TIdentifier nextSegment} : remaining ->
-              go (segments ++ [nextSegment]) remaining
+              go (nextSegment : revSegments) remaining
             separatorToken@(Token {tokenKind = TColonColon}) : [] ->
               Left
                 ( "expected module path segment before end of input at "
@@ -200,7 +201,7 @@ parseModulePath tokens =
                         <> tokenLexeme token
                         <> "'"
                     )
-            _ -> Right (segments, allTokens)
+            _ -> Right (reverse revSegments, allTokens)
     token : _ ->
       Left
         ( "expected module path segment at "
@@ -219,13 +220,14 @@ parseImportSymbolList tokensAfterLeftParen =
       (firstSymbol, afterFirstSymbol) <- parseImportSymbol tokensAfterLeftParen
       go [firstSymbol] afterFirstSymbol
   where
-    go symbols allTokens =
+    -- Accumulate in reverse to keep symbol-list parsing linear.
+    go revSymbols allTokens =
       case allTokens of
         Token {tokenKind = TComma} : rest -> do
           (nextSymbol, afterNextSymbol) <- parseImportSymbol rest
-          go (symbols ++ [nextSymbol]) afterNextSymbol
+          go (nextSymbol : revSymbols) afterNextSymbol
         Token {tokenKind = TRParen} : rest ->
-          Right (symbols, rest)
+          Right (reverse revSymbols, rest)
         [] ->
           Left "expected ')' before end of input in import symbol list"
         token : _ ->
