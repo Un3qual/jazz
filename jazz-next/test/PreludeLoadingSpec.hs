@@ -28,6 +28,8 @@ tests =
     ("invalid prelude source produces prelude parse diagnostic", testPreludeParseDiagnostic),
     ("prelude bridge with unknown kernel symbol fails conformance checks", testPreludeUnknownBridgeSymbolDiagnostic),
     ("prelude bridge must be direct symbol reference", testPreludeMalformedBridgeDiagnostic),
+    ("prelude bridge rejects canonical name rebound earlier in prelude scope", testPreludeBridgeRejectsPriorRebinding),
+    ("prelude bridge allows canonical name rebound only after bridge declaration", testPreludeBridgeAllowsLaterRebinding),
     ("compile without prelude keeps missing binding behavior unchanged", testCompileWithoutPreludeStillFailsMissingBinding)
   ]
 
@@ -65,6 +67,22 @@ testPreludeMalformedBridgeDiagnostic = do
   assertSingleErrorContains
     "malformed kernel bridge code"
     "E0005"
+    (compileErrors result)
+
+testPreludeBridgeRejectsPriorRebinding :: IO ()
+testPreludeBridgeRejectsPriorRebinding = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "map = (+ 1). __kernel_map = map.") "1."
+  assertSingleErrorContains
+    "bridge cannot reference prelude-rebound builtin name"
+    "E0005"
+    (compileErrors result)
+
+testPreludeBridgeAllowsLaterRebinding :: IO ()
+testPreludeBridgeAllowsLaterRebinding = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "__kernel_map = map. map = (+ 1).") "1."
+  assertEqual
+    "bridge validation ignores later same-scope rebinding"
+    []
     (compileErrors result)
 
 testCompileWithoutPreludeStillFailsMissingBinding :: IO ()
