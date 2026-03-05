@@ -15,11 +15,11 @@
 ## Progress Checklist
 
 - [x] Decision lock recorded from maintainer approval (2026-03-02)
-- [ ] Phase 0 complete: baseline + Nix verification
+- [x] Phase 0 complete: baseline + Nix verification
 - [x] Phase 1 complete: failing tests for stub purity rules (`jazz-next`)
 - [x] Phase 2 complete: analyzer-level stub enforcement implemented (`jazz-next`)
 - [x] Phase 3 complete: docs/spec updated to match enforced behavior
-- [ ] Phase 4 complete: reproducible verification + cleanup closure
+- [x] Phase 4 complete: reproducible verification + cleanup closure
 
 ## 2026-03-05 `jazz-next` Execution Batch
 
@@ -32,13 +32,34 @@
 - [x] Updated status/spec docs to reflect implemented stub-v1 scope and limitations.
 - [x] Re-ran full `jazz-next` verification after implementation.
 
-## Verification Evidence (Remaining Work)
+## 2026-03-05 Closure Batch (`jazz-next`)
+
+- [x] Re-verified candidate unchecked steps before implementation; confirmed most unchecked items were stale plan state, not missing implementation.
+- [x] Added failing purity/builtin tests first for impure builtin behavior (`print!`) in:
+  - `jazz-next/test/PuritySemanticsSpec.hs`
+  - `jazz-next/test/BuiltinCatalogSpec.hs`
+  - `jazz-next/test/RuntimeSemanticsSpec.hs`
+- [x] Implemented minimal impure-builtin support by adding `print!` to:
+  - `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`
+  - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+  - `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- [x] Re-ran focused suites (`PuritySemanticsSpec`, `BuiltinCatalogSpec`, `RuntimeSemanticsSpec`) plus full non-Nix verification (`bash jazz-next/scripts/test-warning-config.sh`).
+- [x] Re-ran full verification under Nix dev shell with:
+  - `XDG_CACHE_HOME=$PWD/.cache NIX_CONFIG='experimental-features = nix-command flakes' nix develop -c bash jazz-next/scripts/test-warning-config.sh`
+
+## Verification Evidence
 
 - `jazz-next` stub-v1 purity enforcement and tests are implemented:
   - `jazz-next/src/JazzNext/Compiler/Purity.hs`
   - `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
   - `jazz-next/test/PuritySemanticsSpec.hs`
-- Remaining closure work is reproducible Nix-shell verification path wiring/documentation (Phase 0/4).
+- `jazz-next` impure builtin coverage now includes `print!` through shared builtin catalog/type/runtime paths:
+  - `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`
+  - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+  - `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+  - `jazz-next/test/BuiltinCatalogSpec.hs`
+  - `jazz-next/test/RuntimeSemanticsSpec.hs`
+- Reproducible verification evidence is captured from both local and Nix-shell runs of `bash jazz-next/scripts/test-warning-config.sh`.
 
 ## Decision Lock (Approved 2026-03-02)
 
@@ -80,17 +101,18 @@ Optional create:
 
 ## Phase 0: Baseline and Nix Reproducibility
 
-- [ ] Run baseline tests before changes.
-- [ ] Confirm Nix-based command path for repeatable verification.
+- [x] Run baseline tests before changes.
+- [x] Confirm Nix-based command path for repeatable verification.
 
 Commands:
 
 ```bash
-export NIXPKGS_REF='github:NixOS/nixpkgs/68cc97d306d3187c142cfb2378852f28d47bc098'
-nix --extra-experimental-features 'nix-command flakes' shell \
-  "$NIXPKGS_REF#stack" \
-  "$NIXPKGS_REF#nodejs_20" \
-  -c bash -lc 'stack --version && node --version && bash jazz-next/scripts/test-warning-config.sh'
+XDG_CACHE_HOME=$PWD/.cache NIX_CONFIG='experimental-features = nix-command flakes' \
+  nix develop -c bash -lc '
+    set -euo pipefail
+    stack --version
+    bash jazz-next/scripts/test-warning-config.sh
+  '
 ```
 
 Expected: baseline captured; existing failures (if any) recorded unchanged.
@@ -104,7 +126,7 @@ git commit -m "docs(plan): lock stub-v1 purity enforcement decision"
 
 ## Phase 1: TDD for Stub Enforcement
 
-- [ ] Write failing analyzer tests for each V1 contract rule before implementation.
+- [x] Write failing analyzer tests for each V1 contract rule before implementation.
 
 Required test scenarios:
 
@@ -137,22 +159,22 @@ git commit -m "test(purity): add failing stub-v1 purity coverage in jazz-next"
 
 ### Step 1: Add minimal purity helpers
 
-- [ ] Add `Purity` helper type and name-classification utility (`isImpureName`/`namePurity`) in a stable shared location.
-- [ ] Mark `print!` and other `!`-suffixed names as impure through this helper.
+- [x] Add `Purity` helper type and name-classification utility (`isImpureName`/`namePurity`) in a stable shared location.
+- [x] Mark `print!` and other `!`-suffixed names as impure through this helper.
 
 ### Step 2: Add purity context during inference
 
-- [ ] Track current purity context while inferring each binding body.
-- [ ] For `ELet name body`, set body context by name suffix (`name!` => impure context; otherwise pure context).
+- [x] Track current purity context while inferring each binding body.
+- [x] For `ELet name body`, set body context by name suffix (`name!` => impure context; otherwise pure context).
 
 ### Step 3: Enforce direct-call restriction
 
-- [ ] When inferring an application whose resolved callee is impure, reject if current context is pure.
-- [ ] Keep error messaging deterministic and explicit.
+- [x] When inferring an application whose resolved callee is impure, reject if current context is pure.
+- [x] Keep error messaging deterministic and explicit.
 
 ### Step 4: Preserve current runtime/codegen behavior
 
-- [ ] Do not change JS runtime semantics for this item; enforcement is compile/analyze time only.
+- [x] Do not change JS runtime semantics for this item; enforcement is compile/analyze time only.
 
 Suggested files:
 - `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
@@ -177,9 +199,9 @@ git commit -m "feat(analyzer): enforce stub-v1 purity using bang suffix semantic
 
 ## Phase 3: Docs and Spec Alignment
 
-- [ ] Update language docs to describe enforced stub-v1 behavior accurately.
-- [ ] Document explicit limitations (name-driven checks, no effect polymorphism yet).
-- [ ] Mark item #3 as resolved once code/tests/docs are aligned.
+- [x] Update language docs to describe enforced stub-v1 behavior accurately.
+- [x] Document explicit limitations (name-driven checks, no effect polymorphism yet).
+- [x] Mark item #3 as resolved once code/tests/docs are aligned.
 
 Files:
 - `README.md`
@@ -198,19 +220,16 @@ git commit -m "docs(spec): document compiler-enforced stub-v1 purity semantics"
 
 ## Phase 4: Reproducible Verification and Closure
 
-- [ ] Run full verification in Nix shell.
-- [ ] Confirm purity violation tests fail for bad cases and pass for allowed cases.
-- [ ] Confirm top-level runnable examples still work.
-- [ ] Confirm cleanup item #3 is no longer listed as unresolved.
+- [x] Run full verification in Nix shell.
+- [x] Confirm purity violation tests fail for bad cases and pass for allowed cases.
+- [x] Confirm top-level runnable examples still work.
+- [x] Confirm cleanup item #3 is no longer listed as unresolved.
 
 Commands:
 
 ```bash
-export NIXPKGS_REF='github:NixOS/nixpkgs/68cc97d306d3187c142cfb2378852f28d47bc098'
-nix --extra-experimental-features 'nix-command flakes' shell \
-  "$NIXPKGS_REF#stack" \
-  "$NIXPKGS_REF#nodejs_20" \
-  -c bash -lc '
+XDG_CACHE_HOME=$PWD/.cache NIX_CONFIG='experimental-features = nix-command flakes' \
+  nix develop -c bash -lc '
     set -euo pipefail
     bash jazz-next/scripts/test-warning-config.sh
     runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PuritySemanticsSpec.hs
@@ -229,5 +248,5 @@ git commit -m "chore(spec-cleanup): close item #3 with enforced stub-v1 purity"
 - [x] `!` purity is compiler-enforced in analyzer (stub-v1 contract).
 - [x] Tests cover allowed/forbidden pure-impure call paths.
 - [x] Docs describe enforced behavior and limitations without contradictions.
-- [ ] Nix-based verification path is documented and passing.
-- [ ] Item #3 is marked resolved in `docs/jazz-language-state.md`.
+- [x] Nix-based verification path is documented and passing.
+- [x] Item #3 is marked resolved in `docs/jazz-language-state.md`.

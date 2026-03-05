@@ -29,6 +29,7 @@ planned.
 | `map` | `2` | `(a -> b) -> [a] -> [b]` | compiler/runtime builtin catalog | prelude-owned API after loader support |
 | `hd` | `1` | `[a] -> a` | compiler/runtime builtin catalog | prelude-owned API after loader support |
 | `tl` | `1` | `[a] -> [a]` | compiler/runtime builtin catalog | prelude-owned API after loader support |
+| `print!` | `1` | `a -> a` (stub-v1) | compiler/runtime builtin catalog | prelude-owned impure API after effect-system follow-up |
 
 ## Intrinsic Bridge Contract
 

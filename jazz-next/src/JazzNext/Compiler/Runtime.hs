@@ -194,6 +194,10 @@ evalBuiltin builtinFunction arguments =
                 ( "E3013: runtime primitive 'map' expects a list as its second argument, found "
                     <> renderRuntimeType other
                 )
+    -- Stub-v1 keeps `print!` side effects out of runtime plumbing; it returns
+    -- its evaluated argument so expression pipelines remain deterministic.
+    (BuiltinPrint, [value]) ->
+      Right value
     _ ->
       Left
         ( "E3016: runtime primitive '"

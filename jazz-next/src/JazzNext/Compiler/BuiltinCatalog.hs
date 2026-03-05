@@ -20,6 +20,7 @@ data BuiltinSymbol
   = BuiltinMap
   | BuiltinHd
   | BuiltinTl
+  | BuiltinPrint
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 allBuiltinSymbols :: [BuiltinSymbol]
@@ -31,6 +32,7 @@ builtinSymbolName builtinSymbol =
     BuiltinMap -> "map"
     BuiltinHd -> "hd"
     BuiltinTl -> "tl"
+    BuiltinPrint -> "print!"
 
 builtinSymbolArity :: BuiltinSymbol -> Int
 builtinSymbolArity builtinSymbol =
@@ -38,6 +40,7 @@ builtinSymbolArity builtinSymbol =
     BuiltinMap -> 2
     BuiltinHd -> 1
     BuiltinTl -> 1
+    BuiltinPrint -> 1
 
 -- Prelude/kernel bridge bindings must use this prefix and point to a known
 -- kernel symbol name. Example: __kernel_map = map.
@@ -60,6 +63,7 @@ lookupBuiltinSymbol name =
     "map" -> Just BuiltinMap
     "hd" -> Just BuiltinHd
     "tl" -> Just BuiltinTl
+    "print!" -> Just BuiltinPrint
     _ -> Nothing
 
 isBuiltinSymbolName :: Text -> Bool
