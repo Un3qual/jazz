@@ -324,6 +324,15 @@ nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd .
 - [x] Added focused parser/lowering coverage in `jazz-next/test/ModuleImportParserSpec.hs` including invalid-case diagnostics.
 - [x] Added the new suite to the default verification runner: `jazz-next/scripts/test-warning-config.sh`.
 
+## Implementation Status Verification (2026-03-05, Batch 2, `jazz-next`)
+
+- [x] Re-verified unchecked candidate steps and confirmed qualified-import parser behavior plus executable parser examples were already implemented in `jazz-next` before this batch.
+- [x] Added deterministic module path mapping + graph resolution foundation in `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`.
+- [x] Added deterministic resolver diagnostics for unresolved imports (`E4001`), ambiguous matches (`E4002`), import cycles (`E4003`), and module parse failures (`E4004`).
+- [x] Added `jazz-next/test/ModuleResolutionSpec.hs` covering path mapping, deterministic dependency ordering, unresolved import context, ambiguity handling, cycle traces, and imported-module parse failures.
+- [x] Added `ModuleResolutionSpec` to the default verification runner and re-ran full verification via `bash jazz-next/scripts/test-warning-config.sh`.
+- [x] Kept parser/analyzer/type/runtime statement semantics unchanged in this batch; resolver/loader integration into file-entry CLI flow remains pending follow-on work.
+
 ## Short Checkbox Summary
 
 - [x] Evidence of unresolved module/import semantics recorded with exact paths.
