@@ -6,6 +6,8 @@ module JazzNext.Compiler.Parser
 
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Set as Set
+import Data.Set (Set)
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
     renderSourceSpan
@@ -227,15 +229,27 @@ parseImportSymbolList tokensAfterLeftParen =
             <> renderSourceSpan (tokenSpan token)
         )
     _ -> do
-      (firstSymbol, afterFirstSymbol) <- parseImportSymbol tokensAfterLeftParen
-      go [firstSymbol] afterFirstSymbol
+      (firstSymbol, firstSpan, afterFirstSymbol) <- parseImportSymbol tokensAfterLeftParen
+      go [firstSymbol] (Set.singleton firstSymbol) afterFirstSymbol
   where
     -- Accumulate in reverse to keep symbol-list parsing linear.
-    go revSymbols allTokens =
+    go revSymbols seenSymbols allTokens =
       case allTokens of
         Token {tokenKind = TComma} : rest -> do
-          (nextSymbol, afterNextSymbol) <- parseImportSymbol rest
-          go (nextSymbol : revSymbols) afterNextSymbol
+          (nextSymbol, symbolSpan, afterNextSymbol) <- parseImportSymbol rest
+          if Set.member nextSymbol seenSymbols
+            then
+              Left
+                ( "duplicate import symbol '"
+                    <> nextSymbol
+                    <> "' at "
+                    <> renderSourceSpan symbolSpan
+                )
+            else
+              go
+                (nextSymbol : revSymbols)
+                (Set.insert nextSymbol seenSymbols)
+                afterNextSymbol
         Token {tokenKind = TRParen} : rest ->
           Right (reverse revSymbols, rest)
         [] ->
@@ -249,11 +263,11 @@ parseImportSymbolList tokensAfterLeftParen =
                 <> "'"
             )
 
-parseImportSymbol :: [Token] -> Either Text (Text, [Token])
+parseImportSymbol :: [Token] -> Either Text (Text, SourceSpan, [Token])
 parseImportSymbol tokens =
   case tokens of
-    Token {tokenKind = TIdentifier symbolName} : rest ->
-      Right (symbolName, rest)
+    Token {tokenKind = TIdentifier symbolName, tokenSpan = symbolSpan} : rest ->
+      Right (symbolName, symbolSpan, rest)
     [] ->
       Left "expected import symbol before end of input"
     token : _ ->

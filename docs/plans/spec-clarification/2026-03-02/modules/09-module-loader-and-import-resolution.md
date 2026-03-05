@@ -18,6 +18,7 @@
 - [x] Executed `jazz-next` parser/lowering bootstrap batch for module/import declarations (syntax-only; resolver/loader still pending).
 - [x] Executed `jazz-next` resolver/loader integration batches with deterministic module-graph diagnostics and CLI `--entry-module`/`--module-root` flow.
 - [x] Executed `jazz-next` module declaration contract batch (`E4005`/`E4006`) with resolver/loader/CLI regression coverage.
+- [x] Executed `jazz-next` qualified-import parser hardening batch for duplicate symbol-list imports.
 - [ ] Execute clarification phases and publish normative module/import specs.
 - [ ] Implement/verify final semantics in compiler/runtime code after clarification approval.
 
@@ -364,6 +365,16 @@ nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd .
   - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/ModuleResolutionSpec.hs`
   - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/LoaderSpec.hs`
   - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`
+
+## Implementation Status Verification (2026-03-05, Batch 5, `jazz-next`)
+
+- [x] Re-verified Phase-4 parser candidates and confirmed alias/symbol-list mixing checks existed, but duplicate symbol-list imports were still accepted.
+- [x] Added duplicate import symbol-list diagnostics in `jazz-next/src/JazzNext/Compiler/Parser.hs` (rejecting repeated names in `import A::B (x, ..., x)`).
+- [x] Added parser regression coverage in `jazz-next/test/ModuleImportParserSpec.hs`.
+- [x] Re-ran focused parser verification:
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/ModuleImportParserSpec.hs`
+- [x] Re-ran full `jazz-next` verification:
+  - `bash jazz-next/scripts/test-warning-config.sh`
 
 ## Short Checkbox Summary
 

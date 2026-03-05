@@ -41,6 +41,7 @@ tests =
     ("rejects module statement with trailing separator using separator span", testRejectsModuleTrailingSeparatorSpan),
     ("rejects import statement with empty symbol list", testRejectsImportEmptySymbolList),
     ("rejects import statement with empty symbol list using rparen span", testRejectsImportEmptySymbolListSpan),
+    ("rejects import statement with duplicate symbols", testRejectsImportDuplicateSymbols),
     ("rejects import statement with alias and symbol list together", testRejectsImportAliasWithSymbolList),
     ("rejects import statement with symbol list then alias", testRejectsImportSymbolListWithAlias)
   ]
@@ -136,6 +137,13 @@ testRejectsImportEmptySymbolListSpan =
     "import empty symbol list span"
     "1:19"
     (parseSurfaceProgram "import Std::List ().")
+
+testRejectsImportDuplicateSymbols :: IO ()
+testRejectsImportDuplicateSymbols =
+  assertLeftContains
+    "import duplicate symbol error"
+    "duplicate import symbol 'map'"
+    (parseSurfaceProgram "import Std::List (map, filter, map).")
 
 testRejectsImportAliasWithSymbolList :: IO ()
 testRejectsImportAliasWithSymbolList =
