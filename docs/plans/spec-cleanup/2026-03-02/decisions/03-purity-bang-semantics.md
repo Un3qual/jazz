@@ -8,6 +8,8 @@
 
 **Tech Stack:** Haskell (`jazz-next` parser/analyzer/runtime/tests), Markdown docs, Stack, Nix shell.
 
+**Active compiler path guidance:** all actionable implementation/test steps in this plan must target `jazz-next/`; `jazz-hs/` is legacy evidence only.
+
 ---
 
 ## Progress Checklist
@@ -30,13 +32,13 @@
 - [x] Updated status/spec docs to reflect implemented stub-v1 scope and limitations.
 - [x] Re-ran full `jazz-next` verification after implementation.
 
-## Verification Evidence (Item Is Still Unfinished)
+## Verification Evidence (Remaining Work)
 
-- `docs/jazz-language-state.md:424` lists cleanup item #3 as unresolved.
-- `docs/jazz-language-state.md:305` states no purity checker exists today and `!` is currently naming syntax.
-- `README.md:76` claims pure-by-default + impure restrictions, but compiler does not enforce that today.
-- `jazz-hs/src/Parser/Lib.hs:98` allows `!` in identifiers, with no purity semantics attached.
-- `jazz-hs/src/Analyzer/TypeInference.hs` has no purity/effect context tracking.
+- `jazz-next` stub-v1 purity enforcement and tests are implemented:
+  - `jazz-next/src/JazzNext/Compiler/Purity.hs`
+  - `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+  - `jazz-next/test/PuritySemanticsSpec.hs`
+- Remaining closure work is reproducible Nix-shell verification path wiring/documentation (Phase 0/4).
 
 ## Decision Lock (Approved 2026-03-02)
 
@@ -88,7 +90,7 @@ export NIXPKGS_REF='github:NixOS/nixpkgs/68cc97d306d3187c142cfb2378852f28d47bc09
 nix --extra-experimental-features 'nix-command flakes' shell \
   "$NIXPKGS_REF#stack" \
   "$NIXPKGS_REF#nodejs_20" \
-  -c bash -lc 'cd jazz-hs && stack --version && node --version && stack test'
+  -c bash -lc 'stack --version && node --version && bash jazz-next/scripts/test-warning-config.sh'
 ```
 
 Expected: baseline captured; existing failures (if any) recorded unchanged.
@@ -113,24 +115,23 @@ Required test scenarios:
 5. Top-level `print!` expression remains valid entry behavior.
 
 Files:
-- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
-- (optional) `jazz-hs/test/ParserSpec.hs`
+- `jazz-next/test/PuritySemanticsSpec.hs`
+- `jazz-next/scripts/test-warning-config.sh` (suite wiring)
 
 Run and verify failure first:
 
 ```bash
-cd jazz-hs
-stack test --ta '--match "Type Inference"'
+runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PuritySemanticsSpec.hs
 ```
 
 **Commit checkpoint:**
 
 ```bash
-git add jazz-hs/test/Analyzer/TypeInferenceSpec.hs jazz-hs/test/ParserSpec.hs
-git commit -m "test(purity): add failing tests for bang stub enforcement rules"
+git add jazz-next/test/PuritySemanticsSpec.hs jazz-next/scripts/test-warning-config.sh
+git commit -m "test(purity): add failing stub-v1 purity coverage in jazz-next"
 ```
 
-(If `ParserSpec.hs` is unchanged, omit it.)
+(If runner wiring is unchanged, omit `jazz-next/scripts/test-warning-config.sh`.)
 
 ## Phase 2: Implement Analyzer Stub Enforcement
 
@@ -154,26 +155,25 @@ git commit -m "test(purity): add failing tests for bang stub enforcement rules"
 - [ ] Do not change JS runtime semantics for this item; enforcement is compile/analyze time only.
 
 Suggested files:
-- `jazz-hs/src/Analyzer/TypeInference.hs`
-- `jazz-hs/src/Types.hs`
-- `jazz-hs/src/Errors.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/Purity.hs`
+- optional: `jazz-next/src/JazzNext/Compiler/TypeInference.hs` (if propagation hooks are needed)
 
 Validation:
 
 ```bash
-cd jazz-hs
-stack test --ta '--match "Type Inference"'
-stack test
+runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PuritySemanticsSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
 ```
 
 **Commit checkpoint:**
 
 ```bash
-git add jazz-hs/src/Analyzer/TypeInference.hs jazz-hs/src/Types.hs jazz-hs/src/Errors.hs
+git add jazz-next/src/JazzNext/Compiler/Analyzer.hs jazz-next/src/JazzNext/Compiler/Purity.hs
 git commit -m "feat(analyzer): enforce stub-v1 purity using bang suffix semantics"
 ```
 
-(If `Errors.hs` is unchanged, omit it.)
+(If `TypeInference.hs` changed too, include it.)
 
 ## Phase 3: Docs and Spec Alignment
 
@@ -184,16 +184,17 @@ git commit -m "feat(analyzer): enforce stub-v1 purity using bang suffix semantic
 Files:
 - `README.md`
 - `docs/jazz-language-state.md`
-- optional: `docs/spec/purity-semantics.md`
+- `docs/feature-status.md`
+- optional: `docs/spec/semantics/purity-bang-stub-v1.md`
 
 **Commit checkpoint:**
 
 ```bash
-git add README.md docs/jazz-language-state.md docs/spec/purity-semantics.md
+git add README.md docs/jazz-language-state.md docs/feature-status.md docs/spec/semantics/purity-bang-stub-v1.md
 git commit -m "docs(spec): document compiler-enforced stub-v1 purity semantics"
 ```
 
-(If `docs/spec/purity-semantics.md` is not created, omit it.)
+(If the optional spec doc is not created, omit it from `git add`.)
 
 ## Phase 4: Reproducible Verification and Closure
 
@@ -211,23 +212,22 @@ nix --extra-experimental-features 'nix-command flakes' shell \
   "$NIXPKGS_REF#nodejs_20" \
   -c bash -lc '
     set -euo pipefail
-    cd jazz-hs
-    stack test
-    ./run.sh ExamplePrograms/ComplexProgram.jz >/tmp/jazz-purity-v1-complex.js
+    bash jazz-next/scripts/test-warning-config.sh
+    runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PuritySemanticsSpec.hs
   '
 ```
 
 **Final commit checkpoint (if cleanup edits remain):**
 
 ```bash
-git add README.md docs/jazz-language-state.md jazz-hs/test/Analyzer/TypeInferenceSpec.hs jazz-hs/src/Analyzer/TypeInference.hs
+git add README.md docs/jazz-language-state.md docs/feature-status.md jazz-next/test/PuritySemanticsSpec.hs jazz-next/src/JazzNext/Compiler/Analyzer.hs jazz-next/src/JazzNext/Compiler/Purity.hs
 git commit -m "chore(spec-cleanup): close item #3 with enforced stub-v1 purity"
 ```
 
 ## Definition of Done
 
-- [ ] `!` purity is compiler-enforced in analyzer (stub-v1 contract).
-- [ ] Tests cover allowed/forbidden pure-impure call paths.
-- [ ] Docs describe enforced behavior and limitations without contradictions.
+- [x] `!` purity is compiler-enforced in analyzer (stub-v1 contract).
+- [x] Tests cover allowed/forbidden pure-impure call paths.
+- [x] Docs describe enforced behavior and limitations without contradictions.
 - [ ] Nix-based verification path is documented and passing.
 - [ ] Item #3 is marked resolved in `docs/jazz-language-state.md`.
