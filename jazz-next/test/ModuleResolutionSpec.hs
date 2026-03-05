@@ -8,6 +8,7 @@ import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
     ResolvedModule (..),
     modulePathToRelativeFile,
+    parseModulePathText,
     resolveModuleGraph
   )
 import JazzNext.TestHarness
@@ -23,8 +24,10 @@ main = runTestSuite "ModuleResolution" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("maps module path to relative .jz file", testModulePathMapping),
+  [ ("accepts lexer-compatible continuation characters in CLI module paths", testParseModulePathContinuations),
+    ("maps module path to relative .jz file", testModulePathMapping),
     ("resolves dependency graph in deterministic order", testResolveDependencyGraph),
+    ("deduplicates duplicate module roots before ambiguity checks", testDeduplicatesDuplicateRoots),
     ("reports unresolved import with importer context", testReportsUnresolvedImport),
     ("reports ambiguous module candidates across roots", testReportsAmbiguousImport),
     ("reports import cycles with minimal trace", testReportsCycle),
@@ -38,6 +41,13 @@ testModulePathMapping =
     "App/Core.jz"
     (modulePathToRelativeFile ["App", "Core"])
 
+testParseModulePathContinuations :: IO ()
+testParseModulePathContinuations =
+  assertEqual
+    "continuation chars"
+    (Right ["App", "Main'", "Build!"])
+    (parseModulePathText "App::Main'::Build!")
+
 testResolveDependencyGraph :: IO ()
 testResolveDependencyGraph =
   assertRight
@@ -49,6 +59,36 @@ testResolveDependencyGraph =
     sourceFiles =
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Util.\nmain = util."),
+          ("src/Lib/Util.jz", "util = 1.")
+        ]
+    expectedModules =
+      [ ResolvedModule
+          { resolvedModulePath = ["Lib", "Util"],
+            resolvedSourcePath = "src/Lib/Util.jz",
+            resolvedImports = []
+          },
+        ResolvedModule
+          { resolvedModulePath = ["App", "Main"],
+            resolvedSourcePath = "src/App/Main.jz",
+            resolvedImports = [["Lib", "Util"]]
+          }
+      ]
+
+testDeduplicatesDuplicateRoots :: IO ()
+testDeduplicatesDuplicateRoots =
+  assertRight
+    "duplicate roots are not treated as ambiguity"
+    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (\modules -> assertEqual "resolved modules" expectedModules modules)
+  where
+    config =
+      ModuleResolutionConfig
+        { moduleRoots = ["src", "src"],
+          moduleExtension = ".jz"
+        }
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Util.\nutil."),
           ("src/Lib/Util.jz", "util = 1.")
         ]
     expectedModules =

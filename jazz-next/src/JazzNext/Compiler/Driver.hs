@@ -15,6 +15,13 @@ module JazzNext.Compiler.Driver
 
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
+import Data.IORef
+  ( newIORef,
+    readIORef,
+    writeIORef
+  )
 import JazzNext.Compiler.AST
   ( Expr
   )
@@ -256,13 +263,14 @@ loadModuleGraphSource ::
   (FilePath -> IO (Maybe Text)) ->
   IO (Either Text Text)
 loadModuleGraphSource resolutionConfig entryModulePath sourceLookup = do
+  memoizedSourceLookup <- memoizeSourceLookup sourceLookup
   resolutionResult <-
-    resolveModuleGraphWithLookup resolutionConfig sourceLookup entryModulePath
+    resolveModuleGraphWithLookup resolutionConfig memoizedSourceLookup entryModulePath
   case resolutionResult of
     Left resolutionError ->
       pure (Left resolutionError)
     Right resolvedModules -> do
-      sourceReplayResult <- replayResolvedSources resolvedModules sourceLookup
+      sourceReplayResult <- replayResolvedSources resolvedModules memoizedSourceLookup
       pure (fmap (Text.intercalate "\n") sourceReplayResult)
 
 replayResolvedSources ::
@@ -293,3 +301,19 @@ replayResolvedSources resolvedModules sourceLookup =
 
 renderModulePath :: [Text] -> Text
 renderModulePath segments = Text.intercalate "::" segments
+
+memoizeSourceLookup ::
+  (FilePath -> IO (Maybe Text)) ->
+  IO (FilePath -> IO (Maybe Text))
+memoizeSourceLookup sourceLookup = do
+  cacheRef <- newIORef (Map.empty :: Map FilePath (Maybe Text))
+  pure $
+    \path -> do
+      cache <- readIORef cacheRef
+      case Map.lookup path cache of
+        Just cachedSource ->
+          pure cachedSource
+        Nothing -> do
+          loadedSource <- sourceLookup path
+          writeIORef cacheRef (Map.insert path loadedSource cache)
+          pure loadedSource

@@ -38,7 +38,7 @@ tests =
     ("run module graph produces runtime output from entry module", testRunModuleGraphSuccess),
     ("compile module graph reports unresolved import diagnostics", testCompileModuleGraphUnresolved),
     ("run module graph reports cycle diagnostics", testRunModuleGraphCycle),
-    ("loader performs deterministic dependency-first source reads", testDependencyReadOrder)
+    ("loader reuses memoized source lookup across resolve and replay", testMemoizedLookupReuse)
   ]
 
 testCompileModuleGraphSuccess :: IO ()
@@ -126,32 +126,46 @@ testRunModuleGraphCycle = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
-testDependencyReadOrder :: IO ()
-testDependencyReadOrder = do
-  readOrderRef <- newIORef ([] :: [FilePath])
+testMemoizedLookupReuse :: IO ()
+testMemoizedLookupReuse = do
+  readCountsRef <- newIORef (Map.empty :: Map.Map FilePath Int)
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
       Nothing
       resolverConfig
       ["App", "Main"]
-      (lookupSource readOrderRef)
-  readOrder <- reverse <$> readIORef readOrderRef
+      (lookupSource readCountsRef)
+  readCounts <- readIORef readCountsRef
   assertEqual "run succeeds" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1") (runOutput result)
   assertEqual
-    "dependency-first final replay order"
-    ["src/App/Main.jz", "src/Lib/Util.jz", "src/Lib/Util.jz", "src/App/Main.jz"]
-    readOrder
+    "entry module read exactly once"
+    (Just 1)
+    (Map.lookup "src/App/Main.jz" readCounts)
+  assertEqual
+    "dependency module read exactly once"
+    (Just 1)
+    (Map.lookup "src/Lib/Util.jz" readCounts)
   where
-    sourceMap =
-      Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Util.\nutil."),
-          ("src/Lib/Util.jz", "util = 1.")
-        ]
-    lookupSource readOrderRef path = do
-      current <- readIORef readOrderRef
-      writeIORef readOrderRef (path : current)
-      pure (Map.lookup path sourceMap)
+    lookupSource readCountsRef path = do
+      readCounts <- readIORef readCountsRef
+      let previousReads = Map.findWithDefault 0 path readCounts
+          nextReadCount = previousReads + 1
+      writeIORef readCountsRef (Map.insert path nextReadCount readCounts)
+      pure (lookupByReadCount path nextReadCount)
+
+    lookupByReadCount :: FilePath -> Int -> Maybe Text
+    lookupByReadCount path readCount =
+      case path of
+        -- Without memoization this second read would replace the resolver-accepted
+        -- source and fail replay. Memoized lookup should keep first-read content.
+        "src/App/Main.jz"
+          | readCount == 1 -> Just "import Lib::Util.\nutil."
+          | otherwise -> Just "broken = ."
+        "src/Lib/Util.jz" -> Just "util = 1."
+        _ -> Nothing
 
 resolverConfig :: ModuleResolutionConfig
 resolverConfig =

@@ -15,7 +15,7 @@ import Data.Functor.Identity
   ( Identity (..),
     runIdentity
   )
-import Data.List (sortOn)
+import Data.List (foldl', sortOn)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -76,7 +76,7 @@ parseModulePathText rawModulePath
           isIdentifierStart firstChar && Text.all isIdentifierRest restChars
 
     isIdentifierStart ch = isAlpha ch || ch == '_'
-    isIdentifierRest ch = isAlphaNum ch || ch == '_'
+    isIdentifierRest ch = isAlphaNum ch || ch == '_' || ch == '\'' || ch == '!'
 
 resolveModuleGraph ::
   ModuleResolutionConfig ->
@@ -145,7 +145,9 @@ resolveModuleGraphWithLookup config loadSource entryModulePath =
 
     loadModuleSource callStack modulePath = do
       let relativePath = modulePathToRelativeFileWithExt (moduleExtension config) modulePath
-          candidatePaths = map (appendRelativePath relativePath) (moduleRoots config)
+          candidatePaths =
+            dedupePreservingOrder
+              (map (appendRelativePath relativePath) (moduleRoots config))
       candidatesWithContents <-
         mapM
           (\candidatePath -> do
@@ -237,3 +239,11 @@ renderImporterContext callStack =
 
 renderModulePath :: [Text] -> Text
 renderModulePath segments = Text.intercalate "::" segments
+
+dedupePreservingOrder :: Ord a => [a] -> [a]
+dedupePreservingOrder =
+  reverse . fst . foldl' step ([], Set.empty)
+  where
+    step (uniqueRev, seen) value
+      | Set.member value seen = (uniqueRev, seen)
+      | otherwise = (value : uniqueRev, Set.insert value seen)
