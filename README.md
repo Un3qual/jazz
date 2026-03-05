@@ -14,6 +14,7 @@ Jazz is a functional language that takes inspiration from Elixir and Haskell. I 
 - First-class functions
 - Functions are curried by default
 - Basic list runtime helpers (`map`, `hd`, `tl`)
+- Stub purity enforcement for direct `!` callee calls in binding bodies
 - Dot-terminated source forms and lambda syntax
 
 ### Planned / Aspirational
@@ -22,7 +23,6 @@ Jazz is a functional language that takes inspiration from Elixir and Haskell. I 
 - Pattern matching as end-to-end runtime/compiler behavior
 - Tuple code generation/runtime behavior
 - Full module/import loader semantics
-- Purity/effect enforcement for `!`-suffixed functions
 - LLVM backend and performance target
 - Readability/usability goals such as "easy to understand syntax"
 
@@ -110,7 +110,7 @@ let powersOf2 = myArr.map((i) => Math.pow(2, i));
 
 #### Functions
 
-In Jazz, functions are pure by default and are declared with assignment to a lambda. Impure functions must be denoted with `!` and can not be called from pure functions.
+In Jazz, functions are pure by default and are declared with assignment to a lambda. Impure functions must be denoted with `!` and cannot be called from pure functions (stub-v1 direct-call enforcement in `jazz-next`; full effect typing remains planned).
 
 - Multiline functions must use curly braces
 - Impure functions must end with a `!` e.g:

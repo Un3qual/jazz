@@ -306,7 +306,21 @@ The top-level README says:
 - impure functions must end with `!`
 - pure functions cannot call impure functions
 
-`jazz-hs` does not implement an effect or purity checker. The `!` suffix is just allowed syntax for identifiers; there is no semantic enforcement of purity.
+`jazz-next` now enforces a stub-v1 purity contract in compile/analyze paths:
+
+- names ending with `!` are treated as impure callees,
+- pure bindings reject direct calls to known impure callees,
+- impure bindings and top-level expression statements remain permissive.
+
+Current limitations (still planned):
+
+- no effect polymorphism,
+- no higher-order purity proofs,
+- no cross-module purity graph.
+
+Normative stub-v1 contract:
+
+- `docs/spec/semantics/purity-bang-stub-v1.md`
 
 ### Typeclass Naming
 

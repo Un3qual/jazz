@@ -2,7 +2,7 @@
 
 This is the canonical status matrix for top-level language claims. The top-level [README](../README.md) is a short summary, while this file is the source of truth for implemented-vs-planned status.
 
-Last verified against commit: `c6301291c7431af47a1c65fa3ff53e9a89719ada`
+Last verified against commit: `835a33a`
 
 ## Status Rubric
 
@@ -25,7 +25,7 @@ Last verified against commit: `c6301291c7431af47a1c65fa3ff53e9a89719ada`
 | Pattern matching                   | `Partially Implemented / Parse-Only` | Pattern syntax and `case` parse support exists, but type inference/codegen coverage is incomplete per `docs/jazz-language-state.md`.                                 |
 | Tuples                             | `Partially Implemented / Parse-Only` | Legacy reference: Tuple literals parse/infer, but JS codegen errors on tuples (`docs/jazz-language-state.md`, `jazz-hs/src/CodeGen/Javascript.hs`). No `jazz-next/` codegen equivalent yet.                                    |
 | Module/import syntax               | `Partially Implemented / Parse-Only` | `jazz-next` parses/lowers module/import statements and supports deterministic module-graph loading diagnostics (`jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`, `jazz-next/src/JazzNext/CLI/Main.hs`), but qualified-import name binding semantics are not yet finalized as canonical language behavior. |
-| Purity marker (`!`) is enforced    | `Planned / Aspirational`             | `README.md` describes purity semantics, but `docs/jazz-language-state.md` states there is no purity/effect enforcement in `jazz-next/`.                                 |
+| Purity marker (`!`) is enforced    | `Implemented Today`                  | `jazz-next` now enforces stub-v1 purity in analyzer/type pipeline: pure bindings reject direct calls to known `!`-suffixed callees (`jazz-next/src/JazzNext/Compiler/{Purity.hs,Analyzer.hs}`) with regression coverage in `jazz-next/test/PuritySemanticsSpec.hs`. |
 | `$` low-precedence application     | `Implemented Today`                  | `$` parsing/associativity is documented in `docs/jazz-language-state.md` and supported by parser/operator behavior; legacy reference in `jazz-hs`.                     |
 
 ## Maintenance Checklist
