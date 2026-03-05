@@ -27,12 +27,15 @@ tests =
   [ ("rejects empty entry module path before traversal", testRejectsEmptyEntryModulePath),
     ("accepts lexer-compatible continuation characters in CLI module paths", testParseModulePathContinuations),
     ("maps module path to relative .jz file", testModulePathMapping),
+    ("accepts matching module declaration in resolved file", testAcceptsMatchingModuleDeclaration),
     ("resolves dependency graph in deterministic order", testResolveDependencyGraph),
     ("deduplicates duplicate module roots before ambiguity checks", testDeduplicatesDuplicateRoots),
     ("reports unresolved import with importer context", testReportsUnresolvedImport),
     ("reports ambiguous module candidates across roots", testReportsAmbiguousImport),
     ("reports import cycles with minimal trace", testReportsCycle),
-    ("reports parse failures while loading imported modules", testReportsImportedModuleParseFailure)
+    ("reports parse failures while loading imported modules", testReportsImportedModuleParseFailure),
+    ("reports module declaration mismatch for resolved file path", testReportsModuleDeclarationMismatch),
+    ("reports duplicate module declarations in a module file", testReportsDuplicateModuleDeclaration)
   ]
 
 testRejectsEmptyEntryModulePath :: IO ()
@@ -75,6 +78,32 @@ testResolveDependencyGraph =
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Util.\nmain = util."),
           ("src/Lib/Util.jz", "util = 1.")
+        ]
+    expectedModules =
+      [ ResolvedModule
+          { resolvedModulePath = ["Lib", "Util"],
+            resolvedSourcePath = "src/Lib/Util.jz",
+            resolvedImports = []
+          },
+        ResolvedModule
+          { resolvedModulePath = ["App", "Main"],
+            resolvedSourcePath = "src/App/Main.jz",
+            resolvedImports = [["Lib", "Util"]]
+          }
+      ]
+
+testAcceptsMatchingModuleDeclaration :: IO ()
+testAcceptsMatchingModuleDeclaration =
+  assertRight
+    "matching declaration is accepted"
+    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (\modules -> assertEqual "resolved modules" expectedModules modules)
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main.\nimport Lib::Util.\nutil."),
+          ("src/Lib/Util.jz", "module Lib::Util.\nutil = 1.")
         ]
     expectedModules =
       [ ResolvedModule
@@ -170,4 +199,28 @@ testReportsImportedModuleParseFailure = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Util.\nmain = util."),
           ("src/Lib/Util.jz", "broken = .")
+        ]
+
+testReportsModuleDeclarationMismatch :: IO ()
+testReportsModuleDeclarationMismatch = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "mismatch code" "E4006" result
+  assertLeftContains "declared module name" "Wrong::Name" result
+  assertLeftContains "expected module name" "App::Main" result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [("src/App/Main.jz", "module Wrong::Name.\nmain = 1.")]
+
+testReportsDuplicateModuleDeclaration :: IO ()
+testReportsDuplicateModuleDeclaration = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "duplicate declaration code" "E4005" result
+  assertLeftContains "duplicate declaration text" "multiple module declarations" result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main.\nmodule App::Main.\nmain = 1.")
         ]

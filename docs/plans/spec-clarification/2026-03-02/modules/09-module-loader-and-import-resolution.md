@@ -16,6 +16,9 @@
 - [x] Mapped module/import behavior gaps across parser, analyzer, codegen, CLI loader path, and tests.
 - [x] Defined phased clarification plan with commit checkpoints and reproducible command matrix.
 - [x] Executed `jazz-next` parser/lowering bootstrap batch for module/import declarations (syntax-only; resolver/loader still pending).
+- [x] Executed `jazz-next` resolver/loader integration batches with deterministic module-graph diagnostics and CLI `--entry-module`/`--module-root` flow.
+- [x] Executed `jazz-next` module declaration contract batch (`E4005`/`E4006`) with resolver/loader/CLI regression coverage.
+- [x] Executed `jazz-next` qualified-import parser hardening batch for duplicate symbol-list imports.
 - [ ] Execute clarification phases and publish normative module/import specs.
 - [ ] Implement/verify final semantics in compiler/runtime code after clarification approval.
 
@@ -50,7 +53,7 @@
 - `jazz-hs/static/Prelude.jz:1`
   Observation: nested module-heavy prelude exists, but there is no active loader wiring that imports/links it into compilation.
 
-**Conclusion:** module/import syntax exists, but resolution and loader semantics are still undefined and non-executable end-to-end.
+**Conclusion:** legacy `jazz-hs` behavior remains parse-only, while active `jazz-next` now has executable module-graph resolution/loader behavior with deterministic diagnostics; qualified-import binding semantics and normative docs are still pending.
 
 ## Scope and Clarification Targets
 
@@ -347,6 +350,31 @@ nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd .
   - compile/run routing through module-graph driver entrypoints when `--entry-module` is present.
 - [x] Added CLI coverage in `jazz-next/test/CLISpec.hs` for module-graph parse/options behavior, resolver error surfacing, and stdin bypass in module mode.
 - [x] Added `LoaderSpec` to the default verification runner and re-ran full verification via `bash jazz-next/scripts/test-warning-config.sh`.
+
+## Implementation Status Verification (2026-03-05, Batch 4, `jazz-next`)
+
+- [x] Re-verified candidate Phase-1/2 loader-contract steps and confirmed module-path mapping/graph traversal were implemented, but module declaration vs resolved-file contract checks were still missing.
+- [x] Added resolver contract diagnostics in `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`:
+  - `E4005` for duplicate module declarations in one source file.
+  - `E4006` for module declaration mismatch against the resolved module path.
+- [x] Added resolver coverage in `jazz-next/test/ModuleResolutionSpec.hs` for matching declarations, duplicate declarations, and mismatch diagnostics.
+- [x] Added loader/CLI propagation coverage in:
+  - `jazz-next/test/LoaderSpec.hs`
+  - `jazz-next/test/CLISpec.hs`
+- [x] Re-ran focused verification:
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/ModuleResolutionSpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/LoaderSpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`
+
+## Implementation Status Verification (2026-03-05, Batch 5, `jazz-next`)
+
+- [x] Re-verified Phase-4 parser candidates and confirmed alias/symbol-list mixing checks existed, but duplicate symbol-list imports were still accepted.
+- [x] Added duplicate import symbol-list diagnostics in `jazz-next/src/JazzNext/Compiler/Parser.hs` (rejecting repeated names in `import A::B (x, ..., x)`).
+- [x] Added parser regression coverage in `jazz-next/test/ModuleImportParserSpec.hs`.
+- [x] Re-ran focused parser verification:
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/ModuleImportParserSpec.hs`
+- [x] Re-ran full `jazz-next` verification:
+  - `bash jazz-next/scripts/test-warning-config.sh`
 
 ## Short Checkbox Summary
 
