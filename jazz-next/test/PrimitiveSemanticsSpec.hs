@@ -40,10 +40,14 @@ tests =
     ("arithmetic primitives reject mismatched operand types", testRejectsArithmeticTypeMismatch),
     ("source pipeline accepts hd with list literal argument", testSourcePipelineAcceptsHdListLiteral),
     ("source pipeline accepts map over nested list literals", testSourcePipelineAcceptsMapHdNestedLists),
+    ("source pipeline accepts filter over list literals", testSourcePipelineAcceptsFilterListLiteral),
     ("source pipeline rejects hd with non-list argument", testSourcePipelineRejectsHdNonListArgument),
     ("source pipeline rejects tl with non-list argument", testSourcePipelineRejectsTlNonListArgument),
     ("source pipeline rejects map with non-function mapper", testSourcePipelineRejectsMapNonFunctionMapper),
     ("source pipeline rejects map with non-list collection", testSourcePipelineRejectsMapNonListCollection),
+    ("source pipeline rejects filter with non-function predicate", testSourcePipelineRejectsFilterNonFunctionPredicate),
+    ("source pipeline rejects filter with non-list collection", testSourcePipelineRejectsFilterNonListCollection),
+    ("source pipeline rejects filter predicate with non-Bool result", testSourcePipelineRejectsFilterPredicateNonBoolResult),
     ("source pipeline accepts equality section application", testSourcePipelineAcceptsEqualitySection),
     ("source pipeline accepts deferred left equality section once constrained", testSourcePipelineAcceptsDeferredLeftEqualitySection),
     ("source pipeline accepts deferred right equality section once constrained", testSourcePipelineAcceptsDeferredRightEqualitySection),
@@ -113,6 +117,10 @@ testSourcePipelineAcceptsMapHdNestedLists :: IO ()
 testSourcePipelineAcceptsMapHdNestedLists =
   assertCompiles "x = map hd [[1, 2], [3], [4, 5]]."
 
+testSourcePipelineAcceptsFilterListLiteral :: IO ()
+testSourcePipelineAcceptsFilterListLiteral =
+  assertCompiles "x = filter (> 1) [1, 2, 3]."
+
 testSourcePipelineRejectsHdNonListArgument :: IO ()
 testSourcePipelineRejectsHdNonListArgument =
   assertCompileError
@@ -139,6 +147,27 @@ testSourcePipelineRejectsMapNonListCollection =
   assertCompileError
     "x = map hd 1."
     "map collection type mismatch"
+    "E2006"
+
+testSourcePipelineRejectsFilterNonFunctionPredicate :: IO ()
+testSourcePipelineRejectsFilterNonFunctionPredicate =
+  assertCompileError
+    "x = filter 1 [1, 2]."
+    "filter predicate type mismatch"
+    "E2006"
+
+testSourcePipelineRejectsFilterNonListCollection :: IO ()
+testSourcePipelineRejectsFilterNonListCollection =
+  assertCompileError
+    "x = filter (> 1) 1."
+    "filter collection type mismatch"
+    "E2006"
+
+testSourcePipelineRejectsFilterPredicateNonBoolResult :: IO ()
+testSourcePipelineRejectsFilterPredicateNonBoolResult =
+  assertCompileError
+    "x = filter (+ 1) [1, 2]."
+    "filter predicate non-bool mismatch"
     "E2006"
 
 testSourcePipelineAcceptsEqualitySection :: IO ()

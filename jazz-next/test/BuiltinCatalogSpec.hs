@@ -58,6 +58,7 @@ tests =
 expectedBuiltins :: [(BuiltinSymbol, Text, Int)]
 expectedBuiltins =
   [ (BuiltinMap, "map", 2),
+    (BuiltinFilter, "filter", 2),
     (BuiltinHd, "hd", 1),
     (BuiltinTl, "tl", 1),
     (BuiltinPrint, "print!", 1)
@@ -85,6 +86,7 @@ testCatalogArityContract = do
 testKernelBridgeTargetName :: IO ()
 testKernelBridgeTargetName = do
   assertEqual "bridge target map" (Just "map") (kernelBridgeTargetName "__kernel_map")
+  assertEqual "bridge target filter" (Just "filter") (kernelBridgeTargetName "__kernel_filter")
   assertEqual "bridge target hd" (Just "hd") (kernelBridgeTargetName "__kernel_hd")
   assertEqual "bridge target tl" (Just "tl") (kernelBridgeTargetName "__kernel_tl")
   assertEqual "bridge target print" (Just "print!") (kernelBridgeTargetName "__kernel_print!")
@@ -137,6 +139,13 @@ overAppliedBuiltinExpr name =
               (EList [EInt 2])
           )
           (EInt 3)
+      "filter" ->
+        EApply
+          ( EApply
+              (EApply (EVar "filter") (ESectionLeft (EInt 1) "<"))
+              (EList [EInt 2, EInt 3])
+          )
+          (EInt 4)
       "hd" ->
         EApply
           (EApply (EVar "hd") (EList [EInt 1]))

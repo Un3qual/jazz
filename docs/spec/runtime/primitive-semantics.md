@@ -28,6 +28,7 @@ Define backend-independent language semantics for primitive operations and value
 | `/` | `Num a => a -> a -> a` | Numeric division in selected numeric domain. | Compile-time type error on mismatched/non-numeric operands. |
 | `==` | `Eq a => a -> a -> Bool` | Strict, type-directed equality with no coercion. | Compile-time type error when operand types do not match. |
 | `map` | `(a -> b) -> [a] -> [b]` | Applies function to each element in order. | Compile-time type error when function/input list types mismatch. |
+| `filter` | `(a -> Bool) -> [a] -> [a]` | Keeps list elements whose predicate evaluates to `True`. | Compile-time type error when predicate/list types mismatch; fatal runtime diagnostic if predicate result is non-`Bool`. |
 | `hd` | `[a] -> a` | Returns first element of a non-empty list. | Fatal runtime diagnostic on empty list in v1. |
 | `tl` | `[a] -> [a]` | Returns tail of a non-empty list. | Fatal runtime diagnostic on empty list in v1. |
 | `print!` | `a -> a` (stub-v1 active behavior) | Evaluates argument in impure context and returns the value unchanged. | No additional runtime failure contract in v1 beyond normal argument evaluation. |
@@ -66,8 +67,10 @@ Invalid examples:
 
 1. `map` preserves list order.
 2. `map` is total for finite lists where function application terminates.
-3. `hd` and `tl` require non-empty lists.
-4. Empty-list `hd`/`tl` failures are fatal runtime diagnostics in v1.
+3. `filter` preserves input order of retained elements.
+4. `filter` requires predicate applications to evaluate to `Bool`.
+5. `hd` and `tl` require non-empty lists.
+6. Empty-list `hd`/`tl` failures are fatal runtime diagnostics in v1.
 
 ## Runtime Failure Model (v1)
 

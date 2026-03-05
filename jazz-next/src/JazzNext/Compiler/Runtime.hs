@@ -194,6 +194,21 @@ evalBuiltin builtinFunction arguments =
                 ( "E3013: runtime primitive 'map' expects a list as its second argument, found "
                     <> renderRuntimeType other
                 )
+    (BuiltinFilter, [predicate, collection])
+      | not (isFunctionValue predicate) ->
+          Left
+            ( "E3017: runtime primitive 'filter' expects a function as its first argument, found "
+                <> renderRuntimeType predicate
+            )
+      | otherwise ->
+          case collection of
+            VList elements ->
+              VList <$> filterElements predicate elements
+            other ->
+              Left
+                ( "E3018: runtime primitive 'filter' expects a list as its second argument, found "
+                    <> renderRuntimeType other
+                )
     -- Stub-v1 keeps `print!` side effects out of runtime plumbing; it returns
     -- its evaluated argument so expression pipelines remain deterministic.
     (BuiltinPrint, [value]) ->
@@ -204,6 +219,24 @@ evalBuiltin builtinFunction arguments =
             <> builtinSymbolName builtinFunction
             <> "' received invalid arguments"
         )
+
+filterElements :: RuntimeValue -> [RuntimeValue] -> Either Text [RuntimeValue]
+filterElements predicate values = do
+  results <- mapM applyPredicate values
+  pure [value | (value, True) <- results]
+  where
+    -- Preserve runtime safety for partially-known function values that can slip
+    -- past compile-time checks in direct `evaluateRuntimeExpr` tests.
+    applyPredicate :: RuntimeValue -> Either Text (RuntimeValue, Bool)
+    applyPredicate value = do
+      predicateResult <- applyRuntimeFunction predicate value
+      case predicateResult of
+        VBool shouldKeep -> Right (value, shouldKeep)
+        other ->
+          Left
+            ( "E3019: runtime primitive 'filter' predicate must return Bool, found "
+                <> renderRuntimeType other
+            )
 
 isFunctionValue :: RuntimeValue -> Bool
 isFunctionValue value =

@@ -412,7 +412,7 @@ Based on the full repo, these areas still require implementation convergence eve
   - `docs/spec/syntax/operators.md`
   - `jazz-next/test/OperatorFixitySpec.hs`
   - `jazz-next/test/OperatorSectionSpec.hs`
-- Extending primitive semantics coverage beyond the implemented v1 runtime/type subset (`+`, `-`, `*`, `/`, `==`, `!=`, `map`, `hd`, `tl`, `print!`) as the runtime surface expands:
+- Extending primitive semantics coverage beyond the implemented v1 runtime/type subset (`+`, `-`, `*`, `/`, `==`, `!=`, `map`, `filter`, `hd`, `tl`, `print!`) as the runtime surface expands:
   - `docs/spec/runtime/primitive-semantics.md`
   - `jazz-next/test/PrimitiveSemanticsSpec.hs`
   - `jazz-next/test/RuntimeSemanticsSpec.hs`
@@ -420,7 +420,7 @@ Based on the full repo, these areas still require implementation convergence eve
   - `docs/spec/tooling/compiler-warning-flags.md`
 - Whether tuples are a core runtime feature or just parsed syntax in active implementation behavior.
 - Module/import loading semantics are partially implemented in `jazz-next` (`--entry-module` + deterministic resolver diagnostics), but qualified-import binding/collision semantics are still unresolved.
-- Standard-library boundary migration remains in progress: ownership contract is now documented in `docs/spec/stdlib-boundary.md` and `jazz-next` supports guarded prelude loading, but `map`/`hd`/`tl`/`print!` are still kernel-owned in the active runtime subset.
+- Standard-library boundary migration remains in progress: ownership contract is now documented in `docs/spec/stdlib-boundary.md` and `jazz-next` supports guarded prelude loading, but `map`/`filter`/`hd`/`tl`/`print!` are still kernel-owned in the active runtime subset.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
 - Whether the eventual target is JavaScript, LLVM, or both.
 
@@ -438,7 +438,7 @@ If you need a practical baseline for continuing Jazz, use this order:
    - application and list literals
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
    - built-in operator fixity plus executable left/right section semantics
-   - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, `map`, `hd`, `tl`, `print!`
+   - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, `map`, `filter`, `hd`, `tl`, `print!`
    - runtime execution via `--run` CLI mode plus compile-mode placeholder codegen output
 
 ## Hybrid Semantic-Change Workflow
