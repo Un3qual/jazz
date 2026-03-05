@@ -2,7 +2,7 @@
 
 This is the canonical status matrix for top-level language claims. The top-level [README](../README.md) is a short summary, while this file is the source of truth for implemented-vs-planned status.
 
-Last verified against commit: `f21c502dc499817a483e0febd4059a0da36ec811`
+Last verified against commit: `c6301291c7431af47a1c65fa3ff53e9a89719ada`
 
 ## Status Rubric
 
@@ -24,7 +24,7 @@ Last verified against commit: `f21c502dc499817a483e0febd4059a0da36ec811`
 | Functions are curried by default   | `Implemented Today`                  | Legacy references: Application is left-associative by juxtaposition and builtins are curried in `jazz-hs/src/Types.hs` and `jazz-hs/src/CodeGen/Javascript.hs`. No `jazz-next/` codegen equivalent yet.                         |
 | Pattern matching                   | `Partially Implemented / Parse-Only` | Pattern syntax and `case` parse support exists, but type inference/codegen coverage is incomplete per `docs/jazz-language-state.md`.                                 |
 | Tuples                             | `Partially Implemented / Parse-Only` | Legacy reference: Tuple literals parse/infer, but JS codegen errors on tuples (`docs/jazz-language-state.md`, `jazz-hs/src/CodeGen/Javascript.hs`). No `jazz-next/` codegen equivalent yet.                                    |
-| Module/import syntax               | `Partially Implemented / Parse-Only` | Legacy reference: Parser accepts `module`/`import` forms in `jazz-hs/src/Parser/Lang.hs`, but real module loading is not finalized (`docs/jazz-language-state.md`). No `jazz-next/` parser equivalent yet.                    |
+| Module/import syntax               | `Partially Implemented / Parse-Only` | `jazz-next` parses/lowers module/import statements and supports deterministic module-graph loading diagnostics (`jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`, `jazz-next/src/JazzNext/CLI/Main.hs`), but qualified-import name binding semantics are not yet finalized as canonical language behavior. |
 | Purity marker (`!`) is enforced    | `Planned / Aspirational`             | `README.md` describes purity semantics, but `docs/jazz-language-state.md` states there is no purity/effect enforcement in `jazz-next/`.                                 |
 | `$` low-precedence application     | `Implemented Today`                  | `$` parsing/associativity is documented in `docs/jazz-language-state.md` and supported by parser/operator behavior; legacy reference in `jazz-hs`.                     |
 

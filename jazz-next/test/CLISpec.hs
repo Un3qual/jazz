@@ -43,6 +43,7 @@ tests =
     ("cli --run prints evaluated list primitive output", testCliRunModeListPrimitiveSuccess),
     ("cli --run with entry module loads module graph and ignores stdin", testCliRunModeModuleGraphSuccess),
     ("cli module graph compile reports resolver diagnostics", testCliModuleGraphCompileError),
+    ("cli module graph compile reports module declaration mismatch diagnostics", testCliModuleGraphDeclarationMismatch),
     ("cli --run composes explicit prelude source before user source", testCliRunModePreludeFromFlag),
     ("cli prelude load failures return argument/config error", testCliPreludeLoadFailure),
     ("cli prelude parse failures return compile diagnostics", testCliPreludeParseFailure),
@@ -208,6 +209,27 @@ testCliModuleGraphCompileError = do
   where
     envLookup _ = pure Nothing
     fileLookup key = pure (Map.lookup key (Map.fromList [("src/App/Main.jz", "import Missing::Thing.\n1.")]))
+
+testCliModuleGraphDeclarationMismatch :: IO ()
+testCliModuleGraphDeclarationMismatch = do
+  output <-
+    runCliWith
+      ["--entry-module", "App::Main", "--module-root", "src"]
+      envLookup
+      fileLookup
+      (pure "ignored = 1.")
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "module declaration mismatch code" "E4006" (cliStderr output)
+  assertContains "module declaration mismatch details" "Wrong::Name" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    fileLookup key =
+      pure
+        ( Map.lookup
+            key
+            (Map.fromList [("src/App/Main.jz", "module Wrong::Name.\n1.")])
+        )
 
 testCliRunModePreludeFromFlag :: IO ()
 testCliRunModePreludeFromFlag = do

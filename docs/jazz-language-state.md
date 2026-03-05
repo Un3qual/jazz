@@ -405,7 +405,7 @@ Based on the full repo, these areas still require implementation convergence eve
 - Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding` category:
   - `docs/spec/tooling/compiler-warning-flags.md`
 - Whether tuples are a core runtime feature or just parsed syntax in active implementation behavior.
-- Whether modules/imports are purely syntactic organization or part of a real file/module loader.
+- Module/import loading semantics are partially implemented in `jazz-next` (`--entry-module` + deterministic resolver diagnostics), but qualified-import binding/collision semantics are still unresolved.
 - Standard-library boundary migration remains in progress: ownership contract is now documented in `docs/spec/stdlib-boundary.md` and `jazz-next` supports guarded prelude loading, but `map`/`hd`/`tl` are still kernel-owned in the active runtime subset.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
 - Whether the eventual target is JavaScript, LLVM, or both.

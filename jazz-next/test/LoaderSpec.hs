@@ -37,6 +37,7 @@ tests =
   [ ("compile module graph succeeds for resolvable entry module", testCompileModuleGraphSuccess),
     ("run module graph produces runtime output from entry module", testRunModuleGraphSuccess),
     ("compile module graph reports unresolved import diagnostics", testCompileModuleGraphUnresolved),
+    ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
     ("run module graph reports cycle diagnostics", testRunModuleGraphCycle),
     ("loader reuses memoized source lookup across resolve and replay", testMemoizedLookupReuse)
   ]
@@ -100,6 +101,29 @@ testCompileModuleGraphUnresolved = do
     sourceMap =
       Map.fromList
         [("src/App/Main.jz", "import Missing::Thing.\n1.")]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphModuleDeclarationMismatch :: IO ()
+testCompileModuleGraphModuleDeclarationMismatch = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  assertEqual "generated output" Nothing (generatedJs result)
+  case compileErrors result of
+    [err] -> do
+      assertContains "mismatch code" "E4006" err
+      assertContains "mismatch declared module" "Wrong::Name" err
+      assertContains "mismatch expected module" "App::Main" err
+    _ -> failTest "expected exactly one module declaration mismatch error"
+  where
+    sourceMap =
+      Map.fromList
+        [("src/App/Main.jz", "module Wrong::Name.\nmain = 1.")]
     lookupSource path = pure (Map.lookup path sourceMap)
 
 testRunModuleGraphCycle :: IO ()

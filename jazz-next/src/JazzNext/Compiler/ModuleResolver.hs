@@ -112,7 +112,7 @@ resolveModuleGraphWithLookup config loadSource entryModulePath
           case sourceResult of
             Left err -> pure (Left err)
             Right (sourcePath, sourceText) ->
-              case parseModuleImports sourcePath sourceText of
+              case parseModuleImports sourcePath modulePath sourceText of
                 Left err -> pure (Left err)
                 Right importPaths -> do
                   let nextStack = modulePath : callStack
@@ -197,8 +197,8 @@ modulePathToRelativeFileWithExt extension modulePath =
   where
     joinSegments segment acc = segment <> "/" <> acc
 
-parseModuleImports :: FilePath -> Text -> Either Text [[Text]]
-parseModuleImports sourcePath sourceText =
+parseModuleImports :: FilePath -> [Text] -> Text -> Either Text [[Text]]
+parseModuleImports sourcePath expectedModulePath sourceText =
   case parseSurfaceProgram sourceText of
     Left parseError ->
       Left
@@ -207,7 +207,8 @@ parseModuleImports sourcePath sourceText =
             <> "': "
             <> parseError
         )
-    Right surfaceExpr ->
+    Right surfaceExpr -> do
+      validateModuleDeclarations sourcePath expectedModulePath surfaceExpr
       Right (collectImports surfaceExpr)
 
 collectImports :: SurfaceExpr -> [[Text]]
@@ -216,6 +217,41 @@ collectImports surfaceExpr =
     SEScope statements ->
       [ modulePath
         | SSImport _ modulePath _ _ <- statements
+      ]
+    _ -> []
+
+validateModuleDeclarations :: FilePath -> [Text] -> SurfaceExpr -> Either Text ()
+validateModuleDeclarations sourcePath expectedModulePath surfaceExpr =
+  case collectModuleDeclarations surfaceExpr of
+    [] ->
+      Right ()
+    [declaredModulePath]
+      | declaredModulePath == expectedModulePath ->
+          Right ()
+      | otherwise ->
+          Left
+            ( "E4006: module declaration mismatch at '"
+                <> Text.pack sourcePath
+                <> "': expected '"
+                <> renderModulePath expectedModulePath
+                <> "', found '"
+                <> renderModulePath declaredModulePath
+                <> "'"
+            )
+    declaredModulePaths ->
+      Left
+        ( "E4005: multiple module declarations in '"
+            <> Text.pack sourcePath
+            <> "': "
+            <> Text.intercalate ", " (map renderModulePath declaredModulePaths)
+        )
+
+collectModuleDeclarations :: SurfaceExpr -> [[Text]]
+collectModuleDeclarations surfaceExpr =
+  case surfaceExpr of
+    SEScope statements ->
+      [ modulePath
+        | SSModule _ modulePath <- statements
       ]
     _ -> []
 
