@@ -20,6 +20,7 @@ Define the currently enforced purity contract for `!`-suffixed names in the acti
 3. A pure binding body cannot directly call a known impure callee.
 4. An impure binding body may call pure or impure callees.
 5. Top-level expression statements remain permissive so entry expressions may call impure names.
+6. Shared builtin catalog entries with `!` suffix (currently `print!`) participate in the same impure-callee checks.
 
 ## Current Enforcement Scope
 

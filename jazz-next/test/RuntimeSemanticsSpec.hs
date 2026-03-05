@@ -47,6 +47,7 @@ tests =
     ("runtime fallback rejects tl on non-list values", testRuntimeFallbackRejectsTlNonList),
     ("runtime fallback rejects map with non-function mapper", testRuntimeFallbackRejectsMapNonFunctionMapper),
     ("runtime fallback rejects map with non-list collection", testRuntimeFallbackRejectsMapNonListCollection),
+    ("print! returns evaluated argument value", testPrintBuiltinReturnsArgument),
     ("scope with only declarations has no runtime output", testDeclarationOnlyScopeHasNoOutput),
     ("scope result requires terminal expression", testScopeDeclarationAfterExprClearsResult)
   ]
@@ -169,6 +170,13 @@ testRuntimeFallbackRejectsMapNonListCollection :: IO ()
 testRuntimeFallbackRejectsMapNonListCollection = do
   let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "map") (EVar "hd")) (EInt 1)))
   assertRuntimeErrorContains "runtime fallback map collection" "E3013" result
+
+testPrintBuiltinReturnsArgument :: IO ()
+testPrintBuiltinReturnsArgument = do
+  result <- runSource defaultWarningSettings "print! 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1") (runOutput result)
 
 testDeclarationOnlyScopeHasNoOutput :: IO ()
 testDeclarationOnlyScopeHasNoOutput = do

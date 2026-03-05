@@ -59,7 +59,8 @@ expectedBuiltins :: [(BuiltinSymbol, Text, Int)]
 expectedBuiltins =
   [ (BuiltinMap, "map", 2),
     (BuiltinHd, "hd", 1),
-    (BuiltinTl, "tl", 1)
+    (BuiltinTl, "tl", 1),
+    (BuiltinPrint, "print!", 1)
   ]
 
 testCatalogRoundTripsBuiltinNames :: IO ()
@@ -86,6 +87,7 @@ testKernelBridgeTargetName = do
   assertEqual "bridge target map" (Just "map") (kernelBridgeTargetName "__kernel_map")
   assertEqual "bridge target hd" (Just "hd") (kernelBridgeTargetName "__kernel_hd")
   assertEqual "bridge target tl" (Just "tl") (kernelBridgeTargetName "__kernel_tl")
+  assertEqual "bridge target print" (Just "print!") (kernelBridgeTargetName "__kernel_print!")
   assertEqual "bridge target missing suffix" Nothing (kernelBridgeTargetName "__kernel_")
   assertEqual "non-bridge binding ignored" Nothing (kernelBridgeTargetName "map")
 
@@ -143,6 +145,10 @@ overAppliedBuiltinExpr name =
         EApply
           (EApply (EVar "tl") (EList [EInt 1, EInt 2]))
           (EInt 3)
+      "print!" ->
+        EApply
+          (EApply (EVar "print!") (EInt 1))
+          (EInt 2)
       _ -> EApply (EVar name) (EInt 1)
 
 runtimeExpr :: Expr -> Expr

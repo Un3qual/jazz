@@ -30,7 +30,7 @@ Define backend-independent language semantics for primitive operations and value
 | `map` | `(a -> b) -> [a] -> [b]` | Applies function to each element in order. | Compile-time type error when function/input list types mismatch. |
 | `hd` | `[a] -> a` | Returns first element of a non-empty list. | Fatal runtime diagnostic on empty list in v1. |
 | `tl` | `[a] -> [a]` | Returns tail of a non-empty list. | Fatal runtime diagnostic on empty list in v1. |
-| `print!` | `a -> String` (legacy behavior) | Emits textual representation to output stream. | Fatal runtime diagnostic for unsupported runtime values in v1. |
+| `print!` | `a -> a` (stub-v1 active behavior) | Evaluates argument in impure context and returns the value unchanged. | No additional runtime failure contract in v1 beyond normal argument evaluation. |
 
 ## Equality Contract
 

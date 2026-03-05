@@ -12,7 +12,7 @@
 - [x] Started execution with item #1 task #2 (authoritative syntax decision record)
 - [ ] Execute plans (future work)
 
-## Item Status (Verified Unresolved)
+## Item Status At Plan Creation (Verified Unresolved)
 
 1. [x] Authoritative syntax for functions/modules/traits/collections is not finalized
 2. [x] `map`/`filter` argument order is not finalized
@@ -20,6 +20,12 @@
 4. [x] Canonical abstraction keyword (`trait` vs `class`) is not finalized
 5. [x] Top-level docs do not cleanly separate implemented vs planned
 6. [x] Parse-only feature handling (`remove` vs `fully implement`) is not finalized
+
+## Resolution Updates Since Plan Creation
+
+- [x] Item #3 (`!` purity semantics) is now implemented in active `jazz-next` with stub-v1 enforcement and documented contract:
+  - `docs/spec/semantics/purity-bang-stub-v1.md`
+  - `docs/plans/spec-cleanup/2026-03-02/decisions/03-purity-bang-semantics.md`
 
 ## Locked Decisions (Approved 2026-03-02)
 
