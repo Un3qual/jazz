@@ -190,7 +190,7 @@ parseModulePath tokens =
                     ( "expected module path segment at "
                         <> renderSourceSpan (tokenSpan separatorToken)
                         <> ", found '"
-                        <> tokenLexeme separatorToken
+                        <> tokenLexeme token
                         <> "'"
                     )
               | otherwise ->
