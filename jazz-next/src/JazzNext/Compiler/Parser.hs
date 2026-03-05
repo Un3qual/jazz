@@ -113,15 +113,22 @@ parseImportTail importToken modulePath tokensAfterModulePath =
     Token {tokenKind = TAs} : rest ->
       case rest of
         aliasToken@(Token {tokenKind = TIdentifier aliasName}) : afterAlias -> do
-          remaining <- consumeDot afterAlias
-          pure
-            ( SSImport
-                (tokenSpan importToken)
-                modulePath
-                (Just aliasName)
-                Nothing,
-              remaining
-            )
+          case afterAlias of
+            Token {tokenKind = TLParen} : _ ->
+              Left
+                ( "cannot combine import alias and symbol list at "
+                    <> renderSourceSpan (tokenSpan aliasToken)
+                )
+            _ -> do
+              remaining <- consumeDot afterAlias
+              pure
+                ( SSImport
+                    (tokenSpan importToken)
+                    modulePath
+                    (Just aliasName)
+                    Nothing,
+                  remaining
+                )
         [] ->
           Left
             ( "expected import alias before end of input after 'as' at "

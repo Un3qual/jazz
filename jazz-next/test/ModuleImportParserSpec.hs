@@ -37,7 +37,8 @@ tests =
     ("parses import statement with symbol list", testParsesImportSymbolList),
     ("lowers module and import statements into core AST", testLowersModuleImportStatements),
     ("rejects module statement with missing path", testRejectsModuleMissingPath),
-    ("rejects import statement with empty symbol list", testRejectsImportEmptySymbolList)
+    ("rejects import statement with empty symbol list", testRejectsImportEmptySymbolList),
+    ("rejects import statement with alias and symbol list together", testRejectsImportAliasWithSymbolList)
   ]
 
 testParsesModuleDeclaration :: IO ()
@@ -110,3 +111,10 @@ testRejectsImportEmptySymbolList =
     "import empty symbol list error"
     "expected at least one import symbol"
     (parseSurfaceProgram "import Std::List ().")
+
+testRejectsImportAliasWithSymbolList :: IO ()
+testRejectsImportAliasWithSymbolList =
+  assertLeftContains
+    "import alias+symbol list error"
+    "cannot combine import alias and symbol list"
+    (parseSurfaceProgram "import Std::List as List (map).")
