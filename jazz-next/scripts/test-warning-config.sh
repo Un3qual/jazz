@@ -18,6 +18,8 @@ TEST_FILES=(
   jazz-next/test/IfExpressionParserSpec.hs
   jazz-next/test/IfExpressionTypeSpec.hs
   jazz-next/test/ModuleImportParserSpec.hs
+  jazz-next/test/ModuleResolutionSpec.hs
+  jazz-next/test/LoaderSpec.hs
   jazz-next/test/PrimitiveSemanticsSpec.hs
   jazz-next/test/RuntimeSemanticsSpec.hs
   jazz-next/test/PreludeLoadingSpec.hs
