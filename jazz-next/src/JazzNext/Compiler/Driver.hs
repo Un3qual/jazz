@@ -5,10 +5,12 @@ module JazzNext.Compiler.Driver
     compileExpr,
     compileSource,
     compileSourceWithPrelude,
+    compileModuleGraphWithPrelude,
     RunResult (..),
     runExpr,
     runSource,
-    runSourceWithPrelude
+    runSourceWithPrelude,
+    runModuleGraphWithPrelude
   ) where
 
 import Data.Text (Text)
@@ -18,6 +20,11 @@ import JazzNext.Compiler.AST
   )
 import JazzNext.Compiler.Diagnostics
   ( WarningRecord (..)
+  )
+import JazzNext.Compiler.ModuleResolver
+  ( ModuleResolutionConfig,
+    ResolvedModule (..),
+    resolveModuleGraphWithLookup
   )
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
@@ -95,6 +102,26 @@ compileSourceWithPrelude settings preludeSource source =
     Right loweredExpr ->
       compileExpr settings loweredExpr
 
+compileModuleGraphWithPrelude ::
+  WarningSettings ->
+  Maybe Text ->
+  ModuleResolutionConfig ->
+  [Text] ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO CompileResult
+compileModuleGraphWithPrelude settings preludeSource resolutionConfig entryModulePath sourceLookup = do
+  moduleGraphSourceResult <- loadModuleGraphSource resolutionConfig entryModulePath sourceLookup
+  case moduleGraphSourceResult of
+    Left resolutionError ->
+      pure
+        CompileResult
+          { compileWarnings = [],
+            compileErrors = [resolutionError],
+            generatedJs = Nothing
+          }
+    Right sourceText ->
+      compileSourceWithPrelude settings preludeSource sourceText
+
 runExpr :: WarningSettings -> Expr -> IO RunResult
 runExpr settings expr = do
   (warnings, compileErrors, canonicalExpr) <- analyzeWithWarnings settings expr
@@ -143,6 +170,27 @@ runSourceWithPrelude settings preludeSource source =
           }
     Right loweredExpr ->
       runExpr settings loweredExpr
+
+runModuleGraphWithPrelude ::
+  WarningSettings ->
+  Maybe Text ->
+  ModuleResolutionConfig ->
+  [Text] ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO RunResult
+runModuleGraphWithPrelude settings preludeSource resolutionConfig entryModulePath sourceLookup = do
+  moduleGraphSourceResult <- loadModuleGraphSource resolutionConfig entryModulePath sourceLookup
+  case moduleGraphSourceResult of
+    Left resolutionError ->
+      pure
+        RunResult
+          { runWarnings = [],
+            runCompileErrors = [resolutionError],
+            runRuntimeErrors = [],
+            runOutput = Nothing
+          }
+    Right sourceText ->
+      runSourceWithPrelude settings preludeSource sourceText
 
 analyzeWithWarnings :: WarningSettings -> Expr -> IO ([WarningRecord], [Text], Expr)
 analyzeWithWarnings settings expr = do
@@ -201,3 +249,47 @@ parseSurfaceWithErrorCode source =
       Left ("E0001: parse error: " <> parseError)
     Right surfaceProgram ->
       Right surfaceProgram
+
+loadModuleGraphSource ::
+  ModuleResolutionConfig ->
+  [Text] ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO (Either Text Text)
+loadModuleGraphSource resolutionConfig entryModulePath sourceLookup = do
+  resolutionResult <-
+    resolveModuleGraphWithLookup resolutionConfig sourceLookup entryModulePath
+  case resolutionResult of
+    Left resolutionError ->
+      pure (Left resolutionError)
+    Right resolvedModules -> do
+      sourceReplayResult <- replayResolvedSources resolvedModules sourceLookup
+      pure (fmap (Text.intercalate "\n") sourceReplayResult)
+
+replayResolvedSources ::
+  [ResolvedModule] ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO (Either Text [Text])
+replayResolvedSources resolvedModules sourceLookup =
+  go [] resolvedModules
+  where
+    go acc remainingModules =
+      case remainingModules of
+        [] -> pure (Right (reverse acc))
+        resolvedModule : rest -> do
+          maybeSource <- sourceLookup (resolvedSourcePath resolvedModule)
+          case maybeSource of
+            Nothing ->
+              pure
+                ( Left
+                    ( "E4001: unresolved import '"
+                        <> renderModulePath (resolvedModulePath resolvedModule)
+                        <> "'; expected source at '"
+                        <> Text.pack (resolvedSourcePath resolvedModule)
+                        <> "'"
+                    )
+                )
+            Just sourceText ->
+              go (sourceText : acc) rest
+
+renderModulePath :: [Text] -> Text
+renderModulePath segments = Text.intercalate "::" segments

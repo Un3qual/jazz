@@ -32,6 +32,7 @@ tests :: [NamedTest]
 tests =
   [ ("parseCliOptions captures warning flags and config path", testParseOptions),
     ("parseCliOptions captures run mode", testParseRunMode),
+    ("parseCliOptions captures entry module and module roots", testParseModuleGraphOptions),
     ("parseCliOptions captures prelude path", testParsePreludePath),
     ("parseCliOptions captures no-prelude switch", testParseNoPrelude),
     ("parseCliOptions rejects conflicting prelude switches", testParsePreludeConflict),
@@ -40,6 +41,8 @@ tests =
     ("cli --run prints evaluated runtime output", testCliRunModeSuccess),
     ("cli --run prints evaluated section runtime output", testCliRunModeSectionSuccess),
     ("cli --run prints evaluated list primitive output", testCliRunModeListPrimitiveSuccess),
+    ("cli --run with entry module loads module graph and ignores stdin", testCliRunModeModuleGraphSuccess),
+    ("cli module graph compile reports resolver diagnostics", testCliModuleGraphCompileError),
     ("cli --run composes explicit prelude source before user source", testCliRunModePreludeFromFlag),
     ("cli prelude load failures return argument/config error", testCliPreludeLoadFailure),
     ("cli prelude parse failures return compile diagnostics", testCliPreludeParseFailure),
@@ -75,6 +78,16 @@ testParseRunMode = do
   assertEqual "warning flags" [] (cliWarningFlags options)
   assertEqual "prelude path" Nothing (cliPreludePath options)
   assertEqual "prelude disabled" False (cliDisablePrelude options)
+
+testParseModuleGraphOptions :: IO ()
+testParseModuleGraphOptions = do
+  options <-
+    case parseCliOptions ["--run", "--entry-module", "App::Main", "--module-root", "src", "--module-root", "stdlib"] of
+      Left err -> failTest ("parseCliOptions failed: " <> err)
+      Right parsed -> pure parsed
+  assertEqual "run mode" True (cliRunMode options)
+  assertEqual "entry module" (Just ["App", "Main"]) (cliEntryModule options)
+  assertEqual "module roots" ["src", "stdlib"] (cliModuleRoots options)
 
 testParsePreludePath :: IO ()
 testParsePreludePath = do
@@ -153,6 +166,48 @@ testCliRunModeListPrimitiveSuccess = do
   where
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing
+
+testCliRunModeModuleGraphSuccess :: IO ()
+testCliRunModeModuleGraphSuccess = do
+  sourceRead <- newIORef False
+  output <-
+    runCliWith
+      ["--run", "--entry-module", "App::Main", "--module-root", "src"]
+      envLookup
+      fileLookup
+      (recordSourceRead sourceRead)
+  didRead <- readIORef sourceRead
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "runtime stdout" "1\n" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
+  assertEqual "stdin source is ignored in module mode" False didRead
+  where
+    envLookup _ = pure Nothing
+    fileLookup key =
+      pure
+        ( Map.lookup
+            key
+            ( Map.fromList
+                [ ("src/App/Main.jz", "import Lib::Util.\nutil."),
+                  ("src/Lib/Util.jz", "util = 1.")
+                ]
+            )
+        )
+
+testCliModuleGraphCompileError :: IO ()
+testCliModuleGraphCompileError = do
+  output <-
+    runCliWith
+      ["--entry-module", "App::Main", "--module-root", "src"]
+      envLookup
+      fileLookup
+      (pure "ignored = 1.")
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "resolver error code" "E4001" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    fileLookup key = pure (Map.lookup key (Map.fromList [("src/App/Main.jz", "import Missing::Thing.\n1.")]))
 
 testCliRunModePreludeFromFlag :: IO ()
 testCliRunModePreludeFromFlag = do

@@ -333,6 +333,21 @@ nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd .
 - [x] Added `ModuleResolutionSpec` to the default verification runner and re-ran full verification via `bash jazz-next/scripts/test-warning-config.sh`.
 - [x] Kept parser/analyzer/type/runtime statement semantics unchanged in this batch; resolver/loader integration into file-entry CLI flow remains pending follow-on work.
 
+## Implementation Status Verification (2026-03-05, Batch 3, `jazz-next`)
+
+- [x] Added module-graph resolver lookup integration in `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs` (`resolveModuleGraphWithLookup`) so resolver behavior can be exercised through file-path lookups in CLI/driver flows.
+- [x] Added driver module-graph entrypoints in `jazz-next/src/JazzNext/Compiler/Driver.hs`:
+  - `compileModuleGraphWithPrelude`
+  - `runModuleGraphWithPrelude`
+- [x] Added deterministic module-source replay after resolution so module-graph compile/run paths preserve dependency-first ordering.
+- [x] Added loader integration coverage in `jazz-next/test/LoaderSpec.hs` (compile success, run success, unresolved import diagnostics, cycle diagnostics, deterministic read order).
+- [x] Added CLI module-graph file-entry mode in `jazz-next/src/JazzNext/CLI/Main.hs` with:
+  - `--entry-module <A::B>` argument parsing + validation,
+  - repeatable `--module-root <path>` support,
+  - compile/run routing through module-graph driver entrypoints when `--entry-module` is present.
+- [x] Added CLI coverage in `jazz-next/test/CLISpec.hs` for module-graph parse/options behavior, resolver error surfacing, and stdin bypass in module mode.
+- [x] Added `LoaderSpec` to the default verification runner and re-ran full verification via `bash jazz-next/scripts/test-warning-config.sh`.
+
 ## Short Checkbox Summary
 
 - [x] Evidence of unresolved module/import semantics recorded with exact paths.

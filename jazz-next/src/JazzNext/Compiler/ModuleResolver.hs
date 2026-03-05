@@ -4,10 +4,17 @@ module JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
     ResolvedModule (..),
     modulePathToRelativeFile,
-    resolveModuleGraph
+    parseModulePathText,
+    resolveModuleGraph,
+    resolveModuleGraphWithLookup
   ) where
 
 import Control.Monad (foldM)
+import Data.Char (isAlpha, isAlphaNum)
+import Data.Functor.Identity
+  ( Identity (..),
+    runIdentity
+  )
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -40,86 +47,137 @@ data ResolvedModule = ResolvedModule
 modulePathToRelativeFile :: [Text] -> FilePath
 modulePathToRelativeFile = modulePathToRelativeFileWithExt ".jz"
 
+parseModulePathText :: Text -> Either Text [Text]
+parseModulePathText rawModulePath
+  | Text.null rawModulePath =
+      Left "entry module path cannot be empty"
+  | any Text.null segments =
+      Left
+        ( "invalid entry module path '"
+            <> rawModulePath
+            <> "': empty path segment"
+        )
+  | not (all isValidSegment segments) =
+      Left
+        ( "invalid entry module path '"
+            <> rawModulePath
+            <> "': segments must be identifiers"
+        )
+  | otherwise =
+      Right segments
+  where
+    segments = Text.splitOn "::" rawModulePath
+
+    isValidSegment :: Text -> Bool
+    isValidSegment segment =
+      case Text.uncons segment of
+        Nothing -> False
+        Just (firstChar, restChars) ->
+          isIdentifierStart firstChar && Text.all isIdentifierRest restChars
+
+    isIdentifierStart ch = isAlpha ch || ch == '_'
+    isIdentifierRest ch = isAlphaNum ch || ch == '_'
+
 resolveModuleGraph ::
   ModuleResolutionConfig ->
   Map FilePath Text ->
   [Text] ->
   Either Text [ResolvedModule]
 resolveModuleGraph config sources entryModulePath =
-  reverse . resolveModulesRev <$> visitModule [] Set.empty [] entryModulePath
+  runIdentity $
+    resolveModuleGraphWithLookup
+      config
+      (\path -> pure (Map.lookup path sources))
+      entryModulePath
+
+resolveModuleGraphWithLookup ::
+  Monad m =>
+  ModuleResolutionConfig ->
+  (FilePath -> m (Maybe Text)) ->
+  [Text] ->
+  m (Either Text [ResolvedModule])
+resolveModuleGraphWithLookup config loadSource entryModulePath =
+  fmap (fmap (reverse . resolveModulesRev)) (visitModule [] Set.empty [] entryModulePath)
   where
-    visitModule ::
-      [[Text]] ->
-      Set [Text] ->
-      [ResolvedModule] ->
-      [Text] ->
-      Either Text (Set [Text], [ResolvedModule])
     visitModule callStack resolvedSet resolvedRev modulePath
       | modulePath `Set.member` resolvedSet =
-          Right (resolvedSet, resolvedRev)
+          pure (Right (resolvedSet, resolvedRev))
       | modulePath `elem` callStack =
-          Left (mkCycleError modulePath callStack)
+          pure (Left (mkCycleError modulePath callStack))
       | otherwise = do
-          (sourcePath, sourceText) <- loadModuleSource callStack modulePath
-          importPaths <- parseModuleImports sourcePath sourceText
-          let nextStack = modulePath : callStack
-              sortedImports = sortModulePaths importPaths
-          (resolvedSetAfterDeps, resolvedAfterDeps) <-
-            foldM
-              (\(currentSet, currentRev) importPath -> visitModule nextStack currentSet currentRev importPath)
-              (resolvedSet, resolvedRev)
-              sortedImports
-          let resolvedModule =
-                ResolvedModule
-                  { resolvedModulePath = modulePath,
-                    resolvedSourcePath = sourcePath,
-                    resolvedImports = sortedImports
-                  }
-          Right
-            ( Set.insert modulePath resolvedSetAfterDeps,
-              resolvedModule : resolvedAfterDeps
-            )
+          sourceResult <- loadModuleSource callStack modulePath
+          case sourceResult of
+            Left err -> pure (Left err)
+            Right (sourcePath, sourceText) ->
+              case parseModuleImports sourcePath sourceText of
+                Left err -> pure (Left err)
+                Right importPaths -> do
+                  let nextStack = modulePath : callStack
+                      sortedImports = sortModulePaths importPaths
+                  resolvedDepsResult <-
+                    foldM
+                      (visitDependency nextStack)
+                      (Right (resolvedSet, resolvedRev))
+                      sortedImports
+                  pure $
+                    case resolvedDepsResult of
+                      Left err -> Left err
+                      Right (resolvedSetAfterDeps, resolvedAfterDeps) ->
+                        let resolvedModule =
+                              ResolvedModule
+                                { resolvedModulePath = modulePath,
+                                  resolvedSourcePath = sourcePath,
+                                  resolvedImports = sortedImports
+                                }
+                         in Right
+                              ( Set.insert modulePath resolvedSetAfterDeps,
+                                resolvedModule : resolvedAfterDeps
+                              )
 
     resolveModulesRev :: (Set [Text], [ResolvedModule]) -> [ResolvedModule]
     resolveModulesRev (_, resolvedRev) = resolvedRev
 
-    loadModuleSource :: [[Text]] -> [Text] -> Either Text (FilePath, Text)
-    loadModuleSource callStack modulePath =
-      case matchingCandidates of
-        [] ->
-          Left
-            ( "E4001: unresolved import '"
-                <> renderModulePath modulePath
-                <> "'"
-                <> renderImporterContext callStack
-                <> "; looked in "
-                <> Text.intercalate ", " (map Text.pack candidatePaths)
-            )
-        [sourcePath] ->
-          case Map.lookup sourcePath sources of
-            Just sourceText -> Right (sourcePath, sourceText)
-            Nothing ->
-              Left
-                ( "E4001: unresolved import '"
-                    <> renderModulePath modulePath
-                    <> "'"
-                    <> renderImporterContext callStack
-                    <> "; looked in "
-                    <> Text.intercalate ", " (map Text.pack candidatePaths)
-                )
-        _ ->
-          Left
-            ( "E4002: ambiguous import '"
-                <> renderModulePath modulePath
-                <> "'"
-                <> renderImporterContext callStack
-                <> "; matched "
-                <> Text.intercalate ", " (map Text.pack matchingCandidates)
-            )
-      where
-        relativePath = modulePathToRelativeFileWithExt (moduleExtension config) modulePath
-        candidatePaths = map (appendRelativePath relativePath) (moduleRoots config)
-        matchingCandidates = filter (`Map.member` sources) candidatePaths
+    visitDependency nextStack accumulator importPath =
+      case accumulator of
+        Left err -> pure (Left err)
+        Right (currentSet, currentRev) ->
+          visitModule nextStack currentSet currentRev importPath
+
+    loadModuleSource callStack modulePath = do
+      let relativePath = modulePathToRelativeFileWithExt (moduleExtension config) modulePath
+          candidatePaths = map (appendRelativePath relativePath) (moduleRoots config)
+      candidatesWithContents <-
+        mapM
+          (\candidatePath -> do
+             sourceText <- loadSource candidatePath
+             pure (candidatePath, sourceText))
+          candidatePaths
+      let matchingCandidates =
+            [ (candidatePath, sourceText)
+              | (candidatePath, Just sourceText) <- candidatesWithContents
+            ]
+      pure $
+        case matchingCandidates of
+          [] ->
+            Left
+              ( "E4001: unresolved import '"
+                  <> renderModulePath modulePath
+                  <> "'"
+                  <> renderImporterContext callStack
+                  <> "; looked in "
+                  <> Text.intercalate ", " (map Text.pack candidatePaths)
+              )
+          [(sourcePath, sourceText)] ->
+            Right (sourcePath, sourceText)
+          _ ->
+            Left
+              ( "E4002: ambiguous import '"
+                  <> renderModulePath modulePath
+                  <> "'"
+                  <> renderImporterContext callStack
+                  <> "; matched "
+                  <> Text.intercalate ", " (map (Text.pack . fst) matchingCandidates)
+              )
 
 appendRelativePath :: FilePath -> FilePath -> FilePath
 appendRelativePath relativePath root

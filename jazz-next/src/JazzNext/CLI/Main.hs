@@ -22,8 +22,14 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     RunResult (..),
+    compileModuleGraphWithPrelude,
     compileSourceWithPrelude,
+    runModuleGraphWithPrelude,
     runSourceWithPrelude
+  )
+import JazzNext.Compiler.ModuleResolver
+  ( ModuleResolutionConfig (..),
+    parseModulePathText
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -41,7 +47,9 @@ data CliOptions = CliOptions
     cliWarningsConfigPath :: Maybe FilePath,
     cliRunMode :: Bool,
     cliPreludePath :: Maybe FilePath,
-    cliDisablePrelude :: Bool
+    cliDisablePrelude :: Bool,
+    cliEntryModule :: Maybe [Text],
+    cliModuleRoots :: [FilePath]
   }
   deriving (Eq, Show)
 
@@ -55,14 +63,22 @@ data CliOutput = CliOutput
 -- Parse currently supported warning and prelude-loading flags.
 parseCliOptions :: [String] -> Either Text CliOptions
 parseCliOptions args = do
-  options <- go (CliOptions [] Nothing False Nothing False) args
+  options <- go (CliOptions [] Nothing False Nothing False Nothing []) args
   finalize options
   where
     finalize options
       | cliDisablePrelude options && isJust (cliPreludePath options) =
           Left "cannot combine --prelude with --no-prelude"
-      | otherwise =
+      | null (cliModuleRoots options) =
           Right options {cliWarningFlags = reverse (cliWarningFlags options)}
+      | isJust (cliEntryModule options) =
+          Right
+            options
+              { cliWarningFlags = reverse (cliWarningFlags options),
+                cliModuleRoots = reverse (cliModuleRoots options)
+              }
+      | otherwise =
+          Left "cannot use --module-root without --entry-module"
     go options [] = Right options
     go options ("--warnings-config" : path : rest) =
       go options {cliWarningsConfigPath = Just path} rest
@@ -76,6 +92,18 @@ parseCliOptions args = do
       go options {cliDisablePrelude = True} rest
     go options ("--run" : rest) =
       go options {cliRunMode = True} rest
+    go options ("--entry-module" : modulePathText : rest) =
+      case parseModulePathText (Text.pack modulePathText) of
+        Left err ->
+          Left err
+        Right modulePath ->
+          go options {cliEntryModule = Just modulePath} rest
+    go _ ("--entry-module" : []) =
+      Left "missing module path after --entry-module"
+    go options ("--module-root" : moduleRoot : rest) =
+      go options {cliModuleRoots = moduleRoot : cliModuleRoots options} rest
+    go _ ("--module-root" : []) =
+      Left "missing path after --module-root"
     go options (arg : rest)
       | "-W" `isPrefixOf` arg =
           go options {cliWarningFlags = Text.pack arg : cliWarningFlags options} rest
@@ -117,10 +145,16 @@ runCliWith args envLookup configLookup loadSource =
                     cliStderr = "error: " <> preludeError <> "\n"
                   }
             Right preludeSource -> do
-              source <- loadSource
-              if cliRunMode options
-                then runExecute settings preludeSource source
-                else runCompile settings preludeSource source
+              case cliEntryModule options of
+                Just entryModulePath ->
+                  if cliRunMode options
+                    then runExecuteModuleGraph settings options preludeSource entryModulePath configLookup
+                    else runCompileModuleGraph settings options preludeSource entryModulePath configLookup
+                Nothing -> do
+                  source <- loadSource
+                  if cliRunMode options
+                    then runExecute settings preludeSource source
+                    else runCompile settings preludeSource source
 
 main :: IO ()
 main = do
@@ -222,6 +256,83 @@ runExecute settings preludeSource source = do
         cliStdout = stdoutOutput,
         cliStderr = stderrOutput
       }
+
+runCompileModuleGraph ::
+  WarningSettings ->
+  CliOptions ->
+  Maybe Text ->
+  [Text] ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO CliOutput
+runCompileModuleGraph settings options preludeSource entryModulePath sourceLookup = do
+  result <-
+    compileModuleGraphWithPrelude
+      settings
+      preludeSource
+      (cliModuleConfig options)
+      entryModulePath
+      sourceLookup
+  let warningLines = map formatWarningLine (compileWarnings result)
+      errorLines = map ("error: " <>) (compileErrors result)
+      stderrOutput = renderLines (warningLines ++ errorLines)
+      stdoutOutput =
+        case generatedJs result of
+          Just js -> js <> "\n"
+          Nothing -> ""
+      exitCode =
+        if null (compileErrors result)
+          then 0
+          else 1
+  pure
+    CliOutput
+      { cliExitCode = exitCode,
+        cliStdout = stdoutOutput,
+        cliStderr = stderrOutput
+      }
+
+runExecuteModuleGraph ::
+  WarningSettings ->
+  CliOptions ->
+  Maybe Text ->
+  [Text] ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO CliOutput
+runExecuteModuleGraph settings options preludeSource entryModulePath sourceLookup = do
+  result <-
+    runModuleGraphWithPrelude
+      settings
+      preludeSource
+      (cliModuleConfig options)
+      entryModulePath
+      sourceLookup
+  let warningLines = map formatWarningLine (runWarnings result)
+      compileErrorLines = map ("error: " <>) (runCompileErrors result)
+      runtimeErrorLines = map ("error: " <>) (runRuntimeErrors result)
+      stderrOutput = renderLines (warningLines ++ compileErrorLines ++ runtimeErrorLines)
+      stdoutOutput =
+        case runOutput result of
+          Just value -> value <> "\n"
+          Nothing -> ""
+      exitCode =
+        if null (runCompileErrors result) && null (runRuntimeErrors result)
+          then 0
+          else 1
+  pure
+    CliOutput
+      { cliExitCode = exitCode,
+        cliStdout = stdoutOutput,
+        cliStderr = stderrOutput
+      }
+
+cliModuleConfig :: CliOptions -> ModuleResolutionConfig
+cliModuleConfig options =
+  ModuleResolutionConfig
+    { moduleRoots =
+        case cliModuleRoots options of
+          [] -> ["."]
+          roots -> roots,
+      moduleExtension = ".jz"
+    }
 
 formatWarningLine :: WarningRecord -> Text
 formatWarningLine warning =
