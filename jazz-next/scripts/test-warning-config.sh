@@ -14,6 +14,7 @@ TEST_FILES=(
   jazz-next/test/RebindingWarningSpec.hs
   jazz-next/test/CLISpec.hs
   jazz-next/test/BindingSignatureCoherenceSpec.hs
+  jazz-next/test/PuritySemanticsSpec.hs
   jazz-next/test/ParserFoundationSpec.hs
   jazz-next/test/IfExpressionParserSpec.hs
   jazz-next/test/IfExpressionTypeSpec.hs

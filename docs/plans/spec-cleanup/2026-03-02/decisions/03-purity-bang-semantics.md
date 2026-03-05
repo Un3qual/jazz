@@ -6,7 +6,7 @@
 
 **Architecture:** Ship a strict, name-driven purity checker now (minimal enforcement surface), then keep extension points for a later full effect system. Enforce in analyzer; do not rely on runtime behavior.
 
-**Tech Stack:** Haskell (`jazz-hs` parser/analyzer/codegen/tests), Markdown docs, Stack, Nix shell.
+**Tech Stack:** Haskell (`jazz-next` parser/analyzer/runtime/tests), Markdown docs, Stack, Nix shell.
 
 ---
 
@@ -14,10 +14,21 @@
 
 - [x] Decision lock recorded from maintainer approval (2026-03-02)
 - [ ] Phase 0 complete: baseline + Nix verification
-- [ ] Phase 1 complete: failing tests for stub purity rules
-- [ ] Phase 2 complete: analyzer-level stub enforcement implemented
-- [ ] Phase 3 complete: docs/spec updated to match enforced behavior
+- [x] Phase 1 complete: failing tests for stub purity rules (`jazz-next`)
+- [x] Phase 2 complete: analyzer-level stub enforcement implemented (`jazz-next`)
+- [x] Phase 3 complete: docs/spec updated to match enforced behavior
 - [ ] Phase 4 complete: reproducible verification + cleanup closure
+
+## 2026-03-05 `jazz-next` Execution Batch
+
+- [x] Re-verified baseline behavior before changes with `bash jazz-next/scripts/test-warning-config.sh`.
+- [x] Added failing purity regression tests first in `jazz-next/test/PuritySemanticsSpec.hs`.
+- [x] Implemented stub-v1 purity helpers and analyzer enforcement in:
+  - `jazz-next/src/JazzNext/Compiler/Purity.hs`
+  - `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- [x] Added purity suite to default verification runner (`jazz-next/scripts/test-warning-config.sh`).
+- [x] Updated status/spec docs to reflect implemented stub-v1 scope and limitations.
+- [x] Re-ran full `jazz-next` verification after implementation.
 
 ## Verification Evidence (Item Is Still Unfinished)
 
@@ -54,16 +65,16 @@ These rules are the required behavior for item #3 completion:
 ## Concrete Files To Modify During Execution
 
 Likely modify:
-- `jazz-hs/src/Analyzer/TypeInference.hs`
-- `jazz-hs/src/Types.hs`
-- `jazz-hs/src/Errors.hs` (if introducing dedicated purity diagnostics)
-- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
-- `jazz-hs/test/ParserSpec.hs` (only if parser-level coverage is added for `!` naming assumptions)
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/Purity.hs`
+- `jazz-next/test/PuritySemanticsSpec.hs`
+- `jazz-next/scripts/test-warning-config.sh`
 - `README.md`
 - `docs/jazz-language-state.md`
+- `docs/feature-status.md`
 
 Optional create:
-- `docs/spec/purity-semantics.md`
+- `docs/spec/semantics/purity-bang-stub-v1.md`
 
 ## Phase 0: Baseline and Nix Reproducibility
 

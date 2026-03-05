@@ -29,6 +29,11 @@ import JazzNext.Compiler.Diagnostics
     renderSourceSpan,
     sortWarnings
   )
+import JazzNext.Compiler.Purity
+  ( Purity (..),
+    isImpureName,
+    namePurity
+  )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
     isWarningEnabled
@@ -44,6 +49,11 @@ data AnalysisResult = AnalysisResult
   }
   deriving (Eq, Show)
 
+data AnalysisContext = AnalysisContext
+  { contextLabel :: Text,
+    contextAllowsImpureCalls :: Bool
+  }
+
 -- Entry point for the current analyzer slice:
 -- - unbound variable diagnostics
 -- - signature adjacency/name diagnostics
@@ -51,7 +61,7 @@ data AnalysisResult = AnalysisResult
 -- - recursive-group visibility for self/mutual recursion
 analyzeProgram :: WarningSettings -> Expr -> IO AnalysisResult
 analyzeProgram settings expr =
-  let (warnings, errors) = collectExprDiagnostics settings Map.empty expr
+  let (warnings, errors) = collectExprDiagnostics settings Map.empty topLevelContext expr
    in
     pure
       AnalysisResult
@@ -66,9 +76,10 @@ analyzeRebindingWarnings settings expr = analysisWarnings <$> analyzeProgram set
 collectExprDiagnostics ::
   WarningSettings ->
   Map Text SourceSpan ->
+  AnalysisContext ->
   Expr ->
   ([WarningRecord], [Text])
-collectExprDiagnostics settings visibleBindings expr =
+collectExprDiagnostics settings visibleBindings context expr =
   case expr of
     EInt _ -> ([], [])
     EBool _ -> ([], [])
@@ -79,48 +90,55 @@ collectExprDiagnostics settings visibleBindings expr =
           | isBuiltinSymbolName name -> ([], [])
           | otherwise -> ([], [mkUnboundVariableError name])
     EList elements ->
-      collectExprListDiagnostics settings visibleBindings elements
+      collectExprListDiagnostics settings visibleBindings context elements
     EApply functionExpr argumentExpr ->
       let (functionWarnings, functionErrors) =
-            collectExprDiagnostics settings visibleBindings functionExpr
+            collectExprDiagnostics settings visibleBindings context functionExpr
           (argumentWarnings, argumentErrors) =
-            collectExprDiagnostics settings visibleBindings argumentExpr
+            collectExprDiagnostics settings visibleBindings context argumentExpr
+          purityErrors =
+            case functionExpr of
+              EVar calleeName
+                | shouldRejectImpureCall visibleBindings context calleeName ->
+                    [mkImpureCallInPureContextError context calleeName (Map.lookup calleeName visibleBindings)]
+              _ -> []
        in
         ( functionWarnings ++ argumentWarnings,
-          functionErrors ++ argumentErrors
+          functionErrors ++ argumentErrors ++ purityErrors
         )
     EIf conditionExpr thenExpr elseExpr ->
-      collectExprDiagnostics settings visibleBindings (ECase conditionExpr thenExpr elseExpr)
+      collectExprDiagnostics settings visibleBindings context (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr ->
       let (conditionWarnings, conditionErrors) =
-            collectExprDiagnostics settings visibleBindings conditionExpr
+            collectExprDiagnostics settings visibleBindings context conditionExpr
           (thenWarnings, thenErrors) =
-            collectExprDiagnostics settings visibleBindings thenExpr
+            collectExprDiagnostics settings visibleBindings context thenExpr
           (elseWarnings, elseErrors) =
-            collectExprDiagnostics settings visibleBindings elseExpr
+            collectExprDiagnostics settings visibleBindings context elseExpr
        in
         ( conditionWarnings ++ thenWarnings ++ elseWarnings,
           conditionErrors ++ thenErrors ++ elseErrors
         )
     EBinary _ leftExpr rightExpr ->
       let (leftWarnings, leftErrors) =
-            collectExprDiagnostics settings visibleBindings leftExpr
+            collectExprDiagnostics settings visibleBindings context leftExpr
           (rightWarnings, rightErrors) =
-            collectExprDiagnostics settings visibleBindings rightExpr
+            collectExprDiagnostics settings visibleBindings context rightExpr
        in
         (leftWarnings ++ rightWarnings, leftErrors ++ rightErrors)
     ESectionLeft leftExpr _ ->
-      collectExprDiagnostics settings visibleBindings leftExpr
+      collectExprDiagnostics settings visibleBindings context leftExpr
     ESectionRight _ rightExpr ->
-      collectExprDiagnostics settings visibleBindings rightExpr
-    EScope statements -> collectScopeDiagnostics settings visibleBindings statements
+      collectExprDiagnostics settings visibleBindings context rightExpr
+    EScope statements -> collectScopeDiagnostics settings visibleBindings context statements
 
 collectExprListDiagnostics ::
   WarningSettings ->
   Map Text SourceSpan ->
+  AnalysisContext ->
   [Expr] ->
   ([WarningRecord], [Text])
-collectExprListDiagnostics settings visibleBindings elements =
+collectExprListDiagnostics settings visibleBindings context elements =
   let (warningsRev, errorsRev) =
         foldl'
           step
@@ -130,16 +148,17 @@ collectExprListDiagnostics settings visibleBindings elements =
   where
     step (warningsRev, errorsRev) element =
       let (elementWarnings, elementErrors) =
-            collectExprDiagnostics settings visibleBindings element
+            collectExprDiagnostics settings visibleBindings context element
        in
         (elementWarnings : warningsRev, elementErrors : errorsRev)
 
 collectScopeDiagnostics ::
   WarningSettings ->
   Map Text SourceSpan ->
+  AnalysisContext ->
   [Statement] ->
   ([WarningRecord], [Text])
-collectScopeDiagnostics settings outerScope statements =
+collectScopeDiagnostics settings outerScope context statements =
   (reverse finalWarningsRev, reverse errorsWithFinalPending)
   where
     indexedStatements = zip [0 ..] statements
@@ -166,7 +185,7 @@ collectScopeDiagnostics settings outerScope statements =
           -- Any signature followed by a non-binding is invalid by contract.
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
               visible = currentVisibleBindings scopeBindings
-              (exprWarnings, exprErrors) = collectExprDiagnostics settings visible expr
+              (exprWarnings, exprErrors) = collectExprDiagnostics settings visible context expr
            in
             ( scopeBindings,
               Nothing,
@@ -226,7 +245,9 @@ collectScopeDiagnostics settings outerScope statements =
                 withRecursivePeerBindings
                   statementIndex
                   (currentVisibleBindings nextScope)
-              (valueWarnings, valueErrors) = collectExprDiagnostics settings visible valueExpr
+              bindingContext = contextForBinding bindingName
+              (valueWarnings, valueErrors) =
+                collectExprDiagnostics settings visible bindingContext valueExpr
               warningsWithValue = appendWarnings warningsRev valueWarnings
               errorsWithValue =
                 appendErrors (appendErrors errorsRev errorsFromSignature) valueErrors
@@ -302,6 +323,55 @@ mkMismatchedSignatureError signatureName signatureSpan bindingName =
     <> " must annotate the next binding with the same name; found '"
     <> bindingName
     <> "'"
+
+topLevelContext :: AnalysisContext
+topLevelContext =
+  -- Top-level expression statements stay permissive so program-entry
+  -- expression calls like `print! ...` remain valid in stub-v1 purity mode.
+  AnalysisContext
+    { contextLabel = "top-level expression",
+      contextAllowsImpureCalls = True
+    }
+
+contextForBinding :: Text -> AnalysisContext
+contextForBinding bindingName =
+  let purity = namePurity bindingName
+   in
+    AnalysisContext
+      { contextLabel = "binding '" <> bindingName <> "'",
+        contextAllowsImpureCalls = purity == Impure
+      }
+
+shouldRejectImpureCall ::
+  Map Text SourceSpan ->
+  AnalysisContext ->
+  Text ->
+  Bool
+shouldRejectImpureCall visibleBindings context calleeName =
+  not (contextAllowsImpureCalls context)
+    && isKnownImpureCallee
+  where
+    isKnownImpureCallee =
+      isImpureName calleeName
+        && (Map.member calleeName visibleBindings || isBuiltinSymbolName calleeName)
+
+mkImpureCallInPureContextError ::
+  AnalysisContext ->
+  Text ->
+  Maybe SourceSpan ->
+  Text
+mkImpureCallInPureContextError context calleeName maybeCalleeSpan =
+  "E1010: "
+    <> contextLabel context
+    <> " cannot call impure callee '"
+    <> calleeName
+    <> "'"
+    <> renderCalleeSpan maybeCalleeSpan
+  where
+    renderCalleeSpan maybeSpan =
+      case maybeSpan of
+        Nothing -> ""
+        Just spanValue -> " (callee declared at " <> renderSourceSpan spanValue <> ")"
 
 inferRecursiveGroups ::
   Map Text SourceSpan ->
