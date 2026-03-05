@@ -4,12 +4,15 @@ module JazzNext.Compiler.Driver
   ( CompileResult (..),
     compileExpr,
     compileSource,
+    compileSourceWithPrelude,
     RunResult (..),
     runExpr,
-    runSource
+    runSource,
+    runSourceWithPrelude
   ) where
 
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr
   )
@@ -19,8 +22,14 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
+import JazzNext.Compiler.Parser.AST
+  ( SurfaceExpr
+  )
 import JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr
+  )
+import JazzNext.Compiler.PreludeContract
+  ( validatePreludeKernelBridges
   )
 import JazzNext.Compiler.Runtime
   ( evaluateRuntimeExpr,
@@ -71,16 +80,20 @@ compileExpr settings expr = do
 
 compileSource :: WarningSettings -> Text -> IO CompileResult
 compileSource settings source =
-  case parseSurfaceProgram source of
-    Left parseError ->
+  compileSourceWithPrelude settings Nothing source
+
+compileSourceWithPrelude :: WarningSettings -> Maybe Text -> Text -> IO CompileResult
+compileSourceWithPrelude settings preludeSource source =
+  case parseAndLowerSource preludeSource source of
+    Left parseErrorCode ->
       pure
         CompileResult
           { compileWarnings = [],
-            compileErrors = ["E0001: parse error: " <> parseError],
+            compileErrors = [parseErrorCode],
             generatedJs = Nothing
           }
-    Right surfaceProgram ->
-      compileExpr settings (lowerSurfaceExpr surfaceProgram)
+    Right loweredExpr ->
+      compileExpr settings loweredExpr
 
 runExpr :: WarningSettings -> Expr -> IO RunResult
 runExpr settings expr = do
@@ -115,17 +128,21 @@ runExpr settings expr = do
 
 runSource :: WarningSettings -> Text -> IO RunResult
 runSource settings source =
-  case parseSurfaceProgram source of
-    Left parseError ->
+  runSourceWithPrelude settings Nothing source
+
+runSourceWithPrelude :: WarningSettings -> Maybe Text -> Text -> IO RunResult
+runSourceWithPrelude settings preludeSource source =
+  case parseAndLowerSource preludeSource source of
+    Left parseErrorCode ->
       pure
         RunResult
           { runWarnings = [],
-            runCompileErrors = ["E0001: parse error: " <> parseError],
+            runCompileErrors = [parseErrorCode],
             runRuntimeErrors = [],
             runOutput = Nothing
           }
-    Right surfaceProgram ->
-      runExpr settings (lowerSurfaceExpr surfaceProgram)
+    Right loweredExpr ->
+      runExpr settings loweredExpr
 
 analyzeWithWarnings :: WarningSettings -> Expr -> IO ([WarningRecord], [Text], Expr)
 analyzeWithWarnings settings expr = do
@@ -148,3 +165,39 @@ warningToError warning =
   warningCodeText warning
     <> ": "
     <> warningMessage warning
+
+parseAndLowerSource :: Maybe Text -> Text -> Either Text Expr
+parseAndLowerSource preludeSource source = do
+  validatePrelude preludeSource
+  surfaceProgram <- parseSurfaceWithErrorCode (composeSource preludeSource source)
+  pure (lowerSurfaceExpr surfaceProgram)
+
+validatePrelude :: Maybe Text -> Either Text ()
+validatePrelude preludeSource =
+  case preludeSource of
+    Nothing -> Right ()
+    Just preludeText ->
+      case parseSurfaceProgram preludeText of
+        Left parseError ->
+          Left ("E0002: prelude parse error: " <> parseError)
+        Right preludeSurfaceExpr ->
+          case validatePreludeKernelBridges (lowerSurfaceExpr preludeSurfaceExpr) of
+            [] -> Right ()
+            firstValidationError : _ -> Left firstValidationError
+
+composeSource :: Maybe Text -> Text -> Text
+composeSource preludeSource source =
+  case preludeSource of
+    Nothing -> source
+    Just preludeText ->
+      if Text.null source
+        then preludeText
+        else preludeText <> "\n" <> source
+
+parseSurfaceWithErrorCode :: Text -> Either Text SurfaceExpr
+parseSurfaceWithErrorCode source =
+  case parseSurfaceProgram source of
+    Left parseError ->
+      Left ("E0001: parse error: " <> parseError)
+    Right surfaceProgram ->
+      Right surfaceProgram

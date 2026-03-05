@@ -63,6 +63,10 @@ parseStatementsUntilBrace = go []
 parseStatement :: [Token] -> Either Text (SurfaceStatement, [Token])
 parseStatement tokens =
   case tokens of
+    moduleToken@(Token {tokenKind = TModule}) : rest ->
+      parseModuleStatement moduleToken rest
+    importToken@(Token {tokenKind = TImport}) : rest ->
+      parseImportStatement importToken rest
     -- Statement-level forms take precedence over expression parsing when the
     -- leading identifier is followed by declaration syntax.
     (nameToken : afterName@(Token {tokenKind = TColonColon} : _))
@@ -89,6 +93,177 @@ parseStatement tokens =
 
 isReservedLiteralName :: Text -> Bool
 isReservedLiteralName name = name == "True" || name == "False"
+
+parseModuleStatement :: Token -> [Token] -> Either Text (SurfaceStatement, [Token])
+parseModuleStatement moduleToken tokensAfterModuleKeyword = do
+  (modulePath, afterModulePath) <- parseModulePath tokensAfterModuleKeyword
+  remaining <- consumeDot afterModulePath
+  pure (SSModule (tokenSpan moduleToken) modulePath, remaining)
+
+parseImportStatement :: Token -> [Token] -> Either Text (SurfaceStatement, [Token])
+parseImportStatement importToken tokensAfterImportKeyword = do
+  (modulePath, afterModulePath) <- parseModulePath tokensAfterImportKeyword
+  parseImportTail importToken modulePath afterModulePath
+
+parseImportTail :: Token -> [Text] -> [Token] -> Either Text (SurfaceStatement, [Token])
+parseImportTail importToken modulePath tokensAfterModulePath =
+  case tokensAfterModulePath of
+    Token {tokenKind = TDot} : rest ->
+      pure (SSImport (tokenSpan importToken) modulePath Nothing Nothing, rest)
+    asToken@(Token {tokenKind = TAs}) : rest ->
+      case rest of
+        aliasToken@(Token {tokenKind = TIdentifier aliasName}) : afterAlias -> do
+          case afterAlias of
+            parenToken@(Token {tokenKind = TLParen}) : _ ->
+              Left
+                ( "cannot combine import alias and symbol list at "
+                    <> renderSourceSpan (tokenSpan parenToken)
+                )
+            _ -> do
+              remaining <- consumeDot afterAlias
+              pure
+                ( SSImport
+                    (tokenSpan importToken)
+                    modulePath
+                    (Just aliasName)
+                    Nothing,
+                  remaining
+                )
+        [] ->
+          Left
+            ( "expected import alias before end of input after 'as' at "
+                <> renderSourceSpan (tokenSpan asToken)
+            )
+        token : _ ->
+          Left
+            ( "expected import alias at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+    Token {tokenKind = TLParen} : rest -> do
+      (symbols, afterSymbols) <- parseImportSymbolList rest
+      case afterSymbols of
+        asToken@(Token {tokenKind = TAs}) : _ ->
+          Left
+            ( "cannot combine import alias and symbol list at "
+                <> renderSourceSpan (tokenSpan asToken)
+            )
+        _ -> do
+          remaining <- consumeDot afterSymbols
+          pure
+            ( SSImport
+                (tokenSpan importToken)
+                modulePath
+                Nothing
+                (Just symbols),
+              remaining
+            )
+    [] ->
+      Left
+        ( "expected '.', 'as', or '(' before end of input after import path at "
+            <> renderSourceSpan (tokenSpan importToken)
+        )
+    token : _ ->
+      Left
+        ( "expected '.', 'as', or '(' at "
+            <> renderSourceSpan (tokenSpan token)
+            <> ", found '"
+            <> tokenLexeme token
+            <> "'"
+        )
+
+parseModulePath :: [Token] -> Either Text ([Text], [Token])
+parseModulePath tokens =
+  case tokens of
+    [] -> Left "expected module path before end of input"
+    Token {tokenKind = TIdentifier firstSegment} : rest ->
+      go [firstSegment] rest
+      where
+        -- Accumulate in reverse to avoid repeated list appends.
+        go revSegments allTokens =
+          case allTokens of
+            Token {tokenKind = TColonColon} : Token {tokenKind = TIdentifier nextSegment} : remaining ->
+              go (nextSegment : revSegments) remaining
+            separatorToken@(Token {tokenKind = TColonColon}) : [] ->
+              Left
+                ( "expected module path segment before end of input at "
+                    <> renderSourceSpan (tokenSpan separatorToken)
+                )
+            separatorToken@(Token {tokenKind = TColonColon}) : token : _
+              | tokenKind token == TDot ->
+                  Left
+                    ( "expected module path segment at "
+                        <> renderSourceSpan (tokenSpan separatorToken)
+                        <> ", found '"
+                        <> tokenLexeme token
+                        <> "'"
+                    )
+              | otherwise ->
+                  Left
+                    ( "expected module path segment at "
+                        <> renderSourceSpan (tokenSpan token)
+                        <> ", found '"
+                        <> tokenLexeme token
+                        <> "'"
+                    )
+            _ -> Right (reverse revSegments, allTokens)
+    token : _ ->
+      Left
+        ( "expected module path segment at "
+            <> renderSourceSpan (tokenSpan token)
+            <> ", found '"
+            <> tokenLexeme token
+            <> "'"
+        )
+
+parseImportSymbolList :: [Token] -> Either Text ([Text], [Token])
+parseImportSymbolList tokensAfterLeftParen =
+  case tokensAfterLeftParen of
+    token@(Token {tokenKind = TRParen}) : _ ->
+      Left
+        ( "expected at least one import symbol before ')' at "
+            <> renderSourceSpan (tokenSpan token)
+        )
+    _ -> do
+      (firstSymbol, afterFirstSymbol) <- parseImportSymbol tokensAfterLeftParen
+      go [firstSymbol] afterFirstSymbol
+  where
+    -- Accumulate in reverse to keep symbol-list parsing linear.
+    go revSymbols allTokens =
+      case allTokens of
+        Token {tokenKind = TComma} : rest -> do
+          (nextSymbol, afterNextSymbol) <- parseImportSymbol rest
+          go (nextSymbol : revSymbols) afterNextSymbol
+        Token {tokenKind = TRParen} : rest ->
+          Right (reverse revSymbols, rest)
+        [] ->
+          Left "expected ')' before end of input in import symbol list"
+        token : _ ->
+          Left
+            ( "expected ',' or ')' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+
+parseImportSymbol :: [Token] -> Either Text (Text, [Token])
+parseImportSymbol tokens =
+  case tokens of
+    Token {tokenKind = TIdentifier symbolName} : rest ->
+      Right (symbolName, rest)
+    [] ->
+      Left "expected import symbol before end of input"
+    token : _ ->
+      Left
+        ( "expected import symbol at "
+            <> renderSourceSpan (tokenSpan token)
+            <> ", found '"
+            <> tokenLexeme token
+            <> "'"
+        )
 
 parseSignature :: Text -> Token -> [Token] -> Either Text (SurfaceStatement, [Token])
 parseSignature name nameToken tokensAfterName =
@@ -332,6 +507,8 @@ collectUntilDot = go []
     beginsStatement :: [Token] -> Bool
     beginsStatement tokens =
       case tokens of
+        Token {tokenKind = TModule} : _ -> True
+        Token {tokenKind = TImport} : _ -> True
         Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
         Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
         _ -> False

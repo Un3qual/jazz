@@ -17,8 +17,10 @@ TEST_FILES=(
   jazz-next/test/ParserFoundationSpec.hs
   jazz-next/test/IfExpressionParserSpec.hs
   jazz-next/test/IfExpressionTypeSpec.hs
+  jazz-next/test/ModuleImportParserSpec.hs
   jazz-next/test/PrimitiveSemanticsSpec.hs
   jazz-next/test/RuntimeSemanticsSpec.hs
+  jazz-next/test/PreludeLoadingSpec.hs
   jazz-next/test/BuiltinCatalogSpec.hs
   jazz-next/test/OperatorFixitySpec.hs
   jazz-next/test/OperatorSectionSpec.hs

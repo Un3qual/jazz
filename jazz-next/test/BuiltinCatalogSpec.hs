@@ -13,6 +13,8 @@ import JazzNext.Compiler.BuiltinCatalog
     allBuiltinSymbols,
     builtinSymbolArity,
     builtinSymbolName,
+    kernelBridgeBindingPrefix,
+    kernelBridgeTargetName,
     lookupBuiltinSymbol
   )
 import JazzNext.Compiler.Diagnostics
@@ -46,6 +48,8 @@ tests :: [NamedTest]
 tests =
   [ ("catalog round-trips builtin names", testCatalogRoundTripsBuiltinNames),
     ("catalog arity contract is stable", testCatalogArityContract),
+    ("kernel bridge names map to builtin targets", testKernelBridgeTargetName),
+    ("kernel bridge prefix stays stable", testKernelBridgePrefix),
     ("compile pipeline treats catalog builtins as bound names", testCompilePipelineTreatsCatalogBuiltinsAsBound),
     ("runtime exposes catalog builtins as callable values", testRuntimeExposesCatalogBuiltinsAsFunctions),
     ("builtin over-application reports runtime failure after saturation", testRuntimeBuiltinOverApplicationFails)
@@ -76,6 +80,18 @@ testCatalogArityContract = do
         ("arity for " <> Text.pack (show symbol))
         expectedArity
         (builtinSymbolArity symbol)
+
+testKernelBridgeTargetName :: IO ()
+testKernelBridgeTargetName = do
+  assertEqual "bridge target map" (Just "map") (kernelBridgeTargetName "__kernel_map")
+  assertEqual "bridge target hd" (Just "hd") (kernelBridgeTargetName "__kernel_hd")
+  assertEqual "bridge target tl" (Just "tl") (kernelBridgeTargetName "__kernel_tl")
+  assertEqual "bridge target missing suffix" Nothing (kernelBridgeTargetName "__kernel_")
+  assertEqual "non-bridge binding ignored" Nothing (kernelBridgeTargetName "map")
+
+testKernelBridgePrefix :: IO ()
+testKernelBridgePrefix =
+  assertEqual "kernel bridge prefix" "__kernel_" kernelBridgeBindingPrefix
 
 testCompilePipelineTreatsCatalogBuiltinsAsBound :: IO ()
 testCompilePipelineTreatsCatalogBuiltinsAsBound =

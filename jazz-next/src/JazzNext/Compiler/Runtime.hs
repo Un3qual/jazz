@@ -65,6 +65,10 @@ evalScope initialEnv statements = go initialEnv Nothing statements
           case statement of
             SSignature {} ->
               go env Nothing rest
+            SModule {} ->
+              go env Nothing rest
+            SImport {} ->
+              go env Nothing rest
             SLet name _ valueExpr -> do
               value <- evalValue env valueExpr
               go (Map.insert name value env) Nothing rest

@@ -46,5 +46,9 @@ lowerSurfaceStatement surfaceStatement =
       SLet name spanValue (lowerSurfaceExpr valueExpr)
     SSSignature name spanValue signatureText ->
       SSignature name spanValue signatureText
+    SSModule spanValue modulePath ->
+      SModule spanValue modulePath
+    SSImport spanValue modulePath alias importedSymbols ->
+      SImport spanValue modulePath alias importedSymbols
     SSExpr spanValue expr ->
       SExpr spanValue (lowerSurfaceExpr expr)

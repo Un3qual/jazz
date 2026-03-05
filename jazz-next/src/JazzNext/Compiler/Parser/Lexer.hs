@@ -19,6 +19,9 @@ import JazzNext.Compiler.Parser.Operator
 
 data TokenKind
   = TIdentifier Text
+  | TModule
+  | TImport
+  | TAs
   | TIf
   | TElse
   | TInt Int
@@ -72,6 +75,9 @@ tokenize = go 1 1
                   width = Text.length ident
                   kind =
                     case ident of
+                      "module" -> TModule
+                      "import" -> TImport
+                      "as" -> TAs
                       "if" -> TIf
                       "else" -> TElse
                       _ -> TIdentifier ident

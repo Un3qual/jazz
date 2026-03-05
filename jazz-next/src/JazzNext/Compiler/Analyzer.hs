@@ -173,6 +173,22 @@ collectScopeDiagnostics settings outerScope statements =
               appendWarnings warningsRev exprWarnings,
               appendErrors errorsWithPending exprErrors
             )
+        SModule {} ->
+          let errorsWithPending = flushPendingSignature pendingSignature errorsRev
+           in
+            ( scopeBindings,
+              Nothing,
+              warningsRev,
+              errorsWithPending
+            )
+        SImport {} ->
+          let errorsWithPending = flushPendingSignature pendingSignature errorsRev
+           in
+            ( scopeBindings,
+              Nothing,
+              warningsRev,
+              errorsWithPending
+            )
         SSignature signatureName signatureSpan _signatureText ->
           -- Signature payload text is carried forward for future type parsing.
           -- This pass only enforces placement/name coherence.
@@ -441,6 +457,8 @@ freeVarsScopeWithBound initialBound statements =
     step (boundNames, freeNames) statement =
       case statement of
         SSignature _ _ _ -> (boundNames, freeNames)
+        SModule {} -> (boundNames, freeNames)
+        SImport {} -> (boundNames, freeNames)
         SExpr _ expr ->
           ( boundNames,
             Set.union freeNames (freeVarsExprWithBound boundNames expr)

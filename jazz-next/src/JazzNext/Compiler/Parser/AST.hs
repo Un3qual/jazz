@@ -28,5 +28,7 @@ data SurfaceExpr
 data SurfaceStatement
   = SSLet Text SourceSpan SurfaceExpr
   | SSSignature Text SourceSpan Text
+  | SSModule SourceSpan [Text]
+  | SSImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SSExpr SourceSpan SurfaceExpr
   deriving (Eq, Show)

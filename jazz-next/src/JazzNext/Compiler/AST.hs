@@ -30,5 +30,7 @@ data Expr
 data Statement
   = SLet Text SourceSpan Expr
   | SSignature Text SourceSpan Text
+  | SModule SourceSpan [Text]
+  | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SExpr SourceSpan Expr
   deriving (Eq, Show)

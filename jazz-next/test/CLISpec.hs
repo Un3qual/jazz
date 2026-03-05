@@ -32,11 +32,19 @@ tests :: [NamedTest]
 tests =
   [ ("parseCliOptions captures warning flags and config path", testParseOptions),
     ("parseCliOptions captures run mode", testParseRunMode),
+    ("parseCliOptions captures prelude path", testParsePreludePath),
+    ("parseCliOptions captures no-prelude switch", testParseNoPrelude),
+    ("parseCliOptions rejects conflicting prelude switches", testParsePreludeConflict),
     ("cli run prints warning to stderr while keeping stdout output", testCliWarningOnlyBehavior),
     ("cli run returns non-zero and suppresses stdout when warning promoted", testCliPromotedWarningBehavior),
     ("cli --run prints evaluated runtime output", testCliRunModeSuccess),
     ("cli --run prints evaluated section runtime output", testCliRunModeSectionSuccess),
     ("cli --run prints evaluated list primitive output", testCliRunModeListPrimitiveSuccess),
+    ("cli --run composes explicit prelude source before user source", testCliRunModePreludeFromFlag),
+    ("cli prelude load failures return argument/config error", testCliPreludeLoadFailure),
+    ("cli prelude parse failures return compile diagnostics", testCliPreludeParseFailure),
+    ("cli prelude bridge conformance failures return compile diagnostics", testCliPreludeBridgeFailure),
+    ("cli --no-prelude disables env-selected prelude path", testCliNoPreludeOverridesEnvPath),
     ("cli --run reports runtime fatal errors", testCliRunModeFatalRuntimeError),
     ("cli --run reports hd empty-list fatal runtime error", testCliRunModeHdEmptyListRuntimeError),
     ("cli precedence keeps CLI over env over config", testCliPrecedenceBehavior),
@@ -54,6 +62,8 @@ testParseOptions = do
   assertEqual "warning flags" ["-Wsame-scope-rebinding"] (cliWarningFlags options)
   assertEqual "config path" (Just "config/warnings.txt") (cliWarningsConfigPath options)
   assertEqual "run mode" False (cliRunMode options)
+  assertEqual "prelude path" Nothing (cliPreludePath options)
+  assertEqual "prelude disabled" False (cliDisablePrelude options)
 
 testParseRunMode :: IO ()
 testParseRunMode = do
@@ -63,6 +73,34 @@ testParseRunMode = do
       Right parsed -> pure parsed
   assertEqual "run mode" True (cliRunMode options)
   assertEqual "warning flags" [] (cliWarningFlags options)
+  assertEqual "prelude path" Nothing (cliPreludePath options)
+  assertEqual "prelude disabled" False (cliDisablePrelude options)
+
+testParsePreludePath :: IO ()
+testParsePreludePath = do
+  options <-
+    case parseCliOptions ["--prelude", "stdlib/Prelude.jz"] of
+      Left err -> failTest ("parseCliOptions failed: " <> err)
+      Right parsed -> pure parsed
+  assertEqual "prelude path" (Just "stdlib/Prelude.jz") (cliPreludePath options)
+  assertEqual "prelude disabled" False (cliDisablePrelude options)
+
+testParseNoPrelude :: IO ()
+testParseNoPrelude = do
+  options <-
+    case parseCliOptions ["--no-prelude"] of
+      Left err -> failTest ("parseCliOptions failed: " <> err)
+      Right parsed -> pure parsed
+  assertEqual "prelude path" Nothing (cliPreludePath options)
+  assertEqual "prelude disabled" True (cliDisablePrelude options)
+
+testParsePreludeConflict :: IO ()
+testParsePreludeConflict =
+  case parseCliOptions ["--prelude", "stdlib/Prelude.jz", "--no-prelude"] of
+    Left err ->
+      assertContains "conflict message" "cannot combine --prelude with --no-prelude" err
+    Right _ ->
+      failTest "expected prelude flag conflict to fail option parsing"
 
 testCliWarningOnlyBehavior :: IO ()
 testCliWarningOnlyBehavior = do
@@ -115,6 +153,62 @@ testCliRunModeListPrimitiveSuccess = do
   where
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing
+
+testCliRunModePreludeFromFlag :: IO ()
+testCliRunModePreludeFromFlag = do
+  output <- runCliWith ["--run", "--prelude", "tmp/Prelude.jz"] envLookup configLookup (pure preludeConsumerSource)
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "runtime stdout" "3\n" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
+  where
+    envLookup _ = pure Nothing
+    configLookup key = pure (Map.lookup key (Map.fromList [("tmp/Prelude.jz", preludeSource)]))
+
+testCliPreludeLoadFailure :: IO ()
+testCliPreludeLoadFailure = do
+  sourceRead <- newIORef False
+  output <-
+    runCliWith
+      ["--run", "--prelude", "tmp/missing.jz"]
+      envLookup
+      configLookup
+      (recordSourceRead sourceRead)
+  didRead <- readIORef sourceRead
+  assertEqual "exit code" 2 (cliExitCode output)
+  assertContains "prelude load diagnostic code" "E0003" (cliStderr output)
+  assertEqual "source should not be read when prelude load fails" False didRead
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
+testCliPreludeParseFailure :: IO ()
+testCliPreludeParseFailure = do
+  output <- runCliWith ["--run", "--prelude", "tmp/Prelude.jz"] envLookup configLookup (pure runtimeSuccessSource)
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "prelude parse diagnostic code" "E0002" (cliStderr output)
+  assertEqual "stdout is suppressed on compile failure" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    configLookup key = pure (Map.lookup key (Map.fromList [("tmp/Prelude.jz", "broken = .")]))
+
+testCliPreludeBridgeFailure :: IO ()
+testCliPreludeBridgeFailure = do
+  output <- runCliWith ["--run", "--prelude", "tmp/Prelude.jz"] envLookup configLookup (pure runtimeSuccessSource)
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "prelude bridge diagnostic code" "E0004" (cliStderr output)
+  assertEqual "stdout is suppressed on compile failure" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    configLookup key = pure (Map.lookup key (Map.fromList [("tmp/Prelude.jz", "__kernel_unknown = unknown.")]))
+
+testCliNoPreludeOverridesEnvPath :: IO ()
+testCliNoPreludeOverridesEnvPath = do
+  output <- runCliWith ["--run", "--no-prelude"] envLookup configLookup (pure preludeConsumerSource)
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "unbound variable when prelude disabled" "E1001" (cliStderr output)
+  where
+    envLookup key = pure (Map.lookup key (Map.fromList [("JAZZ_PRELUDE", "tmp/Prelude.jz")]))
+    configLookup key = pure (Map.lookup key (Map.fromList [("tmp/Prelude.jz", preludeSource)]))
 
 testCliRunModeFatalRuntimeError :: IO ()
 testCliRunModeFatalRuntimeError = do
@@ -210,3 +304,9 @@ runtimeListPrimitiveSource = "map hd [[1, 2], [3], [4, 5]]."
 
 runtimeHdEmptySource :: Text
 runtimeHdEmptySource = "hd []."
+
+preludeSource :: Text
+preludeSource = "inc = (+ 1)."
+
+preludeConsumerSource :: Text
+preludeConsumerSource = "inc 2."
