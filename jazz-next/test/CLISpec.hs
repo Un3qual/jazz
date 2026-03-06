@@ -47,6 +47,7 @@ tests =
     ("cli module graph compile reports missing import symbol diagnostics", testCliModuleGraphMissingImportSymbol),
     ("cli module graph compile reports module declaration mismatch diagnostics", testCliModuleGraphDeclarationMismatch),
     ("cli loads bundled default prelude when no flag or env override is set", testCliLoadsBundledDefaultPrelude),
+    ("cli loads bundled default prelude from stdlib path fallback", testCliLoadsBundledPreludeFromStdlibFallback),
     ("cli --run composes explicit prelude source before user source", testCliRunModePreludeFromFlag),
     ("cli --no-prelude disables bundled default prelude", testCliNoPreludeDisablesBundledDefault),
     ("cli prelude load failures return argument/config error", testCliPreludeLoadFailure),
@@ -283,6 +284,18 @@ testCliLoadsBundledDefaultPrelude = do
     configLookup key =
       pure
         (Map.lookup key (Map.fromList [(bundledPreludePath, bundledPreludeSource)]))
+
+testCliLoadsBundledPreludeFromStdlibFallback :: IO ()
+testCliLoadsBundledPreludeFromStdlibFallback = do
+  output <- runCliWith ["--run"] envLookup configLookup (pure bundledPreludeConsumerSource)
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "runtime stdout" "<function>\n" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
+  where
+    envLookup _ = pure Nothing
+    configLookup key =
+      pure
+        (Map.lookup key (Map.fromList [("stdlib/Prelude.jz", bundledPreludeSource)]))
 
 testCliRunModePreludeFromFlag :: IO ()
 testCliRunModePreludeFromFlag = do

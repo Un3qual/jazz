@@ -193,25 +193,22 @@ resolvePreludeSource ::
   IO (Either Text (Maybe Text))
 resolvePreludeSource options envLookup fileLookup = do
   envPreludePath <- envLookup "JAZZ_PRELUDE"
-  let (selectedPreludePath, allowMissingPreludeFile)
-        | cliDisablePrelude options = (Nothing, True)
-        | otherwise =
-            case cliPreludePath options of
-              Just cliPath -> (Just cliPath, False)
-              Nothing ->
-                case envPreludePath of
-                  Just envPath -> (Just envPath, False)
-                  Nothing -> (Just bundledPreludePath, True)
-  case selectedPreludePath of
-    Nothing ->
-      pure (Right Nothing)
-    Just preludePath -> do
+  if cliDisablePrelude options
+    then pure (Right Nothing)
+    else
+      case cliPreludePath options of
+        Just cliPath -> loadRequiredPrelude cliPath
+        Nothing ->
+          case envPreludePath of
+            Just envPath -> loadRequiredPrelude envPath
+            Nothing -> Right <$> loadFirstBundledPrelude fileLookup
+  where
+    loadRequiredPrelude :: FilePath -> IO (Either Text (Maybe Text))
+    loadRequiredPrelude preludePath = do
       preludeContents <- fileLookup preludePath
       pure $
         case preludeContents of
           Just contents -> Right (Just contents)
-          Nothing
-            | allowMissingPreludeFile -> Right Nothing
           Nothing ->
             Left
               ( "E0003: prelude file could not be read at '"
@@ -219,8 +216,26 @@ resolvePreludeSource options envLookup fileLookup = do
                   <> "'"
               )
 
-bundledPreludePath :: FilePath
-bundledPreludePath = "jazz-next/stdlib/Prelude.jz"
+    loadFirstBundledPrelude ::
+      (FilePath -> IO (Maybe Text)) ->
+      IO (Maybe Text)
+    loadFirstBundledPrelude lookupPath =
+      go bundledPreludePaths
+      where
+        go candidates =
+          case candidates of
+            [] -> pure Nothing
+            candidate : rest -> do
+              maybeContents <- lookupPath candidate
+              case maybeContents of
+                Just contents -> pure (Just contents)
+                Nothing -> go rest
+
+bundledPreludePaths :: [FilePath]
+bundledPreludePaths =
+  [ "jazz-next/stdlib/Prelude.jz",
+    "stdlib/Prelude.jz"
+  ]
 
 runCompile :: WarningSettings -> Maybe Text -> Text -> IO CliOutput
 runCompile settings preludeSource source = do
