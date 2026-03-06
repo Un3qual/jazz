@@ -346,7 +346,7 @@ testCliPreludeBridgeFailure = do
 
 testCliNoPreludeDisablesBundledDefault :: IO ()
 testCliNoPreludeDisablesBundledDefault = do
-  output <- runCliWith ["--run", "--no-prelude"] envLookup configLookup (pure bundledPreludeConsumerSource)
+  output <- runCliWith ["--run", "--no-prelude"] envLookup configLookup (pure bundledPreludeOnlyConsumerSource)
   assertEqual "exit code" 1 (cliExitCode output)
   assertContains "unbound variable when bundled prelude disabled" "E1001" (cliStderr output)
   where
@@ -469,10 +469,14 @@ bundledPreludePath :: FilePath
 bundledPreludePath = "jazz-next/stdlib/Prelude.jz"
 
 bundledPreludeSource :: Text
-bundledPreludeSource = "__kernel_map = map."
+bundledPreludeSource =
+  "__kernel_map = __kernel_map.\nmap = __kernel_map.\nfrom_prelude = map."
 
 bundledPreludeConsumerSource :: Text
-bundledPreludeConsumerSource = "__kernel_map."
+bundledPreludeConsumerSource = "map."
+
+bundledPreludeOnlyConsumerSource :: Text
+bundledPreludeOnlyConsumerSource = "from_prelude."
 
 preludeConsumerSource :: Text
 preludeConsumerSource = "inc 2."

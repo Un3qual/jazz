@@ -1,20 +1,36 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JazzNext.Compiler.BuiltinCatalog
-  ( BuiltinOwnership (..),
+  ( BuiltinResolutionMode (..),
+    BuiltinOwnership (..),
     BuiltinSymbol (..),
     allBuiltinSymbols,
     builtinSymbolOwnership,
     builtinSymbolArity,
     builtinSymbolName,
+    builtinSymbolKernelName,
     kernelBridgeBindingPrefix,
     kernelBridgeTargetName,
+    isBuiltinSymbolNameInMode,
     isBuiltinSymbolName,
-    lookupBuiltinSymbol
+    isKernelBuiltinSymbolName,
+    lookupBuiltinSymbolInMode,
+    lookupBuiltinSymbol,
+    lookupKernelBuiltinSymbol
   ) where
 
+import Control.Applicative
+  ( (<|>)
+  )
 import Data.Text (Text)
 import qualified Data.Text as Text
+
+-- Prelude-enabled compile/run paths should resolve only kernel bridge names.
+-- Compatibility paths accept both canonical API names and kernel names.
+data BuiltinResolutionMode
+  = ResolveKernelOnly
+  | ResolveCompatibility
+  deriving (Eq, Ord, Show)
 
 data BuiltinOwnership
   = KernelIntrinsic
@@ -54,6 +70,15 @@ builtinSymbolName builtinSymbol =
     BuiltinTl -> "tl"
     BuiltinPrint -> "print!"
 
+builtinSymbolKernelName :: BuiltinSymbol -> Text
+builtinSymbolKernelName builtinSymbol =
+  case builtinSymbol of
+    BuiltinMap -> "__kernel_map"
+    BuiltinFilter -> "__kernel_filter"
+    BuiltinHd -> "__kernel_hd"
+    BuiltinTl -> "__kernel_tl"
+    BuiltinPrint -> "__kernel_print!"
+
 builtinSymbolArity :: BuiltinSymbol -> Int
 builtinSymbolArity builtinSymbol =
   case builtinSymbol of
@@ -64,18 +89,18 @@ builtinSymbolArity builtinSymbol =
     BuiltinPrint -> 1
 
 -- Prelude/kernel bridge bindings must use this prefix and point to a known
--- kernel symbol name. Example: __kernel_map = map.
+-- kernel symbol name. Example: __kernel_map = __kernel_map.
 kernelBridgeBindingPrefix :: Text
 kernelBridgeBindingPrefix = "__kernel_"
 
 kernelBridgeTargetName :: Text -> Maybe Text
 kernelBridgeTargetName bindingName
   | kernelBridgeBindingPrefix `Text.isPrefixOf` bindingName =
-      let targetName = Text.drop (Text.length kernelBridgeBindingPrefix) bindingName
+      let suffix = Text.drop (Text.length kernelBridgeBindingPrefix) bindingName
        in
-        if Text.null targetName
+        if Text.null suffix
           then Nothing
-          else Just targetName
+          else Just bindingName
   | otherwise = Nothing
 
 lookupBuiltinSymbol :: Text -> Maybe BuiltinSymbol
@@ -88,8 +113,38 @@ lookupBuiltinSymbol name =
     "print!" -> Just BuiltinPrint
     _ -> Nothing
 
+lookupKernelBuiltinSymbol :: Text -> Maybe BuiltinSymbol
+lookupKernelBuiltinSymbol name =
+  case name of
+    "__kernel_map" -> Just BuiltinMap
+    "__kernel_filter" -> Just BuiltinFilter
+    "__kernel_hd" -> Just BuiltinHd
+    "__kernel_tl" -> Just BuiltinTl
+    "__kernel_print!" -> Just BuiltinPrint
+    _ -> Nothing
+
+lookupBuiltinSymbolInMode :: BuiltinResolutionMode -> Text -> Maybe BuiltinSymbol
+lookupBuiltinSymbolInMode mode name =
+  case mode of
+    ResolveKernelOnly ->
+      lookupKernelBuiltinSymbol name
+    ResolveCompatibility ->
+      lookupBuiltinSymbol name <|> lookupKernelBuiltinSymbol name
+
+isBuiltinSymbolNameInMode :: BuiltinResolutionMode -> Text -> Bool
+isBuiltinSymbolNameInMode mode name =
+  case lookupBuiltinSymbolInMode mode name of
+    Just _ -> True
+    Nothing -> False
+
 isBuiltinSymbolName :: Text -> Bool
 isBuiltinSymbolName name =
   case lookupBuiltinSymbol name of
+    Just _ -> True
+    Nothing -> False
+
+isKernelBuiltinSymbolName :: Text -> Bool
+isKernelBuiltinSymbolName name =
+  case lookupKernelBuiltinSymbol name of
     Just _ -> True
     Nothing -> False

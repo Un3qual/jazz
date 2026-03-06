@@ -24,11 +24,13 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Driver
   ( compileSource,
+    compileSourceWithPrelude,
     compileErrors,
     runCompileErrors,
     runOutput,
     runRuntimeErrors,
-    runSource
+    runSource,
+    runSourceWithPrelude
   )
 import JazzNext.Compiler.Runtime
   ( evaluateRuntimeExpr
@@ -55,6 +57,7 @@ tests =
     ("kernel bridge prefix stays stable", testKernelBridgePrefix),
     ("compile pipeline treats catalog builtins as bound names", testCompilePipelineTreatsCatalogBuiltinsAsBound),
     ("runtime exposes catalog builtins as callable values", testRuntimeExposesCatalogBuiltinsAsFunctions),
+    ("no-prelude compatibility path keeps canonical builtin aliases", testNoPreludeCompatibilityPathKeepsCanonicalAliases),
     ("builtin over-application reports runtime failure after saturation", testRuntimeBuiltinOverApplicationFails)
   ]
 
@@ -98,11 +101,11 @@ testCatalogOwnershipContract =
 
 testKernelBridgeTargetName :: IO ()
 testKernelBridgeTargetName = do
-  assertEqual "bridge target map" (Just "map") (kernelBridgeTargetName "__kernel_map")
-  assertEqual "bridge target filter" (Just "filter") (kernelBridgeTargetName "__kernel_filter")
-  assertEqual "bridge target hd" (Just "hd") (kernelBridgeTargetName "__kernel_hd")
-  assertEqual "bridge target tl" (Just "tl") (kernelBridgeTargetName "__kernel_tl")
-  assertEqual "bridge target print" (Just "print!") (kernelBridgeTargetName "__kernel_print!")
+  assertEqual "bridge target map" (Just "__kernel_map") (kernelBridgeTargetName "__kernel_map")
+  assertEqual "bridge target filter" (Just "__kernel_filter") (kernelBridgeTargetName "__kernel_filter")
+  assertEqual "bridge target hd" (Just "__kernel_hd") (kernelBridgeTargetName "__kernel_hd")
+  assertEqual "bridge target tl" (Just "__kernel_tl") (kernelBridgeTargetName "__kernel_tl")
+  assertEqual "bridge target print" (Just "__kernel_print!") (kernelBridgeTargetName "__kernel_print!")
   assertEqual "bridge target missing suffix" Nothing (kernelBridgeTargetName "__kernel_")
   assertEqual "non-bridge binding ignored" Nothing (kernelBridgeTargetName "map")
 
@@ -127,6 +130,18 @@ testRuntimeExposesCatalogBuiltinsAsFunctions =
       assertEqual ("compile errors for " <> name) [] (runCompileErrors result)
       assertEqual ("runtime errors for " <> name) [] (runRuntimeErrors result)
       assertEqual ("runtime output for " <> name) (Just "<function>") (runOutput result)
+
+testNoPreludeCompatibilityPathKeepsCanonicalAliases :: IO ()
+testNoPreludeCompatibilityPathKeepsCanonicalAliases =
+  mapM_ assertBuiltinRunsWithoutPrelude expectedBuiltins
+  where
+    assertBuiltinRunsWithoutPrelude (_, name, _, _) = do
+      compileResult <- compileSourceWithPrelude defaultWarningSettings Nothing ("x = " <> name <> ".")
+      assertEqual ("compat compile errors for " <> name) [] (compileErrors compileResult)
+      runResult <- runSourceWithPrelude defaultWarningSettings Nothing (name <> ".")
+      assertEqual ("compat runtime compile errors for " <> name) [] (runCompileErrors runResult)
+      assertEqual ("compat runtime errors for " <> name) [] (runRuntimeErrors runResult)
+      assertEqual ("compat runtime output for " <> name) (Just "<function>") (runOutput runResult)
 
 testRuntimeBuiltinOverApplicationFails :: IO ()
 testRuntimeBuiltinOverApplicationFails =

@@ -13,7 +13,7 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
-  ( isBuiltinSymbolName,
+  ( isKernelBuiltinSymbolName,
     kernelBridgeBindingPrefix,
     kernelBridgeTargetName
   )
@@ -49,7 +49,7 @@ validatePreludeKernelBridges preludeExpr =
               ]
           | otherwise -> []
         Just targetName
-          | not (isBuiltinSymbolName targetName) ->
+          | not (isKernelBuiltinSymbolName targetName) ->
               [ "E0004: prelude kernel bridge '"
                   <> bindingName
                   <> "' references unknown kernel symbol '"
