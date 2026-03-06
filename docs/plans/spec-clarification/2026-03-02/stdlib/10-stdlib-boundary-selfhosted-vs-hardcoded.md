@@ -171,7 +171,7 @@ git commit -m "feat(runtime): add explicit intrinsic bridge for prelude boundary
 Suggested commit message: `feat(stdlib): migrate user-facing builtins to self-hosted prelude`
 
 ```bash
-git add jazz-hs/src/Types.hs jazz-hs/src/Analyzer/ScopeAnalyzer.hs jazz-hs/src/Analyzer/TypeInference.hs jazz-hs/src/CodeGen/Javascript.hs jazz-hs/static/Prelude.jz jazz-hs/ExamplePrograms/ComplexProgram.jz README.md docs/jazz-language-state.md
+git add jazz-next/stdlib/Prelude.jz jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs jazz-next/src/JazzNext/CLI/Main.hs jazz-next/test/BuiltinCatalogSpec.hs jazz-next/test/CLISpec.hs README.md docs/jazz-language-state.md
 git commit -m "feat(stdlib): migrate user-facing builtins to self-hosted prelude"
 ```
 
