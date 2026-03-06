@@ -58,6 +58,10 @@ tokenize = go 1 1
           | char == '\n' -> go (line + 1) 1 rest
           | char == '\t' -> go line (column + tabStep column) rest
           | isSpace char -> go line (column + 1) rest
+          -- `# ...` comments run to end-of-line and are ignored by the parser.
+          | char == '#' ->
+              let (commentTail, trailing) = Text.break (== '\n') rest
+               in go line (column + 1 + Text.length commentTail) trailing
           | isDigit char ->
               let (digits, trailing) = Text.span isDigit source
                   width = Text.length digits

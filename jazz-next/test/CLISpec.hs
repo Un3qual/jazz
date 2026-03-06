@@ -46,7 +46,10 @@ tests =
     ("cli module graph compile reports resolver diagnostics", testCliModuleGraphCompileError),
     ("cli module graph compile reports missing import symbol diagnostics", testCliModuleGraphMissingImportSymbol),
     ("cli module graph compile reports module declaration mismatch diagnostics", testCliModuleGraphDeclarationMismatch),
+    ("cli loads bundled default prelude when no flag or env override is set", testCliLoadsBundledDefaultPrelude),
+    ("cli loads bundled default prelude from stdlib path fallback", testCliLoadsBundledPreludeFromStdlibFallback),
     ("cli --run composes explicit prelude source before user source", testCliRunModePreludeFromFlag),
+    ("cli --no-prelude disables bundled default prelude", testCliNoPreludeDisablesBundledDefault),
     ("cli prelude load failures return argument/config error", testCliPreludeLoadFailure),
     ("cli prelude parse failures return compile diagnostics", testCliPreludeParseFailure),
     ("cli prelude bridge conformance failures return compile diagnostics", testCliPreludeBridgeFailure),
@@ -270,6 +273,30 @@ testCliModuleGraphDeclarationMismatch = do
             (Map.fromList [("src/App/Main.jz", "module Wrong::Name.\n1.")])
         )
 
+testCliLoadsBundledDefaultPrelude :: IO ()
+testCliLoadsBundledDefaultPrelude = do
+  output <- runCliWith ["--run"] envLookup configLookup (pure bundledPreludeConsumerSource)
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "runtime stdout" "<function>\n" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
+  where
+    envLookup _ = pure Nothing
+    configLookup key =
+      pure
+        (Map.lookup key (Map.fromList [(bundledPreludePath, bundledPreludeSource)]))
+
+testCliLoadsBundledPreludeFromStdlibFallback :: IO ()
+testCliLoadsBundledPreludeFromStdlibFallback = do
+  output <- runCliWith ["--run"] envLookup configLookup (pure bundledPreludeConsumerSource)
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "runtime stdout" "<function>\n" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
+  where
+    envLookup _ = pure Nothing
+    configLookup key =
+      pure
+        (Map.lookup key (Map.fromList [("stdlib/Prelude.jz", bundledPreludeSource)]))
+
 testCliRunModePreludeFromFlag :: IO ()
 testCliRunModePreludeFromFlag = do
   output <- runCliWith ["--run", "--prelude", "tmp/Prelude.jz"] envLookup configLookup (pure preludeConsumerSource)
@@ -316,6 +343,17 @@ testCliPreludeBridgeFailure = do
   where
     envLookup _ = pure Nothing
     configLookup key = pure (Map.lookup key (Map.fromList [("tmp/Prelude.jz", "__kernel_unknown = unknown.")]))
+
+testCliNoPreludeDisablesBundledDefault :: IO ()
+testCliNoPreludeDisablesBundledDefault = do
+  output <- runCliWith ["--run", "--no-prelude"] envLookup configLookup (pure bundledPreludeConsumerSource)
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "unbound variable when bundled prelude disabled" "E1001" (cliStderr output)
+  where
+    envLookup _ = pure Nothing
+    configLookup key =
+      pure
+        (Map.lookup key (Map.fromList [(bundledPreludePath, bundledPreludeSource)]))
 
 testCliNoPreludeOverridesEnvPath :: IO ()
 testCliNoPreludeOverridesEnvPath = do
@@ -426,6 +464,15 @@ runtimeHdEmptySource = "hd []."
 
 preludeSource :: Text
 preludeSource = "inc = (+ 1)."
+
+bundledPreludePath :: FilePath
+bundledPreludePath = "jazz-next/stdlib/Prelude.jz"
+
+bundledPreludeSource :: Text
+bundledPreludeSource = "__kernel_map = map."
+
+bundledPreludeConsumerSource :: Text
+bundledPreludeConsumerSource = "__kernel_map."
 
 preludeConsumerSource :: Text
 preludeConsumerSource = "inc 2."

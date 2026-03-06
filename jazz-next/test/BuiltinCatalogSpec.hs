@@ -9,8 +9,10 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
-  ( BuiltinSymbol (..),
+  ( BuiltinOwnership (..),
+    BuiltinSymbol (..),
     allBuiltinSymbols,
+    builtinSymbolOwnership,
     builtinSymbolArity,
     builtinSymbolName,
     kernelBridgeBindingPrefix,
@@ -48,6 +50,7 @@ tests :: [NamedTest]
 tests =
   [ ("catalog round-trips builtin names", testCatalogRoundTripsBuiltinNames),
     ("catalog arity contract is stable", testCatalogArityContract),
+    ("catalog ownership contract is stable", testCatalogOwnershipContract),
     ("kernel bridge names map to builtin targets", testKernelBridgeTargetName),
     ("kernel bridge prefix stays stable", testKernelBridgePrefix),
     ("compile pipeline treats catalog builtins as bound names", testCompilePipelineTreatsCatalogBuiltinsAsBound),
@@ -55,20 +58,20 @@ tests =
     ("builtin over-application reports runtime failure after saturation", testRuntimeBuiltinOverApplicationFails)
   ]
 
-expectedBuiltins :: [(BuiltinSymbol, Text, Int)]
+expectedBuiltins :: [(BuiltinSymbol, Text, Int, BuiltinOwnership)]
 expectedBuiltins =
-  [ (BuiltinMap, "map", 2),
-    (BuiltinFilter, "filter", 2),
-    (BuiltinHd, "hd", 1),
-    (BuiltinTl, "tl", 1),
-    (BuiltinPrint, "print!", 1)
+  [ (BuiltinMap, "map", 2, PreludeTarget),
+    (BuiltinFilter, "filter", 2, PreludeTarget),
+    (BuiltinHd, "hd", 1, PreludeTarget),
+    (BuiltinTl, "tl", 1, PreludeTarget),
+    (BuiltinPrint, "print!", 1, PreludeTarget)
   ]
 
 testCatalogRoundTripsBuiltinNames :: IO ()
 testCatalogRoundTripsBuiltinNames =
   mapM_ assertRoundTrip expectedBuiltins
   where
-    assertRoundTrip (symbol, name, _) = do
+    assertRoundTrip (symbol, name, _, _) = do
       assertEqual ("builtin name for " <> Text.pack (show symbol)) name (builtinSymbolName symbol)
       assertEqual ("lookup round-trip for " <> name) (Just symbol) (lookupBuiltinSymbol name)
 
@@ -77,11 +80,21 @@ testCatalogArityContract = do
   assertEqual "symbol count" (length expectedBuiltins) (length allBuiltinSymbols)
   mapM_ assertArity expectedBuiltins
   where
-    assertArity (symbol, _, expectedArity) =
+    assertArity (symbol, _, expectedArity, _) =
       assertEqual
         ("arity for " <> Text.pack (show symbol))
         expectedArity
         (builtinSymbolArity symbol)
+
+testCatalogOwnershipContract :: IO ()
+testCatalogOwnershipContract =
+  mapM_ assertOwnership expectedBuiltins
+  where
+    assertOwnership (symbol, _, _, expectedOwnership) =
+      assertEqual
+        ("ownership for " <> Text.pack (show symbol))
+        expectedOwnership
+        (builtinSymbolOwnership symbol)
 
 testKernelBridgeTargetName :: IO ()
 testKernelBridgeTargetName = do
@@ -101,7 +114,7 @@ testCompilePipelineTreatsCatalogBuiltinsAsBound :: IO ()
 testCompilePipelineTreatsCatalogBuiltinsAsBound =
   mapM_ assertBuiltinCompiles expectedBuiltins
   where
-    assertBuiltinCompiles (_, name, _) = do
+    assertBuiltinCompiles (_, name, _, _) = do
       result <- compileSource defaultWarningSettings ("x = " <> name <> ".")
       assertEqual ("compile errors for " <> name) [] (compileErrors result)
 
@@ -109,7 +122,7 @@ testRuntimeExposesCatalogBuiltinsAsFunctions :: IO ()
 testRuntimeExposesCatalogBuiltinsAsFunctions =
   mapM_ assertBuiltinRuns expectedBuiltins
   where
-    assertBuiltinRuns (_, name, _) = do
+    assertBuiltinRuns (_, name, _, _) = do
       result <- runSource defaultWarningSettings (name <> ".")
       assertEqual ("compile errors for " <> name) [] (runCompileErrors result)
       assertEqual ("runtime errors for " <> name) [] (runRuntimeErrors result)
@@ -119,7 +132,7 @@ testRuntimeBuiltinOverApplicationFails :: IO ()
 testRuntimeBuiltinOverApplicationFails =
   mapM_ assertOverApplicationFails expectedBuiltins
   where
-    assertOverApplicationFails (_, name, _) = do
+    assertOverApplicationFails (_, name, _, _) = do
       let expr = overAppliedBuiltinExpr name
       assertLeftContains
         ("over-application runtime error for " <> name)

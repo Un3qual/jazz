@@ -16,7 +16,8 @@
 - [x] Contradictions captured with exact paths
 - [x] Verified candidate-step implementation status against current `jazz-next` state before selecting next batch
 - [x] Executed `jazz-next` intrinsic-boundary hardening batch (shared builtin catalog + conformance checks)
-- [ ] Boundary contract approval pending (Gate B naming/export contract unresolved)
+- [x] Closed Gate B naming/export contract baseline for active `jazz-next` path (bundled prelude path + bridge export contract documented)
+- [x] Executed `jazz-next` bundled-default prelude bootstrap + ownership-metadata scaffolding batch
 - [ ] Migration phases executed with compatibility gates
 - [ ] Hardcoded builtin surface reduced to approved kernel
 - [ ] Reproducibility and closure checks completed
@@ -39,9 +40,9 @@
 - [x] **Gate A: Minimal hardcoded intrinsic kernel**
 - [x] Decide exact primitives that must remain compiler/runtime-owned (for example host I/O and backend-native numeric/FFI intrinsics only).
 - [x] Explicitly exclude user-facing collection/utility APIs from kernel unless proven impossible to self-host.
-- [ ] **Gate B: Prelude ownership**
+- [x] **Gate B: Prelude ownership**
 - [x] Decide canonical source of truth for user-visible stdlib APIs (`.jz` prelude modules, versioned in-repo).
-- [ ] Define naming/export contract for prelude symbols consumed by user programs.
+- [x] Define naming/export contract for prelude symbols consumed by user programs.
 - [x] **Gate C: Compiler/runtime boundary**
 - [x] Define intrinsic call boundary shape (name scheme, arity contract, typing authority, codegen mapping ownership).
 - [x] Define whether intrinsic typing lives in compiler tables, prelude declarations, or dual-checked contract files during migration.
@@ -74,7 +75,7 @@ git commit -m "docs(spec): add stdlib boundary inventory and decision rubric"
 - [x] Lock kernel list (hardcoded forever or until backend swap).
 - [x] Lock prelude-owned API list (must be loaded from `.jz`, not hardcoded).
 - [x] Lock compatibility policy (hard switch vs staged dual support).
-- [ ] Cross-reference existing locked decisions (`class`, function-first map/filter, purity stub) so prelude syntax/API choices do not regress them.
+- [x] Cross-reference existing locked decisions (`class`, function-first map/filter, purity stub) so prelude syntax/API choices do not regress them.
 
 ### Expected file touch-set
 
@@ -157,12 +158,11 @@ git commit -m "feat(runtime): add explicit intrinsic bridge for prelude boundary
 
 ### Expected file touch-set
 
-- `jazz-hs/src/Types.hs`
-- `jazz-hs/src/Analyzer/ScopeAnalyzer.hs`
-- `jazz-hs/src/Analyzer/TypeInference.hs`
-- `jazz-hs/src/CodeGen/Javascript.hs`
-- `jazz-hs/static/Prelude.jz`
-- `jazz-hs/ExamplePrograms/ComplexProgram.jz`
+- `jazz-next/stdlib/Prelude.jz`
+- `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`
+- `jazz-next/src/JazzNext/CLI/Main.hs`
+- `jazz-next/test/BuiltinCatalogSpec.hs`
+- `jazz-next/test/CLISpec.hs`
 - `README.md`
 - `docs/jazz-language-state.md`
 
@@ -171,7 +171,7 @@ git commit -m "feat(runtime): add explicit intrinsic bridge for prelude boundary
 Suggested commit message: `feat(stdlib): migrate user-facing builtins to self-hosted prelude`
 
 ```bash
-git add jazz-hs/src/Types.hs jazz-hs/src/Analyzer/ScopeAnalyzer.hs jazz-hs/src/Analyzer/TypeInference.hs jazz-hs/src/CodeGen/Javascript.hs jazz-hs/static/Prelude.jz jazz-hs/ExamplePrograms/ComplexProgram.jz README.md docs/jazz-language-state.md
+git add jazz-next/stdlib/Prelude.jz jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs jazz-next/src/JazzNext/CLI/Main.hs jazz-next/test/BuiltinCatalogSpec.hs jazz-next/test/CLISpec.hs README.md docs/jazz-language-state.md
 git commit -m "feat(stdlib): migrate user-facing builtins to self-hosted prelude"
 ```
 
@@ -249,7 +249,7 @@ nix develop . -c bash -lc '
 
 ## Definition of Done
 
-- [ ] Boundary contract is explicit, versioned, and linked from language-state docs.
+- [x] Boundary contract is explicit, versioned, and linked from language-state docs.
 - [ ] User-visible stdlib APIs are prelude-owned by default.
 - [ ] Compiler/runtime hardcoded layer is reduced to agreed intrinsic kernel only.
 - [ ] Contradictions listed in `Verification Evidence` are all marked resolved with commit references.
@@ -291,6 +291,26 @@ nix develop . -c bash -lc '
   - `jazz-next/test/PreludeLoadingSpec.hs`
   - `jazz-next/test/CLISpec.hs`
 - [x] Preserved compatibility fallback path for valid programs and bridge-free preludes.
+
+## Implementation Status Verification (2026-03-05, Batch 4, `jazz-next`)
+
+- [x] Re-verified candidate Phase-4 unchecked steps and confirmed bundled-default prelude loading plus ownership metadata were still missing from active `jazz-next` CLI/catalog behavior.
+- [x] Added bundled prelude source at `jazz-next/stdlib/Prelude.jz` with explicit kernel bridge declarations and prelude-owned aliases for `map`/`filter`/`hd`/`tl`/`print!`.
+- [x] Updated CLI prelude resolution order in `jazz-next/src/JazzNext/CLI/Main.hs` to:
+  - explicit `--prelude` path,
+  - then `JAZZ_PRELUDE`,
+  - then bundled default `jazz-next/stdlib/Prelude.jz`,
+  while preserving `--no-prelude` override.
+- [x] Kept compatibility behavior stable by treating missing bundled-default prelude as optional fallback (`Right Nothing`), while still surfacing `E0003` for missing explicit/env prelude paths.
+- [x] Added ownership metadata scaffolding in `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs` via `BuiltinOwnership` + `builtinSymbolOwnership` (current runtime subset tagged `PreludeTarget`).
+- [x] Added regression coverage updates in:
+  - `jazz-next/test/CLISpec.hs` (bundled default prelude load + `--no-prelude` override with bundled path),
+  - `jazz-next/test/BuiltinCatalogSpec.hs` (ownership contract assertions).
+- [x] Ran focused verification:
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/BuiltinCatalogSpec.hs`
+- [x] Re-ran full `jazz-next` verification:
+  - `bash jazz-next/scripts/test-warning-config.sh`
 
 ## Short Checkbox Summary
 

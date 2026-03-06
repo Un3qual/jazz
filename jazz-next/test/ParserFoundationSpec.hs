@@ -36,6 +36,7 @@ tests =
   [ ("parses let binding and expression statement", testParseLetAndExpr),
     ("parseSurfaceProgram accepts Text input", testParseSurfaceProgramAcceptsTextInput),
     ("parses signature statement with source span", testParseSignatureSpan),
+    ("ignores hash line comments between statements", testIgnoresHashLineComments),
     ("tracks tab-aligned expression spans", testTabAlignedExpressionSpan),
     ("parses nested scope expression", testParseNestedScopeExpression),
     ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
@@ -85,6 +86,19 @@ testParseSignatureSpan =
         )
     )
     (parseSurfaceProgram "x :: Int.\nx = 1.")
+
+testIgnoresHashLineComments :: IO ()
+testIgnoresHashLineComments =
+  assertEqual
+    "comments ignored"
+    ( Right
+        ( SEScope
+            [ SSLet "x" (SourceSpan 1 1) (SEInt 1),
+              SSExpr (SourceSpan 3 1) (SEVar "x")
+            ]
+        )
+    )
+    (parseSurfaceProgram "x = 1.\n# parser should ignore this line comment\nx.")
 
 testTabAlignedExpressionSpan :: IO ()
 testTabAlignedExpressionSpan =
