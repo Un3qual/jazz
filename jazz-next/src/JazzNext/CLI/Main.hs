@@ -193,12 +193,15 @@ resolvePreludeSource ::
   IO (Either Text (Maybe Text))
 resolvePreludeSource options envLookup fileLookup = do
   envPreludePath <- envLookup "JAZZ_PRELUDE"
-  let selectedPreludePath
-        | cliDisablePrelude options = Nothing
+  let (selectedPreludePath, allowMissingPreludeFile)
+        | cliDisablePrelude options = (Nothing, True)
         | otherwise =
             case cliPreludePath options of
-              Just cliPath -> Just cliPath
-              Nothing -> envPreludePath
+              Just cliPath -> (Just cliPath, False)
+              Nothing ->
+                case envPreludePath of
+                  Just envPath -> (Just envPath, False)
+                  Nothing -> (Just bundledPreludePath, True)
   case selectedPreludePath of
     Nothing ->
       pure (Right Nothing)
@@ -207,12 +210,17 @@ resolvePreludeSource options envLookup fileLookup = do
       pure $
         case preludeContents of
           Just contents -> Right (Just contents)
+          Nothing
+            | allowMissingPreludeFile -> Right Nothing
           Nothing ->
             Left
               ( "E0003: prelude file could not be read at '"
                   <> Text.pack preludePath
                   <> "'"
               )
+
+bundledPreludePath :: FilePath
+bundledPreludePath = "jazz-next/stdlib/Prelude.jz"
 
 runCompile :: WarningSettings -> Maybe Text -> Text -> IO CliOutput
 runCompile settings preludeSource source = do

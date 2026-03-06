@@ -1,8 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JazzNext.Compiler.BuiltinCatalog
-  ( BuiltinSymbol (..),
+  ( BuiltinOwnership (..),
+    BuiltinSymbol (..),
     allBuiltinSymbols,
+    builtinSymbolOwnership,
     builtinSymbolArity,
     builtinSymbolName,
     kernelBridgeBindingPrefix,
@@ -13,6 +15,11 @@ module JazzNext.Compiler.BuiltinCatalog
 
 import Data.Text (Text)
 import qualified Data.Text as Text
+
+data BuiltinOwnership
+  = KernelIntrinsic
+  | PreludeTarget
+  deriving (Eq, Ord, Show)
 
 -- Canonical builtin inventory shared by analyzer/type/runtime to keep the
 -- stdlib boundary contract auditable and drift-resistant.
@@ -26,6 +33,17 @@ data BuiltinSymbol
 
 allBuiltinSymbols :: [BuiltinSymbol]
 allBuiltinSymbols = [minBound .. maxBound]
+
+builtinSymbolOwnership :: BuiltinSymbol -> BuiltinOwnership
+builtinSymbolOwnership builtinSymbol =
+  case builtinSymbol of
+    -- Compatibility window: these runtime helpers remain kernel-backed for now,
+    -- but the ownership contract marks them as prelude-targeted APIs.
+    BuiltinMap -> PreludeTarget
+    BuiltinFilter -> PreludeTarget
+    BuiltinHd -> PreludeTarget
+    BuiltinTl -> PreludeTarget
+    BuiltinPrint -> PreludeTarget
 
 builtinSymbolName :: BuiltinSymbol -> Text
 builtinSymbolName builtinSymbol =
