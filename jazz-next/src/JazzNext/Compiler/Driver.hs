@@ -15,17 +15,8 @@ module JazzNext.Compiler.Driver
 
 import Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Text.IO as TextIO
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
-import Control.Exception
-  ( IOException,
-    evaluate,
-    try
-  )
-import System.IO.Error
-  ( isDoesNotExistError
-  )
 import Data.IORef
   ( newIORef,
     readIORef,
@@ -247,42 +238,25 @@ builtinResolutionMode preludeSource =
     Just _ -> ResolveKernelOnly
     Nothing -> ResolveCompatibility
 
-bundledPreludePaths :: [FilePath]
-bundledPreludePaths =
-  [ "jazz-next/stdlib/Prelude.jz",
-    "stdlib/Prelude.jz"
-  ]
+bundledPreludeSourceText :: Text
+bundledPreludeSourceText =
+  Text.unlines
+    [ "__kernel_map = __kernel_map.",
+      "__kernel_filter = __kernel_filter.",
+      "__kernel_hd = __kernel_hd.",
+      "__kernel_tl = __kernel_tl.",
+      "__kernel_print! = __kernel_print!.",
+      "",
+      "map = __kernel_map.",
+      "filter = __kernel_filter.",
+      "hd = __kernel_hd.",
+      "tl = __kernel_tl.",
+      "print! = __kernel_print!."
+    ]
 
 loadBundledPreludeSource :: IO (Maybe Text)
 loadBundledPreludeSource =
-  go bundledPreludePaths
-  where
-    go candidates =
-      case candidates of
-        [] -> pure Nothing
-        candidatePath : rest -> do
-          readResult <- tryReadTextFile candidatePath
-          case readResult of
-            Just contents -> pure (Just contents)
-            Nothing -> go rest
-
-    tryReadTextFile :: FilePath -> IO (Maybe Text)
-    tryReadTextFile path = do
-      readResult <- tryRead
-      case readResult of
-        Right contents ->
-          pure (Just contents)
-        Left ioErr
-          | isDoesNotExistError ioErr ->
-              pure Nothing
-          | otherwise ->
-              ioError ioErr
-      where
-        tryRead :: IO (Either IOException Text)
-        tryRead = try $ do
-          contents <- TextIO.readFile path
-          _ <- evaluate (Text.length contents)
-          pure contents
+  pure (Just bundledPreludeSourceText)
 
 parseAndLowerSource :: Maybe Text -> Text -> Either Text Expr
 parseAndLowerSource preludeSource source = do

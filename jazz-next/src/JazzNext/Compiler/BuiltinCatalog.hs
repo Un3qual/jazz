@@ -96,7 +96,7 @@ kernelBridgeTargetName bindingName
   | kernelBridgeBindingPrefix `Text.isPrefixOf` bindingName =
       let suffix = Text.drop (Text.length kernelBridgeBindingPrefix) bindingName
        in
-        if Text.null suffix
+        if Text.null suffix || not (isKernelBuiltinSymbolName bindingName)
           then Nothing
           else Just bindingName
   | otherwise = Nothing

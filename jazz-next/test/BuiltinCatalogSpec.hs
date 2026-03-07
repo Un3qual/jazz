@@ -107,6 +107,7 @@ testKernelBridgeTargetName = do
   assertEqual "bridge target tl" (Just "__kernel_tl") (kernelBridgeTargetName "__kernel_tl")
   assertEqual "bridge target print" (Just "__kernel_print!") (kernelBridgeTargetName "__kernel_print!")
   assertEqual "bridge target missing suffix" Nothing (kernelBridgeTargetName "__kernel_")
+  assertEqual "bridge target unknown kernel symbol" Nothing (kernelBridgeTargetName "__kernel_unknown")
   assertEqual "non-bridge binding ignored" Nothing (kernelBridgeTargetName "map")
 
 testKernelBridgePrefix :: IO ()

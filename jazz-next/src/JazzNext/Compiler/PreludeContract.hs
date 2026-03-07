@@ -41,12 +41,23 @@ validatePreludeKernelBridges preludeExpr =
       case kernelBridgeTargetName bindingName of
         Nothing
           | kernelBridgeBindingPrefix `Text.isPrefixOf` bindingName ->
-              [ "E0005: prelude kernel bridge '"
-                  <> bindingName
-                  <> "' must include a non-empty kernel symbol suffix after '"
-                  <> kernelBridgeBindingPrefix
-                  <> "'"
-              ]
+              let suffix = Text.drop (Text.length kernelBridgeBindingPrefix) bindingName
+               in
+                if Text.null suffix
+                  then
+                    [ "E0005: prelude kernel bridge '"
+                        <> bindingName
+                        <> "' must include a non-empty kernel symbol suffix after '"
+                        <> kernelBridgeBindingPrefix
+                        <> "'"
+                    ]
+                  else
+                    [ "E0004: prelude kernel bridge '"
+                        <> bindingName
+                        <> "' references unknown kernel symbol '"
+                        <> bindingName
+                        <> "'"
+                    ]
           | otherwise -> []
         Just targetName
           | not (isKernelBuiltinSymbolName targetName) ->
