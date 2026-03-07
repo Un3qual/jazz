@@ -23,6 +23,9 @@ import Control.Exception
     evaluate,
     try
   )
+import System.IO.Error
+  ( isDoesNotExistError
+  )
 import Data.IORef
   ( newIORef,
     readIORef,
@@ -264,8 +267,16 @@ loadBundledPreludeSource =
             Nothing -> go rest
 
     tryReadTextFile :: FilePath -> IO (Maybe Text)
-    tryReadTextFile path =
-      (either (const Nothing) Just <$> tryRead)
+    tryReadTextFile path = do
+      readResult <- tryRead
+      case readResult of
+        Right contents ->
+          pure (Just contents)
+        Left ioErr
+          | isDoesNotExistError ioErr ->
+              pure Nothing
+          | otherwise ->
+              ioError ioErr
       where
         tryRead :: IO (Either IOException Text)
         tryRead = try $ do

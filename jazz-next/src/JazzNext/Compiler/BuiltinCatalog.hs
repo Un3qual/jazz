@@ -22,6 +22,9 @@ module JazzNext.Compiler.BuiltinCatalog
 import Control.Applicative
   ( (<|>)
   )
+import Data.List
+  ( find
+  )
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -72,12 +75,7 @@ builtinSymbolName builtinSymbol =
 
 builtinSymbolKernelName :: BuiltinSymbol -> Text
 builtinSymbolKernelName builtinSymbol =
-  case builtinSymbol of
-    BuiltinMap -> "__kernel_map"
-    BuiltinFilter -> "__kernel_filter"
-    BuiltinHd -> "__kernel_hd"
-    BuiltinTl -> "__kernel_tl"
-    BuiltinPrint -> "__kernel_print!"
+  kernelBridgeBindingPrefix <> builtinSymbolName builtinSymbol
 
 builtinSymbolArity :: BuiltinSymbol -> Int
 builtinSymbolArity builtinSymbol =
@@ -105,23 +103,11 @@ kernelBridgeTargetName bindingName
 
 lookupBuiltinSymbol :: Text -> Maybe BuiltinSymbol
 lookupBuiltinSymbol name =
-  case name of
-    "map" -> Just BuiltinMap
-    "filter" -> Just BuiltinFilter
-    "hd" -> Just BuiltinHd
-    "tl" -> Just BuiltinTl
-    "print!" -> Just BuiltinPrint
-    _ -> Nothing
+  lookupByRenderedName builtinSymbolName name
 
 lookupKernelBuiltinSymbol :: Text -> Maybe BuiltinSymbol
 lookupKernelBuiltinSymbol name =
-  case name of
-    "__kernel_map" -> Just BuiltinMap
-    "__kernel_filter" -> Just BuiltinFilter
-    "__kernel_hd" -> Just BuiltinHd
-    "__kernel_tl" -> Just BuiltinTl
-    "__kernel_print!" -> Just BuiltinPrint
-    _ -> Nothing
+  lookupByRenderedName builtinSymbolKernelName name
 
 lookupBuiltinSymbolInMode :: BuiltinResolutionMode -> Text -> Maybe BuiltinSymbol
 lookupBuiltinSymbolInMode mode name =
@@ -148,3 +134,7 @@ isKernelBuiltinSymbolName name =
   case lookupKernelBuiltinSymbol name of
     Just _ -> True
     Nothing -> False
+
+lookupByRenderedName :: (BuiltinSymbol -> Text) -> Text -> Maybe BuiltinSymbol
+lookupByRenderedName renderSymbolName name =
+  find (\symbol -> renderSymbolName symbol == name) allBuiltinSymbols
