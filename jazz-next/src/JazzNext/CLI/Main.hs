@@ -14,6 +14,9 @@ import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
+import JazzNext.Compiler.BundledPrelude
+  ( loadBundledPreludeSource
+  )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
     WarningRecord (..),
@@ -201,7 +204,7 @@ resolvePreludeSource options envLookup fileLookup = do
         Nothing ->
           case envPreludePath of
             Just envPath -> loadRequiredPrelude envPath
-            Nothing -> Right <$> loadFirstBundledPrelude fileLookup
+            Nothing -> Right . Just <$> loadBundledPreludeSource
   where
     loadRequiredPrelude :: FilePath -> IO (Either Text (Maybe Text))
     loadRequiredPrelude preludePath = do
@@ -215,27 +218,6 @@ resolvePreludeSource options envLookup fileLookup = do
                   <> Text.pack preludePath
                   <> "'"
               )
-
-    loadFirstBundledPrelude ::
-      (FilePath -> IO (Maybe Text)) ->
-      IO (Maybe Text)
-    loadFirstBundledPrelude lookupPath =
-      go bundledPreludePaths
-      where
-        go candidates =
-          case candidates of
-            [] -> pure Nothing
-            candidate : rest -> do
-              maybeContents <- lookupPath candidate
-              case maybeContents of
-                Just contents -> pure (Just contents)
-                Nothing -> go rest
-
-bundledPreludePaths :: [FilePath]
-bundledPreludePaths =
-  [ "jazz-next/stdlib/Prelude.jz",
-    "stdlib/Prelude.jz"
-  ]
 
 runCompile :: WarningSettings -> Maybe Text -> Text -> IO CliOutput
 runCompile settings preludeSource source = do

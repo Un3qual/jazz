@@ -28,6 +28,12 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics
   ( WarningRecord (..)
   )
+import JazzNext.Compiler.BundledPrelude
+  ( loadBundledPreludeSource
+  )
+import JazzNext.Compiler.BuiltinCatalog
+  ( BuiltinResolutionMode (..)
+  )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
     ResolvedModule (..),
@@ -46,12 +52,12 @@ import JazzNext.Compiler.PreludeContract
   ( validatePreludeKernelBridges
   )
 import JazzNext.Compiler.Runtime
-  ( evaluateRuntimeExpr,
+  ( evaluateRuntimeExprWithBuiltins,
     renderRuntimeValue
   )
 import JazzNext.Compiler.TypeInference
   ( InferenceResult (..),
-    inferExpression
+    inferExpressionWithBuiltins
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -76,8 +82,11 @@ data RunResult = RunResult
 -- Compiler driver flow for the current implementation slice:
 -- analyze -> collect warnings/errors -> apply warning-as-error policy.
 compileExpr :: WarningSettings -> Expr -> IO CompileResult
-compileExpr settings expr = do
-  (warnings, errors, _) <- analyzeWithWarnings settings expr
+compileExpr = compileExprWithBuiltins ResolveCompatibility
+
+compileExprWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO CompileResult
+compileExprWithBuiltins builtinMode settings expr = do
+  (warnings, errors, _) <- analyzeWithWarnings builtinMode settings expr
   let output =
         if null errors
           then
@@ -93,8 +102,9 @@ compileExpr settings expr = do
       }
 
 compileSource :: WarningSettings -> Text -> IO CompileResult
-compileSource settings source =
-  compileSourceWithPrelude settings Nothing source
+compileSource settings source = do
+  bundledPreludeSource <- loadBundledPreludeSource
+  compileSourceWithPrelude settings (Just bundledPreludeSource) source
 
 compileSourceWithPrelude :: WarningSettings -> Maybe Text -> Text -> IO CompileResult
 compileSourceWithPrelude settings preludeSource source =
@@ -107,7 +117,7 @@ compileSourceWithPrelude settings preludeSource source =
             generatedJs = Nothing
           }
     Right loweredExpr ->
-      compileExpr settings loweredExpr
+      compileExprWithBuiltins (builtinResolutionMode preludeSource) settings loweredExpr
 
 compileModuleGraphWithPrelude ::
   WarningSettings ->
@@ -130,8 +140,11 @@ compileModuleGraphWithPrelude settings preludeSource resolutionConfig entryModul
       compileSourceWithPrelude settings preludeSource sourceText
 
 runExpr :: WarningSettings -> Expr -> IO RunResult
-runExpr settings expr = do
-  (warnings, compileErrors, canonicalExpr) <- analyzeWithWarnings settings expr
+runExpr = runExprWithBuiltins ResolveCompatibility
+
+runExprWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO RunResult
+runExprWithBuiltins builtinMode settings expr = do
+  (warnings, compileErrors, canonicalExpr) <- analyzeWithWarnings builtinMode settings expr
   if not (null compileErrors)
     then
       pure
@@ -142,7 +155,7 @@ runExpr settings expr = do
             runOutput = Nothing
           }
     else
-      case evaluateRuntimeExpr canonicalExpr of
+      case evaluateRuntimeExprWithBuiltins builtinMode canonicalExpr of
         Left runtimeError ->
           pure
             RunResult
@@ -161,8 +174,9 @@ runExpr settings expr = do
               }
 
 runSource :: WarningSettings -> Text -> IO RunResult
-runSource settings source =
-  runSourceWithPrelude settings Nothing source
+runSource settings source = do
+  bundledPreludeSource <- loadBundledPreludeSource
+  runSourceWithPrelude settings (Just bundledPreludeSource) source
 
 runSourceWithPrelude :: WarningSettings -> Maybe Text -> Text -> IO RunResult
 runSourceWithPrelude settings preludeSource source =
@@ -176,7 +190,7 @@ runSourceWithPrelude settings preludeSource source =
             runOutput = Nothing
           }
     Right loweredExpr ->
-      runExpr settings loweredExpr
+      runExprWithBuiltins (builtinResolutionMode preludeSource) settings loweredExpr
 
 runModuleGraphWithPrelude ::
   WarningSettings ->
@@ -199,9 +213,9 @@ runModuleGraphWithPrelude settings preludeSource resolutionConfig entryModulePat
     Right sourceText ->
       runSourceWithPrelude settings preludeSource sourceText
 
-analyzeWithWarnings :: WarningSettings -> Expr -> IO ([WarningRecord], [Text], Expr)
-analyzeWithWarnings settings expr = do
-  inference <- inferExpression settings expr
+analyzeWithWarnings :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Text], Expr)
+analyzeWithWarnings builtinMode settings expr = do
+  inference <- inferExpressionWithBuiltins builtinMode settings expr
   let warnings = filterWarningsForPromotion settings (inferredWarnings inference)
       promotedWarnings = filter (isPromoted settings) warnings
       promotedWarningErrors = map warningToError promotedWarnings
@@ -220,6 +234,12 @@ warningToError warning =
   warningCodeText warning
     <> ": "
     <> warningMessage warning
+
+builtinResolutionMode :: Maybe Text -> BuiltinResolutionMode
+builtinResolutionMode preludeSource =
+  case preludeSource of
+    Just _ -> ResolveKernelOnly
+    Nothing -> ResolveCompatibility
 
 parseAndLowerSource :: Maybe Text -> Text -> Either Text Expr
 parseAndLowerSource preludeSource source = do

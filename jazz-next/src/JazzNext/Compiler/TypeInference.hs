@@ -2,6 +2,7 @@
 
 module JazzNext.Compiler.TypeInference
   ( InferenceResult (..),
+    inferExpressionWithBuiltins,
     inferExpression,
     inferExpressionDefault
   ) where
@@ -15,16 +16,17 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Analyzer
   ( AnalysisResult (..),
-    analyzeProgram
+    analyzeProgramWithBuiltins
   )
 import JazzNext.Compiler.AST
   ( Expr (..),
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
-  ( BuiltinSymbol,
+  ( BuiltinResolutionMode (..),
+    BuiltinSymbol,
     builtinSymbolName,
-    lookupBuiltinSymbol
+    lookupBuiltinSymbolInMode
   )
 import JazzNext.Compiler.Diagnostics
   ( WarningRecord
@@ -44,10 +46,13 @@ data InferenceResult = InferenceResult
 -- This currently forwards analyzer diagnostics while the richer inference/type
 -- pipeline is still being built in jazz-next.
 inferExpression :: WarningSettings -> Expr -> IO InferenceResult
-inferExpression settings expr = do
+inferExpression = inferExpressionWithBuiltins ResolveCompatibility
+
+inferExpressionWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO InferenceResult
+inferExpressionWithBuiltins builtinMode settings expr = do
   let canonicalExpr = canonicalizeExpr expr
-  AnalysisResult _ warnings errors <- analyzeProgram settings canonicalExpr
-  let typeErrors = collectExprTypeErrors canonicalExpr
+  AnalysisResult _ warnings errors <- analyzeProgramWithBuiltins builtinMode settings canonicalExpr
+  let typeErrors = collectExprTypeErrors builtinMode canonicalExpr
   pure
     InferenceResult
       { inferredExpr = canonicalExpr,
@@ -130,13 +135,13 @@ initialInferState =
       inferErrorsRev = []
     }
 
-collectExprTypeErrors :: Expr -> [Text]
-collectExprTypeErrors expr =
-  let (_, finalState) = inferExprType Map.empty initialInferState expr
+collectExprTypeErrors :: BuiltinResolutionMode -> Expr -> [Text]
+collectExprTypeErrors builtinMode expr =
+  let (_, finalState) = inferExprType builtinMode Map.empty initialInferState expr
    in reverse (inferErrorsRev finalState)
 
-inferExprType :: Map Text ExpressionType -> InferState -> Expr -> (Maybe ExpressionType, InferState)
-inferExprType env state expr =
+inferExprType :: BuiltinResolutionMode -> Map Text ExpressionType -> InferState -> Expr -> (Maybe ExpressionType, InferState)
+inferExprType builtinMode env state expr =
   case expr of
     EInt _ -> (Just TIntType, state)
     EBool _ -> (Just TBoolType, state)
@@ -144,13 +149,13 @@ inferExprType env state expr =
       case Map.lookup name env of
         Just localType -> (Just (resolveType state localType), state)
         Nothing ->
-          case instantiateBuiltinType name state of
+          case instantiateBuiltinType builtinMode name state of
             Just (builtinType, nextState) -> (Just builtinType, nextState)
             Nothing -> (Nothing, state)
-    EList elements -> inferListType env state elements
+    EList elements -> inferListType builtinMode env state elements
     EApply functionExpr argumentExpr ->
-      let (functionType, stateAfterFunction) = inferExprType env state functionExpr
-          (argumentType, stateAfterArgument) = inferExprType env stateAfterFunction argumentExpr
+      let (functionType, stateAfterFunction) = inferExprType builtinMode env state functionExpr
+          (argumentType, stateAfterArgument) = inferExprType builtinMode env stateAfterFunction argumentExpr
           (resultTypeVar, stateWithResultVar) = freshTypeVar stateAfterArgument
        in case (functionType, argumentType) of
             (Just inferredFunctionType, Just inferredArgumentType) ->
@@ -172,11 +177,11 @@ inferExprType env state expr =
                   )
             _ -> (Nothing, stateWithResultVar)
     EIf conditionExpr thenExpr elseExpr ->
-      inferExprType env state (ECase conditionExpr thenExpr elseExpr)
+      inferExprType builtinMode env state (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr ->
-      let (conditionType, stateAfterCondition) = inferExprType env state conditionExpr
-          (thenType, stateAfterThen) = inferExprType env stateAfterCondition thenExpr
-          (elseType, stateAfterElse) = inferExprType env stateAfterThen elseExpr
+      let (conditionType, stateAfterCondition) = inferExprType builtinMode env state conditionExpr
+          (thenType, stateAfterThen) = inferExprType builtinMode env stateAfterCondition thenExpr
+          (elseType, stateAfterElse) = inferExprType builtinMode env stateAfterThen elseExpr
           stateAfterConditionCheck =
             case conditionType of
               Just inferredConditionType ->
@@ -204,34 +209,34 @@ inferExprType env state expr =
                 )
           _ -> (Nothing, stateAfterConditionCheck)
     EBinary operatorSymbol leftExpr rightExpr ->
-      let (leftType, stateAfterLeft) = inferExprType env state leftExpr
-          (rightType, stateAfterRight) = inferExprType env stateAfterLeft rightExpr
+      let (leftType, stateAfterLeft) = inferExprType builtinMode env state leftExpr
+          (rightType, stateAfterRight) = inferExprType builtinMode env stateAfterLeft rightExpr
        in case (leftType, rightType) of
             (Just inferredLeftType, Just inferredRightType) ->
               inferBinaryType operatorSymbol inferredLeftType inferredRightType stateAfterRight
             _ -> (Nothing, stateAfterRight)
     ESectionLeft leftExpr operatorSymbol ->
-      let (leftType, stateAfterLeft) = inferExprType env state leftExpr
+      let (leftType, stateAfterLeft) = inferExprType builtinMode env state leftExpr
        in case leftType of
             Just inferredLeftType ->
               inferSectionLeftType operatorSymbol inferredLeftType stateAfterLeft
             Nothing -> (Nothing, stateAfterLeft)
     ESectionRight operatorSymbol rightExpr ->
-      let (rightType, stateAfterRight) = inferExprType env state rightExpr
+      let (rightType, stateAfterRight) = inferExprType builtinMode env state rightExpr
        in case rightType of
             Just inferredRightType ->
               inferSectionRightType operatorSymbol inferredRightType stateAfterRight
             Nothing -> (Nothing, stateAfterRight)
-    EScope statements -> inferScopeType env state statements
+    EScope statements -> inferScopeType builtinMode env state statements
 
-inferListType :: Map Text ExpressionType -> InferState -> [Expr] -> (Maybe ExpressionType, InferState)
-inferListType env state elements =
+inferListType :: BuiltinResolutionMode -> Map Text ExpressionType -> InferState -> [Expr] -> (Maybe ExpressionType, InferState)
+inferListType builtinMode env state elements =
   case elements of
     [] ->
       let (elementType, nextState) = freshTypeVar state
        in (Just (TListType elementType), nextState)
     firstElement : restElements ->
-      let (firstType, stateAfterFirst) = inferExprType env state firstElement
+      let (firstType, stateAfterFirst) = inferExprType builtinMode env state firstElement
           (finalElementType, finalState) =
             foldl
               step
@@ -241,7 +246,7 @@ inferListType env state elements =
   where
     step :: (Maybe ExpressionType, InferState) -> Expr -> (Maybe ExpressionType, InferState)
     step (expectedType, stateAcc) element =
-      let (actualType, stateAfterElement) = inferExprType env stateAcc element
+      let (actualType, stateAfterElement) = inferExprType builtinMode env stateAcc element
        in case (expectedType, actualType) of
             (Just inferredExpectedType, Just inferredActualType) ->
               case unifyTypes inferredExpectedType inferredActualType stateAfterElement of
@@ -475,8 +480,8 @@ applyStrictEqualitySectionRightRule operatorSymbol rightType state =
                 (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedRightType)
             )
 
-inferScopeType :: Map Text ExpressionType -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
-inferScopeType initialEnv initialState statements = go initialEnv Nothing Nothing initialState statements
+inferScopeType :: BuiltinResolutionMode -> Map Text ExpressionType -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
+inferScopeType builtinMode initialEnv initialState statements = go initialEnv Nothing Nothing initialState statements
   where
     go env lastExprType pendingSignatureType state remainingStatements =
       case remainingStatements of
@@ -509,7 +514,7 @@ inferScopeType initialEnv initialState statements = go initialEnv Nothing Nothin
                               (pendingSignatureDeclaredType pendingSignature)
                               env
                       _ -> env
-                  (valueType, stateAfterValue) = inferExprType envWithPendingSignature state valueExpr
+                  (valueType, stateAfterValue) = inferExprType builtinMode envWithPendingSignature state valueExpr
                   stateAfterSignatureCheck =
                     case (pendingSignatureType, valueType) of
                       (Just pendingSignature, Just inferredType)
@@ -541,7 +546,7 @@ inferScopeType initialEnv initialState statements = go initialEnv Nothing Nothin
                       Nothing -> env
                in go nextEnv lastExprType Nothing stateAfterSignatureCheck rest
             SExpr _ expr ->
-              let (exprType, stateAfterExpr) = inferExprType env state expr
+              let (exprType, stateAfterExpr) = inferExprType builtinMode env state expr
                in go env exprType Nothing stateAfterExpr rest
 
 data PendingSignatureType = PendingSignatureType
@@ -556,9 +561,9 @@ parseSignatureType signatureText =
     "Bool" -> Just TBoolType
     _ -> Nothing
 
-instantiateBuiltinType :: Text -> InferState -> Maybe (ExpressionType, InferState)
-instantiateBuiltinType name state =
-  case lookupBuiltinSymbol name of
+instantiateBuiltinType :: BuiltinResolutionMode -> Text -> InferState -> Maybe (ExpressionType, InferState)
+instantiateBuiltinType builtinMode name state =
+  case lookupBuiltinSymbolInMode builtinMode name of
     Just builtinSymbol -> instantiateBuiltinSymbolType builtinSymbol state
     Nothing -> Nothing
 

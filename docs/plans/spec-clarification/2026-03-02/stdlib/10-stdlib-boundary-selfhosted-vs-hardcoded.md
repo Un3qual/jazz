@@ -18,7 +18,8 @@
 - [x] Executed `jazz-next` intrinsic-boundary hardening batch (shared builtin catalog + conformance checks)
 - [x] Closed Gate B naming/export contract baseline for active `jazz-next` path (bundled prelude path + bridge export contract documented)
 - [x] Executed `jazz-next` bundled-default prelude bootstrap + ownership-metadata scaffolding batch
-- [ ] Migration phases executed with compatibility gates
+- [x] Executed `jazz-next` prelude-owned-default migration batch (strict kernel-only prelude mode + explicit no-prelude compatibility fallback)
+- [x] Migration phases executed with compatibility gates
 - [ ] Hardcoded builtin surface reduced to approved kernel
 - [ ] Reproducibility and closure checks completed
 
@@ -151,10 +152,10 @@ git commit -m "feat(runtime): add explicit intrinsic bridge for prelude boundary
 
 ## Phase 4: Migrate User-Facing Builtins to Prelude Ownership
 
-- [ ] Migrate public APIs (`map`, `hd`, `tl`, and other non-kernel helpers) from hardcoded builtin tables to prelude exports.
-- [ ] Keep temporary aliases only where needed; emit deprecation guidance for compiler-hardcoded access paths.
-- [ ] Update parser/analyzer/codegen tests to assert canonical prelude-owned call paths.
-- [ ] Ensure docs/examples stop implying compiler-owned stdlib APIs.
+- [x] Migrate public APIs (`map`, `hd`, `tl`, and other non-kernel helpers) from hardcoded builtin tables to prelude exports.
+- [x] Keep temporary aliases only where needed; emit deprecation guidance for compiler-hardcoded access paths.
+- [x] Update parser/analyzer/codegen tests to assert canonical prelude-owned call paths.
+- [x] Ensure docs/examples stop implying compiler-owned stdlib APIs.
 
 ### Expected file touch-set
 
@@ -250,7 +251,7 @@ nix develop . -c bash -lc '
 ## Definition of Done
 
 - [x] Boundary contract is explicit, versioned, and linked from language-state docs.
-- [ ] User-visible stdlib APIs are prelude-owned by default.
+- [x] User-visible stdlib APIs are prelude-owned by default.
 - [ ] Compiler/runtime hardcoded layer is reduced to agreed intrinsic kernel only.
 - [ ] Contradictions listed in `Verification Evidence` are all marked resolved with commit references.
 - [ ] Nix-based reproducibility commands run successfully for baseline and final state.
@@ -311,6 +312,37 @@ nix develop . -c bash -lc '
   - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/BuiltinCatalogSpec.hs`
 - [x] Re-ran full `jazz-next` verification:
   - `bash jazz-next/scripts/test-warning-config.sh`
+
+## Implementation Status Verification (2026-03-05, Batch 5, `jazz-next`)
+
+- [x] Re-verified all unchecked Phase-4 candidate steps before implementation and confirmed they were still incomplete (not tracker drift): direct canonical builtin fallback remained unconditional in analyzer/type/runtime, bridge validation enforced legacy `__kernel_x = x` shape, and tests/docs still implied compiler-owned APIs.
+- [x] Added builtins-resolution modes in `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`:
+  - strict prelude-owned mode (`ResolveKernelOnly`) for prelude-enabled compile/run paths,
+  - explicit compatibility mode (`ResolveCompatibility`) for no-prelude fallback paths.
+- [x] Refactored analyzer/type/runtime to consume mode-aware builtin resolution:
+  - `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+  - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+  - `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- [x] Updated driver execution policy in `jazz-next/src/JazzNext/Compiler/Driver.hs`:
+  - source compile/run now attempts bundled prelude by default,
+  - prelude-enabled paths compile/run with strict kernel-only builtin resolution,
+  - explicit no-prelude paths retain compatibility aliases by design.
+- [x] Updated bridge contract + bundled prelude ownership shape:
+  - `jazz-next/src/JazzNext/Compiler/PreludeContract.hs`
+  - `jazz-next/stdlib/Prelude.jz` (`__kernel_x = __kernel_x` self-bridges + public aliases `x = __kernel_x`).
+- [x] Rebaselined boundary conformance tests and fixtures:
+  - `jazz-next/test/BuiltinCatalogSpec.hs`
+  - `jazz-next/test/PreludeLoadingSpec.hs`
+  - `jazz-next/test/CLISpec.hs`
+- [x] Updated boundary contract docs to reflect prelude-owned default + explicit no-prelude compatibility deprecation guidance:
+  - `docs/spec/stdlib-boundary.md`
+- [x] Ran focused verification:
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/BuiltinCatalogSpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PreludeLoadingSpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PuritySemanticsSpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/RuntimeSemanticsSpec.hs`
 
 ## Short Checkbox Summary
 
