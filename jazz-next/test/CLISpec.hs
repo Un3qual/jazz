@@ -17,6 +17,9 @@ import JazzNext.CLI.Main
     parseCliOptions,
     runCliWith
   )
+import JazzNext.Compiler.BundledPrelude
+  ( bundledPreludeSource
+  )
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
@@ -49,6 +52,7 @@ tests =
     ("cli loads bundled default prelude when no flag or env override is set", testCliLoadsBundledDefaultPrelude),
     ("cli bundled default prelude preserves user diagnostic spans", testCliBundledPreludePreservesUserDiagnosticSpans),
     ("cli loads bundled default prelude without path lookup fallback", testCliLoadsBundledPreludeWithoutPathLookup),
+    ("cli explicit prelude matching bundled source still emits rebinding warnings", testCliExplicitPreludeMatchingBundledSourceEmitsWarnings),
     ("cli --run composes explicit prelude source before user source", testCliRunModePreludeFromFlag),
     ("cli --no-prelude disables bundled default prelude", testCliNoPreludeDisablesBundledDefault),
     ("cli prelude load failures return argument/config error", testCliPreludeLoadFailure),
@@ -311,6 +315,21 @@ testCliLoadsBundledPreludeWithoutPathLookup = do
     "default bundled prelude should not probe old path-based fallbacks"
     []
     (filter isBundledPreludePath lookedUpPaths)
+
+testCliExplicitPreludeMatchingBundledSourceEmitsWarnings :: IO ()
+testCliExplicitPreludeMatchingBundledSourceEmitsWarnings = do
+  output <-
+    runCliWith
+      ["-Werror=same-scope-rebinding", "--prelude", "tmp/Prelude.jz"]
+      envLookup
+      configLookup
+      (pure "map = (+ 1). map 2.")
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "stderr includes warning code" "W0001" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    configLookup key = pure (Map.lookup key (Map.fromList [("tmp/Prelude.jz", bundledPreludeSource)]))
 
 testCliRunModePreludeFromFlag :: IO ()
 testCliRunModePreludeFromFlag = do

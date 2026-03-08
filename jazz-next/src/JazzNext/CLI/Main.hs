@@ -24,11 +24,12 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
+    ResolvedPrelude (..),
     RunResult (..),
-    compileModuleGraphWithPrelude,
-    compileSourceWithPrelude,
-    runModuleGraphWithPrelude,
-    runSourceWithPrelude
+    compileModuleGraphWithResolvedPrelude,
+    compileSourceWithResolvedPrelude,
+    runModuleGraphWithResolvedPrelude,
+    runSourceWithResolvedPrelude
   )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
@@ -193,25 +194,25 @@ resolvePreludeSource ::
   CliOptions ->
   (String -> IO (Maybe String)) ->
   (FilePath -> IO (Maybe Text)) ->
-  IO (Either Text (Maybe Text))
+  IO (Either Text ResolvedPrelude)
 resolvePreludeSource options envLookup fileLookup = do
   envPreludePath <- envLookup "JAZZ_PRELUDE"
   if cliDisablePrelude options
-    then pure (Right Nothing)
+    then pure (Right PreludeAbsent)
     else
       case cliPreludePath options of
         Just cliPath -> loadRequiredPrelude cliPath
         Nothing ->
           case envPreludePath of
             Just envPath -> loadRequiredPrelude envPath
-            Nothing -> Right . Just <$> loadBundledPreludeSource
+            Nothing -> Right . PreludeBundled <$> loadBundledPreludeSource
   where
-    loadRequiredPrelude :: FilePath -> IO (Either Text (Maybe Text))
+    loadRequiredPrelude :: FilePath -> IO (Either Text ResolvedPrelude)
     loadRequiredPrelude preludePath = do
       preludeContents <- fileLookup preludePath
       pure $
         case preludeContents of
-          Just contents -> Right (Just contents)
+          Just contents -> Right (PreludeExplicit contents)
           Nothing ->
             Left
               ( "E0003: prelude file could not be read at '"
@@ -219,9 +220,9 @@ resolvePreludeSource options envLookup fileLookup = do
                   <> "'"
               )
 
-runCompile :: WarningSettings -> Maybe Text -> Text -> IO CliOutput
-runCompile settings preludeSource source = do
-  result <- compileSourceWithPrelude settings preludeSource source
+runCompile :: WarningSettings -> ResolvedPrelude -> Text -> IO CliOutput
+runCompile settings resolvedPrelude source = do
+  result <- compileSourceWithResolvedPrelude settings resolvedPrelude source
   let warningLines = map formatWarningLine (compileWarnings result)
       errorLines = map ("error: " <>) (compileErrors result)
       stderrOutput = renderLines (warningLines ++ errorLines)
@@ -240,9 +241,9 @@ runCompile settings preludeSource source = do
         cliStderr = stderrOutput
       }
 
-runExecute :: WarningSettings -> Maybe Text -> Text -> IO CliOutput
-runExecute settings preludeSource source = do
-  result <- runSourceWithPrelude settings preludeSource source
+runExecute :: WarningSettings -> ResolvedPrelude -> Text -> IO CliOutput
+runExecute settings resolvedPrelude source = do
+  result <- runSourceWithResolvedPrelude settings resolvedPrelude source
   let warningLines = map formatWarningLine (runWarnings result)
       compileErrorLines = map ("error: " <>) (runCompileErrors result)
       runtimeErrorLines = map ("error: " <>) (runRuntimeErrors result)
@@ -265,15 +266,15 @@ runExecute settings preludeSource source = do
 runCompileModuleGraph ::
   WarningSettings ->
   CliOptions ->
-  Maybe Text ->
+  ResolvedPrelude ->
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
   IO CliOutput
-runCompileModuleGraph settings options preludeSource entryModulePath sourceLookup = do
+runCompileModuleGraph settings options resolvedPrelude entryModulePath sourceLookup = do
   result <-
-    compileModuleGraphWithPrelude
+    compileModuleGraphWithResolvedPrelude
       settings
-      preludeSource
+      resolvedPrelude
       (cliModuleConfig options)
       entryModulePath
       sourceLookup
@@ -298,15 +299,15 @@ runCompileModuleGraph settings options preludeSource entryModulePath sourceLooku
 runExecuteModuleGraph ::
   WarningSettings ->
   CliOptions ->
-  Maybe Text ->
+  ResolvedPrelude ->
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
   IO CliOutput
-runExecuteModuleGraph settings options preludeSource entryModulePath sourceLookup = do
+runExecuteModuleGraph settings options resolvedPrelude entryModulePath sourceLookup = do
   result <-
-    runModuleGraphWithPrelude
+    runModuleGraphWithResolvedPrelude
       settings
-      preludeSource
+      resolvedPrelude
       (cliModuleConfig options)
       entryModulePath
       sourceLookup
