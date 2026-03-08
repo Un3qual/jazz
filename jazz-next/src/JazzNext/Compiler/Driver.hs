@@ -28,6 +28,9 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics
   ( WarningRecord (..)
   )
+import JazzNext.Compiler.BundledPrelude
+  ( loadBundledPreludeSource
+  )
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..)
   )
@@ -237,26 +240,6 @@ builtinResolutionMode preludeSource =
   case preludeSource of
     Just _ -> ResolveKernelOnly
     Nothing -> ResolveCompatibility
-
-bundledPreludeSourceText :: Text
-bundledPreludeSourceText =
-  Text.unlines
-    [ "__kernel_map = __kernel_map.",
-      "__kernel_filter = __kernel_filter.",
-      "__kernel_hd = __kernel_hd.",
-      "__kernel_tl = __kernel_tl.",
-      "__kernel_print! = __kernel_print!.",
-      "",
-      "map = __kernel_map.",
-      "filter = __kernel_filter.",
-      "hd = __kernel_hd.",
-      "tl = __kernel_tl.",
-      "print! = __kernel_print!."
-    ]
-
-loadBundledPreludeSource :: IO (Maybe Text)
-loadBundledPreludeSource =
-  pure (Just bundledPreludeSourceText)
 
 parseAndLowerSource :: Maybe Text -> Text -> Either Text Expr
 parseAndLowerSource preludeSource source = do

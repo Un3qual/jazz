@@ -47,7 +47,7 @@ tests =
     ("cli module graph compile reports missing import symbol diagnostics", testCliModuleGraphMissingImportSymbol),
     ("cli module graph compile reports module declaration mismatch diagnostics", testCliModuleGraphDeclarationMismatch),
     ("cli loads bundled default prelude when no flag or env override is set", testCliLoadsBundledDefaultPrelude),
-    ("cli loads bundled default prelude from stdlib path fallback", testCliLoadsBundledPreludeFromStdlibFallback),
+    ("cli loads bundled default prelude without path lookup fallback", testCliLoadsBundledPreludeWithoutPathLookup),
     ("cli --run composes explicit prelude source before user source", testCliRunModePreludeFromFlag),
     ("cli --no-prelude disables bundled default prelude", testCliNoPreludeDisablesBundledDefault),
     ("cli prelude load failures return argument/config error", testCliPreludeLoadFailure),
@@ -281,21 +281,24 @@ testCliLoadsBundledDefaultPrelude = do
   assertEqual "stderr is empty" "" (cliStderr output)
   where
     envLookup _ = pure Nothing
-    configLookup key =
-      pure
-        (Map.lookup key (Map.fromList [(bundledPreludePath, bundledPreludeSource)]))
+    configLookup _ = pure Nothing
 
-testCliLoadsBundledPreludeFromStdlibFallback :: IO ()
-testCliLoadsBundledPreludeFromStdlibFallback = do
+testCliLoadsBundledPreludeWithoutPathLookup :: IO ()
+testCliLoadsBundledPreludeWithoutPathLookup = do
+  lookupPaths <- newIORef []
+  let envLookup _ = pure Nothing
+      configLookup path = do
+        writeIORef lookupPaths . (path :) =<< readIORef lookupPaths
+        pure Nothing
   output <- runCliWith ["--run"] envLookup configLookup (pure bundledPreludeConsumerSource)
+  lookedUpPaths <- readIORef lookupPaths
   assertEqual "exit code" 0 (cliExitCode output)
   assertEqual "runtime stdout" "<function>\n" (cliStdout output)
   assertEqual "stderr is empty" "" (cliStderr output)
-  where
-    envLookup _ = pure Nothing
-    configLookup key =
-      pure
-        (Map.lookup key (Map.fromList [("stdlib/Prelude.jz", bundledPreludeSource)]))
+  assertEqual
+    "default bundled prelude should not probe old path-based fallbacks"
+    []
+    (filter isBundledPreludePath lookedUpPaths)
 
 testCliRunModePreludeFromFlag :: IO ()
 testCliRunModePreludeFromFlag = do
@@ -346,14 +349,19 @@ testCliPreludeBridgeFailure = do
 
 testCliNoPreludeDisablesBundledDefault :: IO ()
 testCliNoPreludeDisablesBundledDefault = do
-  output <- runCliWith ["--run", "--no-prelude"] envLookup configLookup (pure bundledPreludeOnlyConsumerSource)
-  assertEqual "exit code" 1 (cliExitCode output)
-  assertContains "unbound variable when bundled prelude disabled" "E1001" (cliStderr output)
-  where
-    envLookup _ = pure Nothing
-    configLookup key =
-      pure
-        (Map.lookup key (Map.fromList [(bundledPreludePath, bundledPreludeSource)]))
+  lookupPaths <- newIORef []
+  let envLookup _ = pure Nothing
+      configLookup path = do
+        writeIORef lookupPaths . (path :) =<< readIORef lookupPaths
+        pure Nothing
+  output <- runCliWith ["--run", "--no-prelude"] envLookup configLookup (pure runtimeSuccessSource)
+  lookedUpPaths <- readIORef lookupPaths
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "runtime stdout" "1\n" (cliStdout output)
+  assertEqual
+    "default bundled prelude lookup is skipped"
+    []
+    (filter isBundledPreludePath lookedUpPaths)
 
 testCliNoPreludeOverridesEnvPath :: IO ()
 testCliNoPreludeOverridesEnvPath = do
@@ -465,18 +473,12 @@ runtimeHdEmptySource = "hd []."
 preludeSource :: Text
 preludeSource = "inc = (+ 1)."
 
-bundledPreludePath :: FilePath
-bundledPreludePath = "jazz-next/stdlib/Prelude.jz"
-
-bundledPreludeSource :: Text
-bundledPreludeSource =
-  "__kernel_map = __kernel_map.\nmap = __kernel_map.\nfrom_prelude = map."
-
 bundledPreludeConsumerSource :: Text
 bundledPreludeConsumerSource = "map."
 
-bundledPreludeOnlyConsumerSource :: Text
-bundledPreludeOnlyConsumerSource = "from_prelude."
-
 preludeConsumerSource :: Text
 preludeConsumerSource = "inc 2."
+
+isBundledPreludePath :: FilePath -> Bool
+isBundledPreludePath path =
+  path == "jazz-next/stdlib/Prelude.jz" || path == "stdlib/Prelude.jz"

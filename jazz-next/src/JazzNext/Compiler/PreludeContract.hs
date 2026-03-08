@@ -13,8 +13,7 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
-  ( isKernelBuiltinSymbolName,
-    kernelBridgeBindingPrefix,
+  ( kernelBridgeBindingPrefix,
     kernelBridgeTargetName
   )
 
@@ -59,40 +58,32 @@ validatePreludeKernelBridges preludeExpr =
                         <> "'"
                     ]
           | otherwise -> []
-        Just targetName
-          | not (isKernelBuiltinSymbolName targetName) ->
-              [ "E0004: prelude kernel bridge '"
+        Just targetName ->
+          case bindingExpr of
+            EVar rhsName
+              | rhsName /= targetName ->
+                  [ "E0005: prelude kernel bridge '"
+                      <> bindingName
+                      <> "' must reference kernel symbol '"
+                      <> targetName
+                      <> "', found '"
+                      <> rhsName
+                      <> "'"
+                  ]
+              | targetName `Set.member` seenBindings ->
+                  [ "E0005: prelude kernel bridge '"
+                      <> bindingName
+                      <> "' must reference canonical kernel symbol '"
+                      <> targetName
+                      <> "', but '"
+                      <> targetName
+                      <> "' was rebound earlier in prelude scope"
+                  ]
+              | otherwise -> []
+            _ ->
+              [ "E0005: prelude kernel bridge '"
                   <> bindingName
-                  <> "' references unknown kernel symbol '"
+                  <> "' must be a direct symbol reference to '"
                   <> targetName
                   <> "'"
               ]
-          | otherwise ->
-              case bindingExpr of
-                EVar rhsName
-                  | rhsName /= targetName ->
-                      [ "E0005: prelude kernel bridge '"
-                          <> bindingName
-                          <> "' must reference kernel symbol '"
-                          <> targetName
-                          <> "', found '"
-                          <> rhsName
-                          <> "'"
-                      ]
-                  | targetName `Set.member` seenBindings ->
-                      [ "E0005: prelude kernel bridge '"
-                          <> bindingName
-                          <> "' must reference canonical kernel symbol '"
-                          <> targetName
-                          <> "', but '"
-                          <> targetName
-                          <> "' was rebound earlier in prelude scope"
-                      ]
-                  | otherwise -> []
-                _ ->
-                  [ "E0005: prelude kernel bridge '"
-                      <> bindingName
-                      <> "' must be a direct symbol reference to '"
-                      <> targetName
-                      <> "'"
-                  ]
