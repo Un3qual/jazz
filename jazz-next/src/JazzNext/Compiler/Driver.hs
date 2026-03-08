@@ -104,7 +104,7 @@ compileExprWithBuiltins builtinMode settings expr = do
 compileSource :: WarningSettings -> Text -> IO CompileResult
 compileSource settings source = do
   bundledPreludeSource <- loadBundledPreludeSource
-  compileSourceWithPrelude settings bundledPreludeSource source
+  compileSourceWithPrelude settings (Just bundledPreludeSource) source
 
 compileSourceWithPrelude :: WarningSettings -> Maybe Text -> Text -> IO CompileResult
 compileSourceWithPrelude settings preludeSource source =
@@ -176,7 +176,7 @@ runExprWithBuiltins builtinMode settings expr = do
 runSource :: WarningSettings -> Text -> IO RunResult
 runSource settings source = do
   bundledPreludeSource <- loadBundledPreludeSource
-  runSourceWithPrelude settings bundledPreludeSource source
+  runSourceWithPrelude settings (Just bundledPreludeSource) source
 
 runSourceWithPrelude :: WarningSettings -> Maybe Text -> Text -> IO RunResult
 runSourceWithPrelude settings preludeSource source =

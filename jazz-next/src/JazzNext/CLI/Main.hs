@@ -15,7 +15,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import JazzNext.Compiler.BundledPrelude
-  ( bundledPreludeSource
+  ( loadBundledPreludeSource
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -204,7 +204,7 @@ resolvePreludeSource options envLookup fileLookup = do
         Nothing ->
           case envPreludePath of
             Just envPath -> loadRequiredPrelude envPath
-            Nothing -> pure (Right (Just bundledPreludeSource))
+            Nothing -> Right . Just <$> loadBundledPreludeSource
   where
     loadRequiredPrelude :: FilePath -> IO (Either Text (Maybe Text))
     loadRequiredPrelude preludePath = do

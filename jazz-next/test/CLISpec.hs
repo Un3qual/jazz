@@ -290,7 +290,7 @@ testCliLoadsBundledPreludeWithoutPathLookup = do
       configLookup path = do
         writeIORef lookupPaths . (path :) =<< readIORef lookupPaths
         pure Nothing
-  output <- runCliWith ["--run"] envLookup configLookup (pure bundledPreludeConsumerSource)
+  output <- runCliWith ["--run"] envLookup configLookup (pure bundledPreludeKernelConsumerSource)
   lookedUpPaths <- readIORef lookupPaths
   assertEqual "exit code" 0 (cliExitCode output)
   assertEqual "runtime stdout" "<function>\n" (cliStdout output)
@@ -354,10 +354,11 @@ testCliNoPreludeDisablesBundledDefault = do
       configLookup path = do
         writeIORef lookupPaths . (path :) =<< readIORef lookupPaths
         pure Nothing
-  output <- runCliWith ["--run", "--no-prelude"] envLookup configLookup (pure runtimeSuccessSource)
+  output <- runCliWith ["--run", "--no-prelude"] envLookup configLookup (pure bundledPreludeKernelConsumerSource)
   lookedUpPaths <- readIORef lookupPaths
-  assertEqual "exit code" 0 (cliExitCode output)
-  assertEqual "runtime stdout" "1\n" (cliStdout output)
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "kernel builtin stays unavailable in no-prelude compatibility mode" "E1001" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
   assertEqual
     "default bundled prelude lookup is skipped"
     []
@@ -475,6 +476,9 @@ preludeSource = "inc = (+ 1)."
 
 bundledPreludeConsumerSource :: Text
 bundledPreludeConsumerSource = "map."
+
+bundledPreludeKernelConsumerSource :: Text
+bundledPreludeKernelConsumerSource = "__kernel_map."
 
 preludeConsumerSource :: Text
 preludeConsumerSource = "inc 2."

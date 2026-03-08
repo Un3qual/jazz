@@ -29,6 +29,6 @@ bundledPreludeSource =
     renderPublicAlias symbol =
       builtinSymbolName symbol <> " = " <> builtinSymbolKernelName symbol <> "."
 
-loadBundledPreludeSource :: IO (Maybe Text)
+loadBundledPreludeSource :: IO Text
 loadBundledPreludeSource =
-  pure (Just bundledPreludeSource)
+  pure bundledPreludeSource

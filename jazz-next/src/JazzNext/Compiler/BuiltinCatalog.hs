@@ -19,9 +19,6 @@ module JazzNext.Compiler.BuiltinCatalog
     lookupKernelBuiltinSymbol
   ) where
 
-import Control.Applicative
-  ( (<|>)
-  )
 import Data.List
   ( find
   )
@@ -29,7 +26,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 
 -- Prelude-enabled compile/run paths should resolve only kernel bridge names.
--- Compatibility paths accept both canonical API names and kernel names.
+-- Compatibility paths retain legacy canonical aliases only.
 data BuiltinResolutionMode
   = ResolveKernelOnly
   | ResolveCompatibility
@@ -115,7 +112,7 @@ lookupBuiltinSymbolInMode mode name =
     ResolveKernelOnly ->
       lookupKernelBuiltinSymbol name
     ResolveCompatibility ->
-      lookupBuiltinSymbol name <|> lookupKernelBuiltinSymbol name
+      lookupBuiltinSymbol name
 
 isBuiltinSymbolNameInMode :: BuiltinResolutionMode -> Text -> Bool
 isBuiltinSymbolNameInMode mode name =

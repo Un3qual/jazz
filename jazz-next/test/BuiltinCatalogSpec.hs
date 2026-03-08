@@ -58,6 +58,7 @@ tests =
     ("compile pipeline treats catalog builtins as bound names", testCompilePipelineTreatsCatalogBuiltinsAsBound),
     ("runtime exposes catalog builtins as callable values", testRuntimeExposesCatalogBuiltinsAsFunctions),
     ("no-prelude compatibility path keeps canonical builtin aliases", testNoPreludeCompatibilityPathKeepsCanonicalAliases),
+    ("no-prelude compatibility path rejects kernel bridge names", testNoPreludeCompatibilityPathRejectsKernelBridgeNames),
     ("builtin over-application reports runtime failure after saturation", testRuntimeBuiltinOverApplicationFails)
   ]
 
@@ -143,6 +144,15 @@ testNoPreludeCompatibilityPathKeepsCanonicalAliases =
       assertEqual ("compat runtime compile errors for " <> name) [] (runCompileErrors runResult)
       assertEqual ("compat runtime errors for " <> name) [] (runRuntimeErrors runResult)
       assertEqual ("compat runtime output for " <> name) (Just "<function>") (runOutput runResult)
+
+testNoPreludeCompatibilityPathRejectsKernelBridgeNames :: IO ()
+testNoPreludeCompatibilityPathRejectsKernelBridgeNames = do
+  compileResult <- compileSourceWithPrelude defaultWarningSettings Nothing "x = __kernel_map."
+  assertEqual "compat compile rejects kernel bridge names" ["E1001: unbound variable '__kernel_map'"] (compileErrors compileResult)
+  runResult <- runSourceWithPrelude defaultWarningSettings Nothing "__kernel_map."
+  assertEqual "compat runtime compile rejects kernel bridge names" ["E1001: unbound variable '__kernel_map'"] (runCompileErrors runResult)
+  assertEqual "compat runtime errors stay empty on compile failure" [] (runRuntimeErrors runResult)
+  assertEqual "compat runtime output is suppressed" Nothing (runOutput runResult)
 
 testRuntimeBuiltinOverApplicationFails :: IO ()
 testRuntimeBuiltinOverApplicationFails =
