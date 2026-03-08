@@ -17,19 +17,24 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import qualified Data.Set as Set
+import Data.Set (Set)
 import Data.IORef
   ( newIORef,
     readIORef,
     writeIORef
   )
 import JazzNext.Compiler.AST
-  ( Expr
+  ( Expr (..),
+    Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
-  ( WarningRecord (..)
+  ( SourceSpan (..),
+    WarningRecord (..)
   )
 import JazzNext.Compiler.BundledPrelude
-  ( loadBundledPreludeSource
+  ( bundledPreludeSource,
+    loadBundledPreludeSource
   )
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..)
@@ -57,7 +62,7 @@ import JazzNext.Compiler.Runtime
   )
 import JazzNext.Compiler.TypeInference
   ( InferenceResult (..),
-    inferExpressionWithBuiltins
+    inferExpressionWithBuiltinsAndHiddenStatements
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -85,8 +90,16 @@ compileExpr :: WarningSettings -> Expr -> IO CompileResult
 compileExpr = compileExprWithBuiltins ResolveCompatibility
 
 compileExprWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO CompileResult
-compileExprWithBuiltins builtinMode settings expr = do
-  (warnings, errors, _) <- analyzeWithWarnings builtinMode settings expr
+compileExprWithBuiltins = compileExprWithBuiltinsAndHiddenStatements Set.empty
+
+compileExprWithBuiltinsAndHiddenStatements ::
+  Set Int ->
+  BuiltinResolutionMode ->
+  WarningSettings ->
+  Expr ->
+  IO CompileResult
+compileExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr = do
+  (warnings, errors, _) <- analyzeWithWarnings hiddenStatementIndices builtinMode settings expr
   let output =
         if null errors
           then
@@ -116,8 +129,12 @@ compileSourceWithPrelude settings preludeSource source =
             compileErrors = [parseErrorCode],
             generatedJs = Nothing
           }
-    Right loweredExpr ->
-      compileExprWithBuiltins (builtinResolutionMode preludeSource) settings loweredExpr
+    Right loweredProgram ->
+      compileExprWithBuiltinsAndHiddenStatements
+        (parsedHiddenStatementIndices loweredProgram)
+        (builtinResolutionMode preludeSource)
+        settings
+        (parsedExpr loweredProgram)
 
 compileModuleGraphWithPrelude ::
   WarningSettings ->
@@ -143,8 +160,17 @@ runExpr :: WarningSettings -> Expr -> IO RunResult
 runExpr = runExprWithBuiltins ResolveCompatibility
 
 runExprWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO RunResult
-runExprWithBuiltins builtinMode settings expr = do
-  (warnings, compileErrors, canonicalExpr) <- analyzeWithWarnings builtinMode settings expr
+runExprWithBuiltins = runExprWithBuiltinsAndHiddenStatements Set.empty
+
+runExprWithBuiltinsAndHiddenStatements ::
+  Set Int ->
+  BuiltinResolutionMode ->
+  WarningSettings ->
+  Expr ->
+  IO RunResult
+runExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr = do
+  (warnings, compileErrors, canonicalExpr) <-
+    analyzeWithWarnings hiddenStatementIndices builtinMode settings expr
   if not (null compileErrors)
     then
       pure
@@ -189,8 +215,12 @@ runSourceWithPrelude settings preludeSource source =
             runRuntimeErrors = [],
             runOutput = Nothing
           }
-    Right loweredExpr ->
-      runExprWithBuiltins (builtinResolutionMode preludeSource) settings loweredExpr
+    Right loweredProgram ->
+      runExprWithBuiltinsAndHiddenStatements
+        (parsedHiddenStatementIndices loweredProgram)
+        (builtinResolutionMode preludeSource)
+        settings
+        (parsedExpr loweredProgram)
 
 runModuleGraphWithPrelude ::
   WarningSettings ->
@@ -213,9 +243,14 @@ runModuleGraphWithPrelude settings preludeSource resolutionConfig entryModulePat
     Right sourceText ->
       runSourceWithPrelude settings preludeSource sourceText
 
-analyzeWithWarnings :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Text], Expr)
-analyzeWithWarnings builtinMode settings expr = do
-  inference <- inferExpressionWithBuiltins builtinMode settings expr
+analyzeWithWarnings :: Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Text], Expr)
+analyzeWithWarnings hiddenStatementIndices builtinMode settings expr = do
+  inference <-
+    inferExpressionWithBuiltinsAndHiddenStatements
+      builtinMode
+      hiddenStatementIndices
+      settings
+      expr
   let warnings = filterWarningsForPromotion settings (inferredWarnings inference)
       promotedWarnings = filter (isPromoted settings) warnings
       promotedWarningErrors = map warningToError promotedWarnings
@@ -241,33 +276,58 @@ builtinResolutionMode preludeSource =
     Just _ -> ResolveKernelOnly
     Nothing -> ResolveCompatibility
 
-parseAndLowerSource :: Maybe Text -> Text -> Either Text Expr
+parseAndLowerSource :: Maybe Text -> Text -> Either Text ParsedProgram
 parseAndLowerSource preludeSource source = do
-  validatePrelude preludeSource
-  surfaceProgram <- parseSurfaceWithErrorCode (composeSource preludeSource source)
+  loweredSource <- parseAndLowerStandaloneSource source
+  case preludeSource of
+    Nothing ->
+      pure
+        ParsedProgram
+          { parsedExpr = loweredSource,
+            parsedHiddenStatementIndices = Set.empty
+          }
+    Just preludeText -> do
+      loweredPrelude <- validateAndLowerPrelude preludeText
+      let preludeStatements = scopeStatements loweredPrelude
+          combinedExpr =
+            EScope (preludeStatements ++ scopeStatements loweredSource)
+          hiddenStatementIndices =
+            if preludeText == bundledPreludeSource
+              then Set.fromList [0 .. length preludeStatements - 1]
+              else Set.empty
+      pure
+        ParsedProgram
+          { parsedExpr = combinedExpr,
+            parsedHiddenStatementIndices = hiddenStatementIndices
+          }
+
+data ParsedProgram = ParsedProgram
+  { parsedExpr :: Expr,
+    parsedHiddenStatementIndices :: Set Int
+  }
+
+validateAndLowerPrelude :: Text -> Either Text Expr
+validateAndLowerPrelude preludeText =
+  case parseSurfaceProgram preludeText of
+    Left parseError ->
+      Left ("E0002: prelude parse error: " <> parseError)
+    Right preludeSurfaceExpr ->
+      let loweredPrelude = lowerSurfaceExpr preludeSurfaceExpr
+       in
+        case validatePreludeKernelBridges loweredPrelude of
+          [] -> Right loweredPrelude
+          firstValidationError : _ -> Left firstValidationError
+
+parseAndLowerStandaloneSource :: Text -> Either Text Expr
+parseAndLowerStandaloneSource source = do
+  surfaceProgram <- parseSurfaceWithErrorCode source
   pure (lowerSurfaceExpr surfaceProgram)
 
-validatePrelude :: Maybe Text -> Either Text ()
-validatePrelude preludeSource =
-  case preludeSource of
-    Nothing -> Right ()
-    Just preludeText ->
-      case parseSurfaceProgram preludeText of
-        Left parseError ->
-          Left ("E0002: prelude parse error: " <> parseError)
-        Right preludeSurfaceExpr ->
-          case validatePreludeKernelBridges (lowerSurfaceExpr preludeSurfaceExpr) of
-            [] -> Right ()
-            firstValidationError : _ -> Left firstValidationError
-
-composeSource :: Maybe Text -> Text -> Text
-composeSource preludeSource source =
-  case preludeSource of
-    Nothing -> source
-    Just preludeText ->
-      if Text.null source
-        then preludeText
-        else preludeText <> "\n" <> source
+scopeStatements :: Expr -> [Statement]
+scopeStatements expr =
+  case expr of
+    EScope statements -> statements
+    _ -> [SExpr (SourceSpan 1 1) expr]
 
 parseSurfaceWithErrorCode :: Text -> Either Text SurfaceExpr
 parseSurfaceWithErrorCode source =

@@ -47,6 +47,7 @@ tests =
     ("cli module graph compile reports missing import symbol diagnostics", testCliModuleGraphMissingImportSymbol),
     ("cli module graph compile reports module declaration mismatch diagnostics", testCliModuleGraphDeclarationMismatch),
     ("cli loads bundled default prelude when no flag or env override is set", testCliLoadsBundledDefaultPrelude),
+    ("cli bundled default prelude preserves user diagnostic spans", testCliBundledPreludePreservesUserDiagnosticSpans),
     ("cli loads bundled default prelude without path lookup fallback", testCliLoadsBundledPreludeWithoutPathLookup),
     ("cli --run composes explicit prelude source before user source", testCliRunModePreludeFromFlag),
     ("cli --no-prelude disables bundled default prelude", testCliNoPreludeDisablesBundledDefault),
@@ -283,6 +284,17 @@ testCliLoadsBundledDefaultPrelude = do
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing
 
+testCliBundledPreludePreservesUserDiagnosticSpans :: IO ()
+testCliBundledPreludePreservesUserDiagnosticSpans = do
+  output <- runCliWith [] envLookup configLookup (pure signatureNameMismatchSource)
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "stderr includes signature mismatch code" "E1003" (cliStderr output)
+  assertContains "stderr keeps user line numbers" "1:1" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
 testCliLoadsBundledPreludeWithoutPathLookup :: IO ()
 testCliLoadsBundledPreludeWithoutPathLookup = do
   lookupPaths <- newIORef []
@@ -452,6 +464,9 @@ sampleSource = "x = 1. x = 2."
 
 signatureMismatchSource :: Text
 signatureMismatchSource = "x :: Int.\nx = True."
+
+signatureNameMismatchSource :: Text
+signatureNameMismatchSource = "x :: Int.\ny = 1."
 
 runtimeSuccessSource :: Text
 runtimeSuccessSource = "if True 1 else 2."

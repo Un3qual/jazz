@@ -2,6 +2,7 @@
 
 module JazzNext.Compiler.TypeInference
   ( InferenceResult (..),
+    inferExpressionWithBuiltinsAndHiddenStatements,
     inferExpressionWithBuiltins,
     inferExpression,
     inferExpressionDefault
@@ -16,7 +17,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Analyzer
   ( AnalysisResult (..),
-    analyzeProgramWithBuiltins
+    analyzeProgramWithBuiltinsAndHiddenStatements
   )
 import JazzNext.Compiler.AST
   ( Expr (..),
@@ -49,9 +50,23 @@ inferExpression :: WarningSettings -> Expr -> IO InferenceResult
 inferExpression = inferExpressionWithBuiltins ResolveCompatibility
 
 inferExpressionWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO InferenceResult
-inferExpressionWithBuiltins builtinMode settings expr = do
+inferExpressionWithBuiltins builtinMode =
+  inferExpressionWithBuiltinsAndHiddenStatements builtinMode Set.empty
+
+inferExpressionWithBuiltinsAndHiddenStatements ::
+  BuiltinResolutionMode ->
+  Set Int ->
+  WarningSettings ->
+  Expr ->
+  IO InferenceResult
+inferExpressionWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices settings expr = do
   let canonicalExpr = canonicalizeExpr expr
-  AnalysisResult _ warnings errors <- analyzeProgramWithBuiltins builtinMode settings canonicalExpr
+  AnalysisResult _ warnings errors <-
+    analyzeProgramWithBuiltinsAndHiddenStatements
+      builtinMode
+      hiddenStatementIndices
+      settings
+      canonicalExpr
   let typeErrors = collectExprTypeErrors builtinMode canonicalExpr
   pure
     InferenceResult

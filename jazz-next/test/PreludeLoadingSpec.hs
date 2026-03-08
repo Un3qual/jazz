@@ -4,6 +4,7 @@ module Main (main) where
 
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
+    compileSource,
     RunResult (..),
     compileSourceWithPrelude,
     runSourceWithPrelude
@@ -25,6 +26,7 @@ tests :: [NamedTest]
 tests =
   [ ("compile source can reference prelude-defined bindings", testCompileWithPreludeBindingVisibility),
     ("run source can apply prelude-defined section functions", testRunWithPreludeSectionFunction),
+    ("bundled default prelude preserves user diagnostic spans", testBundledPreludePreservesUserDiagnosticSpans),
     ("invalid prelude source produces prelude parse diagnostic", testPreludeParseDiagnostic),
     ("prelude bridge with unknown kernel symbol fails conformance checks", testPreludeUnknownBridgeSymbolDiagnostic),
     ("prelude bridge with missing kernel suffix fails conformance checks", testPreludeBridgeMissingSuffixDiagnostic),
@@ -46,6 +48,14 @@ testRunWithPreludeSectionFunction = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
+
+testBundledPreludePreservesUserDiagnosticSpans :: IO ()
+testBundledPreludePreservesUserDiagnosticSpans = do
+  result <- compileSource defaultWarningSettings "x :: Int. y = 1."
+  assertEqual
+    "bundled default prelude keeps user spans anchored to user source"
+    ["E1003: signature for 'x' at 1:1 must annotate the next binding with the same name; found 'y'"]
+    (compileErrors result)
 
 testPreludeParseDiagnostic :: IO ()
 testPreludeParseDiagnostic = do

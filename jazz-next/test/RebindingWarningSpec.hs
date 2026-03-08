@@ -13,7 +13,8 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
-    compileExpr
+    compileExpr,
+    compileSource
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -40,6 +41,7 @@ tests =
     ("enabled warning emits one same-scope rebinding warning", testEnabledCategoryEmitsWarning),
     ("repeated same-scope rebinding order is deterministic", testDeterministicWarningOrder),
     ("nested scope shadowing does not emit same-scope warning", testNestedScopeShadowingNoWarning),
+    ("bundled default prelude aliases do not trigger same-scope rebinding", testBundledPreludeAliasShadowingNoWarning),
     ("driver keeps JS output when warning is not promoted", testDriverKeepsOutputWhenNotPromoted),
     ("driver suppresses JS output when warning is promoted to error", testDriverSuppressesOutputWhenPromoted)
   ]
@@ -78,6 +80,13 @@ testNestedScopeShadowingNoWarning = do
   settings <- enabledSettings
   warnings <- analyzeRebindingWarnings settings nestedScopeProgram
   assertEqual "warning count" 0 (length warnings)
+
+testBundledPreludeAliasShadowingNoWarning :: IO ()
+testBundledPreludeAliasShadowingNoWarning = do
+  settings <- promotedSettings
+  result <- compileSource settings "map = (+ 1). map 2."
+  assertEqual "compile errors" [] (compileErrors result)
+  assertEqual "warning count" 0 (length (compileWarnings result))
 
 testDriverKeepsOutputWhenNotPromoted :: IO ()
 testDriverKeepsOutputWhenNotPromoted = do

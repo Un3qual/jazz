@@ -4,6 +4,7 @@ module JazzNext.Compiler.Analyzer
   ( Expr (..),
     Statement (..),
     AnalysisResult (..),
+    analyzeProgramWithBuiltinsAndHiddenStatements,
     analyzeProgramWithBuiltins,
     analyzeProgram,
     analyzeRebindingWarningsWithBuiltins,
@@ -57,6 +58,11 @@ data AnalysisContext = AnalysisContext
     contextAllowsImpureCalls :: Bool
   }
 
+data VisibleBinding = VisibleBinding
+  { visibleBindingSpan :: SourceSpan,
+    visibleBindingIsHiddenPrelude :: Bool
+  }
+
 -- Entry point for the current analyzer slice:
 -- - unbound variable diagnostics
 -- - signature adjacency/name diagnostics
@@ -66,8 +72,22 @@ analyzeProgram :: WarningSettings -> Expr -> IO AnalysisResult
 analyzeProgram = analyzeProgramWithBuiltins ResolveCompatibility
 
 analyzeProgramWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO AnalysisResult
-analyzeProgramWithBuiltins builtinMode settings expr =
-  let (warnings, errors) = collectExprDiagnostics builtinMode settings Map.empty topLevelContext expr
+analyzeProgramWithBuiltins builtinMode =
+  analyzeProgramWithBuiltinsAndHiddenStatements builtinMode Set.empty
+
+analyzeProgramWithBuiltinsAndHiddenStatements ::
+  BuiltinResolutionMode ->
+  Set Int ->
+  WarningSettings ->
+  Expr ->
+  IO AnalysisResult
+analyzeProgramWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices settings expr =
+  let (warnings, errors) =
+        case expr of
+          EScope statements ->
+            collectScopeDiagnostics builtinMode hiddenStatementIndices settings Map.empty topLevelContext statements
+          _ ->
+            collectExprDiagnostics builtinMode settings Map.empty topLevelContext expr
    in
     pure
       AnalysisResult
@@ -86,7 +106,7 @@ analyzeRebindingWarningsWithBuiltins builtinMode settings expr =
 collectExprDiagnostics ::
   BuiltinResolutionMode ->
   WarningSettings ->
-  Map Text SourceSpan ->
+  Map Text VisibleBinding ->
   AnalysisContext ->
   Expr ->
   ([WarningRecord], [Text])
@@ -111,7 +131,11 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
             case functionExpr of
               EVar calleeName
                 | shouldRejectImpureCall builtinMode visibleBindings context calleeName ->
-                    [mkImpureCallInPureContextError context calleeName (Map.lookup calleeName visibleBindings)]
+                    [ mkImpureCallInPureContextError
+                        context
+                        calleeName
+                        (Map.lookup calleeName visibleBindings >>= visibleBindingDiagnosticSpan)
+                    ]
               _ -> []
        in
         ( functionWarnings ++ argumentWarnings,
@@ -141,12 +165,12 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
       collectExprDiagnostics builtinMode settings visibleBindings context leftExpr
     ESectionRight _ rightExpr ->
       collectExprDiagnostics builtinMode settings visibleBindings context rightExpr
-    EScope statements -> collectScopeDiagnostics builtinMode settings visibleBindings context statements
+    EScope statements -> collectScopeDiagnostics builtinMode Set.empty settings visibleBindings context statements
 
 collectExprListDiagnostics ::
   BuiltinResolutionMode ->
   WarningSettings ->
-  Map Text SourceSpan ->
+  Map Text VisibleBinding ->
   AnalysisContext ->
   [Expr] ->
   ([WarningRecord], [Text])
@@ -166,12 +190,13 @@ collectExprListDiagnostics builtinMode settings visibleBindings context elements
 
 collectScopeDiagnostics ::
   BuiltinResolutionMode ->
+  Set Int ->
   WarningSettings ->
-  Map Text SourceSpan ->
+  Map Text VisibleBinding ->
   AnalysisContext ->
   [Statement] ->
   ([WarningRecord], [Text])
-collectScopeDiagnostics builtinMode settings outerScope context statements =
+collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope context statements =
   (reverse finalWarningsRev, reverse errorsWithFinalPending)
   where
     indexedStatements = zip [0 ..] statements
@@ -189,9 +214,9 @@ collectScopeDiagnostics builtinMode settings outerScope context statements =
     errorsWithFinalPending = flushPendingSignature finalPendingSignature finalErrorsRev
 
     step ::
-      (Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Text]) ->
+      (Map Text VisibleBinding, Maybe PendingSignature, [WarningRecord], [Text]) ->
       (Int, Statement) ->
-      (Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Text])
+      (Map Text VisibleBinding, Maybe PendingSignature, [WarningRecord], [Text])
     step (scopeBindings, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
       case statement of
         SExpr _ expr ->
@@ -247,11 +272,20 @@ collectScopeDiagnostics builtinMode settings outerScope context statements =
                         ]
               rebindingWarning =
                 case Map.lookup bindingName scopeBindings of
-                  Just previousSpan
-                    | isWarningEnabled settings SameScopeRebinding ->
-                        [mkSameScopeRebindingWarning bindingName bindingSpan previousSpan]
+                  Just previousBinding
+                    | isWarningEnabled settings SameScopeRebinding,
+                      not (visibleBindingIsHiddenPrelude previousBinding) ->
+                        [ mkSameScopeRebindingWarning
+                            bindingName
+                            bindingSpan
+                            (visibleBindingSpan previousBinding)
+                        ]
                   _ -> []
-              nextScope = Map.insert bindingName bindingSpan scopeBindings
+              nextScope =
+                Map.insert
+                  bindingName
+                  (mkVisibleBinding hiddenStatementIndices statementIndex bindingSpan)
+                  scopeBindings
               visible =
                 -- Recursive peer names in the same SCC are visible while
                 -- analyzing the binding body.
@@ -271,14 +305,14 @@ collectScopeDiagnostics builtinMode settings outerScope context statements =
               errorsWithValue
             )
 
-    currentVisibleBindings :: Map Text SourceSpan -> Map Text SourceSpan
+    currentVisibleBindings :: Map Text VisibleBinding -> Map Text VisibleBinding
     -- Local scope is left-biased so inner declarations shadow outer bindings.
     currentVisibleBindings scopeBindings = scopeBindings `Map.union` outerScope
 
     withRecursivePeerBindings ::
       Int ->
-      Map Text SourceSpan ->
-      Map Text SourceSpan
+      Map Text VisibleBinding ->
+      Map Text VisibleBinding
     withRecursivePeerBindings statementIndex visibleNow =
       let peers =
             Set.delete
@@ -286,7 +320,7 @@ collectScopeDiagnostics builtinMode settings outerScope context statements =
               (Map.findWithDefault Set.empty statementIndex recursiveGroupsByStatement)
           peerEntries =
             Map.fromList
-              [ (peerName, peerSpan)
+              [ (peerName, mkVisibleBinding hiddenStatementIndices peerStatementIndex peerSpan)
                 | peerStatementIndex <- Set.toList peers,
                   Just (peerName, peerSpan) <- [Map.lookup peerStatementIndex bindingDeclarationsByStatement],
                   -- Do not override currently visible names (for example due to
@@ -357,7 +391,7 @@ contextForBinding bindingName =
 
 shouldRejectImpureCall ::
   BuiltinResolutionMode ->
-  Map Text SourceSpan ->
+  Map Text VisibleBinding ->
   AnalysisContext ->
   Text ->
   Bool
@@ -388,7 +422,7 @@ mkImpureCallInPureContextError context calleeName maybeCalleeSpan =
         Just spanValue -> " (callee declared at " <> renderSourceSpan spanValue <> ")"
 
 inferRecursiveGroups ::
-  Map Text SourceSpan ->
+  Map Text VisibleBinding ->
   [(Int, Statement)] ->
   Map Int (Set Int)
 inferRecursiveGroups outerScope indexedStatements =
@@ -554,3 +588,16 @@ freeVarsScopeWithBound initialBound statements =
             ( boundWithSelf,
               Set.union freeNames (freeVarsExprWithBound boundWithSelf valueExpr)
             )
+
+mkVisibleBinding :: Set Int -> Int -> SourceSpan -> VisibleBinding
+mkVisibleBinding hiddenStatementIndices statementIndex spanValue =
+  VisibleBinding
+    { visibleBindingSpan = spanValue,
+      visibleBindingIsHiddenPrelude = statementIndex `Set.member` hiddenStatementIndices
+    }
+
+visibleBindingDiagnosticSpan :: VisibleBinding -> Maybe SourceSpan
+visibleBindingDiagnosticSpan visibleBinding =
+  if visibleBindingIsHiddenPrelude visibleBinding
+    then Nothing
+    else Just (visibleBindingSpan visibleBinding)
