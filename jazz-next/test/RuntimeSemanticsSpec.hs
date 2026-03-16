@@ -40,8 +40,12 @@ tests =
   [ ("if with False condition skips then branch runtime failure", testIfFalseSkipsThenRuntimeFailure),
     ("if with True condition skips else branch runtime failure", testIfTrueSkipsElseRuntimeFailure),
     ("division by zero produces fatal runtime diagnostic", testDivisionByZeroRuntimeError),
+    ("bare dollar operator value applies at runtime", testDollarOperatorValueRuntimeSuccess),
+    ("bare operator value applies at runtime", testBareOperatorValueRuntimeSuccess),
+    ("explicit partial application of bare operator value applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess),
     ("left operator section applies at runtime", testLeftOperatorSectionRuntimeSuccess),
     ("right operator section applies at runtime", testRightOperatorSectionRuntimeSuccess),
+    ("right section differs from ordinary partial application for division", testRightSectionDiffersFromOrdinaryPartialApplication),
     ("map + hd evaluates over nested list literals", testMapHdNestedListsRuntimeSuccess),
     ("filter keeps only matching list elements", testFilterRuntimeSuccess),
     ("tl returns the tail of a non-empty list", testTlReturnsTailRuntimeValue),
@@ -92,6 +96,27 @@ testDivisionByZeroRuntimeError = do
         (renderDiagnostic runtimeError)
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
+testDollarOperatorValueRuntimeSuccess :: IO ()
+testDollarOperatorValueRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "($) (1 +) 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testBareOperatorValueRuntimeSuccess :: IO ()
+testBareOperatorValueRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "(+) 1 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testExplicitPartialOperatorValueRuntimeSuccess :: IO ()
+testExplicitPartialOperatorValueRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "((+) 1) 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
 testLeftOperatorSectionRuntimeSuccess :: IO ()
 testLeftOperatorSectionRuntimeSuccess = do
   result <- runSource defaultWarningSettings "(1 +) 2."
@@ -105,6 +130,17 @@ testRightOperatorSectionRuntimeSuccess = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
+
+testRightSectionDiffersFromOrdinaryPartialApplication :: IO ()
+testRightSectionDiffersFromOrdinaryPartialApplication = do
+  rightSectionResult <- runSource defaultWarningSettings "(/ 2) 10."
+  partialApplicationResult <- runSource defaultWarningSettings "((/) 2) 10."
+  assertEqual "right section compile errors" [] (runCompileErrors rightSectionResult)
+  assertEqual "right section runtime errors" [] (runRuntimeErrors rightSectionResult)
+  assertEqual "right section runtime output" (Just "5") (runOutput rightSectionResult)
+  assertEqual "partial application compile errors" [] (runCompileErrors partialApplicationResult)
+  assertEqual "partial application runtime errors" [] (runRuntimeErrors partialApplicationResult)
+  assertEqual "partial application runtime output" (Just "0") (runOutput partialApplicationResult)
 
 testMapHdNestedListsRuntimeSuccess :: IO ()
 testMapHdNestedListsRuntimeSuccess = do

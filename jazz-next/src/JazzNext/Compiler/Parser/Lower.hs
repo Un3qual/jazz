@@ -20,6 +20,7 @@ lowerSurfaceExpr surfaceExpr =
   case surfaceExpr of
     SELit literal -> ELit (lowerSurfaceLiteral literal)
     SEVar name -> EVar name
+    SEOperatorValue operatorSymbol -> EOperatorValue operatorSymbol
     SEList elements ->
       EList (map lowerSurfaceExpr elements)
     SEApply functionExpr argumentExpr ->

@@ -23,6 +23,7 @@ main = runTestSuite "PuritySemantics" tests
 tests :: [NamedTest]
 tests =
   [ ("pure binding cannot call impure builtin", testPureBindingCannotCallImpureBuiltin),
+    ("pure binding cannot call impure builtin through dollar application", testPureBindingCannotCallImpureBuiltinThroughDollarApplication),
     ("impure binding can call impure builtin", testImpureBindingCanCallImpureBuiltin),
     ("pure binding cannot call impure callee", testPureBindingCannotCallImpureCallee),
     ("impure binding can call impure callee", testImpureBindingCanCallImpureCallee),
@@ -36,6 +37,14 @@ testPureBindingCannotCallImpureBuiltin = do
   result <- compileSource defaultWarningSettings "x = print! 1.\nx."
   assertSingleErrorContains
     "pure binding calling impure builtin"
+    "E1010"
+    (compileErrors result)
+
+testPureBindingCannotCallImpureBuiltinThroughDollarApplication :: IO ()
+testPureBindingCannotCallImpureBuiltinThroughDollarApplication = do
+  result <- compileSource defaultWarningSettings "x = print! $ 1.\nx."
+  assertSingleErrorContains
+    "pure binding calling impure builtin through dollar application"
     "E1010"
     (compileErrors result)
 

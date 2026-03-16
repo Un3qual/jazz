@@ -4,7 +4,10 @@ module JazzNext.Compiler.Analyzer
   ( Expr (..),
     Statement (..),
     AnalysisResult (..),
+    analyzeProgramWithBuiltinsAndHiddenStatements,
+    analyzeProgramWithBuiltins,
     analyzeProgram,
+    analyzeRebindingWarningsWithBuiltins,
     analyzeRebindingWarnings
   ) where
 
@@ -21,7 +24,8 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
-  ( isBuiltinSymbolName
+  ( BuiltinResolutionMode (..),
+    isBuiltinSymbolNameInMode
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
@@ -57,14 +61,36 @@ data AnalysisContext = AnalysisContext
     contextAllowsImpureCalls :: Bool
   }
 
+data VisibleBinding = VisibleBinding
+  { visibleBindingSpan :: SourceSpan,
+    visibleBindingIsHiddenPrelude :: Bool
+  }
+
 -- Entry point for the current analyzer slice:
 -- - unbound variable diagnostics
 -- - signature adjacency/name diagnostics
 -- - optional same-scope rebinding warnings
 -- - recursive-group visibility for self/mutual recursion
 analyzeProgram :: WarningSettings -> Expr -> IO AnalysisResult
-analyzeProgram settings expr =
-  let (warnings, errors) = collectExprDiagnostics settings Map.empty topLevelContext expr
+analyzeProgram = analyzeProgramWithBuiltins ResolveCompatibility
+
+analyzeProgramWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO AnalysisResult
+analyzeProgramWithBuiltins builtinMode =
+  analyzeProgramWithBuiltinsAndHiddenStatements builtinMode Set.empty
+
+analyzeProgramWithBuiltinsAndHiddenStatements ::
+  BuiltinResolutionMode ->
+  Set Int ->
+  WarningSettings ->
+  Expr ->
+  IO AnalysisResult
+analyzeProgramWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices settings expr =
+  let (warnings, errors) =
+        case expr of
+          EBlock statements ->
+            collectScopeDiagnostics builtinMode hiddenStatementIndices settings Map.empty topLevelContext statements
+          _ ->
+            collectExprDiagnostics builtinMode settings Map.empty topLevelContext expr
    in
     pure
       AnalysisResult
@@ -74,73 +100,84 @@ analyzeProgram settings expr =
         }
 
 analyzeRebindingWarnings :: WarningSettings -> Expr -> IO [WarningRecord]
-analyzeRebindingWarnings settings expr = analysisWarnings <$> analyzeProgram settings expr
+analyzeRebindingWarnings = analyzeRebindingWarningsWithBuiltins ResolveCompatibility
+
+analyzeRebindingWarningsWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO [WarningRecord]
+analyzeRebindingWarningsWithBuiltins builtinMode settings expr =
+  analysisWarnings <$> analyzeProgramWithBuiltins builtinMode settings expr
 
 collectExprDiagnostics ::
+  BuiltinResolutionMode ->
   WarningSettings ->
-  Map Text SourceSpan ->
+  Map Text VisibleBinding ->
   AnalysisContext ->
   Expr ->
   ([WarningRecord], [Diagnostic])
-collectExprDiagnostics settings visibleBindings context expr =
+collectExprDiagnostics builtinMode settings visibleBindings context expr =
   case expr of
     ELit _ -> ([], [])
     EVar name ->
       case Map.lookup name visibleBindings of
         Just _ -> ([], [])
         Nothing
-          | isBuiltinSymbolName name -> ([], [])
+          | isBuiltinSymbolNameInMode builtinMode name -> ([], [])
           | otherwise -> ([], [mkUnboundVariableError name])
+    EOperatorValue _ -> ([], [])
     EList elements ->
-      collectExprListDiagnostics settings visibleBindings context elements
+      collectExprListDiagnostics builtinMode settings visibleBindings context elements
     EApply functionExpr argumentExpr ->
       let (functionWarnings, functionErrors) =
-            collectExprDiagnostics settings visibleBindings context functionExpr
+            collectExprDiagnostics builtinMode settings visibleBindings context functionExpr
           (argumentWarnings, argumentErrors) =
-            collectExprDiagnostics settings visibleBindings context argumentExpr
+            collectExprDiagnostics builtinMode settings visibleBindings context argumentExpr
           purityErrors =
             case functionExpr of
               EVar calleeName
-                | shouldRejectImpureCall visibleBindings context calleeName ->
-                    [mkImpureCallInPureContextError context calleeName (Map.lookup calleeName visibleBindings)]
+                | shouldRejectImpureCall builtinMode visibleBindings context calleeName ->
+                    [ mkImpureCallInPureContextError
+                        context
+                        calleeName
+                        (Map.lookup calleeName visibleBindings >>= visibleBindingDiagnosticSpan)
+                    ]
               _ -> []
        in
         ( functionWarnings ++ argumentWarnings,
           functionErrors ++ argumentErrors ++ purityErrors
         )
     EIf conditionExpr thenExpr elseExpr ->
-      collectExprDiagnostics settings visibleBindings context (ECase conditionExpr thenExpr elseExpr)
+      collectExprDiagnostics builtinMode settings visibleBindings context (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr ->
       let (conditionWarnings, conditionErrors) =
-            collectExprDiagnostics settings visibleBindings context conditionExpr
+            collectExprDiagnostics builtinMode settings visibleBindings context conditionExpr
           (thenWarnings, thenErrors) =
-            collectExprDiagnostics settings visibleBindings context thenExpr
+            collectExprDiagnostics builtinMode settings visibleBindings context thenExpr
           (elseWarnings, elseErrors) =
-            collectExprDiagnostics settings visibleBindings context elseExpr
+            collectExprDiagnostics builtinMode settings visibleBindings context elseExpr
        in
         ( conditionWarnings ++ thenWarnings ++ elseWarnings,
           conditionErrors ++ thenErrors ++ elseErrors
         )
     EBinary _ leftExpr rightExpr ->
       let (leftWarnings, leftErrors) =
-            collectExprDiagnostics settings visibleBindings context leftExpr
+            collectExprDiagnostics builtinMode settings visibleBindings context leftExpr
           (rightWarnings, rightErrors) =
-            collectExprDiagnostics settings visibleBindings context rightExpr
+            collectExprDiagnostics builtinMode settings visibleBindings context rightExpr
        in
         (leftWarnings ++ rightWarnings, leftErrors ++ rightErrors)
     ESectionLeft leftExpr _ ->
-      collectExprDiagnostics settings visibleBindings context leftExpr
+      collectExprDiagnostics builtinMode settings visibleBindings context leftExpr
     ESectionRight _ rightExpr ->
-      collectExprDiagnostics settings visibleBindings context rightExpr
-    EBlock statements -> collectScopeDiagnostics settings visibleBindings context statements
+      collectExprDiagnostics builtinMode settings visibleBindings context rightExpr
+    EBlock statements -> collectScopeDiagnostics builtinMode Set.empty settings visibleBindings context statements
 
 collectExprListDiagnostics ::
+  BuiltinResolutionMode ->
   WarningSettings ->
-  Map Text SourceSpan ->
+  Map Text VisibleBinding ->
   AnalysisContext ->
   [Expr] ->
   ([WarningRecord], [Diagnostic])
-collectExprListDiagnostics settings visibleBindings context elements =
+collectExprListDiagnostics builtinMode settings visibleBindings context elements =
   let (warningsRev, errorsRev) =
         foldl'
           step
@@ -150,17 +187,19 @@ collectExprListDiagnostics settings visibleBindings context elements =
   where
     step (warningsRev, errorsRev) element =
       let (elementWarnings, elementErrors) =
-            collectExprDiagnostics settings visibleBindings context element
+            collectExprDiagnostics builtinMode settings visibleBindings context element
        in
         (elementWarnings : warningsRev, elementErrors : errorsRev)
 
 collectScopeDiagnostics ::
+  BuiltinResolutionMode ->
+  Set Int ->
   WarningSettings ->
-  Map Text SourceSpan ->
+  Map Text VisibleBinding ->
   AnalysisContext ->
   [Statement] ->
   ([WarningRecord], [Diagnostic])
-collectScopeDiagnostics settings outerScope context statements =
+collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope context statements =
   (reverse finalWarningsRev, reverse errorsWithFinalPending)
   where
     indexedStatements = zip [0 ..] statements
@@ -178,16 +217,16 @@ collectScopeDiagnostics settings outerScope context statements =
     errorsWithFinalPending = flushPendingSignature finalPendingSignature finalErrorsRev
 
     step ::
-      (Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Diagnostic]) ->
+      (Map Text VisibleBinding, Maybe PendingSignature, [WarningRecord], [Diagnostic]) ->
       (Int, Statement) ->
-      (Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Diagnostic])
+      (Map Text VisibleBinding, Maybe PendingSignature, [WarningRecord], [Diagnostic])
     step (scopeBindings, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
       case statement of
         SExpr _ expr ->
           -- Any signature followed by a non-binding is invalid by contract.
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
               visible = currentVisibleBindings scopeBindings
-              (exprWarnings, exprErrors) = collectExprDiagnostics settings visible context expr
+              (exprWarnings, exprErrors) = collectExprDiagnostics builtinMode settings visible context expr
            in
             ( scopeBindings,
               Nothing,
@@ -236,11 +275,20 @@ collectScopeDiagnostics settings outerScope context statements =
                         ]
               rebindingWarning =
                 case Map.lookup bindingName scopeBindings of
-                  Just previousSpan
-                    | isWarningEnabled settings SameScopeRebinding ->
-                        [mkSameScopeRebindingWarning bindingName bindingSpan previousSpan]
+                  Just previousBinding
+                    | isWarningEnabled settings SameScopeRebinding,
+                      not (visibleBindingIsHiddenPrelude previousBinding) ->
+                        [ mkSameScopeRebindingWarning
+                            bindingName
+                            bindingSpan
+                            (visibleBindingSpan previousBinding)
+                        ]
                   _ -> []
-              nextScope = Map.insert bindingName bindingSpan scopeBindings
+              nextScope =
+                Map.insert
+                  bindingName
+                  (mkVisibleBinding hiddenStatementIndices statementIndex bindingSpan)
+                  scopeBindings
               visible =
                 -- Recursive peer names in the same SCC are visible while
                 -- analyzing the binding body.
@@ -249,7 +297,7 @@ collectScopeDiagnostics settings outerScope context statements =
                   (currentVisibleBindings nextScope)
               bindingContext = contextForBinding bindingName
               (valueWarnings, valueErrors) =
-                collectExprDiagnostics settings visible bindingContext valueExpr
+                collectExprDiagnostics builtinMode settings visible bindingContext valueExpr
               warningsWithValue = appendWarnings warningsRev valueWarnings
               errorsWithValue =
                 appendErrors (appendErrors errorsRev errorsFromSignature) valueErrors
@@ -260,14 +308,14 @@ collectScopeDiagnostics settings outerScope context statements =
               errorsWithValue
             )
 
-    currentVisibleBindings :: Map Text SourceSpan -> Map Text SourceSpan
+    currentVisibleBindings :: Map Text VisibleBinding -> Map Text VisibleBinding
     -- Local scope is left-biased so inner declarations shadow outer bindings.
     currentVisibleBindings scopeBindings = scopeBindings `Map.union` outerScope
 
     withRecursivePeerBindings ::
       Int ->
-      Map Text SourceSpan ->
-      Map Text SourceSpan
+      Map Text VisibleBinding ->
+      Map Text VisibleBinding
     withRecursivePeerBindings statementIndex visibleNow =
       let peers =
             Set.delete
@@ -275,7 +323,7 @@ collectScopeDiagnostics settings outerScope context statements =
               (Map.findWithDefault Set.empty statementIndex recursiveGroupsByStatement)
           peerEntries =
             Map.fromList
-              [ (peerName, peerSpan)
+              [ (peerName, mkVisibleBinding hiddenStatementIndices peerStatementIndex peerSpan)
                 | peerStatementIndex <- Set.toList peers,
                   Just (peerName, peerSpan) <- [Map.lookup peerStatementIndex bindingDeclarationsByStatement],
                   -- Do not override currently visible names (for example due to
@@ -351,17 +399,18 @@ contextForBinding bindingName =
       }
 
 shouldRejectImpureCall ::
-  Map Text SourceSpan ->
+  BuiltinResolutionMode ->
+  Map Text VisibleBinding ->
   AnalysisContext ->
   Text ->
   Bool
-shouldRejectImpureCall visibleBindings context calleeName =
+shouldRejectImpureCall builtinMode visibleBindings context calleeName =
   not (contextAllowsImpureCalls context)
     && isKnownImpureCallee
   where
     isKnownImpureCallee =
       isImpureName calleeName
-        && (Map.member calleeName visibleBindings || isBuiltinSymbolName calleeName)
+        && (Map.member calleeName visibleBindings || isBuiltinSymbolNameInMode builtinMode calleeName)
 
 mkImpureCallInPureContextError ::
   AnalysisContext ->
@@ -384,7 +433,7 @@ mkImpureCallInPureContextError context calleeName maybeCalleeSpan =
         Just spanValue -> " (callee declared at " <> renderSourceSpan spanValue <> ")"
 
 inferRecursiveGroups ::
-  Map Text SourceSpan ->
+  Map Text VisibleBinding ->
   [(Int, Statement)] ->
   Map Int (Set Int)
 inferRecursiveGroups outerScope indexedStatements =
@@ -504,6 +553,7 @@ freeVarsExprWithBound bound expr =
     EVar name
       | Set.member name bound -> Set.empty
       | otherwise -> Set.singleton name
+    EOperatorValue _ -> Set.empty
     EList elements ->
       Set.unions (map (freeVarsExprWithBound bound) elements)
     EApply functionExpr argumentExpr ->
@@ -549,3 +599,16 @@ freeVarsScopeWithBound initialBound statements =
             ( boundWithSelf,
               Set.union freeNames (freeVarsExprWithBound boundWithSelf valueExpr)
             )
+
+mkVisibleBinding :: Set Int -> Int -> SourceSpan -> VisibleBinding
+mkVisibleBinding hiddenStatementIndices statementIndex spanValue =
+  VisibleBinding
+    { visibleBindingSpan = spanValue,
+      visibleBindingIsHiddenPrelude = statementIndex `Set.member` hiddenStatementIndices
+    }
+
+visibleBindingDiagnosticSpan :: VisibleBinding -> Maybe SourceSpan
+visibleBindingDiagnosticSpan visibleBinding =
+  if visibleBindingIsHiddenPrelude visibleBinding
+    then Nothing
+    else Just (visibleBindingSpan visibleBinding)

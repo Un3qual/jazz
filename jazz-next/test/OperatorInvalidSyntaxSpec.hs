@@ -18,7 +18,7 @@ tests :: [NamedTest]
 tests =
   [ ("rejects unsupported percent operator", testRejectsPercentOperator),
     ("rejects unsupported ampersand operator", testRejectsAmpersandOperator),
-    ("rejects malformed right section with missing operand", testRejectsMalformedRightSection),
+    ("rejects empty parenthesized expression", testRejectsEmptyParenthesizedExpression),
     ("rejects incomplete infix expression", testRejectsIncompleteInfixExpression)
   ]
 
@@ -36,12 +36,12 @@ testRejectsAmpersandOperator =
     "unexpected character '&'"
     (parseSurfaceProgram "x = a && b.")
 
-testRejectsMalformedRightSection :: IO ()
-testRejectsMalformedRightSection =
+testRejectsEmptyParenthesizedExpression :: IO ()
+testRejectsEmptyParenthesizedExpression =
   assertLeftDiagnosticContains
-    "malformed section"
+    "empty parens"
     "expected expression"
-    (parseSurfaceProgram "f = (+).")
+    (parseSurfaceProgram "f = ().")
 
 testRejectsIncompleteInfixExpression :: IO ()
 testRejectsIncompleteInfixExpression =

@@ -2,6 +2,7 @@
 
 module JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
+    evaluateRuntimeExprWithBuiltins,
     evaluateRuntimeExpr,
     renderRuntimeValue
   ) where
@@ -20,10 +21,11 @@ import JazzNext.Compiler.Diagnostics
     mkDiagnostic
   )
 import JazzNext.Compiler.BuiltinCatalog
-  ( BuiltinSymbol (..),
+  ( BuiltinResolutionMode (..),
+    BuiltinSymbol (..),
     builtinSymbolArity,
     builtinSymbolName,
-    lookupBuiltinSymbol
+    lookupBuiltinSymbolInMode
   )
 
 data RuntimeValue
@@ -31,19 +33,19 @@ data RuntimeValue
   | VBool Bool
   | VList [RuntimeValue]
   | VBuiltin BuiltinSymbol [RuntimeValue]
+  | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
   | VSectionRight Text RuntimeValue
   deriving (Eq, Show)
 
 evaluateRuntimeExpr :: Expr -> Either Diagnostic (Maybe RuntimeValue)
-evaluateRuntimeExpr expr =
+evaluateRuntimeExpr = evaluateRuntimeExprWithBuiltins ResolveCompatibility
+
+evaluateRuntimeExprWithBuiltins :: BuiltinResolutionMode -> Expr -> Either Diagnostic (Maybe RuntimeValue)
+evaluateRuntimeExprWithBuiltins builtinMode expr =
   case expr of
-    EBlock statements ->
-      evalScope Map.empty statements
-    _ ->
-      case evalValue Map.empty expr of
-        Left err -> Left err
-        Right value -> Right (Just value)
+    EBlock statements -> evalScope builtinMode Map.empty statements
+    _ -> Just <$> evalValue builtinMode Map.empty expr
 
 renderRuntimeValue :: RuntimeValue -> Text
 renderRuntimeValue value =
@@ -56,13 +58,14 @@ renderRuntimeValue value =
     VList elements ->
       "[" <> Text.intercalate ", " (map renderRuntimeValue elements) <> "]"
     VBuiltin _ _ -> "<function>"
+    VOperator {} -> "<function>"
     VSectionLeft {} -> "<function>"
     VSectionRight {} -> "<function>"
 
 type RuntimeEnv = Map Text RuntimeValue
 
-evalScope :: RuntimeEnv -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
-evalScope initialEnv statements = go initialEnv Nothing statements
+evalScope :: BuiltinResolutionMode -> RuntimeEnv -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
+evalScope builtinMode initialEnv statements = go initialEnv Nothing statements
   where
     go :: RuntimeEnv -> Maybe RuntimeValue -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
     go env lastExprValue remainingStatements =
@@ -79,21 +82,20 @@ evalScope initialEnv statements = go initialEnv Nothing statements
             SImport {} ->
               go env Nothing rest
             SLet name _ valueExpr -> do
-              value <- evalValue env valueExpr
+              value <- evalValue builtinMode env valueExpr
               go (Map.insert name value env) Nothing rest
             SExpr _ expr -> do
-              value <- evalValue env expr
+              value <- evalValue builtinMode env expr
               go env (Just value) rest
 
-evalValue :: RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
-evalValue env expr =
+evalValue builtinMode env expr =
   case expr of
     ELit literal -> Right (literalRuntimeValue literal)
     EVar name ->
       case Map.lookup name env of
         Just value -> Right value
         Nothing ->
-          case lookupBuiltinSymbol name of
+          case lookupBuiltinSymbolInMode builtinMode name of
             Just builtinFunction -> Right (VBuiltin builtinFunction [])
             Nothing ->
               Left
@@ -101,19 +103,21 @@ evalValue env expr =
                     "E3002"
                     ("runtime unbound variable '" <> name <> "'")
                 )
+    EOperatorValue operatorSymbol ->
+      Right (VOperator operatorSymbol [])
     EList elements ->
-      VList <$> mapM (evalValue env) elements
+      VList <$> mapM (evalValue builtinMode env) elements
     EApply functionExpr argumentExpr -> do
-      functionValue <- evalValue env functionExpr
-      argumentValue <- evalValue env argumentExpr
+      functionValue <- evalValue builtinMode env functionExpr
+      argumentValue <- evalValue builtinMode env argumentExpr
       applyRuntimeFunction functionValue argumentValue
     EIf conditionExpr thenExpr elseExpr ->
-      evalValue env (ECase conditionExpr thenExpr elseExpr)
+      evalValue builtinMode env (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr -> do
-      conditionValue <- evalValue env conditionExpr
+      conditionValue <- evalValue builtinMode env conditionExpr
       case conditionValue of
-        VBool True -> evalValue env thenExpr
-        VBool False -> evalValue env elseExpr
+        VBool True -> evalValue builtinMode env thenExpr
+        VBool False -> evalValue builtinMode env elseExpr
         other ->
           Left
             ( runtimeDiagnostic
@@ -121,17 +125,17 @@ evalValue env expr =
                 ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
             )
     EBinary operatorSymbol leftExpr rightExpr -> do
-      leftValue <- evalValue env leftExpr
-      rightValue <- evalValue env rightExpr
+      leftValue <- evalValue builtinMode env leftExpr
+      rightValue <- evalValue builtinMode env rightExpr
       evalBinary operatorSymbol leftValue rightValue
     ESectionLeft leftExpr operatorSymbol -> do
-      leftValue <- evalValue env leftExpr
+      leftValue <- evalValue builtinMode env leftExpr
       Right (VSectionLeft operatorSymbol leftValue)
     ESectionRight operatorSymbol rightExpr -> do
-      rightValue <- evalValue env rightExpr
+      rightValue <- evalValue builtinMode env rightExpr
       Right (VSectionRight operatorSymbol rightValue)
     EBlock statements ->
-      case evalScope env statements of
+      case evalScope builtinMode env statements of
         Left err -> Left err
         Right Nothing ->
           Left
@@ -153,11 +157,27 @@ applyRuntimeFunction functionValue argumentValue =
       evalBinary operatorSymbol argumentValue rightValue
     VBuiltin builtinFunction capturedArgs ->
       applyBuiltin builtinFunction (capturedArgs ++ [argumentValue])
+    VOperator operatorSymbol capturedArgs ->
+      applyOperator operatorSymbol (capturedArgs ++ [argumentValue])
     _ ->
       Left
         ( runtimeDiagnostic
             "E3008"
             ("runtime cannot apply non-function value of type " <> renderRuntimeType functionValue)
+        )
+
+applyOperator :: Text -> [RuntimeValue] -> Either Diagnostic RuntimeValue
+applyOperator operatorSymbol arguments =
+  case arguments of
+    [leftValue] ->
+      Right (VOperator operatorSymbol [leftValue])
+    [leftValue, rightValue] ->
+      evalBinary operatorSymbol leftValue rightValue
+    _ ->
+      Left
+        ( runtimeDiagnostic
+            "E3016"
+            ("runtime primitive '" <> operatorSymbol <> "' received invalid arguments")
         )
 
 applyBuiltin :: BuiltinSymbol -> [RuntimeValue] -> Either Diagnostic RuntimeValue
@@ -266,6 +286,7 @@ isFunctionValue value =
     VSectionLeft {} -> True
     VSectionRight {} -> True
     VBuiltin {} -> True
+    VOperator {} -> True
     _ -> False
 
 evalBinary :: Text -> RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
@@ -286,6 +307,8 @@ evalBinary operatorSymbol leftValue rightValue =
     ("==", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool == rightBool))
     ("!=", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt /= rightInt))
     ("!=", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool /= rightBool))
+    ("$", functionValue, argumentValue) ->
+      applyRuntimeFunction functionValue argumentValue
     _ ->
       Left
         ( runtimeDiagnostic
@@ -311,3 +334,4 @@ renderRuntimeType value =
     VSectionLeft {} -> "Function"
     VSectionRight {} -> "Function"
     VBuiltin {} -> "Function"
+    VOperator {} -> "Function"

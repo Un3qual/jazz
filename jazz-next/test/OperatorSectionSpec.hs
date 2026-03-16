@@ -33,11 +33,41 @@ main = runTestSuite "OperatorSection" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("parses left section form", testParsesLeftSection),
+  [ ("parses bare operator value form", testParsesBareOperatorValue),
+    ("parses bare operator value application", testParsesBareOperatorValueApplication),
+    ("parses left section form", testParsesLeftSection),
     ("parses right section form", testParsesRightSection),
     ("grouped infix expression is not treated as section", testGroupedExpressionIsNotSection),
+    ("lowering preserves bare operator value nodes", testLowerPreservesBareOperatorValue),
     ("lowering preserves explicit section nodes", testLowerPreservesSectionNodes)
   ]
+
+testParsesBareOperatorValue :: IO ()
+testParsesBareOperatorValue =
+  assertEqual
+    "bare operator value AST"
+    ( Right
+        ( SEBlock
+            [ SSLet "f" (SourceSpan 1 1) (SEOperatorValue "+")
+            ]
+        )
+    )
+    (parseSurfaceProgram "f = (+).")
+
+testParsesBareOperatorValueApplication :: IO ()
+testParsesBareOperatorValueApplication =
+  assertEqual
+    "bare operator value application AST"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "f"
+                (SourceSpan 1 1)
+                (SEApply (SEApply (SEOperatorValue "+") (SELit (SLInt 1))) (SELit (SLInt 2)))
+            ]
+        )
+    )
+    (parseSurfaceProgram "f = (+) 1 2.")
 
 testParsesLeftSection :: IO ()
 testParsesLeftSection =
@@ -85,4 +115,16 @@ testLowerPreservesSectionNodes =
     expectedProgram =
       EBlock
         [ SLet "f" (SourceSpan 1 1) (ESectionRight "+" (ELit (LInt 10)))
+        ]
+
+testLowerPreservesBareOperatorValue :: IO ()
+testLowerPreservesBareOperatorValue =
+  assertRight
+    "parse + lower bare operator value"
+    (parseSurfaceProgram "f = (+).")
+    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet "f" (SourceSpan 1 1) (EOperatorValue "+")
         ]

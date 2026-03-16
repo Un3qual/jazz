@@ -57,6 +57,9 @@ tests =
     ("source pipeline rejects deferred equality section constrained to list", testSourcePipelineRejectsDeferredEqualitySectionListConstraint),
     ("source pipeline rejects list equality until runtime support exists", testSourcePipelineRejectsListEquality),
     ("source pipeline rejects unsupported section operator", testSourcePipelineRejectsUnsupportedSectionOperator),
+    ("source pipeline accepts bare operator value", testSourcePipelineAcceptsBareOperatorValue),
+    ("source pipeline accepts bare operator value application", testSourcePipelineAcceptsBareOperatorValueApplication),
+    ("source pipeline accepts explicit partial application of bare operator value", testSourcePipelineAcceptsExplicitPartialOperatorApplication),
     ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral)
   ]
 
@@ -217,6 +220,18 @@ testSourcePipelineRejectsUnsupportedSectionOperator =
     "x = ($ 1)."
     "unsupported section operator"
     "E2008"
+
+testSourcePipelineAcceptsBareOperatorValue :: IO ()
+testSourcePipelineAcceptsBareOperatorValue =
+  assertCompiles "x = (+)."
+
+testSourcePipelineAcceptsBareOperatorValueApplication :: IO ()
+testSourcePipelineAcceptsBareOperatorValueApplication =
+  assertCompiles "x = (+) 1 2."
+
+testSourcePipelineAcceptsExplicitPartialOperatorApplication :: IO ()
+testSourcePipelineAcceptsExplicitPartialOperatorApplication =
+  assertCompiles "x = ((+) 1) 2."
 
 testSourcePipelineRejectsMixedTypeListLiteral :: IO ()
 testSourcePipelineRejectsMixedTypeListLiteral =

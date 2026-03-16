@@ -20,6 +20,7 @@ data Literal
 data Expr
   = ELit Literal
   | EVar Text
+  | EOperatorValue Text
   | EList [Expr]
   | EApply Expr Expr
   | EIf Expr Expr Expr
