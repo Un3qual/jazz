@@ -5,10 +5,13 @@ module Main (main) where
 import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( Diagnostic,
+    SourceSpan (..),
+    renderDiagnostic
   )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
@@ -25,7 +28,7 @@ import JazzNext.TestHarness
     assertContains,
     assertEqual,
     failTest,
-    assertSingleErrorContains,
+    assertSingleDiagnosticContains,
     runTestSuite
   )
 
@@ -79,7 +82,7 @@ testDivisionByZeroRuntimeError = do
   result <- runSource defaultWarningSettings "1 / 0."
   let runtimeErrors = runRuntimeErrors result
   assertEqual "compile errors" [] (runCompileErrors result)
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "runtime fatal division by zero"
     "E3001"
     runtimeErrors
@@ -90,7 +93,7 @@ testDivisionByZeroRuntimeError = do
       assertContains
         "runtime fatal mentions division by zero"
         "division by zero"
-        runtimeError
+        (renderDiagnostic runtimeError)
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
 testDollarOperatorValueRuntimeSuccess :: IO ()
@@ -165,7 +168,7 @@ testHdEmptyListRuntimeError = do
   result <- runSource defaultWarningSettings "hd []."
   let runtimeErrors = runRuntimeErrors result
   assertEqual "compile errors" [] (runCompileErrors result)
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "runtime fatal empty-list hd"
     "E3009"
     runtimeErrors
@@ -176,7 +179,7 @@ testHdEmptyListRuntimeError = do
       assertContains
         "runtime fatal mentions empty list"
         "empty list"
-        runtimeError
+        (renderDiagnostic runtimeError)
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
 testTlEmptyListRuntimeError :: IO ()
@@ -184,7 +187,7 @@ testTlEmptyListRuntimeError = do
   result <- runSource defaultWarningSettings "tl []."
   let runtimeErrors = runRuntimeErrors result
   assertEqual "compile errors" [] (runCompileErrors result)
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "runtime fatal empty-list tl"
     "E3010"
     runtimeErrors
@@ -195,42 +198,42 @@ testTlEmptyListRuntimeError = do
       assertContains
         "runtime fatal mentions empty list"
         "empty list"
-        runtimeError
+        (renderDiagnostic runtimeError)
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
 testRuntimeFallbackRejectsHdNonList :: IO ()
 testRuntimeFallbackRejectsHdNonList = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "hd") (EInt 1)))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "hd") (ELit (LInt 1))))
   assertRuntimeErrorContains "runtime fallback hd non-list" "E3011" result
 
 testRuntimeFallbackRejectsTlNonList :: IO ()
 testRuntimeFallbackRejectsTlNonList = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "tl") (EInt 1)))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "tl") (ELit (LInt 1))))
   assertRuntimeErrorContains "runtime fallback tl non-list" "E3012" result
 
 testRuntimeFallbackRejectsMapNonFunctionMapper :: IO ()
 testRuntimeFallbackRejectsMapNonFunctionMapper = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "map") (EInt 1)) (EList [EInt 1])))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "map") (ELit (LInt 1))) (EList [ELit (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback map mapper" "E3015" result
 
 testRuntimeFallbackRejectsMapNonListCollection :: IO ()
 testRuntimeFallbackRejectsMapNonListCollection = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "map") (EVar "hd")) (EInt 1)))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "map") (EVar "hd")) (ELit (LInt 1))))
   assertRuntimeErrorContains "runtime fallback map collection" "E3013" result
 
 testRuntimeFallbackRejectsFilterNonFunctionPredicate :: IO ()
 testRuntimeFallbackRejectsFilterNonFunctionPredicate = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (EInt 1)) (EList [EInt 1])))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (ELit (LInt 1))) (EList [ELit (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback filter predicate" "E3017" result
 
 testRuntimeFallbackRejectsFilterNonListCollection :: IO ()
 testRuntimeFallbackRejectsFilterNonListCollection = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (ESectionLeft (EInt 1) "<")) (EInt 1)))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (ESectionLeft (ELit (LInt 1)) "<")) (ELit (LInt 1))))
   assertRuntimeErrorContains "runtime fallback filter collection" "E3018" result
 
 testRuntimeFallbackRejectsFilterPredicateNonBool :: IO ()
 testRuntimeFallbackRejectsFilterPredicateNonBool = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (ESectionLeft (EInt 1) "+")) (EList [EInt 1])))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (ESectionLeft (ELit (LInt 1)) "+")) (EList [ELit (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback filter predicate bool result" "E3019" result
 
 testPrintBuiltinReturnsArgument :: IO ()
@@ -256,16 +259,16 @@ testScopeDeclarationAfterExprClearsResult = do
 
 runtimeExpr :: Expr -> Expr
 runtimeExpr expr =
-  EScope
+  EBlock
     [ SExpr
         (SourceSpan 1 1)
         expr
     ]
 
-assertRuntimeErrorContains :: Text -> Text -> Either Text (Maybe a) -> IO ()
+assertRuntimeErrorContains :: Text -> Text -> Either Diagnostic (Maybe a) -> IO ()
 assertRuntimeErrorContains label expectedCode result =
   case result of
     Left runtimeError ->
-      assertContains label expectedCode runtimeError
+      assertContains label expectedCode (renderDiagnostic runtimeError)
     Right _ ->
       failTest ("expected runtime error containing " <> expectedCode <> ", but evaluation succeeded")

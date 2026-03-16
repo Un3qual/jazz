@@ -9,6 +9,9 @@ import JazzNext.Compiler.Driver
     compileSourceWithPrelude,
     runSourceWithPrelude
   )
+import JazzNext.Compiler.Diagnostics
+  ( renderDiagnostic
+  )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
   )
@@ -55,7 +58,7 @@ testBundledPreludePreservesUserDiagnosticSpans = do
   assertEqual
     "bundled default prelude keeps user spans anchored to user source"
     ["E1003: signature for 'x' at 1:1 must annotate the next binding with the same name; found 'y'"]
-    (compileErrors result)
+    (map renderDiagnostic (compileErrors result))
 
 testPreludeParseDiagnostic :: IO ()
 testPreludeParseDiagnostic = do

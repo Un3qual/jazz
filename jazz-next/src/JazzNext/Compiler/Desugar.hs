@@ -14,9 +14,11 @@ import JazzNext.Compiler.AST
 desugarExpr :: Expr -> Expr
 desugarExpr expr =
   case expr of
-    EInt value -> EInt value
-    EBool value -> EBool value
+    ELit literal -> ELit literal
     EVar name -> EVar name
+    EList elements -> EList (map desugarExpr elements)
+    EApply functionExpr argumentExpr ->
+      EApply (desugarExpr functionExpr) (desugarExpr argumentExpr)
     EIf conditionExpr thenExpr elseExpr ->
       ECase
         (desugarExpr conditionExpr)
@@ -33,8 +35,8 @@ desugarExpr expr =
       ESectionLeft (desugarExpr leftExpr) operatorSymbol
     ESectionRight operatorSymbol rightExpr ->
       ESectionRight operatorSymbol (desugarExpr rightExpr)
-    EScope statements ->
-      EScope (map desugarStatement statements)
+    EBlock statements ->
+      EBlock (map desugarStatement statements)
 
 desugarStatement :: Statement -> Statement
 desugarStatement statement =
@@ -43,5 +45,9 @@ desugarStatement statement =
       SLet name spanValue (desugarExpr valueExpr)
     SSignature name spanValue signatureText ->
       SSignature name spanValue signatureText
+    SModule spanValue modulePath ->
+      SModule spanValue modulePath
+    SImport spanValue modulePath alias importedSymbols ->
+      SImport spanValue modulePath alias importedSymbols
     SExpr spanValue expr ->
       SExpr spanValue (desugarExpr expr)

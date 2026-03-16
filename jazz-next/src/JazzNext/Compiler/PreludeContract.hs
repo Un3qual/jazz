@@ -16,17 +16,21 @@ import JazzNext.Compiler.BuiltinCatalog
   ( kernelBridgeBindingPrefix,
     kernelBridgeTargetName
   )
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    mkDiagnostic
+  )
 
 -- Validates explicit prelude bridge declarations that map prelude-visible
 -- names to kernel-owned builtin symbols.
-validatePreludeKernelBridges :: Expr -> [Text]
+validatePreludeKernelBridges :: Expr -> [Diagnostic]
 validatePreludeKernelBridges preludeExpr =
   case preludeExpr of
-    EScope statements ->
+    EBlock statements ->
       fst (foldl validateStatement ([], Set.empty) statements)
     _ -> []
   where
-    validateStatement :: ([Text], Set Text) -> Statement -> ([Text], Set Text)
+    validateStatement :: ([Diagnostic], Set Text) -> Statement -> ([Diagnostic], Set Text)
     validateStatement (diagnostics, seenBindings) statement =
       case statement of
         SLet bindingName _ bindingExpr ->
@@ -35,7 +39,7 @@ validatePreludeKernelBridges preludeExpr =
            in (diagnostics <> statementDiagnostics, seenBindings')
         _ -> (diagnostics, seenBindings)
 
-    validateBridge :: Set Text -> Text -> Expr -> [Text]
+    validateBridge :: Set Text -> Text -> Expr -> [Diagnostic]
     validateBridge seenBindings bindingName bindingExpr =
       case kernelBridgeTargetName bindingName of
         Nothing
@@ -44,46 +48,61 @@ validatePreludeKernelBridges preludeExpr =
                in
                 if Text.null suffix
                   then
-                    [ "E0005: prelude kernel bridge '"
-                        <> bindingName
-                        <> "' must include a non-empty kernel symbol suffix after '"
-                        <> kernelBridgeBindingPrefix
-                        <> "'"
+                    [ mkDiagnostic
+                        "E0005"
+                        ( "prelude kernel bridge '"
+                            <> bindingName
+                            <> "' must include a non-empty kernel symbol suffix after '"
+                            <> kernelBridgeBindingPrefix
+                            <> "'"
+                        )
                     ]
                   else
-                    [ "E0004: prelude kernel bridge '"
-                        <> bindingName
-                        <> "' references unknown kernel symbol '"
-                        <> bindingName
-                        <> "'"
+                    [ mkDiagnostic
+                        "E0004"
+                        ( "prelude kernel bridge '"
+                            <> bindingName
+                            <> "' references unknown kernel symbol '"
+                            <> bindingName
+                            <> "'"
+                        )
                     ]
           | otherwise -> []
         Just targetName ->
           case bindingExpr of
             EVar rhsName
               | rhsName /= targetName ->
-                  [ "E0005: prelude kernel bridge '"
-                      <> bindingName
-                      <> "' must reference kernel symbol '"
-                      <> targetName
-                      <> "', found '"
-                      <> rhsName
-                      <> "'"
+                  [ mkDiagnostic
+                      "E0005"
+                      ( "prelude kernel bridge '"
+                          <> bindingName
+                          <> "' must reference kernel symbol '"
+                          <> targetName
+                          <> "', found '"
+                          <> rhsName
+                          <> "'"
+                      )
                   ]
               | targetName `Set.member` seenBindings ->
-                  [ "E0005: prelude kernel bridge '"
-                      <> bindingName
-                      <> "' must reference canonical kernel symbol '"
-                      <> targetName
-                      <> "', but '"
-                      <> targetName
-                      <> "' was rebound earlier in prelude scope"
+                  [ mkDiagnostic
+                      "E0005"
+                      ( "prelude kernel bridge '"
+                          <> bindingName
+                          <> "' must reference canonical kernel symbol '"
+                          <> targetName
+                          <> "', but '"
+                          <> targetName
+                          <> "' was rebound earlier in prelude scope"
+                      )
                   ]
               | otherwise -> []
             _ ->
-              [ "E0005: prelude kernel bridge '"
-                  <> bindingName
-                  <> "' must be a direct symbol reference to '"
-                  <> targetName
-                  <> "'"
+              [ mkDiagnostic
+                  "E0005"
+                  ( "prelude kernel bridge '"
+                      <> bindingName
+                      <> "' must be a direct symbol reference to '"
+                      <> targetName
+                      <> "'"
+                  )
               ]

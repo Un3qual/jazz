@@ -7,7 +7,7 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertLeftContains,
+    assertLeftDiagnosticCodeAndContains,
     runTestSuite
   )
 
@@ -24,28 +24,32 @@ tests =
 
 testRejectsPercentOperator :: IO ()
 testRejectsPercentOperator =
-  assertLeftContains
+  assertLeftDiagnosticCodeAndContains
     "percent operator"
+    "E0001"
     "unexpected character '%'"
     (parseSurfaceProgram "x = 1 % 2.")
 
 testRejectsAmpersandOperator :: IO ()
 testRejectsAmpersandOperator =
-  assertLeftContains
+  assertLeftDiagnosticCodeAndContains
     "ampersand operator"
+    "E0001"
     "unexpected character '&'"
     (parseSurfaceProgram "x = a && b.")
 
 testRejectsEmptyParenthesizedExpression :: IO ()
 testRejectsEmptyParenthesizedExpression =
-  assertLeftContains
+  assertLeftDiagnosticCodeAndContains
     "empty parens"
+    "E0001"
     "expected expression"
     (parseSurfaceProgram "f = ().")
 
 testRejectsIncompleteInfixExpression :: IO ()
 testRejectsIncompleteInfixExpression =
-  assertLeftContains
+  assertLeftDiagnosticCodeAndContains
     "incomplete infix expression"
+    "E0001"
     "expected expression"
     (parseSurfaceProgram "x = 1 +.")

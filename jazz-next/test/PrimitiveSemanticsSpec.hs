@@ -5,6 +5,7 @@ module Main (main) where
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -22,7 +23,7 @@ import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
     assertJust,
-    assertSingleErrorContains,
+    assertSingleDiagnosticContains,
     runTestSuite
   )
 
@@ -83,7 +84,7 @@ testAcceptsBoolEquality = do
 testRejectsEqualityTypeMismatch :: IO ()
 testRejectsEqualityTypeMismatch = do
   result <- compileExpr defaultWarningSettings equalityTypeMismatchProgram
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "strict equality type error"
     "E2004"
     (compileErrors result)
@@ -91,7 +92,7 @@ testRejectsEqualityTypeMismatch = do
 testRejectsInequalityTypeMismatch :: IO ()
 testRejectsInequalityTypeMismatch = do
   result <- compileExpr defaultWarningSettings inequalityTypeMismatchProgram
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "strict inequality type error"
     "E2004"
     (compileErrors result)
@@ -99,7 +100,7 @@ testRejectsInequalityTypeMismatch = do
 testRejectsComparisonTypeMismatch :: IO ()
 testRejectsComparisonTypeMismatch = do
   result <- compileExpr defaultWarningSettings comparisonTypeMismatchProgram
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "comparison type error"
     "E2003"
     (compileErrors result)
@@ -107,7 +108,7 @@ testRejectsComparisonTypeMismatch = do
 testRejectsArithmeticTypeMismatch :: IO ()
 testRejectsArithmeticTypeMismatch = do
   result <- compileExpr defaultWarningSettings arithmeticTypeMismatchProgram
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "arithmetic type error"
     "E2003"
     (compileErrors result)
@@ -248,14 +249,14 @@ assertCompiles source = do
 assertCompileError :: String -> String -> String -> IO ()
 assertCompileError source failureLabel errorCode = do
   result <- compileSource defaultWarningSettings (Text.pack source)
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     (Text.pack failureLabel)
     (Text.pack errorCode)
     (compileErrors result)
 
 mkProgram :: Expr -> Expr
 mkProgram expr =
-  EScope
+  EBlock
     [ SExpr
         (SourceSpan 1 1)
         expr
@@ -266,30 +267,30 @@ arithmeticProgram =
   mkProgram
     ( EBinary
         "+"
-        (EBinary "*" (EInt 7) (EInt 6))
-        (EBinary "/" (EInt 8) (EInt 2))
+        (EBinary "*" (ELit (LInt 7)) (ELit (LInt 6)))
+        (EBinary "/" (ELit (LInt 8)) (ELit (LInt 2)))
     )
 
 intEqualityProgram :: Expr
 intEqualityProgram =
-  mkProgram (EBinary "==" (EInt 1) (EInt 1))
+  mkProgram (EBinary "==" (ELit (LInt 1)) (ELit (LInt 1)))
 
 boolEqualityProgram :: Expr
 boolEqualityProgram =
-  mkProgram (EBinary "==" (EBool True) (EBool False))
+  mkProgram (EBinary "==" (ELit (LBool True)) (ELit (LBool False)))
 
 equalityTypeMismatchProgram :: Expr
 equalityTypeMismatchProgram =
-  mkProgram (EBinary "==" (EInt 1) (EBool True))
+  mkProgram (EBinary "==" (ELit (LInt 1)) (ELit (LBool True)))
 
 inequalityTypeMismatchProgram :: Expr
 inequalityTypeMismatchProgram =
-  mkProgram (EBinary "!=" (EBool True) (EInt 1))
+  mkProgram (EBinary "!=" (ELit (LBool True)) (ELit (LInt 1)))
 
 comparisonTypeMismatchProgram :: Expr
 comparisonTypeMismatchProgram =
-  mkProgram (EBinary "<" (EBool True) (EBool False))
+  mkProgram (EBinary "<" (ELit (LBool True)) (ELit (LBool False)))
 
 arithmeticTypeMismatchProgram :: Expr
 arithmeticTypeMismatchProgram =
-  mkProgram (EBinary "+" (EInt 1) (EBool True))
+  mkProgram (EBinary "+" (ELit (LInt 1)) (ELit (LBool True)))

@@ -17,6 +17,9 @@ import JazzNext.CLI.Main
     parseCliOptions,
     runCliWith
   )
+import JazzNext.Compiler.Diagnostics
+  ( renderDiagnostic
+  )
 import JazzNext.Compiler.BundledPrelude
   ( bundledPreludeSource
   )
@@ -71,7 +74,7 @@ testParseOptions :: IO ()
 testParseOptions = do
   options <-
     case parseCliOptions ["-Wsame-scope-rebinding", "--warnings-config", "config/warnings.txt"] of
-      Left err -> failTest ("parseCliOptions failed: " <> err)
+      Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
   assertEqual "warning flags" ["-Wsame-scope-rebinding"] (cliWarningFlags options)
   assertEqual "config path" (Just "config/warnings.txt") (cliWarningsConfigPath options)
@@ -83,7 +86,7 @@ testParseRunMode :: IO ()
 testParseRunMode = do
   options <-
     case parseCliOptions ["--run"] of
-      Left err -> failTest ("parseCliOptions failed: " <> err)
+      Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
   assertEqual "run mode" True (cliRunMode options)
   assertEqual "warning flags" [] (cliWarningFlags options)
@@ -94,7 +97,7 @@ testParseModuleGraphOptions :: IO ()
 testParseModuleGraphOptions = do
   options <-
     case parseCliOptions ["--run", "--entry-module", "App::Main", "--module-root", "src", "--module-root", "stdlib"] of
-      Left err -> failTest ("parseCliOptions failed: " <> err)
+      Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
   assertEqual "run mode" True (cliRunMode options)
   assertEqual "entry module" (Just ["App", "Main"]) (cliEntryModule options)
@@ -104,7 +107,7 @@ testParsePreludePath :: IO ()
 testParsePreludePath = do
   options <-
     case parseCliOptions ["--prelude", "stdlib/Prelude.jz"] of
-      Left err -> failTest ("parseCliOptions failed: " <> err)
+      Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
   assertEqual "prelude path" (Just "stdlib/Prelude.jz") (cliPreludePath options)
   assertEqual "prelude disabled" False (cliDisablePrelude options)
@@ -113,7 +116,7 @@ testParseNoPrelude :: IO ()
 testParseNoPrelude = do
   options <-
     case parseCliOptions ["--no-prelude"] of
-      Left err -> failTest ("parseCliOptions failed: " <> err)
+      Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
   assertEqual "prelude path" Nothing (cliPreludePath options)
   assertEqual "prelude disabled" True (cliDisablePrelude options)
@@ -122,7 +125,7 @@ testParsePreludeConflict :: IO ()
 testParsePreludeConflict =
   case parseCliOptions ["--prelude", "stdlib/Prelude.jz", "--no-prelude"] of
     Left err ->
-      assertContains "conflict message" "cannot combine --prelude with --no-prelude" err
+      assertContains "conflict message" "cannot combine --prelude with --no-prelude" (renderDiagnostic err)
     Right _ ->
       failTest "expected prelude flag conflict to fail option parsing"
 

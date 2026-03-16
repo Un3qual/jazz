@@ -9,6 +9,9 @@ import Data.IORef
     writeIORef
   )
 import Data.Text (Text)
+import JazzNext.Compiler.Diagnostics
+  ( renderDiagnostic
+  )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     RunResult (..),
@@ -95,8 +98,8 @@ testCompileModuleGraphUnresolved = do
   assertEqual "generated output" Nothing (generatedJs result)
   case compileErrors result of
     [err] -> do
-      assertContains "unresolved code" "E4001" err
-      assertContains "missing module" "Missing::Thing" err
+      assertContains "unresolved code" "E4001" (renderDiagnostic err)
+      assertContains "missing module" "Missing::Thing" (renderDiagnostic err)
     _ -> failTest "expected exactly one unresolved import error"
   where
     sourceMap =
@@ -117,10 +120,11 @@ testCompileModuleGraphMissingImportSymbol = do
   assertEqual "generated output" Nothing (generatedJs result)
   case compileErrors result of
     [err] -> do
-      assertContains "missing symbol code" "E4007" err
-      assertContains "missing symbol text" "subtract" err
-      assertContains "imported module context" "Lib::Math" err
-      assertContains "importer context" "App::Main" err
+      let rendered = renderDiagnostic err
+      assertContains "missing symbol code" "E4007" rendered
+      assertContains "missing symbol text" "subtract" rendered
+      assertContains "imported module context" "Lib::Math" rendered
+      assertContains "importer context" "App::Main" rendered
     _ -> failTest "expected exactly one missing import symbol error"
   where
     sourceMap =
@@ -143,9 +147,10 @@ testCompileModuleGraphModuleDeclarationMismatch = do
   assertEqual "generated output" Nothing (generatedJs result)
   case compileErrors result of
     [err] -> do
-      assertContains "mismatch code" "E4006" err
-      assertContains "mismatch declared module" "Wrong::Name" err
-      assertContains "mismatch expected module" "App::Main" err
+      let rendered = renderDiagnostic err
+      assertContains "mismatch code" "E4006" rendered
+      assertContains "mismatch declared module" "Wrong::Name" rendered
+      assertContains "mismatch expected module" "App::Main" rendered
     _ -> failTest "expected exactly one module declaration mismatch error"
   where
     sourceMap =
@@ -166,7 +171,7 @@ testRunModuleGraphCycle = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" Nothing (runOutput result)
   case runCompileErrors result of
-    [err] -> assertContains "cycle code" "E4003" err
+    [err] -> assertContains "cycle code" "E4003" (renderDiagnostic err)
     _ -> failTest "expected exactly one cycle error"
   where
     sourceMap =

@@ -9,11 +9,14 @@ import qualified Data.Text as Text
 import qualified Data.Set as Set
 import Data.Set (Set)
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
+  ( Diagnostic,
+    SourceSpan (..),
+    mkDiagnostic,
     renderSourceSpan
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceLiteral (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Lexer
@@ -27,23 +30,31 @@ import JazzNext.Compiler.Parser.Operator
     lookupOperatorInfo
   )
 
--- Parses the current minimal surface language into a scope-wrapped program.
+-- Parses the current minimal surface language into a block-wrapped program.
 -- Every top-level form is dot-terminated and represented as a statement.
-parseSurfaceProgram :: Text -> Either Text SurfaceExpr
-parseSurfaceProgram source = do
-  tokens <- tokenize source
-  (statements, remaining) <- parseStatementsUntilEnd tokens
-  case remaining of
-    [] -> Right (SEScope statements)
-    token : _ ->
-      Left
-        ( "unexpected token '"
-            <> tokenLexeme token
-            <> "' at "
-            <> renderSourceSpan (tokenSpan token)
-        )
+parseSurfaceProgram :: Text -> Either Diagnostic SurfaceExpr
+parseSurfaceProgram source =
+  case tokenize source of
+    Left err ->
+      Left err
+    Right tokens ->
+      case parseStatementsUntilEnd tokens of
+        Left err ->
+          Left err
+        Right (statements, remaining) ->
+          case remaining of
+            [] -> Right (SEBlock statements)
+            token : _ ->
+              Left
+                ( parseDiagnostic
+                    ( "unexpected token '"
+                        <> tokenLexeme token
+                        <> "' at "
+                        <> renderSourceSpan (tokenSpan token)
+                    )
+                )
 
-parseStatementsUntilEnd :: [Token] -> Either Text ([SurfaceStatement], [Token])
+parseStatementsUntilEnd :: [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
 parseStatementsUntilEnd = go []
   where
     go acc [] = Right (reverse acc, [])
@@ -51,10 +62,10 @@ parseStatementsUntilEnd = go []
       (statement, remaining) <- parseStatement tokens
       go (statement : acc) remaining
 
-parseStatementsUntilBrace :: [Token] -> Either Text ([SurfaceStatement], [Token])
+parseStatementsUntilBrace :: [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
 parseStatementsUntilBrace = go []
   where
-    go _ [] = Left "expected '}' before end of input"
+    go _ [] = Left (parseDiagnostic "expected '}' before end of input")
     go acc allTokens@(token : rest) =
       case tokenKind token of
         TRBrace -> Right (reverse acc, rest)
@@ -62,7 +73,7 @@ parseStatementsUntilBrace = go []
           (statement, remaining) <- parseStatement allTokens
           go (statement : acc) remaining
 
-parseStatement :: [Token] -> Either Text (SurfaceStatement, [Token])
+parseStatement :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseStatement tokens =
   case tokens of
     moduleToken@(Token {tokenKind = TModule}) : rest ->
@@ -75,20 +86,24 @@ parseStatement tokens =
       | TIdentifier name <- tokenKind nameToken,
         isReservedLiteralName name ->
           Left
-            ( "reserved literal '"
-                <> name
-                <> "' cannot be used as a binding name at "
-                <> renderSourceSpan (tokenSpan nameToken)
+            ( parseDiagnostic
+                ( "reserved literal '"
+                    <> name
+                    <> "' cannot be used as a binding name at "
+                    <> renderSourceSpan (tokenSpan nameToken)
+                )
             )
       | TIdentifier name <- tokenKind nameToken -> parseSignature name nameToken afterName
     (nameToken : afterName@(Token {tokenKind = TEquals} : _))
       | TIdentifier name <- tokenKind nameToken,
         isReservedLiteralName name ->
           Left
-            ( "reserved literal '"
-                <> name
-                <> "' cannot be used as a binding name at "
-                <> renderSourceSpan (tokenSpan nameToken)
+            ( parseDiagnostic
+                ( "reserved literal '"
+                    <> name
+                    <> "' cannot be used as a binding name at "
+                    <> renderSourceSpan (tokenSpan nameToken)
+                )
             )
       | TIdentifier name <- tokenKind nameToken -> parseLet name nameToken afterName
     _ -> parseExprStatement tokens
@@ -96,18 +111,18 @@ parseStatement tokens =
 isReservedLiteralName :: Text -> Bool
 isReservedLiteralName name = name == "True" || name == "False"
 
-parseModuleStatement :: Token -> [Token] -> Either Text (SurfaceStatement, [Token])
+parseModuleStatement :: Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseModuleStatement moduleToken tokensAfterModuleKeyword = do
   (modulePath, afterModulePath) <- parseModulePath tokensAfterModuleKeyword
   remaining <- consumeDot afterModulePath
   pure (SSModule (tokenSpan moduleToken) modulePath, remaining)
 
-parseImportStatement :: Token -> [Token] -> Either Text (SurfaceStatement, [Token])
+parseImportStatement :: Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseImportStatement importToken tokensAfterImportKeyword = do
   (modulePath, afterModulePath) <- parseModulePath tokensAfterImportKeyword
   parseImportTail importToken modulePath afterModulePath
 
-parseImportTail :: Token -> [Text] -> [Token] -> Either Text (SurfaceStatement, [Token])
+parseImportTail :: Token -> [Text] -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseImportTail importToken modulePath tokensAfterModulePath =
   case tokensAfterModulePath of
     Token {tokenKind = TDot} : rest ->
@@ -118,8 +133,10 @@ parseImportTail importToken modulePath tokensAfterModulePath =
           case afterAlias of
             parenToken@(Token {tokenKind = TLParen}) : _ ->
               Left
-                ( "cannot combine import alias and symbol list at "
-                    <> renderSourceSpan (tokenSpan parenToken)
+                ( parseDiagnostic
+                    ( "cannot combine import alias and symbol list at "
+                        <> renderSourceSpan (tokenSpan parenToken)
+                    )
                 )
             _ -> do
               remaining <- consumeDot afterAlias
@@ -133,24 +150,30 @@ parseImportTail importToken modulePath tokensAfterModulePath =
                 )
         [] ->
           Left
-            ( "expected import alias before end of input after 'as' at "
-                <> renderSourceSpan (tokenSpan asToken)
+            ( parseDiagnostic
+                ( "expected import alias before end of input after 'as' at "
+                    <> renderSourceSpan (tokenSpan asToken)
+                )
             )
         token : _ ->
           Left
-            ( "expected import alias at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
-                <> tokenLexeme token
-                <> "'"
+            ( parseDiagnostic
+                ( "expected import alias at "
+                    <> renderSourceSpan (tokenSpan token)
+                    <> ", found '"
+                    <> tokenLexeme token
+                    <> "'"
+                )
             )
     Token {tokenKind = TLParen} : rest -> do
       (symbols, afterSymbols) <- parseImportSymbolList rest
       case afterSymbols of
         asToken@(Token {tokenKind = TAs}) : _ ->
           Left
-            ( "cannot combine import alias and symbol list at "
-                <> renderSourceSpan (tokenSpan asToken)
+            ( parseDiagnostic
+                ( "cannot combine import alias and symbol list at "
+                    <> renderSourceSpan (tokenSpan asToken)
+                )
             )
         _ -> do
           remaining <- consumeDot afterSymbols
@@ -164,22 +187,26 @@ parseImportTail importToken modulePath tokensAfterModulePath =
             )
     [] ->
       Left
-        ( "expected '.', 'as', or '(' before end of input after import path at "
-            <> renderSourceSpan (tokenSpan importToken)
+        ( parseDiagnostic
+            ( "expected '.', 'as', or '(' before end of input after import path at "
+                <> renderSourceSpan (tokenSpan importToken)
+            )
         )
     token : _ ->
       Left
-        ( "expected '.', 'as', or '(' at "
-            <> renderSourceSpan (tokenSpan token)
-            <> ", found '"
-            <> tokenLexeme token
-            <> "'"
+        ( parseDiagnostic
+            ( "expected '.', 'as', or '(' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
         )
 
-parseModulePath :: [Token] -> Either Text ([Text], [Token])
+parseModulePath :: [Token] -> Either Diagnostic ([Text], [Token])
 parseModulePath tokens =
   case tokens of
-    [] -> Left "expected module path before end of input"
+    [] -> Left (parseDiagnostic "expected module path before end of input")
     Token {tokenKind = TIdentifier firstSegment} : rest ->
       go [firstSegment] rest
       where
@@ -190,43 +217,53 @@ parseModulePath tokens =
               go (nextSegment : revSegments) remaining
             separatorToken@(Token {tokenKind = TColonColon}) : [] ->
               Left
-                ( "expected module path segment before end of input at "
-                    <> renderSourceSpan (tokenSpan separatorToken)
+                ( parseDiagnostic
+                    ( "expected module path segment before end of input at "
+                        <> renderSourceSpan (tokenSpan separatorToken)
+                    )
                 )
             separatorToken@(Token {tokenKind = TColonColon}) : token : _
               | tokenKind token == TDot ->
                   Left
-                    ( "expected module path segment at "
-                        <> renderSourceSpan (tokenSpan separatorToken)
-                        <> ", found '"
-                        <> tokenLexeme token
-                        <> "'"
+                    ( parseDiagnostic
+                        ( "expected module path segment at "
+                            <> renderSourceSpan (tokenSpan separatorToken)
+                            <> ", found '"
+                            <> tokenLexeme token
+                            <> "'"
+                        )
                     )
               | otherwise ->
                   Left
-                    ( "expected module path segment at "
-                        <> renderSourceSpan (tokenSpan token)
-                        <> ", found '"
-                        <> tokenLexeme token
-                        <> "'"
+                    ( parseDiagnostic
+                        ( "expected module path segment at "
+                            <> renderSourceSpan (tokenSpan token)
+                            <> ", found '"
+                            <> tokenLexeme token
+                            <> "'"
+                        )
                     )
             _ -> Right (reverse revSegments, allTokens)
     token : _ ->
       Left
-        ( "expected module path segment at "
-            <> renderSourceSpan (tokenSpan token)
-            <> ", found '"
-            <> tokenLexeme token
-            <> "'"
+        ( parseDiagnostic
+            ( "expected module path segment at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
         )
 
-parseImportSymbolList :: [Token] -> Either Text ([Text], [Token])
+parseImportSymbolList :: [Token] -> Either Diagnostic ([Text], [Token])
 parseImportSymbolList tokensAfterLeftParen =
   case tokensAfterLeftParen of
     token@(Token {tokenKind = TRParen}) : _ ->
       Left
-        ( "expected at least one import symbol before ')' at "
-            <> renderSourceSpan (tokenSpan token)
+        ( parseDiagnostic
+            ( "expected at least one import symbol before ')' at "
+                <> renderSourceSpan (tokenSpan token)
+            )
         )
     _ -> do
       (firstSymbol, firstSpan, afterFirstSymbol) <- parseImportSymbol tokensAfterLeftParen
@@ -240,10 +277,12 @@ parseImportSymbolList tokensAfterLeftParen =
           if Set.member nextSymbol seenSymbols
             then
               Left
-                ( "duplicate import symbol '"
-                    <> nextSymbol
-                    <> "' at "
-                    <> renderSourceSpan symbolSpan
+                ( parseDiagnostic
+                    ( "duplicate import symbol '"
+                        <> nextSymbol
+                        <> "' at "
+                        <> renderSourceSpan symbolSpan
+                    )
                 )
             else
               go
@@ -253,33 +292,37 @@ parseImportSymbolList tokensAfterLeftParen =
         Token {tokenKind = TRParen} : rest ->
           Right (reverse revSymbols, rest)
         [] ->
-          Left "expected ')' before end of input in import symbol list"
+          Left (parseDiagnostic "expected ')' before end of input in import symbol list")
         token : _ ->
           Left
-            ( "expected ',' or ')' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
-                <> tokenLexeme token
-                <> "'"
+            ( parseDiagnostic
+                ( "expected ',' or ')' at "
+                    <> renderSourceSpan (tokenSpan token)
+                    <> ", found '"
+                    <> tokenLexeme token
+                    <> "'"
+                )
             )
 
-parseImportSymbol :: [Token] -> Either Text (Text, SourceSpan, [Token])
+parseImportSymbol :: [Token] -> Either Diagnostic (Text, SourceSpan, [Token])
 parseImportSymbol tokens =
   case tokens of
     Token {tokenKind = TIdentifier symbolName, tokenSpan = symbolSpan} : rest ->
       Right (symbolName, symbolSpan, rest)
     [] ->
-      Left "expected import symbol before end of input"
+      Left (parseDiagnostic "expected import symbol before end of input")
     token : _ ->
       Left
-        ( "expected import symbol at "
-            <> renderSourceSpan (tokenSpan token)
-            <> ", found '"
-            <> tokenLexeme token
-            <> "'"
+        ( parseDiagnostic
+            ( "expected import symbol at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
         )
 
-parseSignature :: Text -> Token -> [Token] -> Either Text (SurfaceStatement, [Token])
+parseSignature :: Text -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseSignature name nameToken tokensAfterName =
   case tokensAfterName of
     Token {tokenKind = TColonColon} : rest -> do
@@ -291,12 +334,14 @@ parseSignature name nameToken tokensAfterName =
         )
     _ ->
       Left
-        ( "internal parser error at "
-            <> renderSourceSpan (tokenSpan nameToken)
-            <> ": expected '::' after signature name"
+        ( parseDiagnostic
+            ( "internal parser error at "
+                <> renderSourceSpan (tokenSpan nameToken)
+                <> ": expected '::' after signature name"
+            )
         )
 
-parseLet :: Text -> Token -> [Token] -> Either Text (SurfaceStatement, [Token])
+parseLet :: Text -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseLet name nameToken tokensAfterName =
   case tokensAfterName of
     Token {tokenKind = TEquals} : rest -> do
@@ -305,44 +350,46 @@ parseLet name nameToken tokensAfterName =
       pure (SSLet name (tokenSpan nameToken) valueExpr, remaining)
     _ ->
       Left
-        ( "internal parser error at "
-            <> renderSourceSpan (tokenSpan nameToken)
-            <> ": expected '=' after binding name"
+        ( parseDiagnostic
+            ( "internal parser error at "
+                <> renderSourceSpan (tokenSpan nameToken)
+                <> ": expected '=' after binding name"
+            )
         )
 
-parseExprStatement :: [Token] -> Either Text (SurfaceStatement, [Token])
+parseExprStatement :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseExprStatement tokens = do
   case tokens of
-    [] -> Left "expected expression before end of input"
+    [] -> Left (parseDiagnostic "expected expression before end of input")
     firstToken : _ -> do
       (expr, afterExpr) <- parseExpr tokens
       remaining <- consumeDot afterExpr
       pure (SSExpr (tokenSpan firstToken) expr, remaining)
 
-parseExpr :: [Token] -> Either Text (SurfaceExpr, [Token])
+parseExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseExpr = parseExprWithMinPrecedence 1
 
-parseExprWithMinPrecedence :: Int -> [Token] -> Either Text (SurfaceExpr, [Token])
+parseExprWithMinPrecedence :: Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseExprWithMinPrecedence minPrecedence tokens = do
   (leftExpr, remainingTokens) <- parseApplicationExpr tokens
   parseInfixTailWith parseExprWithMinPrecedence minPrecedence leftExpr remainingTokens
 
 -- Used by `if` parsing to preserve the existing compact `if cond then else`
 -- surface form without introducing a `then` delimiter.
-parseExprWithoutApplication :: [Token] -> Either Text (SurfaceExpr, [Token])
+parseExprWithoutApplication :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseExprWithoutApplication = parseExprWithoutApplicationWithMinPrecedence 1
 
-parseExprWithoutApplicationWithMinPrecedence :: Int -> [Token] -> Either Text (SurfaceExpr, [Token])
+parseExprWithoutApplicationWithMinPrecedence :: Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseExprWithoutApplicationWithMinPrecedence minPrecedence tokens = do
   (leftExpr, remainingTokens) <- parsePrimaryExpr tokens
   parseInfixTailWith parseExprWithoutApplicationWithMinPrecedence minPrecedence leftExpr remainingTokens
 
-parseApplicationExpr :: [Token] -> Either Text (SurfaceExpr, [Token])
+parseApplicationExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseApplicationExpr tokens = do
   (functionExpr, remainingTokens) <- parsePrimaryExpr tokens
   parseApplicationTail functionExpr remainingTokens
 
-parseApplicationTail :: SurfaceExpr -> [Token] -> Either Text (SurfaceExpr, [Token])
+parseApplicationTail :: SurfaceExpr -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseApplicationTail functionExpr tokens =
   case startsPrimaryExpr tokens of
     True -> do
@@ -361,11 +408,11 @@ parseApplicationTail functionExpr tokens =
         _ -> False
 
 parseInfixTailWith ::
-  (Int -> [Token] -> Either Text (SurfaceExpr, [Token])) ->
+  (Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])) ->
   Int ->
   SurfaceExpr ->
   [Token] ->
-  Either Text (SurfaceExpr, [Token])
+  Either Diagnostic (SurfaceExpr, [Token])
 -- `if` conditions need infix parsing without enabling application; injecting
 -- the RHS parser keeps the boundary explicit for both modes.
 parseInfixTailWith parseRhs minPrecedence leftExpr tokens =
@@ -377,10 +424,12 @@ parseInfixTailWith parseRhs minPrecedence leftExpr tokens =
           case lookupOperatorInfo operatorSymbol of
             Nothing ->
               Left
-                ( "unsupported operator '"
-                    <> operatorSymbol
-                    <> "' at "
-                    <> renderSourceSpan (tokenSpan operatorToken)
+                ( parseDiagnostic
+                    ( "unsupported operator '"
+                        <> operatorSymbol
+                        <> "' at "
+                        <> renderSourceSpan (tokenSpan operatorToken)
+                    )
                 )
             Just operatorInfo
               | operatorPrecedence operatorInfo < minPrecedence ->
@@ -404,34 +453,36 @@ parseInfixTailWith parseRhs minPrecedence leftExpr tokens =
         Token {tokenKind = TRParen} : _ -> True
         _ -> False
 
-parsePrimaryExpr :: [Token] -> Either Text (SurfaceExpr, [Token])
+parsePrimaryExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parsePrimaryExpr tokens =
   case tokens of
-    [] -> Left "expected expression before end of input"
+    [] -> Left (parseDiagnostic "expected expression before end of input")
     token : rest ->
       case tokenKind token of
-        TInt value -> Right (SEInt value, rest)
+        TInt value -> Right (SELit (SLInt value), rest)
         TIdentifier name ->
           case name of
-            "True" -> Right (SEBool True, rest)
-            "False" -> Right (SEBool False, rest)
+            "True" -> Right (SELit (SLBool True), rest)
+            "False" -> Right (SELit (SLBool False), rest)
             _ -> Right (SEVar name, rest)
         TIf -> parseIfExpr token rest
         TLParen -> parseParenExpr rest
         TLBrace -> do
           (statements, afterBrace) <- parseStatementsUntilBrace rest
-          Right (SEScope statements, afterBrace)
+          Right (SEBlock statements, afterBrace)
         TLBracket -> parseListExpr rest
         _ ->
           Left
-            ( "unexpected token '"
-                <> tokenLexeme token
-                <> "' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> "; expected expression"
+            ( parseDiagnostic
+                ( "unexpected token '"
+                    <> tokenLexeme token
+                    <> "' at "
+                    <> renderSourceSpan (tokenSpan token)
+                    <> "; expected expression"
+                )
             )
 
-parseParenExpr :: [Token] -> Either Text (SurfaceExpr, [Token])
+parseParenExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseParenExpr tokensAfterLeftParen =
   case tokensAfterLeftParen of
     Token {tokenKind = TOperator operatorSymbol} : rest ->
@@ -451,7 +502,7 @@ parseParenExpr tokensAfterLeftParen =
           remaining <- consumeRightParen afterInnerExpr
           Right (innerExpr, remaining)
 
-parseListExpr :: [Token] -> Either Text (SurfaceExpr, [Token])
+parseListExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseListExpr tokensAfterLeftBracket =
   case tokensAfterLeftBracket of
     Token {tokenKind = TRBracket} : rest ->
@@ -461,7 +512,7 @@ parseListExpr tokensAfterLeftBracket =
       remaining <- consumeRightBracket afterElements
       Right (SEList elements, remaining)
 
-parseListElements :: [Token] -> Either Text ([SurfaceExpr], [Token])
+parseListElements :: [Token] -> Either Diagnostic ([SurfaceExpr], [Token])
 parseListElements tokens = do
   (firstElement, remainingAfterFirst) <- parseExpr tokens
   go [firstElement] remainingAfterFirst
@@ -474,7 +525,7 @@ parseListElements tokens = do
         _ ->
           Right (reverse elements, allTokens)
 
-parseIfExpr :: Token -> [Token] -> Either Text (SurfaceExpr, [Token])
+parseIfExpr :: Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseIfExpr ifToken tokensAfterIf = do
   (conditionExpr, afterCondition) <- parseExprWithoutApplication tokensAfterIf
   (thenExpr, afterThenExpr) <- parseExpr afterCondition
@@ -484,41 +535,49 @@ parseIfExpr ifToken tokensAfterIf = do
       pure (SEIf conditionExpr thenExpr elseExpr, remaining)
     [] ->
       Left
-        ( "expected 'else' before end of input after 'if' at "
-            <> renderSourceSpan (tokenSpan ifToken)
+        ( parseDiagnostic
+            ( "expected 'else' before end of input after 'if' at "
+                <> renderSourceSpan (tokenSpan ifToken)
+            )
         )
     token : _ ->
       Left
-        ( "expected 'else' at "
-            <> renderSourceSpan (tokenSpan token)
-            <> ", found '"
-            <> tokenLexeme token
-            <> "'"
+        ( parseDiagnostic
+            ( "expected 'else' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
         )
 
-collectUntilDot :: [Token] -> Either Text ([Token], [Token])
+collectUntilDot :: [Token] -> Either Diagnostic ([Token], [Token])
 collectUntilDot = go []
   where
     -- Type signatures currently keep the type text as raw tokens joined by
     -- spaces. This helper stops exactly at the signature terminator and guards
     -- against accidentally consuming the next statement start.
-    go acc [] = Left "expected '.' before end of input"
+    go acc [] = Left (parseDiagnostic "expected '.' before end of input")
     go acc allTokens@(token : rest) =
       case tokenKind token of
         TDot
           | null acc ->
               Left
-                ( "expected signature text before '.' at "
-                    <> renderSourceSpan (tokenSpan token)
+                ( parseDiagnostic
+                    ( "expected signature text before '.' at "
+                        <> renderSourceSpan (tokenSpan token)
+                    )
                 )
           | otherwise -> Right (reverse acc, rest)
         _
           | not (null acc) && beginsStatement allTokens ->
               Left
-                ( "expected '.' before '"
-                    <> tokenLexeme token
-                    <> "' at "
-                    <> renderSourceSpan (tokenSpan token)
+                ( parseDiagnostic
+                    ( "expected '.' before '"
+                        <> tokenLexeme token
+                        <> "' at "
+                        <> renderSourceSpan (tokenSpan token)
+                    )
                 )
           | otherwise -> go (token : acc) rest
 
@@ -531,44 +590,53 @@ collectUntilDot = go []
         Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
         _ -> False
 
-consumeDot :: [Token] -> Either Text [Token]
+consumeDot :: [Token] -> Either Diagnostic [Token]
 consumeDot tokens =
   case tokens of
     Token {tokenKind = TDot} : rest -> Right rest
-    [] -> Left "expected '.' before end of input"
+    [] -> Left (parseDiagnostic "expected '.' before end of input")
     token : _ ->
       Left
-        ( "expected '.' at "
-            <> renderSourceSpan (tokenSpan token)
-            <> ", found '"
-            <> tokenLexeme token
-            <> "'"
+        ( parseDiagnostic
+            ( "expected '.' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
         )
 
-consumeRightParen :: [Token] -> Either Text [Token]
+consumeRightParen :: [Token] -> Either Diagnostic [Token]
 consumeRightParen tokens =
   case tokens of
     Token {tokenKind = TRParen} : rest -> Right rest
-    [] -> Left "expected ')' before end of input"
+    [] -> Left (parseDiagnostic "expected ')' before end of input")
     token : _ ->
       Left
-        ( "expected ')' at "
-            <> renderSourceSpan (tokenSpan token)
-            <> ", found '"
-            <> tokenLexeme token
-            <> "'"
+        ( parseDiagnostic
+            ( "expected ')' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
         )
 
-consumeRightBracket :: [Token] -> Either Text [Token]
+consumeRightBracket :: [Token] -> Either Diagnostic [Token]
 consumeRightBracket tokens =
   case tokens of
     Token {tokenKind = TRBracket} : rest -> Right rest
-    [] -> Left "expected ']' before end of input"
+    [] -> Left (parseDiagnostic "expected ']' before end of input")
     token : _ ->
       Left
-        ( "expected ']' at "
-            <> renderSourceSpan (tokenSpan token)
-            <> ", found '"
-            <> tokenLexeme token
-            <> "'"
+        ( parseDiagnostic
+            ( "expected ']' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
         )
+
+parseDiagnostic :: Text -> Diagnostic
+parseDiagnostic = mkDiagnostic "E0001"

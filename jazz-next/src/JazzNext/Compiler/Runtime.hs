@@ -13,7 +13,12 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
+  )
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    mkDiagnostic
   )
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
@@ -33,13 +38,13 @@ data RuntimeValue
   | VSectionRight Text RuntimeValue
   deriving (Eq, Show)
 
-evaluateRuntimeExpr :: Expr -> Either Text (Maybe RuntimeValue)
+evaluateRuntimeExpr :: Expr -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExpr = evaluateRuntimeExprWithBuiltins ResolveCompatibility
 
-evaluateRuntimeExprWithBuiltins :: BuiltinResolutionMode -> Expr -> Either Text (Maybe RuntimeValue)
+evaluateRuntimeExprWithBuiltins :: BuiltinResolutionMode -> Expr -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExprWithBuiltins builtinMode expr =
   case expr of
-    EScope statements -> evalScope builtinMode Map.empty statements
+    EBlock statements -> evalScope builtinMode Map.empty statements
     _ -> Just <$> evalValue builtinMode Map.empty expr
 
 renderRuntimeValue :: RuntimeValue -> Text
@@ -59,10 +64,10 @@ renderRuntimeValue value =
 
 type RuntimeEnv = Map Text RuntimeValue
 
-evalScope :: BuiltinResolutionMode -> RuntimeEnv -> [Statement] -> Either Text (Maybe RuntimeValue)
+evalScope :: BuiltinResolutionMode -> RuntimeEnv -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
 evalScope builtinMode initialEnv statements = go initialEnv Nothing statements
   where
-    go :: RuntimeEnv -> Maybe RuntimeValue -> [Statement] -> Either Text (Maybe RuntimeValue)
+    go :: RuntimeEnv -> Maybe RuntimeValue -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
     go env lastExprValue remainingStatements =
       case remainingStatements of
         [] ->
@@ -83,11 +88,9 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing statements
               value <- evalValue builtinMode env expr
               go env (Just value) rest
 
-evalValue :: BuiltinResolutionMode -> RuntimeEnv -> Expr -> Either Text RuntimeValue
 evalValue builtinMode env expr =
   case expr of
-    EInt value -> Right (VInt value)
-    EBool value -> Right (VBool value)
+    ELit literal -> Right (literalRuntimeValue literal)
     EVar name ->
       case Map.lookup name env of
         Just value -> Right value
@@ -96,9 +99,9 @@ evalValue builtinMode env expr =
             Just builtinFunction -> Right (VBuiltin builtinFunction [])
             Nothing ->
               Left
-                ( "E3002: runtime unbound variable '"
-                    <> name
-                    <> "'"
+                ( runtimeDiagnostic
+                    "E3002"
+                    ("runtime unbound variable '" <> name <> "'")
                 )
     EOperatorValue operatorSymbol ->
       Right (VOperator operatorSymbol [])
@@ -117,8 +120,9 @@ evalValue builtinMode env expr =
         VBool False -> evalValue builtinMode env elseExpr
         other ->
           Left
-            ( "E3003: runtime branch condition must be Bool, found "
-                <> renderRuntimeType other
+            ( runtimeDiagnostic
+                "E3003"
+                ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
             )
     EBinary operatorSymbol leftExpr rightExpr -> do
       leftValue <- evalValue builtinMode env leftExpr
@@ -130,15 +134,21 @@ evalValue builtinMode env expr =
     ESectionRight operatorSymbol rightExpr -> do
       rightValue <- evalValue builtinMode env rightExpr
       Right (VSectionRight operatorSymbol rightValue)
-    EScope statements ->
+    EBlock statements ->
       case evalScope builtinMode env statements of
         Left err -> Left err
         Right Nothing ->
           Left
-            "E3006: scope expression has no terminal expression result at runtime"
+            (runtimeDiagnostic "E3006" "block expression has no terminal expression result at runtime")
         Right (Just value) -> Right value
 
-applyRuntimeFunction :: RuntimeValue -> RuntimeValue -> Either Text RuntimeValue
+literalRuntimeValue :: Literal -> RuntimeValue
+literalRuntimeValue literal =
+  case literal of
+    LInt value -> VInt value
+    LBool value -> VBool value
+
+applyRuntimeFunction :: RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyRuntimeFunction functionValue argumentValue =
   case functionValue of
     VSectionLeft operatorSymbol leftValue ->
@@ -151,12 +161,12 @@ applyRuntimeFunction functionValue argumentValue =
       applyOperator operatorSymbol (capturedArgs ++ [argumentValue])
     _ ->
       Left
-        ( "E3008: runtime cannot apply non-function value of type "
-            <> renderRuntimeType functionValue
-            <> ""
+        ( runtimeDiagnostic
+            "E3008"
+            ("runtime cannot apply non-function value of type " <> renderRuntimeType functionValue)
         )
 
-applyOperator :: Text -> [RuntimeValue] -> Either Text RuntimeValue
+applyOperator :: Text -> [RuntimeValue] -> Either Diagnostic RuntimeValue
 applyOperator operatorSymbol arguments =
   case arguments of
     [leftValue] ->
@@ -165,12 +175,12 @@ applyOperator operatorSymbol arguments =
       evalBinary operatorSymbol leftValue rightValue
     _ ->
       Left
-        ( "E3016: runtime primitive '"
-            <> operatorSymbol
-            <> "' received invalid arguments"
+        ( runtimeDiagnostic
+            "E3016"
+            ("runtime primitive '" <> operatorSymbol <> "' received invalid arguments")
         )
 
-applyBuiltin :: BuiltinSymbol -> [RuntimeValue] -> Either Text RuntimeValue
+applyBuiltin :: BuiltinSymbol -> [RuntimeValue] -> Either Diagnostic RuntimeValue
 applyBuiltin builtinFunction arguments
   | length arguments < builtinSymbolArity builtinFunction =
       Right (VBuiltin builtinFunction arguments)
@@ -178,37 +188,40 @@ applyBuiltin builtinFunction arguments
       evalBuiltin builtinFunction arguments
   | otherwise =
       Left
-        ( "E3014: runtime primitive '"
-            <> builtinSymbolName builtinFunction
-            <> "' received too many arguments"
+        ( runtimeDiagnostic
+            "E3014"
+            ("runtime primitive '" <> builtinSymbolName builtinFunction <> "' received too many arguments")
         )
 
-evalBuiltin :: BuiltinSymbol -> [RuntimeValue] -> Either Text RuntimeValue
+evalBuiltin :: BuiltinSymbol -> [RuntimeValue] -> Either Diagnostic RuntimeValue
 evalBuiltin builtinFunction arguments =
   case (builtinFunction, arguments) of
     (BuiltinHd, [VList []]) ->
-      Left "E3009: runtime primitive 'hd' failed: empty list"
+      Left (runtimeDiagnostic "E3009" "runtime primitive 'hd' failed: empty list")
     (BuiltinHd, [VList (headValue : _)]) ->
       Right headValue
     (BuiltinHd, [other]) ->
       Left
-        ( "E3011: runtime primitive 'hd' expects a list argument, found "
-            <> renderRuntimeType other
+        ( runtimeDiagnostic
+            "E3011"
+            ("runtime primitive 'hd' expects a list argument, found " <> renderRuntimeType other)
         )
     (BuiltinTl, [VList []]) ->
-      Left "E3010: runtime primitive 'tl' failed: empty list"
+      Left (runtimeDiagnostic "E3010" "runtime primitive 'tl' failed: empty list")
     (BuiltinTl, [VList (_ : tailValues)]) ->
       Right (VList tailValues)
     (BuiltinTl, [other]) ->
       Left
-        ( "E3012: runtime primitive 'tl' expects a list argument, found "
-            <> renderRuntimeType other
+        ( runtimeDiagnostic
+            "E3012"
+            ("runtime primitive 'tl' expects a list argument, found " <> renderRuntimeType other)
         )
     (BuiltinMap, [mapper, collection])
       | not (isFunctionValue mapper) ->
           Left
-            ( "E3015: runtime primitive 'map' expects a function as its first argument, found "
-                <> renderRuntimeType mapper
+            ( runtimeDiagnostic
+                "E3015"
+                ("runtime primitive 'map' expects a function as its first argument, found " <> renderRuntimeType mapper)
             )
       | otherwise ->
           case collection of
@@ -216,14 +229,16 @@ evalBuiltin builtinFunction arguments =
               VList <$> mapM (applyRuntimeFunction mapper) elements
             other ->
               Left
-                ( "E3013: runtime primitive 'map' expects a list as its second argument, found "
-                    <> renderRuntimeType other
+                ( runtimeDiagnostic
+                    "E3013"
+                    ("runtime primitive 'map' expects a list as its second argument, found " <> renderRuntimeType other)
                 )
     (BuiltinFilter, [predicate, collection])
       | not (isFunctionValue predicate) ->
           Left
-            ( "E3017: runtime primitive 'filter' expects a function as its first argument, found "
-                <> renderRuntimeType predicate
+            ( runtimeDiagnostic
+                "E3017"
+                ("runtime primitive 'filter' expects a function as its first argument, found " <> renderRuntimeType predicate)
             )
       | otherwise ->
           case collection of
@@ -231,8 +246,9 @@ evalBuiltin builtinFunction arguments =
               VList <$> filterElements predicate elements
             other ->
               Left
-                ( "E3018: runtime primitive 'filter' expects a list as its second argument, found "
-                    <> renderRuntimeType other
+                ( runtimeDiagnostic
+                    "E3018"
+                    ("runtime primitive 'filter' expects a list as its second argument, found " <> renderRuntimeType other)
                 )
     -- Stub-v1 keeps `print!` side effects out of runtime plumbing; it returns
     -- its evaluated argument so expression pipelines remain deterministic.
@@ -240,27 +256,28 @@ evalBuiltin builtinFunction arguments =
       Right value
     _ ->
       Left
-        ( "E3016: runtime primitive '"
-            <> builtinSymbolName builtinFunction
-            <> "' received invalid arguments"
+        ( runtimeDiagnostic
+            "E3016"
+            ("runtime primitive '" <> builtinSymbolName builtinFunction <> "' received invalid arguments")
         )
 
-filterElements :: RuntimeValue -> [RuntimeValue] -> Either Text [RuntimeValue]
+filterElements :: RuntimeValue -> [RuntimeValue] -> Either Diagnostic [RuntimeValue]
 filterElements predicate values = do
   results <- mapM applyPredicate values
   pure [value | (value, True) <- results]
   where
     -- Preserve runtime safety for partially-known function values that can slip
     -- past compile-time checks in direct `evaluateRuntimeExpr` tests.
-    applyPredicate :: RuntimeValue -> Either Text (RuntimeValue, Bool)
+    applyPredicate :: RuntimeValue -> Either Diagnostic (RuntimeValue, Bool)
     applyPredicate value = do
       predicateResult <- applyRuntimeFunction predicate value
       case predicateResult of
         VBool shouldKeep -> Right (value, shouldKeep)
         other ->
           Left
-            ( "E3019: runtime primitive 'filter' predicate must return Bool, found "
-                <> renderRuntimeType other
+            ( runtimeDiagnostic
+                "E3019"
+                ("runtime primitive 'filter' predicate must return Bool, found " <> renderRuntimeType other)
             )
 
 isFunctionValue :: RuntimeValue -> Bool
@@ -272,14 +289,14 @@ isFunctionValue value =
     VOperator {} -> True
     _ -> False
 
-evalBinary :: Text -> RuntimeValue -> RuntimeValue -> Either Text RuntimeValue
+evalBinary :: Text -> RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
 evalBinary operatorSymbol leftValue rightValue =
   case (operatorSymbol, leftValue, rightValue) of
     ("+", VInt leftInt, VInt rightInt) -> Right (VInt (leftInt + rightInt))
     ("-", VInt leftInt, VInt rightInt) -> Right (VInt (leftInt - rightInt))
     ("*", VInt leftInt, VInt rightInt) -> Right (VInt (leftInt * rightInt))
     ("/", VInt _, VInt 0) ->
-      Left "E3001: runtime primitive '/' failed: division by zero"
+      Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
     ("/", VInt leftInt, VInt rightInt) ->
       Right (VInt (leftInt `div` rightInt))
     ("<", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt < rightInt))
@@ -294,13 +311,23 @@ evalBinary operatorSymbol leftValue rightValue =
       applyRuntimeFunction functionValue argumentValue
     _ ->
       Left
-        ( "E3007: runtime primitive '"
-            <> operatorSymbol
-            <> "' cannot be applied to "
-            <> renderRuntimeType leftValue
-            <> " and "
-            <> renderRuntimeType rightValue
+        ( runtimeDiagnostic
+            "E3007"
+            ( "runtime primitive '"
+                <> operatorSymbol
+                <> "' cannot be applied to "
+                <> renderRuntimeType leftValue
+                <> " and "
+                <> renderRuntimeType rightValue
+            )
         )
+
+-- | Runtime-specific wrapper for mkDiagnostic.
+-- This alias exists solely to improve readability and make it clear that
+-- diagnostics are being created in a runtime evaluation context rather than
+-- during parsing or type checking.
+runtimeDiagnostic :: Text -> Text -> Diagnostic
+runtimeDiagnostic = mkDiagnostic
 
 renderRuntimeType :: RuntimeValue -> Text
 renderRuntimeType value =

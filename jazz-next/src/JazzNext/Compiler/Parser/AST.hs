@@ -2,6 +2,7 @@
 
 module JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceLiteral (..),
     SurfaceStatement (..)
   ) where
 
@@ -12,9 +13,13 @@ import JazzNext.Compiler.Diagnostics
 
 -- Parser-surface tree. This remains separate from analyzer AST so parsing can
 -- evolve (desugaring, richer syntax) without forcing analyzer shape changes.
+data SurfaceLiteral
+  = SLInt Int
+  | SLBool Bool
+  deriving (Eq, Show)
+
 data SurfaceExpr
-  = SEInt Int
-  | SEBool Bool
+  = SELit SurfaceLiteral
   | SEVar Text
   | SEOperatorValue Text
   | SEList [SurfaceExpr]
@@ -23,7 +28,7 @@ data SurfaceExpr
   | SEBinary Text SurfaceExpr SurfaceExpr
   | SESectionLeft SurfaceExpr Text
   | SESectionRight Text SurfaceExpr
-  | SEScope [SurfaceStatement]
+  | SEBlock [SurfaceStatement]
   deriving (Eq, Show)
 
 data SurfaceStatement

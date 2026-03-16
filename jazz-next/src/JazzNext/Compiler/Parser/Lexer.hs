@@ -11,7 +11,9 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Read as TextRead
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( Diagnostic,
+    SourceSpan (..),
+    mkDiagnostic
   )
 import JazzNext.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol
@@ -47,10 +49,10 @@ data Token = Token
 
 -- Tokenizes the current parser foundation grammar while preserving 1-based
 -- line/column spans for diagnostics.
-tokenize :: Text -> Either Text [Token]
+tokenize :: Text -> Either Diagnostic [Token]
 tokenize = go 1 1
   where
-    go :: Int -> Int -> Text -> Either Text [Token]
+    go :: Int -> Int -> Text -> Either Diagnostic [Token]
     go line column source =
       case Text.uncons source of
         Nothing -> Right []
@@ -99,7 +101,7 @@ tokenize = go 1 1
                     Just (':', after) ->
                       withSingleToken TColonColon "::" 2 line column after
                     _ ->
-                      Left ("unexpected ':' at " <> renderSpan line column <> "; expected '::'")
+                      Left (parseDiagnostic ("unexpected ':' at " <> renderSpan line column <> "; expected '::'"))
                 '=' ->
                   case Text.uncons rest of
                     Just ('=', after) -> withOperatorToken "==" 2 line column after
@@ -108,7 +110,7 @@ tokenize = go 1 1
                   case Text.uncons rest of
                     Just ('=', after) -> withOperatorToken "!=" 2 line column after
                     _ ->
-                      Left ("unexpected character '!' at " <> renderSpan line column)
+                      Left (parseDiagnostic ("unexpected character '!' at " <> renderSpan line column))
                 '<' ->
                   case Text.uncons rest of
                     Just ('=', after) -> withOperatorToken "<=" 2 line column after
@@ -133,10 +135,12 @@ tokenize = go 1 1
                 ',' -> withSingleToken TComma "," 1 line column rest
                 _ ->
                   Left
-                    ( "unexpected character '"
-                        <> Text.singleton char
-                        <> "' at "
-                        <> renderSpan line column
+                    ( parseDiagnostic
+                        ( "unexpected character '"
+                            <> Text.singleton char
+                            <> "' at "
+                            <> renderSpan line column
+                        )
                     )
 
     withSingleToken ::
@@ -146,7 +150,7 @@ tokenize = go 1 1
       Int ->
       Int ->
       Text ->
-      Either Text [Token]
+      Either Diagnostic [Token]
     withSingleToken kind lexeme width line column trailing =
       let token =
             Token
@@ -162,7 +166,7 @@ tokenize = go 1 1
       Int ->
       Int ->
       Text ->
-      Either Text [Token]
+      Either Diagnostic [Token]
     withOperatorToken symbol width line column trailing =
       if isBuiltinOperatorSymbol symbol
         then
@@ -175,10 +179,12 @@ tokenize = go 1 1
            in (token :) <$> go line (column + width) trailing
         else
           Left
-            ( "unsupported operator '"
-                <> symbol
-                <> "' at "
-                <> renderSpan line column
+            ( parseDiagnostic
+                ( "unsupported operator '"
+                    <> symbol
+                    <> "' at "
+                    <> renderSpan line column
+                )
             )
 
     isIdentifierStart :: Char -> Bool
@@ -198,7 +204,7 @@ tokenize = go 1 1
 renderSpan :: Int -> Int -> Text
 renderSpan line column = Text.pack (show line) <> ":" <> Text.pack (show column)
 
-parseIntLiteral :: Int -> Int -> Text -> Either Text Int
+parseIntLiteral :: Int -> Int -> Text -> Either Diagnostic Int
 parseIntLiteral line column digits =
   case TextRead.decimal digits :: Either String (Integer, Text) of
     Right (value, trailing)
@@ -208,27 +214,31 @@ parseIntLiteral line column digits =
               -- Parse into Integer first so out-of-range literals become diagnostics
               -- instead of overflowing during conversion to Int.
               Left
-                ( "integer literal out of range at "
-                    <> renderSpan line column
-                    <> ": '"
-                    <> digits
-                    <> "'"
+                ( parseDiagnostic
+                    ( "integer literal out of range at "
+                        <> renderSpan line column
+                        <> ": '"
+                        <> digits
+                        <> "'"
+                    )
                 )
             else Right (fromInteger value)
-      | otherwise ->
-          Left
-            ( "invalid integer literal '"
-                <> digits
-                <> "' at "
-                <> renderSpan line column
-            )
-    Left _ ->
-      Left
+      | otherwise -> invalidIntegerDiagnostic digits line column
+    Left _ -> invalidIntegerDiagnostic digits line column
+  where
+    minInt = toInteger (minBound :: Int)
+    maxInt = toInteger (maxBound :: Int)
+
+invalidIntegerDiagnostic :: Text -> Int -> Int -> Either Diagnostic a
+invalidIntegerDiagnostic digits line column =
+  Left
+    ( parseDiagnostic
         ( "invalid integer literal '"
             <> digits
             <> "' at "
             <> renderSpan line column
         )
-  where
-    minInt = toInteger (minBound :: Int)
-    maxInt = toInteger (maxBound :: Int)
+    )
+
+parseDiagnostic :: Text -> Diagnostic
+parseDiagnostic = mkDiagnostic "E0001"

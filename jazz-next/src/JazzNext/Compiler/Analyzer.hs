@@ -20,6 +20,7 @@ import Data.Set (Set)
 import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
@@ -27,8 +28,10 @@ import JazzNext.Compiler.BuiltinCatalog
     isBuiltinSymbolNameInMode
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan,
+  ( Diagnostic,
+    SourceSpan,
     WarningRecord,
+    mkDiagnostic,
     mkSameScopeRebindingWarning,
     renderSourceSpan,
     sortWarnings
@@ -49,7 +52,7 @@ import JazzNext.Compiler.Warnings
 data AnalysisResult = AnalysisResult
   { analyzedExpr :: Expr,
     analysisWarnings :: [WarningRecord],
-    analysisErrors :: [Text]
+    analysisErrors :: [Diagnostic]
   }
   deriving (Eq, Show)
 
@@ -84,7 +87,7 @@ analyzeProgramWithBuiltinsAndHiddenStatements ::
 analyzeProgramWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices settings expr =
   let (warnings, errors) =
         case expr of
-          EScope statements ->
+          EBlock statements ->
             collectScopeDiagnostics builtinMode hiddenStatementIndices settings Map.empty topLevelContext statements
           _ ->
             collectExprDiagnostics builtinMode settings Map.empty topLevelContext expr
@@ -109,11 +112,10 @@ collectExprDiagnostics ::
   Map Text VisibleBinding ->
   AnalysisContext ->
   Expr ->
-  ([WarningRecord], [Text])
+  ([WarningRecord], [Diagnostic])
 collectExprDiagnostics builtinMode settings visibleBindings context expr =
   case expr of
-    EInt _ -> ([], [])
-    EBool _ -> ([], [])
+    ELit _ -> ([], [])
     EVar name ->
       case Map.lookup name visibleBindings of
         Just _ -> ([], [])
@@ -166,7 +168,7 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
       collectExprDiagnostics builtinMode settings visibleBindings context leftExpr
     ESectionRight _ rightExpr ->
       collectExprDiagnostics builtinMode settings visibleBindings context rightExpr
-    EScope statements -> collectScopeDiagnostics builtinMode Set.empty settings visibleBindings context statements
+    EBlock statements -> collectScopeDiagnostics builtinMode Set.empty settings visibleBindings context statements
 
 collectExprListDiagnostics ::
   BuiltinResolutionMode ->
@@ -174,7 +176,7 @@ collectExprListDiagnostics ::
   Map Text VisibleBinding ->
   AnalysisContext ->
   [Expr] ->
-  ([WarningRecord], [Text])
+  ([WarningRecord], [Diagnostic])
 collectExprListDiagnostics builtinMode settings visibleBindings context elements =
   let (warningsRev, errorsRev) =
         foldl'
@@ -196,7 +198,7 @@ collectScopeDiagnostics ::
   Map Text VisibleBinding ->
   AnalysisContext ->
   [Statement] ->
-  ([WarningRecord], [Text])
+  ([WarningRecord], [Diagnostic])
 collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope context statements =
   (reverse finalWarningsRev, reverse errorsWithFinalPending)
   where
@@ -215,9 +217,9 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
     errorsWithFinalPending = flushPendingSignature finalPendingSignature finalErrorsRev
 
     step ::
-      (Map Text VisibleBinding, Maybe PendingSignature, [WarningRecord], [Text]) ->
+      (Map Text VisibleBinding, Maybe PendingSignature, [WarningRecord], [Diagnostic]) ->
       (Int, Statement) ->
-      (Map Text VisibleBinding, Maybe PendingSignature, [WarningRecord], [Text])
+      (Map Text VisibleBinding, Maybe PendingSignature, [WarningRecord], [Diagnostic])
     step (scopeBindings, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
       case statement of
         SExpr _ expr ->
@@ -333,7 +335,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
     appendWarnings :: [WarningRecord] -> [WarningRecord] -> [WarningRecord]
     appendWarnings = foldl' (flip (:))
 
-    appendErrors :: [Text] -> [Text] -> [Text]
+    appendErrors :: [Diagnostic] -> [Diagnostic] -> [Diagnostic]
     appendErrors = foldl' (flip (:))
 
 data PendingSignature = PendingSignature
@@ -341,7 +343,7 @@ data PendingSignature = PendingSignature
     pendingSignatureSpan :: SourceSpan
   }
 
-flushPendingSignature :: Maybe PendingSignature -> [Text] -> [Text]
+flushPendingSignature :: Maybe PendingSignature -> [Diagnostic] -> [Diagnostic]
 flushPendingSignature pending errorsRev =
   case pending of
     Nothing -> errorsRev
@@ -350,27 +352,33 @@ flushPendingSignature pending errorsRev =
   where
     appendError rev errorText = errorText : rev
 
-mkUnboundVariableError :: Text -> Text
+mkUnboundVariableError :: Text -> Diagnostic
 mkUnboundVariableError variableName =
-  "E1001: unbound variable '" <> variableName <> "'"
+  mkDiagnostic "E1001" ("unbound variable '" <> variableName <> "'")
 
-mkMissingBindingForSignatureError :: PendingSignature -> Text
+mkMissingBindingForSignatureError :: PendingSignature -> Diagnostic
 mkMissingBindingForSignatureError pendingSignature =
-  "E1002: signature for '"
-    <> pendingSignatureName pendingSignature
-    <> "' at "
-    <> renderSourceSpan (pendingSignatureSpan pendingSignature)
-    <> " must be immediately followed by a matching binding"
+  mkDiagnostic
+    "E1002"
+    ( "signature for '"
+        <> pendingSignatureName pendingSignature
+        <> "' at "
+        <> renderSourceSpan (pendingSignatureSpan pendingSignature)
+        <> " must be immediately followed by a matching binding"
+    )
 
-mkMismatchedSignatureError :: Text -> SourceSpan -> Text -> Text
+mkMismatchedSignatureError :: Text -> SourceSpan -> Text -> Diagnostic
 mkMismatchedSignatureError signatureName signatureSpan bindingName =
-  "E1003: signature for '"
-    <> signatureName
-    <> "' at "
-    <> renderSourceSpan signatureSpan
-    <> " must annotate the next binding with the same name; found '"
-    <> bindingName
-    <> "'"
+  mkDiagnostic
+    "E1003"
+    ( "signature for '"
+        <> signatureName
+        <> "' at "
+        <> renderSourceSpan signatureSpan
+        <> " must annotate the next binding with the same name; found '"
+        <> bindingName
+        <> "'"
+    )
 
 topLevelContext :: AnalysisContext
 topLevelContext =
@@ -408,14 +416,16 @@ mkImpureCallInPureContextError ::
   AnalysisContext ->
   Text ->
   Maybe SourceSpan ->
-  Text
+  Diagnostic
 mkImpureCallInPureContextError context calleeName maybeCalleeSpan =
-  "E1010: "
-    <> contextLabel context
-    <> " cannot call impure callee '"
-    <> calleeName
-    <> "'"
-    <> renderCalleeSpan maybeCalleeSpan
+  mkDiagnostic
+    "E1010"
+    ( contextLabel context
+        <> " cannot call impure callee '"
+        <> calleeName
+        <> "'"
+        <> renderCalleeSpan maybeCalleeSpan
+    )
   where
     renderCalleeSpan maybeSpan =
       case maybeSpan of
@@ -539,8 +549,7 @@ collectBindingDeclarations =
 freeVarsExprWithBound :: Set Text -> Expr -> Set Text
 freeVarsExprWithBound bound expr =
   case expr of
-    EInt _ -> Set.empty
-    EBool _ -> Set.empty
+    ELit _ -> Set.empty
     EVar name
       | Set.member name bound -> Set.empty
       | otherwise -> Set.singleton name
@@ -567,7 +576,7 @@ freeVarsExprWithBound bound expr =
       freeVarsExprWithBound bound leftExpr
     ESectionRight _ rightExpr ->
       freeVarsExprWithBound bound rightExpr
-    EScope statements -> freeVarsScopeWithBound bound statements
+    EBlock statements -> freeVarsScopeWithBound bound statements
 
 freeVarsScopeWithBound :: Set Text -> [Statement] -> Set Text
 freeVarsScopeWithBound initialBound statements =
