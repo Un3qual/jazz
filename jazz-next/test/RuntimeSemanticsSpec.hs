@@ -37,6 +37,7 @@ tests =
   [ ("if with False condition skips then branch runtime failure", testIfFalseSkipsThenRuntimeFailure),
     ("if with True condition skips else branch runtime failure", testIfTrueSkipsElseRuntimeFailure),
     ("division by zero produces fatal runtime diagnostic", testDivisionByZeroRuntimeError),
+    ("bare dollar operator value applies at runtime", testDollarOperatorValueRuntimeSuccess),
     ("bare operator value applies at runtime", testBareOperatorValueRuntimeSuccess),
     ("explicit partial application of bare operator value applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess),
     ("left operator section applies at runtime", testLeftOperatorSectionRuntimeSuccess),
@@ -91,6 +92,13 @@ testDivisionByZeroRuntimeError = do
         "division by zero"
         runtimeError
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testDollarOperatorValueRuntimeSuccess :: IO ()
+testDollarOperatorValueRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "($) (1 +) 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
 
 testBareOperatorValueRuntimeSuccess :: IO ()
 testBareOperatorValueRuntimeSuccess = do

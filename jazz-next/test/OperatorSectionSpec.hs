@@ -45,18 +45,27 @@ testParsesBareOperatorValue =
   assertEqual
     "bare operator value AST"
     ( Right
-        "SEScope [SSLet \"f\" (SourceSpan {spanLine = 1, spanColumn = 1}) (SEOperatorValue \"+\")]"
+        ( SEScope
+            [ SSLet "f" (SourceSpan 1 1) (SEOperatorValue "+")
+            ]
+        )
     )
-    (show <$> parseSurfaceProgram "f = (+).")
+    (parseSurfaceProgram "f = (+).")
 
 testParsesBareOperatorValueApplication :: IO ()
 testParsesBareOperatorValueApplication =
   assertEqual
     "bare operator value application AST"
     ( Right
-        "SEScope [SSLet \"f\" (SourceSpan {spanLine = 1, spanColumn = 1}) (SEApply (SEApply (SEOperatorValue \"+\") (SEInt 1)) (SEInt 2))]"
+        ( SEScope
+            [ SSLet
+                "f"
+                (SourceSpan 1 1)
+                (SEApply (SEApply (SEOperatorValue "+") (SEInt 1)) (SEInt 2))
+            ]
+        )
     )
-    (show <$> parseSurfaceProgram "f = (+) 1 2.")
+    (parseSurfaceProgram "f = (+) 1 2.")
 
 testParsesLeftSection :: IO ()
 testParsesLeftSection =
@@ -111,7 +120,9 @@ testLowerPreservesBareOperatorValue =
   assertRight
     "parse + lower bare operator value"
     (parseSurfaceProgram "f = (+).")
-    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (show (lowerSurfaceExpr surfaceProgram)))
+    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      "EScope [SLet \"f\" (SourceSpan {spanLine = 1, spanColumn = 1}) (EOperatorValue \"+\")]"
+      EScope
+        [ SLet "f" (SourceSpan 1 1) (EOperatorValue "+")
+        ]

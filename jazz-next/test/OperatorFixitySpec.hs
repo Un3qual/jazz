@@ -124,9 +124,19 @@ testOperatorValueApplicationBeforeInfix =
   assertEqual
     "operator value application before infix"
     ( Right
-        "SEScope [SSLet \"x\" (SourceSpan {spanLine = 1, spanColumn = 1}) (SEBinary \"*\" (SEApply (SEApply (SEOperatorValue \"+\") (SEInt 1)) (SEInt 2)) (SEInt 3))]"
+        ( SEScope
+            [ SSLet
+                "x"
+                (SourceSpan 1 1)
+                ( SEBinary
+                    "*"
+                    (SEApply (SEApply (SEOperatorValue "+") (SEInt 1)) (SEInt 2))
+                    (SEInt 3)
+                )
+            ]
+        )
     )
-    (show <$> parseSurfaceProgram "x = (+) 1 2 * 3.")
+    (parseSurfaceProgram "x = (+) 1 2 * 3.")
 
 testLowerFixityTree :: IO ()
 testLowerFixityTree =

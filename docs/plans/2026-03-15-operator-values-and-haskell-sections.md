@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Lock Parser Expectations With Failing Tests
+## Task 1: Lock Parser Expectations With Failing Tests
 
 **Files:**
 - Modify: `jazz-next/test/OperatorSectionSpec.hs`
@@ -55,7 +55,7 @@ git add jazz-next/test/OperatorSectionSpec.hs jazz-next/test/OperatorFixitySpec.
 git commit -m "test(parser): add operator-value and precedence parity coverage"
 ```
 
-### Task 2: Lock Semantic Expectations With Failing Tests
+## Task 2: Lock Semantic Expectations With Failing Tests
 
 **Files:**
 - Modify: `jazz-next/test/PrimitiveSemanticsSpec.hs`
@@ -99,7 +99,7 @@ git add jazz-next/test/PrimitiveSemanticsSpec.hs jazz-next/test/RuntimeSemantics
 git commit -m "test(runtime): lock operator-value semantic parity"
 ```
 
-### Task 3: Add Surface and Core Representation for Bare Operator Values
+## Task 3: Add Surface and Core Representation for Bare Operator Values
 
 **Files:**
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
@@ -138,7 +138,7 @@ git add jazz-next/src/JazzNext/Compiler/Parser/AST.hs jazz-next/src/JazzNext/Com
 git commit -m "refactor(ast): add bare operator value nodes"
 ```
 
-### Task 4: Parse Bare Operator Values Without Regressing Sections or Grouping
+## Task 4: Parse Bare Operator Values Without Regressing Sections or Grouping
 
 **Files:**
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser.hs`
@@ -180,7 +180,7 @@ git add jazz-next/src/JazzNext/Compiler/Parser.hs jazz-next/src/JazzNext/Compile
 git commit -m "feat(parser): support bare operator values"
 ```
 
-### Task 5: Canonicalize Infix and Left Sections Toward Ordinary Operator Application
+## Task 5: Canonicalize Infix and Left Sections Toward Ordinary Operator Application
 
 **Files:**
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
@@ -222,7 +222,7 @@ git add jazz-next/src/JazzNext/Compiler/TypeInference.hs jazz-next/src/JazzNext/
 git commit -m "refactor(core): canonicalize infix and left sections via operator values"
 ```
 
-### Task 6: Add Runtime Support for Bare Operator Values
+## Task 6: Add Runtime Support for Bare Operator Values
 
 **Files:**
 - Modify: `jazz-next/src/JazzNext/Compiler/Runtime.hs`
@@ -267,7 +267,7 @@ git add jazz-next/src/JazzNext/Compiler/Runtime.hs jazz-next/test/RuntimeSemanti
 git commit -m "feat(runtime): treat operators as first-class callable values"
 ```
 
-### Task 7: Add Type Support for Bare Operator Values
+## Task 7: Add Type Support for Bare Operator Values
 
 **Files:**
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
@@ -305,7 +305,7 @@ git add jazz-next/src/JazzNext/Compiler/TypeInference.hs jazz-next/test/Primitiv
 git commit -m "feat(types): infer curried types for bare operator values"
 ```
 
-### Task 8: Update Documentation to Match the Implemented Semantics
+## Task 8: Update Documentation to Match the Implemented Semantics
 
 **Files:**
 - Modify: `docs/jazz-language-state.md`
@@ -338,7 +338,7 @@ git add docs/jazz-language-state.md docs/spec/syntax/operators.md
 git commit -m "docs(spec): document operator values and Haskell-style sections"
 ```
 
-### Task 9: Full Verification
+## Task 9: Full Verification
 
 **Files:**
 - No new files

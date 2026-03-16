@@ -80,11 +80,16 @@ canonicalizeExpr expr =
         (canonicalizeExpr conditionExpr)
         (canonicalizeExpr thenExpr)
         (canonicalizeExpr elseExpr)
-    EBinary operatorSymbol leftExpr rightExpr ->
-      EBinary
-        operatorSymbol
-        (canonicalizeExpr leftExpr)
-        (canonicalizeExpr rightExpr)
+    EBinary operatorSymbol leftExpr rightExpr
+      | operatorSymbol == "$" ->
+          EApply
+            (canonicalizeExpr leftExpr)
+            (canonicalizeExpr rightExpr)
+      | otherwise ->
+          EBinary
+            operatorSymbol
+            (canonicalizeExpr leftExpr)
+            (canonicalizeExpr rightExpr)
     ESectionLeft leftExpr operatorSymbol ->
       ESectionLeft (canonicalizeExpr leftExpr) operatorSymbol
     ESectionRight operatorSymbol rightExpr ->
