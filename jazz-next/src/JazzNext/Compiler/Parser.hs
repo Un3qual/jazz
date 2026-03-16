@@ -434,10 +434,14 @@ parsePrimaryExpr tokens =
 parseParenExpr :: [Token] -> Either Text (SurfaceExpr, [Token])
 parseParenExpr tokensAfterLeftParen =
   case tokensAfterLeftParen of
-    Token {tokenKind = TOperator operatorSymbol} : rest -> do
-      (rightExpr, afterRightExpr) <- parseExpr rest
-      remaining <- consumeRightParen afterRightExpr
-      pure (SESectionRight operatorSymbol rightExpr, remaining)
+    Token {tokenKind = TOperator operatorSymbol} : rest ->
+      case rest of
+        Token {tokenKind = TRParen} : remaining ->
+          Right (SEOperatorValue operatorSymbol, remaining)
+        _ -> do
+          (rightExpr, afterRightExpr) <- parseExpr rest
+          remaining <- consumeRightParen afterRightExpr
+          pure (SESectionRight operatorSymbol rightExpr, remaining)
     _ -> do
       (innerExpr, afterInnerExpr) <- parseExpr tokensAfterLeftParen
       case afterInnerExpr of

@@ -86,6 +86,7 @@ canonicalizeExpr expr =
     EInt value -> EInt value
     EBool value -> EBool value
     EVar name -> EVar name
+    EOperatorValue operatorSymbol -> EOperatorValue operatorSymbol
     EList elements -> EList (map canonicalizeExpr elements)
     EApply functionExpr argumentExpr ->
       EApply (canonicalizeExpr functionExpr) (canonicalizeExpr argumentExpr)
@@ -99,11 +100,16 @@ canonicalizeExpr expr =
         (canonicalizeExpr conditionExpr)
         (canonicalizeExpr thenExpr)
         (canonicalizeExpr elseExpr)
-    EBinary operatorSymbol leftExpr rightExpr ->
-      EBinary
-        operatorSymbol
-        (canonicalizeExpr leftExpr)
-        (canonicalizeExpr rightExpr)
+    EBinary operatorSymbol leftExpr rightExpr
+      | operatorSymbol == "$" ->
+          EApply
+            (canonicalizeExpr leftExpr)
+            (canonicalizeExpr rightExpr)
+      | otherwise ->
+          EBinary
+            operatorSymbol
+            (canonicalizeExpr leftExpr)
+            (canonicalizeExpr rightExpr)
     ESectionLeft leftExpr operatorSymbol ->
       ESectionLeft (canonicalizeExpr leftExpr) operatorSymbol
     ESectionRight operatorSymbol rightExpr ->
@@ -167,6 +173,10 @@ inferExprType builtinMode env state expr =
           case instantiateBuiltinType builtinMode name state of
             Just (builtinType, nextState) -> (Just builtinType, nextState)
             Nothing -> (Nothing, state)
+    EOperatorValue operatorSymbol ->
+      case instantiateOperatorType operatorSymbol state of
+        Just (operatorType, nextState) -> (Just operatorType, nextState)
+        Nothing -> (Nothing, addTypeError state (mkUnsupportedOperatorValueError operatorSymbol))
     EList elements -> inferListType builtinMode env state elements
     EApply functionExpr argumentExpr ->
       let (functionType, stateAfterFunction) = inferExprType builtinMode env state functionExpr
@@ -281,6 +291,7 @@ inferListType builtinMode env state elements =
 data OperatorRule
   = NumericRule ExpressionType
   | StrictEqualityRule
+  | ApplicationRule
 
 lookupOperatorRule :: Text -> Maybe OperatorRule
 lookupOperatorRule operatorSymbol =
@@ -295,6 +306,7 @@ lookupOperatorRule operatorSymbol =
     ">=" -> Just (NumericRule TBoolType)
     "==" -> Just StrictEqualityRule
     "!=" -> Just StrictEqualityRule
+    "$" -> Just ApplicationRule
     _ -> Nothing
 
 inferBinaryType :: Text -> ExpressionType -> ExpressionType -> InferState -> (Maybe ExpressionType, InferState)
@@ -304,6 +316,8 @@ inferBinaryType operatorSymbol leftType rightType state =
       applyNumericBinaryRule operatorSymbol resultType leftType rightType state
     Just StrictEqualityRule ->
       applyStrictEqualityBinaryRule operatorSymbol leftType rightType state
+    Just ApplicationRule ->
+      applyApplicationBinaryRule leftType rightType state
     Nothing ->
       ( Nothing,
         addTypeError
@@ -340,6 +354,26 @@ applyNumericBinaryRule operatorSymbol resultType leftType rightType state =
               (resolveType errState rightType)
           )
       )
+
+applyApplicationBinaryRule ::
+  ExpressionType ->
+  ExpressionType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+applyApplicationBinaryRule functionType argumentType state =
+  let (resultTypeVar, stateAfterResultVar) = freshTypeVar state
+   in case unifyTypes functionType (TFunctionType argumentType resultTypeVar) stateAfterResultVar of
+        Just unifiedState ->
+          (Just (resolveType unifiedState resultTypeVar), unifiedState)
+        Nothing ->
+          ( Nothing,
+            addTypeError
+              stateAfterResultVar
+              ( mkApplyTypeError
+                  (resolveType stateAfterResultVar functionType)
+                  (resolveType stateAfterResultVar argumentType)
+              )
+          )
 
 applyStrictEqualityBinaryRule ::
   Text ->
@@ -582,6 +616,33 @@ instantiateBuiltinType builtinMode name state =
     Just builtinSymbol -> instantiateBuiltinSymbolType builtinSymbol state
     Nothing -> Nothing
 
+instantiateOperatorType :: Text -> InferState -> Maybe (ExpressionType, InferState)
+instantiateOperatorType operatorSymbol state =
+  case lookupOperatorRule operatorSymbol of
+    Just (NumericRule resultType) ->
+      Just (TFunctionType TIntType (TFunctionType TIntType resultType), state)
+    Just StrictEqualityRule ->
+      let (operandType, stateAfterOperandType) = freshTypeVar state
+       in
+        case operandType of
+          TVarType typeVar ->
+            Just
+              ( TFunctionType operandType (TFunctionType operandType TBoolType),
+                addStrictEqualityTypeVarConstraint typeVar stateAfterOperandType
+              )
+          _ -> Nothing
+    Just ApplicationRule ->
+      let (argumentType, stateAfterArgumentType) = freshTypeVar state
+          (resultType, stateAfterResultType) = freshTypeVar stateAfterArgumentType
+       in
+        Just
+          ( TFunctionType
+              (TFunctionType argumentType resultType)
+              (TFunctionType argumentType resultType),
+            stateAfterResultType
+          )
+    Nothing -> Nothing
+
 instantiateBuiltinSymbolType :: BuiltinSymbol -> InferState -> Maybe (ExpressionType, InferState)
 instantiateBuiltinSymbolType builtinSymbol state =
   -- Use catalog names here so newly-added symbols safely fall back to `Nothing`
@@ -757,6 +818,12 @@ mkListElementTypeMismatchError expectedType foundType =
 mkUnsupportedSectionOperatorError :: Text -> Text
 mkUnsupportedSectionOperatorError operatorSymbol =
   "E2008: unsupported operator section '"
+    <> operatorSymbol
+    <> "'"
+
+mkUnsupportedOperatorValueError :: Text -> Text
+mkUnsupportedOperatorValueError operatorSymbol =
+  "E2010: unsupported operator value '"
     <> operatorSymbol
     <> "'"
 

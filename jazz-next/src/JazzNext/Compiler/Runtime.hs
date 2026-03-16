@@ -28,6 +28,7 @@ data RuntimeValue
   | VBool Bool
   | VList [RuntimeValue]
   | VBuiltin BuiltinSymbol [RuntimeValue]
+  | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
   | VSectionRight Text RuntimeValue
   deriving (Eq, Show)
@@ -52,6 +53,7 @@ renderRuntimeValue value =
     VList elements ->
       "[" <> Text.intercalate ", " (map renderRuntimeValue elements) <> "]"
     VBuiltin _ _ -> "<function>"
+    VOperator {} -> "<function>"
     VSectionLeft {} -> "<function>"
     VSectionRight {} -> "<function>"
 
@@ -98,6 +100,8 @@ evalValue builtinMode env expr =
                     <> name
                     <> "'"
                 )
+    EOperatorValue operatorSymbol ->
+      Right (VOperator operatorSymbol [])
     EList elements ->
       VList <$> mapM (evalValue builtinMode env) elements
     EApply functionExpr argumentExpr -> do
@@ -143,11 +147,27 @@ applyRuntimeFunction functionValue argumentValue =
       evalBinary operatorSymbol argumentValue rightValue
     VBuiltin builtinFunction capturedArgs ->
       applyBuiltin builtinFunction (capturedArgs ++ [argumentValue])
+    VOperator operatorSymbol capturedArgs ->
+      applyOperator operatorSymbol (capturedArgs ++ [argumentValue])
     _ ->
       Left
         ( "E3008: runtime cannot apply non-function value of type "
             <> renderRuntimeType functionValue
             <> ""
+        )
+
+applyOperator :: Text -> [RuntimeValue] -> Either Text RuntimeValue
+applyOperator operatorSymbol arguments =
+  case arguments of
+    [leftValue] ->
+      Right (VOperator operatorSymbol [leftValue])
+    [leftValue, rightValue] ->
+      evalBinary operatorSymbol leftValue rightValue
+    _ ->
+      Left
+        ( "E3016: runtime primitive '"
+            <> operatorSymbol
+            <> "' received invalid arguments"
         )
 
 applyBuiltin :: BuiltinSymbol -> [RuntimeValue] -> Either Text RuntimeValue
@@ -249,6 +269,7 @@ isFunctionValue value =
     VSectionLeft {} -> True
     VSectionRight {} -> True
     VBuiltin {} -> True
+    VOperator {} -> True
     _ -> False
 
 evalBinary :: Text -> RuntimeValue -> RuntimeValue -> Either Text RuntimeValue
@@ -269,6 +290,8 @@ evalBinary operatorSymbol leftValue rightValue =
     ("==", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool == rightBool))
     ("!=", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt /= rightInt))
     ("!=", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool /= rightBool))
+    ("$", functionValue, argumentValue) ->
+      applyRuntimeFunction functionValue argumentValue
     _ ->
       Left
         ( "E3007: runtime primitive '"
@@ -288,3 +311,4 @@ renderRuntimeType value =
     VSectionLeft {} -> "Function"
     VSectionRight {} -> "Function"
     VBuiltin {} -> "Function"
+    VOperator {} -> "Function"

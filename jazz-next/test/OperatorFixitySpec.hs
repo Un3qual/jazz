@@ -35,6 +35,8 @@ tests =
     ("equality binds looser than arithmetic", testEqualityAfterArithmetic),
     ("dollar is right associative", testDollarRightAssociative),
     ("subtraction is left associative", testSubtractionLeftAssociative),
+    ("application binds tighter than infix operators", testApplicationBeforeInfix),
+    ("operator value application participates in infix precedence", testOperatorValueApplicationBeforeInfix),
     ("lowering preserves parsed fixity tree", testLowerFixityTree)
   ]
 
@@ -97,6 +99,44 @@ testSubtractionLeftAssociative =
         )
     )
     (parseSurfaceProgram "x = 10 - 3 - 1.")
+
+testApplicationBeforeInfix :: IO ()
+testApplicationBeforeInfix =
+  assertEqual
+    "application before infix"
+    ( Right
+        ( SEScope
+            [ SSLet
+                "x"
+                (SourceSpan 1 1)
+                ( SEBinary
+                    "+"
+                    (SEApply (SEVar "f") (SEVar "x"))
+                    (SEBinary "*" (SEApply (SEVar "g") (SEVar "y")) (SEVar "z"))
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "x = f x + g y * z.")
+
+testOperatorValueApplicationBeforeInfix :: IO ()
+testOperatorValueApplicationBeforeInfix =
+  assertEqual
+    "operator value application before infix"
+    ( Right
+        ( SEScope
+            [ SSLet
+                "x"
+                (SourceSpan 1 1)
+                ( SEBinary
+                    "*"
+                    (SEApply (SEApply (SEOperatorValue "+") (SEInt 1)) (SEInt 2))
+                    (SEInt 3)
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "x = (+) 1 2 * 3.")
 
 testLowerFixityTree :: IO ()
 testLowerFixityTree =

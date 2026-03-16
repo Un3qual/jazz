@@ -95,11 +95,15 @@ The parser in [jazz-hs/src/Parser/Lang.hs](../jazz-hs/src/Parser/Lang.hs) and te
 - Infix operators are parsed as curried function application:
   - `1 + 2` becomes `((+) 1) 2`
 - Operator identifiers can be used as functions:
+  - `(+)`
   - `(+) 1 2`
 - Partial operator sections are supported:
   - `(+10)`
   - `(10+)`
   - `(*2)`
+- Sections keep Haskell-style meaning and are distinct from ordinary partial application:
+  - `(+ 2)` means `\x -> x + 2`
+  - `((+) 2)` means `\x -> 2 + x`
 - `$` is parsed as right-associative low-precedence application.
 
 ### Parsed Expression Forms

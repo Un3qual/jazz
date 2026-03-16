@@ -19,6 +19,7 @@ lowerSurfaceExpr surfaceExpr =
     SEInt value -> EInt value
     SEBool value -> EBool value
     SEVar name -> EVar name
+    SEOperatorValue operatorSymbol -> EOperatorValue operatorSymbol
     SEList elements ->
       EList (map lowerSurfaceExpr elements)
     SEApply functionExpr argumentExpr ->

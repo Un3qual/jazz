@@ -120,6 +120,7 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
         Nothing
           | isBuiltinSymbolNameInMode builtinMode name -> ([], [])
           | otherwise -> ([], [mkUnboundVariableError name])
+    EOperatorValue _ -> ([], [])
     EList elements ->
       collectExprListDiagnostics builtinMode settings visibleBindings context elements
     EApply functionExpr argumentExpr ->
@@ -543,6 +544,7 @@ freeVarsExprWithBound bound expr =
     EVar name
       | Set.member name bound -> Set.empty
       | otherwise -> Set.singleton name
+    EOperatorValue _ -> Set.empty
     EList elements ->
       Set.unions (map (freeVarsExprWithBound bound) elements)
     EApply functionExpr argumentExpr ->

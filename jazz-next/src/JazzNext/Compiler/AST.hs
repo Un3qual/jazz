@@ -15,6 +15,7 @@ data Expr
   = EInt Int
   | EBool Bool
   | EVar Text
+  | EOperatorValue Text
   | EList [Expr]
   | EApply Expr Expr
   | EIf Expr Expr Expr
