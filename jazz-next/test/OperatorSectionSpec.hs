@@ -31,11 +31,32 @@ main = runTestSuite "OperatorSection" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("parses left section form", testParsesLeftSection),
+  [ ("parses bare operator value form", testParsesBareOperatorValue),
+    ("parses bare operator value application", testParsesBareOperatorValueApplication),
+    ("parses left section form", testParsesLeftSection),
     ("parses right section form", testParsesRightSection),
     ("grouped infix expression is not treated as section", testGroupedExpressionIsNotSection),
+    ("lowering preserves bare operator value nodes", testLowerPreservesBareOperatorValue),
     ("lowering preserves explicit section nodes", testLowerPreservesSectionNodes)
   ]
+
+testParsesBareOperatorValue :: IO ()
+testParsesBareOperatorValue =
+  assertEqual
+    "bare operator value AST"
+    ( Right
+        "SEScope [SSLet \"f\" (SourceSpan {spanLine = 1, spanColumn = 1}) (SEOperatorValue \"+\")]"
+    )
+    (show <$> parseSurfaceProgram "f = (+).")
+
+testParsesBareOperatorValueApplication :: IO ()
+testParsesBareOperatorValueApplication =
+  assertEqual
+    "bare operator value application AST"
+    ( Right
+        "SEScope [SSLet \"f\" (SourceSpan {spanLine = 1, spanColumn = 1}) (SEApply (SEApply (SEOperatorValue \"+\") (SEInt 1)) (SEInt 2))]"
+    )
+    (show <$> parseSurfaceProgram "f = (+) 1 2.")
 
 testParsesLeftSection :: IO ()
 testParsesLeftSection =
@@ -84,3 +105,13 @@ testLowerPreservesSectionNodes =
       EScope
         [ SLet "f" (SourceSpan 1 1) (ESectionRight "+" (EInt 10))
         ]
+
+testLowerPreservesBareOperatorValue :: IO ()
+testLowerPreservesBareOperatorValue =
+  assertRight
+    "parse + lower bare operator value"
+    (parseSurfaceProgram "f = (+).")
+    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (show (lowerSurfaceExpr surfaceProgram)))
+  where
+    expectedProgram =
+      "EScope [SLet \"f\" (SourceSpan {spanLine = 1, spanColumn = 1}) (EOperatorValue \"+\")]"

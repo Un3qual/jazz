@@ -33,6 +33,14 @@ Notes:
 
 ## Canonical Section Semantics
 
+Bare operator values are first-class:
+
+```jz
+(+)
+(/)
+(==)
+```
+
 Canonical section forms:
 
 1. Left section: `(expr <op>)`
@@ -52,9 +60,9 @@ Sections are represented explicitly in the AST contract (for example `ESectionLe
 
 AST-level invariants:
 
-1. Parser output for sections is deterministic and synthetic-name free.
+1. Parser output for sections and bare operator values is deterministic and synthetic-name free.
 2. Synthetic internal names are allowed only in lowering artifacts, never in parser-visible AST contracts.
-3. External tests assert section-node shape, not generated variable names.
+3. External tests assert operator/section node shape, not generated variable names.
 
 ## Section Evaluation Contract
 
@@ -62,8 +70,14 @@ Section forms denote unary function values with deterministic argument order:
 
 1. `(expr <op>) arg` is semantically equivalent to `<op> expr arg`.
 2. `(<op> expr) arg` is semantically equivalent to `<op> arg expr`.
-3. Implementations may realize this either by explicit lambda lowering or by runtime-native section closures, but externally observable behavior must match these equations.
-4. Type and runtime diagnostics must remain deterministic for invalid operand combinations.
+3. Bare operator values behave like ordinary curried functions:
+   - `(+) a b` is semantically equivalent to `a + b`.
+   - `((+) a) b` is semantically equivalent to `a + b`.
+4. Right sections remain distinct from ordinary partial application for non-commutative operators:
+   - `(/ 2)` is semantically equivalent to `\x -> x / 2`.
+   - `((/) 2)` is semantically equivalent to `\x -> 2 / x`.
+5. Implementations may realize these forms either by explicit lambda lowering or by runtime-native callable values, but externally observable behavior must match these equations.
+6. Type and runtime diagnostics must remain deterministic for invalid operand combinations.
 
 ## Invalid and Restricted Forms
 
