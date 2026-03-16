@@ -6,6 +6,7 @@ module JazzNext.TestHarness
     assertDiagnosticContains,
     assertEqual,
     assertJust,
+    assertLeftDiagnosticCodeAndContains,
     assertLeftContains,
     assertLeftDiagnosticContains,
     assertRight,
@@ -110,6 +111,14 @@ assertLeftDiagnosticContains :: Show a => Text -> Text -> Either Diagnostic a ->
 assertLeftDiagnosticContains label needle value =
   case value of
     Left diagnostic ->
+      assertDiagnosticContains label needle diagnostic
+    Right ok -> failTest (label <> ": expected Left, got Right " <> Text.pack (show ok))
+
+assertLeftDiagnosticCodeAndContains :: Show a => Text -> Text -> Text -> Either Diagnostic a -> IO ()
+assertLeftDiagnosticCodeAndContains label expectedCode needle value =
+  case value of
+    Left diagnostic -> do
+      assertEqual (label <> " code") expectedCode (diagnosticCode diagnostic)
       assertDiagnosticContains label needle diagnostic
     Right ok -> failTest (label <> ": expected Left, got Right " <> Text.pack (show ok))
 
