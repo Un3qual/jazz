@@ -27,6 +27,9 @@ import JazzNext.Compiler.BuiltinCatalog
     builtinSymbolName,
     lookupBuiltinSymbolInMode
   )
+import JazzNext.Compiler.Identifier
+  ( identifierText
+  )
 
 data RuntimeValue
   = VInt Int
@@ -83,7 +86,7 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing statements
               go env Nothing rest
             SLet name _ valueExpr -> do
               value <- evalValue builtinMode env valueExpr
-              go (Map.insert name value env) Nothing rest
+              go (Map.insert (identifierText name) value env) Nothing rest
             SExpr _ expr -> do
               value <- evalValue builtinMode env expr
               go env (Just value) rest
@@ -92,17 +95,19 @@ evalValue builtinMode env expr =
   case expr of
     ELit literal -> Right (literalRuntimeValue literal)
     EVar name ->
-      case Map.lookup name env of
+      case Map.lookup nameText env of
         Just value -> Right value
         Nothing ->
-          case lookupBuiltinSymbolInMode builtinMode name of
+          case lookupBuiltinSymbolInMode builtinMode nameText of
             Just builtinFunction -> Right (VBuiltin builtinFunction [])
             Nothing ->
               Left
                 ( runtimeDiagnostic
                     "E3002"
-                    ("runtime unbound variable '" <> name <> "'")
+                    ("runtime unbound variable '" <> nameText <> "'")
                 )
+      where
+        nameText = identifierText name
     EOperatorValue operatorSymbol ->
       Right (VOperator operatorSymbol [])
     EList elements ->

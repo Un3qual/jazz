@@ -20,6 +20,9 @@ import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     mkDiagnostic
   )
+import JazzNext.Compiler.Identifier
+  ( identifierText
+  )
 
 -- Validates explicit prelude bridge declarations that map prelude-visible
 -- names to kernel-owned builtin symbols.
@@ -34,8 +37,9 @@ validatePreludeKernelBridges preludeExpr =
     validateStatement (diagnostics, seenBindings) statement =
       case statement of
         SLet bindingName _ bindingExpr ->
-          let statementDiagnostics = validateBridge seenBindings bindingName bindingExpr
-              seenBindings' = Set.insert bindingName seenBindings
+          let bindingNameText = identifierText bindingName
+              statementDiagnostics = validateBridge seenBindings bindingNameText bindingExpr
+              seenBindings' = Set.insert bindingNameText seenBindings
            in (diagnostics <> statementDiagnostics, seenBindings')
         _ -> (diagnostics, seenBindings)
 
@@ -71,7 +75,7 @@ validatePreludeKernelBridges preludeExpr =
         Just targetName ->
           case bindingExpr of
             EVar rhsName
-              | rhsName /= targetName ->
+              | identifierText rhsName /= targetName ->
                   [ mkDiagnostic
                       "E0005"
                       ( "prelude kernel bridge '"
@@ -79,7 +83,7 @@ validatePreludeKernelBridges preludeExpr =
                           <> "' must reference kernel symbol '"
                           <> targetName
                           <> "', found '"
-                          <> rhsName
+                          <> identifierText rhsName
                           <> "'"
                       )
                   ]

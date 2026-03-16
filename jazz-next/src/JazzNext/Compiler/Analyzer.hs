@@ -36,10 +36,13 @@ import JazzNext.Compiler.Diagnostics
     renderSourceSpan,
     sortWarnings
   )
+import JazzNext.Compiler.Identifier
+  ( Identifier,
+    identifierPurity,
+    identifierText
+  )
 import JazzNext.Compiler.Purity
-  ( Purity (..),
-    isImpureName,
-    namePurity
+  ( Purity (..)
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -117,11 +120,13 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
   case expr of
     ELit _ -> ([], [])
     EVar name ->
-      case Map.lookup name visibleBindings of
+      case Map.lookup nameText visibleBindings of
         Just _ -> ([], [])
         Nothing
-          | isBuiltinSymbolNameInMode builtinMode name -> ([], [])
-          | otherwise -> ([], [mkUnboundVariableError name])
+          | isBuiltinSymbolNameInMode builtinMode nameText -> ([], [])
+          | otherwise -> ([], [mkUnboundVariableError nameText])
+      where
+        nameText = identifierText name
     EOperatorValue _ -> ([], [])
     EList elements ->
       collectExprListDiagnostics builtinMode settings visibleBindings context elements
@@ -137,7 +142,7 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
                     [ mkImpureCallInPureContextError
                         context
                         calleeName
-                        (Map.lookup calleeName visibleBindings >>= visibleBindingDiagnosticSpan)
+                        (Map.lookup (identifierText calleeName) visibleBindings >>= visibleBindingDiagnosticSpan)
                     ]
               _ -> []
        in
@@ -255,38 +260,39 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
            in
             ( scopeBindings,
-              Just (PendingSignature signatureName signatureSpan),
+              Just (PendingSignature (identifierText signatureName) signatureSpan),
               warningsRev,
               errorsWithPending
             )
         SLet bindingName bindingSpan valueExpr ->
           -- Bindings consume a pending signature if names match. Rebinding
           -- stays semantically valid but may emit an optional warning.
-          let errorsFromSignature =
+          let bindingNameText = identifierText bindingName
+              errorsFromSignature =
                 case pendingSignature of
                   Nothing -> []
                   Just (PendingSignature signatureName signatureDeclSpan)
-                    | signatureName == bindingName -> []
+                    | signatureName == bindingNameText -> []
                     | otherwise ->
                         [ mkMismatchedSignatureError
                             signatureName
                             signatureDeclSpan
-                            bindingName
+                            bindingNameText
                         ]
               rebindingWarning =
-                case Map.lookup bindingName scopeBindings of
+                case Map.lookup bindingNameText scopeBindings of
                   Just previousBinding
                     | isWarningEnabled settings SameScopeRebinding,
                       not (visibleBindingIsHiddenPrelude previousBinding) ->
                         [ mkSameScopeRebindingWarning
-                            bindingName
+                            bindingNameText
                             bindingSpan
                             (visibleBindingSpan previousBinding)
                         ]
                   _ -> []
               nextScope =
                 Map.insert
-                  bindingName
+                  bindingNameText
                   (mkVisibleBinding hiddenStatementIndices statementIndex bindingSpan)
                   scopeBindings
               visible =
@@ -389,32 +395,31 @@ topLevelContext =
       contextAllowsImpureCalls = True
     }
 
-contextForBinding :: Text -> AnalysisContext
+contextForBinding :: Identifier -> AnalysisContext
 contextForBinding bindingName =
-  let purity = namePurity bindingName
-   in
-    AnalysisContext
-      { contextLabel = "binding '" <> bindingName <> "'",
-        contextAllowsImpureCalls = purity == Impure
-      }
+  AnalysisContext
+    { contextLabel = "binding '" <> identifierText bindingName <> "'",
+      contextAllowsImpureCalls = identifierPurity bindingName == Impure
+    }
 
 shouldRejectImpureCall ::
   BuiltinResolutionMode ->
   Map Text VisibleBinding ->
   AnalysisContext ->
-  Text ->
+  Identifier ->
   Bool
 shouldRejectImpureCall builtinMode visibleBindings context calleeName =
   not (contextAllowsImpureCalls context)
     && isKnownImpureCallee
   where
+    calleeNameText = identifierText calleeName
     isKnownImpureCallee =
-      isImpureName calleeName
-        && (Map.member calleeName visibleBindings || isBuiltinSymbolNameInMode builtinMode calleeName)
+      identifierPurity calleeName == Impure
+        && (Map.member calleeNameText visibleBindings || isBuiltinSymbolNameInMode builtinMode calleeNameText)
 
 mkImpureCallInPureContextError ::
   AnalysisContext ->
-  Text ->
+  Identifier ->
   Maybe SourceSpan ->
   Diagnostic
 mkImpureCallInPureContextError context calleeName maybeCalleeSpan =
@@ -422,7 +427,7 @@ mkImpureCallInPureContextError context calleeName maybeCalleeSpan =
     "E1010"
     ( contextLabel context
         <> " cannot call impure callee '"
-        <> calleeName
+        <> identifierText calleeName
         <> "'"
         <> renderCalleeSpan maybeCalleeSpan
     )
@@ -448,7 +453,7 @@ inferRecursiveGroups outerScope indexedStatements =
     -- Track only binding statements; signatures/expr statements do not form
     -- recursion nodes.
     declarationInfo =
-      [ (statementIndex, bindingName, valueExpr)
+      [ (statementIndex, identifierText bindingName, valueExpr)
         | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
       ]
     declarationStatementsByName =
@@ -543,7 +548,8 @@ collectBindingDeclarations =
   where
     collect declarations (statementIndex, statement) =
       case statement of
-        SLet name spanValue _ -> Map.insert statementIndex (name, spanValue) declarations
+        SLet name spanValue _ ->
+          Map.insert statementIndex (identifierText name, spanValue) declarations
         _ -> declarations
 
 freeVarsExprWithBound :: Set Text -> Expr -> Set Text
@@ -551,8 +557,10 @@ freeVarsExprWithBound bound expr =
   case expr of
     ELit _ -> Set.empty
     EVar name
-      | Set.member name bound -> Set.empty
-      | otherwise -> Set.singleton name
+      | Set.member nameText bound -> Set.empty
+      | otherwise -> Set.singleton nameText
+      where
+        nameText = identifierText name
     EOperatorValue _ -> Set.empty
     EList elements ->
       Set.unions (map (freeVarsExprWithBound bound) elements)
@@ -594,7 +602,7 @@ freeVarsScopeWithBound initialBound statements =
           )
         SLet bindingName _ valueExpr ->
           -- Bindings are visible in their own RHS for self-recursion analysis.
-          let boundWithSelf = Set.insert bindingName boundNames
+          let boundWithSelf = Set.insert (identifierText bindingName) boundNames
            in
             ( boundWithSelf,
               Set.union freeNames (freeVarsExprWithBound boundWithSelf valueExpr)

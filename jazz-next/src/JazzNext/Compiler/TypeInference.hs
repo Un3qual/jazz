@@ -35,6 +35,9 @@ import JazzNext.Compiler.Diagnostics
     WarningRecord,
     mkDiagnostic
   )
+import JazzNext.Compiler.Identifier
+  ( identifierText
+  )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
     defaultWarningSettings
@@ -168,12 +171,14 @@ inferExprType builtinMode env state expr =
   case expr of
     ELit literal -> (Just (literalExpressionType literal), state)
     EVar name ->
-      case Map.lookup name env of
+      case Map.lookup nameText env of
         Just localType -> (Just (resolveType state localType), state)
         Nothing ->
-          case instantiateBuiltinType builtinMode name state of
+          case instantiateBuiltinType builtinMode nameText state of
             Just (builtinType, nextState) -> (Just builtinType, nextState)
             Nothing -> (Nothing, state)
+      where
+        nameText = identifierText name
     EOperatorValue operatorSymbol ->
       case instantiateOperatorType operatorSymbol state of
         Just (operatorType, nextState) -> (Just operatorType, nextState)
@@ -552,21 +557,22 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
               let (nextPendingSignature, nextState) =
                     case parseSignatureType signatureText of
                       Just signatureType ->
-                        (Just (PendingSignatureType name signatureType), state)
+                        (Just (PendingSignatureType (identifierText name) signatureType), state)
                       Nothing ->
                         ( Nothing,
                           addTypeError
                             state
-                            (mkInvalidSignatureTypeError name signatureText)
+                            (mkInvalidSignatureTypeError (identifierText name) signatureText)
                         )
                in go env lastExprType nextPendingSignature nextState rest
             SLet name _ valueExpr ->
-              let envWithPendingSignature =
+              let nameText = identifierText name
+                  envWithPendingSignature =
                     case pendingSignatureType of
                       Just pendingSignature
-                        | pendingSignatureName pendingSignature == name ->
+                        | pendingSignatureName pendingSignature == nameText ->
                             Map.insert
-                              name
+                              nameText
                               (pendingSignatureDeclaredType pendingSignature)
                               env
                       _ -> env
@@ -574,7 +580,7 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                   stateAfterSignatureCheck =
                     case (pendingSignatureType, valueType) of
                       (Just pendingSignature, Just inferredType)
-                        | pendingSignatureName pendingSignature == name ->
+                        | pendingSignatureName pendingSignature == nameText ->
                             case
                                 unifyTypes
                                   (pendingSignatureDeclaredType pendingSignature)
@@ -585,7 +591,7 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                                 addTypeError
                                   stateAfterValue
                                   ( mkSignatureTypeMismatchError
-                                      name
+                                      nameText
                                       (resolveType stateAfterValue (pendingSignatureDeclaredType pendingSignature))
                                       (resolveType stateAfterValue inferredType)
                                   )
@@ -593,12 +599,12 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                   nextBindingType =
                     case pendingSignatureType of
                       Just pendingSignature
-                        | pendingSignatureName pendingSignature == name ->
+                        | pendingSignatureName pendingSignature == nameText ->
                             Just (resolveType stateAfterSignatureCheck (pendingSignatureDeclaredType pendingSignature))
                       _ -> fmap (resolveType stateAfterSignatureCheck) valueType
                   nextEnv =
                     case nextBindingType of
-                      Just inferredType -> Map.insert name inferredType env
+                      Just inferredType -> Map.insert nameText inferredType env
                       Nothing -> env
                in go nextEnv lastExprType Nothing stateAfterSignatureCheck rest
             SExpr _ expr ->

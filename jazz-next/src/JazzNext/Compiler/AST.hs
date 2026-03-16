@@ -10,6 +10,9 @@ import Data.Text (Text)
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan
   )
+import JazzNext.Compiler.Identifier
+  ( Identifier
+  )
 
 -- Analyzer-facing core AST after parser lowering.
 data Literal
@@ -19,7 +22,7 @@ data Literal
 
 data Expr
   = ELit Literal
-  | EVar Text
+  | EVar Identifier
   | EOperatorValue Text
   | EList [Expr]
   | EApply Expr Expr
@@ -34,8 +37,8 @@ data Expr
 
 -- Dot-terminated top-level or block-level forms.
 data Statement
-  = SLet Text SourceSpan Expr
-  | SSignature Text SourceSpan Text
+  = SLet Identifier SourceSpan Expr
+  | SSignature Identifier SourceSpan Text
   | SModule SourceSpan [Text]
   | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SExpr SourceSpan Expr

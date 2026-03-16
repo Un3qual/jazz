@@ -6,6 +6,14 @@ import JazzNext.Compiler.Driver
   ( CompileResult (..),
     compileSource
   )
+import JazzNext.Compiler.Identifier
+  ( identifierPurity,
+    identifierText,
+    mkIdentifier
+  )
+import JazzNext.Compiler.Purity
+  ( Purity (..)
+  )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
   )
@@ -28,6 +36,9 @@ tests =
     ("pure binding cannot call impure callee", testPureBindingCannotCallImpureCallee),
     ("impure binding can call impure callee", testImpureBindingCanCallImpureCallee),
     ("pure binding can call pure callee", testPureBindingCanCallPureCallee),
+    ("mkIdentifier keeps source text", testMkIdentifierKeepsSourceText),
+    ("mkIdentifier marks bang-suffixed names impure", testMkIdentifierMarksBangSuffixedNamesImpure),
+    ("mkIdentifier marks plain names pure", testMkIdentifierMarksPlainNamesPure),
     ("top-level expression may call impure builtin", testTopLevelExpressionCanCallImpureBuiltin),
     ("top-level expression may call impure callee", testTopLevelExpressionCanCallImpureCallee)
   ]
@@ -73,6 +84,21 @@ testPureBindingCanCallPureCallee = do
   result <- compileSource defaultWarningSettings "inc = (+ 1).\nx = inc 1.\nx."
   assertEqual "compile errors" [] (compileErrors result)
   assertJust "generated JS is present" (generatedJs result)
+
+testMkIdentifierKeepsSourceText :: IO ()
+testMkIdentifierKeepsSourceText = do
+  let identifier = mkIdentifier "inc!"
+  assertEqual "identifier text" "inc!" (identifierText identifier)
+
+testMkIdentifierMarksBangSuffixedNamesImpure :: IO ()
+testMkIdentifierMarksBangSuffixedNamesImpure = do
+  let identifier = mkIdentifier "inc!"
+  assertEqual "identifier purity" Impure (identifierPurity identifier)
+
+testMkIdentifierMarksPlainNamesPure :: IO ()
+testMkIdentifierMarksPlainNamesPure = do
+  let identifier = mkIdentifier "inc"
+  assertEqual "identifier purity" Pure (identifierPurity identifier)
 
 testTopLevelExpressionCanCallImpureCallee :: IO ()
 testTopLevelExpressionCanCallImpureCallee = do

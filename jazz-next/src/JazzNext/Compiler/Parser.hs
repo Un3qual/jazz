@@ -14,6 +14,10 @@ import JazzNext.Compiler.Diagnostics
     mkDiagnostic,
     renderSourceSpan
   )
+import JazzNext.Compiler.Identifier
+  ( Identifier,
+    mkIdentifier
+  )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceLiteral (..),
@@ -93,7 +97,7 @@ parseStatement tokens =
                     <> renderSourceSpan (tokenSpan nameToken)
                 )
             )
-      | TIdentifier name <- tokenKind nameToken -> parseSignature name nameToken afterName
+      | TIdentifier name <- tokenKind nameToken -> parseSignature (mkIdentifier name) nameToken afterName
     (nameToken : afterName@(Token {tokenKind = TEquals} : _))
       | TIdentifier name <- tokenKind nameToken,
         isReservedLiteralName name ->
@@ -105,7 +109,7 @@ parseStatement tokens =
                     <> renderSourceSpan (tokenSpan nameToken)
                 )
             )
-      | TIdentifier name <- tokenKind nameToken -> parseLet name nameToken afterName
+      | TIdentifier name <- tokenKind nameToken -> parseLet (mkIdentifier name) nameToken afterName
     _ -> parseExprStatement tokens
 
 isReservedLiteralName :: Text -> Bool
@@ -321,8 +325,7 @@ parseImportSymbol tokens =
                 <> "'"
             )
         )
-
-parseSignature :: Text -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseSignature :: Identifier -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseSignature name nameToken tokensAfterName =
   case tokensAfterName of
     Token {tokenKind = TColonColon} : rest -> do
@@ -341,7 +344,7 @@ parseSignature name nameToken tokensAfterName =
             )
         )
 
-parseLet :: Text -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseLet :: Identifier -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseLet name nameToken tokensAfterName =
   case tokensAfterName of
     Token {tokenKind = TEquals} : rest -> do
@@ -464,7 +467,7 @@ parsePrimaryExpr tokens =
           case name of
             "True" -> Right (SELit (SLBool True), rest)
             "False" -> Right (SELit (SLBool False), rest)
-            _ -> Right (SEVar name, rest)
+            _ -> Right (SEVar (mkIdentifier name), rest)
         TIf -> parseIfExpr token rest
         TLParen -> parseParenExpr rest
         TLBrace -> do
