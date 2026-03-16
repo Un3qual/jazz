@@ -223,27 +223,22 @@ parseIntLiteral line column digits =
                     )
                 )
             else Right (fromInteger value)
-      | otherwise ->
-          Left
-            ( parseDiagnostic
-                ( "invalid integer literal '"
-                    <> digits
-                    <> "' at "
-                    <> renderSpan line column
-                )
-            )
-    Left _ ->
-      Left
-        ( parseDiagnostic
-            ( "invalid integer literal '"
-                <> digits
-                <> "' at "
-                <> renderSpan line column
-            )
-        )
+      | otherwise -> invalidIntegerDiagnostic digits line column
+    Left _ -> invalidIntegerDiagnostic digits line column
   where
     minInt = toInteger (minBound :: Int)
     maxInt = toInteger (maxBound :: Int)
+
+invalidIntegerDiagnostic :: Text -> Int -> Int -> Either Diagnostic a
+invalidIntegerDiagnostic digits line column =
+  Left
+    ( parseDiagnostic
+        ( "invalid integer literal '"
+            <> digits
+            <> "' at "
+            <> renderSpan line column
+        )
+    )
 
 parseDiagnostic :: Text -> Diagnostic
 parseDiagnostic = mkDiagnostic "E0001"

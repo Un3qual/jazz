@@ -152,6 +152,7 @@ parseEnvWarningToken :: Text -> Either Diagnostic WarningDirective
 parseEnvWarningToken rawToken
   | Text.null token = Left (mkMessageDiagnostic "empty JAZZ_WARNING_FLAGS token")
   | token == "none" = Right DisableAllCategories
+  | "+" `Text.isPrefixOf` token = EnableCategory <$> parseWarningCategory (Text.drop 1 token)
   | "-" `Text.isPrefixOf` token = DisableCategory <$> parseWarningCategory (Text.drop 1 token)
   | otherwise = EnableCategory <$> parseWarningCategory token
   where
