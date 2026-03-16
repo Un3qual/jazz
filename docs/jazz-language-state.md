@@ -424,7 +424,7 @@ Based on the full repo, these areas still require implementation convergence eve
   - `docs/spec/tooling/compiler-warning-flags.md`
 - Whether tuples are a core runtime feature or just parsed syntax in active implementation behavior.
 - Module/import loading semantics are partially implemented in `jazz-next` (`--entry-module` + deterministic resolver diagnostics), but qualified-import binding/collision semantics are still unresolved.
-- Standard-library boundary migration remains in progress: ownership contract is documented in `docs/spec/stdlib-boundary.md`, `jazz-next` CLI now resolves preludes in the order `--prelude` > `JAZZ_PRELUDE` > bundled `jazz-next/stdlib/Prelude.jz`, and compatibility kernel aliases (`map`/`filter`/`hd`/`tl`/`print!`) are still available pending final removal gates.
+- Standard-library boundary migration remains in progress: ownership contract is documented in `docs/spec/stdlib-boundary.md`, prelude-enabled compile/run paths now use prelude-owned aliases by default, and legacy canonical builtin aliases (`map`/`filter`/`hd`/`tl`/`print!`) are only retained in explicit no-prelude compatibility mode pending final removal gates.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
 - Whether the eventual target is JavaScript, LLVM, or both.
 
