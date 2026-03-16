@@ -79,12 +79,18 @@ renderDiagnostic = renderDiagnosticRecord . toDiagnostic
 renderDiagnosticRecord :: Diagnostic -> Text
 renderDiagnosticRecord diagnostic =
   renderCodePrefix (diagnosticCode diagnostic)
+    <> renderPrimarySpan (diagnosticPrimarySpan diagnostic)
     <> diagnosticSummary diagnostic
     <> renderNotes (diagnosticNotes diagnostic)
   where
     renderCodePrefix code
       | Text.null code = ""
       | otherwise = code <> ": "
+
+    renderPrimarySpan maybeSpan =
+      case maybeSpan of
+        Nothing -> ""
+        Just spanValue -> renderSourceSpan spanValue <> ": "
 
     renderNotes notes =
       case notes of
@@ -123,10 +129,17 @@ diagnosticFromRendered :: Text -> Diagnostic
 diagnosticFromRendered rendered =
   case Text.breakOn ": " rendered of
     (code, summary)
-      | not (Text.null code) && not (Text.null summary) ->
+      | not (Text.null code) && not (Text.null summary) && isValidDiagnosticCode code ->
           mkDiagnostic code (Text.drop 2 summary)
     _ ->
-      mkDiagnostic "E0000" rendered
+      mkMessageDiagnostic rendered
+  where
+    isValidDiagnosticCode code =
+      case Text.uncons code of
+        Just (firstChar, rest) ->
+          -- Diagnostic codes must start with an uppercase letter followed by digits (e.g., "E1234")
+          firstChar >= 'A' && firstChar <= 'Z' && Text.all (\c -> c >= '0' && c <= '9') rest && not (Text.null rest)
+        Nothing -> False
 
 renderSourceSpan :: SourceSpan -> Text
 renderSourceSpan spanValue =

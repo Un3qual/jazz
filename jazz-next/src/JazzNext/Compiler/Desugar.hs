@@ -16,6 +16,9 @@ desugarExpr expr =
   case expr of
     ELit literal -> ELit literal
     EVar name -> EVar name
+    EList elements -> EList (map desugarExpr elements)
+    EApply functionExpr argumentExpr ->
+      EApply (desugarExpr functionExpr) (desugarExpr argumentExpr)
     EIf conditionExpr thenExpr elseExpr ->
       ECase
         (desugarExpr conditionExpr)
@@ -42,5 +45,9 @@ desugarStatement statement =
       SLet name spanValue (desugarExpr valueExpr)
     SSignature name spanValue signatureText ->
       SSignature name spanValue signatureText
+    SModule spanValue modulePath ->
+      SModule spanValue modulePath
+    SImport spanValue modulePath alias importedSymbols ->
+      SImport spanValue modulePath alias importedSymbols
     SExpr spanValue expr ->
       SExpr spanValue (desugarExpr expr)

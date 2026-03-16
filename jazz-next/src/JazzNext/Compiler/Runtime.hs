@@ -322,6 +322,10 @@ evalBinary operatorSymbol leftValue rightValue =
             )
         )
 
+-- | Runtime-specific wrapper for mkDiagnostic.
+-- This alias exists solely to improve readability and make it clear that
+-- diagnostics are being created in a runtime evaluation context rather than
+-- during parsing or type checking.
 runtimeDiagnostic :: Text -> Text -> Diagnostic
 runtimeDiagnostic = mkDiagnostic
 
