@@ -2,6 +2,7 @@
 
 module JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
+    evaluateRuntimeExprWithBuiltins,
     evaluateRuntimeExpr,
     renderRuntimeValue
   ) where
@@ -15,10 +16,11 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
-  ( BuiltinSymbol (..),
+  ( BuiltinResolutionMode (..),
+    BuiltinSymbol (..),
     builtinSymbolArity,
     builtinSymbolName,
-    lookupBuiltinSymbol
+    lookupBuiltinSymbolInMode
   )
 
 data RuntimeValue
@@ -31,10 +33,13 @@ data RuntimeValue
   deriving (Eq, Show)
 
 evaluateRuntimeExpr :: Expr -> Either Text (Maybe RuntimeValue)
-evaluateRuntimeExpr expr =
+evaluateRuntimeExpr = evaluateRuntimeExprWithBuiltins ResolveCompatibility
+
+evaluateRuntimeExprWithBuiltins :: BuiltinResolutionMode -> Expr -> Either Text (Maybe RuntimeValue)
+evaluateRuntimeExprWithBuiltins builtinMode expr =
   case expr of
-    EScope statements -> evalScope Map.empty statements
-    _ -> Just <$> evalValue Map.empty expr
+    EScope statements -> evalScope builtinMode Map.empty statements
+    _ -> Just <$> evalValue builtinMode Map.empty expr
 
 renderRuntimeValue :: RuntimeValue -> Text
 renderRuntimeValue value =
@@ -52,8 +57,8 @@ renderRuntimeValue value =
 
 type RuntimeEnv = Map Text RuntimeValue
 
-evalScope :: RuntimeEnv -> [Statement] -> Either Text (Maybe RuntimeValue)
-evalScope initialEnv statements = go initialEnv Nothing statements
+evalScope :: BuiltinResolutionMode -> RuntimeEnv -> [Statement] -> Either Text (Maybe RuntimeValue)
+evalScope builtinMode initialEnv statements = go initialEnv Nothing statements
   where
     go :: RuntimeEnv -> Maybe RuntimeValue -> [Statement] -> Either Text (Maybe RuntimeValue)
     go env lastExprValue remainingStatements =
@@ -70,14 +75,14 @@ evalScope initialEnv statements = go initialEnv Nothing statements
             SImport {} ->
               go env Nothing rest
             SLet name _ valueExpr -> do
-              value <- evalValue env valueExpr
+              value <- evalValue builtinMode env valueExpr
               go (Map.insert name value env) Nothing rest
             SExpr _ expr -> do
-              value <- evalValue env expr
+              value <- evalValue builtinMode env expr
               go env (Just value) rest
 
-evalValue :: RuntimeEnv -> Expr -> Either Text RuntimeValue
-evalValue env expr =
+evalValue :: BuiltinResolutionMode -> RuntimeEnv -> Expr -> Either Text RuntimeValue
+evalValue builtinMode env expr =
   case expr of
     EInt value -> Right (VInt value)
     EBool value -> Right (VBool value)
@@ -85,7 +90,7 @@ evalValue env expr =
       case Map.lookup name env of
         Just value -> Right value
         Nothing ->
-          case lookupBuiltinSymbol name of
+          case lookupBuiltinSymbolInMode builtinMode name of
             Just builtinFunction -> Right (VBuiltin builtinFunction [])
             Nothing ->
               Left
@@ -94,35 +99,35 @@ evalValue env expr =
                     <> "'"
                 )
     EList elements ->
-      VList <$> mapM (evalValue env) elements
+      VList <$> mapM (evalValue builtinMode env) elements
     EApply functionExpr argumentExpr -> do
-      functionValue <- evalValue env functionExpr
-      argumentValue <- evalValue env argumentExpr
+      functionValue <- evalValue builtinMode env functionExpr
+      argumentValue <- evalValue builtinMode env argumentExpr
       applyRuntimeFunction functionValue argumentValue
     EIf conditionExpr thenExpr elseExpr ->
-      evalValue env (ECase conditionExpr thenExpr elseExpr)
+      evalValue builtinMode env (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr -> do
-      conditionValue <- evalValue env conditionExpr
+      conditionValue <- evalValue builtinMode env conditionExpr
       case conditionValue of
-        VBool True -> evalValue env thenExpr
-        VBool False -> evalValue env elseExpr
+        VBool True -> evalValue builtinMode env thenExpr
+        VBool False -> evalValue builtinMode env elseExpr
         other ->
           Left
             ( "E3003: runtime branch condition must be Bool, found "
                 <> renderRuntimeType other
             )
     EBinary operatorSymbol leftExpr rightExpr -> do
-      leftValue <- evalValue env leftExpr
-      rightValue <- evalValue env rightExpr
+      leftValue <- evalValue builtinMode env leftExpr
+      rightValue <- evalValue builtinMode env rightExpr
       evalBinary operatorSymbol leftValue rightValue
     ESectionLeft leftExpr operatorSymbol -> do
-      leftValue <- evalValue env leftExpr
+      leftValue <- evalValue builtinMode env leftExpr
       Right (VSectionLeft operatorSymbol leftValue)
     ESectionRight operatorSymbol rightExpr -> do
-      rightValue <- evalValue env rightExpr
+      rightValue <- evalValue builtinMode env rightExpr
       Right (VSectionRight operatorSymbol rightValue)
     EScope statements ->
-      case evalScope env statements of
+      case evalScope builtinMode env statements of
         Left err -> Left err
         Right Nothing ->
           Left
