@@ -4,6 +4,7 @@ module Main (main) where
 
 import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -14,6 +15,7 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceLiteral (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Lower
@@ -25,7 +27,7 @@ import JazzNext.Compiler.Desugar
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
-    assertLeftContains,
+    assertLeftDiagnosticContains,
     assertRight,
     runTestSuite
   )
@@ -52,11 +54,11 @@ testParsesBasicIfExpression =
   assertEqual
     "surface if AST"
     ( Right
-        ( SEScope
+        ( SEBlock
             [ SSLet
                 "x"
                 (SourceSpan 1 1)
-                (SEIf (SEBool True) (SEInt 1) (SEInt 2))
+                (SEIf (SELit (SLBool True)) (SELit (SLInt 1)) (SELit (SLInt 2)))
             ]
         )
     )
@@ -67,7 +69,7 @@ testParsesNestedIfNearestElse =
   assertEqual
     "nested if nearest else"
     ( Right
-        ( SEScope
+        ( SEBlock
             [ SSLet
                 "x"
                 (SourceSpan 1 1)
@@ -86,11 +88,11 @@ testParsesIfInfixConditionBoundary =
   assertEqual
     "if infix condition boundary"
     ( Right
-        ( SEScope
+        ( SEBlock
             [ SSLet
                 "x"
                 (SourceSpan 1 1)
-                (SEIf (SEBinary ">" (SEVar "x") (SEInt 0)) (SEInt 1) (SEInt 2))
+                (SEIf (SEBinary ">" (SEVar "x") (SELit (SLInt 0))) (SELit (SLInt 1)) (SELit (SLInt 2)))
             ]
         )
     )
@@ -98,35 +100,35 @@ testParsesIfInfixConditionBoundary =
 
 testRejectsMissingElse :: IO ()
 testRejectsMissingElse =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "missing else branch"
     "expected 'else'"
     (parseSurfaceProgram "x = if cond x.")
 
 testRejectsExtraElse :: IO ()
 testRejectsExtraElse =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "extra else branch"
     "expected '.'"
     (parseSurfaceProgram "x = if cond x else y else z.")
 
 testRejectsKeywordAsBindingName :: IO ()
 testRejectsKeywordAsBindingName =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "keyword binding name"
     "expected expression"
     (parseSurfaceProgram "if = 1.")
 
 testRejectsTrueAsBindingName :: IO ()
 testRejectsTrueAsBindingName =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "True binding rejection"
     "reserved literal 'True' cannot be used as a binding name"
     (parseSurfaceProgram "True = 1.")
 
 testRejectsFalseAsSignatureName :: IO ()
 testRejectsFalseAsSignatureName =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "False signature rejection"
     "reserved literal 'False' cannot be used as a binding name"
     (parseSurfaceProgram "False :: Bool.")
@@ -139,11 +141,11 @@ testLowerIfExpression =
     (\surfaceProgram -> assertEqual "lowered if AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EScope
+      EBlock
         [ SLet
             "x"
             (SourceSpan 1 1)
-            (EIf (EBool True) (EInt 1) (EInt 2))
+            (EIf (ELit (LBool True)) (ELit (LInt 1)) (ELit (LInt 2)))
         ]
 
 testDesugarIfExpression :: IO ()
@@ -159,9 +161,9 @@ testDesugarIfExpression =
     )
   where
     expectedProgram =
-      EScope
+      EBlock
         [ SLet
             "x"
             (SourceSpan 1 1)
-            (ECase (EBool True) (EInt 1) (EInt 2))
+            (ECase (ELit (LBool True)) (ELit (LInt 1)) (ELit (LInt 2)))
         ]

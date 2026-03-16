@@ -4,6 +4,7 @@ module Main (main) where
 
 import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -14,6 +15,7 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceLiteral (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Lower
@@ -22,7 +24,7 @@ import JazzNext.Compiler.Parser.Lower
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
-    assertLeftContains,
+    assertLeftDiagnosticContains,
     assertRight,
     runTestSuite
   )
@@ -51,9 +53,9 @@ testParsesModuleDeclaration =
   assertEqual
     "module surface AST"
     ( Right
-        ( SEScope
+        ( SEBlock
             [ SSModule (SourceSpan 1 1) ["App", "Core"],
-              SSLet "x" (SourceSpan 2 1) (SEInt 1)
+              SSLet "x" (SourceSpan 2 1) (SELit (SLInt 1))
             ]
         )
     )
@@ -63,7 +65,7 @@ testParsesImportBare :: IO ()
 testParsesImportBare =
   assertEqual
     "import bare-dot surface AST"
-    (Right (SEScope [SSImport (SourceSpan 1 1) ["A", "B"] Nothing Nothing]))
+    (Right (SEBlock [SSImport (SourceSpan 1 1) ["A", "B"] Nothing Nothing]))
     (parseSurfaceProgram "import A::B.")
 
 testParsesImportAlias :: IO ()
@@ -71,7 +73,7 @@ testParsesImportAlias =
   assertEqual
     "import alias surface AST"
     ( Right
-        ( SEScope
+        ( SEBlock
             [ SSImport (SourceSpan 1 1) ["Std", "List"] (Just "List") Nothing,
               SSExpr (SourceSpan 2 1) (SEVar "List")
             ]
@@ -84,7 +86,7 @@ testParsesImportSymbolList =
   assertEqual
     "import symbol-list surface AST"
     ( Right
-        ( SEScope
+        ( SEBlock
             [ SSImport
                 (SourceSpan 1 1)
                 ["Std", "List"]
@@ -104,7 +106,7 @@ testLowersModuleImportStatements =
     (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EScope
+      EBlock
         [ SModule (SourceSpan 1 1) ["App", "Core"],
           SImport (SourceSpan 2 1) ["Std", "List"] Nothing (Just ["map"]),
           SExpr (SourceSpan 3 1) (EVar "map")
@@ -112,49 +114,49 @@ testLowersModuleImportStatements =
 
 testRejectsModuleMissingPath :: IO ()
 testRejectsModuleMissingPath =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "module missing path error"
     "expected module path segment"
     (parseSurfaceProgram "module .")
 
 testRejectsModuleTrailingSeparatorSpan :: IO ()
 testRejectsModuleTrailingSeparatorSpan =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "module trailing separator span"
     "1:9"
     (parseSurfaceProgram "module A::.")
 
 testRejectsImportEmptySymbolList :: IO ()
 testRejectsImportEmptySymbolList =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "import empty symbol list error"
     "expected at least one import symbol"
     (parseSurfaceProgram "import Std::List ().")
 
 testRejectsImportEmptySymbolListSpan :: IO ()
 testRejectsImportEmptySymbolListSpan =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "import empty symbol list span"
     "1:19"
     (parseSurfaceProgram "import Std::List ().")
 
 testRejectsImportDuplicateSymbols :: IO ()
 testRejectsImportDuplicateSymbols =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "import duplicate symbol error"
     "duplicate import symbol 'map'"
     (parseSurfaceProgram "import Std::List (map, filter, map).")
 
 testRejectsImportAliasWithSymbolList :: IO ()
 testRejectsImportAliasWithSymbolList =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "import alias+symbol list error"
     "cannot combine import alias and symbol list"
     (parseSurfaceProgram "import Std::List as List (map).")
 
 testRejectsImportSymbolListWithAlias :: IO ()
 testRejectsImportSymbolListWithAlias =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "import symbol-list+alias error"
     "cannot combine import alias and symbol list"
     (parseSurfaceProgram "import Std::List (map) as List.")

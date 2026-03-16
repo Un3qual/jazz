@@ -4,6 +4,7 @@ module Main (main) where
 
 import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -21,7 +22,7 @@ import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
     assertJust,
-    assertSingleErrorContains,
+    assertSingleDiagnosticContains,
     runTestSuite
   )
 
@@ -43,7 +44,7 @@ tests =
 testRejectsNonBoolCondition :: IO ()
 testRejectsNonBoolCondition = do
   result <- compileExpr defaultWarningSettings nonBoolConditionProgram
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "condition type error"
     "if condition must have type Bool"
     (compileErrors result)
@@ -57,7 +58,7 @@ testAcceptsEqualityCondition = do
 testRejectsInvalidEqualityCondition :: IO ()
 testRejectsInvalidEqualityCondition = do
   result <- compileExpr defaultWarningSettings invalidEqualityConditionProgram
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "strict equality condition type error"
     "E2004"
     (compileErrors result)
@@ -65,7 +66,7 @@ testRejectsInvalidEqualityCondition = do
 testRejectsMismatchedBranchTypes :: IO ()
 testRejectsMismatchedBranchTypes = do
   result <- compileExpr defaultWarningSettings mismatchedBranchProgram
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "branch type mismatch"
     "if branches must have matching types"
     (compileErrors result)
@@ -78,7 +79,7 @@ testAcceptsWellTypedIf = do
 
 mkProgram :: Expr -> Expr
 mkProgram expr =
-  EScope
+  EBlock
     [ SExpr
         (SourceSpan 1 1)
         expr
@@ -86,35 +87,35 @@ mkProgram expr =
 
 nonBoolConditionProgram :: Expr
 nonBoolConditionProgram =
-  mkProgram (EIf (EInt 1) (EInt 2) (EInt 3))
+  mkProgram (EIf (ELit (LInt 1)) (ELit (LInt 2)) (ELit (LInt 3)))
 
 equalityConditionProgram :: Expr
 equalityConditionProgram =
-  mkProgram (EIf (EBinary "==" (EInt 1) (EInt 2)) (EInt 2) (EInt 3))
+  mkProgram (EIf (EBinary "==" (ELit (LInt 1)) (ELit (LInt 2))) (ELit (LInt 2)) (ELit (LInt 3)))
 
 invalidEqualityConditionProgram :: Expr
 invalidEqualityConditionProgram =
-  mkProgram (EIf (EBinary "==" (EInt 1) (EBool True)) (EInt 2) (EInt 3))
+  mkProgram (EIf (EBinary "==" (ELit (LInt 1)) (ELit (LBool True))) (ELit (LInt 2)) (ELit (LInt 3)))
 
 mismatchedBranchProgram :: Expr
 mismatchedBranchProgram =
-  mkProgram (EIf (EBool True) (EInt 1) (EBool False))
+  mkProgram (EIf (ELit (LBool True)) (ELit (LInt 1)) (ELit (LBool False)))
 
 validIfProgram :: Expr
 validIfProgram =
-  mkProgram (EIf (EBool True) (EInt 1) (EInt 2))
+  mkProgram (EIf (ELit (LBool True)) (ELit (LInt 1)) (ELit (LInt 2)))
 
 testRejectsBinaryTypeMismatch :: IO ()
 testRejectsBinaryTypeMismatch = do
   result <- compileExpr defaultWarningSettings binaryTypeMismatchProgram
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "binary type error"
     "cannot apply operator '+'"
     (compileErrors result)
 
 binaryTypeMismatchProgram :: Expr
 binaryTypeMismatchProgram =
-  mkProgram (EBinary "+" (EInt 1) (EBool True))
+  mkProgram (EBinary "+" (ELit (LInt 1)) (ELit (LBool True)))
 
 testSourcePipelineAcceptsWellTypedIf :: IO ()
 testSourcePipelineAcceptsWellTypedIf = do
@@ -125,7 +126,7 @@ testSourcePipelineAcceptsWellTypedIf = do
 testSourcePipelineRejectsNonBoolCondition :: IO ()
 testSourcePipelineRejectsNonBoolCondition = do
   result <- compileSource defaultWarningSettings "x = if 1 2 else 3."
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "source condition type error"
     "E2001"
     (compileErrors result)

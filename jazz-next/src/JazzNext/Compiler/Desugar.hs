@@ -14,8 +14,7 @@ import JazzNext.Compiler.AST
 desugarExpr :: Expr -> Expr
 desugarExpr expr =
   case expr of
-    EInt value -> EInt value
-    EBool value -> EBool value
+    ELit literal -> ELit literal
     EVar name -> EVar name
     EIf conditionExpr thenExpr elseExpr ->
       ECase
@@ -33,8 +32,8 @@ desugarExpr expr =
       ESectionLeft (desugarExpr leftExpr) operatorSymbol
     ESectionRight operatorSymbol rightExpr ->
       ESectionRight operatorSymbol (desugarExpr rightExpr)
-    EScope statements ->
-      EScope (map desugarStatement statements)
+    EBlock statements ->
+      EBlock (map desugarStatement statements)
 
 desugarStatement :: Statement -> Statement
 desugarStatement statement =

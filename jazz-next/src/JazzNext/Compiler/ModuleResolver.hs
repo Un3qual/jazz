@@ -23,7 +23,10 @@ import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan,
+  ( Diagnostic (..),
+    SourceSpan,
+    mkDiagnostic,
+    mkMessageDiagnostic,
     renderSourceSpan
   )
 import JazzNext.Compiler.Parser
@@ -75,21 +78,25 @@ data ResolvedState = ResolvedState
 modulePathToRelativeFile :: [Text] -> FilePath
 modulePathToRelativeFile = modulePathToRelativeFileWithExt ".jz"
 
-parseModulePathText :: Text -> Either Text [Text]
+parseModulePathText :: Text -> Either Diagnostic [Text]
 parseModulePathText rawModulePath
   | Text.null rawModulePath =
-      Left "entry module path cannot be empty"
+      Left (mkMessageDiagnostic "entry module path cannot be empty")
   | any Text.null segments =
       Left
-        ( "invalid entry module path '"
-            <> rawModulePath
-            <> "': empty path segment"
+        ( mkMessageDiagnostic
+            ( "invalid entry module path '"
+                <> rawModulePath
+                <> "': empty path segment"
+            )
         )
   | not (all isValidSegment segments) =
       Left
-        ( "invalid entry module path '"
-            <> rawModulePath
-            <> "': segments must be identifiers"
+        ( mkMessageDiagnostic
+            ( "invalid entry module path '"
+                <> rawModulePath
+                <> "': segments must be identifiers"
+            )
         )
   | otherwise =
       Right segments
@@ -110,7 +117,7 @@ resolveModuleGraph ::
   ModuleResolutionConfig ->
   Map FilePath Text ->
   [Text] ->
-  Either Text [ResolvedModule]
+  Either Diagnostic [ResolvedModule]
 resolveModuleGraph config sources entryModulePath =
   runIdentity $
     resolveModuleGraphWithLookup
@@ -123,10 +130,10 @@ resolveModuleGraphWithLookup ::
   ModuleResolutionConfig ->
   (FilePath -> m (Maybe Text)) ->
   [Text] ->
-  m (Either Text [ResolvedModule])
+  m (Either Diagnostic [ResolvedModule])
 resolveModuleGraphWithLookup config loadSource entryModulePath
   | null entryModulePath =
-      pure (Left "empty entry module path")
+      pure (Left (mkMessageDiagnostic "empty entry module path"))
   | otherwise =
       fmap (fmap (reverse . resolveModulesRev)) (visitModule [] initialState entryModulePath)
   where
@@ -217,23 +224,29 @@ resolveModuleGraphWithLookup config loadSource entryModulePath
         case matchingCandidates of
           [] ->
             Left
-              ( "E4001: unresolved import '"
-                  <> renderModulePath modulePath
-                  <> "'"
-                  <> renderImporterContext callStack
-                  <> "; looked in "
-                  <> Text.intercalate ", " (map Text.pack candidatePaths)
+              ( mkDiagnostic
+                  "E4001"
+                  ( "unresolved import '"
+                      <> renderModulePath modulePath
+                      <> "'"
+                      <> renderImporterContext callStack
+                      <> "; looked in "
+                      <> Text.intercalate ", " (map Text.pack candidatePaths)
+                  )
               )
           [(sourcePath, sourceText)] ->
             Right (sourcePath, sourceText)
           _ ->
             Left
-              ( "E4002: ambiguous import '"
-                  <> renderModulePath modulePath
-                  <> "'"
-                  <> renderImporterContext callStack
-                  <> "; matched "
-                  <> Text.intercalate ", " (map (Text.pack . fst) matchingCandidates)
+              ( mkDiagnostic
+                  "E4002"
+                  ( "ambiguous import '"
+                      <> renderModulePath modulePath
+                      <> "'"
+                      <> renderImporterContext callStack
+                      <> "; matched "
+                      <> Text.intercalate ", " (map (Text.pack . fst) matchingCandidates)
+                  )
               )
 
 appendRelativePath :: FilePath -> FilePath -> FilePath
@@ -249,15 +262,18 @@ modulePathToRelativeFileWithExt extension modulePath =
   where
     joinSegments segment acc = segment <> "/" <> acc
 
-parseModuleDetails :: FilePath -> [Text] -> Text -> Either Text ParsedModule
+parseModuleDetails :: FilePath -> [Text] -> Text -> Either Diagnostic ParsedModule
 parseModuleDetails sourcePath expectedModulePath sourceText =
   case parseSurfaceProgram sourceText of
     Left parseError ->
       Left
-        ( "E4004: module parse error at '"
-            <> Text.pack sourcePath
-            <> "': "
-            <> parseError
+        ( mkDiagnostic
+            "E4004"
+            ( "module parse error at '"
+                <> Text.pack sourcePath
+                <> "': "
+                <> diagnosticSummary parseError
+            )
         )
     Right surfaceExpr -> do
       validateModuleDeclarations sourcePath expectedModulePath surfaceExpr
@@ -270,7 +286,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
 collectImports :: SurfaceExpr -> [ParsedImport]
 collectImports surfaceExpr =
   case surfaceExpr of
-    SEScope statements ->
+    SEBlock statements ->
       [ ParsedImport spanValue modulePath alias importedSymbols
         | SSImport spanValue modulePath alias importedSymbols <- statements
       ]
@@ -285,14 +301,14 @@ collectImportPaths imports =
 collectTopLevelBindings :: SurfaceExpr -> Set Text
 collectTopLevelBindings surfaceExpr =
   case surfaceExpr of
-    SEScope statements ->
+    SEBlock statements ->
       Set.fromList
         [ bindingName
           | SSLet bindingName _ _ <- statements
         ]
     _ -> Set.empty
 
-validateModuleDeclarations :: FilePath -> [Text] -> SurfaceExpr -> Either Text ()
+validateModuleDeclarations :: FilePath -> [Text] -> SurfaceExpr -> Either Diagnostic ()
 validateModuleDeclarations sourcePath expectedModulePath surfaceExpr =
   case collectModuleDeclarations surfaceExpr of
     [] ->
@@ -302,26 +318,32 @@ validateModuleDeclarations sourcePath expectedModulePath surfaceExpr =
           Right ()
       | otherwise ->
           Left
-            ( "E4006: module declaration mismatch at '"
-                <> Text.pack sourcePath
-                <> "': expected '"
-                <> renderModulePath expectedModulePath
-                <> "', found '"
-                <> renderModulePath declaredModulePath
-                <> "'"
+            ( mkDiagnostic
+                "E4006"
+                ( "module declaration mismatch at '"
+                    <> Text.pack sourcePath
+                    <> "': expected '"
+                    <> renderModulePath expectedModulePath
+                    <> "', found '"
+                    <> renderModulePath declaredModulePath
+                    <> "'"
+                )
             )
     declaredModulePaths ->
       Left
-        ( "E4005: multiple module declarations in '"
-            <> Text.pack sourcePath
-            <> "': "
-            <> Text.intercalate ", " (map renderModulePath declaredModulePaths)
+        ( mkDiagnostic
+            "E4005"
+            ( "multiple module declarations in '"
+                <> Text.pack sourcePath
+                <> "': "
+                <> Text.intercalate ", " (map renderModulePath declaredModulePaths)
+            )
         )
 
 collectModuleDeclarations :: SurfaceExpr -> [[Text]]
 collectModuleDeclarations surfaceExpr =
   case surfaceExpr of
-    SEScope statements ->
+    SEBlock statements ->
       [ modulePath
         | SSModule _ modulePath <- statements
       ]
@@ -332,7 +354,7 @@ validateImportBindings ::
   [Text] ->
   [ParsedImport] ->
   Map [Text] (Set Text) ->
-  Either Text ()
+  Either Diagnostic ()
 validateImportBindings sourcePath importerPath imports exportsByModule =
   go Map.empty Map.empty imports
   where
@@ -345,7 +367,7 @@ validateImportBindings sourcePath importerPath imports exportsByModule =
           seenSymbolsAfterImport <- validateImportSymbols seenSymbols importDecl
           go seenSymbolsAfterImport seenAliasesAfterImport rest
 
-    validateImportAlias :: Map Text BindingOrigin -> ParsedImport -> Either Text (Map Text BindingOrigin)
+    validateImportAlias :: Map Text BindingOrigin -> ParsedImport -> Either Diagnostic (Map Text BindingOrigin)
     validateImportAlias seenAliases importDecl =
       case parsedImportAlias importDecl of
         Nothing ->
@@ -365,7 +387,7 @@ validateImportBindings sourcePath importerPath imports exportsByModule =
                     seenAliases
                 )
 
-    validateImportSymbols :: Map Text BindingOrigin -> ParsedImport -> Either Text (Map Text BindingOrigin)
+    validateImportSymbols :: Map Text BindingOrigin -> ParsedImport -> Either Diagnostic (Map Text BindingOrigin)
     validateImportSymbols seenSymbols importDecl =
       case parsedImportSymbols importDecl of
         Nothing ->
@@ -374,11 +396,14 @@ validateImportBindings sourcePath importerPath imports exportsByModule =
           case Map.lookup (parsedImportModulePath importDecl) exportsByModule of
             Nothing ->
               Left
-                ( "E4010: internal resolver error while validating imports for '"
-                    <> renderModulePath importerPath
-                    <> "': missing exports for module '"
-                    <> renderModulePath (parsedImportModulePath importDecl)
-                    <> "'"
+                ( mkDiagnostic
+                    "E4010"
+                    ( "internal resolver error while validating imports for '"
+                        <> renderModulePath importerPath
+                        <> "': missing exports for module '"
+                        <> renderModulePath (parsedImportModulePath importDecl)
+                        <> "'"
+                    )
                 )
             Just exportedSymbols ->
               foldM
@@ -391,7 +416,7 @@ validateImportBindings sourcePath importerPath imports exportsByModule =
       Set Text ->
       Map Text BindingOrigin ->
       Text ->
-      Either Text (Map Text BindingOrigin)
+      Either Diagnostic (Map Text BindingOrigin)
     validateImportSymbol importDecl exportedSymbols seenSymbols symbolName
       | not (Set.member symbolName exportedSymbols) =
           Left (mkMissingImportSymbolError symbolName importDecl exportedSymbols)
@@ -410,56 +435,65 @@ validateImportBindings sourcePath importerPath imports exportsByModule =
                     seenSymbols
                 )
 
-    mkMissingImportSymbolError :: Text -> ParsedImport -> Set Text -> Text
+    mkMissingImportSymbolError :: Text -> ParsedImport -> Set Text -> Diagnostic
     mkMissingImportSymbolError symbolName importDecl exportedSymbols =
-      "E4007: import symbol '"
-        <> symbolName
-        <> "' is not exported by module '"
-        <> renderModulePath (parsedImportModulePath importDecl)
-        <> "' imported by '"
-        <> renderModulePath importerPath
-        <> "' at "
-        <> Text.pack sourcePath
-        <> ":"
-        <> renderSourceSpan (parsedImportSpan importDecl)
-        <> "; available exports: "
-        <> renderExports exportedSymbols
+      mkDiagnostic
+        "E4007"
+        ( "import symbol '"
+            <> symbolName
+            <> "' is not exported by module '"
+            <> renderModulePath (parsedImportModulePath importDecl)
+            <> "' imported by '"
+            <> renderModulePath importerPath
+            <> "' at "
+            <> Text.pack sourcePath
+            <> ":"
+            <> renderSourceSpan (parsedImportSpan importDecl)
+            <> "; available exports: "
+            <> renderExports exportedSymbols
+        )
 
-    mkImportSymbolCollisionError :: Text -> BindingOrigin -> ParsedImport -> Text
+    mkImportSymbolCollisionError :: Text -> BindingOrigin -> ParsedImport -> Diagnostic
     mkImportSymbolCollisionError symbolName previousOrigin importDecl =
-      "E4008: import binding collision for symbol '"
-        <> symbolName
-        <> "' in module '"
-        <> renderModulePath importerPath
-        <> "' at "
-        <> Text.pack sourcePath
-        <> ":"
-        <> renderSourceSpan (parsedImportSpan importDecl)
-        <> "; already imported from '"
-        <> renderModulePath (bindingOriginModulePath previousOrigin)
-        <> "' at "
-        <> renderSourceSpan (bindingOriginSpan previousOrigin)
-        <> ", cannot re-import from '"
-        <> renderModulePath (parsedImportModulePath importDecl)
-        <> "'"
+      mkDiagnostic
+        "E4008"
+        ( "import binding collision for symbol '"
+            <> symbolName
+            <> "' in module '"
+            <> renderModulePath importerPath
+            <> "' at "
+            <> Text.pack sourcePath
+            <> ":"
+            <> renderSourceSpan (parsedImportSpan importDecl)
+            <> "; already imported from '"
+            <> renderModulePath (bindingOriginModulePath previousOrigin)
+            <> "' at "
+            <> renderSourceSpan (bindingOriginSpan previousOrigin)
+            <> ", cannot re-import from '"
+            <> renderModulePath (parsedImportModulePath importDecl)
+            <> "'"
+        )
 
-    mkImportAliasCollisionError :: Text -> BindingOrigin -> ParsedImport -> Text
+    mkImportAliasCollisionError :: Text -> BindingOrigin -> ParsedImport -> Diagnostic
     mkImportAliasCollisionError aliasName previousOrigin importDecl =
-      "E4009: import alias collision for '"
-        <> aliasName
-        <> "' in module '"
-        <> renderModulePath importerPath
-        <> "' at "
-        <> Text.pack sourcePath
-        <> ":"
-        <> renderSourceSpan (parsedImportSpan importDecl)
-        <> "; already aliased to module '"
-        <> renderModulePath (bindingOriginModulePath previousOrigin)
-        <> "' at "
-        <> renderSourceSpan (bindingOriginSpan previousOrigin)
-        <> ", cannot alias module '"
-        <> renderModulePath (parsedImportModulePath importDecl)
-        <> "'"
+      mkDiagnostic
+        "E4009"
+        ( "import alias collision for '"
+            <> aliasName
+            <> "' in module '"
+            <> renderModulePath importerPath
+            <> "' at "
+            <> Text.pack sourcePath
+            <> ":"
+            <> renderSourceSpan (parsedImportSpan importDecl)
+            <> "; already aliased to module '"
+            <> renderModulePath (bindingOriginModulePath previousOrigin)
+            <> "' at "
+            <> renderSourceSpan (bindingOriginSpan previousOrigin)
+            <> ", cannot alias module '"
+            <> renderModulePath (parsedImportModulePath importDecl)
+            <> "'"
+        )
 
     renderExports :: Set Text -> Text
     renderExports exports
@@ -472,10 +506,11 @@ sortModulePaths modulePaths =
   where
     uniquePaths = Set.toList (Set.fromList modulePaths)
 
-mkCycleError :: [Text] -> [[Text]] -> Text
+mkCycleError :: [Text] -> [[Text]] -> Diagnostic
 mkCycleError repeatedModulePath callStack =
-  "E4003: module import cycle detected: "
-    <> Text.intercalate " -> " (map renderModulePath cycleTrace)
+  mkDiagnostic
+    "E4003"
+    ("module import cycle detected: " <> Text.intercalate " -> " (map renderModulePath cycleTrace))
   where
     rootToLeaf = reverse callStack
     suffixStartingAtRepeat = dropWhile (/= repeatedModulePath) rootToLeaf

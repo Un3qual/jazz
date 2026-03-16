@@ -6,6 +6,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
@@ -39,7 +40,7 @@ import JazzNext.Compiler.WarningConfig
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
-    assertLeftContains,
+    assertLeftDiagnosticContains,
     runTestSuite
   )
 
@@ -134,7 +135,7 @@ testRuntimeBuiltinOverApplicationFails =
   where
     assertOverApplicationFails (_, name, _, _) = do
       let expr = overAppliedBuiltinExpr name
-      assertLeftContains
+      assertLeftDiagnosticContains
         ("over-application runtime error for " <> name)
         "E3008"
         (evaluateRuntimeExpr expr)
@@ -148,34 +149,34 @@ overAppliedBuiltinExpr name =
       "map" ->
         EApply
           ( EApply
-              (EApply (EVar "map") (ESectionLeft (EInt 1) "+"))
-              (EList [EInt 2])
+              (EApply (EVar "map") (ESectionLeft (ELit (LInt 1)) "+"))
+              (EList [ELit (LInt 2)])
           )
-          (EInt 3)
+          (ELit (LInt 3))
       "filter" ->
         EApply
           ( EApply
-              (EApply (EVar "filter") (ESectionLeft (EInt 1) "<"))
-              (EList [EInt 2, EInt 3])
+              (EApply (EVar "filter") (ESectionLeft (ELit (LInt 1)) "<"))
+              (EList [ELit (LInt 2), ELit (LInt 3)])
           )
-          (EInt 4)
+          (ELit (LInt 4))
       "hd" ->
         EApply
-          (EApply (EVar "hd") (EList [EInt 1]))
-          (EInt 2)
+          (EApply (EVar "hd") (EList [ELit (LInt 1)]))
+          (ELit (LInt 2))
       "tl" ->
         EApply
-          (EApply (EVar "tl") (EList [EInt 1, EInt 2]))
-          (EInt 3)
+          (EApply (EVar "tl") (EList [ELit (LInt 1), ELit (LInt 2)]))
+          (ELit (LInt 3))
       "print!" ->
         EApply
-          (EApply (EVar "print!") (EInt 1))
-          (EInt 2)
-      _ -> EApply (EVar name) (EInt 1)
+          (EApply (EVar "print!") (ELit (LInt 1)))
+          (ELit (LInt 2))
+      _ -> EApply (EVar name) (ELit (LInt 1))
 
 runtimeExpr :: Expr -> Expr
 runtimeExpr expr =
-  EScope
+  EBlock
     [ SExpr
         (SourceSpan 1 1)
         expr

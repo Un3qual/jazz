@@ -2,14 +2,18 @@
 
 module Main (main) where
 
-import JazzNext.Compiler.Analyzer
+import JazzNext.Compiler.AST
   ( Expr (..),
-    Statement (..),
-    analyzeRebindingWarnings
+    Literal (..),
+    Statement (..)
+  )
+import JazzNext.Compiler.Analyzer
+  ( analyzeRebindingWarnings
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
-    WarningRecord (..)
+    WarningRecord (..),
+    renderDiagnostic
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
@@ -98,38 +102,38 @@ testDriverSuppressesOutputWhenPromoted = do
 enabledSettings :: IO WarningSettings
 enabledSettings =
   case resolveWarningSettings ["-Wsame-scope-rebinding"] Nothing Nothing Nothing of
-    Left err -> failTest ("failed to resolve enabled settings: " <> err)
+    Left err -> failTest ("failed to resolve enabled settings: " <> renderDiagnostic err)
     Right settings -> pure settings
 
 promotedSettings :: IO WarningSettings
 promotedSettings =
   case resolveWarningSettings ["-Werror=same-scope-rebinding"] Nothing Nothing Nothing of
-    Left err -> failTest ("failed to resolve promoted settings: " <> err)
+    Left err -> failTest ("failed to resolve promoted settings: " <> renderDiagnostic err)
     Right settings -> pure settings
 
 sampleProgram :: Expr
 sampleProgram =
-  EScope
-    [ SLet "x" (SourceSpan 1 1) (EInt 1),
-      SLet "x" (SourceSpan 2 1) (EInt 2)
+  EBlock
+    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
+      SLet "x" (SourceSpan 2 1) (ELit (LInt 2))
     ]
 
 repeatedProgram :: Expr
 repeatedProgram =
-  EScope
-    [ SLet "x" (SourceSpan 1 1) (EInt 1),
-      SLet "x" (SourceSpan 2 1) (EInt 2),
-      SLet "x" (SourceSpan 3 1) (EInt 3)
+  EBlock
+    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
+      SLet "x" (SourceSpan 2 1) (ELit (LInt 2)),
+      SLet "x" (SourceSpan 3 1) (ELit (LInt 3))
     ]
 
 nestedScopeProgram :: Expr
 nestedScopeProgram =
-  EScope
-    [ SLet "x" (SourceSpan 1 1) (EInt 1),
+  EBlock
+    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
       SExpr
         (SourceSpan 2 1)
-        ( EScope
-            [ SLet "x" (SourceSpan 2 1) (EInt 2)
+        ( EBlock
+            [ SLet "x" (SourceSpan 2 1) (ELit (LInt 2))
             ]
         ),
       SExpr (SourceSpan 4 1) (EVar "x")

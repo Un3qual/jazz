@@ -2,6 +2,7 @@
 
 module JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   ) where
 
@@ -11,9 +12,13 @@ import JazzNext.Compiler.Diagnostics
   )
 
 -- Analyzer-facing core AST after parser lowering.
+data Literal
+  = LInt Int
+  | LBool Bool
+  deriving (Eq, Show)
+
 data Expr
-  = EInt Int
-  | EBool Bool
+  = ELit Literal
   | EVar Text
   | EList [Expr]
   | EApply Expr Expr
@@ -23,7 +28,7 @@ data Expr
   | EBinary Text Expr Expr
   | ESectionLeft Expr Text
   | ESectionRight Text Expr
-  | EScope [Statement]
+  | EBlock [Statement]
   deriving (Eq, Show)
 
 -- Dot-terminated top-level or block-level forms.

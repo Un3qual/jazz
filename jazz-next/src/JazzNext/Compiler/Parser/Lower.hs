@@ -4,10 +4,12 @@ module JazzNext.Compiler.Parser.Lower
 
 import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceLiteral (..),
     SurfaceStatement (..)
   )
 
@@ -16,8 +18,7 @@ import JazzNext.Compiler.Parser.AST
 lowerSurfaceExpr :: SurfaceExpr -> Expr
 lowerSurfaceExpr surfaceExpr =
   case surfaceExpr of
-    SEInt value -> EInt value
-    SEBool value -> EBool value
+    SELit literal -> ELit (lowerSurfaceLiteral literal)
     SEVar name -> EVar name
     SEList elements ->
       EList (map lowerSurfaceExpr elements)
@@ -37,7 +38,13 @@ lowerSurfaceExpr surfaceExpr =
       ESectionLeft (lowerSurfaceExpr leftExpr) operatorSymbol
     SESectionRight operatorSymbol rightExpr ->
       ESectionRight operatorSymbol (lowerSurfaceExpr rightExpr)
-    SEScope statements -> EScope (map lowerSurfaceStatement statements)
+    SEBlock statements -> EBlock (map lowerSurfaceStatement statements)
+
+lowerSurfaceLiteral :: SurfaceLiteral -> Literal
+lowerSurfaceLiteral literal =
+  case literal of
+    SLInt value -> LInt value
+    SLBool value -> LBool value
 
 lowerSurfaceStatement :: SurfaceStatement -> Statement
 lowerSurfaceStatement surfaceStatement =

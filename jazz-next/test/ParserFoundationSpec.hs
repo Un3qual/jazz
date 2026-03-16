@@ -5,6 +5,7 @@ module Main (main) where
 import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -15,6 +16,7 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceLiteral (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Lower
@@ -23,7 +25,7 @@ import JazzNext.Compiler.Parser.Lower
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
-    assertLeftContains,
+    assertLeftDiagnosticContains,
     assertRight,
     runTestSuite
   )
@@ -51,8 +53,8 @@ testParseLetAndExpr =
   assertEqual
     "surface AST"
     ( Right
-        ( SEScope
-            [ SSLet "x" (SourceSpan 1 1) (SEInt 1),
+        ( SEBlock
+            [ SSLet "x" (SourceSpan 1 1) (SELit (SLInt 1)),
               SSExpr (SourceSpan 2 1) (SEVar "x")
             ]
         )
@@ -66,8 +68,8 @@ testParseSurfaceProgramAcceptsTextInput = do
   assertEqual
     "surface AST from Text source"
     ( Right
-        ( SEScope
-            [ SSLet "x" (SourceSpan 1 1) (SEInt 1),
+        ( SEBlock
+            [ SSLet "x" (SourceSpan 1 1) (SELit (SLInt 1)),
               SSExpr (SourceSpan 2 1) (SEVar "x")
             ]
         )
@@ -79,9 +81,9 @@ testParseSignatureSpan =
   assertEqual
     "signature span"
     ( Right
-        ( SEScope
+        ( SEBlock
             [ SSSignature "x" (SourceSpan 1 1) "Int",
-              SSLet "x" (SourceSpan 2 1) (SEInt 1)
+              SSLet "x" (SourceSpan 2 1) (SELit (SLInt 1))
             ]
         )
     )
@@ -92,8 +94,8 @@ testIgnoresHashLineComments =
   assertEqual
     "comments ignored"
     ( Right
-        ( SEScope
-            [ SSLet "x" (SourceSpan 1 1) (SEInt 1),
+        ( SEBlock
+            [ SSLet "x" (SourceSpan 1 1) (SELit (SLInt 1)),
               SSExpr (SourceSpan 3 1) (SEVar "x")
             ]
         )
@@ -105,7 +107,7 @@ testTabAlignedExpressionSpan =
   assertEqual
     "tab-aligned span"
     ( Right
-        ( SEScope
+        ( SEBlock
             [ SSExpr (SourceSpan 1 9) (SEVar "x")
             ]
         )
@@ -115,13 +117,13 @@ testTabAlignedExpressionSpan =
 testParseNestedScopeExpression :: IO ()
 testParseNestedScopeExpression =
   assertEqual
-    "nested scope AST"
+    "nested block AST"
     ( Right
-        ( SEScope
-            [ SSLet "x" (SourceSpan 1 1) (SEInt 1),
+        ( SEBlock
+            [ SSLet "x" (SourceSpan 1 1) (SELit (SLInt 1)),
               SSExpr
                 (SourceSpan 2 1)
-                ( SEScope
+                ( SEBlock
                     [SSExpr (SourceSpan 2 3) (SEVar "x")]
                 )
             ]
@@ -137,35 +139,35 @@ testLowerSurfaceProgram =
     (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EScope
-        [ SLet "x" (SourceSpan 1 1) (EInt 1),
+      EBlock
+        [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
           SExpr (SourceSpan 2 1) (EVar "x")
         ]
 
 testRejectsMissingDotTerminator :: IO ()
 testRejectsMissingDotTerminator =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "missing dot error"
     "expected '.'"
     (parseSurfaceProgram "x = 1 y = 2.")
 
 testRejectsMissingSignatureDot :: IO ()
 testRejectsMissingSignatureDot =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "missing signature dot error"
     "expected '.'"
     (parseSurfaceProgram "x :: Int\nx = 1.")
 
 testRejectsIntOverflow :: IO ()
 testRejectsIntOverflow =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "integer overflow"
     "integer literal out of range"
     (parseSurfaceProgram "x = 9999999999999999999999999999999999999.")
 
 testRejectsNegativeLiteralSyntax :: IO ()
 testRejectsNegativeLiteralSyntax =
-  assertLeftContains
+  assertLeftDiagnosticContains
     "negative literal unsupported"
     "expected expression"
     (parseSurfaceProgram "x = -1.")

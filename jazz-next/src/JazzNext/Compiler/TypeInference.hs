@@ -19,6 +19,7 @@ import JazzNext.Compiler.Analyzer
   )
 import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
@@ -27,7 +28,9 @@ import JazzNext.Compiler.BuiltinCatalog
     lookupBuiltinSymbol
   )
 import JazzNext.Compiler.Diagnostics
-  ( WarningRecord
+  ( Diagnostic,
+    WarningRecord,
+    mkDiagnostic
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -37,7 +40,7 @@ import JazzNext.Compiler.WarningConfig
 data InferenceResult = InferenceResult
   { inferredExpr :: Expr,
     inferredWarnings :: [WarningRecord],
-    inferredErrors :: [Text]
+    inferredErrors :: [Diagnostic]
   }
   deriving (Eq, Show)
 
@@ -63,8 +66,7 @@ inferExpressionDefault = inferExpression defaultWarningSettings
 canonicalizeExpr :: Expr -> Expr
 canonicalizeExpr expr =
   case expr of
-    EInt value -> EInt value
-    EBool value -> EBool value
+    ELit literal -> ELit literal
     EVar name -> EVar name
     EList elements -> EList (map canonicalizeExpr elements)
     EApply functionExpr argumentExpr ->
@@ -88,7 +90,7 @@ canonicalizeExpr expr =
       ESectionLeft (canonicalizeExpr leftExpr) operatorSymbol
     ESectionRight operatorSymbol rightExpr ->
       ESectionRight operatorSymbol (canonicalizeExpr rightExpr)
-    EScope statements -> EScope (map canonicalizeStatement statements)
+    EBlock statements -> EBlock (map canonicalizeStatement statements)
 
 canonicalizeStatement :: Statement -> Statement
 canonicalizeStatement statement =
@@ -118,7 +120,7 @@ data InferState = InferState
     -- Type variables originating from strict-equality sections must eventually
     -- resolve to runtime-supported equality families.
     inferStrictEqualityVars :: Set Int,
-    inferErrorsRev :: [Text]
+    inferErrorsRev :: [Diagnostic]
   }
 
 initialInferState :: InferState
@@ -130,7 +132,7 @@ initialInferState =
       inferErrorsRev = []
     }
 
-collectExprTypeErrors :: Expr -> [Text]
+collectExprTypeErrors :: Expr -> [Diagnostic]
 collectExprTypeErrors expr =
   let (_, finalState) = inferExprType Map.empty initialInferState expr
    in reverse (inferErrorsRev finalState)
@@ -138,8 +140,7 @@ collectExprTypeErrors expr =
 inferExprType :: Map Text ExpressionType -> InferState -> Expr -> (Maybe ExpressionType, InferState)
 inferExprType env state expr =
   case expr of
-    EInt _ -> (Just TIntType, state)
-    EBool _ -> (Just TBoolType, state)
+    ELit literal -> (Just (literalExpressionType literal), state)
     EVar name ->
       case Map.lookup name env of
         Just localType -> (Just (resolveType state localType), state)
@@ -222,7 +223,13 @@ inferExprType env state expr =
             Just inferredRightType ->
               inferSectionRightType operatorSymbol inferredRightType stateAfterRight
             Nothing -> (Nothing, stateAfterRight)
-    EScope statements -> inferScopeType env state statements
+    EBlock statements -> inferScopeType env state statements
+
+literalExpressionType :: Literal -> ExpressionType
+literalExpressionType literal =
+  case literal of
+    LInt _ -> TIntType
+    LBool _ -> TBoolType
 
 inferListType :: Map Text ExpressionType -> InferState -> [Expr] -> (Maybe ExpressionType, InferState)
 inferListType env state elements =
@@ -675,7 +682,7 @@ occursInType typeVar expressionType =
       occursInType typeVar inputType || occursInType typeVar outputType
     TVarType otherVar -> typeVar == otherVar
 
-addTypeError :: InferState -> Text -> InferState
+addTypeError :: InferState -> Diagnostic -> InferState
 addTypeError state errorText =
   state {inferErrorsRev = errorText : inferErrorsRev state}
 
@@ -686,78 +693,100 @@ addStrictEqualityTypeVarConstraint typeVar state =
         Set.insert typeVar (inferStrictEqualityVars state)
     }
 
-mkBinaryTypeError :: Text -> ExpressionType -> ExpressionType -> Text
+mkBinaryTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
 mkBinaryTypeError operatorSymbol leftType rightType =
-  "E2003: cannot apply operator '"
-    <> operatorSymbol
-    <> "' to operands of type "
-    <> renderType leftType
-    <> " and "
-    <> renderType rightType
+  mkDiagnostic
+    "E2003"
+    ( "cannot apply operator '"
+        <> operatorSymbol
+        <> "' to operands of type "
+        <> renderType leftType
+        <> " and "
+        <> renderType rightType
+    )
 
-mkStrictEqualityTypeError :: Text -> ExpressionType -> ExpressionType -> Text
+mkStrictEqualityTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
 mkStrictEqualityTypeError operatorSymbol leftType rightType =
-  "E2004: strict equality operator '"
-    <> operatorSymbol
-    <> "' requires operands of the same type, found "
-    <> renderType leftType
-    <> " and "
-    <> renderType rightType
+  mkDiagnostic
+    "E2004"
+    ( "strict equality operator '"
+        <> operatorSymbol
+        <> "' requires operands of the same type, found "
+        <> renderType leftType
+        <> " and "
+        <> renderType rightType
+    )
 
-mkStrictEqualityUnsupportedTypeError :: Text -> ExpressionType -> Text
+mkStrictEqualityUnsupportedTypeError :: Text -> ExpressionType -> Diagnostic
 mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
-  "E2004: strict equality operator '"
-    <> operatorSymbol
-    <> "' is only supported for Int and Bool operands, found "
-    <> renderType foundType
+  mkDiagnostic
+    "E2004"
+    ( "strict equality operator '"
+        <> operatorSymbol
+        <> "' is only supported for Int and Bool operands, found "
+        <> renderType foundType
+    )
 
-mkSignatureTypeMismatchError :: Text -> ExpressionType -> ExpressionType -> Text
+mkSignatureTypeMismatchError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
 mkSignatureTypeMismatchError bindingName declaredType inferredType =
-  "E2005: binding '"
-    <> bindingName
-    <> "' declared as "
-    <> renderType declaredType
-    <> " but inferred as "
-    <> renderType inferredType
+  mkDiagnostic
+    "E2005"
+    ( "binding '"
+        <> bindingName
+        <> "' declared as "
+        <> renderType declaredType
+        <> " but inferred as "
+        <> renderType inferredType
+    )
 
-mkApplyTypeError :: ExpressionType -> ExpressionType -> Text
+mkApplyTypeError :: ExpressionType -> ExpressionType -> Diagnostic
 mkApplyTypeError functionType argumentType =
-  "E2006: cannot apply function of type "
-    <> renderType functionType
-    <> " to argument of type "
-    <> renderType argumentType
+  mkDiagnostic
+    "E2006"
+    ( "cannot apply function of type "
+        <> renderType functionType
+        <> " to argument of type "
+        <> renderType argumentType
+    )
 
-mkListElementTypeMismatchError :: ExpressionType -> ExpressionType -> Text
+mkListElementTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkListElementTypeMismatchError expectedType foundType =
-  "E2007: list literal elements must have matching types, found "
-    <> renderType expectedType
-    <> " and "
-    <> renderType foundType
+  mkDiagnostic
+    "E2007"
+    ( "list literal elements must have matching types, found "
+        <> renderType expectedType
+        <> " and "
+        <> renderType foundType
+    )
 
-mkUnsupportedSectionOperatorError :: Text -> Text
+mkUnsupportedSectionOperatorError :: Text -> Diagnostic
 mkUnsupportedSectionOperatorError operatorSymbol =
-  "E2008: unsupported operator section '"
-    <> operatorSymbol
-    <> "'"
+  mkDiagnostic "E2008" ("unsupported operator section '" <> operatorSymbol <> "'")
 
-mkInvalidSignatureTypeError :: Text -> Text -> Text
+mkInvalidSignatureTypeError :: Text -> Text -> Diagnostic
 mkInvalidSignatureTypeError symbol rawSignature =
-  "E2009: invalid or unsupported signature for '"
-    <> symbol
-    <> "': '"
-    <> rawSignature
-    <> "'"
+  mkDiagnostic
+    "E2009"
+    ( "invalid or unsupported signature for '"
+        <> symbol
+        <> "': '"
+        <> rawSignature
+        <> "'"
+    )
 
-mkIfConditionTypeError :: ExpressionType -> Text
+mkIfConditionTypeError :: ExpressionType -> Diagnostic
 mkIfConditionTypeError foundType =
-  "E2001: if condition must have type Bool, found " <> renderType foundType
+  mkDiagnostic "E2001" ("if condition must have type Bool, found " <> renderType foundType)
 
-mkIfBranchTypeMismatchError :: ExpressionType -> ExpressionType -> Text
+mkIfBranchTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkIfBranchTypeMismatchError leftType rightType =
-  "E2002: if branches must have matching types, found "
-    <> renderType leftType
-    <> " and "
-    <> renderType rightType
+  mkDiagnostic
+    "E2002"
+    ( "if branches must have matching types, found "
+        <> renderType leftType
+        <> " and "
+        <> renderType rightType
+    )
 
 renderType :: ExpressionType -> Text
 renderType expressionType =

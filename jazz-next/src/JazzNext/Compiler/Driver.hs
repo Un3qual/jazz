@@ -26,7 +26,12 @@ import JazzNext.Compiler.AST
   ( Expr
   )
 import JazzNext.Compiler.Diagnostics
-  ( WarningRecord (..)
+  ( Diagnostic,
+    RenderDiagnostic (..),
+    WarningRecord (..),
+    mkDiagnostic,
+    prependDiagnosticSummary,
+    setDiagnosticCode
   )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
@@ -60,15 +65,15 @@ import JazzNext.Compiler.WarningConfig
 
 data CompileResult = CompileResult
   { compileWarnings :: [WarningRecord],
-    compileErrors :: [Text],
+    compileErrors :: [Diagnostic],
     generatedJs :: Maybe Text
   }
   deriving (Eq, Show)
 
 data RunResult = RunResult
   { runWarnings :: [WarningRecord],
-    runCompileErrors :: [Text],
-    runRuntimeErrors :: [Text],
+    runCompileErrors :: [Diagnostic],
+    runRuntimeErrors :: [Diagnostic],
     runOutput :: Maybe Text
   }
   deriving (Eq, Show)
@@ -199,7 +204,7 @@ runModuleGraphWithPrelude settings preludeSource resolutionConfig entryModulePat
     Right sourceText ->
       runSourceWithPrelude settings preludeSource sourceText
 
-analyzeWithWarnings :: WarningSettings -> Expr -> IO ([WarningRecord], [Text], Expr)
+analyzeWithWarnings :: WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr)
 analyzeWithWarnings settings expr = do
   inference <- inferExpression settings expr
   let warnings = filterWarningsForPromotion settings (inferredWarnings inference)
@@ -215,26 +220,23 @@ filterWarningsForPromotion _ = id
 isPromoted :: WarningSettings -> WarningRecord -> Bool
 isPromoted settings warning = isWarningError settings (warningCategory warning)
 
-warningToError :: WarningRecord -> Text
-warningToError warning =
-  warningCodeText warning
-    <> ": "
-    <> warningMessage warning
+warningToError :: WarningRecord -> Diagnostic
+warningToError = toDiagnostic
 
-parseAndLowerSource :: Maybe Text -> Text -> Either Text Expr
+parseAndLowerSource :: Maybe Text -> Text -> Either Diagnostic Expr
 parseAndLowerSource preludeSource source = do
   validatePrelude preludeSource
   surfaceProgram <- parseSurfaceWithErrorCode (composeSource preludeSource source)
   pure (lowerSurfaceExpr surfaceProgram)
 
-validatePrelude :: Maybe Text -> Either Text ()
+validatePrelude :: Maybe Text -> Either Diagnostic ()
 validatePrelude preludeSource =
   case preludeSource of
     Nothing -> Right ()
     Just preludeText ->
       case parseSurfaceProgram preludeText of
         Left parseError ->
-          Left ("E0002: prelude parse error: " <> parseError)
+          Left (setDiagnosticCode "E0002" (prependDiagnosticSummary "prelude parse error: " parseError))
         Right preludeSurfaceExpr ->
           case validatePreludeKernelBridges (lowerSurfaceExpr preludeSurfaceExpr) of
             [] -> Right ()
@@ -249,11 +251,11 @@ composeSource preludeSource source =
         then preludeText
         else preludeText <> "\n" <> source
 
-parseSurfaceWithErrorCode :: Text -> Either Text SurfaceExpr
+parseSurfaceWithErrorCode :: Text -> Either Diagnostic SurfaceExpr
 parseSurfaceWithErrorCode source =
   case parseSurfaceProgram source of
     Left parseError ->
-      Left ("E0001: parse error: " <> parseError)
+      Left (setDiagnosticCode "E0001" (prependDiagnosticSummary "parse error: " parseError))
     Right surfaceProgram ->
       Right surfaceProgram
 
@@ -261,7 +263,7 @@ loadModuleGraphSource ::
   ModuleResolutionConfig ->
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
-  IO (Either Text Text)
+  IO (Either Diagnostic Text)
 loadModuleGraphSource resolutionConfig entryModulePath sourceLookup = do
   memoizedSourceLookup <- memoizeSourceLookup sourceLookup
   resolutionResult <-
@@ -276,7 +278,7 @@ loadModuleGraphSource resolutionConfig entryModulePath sourceLookup = do
 replayResolvedSources ::
   [ResolvedModule] ->
   (FilePath -> IO (Maybe Text)) ->
-  IO (Either Text [Text])
+  IO (Either Diagnostic [Text])
 replayResolvedSources resolvedModules sourceLookup =
   go [] resolvedModules
   where
@@ -289,11 +291,14 @@ replayResolvedSources resolvedModules sourceLookup =
             Nothing ->
               pure
                 ( Left
-                    ( "E4001: unresolved import '"
-                        <> renderModulePath (resolvedModulePath resolvedModule)
-                        <> "'; expected source at '"
-                        <> Text.pack (resolvedSourcePath resolvedModule)
-                        <> "'"
+                    ( mkDiagnostic
+                        "E4001"
+                        ( "unresolved import '"
+                            <> renderModulePath (resolvedModulePath resolvedModule)
+                            <> "'; expected source at '"
+                            <> Text.pack (resolvedSourcePath resolvedModule)
+                            <> "'"
+                        )
                     )
                 )
             Just sourceText ->
