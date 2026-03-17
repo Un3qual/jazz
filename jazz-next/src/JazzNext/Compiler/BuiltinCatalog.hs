@@ -7,10 +7,13 @@ module JazzNext.Compiler.BuiltinCatalog
     builtinSymbolOwnership,
     builtinSymbolArity,
     builtinSymbolName,
+    builtinKernelBridgeName,
     kernelBridgeBindingPrefix,
     kernelBridgeTargetName,
     isBuiltinSymbolName,
-    lookupBuiltinSymbol
+    isKernelBridgeBuiltinName,
+    lookupBuiltinSymbol,
+    lookupKernelBridgeBuiltinSymbol
   ) where
 
 import Data.Text (Text)
@@ -54,6 +57,10 @@ builtinSymbolName builtinSymbol =
     BuiltinTl -> "tl"
     BuiltinPrint -> "print!"
 
+builtinKernelBridgeName :: BuiltinSymbol -> Text
+builtinKernelBridgeName builtinSymbol =
+  kernelBridgeBindingPrefix <> builtinSymbolName builtinSymbol
+
 builtinSymbolArity :: BuiltinSymbol -> Int
 builtinSymbolArity builtinSymbol =
   case builtinSymbol of
@@ -91,5 +98,17 @@ lookupBuiltinSymbol name =
 isBuiltinSymbolName :: Text -> Bool
 isBuiltinSymbolName name =
   case lookupBuiltinSymbol name of
+    Just _ -> True
+    Nothing -> False
+
+lookupKernelBridgeBuiltinSymbol :: Text -> Maybe BuiltinSymbol
+lookupKernelBridgeBuiltinSymbol bridgeName =
+  case kernelBridgeTargetName bridgeName of
+    Just publicName -> lookupBuiltinSymbol publicName
+    Nothing -> Nothing
+
+isKernelBridgeBuiltinName :: Text -> Bool
+isKernelBridgeBuiltinName bridgeName =
+  case lookupKernelBridgeBuiltinSymbol bridgeName of
     Just _ -> True
     Nothing -> False

@@ -1,8 +1,8 @@
 # Standard Library Boundary
 
-Status: active (phase 4 migration scaffolding in progress)
+Status: active (phase 4 public-builtin migration implemented; phase 5 closure still pending)
 Locked decisions (initial `jazz-next` contract): 2026-03-04
-Updated: 2026-03-05
+Updated: 2026-03-16
 Primary plan: `docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md`
 
 ## Purpose
@@ -23,24 +23,27 @@ planned.
 3. `jazz-next` now supports a bundled default prelude load path in CLI mode:
    - resolution order: `--prelude` flag > `JAZZ_PRELUDE` env > bundled default path.
    - `--no-prelude` disables all prelude loading.
-4. Kernel symbol lookup remains available during the compatibility window while
-   prelude-owned defaults are rolled out.
+4. Direct compiler/runtime fallback is restricted to `__kernel_*` bridge names;
+   public names such as `map` and `print!` now come from the prelude path.
+5. Raw library helpers (`compileSource`, `runSource`) remain no-prelude
+   low-level APIs; user-facing default behavior is the CLI path with bundled
+   prelude loading enabled.
 
 ## Kernel Catalog (Current `jazz-next` Runtime Subset)
 
 | Symbol | Arity | Type Contract | Current Owner | Migration Target |
 | --- | --- | --- | --- | --- |
-| `map` | `2` | `(a -> b) -> [a] -> [b]` | kernel builtin + bundled prelude alias | prelude-owned API (remove direct kernel alias after parity) |
-| `filter` | `2` | `(a -> Bool) -> [a] -> [a]` | kernel builtin + bundled prelude alias | prelude-owned API (remove direct kernel alias after parity) |
-| `hd` | `1` | `[a] -> a` | kernel builtin + bundled prelude alias | prelude-owned API (remove direct kernel alias after parity) |
-| `tl` | `1` | `[a] -> [a]` | kernel builtin + bundled prelude alias | prelude-owned API (remove direct kernel alias after parity) |
-| `print!` | `1` | `a -> a` (stub-v1) | kernel builtin + bundled prelude alias | prelude-owned impure API after effect-system follow-up |
+| `map` | `2` | `(a -> b) -> [a] -> [b]` | `__kernel_map` bridge + bundled prelude alias | prelude-owned API (remove direct kernel bridge after parity) |
+| `filter` | `2` | `(a -> Bool) -> [a] -> [a]` | `__kernel_filter` bridge + bundled prelude alias | prelude-owned API (remove direct kernel bridge after parity) |
+| `hd` | `1` | `[a] -> a` | `__kernel_hd` bridge + bundled prelude alias | prelude-owned API (remove direct kernel bridge after parity) |
+| `tl` | `1` | `[a] -> [a]` | `__kernel_tl` bridge + bundled prelude alias | prelude-owned API (remove direct kernel bridge after parity) |
+| `print!` | `1` | `a -> a` (stub-v1) | `__kernel_print!` bridge + bundled prelude alias | prelude-owned impure API after effect-system follow-up |
 
 ## Bundled Prelude Contract
 
 - Bundled prelude path: `jazz-next/stdlib/Prelude.jz`
-- Current bridge declarations use the `__kernel_` prefix and must satisfy
-  `PreludeContract` validation.
+- Current bundled exports must alias the matching `__kernel_*` bridge names and
+  satisfy `PreludeContract` validation.
 - Current bundled exports/aliases are:
   - `map`, `filter`, `hd`, `tl`, `print!`
 - Catalog ownership metadata (`PreludeTarget` vs future intrinsic-only entries)
@@ -64,18 +67,20 @@ for builtin symbol identity, names, and arities.
 
 Required invariants:
 
-1. Analyzer builtin visibility must derive from the shared catalog.
+1. Analyzer direct builtin visibility must derive from the shared catalog's
+   `__kernel_*` bridge names only.
 2. Type inference builtin type instantiation must dispatch by shared catalog
    symbol, not duplicated string lists.
-3. Runtime builtin lookup/arity must dispatch by shared catalog symbol.
+3. Runtime builtin lookup/arity must dispatch by shared catalog symbol and only
+   through direct `__kernel_*` bridge references.
 4. Tests must fail if catalog entries drift from compile/runtime behavior.
 
 ## Compatibility Window Policy
 
-1. Current mode is `bundled-prelude-by-default` in CLI paths, with kernel alias
-   compatibility still enabled.
-2. Kernel aliases remain valid until parity tests pass and migration gates are
-   closed.
+1. Current mode is `bundled-prelude-by-default` in CLI paths, with kernel bridge
+   compatibility still enabled through `__kernel_*` names only.
+2. Direct `__kernel_*` bridge names remain valid until parity tests pass and
+   migration gates are closed.
 3. Removal of kernel aliases requires:
    - prelude load path enabled in default compile/run pipeline,
    - parity tests for compile and runtime behavior,

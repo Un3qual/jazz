@@ -13,7 +13,7 @@ Jazz is a functional language that takes inspiration from Elixir and Haskell. I 
 - Immutable bindings
 - First-class functions
 - Functions are curried by default
-- Basic list runtime helpers (`map`, `hd`, `tl`)
+- Bundled-prelude runtime helpers (`map`, `filter`, `hd`, `tl`, `print!`) in the active CLI/run path
 - Stub purity enforcement for direct `!` callee calls in binding bodies
 - Dot-terminated source forms and lambda syntax
 
@@ -43,6 +43,8 @@ Implementation baseline details: [docs/jazz-language-state.md](docs/jazz-languag
 #### Implemented Today
 
 #### Hello World
+
+`jazz-next` loads its bundled prelude by default in CLI mode, so user-facing helpers such as `print!`, `map`, `filter`, `hd`, and `tl` come from that prelude rather than from direct compiler-owned names.
 
 ##### Jazz
 

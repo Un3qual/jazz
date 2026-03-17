@@ -420,7 +420,7 @@ Based on the full repo, these areas still require implementation convergence eve
   - `docs/spec/tooling/compiler-warning-flags.md`
 - Whether tuples are a core runtime feature or just parsed syntax in active implementation behavior.
 - Module/import loading semantics are partially implemented in `jazz-next` (`--entry-module` + deterministic resolver diagnostics), but qualified-import binding/collision semantics are still unresolved.
-- Standard-library boundary migration remains in progress: ownership contract is documented in `docs/spec/stdlib-boundary.md`, `jazz-next` CLI now resolves preludes in the order `--prelude` > `JAZZ_PRELUDE` > bundled `jazz-next/stdlib/Prelude.jz`, and compatibility kernel aliases (`map`/`filter`/`hd`/`tl`/`print!`) are still available pending final removal gates.
+- Standard-library boundary migration remains in progress: ownership contract is documented in `docs/spec/stdlib-boundary.md`, `jazz-next` CLI resolves preludes in the order `--prelude` > `JAZZ_PRELUDE` > bundled `jazz-next/stdlib/Prelude.jz`, public helper names (`map`/`filter`/`hd`/`tl`/`print!`) now come from the prelude path, and direct compiler/runtime fallback is restricted to internal `__kernel_*` bridge names pending final removal gates.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
 - Whether the eventual target is JavaScript, LLVM, or both.
 
@@ -438,8 +438,9 @@ If you need a practical baseline for continuing Jazz, use this order:
    - application and list literals
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
    - built-in operator fixity plus executable left/right section semantics
-   - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, `map`, `filter`, `hd`, `tl`, `print!`
+   - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, plus prelude-provided public helpers `map`, `filter`, `hd`, `tl`, `print!`
    - runtime execution via `--run` CLI mode plus compile-mode placeholder codegen output
+   - bundled-prelude loading by default in CLI paths, while raw `compileSource` / `runSource` remain explicit no-prelude helpers
 
 ## Hybrid Semantic-Change Workflow
 

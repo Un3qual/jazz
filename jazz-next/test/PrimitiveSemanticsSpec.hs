@@ -13,7 +13,8 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     compileExpr,
-    compileSource
+    compileSource,
+    compileSourceWithPrelude
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -111,61 +112,61 @@ testRejectsArithmeticTypeMismatch = do
 
 testSourcePipelineAcceptsHdListLiteral :: IO ()
 testSourcePipelineAcceptsHdListLiteral =
-  assertCompiles "x = hd [1, 2, 3]."
+  assertCompilesWithBundledPrelude "x = hd [1, 2, 3]."
 
 testSourcePipelineAcceptsMapHdNestedLists :: IO ()
 testSourcePipelineAcceptsMapHdNestedLists =
-  assertCompiles "x = map hd [[1, 2], [3], [4, 5]]."
+  assertCompilesWithBundledPrelude "x = map hd [[1, 2], [3], [4, 5]]."
 
 testSourcePipelineAcceptsFilterListLiteral :: IO ()
 testSourcePipelineAcceptsFilterListLiteral =
-  assertCompiles "x = filter (> 1) [1, 2, 3]."
+  assertCompilesWithBundledPrelude "x = filter (> 1) [1, 2, 3]."
 
 testSourcePipelineRejectsHdNonListArgument :: IO ()
 testSourcePipelineRejectsHdNonListArgument =
-  assertCompileError
+  assertCompileErrorWithBundledPrelude
     "x = hd 1."
     "hd argument type mismatch"
     "E2006"
 
 testSourcePipelineRejectsTlNonListArgument :: IO ()
 testSourcePipelineRejectsTlNonListArgument =
-  assertCompileError
+  assertCompileErrorWithBundledPrelude
     "x = tl 1."
     "tl argument type mismatch"
     "E2006"
 
 testSourcePipelineRejectsMapNonFunctionMapper :: IO ()
 testSourcePipelineRejectsMapNonFunctionMapper =
-  assertCompileError
+  assertCompileErrorWithBundledPrelude
     "x = map 1 [1, 2]."
     "map mapper type mismatch"
     "E2006"
 
 testSourcePipelineRejectsMapNonListCollection :: IO ()
 testSourcePipelineRejectsMapNonListCollection =
-  assertCompileError
+  assertCompileErrorWithBundledPrelude
     "x = map hd 1."
     "map collection type mismatch"
     "E2006"
 
 testSourcePipelineRejectsFilterNonFunctionPredicate :: IO ()
 testSourcePipelineRejectsFilterNonFunctionPredicate =
-  assertCompileError
+  assertCompileErrorWithBundledPrelude
     "x = filter 1 [1, 2]."
     "filter predicate type mismatch"
     "E2006"
 
 testSourcePipelineRejectsFilterNonListCollection :: IO ()
 testSourcePipelineRejectsFilterNonListCollection =
-  assertCompileError
+  assertCompileErrorWithBundledPrelude
     "x = filter (> 1) 1."
     "filter collection type mismatch"
     "E2006"
 
 testSourcePipelineRejectsFilterPredicateNonBoolResult :: IO ()
 testSourcePipelineRejectsFilterPredicateNonBoolResult =
-  assertCompileError
+  assertCompileErrorWithBundledPrelude
     "x = filter (+ 1) [1, 2]."
     "filter predicate non-bool mismatch"
     "E2006"
@@ -176,11 +177,11 @@ testSourcePipelineAcceptsEqualitySection =
 
 testSourcePipelineAcceptsDeferredLeftEqualitySection :: IO ()
 testSourcePipelineAcceptsDeferredLeftEqualitySection =
-  assertCompiles "x = (hd [] ==) 1."
+  assertCompilesWithBundledPrelude "x = (hd [] ==) 1."
 
 testSourcePipelineAcceptsDeferredRightEqualitySection :: IO ()
 testSourcePipelineAcceptsDeferredRightEqualitySection =
-  assertCompiles "x = (== hd []) 1."
+  assertCompilesWithBundledPrelude "x = (== hd []) 1."
 
 testSourcePipelineRejectsArithmeticSectionTypeMismatch :: IO ()
 testSourcePipelineRejectsArithmeticSectionTypeMismatch =
@@ -198,7 +199,7 @@ testSourcePipelineRejectsEqualitySectionTypeMismatch =
 
 testSourcePipelineRejectsDeferredEqualitySectionListConstraint :: IO ()
 testSourcePipelineRejectsDeferredEqualitySectionListConstraint =
-  assertCompileError
+  assertCompileErrorWithBundledPrelude
     "x = (hd [] ==) []."
     "deferred equality section must still reject unsupported concrete operand family"
     "E2006"
@@ -230,6 +231,12 @@ assertCompiles source = do
   assertEqual "compile errors" [] (compileErrors result)
   assertJust "generated JS is present" (generatedJs result)
 
+assertCompilesWithBundledPrelude :: String -> IO ()
+assertCompilesWithBundledPrelude source = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just bundledPreludeSource) (Text.pack source)
+  assertEqual "compile errors" [] (compileErrors result)
+  assertJust "generated JS is present" (generatedJs result)
+
 assertCompileError :: String -> String -> String -> IO ()
 assertCompileError source failureLabel errorCode = do
   result <- compileSource defaultWarningSettings (Text.pack source)
@@ -237,6 +244,22 @@ assertCompileError source failureLabel errorCode = do
     (Text.pack failureLabel)
     (Text.pack errorCode)
     (compileErrors result)
+
+assertCompileErrorWithBundledPrelude :: String -> String -> String -> IO ()
+assertCompileErrorWithBundledPrelude source failureLabel errorCode = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just bundledPreludeSource) (Text.pack source)
+  assertSingleErrorContains
+    (Text.pack failureLabel)
+    (Text.pack errorCode)
+    (compileErrors result)
+
+bundledPreludeSource :: Text.Text
+bundledPreludeSource =
+  "map = __kernel_map.\n\
+  \filter = __kernel_filter.\n\
+  \hd = __kernel_hd.\n\
+  \tl = __kernel_tl.\n\
+  \print! = __kernel_print!."
 
 mkProgram :: Expr -> Expr
 mkProgram expr =

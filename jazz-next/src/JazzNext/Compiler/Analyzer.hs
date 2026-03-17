@@ -20,7 +20,7 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
-  ( isBuiltinSymbolName
+  ( isKernelBridgeBuiltinName
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan,
@@ -87,7 +87,7 @@ collectExprDiagnostics settings visibleBindings context expr =
       case Map.lookup name visibleBindings of
         Just _ -> ([], [])
         Nothing
-          | isBuiltinSymbolName name -> ([], [])
+          | isKernelBridgeBuiltinName name -> ([], [])
           | otherwise -> ([], [mkUnboundVariableError name])
     EList elements ->
       collectExprListDiagnostics settings visibleBindings context elements
@@ -353,7 +353,7 @@ shouldRejectImpureCall visibleBindings context calleeName =
   where
     isKnownImpureCallee =
       isImpureName calleeName
-        && (Map.member calleeName visibleBindings || isBuiltinSymbolName calleeName)
+        && (Map.member calleeName visibleBindings || isKernelBridgeBuiltinName calleeName)
 
 mkImpureCallInPureContextError ::
   AnalysisContext ->

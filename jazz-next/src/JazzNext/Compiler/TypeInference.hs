@@ -24,7 +24,7 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinSymbol,
     builtinSymbolName,
-    lookupBuiltinSymbol
+    lookupKernelBridgeBuiltinSymbol
   )
 import JazzNext.Compiler.Diagnostics
   ( WarningRecord
@@ -558,7 +558,7 @@ parseSignatureType signatureText =
 
 instantiateBuiltinType :: Text -> InferState -> Maybe (ExpressionType, InferState)
 instantiateBuiltinType name state =
-  case lookupBuiltinSymbol name of
+  case lookupKernelBridgeBuiltinSymbol name of
     Just builtinSymbol -> instantiateBuiltinSymbolType builtinSymbol state
     Nothing -> Nothing
 

@@ -4,8 +4,6 @@ module JazzNext.Compiler.PreludeContract
   ( validatePreludeKernelBridges
   ) where
 
-import Data.Set (Set)
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
@@ -13,9 +11,10 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
-  ( isBuiltinSymbolName,
+  ( builtinKernelBridgeName,
     kernelBridgeBindingPrefix,
-    kernelBridgeTargetName
+    kernelBridgeTargetName,
+    lookupBuiltinSymbol
   )
 
 -- Validates explicit prelude bridge declarations that map prelude-visible
@@ -24,64 +23,80 @@ validatePreludeKernelBridges :: Expr -> [Text]
 validatePreludeKernelBridges preludeExpr =
   case preludeExpr of
     EScope statements ->
-      fst (foldl validateStatement ([], Set.empty) statements)
+      concatMap validateStatement statements
     _ -> []
   where
-    validateStatement :: ([Text], Set Text) -> Statement -> ([Text], Set Text)
-    validateStatement (diagnostics, seenBindings) statement =
+    validateStatement :: Statement -> [Text]
+    validateStatement statement =
       case statement of
-        SLet bindingName _ bindingExpr ->
-          let statementDiagnostics = validateBridge seenBindings bindingName bindingExpr
-              seenBindings' = Set.insert bindingName seenBindings
-           in (diagnostics <> statementDiagnostics, seenBindings')
-        _ -> (diagnostics, seenBindings)
+        SLet bindingName _ bindingExpr -> validateBinding bindingName bindingExpr
+        _ -> []
 
-    validateBridge :: Set Text -> Text -> Expr -> [Text]
-    validateBridge seenBindings bindingName bindingExpr =
-      case kernelBridgeTargetName bindingName of
+    validateBinding :: Text -> Expr -> [Text]
+    validateBinding bindingName bindingExpr
+      | kernelBridgeBindingPrefix `Text.isPrefixOf` bindingName =
+          [ "E0005: prelude must not redefine kernel bridge symbol '"
+              <> bindingName
+              <> "' directly"
+          ]
+      | otherwise =
+          case lookupBuiltinSymbol bindingName of
+            Nothing -> []
+            Just builtinSymbol ->
+              validateBuiltinAlias bindingName (builtinKernelBridgeName builtinSymbol) bindingExpr
+
+    validateBuiltinAlias :: Text -> Text -> Expr -> [Text]
+    validateBuiltinAlias bindingName expectedKernelBridge bindingExpr =
+      case bindingExpr of
+        EVar rhsName
+          | rhsName == expectedKernelBridge ->
+              []
+          | otherwise ->
+              validateKernelReference bindingName expectedKernelBridge rhsName
+        _ ->
+          [ "E0005: prelude builtin alias '"
+              <> bindingName
+              <> "' must be a direct kernel reference to '"
+              <> expectedKernelBridge
+              <> "'"
+          ]
+
+    validateKernelReference :: Text -> Text -> Text -> [Text]
+    validateKernelReference bindingName expectedKernelBridge rhsName =
+      case kernelBridgeTargetName rhsName of
         Nothing
-          | kernelBridgeBindingPrefix `Text.isPrefixOf` bindingName ->
-              [ "E0005: prelude kernel bridge '"
-                  <> bindingName
+          | kernelBridgeBindingPrefix `Text.isPrefixOf` rhsName ->
+              [ "E0005: prelude kernel bridge reference '"
+                  <> rhsName
                   <> "' must include a non-empty kernel symbol suffix after '"
                   <> kernelBridgeBindingPrefix
                   <> "'"
               ]
-          | otherwise -> []
-        Just targetName
-          | not (isBuiltinSymbolName targetName) ->
-              [ "E0004: prelude kernel bridge '"
+          | otherwise ->
+              [ "E0005: prelude builtin alias '"
+                  <> bindingName
+                  <> "' must be a direct kernel reference to '"
+                  <> expectedKernelBridge
+                  <> "'"
+              ]
+        Just targetName ->
+          case lookupBuiltinSymbol targetName of
+            Nothing ->
+              [ "E0004: prelude builtin alias '"
                   <> bindingName
                   <> "' references unknown kernel symbol '"
                   <> targetName
                   <> "'"
               ]
-          | otherwise ->
-              case bindingExpr of
-                EVar rhsName
-                  | rhsName /= targetName ->
-                      [ "E0005: prelude kernel bridge '"
-                          <> bindingName
-                          <> "' must reference kernel symbol '"
-                          <> targetName
-                          <> "', found '"
-                          <> rhsName
-                          <> "'"
-                      ]
-                  | targetName `Set.member` seenBindings ->
-                      [ "E0005: prelude kernel bridge '"
-                          <> bindingName
-                          <> "' must reference canonical kernel symbol '"
-                          <> targetName
-                          <> "', but '"
-                          <> targetName
-                          <> "' was rebound earlier in prelude scope"
-                      ]
-                  | otherwise -> []
-                _ ->
-                  [ "E0005: prelude kernel bridge '"
+            Just _
+              | rhsName /= expectedKernelBridge ->
+                  [ "E0005: prelude builtin alias '"
                       <> bindingName
-                      <> "' must be a direct symbol reference to '"
-                      <> targetName
+                      <> "' must reference matching kernel symbol '"
+                      <> expectedKernelBridge
+                      <> "', found '"
+                      <> rhsName
                       <> "'"
                   ]
+              | otherwise ->
+                  []

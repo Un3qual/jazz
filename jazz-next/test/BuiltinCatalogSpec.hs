@@ -53,8 +53,9 @@ tests =
     ("catalog ownership contract is stable", testCatalogOwnershipContract),
     ("kernel bridge names map to builtin targets", testKernelBridgeTargetName),
     ("kernel bridge prefix stays stable", testKernelBridgePrefix),
-    ("compile pipeline treats catalog builtins as bound names", testCompilePipelineTreatsCatalogBuiltinsAsBound),
-    ("runtime exposes catalog builtins as callable values", testRuntimeExposesCatalogBuiltinsAsFunctions),
+    ("compile pipeline rejects public builtin names without prelude", testCompilePipelineRejectsPublicBuiltinsWithoutPrelude),
+    ("compile pipeline treats kernel bridge builtins as bound names", testCompilePipelineTreatsKernelBridgeBuiltinsAsBound),
+    ("runtime exposes kernel bridge builtins as callable values", testRuntimeExposesKernelBridgeBuiltinsAsFunctions),
     ("builtin over-application reports runtime failure after saturation", testRuntimeBuiltinOverApplicationFails)
   ]
 
@@ -110,20 +111,35 @@ testKernelBridgePrefix :: IO ()
 testKernelBridgePrefix =
   assertEqual "kernel bridge prefix" "__kernel_" kernelBridgeBindingPrefix
 
-testCompilePipelineTreatsCatalogBuiltinsAsBound :: IO ()
-testCompilePipelineTreatsCatalogBuiltinsAsBound =
+testCompilePipelineRejectsPublicBuiltinsWithoutPrelude :: IO ()
+testCompilePipelineRejectsPublicBuiltinsWithoutPrelude =
+  mapM_ assertBuiltinRejected expectedBuiltins
+  where
+    assertBuiltinRejected (_, name, _, _) = do
+      result <- compileSource defaultWarningSettings ("x = " <> name <> ".")
+      assertLeftContains
+        ("public builtin requires prelude for " <> name)
+        "E1001"
+        (case compileErrors result of
+            [] -> Right ()
+            errorsOut -> Left (Text.intercalate "\n" errorsOut))
+
+testCompilePipelineTreatsKernelBridgeBuiltinsAsBound :: IO ()
+testCompilePipelineTreatsKernelBridgeBuiltinsAsBound =
   mapM_ assertBuiltinCompiles expectedBuiltins
   where
     assertBuiltinCompiles (_, name, _, _) = do
-      result <- compileSource defaultWarningSettings ("x = " <> name <> ".")
-      assertEqual ("compile errors for " <> name) [] (compileErrors result)
+      let bridgeName = bridgeBindingName name
+      result <- compileSource defaultWarningSettings ("x = " <> bridgeName <> ".")
+      assertEqual ("compile errors for " <> bridgeName) [] (compileErrors result)
 
-testRuntimeExposesCatalogBuiltinsAsFunctions :: IO ()
-testRuntimeExposesCatalogBuiltinsAsFunctions =
+testRuntimeExposesKernelBridgeBuiltinsAsFunctions :: IO ()
+testRuntimeExposesKernelBridgeBuiltinsAsFunctions =
   mapM_ assertBuiltinRuns expectedBuiltins
   where
     assertBuiltinRuns (_, name, _, _) = do
-      result <- runSource defaultWarningSettings (name <> ".")
+      let bridgeName = bridgeBindingName name
+      result <- runSource defaultWarningSettings (bridgeName <> ".")
       assertEqual ("compile errors for " <> name) [] (runCompileErrors result)
       assertEqual ("runtime errors for " <> name) [] (runRuntimeErrors result)
       assertEqual ("runtime output for " <> name) (Just "<function>") (runOutput result)
@@ -133,45 +149,53 @@ testRuntimeBuiltinOverApplicationFails =
   mapM_ assertOverApplicationFails expectedBuiltins
   where
     assertOverApplicationFails (_, name, _, _) = do
-      let expr = overAppliedBuiltinExpr name
+      let expr = overAppliedBuiltinExpr (bridgeBindingName name)
       assertLeftContains
         ("over-application runtime error for " <> name)
         "E3008"
         (evaluateRuntimeExpr expr)
+
+bridgeBindingName :: Text -> Text
+bridgeBindingName name = kernelBridgeBindingPrefix <> name
 
 -- Apply one extra argument after a builtin is fully saturated. Runtime should
 -- reject application of the resulting non-function value.
 overAppliedBuiltinExpr :: Text -> Expr
 overAppliedBuiltinExpr name =
   runtimeExpr $
-    case name of
+    case publicName of
       "map" ->
         EApply
           ( EApply
-              (EApply (EVar "map") (ESectionLeft (EInt 1) "+"))
+              (EApply (EVar name) (ESectionLeft (EInt 1) "+"))
               (EList [EInt 2])
           )
           (EInt 3)
       "filter" ->
         EApply
           ( EApply
-              (EApply (EVar "filter") (ESectionLeft (EInt 1) "<"))
+              (EApply (EVar name) (ESectionLeft (EInt 1) "<"))
               (EList [EInt 2, EInt 3])
           )
           (EInt 4)
       "hd" ->
         EApply
-          (EApply (EVar "hd") (EList [EInt 1]))
+          (EApply (EVar name) (EList [EInt 1]))
           (EInt 2)
       "tl" ->
         EApply
-          (EApply (EVar "tl") (EList [EInt 1, EInt 2]))
+          (EApply (EVar name) (EList [EInt 1, EInt 2]))
           (EInt 3)
       "print!" ->
         EApply
-          (EApply (EVar "print!") (EInt 1))
+          (EApply (EVar name) (EInt 1))
           (EInt 2)
       _ -> EApply (EVar name) (EInt 1)
+  where
+    publicName =
+      case kernelBridgeTargetName name of
+        Just targetName -> targetName
+        Nothing -> name
 
 runtimeExpr :: Expr -> Expr
 runtimeExpr expr =

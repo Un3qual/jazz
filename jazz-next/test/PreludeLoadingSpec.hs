@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Data.Text (Text)
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     RunResult (..),
@@ -25,12 +26,13 @@ tests :: [NamedTest]
 tests =
   [ ("compile source can reference prelude-defined bindings", testCompileWithPreludeBindingVisibility),
     ("run source can apply prelude-defined section functions", testRunWithPreludeSectionFunction),
+    ("run source can use bundled builtin aliases from prelude", testRunWithPreludeBuiltinAliases),
     ("invalid prelude source produces prelude parse diagnostic", testPreludeParseDiagnostic),
-    ("prelude bridge with unknown kernel symbol fails conformance checks", testPreludeUnknownBridgeSymbolDiagnostic),
-    ("prelude bridge with missing kernel suffix fails conformance checks", testPreludeBridgeMissingSuffixDiagnostic),
-    ("prelude bridge must be direct symbol reference", testPreludeMalformedBridgeDiagnostic),
-    ("prelude bridge rejects canonical name rebound earlier in prelude scope", testPreludeBridgeRejectsPriorRebinding),
-    ("prelude bridge allows canonical name rebound only after bridge declaration", testPreludeBridgeAllowsLaterRebinding),
+    ("prelude alias with unknown kernel symbol fails conformance checks", testPreludeUnknownBridgeSymbolDiagnostic),
+    ("prelude alias with missing kernel suffix fails conformance checks", testPreludeBridgeMissingSuffixDiagnostic),
+    ("prelude builtin alias must be a direct kernel reference", testPreludeMalformedBridgeDiagnostic),
+    ("prelude cannot redefine kernel bridge names directly", testPreludeRejectsKernelBridgeRebinding),
+    ("prelude builtin alias must target its matching kernel symbol", testPreludeRejectsMismatchedKernelAlias),
     ("compile without prelude keeps missing binding behavior unchanged", testCompileWithoutPreludeStillFailsMissingBinding)
   ]
 
@@ -46,6 +48,13 @@ testRunWithPreludeSectionFunction = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
 
+testRunWithPreludeBuiltinAliases :: IO ()
+testRunWithPreludeBuiltinAliases = do
+  result <- runSourceWithPrelude defaultWarningSettings (Just bundledPreludeSource) "map hd [[1, 2], [3]]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[1, 3]") (runOutput result)
+
 testPreludeParseDiagnostic :: IO ()
 testPreludeParseDiagnostic = do
   result <- compileSourceWithPrelude defaultWarningSettings (Just "broken = .") "1."
@@ -56,7 +65,7 @@ testPreludeParseDiagnostic = do
 
 testPreludeUnknownBridgeSymbolDiagnostic :: IO ()
 testPreludeUnknownBridgeSymbolDiagnostic = do
-  result <- compileSourceWithPrelude defaultWarningSettings (Just "__kernel_unknown = unknown.") "1."
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "map = __kernel_unknown.") "1."
   assertSingleErrorContains
     "unknown kernel bridge symbol code"
     "E0004"
@@ -64,7 +73,7 @@ testPreludeUnknownBridgeSymbolDiagnostic = do
 
 testPreludeBridgeMissingSuffixDiagnostic :: IO ()
 testPreludeBridgeMissingSuffixDiagnostic = do
-  result <- compileSourceWithPrelude defaultWarningSettings (Just "__kernel_ = map.") "1."
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "map = __kernel_.") "1."
   assertSingleErrorContains
     "missing kernel bridge suffix code"
     "E0005"
@@ -72,26 +81,26 @@ testPreludeBridgeMissingSuffixDiagnostic = do
 
 testPreludeMalformedBridgeDiagnostic :: IO ()
 testPreludeMalformedBridgeDiagnostic = do
-  result <- compileSourceWithPrelude defaultWarningSettings (Just "__kernel_map = inc. inc = (+ 1).") "1."
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "inc = __kernel_map. map = inc.") "1."
   assertSingleErrorContains
     "malformed kernel bridge code"
     "E0005"
     (compileErrors result)
 
-testPreludeBridgeRejectsPriorRebinding :: IO ()
-testPreludeBridgeRejectsPriorRebinding = do
-  result <- compileSourceWithPrelude defaultWarningSettings (Just "map = (+ 1). __kernel_map = map.") "1."
+testPreludeRejectsKernelBridgeRebinding :: IO ()
+testPreludeRejectsKernelBridgeRebinding = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "__kernel_map = map.") "1."
   assertSingleErrorContains
-    "bridge cannot reference prelude-rebound builtin name"
+    "prelude cannot redefine kernel bridge names"
     "E0005"
     (compileErrors result)
 
-testPreludeBridgeAllowsLaterRebinding :: IO ()
-testPreludeBridgeAllowsLaterRebinding = do
-  result <- compileSourceWithPrelude defaultWarningSettings (Just "__kernel_map = map. map = (+ 1).") "1."
-  assertEqual
-    "bridge validation ignores later same-scope rebinding"
-    []
+testPreludeRejectsMismatchedKernelAlias :: IO ()
+testPreludeRejectsMismatchedKernelAlias = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "map = __kernel_hd.") "1."
+  assertSingleErrorContains
+    "prelude builtin alias must target matching kernel symbol"
+    "E0005"
     (compileErrors result)
 
 testCompileWithoutPreludeStillFailsMissingBinding :: IO ()
@@ -101,3 +110,11 @@ testCompileWithoutPreludeStillFailsMissingBinding = do
     "missing prelude binding still reports unbound variable"
     "E1001"
     (compileErrors result)
+
+bundledPreludeSource :: Text
+bundledPreludeSource =
+  "map = __kernel_map.\n\
+  \filter = __kernel_filter.\n\
+  \hd = __kernel_hd.\n\
+  \tl = __kernel_tl.\n\
+  \print! = __kernel_print!."

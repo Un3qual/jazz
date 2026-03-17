@@ -1,12 +1,3 @@
-__kernel_map = map.
-__kernel_filter = filter.
-__kernel_hd = hd.
-__kernel_tl = tl.
-__kernel_print! = print!.
-
-# Deliberate validation/compatibility cycle: __kernel_map <-> map,
-# __kernel_filter <-> filter, __kernel_hd <-> hd, __kernel_tl <-> tl,
-# __kernel_print! <-> print!. Do not remove these paired aliases.
 map = __kernel_map.
 filter = __kernel_filter.
 hd = __kernel_hd.

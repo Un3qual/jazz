@@ -171,7 +171,9 @@ testCliRunModeListPrimitiveSuccess = do
   assertEqual "stderr is empty" "" (cliStderr output)
   where
     envLookup _ = pure Nothing
-    configLookup _ = pure Nothing
+    configLookup key =
+      pure
+        (Map.lookup key (Map.fromList [(bundledPreludePath, bundledPreludeSource)]))
 
 testCliRunModeFilterPrimitiveSuccess :: IO ()
 testCliRunModeFilterPrimitiveSuccess = do
@@ -181,7 +183,9 @@ testCliRunModeFilterPrimitiveSuccess = do
   assertEqual "stderr is empty" "" (cliStderr output)
   where
     envLookup _ = pure Nothing
-    configLookup _ = pure Nothing
+    configLookup key =
+      pure
+        (Map.lookup key (Map.fromList [(bundledPreludePath, bundledPreludeSource)]))
 
 testCliRunModeModuleGraphSuccess :: IO ()
 testCliRunModeModuleGraphSuccess = do
@@ -342,7 +346,7 @@ testCliPreludeBridgeFailure = do
   assertEqual "stdout is suppressed on compile failure" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
-    configLookup key = pure (Map.lookup key (Map.fromList [("tmp/Prelude.jz", "__kernel_unknown = unknown.")]))
+    configLookup key = pure (Map.lookup key (Map.fromList [("tmp/Prelude.jz", "map = __kernel_unknown.")]))
 
 testCliNoPreludeDisablesBundledDefault :: IO ()
 testCliNoPreludeDisablesBundledDefault = do
@@ -384,7 +388,9 @@ testCliRunModeHdEmptyListRuntimeError = do
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
-    configLookup _ = pure Nothing
+    configLookup key =
+      pure
+        (Map.lookup key (Map.fromList [(bundledPreludePath, bundledPreludeSource)]))
 
 testCliPrecedenceBehavior :: IO ()
 testCliPrecedenceBehavior = do
@@ -469,10 +475,15 @@ bundledPreludePath :: FilePath
 bundledPreludePath = "jazz-next/stdlib/Prelude.jz"
 
 bundledPreludeSource :: Text
-bundledPreludeSource = "__kernel_map = map."
+bundledPreludeSource =
+  "map = __kernel_map.\n\
+  \filter = __kernel_filter.\n\
+  \hd = __kernel_hd.\n\
+  \tl = __kernel_tl.\n\
+  \print! = __kernel_print!."
 
 bundledPreludeConsumerSource :: Text
-bundledPreludeConsumerSource = "__kernel_map."
+bundledPreludeConsumerSource = "map."
 
 preludeConsumerSource :: Text
 preludeConsumerSource = "inc 2."

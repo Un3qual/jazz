@@ -18,7 +18,7 @@ import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinSymbol (..),
     builtinSymbolArity,
     builtinSymbolName,
-    lookupBuiltinSymbol
+    lookupKernelBridgeBuiltinSymbol
   )
 
 data RuntimeValue
@@ -85,7 +85,7 @@ evalValue env expr =
       case Map.lookup name env of
         Just value -> Right value
         Nothing ->
-          case lookupBuiltinSymbol name of
+          case lookupKernelBridgeBuiltinSymbol name of
             Just builtinFunction -> Right (VBuiltin builtinFunction [])
             Nothing ->
               Left
