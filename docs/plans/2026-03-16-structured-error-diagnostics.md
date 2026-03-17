@@ -450,4 +450,3 @@ git commit -m "test(jazz-next): cover structured compile error diagnostics"
 - Existing error codes remain stable.
 - `bash jazz-next/scripts/test-warning-config.sh` passes.
 - `rg` confirms no compile-time `[Text]` error lists remain.
-

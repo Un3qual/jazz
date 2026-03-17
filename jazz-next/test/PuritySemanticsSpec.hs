@@ -2,9 +2,14 @@
 
 module Main (main) where
 
+import Data.Text (Text)
+import JazzNext.Compiler.BundledPrelude
+  ( bundledPreludeSource
+  )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
-    compileSource
+    compileSource,
+    compileSourceWithPrelude
   )
 import JazzNext.Compiler.Identifier
   ( identifierPurity,
@@ -45,7 +50,7 @@ tests =
 
 testPureBindingCannotCallImpureBuiltin :: IO ()
 testPureBindingCannotCallImpureBuiltin = do
-  result <- compileSource defaultWarningSettings "x = print! 1.\nx."
+  result <- compileWithBundledPrelude "x = print! 1.\nx."
   assertSingleErrorContains
     "pure binding calling impure builtin"
     "E1010"
@@ -61,7 +66,7 @@ testPureBindingCannotCallImpureBuiltinThroughDollarApplication = do
 
 testImpureBindingCanCallImpureBuiltin :: IO ()
 testImpureBindingCanCallImpureBuiltin = do
-  result <- compileSource defaultWarningSettings "x! = print! 1.\nx!."
+  result <- compileWithBundledPrelude "x! = print! 1.\nx!."
   assertEqual "compile errors" [] (compileErrors result)
   assertJust "generated JS is present" (generatedJs result)
 
@@ -108,6 +113,10 @@ testTopLevelExpressionCanCallImpureCallee = do
 
 testTopLevelExpressionCanCallImpureBuiltin :: IO ()
 testTopLevelExpressionCanCallImpureBuiltin = do
-  result <- compileSource defaultWarningSettings "print! 1."
+  result <- compileWithBundledPrelude "print! 1."
   assertEqual "compile errors" [] (compileErrors result)
   assertJust "generated JS is present" (generatedJs result)
+
+compileWithBundledPrelude :: Text -> IO CompileResult
+compileWithBundledPrelude =
+  compileSourceWithPrelude defaultWarningSettings (Just bundledPreludeSource)

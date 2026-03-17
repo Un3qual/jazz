@@ -19,7 +19,9 @@
 - [x] Closed Gate B naming/export contract baseline for active `jazz-next` path (bundled prelude path + bridge export contract documented)
 - [x] Executed `jazz-next` bundled-default prelude bootstrap + ownership-metadata scaffolding batch
 - [x] Executed `jazz-next` prelude-owned-default migration batch (strict kernel-only prelude mode + explicit no-prelude compatibility fallback)
+- [x] Executed `jazz-next` phase-4 public-builtin migration batch (public names now flow through the prelude; raw compiler/runtime fallback is restricted to `__kernel_*` bridge symbols)
 - [x] Migration phases executed with compatibility gates
+- [x] Active `jazz-next` direct builtin access reduced to the approved `__kernel_*` bridge surface
 - [ ] Hardcoded builtin surface reduced to approved kernel
 - [ ] Reproducibility and closure checks completed
 
@@ -176,6 +178,24 @@ git add jazz-next/stdlib/Prelude.jz jazz-next/src/JazzNext/Compiler/BuiltinCatal
 git commit -m "feat(stdlib): migrate user-facing builtins to self-hosted prelude"
 ```
 
+Executed `jazz-next` touch-set (2026-03-16 Batch 3):
+
+- `jazz-next/stdlib/Prelude.jz`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`
+- `jazz-next/src/JazzNext/Compiler/PreludeContract.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/test/BuiltinCatalogSpec.hs`
+- `jazz-next/test/CLISpec.hs`
+- `jazz-next/test/PreludeLoadingSpec.hs`
+- `jazz-next/test/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/PuritySemanticsSpec.hs`
+- `jazz-next/test/RuntimeSemanticsSpec.hs`
+- `README.md`
+- `docs/jazz-language-state.md`
+- `docs/spec/stdlib-boundary.md`
+
 ## Phase 5: Shrink Hardcoded Surface to Kernel-Only and Close Contradictions
 
 - [ ] Remove deprecated hardcoded stdlib entries not in approved kernel.
@@ -259,6 +279,12 @@ nix develop . -c bash -lc '
 ## Implementation Status Verification (2026-03-04, Batch 1, `jazz-next`)
 
 - [x] Re-verified candidate steps before implementation and confirmed phase-3 intrinsic bridge work was partially present in code but drift-prone due to duplicated builtin tables.
+
+## Implementation Status Verification (2026-03-16, Batch 5, `jazz-next`)
+
+- [x] Re-verified that module/import work remains partly code-complete but docs-first for normative semantics, so stdlib phase 4 was the next safe executable code batch.
+- [x] Re-verified that public builtin names were still directly available without prelude in analyzer/type/runtime before this batch.
+- [x] Re-verified after the batch that raw compiler/runtime fallback now accepts only `__kernel_*` bridge names, while CLI/default-prelude and explicit-prelude flows keep public builtin APIs working.
 - [x] Added canonical boundary spec doc for active `jazz-next` runtime subset: `docs/spec/stdlib-boundary.md`.
 - [x] Added shared builtin catalog module: `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`.
 - [x] Refactored analyzer/type-inference/runtime to consume the shared catalog:
