@@ -6,6 +6,9 @@ import Data.Text (Text)
 import JazzNext.Compiler.BundledPrelude
   ( bundledPreludeSource
   )
+import JazzNext.Compiler.Diagnostics
+  ( SourceSpan (..)
+  )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     compileSource,
@@ -26,6 +29,9 @@ import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
     assertSingleErrorContains,
+    assertSingleDiagnosticPrimarySpan,
+    assertSingleDiagnosticRelatedSpan,
+    assertSingleDiagnosticSubject,
     assertJust,
     runTestSuite
   )
@@ -76,6 +82,18 @@ testPureBindingCannotCallImpureCallee = do
   assertSingleErrorContains
     "pure binding calling impure callee"
     "E1010"
+    (compileErrors result)
+  assertSingleDiagnosticPrimarySpan
+    "pure binding diagnostic primary span"
+    (SourceSpan 2 1)
+    (compileErrors result)
+  assertSingleDiagnosticRelatedSpan
+    "pure binding diagnostic related span"
+    (SourceSpan 1 1)
+    (compileErrors result)
+  assertSingleDiagnosticSubject
+    "pure binding diagnostic subject"
+    "x"
     (compileErrors result)
 
 testImpureBindingCanCallImpureCallee :: IO ()

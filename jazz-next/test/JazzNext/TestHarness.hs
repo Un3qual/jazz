@@ -12,6 +12,9 @@ module JazzNext.TestHarness
     assertRight,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
+    assertSingleDiagnosticPrimarySpan,
+    assertSingleDiagnosticRelatedSpan,
+    assertSingleDiagnosticSubject,
     assertSingleErrorContains,
     failTest,
     runTestSuite
@@ -24,7 +27,11 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     RenderDiagnostic,
+    SourceSpan,
     diagnosticCode,
+    diagnosticPrimarySpan,
+    diagnosticRelatedSpan,
+    diagnosticSubject,
     renderDiagnostic
   )
 import System.Exit (exitFailure, exitSuccess)
@@ -140,6 +147,45 @@ assertSingleDiagnosticCode label expectedCode diagnostics =
   case diagnostics of
     [diagnostic] ->
       assertEqual label expectedCode (diagnosticCode diagnostic)
+    _ ->
+      failTest
+        ( label
+            <> ": expected exactly 1 diagnostic, got "
+            <> Text.pack (show (length diagnostics))
+            <> if null diagnostics then "" else ": " <> Text.pack (show diagnostics)
+        )
+
+assertSingleDiagnosticPrimarySpan :: Text -> SourceSpan -> [Diagnostic] -> IO ()
+assertSingleDiagnosticPrimarySpan label expectedSpan diagnostics =
+  case diagnostics of
+    [diagnostic] ->
+      assertEqual label (Just expectedSpan) (diagnosticPrimarySpan diagnostic)
+    _ ->
+      failTest
+        ( label
+            <> ": expected exactly 1 diagnostic, got "
+            <> Text.pack (show (length diagnostics))
+            <> if null diagnostics then "" else ": " <> Text.pack (show diagnostics)
+        )
+
+assertSingleDiagnosticRelatedSpan :: Text -> SourceSpan -> [Diagnostic] -> IO ()
+assertSingleDiagnosticRelatedSpan label expectedSpan diagnostics =
+  case diagnostics of
+    [diagnostic] ->
+      assertEqual label (Just expectedSpan) (diagnosticRelatedSpan diagnostic)
+    _ ->
+      failTest
+        ( label
+            <> ": expected exactly 1 diagnostic, got "
+            <> Text.pack (show (length diagnostics))
+            <> if null diagnostics then "" else ": " <> Text.pack (show diagnostics)
+        )
+
+assertSingleDiagnosticSubject :: Text -> Text -> [Diagnostic] -> IO ()
+assertSingleDiagnosticSubject label expectedSubject diagnostics =
+  case diagnostics of
+    [diagnostic] ->
+      assertEqual label (Just expectedSubject) (diagnosticSubject diagnostic)
     _ ->
       failTest
         ( label

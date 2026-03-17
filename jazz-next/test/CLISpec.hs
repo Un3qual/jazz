@@ -296,7 +296,7 @@ testCliBundledPreludePreservesUserDiagnosticSpans = do
   output <- runCliWith [] envLookup configLookup (pure signatureNameMismatchSource)
   assertEqual "exit code" 1 (cliExitCode output)
   assertContains "stderr includes signature mismatch code" "E1003" (cliStderr output)
-  assertContains "stderr keeps user line numbers" "at 1:1 must annotate" (cliStderr output)
+  assertContains "stderr keeps user line numbers" "E1003: 1:1:" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
     envLookup _ = pure Nothing

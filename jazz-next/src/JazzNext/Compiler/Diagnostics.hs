@@ -12,6 +12,8 @@ module JazzNext.Compiler.Diagnostics
     prependDiagnosticSummary,
     setDiagnosticCode,
     setDiagnosticPrimarySpan,
+    setDiagnosticRelatedSpan,
+    setDiagnosticSubject,
     renderDiagnostic,
     renderDiagnosticRecord,
     renderSourceSpan,
@@ -37,6 +39,8 @@ data Diagnostic = Diagnostic
   { diagnosticCode :: Text,
     diagnosticSummary :: Text,
     diagnosticPrimarySpan :: Maybe SourceSpan,
+    diagnosticRelatedSpan :: Maybe SourceSpan,
+    diagnosticSubject :: Maybe Text,
     diagnosticNotes :: [Text]
   }
   deriving (Eq, Show)
@@ -66,6 +70,8 @@ instance RenderDiagnostic WarningRecord where
       { diagnosticCode = warningCodeText warning,
         diagnosticSummary = warningMessage warning,
         diagnosticPrimarySpan = Just (warningPrimarySpan warning),
+        diagnosticRelatedSpan = Nothing,
+        diagnosticSubject = Just (warningVariableName warning),
         diagnosticNotes =
           case warningPreviousSpan warning of
             Nothing -> []
@@ -81,8 +87,14 @@ renderDiagnosticRecord diagnostic =
   renderCodePrefix (diagnosticCode diagnostic)
     <> renderPrimarySpan (diagnosticPrimarySpan diagnostic)
     <> diagnosticSummary diagnostic
-    <> renderNotes (diagnosticNotes diagnostic)
+    <> renderNotes noteTexts
   where
+    noteTexts =
+      case diagnosticRelatedSpan diagnostic of
+        Nothing -> diagnosticNotes diagnostic
+        Just relatedSpan ->
+          ("related " <> renderSourceSpan relatedSpan) : diagnosticNotes diagnostic
+
     renderCodePrefix code
       | Text.null code = ""
       | otherwise = code <> ": "
@@ -103,6 +115,8 @@ mkDiagnostic code summary =
     { diagnosticCode = code,
       diagnosticSummary = summary,
       diagnosticPrimarySpan = Nothing,
+      diagnosticRelatedSpan = Nothing,
+      diagnosticSubject = Nothing,
       diagnosticNotes = []
     }
 
@@ -116,6 +130,14 @@ setDiagnosticCode code diagnostic =
 setDiagnosticPrimarySpan :: SourceSpan -> Diagnostic -> Diagnostic
 setDiagnosticPrimarySpan spanValue diagnostic =
   diagnostic {diagnosticPrimarySpan = Just spanValue}
+
+setDiagnosticRelatedSpan :: SourceSpan -> Diagnostic -> Diagnostic
+setDiagnosticRelatedSpan spanValue diagnostic =
+  diagnostic {diagnosticRelatedSpan = Just spanValue}
+
+setDiagnosticSubject :: Text -> Diagnostic -> Diagnostic
+setDiagnosticSubject subject diagnostic =
+  diagnostic {diagnosticSubject = Just subject}
 
 prependDiagnosticSummary :: Text -> Diagnostic -> Diagnostic
 prependDiagnosticSummary prefix diagnostic =

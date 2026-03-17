@@ -13,6 +13,20 @@ Execution note:
 - `jazz-hs/` and `jazz2/` remain read-only reference code.
 - Runtime errors (`runRuntimeErrors`) are out of scope for this plan. This plan only covers compile-time diagnostics.
 
+## Progress Tracker
+
+- [x] Verified current repo state before execution instead of trusting stale plan assumptions.
+- [x] Confirmed compile-time diagnostics were already modeled as `Diagnostic` records, so raw `[Text]` migration steps in this plan are obsolete.
+- [x] Batch 1 complete: enriched `Diagnostic` with related-span/subject metadata plus dedicated rendering coverage.
+- [x] Batch 1 complete: populated analyzer diagnostics (`E1002`, `E1003`, `E1010`) with primary/related span metadata and subject tracking.
+- [ ] Batch 2 pending: migrate type inference and driver compile-time producers off summary-only diagnostics.
+- [ ] Batch 3 pending: migrate prelude/module-resolution producers and close remaining cleanup/verification steps.
+
+## Adaptation Notes
+
+- This plan originally proposed introducing a separate `ErrorRecord` type because compile-time failures were assumed to still be raw `Text`.
+- The repository had already moved compile-time diagnostics onto `Diagnostic`, so this execution path adapts the plan by enriching the existing structured record rather than adding a parallel error type layer first.
+
 ---
 
 ## Scope Guardrails
