@@ -10,8 +10,12 @@ module JazzNext.Compiler.Runtime
     renderRuntimeValue
   ) where
 
+import Data.Graph (SCC (..), stronglyConnComp)
+import Data.List (foldl')
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import qualified Data.Set as Set
+import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
@@ -81,15 +85,19 @@ type RuntimeEnv = Map Text RuntimeValue
 -- `evalScope` returns `Just` only when the final surviving statement is an
 -- `SExpr`; otherwise the block yields `Nothing`.
 evalScope :: BuiltinResolutionMode -> RuntimeEnv -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
-evalScope builtinMode initialEnv statements = go initialEnv Nothing statements
+evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedStatements
   where
-    go :: RuntimeEnv -> Maybe RuntimeValue -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
+    indexedStatements = zip [0 ..] statements
+    recursiveLambdaGroups = inferRecursiveLambdaGroups initialEnv indexedStatements
+    recursiveLambdaBindings = collectRecursiveLambdaBindings indexedStatements
+
+    go :: RuntimeEnv -> Maybe RuntimeValue -> [(Int, Statement)] -> Either Diagnostic (Maybe RuntimeValue)
     go env lastExprValue remainingStatements =
       case remainingStatements of
         [] ->
           -- Declaration-only scopes intentionally remain `Nothing` until a terminal `SExpr` sets a value.
           Right lastExprValue
-        statement : rest ->
+        (statementIndex, statement) : rest ->
           case statement of
             SSignature {} ->
               go env Nothing rest
@@ -97,12 +105,220 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing statements
               go env Nothing rest
             SImport {} ->
               go env Nothing rest
+            -- Keep runtime recursion aligned with analyzer visibility by tying
+            -- lambda-only SCCs into the environment when the first binding in
+            -- the group is encountered.
+            SLet _ _ _
+              | Just groupMembers <- Map.lookup statementIndex recursiveLambdaGroups ->
+                  case groupMembers of
+                    leader : _
+                      | statementIndex == leader ->
+                          go (activateRecursiveLambdaGroup env groupMembers recursiveLambdaBindings) Nothing rest
+                      | otherwise ->
+                          go env Nothing rest
+                    [] ->
+                      go env Nothing rest
+            SLet name _ (ELambda parameterName bodyExpr) ->
+              let bindingNameText = identifierText name
+                  envWithSelf = Map.insert bindingNameText value env
+                  value = VClosure envWithSelf parameterName bodyExpr
+               in go envWithSelf Nothing rest
             SLet name _ valueExpr -> do
               value <- evalValue builtinMode env valueExpr
               go (Map.insert (identifierText name) value env) Nothing rest
             SExpr _ expr -> do
               value <- evalValue builtinMode env expr
               go env (Just value) rest
+
+collectRecursiveLambdaBindings :: [(Int, Statement)] -> Map Int (Text, Identifier, Expr)
+collectRecursiveLambdaBindings =
+  foldl' collect Map.empty
+  where
+    collect bindingsByStatement (statementIndex, statement) =
+      case statement of
+        SLet bindingName _ (ELambda parameterName bodyExpr) ->
+          Map.insert
+            statementIndex
+            (identifierText bindingName, parameterName, bodyExpr)
+            bindingsByStatement
+        _ -> bindingsByStatement
+
+activateRecursiveLambdaGroup ::
+  RuntimeEnv ->
+  [Int] ->
+  Map Int (Text, Identifier, Expr) ->
+  RuntimeEnv
+activateRecursiveLambdaGroup env groupMembers lambdaBindingsByStatement =
+  groupEnv
+  where
+    groupBindings =
+      foldl'
+        insertGroupBinding
+        Map.empty
+        [ bindingInfo
+          | statementIndex <- groupMembers,
+            Just bindingInfo <- [Map.lookup statementIndex lambdaBindingsByStatement]
+        ]
+    groupEnv = groupBindings `Map.union` env
+
+    insertGroupBinding bindings (bindingNameText, parameterName, bodyExpr) =
+      Map.insert
+        bindingNameText
+        (VClosure groupEnv parameterName bodyExpr)
+        bindings
+
+-- | Mirror the analyzer's recursive-group resolution so runtime closure capture
+-- stays consistent with the binding visibility already accepted at compile time.
+inferRecursiveLambdaGroups ::
+  RuntimeEnv ->
+  [(Int, Statement)] ->
+  Map Int [Int]
+inferRecursiveLambdaGroups outerEnv indexedStatements =
+  Map.fromList
+    [ (statementIndex, componentStatements)
+      | component <- stronglyConnComp graphNodes,
+        let componentStatements = componentStatementIndices component,
+        isRecursiveComponent component,
+        all (`Map.member` recursiveLambdaBindings) componentStatements,
+        statementIndex <- componentStatements
+    ]
+  where
+    declarationInfo =
+      [ (statementIndex, identifierText bindingName, valueExpr)
+        | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
+      ]
+    declarationStatementsByName =
+      foldl'
+        collectDeclaration
+        Map.empty
+        declarationInfo
+    outerBindingNames = Map.keysSet outerEnv
+    baseDependencies =
+      Map.fromList
+        [ (statementIndex, Set.empty)
+          | (statementIndex, _, _) <- declarationInfo
+        ]
+    dependenciesByStatement =
+      foldl' addBindingDependencies baseDependencies declarationInfo
+    graphNodes =
+      [ (statementIndex, statementIndex, Set.toList dependencies)
+        | (statementIndex, dependencies) <- Map.toList dependenciesByStatement
+      ]
+    recursiveLambdaBindings = collectRecursiveLambdaBindings indexedStatements
+
+    collectDeclaration declarationsByName (statementIndex, bindingNameText, _) =
+      Map.insertWith (\new old -> old ++ new) bindingNameText [statementIndex] declarationsByName
+
+    addBindingDependencies dependencies (statementIndex, bindingNameText, valueExpr) =
+      let localDependencyNames =
+            Set.filter
+              (`Map.member` declarationStatementsByName)
+              (freeVarsExprWithBound (Set.singleton bindingNameText) valueExpr)
+          resolvedDependencies =
+            Set.fromList
+              [ dependencyStatementIndex
+                | dependencyName <- Set.toList localDependencyNames,
+                  Just dependencyStatementIndex <- [resolveDependencyStatement statementIndex dependencyName]
+              ]
+       in
+        Map.insert statementIndex resolvedDependencies dependencies
+
+    resolveDependencyStatement statementIndex dependencyName =
+      case Map.lookup dependencyName declarationStatementsByName of
+        Nothing -> Nothing
+        Just declarationStatements ->
+          case closestPriorDeclaration declarationStatements of
+            Just prior -> Just prior
+            Nothing
+              | Set.member dependencyName outerBindingNames -> Nothing
+              | otherwise -> closestFutureDeclaration declarationStatements
+      where
+        closestPriorDeclaration declarations =
+          case filter (< statementIndex) declarations of
+            [] -> Nothing
+            priorDeclarations -> Just (last priorDeclarations)
+
+        closestFutureDeclaration declarations =
+          case filter (> statementIndex) declarations of
+            [] -> Nothing
+            firstFuture : _ -> Just firstFuture
+
+    componentStatementIndices component =
+      let componentIndices =
+            case component of
+              AcyclicSCC statementIndex -> Set.singleton statementIndex
+              CyclicSCC statementIndices -> Set.fromList statementIndices
+       in
+        [ statementIndex
+          | (statementIndex, _) <- indexedStatements,
+            Set.member statementIndex componentIndices
+        ]
+
+    isRecursiveComponent component =
+      case component of
+        CyclicSCC _ -> True
+        AcyclicSCC statementIndex ->
+          Set.member
+            statementIndex
+            (Map.findWithDefault Set.empty statementIndex dependenciesByStatement)
+
+freeVarsExprWithBound :: Set Text -> Expr -> Set Text
+freeVarsExprWithBound bound expr =
+  case expr of
+    ELit _ -> Set.empty
+    EVar name
+      | Set.member nameText bound -> Set.empty
+      | otherwise -> Set.singleton nameText
+      where
+        nameText = identifierText name
+    ELambda parameterName bodyExpr ->
+      freeVarsExprWithBound
+        (Set.insert (identifierText parameterName) bound)
+        bodyExpr
+    EOperatorValue _ -> Set.empty
+    EList elements ->
+      Set.unions (map (freeVarsExprWithBound bound) elements)
+    EApply functionExpr argumentExpr ->
+      Set.union
+        (freeVarsExprWithBound bound functionExpr)
+        (freeVarsExprWithBound bound argumentExpr)
+    EIf conditionExpr thenExpr elseExpr ->
+      freeVarsExprWithBound bound (ECase conditionExpr thenExpr elseExpr)
+    ECase conditionExpr thenExpr elseExpr ->
+      Set.unions
+        [ freeVarsExprWithBound bound conditionExpr,
+          freeVarsExprWithBound bound thenExpr,
+          freeVarsExprWithBound bound elseExpr
+        ]
+    EBinary _ leftExpr rightExpr ->
+      Set.union
+        (freeVarsExprWithBound bound leftExpr)
+        (freeVarsExprWithBound bound rightExpr)
+    ESectionLeft leftExpr _ ->
+      freeVarsExprWithBound bound leftExpr
+    ESectionRight _ rightExpr ->
+      freeVarsExprWithBound bound rightExpr
+    EBlock statements -> freeVarsScopeWithBound bound statements
+
+freeVarsScopeWithBound :: Set Text -> [Statement] -> Set Text
+freeVarsScopeWithBound initialBound statements =
+  snd (foldl' step (initialBound, Set.empty) statements)
+  where
+    step (boundNames, freeNames) statement =
+      case statement of
+        SSignature {} -> (boundNames, freeNames)
+        SModule {} -> (boundNames, freeNames)
+        SImport {} -> (boundNames, freeNames)
+        SExpr _ expr ->
+          ( boundNames,
+            Set.union freeNames (freeVarsExprWithBound boundNames expr)
+          )
+        SLet bindingName _ valueExpr ->
+          let boundWithSelf = Set.insert (identifierText bindingName) boundNames
+           in
+            ( boundWithSelf,
+              Set.union freeNames (freeVarsExprWithBound boundWithSelf valueExpr)
+            )
 
 evalValue builtinMode env expr =
   case expr of

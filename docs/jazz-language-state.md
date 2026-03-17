@@ -467,13 +467,13 @@ If you need a practical baseline for continuing Jazz, use this order:
 
 If this repo is going to become a coherent language project, the highest-value cleanup would be:
 
-Status update for item #1:
+Status update for item `#1`:
 
 - Decision lock is recorded in `docs/spec/authoritative-syntax.md`.
 - Canonical module declarations and identifier-only lambdas are now implemented and test-backed in `jazz-next`.
 - Remaining item-1 work is primarily abstraction syntax alignment (`class` / `impl`) rather than function or module surface.
 
-Status update for item #3:
+Status update for item `#3`:
 
 - Stub-v1 purity enforcement is now implemented in active `jazz-next` compiler/analyzer flow.
 - Normative behavior is documented in `docs/spec/semantics/purity-bang-stub-v1.md`.
