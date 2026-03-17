@@ -15,8 +15,10 @@ import JazzNext.Compiler.Parser.AST
     SurfaceStatement (..)
   )
 
--- | Convert parser-surface nodes into core nodes while preserving source
--- spans. Control-flow/operator desugaring runs in dedicated later passes.
+-- | Convert parser-surface nodes into core nodes while preserving statement
+-- source spans. Expression constructors like `ELit`, `EVar`, `EApply`, and
+-- `EBinary` do not carry spans in the core AST, so expression-level location
+-- handling stays in later phases.
 lowerSurfaceExpr :: SurfaceExpr -> Expr
 lowerSurfaceExpr surfaceExpr =
   case surfaceExpr of

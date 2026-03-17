@@ -385,8 +385,9 @@ parseExprStatement tokens = do
 parseExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseExpr = parseExprWithMinPrecedence 1
 
--- | Entry point for precedence-climbing expression parsing after application
--- folding has already happened.
+-- | Entry point for expression parsing that first folds application via
+-- `parseApplicationExpr`, then continues with precedence-climbing for infix
+-- operators.
 parseExprWithMinPrecedence :: Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseExprWithMinPrecedence minPrecedence tokens = do
   (leftExpr, remainingTokens) <- parseApplicationExpr tokens

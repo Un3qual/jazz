@@ -50,8 +50,9 @@ import JazzNext.Compiler.WarningConfig
     defaultWarningSettings
   )
 
--- | Inference output keeps the canonicalized expression plus warnings and type
--- errors accumulated during checking.
+-- | `InferenceResult` keeps the canonicalized expression plus analyzer warnings
+-- and an `inferredErrors` list that contains both analyzer diagnostics and
+-- local type errors discovered during checking.
 data InferenceResult = InferenceResult
   { inferredExpr :: Expr,
     inferredWarnings :: [WarningRecord],

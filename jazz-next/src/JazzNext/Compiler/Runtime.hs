@@ -74,8 +74,9 @@ renderRuntimeValue value =
 
 type RuntimeEnv = Map Text RuntimeValue
 
--- | Evaluate a block scope in order, remembering only the most recent
--- expression result as the scope's runtime value.
+-- | Evaluate a block scope in order. Declarations clear `lastExprValue`, so
+-- `evalScope` returns `Just` only when the final surviving statement is an
+-- `SExpr`; otherwise the block yields `Nothing`.
 evalScope :: BuiltinResolutionMode -> RuntimeEnv -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
 evalScope builtinMode initialEnv statements = go initialEnv Nothing statements
   where

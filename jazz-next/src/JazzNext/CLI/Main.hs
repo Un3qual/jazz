@@ -73,6 +73,10 @@ data CliOutput = CliOutput
   }
   deriving (Eq, Show)
 
+data WarningConfigSelection
+  = ExplicitWarningConfig FilePath
+  | DefaultWarningConfigProbe FilePath
+
 -- Parse currently supported warning and prelude-loading flags.
 parseCliOptions :: [String] -> Either Diagnostic CliOptions
 parseCliOptions args = do
@@ -192,16 +196,36 @@ resolveSettings options envLookup configLookup = do
   envConfigPath <- envLookup "JAZZ_WARNING_CONFIG"
   let selectedConfigPath =
         case cliWarningsConfigPath options of
-          Just cliPath -> Just cliPath
+          Just cliPath -> ExplicitWarningConfig cliPath
           Nothing ->
             case envConfigPath of
-              Just envPath -> Just envPath
-              Nothing -> Just ".jazz-warnings"
-  configContents <-
-    case selectedConfigPath of
-      Just configPath -> configLookup configPath
-      Nothing -> pure Nothing
-  pure (resolveWarningSettings (cliWarningFlags options) envWarningFlags envErrorFlags configContents)
+              Just envPath -> ExplicitWarningConfig envPath
+              Nothing -> DefaultWarningConfigProbe ".jazz-warnings"
+  configContentsResult <- loadWarningConfig selectedConfigPath configLookup
+  pure $
+    case configContentsResult of
+      Left configError -> Left configError
+      Right configContents ->
+        resolveWarningSettings (cliWarningFlags options) envWarningFlags envErrorFlags configContents
+
+loadWarningConfig ::
+  WarningConfigSelection ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO (Either Diagnostic (Maybe Text))
+loadWarningConfig configSelection configLookup =
+  case configSelection of
+    ExplicitWarningConfig configPath -> do
+      configContents <- configLookup configPath
+      pure $
+        case configContents of
+          Just contents -> Right (Just contents)
+          Nothing ->
+            Left
+              ( mkMessageDiagnostic
+                  ("warning config file could not be read at '" <> Text.pack configPath <> "'")
+              )
+    DefaultWarningConfigProbe configPath ->
+      Right <$> configLookup configPath
 
 -- | Resolve the prelude source according to CLI/env flags, defaulting to the
 -- bundled prelude when neither an explicit path nor `--no-prelude` is given.
@@ -378,8 +402,9 @@ renderPreviousSpan previous =
     Nothing -> ""
     Just previousSpan -> " (previous " <> renderSourceSpan previousSpan <> ")"
 
--- | Read optional config files without turning a missing/unreadable file into a
--- hard CLI failure.
+-- | Read a warning config file as an optional blob. `resolveSettings` decides
+-- whether a missing result is acceptable (the implicit default probe) or a
+-- user-facing error (an explicit CLI/env config path).
 readConfigMaybe :: FilePath -> IO (Maybe Text)
 readConfigMaybe path =
   -- Missing/unreadable config files are treated as absent so default warning

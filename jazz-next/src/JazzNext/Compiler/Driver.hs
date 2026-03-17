@@ -293,8 +293,9 @@ runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entr
     Right sourceText ->
       runSourceWithResolvedPrelude settings resolvedPrelude sourceText
 
--- | Parse, lower, analyze, and apply warning-promotion policy while returning
--- the canonical expression for downstream compile/run steps.
+-- | Run inference/canonicalization, collect warnings from `inferredWarnings`,
+-- promote configured warnings into errors, and return the canonicalized
+-- `inferredExpr` for downstream compile/run steps.
 analyzeWithWarnings :: Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr)
 analyzeWithWarnings hiddenStatementIndices builtinMode settings expr = do
   inference <-

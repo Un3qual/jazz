@@ -527,8 +527,9 @@ validateImportBindings sourcePath importerPath imports exportsByModule =
       | Set.null exports = "<none>"
       | otherwise = Text.intercalate ", " (sortOn id (Set.toList exports))
 
--- | Provide a deterministic import order for traversal and diagnostics without
--- losing the first-seen ordering guarantee.
+-- | Provide a deterministic lexical import order for traversal and diagnostics.
+-- Encounter order is intentionally discarded by `Set`-based deduplication and
+-- the final `renderModulePath` sort.
 sortModulePaths :: [[Text]] -> [[Text]]
 sortModulePaths modulePaths =
   map snd . sortOn fst $ map (\modulePath -> (renderModulePath modulePath, modulePath)) uniquePaths

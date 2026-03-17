@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Document foundational compiler contracts
+## Task 1: Document foundational compiler contracts
 
 **Files:**
 - Modify: `jazz-next/src/JazzNext/Compiler/AST.hs`
@@ -41,7 +41,7 @@ data Identifier = Identifier
 Run: `sed -n '1,160p' jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`
 Expected: comments explain boundaries or invariants, not obvious type signatures
 
-### Task 2: Document phase-boundary modules
+## Task 2: Document phase-boundary modules
 
 **Files:**
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser.hs`
@@ -77,7 +77,7 @@ flushPendingSignature :: Maybe PendingSignature -> [Diagnostic] -> [Diagnostic]
 Run: `sed -n '1,220p' jazz-next/src/JazzNext/Compiler/Analyzer.hs`
 Expected: recursive-scope, signature, and purity rules are explained near the code that enforces them
 
-### Task 3: Verify that the pass is comment-only and behavior-neutral
+## Task 3: Verify that the pass is comment-only and behavior-neutral
 
 **Files:**
 - Test: `jazz-next/scripts/test-warning-config.sh`

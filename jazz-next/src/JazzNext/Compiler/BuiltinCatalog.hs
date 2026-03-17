@@ -27,8 +27,8 @@ import Data.List
 import Data.Text (Text)
 import qualified Data.Text as Text
 
--- | Controls whether compiler phases resolve only kernel bridge names or also
--- accept older public builtin spellings.
+-- | Selects exactly one builtin naming scheme for a compiler phase: either the
+-- kernel bridge names or the older compatibility/public names.
 data BuiltinResolutionMode
   = ResolveKernelOnly
   | ResolveCompatibility
@@ -111,6 +111,8 @@ lookupKernelBuiltinSymbol :: Text -> Maybe BuiltinSymbol
 lookupKernelBuiltinSymbol name =
   lookupByRenderedName builtinSymbolKernelName name
 
+-- | Resolve builtin names according to the selected mode. This chooses either
+-- the kernel-name lookup or the compatibility lookup, never a combined search.
 lookupBuiltinSymbolInMode :: BuiltinResolutionMode -> Text -> Maybe BuiltinSymbol
 lookupBuiltinSymbolInMode mode name =
   case mode of
