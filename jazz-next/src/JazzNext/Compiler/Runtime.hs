@@ -1,5 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Small interpreter/runtime for the currently-supported core language. It is
+-- intentionally simple and mirrors the same builtin/operator contracts enforced
+-- by analysis and type inference.
 module JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExprWithBuiltins,
@@ -31,6 +34,8 @@ import JazzNext.Compiler.Identifier
   ( identifierText
   )
 
+-- | Runtime values produced by the interpreter, including partially applied
+-- builtins/operators.
 data RuntimeValue
   = VInt Int
   | VBool Bool
@@ -44,6 +49,8 @@ data RuntimeValue
 evaluateRuntimeExpr :: Expr -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExpr = evaluateRuntimeExprWithBuiltins ResolveKernelOnly
 
+-- | Evaluate an expression under the builtin resolution mode chosen by the
+-- caller, returning a terminal scope value when one exists.
 evaluateRuntimeExprWithBuiltins :: BuiltinResolutionMode -> Expr -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExprWithBuiltins builtinMode expr =
   case expr of
@@ -67,6 +74,9 @@ renderRuntimeValue value =
 
 type RuntimeEnv = Map Text RuntimeValue
 
+-- | Evaluate a block scope in order. Declarations clear `lastExprValue`, so
+-- `evalScope` returns `Just` only when the final surviving statement is an
+-- `SExpr`; otherwise the block yields `Nothing`.
 evalScope :: BuiltinResolutionMode -> RuntimeEnv -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
 evalScope builtinMode initialEnv statements = go initialEnv Nothing statements
   where
@@ -153,6 +163,8 @@ literalRuntimeValue literal =
     LInt value -> VInt value
     LBool value -> VBool value
 
+-- | Apply any callable runtime value, including sections, builtin primitives,
+-- and curried operator values.
 applyRuntimeFunction :: RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyRuntimeFunction functionValue argumentValue =
   case functionValue of
@@ -185,6 +197,8 @@ applyOperator operatorSymbol arguments =
             ("runtime primitive '" <> operatorSymbol <> "' received invalid arguments")
         )
 
+-- | Builtin primitives are curried, so under-applied calls stay as function
+-- values and only exact arity triggers evaluation.
 applyBuiltin :: BuiltinSymbol -> [RuntimeValue] -> Either Diagnostic RuntimeValue
 applyBuiltin builtinFunction arguments
   | length arguments < builtinSymbolArity builtinFunction =
@@ -198,6 +212,7 @@ applyBuiltin builtinFunction arguments
             ("runtime primitive '" <> builtinSymbolName builtinFunction <> "' received too many arguments")
         )
 
+-- | Evaluate builtin semantics once enough arguments have been collected.
 evalBuiltin :: BuiltinSymbol -> [RuntimeValue] -> Either Diagnostic RuntimeValue
 evalBuiltin builtinFunction arguments =
   case (builtinFunction, arguments) of
@@ -266,6 +281,8 @@ evalBuiltin builtinFunction arguments =
             ("runtime primitive '" <> builtinSymbolName builtinFunction <> "' received invalid arguments")
         )
 
+-- | Evaluate filter predicates element-by-element and enforce that each
+-- predicate application returns a Bool.
 filterElements :: RuntimeValue -> [RuntimeValue] -> Either Diagnostic [RuntimeValue]
 filterElements predicate values = do
   results <- mapM applyPredicate values
@@ -294,6 +311,7 @@ isFunctionValue value =
     VOperator {} -> True
     _ -> False
 
+-- | Evaluate the builtin operator subset supported by the runtime.
 evalBinary :: Text -> RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
 evalBinary operatorSymbol leftValue rightValue =
   case (operatorSymbol, leftValue, rightValue) of
@@ -334,6 +352,7 @@ evalBinary operatorSymbol leftValue rightValue =
 runtimeDiagnostic :: Text -> Text -> Diagnostic
 runtimeDiagnostic = mkDiagnostic
 
+-- | Render coarse runtime type names for diagnostics.
 renderRuntimeType :: RuntimeValue -> Text
 renderRuntimeType value =
   case value of

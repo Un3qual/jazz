@@ -1,5 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Semantic analysis for the current compiler slice. This pass keeps the core
+-- AST shape intact while enforcing scope visibility, signature adjacency, and
+-- stub-v1 purity/rebinding rules.
 module JazzNext.Compiler.Analyzer
   ( Expr (..),
     Statement (..),
@@ -54,6 +57,8 @@ import JazzNext.Compiler.Warnings
   ( WarningCategory (..)
   )
 
+-- | Analyzer output keeps the original expression plus the warnings/errors
+-- discovered while walking it.
 data AnalysisResult = AnalysisResult
   { analyzedExpr :: Expr,
     analysisWarnings :: [WarningRecord],
@@ -61,6 +66,8 @@ data AnalysisResult = AnalysisResult
   }
   deriving (Eq, Show)
 
+-- | Describes the purity and location context surrounding the expression
+-- currently being analyzed.
 data AnalysisContext = AnalysisContext
   { contextLabel :: Text,
     contextAllowsImpureCalls :: Bool,
@@ -68,6 +75,8 @@ data AnalysisContext = AnalysisContext
     contextSubject :: Maybe Text
   }
 
+-- | Binding metadata retained in visibility maps so diagnostics can decide
+-- whether a binding should surface source locations to users.
 data VisibleBinding = VisibleBinding
   { visibleBindingSpan :: SourceSpan,
     visibleBindingIsHiddenPrelude :: Bool
@@ -200,6 +209,8 @@ collectExprListDiagnostics builtinMode settings visibleBindings context elements
        in
         (elementWarnings : warningsRev, elementErrors : errorsRev)
 
+-- | Walk a block scope in declaration order, enforcing signature adjacency,
+-- rebinding policy, and recursive-peer visibility at the same time.
 collectScopeDiagnostics ::
   BuiltinResolutionMode ->
   Set Int ->
@@ -349,11 +360,15 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
     appendErrors :: [Diagnostic] -> [Diagnostic] -> [Diagnostic]
     appendErrors = foldl' (flip (:))
 
+-- | Signature bookkeeping is intentionally small: only one immediately
+-- preceding signature may be waiting for a matching binding.
 data PendingSignature = PendingSignature
   { pendingSignatureName :: Text,
     pendingSignatureSpan :: SourceSpan
   }
 
+-- | Signatures must be consumed by the next binding; reaching any other
+-- statement turns the pending signature into a diagnostic.
 flushPendingSignature :: Maybe PendingSignature -> [Diagnostic] -> [Diagnostic]
 flushPendingSignature pending errorsRev =
   case pending of
@@ -414,6 +429,8 @@ topLevelContext =
       contextSubject = Nothing
     }
 
+-- | Create the purity/diagnostic context that should apply while checking the
+-- body of a specific binding.
 contextForBinding :: Identifier -> SourceSpan -> AnalysisContext
 contextForBinding bindingName bindingSpan =
   AnalysisContext
@@ -470,6 +487,8 @@ withMaybe maybeValue setter value =
     Nothing -> value
     Just presentValue -> setter presentValue value
 
+-- | Build strongly connected components of local bindings so self-recursive and
+-- mutually recursive groups can see each other independent of declaration order.
 inferRecursiveGroups ::
   Map Text VisibleBinding ->
   [(Int, Statement)] ->
@@ -585,6 +604,8 @@ collectBindingDeclarations =
           Map.insert statementIndex (identifierText name, spanValue) declarations
         _ -> declarations
 
+-- | Compute free variables for an expression while respecting the set of names
+-- already known to be bound in the surrounding scope.
 freeVarsExprWithBound :: Set Text -> Expr -> Set Text
 freeVarsExprWithBound bound expr =
   case expr of
@@ -641,6 +662,8 @@ freeVarsScopeWithBound initialBound statements =
               Set.union freeNames (freeVarsExprWithBound boundWithSelf valueExpr)
             )
 
+-- | Tag bindings that came from hidden prelude statements so user-facing
+-- diagnostics can avoid pointing at synthetic source positions.
 mkVisibleBinding :: Set Int -> Int -> SourceSpan -> VisibleBinding
 mkVisibleBinding hiddenStatementIndices statementIndex spanValue =
   VisibleBinding

@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Bootstrap lexer for the current surface syntax. It keeps the token set
+-- intentionally small while preserving spans for diagnostics.
 module JazzNext.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
@@ -19,6 +21,7 @@ import JazzNext.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol
   )
 
+-- | Token vocabulary understood by the current parser foundation.
 data TokenKind
   = TIdentifier Text
   | TModule
@@ -40,6 +43,8 @@ data TokenKind
   | TComma
   deriving (Eq, Show)
 
+-- | Concrete token annotated with the original lexeme and its starting source
+-- span so later parser errors can report precise locations.
 data Token = Token
   { tokenKind :: TokenKind,
     tokenLexeme :: Text,

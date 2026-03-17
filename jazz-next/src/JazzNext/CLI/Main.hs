@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Thin CLI layer that translates arguments, env, and file lookups into the
+-- driver entrypoints used by tests and the executable.
 module JazzNext.CLI.Main
   ( CliOptions (..),
     CliOutput (..),
@@ -51,6 +53,7 @@ import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..), exitWith)
 import System.IO (stderr, stdout)
 
+-- | Parsed CLI configuration after argument validation.
 data CliOptions = CliOptions
   { cliWarningFlags :: [Text],
     cliWarningsConfigPath :: Maybe FilePath,
@@ -62,12 +65,17 @@ data CliOptions = CliOptions
   }
   deriving (Eq, Show)
 
+-- | Captured CLI side effects, used both by tests and by `main`.
 data CliOutput = CliOutput
   { cliExitCode :: Int,
     cliStdout :: Text,
     cliStderr :: Text
   }
   deriving (Eq, Show)
+
+data WarningConfigSelection
+  = ExplicitWarningConfig FilePath
+  | DefaultWarningConfigProbe FilePath
 
 -- Parse currently supported warning and prelude-loading flags.
 parseCliOptions :: [String] -> Either Diagnostic CliOptions
@@ -118,6 +126,8 @@ parseCliOptions args = do
           go options {cliWarningFlags = Text.pack arg : cliWarningFlags options} rest
       | otherwise = Left (mkMessageDiagnostic ("unknown argument: " <> Text.pack arg))
 
+-- | End-to-end CLI entrypoint with injectable env/config/source lookups so the
+-- behavior stays testable without shelling out.
 runCliWith ::
   [String] ->
   (String -> IO (Maybe String)) ->
@@ -173,6 +183,8 @@ main = do
   TextIO.hPutStr stderr (cliStderr output)
   exitWith (toExitCode (cliExitCode output))
 
+-- | Resolve warning settings using the published precedence order between CLI,
+-- env vars, and config files.
 resolveSettings ::
   CliOptions ->
   (String -> IO (Maybe String)) ->
@@ -184,17 +196,39 @@ resolveSettings options envLookup configLookup = do
   envConfigPath <- envLookup "JAZZ_WARNING_CONFIG"
   let selectedConfigPath =
         case cliWarningsConfigPath options of
-          Just cliPath -> Just cliPath
+          Just cliPath -> ExplicitWarningConfig cliPath
           Nothing ->
             case envConfigPath of
-              Just envPath -> Just envPath
-              Nothing -> Just ".jazz-warnings"
-  configContents <-
-    case selectedConfigPath of
-      Just configPath -> configLookup configPath
-      Nothing -> pure Nothing
-  pure (resolveWarningSettings (cliWarningFlags options) envWarningFlags envErrorFlags configContents)
+              Just envPath -> ExplicitWarningConfig envPath
+              Nothing -> DefaultWarningConfigProbe ".jazz-warnings"
+  configContentsResult <- loadWarningConfig selectedConfigPath configLookup
+  pure $
+    case configContentsResult of
+      Left configError -> Left configError
+      Right configContents ->
+        resolveWarningSettings (cliWarningFlags options) envWarningFlags envErrorFlags configContents
 
+loadWarningConfig ::
+  WarningConfigSelection ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO (Either Diagnostic (Maybe Text))
+loadWarningConfig configSelection configLookup =
+  case configSelection of
+    ExplicitWarningConfig configPath -> do
+      configContents <- configLookup configPath
+      pure $
+        case configContents of
+          Just contents -> Right (Just contents)
+          Nothing ->
+            Left
+              ( mkMessageDiagnostic
+                  ("warning config file could not be read at '" <> Text.pack configPath <> "'")
+              )
+    DefaultWarningConfigProbe configPath ->
+      Right <$> configLookup configPath
+
+-- | Resolve the prelude source according to CLI/env flags, defaulting to the
+-- bundled prelude when neither an explicit path nor `--no-prelude` is given.
 resolvePreludeSource ::
   CliOptions ->
   (String -> IO (Maybe String)) ->
@@ -335,6 +369,8 @@ runExecuteModuleGraph settings options resolvedPrelude entryModulePath sourceLoo
         cliStderr = stderrOutput
       }
 
+-- | Translate CLI module-root options into the resolver configuration used by
+-- compile/run module-graph entrypoints.
 cliModuleConfig :: CliOptions -> ModuleResolutionConfig
 cliModuleConfig options =
   ModuleResolutionConfig
@@ -366,6 +402,9 @@ renderPreviousSpan previous =
     Nothing -> ""
     Just previousSpan -> " (previous " <> renderSourceSpan previousSpan <> ")"
 
+-- | Read a warning config file as an optional blob. `resolveSettings` decides
+-- whether a missing result is acceptable (the implicit default probe) or a
+-- user-facing error (an explicit CLI/env config path).
 readConfigMaybe :: FilePath -> IO (Maybe Text)
 readConfigMaybe path =
   -- Missing/unreadable config files are treated as absent so default warning

@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Operator metadata used by the surface parser's precedence climber.
 module JazzNext.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
@@ -10,11 +11,13 @@ module JazzNext.Compiler.Parser.Operator
 
 import Data.Text (Text)
 
+-- | Associativity used when computing the next precedence floor in the parser.
 data Associativity
   = AssocLeft
   | AssocRight
   deriving (Eq, Show)
 
+-- | Published fixity information for a builtin operator.
 data OperatorInfo = OperatorInfo
   { operatorSymbol :: Text,
     operatorPrecedence :: Int,
@@ -22,8 +25,8 @@ data OperatorInfo = OperatorInfo
   }
   deriving (Eq, Show)
 
--- Precedence levels match the locked v1 tiers in docs/spec/syntax/operators.md.
--- Larger numbers bind tighter in the precedence climber.
+-- | Builtin operator table. Precedence levels match the locked v1 tiers in
+-- `docs/spec/syntax/operators.md`, where larger numbers bind tighter.
 builtinOperatorInfos :: [OperatorInfo]
 builtinOperatorInfos =
   [ OperatorInfo "*" 5 AssocLeft,
@@ -46,6 +49,8 @@ isBuiltinOperatorSymbol symbol =
     Just _ -> True
     Nothing -> False
 
+-- | Lookup helper used by both the lexer and parser so they share the same
+-- operator vocabulary and fixity data.
 lookupOperatorInfo :: Text -> Maybe OperatorInfo
 lookupOperatorInfo symbol = go builtinOperatorInfos
   where

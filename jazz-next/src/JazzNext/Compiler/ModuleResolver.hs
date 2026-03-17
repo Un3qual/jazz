@@ -1,5 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Module graph resolver for `module` and `import` forms. It loads source,
+-- validates module declarations/import bindings, and returns modules in
+-- dependency order for the driver.
 module JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
     ResolvedModule (..),
@@ -43,12 +46,15 @@ import JazzNext.Compiler.Parser.AST
   )
 import System.FilePath ((</>))
 
+-- | File-system lookup policy for module loading.
 data ModuleResolutionConfig = ModuleResolutionConfig
   { moduleRoots :: [FilePath],
     moduleExtension :: String
   }
   deriving (Eq, Show)
 
+-- | Minimal resolved-module record consumed by the driver when replaying source
+-- in dependency order.
 data ResolvedModule = ResolvedModule
   { resolvedModulePath :: [Text],
     resolvedSourcePath :: FilePath,
@@ -83,6 +89,8 @@ data ResolvedState = ResolvedState
 modulePathToRelativeFile :: [Text] -> FilePath
 modulePathToRelativeFile = modulePathToRelativeFileWithExt ".jz"
 
+-- | Parse a user-provided module path like `Foo::Bar` and reject empty or
+-- non-identifier segments before resolution starts.
 parseModulePathText :: Text -> Either Diagnostic [Text]
 parseModulePathText rawModulePath
   | Text.null rawModulePath =
@@ -130,6 +138,8 @@ resolveModuleGraph config sources entryModulePath =
       (\path -> pure (Map.lookup path sources))
       entryModulePath
 
+-- | Resolve an entry module and all of its imports using an abstract source
+-- lookup function so tests and CLI can share the same resolver logic.
 resolveModuleGraphWithLookup ::
   Monad m =>
   ModuleResolutionConfig ->
@@ -267,6 +277,8 @@ modulePathToRelativeFileWithExt extension modulePath =
   where
     joinSegments segment acc = segment <> "/" <> acc
 
+-- | Parse a module's surface source and extract only the details needed by the
+-- resolver: declarations, imports, and top-level exports.
 parseModuleDetails :: FilePath -> [Text] -> Text -> Either Diagnostic ParsedModule
 parseModuleDetails sourcePath expectedModulePath sourceText =
   case parseSurfaceProgram sourceText of
@@ -354,6 +366,8 @@ collectModuleDeclarations surfaceExpr =
       ]
     _ -> []
 
+-- | Validate alias and explicit-symbol imports after dependencies have been
+-- resolved so the exporting module inventories are known.
 validateImportBindings ::
   FilePath ->
   [Text] ->
@@ -513,6 +527,9 @@ validateImportBindings sourcePath importerPath imports exportsByModule =
       | Set.null exports = "<none>"
       | otherwise = Text.intercalate ", " (sortOn id (Set.toList exports))
 
+-- | Provide a deterministic lexical import order for traversal and diagnostics.
+-- Encounter order is intentionally discarded by `Set`-based deduplication and
+-- the final `renderModulePath` sort.
 sortModulePaths :: [[Text]] -> [[Text]]
 sortModulePaths modulePaths =
   map snd . sortOn fst $ map (\modulePath -> (renderModulePath modulePath, modulePath)) uniquePaths
@@ -538,6 +555,8 @@ renderImporterContext callStack =
 renderModulePath :: [Text] -> Text
 renderModulePath segments = Text.intercalate "::" segments
 
+-- | Preserve the first occurrence of each candidate path so module-root lookup
+-- order remains stable while removing duplicates.
 dedupePreservingOrder :: Ord a => [a] -> [a]
 dedupePreservingOrder =
   reverse . fst . foldl' step ([], Set.empty)

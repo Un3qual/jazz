@@ -66,6 +66,8 @@ tests =
     ("cli --run reports hd empty-list fatal runtime error", testCliRunModeHdEmptyListRuntimeError),
     ("cli precedence keeps CLI over env over config", testCliPrecedenceBehavior),
     ("cli respects --warnings-config path override", testCliConfigPathOverride),
+    ("cli explicit --warnings-config read failures return config error", testCliExplicitConfigPathFailure),
+    ("cli explicit env warning config read failures return config error", testCliExplicitEnvConfigPathFailure),
     ("cli defers source read until after arg validation", testCliDefersSourceReadOnArgError),
     ("cli accepts concrete list signature from source input", testCliAcceptsConcreteListSignature),
     ("cli accepts simple function signature from source input", testCliAcceptsSimpleFunctionSignature),
@@ -455,6 +457,26 @@ testCliConfigPathOverride = do
   output <- runCliWith ["--warnings-config", "config/warnings.txt"] envLookup configLookup (pure sampleSource)
   assertEqual "exit code" 0 (cliExitCode output)
   assertContains "custom config enables warning" "W0001" (cliStderr output)
+
+testCliExplicitConfigPathFailure :: IO ()
+testCliExplicitConfigPathFailure = do
+  output <- runCliWith ["--warnings-config", "missing/warnings.txt"] envLookup configLookup (pure sampleSource)
+  assertEqual "exit code" 2 (cliExitCode output)
+  assertContains "stderr reports config read failure" "warning config file could not be read at 'missing/warnings.txt'" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
+testCliExplicitEnvConfigPathFailure :: IO ()
+testCliExplicitEnvConfigPathFailure = do
+  output <- runCliWith [] envLookup configLookup (pure sampleSource)
+  assertEqual "exit code" 2 (cliExitCode output)
+  assertContains "stderr reports env config read failure" "warning config file could not be read at 'env/warnings.txt'" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  where
+    envLookup key = pure (Map.lookup key (Map.fromList [("JAZZ_WARNING_CONFIG", "env/warnings.txt")]))
+    configLookup _ = pure Nothing
 
 testCliDefersSourceReadOnArgError :: IO ()
 testCliDefersSourceReadOnArgError = do

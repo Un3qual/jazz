@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Identifier wrapper that keeps the original text and the purity implied by
+-- the current naming convention.
 module JazzNext.Compiler.Identifier
   ( Identifier,
     identifierText,
@@ -19,12 +21,15 @@ import JazzNext.Compiler.Purity
     namePurity
   )
 
+-- | Names annotated with the purity implied by their spelling.
 data Identifier = Identifier
   { identifierText :: Text,
     identifierPurity :: Purity
   }
   deriving (Eq, Show)
 
+-- | Construct an identifier and derive its purity once so later phases can
+-- reuse the classification without re-parsing the name text.
 mkIdentifier :: Text -> Identifier
 mkIdentifier name =
   Identifier
