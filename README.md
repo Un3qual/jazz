@@ -15,7 +15,7 @@ Jazz is a functional language that takes inspiration from Elixir and Haskell. I 
 - Functions are curried by default
 - Bundled-prelude runtime helpers (`map`, `filter`, `hd`, `tl`, `print!`) in the active CLI/run path
 - Stub purity enforcement for direct `!` callee calls in binding bodies
-- Dot-terminated source forms and lambda syntax
+- Dot-terminated source forms and brace-bodied module declarations
 
 ### Planned / Aspirational
 

@@ -216,8 +216,8 @@ testCliRunModeModuleGraphSuccess = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("src/App/Main.jz", "import Lib::Util.\nutil."),
-                  ("src/Lib/Util.jz", "util = 1.")
+                [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
+                  ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
                 ]
             )
         )

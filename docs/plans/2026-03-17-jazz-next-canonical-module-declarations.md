@@ -16,7 +16,7 @@
 - [x] Verified the active `jazz-next` module parser/tests still enforce non-canonical `module A::B.` syntax.
 - [x] Task 1 complete: failing parser/loader/CLI tests lock canonical brace-delimited module declarations.
 - [x] Task 2 complete: lexer/parser accept canonical module declarations and keep lowering/resolver behavior intact.
-- [ ] Task 3 complete: module docs/trackers reflect the new surface and targeted/full verification pass.
+- [x] Task 3 complete: module docs/trackers reflect the new surface and targeted/full verification pass.
 
 ## Scope Guardrails
 
