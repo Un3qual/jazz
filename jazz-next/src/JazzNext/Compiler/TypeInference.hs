@@ -31,9 +31,13 @@ import JazzNext.Compiler.BuiltinCatalog
     lookupBuiltinSymbolInMode
   )
 import JazzNext.Compiler.Diagnostics
-  ( Diagnostic,
+  ( Diagnostic (..),
+    SourceSpan,
     WarningRecord,
-    mkDiagnostic
+    mkDiagnostic,
+    setDiagnosticPrimarySpan,
+    setDiagnosticRelatedSpan,
+    setDiagnosticSubject
   )
 import JazzNext.Compiler.Identifier
   ( identifierText
@@ -163,10 +167,22 @@ initialInferState =
 
 collectExprTypeErrors :: BuiltinResolutionMode -> Expr -> [Diagnostic]
 collectExprTypeErrors builtinMode expr =
-  let (_, finalState) = inferExprType builtinMode Map.empty initialInferState expr
+  let (_, finalState) =
+        inferExprType
+          builtinMode
+          Map.empty
+          initialInferState
+          expr
    in reverse (inferErrorsRev finalState)
 
-inferExprType :: BuiltinResolutionMode -> Map Text ExpressionType -> InferState -> Expr -> (Maybe ExpressionType, InferState)
+-- Core expressions do not retain inner-node source spans yet, so inference
+-- reuses the enclosing statement span as the best available location metadata.
+inferExprType ::
+  BuiltinResolutionMode ->
+  Map Text ExpressionType ->
+  InferState ->
+  Expr ->
+  (Maybe ExpressionType, InferState)
 inferExprType builtinMode env state expr =
   case expr of
     ELit literal -> (Just (literalExpressionType literal), state)
@@ -182,11 +198,18 @@ inferExprType builtinMode env state expr =
     EOperatorValue operatorSymbol ->
       case instantiateOperatorType operatorSymbol state of
         Just (operatorType, nextState) -> (Just operatorType, nextState)
-        Nothing -> (Nothing, addTypeError state (mkUnsupportedOperatorValueError operatorSymbol))
+        Nothing ->
+          ( Nothing,
+            addTypeError
+              state
+              (mkUnsupportedOperatorValueError operatorSymbol)
+          )
     EList elements -> inferListType builtinMode env state elements
     EApply functionExpr argumentExpr ->
-      let (functionType, stateAfterFunction) = inferExprType builtinMode env state functionExpr
-          (argumentType, stateAfterArgument) = inferExprType builtinMode env stateAfterFunction argumentExpr
+      let (functionType, stateAfterFunction) =
+            inferExprType builtinMode env state functionExpr
+          (argumentType, stateAfterArgument) =
+            inferExprType builtinMode env stateAfterFunction argumentExpr
           (resultTypeVar, stateWithResultVar) = freshTypeVar stateAfterArgument
        in case (functionType, argumentType) of
             (Just inferredFunctionType, Just inferredArgumentType) ->
@@ -210,9 +233,12 @@ inferExprType builtinMode env state expr =
     EIf conditionExpr thenExpr elseExpr ->
       inferExprType builtinMode env state (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr ->
-      let (conditionType, stateAfterCondition) = inferExprType builtinMode env state conditionExpr
-          (thenType, stateAfterThen) = inferExprType builtinMode env stateAfterCondition thenExpr
-          (elseType, stateAfterElse) = inferExprType builtinMode env stateAfterThen elseExpr
+      let (conditionType, stateAfterCondition) =
+            inferExprType builtinMode env state conditionExpr
+          (thenType, stateAfterThen) =
+            inferExprType builtinMode env stateAfterCondition thenExpr
+          (elseType, stateAfterElse) =
+            inferExprType builtinMode env stateAfterThen elseExpr
           stateAfterConditionCheck =
             case conditionType of
               Just inferredConditionType ->
@@ -240,23 +266,37 @@ inferExprType builtinMode env state expr =
                 )
           _ -> (Nothing, stateAfterConditionCheck)
     EBinary operatorSymbol leftExpr rightExpr ->
-      let (leftType, stateAfterLeft) = inferExprType builtinMode env state leftExpr
-          (rightType, stateAfterRight) = inferExprType builtinMode env stateAfterLeft rightExpr
+      let (leftType, stateAfterLeft) =
+            inferExprType builtinMode env state leftExpr
+          (rightType, stateAfterRight) =
+            inferExprType builtinMode env stateAfterLeft rightExpr
        in case (leftType, rightType) of
             (Just inferredLeftType, Just inferredRightType) ->
-              inferBinaryType operatorSymbol inferredLeftType inferredRightType stateAfterRight
+              inferBinaryType
+                operatorSymbol
+                inferredLeftType
+                inferredRightType
+                stateAfterRight
             _ -> (Nothing, stateAfterRight)
     ESectionLeft leftExpr operatorSymbol ->
-      let (leftType, stateAfterLeft) = inferExprType builtinMode env state leftExpr
+      let (leftType, stateAfterLeft) =
+            inferExprType builtinMode env state leftExpr
        in case leftType of
             Just inferredLeftType ->
-              inferSectionLeftType operatorSymbol inferredLeftType stateAfterLeft
+              inferSectionLeftType
+                operatorSymbol
+                inferredLeftType
+                stateAfterLeft
             Nothing -> (Nothing, stateAfterLeft)
     ESectionRight operatorSymbol rightExpr ->
-      let (rightType, stateAfterRight) = inferExprType builtinMode env state rightExpr
+      let (rightType, stateAfterRight) =
+            inferExprType builtinMode env state rightExpr
        in case rightType of
             Just inferredRightType ->
-              inferSectionRightType operatorSymbol inferredRightType stateAfterRight
+              inferSectionRightType
+                operatorSymbol
+                inferredRightType
+                stateAfterRight
             Nothing -> (Nothing, stateAfterRight)
     EBlock statements -> inferScopeType builtinMode env state statements
 
@@ -266,14 +306,20 @@ literalExpressionType literal =
     LInt _ -> TIntType
     LBool _ -> TBoolType
 
-inferListType :: BuiltinResolutionMode -> Map Text ExpressionType -> InferState -> [Expr] -> (Maybe ExpressionType, InferState)
+inferListType ::
+  BuiltinResolutionMode ->
+  Map Text ExpressionType ->
+  InferState ->
+  [Expr] ->
+  (Maybe ExpressionType, InferState)
 inferListType builtinMode env state elements =
   case elements of
     [] ->
       let (elementType, nextState) = freshTypeVar state
        in (Just (TListType elementType), nextState)
     firstElement : restElements ->
-      let (firstType, stateAfterFirst) = inferExprType builtinMode env state firstElement
+      let (firstType, stateAfterFirst) =
+            inferExprType builtinMode env state firstElement
           (finalElementType, finalState) =
             foldl
               step
@@ -283,7 +329,8 @@ inferListType builtinMode env state elements =
   where
     step :: (Maybe ExpressionType, InferState) -> Expr -> (Maybe ExpressionType, InferState)
     step (expectedType, stateAcc) element =
-      let (actualType, stateAfterElement) = inferExprType builtinMode env stateAcc element
+      let (actualType, stateAfterElement) =
+            inferExprType builtinMode env stateAcc element
        in case (expectedType, actualType) of
             (Just inferredExpectedType, Just inferredActualType) ->
               case unifyTypes inferredExpectedType inferredActualType stateAfterElement of
@@ -321,7 +368,12 @@ lookupOperatorRule operatorSymbol =
     "$" -> Just ApplicationRule
     _ -> Nothing
 
-inferBinaryType :: Text -> ExpressionType -> ExpressionType -> InferState -> (Maybe ExpressionType, InferState)
+inferBinaryType ::
+  Text ->
+  ExpressionType ->
+  ExpressionType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
 inferBinaryType operatorSymbol leftType rightType state =
   case lookupOperatorRule operatorSymbol of
     Just (NumericRule resultType) ->
@@ -553,19 +605,19 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
               go env lastExprType pendingSignatureType state rest
             SImport {} ->
               go env lastExprType pendingSignatureType state rest
-            SSignature name _ signatureText ->
+            SSignature name signatureSpan signatureText ->
               let (nextPendingSignature, nextState) =
                     case parseSignatureType signatureText of
                       Just signatureType ->
-                        (Just (PendingSignatureType (identifierText name) signatureType), state)
+                        (Just (PendingSignatureType (identifierText name) signatureSpan signatureType), state)
                       Nothing ->
                         ( Nothing,
                           addTypeError
                             state
-                            (mkInvalidSignatureTypeError (identifierText name) signatureText)
+                            (mkInvalidSignatureTypeError (identifierText name) signatureSpan signatureText)
                         )
                in go env lastExprType nextPendingSignature nextState rest
-            SLet name _ valueExpr ->
+            SLet name bindingSpan valueExpr ->
               let nameText = identifierText name
                   envWithPendingSignature =
                     case pendingSignatureType of
@@ -576,7 +628,9 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                               (pendingSignatureDeclaredType pendingSignature)
                               env
                       _ -> env
-                  (valueType, stateAfterValue) = inferExprType builtinMode envWithPendingSignature state valueExpr
+                  (valueType, rawStateAfterValue) = inferExprType builtinMode envWithPendingSignature state valueExpr
+                  stateAfterValue =
+                    annotateNewErrorsWithPrimarySpan bindingSpan state rawStateAfterValue
                   stateAfterSignatureCheck =
                     case (pendingSignatureType, valueType) of
                       (Just pendingSignature, Just inferredType)
@@ -592,7 +646,9 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                                   stateAfterValue
                                   ( mkSignatureTypeMismatchError
                                       nameText
+                                      (pendingSignatureSpan pendingSignature)
                                       (resolveType stateAfterValue (pendingSignatureDeclaredType pendingSignature))
+                                      bindingSpan
                                       (resolveType stateAfterValue inferredType)
                                   )
                       _ -> stateAfterValue
@@ -607,14 +663,31 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                       Just inferredType -> Map.insert nameText inferredType env
                       Nothing -> env
                in go nextEnv lastExprType Nothing stateAfterSignatureCheck rest
-            SExpr _ expr ->
-              let (exprType, stateAfterExpr) = inferExprType builtinMode env state expr
+            SExpr exprSpan expr ->
+              let (exprType, rawStateAfterExpr) = inferExprType builtinMode env state expr
+                  stateAfterExpr =
+                    annotateNewErrorsWithPrimarySpan exprSpan state rawStateAfterExpr
                in go env exprType Nothing stateAfterExpr rest
 
 data PendingSignatureType = PendingSignatureType
   { pendingSignatureName :: Text,
+    pendingSignatureSpan :: SourceSpan,
     pendingSignatureDeclaredType :: ExpressionType
   }
+
+annotateNewErrorsWithPrimarySpan :: SourceSpan -> InferState -> InferState -> InferState
+annotateNewErrorsWithPrimarySpan spanValue previousState nextState =
+  nextState {inferErrorsRev = updatedNewErrors ++ existingErrors}
+  where
+    previousErrorCount = length (inferErrorsRev previousState)
+    newErrorCount = length (inferErrorsRev nextState) - previousErrorCount
+    (newErrors, existingErrors) = splitAt newErrorCount (inferErrorsRev nextState)
+    updatedNewErrors = map ensurePrimarySpan newErrors
+
+    ensurePrimarySpan diagnostic =
+      case diagnosticPrimarySpan diagnostic of
+        Just _ -> diagnostic
+        Nothing -> setDiagnosticPrimarySpan spanValue diagnostic
 
 parseSignatureType :: Text -> Maybe ExpressionType
 parseSignatureType signatureText =
@@ -814,17 +887,30 @@ mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
         <> renderType foundType
     )
 
-mkSignatureTypeMismatchError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
-mkSignatureTypeMismatchError bindingName declaredType inferredType =
-  mkDiagnostic
-    "E2005"
-    ( "binding '"
-        <> bindingName
-        <> "' declared as "
-        <> renderType declaredType
-        <> " but inferred as "
-        <> renderType inferredType
-    )
+mkSignatureTypeMismatchError ::
+  Text ->
+  SourceSpan ->
+  ExpressionType ->
+  SourceSpan ->
+  ExpressionType ->
+  Diagnostic
+mkSignatureTypeMismatchError bindingName signatureSpan declaredType bindingSpan inferredType =
+  setDiagnosticSubject bindingName $
+    setDiagnosticRelatedSpan
+      bindingSpan
+      ( setDiagnosticPrimarySpan
+          signatureSpan
+          ( mkDiagnostic
+              "E2005"
+              ( "binding '"
+                  <> bindingName
+                  <> "' declared as "
+                  <> renderType declaredType
+                  <> " but inferred as "
+                  <> renderType inferredType
+              )
+          )
+      )
 
 mkApplyTypeError :: ExpressionType -> ExpressionType -> Diagnostic
 mkApplyTypeError functionType argumentType =
@@ -854,16 +940,20 @@ mkUnsupportedOperatorValueError :: Text -> Diagnostic
 mkUnsupportedOperatorValueError operatorSymbol =
   mkDiagnostic "E2010" ("unsupported operator value '" <> operatorSymbol <> "'")
 
-mkInvalidSignatureTypeError :: Text -> Text -> Diagnostic
-mkInvalidSignatureTypeError symbol rawSignature =
-  mkDiagnostic
-    "E2009"
-    ( "invalid or unsupported signature for '"
-        <> symbol
-        <> "': '"
-        <> rawSignature
-        <> "'"
-    )
+mkInvalidSignatureTypeError :: Text -> SourceSpan -> Text -> Diagnostic
+mkInvalidSignatureTypeError symbol signatureSpan rawSignature =
+  setDiagnosticSubject symbol $
+    setDiagnosticPrimarySpan
+      signatureSpan
+      ( mkDiagnostic
+          "E2009"
+          ( "invalid or unsupported signature for '"
+              <> symbol
+              <> "': '"
+              <> rawSignature
+              <> "'"
+          )
+      )
 
 mkIfConditionTypeError :: ExpressionType -> Diagnostic
 mkIfConditionTypeError foundType =

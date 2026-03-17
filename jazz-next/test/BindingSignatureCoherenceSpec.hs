@@ -74,6 +74,18 @@ testSignatureTypeMismatch = do
     "signature type mismatch error"
     "E2005"
     (compileErrors result)
+  assertSingleDiagnosticPrimarySpan
+    "signature type mismatch primary span"
+    (SourceSpan 1 1)
+    (compileErrors result)
+  assertSingleDiagnosticRelatedSpan
+    "signature type mismatch related span"
+    (SourceSpan 2 1)
+    (compileErrors result)
+  assertSingleDiagnosticSubject
+    "signature type mismatch subject"
+    "x"
+    (compileErrors result)
 
 testSignatureSeparatedFromBinding :: IO ()
 testSignatureSeparatedFromBinding = do
@@ -280,8 +292,24 @@ testSourceAcceptsMutualRecursionGroup =
   assertSourceOk "even = odd.\nodd = even.\neven."
 
 testSourceRejectsSignatureTypeMismatch :: IO ()
-testSourceRejectsSignatureTypeMismatch =
-  assertSourceSingleErrorContains "x :: Int.\nx = True." "E2005"
+testSourceRejectsSignatureTypeMismatch = do
+  result <- compileSource defaultWarningSettings "x :: Int.\nx = True."
+  assertSingleDiagnosticCode
+    "source signature type mismatch code"
+    "E2005"
+    (compileErrors result)
+  assertSingleDiagnosticPrimarySpan
+    "source signature type mismatch primary span"
+    (SourceSpan 1 1)
+    (compileErrors result)
+  assertSingleDiagnosticRelatedSpan
+    "source signature type mismatch related span"
+    (SourceSpan 2 1)
+    (compileErrors result)
+  assertSingleDiagnosticSubject
+    "source signature type mismatch subject"
+    "x"
+    (compileErrors result)
 
 testSourceRejectsUnsupportedSignatureSurface :: IO ()
 testSourceRejectsUnsupportedSignatureSurface =

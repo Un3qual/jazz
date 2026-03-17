@@ -476,6 +476,8 @@ testCliReportsSignatureTypeMismatch = do
   output <- runCliWith [] envLookup configLookup (pure signatureMismatchSource)
   assertEqual "exit code" 1 (cliExitCode output)
   assertContains "stderr includes signature mismatch code" "E2005" (cliStderr output)
+  assertContains "stderr includes signature mismatch primary span" "E2005: 1:1:" (cliStderr output)
+  assertContains "stderr includes signature mismatch related span" "related 2:1" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
     envLookup _ = pure Nothing

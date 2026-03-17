@@ -10,7 +10,8 @@ import JazzNext.Compiler.Driver
     runSourceWithPrelude
   )
 import JazzNext.Compiler.Diagnostics
-  ( renderDiagnostic
+  ( SourceSpan (..),
+    renderDiagnostic
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -20,6 +21,10 @@ import JazzNext.TestHarness
     assertContains,
     assertEqual,
     assertSingleErrorContains,
+    assertSingleDiagnosticCode,
+    assertSingleDiagnosticPrimarySpan,
+    assertSingleDiagnosticRelatedSpan,
+    assertSingleDiagnosticSubject,
     runTestSuite
   )
 
@@ -36,6 +41,7 @@ tests =
     ("prelude bridge with missing kernel suffix fails conformance checks", testPreludeBridgeMissingSuffixDiagnostic),
     ("prelude bridge must be direct symbol reference", testPreludeMalformedBridgeDiagnostic),
     ("prelude bridge rejects canonical alias in bridge declaration", testPreludeBridgeRejectsCanonicalAlias),
+    ("prelude bridge rebinding reports current and previous bridge spans", testPreludeBridgeRebindingDiagnostic),
     ("prelude bridge allows canonical alias after kernel self-bridge", testPreludeBridgeAllowsCanonicalAliasAfterBridge),
     ("compile without prelude keeps compatibility aliases available", testCompileWithoutPreludeKeepsCompatibilityAliases),
     ("compile without prelude keeps missing binding behavior unchanged", testCompileWithoutPreludeStillFailsMissingBinding)
@@ -74,10 +80,19 @@ testPreludeParseDiagnostic = do
 testPreludeUnknownBridgeSymbolDiagnostic :: IO ()
 testPreludeUnknownBridgeSymbolDiagnostic = do
   result <- compileSourceWithPrelude defaultWarningSettings (Just "__kernel_unknown = unknown.") "1."
-  assertSingleErrorContains
+  let diagnostics = compileErrors result
+  assertSingleDiagnosticCode
     "unknown kernel bridge symbol code"
     "E0004"
-    (compileErrors result)
+    diagnostics
+  assertSingleDiagnosticPrimarySpan
+    "unknown kernel bridge primary span"
+    (SourceSpan 1 1)
+    diagnostics
+  assertSingleDiagnosticSubject
+    "unknown kernel bridge subject"
+    "__kernel_unknown"
+    diagnostics
 
 testPreludeBridgeMissingSuffixDiagnostic :: IO ()
 testPreludeBridgeMissingSuffixDiagnostic = do
@@ -102,6 +117,31 @@ testPreludeBridgeRejectsCanonicalAlias = do
     "bridge cannot reference canonical alias name"
     "E0005"
     (compileErrors result)
+
+testPreludeBridgeRebindingDiagnostic :: IO ()
+testPreludeBridgeRebindingDiagnostic = do
+  result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      (Just "__kernel_map = __kernel_map.\n__kernel_map = __kernel_map.")
+      "1."
+  let diagnostics = compileErrors result
+  assertSingleDiagnosticCode
+    "bridge rebinding code"
+    "E0005"
+    diagnostics
+  assertSingleDiagnosticPrimarySpan
+    "bridge rebinding primary span"
+    (SourceSpan 2 1)
+    diagnostics
+  assertSingleDiagnosticRelatedSpan
+    "bridge rebinding related span"
+    (SourceSpan 1 1)
+    diagnostics
+  assertSingleDiagnosticSubject
+    "bridge rebinding subject"
+    "__kernel_map"
+    diagnostics
 
 testPreludeBridgeAllowsCanonicalAliasAfterBridge :: IO ()
 testPreludeBridgeAllowsCanonicalAliasAfterBridge = do

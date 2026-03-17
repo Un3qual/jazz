@@ -19,8 +19,9 @@ Execution note:
 - [x] Confirmed compile-time diagnostics were already modeled as `Diagnostic` records, so raw `[Text]` migration steps in this plan are obsolete.
 - [x] Batch 1 complete: enriched `Diagnostic` with related-span/subject metadata plus dedicated rendering coverage.
 - [x] Batch 1 complete: populated analyzer diagnostics (`E1002`, `E1003`, `E1010`) with primary/related span metadata and subject tracking.
-- [ ] Batch 2 pending: migrate type inference and driver compile-time producers off summary-only diagnostics.
-- [ ] Batch 3 pending: migrate prelude/module-resolution producers and close remaining cleanup/verification steps.
+- [x] Batch 2 complete: verified type inference/driver already threaded `Diagnostic`, then added signature and statement-span metadata coverage for compile-time type errors.
+- [x] Batch 3 complete: enriched prelude and module-resolution diagnostics with primary/related spans plus subject tracking.
+- [x] Final verification complete: targeted specs and `bash jazz-next/scripts/test-warning-config.sh` passed, and no compile-time error lists remain typed as raw `[Text]`.
 
 ## Adaptation Notes
 
