@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Canonical builtin inventory and name-resolution policy shared across
+-- analyzer, type inference, runtime, and prelude validation.
 module JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
     BuiltinOwnership (..),
@@ -25,20 +27,21 @@ import Data.List
 import Data.Text (Text)
 import qualified Data.Text as Text
 
--- Prelude-enabled compile/run paths should resolve only kernel bridge names.
--- Compatibility paths retain legacy canonical aliases only.
+-- | Controls whether compiler phases resolve only kernel bridge names or also
+-- accept older public builtin spellings.
 data BuiltinResolutionMode
   = ResolveKernelOnly
   | ResolveCompatibility
   deriving (Eq, Ord, Show)
 
+-- | Declares whether a builtin is conceptually owned by the kernel runtime or
+-- should be surfaced through the prelude contract.
 data BuiltinOwnership
   = KernelIntrinsic
   | PreludeTarget
   deriving (Eq, Ord, Show)
 
--- Canonical builtin inventory shared by analyzer/type/runtime to keep the
--- stdlib boundary contract auditable and drift-resistant.
+-- | Stable builtin symbol set shared by all compiler/runtime phases.
 data BuiltinSymbol
   = BuiltinMap
   | BuiltinFilter
@@ -83,11 +86,13 @@ builtinSymbolArity builtinSymbol =
     BuiltinTl -> 1
     BuiltinPrint -> 1
 
--- Prelude/kernel bridge bindings must use this prefix and point to a known
--- kernel symbol name. Example: __kernel_map = __kernel_map.
+-- | Prefix reserved for prelude bindings that directly expose kernel-owned
+-- builtin symbols. Example: `__kernel_map = __kernel_map.`
 kernelBridgeBindingPrefix :: Text
 kernelBridgeBindingPrefix = "__kernel_"
 
+-- | Validate a bridge binding name and, when it names a known kernel builtin,
+-- return the canonical kernel target that the bridge must reference.
 kernelBridgeTargetName :: Text -> Maybe Text
 kernelBridgeTargetName bindingName
   | kernelBridgeBindingPrefix `Text.isPrefixOf` bindingName =
@@ -132,6 +137,7 @@ isKernelBuiltinSymbolName name =
     Just _ -> True
     Nothing -> False
 
+-- | Shared lookup helper used by public-name and kernel-name resolution.
 lookupByRenderedName :: (BuiltinSymbol -> Text) -> Text -> Maybe BuiltinSymbol
 lookupByRenderedName renderSymbolName name =
   find (\symbol -> renderSymbolName symbol == name) allBuiltinSymbols

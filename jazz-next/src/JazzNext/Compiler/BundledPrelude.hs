@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Generates the compiler-owned bundled prelude used when callers do not
+-- supply an explicit prelude file.
 module JazzNext.Compiler.BundledPrelude
   ( bundledPreludeSource,
     loadBundledPreludeSource
@@ -13,8 +15,8 @@ import JazzNext.Compiler.BuiltinCatalog
     builtinSymbolName
   )
 
--- Keep the bundled prelude aligned with the builtin catalog so default source
--- flows and explicit Prelude.jz updates cannot drift independently.
+-- | Pre-generated prelude text that exposes all builtin kernel bridges and
+-- their public aliases in a deterministic order.
 bundledPreludeSource :: Text
 bundledPreludeSource =
   Text.unlines $
@@ -29,6 +31,7 @@ bundledPreludeSource =
     renderPublicAlias symbol =
       builtinSymbolName symbol <> " = " <> builtinSymbolKernelName symbol <> "."
 
+-- | IO wrapper kept for API symmetry with file-backed prelude loading paths.
 loadBundledPreludeSource :: IO Text
 loadBundledPreludeSource =
   pure bundledPreludeSource

@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Stable warning metadata catalog. This module is the source of truth for
+-- warning enums, CLI tokens, and user-facing codes.
 module JazzNext.Compiler.WarningCatalog
   ( WarningCategory (..),
     allWarningCategories,
@@ -9,6 +11,8 @@ module JazzNext.Compiler.WarningCatalog
 
 import Data.Text (Text)
 
+-- | User-visible warning families. Once published, tokens/codes should remain
+-- backward compatible.
 data WarningCategory
   = SameScopeRebinding
   | ShadowingOuterScope
@@ -16,6 +20,8 @@ data WarningCategory
   | DeprecatedSyntax
   deriving (Eq, Ord, Show, Enum, Bounded)
 
+-- | Internal metadata bundle so code/token definitions stay adjacent to the
+-- enum cases they describe.
 data WarningMetadata = WarningMetadata
   { metadataCode :: Text,
     metadataToken :: Text
@@ -30,6 +36,8 @@ warningCode = metadataCode . warningMetadata
 warningToken :: WarningCategory -> Text
 warningToken = metadataToken . warningMetadata
 
+-- | Local metadata table for converting a warning category into its published
+-- code and CLI token.
 warningMetadata :: WarningCategory -> WarningMetadata
 warningMetadata category =
   case category of

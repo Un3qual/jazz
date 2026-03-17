@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Compiler driver that coordinates parsing, prelude injection, module
+-- resolution, analysis/type checking, warning promotion, and runtime execution.
 module JazzNext.Compiler.Driver
   ( CompileResult (..),
     ResolvedPrelude (..),
@@ -78,6 +80,8 @@ import JazzNext.Compiler.WarningConfig
     isWarningError
   )
 
+-- | Result of a compile-only invocation, including warnings and any promoted or
+-- semantic errors.
 data CompileResult = CompileResult
   { compileWarnings :: [WarningRecord],
     compileErrors :: [Diagnostic],
@@ -85,6 +89,8 @@ data CompileResult = CompileResult
   }
   deriving (Eq, Show)
 
+-- | Result of a run invocation, which may include compile-time and runtime
+-- diagnostics separately.
 data RunResult = RunResult
   { runWarnings :: [WarningRecord],
     runCompileErrors :: [Diagnostic],
@@ -93,6 +99,7 @@ data RunResult = RunResult
   }
   deriving (Eq, Show)
 
+-- | How the driver should source the prelude for the current invocation.
 data ResolvedPrelude
   = PreludeAbsent
   | PreludeBundled Text
@@ -286,6 +293,8 @@ runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entr
     Right sourceText ->
       runSourceWithResolvedPrelude settings resolvedPrelude sourceText
 
+-- | Parse, lower, analyze, and apply warning-promotion policy while returning
+-- the canonical expression for downstream compile/run steps.
 analyzeWithWarnings :: Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr)
 analyzeWithWarnings hiddenStatementIndices builtinMode settings expr = do
   inference <-
@@ -310,6 +319,8 @@ isPromoted settings warning = isWarningError settings (warningCategory warning)
 warningToError :: WarningRecord -> Diagnostic
 warningToError = toDiagnostic
 
+-- | The builtin lookup policy currently stays kernel-only for every prelude
+-- mode; explicit preludes change source, not builtin name resolution.
 builtinResolutionMode :: ResolvedPrelude -> BuiltinResolutionMode
 builtinResolutionMode resolvedPrelude =
   case resolvedPrelude of
@@ -320,6 +331,8 @@ builtinResolutionMode resolvedPrelude =
     PreludeBundled _ -> ResolveKernelOnly
     PreludeExplicit _ -> ResolveKernelOnly
 
+-- | Parse the incoming source and splice in prelude statements when required,
+-- tracking which synthetic statements should stay hidden from user diagnostics.
 parseAndLowerSource :: ResolvedPrelude -> Text -> Either Diagnostic ParsedProgram
 parseAndLowerSource resolvedPrelude source = do
   loweredSource <- parseAndLowerStandaloneSource source
@@ -364,6 +377,8 @@ resolvedExplicitPrelude maybePrelude =
     Nothing -> PreludeAbsent
     Just preludeText -> PreludeExplicit preludeText
 
+-- | Parse and validate an explicit/bundled prelude before it is merged into the
+-- main program source.
 validateAndLowerPrelude :: Text -> Either Diagnostic Expr
 validateAndLowerPrelude preludeText =
   case parseSurfaceProgram preludeText of
@@ -395,6 +410,8 @@ parseSurfaceWithErrorCode source =
     Right surfaceProgram ->
       Right surfaceProgram
 
+-- | Resolve an entry module graph and replay the source texts in dependency
+-- order so the rest of the pipeline can still operate on a single source blob.
 loadModuleGraphSource ::
   ModuleResolutionConfig ->
   [Text] ->
@@ -411,6 +428,8 @@ loadModuleGraphSource resolutionConfig entryModulePath sourceLookup = do
       sourceReplayResult <- replayResolvedSources resolvedModules memoizedSourceLookup
       pure (fmap (Text.intercalate "\n") sourceReplayResult)
 
+-- | Replay resolved source files from the memoized lookup so driver errors stay
+-- stable even after resolution has already succeeded.
 replayResolvedSources ::
   [ResolvedModule] ->
   (FilePath -> IO (Maybe Text)) ->
@@ -443,6 +462,8 @@ replayResolvedSources resolvedModules sourceLookup =
 renderModulePath :: [Text] -> Text
 renderModulePath segments = Text.intercalate "::" segments
 
+-- | Memoize source lookups so module resolution and source replay do not read
+-- the same file repeatedly.
 memoizeSourceLookup ::
   (FilePath -> IO (Maybe Text)) ->
   IO (FilePath -> IO (Maybe Text))

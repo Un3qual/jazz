@@ -1,3 +1,5 @@
+-- | Lowers parser-surface nodes into the smaller core AST consumed by later
+-- compiler phases.
 module JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr
   ) where
@@ -13,8 +15,8 @@ import JazzNext.Compiler.Parser.AST
     SurfaceStatement (..)
   )
 
--- Converts parser-surface nodes into core nodes while preserving source spans.
--- Control-flow/operator desugaring runs in a dedicated pass after lowering.
+-- | Convert parser-surface nodes into core nodes while preserving source
+-- spans. Control-flow/operator desugaring runs in dedicated later passes.
 lowerSurfaceExpr :: SurfaceExpr -> Expr
 lowerSurfaceExpr surfaceExpr =
   case surfaceExpr of
@@ -47,6 +49,7 @@ lowerSurfaceLiteral literal =
     SLInt value -> LInt value
     SLBool value -> LBool value
 
+-- | Lower a parsed statement without changing its span-carrying shape.
 lowerSurfaceStatement :: SurfaceStatement -> Statement
 lowerSurfaceStatement surfaceStatement =
   case surfaceStatement of

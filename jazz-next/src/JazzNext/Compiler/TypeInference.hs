@@ -1,5 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Lightweight type inference layer for the current compiler subset. It
+-- canonicalizes the lowered AST, reuses analyzer diagnostics, and adds the
+-- small collection of type/runtime-compatibility checks implemented so far.
 module JazzNext.Compiler.TypeInference
   ( InferenceResult (..),
     inferExpressionWithBuiltinsAndHiddenStatements,
@@ -47,6 +50,8 @@ import JazzNext.Compiler.WarningConfig
     defaultWarningSettings
   )
 
+-- | Inference output keeps the canonicalized expression plus warnings and type
+-- errors accumulated during checking.
 data InferenceResult = InferenceResult
   { inferredExpr :: Expr,
     inferredWarnings :: [WarningRecord],
@@ -139,6 +144,7 @@ canonicalizeStatement statement =
     SExpr spanValue expr ->
       SExpr spanValue (canonicalizeExpr expr)
 
+-- | Internal type language used by the current inferencer.
 data ExpressionType
   = TIntType
   | TBoolType
@@ -147,6 +153,7 @@ data ExpressionType
   | TVarType Int
   deriving (Eq, Show)
 
+-- | Mutable inference state threaded explicitly through the checker.
 data InferState = InferState
   { inferNextTypeVar :: Int,
     inferSubst :: Map Int ExpressionType,
@@ -593,6 +600,8 @@ applyStrictEqualitySectionRightRule operatorSymbol rightType state =
                 (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedRightType)
             )
 
+-- | Scope/type-signature handling for block expressions. This mirrors the
+-- statement-order rules enforced by the analyzer while threading inferred types.
 inferScopeType :: BuiltinResolutionMode -> Map Text ExpressionType -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType builtinMode initialEnv initialState statements = go initialEnv Nothing Nothing initialState statements
   where
@@ -675,6 +684,8 @@ data PendingSignatureType = PendingSignatureType
     pendingSignatureDeclaredType :: ExpressionType
   }
 
+-- | Attach the enclosing statement span to diagnostics that were just produced
+-- by an inner expression inference step.
 annotateNewErrorsWithPrimarySpan :: SourceSpan -> InferState -> InferState -> InferState
 annotateNewErrorsWithPrimarySpan spanValue previousState nextState =
   nextState {inferErrorsRev = updatedNewErrors ++ existingErrors}
@@ -723,9 +734,9 @@ stripWrappedType openChar closeChar rawSignature = do
     then Nothing
     else Just innerType
 
--- Signature parsing intentionally stays narrow here: we only split a single
--- top-level arrow so chained function types remain rejected until the broader
--- type-grammar/associativity work is explicitly decided.
+-- | Signature parsing intentionally stays narrow for now: only a single
+-- top-level arrow is recognized, so chained function types stay rejected until
+-- the broader type-grammar/associativity work is decided explicitly.
 splitSingleTopLevelArrow :: Text -> Either () (Maybe (Text, Text))
 splitSingleTopLevelArrow rawSignature = go 0 0 0 Nothing (Text.unpack rawSignature)
   where
@@ -797,6 +808,8 @@ instantiateOperatorType operatorSymbol state =
           )
     Nothing -> Nothing
 
+-- | Instantiate builtin symbol types on demand so each use site gets fresh type
+-- variables instead of sharing one global schematic type.
 instantiateBuiltinSymbolType :: BuiltinSymbol -> InferState -> Maybe (ExpressionType, InferState)
 instantiateBuiltinSymbolType builtinSymbol state =
   -- Use catalog names here so newly-added symbols safely fall back to `Nothing`
@@ -834,6 +847,7 @@ instantiateBuiltinSymbolType builtinSymbol state =
        in Just (TFunctionType valueType valueType, stateAfterValueType)
     _ -> Nothing
 
+-- | Allocate a fresh type variable for the current inference run.
 freshTypeVar :: InferState -> (ExpressionType, InferState)
 freshTypeVar state =
   let nextVar = inferNextTypeVar state
@@ -857,6 +871,7 @@ applySubstitution subst expressionType =
         Just replacementType -> applySubstitution subst replacementType
         Nothing -> TVarType typeVar
 
+-- | First-order unification over the small internal type language.
 unifyTypes :: ExpressionType -> ExpressionType -> InferState -> Maybe InferState
 unifyTypes leftType rightType state =
   let resolvedLeft = resolveType state leftType
@@ -875,6 +890,8 @@ unifyTypes leftType rightType state =
         (_, TVarType rightVar) -> bindTypeVar rightVar resolvedLeft state
         _ -> Nothing
 
+-- | Bind a type variable while preserving the deferred equality constraints
+-- introduced by strict-equality operator sections.
 bindTypeVar :: Int -> ExpressionType -> InferState -> Maybe InferState
 bindTypeVar typeVar replacementType state
   | replacementType == TVarType typeVar = Just state

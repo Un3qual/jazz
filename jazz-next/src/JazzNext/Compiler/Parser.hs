@@ -1,5 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Surface parser for the current `jazz-next` language slice. It turns the
+-- token stream into a block-wrapped surface AST while enforcing the current
+-- statement and operator grammar.
 module JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   ) where
@@ -58,6 +61,8 @@ parseSurfaceProgram source =
                     )
                 )
 
+-- | Parse a complete sequence of dot-terminated statements until the token
+-- stream is exhausted.
 parseStatementsUntilEnd :: [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
 parseStatementsUntilEnd = go []
   where
@@ -66,6 +71,8 @@ parseStatementsUntilEnd = go []
       (statement, remaining) <- parseStatement tokens
       go (statement : acc) remaining
 
+-- | Parse statements inside `{ ... }`, stopping as soon as the closing brace is
+-- encountered so block parsing can hand the remaining tokens back to callers.
 parseStatementsUntilBrace :: [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
 parseStatementsUntilBrace = go []
   where
@@ -77,6 +84,8 @@ parseStatementsUntilBrace = go []
           (statement, remaining) <- parseStatement allTokens
           go (statement : acc) remaining
 
+-- | Disambiguate statement-level forms before expression parsing so leading
+-- identifiers can become signatures or bindings when followed by `::` or `=`.
 parseStatement :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseStatement tokens =
   case tokens of
@@ -207,6 +216,8 @@ parseImportTail importToken modulePath tokensAfterModulePath =
             )
         )
 
+-- | Parse `Foo::Bar` style module paths and leave the first non-path token
+-- untouched for the caller.
 parseModulePath :: [Token] -> Either Diagnostic ([Text], [Token])
 parseModulePath tokens =
   case tokens of
@@ -259,6 +270,8 @@ parseModulePath tokens =
             )
         )
 
+-- | Parse import symbol lists and reject duplicates immediately so later module
+-- resolution can assume the list is unique.
 parseImportSymbolList :: [Token] -> Either Diagnostic ([Text], [Token])
 parseImportSymbolList tokensAfterLeftParen =
   case tokensAfterLeftParen of
@@ -372,6 +385,8 @@ parseExprStatement tokens = do
 parseExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseExpr = parseExprWithMinPrecedence 1
 
+-- | Entry point for precedence-climbing expression parsing after application
+-- folding has already happened.
 parseExprWithMinPrecedence :: Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseExprWithMinPrecedence minPrecedence tokens = do
   (leftExpr, remainingTokens) <- parseApplicationExpr tokens
@@ -392,6 +407,8 @@ parseApplicationExpr tokens = do
   (functionExpr, remainingTokens) <- parsePrimaryExpr tokens
   parseApplicationTail functionExpr remainingTokens
 
+-- | Function application binds tighter than infix operators, so adjacent
+-- primary expressions are folded into left-associated applications first.
 parseApplicationTail :: SurfaceExpr -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseApplicationTail functionExpr tokens =
   case startsPrimaryExpr tokens of
@@ -410,6 +427,8 @@ parseApplicationTail functionExpr tokens =
         Token {tokenKind = TLBracket} : _ -> True
         _ -> False
 
+-- | Shared precedence climber used by both regular expression parsing and the
+-- restricted `if` condition parser.
 parseInfixTailWith ::
   (Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])) ->
   Int ->
@@ -485,6 +504,8 @@ parsePrimaryExpr tokens =
                 )
             )
 
+-- | Parenthesized forms cover ordinary grouping, operator values like `(+)`,
+-- and left/right operator sections.
 parseParenExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseParenExpr tokensAfterLeftParen =
   case tokensAfterLeftParen of
@@ -528,6 +549,7 @@ parseListElements tokens = do
         _ ->
           Right (reverse elements, allTokens)
 
+-- | Parse the compact `if cond thenExpr else elseExpr` surface form.
 parseIfExpr :: Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseIfExpr ifToken tokensAfterIf = do
   (conditionExpr, afterCondition) <- parseExprWithoutApplication tokensAfterIf

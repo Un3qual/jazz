@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Shared diagnostic and warning record types used across parser, analyzer,
+-- resolver, runtime, and CLI layers.
 module JazzNext.Compiler.Diagnostics
   ( Diagnostic (..),
     RenderDiagnostic (..),
@@ -29,12 +31,15 @@ import JazzNext.Compiler.WarningCatalog
     warningCode
   )
 
+-- | 1-based source location used throughout the current compiler.
 data SourceSpan = SourceSpan
   { spanLine :: Int,
     spanColumn :: Int
   }
   deriving (Eq, Ord, Show)
 
+-- | Structured error payload that can carry stable codes, source spans, and
+-- extra notes as compilation moves between phases.
 data Diagnostic = Diagnostic
   { diagnosticCode :: Text,
     diagnosticSummary :: Text,
@@ -45,6 +50,8 @@ data Diagnostic = Diagnostic
   }
   deriving (Eq, Show)
 
+-- | Structured warning payload preserved separately from errors so warning
+-- policy can decide later whether to render or promote it.
 data WarningRecord = WarningRecord
   { warningCategory :: WarningCategory,
     warningCodeText :: Text,
@@ -82,6 +89,8 @@ instance RenderDiagnostic WarningRecord where
 renderDiagnostic :: RenderDiagnostic a => a -> Text
 renderDiagnostic = renderDiagnosticRecord . toDiagnostic
 
+-- | Render diagnostics into the CLI/test string form while preserving source
+-- locations and supplemental notes when present.
 renderDiagnosticRecord :: Diagnostic -> Text
 renderDiagnosticRecord diagnostic =
   renderCodePrefix (diagnosticCode diagnostic)
@@ -147,6 +156,8 @@ appendDiagnosticNote :: Text -> Diagnostic -> Diagnostic
 appendDiagnosticNote note diagnostic =
   diagnostic {diagnosticNotes = diagnosticNotes diagnostic <> [note]}
 
+-- | Best-effort parser for already-rendered diagnostics. This is only used in
+-- tests/helpers and intentionally recovers just the stable code/summary shape.
 diagnosticFromRendered :: Text -> Diagnostic
 diagnosticFromRendered rendered =
   case Text.breakOn ": " rendered of
@@ -181,8 +192,9 @@ mkSameScopeRebindingWarning variableName primarySpan previousSpan =
           <> "' shadows previous same-scope binding (last declaration wins)"
     }
 
+-- | Sort warnings deterministically so CLI output and tests do not depend on
+-- evaluation order inside earlier compiler phases.
 sortWarnings :: [WarningRecord] -> [WarningRecord]
--- Keep warning output deterministic so tests and CLI behavior are stable.
 sortWarnings =
   sortOn
     ( \warning ->

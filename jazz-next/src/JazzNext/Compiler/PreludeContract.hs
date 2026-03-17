@@ -1,5 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Validation rules for prelude-owned kernel bridge bindings. This keeps the
+-- bundled/explicit prelude contract auditable while builtin ownership is still
+-- in transition.
 module JazzNext.Compiler.PreludeContract
   ( validatePreludeKernelBridges
   ) where
@@ -30,8 +33,8 @@ import JazzNext.Compiler.Identifier
   ( identifierText
   )
 
--- Validates explicit prelude bridge declarations that map prelude-visible
--- names to kernel-owned builtin symbols.
+-- | Validate explicit prelude bridge declarations that map prelude-visible
+-- names directly onto canonical kernel symbols.
 validatePreludeKernelBridges :: Expr -> [Diagnostic]
 validatePreludeKernelBridges preludeExpr =
   case preludeExpr of
@@ -155,6 +158,8 @@ validatePreludeKernelBridges preludeExpr =
                     )
                 )
 
+    -- Route all bridge diagnostics through one helper so subject/span metadata
+    -- stays consistent across the different validation failures above.
     bridgeDiagnostic :: Text -> SourceSpan -> Diagnostic -> Diagnostic
     bridgeDiagnostic bindingName bindingSpan =
       setDiagnosticSubject bindingName

@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Surface AST produced directly by the parser before the program is lowered
+-- into the smaller core AST used by later phases.
 module JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceLiteral (..),
@@ -14,13 +16,14 @@ import JazzNext.Compiler.Identifier
   ( Identifier
   )
 
--- Parser-surface tree. This remains separate from analyzer AST so parsing can
--- evolve (desugaring, richer syntax) without forcing analyzer shape changes.
+-- | Literals as they appear in parsed source before lowering.
 data SurfaceLiteral
   = SLInt Int
   | SLBool Bool
   deriving (Eq, Show)
 
+-- | Parser-facing expression tree. This remains separate from the core AST so
+-- the surface syntax can grow without forcing analyzer/runtime rewrites.
 data SurfaceExpr
   = SELit SurfaceLiteral
   | SEVar Identifier
@@ -34,6 +37,7 @@ data SurfaceExpr
   | SEBlock [SurfaceStatement]
   deriving (Eq, Show)
 
+-- | Statement forms preserved from the parsed surface program.
 data SurfaceStatement
   = SSLet Identifier SourceSpan SurfaceExpr
   | SSSignature Identifier SourceSpan Text

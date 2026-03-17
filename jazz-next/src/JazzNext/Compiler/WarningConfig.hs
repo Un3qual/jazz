@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Parsing and precedence rules for warning configuration flowing in from CLI
+-- flags, environment variables, and config files.
 module JazzNext.Compiler.WarningConfig
   ( WarningDirective (..),
     WarningSettings,
@@ -27,7 +29,8 @@ import JazzNext.Compiler.Warnings
     parseWarningCategory
   )
 
--- Normalized internal directives produced from CLI/env/config inputs.
+-- | Normalized internal directives produced from CLI, env, and config inputs
+-- before precedence merging happens.
 data WarningDirective
   = EnableCategory WarningCategory
   | DisableCategory WarningCategory
@@ -36,6 +39,8 @@ data WarningDirective
   | DisableAllCategories
   deriving (Eq, Show)
 
+-- | Fully resolved warning policy after all configuration sources have been
+-- merged.
 data WarningSettings = WarningSettings
   { enabledCategories :: Map WarningCategory Bool,
     errorCategories :: Map WarningCategory Bool,
@@ -86,6 +91,8 @@ parseConfigDirectives contents = do
   let tokens = concatMap lineTokens (Text.lines contents)
   traverse parseDirectiveToken tokens
 
+-- | Merge warning directives using the external precedence contract
+-- `CLI > env > config > defaults`.
 resolveWarningSettings ::
   [Text] ->
   Maybe Text ->
@@ -166,6 +173,8 @@ parseEnvErrorToken rawToken
   where
     token = trim rawToken
 
+-- | Parse comma-delimited flag payloads while rejecting empty entries so
+-- callers get stable configuration errors instead of silent drops.
 parseCommaSeparatedTokens :: Text -> Either Diagnostic [Text]
 parseCommaSeparatedTokens rawValue =
   let rawTokens = splitCommas rawValue

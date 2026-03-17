@@ -1,3 +1,4 @@
+-- | Small desugaring pass for canonical control-flow forms in the core AST.
 module JazzNext.Compiler.Desugar
   ( desugarExpr
   ) where
@@ -7,10 +8,9 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 
--- Canonical control-flow lowering.
---
+-- | Canonicalize control-flow nodes without changing statement structure.
 -- Parser/lower currently produce `EIf`, but the analysis/type phases operate on
--- this post-desugared core form.
+-- the `ECase` form.
 desugarExpr :: Expr -> Expr
 desugarExpr expr =
   case expr of
@@ -38,6 +38,7 @@ desugarExpr expr =
     EBlock statements ->
       EBlock (map desugarStatement statements)
 
+-- | Statement-level companion to `desugarExpr`.
 desugarStatement :: Statement -> Statement
 desugarStatement statement =
   case statement of

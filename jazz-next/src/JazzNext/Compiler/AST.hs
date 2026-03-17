@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Canonical core AST shared by lowering, analysis, type inference, and the
+-- small interpreter/runtime slice in `jazz-next`.
 module JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
@@ -14,12 +16,14 @@ import JazzNext.Compiler.Identifier
   ( Identifier
   )
 
--- Analyzer-facing core AST after parser lowering.
+-- | Literals currently supported by the lowered core language.
 data Literal
   = LInt Int
   | LBool Bool
   deriving (Eq, Show)
 
+-- | Core expressions after surface syntax has been lowered into the stable
+-- analyzer/runtime representation.
 data Expr
   = ELit Literal
   | EVar Identifier
@@ -35,7 +39,8 @@ data Expr
   | EBlock [Statement]
   deriving (Eq, Show)
 
--- Dot-terminated top-level or block-level forms.
+-- | Dot-terminated statements that can appear either at the top level or
+-- inside block expressions.
 data Statement
   = SLet Identifier SourceSpan Expr
   | SSignature Identifier SourceSpan Text

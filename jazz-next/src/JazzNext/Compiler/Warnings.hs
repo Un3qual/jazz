@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | User-facing warning helpers layered on top of the canonical warning
+-- catalog.
 module JazzNext.Compiler.Warnings
   ( WarningCategory (..),
     WarningSeverity (..),
@@ -22,8 +24,7 @@ import JazzNext.Compiler.WarningCatalog
     warningToken
   )
 
--- Warning categories are stable user-facing identifiers. Keep codes/tokens
--- backward-compatible once published in CLI/docs.
+-- | Severity level exposed by higher-level warning/reporting code.
 data WarningSeverity
   -- Reserved for phase 2 analyzer diagnostics emission.
   = SeverityWarning
@@ -36,6 +37,8 @@ tokenCatalog =
     | category <- allWarningCategories
   ]
 
+-- | Parse warning tokens using a normalized, case-insensitive lookup so CLI,
+-- env, and config inputs share the same vocabulary.
 parseWarningCategory :: Text -> Either Diagnostic WarningCategory
 parseWarningCategory rawToken =
   case lookup normalizedToken tokenCatalog of
