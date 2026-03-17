@@ -691,10 +691,78 @@ annotateNewErrorsWithPrimarySpan spanValue previousState nextState =
 
 parseSignatureType :: Text -> Maybe ExpressionType
 parseSignatureType signatureText =
-  case Text.filter (not . isSpace) signatureText of
-    "Int" -> Just TIntType
-    "Bool" -> Just TBoolType
-    _ -> Nothing
+  parseSupportedSignatureType (Text.filter (not . isSpace) signatureText)
+
+parseSupportedSignatureType :: Text -> Maybe ExpressionType
+parseSupportedSignatureType rawSignature =
+  case splitSingleTopLevelArrow rawSignature of
+    Left () -> Nothing
+    Right (Just (argumentText, resultText)) ->
+      TFunctionType
+        <$> parseNonFunctionSignatureType argumentText
+        <*> parseNonFunctionSignatureType resultText
+    Right Nothing ->
+      parseNonFunctionSignatureType rawSignature
+
+parseNonFunctionSignatureType :: Text -> Maybe ExpressionType
+parseNonFunctionSignatureType rawSignature
+  | Text.null rawSignature = Nothing
+  | rawSignature == "Int" = Just TIntType
+  | rawSignature == "Bool" = Just TBoolType
+  | Just innerType <- stripWrappedType '[' ']' rawSignature =
+      TListType <$> parseNonFunctionSignatureType innerType
+  | Just innerType <- stripWrappedType '(' ')' rawSignature =
+      parseNonFunctionSignatureType innerType
+  | otherwise = Nothing
+
+stripWrappedType :: Char -> Char -> Text -> Maybe Text
+stripWrappedType openChar closeChar rawSignature = do
+  withoutOpen <- Text.stripPrefix (Text.singleton openChar) rawSignature
+  innerType <- Text.stripSuffix (Text.singleton closeChar) withoutOpen
+  if Text.null innerType
+    then Nothing
+    else Just innerType
+
+-- Signature parsing intentionally stays narrow here: we only split a single
+-- top-level arrow so chained function types remain rejected until the broader
+-- type-grammar/associativity work is explicitly decided.
+splitSingleTopLevelArrow :: Text -> Either () (Maybe (Text, Text))
+splitSingleTopLevelArrow rawSignature = go 0 0 0 Nothing (Text.unpack rawSignature)
+  where
+    go :: Int -> Int -> Int -> Maybe Int -> String -> Either () (Maybe (Text, Text))
+    go _ 0 0 foundArrow [] =
+      Right (fmap splitAtArrow foundArrow)
+    go _ _ _ _ [] =
+      Left ()
+    go index parenDepth bracketDepth foundArrow ('-':'>':rest)
+      | parenDepth == 0 && bracketDepth == 0 =
+          case foundArrow of
+            Nothing ->
+              go (index + 2) parenDepth bracketDepth (Just index) rest
+            Just _ ->
+              Left ()
+      | otherwise =
+          go (index + 2) parenDepth bracketDepth foundArrow rest
+    go index parenDepth bracketDepth foundArrow (nextChar : rest) =
+      case nextChar of
+        '(' ->
+          go (index + 1) (parenDepth + 1) bracketDepth foundArrow rest
+        ')' ->
+          if parenDepth > 0
+            then go (index + 1) (parenDepth - 1) bracketDepth foundArrow rest
+            else Left ()
+        '[' ->
+          go (index + 1) parenDepth (bracketDepth + 1) foundArrow rest
+        ']' ->
+          if bracketDepth > 0
+            then go (index + 1) parenDepth (bracketDepth - 1) foundArrow rest
+            else Left ()
+        _ ->
+          go (index + 1) parenDepth bracketDepth foundArrow rest
+
+    splitAtArrow :: Int -> (Text, Text)
+    splitAtArrow arrowIndex =
+      (Text.take arrowIndex rawSignature, Text.drop (arrowIndex + 2) rawSignature)
 
 instantiateBuiltinType :: BuiltinResolutionMode -> Text -> InferState -> Maybe (ExpressionType, InferState)
 instantiateBuiltinType builtinMode name state =

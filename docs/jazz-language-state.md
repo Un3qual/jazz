@@ -409,7 +409,7 @@ Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, bu
 
 Based on the full repo, these areas still require implementation convergence even when a decision lock now exists:
 
-- Extending parsed signature type grammar beyond the current `Int`/`Bool` subset in `jazz-next` (binding/signature coherence contract itself is implemented and test-covered):
+- Extending parsed signature type grammar beyond the current monomorphic subset in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, and single-arrow function types are implemented and test-covered; chained arrows, constrained signatures, and named type variables remain pending):
   - `docs/spec/semantics/bindings-and-signatures.md`
   - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Extending staged operator roadmap work in `jazz-next` beyond implemented v1 parser/fixity/sections behavior:
@@ -440,6 +440,7 @@ If you need a practical baseline for continuing Jazz, use this order:
 6. Assume the currently working active implementation (`jazz-next`) is a small interpreter-oriented expression language with:
    - dot-separated statements and scope blocks
    - application and list literals
+   - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, single-arrow function types)
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
    - built-in operator fixity plus executable left/right section semantics
    - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, plus prelude-provided public helpers `map`, `filter`, `hd`, `tl`, `print!`
