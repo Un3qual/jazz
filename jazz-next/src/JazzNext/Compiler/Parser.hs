@@ -69,7 +69,7 @@ parseStatementsUntilEnd = go []
   where
     go acc [] = Right (reverse acc, [])
     go acc tokens = do
-      (statements, remaining) <- parseStatement tokens
+      (statements, remaining) <- parseStatement TopLevelContext tokens
       case leadingModuleDeclaration statements of
         Just moduleSpan
           | not (null acc) ->
@@ -97,24 +97,43 @@ parseStatementsUntilEnd = go []
 
 -- | Parse statements inside `{ ... }`, stopping as soon as the closing brace is
 -- encountered so block parsing can hand the remaining tokens back to callers.
-parseStatementsUntilBrace :: [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
-parseStatementsUntilBrace = go []
+parseStatementsUntilBrace :: StatementContext -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
+parseStatementsUntilBrace context = go []
   where
     go _ [] = Left (parseDiagnostic "expected '}' before end of input")
     go acc allTokens@(token : rest) =
       case tokenKind token of
         TRBrace -> Right (reverse acc, rest)
         _ -> do
-          (statements, remaining) <- parseStatement allTokens
+          (statements, remaining) <- parseStatement context allTokens
           go (prependStatements statements acc) remaining
+
+data StatementContext
+  = TopLevelContext
+  -- Module bodies stay on the existing flattened statement path so downstream
+  -- duplicate-declaration checks still run in the resolver.
+  | ModuleBodyContext
+  -- Ordinary expression blocks must not introduce module declarations.
+  | NestedBlockContext
 
 -- | Disambiguate statement-level forms before expression parsing so leading
 -- identifiers can become signatures or bindings when followed by `::` or `=`.
-parseStatement :: [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
-parseStatement tokens =
+parseStatement :: StatementContext -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
+parseStatement context tokens =
   case tokens of
     moduleToken@(Token {tokenKind = TModule}) : rest ->
-      parseModuleStatement moduleToken rest
+      case context of
+        TopLevelContext ->
+          parseModuleStatement moduleToken rest
+        ModuleBodyContext ->
+          parseModuleStatement moduleToken rest
+        NestedBlockContext ->
+          Left
+            ( parseDiagnostic
+                ( "module declaration must remain top-level at "
+                    <> renderSourceSpan (tokenSpan moduleToken)
+                )
+            )
     importToken@(Token {tokenKind = TImport}) : rest ->
       fmap singleStatement (parseImportStatement importToken rest)
     -- Statement-level forms take precedence over expression parsing when the
@@ -168,7 +187,7 @@ parseModuleStatement moduleToken tokensAfterModuleKeyword = do
     Token {tokenKind = TLBrace} : tokensAfterLeftBrace -> do
       -- Keep downstream resolver/driver code on the current flat statement
       -- contract by replaying module-body statements after the declaration.
-      (bodyStatements, remaining) <- parseStatementsUntilBrace tokensAfterLeftBrace
+      (bodyStatements, remaining) <- parseStatementsUntilBrace ModuleBodyContext tokensAfterLeftBrace
       pure (SSModule (tokenSpan moduleToken) modulePath : bodyStatements, remaining)
     [] ->
       Left
@@ -549,7 +568,7 @@ parsePrimaryExpr tokens =
         TIf -> parseIfExpr token rest
         TLParen -> parseParenExpr rest
         TLBrace -> do
-          (statements, afterBrace) <- parseStatementsUntilBrace rest
+          (statements, afterBrace) <- parseStatementsUntilBrace NestedBlockContext rest
           Right (SEBlock statements, afterBrace)
         TLBracket -> parseListExpr rest
         _ ->
