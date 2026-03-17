@@ -39,6 +39,7 @@ tests =
     ("parses import statement with alias", testParsesImportAlias),
     ("parses import statement with symbol list", testParsesImportSymbolList),
     ("lowers module and import statements into core AST", testLowersModuleImportStatements),
+    ("rejects legacy dot-only module declaration syntax", testRejectsLegacyDotOnlyModuleDeclaration),
     ("rejects module statement with missing path", testRejectsModuleMissingPath),
     ("rejects module statement with trailing separator using separator span", testRejectsModuleTrailingSeparatorSpan),
     ("rejects import statement with empty symbol list", testRejectsImportEmptySymbolList),
@@ -59,7 +60,7 @@ testParsesModuleDeclaration =
             ]
         )
     )
-    (parseSurfaceProgram "module App::Core.\nx = 1.")
+    (parseSurfaceProgram "module App::Core {\nx = 1.\n}")
 
 testParsesImportBare :: IO ()
 testParsesImportBare =
@@ -102,7 +103,7 @@ testLowersModuleImportStatements :: IO ()
 testLowersModuleImportStatements =
   assertRight
     "parse + lower module/import"
-    (parseSurfaceProgram "module App::Core.\nimport Std::List (map).\nmap.")
+    (parseSurfaceProgram "module App::Core {\nimport Std::List (map).\nmap.\n}")
     (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -111,6 +112,13 @@ testLowersModuleImportStatements =
           SImport (SourceSpan 2 1) ["Std", "List"] Nothing (Just ["map"]),
           SExpr (SourceSpan 3 1) (EVar "map")
         ]
+
+testRejectsLegacyDotOnlyModuleDeclaration :: IO ()
+testRejectsLegacyDotOnlyModuleDeclaration =
+  assertLeftDiagnosticContains
+    "legacy module declaration rejected"
+    "expected '{'"
+    (parseSurfaceProgram "module App::Core.")
 
 testRejectsModuleMissingPath :: IO ()
 testRejectsModuleMissingPath =

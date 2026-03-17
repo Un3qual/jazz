@@ -38,7 +38,8 @@ import JazzNext.Compiler.Parser.Operator
   )
 
 -- Parses the current minimal surface language into a block-wrapped program.
--- Every top-level form is dot-terminated and represented as a statement.
+-- Most top-level forms are dot-terminated; module declarations instead own a
+-- brace-delimited body that is replayed into the surrounding statement list.
 parseSurfaceProgram :: Text -> Either Diagnostic SurfaceExpr
 parseSurfaceProgram source =
   case tokenize source of
@@ -61,15 +62,15 @@ parseSurfaceProgram source =
                     )
                 )
 
--- | Parse a complete sequence of dot-terminated statements until the token
--- stream is exhausted.
+-- | Parse a complete sequence of statements until the token stream is
+-- exhausted.
 parseStatementsUntilEnd :: [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
 parseStatementsUntilEnd = go []
   where
     go acc [] = Right (reverse acc, [])
     go acc tokens = do
-      (statement, remaining) <- parseStatement tokens
-      go (statement : acc) remaining
+      (statements, remaining) <- parseStatement tokens
+      go (prependStatements statements acc) remaining
 
 -- | Parse statements inside `{ ... }`, stopping as soon as the closing brace is
 -- encountered so block parsing can hand the remaining tokens back to callers.
@@ -81,18 +82,18 @@ parseStatementsUntilBrace = go []
       case tokenKind token of
         TRBrace -> Right (reverse acc, rest)
         _ -> do
-          (statement, remaining) <- parseStatement allTokens
-          go (statement : acc) remaining
+          (statements, remaining) <- parseStatement allTokens
+          go (prependStatements statements acc) remaining
 
 -- | Disambiguate statement-level forms before expression parsing so leading
 -- identifiers can become signatures or bindings when followed by `::` or `=`.
-parseStatement :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseStatement :: [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
 parseStatement tokens =
   case tokens of
     moduleToken@(Token {tokenKind = TModule}) : rest ->
       parseModuleStatement moduleToken rest
     importToken@(Token {tokenKind = TImport}) : rest ->
-      parseImportStatement importToken rest
+      fmap singleStatement (parseImportStatement importToken rest)
     -- Statement-level forms take precedence over expression parsing when the
     -- leading identifier is followed by declaration syntax.
     (nameToken : afterName@(Token {tokenKind = TColonColon} : _))
@@ -106,7 +107,8 @@ parseStatement tokens =
                     <> renderSourceSpan (tokenSpan nameToken)
                 )
             )
-      | TIdentifier name <- tokenKind nameToken -> parseSignature (mkIdentifier name) nameToken afterName
+      | TIdentifier name <- tokenKind nameToken ->
+          fmap singleStatement (parseSignature (mkIdentifier name) nameToken afterName)
     (nameToken : afterName@(Token {tokenKind = TEquals} : _))
       | TIdentifier name <- tokenKind nameToken,
         isReservedLiteralName name ->
@@ -118,17 +120,44 @@ parseStatement tokens =
                     <> renderSourceSpan (tokenSpan nameToken)
                 )
             )
-      | TIdentifier name <- tokenKind nameToken -> parseLet (mkIdentifier name) nameToken afterName
-    _ -> parseExprStatement tokens
+      | TIdentifier name <- tokenKind nameToken ->
+          fmap singleStatement (parseLet (mkIdentifier name) nameToken afterName)
+    _ -> fmap singleStatement (parseExprStatement tokens)
+  where
+    singleStatement (statement, remaining) = ([statement], remaining)
+
+prependStatements :: [SurfaceStatement] -> [SurfaceStatement] -> [SurfaceStatement]
+prependStatements statements acc = foldl (flip (:)) acc statements
 
 isReservedLiteralName :: Text -> Bool
 isReservedLiteralName name = name == "True" || name == "False"
 
-parseModuleStatement :: Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseModuleStatement :: Token -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
 parseModuleStatement moduleToken tokensAfterModuleKeyword = do
   (modulePath, afterModulePath) <- parseModulePath tokensAfterModuleKeyword
-  remaining <- consumeDot afterModulePath
-  pure (SSModule (tokenSpan moduleToken) modulePath, remaining)
+  case afterModulePath of
+    Token {tokenKind = TLBrace} : tokensAfterLeftBrace -> do
+      -- Keep downstream resolver/driver code on the current flat statement
+      -- contract by replaying module-body statements after the declaration.
+      (bodyStatements, remaining) <- parseStatementsUntilBrace tokensAfterLeftBrace
+      pure (SSModule (tokenSpan moduleToken) modulePath : bodyStatements, remaining)
+    [] ->
+      Left
+        ( parseDiagnostic
+            ( "expected '{' before end of input after module path at "
+                <> renderSourceSpan (tokenSpan moduleToken)
+            )
+        )
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected '{' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
 
 parseImportStatement :: Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseImportStatement importToken tokensAfterImportKeyword = do

@@ -282,7 +282,7 @@ testCliModuleGraphDeclarationMismatch = do
       pure
         ( Map.lookup
             key
-            (Map.fromList [("src/App/Main.jz", "module Wrong::Name.\n1.")])
+            (Map.fromList [("src/App/Main.jz", "module Wrong::Name {\n1.\n}")])
         )
 
 testCliLoadsBundledDefaultPrelude :: IO ()

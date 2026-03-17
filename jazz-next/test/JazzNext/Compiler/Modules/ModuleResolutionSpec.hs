@@ -115,8 +115,8 @@ testAcceptsMatchingModuleDeclaration =
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main.\nimport Lib::Util.\nutil."),
-          ("src/Lib/Util.jz", "module Lib::Util.\nutil = 1.")
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
+          ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
         ]
     expectedModules =
       [ ResolvedModule
@@ -224,7 +224,7 @@ testReportsModuleDeclarationMismatch = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [("src/App/Main.jz", "module Wrong::Name.\nmain = 1.")]
+        [("src/App/Main.jz", "module Wrong::Name {\nmain = 1.\n}")]
 
 testReportsDuplicateModuleDeclaration :: IO ()
 testReportsDuplicateModuleDeclaration = do
@@ -235,7 +235,7 @@ testReportsDuplicateModuleDeclaration = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main.\nmodule App::Main.\nmain = 1.")
+        [ ("src/App/Main.jz", "module App::Main {\n}\nmodule App::Main {\nmain = 1.\n}")
         ]
 
 testAcceptsValidImportSymbolList :: IO ()

@@ -155,7 +155,7 @@ testCompileModuleGraphModuleDeclarationMismatch = do
   where
     sourceMap =
       Map.fromList
-        [("src/App/Main.jz", "module Wrong::Name.\nmain = 1.")]
+        [("src/App/Main.jz", "module Wrong::Name {\nmain = 1.\n}")]
     lookupSource path = pure (Map.lookup path sourceMap)
 
 testRunModuleGraphCycle :: IO ()
