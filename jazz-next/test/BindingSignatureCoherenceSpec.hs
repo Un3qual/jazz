@@ -343,7 +343,7 @@ testSourceRejectsListSignatureMismatch = do
 
 testSourceRejectsUnsupportedSignatureSurface :: IO ()
 testSourceRejectsUnsupportedSignatureSurface =
-  assertSourceSingleErrorContains "x :: [Int].\nx = [1]." "E2009"
+  assertSourceSingleErrorContains "x :: [a].\nx = [1]." "E2009"
 
 testSourceRejectsChainedFunctionSignatureSurface :: IO ()
 testSourceRejectsChainedFunctionSignatureSurface =
