@@ -27,6 +27,9 @@ import JazzNext.TestHarness
     assertJust,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
+    assertSingleDiagnosticPrimarySpan,
+    assertSingleDiagnosticRelatedSpan,
+    assertSingleDiagnosticSubject,
     runTestSuite
   )
 
@@ -86,6 +89,18 @@ testSignatureNameMismatch = do
   assertSingleDiagnosticContains
     "error text"
     "must annotate the next binding with the same name"
+    (compileErrors result)
+  assertSingleDiagnosticPrimarySpan
+    "signature mismatch primary span"
+    (SourceSpan 1 1)
+    (compileErrors result)
+  assertSingleDiagnosticRelatedSpan
+    "signature mismatch related span"
+    (SourceSpan 2 1)
+    (compileErrors result)
+  assertSingleDiagnosticSubject
+    "signature mismatch subject"
+    "x"
     (compileErrors result)
 
 testUseBeforeDefinition :: IO ()

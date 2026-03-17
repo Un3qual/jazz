@@ -33,7 +33,9 @@ import JazzNext.Compiler.Diagnostics
     WarningRecord,
     mkDiagnostic,
     mkSameScopeRebindingWarning,
-    renderSourceSpan,
+    setDiagnosticPrimarySpan,
+    setDiagnosticRelatedSpan,
+    setDiagnosticSubject,
     sortWarnings
   )
 import JazzNext.Compiler.Identifier
@@ -61,7 +63,9 @@ data AnalysisResult = AnalysisResult
 
 data AnalysisContext = AnalysisContext
   { contextLabel :: Text,
-    contextAllowsImpureCalls :: Bool
+    contextAllowsImpureCalls :: Bool,
+    contextPrimarySpan :: Maybe SourceSpan,
+    contextSubject :: Maybe Text
   }
 
 data VisibleBinding = VisibleBinding
@@ -278,6 +282,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
                             signatureName
                             signatureDeclSpan
                             bindingNameText
+                            bindingSpan
                         ]
               rebindingWarning =
                 case Map.lookup bindingNameText scopeBindings of
@@ -303,7 +308,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
                   (currentVisibleBindings nextScope)
               bindingContext = contextForBinding bindingName
               (valueWarnings, valueErrors) =
-                collectExprDiagnostics builtinMode settings visible bindingContext valueExpr
+                collectExprDiagnostics builtinMode settings visible (bindingContext bindingSpan) valueExpr
               warningsWithValue = appendWarnings warningsRev valueWarnings
               errorsWithValue =
                 appendErrors (appendErrors errorsRev errorsFromSignature) valueErrors
@@ -360,30 +365,42 @@ flushPendingSignature pending errorsRev =
 
 mkUnboundVariableError :: Text -> Diagnostic
 mkUnboundVariableError variableName =
-  mkDiagnostic "E1001" ("unbound variable '" <> variableName <> "'")
+  setDiagnosticSubject variableName $
+    mkDiagnostic "E1001" ("unbound variable '" <> variableName <> "'")
 
 mkMissingBindingForSignatureError :: PendingSignature -> Diagnostic
 mkMissingBindingForSignatureError pendingSignature =
-  mkDiagnostic
-    "E1002"
-    ( "signature for '"
-        <> pendingSignatureName pendingSignature
-        <> "' at "
-        <> renderSourceSpan (pendingSignatureSpan pendingSignature)
-        <> " must be immediately followed by a matching binding"
+  setDiagnosticSubject
+    (pendingSignatureName pendingSignature)
+    ( setDiagnosticPrimarySpan
+        (pendingSignatureSpan pendingSignature)
+        ( mkDiagnostic
+            "E1002"
+            ( "signature for '"
+                <> pendingSignatureName pendingSignature
+                <> "' must be immediately followed by a matching binding"
+            )
+        )
     )
 
-mkMismatchedSignatureError :: Text -> SourceSpan -> Text -> Diagnostic
-mkMismatchedSignatureError signatureName signatureSpan bindingName =
-  mkDiagnostic
-    "E1003"
-    ( "signature for '"
-        <> signatureName
-        <> "' at "
-        <> renderSourceSpan signatureSpan
-        <> " must annotate the next binding with the same name; found '"
-        <> bindingName
-        <> "'"
+mkMismatchedSignatureError :: Text -> SourceSpan -> Text -> SourceSpan -> Diagnostic
+mkMismatchedSignatureError signatureName signatureSpan bindingName bindingSpan =
+  setDiagnosticSubject
+    signatureName
+    ( setDiagnosticRelatedSpan
+        bindingSpan
+        ( setDiagnosticPrimarySpan
+            signatureSpan
+            ( mkDiagnostic
+                "E1003"
+                ( "signature for '"
+                    <> signatureName
+                    <> "' must annotate the next binding with the same name; found '"
+                    <> bindingName
+                    <> "'"
+                )
+            )
+        )
     )
 
 topLevelContext :: AnalysisContext
@@ -392,14 +409,18 @@ topLevelContext =
   -- expression calls like `print! ...` remain valid in stub-v1 purity mode.
   AnalysisContext
     { contextLabel = "top-level expression",
-      contextAllowsImpureCalls = True
+      contextAllowsImpureCalls = True,
+      contextPrimarySpan = Nothing,
+      contextSubject = Nothing
     }
 
-contextForBinding :: Identifier -> AnalysisContext
-contextForBinding bindingName =
+contextForBinding :: Identifier -> SourceSpan -> AnalysisContext
+contextForBinding bindingName bindingSpan =
   AnalysisContext
     { contextLabel = "binding '" <> identifierText bindingName <> "'",
-      contextAllowsImpureCalls = identifierPurity bindingName == Impure
+      contextAllowsImpureCalls = identifierPurity bindingName == Impure,
+      contextPrimarySpan = Just bindingSpan,
+      contextSubject = Just (identifierText bindingName)
     }
 
 shouldRejectImpureCall ::
@@ -423,19 +444,31 @@ mkImpureCallInPureContextError ::
   Maybe SourceSpan ->
   Diagnostic
 mkImpureCallInPureContextError context calleeName maybeCalleeSpan =
-  mkDiagnostic
-    "E1010"
-    ( contextLabel context
-        <> " cannot call impure callee '"
-        <> identifierText calleeName
-        <> "'"
-        <> renderCalleeSpan maybeCalleeSpan
+  withMaybe
+    (contextSubject context)
+    setDiagnosticSubject
+    ( withMaybe
+        (contextPrimarySpan context)
+        setDiagnosticPrimarySpan
+        ( withMaybe
+            maybeCalleeSpan
+            setDiagnosticRelatedSpan
+            ( mkDiagnostic
+                "E1010"
+                ( contextLabel context
+                    <> " cannot call impure callee '"
+                    <> identifierText calleeName
+                    <> "'"
+                )
+            )
+        )
     )
-  where
-    renderCalleeSpan maybeSpan =
-      case maybeSpan of
-        Nothing -> ""
-        Just spanValue -> " (callee declared at " <> renderSourceSpan spanValue <> ")"
+
+withMaybe :: Maybe a -> (a -> b -> b) -> b -> b
+withMaybe maybeValue setter value =
+  case maybeValue of
+    Nothing -> value
+    Just presentValue -> setter presentValue value
 
 inferRecursiveGroups ::
   Map Text VisibleBinding ->

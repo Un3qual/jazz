@@ -12,6 +12,7 @@ RUNGHC_INCLUDES=(
 TEST_FILES=(
   jazz-next/test/WarningConfigSpec.hs
   jazz-next/test/RebindingWarningSpec.hs
+  jazz-next/test/StructuredErrorDiagnosticsSpec.hs
   jazz-next/test/CLISpec.hs
   jazz-next/test/BindingSignatureCoherenceSpec.hs
   jazz-next/test/PuritySemanticsSpec.hs

@@ -17,6 +17,7 @@ import JazzNext.Compiler.WarningConfig
   )
 import JazzNext.TestHarness
   ( NamedTest,
+    assertContains,
     assertEqual,
     assertSingleErrorContains,
     runTestSuite
@@ -55,10 +56,12 @@ testRunWithPreludeSectionFunction = do
 testBundledPreludePreservesUserDiagnosticSpans :: IO ()
 testBundledPreludePreservesUserDiagnosticSpans = do
   result <- compileSource defaultWarningSettings "x :: Int. y = 1."
-  assertEqual
-    "bundled default prelude keeps user spans anchored to user source"
-    ["E1003: signature for 'x' at 1:1 must annotate the next binding with the same name; found 'y'"]
-    (map renderDiagnostic (compileErrors result))
+  case map renderDiagnostic (compileErrors result) of
+    [rendered] -> do
+      assertContains "bundled default prelude keeps signature code" "E1003" rendered
+      assertContains "bundled default prelude keeps user spans anchored to user source" "1:1:" rendered
+    renderedErrors ->
+      assertEqual "single rendered diagnostic" 1 (length renderedErrors)
 
 testPreludeParseDiagnostic :: IO ()
 testPreludeParseDiagnostic = do
