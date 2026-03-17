@@ -37,6 +37,7 @@ tests =
     ("mutually recursive lambdas run", testMutualRecursiveLambdaRuntime),
     ("higher-order apply lambda runs", testHigherOrderApplyRuntime),
     ("signature-checked lambda rejects mismatched application", testLambdaSignatureMismatch),
+    ("recursive lambda rejects mismatched recursive application", testRecursiveLambdaTypeMismatch),
     ("non-callable application still reports apply type error", testRejectsNonCallableApplication)
   ]
 
@@ -101,6 +102,15 @@ testLambdaSignatureMismatch = do
   result <- compileSource defaultWarningSettings "id :: Int -> Int. id = \\(x) -> x. id True."
   assertSingleDiagnosticCode
     "signature mismatch code"
+    "E2006"
+    (compileErrors result)
+  assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
+
+testRecursiveLambdaTypeMismatch :: IO ()
+testRecursiveLambdaTypeMismatch = do
+  result <- compileSource defaultWarningSettings "f = \\(x) -> f True. f 1."
+  assertSingleDiagnosticCode
+    "recursive lambda type mismatch code"
     "E2006"
     (compileErrors result)
   assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)

@@ -130,7 +130,7 @@ isEven :: Integer -> Bool.
 isEven = \(i) -> mod(i, 2) == 0.
 
 // Multiline functions
-greet! = \() -> {
+greet! = \(ignored) -> {
   name = getLine!.
   println!("Hello, ${name}").
 }.
