@@ -110,8 +110,8 @@ parseStatementsUntilBrace context = go []
 
 data StatementContext
   = TopLevelContext
-  -- Module bodies stay on the existing flattened statement path so downstream
-  -- duplicate-declaration checks still run in the resolver.
+  -- Module bodies can contain bindings/imports but must not introduce a second
+  -- module declaration.
   | ModuleBodyContext
   -- Ordinary expression blocks must not introduce module declarations.
   | NestedBlockContext
@@ -126,14 +126,9 @@ parseStatement context tokens =
         TopLevelContext ->
           parseModuleStatement moduleToken rest
         ModuleBodyContext ->
-          parseModuleStatement moduleToken rest
+          rejectNestedModuleDeclaration moduleToken
         NestedBlockContext ->
-          Left
-            ( parseDiagnostic
-                ( "module declaration must remain top-level at "
-                    <> renderSourceSpan (tokenSpan moduleToken)
-                )
-            )
+          rejectNestedModuleDeclaration moduleToken
     importToken@(Token {tokenKind = TImport}) : rest ->
       fmap singleStatement (parseImportStatement importToken rest)
     -- Statement-level forms take precedence over expression parsing when the
@@ -167,6 +162,15 @@ parseStatement context tokens =
     _ -> fmap singleStatement (parseExprStatement tokens)
   where
     singleStatement (statement, remaining) = ([statement], remaining)
+
+rejectNestedModuleDeclaration :: Token -> Either Diagnostic a
+rejectNestedModuleDeclaration moduleToken =
+  Left
+    ( parseDiagnostic
+        ( "module declaration must remain top-level at "
+            <> renderSourceSpan (tokenSpan moduleToken)
+        )
+    )
 
 prependStatements :: [SurfaceStatement] -> [SurfaceStatement] -> [SurfaceStatement]
 prependStatements statements acc = foldl (flip (:)) acc statements

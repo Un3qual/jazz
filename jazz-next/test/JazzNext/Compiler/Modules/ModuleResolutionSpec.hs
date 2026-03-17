@@ -44,7 +44,7 @@ tests =
     ("reports import cycles with minimal trace", testReportsCycle),
     ("reports parse failures while loading imported modules", testReportsImportedModuleParseFailure),
     ("reports module declaration mismatch for resolved file path", testReportsModuleDeclarationMismatch),
-    ("reports duplicate module declarations in a module file", testReportsDuplicateModuleDeclaration),
+    ("reports nested module declaration parse failure in a module file", testReportsNestedModuleDeclarationParseFailure),
     ("accepts symbol-list imports when requested symbols are exported", testAcceptsValidImportSymbolList),
     ("reports non-exported import symbols with module context", testReportsMissingImportSymbol),
     ("reports import symbol collisions across imported modules", testReportsImportSymbolCollision),
@@ -226,11 +226,12 @@ testReportsModuleDeclarationMismatch = do
       Map.fromList
         [("src/App/Main.jz", "module Wrong::Name {\nmain = 1.\n}")]
 
-testReportsDuplicateModuleDeclaration :: IO ()
-testReportsDuplicateModuleDeclaration = do
+testReportsNestedModuleDeclarationParseFailure :: IO ()
+testReportsNestedModuleDeclarationParseFailure = do
   let result = resolveModuleGraph config sourceFiles ["App", "Main"]
-  assertLeftContains "duplicate declaration code" "E4005" result
-  assertLeftContains "duplicate declaration text" "multiple module declarations" result
+  assertLeftContains "nested module parse failure code" "E4004" result
+  assertLeftContains "nested module parse failure path" "src/App/Main.jz" result
+  assertLeftContains "nested module parse failure text" "top-level" result
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =

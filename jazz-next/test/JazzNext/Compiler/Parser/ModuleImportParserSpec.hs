@@ -42,6 +42,7 @@ tests =
     ("rejects legacy dot-only module declaration syntax", testRejectsLegacyDotOnlyModuleDeclaration),
     ("rejects trailing top-level statements after module body", testRejectsTrailingTopLevelStatementsAfterModuleBody),
     ("rejects module declaration after earlier top-level statement", testRejectsModuleDeclarationAfterTopLevelStatement),
+    ("rejects module declaration nested inside module body", testRejectsModuleDeclarationNestedInsideModuleBody),
     ("rejects module declaration nested inside block expression", testRejectsModuleDeclarationNestedInsideBlock),
     ("rejects module statement with missing path", testRejectsModuleMissingPath),
     ("rejects module statement with trailing separator using separator span", testRejectsModuleTrailingSeparatorSpan),
@@ -136,6 +137,13 @@ testRejectsModuleDeclarationAfterTopLevelStatement =
     "module declaration after top-level statement"
     "first top-level form"
     (parseSurfaceProgram "x = 1.\nmodule App::Core {\ny = 2.\n}")
+
+testRejectsModuleDeclarationNestedInsideModuleBody :: IO ()
+testRejectsModuleDeclarationNestedInsideModuleBody =
+  assertLeftDiagnosticContains
+    "module declaration nested inside module body"
+    "top-level"
+    (parseSurfaceProgram "module App::Core {\nmodule Inner::Thing {\ny = 1.\n}\n}")
 
 testRejectsModuleDeclarationNestedInsideBlock :: IO ()
 testRejectsModuleDeclarationNestedInsideBlock =
