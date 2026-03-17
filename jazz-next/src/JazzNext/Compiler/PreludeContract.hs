@@ -4,6 +4,8 @@ module JazzNext.Compiler.PreludeContract
   ( validatePreludeKernelBridges
   ) where
 
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -18,7 +20,11 @@ import JazzNext.Compiler.BuiltinCatalog
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    mkDiagnostic
+    SourceSpan,
+    mkDiagnostic,
+    setDiagnosticPrimarySpan,
+    setDiagnosticRelatedSpan,
+    setDiagnosticSubject
   )
 import JazzNext.Compiler.Identifier
   ( identifierText
@@ -30,21 +36,33 @@ validatePreludeKernelBridges :: Expr -> [Diagnostic]
 validatePreludeKernelBridges preludeExpr =
   case preludeExpr of
     EBlock statements ->
-      fst (foldl validateStatement ([], Set.empty) statements)
+      let (diagnostics, _, _) = foldl validateStatement ([], Set.empty, Map.empty) statements
+       in diagnostics
     _ -> []
   where
-    validateStatement :: ([Diagnostic], Set Text) -> Statement -> ([Diagnostic], Set Text)
-    validateStatement (diagnostics, seenBindings) statement =
+    validateStatement ::
+      ([Diagnostic], Set Text, Map Text SourceSpan) ->
+      Statement ->
+      ([Diagnostic], Set Text, Map Text SourceSpan)
+    validateStatement (diagnostics, seenBindings, seenBindingSpans) statement =
       case statement of
-        SLet bindingName _ bindingExpr ->
+        SLet bindingName bindingSpan bindingExpr ->
           let bindingNameText = identifierText bindingName
-              statementDiagnostics = validateBridge seenBindings bindingNameText bindingExpr
+              statementDiagnostics =
+                validateBridge
+                  seenBindings
+                  seenBindingSpans
+                  bindingNameText
+                  bindingSpan
+                  bindingExpr
               seenBindings' = Set.insert bindingNameText seenBindings
-           in (diagnostics <> statementDiagnostics, seenBindings')
-        _ -> (diagnostics, seenBindings)
+              seenBindingSpans' = Map.insert bindingNameText bindingSpan seenBindingSpans
+           in (diagnostics <> statementDiagnostics, seenBindings', seenBindingSpans')
+        _ ->
+          (diagnostics, seenBindings, seenBindingSpans)
 
-    validateBridge :: Set Text -> Text -> Expr -> [Diagnostic]
-    validateBridge seenBindings bindingName bindingExpr =
+    validateBridge :: Set Text -> Map Text SourceSpan -> Text -> SourceSpan -> Expr -> [Diagnostic]
+    validateBridge seenBindings seenBindingSpans bindingName bindingSpan bindingExpr =
       case kernelBridgeTargetName bindingName of
         Nothing
           | kernelBridgeBindingPrefix `Text.isPrefixOf` bindingName ->
@@ -52,23 +70,31 @@ validatePreludeKernelBridges preludeExpr =
                in
                 if Text.null suffix
                   then
-                    [ mkDiagnostic
-                        "E0005"
-                        ( "prelude kernel bridge '"
-                            <> bindingName
-                            <> "' must include a non-empty kernel symbol suffix after '"
-                            <> kernelBridgeBindingPrefix
-                            <> "'"
+                    [ bridgeDiagnostic
+                        bindingName
+                        bindingSpan
+                        ( mkDiagnostic
+                            "E0005"
+                            ( "prelude kernel bridge '"
+                                <> bindingName
+                                <> "' must include a non-empty kernel symbol suffix after '"
+                                <> kernelBridgeBindingPrefix
+                                <> "'"
+                            )
                         )
                     ]
                   else
-                    [ mkDiagnostic
-                        "E0004"
-                        ( "prelude kernel bridge '"
-                            <> bindingName
-                            <> "' references unknown kernel symbol '"
-                            <> bindingName
-                            <> "'"
+                    [ bridgeDiagnostic
+                        bindingName
+                        bindingSpan
+                        ( mkDiagnostic
+                            "E0004"
+                            ( "prelude kernel bridge '"
+                                <> bindingName
+                                <> "' references unknown kernel symbol '"
+                                <> bindingName
+                                <> "'"
+                            )
                         )
                     ]
           | otherwise -> []
@@ -76,37 +102,60 @@ validatePreludeKernelBridges preludeExpr =
           case bindingExpr of
             EVar rhsName
               | identifierText rhsName /= targetName ->
-                  [ mkDiagnostic
-                      "E0005"
-                      ( "prelude kernel bridge '"
-                          <> bindingName
-                          <> "' must reference kernel symbol '"
-                          <> targetName
-                          <> "', found '"
-                          <> identifierText rhsName
-                          <> "'"
+                  [ bridgeDiagnostic
+                      bindingName
+                      bindingSpan
+                      ( mkDiagnostic
+                          "E0005"
+                          ( "prelude kernel bridge '"
+                              <> bindingName
+                              <> "' must reference kernel symbol '"
+                              <> targetName
+                              <> "', found '"
+                              <> identifierText rhsName
+                              <> "'"
+                          )
                       )
                   ]
               | targetName `Set.member` seenBindings ->
-                  [ mkDiagnostic
-                      "E0005"
-                      ( "prelude kernel bridge '"
-                          <> bindingName
-                          <> "' must reference canonical kernel symbol '"
-                          <> targetName
-                          <> "', but '"
-                          <> targetName
-                          <> "' was rebound earlier in prelude scope"
-                      )
+                  [ maybe
+                      baseDiagnostic
+                      (\previousSpan -> setDiagnosticRelatedSpan previousSpan baseDiagnostic)
+                      (Map.lookup targetName seenBindingSpans)
                   ]
               | otherwise -> []
             _ ->
-              [ mkDiagnostic
-                  "E0005"
-                  ( "prelude kernel bridge '"
-                      <> bindingName
-                      <> "' must be a direct symbol reference to '"
-                      <> targetName
-                      <> "'"
+              [ bridgeDiagnostic
+                  bindingName
+                  bindingSpan
+                  ( mkDiagnostic
+                      "E0005"
+                      ( "prelude kernel bridge '"
+                          <> bindingName
+                          <> "' must be a direct symbol reference to '"
+                          <> targetName
+                          <> "'"
+                      )
                   )
               ]
+          where
+            baseDiagnostic =
+              bridgeDiagnostic
+                bindingName
+                bindingSpan
+                ( mkDiagnostic
+                    "E0005"
+                    ( "prelude kernel bridge '"
+                        <> bindingName
+                        <> "' must reference canonical kernel symbol '"
+                        <> targetName
+                        <> "', but '"
+                        <> targetName
+                        <> "' was rebound earlier in prelude scope"
+                    )
+                )
+
+    bridgeDiagnostic :: Text -> SourceSpan -> Diagnostic -> Diagnostic
+    bridgeDiagnostic bindingName bindingSpan =
+      setDiagnosticSubject bindingName
+        . setDiagnosticPrimarySpan bindingSpan

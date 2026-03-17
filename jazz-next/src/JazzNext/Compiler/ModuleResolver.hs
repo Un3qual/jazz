@@ -27,7 +27,9 @@ import JazzNext.Compiler.Diagnostics
     SourceSpan,
     mkDiagnostic,
     mkMessageDiagnostic,
-    renderSourceSpan
+    setDiagnosticPrimarySpan,
+    setDiagnosticRelatedSpan,
+    setDiagnosticSubject
   )
 import JazzNext.Compiler.Identifier
   ( identifierText
@@ -440,63 +442,71 @@ validateImportBindings sourcePath importerPath imports exportsByModule =
 
     mkMissingImportSymbolError :: Text -> ParsedImport -> Set Text -> Diagnostic
     mkMissingImportSymbolError symbolName importDecl exportedSymbols =
-      mkDiagnostic
-        "E4007"
-        ( "import symbol '"
-            <> symbolName
-            <> "' is not exported by module '"
-            <> renderModulePath (parsedImportModulePath importDecl)
-            <> "' imported by '"
-            <> renderModulePath importerPath
-            <> "' at "
-            <> Text.pack sourcePath
-            <> ":"
-            <> renderSourceSpan (parsedImportSpan importDecl)
-            <> "; available exports: "
-            <> renderExports exportedSymbols
-        )
+      setDiagnosticSubject symbolName $
+        setDiagnosticPrimarySpan
+          (parsedImportSpan importDecl)
+          ( mkDiagnostic
+              "E4007"
+              ( "import symbol '"
+                  <> symbolName
+                  <> "' is not exported by module '"
+                  <> renderModulePath (parsedImportModulePath importDecl)
+                  <> "' imported by '"
+                  <> renderModulePath importerPath
+                  <> "' in '"
+                  <> Text.pack sourcePath
+                  <> "'; available exports: "
+                  <> renderExports exportedSymbols
+              )
+          )
 
     mkImportSymbolCollisionError :: Text -> BindingOrigin -> ParsedImport -> Diagnostic
     mkImportSymbolCollisionError symbolName previousOrigin importDecl =
-      mkDiagnostic
-        "E4008"
-        ( "import binding collision for symbol '"
-            <> symbolName
-            <> "' in module '"
-            <> renderModulePath importerPath
-            <> "' at "
-            <> Text.pack sourcePath
-            <> ":"
-            <> renderSourceSpan (parsedImportSpan importDecl)
-            <> "; already imported from '"
-            <> renderModulePath (bindingOriginModulePath previousOrigin)
-            <> "' at "
-            <> renderSourceSpan (bindingOriginSpan previousOrigin)
-            <> ", cannot re-import from '"
-            <> renderModulePath (parsedImportModulePath importDecl)
-            <> "'"
-        )
+      setDiagnosticSubject symbolName $
+        setDiagnosticRelatedSpan
+          (bindingOriginSpan previousOrigin)
+          ( setDiagnosticPrimarySpan
+              (parsedImportSpan importDecl)
+              ( mkDiagnostic
+                  "E4008"
+                  ( "import binding collision for symbol '"
+                      <> symbolName
+                      <> "' in module '"
+                      <> renderModulePath importerPath
+                      <> "' at '"
+                      <> Text.pack sourcePath
+                      <> "'; already imported from '"
+                      <> renderModulePath (bindingOriginModulePath previousOrigin)
+                      <> "', cannot re-import from '"
+                      <> renderModulePath (parsedImportModulePath importDecl)
+                      <> "'"
+                  )
+              )
+          )
 
     mkImportAliasCollisionError :: Text -> BindingOrigin -> ParsedImport -> Diagnostic
     mkImportAliasCollisionError aliasName previousOrigin importDecl =
-      mkDiagnostic
-        "E4009"
-        ( "import alias collision for '"
-            <> aliasName
-            <> "' in module '"
-            <> renderModulePath importerPath
-            <> "' at "
-            <> Text.pack sourcePath
-            <> ":"
-            <> renderSourceSpan (parsedImportSpan importDecl)
-            <> "; already aliased to module '"
-            <> renderModulePath (bindingOriginModulePath previousOrigin)
-            <> "' at "
-            <> renderSourceSpan (bindingOriginSpan previousOrigin)
-            <> ", cannot alias module '"
-            <> renderModulePath (parsedImportModulePath importDecl)
-            <> "'"
-        )
+      setDiagnosticSubject aliasName $
+        setDiagnosticRelatedSpan
+          (bindingOriginSpan previousOrigin)
+          ( setDiagnosticPrimarySpan
+              (parsedImportSpan importDecl)
+              ( mkDiagnostic
+                  "E4009"
+                  ( "import alias collision for '"
+                      <> aliasName
+                      <> "' in module '"
+                      <> renderModulePath importerPath
+                      <> "' at '"
+                      <> Text.pack sourcePath
+                      <> "'; already aliased to module '"
+                      <> renderModulePath (bindingOriginModulePath previousOrigin)
+                      <> "', cannot alias module '"
+                      <> renderModulePath (parsedImportModulePath importDecl)
+                      <> "'"
+                  )
+              )
+          )
 
     renderExports :: Set Text -> Text
     renderExports exports

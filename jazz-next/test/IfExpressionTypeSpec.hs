@@ -22,7 +22,9 @@ import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
     assertJust,
+    assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
+    assertSingleDiagnosticPrimarySpan,
     runTestSuite
   )
 
@@ -44,9 +46,17 @@ tests =
 testRejectsNonBoolCondition :: IO ()
 testRejectsNonBoolCondition = do
   result <- compileExpr defaultWarningSettings nonBoolConditionProgram
+  assertSingleDiagnosticCode
+    "condition type error code"
+    "E2001"
+    (compileErrors result)
   assertSingleDiagnosticContains
     "condition type error"
     "if condition must have type Bool"
+    (compileErrors result)
+  assertSingleDiagnosticPrimarySpan
+    "condition type error primary span"
+    (SourceSpan 1 1)
     (compileErrors result)
 
 testAcceptsEqualityCondition :: IO ()
@@ -126,6 +136,10 @@ testSourcePipelineAcceptsWellTypedIf = do
 testSourcePipelineRejectsNonBoolCondition :: IO ()
 testSourcePipelineRejectsNonBoolCondition = do
   result <- compileSource defaultWarningSettings "x = if 1 2 else 3."
+  assertSingleDiagnosticPrimarySpan
+    "source condition type error primary span"
+    (SourceSpan 1 1)
+    (compileErrors result)
   assertSingleDiagnosticContains
     "source condition type error"
     "E2001"

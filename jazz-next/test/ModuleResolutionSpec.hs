@@ -4,6 +4,14 @@ module Main (main) where
 
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
+import qualified Data.Text as Text
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    SourceSpan (..),
+    diagnosticPrimarySpan,
+    diagnosticRelatedSpan,
+    diagnosticSubject
+  )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
     ResolvedModule (..),
@@ -16,6 +24,7 @@ import JazzNext.TestHarness
     assertEqual,
     assertLeftContains,
     assertRight,
+    failTest,
     runTestSuite
   )
 
@@ -262,6 +271,12 @@ testReportsMissingImportSymbol = do
   assertLeftContains "missing symbol text" "subtract" result
   assertLeftContains "imported module context" "Lib::Math" result
   assertLeftContains "importer context" "App::Main" result
+  assertLeftDiagnosticMetadata
+    "missing symbol metadata"
+    (Just (SourceSpan 1 1))
+    Nothing
+    (Just "subtract")
+    result
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -278,6 +293,12 @@ testReportsImportSymbolCollision = do
   assertLeftContains "first module context" "A::Ops" result
   assertLeftContains "second module context" "B::Ops" result
   assertLeftContains "importer context" "App::Main" result
+  assertLeftDiagnosticMetadata
+    "symbol collision metadata"
+    (Just (SourceSpan 2 1))
+    (Just (SourceSpan 1 1))
+    (Just "map")
+    result
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -295,6 +316,12 @@ testReportsImportAliasCollision = do
   assertLeftContains "first module context" "A::Ops" result
   assertLeftContains "second module context" "B::Ops" result
   assertLeftContains "importer context" "App::Main" result
+  assertLeftDiagnosticMetadata
+    "alias collision metadata"
+    (Just (SourceSpan 2 1))
+    (Just (SourceSpan 1 1))
+    (Just "Ops")
+    result
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -303,3 +330,20 @@ testReportsImportAliasCollision = do
           ("src/A/Ops.jz", "map = 1."),
           ("src/B/Ops.jz", "map = 2.")
         ]
+
+assertLeftDiagnosticMetadata ::
+  Show a =>
+  Text ->
+  Maybe SourceSpan ->
+  Maybe SourceSpan ->
+  Maybe Text ->
+  Either Diagnostic a ->
+  IO ()
+assertLeftDiagnosticMetadata label expectedPrimary expectedRelated expectedSubject value =
+  case value of
+    Left diagnostic -> do
+      assertEqual (label <> " primary span") expectedPrimary (diagnosticPrimarySpan diagnostic)
+      assertEqual (label <> " related span") expectedRelated (diagnosticRelatedSpan diagnostic)
+      assertEqual (label <> " subject") expectedSubject (diagnosticSubject diagnostic)
+    Right ok ->
+      failTest (label <> ": expected Left, got Right " <> Text.pack (show ok))
