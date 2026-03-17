@@ -17,7 +17,7 @@
 - [x] Verified `jazz-next` currently lacks lambda AST/parser/runtime support, so first-class user-defined functions are still missing in the active implementation path.
 - [x] Task 1 complete: failing parser tests lock canonical lambda surface and lowering shape.
 - [x] Task 2 complete: failing compile/runtime tests lock callable closure behavior and type inference coverage.
-- [ ] Task 3 complete: lexer/parser/lowering/runtime/type/analyzer support canonical lambdas.
+- [x] Task 3 complete: lexer/parser/lowering/runtime/type/analyzer support canonical lambdas.
 - [ ] Task 4 complete: docs/trackers reflect the active lambda-capable subset and verification passes.
 
 ## Scope Guardrails

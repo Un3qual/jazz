@@ -29,6 +29,8 @@ data TokenKind
   | TAs
   | TIf
   | TElse
+  | TLambda
+  | TArrow
   | TInt Int
   | TEquals
   | TOperator Text
@@ -125,11 +127,15 @@ tokenize = go 1 1
                     Just ('=', after) -> withOperatorToken ">=" 2 line column after
                     _ -> withOperatorToken ">" 1 line column rest
                 '+' -> withOperatorToken "+" 1 line column rest
-                '-' -> withOperatorToken "-" 1 line column rest
+                '-' ->
+                  case Text.uncons rest of
+                    Just ('>', after) -> withSingleToken TArrow "->" 2 line column after
+                    _ -> withOperatorToken "-" 1 line column rest
                 '*' -> withOperatorToken "*" 1 line column rest
                 '/' -> withOperatorToken "/" 1 line column rest
                 '|' -> withOperatorToken "|" 1 line column rest
                 '$' -> withOperatorToken "$" 1 line column rest
+                '\\' -> withSingleToken TLambda "\\" 1 line column rest
                 '.' -> withSingleToken TDot "." 1 line column rest
                 '{' -> withSingleToken TLBrace "{" 1 line column rest
                 '}' -> withSingleToken TRBrace "}" 1 line column rest

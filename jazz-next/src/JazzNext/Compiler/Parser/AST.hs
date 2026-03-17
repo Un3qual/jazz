@@ -27,6 +27,7 @@ data SurfaceLiteral
 data SurfaceExpr
   = SELit SurfaceLiteral
   | SEVar Identifier
+  | SELambda [Identifier] SurfaceExpr
   | SEOperatorValue Text
   | SEList [SurfaceExpr]
   | SEApply SurfaceExpr SurfaceExpr

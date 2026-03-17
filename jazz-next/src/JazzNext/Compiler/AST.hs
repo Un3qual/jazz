@@ -27,6 +27,7 @@ data Literal
 data Expr
   = ELit Literal
   | EVar Identifier
+  | ELambda Identifier Expr
   | EOperatorValue Text
   | EList [Expr]
   | EApply Expr Expr

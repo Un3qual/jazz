@@ -101,6 +101,8 @@ canonicalizeExpr expr =
   case expr of
     ELit literal -> ELit literal
     EVar name -> EVar name
+    ELambda parameterName bodyExpr ->
+      ELambda parameterName (canonicalizeExpr bodyExpr)
     EOperatorValue operatorSymbol -> EOperatorValue operatorSymbol
     EList elements -> EList (map canonicalizeExpr elements)
     EApply functionExpr argumentExpr ->
@@ -203,6 +205,22 @@ inferExprType builtinMode env state expr =
             Nothing -> (Nothing, state)
       where
         nameText = identifierText name
+    ELambda parameterName bodyExpr ->
+      let (parameterType, stateAfterParameter) = freshTypeVar state
+          extendedEnv =
+            Map.insert
+              (identifierText parameterName)
+              parameterType
+              env
+          (bodyType, stateAfterBody) =
+            inferExprType builtinMode extendedEnv stateAfterParameter bodyExpr
+       in
+        case bodyType of
+          Just inferredBodyType ->
+            ( Just (TFunctionType (resolveType stateAfterBody parameterType) inferredBodyType),
+              stateAfterBody
+            )
+          Nothing -> (Nothing, stateAfterBody)
     EOperatorValue operatorSymbol ->
       case instantiateOperatorType operatorSymbol state of
         Just (operatorType, nextState) -> (Just operatorType, nextState)

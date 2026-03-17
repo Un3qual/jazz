@@ -16,6 +16,8 @@ desugarExpr expr =
   case expr of
     ELit literal -> ELit literal
     EVar name -> EVar name
+    ELambda parameterName bodyExpr ->
+      ELambda parameterName (desugarExpr bodyExpr)
     EList elements -> EList (map desugarExpr elements)
     EApply functionExpr argumentExpr ->
       EApply (desugarExpr functionExpr) (desugarExpr argumentExpr)

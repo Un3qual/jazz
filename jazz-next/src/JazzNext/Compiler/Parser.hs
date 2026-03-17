@@ -504,6 +504,7 @@ parseApplicationTail functionExpr tokens =
         Token {tokenKind = TInt _} : _ -> True
         Token {tokenKind = TIdentifier _} : _ -> True
         Token {tokenKind = TIf} : _ -> True
+        Token {tokenKind = TLambda} : _ -> True
         Token {tokenKind = TLParen} : _ -> True
         Token {tokenKind = TLBrace} : _ -> True
         Token {tokenKind = TLBracket} : _ -> True
@@ -570,6 +571,7 @@ parsePrimaryExpr tokens =
             "False" -> Right (SELit (SLBool False), rest)
             _ -> Right (SEVar (mkIdentifier name), rest)
         TIf -> parseIfExpr token rest
+        TLambda -> parseLambdaExpr token rest
         TLParen -> parseParenExpr rest
         TLBrace -> do
           (statements, afterBrace) <- parseStatementsUntilBrace NestedBlockContext rest
@@ -651,6 +653,110 @@ parseIfExpr ifToken tokensAfterIf = do
       Left
         ( parseDiagnostic
             ( "expected 'else' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+
+parseLambdaExpr :: Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseLambdaExpr lambdaToken tokensAfterLambda =
+  case tokensAfterLambda of
+    Token {tokenKind = TLParen} : afterLeftParen -> do
+      (parameters, afterParameters) <- parseLambdaParameters afterLeftParen
+      case afterParameters of
+        Token {tokenKind = TArrow} : afterArrow -> do
+          (bodyExpr, remaining) <- parseExpr afterArrow
+          pure (SELambda parameters bodyExpr, remaining)
+        [] ->
+          Left
+            ( parseDiagnostic
+                ( "expected '->' before end of input after lambda parameters at "
+                    <> renderSourceSpan (tokenSpan lambdaToken)
+                )
+            )
+        token : _ ->
+          Left
+            ( parseDiagnostic
+                ( "expected '->' at "
+                    <> renderSourceSpan (tokenSpan token)
+                    <> ", found '"
+                    <> tokenLexeme token
+                    <> "'"
+                )
+            )
+    [] ->
+      Left
+        ( parseDiagnostic
+            ( "expected '(' before end of input after lambda introducer at "
+                <> renderSourceSpan (tokenSpan lambdaToken)
+            )
+        )
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected '(' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> " after lambda introducer"
+            )
+        )
+
+parseLambdaParameters :: [Token] -> Either Diagnostic ([Identifier], [Token])
+parseLambdaParameters tokensAfterLeftParen =
+  case tokensAfterLeftParen of
+    token@(Token {tokenKind = TRParen}) : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected lambda parameter before ')' at "
+                <> renderSourceSpan (tokenSpan token)
+            )
+        )
+    _ -> do
+      (firstParameter, afterFirstParameter) <- parseLambdaParameter tokensAfterLeftParen
+      go [firstParameter] afterFirstParameter
+  where
+    go revParameters allTokens =
+      case allTokens of
+        Token {tokenKind = TComma} : rest -> do
+          (nextParameter, afterNextParameter) <- parseLambdaParameter rest
+          go (nextParameter : revParameters) afterNextParameter
+        Token {tokenKind = TRParen} : rest ->
+          Right (reverse revParameters, rest)
+        [] ->
+          Left (parseDiagnostic "expected ')' before end of input in lambda parameter list")
+        token : _ ->
+          Left
+            ( parseDiagnostic
+                ( "expected ',' or ')' at "
+                    <> renderSourceSpan (tokenSpan token)
+                    <> ", found '"
+                    <> tokenLexeme token
+                    <> "'"
+                )
+            )
+
+parseLambdaParameter :: [Token] -> Either Diagnostic (Identifier, [Token])
+parseLambdaParameter tokens =
+  case tokens of
+    Token {tokenKind = TIdentifier parameterName, tokenSpan = parameterSpan} : rest
+      | isReservedLiteralName parameterName ->
+          Left
+            ( parseDiagnostic
+                ( "reserved literal '"
+                    <> parameterName
+                    <> "' cannot be used as a lambda parameter at "
+                    <> renderSourceSpan parameterSpan
+                )
+            )
+      | otherwise ->
+          Right (mkIdentifier parameterName, rest)
+    [] ->
+      Left (parseDiagnostic "expected identifier before end of input in lambda parameter list")
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected identifier at "
                 <> renderSourceSpan (tokenSpan token)
                 <> ", found '"
                 <> tokenLexeme token

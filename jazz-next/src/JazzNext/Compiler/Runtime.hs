@@ -31,7 +31,8 @@ import JazzNext.Compiler.BuiltinCatalog
     lookupBuiltinSymbolInMode
   )
 import JazzNext.Compiler.Identifier
-  ( identifierText
+  ( Identifier,
+    identifierText
   )
 
 -- | Runtime values produced by the interpreter, including partially applied
@@ -40,6 +41,7 @@ data RuntimeValue
   = VInt Int
   | VBool Bool
   | VList [RuntimeValue]
+  | VClosure RuntimeEnv Identifier Expr
   | VBuiltin BuiltinSymbol [RuntimeValue]
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
@@ -67,6 +69,7 @@ renderRuntimeValue value =
         else "False"
     VList elements ->
       "[" <> Text.intercalate ", " (map renderRuntimeValue elements) <> "]"
+    VClosure {} -> "<function>"
     VBuiltin _ _ -> "<function>"
     VOperator {} -> "<function>"
     VSectionLeft {} -> "<function>"
@@ -118,6 +121,8 @@ evalValue builtinMode env expr =
                 )
       where
         nameText = identifierText name
+    ELambda parameterName bodyExpr ->
+      Right (VClosure env parameterName bodyExpr)
     EOperatorValue operatorSymbol ->
       Right (VOperator operatorSymbol [])
     EList elements ->
@@ -125,7 +130,7 @@ evalValue builtinMode env expr =
     EApply functionExpr argumentExpr -> do
       functionValue <- evalValue builtinMode env functionExpr
       argumentValue <- evalValue builtinMode env argumentExpr
-      applyRuntimeFunction functionValue argumentValue
+      applyRuntimeFunction builtinMode functionValue argumentValue
     EIf conditionExpr thenExpr elseExpr ->
       evalValue builtinMode env (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr -> do
@@ -142,7 +147,7 @@ evalValue builtinMode env expr =
     EBinary operatorSymbol leftExpr rightExpr -> do
       leftValue <- evalValue builtinMode env leftExpr
       rightValue <- evalValue builtinMode env rightExpr
-      evalBinary operatorSymbol leftValue rightValue
+      evalBinary builtinMode operatorSymbol leftValue rightValue
     ESectionLeft leftExpr operatorSymbol -> do
       leftValue <- evalValue builtinMode env leftExpr
       Right (VSectionLeft operatorSymbol leftValue)
@@ -165,17 +170,22 @@ literalRuntimeValue literal =
 
 -- | Apply any callable runtime value, including sections, builtin primitives,
 -- and curried operator values.
-applyRuntimeFunction :: RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
-applyRuntimeFunction functionValue argumentValue =
+applyRuntimeFunction :: BuiltinResolutionMode -> RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyRuntimeFunction builtinMode functionValue argumentValue =
   case functionValue of
     VSectionLeft operatorSymbol leftValue ->
-      evalBinary operatorSymbol leftValue argumentValue
+      evalBinary builtinMode operatorSymbol leftValue argumentValue
     VSectionRight operatorSymbol rightValue ->
-      evalBinary operatorSymbol argumentValue rightValue
+      evalBinary builtinMode operatorSymbol argumentValue rightValue
+    VClosure capturedEnv parameterName bodyExpr ->
+      evalValue
+        builtinMode
+        (Map.insert (identifierText parameterName) argumentValue capturedEnv)
+        bodyExpr
     VBuiltin builtinFunction capturedArgs ->
-      applyBuiltin builtinFunction (capturedArgs ++ [argumentValue])
+      applyBuiltin builtinMode builtinFunction (capturedArgs ++ [argumentValue])
     VOperator operatorSymbol capturedArgs ->
-      applyOperator operatorSymbol (capturedArgs ++ [argumentValue])
+      applyOperator builtinMode operatorSymbol (capturedArgs ++ [argumentValue])
     _ ->
       Left
         ( runtimeDiagnostic
@@ -183,13 +193,13 @@ applyRuntimeFunction functionValue argumentValue =
             ("runtime cannot apply non-function value of type " <> renderRuntimeType functionValue)
         )
 
-applyOperator :: Text -> [RuntimeValue] -> Either Diagnostic RuntimeValue
-applyOperator operatorSymbol arguments =
+applyOperator :: BuiltinResolutionMode -> Text -> [RuntimeValue] -> Either Diagnostic RuntimeValue
+applyOperator builtinMode operatorSymbol arguments =
   case arguments of
     [leftValue] ->
       Right (VOperator operatorSymbol [leftValue])
     [leftValue, rightValue] ->
-      evalBinary operatorSymbol leftValue rightValue
+      evalBinary builtinMode operatorSymbol leftValue rightValue
     _ ->
       Left
         ( runtimeDiagnostic
@@ -199,12 +209,12 @@ applyOperator operatorSymbol arguments =
 
 -- | Builtin primitives are curried, so under-applied calls stay as function
 -- values and only exact arity triggers evaluation.
-applyBuiltin :: BuiltinSymbol -> [RuntimeValue] -> Either Diagnostic RuntimeValue
-applyBuiltin builtinFunction arguments
+applyBuiltin :: BuiltinResolutionMode -> BuiltinSymbol -> [RuntimeValue] -> Either Diagnostic RuntimeValue
+applyBuiltin builtinMode builtinFunction arguments
   | length arguments < builtinSymbolArity builtinFunction =
       Right (VBuiltin builtinFunction arguments)
   | length arguments == builtinSymbolArity builtinFunction =
-      evalBuiltin builtinFunction arguments
+      evalBuiltin builtinMode builtinFunction arguments
   | otherwise =
       Left
         ( runtimeDiagnostic
@@ -213,8 +223,8 @@ applyBuiltin builtinFunction arguments
         )
 
 -- | Evaluate builtin semantics once enough arguments have been collected.
-evalBuiltin :: BuiltinSymbol -> [RuntimeValue] -> Either Diagnostic RuntimeValue
-evalBuiltin builtinFunction arguments =
+evalBuiltin :: BuiltinResolutionMode -> BuiltinSymbol -> [RuntimeValue] -> Either Diagnostic RuntimeValue
+evalBuiltin builtinMode builtinFunction arguments =
   case (builtinFunction, arguments) of
     (BuiltinHd, [VList []]) ->
       Left (runtimeDiagnostic "E3009" "runtime primitive 'hd' failed: empty list")
@@ -246,7 +256,7 @@ evalBuiltin builtinFunction arguments =
       | otherwise ->
           case collection of
             VList elements ->
-              VList <$> mapM (applyRuntimeFunction mapper) elements
+              VList <$> mapM (applyRuntimeFunction builtinMode mapper) elements
             other ->
               Left
                 ( runtimeDiagnostic
@@ -263,7 +273,7 @@ evalBuiltin builtinFunction arguments =
       | otherwise ->
           case collection of
             VList elements ->
-              VList <$> filterElements predicate elements
+              VList <$> filterElements builtinMode predicate elements
             other ->
               Left
                 ( runtimeDiagnostic
@@ -283,8 +293,8 @@ evalBuiltin builtinFunction arguments =
 
 -- | Evaluate filter predicates element-by-element and enforce that each
 -- predicate application returns a Bool.
-filterElements :: RuntimeValue -> [RuntimeValue] -> Either Diagnostic [RuntimeValue]
-filterElements predicate values = do
+filterElements :: BuiltinResolutionMode -> RuntimeValue -> [RuntimeValue] -> Either Diagnostic [RuntimeValue]
+filterElements builtinMode predicate values = do
   results <- mapM applyPredicate values
   pure [value | (value, True) <- results]
   where
@@ -292,7 +302,7 @@ filterElements predicate values = do
     -- past compile-time checks in direct `evaluateRuntimeExpr` tests.
     applyPredicate :: RuntimeValue -> Either Diagnostic (RuntimeValue, Bool)
     applyPredicate value = do
-      predicateResult <- applyRuntimeFunction predicate value
+      predicateResult <- applyRuntimeFunction builtinMode predicate value
       case predicateResult of
         VBool shouldKeep -> Right (value, shouldKeep)
         other ->
@@ -307,13 +317,14 @@ isFunctionValue value =
   case value of
     VSectionLeft {} -> True
     VSectionRight {} -> True
+    VClosure {} -> True
     VBuiltin {} -> True
     VOperator {} -> True
     _ -> False
 
 -- | Evaluate the builtin operator subset supported by the runtime.
-evalBinary :: Text -> RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
-evalBinary operatorSymbol leftValue rightValue =
+evalBinary :: BuiltinResolutionMode -> Text -> RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
+evalBinary builtinMode operatorSymbol leftValue rightValue =
   case (operatorSymbol, leftValue, rightValue) of
     ("+", VInt leftInt, VInt rightInt) -> Right (VInt (leftInt + rightInt))
     ("-", VInt leftInt, VInt rightInt) -> Right (VInt (leftInt - rightInt))
@@ -331,7 +342,7 @@ evalBinary operatorSymbol leftValue rightValue =
     ("!=", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt /= rightInt))
     ("!=", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool /= rightBool))
     ("$", functionValue, argumentValue) ->
-      applyRuntimeFunction functionValue argumentValue
+      applyRuntimeFunction builtinMode functionValue argumentValue
     _ ->
       Left
         ( runtimeDiagnostic
@@ -361,5 +372,6 @@ renderRuntimeType value =
     VList {} -> "List"
     VSectionLeft {} -> "Function"
     VSectionRight {} -> "Function"
+    VClosure {} -> "Function"
     VBuiltin {} -> "Function"
     VOperator {} -> "Function"
