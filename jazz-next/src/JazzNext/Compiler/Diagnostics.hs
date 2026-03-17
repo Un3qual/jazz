@@ -1,8 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
+  ( Diagnostic (..),
+    RenderDiagnostic (..),
+    SourceSpan (..),
     WarningRecord (..),
+    appendDiagnosticNote,
+    diagnosticFromRendered,
+    mkDiagnostic,
+    mkMessageDiagnostic,
+    prependDiagnosticSummary,
+    setDiagnosticCode,
+    setDiagnosticPrimarySpan,
+    renderDiagnostic,
+    renderDiagnosticRecord,
     renderSourceSpan,
     mkSameScopeRebindingWarning,
     sortWarnings
@@ -11,7 +22,7 @@ module JazzNext.Compiler.Diagnostics
 import Data.List (sortOn)
 import Data.Text (Text)
 import qualified Data.Text as Text
-import JazzNext.Compiler.Warnings
+import JazzNext.Compiler.WarningCatalog
   ( WarningCategory (..),
     warningCode
   )
@@ -22,6 +33,14 @@ data SourceSpan = SourceSpan
   }
   deriving (Eq, Ord, Show)
 
+data Diagnostic = Diagnostic
+  { diagnosticCode :: Text,
+    diagnosticSummary :: Text,
+    diagnosticPrimarySpan :: Maybe SourceSpan,
+    diagnosticNotes :: [Text]
+  }
+  deriving (Eq, Show)
+
 data WarningRecord = WarningRecord
   { warningCategory :: WarningCategory,
     warningCodeText :: Text,
@@ -31,6 +50,96 @@ data WarningRecord = WarningRecord
     warningMessage :: Text
   }
   deriving (Eq, Show)
+
+class RenderDiagnostic a where
+  toDiagnostic :: a -> Diagnostic
+
+instance RenderDiagnostic Diagnostic where
+  toDiagnostic = id
+
+instance RenderDiagnostic Text where
+  toDiagnostic = mkMessageDiagnostic
+
+instance RenderDiagnostic WarningRecord where
+  toDiagnostic warning =
+    Diagnostic
+      { diagnosticCode = warningCodeText warning,
+        diagnosticSummary = warningMessage warning,
+        diagnosticPrimarySpan = Just (warningPrimarySpan warning),
+        diagnosticNotes =
+          case warningPreviousSpan warning of
+            Nothing -> []
+            Just previousSpan ->
+              ["previous " <> renderSourceSpan previousSpan]
+      }
+
+renderDiagnostic :: RenderDiagnostic a => a -> Text
+renderDiagnostic = renderDiagnosticRecord . toDiagnostic
+
+renderDiagnosticRecord :: Diagnostic -> Text
+renderDiagnosticRecord diagnostic =
+  renderCodePrefix (diagnosticCode diagnostic)
+    <> renderPrimarySpan (diagnosticPrimarySpan diagnostic)
+    <> diagnosticSummary diagnostic
+    <> renderNotes (diagnosticNotes diagnostic)
+  where
+    renderCodePrefix code
+      | Text.null code = ""
+      | otherwise = code <> ": "
+
+    renderPrimarySpan maybeSpan =
+      case maybeSpan of
+        Nothing -> ""
+        Just spanValue -> renderSourceSpan spanValue <> ": "
+
+    renderNotes notes =
+      case notes of
+        [] -> ""
+        _ -> " (" <> Text.intercalate "; " notes <> ")"
+
+mkDiagnostic :: Text -> Text -> Diagnostic
+mkDiagnostic code summary =
+  Diagnostic
+    { diagnosticCode = code,
+      diagnosticSummary = summary,
+      diagnosticPrimarySpan = Nothing,
+      diagnosticNotes = []
+    }
+
+mkMessageDiagnostic :: Text -> Diagnostic
+mkMessageDiagnostic = mkDiagnostic ""
+
+setDiagnosticCode :: Text -> Diagnostic -> Diagnostic
+setDiagnosticCode code diagnostic =
+  diagnostic {diagnosticCode = code}
+
+setDiagnosticPrimarySpan :: SourceSpan -> Diagnostic -> Diagnostic
+setDiagnosticPrimarySpan spanValue diagnostic =
+  diagnostic {diagnosticPrimarySpan = Just spanValue}
+
+prependDiagnosticSummary :: Text -> Diagnostic -> Diagnostic
+prependDiagnosticSummary prefix diagnostic =
+  diagnostic {diagnosticSummary = prefix <> diagnosticSummary diagnostic}
+
+appendDiagnosticNote :: Text -> Diagnostic -> Diagnostic
+appendDiagnosticNote note diagnostic =
+  diagnostic {diagnosticNotes = diagnosticNotes diagnostic <> [note]}
+
+diagnosticFromRendered :: Text -> Diagnostic
+diagnosticFromRendered rendered =
+  case Text.breakOn ": " rendered of
+    (code, summary)
+      | not (Text.null code) && not (Text.null summary) && isValidDiagnosticCode code ->
+          mkDiagnostic code (Text.drop 2 summary)
+    _ ->
+      mkMessageDiagnostic rendered
+  where
+    isValidDiagnosticCode code =
+      case Text.uncons code of
+        Just (firstChar, rest) ->
+          -- Diagnostic codes must start with an uppercase letter followed by digits (e.g., "E1234")
+          firstChar >= 'A' && firstChar <= 'Z' && Text.all (\c -> c >= '0' && c <= '9') rest && not (Text.null rest)
+        Nothing -> False
 
 renderSourceSpan :: SourceSpan -> Text
 renderSourceSpan spanValue =

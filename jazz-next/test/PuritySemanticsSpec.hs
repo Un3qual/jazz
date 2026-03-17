@@ -3,10 +3,21 @@
 module Main (main) where
 
 import Data.Text (Text)
+import JazzNext.Compiler.BundledPrelude
+  ( bundledPreludeSource
+  )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     compileSource,
     compileSourceWithPrelude
+  )
+import JazzNext.Compiler.Identifier
+  ( identifierPurity,
+    identifierText,
+    mkIdentifier
+  )
+import JazzNext.Compiler.Purity
+  ( Purity (..)
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -25,10 +36,14 @@ main = runTestSuite "PuritySemantics" tests
 tests :: [NamedTest]
 tests =
   [ ("pure binding cannot call impure builtin", testPureBindingCannotCallImpureBuiltin),
+    ("pure binding cannot call impure builtin through dollar application", testPureBindingCannotCallImpureBuiltinThroughDollarApplication),
     ("impure binding can call impure builtin", testImpureBindingCanCallImpureBuiltin),
     ("pure binding cannot call impure callee", testPureBindingCannotCallImpureCallee),
     ("impure binding can call impure callee", testImpureBindingCanCallImpureCallee),
     ("pure binding can call pure callee", testPureBindingCanCallPureCallee),
+    ("mkIdentifier keeps source text", testMkIdentifierKeepsSourceText),
+    ("mkIdentifier marks bang-suffixed names impure", testMkIdentifierMarksBangSuffixedNamesImpure),
+    ("mkIdentifier marks plain names pure", testMkIdentifierMarksPlainNamesPure),
     ("top-level expression may call impure builtin", testTopLevelExpressionCanCallImpureBuiltin),
     ("top-level expression may call impure callee", testTopLevelExpressionCanCallImpureCallee)
   ]
@@ -38,6 +53,14 @@ testPureBindingCannotCallImpureBuiltin = do
   result <- compileWithBundledPrelude "x = print! 1.\nx."
   assertSingleErrorContains
     "pure binding calling impure builtin"
+    "E1010"
+    (compileErrors result)
+
+testPureBindingCannotCallImpureBuiltinThroughDollarApplication :: IO ()
+testPureBindingCannotCallImpureBuiltinThroughDollarApplication = do
+  result <- compileSource defaultWarningSettings "x = print! $ 1.\nx."
+  assertSingleErrorContains
+    "pure binding calling impure builtin through dollar application"
     "E1010"
     (compileErrors result)
 
@@ -67,6 +90,21 @@ testPureBindingCanCallPureCallee = do
   assertEqual "compile errors" [] (compileErrors result)
   assertJust "generated JS is present" (generatedJs result)
 
+testMkIdentifierKeepsSourceText :: IO ()
+testMkIdentifierKeepsSourceText = do
+  let identifier = mkIdentifier "inc!"
+  assertEqual "identifier text" "inc!" (identifierText identifier)
+
+testMkIdentifierMarksBangSuffixedNamesImpure :: IO ()
+testMkIdentifierMarksBangSuffixedNamesImpure = do
+  let identifier = mkIdentifier "inc!"
+  assertEqual "identifier purity" Impure (identifierPurity identifier)
+
+testMkIdentifierMarksPlainNamesPure :: IO ()
+testMkIdentifierMarksPlainNamesPure = do
+  let identifier = mkIdentifier "inc"
+  assertEqual "identifier purity" Pure (identifierPurity identifier)
+
 testTopLevelExpressionCanCallImpureCallee :: IO ()
 testTopLevelExpressionCanCallImpureCallee = do
   result <- compileSource defaultWarningSettings "inc! = (+ 1).\ninc! 1."
@@ -82,11 +120,3 @@ testTopLevelExpressionCanCallImpureBuiltin = do
 compileWithBundledPrelude :: Text -> IO CompileResult
 compileWithBundledPrelude =
   compileSourceWithPrelude defaultWarningSettings (Just bundledPreludeSource)
-
-bundledPreludeSource :: Text
-bundledPreludeSource =
-  "map = __kernel_map.\n\
-  \filter = __kernel_filter.\n\
-  \hd = __kernel_hd.\n\
-  \tl = __kernel_tl.\n\
-  \print! = __kernel_print!."

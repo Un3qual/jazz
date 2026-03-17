@@ -18,9 +18,11 @@
 - [x] Executed `jazz-next` intrinsic-boundary hardening batch (shared builtin catalog + conformance checks)
 - [x] Closed Gate B naming/export contract baseline for active `jazz-next` path (bundled prelude path + bridge export contract documented)
 - [x] Executed `jazz-next` bundled-default prelude bootstrap + ownership-metadata scaffolding batch
+- [x] Executed `jazz-next` prelude-owned-default migration batch (strict kernel-only prelude mode + explicit no-prelude compatibility fallback)
 - [x] Executed `jazz-next` phase-4 public-builtin migration batch (public names now flow through the prelude; raw compiler/runtime fallback is restricted to `__kernel_*` bridge symbols)
-- [ ] Migration phases executed with compatibility gates
+- [x] Migration phases executed with compatibility gates
 - [x] Active `jazz-next` direct builtin access reduced to the approved `__kernel_*` bridge surface
+- [ ] Hardcoded builtin surface reduced to approved kernel
 - [ ] Reproducibility and closure checks completed
 
 ## Verification Evidence (Exact Paths + Unresolved Contradictions)
@@ -278,7 +280,7 @@ nix develop . -c bash -lc '
 
 - [x] Re-verified candidate steps before implementation and confirmed phase-3 intrinsic bridge work was partially present in code but drift-prone due to duplicated builtin tables.
 
-## Implementation Status Verification (2026-03-16, Batch 3, `jazz-next`)
+## Implementation Status Verification (2026-03-16, Batch 5, `jazz-next`)
 
 - [x] Re-verified that module/import work remains partly code-complete but docs-first for normative semantics, so stdlib phase 4 was the next safe executable code batch.
 - [x] Re-verified that public builtin names were still directly available without prelude in analyzer/type/runtime before this batch.
@@ -336,6 +338,37 @@ nix develop . -c bash -lc '
   - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/BuiltinCatalogSpec.hs`
 - [x] Re-ran full `jazz-next` verification:
   - `bash jazz-next/scripts/test-warning-config.sh`
+
+## Implementation Status Verification (2026-03-05, Batch 5, `jazz-next`)
+
+- [x] Re-verified all unchecked Phase-4 candidate steps before implementation and confirmed they were still incomplete (not tracker drift): direct canonical builtin fallback remained unconditional in analyzer/type/runtime, bridge validation enforced legacy `__kernel_x = x` shape, and tests/docs still implied compiler-owned APIs.
+- [x] Added builtins-resolution modes in `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`:
+  - strict prelude-owned mode (`ResolveKernelOnly`) for prelude-enabled compile/run paths,
+  - explicit compatibility mode (`ResolveCompatibility`) for no-prelude fallback paths.
+- [x] Refactored analyzer/type/runtime to consume mode-aware builtin resolution:
+  - `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+  - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+  - `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- [x] Updated driver execution policy in `jazz-next/src/JazzNext/Compiler/Driver.hs`:
+  - source compile/run now attempts bundled prelude by default,
+  - prelude-enabled paths compile/run with strict kernel-only builtin resolution,
+  - explicit no-prelude paths retain compatibility aliases by design.
+- [x] Updated bridge contract + bundled prelude ownership shape:
+  - `jazz-next/src/JazzNext/Compiler/PreludeContract.hs`
+  - `jazz-next/stdlib/Prelude.jz` (`__kernel_x = __kernel_x` self-bridges + public aliases `x = __kernel_x`).
+- [x] Rebaselined boundary conformance tests and fixtures:
+  - `jazz-next/test/BuiltinCatalogSpec.hs`
+  - `jazz-next/test/PreludeLoadingSpec.hs`
+  - `jazz-next/test/CLISpec.hs`
+- [x] Updated boundary contract docs to reflect prelude-owned default + explicit no-prelude compatibility deprecation guidance:
+  - `docs/spec/stdlib-boundary.md`
+- [x] Ran focused verification:
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/BuiltinCatalogSpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PreludeLoadingSpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PuritySemanticsSpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/PrimitiveSemanticsSpec.hs`
+  - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/RuntimeSemanticsSpec.hs`
 
 ## Short Checkbox Summary
 

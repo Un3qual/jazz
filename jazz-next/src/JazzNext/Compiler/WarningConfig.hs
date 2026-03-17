@@ -17,6 +17,10 @@ import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    mkMessageDiagnostic
+  )
 import JazzNext.Compiler.Warnings
   ( WarningCategory,
     allWarningCategories,
@@ -59,24 +63,24 @@ isWarningError settings category =
            || Map.findWithDefault False category (errorCategories settings)
        )
 
-parseCliWarningDirective :: Text -> Either Text WarningDirective
+parseCliWarningDirective :: Text -> Either Diagnostic WarningDirective
 parseCliWarningDirective rawFlag
   | "-W" `Text.isPrefixOf` rawFlag = parseDirectiveToken (Text.drop 2 rawFlag)
-  | otherwise = Left ("invalid warning flag: expected -W<token>, got: " <> rawFlag)
+  | otherwise = Left (mkMessageDiagnostic ("invalid warning flag: expected -W<token>, got: " <> rawFlag))
 
-parseEnvWarningDirectives :: Text -> Either Text [WarningDirective]
+parseEnvWarningDirectives :: Text -> Either Diagnostic [WarningDirective]
 parseEnvWarningDirectives rawValue = do
   -- Env warning flags use +/- category toggles, not -W-prefixed tokens.
   tokens <- parseCommaSeparatedTokens rawValue
   traverse parseEnvWarningToken tokens
 
-parseEnvErrorDirectives :: Text -> Either Text [WarningDirective]
+parseEnvErrorDirectives :: Text -> Either Diagnostic [WarningDirective]
 parseEnvErrorDirectives rawValue = do
   -- Env error flags only support category names (or all).
   tokens <- parseCommaSeparatedTokens rawValue
   traverse parseEnvErrorToken tokens
 
-parseConfigDirectives :: Text -> Either Text [WarningDirective]
+parseConfigDirectives :: Text -> Either Diagnostic [WarningDirective]
 parseConfigDirectives contents = do
   -- Config accepts both one-token-per-line and comma-separated forms, with # comments.
   let tokens = concatMap lineTokens (Text.lines contents)
@@ -87,7 +91,7 @@ resolveWarningSettings ::
   Maybe Text ->
   Maybe Text ->
   Maybe Text ->
-  Either Text WarningSettings
+  Either Diagnostic WarningSettings
 resolveWarningSettings cliFlags envWarningFlags envErrorFlags configContents = do
   configDirectives <- maybe (Right []) parseConfigDirectives configContents
   envWarningDirectives <- maybe (Right []) parseEnvWarningDirectives envWarningFlags
@@ -131,9 +135,9 @@ applyDirective settings directive =
           allEnabledAreErrors = False
         }
 
-parseDirectiveToken :: Text -> Either Text WarningDirective
+parseDirectiveToken :: Text -> Either Diagnostic WarningDirective
 parseDirectiveToken rawToken
-  | Text.null token = Left "empty warning token"
+  | Text.null token = Left (mkMessageDiagnostic "empty warning token")
   | token == "none" = Right DisableAllCategories
   | token == "error" = Right PromoteAllEnabledToError
   | "error=" `Text.isPrefixOf` token =
@@ -144,24 +148,25 @@ parseDirectiveToken rawToken
   where
     token = trim rawToken
 
-parseEnvWarningToken :: Text -> Either Text WarningDirective
+parseEnvWarningToken :: Text -> Either Diagnostic WarningDirective
 parseEnvWarningToken rawToken
-  | Text.null token = Left "empty JAZZ_WARNING_FLAGS token"
+  | Text.null token = Left (mkMessageDiagnostic "empty JAZZ_WARNING_FLAGS token")
   | token == "none" = Right DisableAllCategories
+  | "+" `Text.isPrefixOf` token = EnableCategory <$> parseWarningCategory (Text.drop 1 token)
   | "-" `Text.isPrefixOf` token = DisableCategory <$> parseWarningCategory (Text.drop 1 token)
   | otherwise = EnableCategory <$> parseWarningCategory token
   where
     token = trim rawToken
 
-parseEnvErrorToken :: Text -> Either Text WarningDirective
+parseEnvErrorToken :: Text -> Either Diagnostic WarningDirective
 parseEnvErrorToken rawToken
-  | Text.null token = Left "empty JAZZ_WARNING_ERROR_FLAGS token"
+  | Text.null token = Left (mkMessageDiagnostic "empty JAZZ_WARNING_ERROR_FLAGS token")
   | token == "all" = Right PromoteAllEnabledToError
   | otherwise = PromoteCategoryToError <$> parseWarningCategory token
   where
     token = trim rawToken
 
-parseCommaSeparatedTokens :: Text -> Either Text [Text]
+parseCommaSeparatedTokens :: Text -> Either Diagnostic [Text]
 parseCommaSeparatedTokens rawValue =
   let rawTokens = splitCommas rawValue
       tokens = map trim rawTokens
@@ -171,11 +176,11 @@ parseCommaSeparatedTokens rawValue =
     if all Text.null tokens
       then
         if length tokens > 1
-          then Left "empty warning token"
-          else Left "expected at least one warning token"
+          then Left (mkMessageDiagnostic "empty warning token")
+          else Left (mkMessageDiagnostic "expected at least one warning token")
       else
         if any Text.null tokens
-          then Left "empty warning token"
+          then Left (mkMessageDiagnostic "empty warning token")
           else Right tokens
 
 lineTokens :: Text -> [Text]

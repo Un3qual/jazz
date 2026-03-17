@@ -3,10 +3,15 @@
 module JazzNext.TestHarness
   ( NamedTest,
     assertContains,
+    assertDiagnosticContains,
     assertEqual,
     assertJust,
+    assertLeftDiagnosticCodeAndContains,
     assertLeftContains,
+    assertLeftDiagnosticContains,
     assertRight,
+    assertSingleDiagnosticCode,
+    assertSingleDiagnosticContains,
     assertSingleErrorContains,
     failTest,
     runTestSuite
@@ -16,6 +21,12 @@ where
 import Control.Exception (Exception, catch, throwIO)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    RenderDiagnostic,
+    diagnosticCode,
+    renderDiagnostic
+  )
 import System.Exit (exitFailure, exitSuccess)
 
 newtype TestFailure = TestFailure Text
@@ -56,6 +67,10 @@ assertContains label needle haystack =
     then pure ()
     else failTest (label <> ": expected to find '" <> needle <> "' in '" <> haystack <> "'")
 
+assertDiagnosticContains :: Text -> Text -> Diagnostic -> IO ()
+assertDiagnosticContains label needle diagnostic =
+  assertContains label needle (renderDiagnostic diagnostic)
+
 assertEqual :: (Eq a, Show a) => Text -> a -> a -> IO ()
 assertEqual label expected actual =
   if expected == actual
@@ -75,12 +90,15 @@ assertJust label value =
     Just _ -> pure ()
     Nothing -> failTest (label <> ": expected Just, got Nothing")
 
-assertLeftContains :: Show a => Text -> Text -> Either Text a -> IO ()
+assertLeftContains :: (Show a, RenderDiagnostic e) => Text -> Text -> Either e a -> IO ()
 assertLeftContains label needle value =
   case value of
-    Left err
-      | needle `Text.isInfixOf` err -> pure ()
-      | otherwise -> failTest (label <> ": expected error containing '" <> needle <> "', got '" <> err <> "'")
+    Left err ->
+      let rendered = renderDiagnostic err
+       in
+        if needle `Text.isInfixOf` rendered
+          then pure ()
+          else failTest (label <> ": expected error containing '" <> needle <> "', got '" <> rendered <> "'")
     Right ok -> failTest (label <> ": expected Left, got Right " <> Text.pack (show ok))
 
 assertRight :: Show e => Text -> Either e a -> (a -> IO ()) -> IO ()
@@ -89,20 +107,49 @@ assertRight label value check =
     Left err -> failTest (label <> ": expected Right, got Left " <> Text.pack (show err))
     Right ok -> check ok
 
-assertSingleErrorContains :: Text -> Text -> [Text] -> IO ()
-assertSingleErrorContains label needle errors =
-  case errors of
-    [err] ->
-      if needle `Text.isInfixOf` err
-        then pure ()
-        else failTest (label <> ": expected to find '" <> needle <> "' in '" <> err <> "'")
+assertLeftDiagnosticContains :: Show a => Text -> Text -> Either Diagnostic a -> IO ()
+assertLeftDiagnosticContains label needle value =
+  case value of
+    Left diagnostic ->
+      assertDiagnosticContains label needle diagnostic
+    Right ok -> failTest (label <> ": expected Left, got Right " <> Text.pack (show ok))
+
+assertLeftDiagnosticCodeAndContains :: Show a => Text -> Text -> Text -> Either Diagnostic a -> IO ()
+assertLeftDiagnosticCodeAndContains label expectedCode needle value =
+  case value of
+    Left diagnostic -> do
+      assertEqual (label <> " code") expectedCode (diagnosticCode diagnostic)
+      assertDiagnosticContains label needle diagnostic
+    Right ok -> failTest (label <> ": expected Left, got Right " <> Text.pack (show ok))
+
+assertSingleDiagnosticContains :: Text -> Text -> [Diagnostic] -> IO ()
+assertSingleDiagnosticContains label needle diagnostics =
+  case diagnostics of
+    [diagnostic] ->
+      assertDiagnosticContains label needle diagnostic
     _ ->
       failTest
         ( label
-            <> ": expected exactly 1 error, got "
-            <> Text.pack (show (length errors))
-            <> if null errors then "" else ": " <> Text.pack (show errors)
+            <> ": expected exactly 1 diagnostic, got "
+            <> Text.pack (show (length diagnostics))
+            <> if null diagnostics then "" else ": " <> Text.pack (show diagnostics)
         )
+
+assertSingleDiagnosticCode :: Text -> Text -> [Diagnostic] -> IO ()
+assertSingleDiagnosticCode label expectedCode diagnostics =
+  case diagnostics of
+    [diagnostic] ->
+      assertEqual label expectedCode (diagnosticCode diagnostic)
+    _ ->
+      failTest
+        ( label
+            <> ": expected exactly 1 diagnostic, got "
+            <> Text.pack (show (length diagnostics))
+            <> if null diagnostics then "" else ": " <> Text.pack (show diagnostics)
+        )
+
+assertSingleErrorContains :: Text -> Text -> [Diagnostic] -> IO ()
+assertSingleErrorContains = assertSingleDiagnosticContains
 
 failTest :: Text -> IO a
 failTest = throwIO . TestFailure

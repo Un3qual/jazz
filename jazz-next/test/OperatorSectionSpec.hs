@@ -4,6 +4,7 @@ module Main (main) where
 
 import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -14,6 +15,7 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceLiteral (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Lower
@@ -31,19 +33,49 @@ main = runTestSuite "OperatorSection" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("parses left section form", testParsesLeftSection),
+  [ ("parses bare operator value form", testParsesBareOperatorValue),
+    ("parses bare operator value application", testParsesBareOperatorValueApplication),
+    ("parses left section form", testParsesLeftSection),
     ("parses right section form", testParsesRightSection),
     ("grouped infix expression is not treated as section", testGroupedExpressionIsNotSection),
+    ("lowering preserves bare operator value nodes", testLowerPreservesBareOperatorValue),
     ("lowering preserves explicit section nodes", testLowerPreservesSectionNodes)
   ]
+
+testParsesBareOperatorValue :: IO ()
+testParsesBareOperatorValue =
+  assertEqual
+    "bare operator value AST"
+    ( Right
+        ( SEBlock
+            [ SSLet "f" (SourceSpan 1 1) (SEOperatorValue "+")
+            ]
+        )
+    )
+    (parseSurfaceProgram "f = (+).")
+
+testParsesBareOperatorValueApplication :: IO ()
+testParsesBareOperatorValueApplication =
+  assertEqual
+    "bare operator value application AST"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "f"
+                (SourceSpan 1 1)
+                (SEApply (SEApply (SEOperatorValue "+") (SELit (SLInt 1))) (SELit (SLInt 2)))
+            ]
+        )
+    )
+    (parseSurfaceProgram "f = (+) 1 2.")
 
 testParsesLeftSection :: IO ()
 testParsesLeftSection =
   assertEqual
     "left section AST"
     ( Right
-        ( SEScope
-            [ SSLet "f" (SourceSpan 1 1) (SESectionLeft (SEInt 10) "+")
+        ( SEBlock
+            [ SSLet "f" (SourceSpan 1 1) (SESectionLeft (SELit (SLInt 10)) "+")
             ]
         )
     )
@@ -54,8 +86,8 @@ testParsesRightSection =
   assertEqual
     "right section AST"
     ( Right
-        ( SEScope
-            [ SSLet "f" (SourceSpan 1 1) (SESectionRight "+" (SEInt 10))
+        ( SEBlock
+            [ SSLet "f" (SourceSpan 1 1) (SESectionRight "+" (SELit (SLInt 10)))
             ]
         )
     )
@@ -66,8 +98,8 @@ testGroupedExpressionIsNotSection =
   assertEqual
     "grouped binary expression"
     ( Right
-        ( SEScope
-            [ SSLet "x" (SourceSpan 1 1) (SEBinary "+" (SEInt 1) (SEInt 2))
+        ( SEBlock
+            [ SSLet "x" (SourceSpan 1 1) (SEBinary "+" (SELit (SLInt 1)) (SELit (SLInt 2)))
             ]
         )
     )
@@ -81,6 +113,18 @@ testLowerPreservesSectionNodes =
     (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EScope
-        [ SLet "f" (SourceSpan 1 1) (ESectionRight "+" (EInt 10))
+      EBlock
+        [ SLet "f" (SourceSpan 1 1) (ESectionRight "+" (ELit (LInt 10)))
+        ]
+
+testLowerPreservesBareOperatorValue :: IO ()
+testLowerPreservesBareOperatorValue =
+  assertRight
+    "parse + lower bare operator value"
+    (parseSurfaceProgram "f = (+).")
+    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet "f" (SourceSpan 1 1) (EOperatorValue "+")
         ]

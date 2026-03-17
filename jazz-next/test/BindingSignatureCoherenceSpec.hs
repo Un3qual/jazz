@@ -3,12 +3,14 @@
 module Main (main) where
 
 import qualified Data.Text as Text
-import JazzNext.Compiler.Analyzer
+import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
+    renderDiagnostic
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
@@ -23,7 +25,8 @@ import JazzNext.TestHarness
     assertContains,
     assertEqual,
     assertJust,
-    assertSingleErrorContains,
+    assertSingleDiagnosticCode,
+    assertSingleDiagnosticContains,
     runTestSuite
   )
 
@@ -64,7 +67,7 @@ testSignatureDirectlyAboveBinding = do
 testSignatureTypeMismatch :: IO ()
 testSignatureTypeMismatch = do
   result <- compileExpr defaultWarningSettings signatureTypeMismatchProgram
-  assertSingleErrorContains
+  assertSingleDiagnosticCode
     "signature type mismatch error"
     "E2005"
     (compileErrors result)
@@ -72,7 +75,7 @@ testSignatureTypeMismatch = do
 testSignatureSeparatedFromBinding :: IO ()
 testSignatureSeparatedFromBinding = do
   result <- compileExpr defaultWarningSettings separatedSignatureProgram
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "error text"
     "must be immediately followed by a matching binding"
     (compileErrors result)
@@ -80,7 +83,7 @@ testSignatureSeparatedFromBinding = do
 testSignatureNameMismatch :: IO ()
 testSignatureNameMismatch = do
   result <- compileExpr defaultWarningSettings mismatchedSignatureProgram
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "error text"
     "must annotate the next binding with the same name"
     (compileErrors result)
@@ -88,7 +91,7 @@ testSignatureNameMismatch = do
 testUseBeforeDefinition :: IO ()
 testUseBeforeDefinition = do
   result <- compileExpr defaultWarningSettings useBeforeDefinitionProgram
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "error text"
     "unbound variable 'x'"
     (compileErrors result)
@@ -101,41 +104,41 @@ testNestedScopeResolvesOuterBinding = do
 
 validSignatureProgram :: Expr
 validSignatureProgram =
-  EScope
+  EBlock
     [ SSignature "x" (SourceSpan 1 1) "Int",
-      SLet "x" (SourceSpan 2 1) (EInt 1),
+      SLet "x" (SourceSpan 2 1) (ELit (LInt 1)),
       SExpr (SourceSpan 3 1) (EVar "x")
     ]
 
 separatedSignatureProgram :: Expr
 separatedSignatureProgram =
-  EScope
+  EBlock
     [ SSignature "x" (SourceSpan 1 1) "Int",
-      SExpr (SourceSpan 2 1) (EInt 1),
-      SLet "x" (SourceSpan 3 1) (EInt 2)
+      SExpr (SourceSpan 2 1) (ELit (LInt 1)),
+      SLet "x" (SourceSpan 3 1) (ELit (LInt 2))
     ]
 
 mismatchedSignatureProgram :: Expr
 mismatchedSignatureProgram =
-  EScope
+  EBlock
     [ SSignature "x" (SourceSpan 1 1) "Int",
-      SLet "y" (SourceSpan 2 1) (EInt 2)
+      SLet "y" (SourceSpan 2 1) (ELit (LInt 2))
     ]
 
 useBeforeDefinitionProgram :: Expr
 useBeforeDefinitionProgram =
-  EScope
+  EBlock
     [ SExpr (SourceSpan 1 1) (EVar "x"),
-      SLet "x" (SourceSpan 2 1) (EInt 1)
+      SLet "x" (SourceSpan 2 1) (ELit (LInt 1))
     ]
 
 nestedScopeProgram :: Expr
 nestedScopeProgram =
-  EScope
-    [ SLet "x" (SourceSpan 1 1) (EInt 1),
+  EBlock
+    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
       SExpr
         (SourceSpan 2 1)
-        ( EScope
+        ( EBlock
             [ SExpr (SourceSpan 3 1) (EVar "x")
             ]
         )
@@ -148,7 +151,7 @@ testSelfRecursiveBinding = do
 
 selfRecursiveProgram :: Expr
 selfRecursiveProgram =
-  EScope
+  EBlock
     [ SLet "f" (SourceSpan 1 1) (EVar "f")
     ]
 
@@ -167,7 +170,7 @@ testThreeNodeMutualRecursionGroup = do
 testNonRecursiveForwardReference :: IO ()
 testNonRecursiveForwardReference = do
   result <- compileExpr defaultWarningSettings nonRecursiveForwardReferenceProgram
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "error text"
     "unbound variable 'y'"
     (compileErrors result)
@@ -175,14 +178,14 @@ testNonRecursiveForwardReference = do
 testRebindingDoesNotCreateRetroactiveRecursion :: IO ()
 testRebindingDoesNotCreateRetroactiveRecursion = do
   result <- compileExpr defaultWarningSettings retroactiveRebindingProgram
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "error text"
     "unbound variable 'y'"
     (compileErrors result)
 
 mutualRecursionProgram :: Expr
 mutualRecursionProgram =
-  EScope
+  EBlock
     [ SLet "even" (SourceSpan 1 1) (EVar "odd"),
       SLet "odd" (SourceSpan 2 1) (EVar "even"),
       SExpr (SourceSpan 3 1) (EVar "even")
@@ -190,7 +193,7 @@ mutualRecursionProgram =
 
 threeNodeMutualRecursionProgram :: Expr
 threeNodeMutualRecursionProgram =
-  EScope
+  EBlock
     [ SLet "a" (SourceSpan 1 1) (EVar "b"),
       SLet "b" (SourceSpan 2 1) (EVar "c"),
       SLet "c" (SourceSpan 3 1) (EVar "a"),
@@ -199,26 +202,26 @@ threeNodeMutualRecursionProgram =
 
 nonRecursiveForwardReferenceProgram :: Expr
 nonRecursiveForwardReferenceProgram =
-  EScope
+  EBlock
     [ SLet "x" (SourceSpan 1 1) (EVar "y"),
-      SLet "y" (SourceSpan 2 1) (EInt 1),
+      SLet "y" (SourceSpan 2 1) (ELit (LInt 1)),
       SExpr (SourceSpan 3 1) (EVar "x")
     ]
 
 retroactiveRebindingProgram :: Expr
 retroactiveRebindingProgram =
-  EScope
+  EBlock
     [ SLet "x" (SourceSpan 1 1) (EVar "y"),
-      SLet "y" (SourceSpan 2 1) (EInt 1),
+      SLet "y" (SourceSpan 2 1) (ELit (LInt 1)),
       SLet "y" (SourceSpan 3 1) (EVar "x"),
       SExpr (SourceSpan 4 1) (EVar "x")
     ]
 
 signatureTypeMismatchProgram :: Expr
 signatureTypeMismatchProgram =
-  EScope
+  EBlock
     [ SSignature "x" (SourceSpan 1 1) "Int",
-      SLet "x" (SourceSpan 2 1) (EBool True)
+      SLet "x" (SourceSpan 2 1) (ELit (LBool True))
     ]
 
 assertSourceOk :: Text.Text -> IO ()
@@ -230,12 +233,12 @@ assertSourceOk src = do
 assertSourceErrorContains :: Text.Text -> Text.Text -> IO ()
 assertSourceErrorContains src needle = do
   result <- compileSource defaultWarningSettings src
-  assertContains "source error" needle (Text.unlines (compileErrors result))
+  assertContains "source error" needle (Text.unlines (map renderDiagnostic (compileErrors result)))
 
 assertSourceSingleErrorContains :: Text.Text -> Text.Text -> IO ()
 assertSourceSingleErrorContains src needle = do
   result <- compileSource defaultWarningSettings src
-  assertSingleErrorContains "source error" needle (compileErrors result)
+  assertSingleDiagnosticContains "source error" needle (compileErrors result)
 
 testSourceAcceptsSignatureAdjacency :: IO ()
 testSourceAcceptsSignatureAdjacency =

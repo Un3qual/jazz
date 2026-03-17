@@ -95,11 +95,15 @@ The parser in [jazz-hs/src/Parser/Lang.hs](../jazz-hs/src/Parser/Lang.hs) and te
 - Infix operators are parsed as curried function application:
   - `1 + 2` becomes `((+) 1) 2`
 - Operator identifiers can be used as functions:
+  - `(+)`
   - `(+) 1 2`
 - Partial operator sections are supported:
   - `(+10)`
   - `(10+)`
   - `(*2)`
+- Sections keep Haskell-style meaning and are distinct from ordinary partial application:
+  - `(+ 2)` means `\x -> x + 2`
+  - `((+) 2)` means `\x -> 2 + x`
 - `$` is parsed as right-associative low-precedence application.
 
 ### Parsed Expression Forms
@@ -420,7 +424,7 @@ Based on the full repo, these areas still require implementation convergence eve
   - `docs/spec/tooling/compiler-warning-flags.md`
 - Whether tuples are a core runtime feature or just parsed syntax in active implementation behavior.
 - Module/import loading semantics are partially implemented in `jazz-next` (`--entry-module` + deterministic resolver diagnostics), but qualified-import binding/collision semantics are still unresolved.
-- Standard-library boundary migration remains in progress: ownership contract is documented in `docs/spec/stdlib-boundary.md`, `jazz-next` CLI resolves preludes in the order `--prelude` > `JAZZ_PRELUDE` > bundled `jazz-next/stdlib/Prelude.jz`, public helper names (`map`/`filter`/`hd`/`tl`/`print!`) now come from the prelude path, and direct compiler/runtime fallback is restricted to internal `__kernel_*` bridge names pending final removal gates.
+- Standard-library boundary migration remains in progress: ownership contract is documented in `docs/spec/stdlib-boundary.md`, `jazz-next` CLI resolves preludes via `--prelude` > `JAZZ_PRELUDE` > bundled `jazz-next/stdlib/Prelude.jz`, prelude-enabled compile/run paths use the prelude-owned aliases, and legacy canonical builtin aliases stay available only through explicit no-prelude contingency flows built on the `__kernel_*` bridge names pending final removal gates.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
 - Whether the eventual target is JavaScript, LLVM, or both.
 

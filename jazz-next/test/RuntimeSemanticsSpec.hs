@@ -5,15 +5,17 @@ module Main (main) where
 import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( Diagnostic,
+    SourceSpan (..),
+    renderDiagnostic
   )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
-    runSource,
-    runSourceWithPrelude
+    runSource
   )
 import JazzNext.Compiler.Runtime
   ( evaluateRuntimeExpr
@@ -26,7 +28,7 @@ import JazzNext.TestHarness
     assertContains,
     assertEqual,
     failTest,
-    assertSingleErrorContains,
+    assertSingleDiagnosticContains,
     runTestSuite
   )
 
@@ -38,8 +40,12 @@ tests =
   [ ("if with False condition skips then branch runtime failure", testIfFalseSkipsThenRuntimeFailure),
     ("if with True condition skips else branch runtime failure", testIfTrueSkipsElseRuntimeFailure),
     ("division by zero produces fatal runtime diagnostic", testDivisionByZeroRuntimeError),
+    ("bare dollar operator value applies at runtime", testDollarOperatorValueRuntimeSuccess),
+    ("bare operator value applies at runtime", testBareOperatorValueRuntimeSuccess),
+    ("explicit partial application of bare operator value applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess),
     ("left operator section applies at runtime", testLeftOperatorSectionRuntimeSuccess),
     ("right operator section applies at runtime", testRightOperatorSectionRuntimeSuccess),
+    ("right section differs from ordinary partial application for division", testRightSectionDiffersFromOrdinaryPartialApplication),
     ("map + hd evaluates over nested list literals", testMapHdNestedListsRuntimeSuccess),
     ("filter keeps only matching list elements", testFilterRuntimeSuccess),
     ("tl returns the tail of a non-empty list", testTlReturnsTailRuntimeValue),
@@ -76,7 +82,7 @@ testDivisionByZeroRuntimeError = do
   result <- runSource defaultWarningSettings "1 / 0."
   let runtimeErrors = runRuntimeErrors result
   assertEqual "compile errors" [] (runCompileErrors result)
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "runtime fatal division by zero"
     "E3001"
     runtimeErrors
@@ -87,8 +93,29 @@ testDivisionByZeroRuntimeError = do
       assertContains
         "runtime fatal mentions division by zero"
         "division by zero"
-        runtimeError
+        (renderDiagnostic runtimeError)
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testDollarOperatorValueRuntimeSuccess :: IO ()
+testDollarOperatorValueRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "($) (1 +) 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testBareOperatorValueRuntimeSuccess :: IO ()
+testBareOperatorValueRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "(+) 1 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testExplicitPartialOperatorValueRuntimeSuccess :: IO ()
+testExplicitPartialOperatorValueRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "((+) 1) 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
 
 testLeftOperatorSectionRuntimeSuccess :: IO ()
 testLeftOperatorSectionRuntimeSuccess = do
@@ -104,33 +131,44 @@ testRightOperatorSectionRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
 
+testRightSectionDiffersFromOrdinaryPartialApplication :: IO ()
+testRightSectionDiffersFromOrdinaryPartialApplication = do
+  rightSectionResult <- runSource defaultWarningSettings "(/ 2) 10."
+  partialApplicationResult <- runSource defaultWarningSettings "((/) 2) 10."
+  assertEqual "right section compile errors" [] (runCompileErrors rightSectionResult)
+  assertEqual "right section runtime errors" [] (runRuntimeErrors rightSectionResult)
+  assertEqual "right section runtime output" (Just "5") (runOutput rightSectionResult)
+  assertEqual "partial application compile errors" [] (runCompileErrors partialApplicationResult)
+  assertEqual "partial application runtime errors" [] (runRuntimeErrors partialApplicationResult)
+  assertEqual "partial application runtime output" (Just "0") (runOutput partialApplicationResult)
+
 testMapHdNestedListsRuntimeSuccess :: IO ()
 testMapHdNestedListsRuntimeSuccess = do
-  result <- runWithBundledPrelude "map hd [[1, 2], [3], [4, 5]]."
+  result <- runSource defaultWarningSettings "map hd [[1, 2], [3], [4, 5]]."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[1, 3, 4]") (runOutput result)
 
 testFilterRuntimeSuccess :: IO ()
 testFilterRuntimeSuccess = do
-  result <- runWithBundledPrelude "filter (> 1) [1, 2, 3, 1]."
+  result <- runSource defaultWarningSettings "filter (> 1) [1, 2, 3, 1]."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[2, 3]") (runOutput result)
 
 testTlReturnsTailRuntimeValue :: IO ()
 testTlReturnsTailRuntimeValue = do
-  result <- runWithBundledPrelude "tl [1, 2, 3]."
+  result <- runSource defaultWarningSettings "tl [1, 2, 3]."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[2, 3]") (runOutput result)
 
 testHdEmptyListRuntimeError :: IO ()
 testHdEmptyListRuntimeError = do
-  result <- runWithBundledPrelude "hd []."
+  result <- runSource defaultWarningSettings "hd []."
   let runtimeErrors = runRuntimeErrors result
   assertEqual "compile errors" [] (runCompileErrors result)
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "runtime fatal empty-list hd"
     "E3009"
     runtimeErrors
@@ -141,15 +179,15 @@ testHdEmptyListRuntimeError = do
       assertContains
         "runtime fatal mentions empty list"
         "empty list"
-        runtimeError
+        (renderDiagnostic runtimeError)
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
 testTlEmptyListRuntimeError :: IO ()
 testTlEmptyListRuntimeError = do
-  result <- runWithBundledPrelude "tl []."
+  result <- runSource defaultWarningSettings "tl []."
   let runtimeErrors = runRuntimeErrors result
   assertEqual "compile errors" [] (runCompileErrors result)
-  assertSingleErrorContains
+  assertSingleDiagnosticContains
     "runtime fatal empty-list tl"
     "E3010"
     runtimeErrors
@@ -160,47 +198,47 @@ testTlEmptyListRuntimeError = do
       assertContains
         "runtime fatal mentions empty list"
         "empty list"
-        runtimeError
+        (renderDiagnostic runtimeError)
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
 testRuntimeFallbackRejectsHdNonList :: IO ()
 testRuntimeFallbackRejectsHdNonList = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "__kernel_hd") (EInt 1)))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "hd") (ELit (LInt 1))))
   assertRuntimeErrorContains "runtime fallback hd non-list" "E3011" result
 
 testRuntimeFallbackRejectsTlNonList :: IO ()
 testRuntimeFallbackRejectsTlNonList = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "__kernel_tl") (EInt 1)))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "tl") (ELit (LInt 1))))
   assertRuntimeErrorContains "runtime fallback tl non-list" "E3012" result
 
 testRuntimeFallbackRejectsMapNonFunctionMapper :: IO ()
 testRuntimeFallbackRejectsMapNonFunctionMapper = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_map") (EInt 1)) (EList [EInt 1])))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "map") (ELit (LInt 1))) (EList [ELit (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback map mapper" "E3015" result
 
 testRuntimeFallbackRejectsMapNonListCollection :: IO ()
 testRuntimeFallbackRejectsMapNonListCollection = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_map") (EVar "__kernel_hd")) (EInt 1)))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "map") (EVar "hd")) (ELit (LInt 1))))
   assertRuntimeErrorContains "runtime fallback map collection" "E3013" result
 
 testRuntimeFallbackRejectsFilterNonFunctionPredicate :: IO ()
 testRuntimeFallbackRejectsFilterNonFunctionPredicate = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_filter") (EInt 1)) (EList [EInt 1])))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (ELit (LInt 1))) (EList [ELit (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback filter predicate" "E3017" result
 
 testRuntimeFallbackRejectsFilterNonListCollection :: IO ()
 testRuntimeFallbackRejectsFilterNonListCollection = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_filter") (ESectionLeft (EInt 1) "<")) (EInt 1)))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (ESectionLeft (ELit (LInt 1)) "<")) (ELit (LInt 1))))
   assertRuntimeErrorContains "runtime fallback filter collection" "E3018" result
 
 testRuntimeFallbackRejectsFilterPredicateNonBool :: IO ()
 testRuntimeFallbackRejectsFilterPredicateNonBool = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_filter") (ESectionLeft (EInt 1) "+")) (EList [EInt 1])))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (ESectionLeft (ELit (LInt 1)) "+")) (EList [ELit (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback filter predicate bool result" "E3019" result
 
 testPrintBuiltinReturnsArgument :: IO ()
 testPrintBuiltinReturnsArgument = do
-  result <- runWithBundledPrelude "print! 1."
+  result <- runSource defaultWarningSettings "print! 1."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "1") (runOutput result)
@@ -221,28 +259,16 @@ testScopeDeclarationAfterExprClearsResult = do
 
 runtimeExpr :: Expr -> Expr
 runtimeExpr expr =
-  EScope
+  EBlock
     [ SExpr
         (SourceSpan 1 1)
         expr
     ]
 
-assertRuntimeErrorContains :: Text -> Text -> Either Text (Maybe a) -> IO ()
+assertRuntimeErrorContains :: Text -> Text -> Either Diagnostic (Maybe a) -> IO ()
 assertRuntimeErrorContains label expectedCode result =
   case result of
     Left runtimeError ->
-      assertContains label expectedCode runtimeError
+      assertContains label expectedCode (renderDiagnostic runtimeError)
     Right _ ->
       failTest ("expected runtime error containing " <> expectedCode <> ", but evaluation succeeded")
-
-runWithBundledPrelude :: Text -> IO RunResult
-runWithBundledPrelude =
-  runSourceWithPrelude defaultWarningSettings (Just bundledPreludeSource)
-
-bundledPreludeSource :: Text
-bundledPreludeSource =
-  "map = __kernel_map.\n\
-  \filter = __kernel_filter.\n\
-  \hd = __kernel_hd.\n\
-  \tl = __kernel_tl.\n\
-  \print! = __kernel_print!."

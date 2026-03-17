@@ -14,18 +14,27 @@ import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
+import JazzNext.Compiler.BundledPrelude
+  ( loadBundledPreludeSource
+  )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
+  ( Diagnostic,
+    RenderDiagnostic (..),
+    SourceSpan (..),
     WarningRecord (..),
+    mkDiagnostic,
+    mkMessageDiagnostic,
+    renderDiagnostic,
     renderSourceSpan
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
+    ResolvedPrelude (..),
     RunResult (..),
-    compileModuleGraphWithPrelude,
-    compileSourceWithPrelude,
-    runModuleGraphWithPrelude,
-    runSourceWithPrelude
+    compileModuleGraphWithResolvedPrelude,
+    compileSourceWithResolvedPrelude,
+    runModuleGraphWithResolvedPrelude,
+    runSourceWithResolvedPrelude
   )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
@@ -61,14 +70,14 @@ data CliOutput = CliOutput
   deriving (Eq, Show)
 
 -- Parse currently supported warning and prelude-loading flags.
-parseCliOptions :: [String] -> Either Text CliOptions
+parseCliOptions :: [String] -> Either Diagnostic CliOptions
 parseCliOptions args = do
   options <- go (CliOptions [] Nothing False Nothing False Nothing []) args
   finalize options
   where
     finalize options
       | cliDisablePrelude options && isJust (cliPreludePath options) =
-          Left "cannot combine --prelude with --no-prelude"
+          Left (mkMessageDiagnostic "cannot combine --prelude with --no-prelude")
       | null (cliModuleRoots options) =
           Right options {cliWarningFlags = reverse (cliWarningFlags options)}
       | isJust (cliEntryModule options) =
@@ -78,16 +87,16 @@ parseCliOptions args = do
                 cliModuleRoots = reverse (cliModuleRoots options)
               }
       | otherwise =
-          Left "cannot use --module-root without --entry-module"
+          Left (mkMessageDiagnostic "cannot use --module-root without --entry-module")
     go options [] = Right options
     go options ("--warnings-config" : path : rest) =
       go options {cliWarningsConfigPath = Just path} rest
     go _ ("--warnings-config" : []) =
-      Left "missing path after --warnings-config"
+      Left (mkMessageDiagnostic "missing path after --warnings-config")
     go options ("--prelude" : path : rest) =
       go options {cliPreludePath = Just path} rest
     go _ ("--prelude" : []) =
-      Left "missing path after --prelude"
+      Left (mkMessageDiagnostic "missing path after --prelude")
     go options ("--no-prelude" : rest) =
       go options {cliDisablePrelude = True} rest
     go options ("--run" : rest) =
@@ -99,15 +108,15 @@ parseCliOptions args = do
         Right modulePath ->
           go options {cliEntryModule = Just modulePath} rest
     go _ ("--entry-module" : []) =
-      Left "missing module path after --entry-module"
+      Left (mkMessageDiagnostic "missing module path after --entry-module")
     go options ("--module-root" : moduleRoot : rest) =
       go options {cliModuleRoots = moduleRoot : cliModuleRoots options} rest
     go _ ("--module-root" : []) =
-      Left "missing path after --module-root"
+      Left (mkMessageDiagnostic "missing path after --module-root")
     go options (arg : rest)
       | "-W" `isPrefixOf` arg =
           go options {cliWarningFlags = Text.pack arg : cliWarningFlags options} rest
-      | otherwise = Left ("unknown argument: " <> Text.pack arg)
+      | otherwise = Left (mkMessageDiagnostic ("unknown argument: " <> Text.pack arg))
 
 runCliWith ::
   [String] ->
@@ -122,7 +131,7 @@ runCliWith args envLookup configLookup loadSource =
         CliOutput
           { cliExitCode = 2,
             cliStdout = "",
-            cliStderr = "error: " <> parseError <> "\n"
+            cliStderr = "error: " <> renderDiagnostic parseError <> "\n"
           }
     Right options -> do
       settingsResult <- resolveSettings options envLookup configLookup
@@ -132,7 +141,7 @@ runCliWith args envLookup configLookup loadSource =
             CliOutput
               { cliExitCode = 2,
                 cliStdout = "",
-                cliStderr = "error: " <> configError <> "\n"
+                cliStderr = "error: " <> renderDiagnostic configError <> "\n"
               }
         Right settings -> do
           preludeSourceResult <- resolvePreludeSource options envLookup configLookup
@@ -142,7 +151,7 @@ runCliWith args envLookup configLookup loadSource =
                 CliOutput
                   { cliExitCode = 2,
                     cliStdout = "",
-                    cliStderr = "error: " <> preludeError <> "\n"
+                    cliStderr = "error: " <> renderDiagnostic preludeError <> "\n"
                   }
             Right preludeSource -> do
               case cliEntryModule options of
@@ -168,7 +177,7 @@ resolveSettings ::
   CliOptions ->
   (String -> IO (Maybe String)) ->
   (FilePath -> IO (Maybe Text)) ->
-  IO (Either Text WarningSettings)
+  IO (Either Diagnostic WarningSettings)
 resolveSettings options envLookup configLookup = do
   envWarningFlags <- fmap Text.pack <$> envLookup "JAZZ_WARNING_FLAGS"
   envErrorFlags <- fmap Text.pack <$> envLookup "JAZZ_WARNING_ERROR_FLAGS"
@@ -190,58 +199,37 @@ resolvePreludeSource ::
   CliOptions ->
   (String -> IO (Maybe String)) ->
   (FilePath -> IO (Maybe Text)) ->
-  IO (Either Text (Maybe Text))
+  IO (Either Diagnostic ResolvedPrelude)
 resolvePreludeSource options envLookup fileLookup = do
   envPreludePath <- envLookup "JAZZ_PRELUDE"
   if cliDisablePrelude options
-    then pure (Right Nothing)
+    then pure (Right PreludeAbsent)
     else
       case cliPreludePath options of
         Just cliPath -> loadRequiredPrelude cliPath
         Nothing ->
           case envPreludePath of
             Just envPath -> loadRequiredPrelude envPath
-            Nothing -> Right <$> loadFirstBundledPrelude fileLookup
+            Nothing -> Right . PreludeBundled <$> loadBundledPreludeSource
   where
-    loadRequiredPrelude :: FilePath -> IO (Either Text (Maybe Text))
+    loadRequiredPrelude :: FilePath -> IO (Either Diagnostic ResolvedPrelude)
     loadRequiredPrelude preludePath = do
       preludeContents <- fileLookup preludePath
       pure $
         case preludeContents of
-          Just contents -> Right (Just contents)
+          Just contents -> Right (PreludeExplicit contents)
           Nothing ->
             Left
-              ( "E0003: prelude file could not be read at '"
-                  <> Text.pack preludePath
-                  <> "'"
+              ( mkDiagnostic
+                  "E0003"
+                  ("prelude file could not be read at '" <> Text.pack preludePath <> "'")
               )
 
-    loadFirstBundledPrelude ::
-      (FilePath -> IO (Maybe Text)) ->
-      IO (Maybe Text)
-    loadFirstBundledPrelude lookupPath =
-      go bundledPreludePaths
-      where
-        go candidates =
-          case candidates of
-            [] -> pure Nothing
-            candidate : rest -> do
-              maybeContents <- lookupPath candidate
-              case maybeContents of
-                Just contents -> pure (Just contents)
-                Nothing -> go rest
-
-bundledPreludePaths :: [FilePath]
-bundledPreludePaths =
-  [ "jazz-next/stdlib/Prelude.jz",
-    "stdlib/Prelude.jz"
-  ]
-
-runCompile :: WarningSettings -> Maybe Text -> Text -> IO CliOutput
-runCompile settings preludeSource source = do
-  result <- compileSourceWithPrelude settings preludeSource source
+runCompile :: WarningSettings -> ResolvedPrelude -> Text -> IO CliOutput
+runCompile settings resolvedPrelude source = do
+  result <- compileSourceWithResolvedPrelude settings resolvedPrelude source
   let warningLines = map formatWarningLine (compileWarnings result)
-      errorLines = map ("error: " <>) (compileErrors result)
+      errorLines = map (("error: " <>) . renderDiagnostic) (compileErrors result)
       stderrOutput = renderLines (warningLines ++ errorLines)
       stdoutOutput =
         case generatedJs result of
@@ -258,12 +246,12 @@ runCompile settings preludeSource source = do
         cliStderr = stderrOutput
       }
 
-runExecute :: WarningSettings -> Maybe Text -> Text -> IO CliOutput
-runExecute settings preludeSource source = do
-  result <- runSourceWithPrelude settings preludeSource source
+runExecute :: WarningSettings -> ResolvedPrelude -> Text -> IO CliOutput
+runExecute settings resolvedPrelude source = do
+  result <- runSourceWithResolvedPrelude settings resolvedPrelude source
   let warningLines = map formatWarningLine (runWarnings result)
-      compileErrorLines = map ("error: " <>) (runCompileErrors result)
-      runtimeErrorLines = map ("error: " <>) (runRuntimeErrors result)
+      compileErrorLines = map (("error: " <>) . renderDiagnostic) (runCompileErrors result)
+      runtimeErrorLines = map (("error: " <>) . renderDiagnostic) (runRuntimeErrors result)
       stderrOutput = renderLines (warningLines ++ compileErrorLines ++ runtimeErrorLines)
       stdoutOutput =
         case runOutput result of
@@ -283,20 +271,20 @@ runExecute settings preludeSource source = do
 runCompileModuleGraph ::
   WarningSettings ->
   CliOptions ->
-  Maybe Text ->
+  ResolvedPrelude ->
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
   IO CliOutput
-runCompileModuleGraph settings options preludeSource entryModulePath sourceLookup = do
+runCompileModuleGraph settings options resolvedPrelude entryModulePath sourceLookup = do
   result <-
-    compileModuleGraphWithPrelude
+    compileModuleGraphWithResolvedPrelude
       settings
-      preludeSource
+      resolvedPrelude
       (cliModuleConfig options)
       entryModulePath
       sourceLookup
   let warningLines = map formatWarningLine (compileWarnings result)
-      errorLines = map ("error: " <>) (compileErrors result)
+      errorLines = map (("error: " <>) . renderDiagnostic) (compileErrors result)
       stderrOutput = renderLines (warningLines ++ errorLines)
       stdoutOutput =
         case generatedJs result of
@@ -316,21 +304,21 @@ runCompileModuleGraph settings options preludeSource entryModulePath sourceLooku
 runExecuteModuleGraph ::
   WarningSettings ->
   CliOptions ->
-  Maybe Text ->
+  ResolvedPrelude ->
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
   IO CliOutput
-runExecuteModuleGraph settings options preludeSource entryModulePath sourceLookup = do
+runExecuteModuleGraph settings options resolvedPrelude entryModulePath sourceLookup = do
   result <-
-    runModuleGraphWithPrelude
+    runModuleGraphWithResolvedPrelude
       settings
-      preludeSource
+      resolvedPrelude
       (cliModuleConfig options)
       entryModulePath
       sourceLookup
   let warningLines = map formatWarningLine (runWarnings result)
-      compileErrorLines = map ("error: " <>) (runCompileErrors result)
-      runtimeErrorLines = map ("error: " <>) (runRuntimeErrors result)
+      compileErrorLines = map (("error: " <>) . renderDiagnostic) (runCompileErrors result)
+      runtimeErrorLines = map (("error: " <>) . renderDiagnostic) (runRuntimeErrors result)
       stderrOutput = renderLines (warningLines ++ compileErrorLines ++ runtimeErrorLines)
       stdoutOutput =
         case runOutput result of

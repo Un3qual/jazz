@@ -17,6 +17,12 @@ import JazzNext.CLI.Main
     parseCliOptions,
     runCliWith
   )
+import JazzNext.Compiler.Diagnostics
+  ( renderDiagnostic
+  )
+import JazzNext.Compiler.BundledPrelude
+  ( bundledPreludeSource
+  )
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
@@ -47,7 +53,9 @@ tests =
     ("cli module graph compile reports missing import symbol diagnostics", testCliModuleGraphMissingImportSymbol),
     ("cli module graph compile reports module declaration mismatch diagnostics", testCliModuleGraphDeclarationMismatch),
     ("cli loads bundled default prelude when no flag or env override is set", testCliLoadsBundledDefaultPrelude),
-    ("cli loads bundled default prelude from stdlib path fallback", testCliLoadsBundledPreludeFromStdlibFallback),
+    ("cli bundled default prelude preserves user diagnostic spans", testCliBundledPreludePreservesUserDiagnosticSpans),
+    ("cli loads bundled default prelude without path lookup fallback", testCliLoadsBundledPreludeWithoutPathLookup),
+    ("cli explicit prelude matching bundled source still emits rebinding warnings", testCliExplicitPreludeMatchingBundledSourceEmitsWarnings),
     ("cli --run composes explicit prelude source before user source", testCliRunModePreludeFromFlag),
     ("cli --no-prelude disables bundled default prelude", testCliNoPreludeDisablesBundledDefault),
     ("cli prelude load failures return argument/config error", testCliPreludeLoadFailure),
@@ -66,7 +74,7 @@ testParseOptions :: IO ()
 testParseOptions = do
   options <-
     case parseCliOptions ["-Wsame-scope-rebinding", "--warnings-config", "config/warnings.txt"] of
-      Left err -> failTest ("parseCliOptions failed: " <> err)
+      Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
   assertEqual "warning flags" ["-Wsame-scope-rebinding"] (cliWarningFlags options)
   assertEqual "config path" (Just "config/warnings.txt") (cliWarningsConfigPath options)
@@ -78,7 +86,7 @@ testParseRunMode :: IO ()
 testParseRunMode = do
   options <-
     case parseCliOptions ["--run"] of
-      Left err -> failTest ("parseCliOptions failed: " <> err)
+      Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
   assertEqual "run mode" True (cliRunMode options)
   assertEqual "warning flags" [] (cliWarningFlags options)
@@ -89,7 +97,7 @@ testParseModuleGraphOptions :: IO ()
 testParseModuleGraphOptions = do
   options <-
     case parseCliOptions ["--run", "--entry-module", "App::Main", "--module-root", "src", "--module-root", "stdlib"] of
-      Left err -> failTest ("parseCliOptions failed: " <> err)
+      Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
   assertEqual "run mode" True (cliRunMode options)
   assertEqual "entry module" (Just ["App", "Main"]) (cliEntryModule options)
@@ -99,7 +107,7 @@ testParsePreludePath :: IO ()
 testParsePreludePath = do
   options <-
     case parseCliOptions ["--prelude", "stdlib/Prelude.jz"] of
-      Left err -> failTest ("parseCliOptions failed: " <> err)
+      Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
   assertEqual "prelude path" (Just "stdlib/Prelude.jz") (cliPreludePath options)
   assertEqual "prelude disabled" False (cliDisablePrelude options)
@@ -108,7 +116,7 @@ testParseNoPrelude :: IO ()
 testParseNoPrelude = do
   options <-
     case parseCliOptions ["--no-prelude"] of
-      Left err -> failTest ("parseCliOptions failed: " <> err)
+      Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
   assertEqual "prelude path" Nothing (cliPreludePath options)
   assertEqual "prelude disabled" True (cliDisablePrelude options)
@@ -117,7 +125,7 @@ testParsePreludeConflict :: IO ()
 testParsePreludeConflict =
   case parseCliOptions ["--prelude", "stdlib/Prelude.jz", "--no-prelude"] of
     Left err ->
-      assertContains "conflict message" "cannot combine --prelude with --no-prelude" err
+      assertContains "conflict message" "cannot combine --prelude with --no-prelude" (renderDiagnostic err)
     Right _ ->
       failTest "expected prelude flag conflict to fail option parsing"
 
@@ -171,9 +179,7 @@ testCliRunModeListPrimitiveSuccess = do
   assertEqual "stderr is empty" "" (cliStderr output)
   where
     envLookup _ = pure Nothing
-    configLookup key =
-      pure
-        (Map.lookup key (Map.fromList [(bundledPreludePath, bundledPreludeSource)]))
+    configLookup _ = pure Nothing
 
 testCliRunModeFilterPrimitiveSuccess :: IO ()
 testCliRunModeFilterPrimitiveSuccess = do
@@ -183,9 +189,7 @@ testCliRunModeFilterPrimitiveSuccess = do
   assertEqual "stderr is empty" "" (cliStderr output)
   where
     envLookup _ = pure Nothing
-    configLookup key =
-      pure
-        (Map.lookup key (Map.fromList [(bundledPreludePath, bundledPreludeSource)]))
+    configLookup _ = pure Nothing
 
 testCliRunModeModuleGraphSuccess :: IO ()
 testCliRunModeModuleGraphSuccess = do
@@ -285,21 +289,50 @@ testCliLoadsBundledDefaultPrelude = do
   assertEqual "stderr is empty" "" (cliStderr output)
   where
     envLookup _ = pure Nothing
-    configLookup key =
-      pure
-        (Map.lookup key (Map.fromList [(bundledPreludePath, bundledPreludeSource)]))
+    configLookup _ = pure Nothing
 
-testCliLoadsBundledPreludeFromStdlibFallback :: IO ()
-testCliLoadsBundledPreludeFromStdlibFallback = do
-  output <- runCliWith ["--run"] envLookup configLookup (pure bundledPreludeConsumerSource)
+testCliBundledPreludePreservesUserDiagnosticSpans :: IO ()
+testCliBundledPreludePreservesUserDiagnosticSpans = do
+  output <- runCliWith [] envLookup configLookup (pure signatureNameMismatchSource)
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "stderr includes signature mismatch code" "E1003" (cliStderr output)
+  assertContains "stderr keeps user line numbers" "at 1:1 must annotate" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
+testCliLoadsBundledPreludeWithoutPathLookup :: IO ()
+testCliLoadsBundledPreludeWithoutPathLookup = do
+  lookupPaths <- newIORef []
+  let envLookup _ = pure Nothing
+      configLookup path = do
+        writeIORef lookupPaths . (path :) =<< readIORef lookupPaths
+        pure Nothing
+  output <- runCliWith ["--run"] envLookup configLookup (pure bundledPreludeKernelConsumerSource)
+  lookedUpPaths <- readIORef lookupPaths
   assertEqual "exit code" 0 (cliExitCode output)
   assertEqual "runtime stdout" "<function>\n" (cliStdout output)
   assertEqual "stderr is empty" "" (cliStderr output)
+  assertEqual
+    "default bundled prelude should not probe old path-based fallbacks"
+    []
+    (filter isBundledPreludePath lookedUpPaths)
+
+testCliExplicitPreludeMatchingBundledSourceEmitsWarnings :: IO ()
+testCliExplicitPreludeMatchingBundledSourceEmitsWarnings = do
+  output <-
+    runCliWith
+      ["-Werror=same-scope-rebinding", "--prelude", "tmp/Prelude.jz"]
+      envLookup
+      configLookup
+      (pure "map = (+ 1). map 2.")
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "stderr includes warning code" "W0001" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
-    configLookup key =
-      pure
-        (Map.lookup key (Map.fromList [("stdlib/Prelude.jz", bundledPreludeSource)]))
+    configLookup key = pure (Map.lookup key (Map.fromList [("tmp/Prelude.jz", bundledPreludeSource)]))
 
 testCliRunModePreludeFromFlag :: IO ()
 testCliRunModePreludeFromFlag = do
@@ -346,18 +379,24 @@ testCliPreludeBridgeFailure = do
   assertEqual "stdout is suppressed on compile failure" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
-    configLookup key = pure (Map.lookup key (Map.fromList [("tmp/Prelude.jz", "map = __kernel_unknown.")]))
+    configLookup key = pure (Map.lookup key (Map.fromList [("tmp/Prelude.jz", "__kernel_unknown = unknown.")]))
 
 testCliNoPreludeDisablesBundledDefault :: IO ()
 testCliNoPreludeDisablesBundledDefault = do
-  output <- runCliWith ["--run", "--no-prelude"] envLookup configLookup (pure bundledPreludeConsumerSource)
+  lookupPaths <- newIORef []
+  let envLookup _ = pure Nothing
+      configLookup path = do
+        writeIORef lookupPaths . (path :) =<< readIORef lookupPaths
+        pure Nothing
+  output <- runCliWith ["--run", "--no-prelude"] envLookup configLookup (pure bundledPreludeKernelConsumerSource)
+  lookedUpPaths <- readIORef lookupPaths
   assertEqual "exit code" 1 (cliExitCode output)
-  assertContains "unbound variable when bundled prelude disabled" "E1001" (cliStderr output)
-  where
-    envLookup _ = pure Nothing
-    configLookup key =
-      pure
-        (Map.lookup key (Map.fromList [(bundledPreludePath, bundledPreludeSource)]))
+  assertContains "kernel builtin stays unavailable in no-prelude compatibility mode" "E1001" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  assertEqual
+    "default bundled prelude lookup is skipped"
+    []
+    (filter isBundledPreludePath lookedUpPaths)
 
 testCliNoPreludeOverridesEnvPath :: IO ()
 testCliNoPreludeOverridesEnvPath = do
@@ -388,9 +427,7 @@ testCliRunModeHdEmptyListRuntimeError = do
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
-    configLookup key =
-      pure
-        (Map.lookup key (Map.fromList [(bundledPreludePath, bundledPreludeSource)]))
+    configLookup _ = pure Nothing
 
 testCliPrecedenceBehavior :: IO ()
 testCliPrecedenceBehavior = do
@@ -450,6 +487,9 @@ sampleSource = "x = 1. x = 2."
 signatureMismatchSource :: Text
 signatureMismatchSource = "x :: Int.\nx = True."
 
+signatureNameMismatchSource :: Text
+signatureNameMismatchSource = "x :: Int.\ny = 1."
+
 runtimeSuccessSource :: Text
 runtimeSuccessSource = "if True 1 else 2."
 
@@ -471,19 +511,15 @@ runtimeHdEmptySource = "hd []."
 preludeSource :: Text
 preludeSource = "inc = (+ 1)."
 
-bundledPreludePath :: FilePath
-bundledPreludePath = "jazz-next/stdlib/Prelude.jz"
-
-bundledPreludeSource :: Text
-bundledPreludeSource =
-  "map = __kernel_map.\n\
-  \filter = __kernel_filter.\n\
-  \hd = __kernel_hd.\n\
-  \tl = __kernel_tl.\n\
-  \print! = __kernel_print!."
-
 bundledPreludeConsumerSource :: Text
 bundledPreludeConsumerSource = "map."
 
+bundledPreludeKernelConsumerSource :: Text
+bundledPreludeKernelConsumerSource = "__kernel_map."
+
 preludeConsumerSource :: Text
 preludeConsumerSource = "inc 2."
+
+isBundledPreludePath :: FilePath -> Bool
+isBundledPreludePath path =
+  path == "jazz-next/stdlib/Prelude.jz" || path == "stdlib/Prelude.jz"

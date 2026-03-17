@@ -7,7 +7,7 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertLeftContains,
+    assertLeftDiagnosticCodeAndContains,
     runTestSuite
   )
 
@@ -18,34 +18,38 @@ tests :: [NamedTest]
 tests =
   [ ("rejects unsupported percent operator", testRejectsPercentOperator),
     ("rejects unsupported ampersand operator", testRejectsAmpersandOperator),
-    ("rejects malformed right section with missing operand", testRejectsMalformedRightSection),
+    ("rejects empty parenthesized expression", testRejectsEmptyParenthesizedExpression),
     ("rejects incomplete infix expression", testRejectsIncompleteInfixExpression)
   ]
 
 testRejectsPercentOperator :: IO ()
 testRejectsPercentOperator =
-  assertLeftContains
+  assertLeftDiagnosticCodeAndContains
     "percent operator"
+    "E0001"
     "unexpected character '%'"
     (parseSurfaceProgram "x = 1 % 2.")
 
 testRejectsAmpersandOperator :: IO ()
 testRejectsAmpersandOperator =
-  assertLeftContains
+  assertLeftDiagnosticCodeAndContains
     "ampersand operator"
+    "E0001"
     "unexpected character '&'"
     (parseSurfaceProgram "x = a && b.")
 
-testRejectsMalformedRightSection :: IO ()
-testRejectsMalformedRightSection =
-  assertLeftContains
-    "malformed section"
+testRejectsEmptyParenthesizedExpression :: IO ()
+testRejectsEmptyParenthesizedExpression =
+  assertLeftDiagnosticCodeAndContains
+    "empty parens"
+    "E0001"
     "expected expression"
-    (parseSurfaceProgram "f = (+).")
+    (parseSurfaceProgram "f = ().")
 
 testRejectsIncompleteInfixExpression :: IO ()
 testRejectsIncompleteInfixExpression =
-  assertLeftContains
+  assertLeftDiagnosticCodeAndContains
     "incomplete infix expression"
+    "E0001"
     "expected expression"
     (parseSurfaceProgram "x = 1 +.")

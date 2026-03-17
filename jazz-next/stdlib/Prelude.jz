@@ -1,3 +1,9 @@
+__kernel_map = __kernel_map.
+__kernel_filter = __kernel_filter.
+__kernel_hd = __kernel_hd.
+__kernel_tl = __kernel_tl.
+__kernel_print! = __kernel_print!.
+
 map = __kernel_map.
 filter = __kernel_filter.
 hd = __kernel_hd.

@@ -4,6 +4,7 @@ module Main (main) where
 
 import JazzNext.Compiler.AST
   ( Expr (..),
+    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -14,6 +15,7 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceLiteral (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Lower
@@ -35,6 +37,8 @@ tests =
     ("equality binds looser than arithmetic", testEqualityAfterArithmetic),
     ("dollar is right associative", testDollarRightAssociative),
     ("subtraction is left associative", testSubtractionLeftAssociative),
+    ("application binds tighter than infix operators", testApplicationBeforeInfix),
+    ("operator value application participates in infix precedence", testOperatorValueApplicationBeforeInfix),
     ("lowering preserves parsed fixity tree", testLowerFixityTree)
   ]
 
@@ -43,11 +47,11 @@ testMultiplicationBeforeAddition =
   assertEqual
     "fixity tree"
     ( Right
-        ( SEScope
+        ( SEBlock
             [ SSLet
                 "x"
                 (SourceSpan 1 1)
-                (SEBinary "+" (SEInt 1) (SEBinary "*" (SEInt 2) (SEInt 3)))
+                (SEBinary "+" (SELit (SLInt 1)) (SEBinary "*" (SELit (SLInt 2)) (SELit (SLInt 3))))
             ]
         )
     )
@@ -58,11 +62,11 @@ testEqualityAfterArithmetic =
   assertEqual
     "comparison precedence"
     ( Right
-        ( SEScope
+        ( SEBlock
             [ SSLet
                 "ok"
                 (SourceSpan 1 1)
-                (SEBinary "==" (SEBinary "+" (SEInt 1) (SEInt 2)) (SEInt 3))
+                (SEBinary "==" (SEBinary "+" (SELit (SLInt 1)) (SELit (SLInt 2))) (SELit (SLInt 3)))
             ]
         )
     )
@@ -73,7 +77,7 @@ testDollarRightAssociative =
   assertEqual
     "dollar associativity"
     ( Right
-        ( SEScope
+        ( SEBlock
             [ SSLet
                 "x"
                 (SourceSpan 1 1)
@@ -88,15 +92,53 @@ testSubtractionLeftAssociative =
   assertEqual
     "subtraction associativity"
     ( Right
-        ( SEScope
+        ( SEBlock
             [ SSLet
                 "x"
                 (SourceSpan 1 1)
-                (SEBinary "-" (SEBinary "-" (SEInt 10) (SEInt 3)) (SEInt 1))
+                (SEBinary "-" (SEBinary "-" (SELit (SLInt 10)) (SELit (SLInt 3))) (SELit (SLInt 1)))
             ]
         )
     )
     (parseSurfaceProgram "x = 10 - 3 - 1.")
+
+testApplicationBeforeInfix :: IO ()
+testApplicationBeforeInfix =
+  assertEqual
+    "application before infix"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "x"
+                (SourceSpan 1 1)
+                ( SEBinary
+                    "+"
+                    (SEApply (SEVar "f") (SEVar "x"))
+                    (SEBinary "*" (SEApply (SEVar "g") (SEVar "y")) (SEVar "z"))
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "x = f x + g y * z.")
+
+testOperatorValueApplicationBeforeInfix :: IO ()
+testOperatorValueApplicationBeforeInfix =
+  assertEqual
+    "operator value application before infix"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "x"
+                (SourceSpan 1 1)
+                ( SEBinary
+                    "*"
+                    (SEApply (SEApply (SEOperatorValue "+") (SELit (SLInt 1))) (SELit (SLInt 2)))
+                    (SELit (SLInt 3))
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "x = (+) 1 2 * 3.")
 
 testLowerFixityTree :: IO ()
 testLowerFixityTree =
@@ -106,9 +148,9 @@ testLowerFixityTree =
     (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EScope
+      EBlock
         [ SLet
             "x"
             (SourceSpan 1 1)
-            (EBinary "+" (EInt 1) (EBinary "*" (EInt 2) (EInt 3)))
+            (EBinary "+" (ELit (LInt 1)) (EBinary "*" (ELit (LInt 2)) (ELit (LInt 3))))
         ]
