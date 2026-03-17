@@ -1,8 +1,8 @@
 # Standard Library Boundary
 
-Status: active (phase 4 public-builtin migration implemented; phase 5 kernel compatibility cleanup pending)
+Status: active (explicit no-prelude paths are kernel-only in `jazz-next`; broader phase-5 catalog/reproducibility cleanup remains open)
 Locked decisions (initial `jazz-next` contract): 2026-03-04
-Updated: 2026-03-16
+Updated: 2026-03-17
 Primary plan: `docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md`
 
 ## Purpose
@@ -23,22 +23,23 @@ planned.
 3. `jazz-next` now supports a bundled default prelude load path in CLI mode:
    - resolution order: `--prelude` flag > `JAZZ_PRELUDE` env > bundled default path.
    - `--no-prelude` disables all prelude loading.
-4. Direct canonical builtin aliases remain available only in explicit no-prelude
-   compatibility paths during the migration window; public names such as
-   `map` and `print!` now resolve through their `__kernel_*` bridge equivalents.
-5. Raw library helpers (`compileSource`, `runSource`) remain no-prelude
-   low-level APIs; user-facing default behavior is the CLI path with bundled
-   prelude loading enabled.
+4. Public names such as `map` and `print!` are available only through bundled
+   or explicit prelude aliases; direct no-prelude flows must reference the
+   `__kernel_*` bridge names.
+5. `compileSource` and `runSource` load the bundled prelude by default.
+   Explicit no-prelude entry points (`compileSourceWithPrelude Nothing`,
+   `runSourceWithPrelude Nothing`, `--no-prelude`, and low-level AST/runtime
+   helpers) are kernel-only.
 
 ## Kernel Catalog (Current `jazz-next` Runtime Subset)
 
 | Symbol | Arity | Type Contract | Current Owner | Migration Target |
 | --- | --- | --- | --- | --- |
-| `map` | `2` | `(a -> b) -> [a] -> [b]` | `__kernel_map` bridge + bundled prelude alias (`map = __kernel_map`) | prelude-owned API (remove direct kernel bridge after parity) |
-| `filter` | `2` | `(a -> Bool) -> [a] -> [a]` | `__kernel_filter` bridge + bundled prelude alias (`filter = __kernel_filter`) | prelude-owned API (remove direct kernel bridge after parity) |
-| `hd` | `1` | `[a] -> a` | `__kernel_hd` bridge + bundled prelude alias (`hd = __kernel_hd`) | prelude-owned API (remove direct kernel bridge after parity) |
-| `tl` | `1` | `[a] -> [a]` | `__kernel_tl` bridge + bundled prelude alias (`tl = __kernel_tl`) | prelude-owned API (remove direct kernel bridge after parity) |
-| `print!` | `1` | `a -> a` (stub-v1) | `__kernel_print!` bridge + bundled prelude alias (`print! = __kernel_print!`) | prelude-owned impure API after effect-system follow-up |
+| `map` | `2` | `(a -> b) -> [a] -> [b]` | `__kernel_map` bridge + bundled prelude alias (`map = __kernel_map`) | prelude-owned public API; kernel bridge retained for explicit no-prelude paths |
+| `filter` | `2` | `(a -> Bool) -> [a] -> [a]` | `__kernel_filter` bridge + bundled prelude alias (`filter = __kernel_filter`) | prelude-owned public API; kernel bridge retained for explicit no-prelude paths |
+| `hd` | `1` | `[a] -> a` | `__kernel_hd` bridge + bundled prelude alias (`hd = __kernel_hd`) | prelude-owned public API; kernel bridge retained for explicit no-prelude paths |
+| `tl` | `1` | `[a] -> [a]` | `__kernel_tl` bridge + bundled prelude alias (`tl = __kernel_tl`) | prelude-owned public API; kernel bridge retained for explicit no-prelude paths |
+| `print!` | `1` | `a -> a` (stub-v1) | `__kernel_print!` bridge + bundled prelude alias (`print! = __kernel_print!`) | prelude-owned impure public API; kernel bridge retained for explicit no-prelude paths |
 
 ## Bundled Prelude Contract
 
@@ -79,16 +80,16 @@ Required invariants:
 
 ## Compatibility Window Policy
 
-1. Current default mode is `prelude-owned`: prelude-enabled compile/run paths
-   resolve builtins through kernel bridge names only.
-2. Compatibility mode is explicit: `--no-prelude` in CLI or `Nothing` prelude in
-   driver APIs enables legacy canonical builtin alias fallback.
-3. Legacy no-prelude canonical aliases (`map`, `filter`, `hd`, `tl`, `print!`)
-   are deprecated and migration-only.
-4. Removal of compatibility aliases requires:
-   - prelude load path enabled in default compile/run pipeline,
-   - parity tests for compile and runtime behavior,
-   - documentation updates in `docs/spec/*` and status trackers.
+1. Current default mode is `prelude-owned`: bundled and explicit-prelude
+   compile/run paths resolve public helpers through prelude aliases.
+2. Explicit no-prelude mode is `kernel-only`: `--no-prelude`, `Nothing`
+   prelude driver entry points, and low-level AST/runtime helpers resolve only
+   the `__kernel_*` bridge names.
+3. Canonical public aliases (`map`, `filter`, `hd`, `tl`, `print!`) are
+   rejected in no-prelude mode and require a real prelude source.
+4. Remaining follow-up work is broader kernel/prelude inventory cleanup plus
+   reproducibility evidence, not preservation of the old canonical no-prelude
+   aliases.
 
 ## Non-Goals (Current Phase)
 

@@ -392,9 +392,9 @@ testCliNoPreludeDisablesBundledDefault = do
         pure Nothing
   output <- runCliWith ["--run", "--no-prelude"] envLookup configLookup (pure bundledPreludeKernelConsumerSource)
   lookedUpPaths <- readIORef lookupPaths
-  assertEqual "exit code" 1 (cliExitCode output)
-  assertContains "kernel builtin stays unavailable in no-prelude compatibility mode" "E1001" (cliStderr output)
-  assertEqual "stdout is suppressed" "" (cliStdout output)
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "kernel bridge runtime stdout" "<function>\n" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
   assertEqual
     "default bundled prelude lookup is skipped"
     []

@@ -102,7 +102,7 @@ data ResolvedPrelude
 -- Compiler driver flow for the current implementation slice:
 -- analyze -> collect warnings/errors -> apply warning-as-error policy.
 compileExpr :: WarningSettings -> Expr -> IO CompileResult
-compileExpr = compileExprWithBuiltins ResolveCompatibility
+compileExpr = compileExprWithBuiltins ResolveKernelOnly
 
 compileExprWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO CompileResult
 compileExprWithBuiltins = compileExprWithBuiltinsAndHiddenStatements Set.empty
@@ -186,7 +186,7 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
       compileSourceWithResolvedPrelude settings resolvedPrelude sourceText
 
 runExpr :: WarningSettings -> Expr -> IO RunResult
-runExpr = runExprWithBuiltins ResolveCompatibility
+runExpr = runExprWithBuiltins ResolveKernelOnly
 
 runExprWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO RunResult
 runExprWithBuiltins = runExprWithBuiltinsAndHiddenStatements Set.empty
@@ -313,7 +313,10 @@ warningToError = toDiagnostic
 builtinResolutionMode :: ResolvedPrelude -> BuiltinResolutionMode
 builtinResolutionMode resolvedPrelude =
   case resolvedPrelude of
-    PreludeAbsent -> ResolveCompatibility
+    -- Explicit no-prelude paths are now kernel-only. Public names such as
+    -- `map` and `print!` require an actual prelude source; low-level no-prelude
+    -- entry points may reference only the `__kernel_*` bridge symbols.
+    PreludeAbsent -> ResolveKernelOnly
     PreludeBundled _ -> ResolveKernelOnly
     PreludeExplicit _ -> ResolveKernelOnly
 

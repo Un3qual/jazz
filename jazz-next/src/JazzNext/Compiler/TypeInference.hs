@@ -57,7 +57,7 @@ data InferenceResult = InferenceResult
 -- This currently forwards analyzer diagnostics while the richer inference/type
 -- pipeline is still being built in jazz-next.
 inferExpression :: WarningSettings -> Expr -> IO InferenceResult
-inferExpression = inferExpressionWithBuiltins ResolveCompatibility
+inferExpression = inferExpressionWithBuiltins ResolveKernelOnly
 
 inferExpressionWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO InferenceResult
 inferExpressionWithBuiltins builtinMode =

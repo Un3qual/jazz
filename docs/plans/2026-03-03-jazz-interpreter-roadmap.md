@@ -70,7 +70,7 @@ Current `jazz-next` behavior is a compiler front-end skeleton with:
 
 ### Important reality check
 
-- The repository contains plans for interpreter work (`12`, `12a`), ADT/pattern runtime work (`11`), module loader (`09`), stdlib boundary (`10`), and type-grammar clarification (`07`), but these are mostly written against legacy `jazz-hs` paths.
+- The repository contains plans for interpreter work (`12`, `12a`), ADT/pattern runtime work (`11`), module loader (`09`), stdlib boundary (`10`), and type-grammar clarification (`07`). Domains `09`, `11`, `12`, and `12a` still need active-path rebasing work, while domain `10` already has active `jazz-next` execution plus follow-up cleanup still in progress.
 - Current workspace guardrails require all net-new compiler/runtime behavior work in `jazz-next/`.
 
 ## 3) Detailed Plans Already Written

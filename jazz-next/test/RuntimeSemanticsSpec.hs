@@ -51,13 +51,14 @@ tests =
     ("tl returns the tail of a non-empty list", testTlReturnsTailRuntimeValue),
     ("hd on empty list produces fatal runtime diagnostic", testHdEmptyListRuntimeError),
     ("tl on empty list produces fatal runtime diagnostic", testTlEmptyListRuntimeError),
-    ("runtime fallback rejects hd on non-list values", testRuntimeFallbackRejectsHdNonList),
-    ("runtime fallback rejects tl on non-list values", testRuntimeFallbackRejectsTlNonList),
-    ("runtime fallback rejects map with non-function mapper", testRuntimeFallbackRejectsMapNonFunctionMapper),
-    ("runtime fallback rejects map with non-list collection", testRuntimeFallbackRejectsMapNonListCollection),
-    ("runtime fallback rejects filter with non-function predicate", testRuntimeFallbackRejectsFilterNonFunctionPredicate),
-    ("runtime fallback rejects filter with non-list collection", testRuntimeFallbackRejectsFilterNonListCollection),
-    ("runtime fallback rejects filter predicate returning non-Bool", testRuntimeFallbackRejectsFilterPredicateNonBool),
+    ("direct runtime helper rejects canonical prelude alias without bundled prelude", testRuntimeHelperRejectsCanonicalAlias),
+    ("runtime fallback rejects kernel hd on non-list values", testRuntimeFallbackRejectsHdNonList),
+    ("runtime fallback rejects kernel tl on non-list values", testRuntimeFallbackRejectsTlNonList),
+    ("runtime fallback rejects kernel map with non-function mapper", testRuntimeFallbackRejectsMapNonFunctionMapper),
+    ("runtime fallback rejects kernel map with non-list collection", testRuntimeFallbackRejectsMapNonListCollection),
+    ("runtime fallback rejects kernel filter with non-function predicate", testRuntimeFallbackRejectsFilterNonFunctionPredicate),
+    ("runtime fallback rejects kernel filter with non-list collection", testRuntimeFallbackRejectsFilterNonListCollection),
+    ("runtime fallback rejects kernel filter predicate returning non-Bool", testRuntimeFallbackRejectsFilterPredicateNonBool),
     ("print! returns evaluated argument value", testPrintBuiltinReturnsArgument),
     ("scope with only declarations has no runtime output", testDeclarationOnlyScopeHasNoOutput),
     ("scope result requires terminal expression", testScopeDeclarationAfterExprClearsResult)
@@ -201,39 +202,44 @@ testTlEmptyListRuntimeError = do
         (renderDiagnostic runtimeError)
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
+testRuntimeHelperRejectsCanonicalAlias :: IO ()
+testRuntimeHelperRejectsCanonicalAlias = do
+  let result = evaluateRuntimeExpr (runtimeExpr (EVar "map"))
+  assertRuntimeErrorContains "runtime helper canonical alias rejected" "E3002" result
+
 testRuntimeFallbackRejectsHdNonList :: IO ()
 testRuntimeFallbackRejectsHdNonList = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "hd") (ELit (LInt 1))))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "__kernel_hd") (ELit (LInt 1))))
   assertRuntimeErrorContains "runtime fallback hd non-list" "E3011" result
 
 testRuntimeFallbackRejectsTlNonList :: IO ()
 testRuntimeFallbackRejectsTlNonList = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "tl") (ELit (LInt 1))))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "__kernel_tl") (ELit (LInt 1))))
   assertRuntimeErrorContains "runtime fallback tl non-list" "E3012" result
 
 testRuntimeFallbackRejectsMapNonFunctionMapper :: IO ()
 testRuntimeFallbackRejectsMapNonFunctionMapper = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "map") (ELit (LInt 1))) (EList [ELit (LInt 1)])))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_map") (ELit (LInt 1))) (EList [ELit (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback map mapper" "E3015" result
 
 testRuntimeFallbackRejectsMapNonListCollection :: IO ()
 testRuntimeFallbackRejectsMapNonListCollection = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "map") (EVar "hd")) (ELit (LInt 1))))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_map") (EVar "__kernel_hd")) (ELit (LInt 1))))
   assertRuntimeErrorContains "runtime fallback map collection" "E3013" result
 
 testRuntimeFallbackRejectsFilterNonFunctionPredicate :: IO ()
 testRuntimeFallbackRejectsFilterNonFunctionPredicate = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (ELit (LInt 1))) (EList [ELit (LInt 1)])))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_filter") (ELit (LInt 1))) (EList [ELit (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback filter predicate" "E3017" result
 
 testRuntimeFallbackRejectsFilterNonListCollection :: IO ()
 testRuntimeFallbackRejectsFilterNonListCollection = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (ESectionLeft (ELit (LInt 1)) "<")) (ELit (LInt 1))))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_filter") (ESectionLeft (ELit (LInt 1)) "<")) (ELit (LInt 1))))
   assertRuntimeErrorContains "runtime fallback filter collection" "E3018" result
 
 testRuntimeFallbackRejectsFilterPredicateNonBool :: IO ()
 testRuntimeFallbackRejectsFilterPredicateNonBool = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "filter") (ESectionLeft (ELit (LInt 1)) "+")) (EList [ELit (LInt 1)])))
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_filter") (ESectionLeft (ELit (LInt 1)) "+")) (EList [ELit (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback filter predicate bool result" "E3019" result
 
 testPrintBuiltinReturnsArgument :: IO ()

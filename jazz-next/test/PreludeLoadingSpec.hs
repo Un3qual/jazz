@@ -43,7 +43,8 @@ tests =
     ("prelude bridge rejects canonical alias in bridge declaration", testPreludeBridgeRejectsCanonicalAlias),
     ("prelude bridge rebinding reports current and previous bridge spans", testPreludeBridgeRebindingDiagnostic),
     ("prelude bridge allows canonical alias after kernel self-bridge", testPreludeBridgeAllowsCanonicalAliasAfterBridge),
-    ("compile without prelude keeps compatibility aliases available", testCompileWithoutPreludeKeepsCompatibilityAliases),
+    ("compile without prelude rejects public prelude aliases", testCompileWithoutPreludeRejectsPreludeAliases),
+    ("compile without prelude keeps kernel bridge names available", testCompileWithoutPreludeKeepsKernelBridgeNamesAvailable),
     ("compile without prelude keeps missing binding behavior unchanged", testCompileWithoutPreludeStillFailsMissingBinding)
   ]
 
@@ -151,11 +152,19 @@ testPreludeBridgeAllowsCanonicalAliasAfterBridge = do
     []
     (compileErrors result)
 
-testCompileWithoutPreludeKeepsCompatibilityAliases :: IO ()
-testCompileWithoutPreludeKeepsCompatibilityAliases = do
+testCompileWithoutPreludeRejectsPreludeAliases :: IO ()
+testCompileWithoutPreludeRejectsPreludeAliases = do
   result <- compileSourceWithPrelude defaultWarningSettings Nothing "x = map hd [[1], [2]]."
   assertEqual
-    "compatibility aliases remain available without prelude"
+    "public aliases are unavailable without prelude"
+    ["E1001: unbound variable 'map'", "E1001: unbound variable 'hd'"]
+    (map renderDiagnostic (compileErrors result))
+
+testCompileWithoutPreludeKeepsKernelBridgeNamesAvailable :: IO ()
+testCompileWithoutPreludeKeepsKernelBridgeNamesAvailable = do
+  result <- compileSourceWithPrelude defaultWarningSettings Nothing "x = __kernel_map __kernel_hd [[1], [2]]."
+  assertEqual
+    "kernel bridge names remain available without prelude"
     []
     (compileErrors result)
 
