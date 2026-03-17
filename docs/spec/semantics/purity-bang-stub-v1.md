@@ -28,7 +28,7 @@ Define the currently enforced purity contract for `!`-suffixed names in the acti
   - `jazz-next/src/JazzNext/Compiler/Purity.hs`
   - `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
 - Verified by:
-  - `jazz-next/test/PuritySemanticsSpec.hs`
+  - `jazz-next/test/JazzNext/Compiler/Semantics/PuritySemanticsSpec.hs`
 
 ## Non-Goals (Still Planned)
 

@@ -414,12 +414,12 @@ Based on the full repo, these areas still require implementation convergence eve
   - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Extending staged operator roadmap work in `jazz-next` beyond implemented v1 parser/fixity/sections behavior:
   - `docs/spec/syntax/operators.md`
-  - `jazz-next/test/OperatorFixitySpec.hs`
-  - `jazz-next/test/OperatorSectionSpec.hs`
+  - `jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`
+  - `jazz-next/test/JazzNext/Compiler/Parser/OperatorSectionSpec.hs`
 - Extending primitive semantics coverage beyond the implemented v1 runtime/type subset (`+`, `-`, `*`, `/`, `==`, `!=`, `map`, `filter`, `hd`, `tl`, `print!`) as the runtime surface expands:
   - `docs/spec/runtime/primitive-semantics.md`
-  - `jazz-next/test/PrimitiveSemanticsSpec.hs`
-  - `jazz-next/test/RuntimeSemanticsSpec.hs`
+  - `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+  - `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
 - Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding` category:
   - `docs/spec/tooling/compiler-warning-flags.md`
 - Whether tuples are a core runtime feature or just parsed syntax in active implementation behavior.

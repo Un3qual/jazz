@@ -10,25 +10,25 @@ RUNGHC_INCLUDES=(
 )
 
 TEST_FILES=(
-  jazz-next/test/WarningConfigSpec.hs
-  jazz-next/test/RebindingWarningSpec.hs
-  jazz-next/test/StructuredErrorDiagnosticsSpec.hs
-  jazz-next/test/CLISpec.hs
-  jazz-next/test/BindingSignatureCoherenceSpec.hs
-  jazz-next/test/PuritySemanticsSpec.hs
-  jazz-next/test/ParserFoundationSpec.hs
-  jazz-next/test/IfExpressionParserSpec.hs
-  jazz-next/test/IfExpressionTypeSpec.hs
-  jazz-next/test/ModuleImportParserSpec.hs
-  jazz-next/test/ModuleResolutionSpec.hs
-  jazz-next/test/LoaderSpec.hs
-  jazz-next/test/PrimitiveSemanticsSpec.hs
-  jazz-next/test/RuntimeSemanticsSpec.hs
-  jazz-next/test/PreludeLoadingSpec.hs
-  jazz-next/test/BuiltinCatalogSpec.hs
-  jazz-next/test/OperatorFixitySpec.hs
-  jazz-next/test/OperatorSectionSpec.hs
-  jazz-next/test/OperatorInvalidSyntaxSpec.hs
+  jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs
+  jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
+  jazz-next/test/JazzNext/Compiler/Diagnostics/StructuredErrorDiagnosticsSpec.hs
+  jazz-next/test/JazzNext/CLI/CLISpec.hs
+  jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  jazz-next/test/JazzNext/Compiler/Semantics/PuritySemanticsSpec.hs
+  jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  jazz-next/test/JazzNext/Compiler/Parser/IfExpressionParserSpec.hs
+  jazz-next/test/JazzNext/Compiler/Semantics/IfExpressionTypeSpec.hs
+  jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
+  jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
+  jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+  jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+  jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+  jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
+  jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+  jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs
+  jazz-next/test/JazzNext/Compiler/Parser/OperatorSectionSpec.hs
+  jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
 )
 
 for test_file in "${TEST_FILES[@]}"; do
