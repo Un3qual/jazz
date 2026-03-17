@@ -42,7 +42,7 @@ data RuntimeValue
   deriving (Eq, Show)
 
 evaluateRuntimeExpr :: Expr -> Either Diagnostic (Maybe RuntimeValue)
-evaluateRuntimeExpr = evaluateRuntimeExprWithBuiltins ResolveCompatibility
+evaluateRuntimeExpr = evaluateRuntimeExprWithBuiltins ResolveKernelOnly
 
 evaluateRuntimeExprWithBuiltins :: BuiltinResolutionMode -> Expr -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExprWithBuiltins builtinMode expr =

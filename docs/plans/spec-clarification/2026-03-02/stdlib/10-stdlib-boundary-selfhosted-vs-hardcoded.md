@@ -20,6 +20,7 @@
 - [x] Executed `jazz-next` bundled-default prelude bootstrap + ownership-metadata scaffolding batch
 - [x] Executed `jazz-next` prelude-owned-default migration batch (strict kernel-only prelude mode + explicit no-prelude compatibility fallback)
 - [x] Executed `jazz-next` phase-4 public-builtin migration batch (public names now flow through the prelude; raw compiler/runtime fallback is restricted to `__kernel_*` bridge symbols)
+- [x] Executed `jazz-next` explicit no-prelude kernel-only batch (driver/CLI/runtime low-level paths now reject canonical public aliases and accept only `__kernel_*` bridge names)
 - [x] Migration phases executed with compatibility gates
 - [x] Active `jazz-next` direct builtin access reduced to the approved `__kernel_*` bridge surface
 - [ ] Hardcoded builtin surface reduced to approved kernel
@@ -198,6 +199,7 @@ Executed `jazz-next` touch-set (2026-03-16 Batch 3):
 
 ## Phase 5: Shrink Hardcoded Surface to Kernel-Only and Close Contradictions
 
+- [x] Switch explicit no-prelude compile/run paths and low-level helper defaults in `jazz-next` to kernel-only resolution.
 - [ ] Remove deprecated hardcoded stdlib entries not in approved kernel.
 - [ ] Keep only intrinsic/kernel entries with explicit contract docs.
 - [ ] Update unresolved contradiction list in this plan and mark each resolved with commit references.
@@ -205,9 +207,14 @@ Executed `jazz-next` touch-set (2026-03-16 Batch 3):
 
 ### Expected file touch-set
 
-- `jazz-hs/src/Types.hs`
-- `jazz-hs/src/Analyzer/ScopeAnalyzer.hs`
-- `jazz-hs/src/Analyzer/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Driver.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/BuiltinCatalogSpec.hs`
+- `jazz-next/test/PreludeLoadingSpec.hs`
+- `jazz-next/test/RuntimeSemanticsSpec.hs`
+- `jazz-next/test/CLISpec.hs`
 - `docs/spec/stdlib-boundary.md`
 - `docs/jazz-language-state.md`
 - `docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md`
@@ -217,7 +224,7 @@ Executed `jazz-next` touch-set (2026-03-16 Batch 3):
 Suggested commit message: `refactor(stdlib): reduce compiler hardcoded surface to intrinsic kernel`
 
 ```bash
-git add jazz-hs/src/Types.hs jazz-hs/src/Analyzer/ScopeAnalyzer.hs jazz-hs/src/Analyzer/TypeInference.hs docs/spec/stdlib-boundary.md docs/jazz-language-state.md docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md
+git add jazz-next/src/JazzNext/Compiler/Analyzer.hs jazz-next/src/JazzNext/Compiler/TypeInference.hs jazz-next/src/JazzNext/Compiler/Driver.hs jazz-next/src/JazzNext/Compiler/Runtime.hs jazz-next/test/BuiltinCatalogSpec.hs jazz-next/test/PreludeLoadingSpec.hs jazz-next/test/RuntimeSemanticsSpec.hs jazz-next/test/CLISpec.hs docs/spec/stdlib-boundary.md docs/jazz-language-state.md docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md
 git commit -m "refactor(stdlib): reduce compiler hardcoded surface to intrinsic kernel"
 ```
 
@@ -337,6 +344,28 @@ nix develop . -c bash -lc '
   - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/CLISpec.hs`
   - `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/BuiltinCatalogSpec.hs`
 - [x] Re-ran full `jazz-next` verification:
+  - `bash jazz-next/scripts/test-warning-config.sh`
+
+## Implementation Status Verification (2026-03-17, Batch 7, `jazz-next`)
+
+- [x] Re-verified Phase-5 candidate behavior before implementation and confirmed explicit no-prelude paths still accepted canonical public aliases while rejecting `__kernel_*` bridge names.
+- [x] Switched explicit no-prelude compile/run paths and low-level helper defaults to kernel-only resolution in:
+  - `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+  - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+  - `jazz-next/src/JazzNext/Compiler/Driver.hs`
+  - `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- [x] Updated no-prelude contract coverage in:
+  - `jazz-next/test/BuiltinCatalogSpec.hs`
+  - `jazz-next/test/PreludeLoadingSpec.hs`
+  - `jazz-next/test/RuntimeSemanticsSpec.hs`
+  - `jazz-next/test/CLISpec.hs`
+- [x] Updated boundary/status docs to reflect current `jazz-next` defaults without falsely closing broader Phase-5 cleanup:
+  - `docs/spec/stdlib-boundary.md`
+  - `docs/jazz-language-state.md`
+  - `docs/plans/spec-clarification/2026-03-03/README.md`
+  - `docs/plans/2026-03-03-jazz-interpreter-roadmap.md`
+  - `docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md`
+- [x] Ran full active-path verification:
   - `bash jazz-next/scripts/test-warning-config.sh`
 
 ## Implementation Status Verification (2026-03-05, Batch 5, `jazz-next`)

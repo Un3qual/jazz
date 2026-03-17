@@ -74,7 +74,7 @@ This batch only includes clarification domains that are not already directly pla
 Parser/lexer foundation is now in place in `jazz-next`. Continue with domain execution on that baseline:
 
 1. Rebase domain `11` (ADT/pattern matching) implementation planning onto the active `jazz-next` parser/type/runtime pipeline.
-2. Rebase domains `09` (module loader/imports) and `10` (stdlib boundary) onto `jazz-next` architecture and test harness.
+2. Rebase domain `09` (module loader/imports) onto `jazz-next` architecture and test harness, and finish domain `10` stdlib-boundary follow-up work on that active path.
 3. Keep docs/spec trackers synchronized in the same change whenever implementation status changes to avoid stale checklist drift.
 
 ## Locked Governance Clarifications (2026-03-03)

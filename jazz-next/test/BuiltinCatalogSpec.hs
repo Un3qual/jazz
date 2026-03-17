@@ -15,6 +15,7 @@ import JazzNext.Compiler.BuiltinCatalog
     allBuiltinSymbols,
     builtinSymbolOwnership,
     builtinSymbolArity,
+    builtinSymbolKernelName,
     builtinSymbolName,
     kernelBridgeBindingPrefix,
     kernelBridgeTargetName,
@@ -25,7 +26,8 @@ import JazzNext.Compiler.Diagnostics
     renderDiagnostic
   )
 import JazzNext.Compiler.Driver
-  ( compileSource,
+  ( compileExpr,
+    compileSource,
     compileSourceWithPrelude,
     compileErrors,
     runCompileErrors,
@@ -60,10 +62,11 @@ tests =
     ("catalog ownership contract is stable", testCatalogOwnershipContract),
     ("kernel bridge names map to builtin targets", testKernelBridgeTargetName),
     ("kernel bridge prefix stays stable", testKernelBridgePrefix),
+    ("direct compile helper stays kernel-only", testDirectCompileHelperStaysKernelOnly),
     ("compile pipeline treats catalog builtins as bound names", testCompilePipelineTreatsCatalogBuiltinsAsBound),
     ("runtime exposes catalog builtins as callable values", testRuntimeExposesCatalogBuiltinsAsFunctions),
-    ("no-prelude compatibility path keeps canonical builtin aliases", testNoPreludeCompatibilityPathKeepsCanonicalAliases),
-    ("no-prelude compatibility path rejects kernel bridge names", testNoPreludeCompatibilityPathRejectsKernelBridgeNames),
+    ("no-prelude path rejects canonical builtin aliases", testNoPreludePathRejectsCanonicalAliases),
+    ("no-prelude path keeps kernel bridge names available", testNoPreludePathKeepsKernelBridgeNames),
     ("builtin over-application reports runtime failure after saturation", testRuntimeBuiltinOverApplicationFails)
   ]
 
@@ -120,6 +123,16 @@ testKernelBridgePrefix :: IO ()
 testKernelBridgePrefix =
   assertEqual "kernel bridge prefix" "__kernel_" kernelBridgeBindingPrefix
 
+testDirectCompileHelperStaysKernelOnly :: IO ()
+testDirectCompileHelperStaysKernelOnly = do
+  kernelResult <- compileExpr defaultWarningSettings (runtimeExpr (EVar "__kernel_map"))
+  assertEqual "direct compile helper accepts kernel bridge" [] (compileErrors kernelResult)
+  canonicalResult <- compileExpr defaultWarningSettings (runtimeExpr (EVar "map"))
+  assertEqual
+    "direct compile helper rejects canonical alias"
+    ["E1001: unbound variable 'map'"]
+    (map renderDiagnostic (compileErrors canonicalResult))
+
 testCompilePipelineTreatsCatalogBuiltinsAsBound :: IO ()
 testCompilePipelineTreatsCatalogBuiltinsAsBound =
   mapM_ assertBuiltinCompiles expectedBuiltins
@@ -138,32 +151,36 @@ testRuntimeExposesCatalogBuiltinsAsFunctions =
       assertEqual ("runtime errors for " <> name) [] (runRuntimeErrors result)
       assertEqual ("runtime output for " <> name) (Just "<function>") (runOutput result)
 
-testNoPreludeCompatibilityPathKeepsCanonicalAliases :: IO ()
-testNoPreludeCompatibilityPathKeepsCanonicalAliases =
-  mapM_ assertBuiltinRunsWithoutPrelude expectedBuiltins
+testNoPreludePathRejectsCanonicalAliases :: IO ()
+testNoPreludePathRejectsCanonicalAliases =
+  mapM_ assertBuiltinRejectedWithoutPrelude expectedBuiltins
   where
-    assertBuiltinRunsWithoutPrelude (_, name, _, _) = do
+    assertBuiltinRejectedWithoutPrelude (_, name, _, _) = do
       compileResult <- compileSourceWithPrelude defaultWarningSettings Nothing ("x = " <> name <> ".")
-      assertEqual ("compat compile errors for " <> name) [] (compileErrors compileResult)
+      assertEqual
+        ("no-prelude compile rejects canonical alias " <> name)
+        ["E1001: unbound variable '" <> name <> "'"]
+        (map renderDiagnostic (compileErrors compileResult))
       runResult <- runSourceWithPrelude defaultWarningSettings Nothing (name <> ".")
-      assertEqual ("compat runtime compile errors for " <> name) [] (runCompileErrors runResult)
-      assertEqual ("compat runtime errors for " <> name) [] (runRuntimeErrors runResult)
-      assertEqual ("compat runtime output for " <> name) (Just "<function>") (runOutput runResult)
+      assertEqual
+        ("no-prelude runtime compile rejects canonical alias " <> name)
+        ["E1001: unbound variable '" <> name <> "'"]
+        (map renderDiagnostic (runCompileErrors runResult))
+      assertEqual ("no-prelude runtime errors stay empty on compile failure for " <> name) [] (runRuntimeErrors runResult)
+      assertEqual ("no-prelude runtime output is suppressed for " <> name) Nothing (runOutput runResult)
 
-testNoPreludeCompatibilityPathRejectsKernelBridgeNames :: IO ()
-testNoPreludeCompatibilityPathRejectsKernelBridgeNames = do
-  compileResult <- compileSourceWithPrelude defaultWarningSettings Nothing "x = __kernel_map."
-  assertEqual
-    "compat compile rejects kernel bridge names"
-    ["E1001: unbound variable '__kernel_map'"]
-    (map renderDiagnostic (compileErrors compileResult))
-  runResult <- runSourceWithPrelude defaultWarningSettings Nothing "__kernel_map."
-  assertEqual
-    "compat runtime compile rejects kernel bridge names"
-    ["E1001: unbound variable '__kernel_map'"]
-    (map renderDiagnostic (runCompileErrors runResult))
-  assertEqual "compat runtime errors stay empty on compile failure" [] (runRuntimeErrors runResult)
-  assertEqual "compat runtime output is suppressed" Nothing (runOutput runResult)
+testNoPreludePathKeepsKernelBridgeNames :: IO ()
+testNoPreludePathKeepsKernelBridgeNames =
+  mapM_ assertKernelBuiltinRunsWithoutPrelude expectedBuiltins
+  where
+    assertKernelBuiltinRunsWithoutPrelude (symbol, _, _, _) = do
+      let kernelName = builtinSymbolKernelName symbol
+      compileResult <- compileSourceWithPrelude defaultWarningSettings Nothing ("x = " <> kernelName <> ".")
+      assertEqual ("no-prelude compile errors for " <> kernelName) [] (compileErrors compileResult)
+      runResult <- runSourceWithPrelude defaultWarningSettings Nothing (kernelName <> ".")
+      assertEqual ("no-prelude runtime compile errors for " <> kernelName) [] (runCompileErrors runResult)
+      assertEqual ("no-prelude runtime errors for " <> kernelName) [] (runRuntimeErrors runResult)
+      assertEqual ("no-prelude runtime output for " <> kernelName) (Just "<function>") (runOutput runResult)
 
 testRuntimeBuiltinOverApplicationFails :: IO ()
 testRuntimeBuiltinOverApplicationFails =
@@ -185,28 +202,28 @@ overAppliedBuiltinExpr name =
       "map" ->
         EApply
           ( EApply
-              (EApply (EVar "map") (ESectionLeft (ELit (LInt 1)) "+"))
+              (EApply (EVar "__kernel_map") (ESectionLeft (ELit (LInt 1)) "+"))
               (EList [ELit (LInt 2)])
           )
           (ELit (LInt 3))
       "filter" ->
         EApply
           ( EApply
-              (EApply (EVar "filter") (ESectionLeft (ELit (LInt 1)) "<"))
+              (EApply (EVar "__kernel_filter") (ESectionLeft (ELit (LInt 1)) "<"))
               (EList [ELit (LInt 2), ELit (LInt 3)])
           )
           (ELit (LInt 4))
       "hd" ->
         EApply
-          (EApply (EVar "hd") (EList [ELit (LInt 1)]))
+          (EApply (EVar "__kernel_hd") (EList [ELit (LInt 1)]))
           (ELit (LInt 2))
       "tl" ->
         EApply
-          (EApply (EVar "tl") (EList [ELit (LInt 1), ELit (LInt 2)]))
+          (EApply (EVar "__kernel_tl") (EList [ELit (LInt 1), ELit (LInt 2)]))
           (ELit (LInt 3))
       "print!" ->
         EApply
-          (EApply (EVar "print!") (ELit (LInt 1)))
+          (EApply (EVar "__kernel_print!") (ELit (LInt 1)))
           (ELit (LInt 2))
       _ -> EApply (EVar (mkIdentifier name)) (ELit (LInt 1))
 

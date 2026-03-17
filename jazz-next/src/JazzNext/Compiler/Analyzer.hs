@@ -79,7 +79,7 @@ data VisibleBinding = VisibleBinding
 -- - optional same-scope rebinding warnings
 -- - recursive-group visibility for self/mutual recursion
 analyzeProgram :: WarningSettings -> Expr -> IO AnalysisResult
-analyzeProgram = analyzeProgramWithBuiltins ResolveCompatibility
+analyzeProgram = analyzeProgramWithBuiltins ResolveKernelOnly
 
 analyzeProgramWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO AnalysisResult
 analyzeProgramWithBuiltins builtinMode =
@@ -107,7 +107,7 @@ analyzeProgramWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices
         }
 
 analyzeRebindingWarnings :: WarningSettings -> Expr -> IO [WarningRecord]
-analyzeRebindingWarnings = analyzeRebindingWarningsWithBuiltins ResolveCompatibility
+analyzeRebindingWarnings = analyzeRebindingWarningsWithBuiltins ResolveKernelOnly
 
 analyzeRebindingWarningsWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO [WarningRecord]
 analyzeRebindingWarningsWithBuiltins builtinMode settings expr =
