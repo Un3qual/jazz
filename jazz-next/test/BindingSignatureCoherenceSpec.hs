@@ -56,7 +56,13 @@ tests =
     ("source pipeline rejects retroactive rebinding recursion", testSourceRejectsRetroactiveRebindingRecursion),
     ("source pipeline accepts mutual recursion group", testSourceAcceptsMutualRecursionGroup),
     ("source pipeline rejects signature type mismatch", testSourceRejectsSignatureTypeMismatch),
+    ("source pipeline accepts concrete list signature", testSourceAcceptsConcreteListSignature),
+    ("source pipeline accepts nested concrete list signature", testSourceAcceptsNestedConcreteListSignature),
+    ("source pipeline accepts simple function signature", testSourceAcceptsSimpleFunctionSignature),
+    ("source pipeline accepts list to list function signature", testSourceAcceptsListToListFunctionSignature),
+    ("source pipeline rejects list signature mismatch", testSourceRejectsListSignatureMismatch),
     ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface),
+    ("source pipeline rejects chained function signature surface", testSourceRejectsChainedFunctionSignatureSurface),
     ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError),
     ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
   ]
@@ -311,9 +317,37 @@ testSourceRejectsSignatureTypeMismatch = do
     "x"
     (compileErrors result)
 
+testSourceAcceptsConcreteListSignature :: IO ()
+testSourceAcceptsConcreteListSignature =
+  assertSourceOk "x :: [Int].\nx = [1]."
+
+testSourceAcceptsNestedConcreteListSignature :: IO ()
+testSourceAcceptsNestedConcreteListSignature =
+  assertSourceOk "x :: [[Bool]].\nx = [[True], [False]]."
+
+testSourceAcceptsSimpleFunctionSignature :: IO ()
+testSourceAcceptsSimpleFunctionSignature =
+  assertSourceOk "f :: Int -> Int.\nf = (+ 1)."
+
+testSourceAcceptsListToListFunctionSignature :: IO ()
+testSourceAcceptsListToListFunctionSignature =
+  assertSourceOk "f :: [Int] -> [Int].\nf = filter (> 1)."
+
+testSourceRejectsListSignatureMismatch :: IO ()
+testSourceRejectsListSignatureMismatch = do
+  result <- compileSource defaultWarningSettings "x :: [Bool].\nx = [1]."
+  assertSingleDiagnosticCode
+    "source list signature mismatch code"
+    "E2005"
+    (compileErrors result)
+
 testSourceRejectsUnsupportedSignatureSurface :: IO ()
 testSourceRejectsUnsupportedSignatureSurface =
   assertSourceSingleErrorContains "x :: [Int].\nx = [1]." "E2009"
+
+testSourceRejectsChainedFunctionSignatureSurface :: IO ()
+testSourceRejectsChainedFunctionSignatureSurface =
+  assertSourceSingleErrorContains "f :: Int -> Int -> Int.\nf = (+)." "E2009"
 
 testSourceReportsSignedRecursiveRhsTypeError :: IO ()
 testSourceReportsSignedRecursiveRhsTypeError =
