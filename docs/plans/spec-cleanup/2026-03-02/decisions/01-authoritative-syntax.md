@@ -18,6 +18,25 @@
 - [ ] Verification complete
 - [ ] Docs updates complete
 
+## Implementation Status Verification (2026-03-17, `jazz-next`)
+
+- [x] Re-verified that canonical module declarations were already implemented in active `jazz-next`, so they were not the next code batch for this item.
+- [x] Re-verified that active `jazz-next` still lacked canonical lambda parsing/runtime support, which kept first-class functions and currying backed only by legacy evidence in `docs/feature-status.md`.
+- [x] Added a `jazz-next` execution plan for the lambda slice at `docs/plans/2026-03-17-jazz-next-lambda-support.md`.
+- [x] Added canonical lambda parser/lowering coverage in `jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs`.
+- [x] Added callable closure/type/runtime coverage in `jazz-next/test/JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs`.
+- [x] Implemented active-path lambda support in:
+  - `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs`
+  - `jazz-next/src/JazzNext/Compiler/Parser.hs`
+  - `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+  - `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+  - `jazz-next/src/JazzNext/Compiler/AST.hs`
+  - `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+  - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+  - `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- [x] Ran `bash jazz-next/scripts/test-warning-config.sh` after the lambda batch and all suites passed.
+- [x] Updated top-level status docs so active `jazz-next/` lambda support no longer depends on legacy-only evidence.
+
 ## Decision Lock (Approved 2026-03-02)
 
 - [x] Canonical abstraction keyword is `class`/`impl`.

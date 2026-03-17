@@ -33,6 +33,7 @@ Implementation baseline details: [docs/jazz-language-state.md](docs/jazz-languag
 
 - `jazz2` is a reference-only design source for future ideas and is non-normative for current language behavior.
 - The canonical language authority is `docs/spec/*` plus the active implementation behavior/tests in `jazz-hs` until spec sections are fully filled in.
+- Active compiler implementation work lands in `jazz-next/`.
 - This top-level README is a project pitch and usage overview, not the normative language specification.
 - Semantic language changes require a decision record or RFC before implementation.
 - Non-semantic/internal changes may be implementation-first only when docs and tests are updated in the same change.
