@@ -180,8 +180,8 @@ compileModuleGraphWithResolvedPrelude ::
   (FilePath -> IO (Maybe Text)) ->
   IO CompileResult
 compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = do
-  moduleGraphSourceResult <- loadModuleGraphSource resolutionConfig entryModulePath sourceLookup
-  case moduleGraphSourceResult of
+  moduleGraphExprResult <- loadLoweredModuleGraph resolutionConfig entryModulePath sourceLookup
+  case moduleGraphExprResult of
     Left resolutionError ->
       pure
         CompileResult
@@ -189,8 +189,21 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
             compileErrors = [resolutionError],
             generatedJs = Nothing
           }
-    Right sourceText ->
-      compileSourceWithResolvedPrelude settings resolvedPrelude sourceText
+    Right moduleGraphExpr ->
+      case mergeResolvedPrelude resolvedPrelude moduleGraphExpr of
+        Left parseErrorCode ->
+          pure
+            CompileResult
+              { compileWarnings = [],
+                compileErrors = [parseErrorCode],
+                generatedJs = Nothing
+              }
+        Right loweredProgram ->
+          compileExprWithBuiltinsAndHiddenStatements
+            (parsedHiddenStatementIndices loweredProgram)
+            (builtinResolutionMode resolvedPrelude)
+            settings
+            (parsedExpr loweredProgram)
 
 runExpr :: WarningSettings -> Expr -> IO RunResult
 runExpr = runExprWithBuiltins ResolveKernelOnly
@@ -280,8 +293,8 @@ runModuleGraphWithResolvedPrelude ::
   (FilePath -> IO (Maybe Text)) ->
   IO RunResult
 runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = do
-  moduleGraphSourceResult <- loadModuleGraphSource resolutionConfig entryModulePath sourceLookup
-  case moduleGraphSourceResult of
+  moduleGraphExprResult <- loadLoweredModuleGraph resolutionConfig entryModulePath sourceLookup
+  case moduleGraphExprResult of
     Left resolutionError ->
       pure
         RunResult
@@ -290,8 +303,22 @@ runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entr
             runRuntimeErrors = [],
             runOutput = Nothing
           }
-    Right sourceText ->
-      runSourceWithResolvedPrelude settings resolvedPrelude sourceText
+    Right moduleGraphExpr ->
+      case mergeResolvedPrelude resolvedPrelude moduleGraphExpr of
+        Left parseErrorCode ->
+          pure
+            RunResult
+              { runWarnings = [],
+                runCompileErrors = [parseErrorCode],
+                runRuntimeErrors = [],
+                runOutput = Nothing
+              }
+        Right loweredProgram ->
+          runExprWithBuiltinsAndHiddenStatements
+            (parsedHiddenStatementIndices loweredProgram)
+            (builtinResolutionMode resolvedPrelude)
+            settings
+            (parsedExpr loweredProgram)
 
 -- | Run inference/canonicalization, collect warnings from `inferredWarnings`,
 -- promote configured warnings into errors, and return the canonicalized
@@ -337,6 +364,10 @@ builtinResolutionMode resolvedPrelude =
 parseAndLowerSource :: ResolvedPrelude -> Text -> Either Diagnostic ParsedProgram
 parseAndLowerSource resolvedPrelude source = do
   loweredSource <- parseAndLowerStandaloneSource source
+  mergeResolvedPrelude resolvedPrelude loweredSource
+
+mergeResolvedPrelude :: ResolvedPrelude -> Expr -> Either Diagnostic ParsedProgram
+mergeResolvedPrelude resolvedPrelude loweredSource =
   case resolvedPrelude of
     PreludeAbsent ->
       pure
@@ -429,6 +460,34 @@ loadModuleGraphSource resolutionConfig entryModulePath sourceLookup = do
       sourceReplayResult <- replayResolvedSources resolvedModules memoizedSourceLookup
       pure (fmap (Text.intercalate "\n") sourceReplayResult)
 
+-- | Resolve and lower a module graph into one executable block expression. The
+-- module declarations themselves are stripped here because the resolver already
+-- validated them, and replaying multiple files as one block should keep only
+-- the combined executable/import statements.
+loadLoweredModuleGraph ::
+  ModuleResolutionConfig ->
+  [Text] ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO (Either Diagnostic Expr)
+loadLoweredModuleGraph resolutionConfig entryModulePath sourceLookup = do
+  memoizedSourceLookup <- memoizeSourceLookup sourceLookup
+  resolutionResult <-
+    resolveModuleGraphWithLookup resolutionConfig memoizedSourceLookup entryModulePath
+  case resolutionResult of
+    Left resolutionError ->
+      pure (Left resolutionError)
+    Right resolvedModules -> do
+      sourceReplayResult <- replayResolvedSources resolvedModules memoizedSourceLookup
+      pure $
+        do
+          replayedSources <- sourceReplayResult
+          loweredModules <-
+            sequence
+              [ parseAndLowerResolvedModule resolvedModule sourceText
+                | (resolvedModule, sourceText) <- zip resolvedModules replayedSources
+              ]
+          pure (EBlock (concatMap (scopeStatements . stripModuleDeclarations) loweredModules))
+
 -- | Replay resolved source files from the memoized lookup so driver errors stay
 -- stable even after resolution has already succeeded.
 replayResolvedSources ::
@@ -459,6 +518,40 @@ replayResolvedSources resolvedModules sourceLookup =
                 )
             Just sourceText ->
               go (sourceText : acc) rest
+
+parseAndLowerResolvedModule :: ResolvedModule -> Text -> Either Diagnostic Expr
+parseAndLowerResolvedModule resolvedModule sourceText =
+  case parseAndLowerStandaloneSource sourceText of
+    Left parseError ->
+      Left
+        ( setDiagnosticCode
+            "E4004"
+            ( prependDiagnosticSummary
+                ( "module parse error at '"
+                    <> Text.pack (resolvedSourcePath resolvedModule)
+                    <> "': "
+                )
+                parseError
+            )
+        )
+    Right loweredSource ->
+      Right loweredSource
+
+stripModuleDeclarations :: Expr -> Expr
+stripModuleDeclarations expr =
+  case expr of
+    EBlock statements ->
+      EBlock
+        [ statement
+          | statement <- statements,
+            not (isModuleStatement statement)
+        ]
+    _ -> expr
+  where
+    isModuleStatement statement =
+      case statement of
+        SModule _ _ -> True
+        _ -> False
 
 renderModulePath :: [Text] -> Text
 renderModulePath segments = Text.intercalate "::" segments

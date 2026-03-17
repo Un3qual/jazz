@@ -4,6 +4,8 @@ Status: active (decision lock recorded, implementation alignment pending)
 Locked decisions: 2026-03-02
 Primary plan: `docs/plans/spec-cleanup/2026-03-02/decisions/01-authoritative-syntax.md`
 
+Implementation note (2026-03-17): `jazz-next` now accepts canonical brace-bodied module declarations (`module A::B { ... }`) in the active parser/resolver/CLI path. Remaining alignment gaps are primarily lambda and abstraction syntax.
+
 ## Purpose
 
 Define one canonical surface syntax for functions, modules/imports, abstractions, and collections so specs, examples, and future compiler work converge on a single contract.

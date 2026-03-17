@@ -69,6 +69,7 @@ tests =
     ("cli explicit --warnings-config read failures return config error", testCliExplicitConfigPathFailure),
     ("cli explicit env warning config read failures return config error", testCliExplicitEnvConfigPathFailure),
     ("cli defers source read until after arg validation", testCliDefersSourceReadOnArgError),
+    ("cli rejects nested module declaration in source input", testCliRejectsNestedModuleDeclarationInSourceInput),
     ("cli accepts concrete list signature from source input", testCliAcceptsConcreteListSignature),
     ("cli accepts simple function signature from source input", testCliAcceptsSimpleFunctionSignature),
     ("cli reports signature type mismatch from source input", testCliReportsSignatureTypeMismatch)
@@ -216,8 +217,8 @@ testCliRunModeModuleGraphSuccess = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("src/App/Main.jz", "import Lib::Util.\nutil."),
-                  ("src/Lib/Util.jz", "util = 1.")
+                [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
+                  ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
                 ]
             )
         )
@@ -282,7 +283,7 @@ testCliModuleGraphDeclarationMismatch = do
       pure
         ( Map.lookup
             key
-            (Map.fromList [("src/App/Main.jz", "module Wrong::Name.\n1.")])
+            (Map.fromList [("src/App/Main.jz", "module Wrong::Name {\n1.\n}")])
         )
 
 testCliLoadsBundledDefaultPrelude :: IO ()
@@ -490,6 +491,16 @@ testCliDefersSourceReadOnArgError = do
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing
 
+testCliRejectsNestedModuleDeclarationInSourceInput :: IO ()
+testCliRejectsNestedModuleDeclarationInSourceInput = do
+  output <- runCliWith [] envLookup configLookup (pure nestedModuleInModuleBodySource)
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "stderr includes parser error" "module declaration must remain top-level" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
 testCliAcceptsConcreteListSignature :: IO ()
 testCliAcceptsConcreteListSignature = do
   output <- runCliWith [] envLookup configLookup (pure concreteListSignatureSource)
@@ -529,6 +540,9 @@ testCliReportsSignatureTypeMismatch = do
 
 sampleSource :: Text
 sampleSource = "x = 1. x = 2."
+
+nestedModuleInModuleBodySource :: Text
+nestedModuleInModuleBodySource = "module App::Main {\nmodule Inner::Thing {\nx = 1.\n}\n}"
 
 concreteListSignatureSource :: Text
 concreteListSignatureSource = "xs :: [Int].\nxs = [1, 2]."

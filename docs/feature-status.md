@@ -2,7 +2,7 @@
 
 This is the canonical status matrix for top-level language claims. The top-level [README](../README.md) is a short summary, while this file is the source of truth for implemented-vs-planned status.
 
-Last verified against commit: `f8ae35c`
+Last verified against commit: `fb7bb1c`
 
 ## Status Rubric
 
@@ -25,7 +25,7 @@ Last verified against commit: `f8ae35c`
 | Functions are curried by default   | `Implemented Today`                  | Legacy references: Application is left-associative by juxtaposition and builtins are curried in `jazz-hs/src/Types.hs` and `jazz-hs/src/CodeGen/Javascript.hs`. No `jazz-next/` codegen equivalent yet.                         |
 | Pattern matching                   | `Partially Implemented / Parse-Only` | Pattern syntax and `case` parse support exists, but type inference/codegen coverage is incomplete per `docs/jazz-language-state.md`.                                 |
 | Tuples                             | `Partially Implemented / Parse-Only` | Legacy reference: Tuple literals parse/infer, but JS codegen errors on tuples (`docs/jazz-language-state.md`, `jazz-hs/src/CodeGen/Javascript.hs`). No `jazz-next/` codegen equivalent yet.                                    |
-| Module/import syntax               | `Partially Implemented / Parse-Only` | `jazz-next` parses/lowers module/import statements and supports deterministic module-graph loading diagnostics (`jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`, `jazz-next/src/JazzNext/CLI/Main.hs`), but qualified-import name binding semantics are not yet finalized as canonical language behavior. |
+| Module/import syntax               | `Partially Implemented / Parse-Only` | `jazz-next` now parses canonical brace-bodied module declarations plus import alias/symbol-list forms, and it supports deterministic module-graph loading diagnostics across parser, resolver, and CLI paths (`jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`, `jazz-next/src/JazzNext/CLI/Main.hs`, `jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs`, `jazz-next/test/JazzNext/Compiler/Modules/{ModuleResolutionSpec.hs,LoaderSpec.hs}`, `jazz-next/test/JazzNext/CLI/CLISpec.hs`). Broader module/file-layout semantics are still being clarified in the spec work. |
 | Purity marker (`!`) is enforced    | `Implemented Today`                  | `jazz-next` now enforces stub-v1 purity in analyzer/type pipeline: pure bindings reject direct calls to known `!`-suffixed callees (`jazz-next/src/JazzNext/Compiler/{Purity.hs,Analyzer.hs}`) with regression coverage in `jazz-next/test/JazzNext/Compiler/Semantics/PuritySemanticsSpec.hs`. |
 | `$` low-precedence application     | `Implemented Today`                  | `$` parsing/associativity is documented in `docs/jazz-language-state.md` and supported by parser/operator behavior; legacy reference in `jazz-hs`.                     |
 

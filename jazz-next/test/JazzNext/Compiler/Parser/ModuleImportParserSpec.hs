@@ -39,6 +39,11 @@ tests =
     ("parses import statement with alias", testParsesImportAlias),
     ("parses import statement with symbol list", testParsesImportSymbolList),
     ("lowers module and import statements into core AST", testLowersModuleImportStatements),
+    ("rejects legacy dot-only module declaration syntax", testRejectsLegacyDotOnlyModuleDeclaration),
+    ("rejects trailing top-level statements after module body", testRejectsTrailingTopLevelStatementsAfterModuleBody),
+    ("rejects module declaration after earlier top-level statement", testRejectsModuleDeclarationAfterTopLevelStatement),
+    ("rejects module declaration nested inside module body", testRejectsModuleDeclarationNestedInsideModuleBody),
+    ("rejects module declaration nested inside block expression", testRejectsModuleDeclarationNestedInsideBlock),
     ("rejects module statement with missing path", testRejectsModuleMissingPath),
     ("rejects module statement with trailing separator using separator span", testRejectsModuleTrailingSeparatorSpan),
     ("rejects import statement with empty symbol list", testRejectsImportEmptySymbolList),
@@ -59,7 +64,7 @@ testParsesModuleDeclaration =
             ]
         )
     )
-    (parseSurfaceProgram "module App::Core.\nx = 1.")
+    (parseSurfaceProgram "module App::Core {\nx = 1.\n}")
 
 testParsesImportBare :: IO ()
 testParsesImportBare =
@@ -102,7 +107,7 @@ testLowersModuleImportStatements :: IO ()
 testLowersModuleImportStatements =
   assertRight
     "parse + lower module/import"
-    (parseSurfaceProgram "module App::Core.\nimport Std::List (map).\nmap.")
+    (parseSurfaceProgram "module App::Core {\nimport Std::List (map).\nmap.\n}")
     (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -111,6 +116,41 @@ testLowersModuleImportStatements =
           SImport (SourceSpan 2 1) ["Std", "List"] Nothing (Just ["map"]),
           SExpr (SourceSpan 3 1) (EVar "map")
         ]
+
+testRejectsLegacyDotOnlyModuleDeclaration :: IO ()
+testRejectsLegacyDotOnlyModuleDeclaration =
+  assertLeftDiagnosticContains
+    "legacy module declaration rejected"
+    "expected '{'"
+    (parseSurfaceProgram "module App::Core.")
+
+testRejectsTrailingTopLevelStatementsAfterModuleBody :: IO ()
+testRejectsTrailingTopLevelStatementsAfterModuleBody =
+  assertLeftDiagnosticContains
+    "trailing statement after module body"
+    "after module declaration"
+    (parseSurfaceProgram "module App::Core {\nx = 1.\n}\ny = 2.")
+
+testRejectsModuleDeclarationAfterTopLevelStatement :: IO ()
+testRejectsModuleDeclarationAfterTopLevelStatement =
+  assertLeftDiagnosticContains
+    "module declaration after top-level statement"
+    "first top-level form"
+    (parseSurfaceProgram "x = 1.\nmodule App::Core {\ny = 2.\n}")
+
+testRejectsModuleDeclarationNestedInsideModuleBody :: IO ()
+testRejectsModuleDeclarationNestedInsideModuleBody =
+  assertLeftDiagnosticContains
+    "module declaration nested inside module body"
+    "top-level"
+    (parseSurfaceProgram "module App::Core {\nmodule Inner::Thing {\ny = 1.\n}\n}")
+
+testRejectsModuleDeclarationNestedInsideBlock :: IO ()
+testRejectsModuleDeclarationNestedInsideBlock =
+  assertLeftDiagnosticContains
+    "module declaration nested inside block expression"
+    "top-level"
+    (parseSurfaceProgram "x = { module App::Core {\ny = 1.\n} y. }.")
 
 testRejectsModuleMissingPath :: IO ()
 testRejectsModuleMissingPath =

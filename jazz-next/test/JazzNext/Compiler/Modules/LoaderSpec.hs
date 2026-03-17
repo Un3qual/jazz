@@ -60,8 +60,8 @@ testCompileModuleGraphSuccess = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Util.\nutil."),
-          ("src/Lib/Util.jz", "util = 1.")
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
+          ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -80,8 +80,8 @@ testRunModuleGraphSuccess = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Util.\nutil."),
-          ("src/Lib/Util.jz", "util = 1.")
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
+          ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -155,7 +155,7 @@ testCompileModuleGraphModuleDeclarationMismatch = do
   where
     sourceMap =
       Map.fromList
-        [("src/App/Main.jz", "module Wrong::Name.\nmain = 1.")]
+        [("src/App/Main.jz", "module Wrong::Name {\nmain = 1.\n}")]
     lookupSource path = pure (Map.lookup path sourceMap)
 
 testRunModuleGraphCycle :: IO ()
@@ -218,9 +218,9 @@ testMemoizedLookupReuse = do
         -- Without memoization this second read would replace the resolver-accepted
         -- source and fail replay. Memoized lookup should keep first-read content.
         "src/App/Main.jz"
-          | readCount == 1 -> Just "import Lib::Util.\nutil."
+          | readCount == 1 -> Just "module App::Main {\nimport Lib::Util.\nutil.\n}"
           | otherwise -> Just "broken = ."
-        "src/Lib/Util.jz" -> Just "util = 1."
+        "src/Lib/Util.jz" -> Just "module Lib::Util {\nutil = 1.\n}"
         _ -> Nothing
 
 resolverConfig :: ModuleResolutionConfig
