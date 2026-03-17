@@ -22,12 +22,17 @@ Do not implement new compiler functionality in legacy directories.
 - `src/JazzNext/Compiler/TypeInference.hs`: inference result plumbing that carries warnings and semantic errors from analysis.
 - `src/JazzNext/Compiler/Driver.hs`: warning-as-error gating plus semantic-error propagation into compile results.
 - `src/JazzNext/CLI/Main.hs`: CLI flag/env/config resolution and warning-aware compile output behavior.
-- `test/WarningConfigSpec.hs`: unit tests for warning-config parsing and precedence.
-- `test/RebindingWarningSpec.hs`: analyzer/driver warning behavior tests.
-- `test/CLISpec.hs`: CLI entrypoint behavior tests (parsing, precedence, stderr/stdout policy).
-- `test/BindingSignatureCoherenceSpec.hs`: analyzer contract tests for signature adjacency and use-before-definition.
-- `test/ParserFoundationSpec.hs`: parser bootstrap tests for accepted syntax slices and parse/lower boundary.
 - `scripts/test-warning-config.sh`: local `jazz-next` test entrypoint.
+
+## Test layout
+
+- `test/JazzNext/TestHarness.hs`: shared assertion helpers and test runner plumbing.
+- `test/JazzNext/CLI/`: CLI entrypoint coverage.
+- `test/JazzNext/Compiler/Config/`: warning/config parsing coverage.
+- `test/JazzNext/Compiler/Diagnostics/`: diagnostic rendering and metadata coverage.
+- `test/JazzNext/Compiler/Modules/`: prelude loading, module graph, and resolver coverage.
+- `test/JazzNext/Compiler/Parser/`: parser, lowering, and operator-surface coverage.
+- `test/JazzNext/Compiler/Semantics/`: analyzer, type, runtime, and builtin semantics coverage.
 
 ## Run tests
 
