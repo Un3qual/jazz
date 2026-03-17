@@ -67,6 +67,8 @@ tests =
     ("cli precedence keeps CLI over env over config", testCliPrecedenceBehavior),
     ("cli respects --warnings-config path override", testCliConfigPathOverride),
     ("cli defers source read until after arg validation", testCliDefersSourceReadOnArgError),
+    ("cli accepts concrete list signature from source input", testCliAcceptsConcreteListSignature),
+    ("cli accepts simple function signature from source input", testCliAcceptsSimpleFunctionSignature),
     ("cli reports signature type mismatch from source input", testCliReportsSignatureTypeMismatch)
   ]
 
@@ -466,6 +468,26 @@ testCliDefersSourceReadOnArgError = do
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing
 
+testCliAcceptsConcreteListSignature :: IO ()
+testCliAcceptsConcreteListSignature = do
+  output <- runCliWith [] envLookup configLookup (pure concreteListSignatureSource)
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertContains "stdout includes generated output" "codegen placeholder" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
+testCliAcceptsSimpleFunctionSignature :: IO ()
+testCliAcceptsSimpleFunctionSignature = do
+  output <- runCliWith [] envLookup configLookup (pure simpleFunctionSignatureSource)
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertContains "stdout includes generated output" "codegen placeholder" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
 recordSourceRead :: IORef Bool -> IO Text
 recordSourceRead sourceRead = do
   writeIORef sourceRead True
@@ -485,6 +507,12 @@ testCliReportsSignatureTypeMismatch = do
 
 sampleSource :: Text
 sampleSource = "x = 1. x = 2."
+
+concreteListSignatureSource :: Text
+concreteListSignatureSource = "xs :: [Int].\nxs = [1, 2]."
+
+simpleFunctionSignatureSource :: Text
+simpleFunctionSignatureSource = "inc :: Int -> Int.\ninc = (+ 1)."
 
 signatureMismatchSource :: Text
 signatureMismatchSource = "x :: Int.\nx = True."

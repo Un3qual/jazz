@@ -18,7 +18,7 @@
 - [x] Verified full type-grammar decisions remain unresolved in `docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md`, so this batch must stay within a safe monomorphic subset.
 - [x] Task 1 complete: failing tests lock the supported monomorphic signature surface and unresolved rejections.
 - [x] Task 2 complete: `jazz-next` parses/checks concrete list and simple function signatures.
-- [ ] Task 3 complete: docs/trackers reflect the new supported subset and verification passes.
+- [x] Task 3 complete: docs/trackers reflect the new supported subset and verification passes.
 
 ## Scope Guardrails
 

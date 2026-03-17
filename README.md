@@ -66,9 +66,9 @@ console.log("Hello, world");
 // map :: (a -> b) -> [a] -> [b]
 
 // These examples illustrate that functions are curried by default and support partial application. I will provide type signatures for these functions for reference, but they are not needed and infer correctly
-add10 :: Integer -> Integer.
+add10 :: Int -> Int.
 add10 = (+10).
-add10List :: [Integer] -> [Integer].
+add10List :: [Int] -> [Int].
 add10List = map add10.
 // Note that I don't have to write:
 // add10List = \(xs) -> map add10 xs

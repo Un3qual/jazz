@@ -2,7 +2,7 @@
 
 This is the canonical status matrix for top-level language claims. The top-level [README](../README.md) is a short summary, while this file is the source of truth for implemented-vs-planned status.
 
-Last verified against commit: `835a33a`
+Last verified against commit: `f8ae35c`
 
 ## Status Rubric
 
@@ -19,6 +19,7 @@ Last verified against commit: `835a33a`
 | Performant / LLVM backend          | `Planned / Aspirational`             | `README.md` says LLVM generation is future work; `docs/jazz-language-state.md` lists backend target as unsettled and LLVM out of active scope.                       |
 | Strong static typing (core subset) | `Implemented Today`                  | Type inference and checking are part of the active `jazz-next/` pipeline in `jazz-next/src/JazzNext/Compiler/TypeInference.hs` and `jazz-next/src/JazzNext/Compiler/Analyzer.hs`; `docs/jazz-language-state.md` documents end-to-end typed core subset. |
 | Type inference (core subset)       | `Implemented Today`                  | `jazz-next/src/JazzNext/Compiler/TypeInference.hs` runs analyzer/type inference; `docs/jazz-language-state.md` confirms core inference works today.                                 |
+| Type signatures (monomorphic subset) | `Implemented Today`                | `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now parses/enforces adjacent monomorphic signatures over `Int`, `Bool`, nested concrete list types, and single-arrow function types; covered by `jazz-next/test/BindingSignatureCoherenceSpec.hs` and `jazz-next/test/CLISpec.hs`. |
 | Immutable bindings                 | `Implemented Today`                  | Legacy reference: `jazz-hs` supports value bindings (`x = expr`) with no mutable assignment form in active grammar; documented in `docs/jazz-language-state.md`. No `jazz-next/` parser equivalent yet.                       |
 | First-class functions              | `Implemented Today`                  | Legacy references: Lambdas and function application are implemented end-to-end in `jazz-hs` (`jazz-hs/src/Parser/Lang.hs`, `jazz-hs/src/CodeGen/Javascript.hs`, `docs/jazz-language-state.md`). No `jazz-next/` parser/codegen equivalent yet.      |
 | Functions are curried by default   | `Implemented Today`                  | Legacy references: Application is left-associative by juxtaposition and builtins are curried in `jazz-hs/src/Types.hs` and `jazz-hs/src/CodeGen/Javascript.hs`. No `jazz-next/` codegen equivalent yet.                         |
