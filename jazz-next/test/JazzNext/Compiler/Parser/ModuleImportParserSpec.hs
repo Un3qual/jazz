@@ -40,6 +40,8 @@ tests =
     ("parses import statement with symbol list", testParsesImportSymbolList),
     ("lowers module and import statements into core AST", testLowersModuleImportStatements),
     ("rejects legacy dot-only module declaration syntax", testRejectsLegacyDotOnlyModuleDeclaration),
+    ("rejects trailing top-level statements after module body", testRejectsTrailingTopLevelStatementsAfterModuleBody),
+    ("rejects module declaration after earlier top-level statement", testRejectsModuleDeclarationAfterTopLevelStatement),
     ("rejects module statement with missing path", testRejectsModuleMissingPath),
     ("rejects module statement with trailing separator using separator span", testRejectsModuleTrailingSeparatorSpan),
     ("rejects import statement with empty symbol list", testRejectsImportEmptySymbolList),
@@ -119,6 +121,20 @@ testRejectsLegacyDotOnlyModuleDeclaration =
     "legacy module declaration rejected"
     "expected '{'"
     (parseSurfaceProgram "module App::Core.")
+
+testRejectsTrailingTopLevelStatementsAfterModuleBody :: IO ()
+testRejectsTrailingTopLevelStatementsAfterModuleBody =
+  assertLeftDiagnosticContains
+    "trailing statement after module body"
+    "after module declaration"
+    (parseSurfaceProgram "module App::Core {\nx = 1.\n}\ny = 2.")
+
+testRejectsModuleDeclarationAfterTopLevelStatement :: IO ()
+testRejectsModuleDeclarationAfterTopLevelStatement =
+  assertLeftDiagnosticContains
+    "module declaration after top-level statement"
+    "first top-level form"
+    (parseSurfaceProgram "x = 1.\nmodule App::Core {\ny = 2.\n}")
 
 testRejectsModuleMissingPath :: IO ()
 testRejectsModuleMissingPath =

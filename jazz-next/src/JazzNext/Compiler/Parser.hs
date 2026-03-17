@@ -39,7 +39,7 @@ import JazzNext.Compiler.Parser.Operator
 
 -- Parses the current minimal surface language into a block-wrapped program.
 -- Most top-level forms are dot-terminated; module declarations instead own a
--- brace-delimited body that is replayed into the surrounding statement list.
+-- brace-delimited body and must be the first top-level form.
 parseSurfaceProgram :: Text -> Either Diagnostic SurfaceExpr
 parseSurfaceProgram source =
   case tokenize source of
@@ -70,7 +70,30 @@ parseStatementsUntilEnd = go []
     go acc [] = Right (reverse acc, [])
     go acc tokens = do
       (statements, remaining) <- parseStatement tokens
-      go (prependStatements statements acc) remaining
+      case leadingModuleDeclaration statements of
+        Just moduleSpan
+          | not (null acc) ->
+              Left
+                ( parseDiagnostic
+                    ( "module declaration must be the first top-level form at "
+                        <> renderSourceSpan moduleSpan
+                    )
+                )
+          | otherwise ->
+              case remaining of
+                [] -> go (prependStatements statements acc) remaining
+                token : _ ->
+                  Left
+                    ( parseDiagnostic
+                        ( "unexpected token '"
+                            <> tokenLexeme token
+                            <> "' at "
+                            <> renderSourceSpan (tokenSpan token)
+                            <> " after module declaration"
+                        )
+                    )
+        Nothing ->
+          go (prependStatements statements acc) remaining
 
 -- | Parse statements inside `{ ... }`, stopping as soon as the closing brace is
 -- encountered so block parsing can hand the remaining tokens back to callers.
@@ -128,6 +151,12 @@ parseStatement tokens =
 
 prependStatements :: [SurfaceStatement] -> [SurfaceStatement] -> [SurfaceStatement]
 prependStatements statements acc = foldl (flip (:)) acc statements
+
+leadingModuleDeclaration :: [SurfaceStatement] -> Maybe SourceSpan
+leadingModuleDeclaration statements =
+  case statements of
+    SSModule spanValue _ : _ -> Just spanValue
+    _ -> Nothing
 
 isReservedLiteralName :: Text -> Bool
 isReservedLiteralName name = name == "True" || name == "False"

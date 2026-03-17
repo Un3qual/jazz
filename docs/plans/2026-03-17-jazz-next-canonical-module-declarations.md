@@ -17,6 +17,7 @@
 - [x] Task 1 complete: failing parser/loader/CLI tests lock canonical brace-delimited module declarations.
 - [x] Task 2 complete: lexer/parser accept canonical module declarations and keep lowering/resolver behavior intact.
 - [x] Task 3 complete: module docs/trackers reflect the new surface and targeted/full verification pass.
+- [x] Review follow-up complete: top-level parser now treats a module declaration as the exclusive top-level form, and module-graph replay strips validated declarations before combining module bodies for compile/run paths.
 
 ## Scope Guardrails
 

@@ -235,7 +235,7 @@ testReportsDuplicateModuleDeclaration = do
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\n}\nmodule App::Main {\nmain = 1.\n}")
+        [ ("src/App/Main.jz", "module App::Main {\nmodule App::Main {\nmain = 1.\n}\n}")
         ]
 
 testAcceptsValidImportSymbolList :: IO ()
