@@ -10,6 +10,9 @@ import Data.Text (Text)
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan
   )
+import JazzNext.Compiler.Identifier
+  ( Identifier
+  )
 
 -- Parser-surface tree. This remains separate from analyzer AST so parsing can
 -- evolve (desugaring, richer syntax) without forcing analyzer shape changes.
@@ -20,7 +23,7 @@ data SurfaceLiteral
 
 data SurfaceExpr
   = SELit SurfaceLiteral
-  | SEVar Text
+  | SEVar Identifier
   | SEOperatorValue Text
   | SEList [SurfaceExpr]
   | SEApply SurfaceExpr SurfaceExpr
@@ -32,8 +35,8 @@ data SurfaceExpr
   deriving (Eq, Show)
 
 data SurfaceStatement
-  = SSLet Text SourceSpan SurfaceExpr
-  | SSSignature Text SourceSpan Text
+  = SSLet Identifier SourceSpan SurfaceExpr
+  | SSSignature Identifier SourceSpan Text
   | SSModule SourceSpan [Text]
   | SSImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SSExpr SourceSpan SurfaceExpr

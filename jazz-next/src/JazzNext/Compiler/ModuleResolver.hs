@@ -29,6 +29,9 @@ import JazzNext.Compiler.Diagnostics
     mkMessageDiagnostic,
     renderSourceSpan
   )
+import JazzNext.Compiler.Identifier
+  ( identifierText
+  )
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
@@ -303,7 +306,7 @@ collectTopLevelBindings surfaceExpr =
   case surfaceExpr of
     SEBlock statements ->
       Set.fromList
-        [ bindingName
+        [ identifierText bindingName
           | SSLet bindingName _ _ <- statements
         ]
     _ -> Set.empty
