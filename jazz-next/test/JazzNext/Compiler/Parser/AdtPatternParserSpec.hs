@@ -41,12 +41,15 @@ tests =
   [ ("parses basic case expression with literal and wildcard arms", testParsesBasicCaseExpression),
     ("parses variable pattern case arm", testParsesVariablePatternCaseArm),
     ("parses nested case expression", testParsesNestedCaseExpression),
+    ("parses unparenthesized if expression inside case arm body", testParsesIfExpressionInsideCaseArmBody),
+    ("parses unparenthesized lambda expression inside case arm body", testParsesLambdaExpressionInsideCaseArmBody),
     ("parses pipe operator inside case arm body", testParsesPipeOperatorInsideCaseArmBody),
     ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument),
     ("reports missing case body for block-valued scrutinee", testReportsMissingCaseBodyForBlockScrutinee),
     ("reports missing arm arrow for block-valued scrutinee", testReportsMissingArmArrowForBlockScrutinee),
     ("rejects case expression without leading pipe", testRejectsCaseExpressionWithoutPipe),
     ("rejects case expression without arm arrow", testRejectsCaseExpressionWithoutArrow),
+    ("rejects missing arrow on later case arm", testRejectsMissingArrowOnLaterCaseArm),
     ("lowers parsed case nodes into core AST", testLowerCaseExpression)
   ]
 
@@ -108,6 +111,50 @@ testParsesNestedCaseExpression =
                         ]
                     ),
                   CaseArm PWildcard (ELit (LBool False))
+                ]
+            )
+        ]
+
+testParsesIfExpressionInsideCaseArmBody :: IO ()
+testParsesIfExpressionInsideCaseArmBody =
+  assertRight
+    "if expression remains within first case arm"
+    (parseSurfaceProgram "x = case n { | 0 -> if True 1 else 2 | _ -> 3 }.")
+    (\surfaceProgram -> assertEqual "if-in-arm lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "n")
+                [ CaseArm
+                    (PLiteral (LInt 0))
+                    (EIf (ELit (LBool True)) (ELit (LInt 1)) (ELit (LInt 2))),
+                  CaseArm PWildcard (ELit (LInt 3))
+                ]
+            )
+        ]
+
+testParsesLambdaExpressionInsideCaseArmBody :: IO ()
+testParsesLambdaExpressionInsideCaseArmBody =
+  assertRight
+    "lambda expression remains within first case arm"
+    (parseSurfaceProgram "x = case n { | 0 -> \\(y) -> y | _ -> 3 }.")
+    (\surfaceProgram -> assertEqual "lambda-in-arm lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "n")
+                [ CaseArm
+                    (PLiteral (LInt 0))
+                    (ELambda "y" (EVar "y")),
+                  CaseArm PWildcard (ELit (LInt 3))
                 ]
             )
         ]
@@ -188,6 +235,13 @@ testRejectsCaseExpressionWithoutArrow =
     "missing case-arm arrow"
     "expected '->'"
     (parseSurfaceProgram "x = case n { | 0 True }.")
+
+testRejectsMissingArrowOnLaterCaseArm :: IO ()
+testRejectsMissingArrowOnLaterCaseArm =
+  assertLeftDiagnosticContains
+    "missing later case-arm arrow"
+    "expected '->'"
+    (parseSurfaceProgram "x = case n { | 0 -> 1 | _ False }.")
 
 testLowerCaseExpression :: IO ()
 testLowerCaseExpression =

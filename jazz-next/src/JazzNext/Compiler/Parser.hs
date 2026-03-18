@@ -498,7 +498,7 @@ parseExprWithoutApplicationWithMinPrecedenceUntil ::
   [Token] ->
   Either Diagnostic (SurfaceExpr, [Token])
 parseExprWithoutApplicationWithMinPrecedenceUntil stop minPrecedence tokens = do
-  (leftExpr, remainingTokens) <- parsePrimaryExpr tokens
+  (leftExpr, remainingTokens) <- parsePrimaryExprUntil stop tokens
   parseInfixTailWithUntil stop (parseExprWithoutApplicationWithMinPrecedenceUntil stop) minPrecedence leftExpr remainingTokens
 
 parseApplicationExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
@@ -506,7 +506,7 @@ parseApplicationExpr = parseApplicationExprUntil neverStop
 
 parseApplicationExprUntil :: ([Token] -> Bool) -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseApplicationExprUntil stop tokens = do
-  (functionExpr, remainingTokens) <- parsePrimaryExpr tokens
+  (functionExpr, remainingTokens) <- parsePrimaryExprUntil stop tokens
   parseApplicationTailUntil stop functionExpr remainingTokens
 
 -- | Function application binds tighter than infix operators, so adjacent
@@ -522,26 +522,27 @@ parseApplicationTailUntil ::
 parseApplicationTailUntil stop functionExpr tokens
   | stop tokens = Right (functionExpr, tokens)
   | otherwise =
-      case startsPrimaryExpr tokens of
+      case startsPrimaryExprTokens tokens of
         True -> do
-          (argumentExpr, remainingAfterArgument) <- parsePrimaryExpr tokens
+          (argumentExpr, remainingAfterArgument) <- parsePrimaryExprUntil stop tokens
           parseApplicationTailUntil stop (SEApply functionExpr argumentExpr) remainingAfterArgument
         False -> Right (functionExpr, tokens)
-  where
-    startsPrimaryExpr allTokens =
-      case allTokens of
-        Token {tokenKind = TInt _} : _ -> True
-        Token {tokenKind = TIdentifier _} : _ -> True
-        Token {tokenKind = TIf} : _ -> True
-        Token {tokenKind = TCase} : _ -> True
-        Token {tokenKind = TLambda} : _ -> True
-        Token {tokenKind = TLParen} : _ -> True
-        Token {tokenKind = TLBrace} : _ -> True
-        Token {tokenKind = TLBracket} : _ -> True
-        _ -> False
 
 neverStop :: [Token] -> Bool
 neverStop _ = False
+
+startsPrimaryExprTokens :: [Token] -> Bool
+startsPrimaryExprTokens allTokens =
+  case allTokens of
+    Token {tokenKind = TInt _} : _ -> True
+    Token {tokenKind = TIdentifier _} : _ -> True
+    Token {tokenKind = TIf} : _ -> True
+    Token {tokenKind = TCase} : _ -> True
+    Token {tokenKind = TLambda} : _ -> True
+    Token {tokenKind = TLParen} : _ -> True
+    Token {tokenKind = TLBrace} : _ -> True
+    Token {tokenKind = TLBracket} : _ -> True
+    _ -> False
 
 -- | Shared precedence climber used by both regular expression parsing and the
 -- restricted `if` condition parser.
@@ -604,7 +605,10 @@ parseInfixTailWith ::
 parseInfixTailWith = parseInfixTailWithUntil neverStop
 
 parsePrimaryExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parsePrimaryExpr tokens =
+parsePrimaryExpr = parsePrimaryExprUntil neverStop
+
+parsePrimaryExprUntil :: ([Token] -> Bool) -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parsePrimaryExprUntil stop tokens =
   case tokens of
     [] -> Left (parseDiagnostic "expected expression before end of input")
     token : rest ->
@@ -615,9 +619,9 @@ parsePrimaryExpr tokens =
             "True" -> Right (SELit (SLBool True), rest)
             "False" -> Right (SELit (SLBool False), rest)
             _ -> Right (SEVar (mkIdentifier name), rest)
-        TIf -> parseIfExpr token rest
+        TIf -> parseIfExprUntil stop token rest
         TCase -> parseCaseExpr token rest
-        TLambda -> parseLambdaExpr token rest
+        TLambda -> parseLambdaExprUntil stop token rest
         TLParen -> parseParenExpr rest
         TLBrace -> do
           (statements, afterBrace) <- parseStatementsUntilBrace NestedBlockContext rest
@@ -681,12 +685,15 @@ parseListElements tokens = do
 
 -- | Parse the compact `if cond thenExpr else elseExpr` surface form.
 parseIfExpr :: Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseIfExpr ifToken tokensAfterIf = do
-  (conditionExpr, afterCondition) <- parseExprWithoutApplication tokensAfterIf
-  (thenExpr, afterThenExpr) <- parseExpr afterCondition
+parseIfExpr = parseIfExprUntil neverStop
+
+parseIfExprUntil :: ([Token] -> Bool) -> Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseIfExprUntil stop ifToken tokensAfterIf = do
+  (conditionExpr, afterCondition) <- parseExprWithoutApplicationWithMinPrecedenceUntil stop 1 tokensAfterIf
+  (thenExpr, afterThenExpr) <- parseExprWithMinPrecedenceUntil stop 1 afterCondition
   case afterThenExpr of
     Token {tokenKind = TElse} : afterElse -> do
-      (elseExpr, remaining) <- parseExpr afterElse
+      (elseExpr, remaining) <- parseExprWithMinPrecedenceUntil stop 1 afterElse
       pure (SEIf conditionExpr thenExpr elseExpr, remaining)
     [] ->
       Left
@@ -810,17 +817,53 @@ parseCaseArm tokens = do
     stopsBeforeCaseArmBoundary allTokens =
       case allTokens of
         Token {tokenKind = TOperator "|"} : rest ->
-          tokensStartCaseArm rest
+          pipeStartsNextArm rest
         Token {tokenKind = TRBrace} : _ -> True
         _ -> False
 
-    -- Preserve `|` as an infix operator inside arm bodies; only `| <pattern> ->`
-    -- starts the next arm in the current pattern subset.
-    tokensStartCaseArm remainingTokens =
+    pipeStartsNextArm remainingTokens =
       case remainingTokens of
         Token {tokenKind = TInt _} : Token {tokenKind = TArrow} : _ -> True
         Token {tokenKind = TIdentifier _} : Token {tokenKind = TArrow} : _ -> True
+        Token {tokenKind = TIdentifier "_"} : afterPattern ->
+          startsPrimaryExprTokens afterPattern
+            && not (hasTopLevelDefiniteCaseArm afterPattern)
         _ -> False
+
+    hasTopLevelDefiniteCaseArm = go 0 0 0
+      where
+        go parenDepth bracketDepth braceDepth scanTokens =
+          case scanTokens of
+            [] -> False
+            Token {tokenKind = TLParen} : rest ->
+              go (parenDepth + 1) bracketDepth braceDepth rest
+            Token {tokenKind = TRParen} : rest ->
+              go (max 0 (parenDepth - 1)) bracketDepth braceDepth rest
+            Token {tokenKind = TLBracket} : rest ->
+              go parenDepth (bracketDepth + 1) braceDepth rest
+            Token {tokenKind = TRBracket} : rest ->
+              go parenDepth (max 0 (bracketDepth - 1)) braceDepth rest
+            Token {tokenKind = TLBrace} : rest ->
+              go parenDepth bracketDepth (braceDepth + 1) rest
+            Token {tokenKind = TRBrace} : _
+              | parenDepth == 0, bracketDepth == 0, braceDepth == 0 ->
+                  False
+            Token {tokenKind = TRBrace} : rest ->
+              go parenDepth bracketDepth (max 0 (braceDepth - 1)) rest
+            Token {tokenKind = TOperator "|"} : rest
+              | parenDepth == 0,
+                bracketDepth == 0,
+                braceDepth == 0,
+                tokensStartDefiniteCaseArm rest ->
+                  True
+            _ : rest ->
+              go parenDepth bracketDepth braceDepth rest
+
+        tokensStartDefiniteCaseArm rest =
+          case rest of
+            Token {tokenKind = TInt _} : Token {tokenKind = TArrow} : _ -> True
+            Token {tokenKind = TIdentifier _} : Token {tokenKind = TArrow} : _ -> True
+            _ -> False
 
 parseCasePattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseCasePattern tokens =
@@ -847,13 +890,16 @@ parseCasePattern tokens =
         )
 
 parseLambdaExpr :: Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseLambdaExpr lambdaToken tokensAfterLambda =
+parseLambdaExpr = parseLambdaExprUntil neverStop
+
+parseLambdaExprUntil :: ([Token] -> Bool) -> Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseLambdaExprUntil stop lambdaToken tokensAfterLambda =
   case tokensAfterLambda of
     Token {tokenKind = TLParen} : afterLeftParen -> do
       (parameters, afterParameters) <- parseLambdaParameters afterLeftParen
       case afterParameters of
         Token {tokenKind = TArrow} : afterArrow -> do
-          (bodyExpr, remaining) <- parseExpr afterArrow
+          (bodyExpr, remaining) <- parseExprWithMinPrecedenceUntil stop 1 afterArrow
           pure (SELambda parameters bodyExpr, remaining)
         [] ->
           Left
