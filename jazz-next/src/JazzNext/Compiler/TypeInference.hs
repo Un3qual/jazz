@@ -770,33 +770,34 @@ inferSelfRecursiveFunctionStatements =
     step recursiveStatements (statementIndex, statement) =
       case statement of
         SLet bindingName _ valueExpr
-          | exprYieldsFunctionValue valueExpr,
+          | exprContainsFunctionBranch valueExpr,
             Set.member
               (identifierText bindingName)
               (freeVarsExprWithBound Set.empty valueExpr) ->
               Set.insert statementIndex recursiveStatements
         _ -> recursiveStatements
 
--- Match the runtime's wrapped-lambda handling so type seeding stays limited to
--- expressions that still produce a function value after wrapper peeling.
-exprYieldsFunctionValue :: Expr -> Bool
-exprYieldsFunctionValue expr =
+-- Seed self-recursion before branch typing so mixed wrappers like
+-- `if True \(x) -> f x else 0` do not skip recursive calls just because only
+-- one branch exposes a function value.
+exprContainsFunctionBranch :: Expr -> Bool
+exprContainsFunctionBranch expr =
   case expr of
     ELambda {} -> True
     EIf _ thenExpr elseExpr ->
-      exprYieldsFunctionValue thenExpr
-        && exprYieldsFunctionValue elseExpr
+      exprContainsFunctionBranch thenExpr
+        || exprContainsFunctionBranch elseExpr
     ECase _ thenExpr elseExpr ->
-      exprYieldsFunctionValue thenExpr
-        && exprYieldsFunctionValue elseExpr
+      exprContainsFunctionBranch thenExpr
+        || exprContainsFunctionBranch elseExpr
     EBlock statements ->
-      scopeYieldsFunctionValue statements
+      scopeContainsFunctionBranch statements
     _ -> False
 
-scopeYieldsFunctionValue :: [Statement] -> Bool
-scopeYieldsFunctionValue statements =
+scopeContainsFunctionBranch :: [Statement] -> Bool
+scopeContainsFunctionBranch statements =
   case reverse statements of
-    SExpr _ expr : _ -> exprYieldsFunctionValue expr
+    SExpr _ expr : _ -> exprContainsFunctionBranch expr
     _ -> False
 
 recursiveBindingEnv ::

@@ -43,6 +43,7 @@ tests =
     ("signature-checked lambda rejects mismatched application", testLambdaSignatureMismatch),
     ("recursive lambda rejects mismatched recursive application", testRecursiveLambdaTypeMismatch),
     ("wrapped recursive lambda rejects mismatched recursive application", testWrappedRecursiveLambdaTypeMismatch),
+    ("mixed wrapped recursive lambda rejects non-function alternate branch", testMixedWrappedRecursiveLambdaTypeMismatch),
     ("block-wrapped recursive lambda rejects mismatched recursive application", testBlockWrappedRecursiveLambdaTypeMismatch),
     ("non-callable application still reports apply type error", testRejectsNonCallableApplication)
   ]
@@ -168,6 +169,19 @@ testWrappedRecursiveLambdaTypeMismatch = do
     "wrapped recursive lambda type mismatch code"
     "E2006"
     (compileErrors result)
+  assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
+
+testMixedWrappedRecursiveLambdaTypeMismatch :: IO ()
+testMixedWrappedRecursiveLambdaTypeMismatch = do
+  result <- compileSource defaultWarningSettings "f = if True \\(x) -> f x else 0. f 1."
+  case compileErrors result of
+    [] ->
+      failTest "expected mixed wrapped recursive lambda to fail compilation"
+    compileError : _ ->
+      assertContains
+        "mixed wrapped recursive lambda type mismatch code"
+        "E2002"
+        (renderDiagnostic compileError)
   assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
 
 testBlockWrappedRecursiveLambdaTypeMismatch :: IO ()

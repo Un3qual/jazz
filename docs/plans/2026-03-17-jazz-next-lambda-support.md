@@ -22,6 +22,7 @@
 - [x] Review follow-up complete: wrapped self-recursive lambdas now seed/capture recursion through `if`/`case`/block wrappers in `jazz-next`.
 - [x] Review follow-up complete: CodeRabbit safety/docs notes addressed for desugaring, invalid lambda lowering, closure-equality intent, and historical plan labeling.
 - [x] Review follow-up complete: recursive peer type seeding now preserves earlier visible bindings, and alias-only recursive runtime bridges fail with a deterministic diagnostic.
+- [x] Review follow-up complete: mixed `if`/`case` wrappers now seed recursive lambda typing early enough to reject non-function alternate branches deterministically.
 
 ## Scope Guardrails
 
