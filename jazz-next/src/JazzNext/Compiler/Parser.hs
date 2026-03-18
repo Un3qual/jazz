@@ -708,18 +708,15 @@ parseIfExpr ifToken tokensAfterIf = do
 
 parseCaseExpr :: Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseCaseExpr caseToken tokensAfterCase =
-  case tryCaseBodyCandidates Nothing [] tokensAfterCase of
-    Right parsedCaseExpr ->
-      Right parsedCaseExpr
-    Left maybeBodyDiagnostic ->
-      case maybeBodyDiagnostic of
-        Just diagnostic ->
-          Left diagnostic
-        Nothing -> do
-          (scrutineeExpr, afterScrutinee) <- parseExpr tokensAfterCase
-          tokensAfterLeftBrace <- consumeLeftBrace afterScrutinee caseBodyMissingMessage
-          (caseArms, remaining) <- parseCaseArms tokensAfterLeftBrace
-          pure (SECase scrutineeExpr caseArms, remaining)
+    case tryCaseBodyCandidates Nothing [] tokensAfterCase of
+      Right parsedCaseExpr ->
+        Right parsedCaseExpr
+      Left maybeBodyDiagnostic ->
+        case maybeBodyDiagnostic of
+          Just diagnostic ->
+            Left diagnostic
+          Nothing ->
+            Left (parseDiagnostic caseBodyMissingMessage)
   where
     caseBodyMissingMessage =
       "expected '{' before end of input after 'case' at " <> renderSourceSpan (tokenSpan caseToken)
@@ -747,10 +744,13 @@ parseCaseExpr caseToken tokensAfterCase =
                   Right (caseArms, remainingAfterCase) ->
                     Right (SECase scrutineeExpr caseArms, remainingAfterCase)
                   Left diagnostic ->
-                    tryCaseBodyCandidates
-                      (rememberFirstDiagnostic firstBodyDiagnostic diagnostic)
-                      (token : revPrefix)
-                      rest
+                    if braceLooksLikeScrutineeBlock candidateTokens
+                      then tryCaseBodyCandidates firstBodyDiagnostic (token : revPrefix) rest
+                      else
+                        tryCaseBodyCandidates
+                          (rememberLatestDiagnostic firstBodyDiagnostic diagnostic)
+                          (token : revPrefix)
+                          rest
               _ ->
                 tryCaseBodyCandidates firstBodyDiagnostic (token : revPrefix) rest
         token : rest ->
@@ -761,11 +761,21 @@ parseCaseExpr caseToken tokensAfterCase =
       tokensAfterLeftBrace <- consumeLeftBrace bodyTokens caseBodyMissingMessage
       parseCaseArms tokensAfterLeftBrace
 
-    rememberFirstDiagnostic :: Maybe Diagnostic -> Diagnostic -> Maybe Diagnostic
-    rememberFirstDiagnostic maybeDiagnostic newDiagnostic =
-      case maybeDiagnostic of
-        Just diagnostic -> Just diagnostic
-        Nothing -> Just newDiagnostic
+    rememberLatestDiagnostic :: Maybe Diagnostic -> Diagnostic -> Maybe Diagnostic
+    rememberLatestDiagnostic _ newDiagnostic = Just newDiagnostic
+
+    braceLooksLikeScrutineeBlock :: [Token] -> Bool
+    braceLooksLikeScrutineeBlock tokens =
+      case tokens of
+        Token {tokenKind = TLBrace} : rest -> go rest
+        _ -> False
+      where
+        go allTokens =
+          case allTokens of
+            [] -> False
+            Token {tokenKind = TDot} : _ -> True
+            Token {tokenKind = TRBrace} : _ -> False
+            _ : remaining -> go remaining
 
 parseCaseArms :: [Token] -> Either Diagnostic ([SurfaceCaseArm], [Token])
 parseCaseArms tokensAfterLeftBrace =

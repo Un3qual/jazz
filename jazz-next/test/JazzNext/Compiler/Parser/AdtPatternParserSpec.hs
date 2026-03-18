@@ -43,6 +43,8 @@ tests =
     ("parses nested case expression", testParsesNestedCaseExpression),
     ("parses pipe operator inside case arm body", testParsesPipeOperatorInsideCaseArmBody),
     ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument),
+    ("reports missing case body for block-valued scrutinee", testReportsMissingCaseBodyForBlockScrutinee),
+    ("reports missing arm arrow for block-valued scrutinee", testReportsMissingArmArrowForBlockScrutinee),
     ("rejects case expression without leading pipe", testRejectsCaseExpressionWithoutPipe),
     ("rejects case expression without arm arrow", testRejectsCaseExpressionWithoutArrow),
     ("lowers parsed case nodes into core AST", testLowerCaseExpression)
@@ -158,6 +160,20 @@ testParsesCaseScrutineeWithBlockArgument =
                 ]
             )
         ]
+
+testReportsMissingCaseBodyForBlockScrutinee :: IO ()
+testReportsMissingCaseBodyForBlockScrutinee =
+  assertLeftDiagnosticContains
+    "block scrutinee missing case body"
+    "expected '{' before end of input after 'case'"
+    (parseSurfaceProgram "x = case f { y = 1. y. }.")
+
+testReportsMissingArmArrowForBlockScrutinee :: IO ()
+testReportsMissingArmArrowForBlockScrutinee =
+  assertLeftDiagnosticContains
+    "block scrutinee missing arm arrow"
+    "expected '->'"
+    (parseSurfaceProgram "x = case f { y = 1. y. } { | 1 True }.")
 
 testRejectsCaseExpressionWithoutPipe :: IO ()
 testRejectsCaseExpressionWithoutPipe =
