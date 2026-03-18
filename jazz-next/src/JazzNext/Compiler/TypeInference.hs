@@ -304,19 +304,15 @@ inferExprType builtinMode env state expr =
                 )
           _ -> (Nothing, stateAfterConditionCheck)
     EPatternCase scrutineeExpr caseArms ->
-      let (_, stateAfterScrutinee) =
+      let (maybeScrutineeType, stateAfterScrutinee) =
             inferExprType builtinMode env state scrutineeExpr
-          stateAfterArms =
-            foldl'
-              (\stateAcc (CaseArm _ bodyExpr) -> snd (inferExprType builtinMode env stateAcc bodyExpr))
-              stateAfterScrutinee
-              caseArms
-       in
-        ( Nothing,
-          addTypeError
-            stateAfterArms
-            mkPatternCaseNotImplementedError
-        )
+          (scrutineeType, stateWithScrutineeType) =
+            case maybeScrutineeType of
+              Just inferredScrutineeType ->
+                (inferredScrutineeType, stateAfterScrutinee)
+              Nothing ->
+                freshTypeVar stateAfterScrutinee
+       in inferPatternCaseType builtinMode env scrutineeType stateWithScrutineeType caseArms
     EBinary operatorSymbol leftExpr rightExpr ->
       let (leftType, stateAfterLeft) =
             inferExprType builtinMode env state leftExpr
@@ -1419,9 +1415,25 @@ mkUnsupportedOperatorValueError :: Text -> Diagnostic
 mkUnsupportedOperatorValueError operatorSymbol =
   mkDiagnostic "E2010" ("unsupported operator value '" <> operatorSymbol <> "'")
 
-mkPatternCaseNotImplementedError :: Diagnostic
-mkPatternCaseNotImplementedError =
-  mkDiagnostic "E2011" "pattern case matching is not implemented yet"
+mkPatternTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
+mkPatternTypeMismatchError scrutineeType patternType =
+  mkDiagnostic
+    "E2011"
+    ( "case pattern of type "
+        <> renderType patternType
+        <> " does not match scrutinee type "
+        <> renderType scrutineeType
+    )
+
+mkPatternBranchTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
+mkPatternBranchTypeMismatchError leftType rightType =
+  mkDiagnostic
+    "E2012"
+    ( "case arms must have matching types, found "
+        <> renderType leftType
+        <> " and "
+        <> renderType rightType
+    )
 
 mkInvalidSignatureTypeError :: Text -> SourceSpan -> Text -> Diagnostic
 mkInvalidSignatureTypeError symbol signatureSpan rawSignature =
@@ -1474,6 +1486,79 @@ extendBoundWithPattern pattern bound =
     PVariable name -> Set.insert (identifierText name) bound
     PWildcard -> bound
     PLiteral {} -> bound
+
+inferPatternCaseType ::
+  BuiltinResolutionMode ->
+  Map Text ExpressionType ->
+  ExpressionType ->
+  InferState ->
+  [CaseArm] ->
+  (Maybe ExpressionType, InferState)
+inferPatternCaseType builtinMode env scrutineeType initialState caseArms =
+  foldl' step (Nothing, initialState) caseArms
+  where
+    step ::
+      (Maybe ExpressionType, InferState) ->
+      CaseArm ->
+      (Maybe ExpressionType, InferState)
+    step (maybeExpectedBodyType, stateAcc) (CaseArm pattern bodyExpr) =
+      let stateAfterPattern =
+            inferPatternType scrutineeType pattern stateAcc
+          armEnv =
+            extendTypeEnvWithPattern
+              pattern
+              (resolveType stateAfterPattern scrutineeType)
+              env
+          (maybeBodyType, stateAfterBody) =
+            inferExprType builtinMode armEnv stateAfterPattern bodyExpr
+       in
+        case (maybeExpectedBodyType, maybeBodyType) of
+          (Nothing, _) ->
+            (fmap (resolveType stateAfterBody) maybeBodyType, stateAfterBody)
+          (expectedBodyType, Nothing) ->
+            (expectedBodyType, stateAfterBody)
+          (Just inferredExpectedBodyType, Just inferredBodyType) ->
+            case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBody of
+              Just unifiedState ->
+                (Just (resolveType unifiedState inferredExpectedBodyType), unifiedState)
+              Nothing ->
+                ( Just inferredExpectedBodyType,
+                  addTypeError
+                    stateAfterBody
+                    ( mkPatternBranchTypeMismatchError
+                        (resolveType stateAfterBody inferredExpectedBodyType)
+                        (resolveType stateAfterBody inferredBodyType)
+                    )
+                )
+
+inferPatternType :: ExpressionType -> Pattern -> InferState -> InferState
+inferPatternType scrutineeType pattern state =
+  case pattern of
+    PVariable {} -> state
+    PWildcard -> state
+    PLiteral literal ->
+      let literalType = literalExpressionType literal
+       in case unifyTypes scrutineeType literalType state of
+            Just unifiedState -> unifiedState
+            Nothing ->
+              addTypeError
+                state
+                ( mkPatternTypeMismatchError
+                    (resolveType state scrutineeType)
+                    literalType
+                )
+
+extendTypeEnvWithPattern ::
+  Pattern ->
+  ExpressionType ->
+  Map Text ExpressionType ->
+  Map Text ExpressionType
+extendTypeEnvWithPattern pattern scrutineeType env =
+  case pattern of
+    PVariable name ->
+      Map.insert (identifierText name) scrutineeType env
+    PWildcard -> env
+    PLiteral {} -> env
 
 supportsRuntimeEqualityType :: ExpressionType -> Bool
 supportsRuntimeEqualityType expressionType =

@@ -55,9 +55,11 @@ tests =
     ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError),
     ("mixed wrapped alias cycle still produces deterministic runtime diagnostic", testMixedWrappedAliasCycleRuntimeError),
     ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError),
+    ("pattern-case alias-only recursive cycle produces deterministic runtime diagnostic", testPatternCaseAliasOnlyRecursiveCycleRuntimeError),
+    ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer),
     ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError),
     ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError),
-    ("pattern-case recursive cycle reaches runtime placeholder", testPatternCaseRecursiveCycleRuntimeError),
+    ("pattern-case without a matching arm produces deterministic runtime diagnostic", testPatternCaseNoMatchRuntimeError),
     ("bare dollar operator value applies at runtime", testDollarOperatorValueRuntimeSuccess),
     ("bare operator value applies at runtime", testBareOperatorValueRuntimeSuccess),
     ("explicit partial application of bare operator value applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess),
@@ -195,6 +197,33 @@ testWrappedAliasCycleConditionRuntimeError = do
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
+testPatternCaseAliasOnlyRecursiveCycleRuntimeError :: IO ()
+testPatternCaseAliasOnlyRecursiveCycleRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "x = case 0 { | 0 -> y }. y = x. x.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected pattern-case alias-only recursive cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for pattern-case alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "pattern-case alias cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "pattern-case alias cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testPatternCaseBinderDoesNotAliasRecursivePeer :: IO ()
+testPatternCaseBinderDoesNotAliasRecursivePeer = do
+  result <- runSource defaultWarningSettings "x = case 0 { | y -> y }. y = x. x."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "0") (runOutput result)
+
 testBlockWrappedAliasOnlyRecursiveCycleRuntimeError :: IO ()
 testBlockWrappedAliasOnlyRecursiveCycleRuntimeError = do
   maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "a = { b. }. b = { a. }. a.") :: IO (Either SomeException RunResult))
@@ -235,30 +264,22 @@ testNonFunctionRecursiveCycleRuntimeError = do
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
-testPatternCaseRecursiveCycleRuntimeError :: IO ()
-testPatternCaseRecursiveCycleRuntimeError = do
-  let result = evaluateRuntimeExpr patternCaseRecursiveCycleExpr
+testPatternCaseNoMatchRuntimeError :: IO ()
+testPatternCaseNoMatchRuntimeError = do
+  let result = evaluateRuntimeExpr patternCaseNoMatchExpr
   assertLeftDiagnosticCodeAndContains
-    "pattern-case recursive cycle runtime code"
+    "pattern-case no-match runtime code"
     "E3022"
-    "pattern case matching is not implemented yet"
+    "matched no arms"
     result
 
-patternCaseRecursiveCycleExpr :: Expr
-patternCaseRecursiveCycleExpr =
-  EBlock
-    [ SLet "x" (SourceSpan 1 1) (EVar "y"),
-      SLet
-        "y"
-        (SourceSpan 1 1)
-        ( EPatternCase
-            (ELit (LInt 1))
-            [ CaseArm
-                PWildcard
-                (EBinary "+" (EVar "x") (ELit (LInt 1)))
-            ]
-        ),
-      SExpr (SourceSpan 1 1) (EVar "x")
+patternCaseNoMatchExpr :: Expr
+patternCaseNoMatchExpr =
+  EPatternCase
+    (ELit (LInt 1))
+    [ CaseArm
+        (PLiteral (LInt 0))
+        (ELit (LInt 2))
     ]
 
 testDollarOperatorValueRuntimeSuccess :: IO ()
