@@ -2,7 +2,12 @@
 
 module Main (main) where
 
+import Control.Exception
+  ( SomeException,
+    try
+  )
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
@@ -27,9 +32,12 @@ import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
-    failTest,
     assertSingleDiagnosticContains,
+    failTest,
     runTestSuite
+  )
+import System.Timeout
+  ( timeout
   )
 
 main :: IO ()
@@ -40,6 +48,7 @@ tests =
   [ ("if with False condition skips then branch runtime failure", testIfFalseSkipsThenRuntimeFailure),
     ("if with True condition skips else branch runtime failure", testIfTrueSkipsElseRuntimeFailure),
     ("division by zero produces fatal runtime diagnostic", testDivisionByZeroRuntimeError),
+    ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError),
     ("bare dollar operator value applies at runtime", testDollarOperatorValueRuntimeSuccess),
     ("bare operator value applies at runtime", testBareOperatorValueRuntimeSuccess),
     ("explicit partial application of bare operator value applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess),
@@ -96,6 +105,26 @@ testDivisionByZeroRuntimeError = do
         "division by zero"
         (renderDiagnostic runtimeError)
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testAliasOnlyRecursiveCycleRuntimeError :: IO ()
+testAliasOnlyRecursiveCycleRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "even = odd. odd = even. even.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected alias-only recursive cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "alias-only recursive cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "alias-only recursive cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
 testDollarOperatorValueRuntimeSuccess :: IO ()
 testDollarOperatorValueRuntimeSuccess = do

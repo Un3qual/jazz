@@ -174,9 +174,33 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
     bindingCell :: Int -> Identifier -> Expr -> RuntimeCell
     bindingCell statementIndex bindingName valueExpr =
       case recursiveAliasTarget statementIndex valueExpr of
-        Just targetIndex -> bindingCellAt targetIndex
+        Just targetIndex ->
+          case resolveRecursiveAliasTarget (Set.singleton statementIndex) targetIndex of
+            Left diagnostic -> Left diagnostic
+            Right resolvedTargetIndex -> bindingCellAt resolvedTargetIndex
         Nothing ->
           evalValue builtinMode (bindingEnv statementIndex bindingName) valueExpr
+
+    -- Alias bridges can legitimately point across a recursive SCC, but pure
+    -- alias loops need a deterministic diagnostic instead of infinite forcing.
+    resolveRecursiveAliasTarget :: Set Int -> Int -> Either Diagnostic Int
+    resolveRecursiveAliasTarget visited statementIndex
+      | Set.member statementIndex visited =
+          Left (runtimeDiagnostic "E3021" "runtime recursive alias cycle has no concrete value")
+      | otherwise =
+          case Map.lookup statementIndex statementsByIndex of
+            Just (SLet _ _ aliasExpr) ->
+              case recursiveAliasTarget statementIndex aliasExpr of
+                Just nextTargetIndex ->
+                  resolveRecursiveAliasTarget (Set.insert statementIndex visited) nextTargetIndex
+                Nothing ->
+                  Right statementIndex
+            Just _ ->
+              Left
+                (runtimeDiagnostic "E3020" "internal runtime error: expected binding statement while resolving alias")
+            Nothing ->
+              Left
+                (runtimeDiagnostic "E3020" "internal runtime error: missing binding statement while resolving alias")
 
     bindingEnv :: Int -> Identifier -> RuntimeEnv
     bindingEnv statementIndex bindingName =

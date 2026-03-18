@@ -810,15 +810,19 @@ recursiveBindingEnv statementIndex env recursiveGroupsByStatement bindingNamesBy
   case Map.lookup statementIndex recursiveGroupsByStatement of
     Nothing -> env
     Just groupMembers ->
-      Map.union
-        ( Map.fromList
-            [ (bindingNameText, bindingSeed)
-              | memberIndex <- groupMembers,
-                Just bindingNameText <- [Map.lookup memberIndex bindingNamesByStatement],
-                Just bindingSeed <- [Map.lookup memberIndex bindingSeedsByStatement]
-            ]
-        )
-        env
+      foldl' insertBindingSeed env groupMembers
+  where
+    -- Preserve the declaration-time snapshot already visible in `env`; only
+    -- missing peer names should be seeded into the recursive inference scope.
+    insertBindingSeed envAcc memberIndex =
+      case
+          ( Map.lookup memberIndex bindingNamesByStatement,
+            Map.lookup memberIndex bindingSeedsByStatement
+          ) of
+        (Just bindingNameText, Just bindingSeed)
+          | Map.notMember bindingNameText env ->
+              Map.insert bindingNameText bindingSeed envAcc
+        _ -> envAcc
 
 -- | Keep recursive binding visibility aligned with the analyzer so recursive
 -- calls constrain the same names that semantic analysis already allows.
