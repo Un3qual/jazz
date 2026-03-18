@@ -11,8 +11,7 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 
 | id | title | blocked_on | reason | plan | last_verified |
 | --- | --- | --- | --- | --- | --- |
-
-No blocked items currently.
+| `EXEC-QUEUE-EMPTY-001` | Seed the next curated batch | `Maintainer queue curation` | `Ready Now` is empty, so curated execution cannot select a safe batch without violating the queue-first dispatch contract. Smallest recovery action: add one verified active-path item to `Ready Now` with its plan link, concrete deliverable, and exact verification command. | [2026-03-17-execution-dispatch.md](../plans/2026-03-17-execution-dispatch.md) | `2026-03-18` |
 
 ## Done
 
