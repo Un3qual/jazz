@@ -667,12 +667,9 @@ evalValue builtinMode env expr =
                 "E3003"
                 ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
             )
-    EPatternCase {} ->
-      Left
-        ( runtimeDiagnostic
-            "E3022"
-            "pattern case matching is not implemented yet"
-        )
+    EPatternCase scrutineeExpr caseArms -> do
+      scrutineeValue <- evalValue builtinMode env scrutineeExpr
+      evalPatternCase builtinMode env scrutineeValue caseArms
     EBinary operatorSymbol leftExpr rightExpr -> do
       leftValue <- evalValue builtinMode env leftExpr
       rightValue <- evalValue builtinMode env rightExpr
@@ -696,6 +693,60 @@ literalRuntimeValue literal =
   case literal of
     LInt value -> VInt value
     LBool value -> VBool value
+
+evalPatternCase ::
+  BuiltinResolutionMode ->
+  RuntimeEnv ->
+  RuntimeValue ->
+  [CaseArm] ->
+  Either Diagnostic RuntimeValue
+evalPatternCase builtinMode env scrutineeValue caseArms =
+  case selectMatchingCaseArm env scrutineeValue caseArms of
+    Just (armEnv, bodyExpr) ->
+      evalValue builtinMode armEnv bodyExpr
+    Nothing ->
+      Left
+        ( runtimeDiagnostic
+            "E3022"
+            "pattern case matched no arms"
+        )
+
+selectMatchingCaseArm ::
+  RuntimeEnv ->
+  RuntimeValue ->
+  [CaseArm] ->
+  Maybe (RuntimeEnv, Expr)
+selectMatchingCaseArm env scrutineeValue =
+  foldr chooseArm Nothing
+  where
+    chooseArm caseArm nextMatch =
+      case matchCaseArm env scrutineeValue caseArm of
+        Just matchedArm -> Just matchedArm
+        Nothing -> nextMatch
+
+matchCaseArm ::
+  RuntimeEnv ->
+  RuntimeValue ->
+  CaseArm ->
+  Maybe (RuntimeEnv, Expr)
+matchCaseArm env scrutineeValue (CaseArm pattern bodyExpr) =
+  case matchPattern scrutineeValue pattern of
+    Just patternBindings ->
+      Just (Map.union patternBindings env, bodyExpr)
+    Nothing -> Nothing
+
+matchPattern :: RuntimeValue -> Pattern -> Maybe RuntimeEnv
+matchPattern scrutineeValue pattern =
+  case pattern of
+    PWildcard -> Just Map.empty
+    PVariable name ->
+      Just
+        (Map.singleton (identifierText name) (Right scrutineeValue))
+    PLiteral literal
+      | scrutineeValue == literalRuntimeValue literal ->
+          Just Map.empty
+      | otherwise ->
+          Nothing
 
 -- | Apply any callable runtime value, including sections, builtin primitives,
 -- and curried operator values.

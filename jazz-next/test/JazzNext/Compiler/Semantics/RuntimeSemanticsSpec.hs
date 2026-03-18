@@ -57,7 +57,7 @@ tests =
     ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError),
     ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError),
     ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError),
-    ("pattern-case recursive cycle reaches runtime placeholder", testPatternCaseRecursiveCycleRuntimeError),
+    ("pattern-case without a matching arm produces deterministic runtime diagnostic", testPatternCaseNoMatchRuntimeError),
     ("bare dollar operator value applies at runtime", testDollarOperatorValueRuntimeSuccess),
     ("bare operator value applies at runtime", testBareOperatorValueRuntimeSuccess),
     ("explicit partial application of bare operator value applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess),
@@ -235,30 +235,22 @@ testNonFunctionRecursiveCycleRuntimeError = do
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
-testPatternCaseRecursiveCycleRuntimeError :: IO ()
-testPatternCaseRecursiveCycleRuntimeError = do
-  let result = evaluateRuntimeExpr patternCaseRecursiveCycleExpr
+testPatternCaseNoMatchRuntimeError :: IO ()
+testPatternCaseNoMatchRuntimeError = do
+  let result = evaluateRuntimeExpr patternCaseNoMatchExpr
   assertLeftDiagnosticCodeAndContains
-    "pattern-case recursive cycle runtime code"
+    "pattern-case no-match runtime code"
     "E3022"
-    "pattern case matching is not implemented yet"
+    "matched no arms"
     result
 
-patternCaseRecursiveCycleExpr :: Expr
-patternCaseRecursiveCycleExpr =
-  EBlock
-    [ SLet "x" (SourceSpan 1 1) (EVar "y"),
-      SLet
-        "y"
-        (SourceSpan 1 1)
-        ( EPatternCase
-            (ELit (LInt 1))
-            [ CaseArm
-                PWildcard
-                (EBinary "+" (EVar "x") (ELit (LInt 1)))
-            ]
-        ),
-      SExpr (SourceSpan 1 1) (EVar "x")
+patternCaseNoMatchExpr :: Expr
+patternCaseNoMatchExpr =
+  EPatternCase
+    (ELit (LInt 1))
+    [ CaseArm
+        (PLiteral (LInt 0))
+        (ELit (LInt 2))
     ]
 
 testDollarOperatorValueRuntimeSuccess :: IO ()

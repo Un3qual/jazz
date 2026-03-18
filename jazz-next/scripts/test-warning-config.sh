@@ -22,6 +22,7 @@ TEST_FILES=(
   jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
   jazz-next/test/JazzNext/Compiler/Semantics/IfExpressionTypeSpec.hs
   jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
+  jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
   jazz-next/test/JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs
   jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
   jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs

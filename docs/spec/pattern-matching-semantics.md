@@ -1,6 +1,6 @@
 # Pattern Matching Semantics
 
-Status: active (Milestone 1 contract lock; parser/core `case` subset is landed in `jazz-next`, type/runtime execution remains staged)
+Status: active (simple `case` subset is implemented end-to-end in `jazz-next`; constructor/list/ADT extensions remain staged)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -61,17 +61,16 @@ flag = case n { | 0 -> True | _ -> False }.
 copy = case value { | item -> item }.
 ```
 
-## Current Implementation Gap
+## Current Active Execution State
 
-1. Parser, surface AST, core AST, and lowering already implement this simple
-   subset in `jazz-next`.
-2. Until `JN-ADT-SIMPLE-SEM-001` lands, analyzer/type flows still emit the
-   deterministic `E2011` placeholder for direct `EPatternCase` typing.
-3. Until `JN-ADT-SIMPLE-SEM-001` lands, runtime evaluation still emits the
-   deterministic `E3022` placeholder if execution reaches direct pattern
-   matching.
-4. Those placeholders are a temporary implementation gap, not the long-term
-   contract for the committed simple subset.
+1. Parser, surface AST, core AST, analyzer/type flows, and runtime execution
+   now all implement this simple subset in `jazz-next`.
+2. Literal patterns must agree with the scrutinee type; incompatible literal
+   patterns produce compile-time `E2011` diagnostics.
+3. All arm bodies must agree on one result type; mismatched arm result types
+   produce compile-time `E2012` diagnostics.
+4. If no arm matches at runtime, evaluation emits deterministic `E3022`
+   diagnostics rather than falling through silently.
 
 ## Deferred Pattern Forms
 

@@ -470,7 +470,7 @@ If this repo is going to become a coherent language project, the highest-value c
 Status update for item `#1`:
 
 - Active-path ADT/pattern contract is now recorded in `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md`.
-- The currently landed `jazz-next` subset is direct `case` parsing/lowering with literal, wildcard, and variable patterns only; analyzer/runtime still carry temporary `E2011` / `E3022` placeholders until the next execution batch lands.
+- The currently landed `jazz-next` subset is direct `case` parsing/lowering plus analyzer/type/runtime execution for literal, wildcard, and variable patterns.
 - `data`, constructor/list patterns, tuple patterns, and lambda-parameter patterns remain explicitly deferred on the active path.
 
 Status update for item `#3`:
@@ -483,7 +483,7 @@ Status update for item `#5`:
 - Implemented-vs-planned split is now published in `README.md`.
 - Canonical evidence-backed feature status is now tracked in `docs/feature-status.md`.
 
-1. Execute the remaining active-path ADT/pattern batches in `jazz-next`, starting with simple-pattern typing/runtime semantics and dedicated coverage.
+1. Execute the remaining active-path ADT/pattern batches in `jazz-next`, starting with `data` declarations, constructor values, and constructor/list pattern support.
 2. Rebase module/import loader planning (`domain 09`) onto `jazz-next` with deterministic file-resolution diagnostics.
 3. Finish remaining stdlib-boundary follow-up work (`domain 10`) in `jazz-next`, especially broader catalog cleanup and reproducibility evidence.
 4. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.
