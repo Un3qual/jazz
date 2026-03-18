@@ -249,47 +249,90 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
       | otherwise =
           runtimeValue
 
-    recursiveAliasTarget :: Int -> Expr -> Maybe Int
-    recursiveAliasTarget statementIndex valueExpr =
+    recursiveAliasTarget :: Set Text -> Int -> Expr -> Maybe Int
+    recursiveAliasTarget locallyBoundNames statementIndex valueExpr =
       case peelSingleExprBlock valueExpr of
         EVar targetName ->
-          case Map.lookup statementIndex recursiveGroups of
-            Just groupMembers ->
-              lookupRecursivePeer targetName groupMembers
-            Nothing -> Nothing
+          if Set.member (identifierText targetName) locallyBoundNames
+            then Nothing
+            else
+              case Map.lookup statementIndex recursiveGroups of
+                Just groupMembers ->
+                  lookupRecursivePeer targetName groupMembers
+                Nothing -> Nothing
         _ -> Nothing
 
     -- Preserve wrapper runtime semantics by evaluating the branch condition
     -- first, then following alias resolution only through the selected branch.
     selectedRecursiveAliasTarget :: Int -> RuntimeEnv -> Expr -> Either Diagnostic (Maybe Int)
-    selectedRecursiveAliasTarget statementIndex env expr =
+    selectedRecursiveAliasTarget =
+      selectedRecursiveAliasTargetWithBound Set.empty
+
+    selectedRecursiveAliasTargetWithBound ::
+      Set Text ->
+      Int ->
+      RuntimeEnv ->
+      Expr ->
+      Either Diagnostic (Maybe Int)
+    selectedRecursiveAliasTargetWithBound locallyBoundNames statementIndex env expr =
       case peelSingleExprBlock expr of
         EIf conditionExpr thenExpr elseExpr ->
-          selectRecursiveAliasTarget statementIndex env conditionExpr thenExpr elseExpr
+          selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr
         ECase conditionExpr thenExpr elseExpr ->
-          selectRecursiveAliasTarget statementIndex env conditionExpr thenExpr elseExpr
-        -- Unsupported pattern matching must not silently participate in alias
-        -- resolution, or recursive bindings can surface alias-cycle errors
-        -- instead of the intended runtime placeholder diagnostic.
-        EPatternCase {} ->
-          Right Nothing
+          selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr
+        EPatternCase scrutineeExpr caseArms -> do
+          scrutineeValue <- evalValue builtinMode env scrutineeExpr
+          case selectMatchingCaseArmForAlias env scrutineeValue caseArms of
+            Just (newLocallyBoundNames, armEnv, bodyExpr) ->
+              selectedRecursiveAliasTargetWithBound
+                (Set.union locallyBoundNames newLocallyBoundNames)
+                statementIndex
+                armEnv
+                bodyExpr
+            Nothing ->
+              Right Nothing
         peeledExpr ->
-          Right (recursiveAliasTarget statementIndex peeledExpr)
+          Right (recursiveAliasTarget locallyBoundNames statementIndex peeledExpr)
 
-    selectRecursiveAliasTarget :: Int -> RuntimeEnv -> Expr -> Expr -> Expr -> Either Diagnostic (Maybe Int)
-    selectRecursiveAliasTarget statementIndex env conditionExpr thenExpr elseExpr = do
+    selectRecursiveAliasTarget :: Set Text -> Int -> RuntimeEnv -> Expr -> Expr -> Expr -> Either Diagnostic (Maybe Int)
+    selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr = do
       conditionValue <- evalValue builtinMode env conditionExpr
       case conditionValue of
         VBool True ->
-          selectedRecursiveAliasTarget statementIndex env thenExpr
+          selectedRecursiveAliasTargetWithBound locallyBoundNames statementIndex env thenExpr
         VBool False ->
-          selectedRecursiveAliasTarget statementIndex env elseExpr
+          selectedRecursiveAliasTargetWithBound locallyBoundNames statementIndex env elseExpr
         other ->
           Left
             ( runtimeDiagnostic
                 "E3003"
                 ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
             )
+
+    selectMatchingCaseArmForAlias ::
+      RuntimeEnv ->
+      RuntimeValue ->
+      [CaseArm] ->
+      Maybe (Set Text, RuntimeEnv, Expr)
+    selectMatchingCaseArmForAlias env scrutineeValue =
+      foldr chooseArm Nothing
+      where
+        chooseArm caseArm nextMatch =
+          case matchCaseArm env scrutineeValue caseArm of
+            Just (armEnv, bodyExpr) ->
+              Just
+                ( caseArmBoundNames caseArm,
+                  armEnv,
+                  bodyExpr
+                )
+            Nothing -> nextMatch
+
+    caseArmBoundNames :: CaseArm -> Set Text
+    caseArmBoundNames (CaseArm pattern _) =
+      case pattern of
+        PVariable name -> Set.singleton (identifierText name)
+        PWildcard -> Set.empty
+        PLiteral {} -> Set.empty
 
     -- Single-expression blocks are semantically transparent here, so peel
     -- them before following recursive alias edges and cycle detection.
