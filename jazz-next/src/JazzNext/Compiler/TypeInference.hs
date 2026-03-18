@@ -797,8 +797,45 @@ exprContainsFunctionBranch expr =
 scopeContainsFunctionBranch :: [Statement] -> Bool
 scopeContainsFunctionBranch statements =
   case reverse statements of
-    SExpr _ expr : _ -> exprContainsFunctionBranch expr
+    SExpr _ expr : _ ->
+      exprContainsFunctionBranchViaScopeBindings
+        (collectScopeBindingExprs statements)
+        Set.empty
+        expr
     _ -> False
+  where
+    -- Mirror runtime block-shape detection so recursive lambda seeding stays
+    -- aligned when a block returns a locally-bound lambda alias.
+    exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings scopeExpr =
+      case scopeExpr of
+        EVar bindingName ->
+          case Map.lookup (identifierText bindingName) scopeBindings of
+            Just bindingExpr
+              | Set.notMember (identifierText bindingName) visitedBindings ->
+                  exprContainsFunctionBranchViaScopeBindings
+                    scopeBindings
+                    (Set.insert (identifierText bindingName) visitedBindings)
+                    bindingExpr
+            _ -> False
+        ELambda {} -> True
+        EIf _ thenExpr elseExpr ->
+          exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
+            || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
+        ECase _ thenExpr elseExpr ->
+          exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
+            || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
+        EBlock nestedStatements ->
+          scopeContainsFunctionBranch nestedStatements
+        _ -> False
+
+    collectScopeBindingExprs =
+      foldl' collect Map.empty
+      where
+        collect scopeBindings statement =
+          case statement of
+            SLet bindingName _ valueExpr ->
+              Map.insert (identifierText bindingName) valueExpr scopeBindings
+            _ -> scopeBindings
 
 recursiveBindingEnv ::
   Int ->

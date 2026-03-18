@@ -183,7 +183,9 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
             exprDefinitelyNotFunctionValue valueExpr ->
               Left (runtimeDiagnostic "E3021" "runtime recursive binding has no concrete value")
           | otherwise ->
-          evalValue builtinMode (bindingEnv statementIndex bindingName) valueExpr
+              do
+                evaluatedValue <- evalValue builtinMode (bindingEnv statementIndex bindingName) valueExpr
+                Right (attachSelfRecursiveBinding statementIndex bindingName evaluatedValue)
 
     -- Alias bridges can legitimately point across a recursive SCC, but pure
     -- alias loops need a deterministic diagnostic instead of infinite forcing.
@@ -221,7 +223,23 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
     recursiveBindingNeedsSelf :: Int -> Bool
     recursiveBindingNeedsSelf statementIndex =
       Map.member statementIndex recursiveGroups
-        || Set.member statementIndex selfRecursiveFunctionStatements
+
+    -- Wrapper expressions like `if` and `{ g = \(x) -> f x. g. }` should
+    -- evaluate to their closure first, then get their own binding stitched
+    -- into the captured env without forcing the whole wrapper through a
+    -- self-referential scope during evaluation.
+    attachSelfRecursiveBinding :: Int -> Identifier -> RuntimeValue -> RuntimeValue
+    attachSelfRecursiveBinding statementIndex bindingName runtimeValue
+      | Set.member statementIndex selfRecursiveFunctionStatements =
+          case runtimeValue of
+            VClosure capturedEnv parameterName bodyExpr ->
+              VClosure
+                (Map.insert (identifierText bindingName) (bindingCellAt statementIndex) capturedEnv)
+                parameterName
+                bodyExpr
+            _ -> runtimeValue
+      | otherwise =
+          runtimeValue
 
     recursiveAliasTarget :: Int -> Expr -> Maybe Int
     recursiveAliasTarget statementIndex valueExpr =
@@ -334,8 +352,46 @@ exprContainsFunctionBranch expr =
 scopeContainsFunctionBranch :: [Statement] -> Bool
 scopeContainsFunctionBranch statements =
   case reverse statements of
-    SExpr _ expr : _ -> exprContainsFunctionBranch expr
+    SExpr _ expr : _ ->
+      exprContainsFunctionBranchViaScopeBindings
+        (collectScopeBindingExprs statements)
+        Set.empty
+        expr
     _ -> False
+  where
+    -- Block expressions can return a locally-bound alias like `g`, so resolve
+    -- same-block alias chains before deciding whether the terminal value is a
+    -- lambda-shaped recursive binding.
+    exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings scopeExpr =
+      case scopeExpr of
+        EVar bindingName ->
+          case Map.lookup (identifierText bindingName) scopeBindings of
+            Just bindingExpr
+              | Set.notMember (identifierText bindingName) visitedBindings ->
+                  exprContainsFunctionBranchViaScopeBindings
+                    scopeBindings
+                    (Set.insert (identifierText bindingName) visitedBindings)
+                    bindingExpr
+            _ -> False
+        ELambda {} -> True
+        EIf _ thenExpr elseExpr ->
+          exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
+            || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
+        ECase _ thenExpr elseExpr ->
+          exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
+            || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
+        EBlock nestedStatements ->
+          scopeContainsFunctionBranch nestedStatements
+        _ -> False
+
+    collectScopeBindingExprs =
+      foldl' collect Map.empty
+      where
+        collect scopeBindings statement =
+          case statement of
+            SLet bindingName _ valueExpr ->
+              Map.insert (identifierText bindingName) valueExpr scopeBindings
+            _ -> scopeBindings
 
 -- Fail fast only when a recursive SCC member is obviously non-function-valued;
 -- anything more ambiguous should keep the previous runtime path.

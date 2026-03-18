@@ -25,6 +25,7 @@
 - [x] Review follow-up complete: mixed `if`/`case` wrappers now seed recursive lambda typing early enough to reject non-function alternate branches deterministically.
 - [x] Review follow-up complete: block-wrapped recursive alias loops now hit deterministic `E3021`, and duplicate lambda parameter shadowing is locked as intentional lowering behavior.
 - [x] Review follow-up complete: runtime self-recursive wrapper seeding now matches branch-sensitive lambda typing, and obviously non-function recursive SCCs fail with deterministic `E3021`.
+- [x] Review follow-up complete: block-returned lambda aliases now seed recursive typing/runtime correctly, including recursive mismatch rejection through same-block alias returns.
 - [ ] Next task queued and un-deferred: extract shared recursive-binding helpers into `JazzNext.Compiler.RecursiveBindings` per `docs/plans/2026-03-17-jazz-next-shared-recursive-binding-helpers.md`.
 
 ## Next Task
