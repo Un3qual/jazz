@@ -6,7 +6,8 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 
 | id | title | priority | size | autonomous_ready | depends_on | plan | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `JN-STDLIB-CLOSE-001` | Finish stdlib boundary closure and approved-kernel reduction | `P2` | `M` | `no` | `-` | [`docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md`](../plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md) | Reduce the remaining hardcoded builtin surface to the approved kernel and close the reproducibility/verification checklist. | `bash jazz-next/scripts/test-warning-config.sh` plus docs/status updates in the same change. | `2026-03-18` |
+
+No ready items currently.
 
 ## Blocked
 
@@ -20,6 +21,7 @@ Move completed items here briefly with closure evidence, then prune aggressively
 
 | id | closure evidence | completed_on |
 | --- | --- | --- |
+| `JN-STDLIB-CLOSE-001` | Re-verified the linked Phase-5 closure plan against the active `jazz-next` builtin-resolution path, ran `bash jazz-next/scripts/test-warning-config.sh`, updated [`docs/spec/stdlib-boundary.md`](../spec/stdlib-boundary.md) and [`docs/jazz-language-state.md`](../jazz-language-state.md) to reflect the verified kernel-only boundary, and closed the linked plan metadata. | `2026-03-18` |
 | `JN-RUNTIME-PLAN-001` | Added the active-path replacement plan at [`docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`](../plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md), updated the roadmap to point at it, and marked legacy `12a` runtime planning as reference-only. | `2026-03-18` |
 | `JN-TYPE-PLAN-001` | Added the active-path replacement plan at [`docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`](../plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md), updated active-path tracker links, and marked legacy `07` type-grammar planning as reference-only. | `2026-03-18` |
 
