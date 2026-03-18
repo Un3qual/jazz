@@ -1,5 +1,6 @@
 # Spec Clarification Item #11: ADT and Pattern-Matching Positioning (Locked: CORE)
 
+> **Legacy note (2026-03-18):** this plan is `jazz-hs`-targeted and remains reference-only for new work. Active-path ADT/pattern planning and execution now live in `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`.
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to execute this plan phase-by-phase.
 
 **Goal:** Treat ADTs and pattern matching as core language commitments and define a concrete, testable path to full parser/analyzer/interpreter support.

@@ -19,7 +19,9 @@ TEST_FILES=(
   jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
   jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs
   jazz-next/test/JazzNext/Compiler/Parser/IfExpressionParserSpec.hs
+  jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
   jazz-next/test/JazzNext/Compiler/Semantics/IfExpressionTypeSpec.hs
+  jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
   jazz-next/test/JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs
   jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
   jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs

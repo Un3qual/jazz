@@ -4,7 +4,8 @@ module JazzNext.Compiler.Desugar
   ) where
 
 import JazzNext.Compiler.AST
-  ( Expr (..),
+  ( CaseArm (..),
+    Expr (..),
     Statement (..)
   )
 
@@ -32,6 +33,10 @@ desugarExpr expr =
         (desugarExpr conditionExpr)
         (desugarExpr thenExpr)
         (desugarExpr elseExpr)
+    EPatternCase scrutineeExpr caseArms ->
+      EPatternCase
+        (desugarExpr scrutineeExpr)
+        (map desugarCaseArm caseArms)
     EBinary operatorSymbol leftExpr rightExpr ->
       EBinary operatorSymbol (desugarExpr leftExpr) (desugarExpr rightExpr)
     ESectionLeft leftExpr operatorSymbol ->
@@ -55,3 +60,7 @@ desugarStatement statement =
       SImport spanValue modulePath alias importedSymbols
     SExpr spanValue expr ->
       SExpr spanValue (desugarExpr expr)
+
+desugarCaseArm :: CaseArm -> CaseArm
+desugarCaseArm (CaseArm patternExpr bodyExpr) =
+  CaseArm patternExpr (desugarExpr bodyExpr)

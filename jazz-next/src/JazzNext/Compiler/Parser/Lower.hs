@@ -5,13 +5,17 @@ module JazzNext.Compiler.Parser.Lower
   ) where
 
 import JazzNext.Compiler.AST
-  ( Expr (..),
+  ( CaseArm (..),
+    Expr (..),
     Literal (..),
+    Pattern (..),
     Statement (..)
   )
 import JazzNext.Compiler.Parser.AST
-  ( SurfaceExpr (..),
+  ( SurfaceCaseArm (..),
+    SurfaceExpr (..),
     SurfaceLiteral (..),
+    SurfacePattern (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Identifier
@@ -39,6 +43,10 @@ lowerSurfaceExpr surfaceExpr =
         (lowerSurfaceExpr conditionExpr)
         (lowerSurfaceExpr thenExpr)
         (lowerSurfaceExpr elseExpr)
+    SECase scrutineeExpr caseArms ->
+      EPatternCase
+        (lowerSurfaceExpr scrutineeExpr)
+        (map lowerSurfaceCaseArm caseArms)
     SEBinary operatorSymbol leftExpr rightExpr ->
       EBinary
         operatorSymbol
@@ -66,6 +74,19 @@ lowerSurfaceLiteral literal =
   case literal of
     SLInt value -> LInt value
     SLBool value -> LBool value
+
+lowerSurfacePattern :: SurfacePattern -> Pattern
+lowerSurfacePattern surfacePattern =
+  case surfacePattern of
+    SPWildcard -> PWildcard
+    SPVariable name -> PVariable name
+    SPLiteral literal -> PLiteral (lowerSurfaceLiteral literal)
+
+lowerSurfaceCaseArm :: SurfaceCaseArm -> CaseArm
+lowerSurfaceCaseArm (SurfaceCaseArm patternExpr bodyExpr) =
+  CaseArm
+    (lowerSurfacePattern patternExpr)
+    (lowerSurfaceExpr bodyExpr)
 
 -- | Lower a parsed statement without changing its span-carrying shape.
 lowerSurfaceStatement :: SurfaceStatement -> Statement

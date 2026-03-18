@@ -1,8 +1,8 @@
 # Standard Library Boundary
 
-Status: active (explicit no-prelude paths are kernel-only in `jazz-next`; broader phase-5 catalog/reproducibility cleanup remains open)
+Status: active (closure verified for the current `jazz-next` runtime subset; bundled/explicit prelude paths expose public aliases while no-prelude paths remain kernel-bridge-only)
 Locked decisions (initial `jazz-next` contract): 2026-03-04
-Updated: 2026-03-17
+Updated: 2026-03-18
 Primary plan: `docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md`
 
 ## Purpose
@@ -87,9 +87,9 @@ Required invariants:
    the `__kernel_*` bridge names.
 3. Canonical public aliases (`map`, `filter`, `hd`, `tl`, `print!`) are
    rejected in no-prelude mode and require a real prelude source.
-4. Remaining follow-up work is broader kernel/prelude inventory cleanup plus
-   reproducibility evidence, not preservation of the old canonical no-prelude
-   aliases.
+4. This ownership-boundary migration is closed for the current runtime subset.
+   Future stdlib growth should extend the prelude/catalog intentionally under
+   new queue items rather than reopening direct public builtin fallback.
 
 ## Non-Goals (Current Phase)
 

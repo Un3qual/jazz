@@ -19,8 +19,10 @@ import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( Expr (..),
+  ( CaseArm (..),
+    Expr (..),
     Literal (..),
+    Pattern (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -266,6 +268,11 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
           selectRecursiveAliasTarget statementIndex env conditionExpr thenExpr elseExpr
         ECase conditionExpr thenExpr elseExpr ->
           selectRecursiveAliasTarget statementIndex env conditionExpr thenExpr elseExpr
+        -- Unsupported pattern matching must not silently participate in alias
+        -- resolution, or recursive bindings can surface alias-cycle errors
+        -- instead of the intended runtime placeholder diagnostic.
+        EPatternCase {} ->
+          Right Nothing
         peeledExpr ->
           Right (recursiveAliasTarget statementIndex peeledExpr)
 
@@ -378,6 +385,10 @@ exprContainsFunctionBranch expr =
     ECase _ thenExpr elseExpr ->
       exprContainsFunctionBranch thenExpr
         || exprContainsFunctionBranch elseExpr
+    EPatternCase _ caseArms ->
+      any
+        (\(CaseArm _ bodyExpr) -> exprContainsFunctionBranch bodyExpr)
+        caseArms
     EBlock statements ->
       scopeContainsFunctionBranch statements
     _ -> False
@@ -413,6 +424,12 @@ scopeContainsFunctionBranch statements =
         ECase _ thenExpr elseExpr ->
           exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
             || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
+        EPatternCase _ caseArms ->
+          any
+            (\(CaseArm _ bodyExpr) ->
+               exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings bodyExpr
+            )
+            caseArms
         EBlock nestedStatements ->
           scopeContainsFunctionBranch nestedStatements
         _ -> False
@@ -440,6 +457,8 @@ exprDefinitelyNotFunctionValue expr =
     ECase _ thenExpr elseExpr ->
       exprDefinitelyNotFunctionValue thenExpr
         && exprDefinitelyNotFunctionValue elseExpr
+    EPatternCase {} ->
+      False
     EBlock statements ->
       scopeDefinitelyNotFunctionValue statements
     _ -> False
@@ -571,6 +590,13 @@ freeVarsExprWithBound bound expr =
           freeVarsExprWithBound bound thenExpr,
           freeVarsExprWithBound bound elseExpr
         ]
+    EPatternCase scrutineeExpr caseArms ->
+      Set.unions
+        ( freeVarsExprWithBound bound scrutineeExpr :
+          [ freeVarsExprWithBound (extendBoundWithPattern pattern bound) bodyExpr
+          | CaseArm pattern bodyExpr <- caseArms
+          ]
+        )
     EBinary _ leftExpr rightExpr ->
       Set.union
         (freeVarsExprWithBound bound leftExpr)
@@ -641,6 +667,12 @@ evalValue builtinMode env expr =
                 "E3003"
                 ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
             )
+    EPatternCase {} ->
+      Left
+        ( runtimeDiagnostic
+            "E3022"
+            "pattern case matching is not implemented yet"
+        )
     EBinary operatorSymbol leftExpr rightExpr -> do
       leftValue <- evalValue builtinMode env leftExpr
       rightValue <- evalValue builtinMode env rightExpr
@@ -872,3 +904,10 @@ renderRuntimeType value =
     VClosure {} -> "Function"
     VBuiltin {} -> "Function"
     VOperator {} -> "Function"
+
+extendBoundWithPattern :: Pattern -> Set Text -> Set Text
+extendBoundWithPattern pattern bound =
+  case pattern of
+    PVariable name -> Set.insert (identifierText name) bound
+    PWildcard -> bound
+    PLiteral {} -> bound

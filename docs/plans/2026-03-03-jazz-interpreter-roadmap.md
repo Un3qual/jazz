@@ -81,14 +81,16 @@ Current `jazz-next` behavior is a compiler front-end skeleton with:
 
 ### Important reality check
 
-- The repository contains plans for interpreter work (`12`, legacy `12a`), ADT/pattern runtime work (`11`), module loader (`09`), stdlib boundary (`10`), and legacy type-grammar clarification (`07`). Domains `09`, `11`, and `12` still need active-path rebasing work, while the `12a` follow-on and the type-grammar follow-on now have active-path replacement plans and domain `10` already has active `jazz-next` execution plus follow-up cleanup still in progress.
+- The repository contains plans for interpreter work (`12`, legacy `12a`), ADT/pattern runtime work (`11`), module loader (`09`), stdlib boundary (`10`), and legacy type-grammar clarification (`07`). Domains `09` and `12` still need active-path rebasing work; the `12a`, `11`, and `07` follow-ons now have active-path replacement plans, and domain `10` is closed for the current `jazz-next` runtime subset.
 - Current workspace guardrails require all net-new compiler/runtime behavior work in `jazz-next/`.
 
 ## 3) Detailed Plans Already Written
 
 ### Mostly complete or actively executed
+
 - `2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md` (active-path replacement for legacy `12a`; defines the `jazz-next` runtime pipeline, milestones, and dependency map)
 - `2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md` (active-path replacement for legacy `07`; defines the `jazz-next` type/signature ownership boundary, milestones, and verification targets)
+- `2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md` (active-path replacement for legacy `11`; defines the `jazz-next` ADT/pattern owner map, milestones, and first executable batch)
 - `13-binding-and-signature-coherence.md` (partially executed in `jazz-next`; core analyzer contract implemented)
 - `17-jazz2-alignment-and-spec-authority.md` (executed)
 - `18-compiler-warning-flags.md` (executed in `jazz-next`)
@@ -109,7 +111,7 @@ Current `jazz-next` behavior is a compiler front-end skeleton with:
 - `08-trait-vocabulary-and-capability-model.md`
 - `09-module-loader-and-import-resolution.md`
 - `10-stdlib-boundary-selfhosted-vs-hardcoded.md`
-- `11-adt-and-pattern-matching-positioning.md`
+- `11-adt-and-pattern-matching-positioning.md` (legacy-targeted; replaced for new work by `2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`)
 - `12-backend-target-strategy.md`
 - `12a-haskell-interpreter-implementation.md` (legacy-targeted; replaced for new work by `2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`)
 
@@ -117,12 +119,12 @@ Current `jazz-next` behavior is a compiler front-end skeleton with:
 
 ### Phase A: Re-anchor execution plans to `jazz-next` (required first)
 
-1. Convert legacy-targeted runtime plans (`11`, `12`, `12a`) into `jazz-next` execution plans.
-2. Rebase the remaining module/stdlib plans (`09`, `10`) onto `jazz-next` parser/analyzer/runtime architecture and keep the new active-path type-grammar plan aligned with them.
+1. Convert the remaining legacy-targeted runtime plan (`12`) into a `jazz-next` execution plan and keep the new ADT replacement plan aligned with the same runtime architecture.
+2. Rebase the remaining module-loader plan (`09`) onto `jazz-next` parser/analyzer/runtime architecture and keep the new active-path type-grammar and ADT plans aligned with it.
 3. Explicitly mark legacy `jazz-hs` plans as evidence-only where they are no longer execution targets.
 
 Execution note:
-- The `12a` runtime follow-on is now covered by `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`, and the `07` type-grammar follow-on is now covered by `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`; remaining Phase A rebases are `09`, `11`, and `12`.
+- The `12a` runtime follow-on is now covered by `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`, the `07` type-grammar follow-on is now covered by `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`, and the `11` ADT follow-on is now covered by `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`; remaining Phase A rebases are `09` and `12`.
 
 ### Phase B: Expand parser + AST + lowering to spec contracts
 
@@ -198,11 +200,11 @@ Current CLI runs a hardcoded sample program. It is not yet a real user-facing co
 
 **Needed:** file/module input pipeline plan with deterministic exit codes and diagnostics.
 
-### Hole 7: Module loader + stdlib plans are legacy-implementation bound
+### Hole 7: Module loader plan is still legacy-implementation bound
 
-Plans `09` and `10` are detailed but structured around `jazz-hs` internals.
+Plan `09` is detailed but still structured around `jazz-hs` internals.
 
-**Needed:** re-authored versions targeting `jazz-next` modules and test harness.
+**Needed:** a re-authored version targeting `jazz-next` modules and test harness.
 
 ### Hole 8: Feature-status narrative can drift from active implementation
 

@@ -22,8 +22,10 @@ import JazzNext.Compiler.Identifier
     mkIdentifier
   )
 import JazzNext.Compiler.Parser.AST
-  ( SurfaceExpr (..),
+  ( SurfaceCaseArm (..),
+    SurfaceExpr (..),
     SurfaceLiteral (..),
+    SurfacePattern (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Lexer
@@ -464,50 +466,132 @@ parseExprStatement tokens = do
       pure (SSExpr (tokenSpan firstToken) expr, remaining)
 
 parseExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseExpr = parseExprWithMinPrecedence 1
+parseExpr = parseExprWithMinPrecedenceUntil neverStop 1
 
 -- | Entry point for expression parsing that first folds application via
 -- `parseApplicationExpr`, then continues with precedence-climbing for infix
 -- operators.
 parseExprWithMinPrecedence :: Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseExprWithMinPrecedence minPrecedence tokens = do
-  (leftExpr, remainingTokens) <- parseApplicationExpr tokens
-  parseInfixTailWith parseExprWithMinPrecedence minPrecedence leftExpr remainingTokens
+parseExprWithMinPrecedence = parseExprWithMinPrecedenceUntil neverStop
+
+parseExprWithMinPrecedenceUntil ::
+  ([Token] -> Bool) ->
+  Int ->
+  [Token] ->
+  Either Diagnostic (SurfaceExpr, [Token])
+parseExprWithMinPrecedenceUntil stop minPrecedence tokens = do
+  (leftExpr, remainingTokens) <- parseApplicationExprUntil stop tokens
+  parseInfixTailWithUntil stop (parseExprWithMinPrecedenceUntil stop) minPrecedence leftExpr remainingTokens
 
 -- Used by `if` parsing to preserve the existing compact `if cond then else`
 -- surface form without introducing a `then` delimiter.
 parseExprWithoutApplication :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseExprWithoutApplication = parseExprWithoutApplicationWithMinPrecedence 1
+parseExprWithoutApplication = parseExprWithoutApplicationWithMinPrecedenceUntil neverStop 1
 
 parseExprWithoutApplicationWithMinPrecedence :: Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseExprWithoutApplicationWithMinPrecedence minPrecedence tokens = do
-  (leftExpr, remainingTokens) <- parsePrimaryExpr tokens
-  parseInfixTailWith parseExprWithoutApplicationWithMinPrecedence minPrecedence leftExpr remainingTokens
+parseExprWithoutApplicationWithMinPrecedence =
+  parseExprWithoutApplicationWithMinPrecedenceUntil neverStop
+
+parseExprWithoutApplicationWithMinPrecedenceUntil ::
+  ([Token] -> Bool) ->
+  Int ->
+  [Token] ->
+  Either Diagnostic (SurfaceExpr, [Token])
+parseExprWithoutApplicationWithMinPrecedenceUntil stop minPrecedence tokens = do
+  (leftExpr, remainingTokens) <- parsePrimaryExprUntil stop tokens
+  parseInfixTailWithUntil stop (parseExprWithoutApplicationWithMinPrecedenceUntil stop) minPrecedence leftExpr remainingTokens
 
 parseApplicationExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseApplicationExpr tokens = do
-  (functionExpr, remainingTokens) <- parsePrimaryExpr tokens
-  parseApplicationTail functionExpr remainingTokens
+parseApplicationExpr = parseApplicationExprUntil neverStop
+
+parseApplicationExprUntil :: ([Token] -> Bool) -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseApplicationExprUntil stop tokens = do
+  (functionExpr, remainingTokens) <- parsePrimaryExprUntil stop tokens
+  parseApplicationTailUntil stop functionExpr remainingTokens
 
 -- | Function application binds tighter than infix operators, so adjacent
 -- primary expressions are folded into left-associated applications first.
 parseApplicationTail :: SurfaceExpr -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseApplicationTail functionExpr tokens =
-  case startsPrimaryExpr tokens of
-    True -> do
-      (argumentExpr, remainingAfterArgument) <- parsePrimaryExpr tokens
-      parseApplicationTail (SEApply functionExpr argumentExpr) remainingAfterArgument
-    False -> Right (functionExpr, tokens)
+parseApplicationTail = parseApplicationTailUntil neverStop
+
+parseApplicationTailUntil ::
+  ([Token] -> Bool) ->
+  SurfaceExpr ->
+  [Token] ->
+  Either Diagnostic (SurfaceExpr, [Token])
+parseApplicationTailUntil stop functionExpr tokens
+  | stop tokens = Right (functionExpr, tokens)
+  | otherwise =
+      case startsPrimaryExprTokens tokens of
+        True -> do
+          (argumentExpr, remainingAfterArgument) <- parsePrimaryExprUntil stop tokens
+          parseApplicationTailUntil stop (SEApply functionExpr argumentExpr) remainingAfterArgument
+        False -> Right (functionExpr, tokens)
+
+neverStop :: [Token] -> Bool
+neverStop _ = False
+
+startsPrimaryExprTokens :: [Token] -> Bool
+startsPrimaryExprTokens allTokens =
+  case allTokens of
+    Token {tokenKind = TInt _} : _ -> True
+    Token {tokenKind = TIdentifier _} : _ -> True
+    Token {tokenKind = TIf} : _ -> True
+    Token {tokenKind = TCase} : _ -> True
+    Token {tokenKind = TLambda} : _ -> True
+    Token {tokenKind = TLParen} : _ -> True
+    Token {tokenKind = TLBrace} : _ -> True
+    Token {tokenKind = TLBracket} : _ -> True
+    _ -> False
+
+-- | Shared precedence climber used by both regular expression parsing and the
+-- restricted `if` condition parser.
+parseInfixTailWithUntil ::
+  ([Token] -> Bool) ->
+  (Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])) ->
+  Int ->
+  SurfaceExpr ->
+  [Token] ->
+  Either Diagnostic (SurfaceExpr, [Token])
+parseInfixTailWithUntil stop parseRhs minPrecedence leftExpr tokens
+  | stop tokens = Right (leftExpr, tokens)
+  | otherwise =
+      case tokens of
+        operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : tokensAfterOperator
+          | shouldStopForSectionBoundary tokensAfterOperator ->
+              Right (leftExpr, tokens)
+          | otherwise ->
+              case lookupOperatorInfo operatorSymbol of
+                Nothing ->
+                  Left
+                    ( parseDiagnostic
+                        ( "unsupported operator '"
+                            <> operatorSymbol
+                            <> "' at "
+                            <> renderSourceSpan (tokenSpan operatorToken)
+                        )
+                    )
+                Just operatorInfo
+                  | operatorPrecedence operatorInfo < minPrecedence ->
+                      Right (leftExpr, tokens)
+                  | otherwise -> do
+                      let nextMinPrecedence =
+                            case operatorAssociativity operatorInfo of
+                              AssocLeft -> operatorPrecedence operatorInfo + 1
+                              AssocRight -> operatorPrecedence operatorInfo
+                      (rightExpr, remainingAfterRight) <-
+                        parseRhs nextMinPrecedence tokensAfterOperator
+                      parseInfixTailWithUntil
+                        stop
+                        parseRhs
+                        minPrecedence
+                        (SEBinary operatorSymbol leftExpr rightExpr)
+                        remainingAfterRight
+        _ -> Right (leftExpr, tokens)
   where
-    startsPrimaryExpr allTokens =
-      case allTokens of
-        Token {tokenKind = TInt _} : _ -> True
-        Token {tokenKind = TIdentifier _} : _ -> True
-        Token {tokenKind = TIf} : _ -> True
-        Token {tokenKind = TLambda} : _ -> True
-        Token {tokenKind = TLParen} : _ -> True
-        Token {tokenKind = TLBrace} : _ -> True
-        Token {tokenKind = TLBracket} : _ -> True
+    shouldStopForSectionBoundary remainingAfterOperator =
+      case remainingAfterOperator of
+        Token {tokenKind = TRParen} : _ -> True
         _ -> False
 
 -- | Shared precedence climber used by both regular expression parsing and the
@@ -518,48 +602,13 @@ parseInfixTailWith ::
   SurfaceExpr ->
   [Token] ->
   Either Diagnostic (SurfaceExpr, [Token])
--- `if` conditions need infix parsing without enabling application; injecting
--- the RHS parser keeps the boundary explicit for both modes.
-parseInfixTailWith parseRhs minPrecedence leftExpr tokens =
-  case tokens of
-    operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : tokensAfterOperator
-      | shouldStopForSectionBoundary tokensAfterOperator ->
-          Right (leftExpr, tokens)
-      | otherwise ->
-          case lookupOperatorInfo operatorSymbol of
-            Nothing ->
-              Left
-                ( parseDiagnostic
-                    ( "unsupported operator '"
-                        <> operatorSymbol
-                        <> "' at "
-                        <> renderSourceSpan (tokenSpan operatorToken)
-                    )
-                )
-            Just operatorInfo
-              | operatorPrecedence operatorInfo < minPrecedence ->
-                  Right (leftExpr, tokens)
-              | otherwise -> do
-                  let nextMinPrecedence =
-                        case operatorAssociativity operatorInfo of
-                          AssocLeft -> operatorPrecedence operatorInfo + 1
-                          AssocRight -> operatorPrecedence operatorInfo
-                  (rightExpr, remainingAfterRight) <-
-                    parseRhs nextMinPrecedence tokensAfterOperator
-                  parseInfixTailWith
-                    parseRhs
-                    minPrecedence
-                    (SEBinary operatorSymbol leftExpr rightExpr)
-                    remainingAfterRight
-    _ -> Right (leftExpr, tokens)
-  where
-    shouldStopForSectionBoundary remainingAfterOperator =
-      case remainingAfterOperator of
-        Token {tokenKind = TRParen} : _ -> True
-        _ -> False
+parseInfixTailWith = parseInfixTailWithUntil neverStop
 
 parsePrimaryExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parsePrimaryExpr tokens =
+parsePrimaryExpr = parsePrimaryExprUntil neverStop
+
+parsePrimaryExprUntil :: ([Token] -> Bool) -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parsePrimaryExprUntil stop tokens =
   case tokens of
     [] -> Left (parseDiagnostic "expected expression before end of input")
     token : rest ->
@@ -570,8 +619,9 @@ parsePrimaryExpr tokens =
             "True" -> Right (SELit (SLBool True), rest)
             "False" -> Right (SELit (SLBool False), rest)
             _ -> Right (SEVar (mkIdentifier name), rest)
-        TIf -> parseIfExpr token rest
-        TLambda -> parseLambdaExpr token rest
+        TIf -> parseIfExprUntil stop token rest
+        TCase -> parseCaseExpr token rest
+        TLambda -> parseLambdaExprUntil stop token rest
         TLParen -> parseParenExpr rest
         TLBrace -> do
           (statements, afterBrace) <- parseStatementsUntilBrace NestedBlockContext rest
@@ -635,12 +685,15 @@ parseListElements tokens = do
 
 -- | Parse the compact `if cond thenExpr else elseExpr` surface form.
 parseIfExpr :: Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseIfExpr ifToken tokensAfterIf = do
-  (conditionExpr, afterCondition) <- parseExprWithoutApplication tokensAfterIf
-  (thenExpr, afterThenExpr) <- parseExpr afterCondition
+parseIfExpr = parseIfExprUntil neverStop
+
+parseIfExprUntil :: ([Token] -> Bool) -> Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseIfExprUntil stop ifToken tokensAfterIf = do
+  (conditionExpr, afterCondition) <- parseExprWithoutApplicationWithMinPrecedenceUntil stop 1 tokensAfterIf
+  (thenExpr, afterThenExpr) <- parseExprWithMinPrecedenceUntil stop 1 afterCondition
   case afterThenExpr of
     Token {tokenKind = TElse} : afterElse -> do
-      (elseExpr, remaining) <- parseExpr afterElse
+      (elseExpr, remaining) <- parseExprWithMinPrecedenceUntil stop 1 afterElse
       pure (SEIf conditionExpr thenExpr elseExpr, remaining)
     [] ->
       Left
@@ -660,14 +713,197 @@ parseIfExpr ifToken tokensAfterIf = do
             )
         )
 
+parseCaseExpr :: Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseCaseExpr caseToken tokensAfterCase =
+    case tryCaseBodyCandidates Nothing [] tokensAfterCase of
+      Right parsedCaseExpr ->
+        Right parsedCaseExpr
+      Left maybeBodyDiagnostic ->
+        case maybeBodyDiagnostic of
+          Just diagnostic ->
+            Left diagnostic
+          Nothing ->
+            case parseExpr tokensAfterCase of
+              Left scrutineeDiagnostic ->
+                Left scrutineeDiagnostic
+              Right _ ->
+                Left (parseDiagnostic caseBodyMissingMessage)
+  where
+    caseBodyMissingMessage =
+      "expected '{' before end of input after 'case' at " <> renderSourceSpan (tokenSpan caseToken)
+
+    tryCaseBodyCandidates ::
+      Maybe Diagnostic ->
+      [Token] ->
+      [Token] ->
+      Either (Maybe Diagnostic) (SurfaceExpr, [Token])
+    -- Block expressions and case bodies both start with `{`, so try each brace
+    -- as the body boundary and keep the first split that yields a full
+    -- scrutinee expression plus a parseable case-arm list.
+    tryCaseBodyCandidates firstBodyDiagnostic revPrefix remainingTokens =
+      case remainingTokens of
+        [] ->
+          case firstBodyDiagnostic of
+            Just diagnostic -> Left (Just diagnostic)
+            Nothing -> Left Nothing
+        candidateTokens@(token@(Token {tokenKind = TLBrace}) : rest) ->
+          let scrutineeTokens = reverse revPrefix
+           in
+            case parseExpr scrutineeTokens of
+              Right (scrutineeExpr, []) ->
+                case parseCaseBodyTokens candidateTokens of
+                  Right (caseArms, remainingAfterCase) ->
+                    Right (SECase scrutineeExpr caseArms, remainingAfterCase)
+                  Left diagnostic ->
+                    if braceLooksLikeScrutineeBlock candidateTokens
+                      then tryCaseBodyCandidates firstBodyDiagnostic (token : revPrefix) rest
+                      else
+                        tryCaseBodyCandidates
+                          (rememberLatestDiagnostic firstBodyDiagnostic diagnostic)
+                          (token : revPrefix)
+                          rest
+              _ ->
+                tryCaseBodyCandidates firstBodyDiagnostic (token : revPrefix) rest
+        token : rest ->
+          tryCaseBodyCandidates firstBodyDiagnostic (token : revPrefix) rest
+
+    parseCaseBodyTokens :: [Token] -> Either Diagnostic ([SurfaceCaseArm], [Token])
+    parseCaseBodyTokens bodyTokens = do
+      tokensAfterLeftBrace <- consumeLeftBrace bodyTokens caseBodyMissingMessage
+      parseCaseArms tokensAfterLeftBrace
+
+    rememberLatestDiagnostic :: Maybe Diagnostic -> Diagnostic -> Maybe Diagnostic
+    rememberLatestDiagnostic _ newDiagnostic = Just newDiagnostic
+
+    braceLooksLikeScrutineeBlock :: [Token] -> Bool
+    braceLooksLikeScrutineeBlock tokens =
+      case tokens of
+        Token {tokenKind = TLBrace} : rest -> go rest
+        _ -> False
+      where
+        go allTokens =
+          case allTokens of
+            [] -> False
+            Token {tokenKind = TDot} : _ -> True
+            Token {tokenKind = TRBrace} : _ -> False
+            _ : remaining -> go remaining
+
+parseCaseArms :: [Token] -> Either Diagnostic ([SurfaceCaseArm], [Token])
+parseCaseArms tokensAfterLeftBrace =
+  case tokensAfterLeftBrace of
+    Token {tokenKind = TRBrace, tokenSpan = rightBraceSpan} : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected case arm before '}' at "
+                <> renderSourceSpan rightBraceSpan
+            )
+        )
+    _ -> do
+      (firstArm, afterFirstArm) <- parseCaseArm tokensAfterLeftBrace
+      go [firstArm] afterFirstArm
+  where
+    go revArms allTokens =
+      case allTokens of
+        Token {tokenKind = TRBrace} : rest ->
+          Right (reverse revArms, rest)
+        _ -> do
+          (nextArm, afterNextArm) <- parseCaseArm allTokens
+          go (nextArm : revArms) afterNextArm
+
+parseCaseArm :: [Token] -> Either Diagnostic (SurfaceCaseArm, [Token])
+parseCaseArm tokens = do
+  tokensAfterPipe <- consumeCaseArmPipe tokens
+  (casePattern, afterPattern) <- parseCasePattern tokensAfterPipe
+  afterArrow <- consumeArrow afterPattern "expected '->' before end of input after case pattern"
+  (bodyExpr, remaining) <- parseExprWithMinPrecedenceUntil stopsBeforeCaseArmBoundary 1 afterArrow
+  pure (SurfaceCaseArm casePattern bodyExpr, remaining)
+  where
+    stopsBeforeCaseArmBoundary allTokens =
+      case allTokens of
+        Token {tokenKind = TOperator "|"} : rest ->
+          pipeStartsNextArm rest
+        Token {tokenKind = TRBrace} : _ -> True
+        _ -> False
+
+    pipeStartsNextArm remainingTokens =
+      case remainingTokens of
+        Token {tokenKind = TInt _} : Token {tokenKind = TArrow} : _ -> True
+        Token {tokenKind = TIdentifier _} : Token {tokenKind = TArrow} : _ -> True
+        Token {tokenKind = TIdentifier "_"} : afterPattern ->
+          startsPrimaryExprTokens afterPattern
+            && not (hasTopLevelDefiniteCaseArm afterPattern)
+        _ -> False
+
+    hasTopLevelDefiniteCaseArm = go 0 0 0
+      where
+        go parenDepth bracketDepth braceDepth scanTokens =
+          case scanTokens of
+            [] -> False
+            Token {tokenKind = TLParen} : rest ->
+              go (parenDepth + 1) bracketDepth braceDepth rest
+            Token {tokenKind = TRParen} : rest ->
+              go (max 0 (parenDepth - 1)) bracketDepth braceDepth rest
+            Token {tokenKind = TLBracket} : rest ->
+              go parenDepth (bracketDepth + 1) braceDepth rest
+            Token {tokenKind = TRBracket} : rest ->
+              go parenDepth (max 0 (bracketDepth - 1)) braceDepth rest
+            Token {tokenKind = TLBrace} : rest ->
+              go parenDepth bracketDepth (braceDepth + 1) rest
+            Token {tokenKind = TRBrace} : _
+              | parenDepth == 0, bracketDepth == 0, braceDepth == 0 ->
+                  False
+            Token {tokenKind = TRBrace} : rest ->
+              go parenDepth bracketDepth (max 0 (braceDepth - 1)) rest
+            Token {tokenKind = TOperator "|"} : rest
+              | parenDepth == 0,
+                bracketDepth == 0,
+                braceDepth == 0,
+                tokensStartDefiniteCaseArm rest ->
+                  True
+            _ : rest ->
+              go parenDepth bracketDepth braceDepth rest
+
+        tokensStartDefiniteCaseArm rest =
+          case rest of
+            Token {tokenKind = TInt _} : Token {tokenKind = TArrow} : _ -> True
+            Token {tokenKind = TIdentifier _} : Token {tokenKind = TArrow} : _ -> True
+            _ -> False
+
+parseCasePattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
+parseCasePattern tokens =
+  case tokens of
+    Token {tokenKind = TInt value} : rest ->
+      Right (SPLiteral (SLInt value), rest)
+    Token {tokenKind = TIdentifier name} : rest ->
+      case name of
+        "_" -> Right (SPWildcard, rest)
+        "True" -> Right (SPLiteral (SLBool True), rest)
+        "False" -> Right (SPLiteral (SLBool False), rest)
+        _ -> Right (SPVariable (mkIdentifier name), rest)
+    [] ->
+      Left (parseDiagnostic "expected case pattern before end of input")
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected case pattern at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+
 parseLambdaExpr :: Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseLambdaExpr lambdaToken tokensAfterLambda =
+parseLambdaExpr = parseLambdaExprUntil neverStop
+
+parseLambdaExprUntil :: ([Token] -> Bool) -> Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseLambdaExprUntil stop lambdaToken tokensAfterLambda =
   case tokensAfterLambda of
     Token {tokenKind = TLParen} : afterLeftParen -> do
       (parameters, afterParameters) <- parseLambdaParameters afterLeftParen
       case afterParameters of
         Token {tokenKind = TArrow} : afterArrow -> do
-          (bodyExpr, remaining) <- parseExpr afterArrow
+          (bodyExpr, remaining) <- parseExprWithMinPrecedenceUntil stop 1 afterArrow
           pure (SELambda parameters bodyExpr, remaining)
         [] ->
           Left
@@ -816,6 +1052,52 @@ consumeDot tokens =
                 <> ", found '"
                 <> tokenLexeme token
                 <> "'"
+            )
+        )
+
+consumeLeftBrace :: [Token] -> Text -> Either Diagnostic [Token]
+consumeLeftBrace tokens endOfInputMessage =
+  case tokens of
+    Token {tokenKind = TLBrace} : rest -> Right rest
+    [] -> Left (parseDiagnostic endOfInputMessage)
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected '{' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+
+consumeArrow :: [Token] -> Text -> Either Diagnostic [Token]
+consumeArrow tokens endOfInputMessage =
+  case tokens of
+    Token {tokenKind = TArrow} : rest -> Right rest
+    [] -> Left (parseDiagnostic endOfInputMessage)
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected '->' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+
+consumeCaseArmPipe :: [Token] -> Either Diagnostic [Token]
+consumeCaseArmPipe tokens =
+  case tokens of
+    Token {tokenKind = TOperator "|"} : rest -> Right rest
+    [] -> Left (parseDiagnostic "expected '|' before end of input in case expression")
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected '|' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> " to start case arm"
             )
         )
 

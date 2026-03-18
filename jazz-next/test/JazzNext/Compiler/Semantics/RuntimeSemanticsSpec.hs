@@ -10,7 +10,9 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
+    CaseArm (..),
     Literal (..),
+    Pattern (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -31,6 +33,7 @@ import JazzNext.Compiler.WarningConfig
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
+    assertLeftDiagnosticCodeAndContains,
     assertEqual,
     assertSingleDiagnosticContains,
     failTest,
@@ -54,6 +57,7 @@ tests =
     ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError),
     ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError),
     ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError),
+    ("pattern-case recursive cycle reaches runtime placeholder", testPatternCaseRecursiveCycleRuntimeError),
     ("bare dollar operator value applies at runtime", testDollarOperatorValueRuntimeSuccess),
     ("bare operator value applies at runtime", testBareOperatorValueRuntimeSuccess),
     ("explicit partial application of bare operator value applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess),
@@ -230,6 +234,32 @@ testNonFunctionRecursiveCycleRuntimeError = do
         "no concrete value"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testPatternCaseRecursiveCycleRuntimeError :: IO ()
+testPatternCaseRecursiveCycleRuntimeError = do
+  let result = evaluateRuntimeExpr patternCaseRecursiveCycleExpr
+  assertLeftDiagnosticCodeAndContains
+    "pattern-case recursive cycle runtime code"
+    "E3022"
+    "pattern case matching is not implemented yet"
+    result
+
+patternCaseRecursiveCycleExpr :: Expr
+patternCaseRecursiveCycleExpr =
+  EBlock
+    [ SLet "x" (SourceSpan 1 1) (EVar "y"),
+      SLet
+        "y"
+        (SourceSpan 1 1)
+        ( EPatternCase
+            (ELit (LInt 1))
+            [ CaseArm
+                PWildcard
+                (EBinary "+" (EVar "x") (ELit (LInt 1)))
+            ]
+        ),
+      SExpr (SourceSpan 1 1) (EVar "x")
+    ]
 
 testDollarOperatorValueRuntimeSuccess :: IO ()
 testDollarOperatorValueRuntimeSuccess = do

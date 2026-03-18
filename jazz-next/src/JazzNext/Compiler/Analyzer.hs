@@ -22,8 +22,10 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
 import JazzNext.Compiler.AST
-  ( Expr (..),
+  ( CaseArm (..),
+    Expr (..),
     Literal (..),
+    Pattern (..),
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
@@ -181,6 +183,24 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
        in
         ( conditionWarnings ++ thenWarnings ++ elseWarnings,
           conditionErrors ++ thenErrors ++ elseErrors
+        )
+    EPatternCase scrutineeExpr caseArms ->
+      let (scrutineeWarnings, scrutineeErrors) =
+            collectExprDiagnostics builtinMode settings visibleBindings context scrutineeExpr
+          armResults =
+            map
+              ( \(CaseArm pattern bodyExpr) ->
+                  collectExprDiagnostics
+                    builtinMode
+                    settings
+                    (extendBindingsWithPattern pattern visibleBindings)
+                    context
+                    bodyExpr
+              )
+              caseArms
+       in
+        ( scrutineeWarnings ++ concatMap fst armResults,
+          scrutineeErrors ++ concatMap snd armResults
         )
     EBinary _ leftExpr rightExpr ->
       let (leftWarnings, leftErrors) =
@@ -641,6 +661,13 @@ freeVarsExprWithBound bound expr =
           freeVarsExprWithBound bound thenExpr,
           freeVarsExprWithBound bound elseExpr
         ]
+    EPatternCase scrutineeExpr caseArms ->
+      Set.unions
+        ( freeVarsExprWithBound bound scrutineeExpr :
+          [ freeVarsExprWithBound (extendBoundWithPattern pattern bound) bodyExpr
+          | CaseArm pattern bodyExpr <- caseArms
+          ]
+        )
     EBinary _ leftExpr rightExpr ->
       Set.union
         (freeVarsExprWithBound bound leftExpr)
@@ -690,6 +717,28 @@ visibleBindingDiagnosticSpan visibleBinding =
 
 lambdaVisibleBinding :: VisibleBinding
 lambdaVisibleBinding =
+  VisibleBinding
+    { visibleBindingSpan = SourceSpan 0 0,
+      visibleBindingIsHiddenPrelude = True
+    }
+
+extendBindingsWithPattern :: Pattern -> Map Text VisibleBinding -> Map Text VisibleBinding
+extendBindingsWithPattern pattern bindings =
+  case pattern of
+    PVariable name ->
+      Map.insert (identifierText name) patternVisibleBinding bindings
+    PWildcard -> bindings
+    PLiteral {} -> bindings
+
+extendBoundWithPattern :: Pattern -> Set Text -> Set Text
+extendBoundWithPattern pattern bound =
+  case pattern of
+    PVariable name -> Set.insert (identifierText name) bound
+    PWildcard -> bound
+    PLiteral {} -> bound
+
+patternVisibleBinding :: VisibleBinding
+patternVisibleBinding =
   VisibleBinding
     { visibleBindingSpan = SourceSpan 0 0,
       visibleBindingIsHiddenPrelude = True

@@ -29,6 +29,7 @@ data TokenKind
   | TAs
   | TIf
   | TElse
+  | TCase
   | TLambda
   | TArrow
   | TInt Int
@@ -93,6 +94,7 @@ tokenize = go 1 1
                       "as" -> TAs
                       "if" -> TIf
                       "else" -> TElse
+                      "case" -> TCase
                       _ -> TIdentifier ident
                   token =
                     Token
