@@ -19,7 +19,8 @@
 - [x] Landed the first parser/core `case` slice: surface `case` with literal, wildcard, and variable patterns now lowers to `EPatternCase` without regressing `if`.
 - [x] Added `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs` and threaded it into `bash jazz-next/scripts/test-warning-config.sh`.
 - [x] Added temporary analyzer/type/runtime plumbing so unsupported `EPatternCase` nodes surface deterministic `E2011` / `E3022` diagnostics instead of falling through shared traversals.
-- [ ] Milestone 1 complete: core ADT/pattern semantics docs and executable subset are locked for `jazz-next`.
+- [x] Published `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md` to lock the active-path subset and explicit non-goals.
+- [x] Milestone 1 complete: core ADT/pattern semantics docs and executable subset are locked for `jazz-next`.
 - [ ] Milestone 2 complete: parser, surface AST, core AST, and lowering represent the agreed ADT/case/pattern forms.
 - [ ] Milestone 3 complete: analyzer/type semantics cover data declarations, constructors, and branch-local pattern bindings.
 - [ ] Milestone 4 complete: runtime execution supports constructor values and pattern-matching evaluation with deterministic diagnostics.
@@ -34,6 +35,7 @@
 - `jazz-next/src/JazzNext/Compiler/TypeInference.hs` canonicalizes and traverses `EPatternCase`, then emits deterministic `E2011` diagnostics until real simple-pattern typing lands.
 - `jazz-next/src/JazzNext/Compiler/Runtime.hs` preserves existing boolean `ECase` execution, threads `EPatternCase` through runtime dependency helpers, and rejects evaluation with deterministic `E3022` diagnostics until case execution lands.
 - `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs` now covers accepted/rejected parser forms and runs from the default `bash jazz-next/scripts/test-warning-config.sh` path.
+- `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md` now lock the Milestone-1 contract around the landed literal / wildcard / variable `case` subset and the deferred ADT/pattern forms.
 
 ## Scope Guardrails
 
@@ -74,10 +76,10 @@ Out of scope for the first executable slices:
 
 ### Milestone 1: Lock the active-path semantics contract
 
-- [ ] Create `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md`.
-- [ ] Define the first executable `jazz-next` slice: `data`, constructor application, and `case` with wildcard, literal, list, and constructor patterns.
-- [ ] Explicitly defer tuple patterns and lambda-pattern parameters until the shared pattern engine exists and tuple ownership is planned.
-- [ ] Link the new docs from this plan and the relevant roadmap/status trackers.
+- [x] Create `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md`.
+- [x] Define the currently committed `jazz-next` `case` slice: literal, wildcard, and variable patterns lower to `EPatternCase`, while `data`, constructor application, and constructor/list patterns remain queued follow-up work.
+- [x] Explicitly defer tuple patterns and lambda-pattern parameters until the shared pattern engine exists and tuple ownership is planned.
+- [x] Link the new docs from this plan and the relevant roadmap/status trackers.
 
 Primary files:
 
@@ -166,5 +168,5 @@ bash jazz-next/scripts/test-warning-config.sh
 
 - [ ] Active ADT/pattern work targets only `jazz-next` files, tests, and docs.
 - [ ] `jazz-next` parser, AST/lowering, analyzer/type, and runtime agree on one ADT/case/pattern representation for the committed slice.
-- [ ] Docs describe the implemented active-path subset and explicit non-goals.
+- [x] Docs describe the implemented active-path subset and explicit non-goals.
 - [ ] Queue, roadmap, and runtime-plan linkage no longer point new ADT work at legacy `jazz-hs` execution files.
