@@ -3,8 +3,10 @@
 -- | Canonical core AST shared by lowering, analysis, type inference, and the
 -- small interpreter/runtime slice in `jazz-next`.
 module JazzNext.Compiler.AST
-  ( Expr (..),
+  ( CaseArm (..),
+    Expr (..),
     Literal (..),
+    Pattern (..),
     Statement (..)
   ) where
 
@@ -22,6 +24,17 @@ data Literal
   | LBool Bool
   deriving (Eq, Show)
 
+-- | Core patterns for the first active-path case-expression slice.
+data Pattern
+  = PWildcard
+  | PVariable Identifier
+  | PLiteral Literal
+  deriving (Eq, Show)
+
+-- | One lowered pattern-match arm.
+data CaseArm = CaseArm Pattern Expr
+  deriving (Eq, Show)
+
 -- | Core expressions after surface syntax has been lowered into the stable
 -- analyzer/runtime representation.
 data Expr
@@ -34,6 +47,7 @@ data Expr
   | EIf Expr Expr Expr
   -- Internal canonical branch form used after control-flow desugaring.
   | ECase Expr Expr Expr
+  | EPatternCase Expr [CaseArm]
   | EBinary Text Expr Expr
   | ESectionLeft Expr Text
   | ESectionRight Text Expr

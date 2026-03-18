@@ -1,0 +1,115 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main (main) where
+
+import JazzNext.Compiler.AST
+  ( CaseArm (..),
+    Expr (..),
+    Literal (..),
+    Pattern (..),
+    Statement (..)
+  )
+import JazzNext.Compiler.Diagnostics
+  ( SourceSpan (..)
+  )
+import JazzNext.Compiler.Parser
+  ( parseSurfaceProgram
+  )
+import JazzNext.Compiler.Parser.AST
+  ( SurfaceCaseArm (..),
+    SurfaceExpr (..),
+    SurfaceLiteral (..),
+    SurfacePattern (..),
+    SurfaceStatement (..)
+  )
+import JazzNext.Compiler.Parser.Lower
+  ( lowerSurfaceExpr
+  )
+import JazzNext.TestHarness
+  ( NamedTest,
+    assertEqual,
+    assertLeftDiagnosticContains,
+    assertRight,
+    runTestSuite
+  )
+
+main :: IO ()
+main = runTestSuite "AdtPatternParser" tests
+
+tests :: [NamedTest]
+tests =
+  [ ("parses basic case expression with literal and wildcard arms", testParsesBasicCaseExpression),
+    ("parses variable pattern case arm", testParsesVariablePatternCaseArm),
+    ("rejects case expression without leading pipe", testRejectsCaseExpressionWithoutPipe),
+    ("rejects case expression without arm arrow", testRejectsCaseExpressionWithoutArrow),
+    ("lowers parsed case nodes into core AST", testLowerCaseExpression)
+  ]
+
+testParsesBasicCaseExpression :: IO ()
+testParsesBasicCaseExpression =
+  assertEqual
+    "surface case AST"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "x"
+                (SourceSpan 1 1)
+                ( SECase
+                    (SEVar "n")
+                    [ SurfaceCaseArm (SPLiteral (SLInt 0)) (SELit (SLBool True)),
+                      SurfaceCaseArm SPWildcard (SELit (SLBool False))
+                    ]
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "x = case n { | 0 -> True | _ -> False }.")
+
+testParsesVariablePatternCaseArm :: IO ()
+testParsesVariablePatternCaseArm =
+  assertEqual
+    "variable pattern case arm"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "x"
+                (SourceSpan 1 1)
+                (SECase (SEVar "value") [SurfaceCaseArm (SPVariable "item") (SEVar "item")])
+            ]
+        )
+    )
+    (parseSurfaceProgram "x = case value { | item -> item }.")
+
+testRejectsCaseExpressionWithoutPipe :: IO ()
+testRejectsCaseExpressionWithoutPipe =
+  assertLeftDiagnosticContains
+    "missing case-arm pipe"
+    "expected '|'"
+    (parseSurfaceProgram "x = case n { 0 -> True }.")
+
+testRejectsCaseExpressionWithoutArrow :: IO ()
+testRejectsCaseExpressionWithoutArrow =
+  assertLeftDiagnosticContains
+    "missing case-arm arrow"
+    "expected '->'"
+    (parseSurfaceProgram "x = case n { | 0 True }.")
+
+testLowerCaseExpression :: IO ()
+testLowerCaseExpression =
+  assertRight
+    "parse + lower case"
+    (parseSurfaceProgram "x = case n { | 0 -> True | _ -> False }.")
+    (\surfaceProgram -> assertEqual "lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "n")
+                [ CaseArm (PLiteral (LInt 0)) (ELit (LBool True)),
+                  CaseArm PWildcard (ELit (LBool False))
+                ]
+            )
+        ]

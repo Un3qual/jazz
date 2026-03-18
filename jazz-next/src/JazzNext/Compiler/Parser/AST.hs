@@ -3,8 +3,10 @@
 -- | Surface AST produced directly by the parser before the program is lowered
 -- into the smaller core AST used by later phases.
 module JazzNext.Compiler.Parser.AST
-  ( SurfaceExpr (..),
+  ( SurfaceCaseArm (..),
+    SurfaceExpr (..),
     SurfaceLiteral (..),
+    SurfacePattern (..),
     SurfaceStatement (..)
   ) where
 
@@ -22,6 +24,18 @@ data SurfaceLiteral
   | SLBool Bool
   deriving (Eq, Show)
 
+-- | Surface patterns accepted by the current parser slice for general case
+-- expressions.
+data SurfacePattern
+  = SPWildcard
+  | SPVariable Identifier
+  | SPLiteral SurfaceLiteral
+  deriving (Eq, Show)
+
+-- | One parser-surface pattern-match arm.
+data SurfaceCaseArm = SurfaceCaseArm SurfacePattern SurfaceExpr
+  deriving (Eq, Show)
+
 -- | Parser-facing expression tree. This remains separate from the core AST so
 -- the surface syntax can grow without forcing analyzer/runtime rewrites.
 data SurfaceExpr
@@ -32,6 +46,7 @@ data SurfaceExpr
   | SEList [SurfaceExpr]
   | SEApply SurfaceExpr SurfaceExpr
   | SEIf SurfaceExpr SurfaceExpr SurfaceExpr
+  | SECase SurfaceExpr [SurfaceCaseArm]
   | SEBinary Text SurfaceExpr SurfaceExpr
   | SESectionLeft SurfaceExpr Text
   | SESectionRight Text SurfaceExpr

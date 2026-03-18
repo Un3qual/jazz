@@ -25,7 +25,8 @@ import JazzNext.Compiler.Analyzer
     analyzeProgramWithBuiltinsAndHiddenStatements
   )
 import JazzNext.Compiler.AST
-  ( Expr (..),
+  ( CaseArm (..),
+    Expr (..),
     Literal (..),
     Statement (..)
   )
@@ -119,6 +120,10 @@ canonicalizeExpr expr =
         (canonicalizeExpr conditionExpr)
         (canonicalizeExpr thenExpr)
         (canonicalizeExpr elseExpr)
+    EPatternCase scrutineeExpr caseArms ->
+      EPatternCase
+        (canonicalizeExpr scrutineeExpr)
+        (map canonicalizeCaseArm caseArms)
     EBinary operatorSymbol leftExpr rightExpr
       | operatorSymbol == "$" ->
           EApply
@@ -134,6 +139,10 @@ canonicalizeExpr expr =
     ESectionRight operatorSymbol rightExpr ->
       ESectionRight operatorSymbol (canonicalizeExpr rightExpr)
     EBlock statements -> EBlock (map canonicalizeStatement statements)
+
+canonicalizeCaseArm :: CaseArm -> CaseArm
+canonicalizeCaseArm (CaseArm patternExpr bodyExpr) =
+  CaseArm patternExpr (canonicalizeExpr bodyExpr)
 
 canonicalizeStatement :: Statement -> Statement
 canonicalizeStatement statement =
@@ -293,6 +302,20 @@ inferExprType builtinMode env state expr =
                     )
                 )
           _ -> (Nothing, stateAfterConditionCheck)
+    EPatternCase scrutineeExpr caseArms ->
+      let (_, stateAfterScrutinee) =
+            inferExprType builtinMode env state scrutineeExpr
+          stateAfterArms =
+            foldl'
+              (\stateAcc (CaseArm _ bodyExpr) -> snd (inferExprType builtinMode env stateAcc bodyExpr))
+              stateAfterScrutinee
+              caseArms
+       in
+        ( Nothing,
+          addTypeError
+            stateAfterArms
+            mkPatternCaseNotImplementedError
+        )
     EBinary operatorSymbol leftExpr rightExpr ->
       let (leftType, stateAfterLeft) =
             inferExprType builtinMode env state leftExpr
@@ -790,6 +813,10 @@ exprContainsFunctionBranch expr =
     ECase _ thenExpr elseExpr ->
       exprContainsFunctionBranch thenExpr
         || exprContainsFunctionBranch elseExpr
+    EPatternCase _ caseArms ->
+      any
+        (\(CaseArm _ bodyExpr) -> exprContainsFunctionBranch bodyExpr)
+        caseArms
     EBlock statements ->
       scopeContainsFunctionBranch statements
     _ -> False
@@ -824,6 +851,12 @@ scopeContainsFunctionBranch statements =
         ECase _ thenExpr elseExpr ->
           exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
             || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
+        EPatternCase _ caseArms ->
+          any
+            (\(CaseArm _ bodyExpr) ->
+               exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings bodyExpr
+            )
+            caseArms
         EBlock nestedStatements ->
           scopeContainsFunctionBranch nestedStatements
         _ -> False
@@ -983,6 +1016,11 @@ freeVarsExprWithBound bound expr =
           freeVarsExprWithBound bound thenExpr,
           freeVarsExprWithBound bound elseExpr
         ]
+    EPatternCase scrutineeExpr caseArms ->
+      Set.unions
+        ( freeVarsExprWithBound bound scrutineeExpr :
+          [ freeVarsExprWithBound bound bodyExpr | CaseArm _ bodyExpr <- caseArms ]
+        )
     EBinary _ leftExpr rightExpr ->
       Set.union
         (freeVarsExprWithBound bound leftExpr)
@@ -1377,6 +1415,10 @@ mkUnsupportedSectionOperatorError operatorSymbol =
 mkUnsupportedOperatorValueError :: Text -> Diagnostic
 mkUnsupportedOperatorValueError operatorSymbol =
   mkDiagnostic "E2010" ("unsupported operator value '" <> operatorSymbol <> "'")
+
+mkPatternCaseNotImplementedError :: Diagnostic
+mkPatternCaseNotImplementedError =
+  mkDiagnostic "E2011" "pattern case matching is not implemented yet"
 
 mkInvalidSignatureTypeError :: Text -> SourceSpan -> Text -> Diagnostic
 mkInvalidSignatureTypeError symbol signatureSpan rawSignature =

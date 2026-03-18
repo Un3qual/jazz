@@ -22,7 +22,8 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
 import JazzNext.Compiler.AST
-  ( Expr (..),
+  ( CaseArm (..),
+    Expr (..),
     Literal (..),
     Statement (..)
   )
@@ -181,6 +182,19 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
        in
         ( conditionWarnings ++ thenWarnings ++ elseWarnings,
           conditionErrors ++ thenErrors ++ elseErrors
+        )
+    EPatternCase scrutineeExpr caseArms ->
+      let (scrutineeWarnings, scrutineeErrors) =
+            collectExprDiagnostics builtinMode settings visibleBindings context scrutineeExpr
+          armResults =
+            map
+              ( \(CaseArm _ bodyExpr) ->
+                  collectExprDiagnostics builtinMode settings visibleBindings context bodyExpr
+              )
+              caseArms
+       in
+        ( scrutineeWarnings ++ concatMap fst armResults,
+          scrutineeErrors ++ concatMap snd armResults
         )
     EBinary _ leftExpr rightExpr ->
       let (leftWarnings, leftErrors) =
@@ -641,6 +655,11 @@ freeVarsExprWithBound bound expr =
           freeVarsExprWithBound bound thenExpr,
           freeVarsExprWithBound bound elseExpr
         ]
+    EPatternCase scrutineeExpr caseArms ->
+      Set.unions
+        ( freeVarsExprWithBound bound scrutineeExpr :
+          [ freeVarsExprWithBound bound bodyExpr | CaseArm _ bodyExpr <- caseArms ]
+        )
     EBinary _ leftExpr rightExpr ->
       Set.union
         (freeVarsExprWithBound bound leftExpr)

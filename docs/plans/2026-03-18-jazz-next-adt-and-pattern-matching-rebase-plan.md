@@ -16,20 +16,24 @@
 - [x] Verified active `jazz-next` surface and core ASTs do not yet model `data`, surface `case`, or general patterns.
 - [x] Verified current `ECase`, `TypeInference`, and `Runtime` logic only support the boolean-branch semantics inherited from `if`.
 - [x] Captured the active-path owner map and replacement-plan scope for `JN-ADT-REBASE-001`.
+- [x] Landed the first parser/core `case` slice: surface `case` with literal, wildcard, and variable patterns now lowers to `EPatternCase` without regressing `if`.
+- [x] Added `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs` and threaded it into `bash jazz-next/scripts/test-warning-config.sh`.
+- [x] Added temporary analyzer/type/runtime plumbing so unsupported `EPatternCase` nodes surface deterministic `E2011` / `E3022` diagnostics instead of falling through shared traversals.
 - [ ] Milestone 1 complete: core ADT/pattern semantics docs and executable subset are locked for `jazz-next`.
 - [ ] Milestone 2 complete: parser, surface AST, core AST, and lowering represent the agreed ADT/case/pattern forms.
 - [ ] Milestone 3 complete: analyzer/type semantics cover data declarations, constructors, and branch-local pattern bindings.
 - [ ] Milestone 4 complete: runtime execution supports constructor values and pattern-matching evaluation with deterministic diagnostics.
 - [ ] Milestone 5 complete: docs, roadmap, and queue state close the rebase and future work no longer points at legacy `11`.
 
-## Active Baseline (2026-03-18)
+## Current State (after first parser slice)
 
-- `jazz-next/src/JazzNext/Compiler/AST.hs` has `ECase Expr Expr Expr` only as an internal boolean branch form used after `if` desugaring; it cannot represent general case arms or patterns.
-- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs` lacks `data`, `case`, constructor, and pattern surface nodes.
-- `jazz-next/src/JazzNext/Compiler/Parser.hs` currently supports lambdas, `if`, operators, lists, signatures, and module/import forms, but no ADT/pattern surface syntax.
-- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` and `jazz-next/src/JazzNext/Compiler/Desugar.hs` only lower/desugar the current subset and preserve the boolean-only `ECase` contract.
-- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` and `jazz-next/src/JazzNext/Compiler/Runtime.hs` both interpret `ECase` as `Bool` condition plus two branches, not as general pattern matching.
-- `jazz-next/test/JazzNext/Compiler/Parser/*` and `jazz-next/test/JazzNext/Compiler/Semantics/*` currently contain no ADT/pattern-specific coverage in the active path.
+- `jazz-next/src/JazzNext/Compiler/AST.hs` now carries `Pattern`, `CaseArm`, and `EPatternCase`; the older `ECase Expr Expr Expr` remains the internal boolean branch form used after `if` desugaring.
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `Parser.hs`, and `Parser/Lexer.hs` now accept `case <expr> { | <pattern> -> <expr> ... }` with literal, wildcard, and variable patterns only; `data`, constructor patterns, and list patterns are still absent on the active path.
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` and `jazz-next/src/JazzNext/Compiler/Desugar.hs` preserve the new `EPatternCase` node without changing the existing boolean-only `ECase` contract.
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs` walks `EPatternCase` arm bodies, but branch-local pattern bindings are still intentionally unimplemented.
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` canonicalizes and traverses `EPatternCase`, then emits deterministic `E2011` diagnostics until real simple-pattern typing lands.
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs` preserves existing boolean `ECase` execution, threads `EPatternCase` through runtime dependency helpers, and rejects evaluation with deterministic `E3022` diagnostics until case execution lands.
+- `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs` now covers accepted/rejected parser forms and runs from the default `bash jazz-next/scripts/test-warning-config.sh` path.
 
 ## Scope Guardrails
 
@@ -51,11 +55,11 @@ Out of scope for the first executable slices:
 
 | stage | current owner files | current behavior | required rebase outcome |
 | --- | --- | --- | --- |
-| Surface parse | `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs` | No ADT/case/pattern surface nodes. | Add parser-owned nodes for `data`, case arms, and patterns with deterministic diagnostics. |
-| Core AST + lowering | `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/Desugar.hs` | Core AST only has boolean `ECase`; lowering/desugaring assume `if` canonicalization. | Introduce core forms that can represent constructors and general case matching without regressing `if`. |
-| Binding/type semantics | `jazz-next/src/JazzNext/Compiler/Analyzer.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs` | Handles lexical bindings and boolean `ECase` only. | Track data/constructor bindings, pattern-bound names, branch-local scope, and branch result agreement. |
-| Runtime execution | `jazz-next/src/JazzNext/Compiler/Runtime.hs`, `jazz-next/src/JazzNext/Compiler/Driver.hs` | Evaluates booleans, lists, closures, builtins, and boolean `ECase` only. | Add constructor runtime values, case dispatch, and deterministic match-failure diagnostics in the same interpreter pipeline. |
-| Active verification | `jazz-next/test/JazzNext/Compiler/Parser/*.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/*.hs`, `jazz-next/test/JazzNext/CLI/CLISpec.hs` | No ADT/pattern coverage. | Add parser/type/runtime suites for the agreed slice and thread them into active-path verification. |
+| Surface parse | `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs` | Supports surface `case` with literal, wildcard, and variable patterns; no `data`, constructor, or list-pattern parsing yet. | Extend the parser-owned nodes to cover the rest of the agreed ADT/pattern surface with deterministic diagnostics. |
+| Core AST + lowering | `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/Desugar.hs` | Carries `EPatternCase` plus simple `Pattern` / `CaseArm`; `ECase` remains bool-only for `if`. | Expand core forms to cover constructor/list patterns and eventual constructor values without regressing `if`. |
+| Binding/type semantics | `jazz-next/src/JazzNext/Compiler/Analyzer.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs` | Traverses `EPatternCase` and currently emits deterministic `E2011` placeholders; branch-local bindings still missing. | Track data/constructor bindings, pattern-bound names, branch-local scope, and branch result agreement. |
+| Runtime execution | `jazz-next/src/JazzNext/Compiler/Runtime.hs`, `jazz-next/src/JazzNext/Compiler/Driver.hs` | Preserves bool-only `ECase` execution and rejects `EPatternCase` with deterministic `E3022` placeholders. | Add constructor runtime values, case dispatch, and deterministic match-failure diagnostics in the same interpreter pipeline. |
+| Active verification | `jazz-next/test/JazzNext/Compiler/Parser/*.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/*.hs`, `jazz-next/test/JazzNext/CLI/CLISpec.hs` | Parser coverage exists via `AdtPatternParserSpec` and the default script; no dedicated pattern type/runtime suites yet. | Add parser/type/runtime suites for the agreed slice and thread them into active-path verification. |
 
 ## Dependency Map
 
@@ -95,9 +99,10 @@ rg -n "adt-pattern-semantics|pattern-matching-semantics" \
 
 ### Milestone 2: Rebase parser, surface AST, core AST, and lowering
 
-- [ ] Introduce parser-facing nodes for data declarations, constructor patterns, and general case arms.
-- [ ] Extend core AST and lowering to represent the agreed case/pattern shapes without regressing existing `if` handling.
-- [ ] Add dedicated parser coverage for accepted and rejected ADT/pattern surface forms.
+- [x] Introduce parser-facing nodes for the first general `case`-arm slice with literal, wildcard, and variable patterns.
+- [x] Extend core AST, lowering, and desugaring with `EPatternCase` without regressing existing `if` handling.
+- [x] Add dedicated parser coverage for accepted and rejected active-path `case` forms and thread it into `bash jazz-next/scripts/test-warning-config.sh`.
+- [ ] Add `data` declarations, constructor patterns, and list patterns to the active-path surface/core representation.
 
 Primary files:
 
@@ -111,9 +116,10 @@ Primary files:
 
 ### Milestone 3: Add analyzer/type semantics
 
+- [x] Thread `EPatternCase` through analyzer/type traversals and emit deterministic `E2011` diagnostics until real semantics land.
 - [ ] Register data declarations and constructor signatures in active-path semantic environments.
 - [ ] Implement pattern-binding scope rules and branch-local visibility.
-- [ ] Typecheck constructor application and `case` branch result agreement with deterministic diagnostics.
+- [ ] Typecheck constructor application and `case` branch result agreement for the committed simple-pattern subset, then extend to constructor/list patterns.
 - [ ] Add dedicated semantic coverage for the committed slice.
 
 Primary files:
@@ -125,6 +131,7 @@ Primary files:
 
 ### Milestone 4: Implement runtime constructor values and case matching
 
+- [x] Thread `EPatternCase` through runtime dependency helpers and emit deterministic `E3022` diagnostics when evaluation reaches unsupported pattern matching.
 - [ ] Add runtime value representation for constructors and constructed data.
 - [ ] Implement first-match pattern evaluation for the agreed active-path subset.
 - [ ] Emit deterministic runtime diagnostics for no-match and invalid constructor application paths.
