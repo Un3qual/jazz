@@ -249,7 +249,23 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
             Just groupMembers ->
               lookupRecursivePeer targetName groupMembers
             Nothing -> Nothing
+        EIf _ thenExpr elseExpr ->
+          wrappedRecursiveAliasTarget statementIndex thenExpr elseExpr
+        ECase _ thenExpr elseExpr ->
+          wrappedRecursiveAliasTarget statementIndex thenExpr elseExpr
         _ -> Nothing
+
+    wrappedRecursiveAliasTarget :: Int -> Expr -> Expr -> Maybe Int
+    wrappedRecursiveAliasTarget statementIndex thenExpr elseExpr =
+      case
+          ( recursiveAliasTarget statementIndex thenExpr,
+            recursiveAliasTarget statementIndex elseExpr
+          ) of
+        (Just thenTargetIndex, Just elseTargetIndex)
+          | thenTargetIndex == elseTargetIndex ->
+              Just thenTargetIndex
+        _ ->
+          Nothing
 
     -- Single-expression blocks are semantically transparent here, so peel
     -- them before following recursive alias edges and cycle detection.
