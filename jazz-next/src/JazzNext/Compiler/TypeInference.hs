@@ -28,6 +28,7 @@ import JazzNext.Compiler.AST
   ( CaseArm (..),
     Expr (..),
     Literal (..),
+    Pattern (..),
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
@@ -1019,7 +1020,9 @@ freeVarsExprWithBound bound expr =
     EPatternCase scrutineeExpr caseArms ->
       Set.unions
         ( freeVarsExprWithBound bound scrutineeExpr :
-          [ freeVarsExprWithBound bound bodyExpr | CaseArm _ bodyExpr <- caseArms ]
+          [ freeVarsExprWithBound (extendBoundWithPattern pattern bound) bodyExpr
+          | CaseArm pattern bodyExpr <- caseArms
+          ]
         )
     EBinary _ leftExpr rightExpr ->
       Set.union
@@ -1464,6 +1467,13 @@ renderTypeAtom expressionType =
   case expressionType of
     TFunctionType _ _ -> "(" <> renderType expressionType <> ")"
     _ -> renderType expressionType
+
+extendBoundWithPattern :: Pattern -> Set Text -> Set Text
+extendBoundWithPattern pattern bound =
+  case pattern of
+    PVariable name -> Set.insert (identifierText name) bound
+    PWildcard -> bound
+    PLiteral {} -> bound
 
 supportsRuntimeEqualityType :: ExpressionType -> Bool
 supportsRuntimeEqualityType expressionType =

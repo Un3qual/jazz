@@ -25,6 +25,7 @@ import JazzNext.Compiler.AST
   ( CaseArm (..),
     Expr (..),
     Literal (..),
+    Pattern (..),
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
@@ -188,8 +189,13 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
             collectExprDiagnostics builtinMode settings visibleBindings context scrutineeExpr
           armResults =
             map
-              ( \(CaseArm _ bodyExpr) ->
-                  collectExprDiagnostics builtinMode settings visibleBindings context bodyExpr
+              ( \(CaseArm pattern bodyExpr) ->
+                  collectExprDiagnostics
+                    builtinMode
+                    settings
+                    (extendBindingsWithPattern pattern visibleBindings)
+                    context
+                    bodyExpr
               )
               caseArms
        in
@@ -658,7 +664,9 @@ freeVarsExprWithBound bound expr =
     EPatternCase scrutineeExpr caseArms ->
       Set.unions
         ( freeVarsExprWithBound bound scrutineeExpr :
-          [ freeVarsExprWithBound bound bodyExpr | CaseArm _ bodyExpr <- caseArms ]
+          [ freeVarsExprWithBound (extendBoundWithPattern pattern bound) bodyExpr
+          | CaseArm pattern bodyExpr <- caseArms
+          ]
         )
     EBinary _ leftExpr rightExpr ->
       Set.union
@@ -709,6 +717,28 @@ visibleBindingDiagnosticSpan visibleBinding =
 
 lambdaVisibleBinding :: VisibleBinding
 lambdaVisibleBinding =
+  VisibleBinding
+    { visibleBindingSpan = SourceSpan 0 0,
+      visibleBindingIsHiddenPrelude = True
+    }
+
+extendBindingsWithPattern :: Pattern -> Map Text VisibleBinding -> Map Text VisibleBinding
+extendBindingsWithPattern pattern bindings =
+  case pattern of
+    PVariable name ->
+      Map.insert (identifierText name) patternVisibleBinding bindings
+    PWildcard -> bindings
+    PLiteral {} -> bindings
+
+extendBoundWithPattern :: Pattern -> Set Text -> Set Text
+extendBoundWithPattern pattern bound =
+  case pattern of
+    PVariable name -> Set.insert (identifierText name) bound
+    PWildcard -> bound
+    PLiteral {} -> bound
+
+patternVisibleBinding :: VisibleBinding
+patternVisibleBinding =
   VisibleBinding
     { visibleBindingSpan = SourceSpan 0 0,
       visibleBindingIsHiddenPrelude = True

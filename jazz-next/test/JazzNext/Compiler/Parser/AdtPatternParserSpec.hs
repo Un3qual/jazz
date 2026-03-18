@@ -40,6 +40,7 @@ tests :: [NamedTest]
 tests =
   [ ("parses basic case expression with literal and wildcard arms", testParsesBasicCaseExpression),
     ("parses variable pattern case arm", testParsesVariablePatternCaseArm),
+    ("parses nested case expression", testParsesNestedCaseExpression),
     ("rejects case expression without leading pipe", testRejectsCaseExpressionWithoutPipe),
     ("rejects case expression without arm arrow", testRejectsCaseExpressionWithoutArrow),
     ("lowers parsed case nodes into core AST", testLowerCaseExpression)
@@ -79,6 +80,33 @@ testParsesVariablePatternCaseArm =
         )
     )
     (parseSurfaceProgram "x = case value { | item -> item }.")
+
+testParsesNestedCaseExpression :: IO ()
+testParsesNestedCaseExpression =
+  assertRight
+    "nested case parse + lower"
+    (parseSurfaceProgram "x = case n { | 0 -> case y { | 1 -> True | _ -> False } | _ -> False }.")
+    (\surfaceProgram -> assertEqual "nested lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "n")
+                [ CaseArm
+                    (PLiteral (LInt 0))
+                    ( EPatternCase
+                        (EVar "y")
+                        [ CaseArm (PLiteral (LInt 1)) (ELit (LBool True)),
+                          CaseArm PWildcard (ELit (LBool False))
+                        ]
+                    ),
+                  CaseArm PWildcard (ELit (LBool False))
+                ]
+            )
+        ]
 
 testRejectsCaseExpressionWithoutPipe :: IO ()
 testRejectsCaseExpressionWithoutPipe =
