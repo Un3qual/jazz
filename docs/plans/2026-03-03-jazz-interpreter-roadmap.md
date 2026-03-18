@@ -4,12 +4,16 @@
 
 This document summarizes the current state of Jazz, what has been completed, what remains, which detailed plans already exist, and where the current planning is incomplete for reaching a fully working interpreter.
 
-## Active-Path Runtime Plan Status
+## Active-Path Plan Status
 
 - Active runtime architecture and execution plan:
   - `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`
 - Legacy runtime implementation plan retained for reference only:
   - `docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md`
+- Active type-grammar and signature rebase plan:
+  - `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
+- Legacy type-grammar clarification plan retained for reference only:
+  - `docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md`
 
 ## Evidence Baseline
 
@@ -77,13 +81,14 @@ Current `jazz-next` behavior is a compiler front-end skeleton with:
 
 ### Important reality check
 
-- The repository contains plans for interpreter work (`12`, legacy `12a`), ADT/pattern runtime work (`11`), module loader (`09`), stdlib boundary (`10`), and type-grammar clarification (`07`). Domains `07`, `09`, `11`, and `12` still need active-path rebasing work, while the `12a` follow-on is now replaced by the `2026-03-18` active-path runtime plan and domain `10` already has active `jazz-next` execution plus follow-up cleanup still in progress.
+- The repository contains plans for interpreter work (`12`, legacy `12a`), ADT/pattern runtime work (`11`), module loader (`09`), stdlib boundary (`10`), and legacy type-grammar clarification (`07`). Domains `09`, `11`, and `12` still need active-path rebasing work, while the `12a` follow-on and the type-grammar follow-on now have active-path replacement plans and domain `10` already has active `jazz-next` execution plus follow-up cleanup still in progress.
 - Current workspace guardrails require all net-new compiler/runtime behavior work in `jazz-next/`.
 
 ## 3) Detailed Plans Already Written
 
 ### Mostly complete or actively executed
 - `2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md` (active-path replacement for legacy `12a`; defines the `jazz-next` runtime pipeline, milestones, and dependency map)
+- `2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md` (active-path replacement for legacy `07`; defines the `jazz-next` type/signature ownership boundary, milestones, and verification targets)
 - `13-binding-and-signature-coherence.md` (partially executed in `jazz-next`; core analyzer contract implemented)
 - `17-jazz2-alignment-and-spec-authority.md` (executed)
 - `18-compiler-warning-flags.md` (executed in `jazz-next`)
@@ -100,7 +105,7 @@ Current `jazz-next` behavior is a compiler front-end skeleton with:
 - `06-parse-only-features-resolution.md`
 
 ### Detailed but largely not executed (legacy-targeted plans)
-- `07-type-grammar-and-arrow-associativity.md`
+- `07-type-grammar-and-arrow-associativity.md` (legacy-targeted; replaced for new work by `2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`)
 - `08-trait-vocabulary-and-capability-model.md`
 - `09-module-loader-and-import-resolution.md`
 - `10-stdlib-boundary-selfhosted-vs-hardcoded.md`
@@ -113,11 +118,11 @@ Current `jazz-next` behavior is a compiler front-end skeleton with:
 ### Phase A: Re-anchor execution plans to `jazz-next` (required first)
 
 1. Convert legacy-targeted runtime plans (`11`, `12`, `12a`) into `jazz-next` execution plans.
-2. Rebase module/stdlib/type-grammar plans (`07`, `09`, `10`) onto `jazz-next` parser/analyzer/runtime architecture.
+2. Rebase the remaining module/stdlib plans (`09`, `10`) onto `jazz-next` parser/analyzer/runtime architecture and keep the new active-path type-grammar plan aligned with them.
 3. Explicitly mark legacy `jazz-hs` plans as evidence-only where they are no longer execution targets.
 
 Execution note:
-- The `12a` runtime follow-on is now covered by `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`; remaining Phase A rebases are `07`, `09`, `11`, and `12`.
+- The `12a` runtime follow-on is now covered by `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`, and the `07` type-grammar follow-on is now covered by `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`; remaining Phase A rebases are `09`, `11`, and `12`.
 
 ### Phase B: Expand parser + AST + lowering to spec contracts
 
@@ -130,7 +135,7 @@ Execution note:
 
 1. Replace current analyzer-only structural checks with real type inference/checking slices.
 2. Enforce primitive typing and equality contract (`16`).
-3. Add type representation for parsed signatures (currently signature text is raw `String`).
+3. Add type representation for parsed signatures (currently signature text is raw `Text`).
 4. Establish error code taxonomy for type errors (parallel to existing `E1001+` binding diagnostics).
 
 ### Phase D: Build interpreter runtime core
@@ -177,9 +182,9 @@ Current `jazz-next` "TypeInference" module forwards analyzer checks; it does not
 
 ### Hole 4: Signature representation is under-specified
 
-Signatures are currently stored as raw text in AST (`String`), which blocks robust type checking.
+Signatures are currently stored as raw text in AST (`Text`), which blocks robust type checking.
 
-**Needed:** parsed type AST and signature parser plan.
+**Status (2026-03-18):** active-path replacement planning is now captured in `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`.
 
 ### Hole 5: Runtime diagnostics contract not fully planned
 
@@ -222,10 +227,10 @@ There are strong tests for current warning/binding/parser foundation slices, but
 
 ## 6) Recommended Next Batch (Practical Order)
 
-1. Rebase the type-grammar plan (`07`) onto the active `jazz-next` parser/type architecture.
-2. Rebase `11` (ADT/pattern) against the new runtime pipeline and dependency map.
-3. Rebase `09` (modules) onto `ModuleResolver.hs` plus `Driver.hs`.
-4. Finish stdlib phase-5 hardcoded-kernel reduction (`10`).
+1. Rebase `11` (ADT/pattern) against the new runtime pipeline and dependency map.
+2. Rebase `09` (modules) onto `ModuleResolver.hs` plus `Driver.hs`.
+3. Finish stdlib phase-5 hardcoded-kernel reduction (`10`).
+4. Execute Milestone 1 of the new active-path type-grammar plan so signature ownership moves out of raw `Text`.
 5. Close the compile vs run contract gap and remove placeholder-only success semantics from the active CLI/runtime path.
 
 ## Success Criteria for "Fully Working Interpreter"

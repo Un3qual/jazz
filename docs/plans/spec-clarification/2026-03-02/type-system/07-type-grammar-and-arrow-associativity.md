@@ -1,5 +1,7 @@
 # Type Grammar + Arrow Associativity Clarification Implementation Plan
 
+> **Legacy note (2026-03-18):** this plan is `jazz-hs`-targeted and remains reference-only for new work. Active-path type-grammar planning and execution now live in `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`.
+
 > **For Claude:** REQUIRED SUB-SKILL: use `executing-plans` to execute this clarification plan with explicit decision checkpoints.
 >
 > **Scope guard:** This plan only covers unresolved type-grammar semantics not already covered by spec-cleanup items #1-#6.

@@ -52,7 +52,7 @@
 | dependency | why it matters | what it unlocks |
 | --- | --- | --- |
 | `18-compiler-warning-flags.md` and current driver wiring | Warning/error promotion already shapes the compile/run contract. | Stable diagnostics while runtime milestones land. |
-| `JN-TYPE-PLAN-001` and plan `07` | Signatures are still raw `Text`; meaningful type-directed runtime expansion depends on parsed type AST and active-path rules. | Real type-system phases in `TypeInference.hs` and parser/lowering changes. |
+| `JN-TYPE-PLAN-001` and `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md` | Signatures are still raw `Text`; meaningful type-directed runtime expansion depends on parsed type AST and active-path rules. | Real type-system phases in `TypeInference.hs` and parser/lowering changes. |
 | Active parser/operator/if/primitive work (`14`, `15`, `16`) | These domains are already partially represented in `jazz-next` runtime and tests. | Safe runtime-core expansion without reopening settled syntax decisions. |
 | `JN-ADT-REBASE-001` and plan `11` | ADT/pattern semantics need the active runtime architecture before they can target the correct files. | Constructor values, `case`, pattern matching, and related diagnostics in `jazz-next`. |
 | Module-loader rebase (`09`) | Module resolution exists in code, but its normative execution plan is still legacy-targeted. | Deterministic module execution semantics, import diagnostics, and closure of multi-file runtime behavior. |
