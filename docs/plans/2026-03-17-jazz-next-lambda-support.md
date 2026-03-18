@@ -24,6 +24,12 @@
 - [x] Review follow-up complete: recursive peer type seeding now preserves earlier visible bindings, and alias-only recursive runtime bridges fail with a deterministic diagnostic.
 - [x] Review follow-up complete: mixed `if`/`case` wrappers now seed recursive lambda typing early enough to reject non-function alternate branches deterministically.
 - [x] Review follow-up complete: block-wrapped recursive alias loops now hit deterministic `E3021`, and duplicate lambda parameter shadowing is locked as intentional lowering behavior.
+- [ ] Next task queued and un-deferred: extract shared recursive-binding helpers into `JazzNext.Compiler.RecursiveBindings` per `docs/plans/2026-03-17-jazz-next-shared-recursive-binding-helpers.md`.
+
+## Next Task
+
+- [ ] Execute `docs/plans/2026-03-17-jazz-next-shared-recursive-binding-helpers.md` before unrelated parser/runtime follow-up work.
+- [ ] Keep the runtime `exprYieldsFunctionValue` policy and the type-inference `exprContainsFunctionBranch` policy separate while sharing the graph/free-var core.
 
 ## Scope Guardrails
 
