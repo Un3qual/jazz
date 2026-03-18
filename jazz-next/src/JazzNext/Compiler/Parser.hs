@@ -723,7 +723,11 @@ parseCaseExpr caseToken tokensAfterCase =
           Just diagnostic ->
             Left diagnostic
           Nothing ->
-            Left (parseDiagnostic caseBodyMissingMessage)
+            case parseExpr tokensAfterCase of
+              Left scrutineeDiagnostic ->
+                Left scrutineeDiagnostic
+              Right _ ->
+                Left (parseDiagnostic caseBodyMissingMessage)
   where
     caseBodyMissingMessage =
       "expected '{' before end of input after 'case' at " <> renderSourceSpan (tokenSpan caseToken)

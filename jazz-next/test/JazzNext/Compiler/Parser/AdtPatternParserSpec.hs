@@ -47,6 +47,7 @@ tests =
     ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument),
     ("reports missing case body for block-valued scrutinee", testReportsMissingCaseBodyForBlockScrutinee),
     ("reports missing arm arrow for block-valued scrutinee", testReportsMissingArmArrowForBlockScrutinee),
+    ("reports invalid case scrutinee syntax before body diagnostics", testReportsInvalidCaseScrutineeSyntax),
     ("rejects case expression without leading pipe", testRejectsCaseExpressionWithoutPipe),
     ("rejects case expression without arm arrow", testRejectsCaseExpressionWithoutArrow),
     ("rejects missing arrow on later case arm", testRejectsMissingArrowOnLaterCaseArm),
@@ -221,6 +222,13 @@ testReportsMissingArmArrowForBlockScrutinee =
     "block scrutinee missing arm arrow"
     "expected '->'"
     (parseSurfaceProgram "x = case f { y = 1. y. } { | 1 True }.")
+
+testReportsInvalidCaseScrutineeSyntax :: IO ()
+testReportsInvalidCaseScrutineeSyntax =
+  assertLeftDiagnosticContains
+    "invalid case scrutinee syntax"
+    "unexpected token '+'"
+    (parseSurfaceProgram "x = case + { | 0 -> True }.")
 
 testRejectsCaseExpressionWithoutPipe :: IO ()
 testRejectsCaseExpressionWithoutPipe =
