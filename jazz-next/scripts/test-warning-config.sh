@@ -17,8 +17,10 @@ TEST_FILES=(
   jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   jazz-next/test/JazzNext/Compiler/Semantics/PuritySemanticsSpec.hs
   jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs
   jazz-next/test/JazzNext/Compiler/Parser/IfExpressionParserSpec.hs
   jazz-next/test/JazzNext/Compiler/Semantics/IfExpressionTypeSpec.hs
+  jazz-next/test/JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs
   jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
   jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
   jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs

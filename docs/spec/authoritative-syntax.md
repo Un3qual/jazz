@@ -1,10 +1,10 @@
 # Authoritative Syntax
 
-Status: active (decision lock recorded, implementation alignment pending)
+Status: active (module/import and lambda slices are implemented in `jazz-next`; abstraction alignment remains pending)
 Locked decisions: 2026-03-02
 Primary plan: `docs/plans/spec-cleanup/2026-03-02/decisions/01-authoritative-syntax.md`
 
-Implementation note (2026-03-17): `jazz-next` now accepts canonical brace-bodied module declarations (`module A::B { ... }`) in the active parser/resolver/CLI path. Remaining alignment gaps are primarily lambda and abstraction syntax.
+Implementation note (2026-03-17): `jazz-next` now accepts canonical brace-bodied module declarations (`module A::B { ... }`) and canonical identifier-only lambdas (`\(x) -> expr`) in the active parser/type/runtime/CLI path. Remaining alignment gaps are primarily abstraction syntax.
 
 ## Purpose
 
@@ -68,6 +68,6 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
 
 - [x] Canonical syntax decision recorded in a normative spec doc.
 - [x] Legacy/non-canonical forms identified with migration notes.
-- [ ] `jazz-next/` parser tests aligned to the canonical contract.
-- [ ] `jazz-next/` implementation aligned to the canonical contract.
+- [x] `jazz-next/` parser tests aligned to the implemented function/module/lambda slice of the canonical contract.
+- [x] `jazz-next/` implementation aligned to the implemented function/module/lambda slice of the canonical contract.
 - [ ] Summary docs fully converge with implementation behavior.

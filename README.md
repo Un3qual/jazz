@@ -28,11 +28,13 @@ Jazz is a functional language that takes inspiration from Elixir and Haskell. I 
 
 Detailed status/evidence matrix: [docs/feature-status.md](docs/feature-status.md)  
 Implementation baseline details: [docs/jazz-language-state.md](docs/jazz-language-state.md)
+Active compiler implementation path: `jazz-next/`
 
 ### Repository Governance (Spec Authority)
 
 - `jazz2` is a reference-only design source for future ideas and is non-normative for current language behavior.
-- The canonical language authority is `docs/spec/*` plus the active implementation behavior/tests in `jazz-hs` until spec sections are fully filled in.
+- The canonical language authority is `docs/spec/*` plus the implemented subset behavior/tests in `jazz-next/`; treat `jazz-hs/` as historical reference evidence only.
+- Active compiler implementation work lands in `jazz-next/`.
 - This top-level README is a project pitch and usage overview, not the normative language specification.
 - Semantic language changes require a decision record or RFC before implementation.
 - Non-semantic/internal changes may be implementation-first only when docs and tests are updated in the same change.
@@ -44,7 +46,7 @@ Implementation baseline details: [docs/jazz-language-state.md](docs/jazz-languag
 
 #### Hello World
 
-`jazz-next` loads its bundled prelude by default in CLI mode, so user-facing helpers such as `print!`, `map`, `filter`, `hd`, and `tl` come from that prelude rather than from direct compiler-owned names.
+`jazz-next/` loads its bundled prelude by default in CLI mode, so user-facing helpers such as `print!`, `map`, `filter`, `hd`, and `tl` come from that prelude rather than from direct compiler-owned names.
 
 ##### Jazz
 
@@ -128,7 +130,7 @@ isEven :: Integer -> Bool.
 isEven = \(i) -> mod(i, 2) == 0.
 
 // Multiline functions
-greet! = \() -> {
+greet! = \(ignored) -> {
   name = getLine!.
   println!("Hello, ${name}").
 }.

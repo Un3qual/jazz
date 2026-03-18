@@ -32,7 +32,7 @@ import JazzNext.Compiler.BuiltinCatalog
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan,
+    SourceSpan (..),
     WarningRecord,
     mkDiagnostic,
     mkSameScopeRebindingWarning,
@@ -140,6 +140,13 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
           | otherwise -> ([], [mkUnboundVariableError nameText])
       where
         nameText = identifierText name
+    ELambda parameterName bodyExpr ->
+      let lambdaBindings =
+            Map.insert
+              (identifierText parameterName)
+              lambdaVisibleBinding
+              visibleBindings
+       in collectExprDiagnostics builtinMode settings lambdaBindings context bodyExpr
     EOperatorValue _ -> ([], [])
     EList elements ->
       collectExprListDiagnostics builtinMode settings visibleBindings context elements
@@ -615,6 +622,10 @@ freeVarsExprWithBound bound expr =
       | otherwise -> Set.singleton nameText
       where
         nameText = identifierText name
+    ELambda parameterName bodyExpr ->
+      freeVarsExprWithBound
+        (Set.insert (identifierText parameterName) bound)
+        bodyExpr
     EOperatorValue _ -> Set.empty
     EList elements ->
       Set.unions (map (freeVarsExprWithBound bound) elements)
@@ -676,3 +687,10 @@ visibleBindingDiagnosticSpan visibleBinding =
   if visibleBindingIsHiddenPrelude visibleBinding
     then Nothing
     else Just (visibleBindingSpan visibleBinding)
+
+lambdaVisibleBinding :: VisibleBinding
+lambdaVisibleBinding =
+  VisibleBinding
+    { visibleBindingSpan = SourceSpan 0 0,
+      visibleBindingIsHiddenPrelude = True
+    }

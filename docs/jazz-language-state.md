@@ -439,6 +439,7 @@ If you need a practical baseline for continuing Jazz, use this order:
 5. Treat `jazz2` as a reference-only redesign source, not the active implementation target.
 6. Assume the currently working active implementation (`jazz-next`) is a small interpreter-oriented expression language with:
    - dot-separated statements and scope blocks
+   - canonical identifier-only lambdas with lexical closure runtime support (`\(x) -> expr`, multi-argument lambdas lowered into nested unary functions)
    - application and list literals
    - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, single-arrow function types)
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
@@ -466,17 +467,18 @@ If you need a practical baseline for continuing Jazz, use this order:
 
 If this repo is going to become a coherent language project, the highest-value cleanup would be:
 
-Status update for item #1:
+Status update for item `#1`:
 
 - Decision lock is recorded in `docs/spec/authoritative-syntax.md`.
-- Implementation/test alignment is still pending and must be executed in `jazz-next`.
+- Canonical module declarations and identifier-only lambdas are now implemented and test-backed in `jazz-next`.
+- Remaining item-1 work is primarily abstraction syntax alignment (`class` / `impl`) rather than function or module surface.
 
-Status update for item #3:
+Status update for item `#3`:
 
 - Stub-v1 purity enforcement is now implemented in active `jazz-next` compiler/analyzer flow.
 - Normative behavior is documented in `docs/spec/semantics/purity-bang-stub-v1.md`.
 
-Status update for item #5:
+Status update for item `#5`:
 
 - Implemented-vs-planned split is now published in `README.md`.
 - Canonical evidence-backed feature status is now tracked in `docs/feature-status.md`.

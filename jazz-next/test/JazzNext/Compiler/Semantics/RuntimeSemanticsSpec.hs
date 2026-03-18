@@ -2,7 +2,12 @@
 
 module Main (main) where
 
+import Control.Exception
+  ( SomeException,
+    try
+  )
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
@@ -27,9 +32,12 @@ import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
-    failTest,
     assertSingleDiagnosticContains,
+    failTest,
     runTestSuite
+  )
+import System.Timeout
+  ( timeout
   )
 
 main :: IO ()
@@ -40,6 +48,12 @@ tests =
   [ ("if with False condition skips then branch runtime failure", testIfFalseSkipsThenRuntimeFailure),
     ("if with True condition skips else branch runtime failure", testIfTrueSkipsElseRuntimeFailure),
     ("division by zero produces fatal runtime diagnostic", testDivisionByZeroRuntimeError),
+    ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError),
+    ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError),
+    ("mixed wrapped alias cycle still produces deterministic runtime diagnostic", testMixedWrappedAliasCycleRuntimeError),
+    ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError),
+    ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError),
+    ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError),
     ("bare dollar operator value applies at runtime", testDollarOperatorValueRuntimeSuccess),
     ("bare operator value applies at runtime", testBareOperatorValueRuntimeSuccess),
     ("explicit partial application of bare operator value applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess),
@@ -96,6 +110,126 @@ testDivisionByZeroRuntimeError = do
         "division by zero"
         (renderDiagnostic runtimeError)
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testAliasOnlyRecursiveCycleRuntimeError :: IO ()
+testAliasOnlyRecursiveCycleRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "even = odd. odd = even. even.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected alias-only recursive cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "alias-only recursive cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "alias-only recursive cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testWrappedAliasOnlyRecursiveCycleRuntimeError :: IO ()
+testWrappedAliasOnlyRecursiveCycleRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True g else g. g = f. f.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected wrapped alias-only recursive cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for wrapped alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "wrapped alias-only recursive cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "wrapped alias-only recursive cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testMixedWrappedAliasCycleRuntimeError :: IO ()
+testMixedWrappedAliasCycleRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True g else \\(x) -> x. g = f. f 1.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected mixed wrapped alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for mixed wrapped alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "mixed wrapped alias cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "mixed wrapped alias cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testWrappedAliasCycleConditionRuntimeError :: IO ()
+testWrappedAliasCycleConditionRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if (1 / 0 == 0) g else g. g = f. f.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected wrapped alias cycle condition failure to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected wrapped alias cycle condition failure to return a runtime diagnostic, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "wrapped alias cycle condition runtime code"
+        "E3001"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "wrapped alias cycle condition runtime text"
+        "division by zero"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testBlockWrappedAliasOnlyRecursiveCycleRuntimeError :: IO ()
+testBlockWrappedAliasOnlyRecursiveCycleRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "a = { b. }. b = { a. }. a.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected block-wrapped alias-only recursive cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for block-wrapped alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "block-wrapped alias-only recursive cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "block-wrapped alias-only recursive cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testNonFunctionRecursiveCycleRuntimeError :: IO ()
+testNonFunctionRecursiveCycleRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "x = y + 1. y = x + 1. x.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected non-function recursive cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for non-function recursive cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "non-function recursive cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "non-function recursive cycle runtime text"
+        "no concrete value"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
 testDollarOperatorValueRuntimeSuccess :: IO ()
 testDollarOperatorValueRuntimeSuccess = do

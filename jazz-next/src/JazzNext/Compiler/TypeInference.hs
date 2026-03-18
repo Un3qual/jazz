@@ -12,6 +12,8 @@ module JazzNext.Compiler.TypeInference
   ) where
 
 import Data.Char (isSpace)
+import Data.Graph (SCC (..), stronglyConnComp)
+import Data.List (foldl')
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -101,6 +103,8 @@ canonicalizeExpr expr =
   case expr of
     ELit literal -> ELit literal
     EVar name -> EVar name
+    ELambda parameterName bodyExpr ->
+      ELambda parameterName (canonicalizeExpr bodyExpr)
     EOperatorValue operatorSymbol -> EOperatorValue operatorSymbol
     EList elements -> EList (map canonicalizeExpr elements)
     EApply functionExpr argumentExpr ->
@@ -203,6 +207,22 @@ inferExprType builtinMode env state expr =
             Nothing -> (Nothing, state)
       where
         nameText = identifierText name
+    ELambda parameterName bodyExpr ->
+      let (parameterType, stateAfterParameter) = freshTypeVar state
+          extendedEnv =
+            Map.insert
+              (identifierText parameterName)
+              parameterType
+              env
+          (bodyType, stateAfterBody) =
+            inferExprType builtinMode extendedEnv stateAfterParameter bodyExpr
+       in
+        case bodyType of
+          Just inferredBodyType ->
+            ( Just (TFunctionType (resolveType stateAfterBody parameterType) inferredBodyType),
+              stateAfterBody
+            )
+          Nothing -> (Nothing, stateAfterBody)
     EOperatorValue operatorSymbol ->
       case instantiateOperatorType operatorSymbol state of
         Just (operatorType, nextState) -> (Just operatorType, nextState)
@@ -604,12 +624,19 @@ applyStrictEqualitySectionRightRule operatorSymbol rightType state =
 -- | Scope/type-signature handling for block expressions. This mirrors the
 -- statement-order rules enforced by the analyzer while threading inferred types.
 inferScopeType :: BuiltinResolutionMode -> Map Text ExpressionType -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
-inferScopeType builtinMode initialEnv initialState statements = go initialEnv Nothing Nothing initialState statements
+inferScopeType builtinMode initialEnv initialState statements = go initialEnv Nothing Nothing seededState indexedStatements
   where
+    indexedStatements = zip [0 ..] statements
+    recursiveGroupsByStatement = inferRecursiveGroups initialEnv indexedStatements
+    selfRecursiveFunctionStatements = inferSelfRecursiveFunctionStatements indexedStatements
+    bindingNamesByStatement = collectBindingNames indexedStatements
+    (bindingSeedsByStatement, seededState) =
+      allocateBindingSeeds indexedStatements initialState
+
     go env lastExprType pendingSignatureType state remainingStatements =
       case remainingStatements of
         [] -> (lastExprType, state)
-        statement : rest ->
+        (statementIndex, statement) : rest ->
           case statement of
             SModule {} ->
               go env lastExprType pendingSignatureType state rest
@@ -629,6 +656,21 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                in go env lastExprType nextPendingSignature nextState rest
             SLet name bindingSpan valueExpr ->
               let nameText = identifierText name
+                  envWithRecursiveBindings =
+                    recursiveBindingEnv
+                      statementIndex
+                      env
+                      recursiveGroupsByStatement
+                      bindingNamesByStatement
+                      bindingSeedsByStatement
+                  envWithBindingSeed =
+                    case
+                        ( Set.member statementIndex selfRecursiveFunctionStatements,
+                          Map.lookup statementIndex bindingSeedsByStatement
+                        ) of
+                      (True, Just bindingSeed) ->
+                        Map.insert nameText bindingSeed envWithRecursiveBindings
+                      _ -> envWithRecursiveBindings
                   envWithPendingSignature =
                     case pendingSignatureType of
                       Just pendingSignature
@@ -636,11 +678,26 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                             Map.insert
                               nameText
                               (pendingSignatureDeclaredType pendingSignature)
-                              env
-                      _ -> env
+                              envWithBindingSeed
+                      _ -> envWithBindingSeed
                   (valueType, rawStateAfterValue) = inferExprType builtinMode envWithPendingSignature state valueExpr
                   stateAfterValue =
                     annotateNewErrorsWithPrimarySpan bindingSpan state rawStateAfterValue
+                  stateAfterBindingSeedCheck =
+                    case (Map.lookup statementIndex bindingSeedsByStatement, valueType) of
+                      (Just bindingSeed, Just inferredType) ->
+                        case unifyTypes bindingSeed inferredType stateAfterValue of
+                          Just unifiedState -> unifiedState
+                          Nothing ->
+                            addTypeError
+                              stateAfterValue
+                              ( mkBindingTypeMismatchError
+                                  nameText
+                                  (resolveType stateAfterValue bindingSeed)
+                                  bindingSpan
+                                  (resolveType stateAfterValue inferredType)
+                              )
+                      _ -> stateAfterValue
                   stateAfterSignatureCheck =
                     case (pendingSignatureType, valueType) of
                       (Just pendingSignature, Just inferredType)
@@ -649,25 +706,28 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                                 unifyTypes
                                   (pendingSignatureDeclaredType pendingSignature)
                                   inferredType
-                                  stateAfterValue of
+                                  stateAfterBindingSeedCheck of
                               Just unifiedState -> unifiedState
                               Nothing ->
                                 addTypeError
-                                  stateAfterValue
+                                  stateAfterBindingSeedCheck
                                   ( mkSignatureTypeMismatchError
                                       nameText
                                       (pendingSignatureSpan pendingSignature)
-                                      (resolveType stateAfterValue (pendingSignatureDeclaredType pendingSignature))
+                                      (resolveType stateAfterBindingSeedCheck (pendingSignatureDeclaredType pendingSignature))
                                       bindingSpan
-                                      (resolveType stateAfterValue inferredType)
+                                      (resolveType stateAfterBindingSeedCheck inferredType)
                                   )
-                      _ -> stateAfterValue
+                      _ -> stateAfterBindingSeedCheck
                   nextBindingType =
                     case pendingSignatureType of
                       Just pendingSignature
                         | pendingSignatureName pendingSignature == nameText ->
                             Just (resolveType stateAfterSignatureCheck (pendingSignatureDeclaredType pendingSignature))
-                      _ -> fmap (resolveType stateAfterSignatureCheck) valueType
+                      _ ->
+                        fmap
+                          (resolveType stateAfterSignatureCheck)
+                          (Map.lookup statementIndex bindingSeedsByStatement)
                   nextEnv =
                     case nextBindingType of
                       Just inferredType -> Map.insert nameText inferredType env
@@ -678,6 +738,280 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                   stateAfterExpr =
                     annotateNewErrorsWithPrimarySpan exprSpan state rawStateAfterExpr
                in go env exprType Nothing stateAfterExpr rest
+
+allocateBindingSeeds ::
+  [(Int, Statement)] ->
+  InferState ->
+  (Map Int ExpressionType, InferState)
+allocateBindingSeeds indexedStatements initialState =
+  foldl' step (Map.empty, initialState) indexedStatements
+  where
+    step (bindingSeeds, state) (statementIndex, statement) =
+      case statement of
+        SLet {} ->
+          let (bindingSeed, nextState) = freshTypeVar state
+           in (Map.insert statementIndex bindingSeed bindingSeeds, nextState)
+        _ -> (bindingSeeds, state)
+
+collectBindingNames :: [(Int, Statement)] -> Map Int Text
+collectBindingNames =
+  foldl' step Map.empty
+  where
+    step bindingNames (statementIndex, statement) =
+      case statement of
+        SLet bindingName _ _ ->
+          Map.insert statementIndex (identifierText bindingName) bindingNames
+        _ -> bindingNames
+
+inferSelfRecursiveFunctionStatements :: [(Int, Statement)] -> Set Int
+inferSelfRecursiveFunctionStatements =
+  foldl' step Set.empty
+  where
+    step recursiveStatements (statementIndex, statement) =
+      case statement of
+        SLet bindingName _ valueExpr
+          | exprContainsFunctionBranch valueExpr,
+            Set.member
+              (identifierText bindingName)
+              (freeVarsExprWithBound Set.empty valueExpr) ->
+              Set.insert statementIndex recursiveStatements
+        _ -> recursiveStatements
+
+-- Seed self-recursion before branch typing so mixed wrappers like
+-- `if True \(x) -> f x else 0` do not skip recursive calls just because only
+-- one branch exposes a function value.
+exprContainsFunctionBranch :: Expr -> Bool
+exprContainsFunctionBranch expr =
+  case expr of
+    ELambda {} -> True
+    EIf _ thenExpr elseExpr ->
+      exprContainsFunctionBranch thenExpr
+        || exprContainsFunctionBranch elseExpr
+    ECase _ thenExpr elseExpr ->
+      exprContainsFunctionBranch thenExpr
+        || exprContainsFunctionBranch elseExpr
+    EBlock statements ->
+      scopeContainsFunctionBranch statements
+    _ -> False
+
+scopeContainsFunctionBranch :: [Statement] -> Bool
+scopeContainsFunctionBranch statements =
+  case reverse statements of
+    SExpr _ expr : _ ->
+      exprContainsFunctionBranchViaScopeBindings
+        (collectScopeBindingExprs statements)
+        Set.empty
+        expr
+    _ -> False
+  where
+    -- Mirror runtime block-shape detection so recursive lambda seeding stays
+    -- aligned when a block returns a locally-bound lambda alias.
+    exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings scopeExpr =
+      case scopeExpr of
+        EVar bindingName ->
+          case Map.lookup (identifierText bindingName) scopeBindings of
+            Just bindingExpr
+              | Set.notMember (identifierText bindingName) visitedBindings ->
+                  exprContainsFunctionBranchViaScopeBindings
+                    scopeBindings
+                    (Set.insert (identifierText bindingName) visitedBindings)
+                    bindingExpr
+            _ -> False
+        ELambda {} -> True
+        EIf _ thenExpr elseExpr ->
+          exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
+            || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
+        ECase _ thenExpr elseExpr ->
+          exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
+            || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
+        EBlock nestedStatements ->
+          scopeContainsFunctionBranch nestedStatements
+        _ -> False
+
+    collectScopeBindingExprs =
+      foldl' collect Map.empty
+      where
+        collect scopeBindings statement =
+          case statement of
+            SLet bindingName _ valueExpr ->
+              Map.insert (identifierText bindingName) valueExpr scopeBindings
+            _ -> scopeBindings
+
+recursiveBindingEnv ::
+  Int ->
+  Map Text ExpressionType ->
+  Map Int [Int] ->
+  Map Int Text ->
+  Map Int ExpressionType ->
+  Map Text ExpressionType
+recursiveBindingEnv statementIndex env recursiveGroupsByStatement bindingNamesByStatement bindingSeedsByStatement =
+  case Map.lookup statementIndex recursiveGroupsByStatement of
+    Nothing -> env
+    Just groupMembers ->
+      foldl' insertBindingSeed env groupMembers
+  where
+    -- Preserve the declaration-time snapshot already visible in `env`; only
+    -- missing peer names should be seeded into the recursive inference scope.
+    insertBindingSeed envAcc memberIndex =
+      case
+          ( Map.lookup memberIndex bindingNamesByStatement,
+            Map.lookup memberIndex bindingSeedsByStatement
+          ) of
+        (Just bindingNameText, Just bindingSeed)
+          | Map.notMember bindingNameText env ->
+              Map.insert bindingNameText bindingSeed envAcc
+        _ -> envAcc
+
+-- | Keep recursive binding visibility aligned with the analyzer so recursive
+-- calls constrain the same names that semantic analysis already allows.
+inferRecursiveGroups ::
+  Map Text ExpressionType ->
+  [(Int, Statement)] ->
+  Map Int [Int]
+inferRecursiveGroups outerEnv indexedStatements =
+  Map.fromList
+    [ (statementIndex, componentStatements)
+      | component <- stronglyConnComp graphNodes,
+        let componentStatements = componentStatementIndices component,
+        isRecursiveComponent component,
+        statementIndex <- componentStatements
+    ]
+  where
+    declarationInfo =
+      [ (statementIndex, identifierText bindingName, valueExpr)
+        | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
+      ]
+    declarationStatementsByName =
+      foldl'
+        collectDeclaration
+        Map.empty
+        declarationInfo
+    outerBindingNames = Map.keysSet outerEnv
+    baseDependencies =
+      Map.fromList
+        [ (statementIndex, Set.empty)
+          | (statementIndex, _, _) <- declarationInfo
+        ]
+    dependenciesByStatement =
+      foldl' addBindingDependencies baseDependencies declarationInfo
+    graphNodes =
+      [ (statementIndex, statementIndex, Set.toList dependencies)
+        | (statementIndex, dependencies) <- Map.toList dependenciesByStatement
+      ]
+
+    collectDeclaration declarationsByName (statementIndex, bindingNameText, _) =
+      Map.insertWith (\new old -> old ++ new) bindingNameText [statementIndex] declarationsByName
+
+    addBindingDependencies dependencies (statementIndex, bindingNameText, valueExpr) =
+      let localDependencyNames =
+            Set.filter
+              (`Map.member` declarationStatementsByName)
+              (freeVarsExprWithBound (Set.singleton bindingNameText) valueExpr)
+          resolvedDependencies =
+            Set.fromList
+              [ dependencyStatementIndex
+                | dependencyName <- Set.toList localDependencyNames,
+                  Just dependencyStatementIndex <- [resolveDependencyStatement statementIndex dependencyName]
+              ]
+       in
+        Map.insert statementIndex resolvedDependencies dependencies
+
+    resolveDependencyStatement statementIndex dependencyName =
+      case Map.lookup dependencyName declarationStatementsByName of
+        Nothing -> Nothing
+        Just declarationStatements ->
+          case closestPriorDeclaration declarationStatements of
+            Just prior -> Just prior
+            Nothing
+              | Set.member dependencyName outerBindingNames -> Nothing
+              | otherwise -> closestFutureDeclaration declarationStatements
+      where
+        closestPriorDeclaration declarations =
+          case filter (< statementIndex) declarations of
+            [] -> Nothing
+            priorDeclarations -> Just (last priorDeclarations)
+
+        closestFutureDeclaration declarations =
+          case filter (> statementIndex) declarations of
+            [] -> Nothing
+            firstFuture : _ -> Just firstFuture
+
+    componentStatementIndices component =
+      let componentIndices =
+            case component of
+              AcyclicSCC componentIndex -> Set.singleton componentIndex
+              CyclicSCC componentIndicesList -> Set.fromList componentIndicesList
+       in
+        [ statementIndex
+          | (statementIndex, _) <- indexedStatements,
+            Set.member statementIndex componentIndices
+        ]
+
+    isRecursiveComponent component =
+      case component of
+        CyclicSCC _ -> True
+        AcyclicSCC statementIndex ->
+          Set.member
+            statementIndex
+            (Map.findWithDefault Set.empty statementIndex dependenciesByStatement)
+
+freeVarsExprWithBound :: Set Text -> Expr -> Set Text
+freeVarsExprWithBound bound expr =
+  case expr of
+    ELit _ -> Set.empty
+    EVar name
+      | Set.member nameText bound -> Set.empty
+      | otherwise -> Set.singleton nameText
+      where
+        nameText = identifierText name
+    ELambda parameterName bodyExpr ->
+      freeVarsExprWithBound
+        (Set.insert (identifierText parameterName) bound)
+        bodyExpr
+    EOperatorValue _ -> Set.empty
+    EList elements ->
+      Set.unions (map (freeVarsExprWithBound bound) elements)
+    EApply functionExpr argumentExpr ->
+      Set.union
+        (freeVarsExprWithBound bound functionExpr)
+        (freeVarsExprWithBound bound argumentExpr)
+    EIf conditionExpr thenExpr elseExpr ->
+      freeVarsExprWithBound bound (ECase conditionExpr thenExpr elseExpr)
+    ECase conditionExpr thenExpr elseExpr ->
+      Set.unions
+        [ freeVarsExprWithBound bound conditionExpr,
+          freeVarsExprWithBound bound thenExpr,
+          freeVarsExprWithBound bound elseExpr
+        ]
+    EBinary _ leftExpr rightExpr ->
+      Set.union
+        (freeVarsExprWithBound bound leftExpr)
+        (freeVarsExprWithBound bound rightExpr)
+    ESectionLeft leftExpr _ ->
+      freeVarsExprWithBound bound leftExpr
+    ESectionRight _ rightExpr ->
+      freeVarsExprWithBound bound rightExpr
+    EBlock statements -> freeVarsScopeWithBound bound statements
+
+freeVarsScopeWithBound :: Set Text -> [Statement] -> Set Text
+freeVarsScopeWithBound initialBound statements =
+  snd (foldl' step (initialBound, Set.empty) statements)
+  where
+    step (boundNames, freeNames) statement =
+      case statement of
+        SSignature {} -> (boundNames, freeNames)
+        SModule {} -> (boundNames, freeNames)
+        SImport {} -> (boundNames, freeNames)
+        SExpr _ expr ->
+          ( boundNames,
+            Set.union freeNames (freeVarsExprWithBound boundNames expr)
+          )
+        SLet bindingName _ valueExpr ->
+          let boundWithSelf = Set.insert (identifierText bindingName) boundNames
+           in
+            ( boundWithSelf,
+              Set.union freeNames (freeVarsExprWithBound boundWithSelf valueExpr)
+            )
 
 data PendingSignatureType = PendingSignatureType
   { pendingSignatureName :: Text,
@@ -1006,6 +1340,24 @@ mkApplyTypeError functionType argumentType =
         <> renderType functionType
         <> " to argument of type "
         <> renderType argumentType
+    )
+
+mkBindingTypeMismatchError :: Text -> ExpressionType -> SourceSpan -> ExpressionType -> Diagnostic
+mkBindingTypeMismatchError bindingName expectedType bindingSpan actualType =
+  setDiagnosticPrimarySpan
+    bindingSpan
+    ( setDiagnosticSubject
+        bindingName
+        ( mkDiagnostic
+            "E2006"
+            ( "binding '"
+                <> bindingName
+                <> "' is used recursively as type "
+                <> renderType expectedType
+                <> " but its definition inferred "
+                <> renderType actualType
+            )
+        )
     )
 
 mkListElementTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
