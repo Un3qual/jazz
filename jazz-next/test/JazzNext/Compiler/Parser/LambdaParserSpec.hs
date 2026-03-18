@@ -47,6 +47,7 @@ tests =
     ("parses lambda body application", testParsesLambdaBodyApplication),
     ("parses parenthesized lambda in application position", testParsesParenthesizedLambdaApplication),
     ("lowering nests multi-argument lambdas into unary core nodes", testLowerNestsMultiArgumentLambda),
+    ("lowering preserves duplicate parameter shadowing", testLowerPreservesDuplicateParameterShadowing),
     ("lowering rejects impossible empty lambda surface nodes", testLowerRejectsImpossibleEmptyLambda),
     ("rejects empty lambda parameter list", testRejectsEmptyLambdaParameters),
     ("rejects lambda without parenthesized parameters", testRejectsUnparenthesizedLambda),
@@ -124,6 +125,21 @@ testLowerNestsMultiArgumentLambda =
             "const"
             (SourceSpan 1 1)
             (ELambda "x" (ELambda "y" (EVar "x")))
+        ]
+
+testLowerPreservesDuplicateParameterShadowing :: IO ()
+testLowerPreservesDuplicateParameterShadowing =
+  assertRight
+    "parse + lower duplicate-parameter lambda"
+    (parseSurfaceProgram "shadow = \\(x, x) -> x.")
+    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "shadow"
+            (SourceSpan 1 1)
+            (ELambda "x" (ELambda "x" (EVar "x")))
         ]
 
 testLowerRejectsImpossibleEmptyLambda :: IO ()

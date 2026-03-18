@@ -221,13 +221,21 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
 
     recursiveAliasTarget :: Int -> Expr -> Maybe Int
     recursiveAliasTarget statementIndex valueExpr =
-      case valueExpr of
+      case peelSingleExprBlock valueExpr of
         EVar targetName ->
           case Map.lookup statementIndex recursiveGroups of
             Just groupMembers ->
               lookupRecursivePeer targetName groupMembers
             Nothing -> Nothing
         _ -> Nothing
+
+    -- Single-expression blocks are semantically transparent here, so peel
+    -- them before following recursive alias edges and cycle detection.
+    peelSingleExprBlock :: Expr -> Expr
+    peelSingleExprBlock expr =
+      case expr of
+        EBlock [SExpr _ innerExpr] -> peelSingleExprBlock innerExpr
+        _ -> expr
 
     lookupRecursivePeer :: Identifier -> [Int] -> Maybe Int
     lookupRecursivePeer targetName =
