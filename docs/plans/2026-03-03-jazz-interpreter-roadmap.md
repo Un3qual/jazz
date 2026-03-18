@@ -87,6 +87,7 @@ Current `jazz-next` behavior is a compiler front-end skeleton with:
 ## 3) Detailed Plans Already Written
 
 ### Mostly complete or actively executed
+
 - `2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md` (active-path replacement for legacy `12a`; defines the `jazz-next` runtime pipeline, milestones, and dependency map)
 - `2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md` (active-path replacement for legacy `07`; defines the `jazz-next` type/signature ownership boundary, milestones, and verification targets)
 - `2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md` (active-path replacement for legacy `11`; defines the `jazz-next` ADT/pattern owner map, milestones, and first executable batch)
@@ -118,7 +119,7 @@ Current `jazz-next` behavior is a compiler front-end skeleton with:
 
 ### Phase A: Re-anchor execution plans to `jazz-next` (required first)
 
-1. Convert legacy-targeted runtime plans (`12`, `12a`) into `jazz-next` execution plans and keep the new ADT replacement plan aligned with the same runtime architecture.
+1. Convert the remaining legacy-targeted runtime plan (`12`) into a `jazz-next` execution plan and keep the new ADT replacement plan aligned with the same runtime architecture.
 2. Rebase the remaining module-loader plan (`09`) onto `jazz-next` parser/analyzer/runtime architecture and keep the new active-path type-grammar and ADT plans aligned with it.
 3. Explicitly mark legacy `jazz-hs` plans as evidence-only where they are no longer execution targets.
 
