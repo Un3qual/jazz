@@ -178,7 +178,11 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
           case resolveRecursiveAliasTarget (Set.singleton statementIndex) targetIndex of
             Left diagnostic -> Left diagnostic
             Right resolvedTargetIndex -> bindingCellAt resolvedTargetIndex
-        Nothing ->
+        Nothing
+          | Map.member statementIndex recursiveGroups,
+            exprDefinitelyNotFunctionValue valueExpr ->
+              Left (runtimeDiagnostic "E3021" "runtime recursive binding has no concrete value")
+          | otherwise ->
           evalValue builtinMode (bindingEnv statementIndex bindingName) valueExpr
 
     -- Alias bridges can legitimately point across a recursive SCC, but pure
@@ -303,34 +307,58 @@ inferSelfRecursiveFunctionStatements =
     collect recursiveStatements (statementIndex, statement) =
       case statement of
         SLet bindingName _ valueExpr
-          | exprYieldsFunctionValue valueExpr,
+          | exprContainsFunctionBranch valueExpr,
             Set.member
               (identifierText bindingName)
               (freeVarsExprWithBound Set.empty valueExpr) ->
               Set.insert statementIndex recursiveStatements
         _ -> recursiveStatements
 
--- Keep recursive self-injection limited to bindings that still evaluate to a
--- function value after simple wrapper peeling, so wrapped lambdas align with
--- direct lambdas without broadening recursion to arbitrary values.
-exprYieldsFunctionValue :: Expr -> Bool
-exprYieldsFunctionValue expr =
+-- Match the type checker: self-seed recursion when any branch exposes a
+-- lambda, so wrapped self-recursive closures capture their own binding before
+-- runtime branch selection happens.
+exprContainsFunctionBranch :: Expr -> Bool
+exprContainsFunctionBranch expr =
   case expr of
     ELambda {} -> True
     EIf _ thenExpr elseExpr ->
-      exprYieldsFunctionValue thenExpr
-        && exprYieldsFunctionValue elseExpr
+      exprContainsFunctionBranch thenExpr
+        || exprContainsFunctionBranch elseExpr
     ECase _ thenExpr elseExpr ->
-      exprYieldsFunctionValue thenExpr
-        && exprYieldsFunctionValue elseExpr
+      exprContainsFunctionBranch thenExpr
+        || exprContainsFunctionBranch elseExpr
     EBlock statements ->
-      scopeYieldsFunctionValue statements
+      scopeContainsFunctionBranch statements
     _ -> False
 
-scopeYieldsFunctionValue :: [Statement] -> Bool
-scopeYieldsFunctionValue statements =
+scopeContainsFunctionBranch :: [Statement] -> Bool
+scopeContainsFunctionBranch statements =
   case reverse statements of
-    SExpr _ expr : _ -> exprYieldsFunctionValue expr
+    SExpr _ expr : _ -> exprContainsFunctionBranch expr
+    _ -> False
+
+-- Fail fast only when a recursive SCC member is obviously non-function-valued;
+-- anything more ambiguous should keep the previous runtime path.
+exprDefinitelyNotFunctionValue :: Expr -> Bool
+exprDefinitelyNotFunctionValue expr =
+  case expr of
+    ELit {} -> True
+    EList {} -> True
+    EBinary {} -> True
+    EIf _ thenExpr elseExpr ->
+      exprDefinitelyNotFunctionValue thenExpr
+        && exprDefinitelyNotFunctionValue elseExpr
+    ECase _ thenExpr elseExpr ->
+      exprDefinitelyNotFunctionValue thenExpr
+        && exprDefinitelyNotFunctionValue elseExpr
+    EBlock statements ->
+      scopeDefinitelyNotFunctionValue statements
+    _ -> False
+
+scopeDefinitelyNotFunctionValue :: [Statement] -> Bool
+scopeDefinitelyNotFunctionValue statements =
+  case reverse statements of
+    SExpr _ expr : _ -> exprDefinitelyNotFunctionValue expr
     _ -> False
 
 -- | Mirror the analyzer's recursive-group resolution so runtime closure capture

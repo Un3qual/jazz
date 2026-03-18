@@ -50,6 +50,7 @@ tests =
     ("division by zero produces fatal runtime diagnostic", testDivisionByZeroRuntimeError),
     ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError),
     ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError),
+    ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError),
     ("bare dollar operator value applies at runtime", testDollarOperatorValueRuntimeSuccess),
     ("bare operator value applies at runtime", testBareOperatorValueRuntimeSuccess),
     ("explicit partial application of bare operator value applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess),
@@ -144,6 +145,26 @@ testBlockWrappedAliasOnlyRecursiveCycleRuntimeError = do
       assertSingleDiagnosticContains
         "block-wrapped alias-only recursive cycle runtime text"
         "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testNonFunctionRecursiveCycleRuntimeError :: IO ()
+testNonFunctionRecursiveCycleRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "x = y + 1. y = x + 1. x.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected non-function recursive cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for non-function recursive cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "non-function recursive cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "non-function recursive cycle runtime text"
+        "no concrete value"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 

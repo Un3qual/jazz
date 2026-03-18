@@ -34,6 +34,8 @@ tests =
     ("lambda captures defining scope before later rebinding", testClosureCaptureBeforeRebindingRuntime),
     ("self-recursive lambda runs", testSelfRecursiveLambdaRuntime),
     ("wrapped self-recursive lambda runs", testWrappedSelfRecursiveLambdaRuntime),
+    ("wrapped self-recursive lambda can use function-valued variable branch", testWrappedSelfRecursiveLambdaWithFunctionVariableBranchRuntime),
+    ("wrapped self-recursive lambda can use section-valued alternate branch", testWrappedSelfRecursiveLambdaWithSectionBranchRuntime),
     ("block-wrapped self-recursive lambda runs", testBlockWrappedSelfRecursiveLambdaRuntime),
     ("mutually recursive lambdas run", testMutualRecursiveLambdaRuntime),
     ("later recursive peer captures its own declaration environment", testMutualRecursiveCaptureAfterRebindingRuntime),
@@ -91,6 +93,22 @@ testSelfRecursiveLambdaRuntime = do
 testWrappedSelfRecursiveLambdaRuntime :: IO ()
 testWrappedSelfRecursiveLambdaRuntime = do
   result <- runSource defaultWarningSettings "countdown = if True \\(n) -> if n == 0 0 else countdown (n - 1) else \\(n) -> n. countdown 2."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "0") (runOutput result)
+
+testWrappedSelfRecursiveLambdaWithFunctionVariableBranchRuntime :: IO ()
+testWrappedSelfRecursiveLambdaWithFunctionVariableBranchRuntime = do
+  result <- runSource defaultWarningSettings "g = \\(n) -> n. countdown = if True \\(n) -> if n == 0 0 else countdown (n - 1) else g. countdown 2."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "0") (runOutput result)
+
+testWrappedSelfRecursiveLambdaWithSectionBranchRuntime :: IO ()
+testWrappedSelfRecursiveLambdaWithSectionBranchRuntime = do
+  result <- runSource defaultWarningSettings "countdown = if True \\(n) -> if n == 0 0 else countdown (n - 1) else (1 +). countdown 2."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
