@@ -50,7 +50,41 @@ data RuntimeValue
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
   | VSectionRight Text RuntimeValue
-  deriving (Eq, Show)
+
+instance Eq RuntimeValue where
+  leftValue == rightValue =
+    case (leftValue, rightValue) of
+      (VInt leftInt, VInt rightInt) -> leftInt == rightInt
+      (VBool leftBool, VBool rightBool) -> leftBool == rightBool
+      (VList leftElements, VList rightElements) -> leftElements == rightElements
+      (VClosure _ leftParameter leftBody, VClosure _ rightParameter rightBody) ->
+        leftParameter == rightParameter && leftBody == rightBody
+      (VBuiltin leftBuiltin leftArgs, VBuiltin rightBuiltin rightArgs) ->
+        leftBuiltin == rightBuiltin && leftArgs == rightArgs
+      (VOperator leftOperator leftArgs, VOperator rightOperator rightArgs) ->
+        leftOperator == rightOperator && leftArgs == rightArgs
+      (VSectionLeft leftOperator leftOperand, VSectionLeft rightOperator rightOperand) ->
+        leftOperator == rightOperator && leftOperand == rightOperand
+      (VSectionRight leftOperator leftOperand, VSectionRight rightOperator rightOperand) ->
+        leftOperator == rightOperator && leftOperand == rightOperand
+      _ -> False
+
+instance Show RuntimeValue where
+  show value =
+    case value of
+      VInt intValue -> "VInt " <> show intValue
+      VBool boolValue -> "VBool " <> show boolValue
+      VList elements -> "VList " <> show elements
+      VClosure _ parameterName bodyExpr ->
+        "VClosure <env> " <> show parameterName <> " " <> show bodyExpr
+      VBuiltin builtinSymbol capturedArgs ->
+        "VBuiltin " <> show builtinSymbol <> " " <> show capturedArgs
+      VOperator operatorSymbol capturedArgs ->
+        "VOperator " <> show operatorSymbol <> " " <> show capturedArgs
+      VSectionLeft operatorSymbol operand ->
+        "VSectionLeft " <> show operatorSymbol <> " " <> show operand
+      VSectionRight operatorSymbol operand ->
+        "VSectionRight " <> show operatorSymbol <> " " <> show operand
 
 evaluateRuntimeExpr :: Expr -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExpr = evaluateRuntimeExprWithBuiltins ResolveKernelOnly
@@ -79,7 +113,9 @@ renderRuntimeValue value =
     VSectionLeft {} -> "<function>"
     VSectionRight {} -> "<function>"
 
-type RuntimeEnv = Map Text RuntimeValue
+type RuntimeCell = Either Diagnostic RuntimeValue
+
+type RuntimeEnv = Map Text RuntimeCell
 
 -- | Evaluate a block scope in order. Declarations clear `lastExprValue`, so
 -- `evalScope` returns `Just` only when the final surviving statement is an
@@ -88,8 +124,11 @@ evalScope :: BuiltinResolutionMode -> RuntimeEnv -> [Statement] -> Either Diagno
 evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedStatements
   where
     indexedStatements = zip [0 ..] statements
-    recursiveLambdaGroups = inferRecursiveLambdaGroups initialEnv indexedStatements
-    recursiveLambdaBindings = collectRecursiveLambdaBindings indexedStatements
+    statementsByIndex = Map.fromList indexedStatements
+    recursiveGroups = inferRecursiveGroups initialEnv indexedStatements
+    selfRecursiveLambdaStatements = inferSelfRecursiveLambdaStatements indexedStatements
+    bindingNamesByStatement = collectBindingNames indexedStatements
+    bindingCells = map (uncurry cellForStatement) indexedStatements
 
     go :: RuntimeEnv -> Maybe RuntimeValue -> [(Int, Statement)] -> Either Diagnostic (Maybe RuntimeValue)
     go env lastExprValue remainingStatements =
@@ -105,81 +144,148 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
               go env Nothing rest
             SImport {} ->
               go env Nothing rest
-            -- Keep runtime recursion aligned with analyzer visibility by tying
-            -- lambda-only SCCs into the environment when the first binding in
-            -- the group is encountered.
-            SLet _ _ _
-              | Just groupMembers <- Map.lookup statementIndex recursiveLambdaGroups ->
-                  case groupMembers of
-                    leader : _
-                      | statementIndex == leader ->
-                          go (activateRecursiveLambdaGroup env groupMembers recursiveLambdaBindings) Nothing rest
-                      | otherwise ->
-                          go env Nothing rest
-                    [] ->
-                      go env Nothing rest
-            SLet name _ (ELambda parameterName bodyExpr) ->
-              let bindingNameText = identifierText name
-                  envWithSelf = Map.insert bindingNameText value env
-                  value = VClosure envWithSelf parameterName bodyExpr
-               in go envWithSelf Nothing rest
-            SLet name _ valueExpr -> do
-              value <- evalValue builtinMode env valueExpr
-              go (Map.insert (identifierText name) value env) Nothing rest
+            SLet name _ _ -> do
+              value <- bindingCellAt statementIndex
+              go (Map.insert (identifierText name) (Right value) env) Nothing rest
             SExpr _ expr -> do
               value <- evalValue builtinMode env expr
               go env (Just value) rest
 
-collectRecursiveLambdaBindings :: [(Int, Statement)] -> Map Int (Text, Identifier, Expr)
-collectRecursiveLambdaBindings =
+    bindingCellAt :: Int -> RuntimeCell
+    bindingCellAt statementIndex =
+      case drop statementIndex bindingCells of
+        cell : _ -> cell
+        [] ->
+          Left
+            (runtimeDiagnostic "E3020" "internal runtime error: missing binding cell for statement")
+    
+    cellForStatement :: Int -> Statement -> RuntimeCell
+    cellForStatement statementIndex statement =
+      case statement of
+        SLet bindingName _ valueExpr ->
+          bindingCell statementIndex bindingName valueExpr
+        _ ->
+          Left
+            (runtimeDiagnostic "E3020" "internal runtime error: expected binding statement")
+
+    bindingCell :: Int -> Identifier -> Expr -> RuntimeCell
+    bindingCell statementIndex bindingName valueExpr =
+      case recursiveAliasTarget statementIndex valueExpr of
+        Just targetIndex -> bindingCellAt targetIndex
+        Nothing ->
+          evalValue builtinMode (bindingEnv statementIndex bindingName) valueExpr
+
+    bindingEnv :: Int -> Identifier -> RuntimeEnv
+    bindingEnv statementIndex bindingName =
+      case recursiveBindingNeedsSelf statementIndex of
+        True ->
+          Map.insert
+            (identifierText bindingName)
+            (bindingCellAt statementIndex)
+            peerVisibleEnv
+        False -> peerVisibleEnv
+      where
+        peerVisibleEnv = recursivePeerEnv statementIndex (envBefore statementIndex)
+
+    recursiveBindingNeedsSelf :: Int -> Bool
+    recursiveBindingNeedsSelf statementIndex =
+      Map.member statementIndex recursiveGroups
+        || Set.member statementIndex selfRecursiveLambdaStatements
+
+    recursiveAliasTarget :: Int -> Expr -> Maybe Int
+    recursiveAliasTarget statementIndex valueExpr =
+      case valueExpr of
+        EVar targetName ->
+          case Map.lookup statementIndex recursiveGroups of
+            Just groupMembers ->
+              lookupRecursivePeer targetName groupMembers
+            Nothing -> Nothing
+        _ -> Nothing
+
+    lookupRecursivePeer :: Identifier -> [Int] -> Maybe Int
+    lookupRecursivePeer targetName =
+      foldl' chooseTarget Nothing
+      where
+        targetNameText = identifierText targetName
+
+        chooseTarget currentChoice peerIndex =
+          case Map.lookup peerIndex bindingNamesByStatement of
+            Just peerName
+              | peerName == targetNameText ->
+                  Just peerIndex
+            _ -> currentChoice
+
+    envBefore :: Int -> RuntimeEnv
+    envBefore statementIndex
+      | statementIndex <= 0 = initialEnv
+      | otherwise = envAfter (statementIndex - 1)
+
+    envAfter :: Int -> RuntimeEnv
+    envAfter statementIndex =
+      case Map.lookup statementIndex statementsByIndex of
+        Just (SLet bindingName _ _) ->
+          Map.insert
+            (identifierText bindingName)
+            (bindingCellAt statementIndex)
+            (envBefore statementIndex)
+        Just _ ->
+          envBefore statementIndex
+        Nothing ->
+          envBefore statementIndex
+
+    recursivePeerEnv :: Int -> RuntimeEnv -> RuntimeEnv
+    recursivePeerEnv statementIndex envBeforeValue =
+      case Map.lookup statementIndex recursiveGroups of
+        Nothing -> envBeforeValue
+        Just groupMembers ->
+          foldl' insertPeer envBeforeValue groupMembers
+      where
+        insertPeer envAcc peerIndex
+          | peerIndex == statementIndex = envAcc
+          | otherwise =
+              case
+                  Map.lookup peerIndex bindingNamesByStatement of
+                Just peerName
+                  | Map.notMember peerName envBeforeValue ->
+                      Map.insert peerName (bindingCellAt peerIndex) envAcc
+                _ ->
+                  envAcc
+
+collectBindingNames :: [(Int, Statement)] -> Map Int Text
+collectBindingNames =
   foldl' collect Map.empty
   where
-    collect bindingsByStatement (statementIndex, statement) =
+    collect bindingNames (statementIndex, statement) =
       case statement of
-        SLet bindingName _ (ELambda parameterName bodyExpr) ->
-          Map.insert
-            statementIndex
-            (identifierText bindingName, parameterName, bodyExpr)
-            bindingsByStatement
-        _ -> bindingsByStatement
+        SLet bindingName _ _ ->
+          Map.insert statementIndex (identifierText bindingName) bindingNames
+        _ -> bindingNames
 
-activateRecursiveLambdaGroup ::
-  RuntimeEnv ->
-  [Int] ->
-  Map Int (Text, Identifier, Expr) ->
-  RuntimeEnv
-activateRecursiveLambdaGroup env groupMembers lambdaBindingsByStatement =
-  groupEnv
+inferSelfRecursiveLambdaStatements :: [(Int, Statement)] -> Set Int
+inferSelfRecursiveLambdaStatements =
+  foldl' collect Set.empty
   where
-    groupBindings =
-      foldl'
-        insertGroupBinding
-        Map.empty
-        [ bindingInfo
-          | statementIndex <- groupMembers,
-            Just bindingInfo <- [Map.lookup statementIndex lambdaBindingsByStatement]
-        ]
-    groupEnv = groupBindings `Map.union` env
-
-    insertGroupBinding bindings (bindingNameText, parameterName, bodyExpr) =
-      Map.insert
-        bindingNameText
-        (VClosure groupEnv parameterName bodyExpr)
-        bindings
+    collect recursiveStatements (statementIndex, statement) =
+      case statement of
+        SLet bindingName _ (ELambda _ bodyExpr)
+          | Set.member
+              (identifierText bindingName)
+              (freeVarsExprWithBound Set.empty bodyExpr) ->
+              Set.insert statementIndex recursiveStatements
+        _ -> recursiveStatements
 
 -- | Mirror the analyzer's recursive-group resolution so runtime closure capture
 -- stays consistent with the binding visibility already accepted at compile time.
-inferRecursiveLambdaGroups ::
+inferRecursiveGroups ::
   RuntimeEnv ->
   [(Int, Statement)] ->
   Map Int [Int]
-inferRecursiveLambdaGroups outerEnv indexedStatements =
+inferRecursiveGroups outerEnv indexedStatements =
   Map.fromList
     [ (statementIndex, componentStatements)
       | component <- stronglyConnComp graphNodes,
         let componentStatements = componentStatementIndices component,
         isRecursiveComponent component,
-        all (`Map.member` recursiveLambdaBindings) componentStatements,
         statementIndex <- componentStatements
     ]
   where
@@ -204,7 +310,6 @@ inferRecursiveLambdaGroups outerEnv indexedStatements =
       [ (statementIndex, statementIndex, Set.toList dependencies)
         | (statementIndex, dependencies) <- Map.toList dependenciesByStatement
       ]
-    recursiveLambdaBindings = collectRecursiveLambdaBindings indexedStatements
 
     collectDeclaration declarationsByName (statementIndex, bindingNameText, _) =
       Map.insertWith (\new old -> old ++ new) bindingNameText [statementIndex] declarationsByName
@@ -325,7 +430,7 @@ evalValue builtinMode env expr =
     ELit literal -> Right (literalRuntimeValue literal)
     EVar name ->
       case Map.lookup nameText env of
-        Just value -> Right value
+        Just value -> value
         Nothing ->
           case lookupBuiltinSymbolInMode builtinMode nameText of
             Just builtinFunction -> Right (VBuiltin builtinFunction [])
@@ -396,7 +501,7 @@ applyRuntimeFunction builtinMode functionValue argumentValue =
     VClosure capturedEnv parameterName bodyExpr ->
       evalValue
         builtinMode
-        (Map.insert (identifierText parameterName) argumentValue capturedEnv)
+        (Map.insert (identifierText parameterName) (Right argumentValue) capturedEnv)
         bodyExpr
     VBuiltin builtinFunction capturedArgs ->
       applyBuiltin builtinMode builtinFunction (capturedArgs ++ [argumentValue])

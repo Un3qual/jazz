@@ -35,6 +35,8 @@ tests =
     ("lambda captures defining scope before later rebinding", testClosureCaptureBeforeRebindingRuntime),
     ("self-recursive lambda runs", testSelfRecursiveLambdaRuntime),
     ("mutually recursive lambdas run", testMutualRecursiveLambdaRuntime),
+    ("later recursive peer captures its own declaration environment", testMutualRecursiveCaptureAfterRebindingRuntime),
+    ("mutual recursion through alias bridge runs", testMutualRecursiveAliasBridgeRuntime),
     ("higher-order apply lambda runs", testHigherOrderApplyRuntime),
     ("signature-checked lambda rejects mismatched application", testLambdaSignatureMismatch),
     ("recursive lambda rejects mismatched recursive application", testRecursiveLambdaTypeMismatch),
@@ -88,6 +90,22 @@ testMutualRecursiveLambdaRuntime = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
+
+testMutualRecursiveCaptureAfterRebindingRuntime :: IO ()
+testMutualRecursiveCaptureAfterRebindingRuntime = do
+  result <- runSource defaultWarningSettings "x = 1. f = \\(n) -> if n == 0 0 else g (n - 1). x = 2. g = \\(n) -> if n == 0 x else f (n - 1). f 1."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "2") (runOutput result)
+
+testMutualRecursiveAliasBridgeRuntime :: IO ()
+testMutualRecursiveAliasBridgeRuntime = do
+  result <- runSource defaultWarningSettings "f = \\(n) -> if n == 0 0 else h (n - 1). h = g. g = \\(n) -> if n == 0 1 else f (n - 1). f 1."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1") (runOutput result)
 
 testHigherOrderApplyRuntime :: IO ()
 testHigherOrderApplyRuntime = do
