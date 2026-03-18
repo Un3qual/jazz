@@ -707,16 +707,65 @@ parseIfExpr ifToken tokensAfterIf = do
         )
 
 parseCaseExpr :: Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseCaseExpr caseToken tokensAfterCase = do
-  (scrutineeExpr, afterScrutinee) <- parseExprWithMinPrecedenceUntil stopsBeforeCaseBody 1 tokensAfterCase
-  tokensAfterLeftBrace <- consumeLeftBrace afterScrutinee ("expected '{' before end of input after 'case' at " <> renderSourceSpan (tokenSpan caseToken))
-  (caseArms, remaining) <- parseCaseArms tokensAfterLeftBrace
-  pure (SECase scrutineeExpr caseArms, remaining)
+parseCaseExpr caseToken tokensAfterCase =
+  case tryCaseBodyCandidates Nothing [] tokensAfterCase of
+    Right parsedCaseExpr ->
+      Right parsedCaseExpr
+    Left maybeBodyDiagnostic ->
+      case maybeBodyDiagnostic of
+        Just diagnostic ->
+          Left diagnostic
+        Nothing -> do
+          (scrutineeExpr, afterScrutinee) <- parseExpr tokensAfterCase
+          tokensAfterLeftBrace <- consumeLeftBrace afterScrutinee caseBodyMissingMessage
+          (caseArms, remaining) <- parseCaseArms tokensAfterLeftBrace
+          pure (SECase scrutineeExpr caseArms, remaining)
   where
-    stopsBeforeCaseBody allTokens =
-      case allTokens of
-        Token {tokenKind = TLBrace} : _ -> True
-        _ -> False
+    caseBodyMissingMessage =
+      "expected '{' before end of input after 'case' at " <> renderSourceSpan (tokenSpan caseToken)
+
+    tryCaseBodyCandidates ::
+      Maybe Diagnostic ->
+      [Token] ->
+      [Token] ->
+      Either (Maybe Diagnostic) (SurfaceExpr, [Token])
+    -- Block expressions and case bodies both start with `{`, so try each brace
+    -- as the body boundary and keep the first split that yields a full
+    -- scrutinee expression plus a parseable case-arm list.
+    tryCaseBodyCandidates firstBodyDiagnostic revPrefix remainingTokens =
+      case remainingTokens of
+        [] ->
+          case firstBodyDiagnostic of
+            Just diagnostic -> Left (Just diagnostic)
+            Nothing -> Left Nothing
+        candidateTokens@(token@(Token {tokenKind = TLBrace}) : rest) ->
+          let scrutineeTokens = reverse revPrefix
+           in
+            case parseExpr scrutineeTokens of
+              Right (scrutineeExpr, []) ->
+                case parseCaseBodyTokens candidateTokens of
+                  Right (caseArms, remainingAfterCase) ->
+                    Right (SECase scrutineeExpr caseArms, remainingAfterCase)
+                  Left diagnostic ->
+                    tryCaseBodyCandidates
+                      (rememberFirstDiagnostic firstBodyDiagnostic diagnostic)
+                      (token : revPrefix)
+                      rest
+              _ ->
+                tryCaseBodyCandidates firstBodyDiagnostic (token : revPrefix) rest
+        token : rest ->
+          tryCaseBodyCandidates firstBodyDiagnostic (token : revPrefix) rest
+
+    parseCaseBodyTokens :: [Token] -> Either Diagnostic ([SurfaceCaseArm], [Token])
+    parseCaseBodyTokens bodyTokens = do
+      tokensAfterLeftBrace <- consumeLeftBrace bodyTokens caseBodyMissingMessage
+      parseCaseArms tokensAfterLeftBrace
+
+    rememberFirstDiagnostic :: Maybe Diagnostic -> Diagnostic -> Maybe Diagnostic
+    rememberFirstDiagnostic maybeDiagnostic newDiagnostic =
+      case maybeDiagnostic of
+        Just diagnostic -> Just diagnostic
+        Nothing -> Just newDiagnostic
 
 parseCaseArms :: [Token] -> Either Diagnostic ([SurfaceCaseArm], [Token])
 parseCaseArms tokensAfterLeftBrace =
@@ -750,8 +799,17 @@ parseCaseArm tokens = do
   where
     stopsBeforeCaseArmBoundary allTokens =
       case allTokens of
-        Token {tokenKind = TOperator "|"} : _ -> True
+        Token {tokenKind = TOperator "|"} : rest ->
+          tokensStartCaseArm rest
         Token {tokenKind = TRBrace} : _ -> True
+        _ -> False
+
+    -- Preserve `|` as an infix operator inside arm bodies; only `| <pattern> ->`
+    -- starts the next arm in the current pattern subset.
+    tokensStartCaseArm remainingTokens =
+      case remainingTokens of
+        Token {tokenKind = TInt _} : Token {tokenKind = TArrow} : _ -> True
+        Token {tokenKind = TIdentifier _} : Token {tokenKind = TArrow} : _ -> True
         _ -> False
 
 parseCasePattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])

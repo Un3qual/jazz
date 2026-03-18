@@ -41,6 +41,8 @@ tests =
   [ ("parses basic case expression with literal and wildcard arms", testParsesBasicCaseExpression),
     ("parses variable pattern case arm", testParsesVariablePatternCaseArm),
     ("parses nested case expression", testParsesNestedCaseExpression),
+    ("parses pipe operator inside case arm body", testParsesPipeOperatorInsideCaseArmBody),
+    ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument),
     ("rejects case expression without leading pipe", testRejectsCaseExpressionWithoutPipe),
     ("rejects case expression without arm arrow", testRejectsCaseExpressionWithoutArrow),
     ("lowers parsed case nodes into core AST", testLowerCaseExpression)
@@ -103,6 +105,55 @@ testParsesNestedCaseExpression =
                           CaseArm PWildcard (ELit (LBool False))
                         ]
                     ),
+                  CaseArm PWildcard (ELit (LBool False))
+                ]
+            )
+        ]
+
+testParsesPipeOperatorInsideCaseArmBody :: IO ()
+testParsesPipeOperatorInsideCaseArmBody =
+  assertRight
+    "case arm body keeps infix pipe operator"
+    (parseSurfaceProgram "x = case n { | 0 -> 1 | 2 | _ -> 3 }.")
+    (\surfaceProgram -> assertEqual "pipe operator lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "n")
+                [ CaseArm
+                    (PLiteral (LInt 0))
+                    (EBinary "|" (ELit (LInt 1)) (ELit (LInt 2))),
+                  CaseArm PWildcard (ELit (LInt 3))
+                ]
+            )
+        ]
+
+testParsesCaseScrutineeWithBlockArgument :: IO ()
+testParsesCaseScrutineeWithBlockArgument =
+  assertRight
+    "case scrutinee keeps block argument"
+    (parseSurfaceProgram "x = case f { y = 1. y. } { | 1 -> True | _ -> False }.")
+    (\surfaceProgram -> assertEqual "block-argument scrutinee lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                ( EApply
+                    (EVar "f")
+                    ( EBlock
+                        [ SLet "y" (SourceSpan 1 14) (ELit (LInt 1)),
+                          SExpr (SourceSpan 1 21) (EVar "y")
+                        ]
+                    )
+                )
+                [ CaseArm (PLiteral (LInt 1)) (ELit (LBool True)),
                   CaseArm PWildcard (ELit (LBool False))
                 ]
             )
