@@ -457,8 +457,8 @@ exprDefinitelyNotFunctionValue expr =
     ECase _ thenExpr elseExpr ->
       exprDefinitelyNotFunctionValue thenExpr
         && exprDefinitelyNotFunctionValue elseExpr
-    EPatternCase _ caseArms ->
-      all (\(CaseArm _ bodyExpr) -> exprDefinitelyNotFunctionValue bodyExpr) caseArms
+    EPatternCase {} ->
+      False
     EBlock statements ->
       scopeDefinitelyNotFunctionValue statements
     _ -> False
