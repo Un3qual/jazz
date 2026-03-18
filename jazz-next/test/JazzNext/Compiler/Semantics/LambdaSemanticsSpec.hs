@@ -18,7 +18,6 @@ import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
-    assertJust,
     assertSingleDiagnosticCode,
     failTest,
     runTestSuite
@@ -187,4 +186,3 @@ testRejectsNonCallableApplication = do
         "cannot apply function"
         (renderDiagnostic compileError)
   assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
-  assertJust "compile errors present" (case compileErrors result of [] -> Nothing; errs -> Just errs)

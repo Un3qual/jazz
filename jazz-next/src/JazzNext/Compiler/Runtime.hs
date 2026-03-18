@@ -57,6 +57,9 @@ instance Eq RuntimeValue where
       (VInt leftInt, VInt rightInt) -> leftInt == rightInt
       (VBool leftBool, VBool rightBool) -> leftBool == rightBool
       (VList leftElements, VList rightElements) -> leftElements == rightElements
+      -- Captured environments are intentionally ignored here because recursive
+      -- closures tie the knot through RuntimeEnv; comparing envs would
+      -- reintroduce the recursion hazards this custom instance avoids.
       (VClosure _ leftParameter leftBody, VClosure _ rightParameter rightBody) ->
         leftParameter == rightParameter && leftBody == rightBody
       (VBuiltin leftBuiltin leftArgs, VBuiltin rightBuiltin rightArgs) ->

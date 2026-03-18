@@ -6,7 +6,7 @@
 
 **Architecture:** Make a single syntax decision record first, then lock it in with parser tests, parser/type/codegen alignment, and docs/example updates. Use a compatibility-first migration path (accept old syntax temporarily only if needed), then remove ambiguity in docs.
 
-**Tech Stack:** Haskell (`stack`, `hspec`, Megaparsec parser in `jazz-hs`), Markdown docs, Nix dev shell/flake checks for reproducibility.
+**Tech Stack:** Historical execution notes below reference Haskell (`stack`, `hspec`, Megaparsec parser in legacy `jazz-hs`), Markdown docs, and Nix dev shell/flake checks for reproducibility. Active compiler follow-up for this decision now lands in `jazz-next`.
 
 ---
 
@@ -70,7 +70,7 @@ Out of scope for item #1 (track separately):
 ## Decision Criteria (Use During Execution)
 
 Use these criteria to pick the final syntax if tradeoffs appear:
-1. Existing `jazz-hs` parser/test behavior gets highest weight.
+1. Existing legacy `jazz-hs` parser/test behavior gets highest weight as historical evidence.
 2. Minimize immediate runtime/typechecker breakage.
 3. Make docs/examples executable against current implementation.
 4. Keep migration cost bounded (prefer one canonical form + explicit deprecation note).
@@ -81,7 +81,9 @@ Locked canonical syntax:
 - Traits: canonical `class`/`impl` (because parser/AST currently use this).
 - Collections: list literals/types stay `[x]` / `[a]`; collection combinator style is curried function-first (`map f xs`, `filter p xs`).
 
-## Concrete Files To Modify During Execution
+## Historical Legacy Files Modified During 2026-03-02 Execution
+
+The remaining task breakdown below is preserved as a historical execution record for the March 2 legacy `jazz-hs` cleanup path. Treat it as archival context rather than current active implementation guidance; active compiler follow-up for this decision now belongs in `jazz-next`.
 
 Create:
 - `docs/spec/authoritative-syntax.md`

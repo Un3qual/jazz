@@ -52,7 +52,14 @@ lowerSurfaceExpr surfaceExpr =
 
 lowerSurfaceLambda :: [Identifier] -> SurfaceExpr -> Expr
 lowerSurfaceLambda parameters bodyExpr =
-  foldr ELambda (lowerSurfaceExpr bodyExpr) parameters
+  case parameters of
+    [] ->
+      error
+        ( "internal lowering error: empty lambda parameter list in lowerSurfaceLambda for body "
+            ++ show bodyExpr
+        )
+    _ ->
+      foldr ELambda (lowerSurfaceExpr bodyExpr) parameters
 
 lowerSurfaceLiteral :: SurfaceLiteral -> Literal
 lowerSurfaceLiteral literal =

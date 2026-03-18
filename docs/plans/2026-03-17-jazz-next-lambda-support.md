@@ -20,6 +20,7 @@
 - [x] Task 3 complete: lexer/parser/lowering/runtime/type/analyzer support canonical lambdas.
 - [x] Task 4 complete: docs/trackers reflect the active lambda-capable subset and verification passes.
 - [x] Review follow-up complete: wrapped self-recursive lambdas now seed/capture recursion through `if`/`case`/block wrappers in `jazz-next`.
+- [x] Review follow-up complete: CodeRabbit safety/docs notes addressed for desugaring, invalid lambda lowering, closure-equality intent, and historical plan labeling.
 
 ## Scope Guardrails
 

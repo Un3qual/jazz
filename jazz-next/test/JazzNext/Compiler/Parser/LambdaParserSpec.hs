@@ -2,6 +2,12 @@
 
 module Main (main) where
 
+import Control.Exception
+  ( SomeException,
+    evaluate,
+    try
+  )
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
@@ -23,9 +29,11 @@ import JazzNext.Compiler.Parser.Lower
   )
 import JazzNext.TestHarness
   ( NamedTest,
+    assertContains,
     assertEqual,
     assertLeftDiagnosticContains,
     assertRight,
+    failTest,
     runTestSuite
   )
 
@@ -39,6 +47,7 @@ tests =
     ("parses lambda body application", testParsesLambdaBodyApplication),
     ("parses parenthesized lambda in application position", testParsesParenthesizedLambdaApplication),
     ("lowering nests multi-argument lambdas into unary core nodes", testLowerNestsMultiArgumentLambda),
+    ("lowering rejects impossible empty lambda surface nodes", testLowerRejectsImpossibleEmptyLambda),
     ("rejects empty lambda parameter list", testRejectsEmptyLambdaParameters),
     ("rejects lambda without parenthesized parameters", testRejectsUnparenthesizedLambda),
     ("rejects lambda parameter trailing comma", testRejectsTrailingCommaParameterList),
@@ -116,6 +125,21 @@ testLowerNestsMultiArgumentLambda =
             (SourceSpan 1 1)
             (ELambda "x" (ELambda "y" (EVar "x")))
         ]
+
+testLowerRejectsImpossibleEmptyLambda :: IO ()
+testLowerRejectsImpossibleEmptyLambda = do
+  result <- try (evaluate (lowerSurfaceExpr (SELambda [] (SEVar "x")))) :: IO (Either SomeException Expr)
+  case result of
+    Left err ->
+      assertContains
+        "empty lambda lowering failure"
+        "empty lambda parameter list"
+        (Text.pack (show err))
+    Right loweredExpr ->
+      failTest
+        ( "expected empty lambda lowering to fail, got "
+            <> Text.pack (show loweredExpr)
+        )
 
 testRejectsEmptyLambdaParameters :: IO ()
 testRejectsEmptyLambdaParameters =
