@@ -34,12 +34,16 @@ tests =
     ("lambda can close over outer variable", testClosureCaptureRuntime),
     ("lambda captures defining scope before later rebinding", testClosureCaptureBeforeRebindingRuntime),
     ("self-recursive lambda runs", testSelfRecursiveLambdaRuntime),
+    ("wrapped self-recursive lambda runs", testWrappedSelfRecursiveLambdaRuntime),
+    ("block-wrapped self-recursive lambda runs", testBlockWrappedSelfRecursiveLambdaRuntime),
     ("mutually recursive lambdas run", testMutualRecursiveLambdaRuntime),
     ("later recursive peer captures its own declaration environment", testMutualRecursiveCaptureAfterRebindingRuntime),
     ("mutual recursion through alias bridge runs", testMutualRecursiveAliasBridgeRuntime),
     ("higher-order apply lambda runs", testHigherOrderApplyRuntime),
     ("signature-checked lambda rejects mismatched application", testLambdaSignatureMismatch),
     ("recursive lambda rejects mismatched recursive application", testRecursiveLambdaTypeMismatch),
+    ("wrapped recursive lambda rejects mismatched recursive application", testWrappedRecursiveLambdaTypeMismatch),
+    ("block-wrapped recursive lambda rejects mismatched recursive application", testBlockWrappedRecursiveLambdaTypeMismatch),
     ("non-callable application still reports apply type error", testRejectsNonCallableApplication)
   ]
 
@@ -78,6 +82,22 @@ testClosureCaptureBeforeRebindingRuntime = do
 testSelfRecursiveLambdaRuntime :: IO ()
 testSelfRecursiveLambdaRuntime = do
   result <- runSource defaultWarningSettings "countdown = \\(n) -> if n == 0 0 else countdown (n - 1). countdown 2."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "0") (runOutput result)
+
+testWrappedSelfRecursiveLambdaRuntime :: IO ()
+testWrappedSelfRecursiveLambdaRuntime = do
+  result <- runSource defaultWarningSettings "countdown = if True \\(n) -> if n == 0 0 else countdown (n - 1) else \\(n) -> n. countdown 2."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "0") (runOutput result)
+
+testBlockWrappedSelfRecursiveLambdaRuntime :: IO ()
+testBlockWrappedSelfRecursiveLambdaRuntime = do
+  result <- runSource defaultWarningSettings "countdown = { \\(n) -> if n == 0 0 else countdown (n - 1). }. countdown 2."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -129,6 +149,24 @@ testRecursiveLambdaTypeMismatch = do
   result <- compileSource defaultWarningSettings "f = \\(x) -> f True. f 1."
   assertSingleDiagnosticCode
     "recursive lambda type mismatch code"
+    "E2006"
+    (compileErrors result)
+  assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
+
+testWrappedRecursiveLambdaTypeMismatch :: IO ()
+testWrappedRecursiveLambdaTypeMismatch = do
+  result <- compileSource defaultWarningSettings "f = if True \\(x) -> f True else \\(x) -> x. f 1."
+  assertSingleDiagnosticCode
+    "wrapped recursive lambda type mismatch code"
+    "E2006"
+    (compileErrors result)
+  assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
+
+testBlockWrappedRecursiveLambdaTypeMismatch :: IO ()
+testBlockWrappedRecursiveLambdaTypeMismatch = do
+  result <- compileSource defaultWarningSettings "f = { \\(x) -> f True. }. f 1."
+  assertSingleDiagnosticCode
+    "block-wrapped recursive lambda type mismatch code"
     "E2006"
     (compileErrors result)
   assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)

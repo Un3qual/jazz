@@ -19,6 +19,7 @@
 - [x] Task 2 complete: failing compile/runtime tests lock callable closure behavior and type inference coverage.
 - [x] Task 3 complete: lexer/parser/lowering/runtime/type/analyzer support canonical lambdas.
 - [x] Task 4 complete: docs/trackers reflect the active lambda-capable subset and verification passes.
+- [x] Review follow-up complete: wrapped self-recursive lambdas now seed/capture recursion through `if`/`case`/block wrappers in `jazz-next`.
 
 ## Scope Guardrails
 

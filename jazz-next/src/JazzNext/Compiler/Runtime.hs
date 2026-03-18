@@ -126,7 +126,7 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
     indexedStatements = zip [0 ..] statements
     statementsByIndex = Map.fromList indexedStatements
     recursiveGroups = inferRecursiveGroups initialEnv indexedStatements
-    selfRecursiveLambdaStatements = inferSelfRecursiveLambdaStatements indexedStatements
+    selfRecursiveFunctionStatements = inferSelfRecursiveFunctionStatements indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
     bindingCells = map (uncurry cellForStatement) indexedStatements
 
@@ -190,7 +190,7 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
     recursiveBindingNeedsSelf :: Int -> Bool
     recursiveBindingNeedsSelf statementIndex =
       Map.member statementIndex recursiveGroups
-        || Set.member statementIndex selfRecursiveLambdaStatements
+        || Set.member statementIndex selfRecursiveFunctionStatements
 
     recursiveAliasTarget :: Int -> Expr -> Maybe Int
     recursiveAliasTarget statementIndex valueExpr =
@@ -261,18 +261,42 @@ collectBindingNames =
           Map.insert statementIndex (identifierText bindingName) bindingNames
         _ -> bindingNames
 
-inferSelfRecursiveLambdaStatements :: [(Int, Statement)] -> Set Int
-inferSelfRecursiveLambdaStatements =
+inferSelfRecursiveFunctionStatements :: [(Int, Statement)] -> Set Int
+inferSelfRecursiveFunctionStatements =
   foldl' collect Set.empty
   where
     collect recursiveStatements (statementIndex, statement) =
       case statement of
-        SLet bindingName _ (ELambda _ bodyExpr)
-          | Set.member
+        SLet bindingName _ valueExpr
+          | exprYieldsFunctionValue valueExpr,
+            Set.member
               (identifierText bindingName)
-              (freeVarsExprWithBound Set.empty bodyExpr) ->
+              (freeVarsExprWithBound Set.empty valueExpr) ->
               Set.insert statementIndex recursiveStatements
         _ -> recursiveStatements
+
+-- Keep recursive self-injection limited to bindings that still evaluate to a
+-- function value after simple wrapper peeling, so wrapped lambdas align with
+-- direct lambdas without broadening recursion to arbitrary values.
+exprYieldsFunctionValue :: Expr -> Bool
+exprYieldsFunctionValue expr =
+  case expr of
+    ELambda {} -> True
+    EIf _ thenExpr elseExpr ->
+      exprYieldsFunctionValue thenExpr
+        && exprYieldsFunctionValue elseExpr
+    ECase _ thenExpr elseExpr ->
+      exprYieldsFunctionValue thenExpr
+        && exprYieldsFunctionValue elseExpr
+    EBlock statements ->
+      scopeYieldsFunctionValue statements
+    _ -> False
+
+scopeYieldsFunctionValue :: [Statement] -> Bool
+scopeYieldsFunctionValue statements =
+  case reverse statements of
+    SExpr _ expr : _ -> exprYieldsFunctionValue expr
+    _ -> False
 
 -- | Mirror the analyzer's recursive-group resolution so runtime closure capture
 -- stays consistent with the binding visibility already accepted at compile time.

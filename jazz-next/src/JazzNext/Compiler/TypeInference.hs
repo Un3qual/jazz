@@ -628,7 +628,7 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
   where
     indexedStatements = zip [0 ..] statements
     recursiveGroupsByStatement = inferRecursiveGroups initialEnv indexedStatements
-    selfRecursiveLambdaStatements = inferSelfRecursiveLambdaStatements indexedStatements
+    selfRecursiveFunctionStatements = inferSelfRecursiveFunctionStatements indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
     (bindingSeedsByStatement, seededState) =
       allocateBindingSeeds indexedStatements initialState
@@ -665,7 +665,7 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                       bindingSeedsByStatement
                   envWithBindingSeed =
                     case
-                        ( Set.member statementIndex selfRecursiveLambdaStatements,
+                        ( Set.member statementIndex selfRecursiveFunctionStatements,
                           Map.lookup statementIndex bindingSeedsByStatement
                         ) of
                       (True, Just bindingSeed) ->
@@ -763,18 +763,41 @@ collectBindingNames =
           Map.insert statementIndex (identifierText bindingName) bindingNames
         _ -> bindingNames
 
-inferSelfRecursiveLambdaStatements :: [(Int, Statement)] -> Set Int
-inferSelfRecursiveLambdaStatements =
+inferSelfRecursiveFunctionStatements :: [(Int, Statement)] -> Set Int
+inferSelfRecursiveFunctionStatements =
   foldl' step Set.empty
   where
     step recursiveStatements (statementIndex, statement) =
       case statement of
-        SLet bindingName _ (ELambda _ bodyExpr)
-          | Set.member
+        SLet bindingName _ valueExpr
+          | exprYieldsFunctionValue valueExpr,
+            Set.member
               (identifierText bindingName)
-              (freeVarsExprWithBound Set.empty bodyExpr) ->
+              (freeVarsExprWithBound Set.empty valueExpr) ->
               Set.insert statementIndex recursiveStatements
         _ -> recursiveStatements
+
+-- Match the runtime's wrapped-lambda handling so type seeding stays limited to
+-- expressions that still produce a function value after wrapper peeling.
+exprYieldsFunctionValue :: Expr -> Bool
+exprYieldsFunctionValue expr =
+  case expr of
+    ELambda {} -> True
+    EIf _ thenExpr elseExpr ->
+      exprYieldsFunctionValue thenExpr
+        && exprYieldsFunctionValue elseExpr
+    ECase _ thenExpr elseExpr ->
+      exprYieldsFunctionValue thenExpr
+        && exprYieldsFunctionValue elseExpr
+    EBlock statements ->
+      scopeYieldsFunctionValue statements
+    _ -> False
+
+scopeYieldsFunctionValue :: [Statement] -> Bool
+scopeYieldsFunctionValue statements =
+  case reverse statements of
+    SExpr _ expr : _ -> exprYieldsFunctionValue expr
+    _ -> False
 
 recursiveBindingEnv ::
   Int ->
