@@ -27,12 +27,13 @@
 - [x] Review follow-up complete: runtime self-recursive wrapper seeding now matches branch-sensitive lambda typing, and obviously non-function recursive SCCs fail with deterministic `E3021`.
 - [x] Review follow-up complete: block-returned lambda aliases now seed recursive typing/runtime correctly, including recursive mismatch rejection through same-block alias returns.
 - [x] Review follow-up complete: wrapped alias-only recursive cycles now resolve to deterministic `E3021` instead of bypassing the recursive alias guard.
+- [x] Review follow-up complete: wrapped recursive alias cycles now preserve `if`/`case` condition evaluation before alias resolution while still returning deterministic `E3021` on the selected alias branch.
 - [ ] Next task queued and un-deferred: extract shared recursive-binding helpers into `JazzNext.Compiler.RecursiveBindings` per `docs/plans/2026-03-17-jazz-next-shared-recursive-binding-helpers.md`.
 
 ## Next Task
 
 - [ ] Execute `docs/plans/2026-03-17-jazz-next-shared-recursive-binding-helpers.md` before unrelated parser/runtime follow-up work.
-- [ ] Keep the runtime `exprYieldsFunctionValue` policy and the type-inference `exprContainsFunctionBranch` policy separate while sharing the graph/free-var core.
+- [ ] Keep the runtime `exprDefinitelyNotFunctionValue` policy and the type-inference `exprContainsFunctionBranch` policy separate while sharing the graph/free-var core.
 
 ## Scope Guardrails
 

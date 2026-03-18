@@ -173,19 +173,23 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
 
     bindingCell :: Int -> Identifier -> Expr -> RuntimeCell
     bindingCell statementIndex bindingName valueExpr =
-      case recursiveAliasTarget statementIndex valueExpr of
-        Just targetIndex ->
+      case selectedRecursiveAliasTarget statementIndex visibleEnv valueExpr of
+        Left diagnostic ->
+          Left diagnostic
+        Right (Just targetIndex) ->
           case resolveRecursiveAliasTarget (Set.singleton statementIndex) targetIndex of
             Left diagnostic -> Left diagnostic
             Right resolvedTargetIndex -> bindingCellAt resolvedTargetIndex
-        Nothing
+        Right Nothing
           | Map.member statementIndex recursiveGroups,
             exprDefinitelyNotFunctionValue valueExpr ->
               Left (runtimeDiagnostic "E3021" "runtime recursive binding has no concrete value")
           | otherwise ->
               do
-                evaluatedValue <- evalValue builtinMode (bindingEnv statementIndex bindingName) valueExpr
+                evaluatedValue <- evalValue builtinMode visibleEnv valueExpr
                 Right (attachSelfRecursiveBinding statementIndex bindingName evaluatedValue)
+      where
+        visibleEnv = bindingEnv statementIndex bindingName
 
     -- Alias bridges can legitimately point across a recursive SCC, but pure
     -- alias loops need a deterministic diagnostic instead of infinite forcing.
@@ -195,11 +199,13 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
           Left (runtimeDiagnostic "E3021" "runtime recursive alias cycle has no concrete value")
       | otherwise =
           case Map.lookup statementIndex statementsByIndex of
-            Just (SLet _ _ aliasExpr) ->
-              case recursiveAliasTarget statementIndex aliasExpr of
-                Just nextTargetIndex ->
+            Just (SLet bindingName _ aliasExpr) ->
+              case selectedRecursiveAliasTarget statementIndex (bindingEnv statementIndex bindingName) aliasExpr of
+                Left diagnostic ->
+                  Left diagnostic
+                Right (Just nextTargetIndex) ->
                   resolveRecursiveAliasTarget (Set.insert statementIndex visited) nextTargetIndex
-                Nothing ->
+                Right Nothing ->
                   Right statementIndex
             Just _ ->
               Left
@@ -249,23 +255,34 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
             Just groupMembers ->
               lookupRecursivePeer targetName groupMembers
             Nothing -> Nothing
-        EIf _ thenExpr elseExpr ->
-          wrappedRecursiveAliasTarget statementIndex thenExpr elseExpr
-        ECase _ thenExpr elseExpr ->
-          wrappedRecursiveAliasTarget statementIndex thenExpr elseExpr
         _ -> Nothing
 
-    wrappedRecursiveAliasTarget :: Int -> Expr -> Expr -> Maybe Int
-    wrappedRecursiveAliasTarget statementIndex thenExpr elseExpr =
-      case
-          ( recursiveAliasTarget statementIndex thenExpr,
-            recursiveAliasTarget statementIndex elseExpr
-          ) of
-        (Just thenTargetIndex, Just elseTargetIndex)
-          | thenTargetIndex == elseTargetIndex ->
-              Just thenTargetIndex
-        _ ->
-          Nothing
+    -- Preserve wrapper runtime semantics by evaluating the branch condition
+    -- first, then following alias resolution only through the selected branch.
+    selectedRecursiveAliasTarget :: Int -> RuntimeEnv -> Expr -> Either Diagnostic (Maybe Int)
+    selectedRecursiveAliasTarget statementIndex env expr =
+      case peelSingleExprBlock expr of
+        EIf conditionExpr thenExpr elseExpr ->
+          selectRecursiveAliasTarget statementIndex env conditionExpr thenExpr elseExpr
+        ECase conditionExpr thenExpr elseExpr ->
+          selectRecursiveAliasTarget statementIndex env conditionExpr thenExpr elseExpr
+        peeledExpr ->
+          Right (recursiveAliasTarget statementIndex peeledExpr)
+
+    selectRecursiveAliasTarget :: Int -> RuntimeEnv -> Expr -> Expr -> Expr -> Either Diagnostic (Maybe Int)
+    selectRecursiveAliasTarget statementIndex env conditionExpr thenExpr elseExpr = do
+      conditionValue <- evalValue builtinMode env conditionExpr
+      case conditionValue of
+        VBool True ->
+          selectedRecursiveAliasTarget statementIndex env thenExpr
+        VBool False ->
+          selectedRecursiveAliasTarget statementIndex env elseExpr
+        other ->
+          Left
+            ( runtimeDiagnostic
+                "E3003"
+                ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
+            )
 
     -- Single-expression blocks are semantically transparent here, so peel
     -- them before following recursive alias edges and cycle detection.

@@ -45,6 +45,7 @@ tests =
     ("higher-order apply lambda runs", testHigherOrderApplyRuntime),
     ("signature-checked lambda rejects mismatched application", testLambdaSignatureMismatch),
     ("recursive lambda rejects mismatched recursive application", testRecursiveLambdaTypeMismatch),
+    ("recursive binding mismatch reports binding-specific diagnostic", testRecursiveBindingMismatchDiagnostic),
     ("wrapped recursive lambda rejects mismatched recursive application", testWrappedRecursiveLambdaTypeMismatch),
     ("mixed wrapped recursive lambda rejects non-function alternate branch", testMixedWrappedRecursiveLambdaTypeMismatch),
     ("block-wrapped recursive lambda rejects mismatched recursive application", testBlockWrappedRecursiveLambdaTypeMismatch),
@@ -188,6 +189,23 @@ testRecursiveLambdaTypeMismatch = do
     "recursive lambda type mismatch code"
     "E2006"
     (compileErrors result)
+  assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
+
+testRecursiveBindingMismatchDiagnostic :: IO ()
+testRecursiveBindingMismatchDiagnostic = do
+  result <- compileSource defaultWarningSettings "f = \\(x) -> f + 1. f 1."
+  case compileErrors result of
+    compileError : _ -> do
+      assertContains
+        "recursive binding mismatch code"
+        "E2006"
+        (renderDiagnostic compileError)
+      assertContains
+        "recursive binding mismatch text"
+        "used recursively as type"
+        (renderDiagnostic compileError)
+    [] ->
+      failTest "expected recursive binding mismatch diagnostic"
   assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
 
 testWrappedRecursiveLambdaTypeMismatch :: IO ()
