@@ -15,6 +15,7 @@ TEST_FILES=(
   jazz-next/test/JazzNext/Compiler/Diagnostics/StructuredErrorDiagnosticsSpec.hs
   jazz-next/test/JazzNext/CLI/CLISpec.hs
   jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  jazz-next/test/JazzNext/Compiler/Semantics/RecursiveBindingsSpec.hs
   jazz-next/test/JazzNext/Compiler/Semantics/PuritySemanticsSpec.hs
   jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
   jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs

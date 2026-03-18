@@ -6,12 +6,12 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 
 | id | title | priority | size | autonomous_ready | depends_on | plan | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `JN-REC-BIND-IMPL-001` | Introduce shared recursive-binding helper module | `P1` | `M` | `yes` | `-` | [2026-03-17-jazz-next-shared-recursive-binding-helpers.md](../plans/2026-03-17-jazz-next-shared-recursive-binding-helpers.md) | Add `JazzNext.Compiler.RecursiveBindings`, make `RecursiveBindingsSpec` pass, and keep the batch scoped to Task 2 of the linked plan. | `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RecursiveBindingsSpec.hs` | `2026-03-18` |
 
 ## Blocked
 
 | id | title | blocked_on | reason | plan | last_verified |
 | --- | --- | --- | --- | --- | --- |
-| `EXEC-QUEUE-EMPTY-001` | Seed the next curated batch | `Maintainer queue curation` | `Ready Now` is empty, so curated execution cannot select a safe batch without violating the queue-first dispatch contract. Smallest recovery action: add one verified active-path item to `Ready Now` with its plan link, concrete deliverable, and exact verification command. | [2026-03-17-execution-dispatch.md](../plans/2026-03-17-execution-dispatch.md) | `2026-03-18` |
 
 ## Done
 
@@ -19,6 +19,7 @@ Move completed items here briefly with closure evidence, then prune aggressively
 
 | id | closure evidence | completed_on |
 | --- | --- | --- |
+| `JN-REC-BIND-TEST-001` | Added [`jazz-next/test/JazzNext/Compiler/Semantics/RecursiveBindingsSpec.hs`](../../jazz-next/test/JazzNext/Compiler/Semantics/RecursiveBindingsSpec.hs) to lock the shared helper contract with hand-built AST cases, wired it into [`jazz-next/scripts/test-warning-config.sh`](../../jazz-next/scripts/test-warning-config.sh), updated the linked plan progress, and confirmed the targeted RED failure with `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RecursiveBindingsSpec.hs` because `JazzNext.Compiler.RecursiveBindings` does not exist yet. | `2026-03-18` |
 | `JN-ADT-SIMPLE-SEM-001` | Replaced the temporary simple-pattern placeholders with real analyzer/type/runtime semantics for literal, wildcard, and variable-pattern `case` arms, added [`jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs`](../../jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs), updated the linked plan/spec/state tracker, and re-ran `runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs && runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs && bash jazz-next/scripts/test-warning-config.sh`. | `2026-03-18` |
 | `JN-ADT-SPEC-001` | Locked the active-path contract in [`docs/spec/adt-pattern-semantics.md`](../spec/adt-pattern-semantics.md) and [`docs/spec/pattern-matching-semantics.md`](../spec/pattern-matching-semantics.md), updated the linked rebase plan and [`docs/jazz-language-state.md`](../jazz-language-state.md) to describe the currently landed literal / wildcard / variable `case` subset plus explicit non-goals, and re-ran the queue verification command. | `2026-03-18` |
 | `JN-ADT-PARSER-001` | Added the first active-path `jazz-next` parser/core `case` slice with literal, wildcard, and variable patterns, lowered it into `EPatternCase`, threaded [`jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs`](../../jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs) into `bash jazz-next/scripts/test-warning-config.sh`, and added deterministic `E2011` / `E3022` placeholder diagnostics for unsupported downstream pattern-case evaluation. | `2026-03-18` |

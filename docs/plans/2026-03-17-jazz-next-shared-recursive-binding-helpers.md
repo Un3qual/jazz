@@ -13,7 +13,7 @@
 ## Progress
 
 - [ ] Shared-helper extraction is queued as the next implementation task after the current lambda review-fix batch.
-- [ ] Task 1 complete: characterization tests lock shared recursive-binding helper behavior.
+- [x] Task 1 complete: characterization tests lock shared recursive-binding helper behavior, including the intentionally missing-module RED check and default-runner wiring.
 - [ ] Task 2 complete: `JazzNext.Compiler.RecursiveBindings` provides the shared helper API.
 - [ ] Task 3 complete: analyzer, type inference, and runtime consume the shared helper module with no behavior drift.
 - [ ] Task 4 complete: full verification passes and the lambda tracker records the extraction as complete.
