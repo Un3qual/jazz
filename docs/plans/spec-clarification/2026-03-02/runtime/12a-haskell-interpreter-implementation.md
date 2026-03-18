@@ -1,5 +1,7 @@
 # Haskell Interpreter Implementation Plan
 
+> **Legacy note (2026-03-18):** this plan is `jazz-hs`-targeted and remains reference-only. New runtime planning and execution work must use `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Implement a working Haskell interpreter as the primary Jazz execution backend, replacing JS codegen as the active runtime path.
