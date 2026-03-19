@@ -14,7 +14,6 @@ module JazzNext.Compiler.Analyzer
     analyzeRebindingWarnings
   ) where
 
-import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (foldl')
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -47,6 +46,11 @@ import JazzNext.Compiler.Identifier
   ( Identifier,
     identifierPurity,
     identifierText
+  )
+import JazzNext.Compiler.RecursiveBindings
+  ( freeVarsExprWithBound,
+    freeVarsScopeWithBound,
+    inferRecursiveGroupsOrdered
   )
 import JazzNext.Compiler.Purity
   ( Purity (..)
@@ -253,7 +257,8 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
 
     -- Build recursion groups from local binding dependencies so mutually recursive
     -- bindings can reference each other independent of declaration order.
-    recursiveGroupsByStatement = inferRecursiveGroups outerScope indexedStatements
+    recursiveGroupsByStatement =
+      Map.map Set.fromList (inferRecursiveGroupsOrdered (Map.keysSet outerScope) indexedStatements)
     bindingDeclarationsByStatement = collectBindingDeclarations indexedStatements
 
     -- Internal accumulators are built in reverse for O(1) append.
@@ -514,111 +519,6 @@ withMaybe maybeValue setter value =
     Nothing -> value
     Just presentValue -> setter presentValue value
 
--- | Build strongly connected components of local bindings so self-recursive and
--- mutually recursive groups can see each other independent of declaration order.
-inferRecursiveGroups ::
-  Map Text VisibleBinding ->
-  [(Int, Statement)] ->
-  Map Int (Set Int)
-inferRecursiveGroups outerScope indexedStatements =
-  Map.fromList
-    [ (statementIndex, Set.fromList componentStatements)
-      | component <- stronglyConnComp graphNodes,
-        let componentStatements = componentStatementIndices component,
-        isRecursiveComponent component,
-        statementIndex <- componentStatements
-    ]
-  where
-    -- Track only binding statements; signatures/expr statements do not form
-    -- recursion nodes.
-    declarationInfo =
-      [ (statementIndex, identifierText bindingName, valueExpr)
-        | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
-      ]
-    declarationStatementsByName =
-      foldl'
-        collectDeclaration
-        Map.empty
-        declarationInfo
-    outerBindingNames = Map.keysSet outerScope
-    baseDependencies =
-      Map.fromList
-        [ (statementIndex, Set.empty)
-          | (statementIndex, _, _) <- declarationInfo
-        ]
-    dependenciesByStatement =
-      foldl' addBindingDependencies baseDependencies declarationInfo
-    graphNodes =
-      [ (statementIndex, statementIndex, Set.toList dependencies)
-        | (statementIndex, dependencies) <- Map.toList dependenciesByStatement
-      ]
-
-    collectDeclaration ::
-      Map Text [Int] ->
-      (Int, Text, Expr) ->
-      Map Text [Int]
-    collectDeclaration declarationsByName (statementIndex, bindingName, _) =
-      Map.insertWith (\new old -> old ++ new) bindingName [statementIndex] declarationsByName
-
-    addBindingDependencies ::
-      Map Int (Set Int) ->
-      (Int, Text, Expr) ->
-      Map Int (Set Int)
-    addBindingDependencies dependencies (statementIndex, bindingName, valueExpr) =
-      let localDependencyNames =
-            Set.filter
-              (`Map.member` declarationStatementsByName)
-              (freeVarsExprWithBound (Set.singleton bindingName) valueExpr)
-          resolvedDependencies =
-            Set.fromList
-              [ dependencyStatementIndex
-                | dependencyName <- Set.toList localDependencyNames,
-                  Just dependencyStatementIndex <-
-                    [ resolveDependencyStatement statementIndex dependencyName ]
-              ]
-       in
-        Map.insert statementIndex resolvedDependencies dependencies
-
-    resolveDependencyStatement :: Int -> Text -> Maybe Int
-    resolveDependencyStatement statementIndex dependencyName =
-      case Map.lookup dependencyName declarationStatementsByName of
-        Nothing -> Nothing
-        Just declarationStatements ->
-          -- For a given dependency name:
-          -- 1) prefer the nearest earlier declaration (rebinding snapshot),
-          -- 2) if none and name exists in outer scope, keep it as outer reference,
-          -- 3) otherwise use the first later declaration (forward edge).
-          case closestPriorDeclaration declarationStatements of
-            Just prior -> Just prior
-            Nothing
-              | Set.member dependencyName outerBindingNames -> Nothing
-              | otherwise -> closestFutureDeclaration declarationStatements
-      where
-        closestPriorDeclaration declarations =
-          case filter (< statementIndex) declarations of
-            [] -> Nothing
-            priorDeclarations -> Just (last priorDeclarations)
-
-        closestFutureDeclaration declarations =
-          case filter (> statementIndex) declarations of
-            [] -> Nothing
-            firstFuture : _ -> Just firstFuture
-
-    componentStatementIndices :: SCC Int -> [Int]
-    componentStatementIndices component =
-      case component of
-        AcyclicSCC statementIndex -> [statementIndex]
-        CyclicSCC statementIndices -> statementIndices
-
-    isRecursiveComponent :: SCC Int -> Bool
-    isRecursiveComponent component =
-      case component of
-        CyclicSCC _ -> True
-        AcyclicSCC statementIndex ->
-          Set.member
-            statementIndex
-            (Map.findWithDefault Set.empty statementIndex dependenciesByStatement)
-
 collectBindingDeclarations ::
   [(Int, Statement)] ->
   Map Int (Text, SourceSpan)
@@ -630,75 +530,6 @@ collectBindingDeclarations =
         SLet name spanValue _ ->
           Map.insert statementIndex (identifierText name, spanValue) declarations
         _ -> declarations
-
--- | Compute free variables for an expression while respecting the set of names
--- already known to be bound in the surrounding scope.
-freeVarsExprWithBound :: Set Text -> Expr -> Set Text
-freeVarsExprWithBound bound expr =
-  case expr of
-    ELit _ -> Set.empty
-    EVar name
-      | Set.member nameText bound -> Set.empty
-      | otherwise -> Set.singleton nameText
-      where
-        nameText = identifierText name
-    ELambda parameterName bodyExpr ->
-      freeVarsExprWithBound
-        (Set.insert (identifierText parameterName) bound)
-        bodyExpr
-    EOperatorValue _ -> Set.empty
-    EList elements ->
-      Set.unions (map (freeVarsExprWithBound bound) elements)
-    EApply functionExpr argumentExpr ->
-      Set.union
-        (freeVarsExprWithBound bound functionExpr)
-        (freeVarsExprWithBound bound argumentExpr)
-    EIf conditionExpr thenExpr elseExpr ->
-      freeVarsExprWithBound bound (ECase conditionExpr thenExpr elseExpr)
-    ECase conditionExpr thenExpr elseExpr ->
-      Set.unions
-        [ freeVarsExprWithBound bound conditionExpr,
-          freeVarsExprWithBound bound thenExpr,
-          freeVarsExprWithBound bound elseExpr
-        ]
-    EPatternCase scrutineeExpr caseArms ->
-      Set.unions
-        ( freeVarsExprWithBound bound scrutineeExpr :
-          [ freeVarsExprWithBound (extendBoundWithPattern pattern bound) bodyExpr
-          | CaseArm pattern bodyExpr <- caseArms
-          ]
-        )
-    EBinary _ leftExpr rightExpr ->
-      Set.union
-        (freeVarsExprWithBound bound leftExpr)
-        (freeVarsExprWithBound bound rightExpr)
-    ESectionLeft leftExpr _ ->
-      freeVarsExprWithBound bound leftExpr
-    ESectionRight _ rightExpr ->
-      freeVarsExprWithBound bound rightExpr
-    EBlock statements -> freeVarsScopeWithBound bound statements
-
-freeVarsScopeWithBound :: Set Text -> [Statement] -> Set Text
-freeVarsScopeWithBound initialBound statements =
-  snd (foldl' step (initialBound, Set.empty) statements)
-  where
-    step :: (Set Text, Set Text) -> Statement -> (Set Text, Set Text)
-    step (boundNames, freeNames) statement =
-      case statement of
-        SSignature _ _ _ -> (boundNames, freeNames)
-        SModule {} -> (boundNames, freeNames)
-        SImport {} -> (boundNames, freeNames)
-        SExpr _ expr ->
-          ( boundNames,
-            Set.union freeNames (freeVarsExprWithBound boundNames expr)
-          )
-        SLet bindingName _ valueExpr ->
-          -- Bindings are visible in their own RHS for self-recursion analysis.
-          let boundWithSelf = Set.insert (identifierText bindingName) boundNames
-           in
-            ( boundWithSelf,
-              Set.union freeNames (freeVarsExprWithBound boundWithSelf valueExpr)
-            )
 
 -- | Tag bindings that came from hidden prelude statements so user-facing
 -- diagnostics can avoid pointing at synthetic source positions.
@@ -729,13 +560,6 @@ extendBindingsWithPattern pattern bindings =
       Map.insert (identifierText name) patternVisibleBinding bindings
     PWildcard -> bindings
     PLiteral {} -> bindings
-
-extendBoundWithPattern :: Pattern -> Set Text -> Set Text
-extendBoundWithPattern pattern bound =
-  case pattern of
-    PVariable name -> Set.insert (identifierText name) bound
-    PWildcard -> bound
-    PLiteral {} -> bound
 
 patternVisibleBinding :: VisibleBinding
 patternVisibleBinding =
