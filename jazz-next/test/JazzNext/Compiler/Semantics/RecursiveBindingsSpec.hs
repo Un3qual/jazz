@@ -42,6 +42,7 @@ tests =
     ("free vars treat bindings as visible in their own rhs", testFreeVarsScopeBindsSelfRecursion),
     ("recursive groups keep singleton self-recursive bindings", testRecursiveGroupsKeepSingletonSelfRecursion),
     ("recursive groups ignore same-name non-alias references", testRecursiveGroupsIgnoreSameNameNonAliasReference),
+    ("recursive groups ignore mixed alias and eager self wrapper branches", testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper),
     ("recursive groups suppress singleton self edge when outer binding exists", testRecursiveGroupsPreferOuterBindingForSingletonName),
     ("nested block SCC free vars stay local to the block", testFreeVarsScopeKeepsNestedRecursivePeersLocal),
     ("recursive groups do not leak nested block SCC peers to outer scope", testRecursiveGroupsDoNotLeakNestedBlockPeers),
@@ -110,6 +111,22 @@ testRecursiveGroupsIgnoreSameNameNonAliasReference =
     indexedStatements =
       [ (0, SLet (ident "f") span0 (EApply (ELambda (ident "x") (EVar (ident "x"))) (EVar (ident "f"))))
       ]
+
+testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper :: IO ()
+testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper =
+  assertEqual
+    "mixed alias and eager self wrapper does not create self edge"
+    Map.empty
+    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
+  where
+    indexedStatements =
+      [ (0, SLet (ident "f") span0 mixedWrapperExpr)
+      ]
+    mixedWrapperExpr =
+      EIf
+        (ELit (LBool True))
+        (EBinary "+" (EVar (ident "f")) (ELit (LInt 1)))
+        (EVar (ident "f"))
 
 testRecursiveGroupsPreferOuterBindingForSingletonName :: IO ()
 testRecursiveGroupsPreferOuterBindingForSingletonName =

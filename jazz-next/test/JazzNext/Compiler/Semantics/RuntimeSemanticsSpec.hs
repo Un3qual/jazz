@@ -54,7 +54,8 @@ tests =
     ("direct self alias produces deterministic runtime diagnostic", testDirectSelfAliasRuntimeError),
     ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError),
     ("wrapped direct self alias produces deterministic runtime diagnostic", testWrappedDirectSelfAliasRuntimeError),
-    ("same-name non-alias self application terminates with a diagnostic", testSameNameNonAliasSelfApplicationTerminates),
+    ("same-name non-alias self application produces runtime unbound diagnostic", testSameNameNonAliasSelfApplicationTerminates),
+    ("mixed wrapper with eager selected branch produces runtime unbound diagnostic", testMixedWrapperWithSelectedNonAliasSelfUseTerminates),
     ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError),
     ("mixed wrapped alias cycle still produces deterministic runtime diagnostic", testMixedWrappedAliasCycleRuntimeError),
     ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError),
@@ -186,14 +187,40 @@ testSameNameNonAliasSelfApplicationTerminates = do
   maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = (\\(x) -> x) f. f 1.") :: IO (Either SomeException RunResult))
   case maybeResult of
     Nothing ->
-      failTest "expected same-name non-alias self application to terminate with a diagnostic, but evaluation timed out"
+      failTest "expected same-name non-alias self application to terminate with a runtime diagnostic, but evaluation timed out"
     Just (Left err) ->
-      failTest ("expected same-name non-alias self application to report a diagnostic, but evaluation raised " <> Text.pack (show err))
-    Just (Right result)
-      | null (runCompileErrors result) && null (runRuntimeErrors result) ->
-          failTest "expected same-name non-alias self application to report a compile-time or runtime diagnostic"
-      | otherwise ->
-          assertEqual "runtime output is suppressed on failure" Nothing (runOutput result)
+      failTest ("expected same-name non-alias self application to report a runtime diagnostic, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "same-name non-alias self application runtime code"
+        "E3002"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "same-name non-alias self application runtime text"
+        "unbound variable 'f'"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on failure" Nothing (runOutput result)
+
+testMixedWrapperWithSelectedNonAliasSelfUseTerminates :: IO ()
+testMixedWrapperWithSelectedNonAliasSelfUseTerminates = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True (f + 1) else f. 0.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected mixed wrapper with eager selected self use to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected mixed wrapper with eager selected self use to report a runtime diagnostic, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "mixed wrapper selected branch runtime code"
+        "E3002"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "mixed wrapper selected branch runtime text"
+        "unbound variable 'f'"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on failure" Nothing (runOutput result)
 
 testWrappedAliasOnlyRecursiveCycleRuntimeError :: IO ()
 testWrappedAliasOnlyRecursiveCycleRuntimeError = do
