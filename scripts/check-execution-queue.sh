@@ -70,6 +70,14 @@ def split_inline_list(value: str, delimiter: str) -> List[str]:
     return [item for item in items if item]
 
 
+def normalize_target_path(value: str) -> Path:
+    path = Path(normalize_text(value))
+    parts = [part for part in path.parts if part != "."]
+    if not parts:
+        return Path(".")
+    return Path(*parts)
+
+
 def extract_section_lines(text: str, section_name: str) -> List[str]:
     marker = f"## {section_name}"
     lines = text.splitlines()
@@ -252,15 +260,20 @@ for row in ready_rows:
 
     target_paths = split_inline_list(row["target_paths"], ",")
     if normalize_text(row["kind"]) == "impl":
-        real_target_paths = [
-            path
-            for path in target_paths
-            if path and path != "-" and not path.startswith("docs/")
-        ]
+        real_target_paths: List[Tuple[str, Path]] = []
+        for target_path in target_paths:
+            if not target_path or target_path == "-":
+                continue
+            target_path_obj = normalize_target_path(target_path)
+            normalized_target_path = target_path_obj.as_posix()
+            if normalized_target_path in {".", "docs"} or normalized_target_path.startswith(
+                "docs/"
+            ):
+                continue
+            real_target_paths.append((target_path, target_path_obj))
         if not real_target_paths:
             fail(f"{QUEUE_PATH} Ready Now row {row_id} is impl but has no target_paths")
-        for target_path in real_target_paths:
-            target_path_obj = Path(target_path)
+        for target_path, target_path_obj in real_target_paths:
             if target_path_obj.is_absolute() or ".." in target_path_obj.parts:
                 fail(
                     f"{QUEUE_PATH} Ready Now row {row_id} names non-repo-relative "
