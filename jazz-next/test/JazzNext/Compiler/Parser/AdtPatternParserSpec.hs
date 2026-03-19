@@ -40,10 +40,13 @@ tests :: [NamedTest]
 tests =
   [ ("parses basic case expression with literal and wildcard arms", testParsesBasicCaseExpression),
     ("parses variable pattern case arm", testParsesVariablePatternCaseArm),
+    ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms),
+    ("parses list pattern case arms", testParsesListPatternCaseArms),
     ("parses nested case expression", testParsesNestedCaseExpression),
     ("parses unparenthesized if expression inside case arm body", testParsesIfExpressionInsideCaseArmBody),
     ("parses unparenthesized lambda expression inside case arm body", testParsesLambdaExpressionInsideCaseArmBody),
     ("parses pipe operator inside case arm body", testParsesPipeOperatorInsideCaseArmBody),
+    ("keeps pipe operator inside body before constructor arm boundary", testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary),
     ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument),
     ("reports missing case body for block-valued scrutinee", testReportsMissingCaseBodyForBlockScrutinee),
     ("reports missing arm arrow for block-valued scrutinee", testReportsMissingArmArrowForBlockScrutinee),
@@ -51,6 +54,7 @@ tests =
     ("rejects case expression without leading pipe", testRejectsCaseExpressionWithoutPipe),
     ("rejects case expression without arm arrow", testRejectsCaseExpressionWithoutArrow),
     ("rejects missing arrow on later case arm", testRejectsMissingArrowOnLaterCaseArm),
+    ("rejects malformed list patterns", testRejectsMalformedListPattern),
     ("lowers parsed case nodes into core AST", testLowerCaseExpression)
   ]
 
@@ -88,6 +92,92 @@ testParsesVariablePatternCaseArm =
         )
     )
     (parseSurfaceProgram "x = case value { | item -> item }.")
+
+testParsesConstructorPatternCaseArms :: IO ()
+testParsesConstructorPatternCaseArms =
+  assertRight
+    "constructor pattern parse + lower"
+    (parseSurfaceProgram "x = case value { | Just item -> item | Nothing -> 0 }.")
+    ( \surfaceProgram -> do
+        assertEqual "constructor pattern surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "constructor pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "value")
+                [ SurfaceCaseArm
+                    (SPConstructor "Just" [SPVariable "item"])
+                    (SEVar "item"),
+                  SurfaceCaseArm
+                    (SPConstructor "Nothing" [])
+                    (SELit (SLInt 0))
+                ]
+            )
+        ]
+    expectedLoweredProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    (PConstructor "Just" [PVariable "item"])
+                    (EVar "item"),
+                  CaseArm
+                    (PConstructor "Nothing" [])
+                    (ELit (LInt 0))
+                ]
+            )
+        ]
+
+testParsesListPatternCaseArms :: IO ()
+testParsesListPatternCaseArms =
+  assertRight
+    "list pattern parse + lower"
+    (parseSurfaceProgram "x = case values { | [head, _] -> head | [] -> 0 }.")
+    ( \surfaceProgram -> do
+        assertEqual "list pattern surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "list pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "values")
+                [ SurfaceCaseArm
+                    (SPList [SPVariable "head", SPWildcard])
+                    (SEVar "head"),
+                  SurfaceCaseArm
+                    (SPList [])
+                    (SELit (SLInt 0))
+                ]
+            )
+        ]
+    expectedLoweredProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "values")
+                [ CaseArm
+                    (PList [PVariable "head", PWildcard])
+                    (EVar "head"),
+                  CaseArm
+                    (PList [])
+                    (ELit (LInt 0))
+                ]
+            )
+        ]
 
 testParsesNestedCaseExpression :: IO ()
 testParsesNestedCaseExpression =
@@ -182,6 +272,30 @@ testParsesPipeOperatorInsideCaseArmBody =
             )
         ]
 
+testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary :: IO ()
+testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary =
+  assertRight
+    "pipe operator stays in constructor arm body"
+    (parseSurfaceProgram "x = case value { | Just item -> 1 | 2 | Nothing -> 3 }.")
+    (\surfaceProgram -> assertEqual "constructor arm boundary lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    (PConstructor "Just" [PVariable "item"])
+                    (EBinary "|" (ELit (LInt 1)) (ELit (LInt 2))),
+                  CaseArm
+                    (PConstructor "Nothing" [])
+                    (ELit (LInt 3))
+                ]
+            )
+        ]
+
 testParsesCaseScrutineeWithBlockArgument :: IO ()
 testParsesCaseScrutineeWithBlockArgument =
   assertRight
@@ -250,6 +364,13 @@ testRejectsMissingArrowOnLaterCaseArm =
     "missing later case-arm arrow"
     "expected '->'"
     (parseSurfaceProgram "x = case n { | 0 -> 1 | _ False }.")
+
+testRejectsMalformedListPattern :: IO ()
+testRejectsMalformedListPattern =
+  assertLeftDiagnosticContains
+    "malformed list pattern"
+    "expected ',' or ']'"
+    (parseSurfaceProgram "x = case values { | [head tail] -> head }.")
 
 testLowerCaseExpression :: IO ()
 testLowerCaseExpression =

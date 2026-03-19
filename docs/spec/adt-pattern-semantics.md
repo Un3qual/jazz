@@ -21,8 +21,11 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
    application, or constructor-aware runtime values.
 3. This document locks the contract for upcoming active-path work; it is not a
    claim that user-defined ADTs already execute today.
-4. The only landed `case` subset is the simple pattern-matching slice defined
-   in `docs/spec/pattern-matching-semantics.md`.
+4. The active parser/core path now accepts constructor and bracketed-list
+   patterns in `case` arms and lowers them into `EPatternCase`.
+5. The only end-to-end executed `case` subset is still the simple
+   literal/wildcard/variable slice defined in
+   `docs/spec/pattern-matching-semantics.md`.
 
 ## ADT Contract
 
@@ -53,7 +56,9 @@ none = Nothing.
    before the full surface is executable.
 3. Built-in lists remain separately implemented runtime values; user ADTs do
    not redefine list semantics in the first slice.
-4. Tuple values and tuple patterns remain outside the first ADT slice until
+4. Bracketed list patterns share the active parser/core pattern syntax, but
+   their full type/runtime semantics remain deferred with constructor patterns.
+5. Tuple values and tuple patterns remain outside the first ADT slice until
    tuple ownership is explicitly planned on the active path.
 
 ## Decision Cross-References

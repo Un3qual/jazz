@@ -1315,6 +1315,10 @@ extendBoundWithPattern pattern bound =
     PVariable name -> Set.insert (identifierText name) bound
     PWildcard -> bound
     PLiteral {} -> bound
+    PConstructor _ patterns ->
+      foldl' (flip extendBoundWithPattern) bound patterns
+    PList patterns ->
+      foldl' (flip extendBoundWithPattern) bound patterns
 
 inferPatternCaseType ::
   BuiltinResolutionMode ->
@@ -1376,6 +1380,14 @@ inferPatternType scrutineeType pattern state =
                     (resolveType state scrutineeType)
                     literalType
                 )
+    PConstructor constructorName _ ->
+      addTypeError
+        state
+        (mkDeferredPatternFormError "constructor" (identifierText constructorName))
+    PList _ ->
+      addTypeError
+        state
+        (mkDeferredPatternFormError "list" "[]")
 
 extendTypeEnvWithPattern ::
   Pattern ->
@@ -1388,6 +1400,30 @@ extendTypeEnvWithPattern pattern scrutineeType env =
       Map.insert (identifierText name) scrutineeType env
     PWildcard -> env
     PLiteral {} -> env
+    PConstructor _ patterns ->
+      foldl'
+        (\envAcc nestedPattern -> extendTypeEnvWithPattern nestedPattern scrutineeType envAcc)
+        env
+        patterns
+    PList patterns ->
+      foldl'
+        (\envAcc nestedPattern -> extendTypeEnvWithPattern nestedPattern listElementType envAcc)
+        env
+        patterns
+  where
+    listElementType =
+      case scrutineeType of
+        TListType elementType -> elementType
+        _ -> scrutineeType
+
+mkDeferredPatternFormError :: Text -> Text -> Diagnostic
+mkDeferredPatternFormError patternKind patternLabel =
+  mkDiagnostic
+    "E2011"
+    ( patternKind
+        <> " case patterns remain deferred on the active path: "
+        <> patternLabel
+    )
 
 supportsRuntimeEqualityType :: ExpressionType -> Bool
 supportsRuntimeEqualityType expressionType =

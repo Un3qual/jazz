@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
+RUNGHC="${ROOT}/jazz-next/scripts/runghc.sh"
 
 RUNGHC_INCLUDES=(
   -i./jazz-next/src
@@ -38,5 +39,5 @@ TEST_FILES=(
 )
 
 for test_file in "${TEST_FILES[@]}"; do
-  runghc "${RUNGHC_INCLUDES[@]}" "$test_file"
+  "$RUNGHC" "${RUNGHC_INCLUDES[@]}" "$test_file"
 done

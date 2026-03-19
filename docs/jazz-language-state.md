@@ -470,8 +470,8 @@ If this repo is going to become a coherent language project, the highest-value c
 Status update for item `#1`:
 
 - Active-path ADT/pattern contract is now recorded in `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md`.
-- The currently landed `jazz-next` subset is direct `case` parsing/lowering plus analyzer/type/runtime execution for literal, wildcard, and variable patterns.
-- `data`, constructor/list patterns, tuple patterns, and lambda-parameter patterns remain explicitly deferred on the active path.
+- The currently landed `jazz-next` subset is direct `case` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns, plus analyzer/type/runtime execution for the literal / wildcard / variable subset.
+- `data`, constructor values, tuple patterns, and lambda-parameter patterns remain explicitly deferred on the active path; constructor/list pattern semantics are still parser/core-only for now.
 
 Status update for item `#3`:
 
