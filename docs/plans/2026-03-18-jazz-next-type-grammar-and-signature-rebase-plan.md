@@ -1,3 +1,21 @@
+---
+id: JN-TYPE-PLAN-001
+status: ready
+priority: P1
+size: M
+autonomous_ready: true
+depends_on: []
+last_verified: 2026-03-19
+verification:
+  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
+  - bash jazz-next/scripts/test-warning-config.sh
+deliverable: Replace raw signature text with parser-owned structured signature nodes for the current monomorphic surface, preserving existing accepted cases and deterministic rejections.
+supersedes:
+  - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
+---
+
 # Jazz-Next Type Grammar And Signature Rebase Plan
 
 > Active-path replacement for `docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md`. New type-grammar planning and execution work belongs in `jazz-next/`; the older `07` plan remains reference-only because its execution targets are `jazz-hs` files.
@@ -16,6 +34,7 @@
 - [x] Verified active `jazz-next` signatures still flow through parser/lowering/analyzer as raw `Text`.
 - [x] Verified `jazz-next` currently supports only a narrow monomorphic signature subset and intentionally rejects chained arrows.
 - [x] Captured the active-path owner map and replacement-plan scope for `JN-TYPE-PLAN-001`.
+- [x] Re-verified on `2026-03-19` that signatures are still stored as raw `Text` in parser/core statements and chained-arrow signature tests still fail with `E2009`.
 - [ ] Milestone 1 complete: parser-owned type AST replaces raw signature `Text` in the active path.
 - [ ] Milestone 2 complete: function-arrow associativity and parenthesization rules are canonical in `jazz-next`.
 - [ ] Milestone 3 complete: constrained-signature syntax and semantics are represented in `jazz-next` structures.
