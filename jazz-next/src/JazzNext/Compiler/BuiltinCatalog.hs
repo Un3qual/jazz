@@ -7,6 +7,7 @@ module JazzNext.Compiler.BuiltinCatalog
     BuiltinOwnership (..),
     BuiltinSymbol (..),
     allBuiltinSymbols,
+    builtinNamesInMode,
     builtinSymbolOwnership,
     builtinSymbolArity,
     builtinSymbolName,
@@ -24,6 +25,8 @@ module JazzNext.Compiler.BuiltinCatalog
 import Data.List
   ( find
   )
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -52,6 +55,15 @@ data BuiltinSymbol
 
 allBuiltinSymbols :: [BuiltinSymbol]
 allBuiltinSymbols = [minBound .. maxBound]
+
+builtinNamesInMode :: BuiltinResolutionMode -> Set Text
+builtinNamesInMode mode =
+  Set.fromList
+    [ case mode of
+        ResolveKernelOnly -> builtinSymbolKernelName symbol
+        ResolveCompatibility -> builtinSymbolName symbol
+      | symbol <- allBuiltinSymbols
+    ]
 
 builtinSymbolOwnership :: BuiltinSymbol -> BuiltinOwnership
 builtinSymbolOwnership builtinSymbol =

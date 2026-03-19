@@ -4,7 +4,7 @@
 
 **Goal:** Extract the duplicated recursive-binding graph and free-variable helpers used by analyzer, type inference, and runtime into one shared `jazz-next` module without changing current lambda or recursion behavior.
 
-**Architecture:** Introduce a new pure helper module, `JazzNext.Compiler.RecursiveBindings`, that owns declaration-ordered recursive-group discovery, binding-name collection, free-variable walking, and parameterized self-recursive binding detection. Keep phase-specific policy local: analyzer still decides how to store groups, type inference still decides when a wrapper contains any function branch, and runtime still decides when a wrapper reliably yields a function value.
+**Architecture:** Introduce a new pure helper module, `JazzNext.Compiler.RecursiveBindings`, that owns declaration-ordered recursive-group discovery, binding-name collection, free-variable walking, and parameterized self-recursive binding detection. Keep phase-specific policy local: analyzer still decides how to store groups, type inference still decides when a wrapper exposes any function branch, and runtime still decides both when to self-seed recursive closures and when to fail fast on obviously non-function recursive SCC members.
 
 **Tech Stack:** Haskell (`jazz-next` compiler modules and `runghc` test suites), Markdown plan tracking, shell verification via targeted `runghc` commands plus `bash jazz-next/scripts/test-warning-config.sh`.
 
@@ -12,11 +12,11 @@
 
 ## Progress
 
-- [ ] Shared-helper extraction is queued as the next implementation task after the current lambda review-fix batch.
-- [ ] Task 1 complete: characterization tests lock shared recursive-binding helper behavior.
-- [ ] Task 2 complete: `JazzNext.Compiler.RecursiveBindings` provides the shared helper API.
-- [ ] Task 3 complete: analyzer, type inference, and runtime consume the shared helper module with no behavior drift.
-- [ ] Task 4 complete: full verification passes and the lambda tracker records the extraction as complete.
+- [x] Shared-helper extraction is no longer queued; the active `jazz-next` helper module and phase adoption landed on the active path.
+- [x] Task 1 complete: characterization tests lock shared recursive-binding helper behavior, including the intentionally missing-module RED check and default-runner wiring.
+- [x] Task 2 complete: `JazzNext.Compiler.RecursiveBindings` provides the shared helper API.
+- [x] Task 3 complete: analyzer, type inference, and runtime consume the shared helper module with no behavior drift.
+- [x] Task 4 complete: full verification passes and the lambda tracker records the extraction as complete.
 
 ## Scope Guardrails
 
@@ -24,13 +24,13 @@ In scope:
 
 - extracting `inferRecursiveGroups`, `freeVarsExprWithBound`, `freeVarsScopeWithBound`, `collectBindingNames`, and self-recursive binding scanning into a shared `jazz-next` module
 - preserving declaration-order behavior for recursive groups so runtime and inference keep the same peer visibility they have today
-- keeping the type-inference `exprContainsFunctionBranch` and runtime `exprYieldsFunctionValue` predicates local while sharing the scanner that consumes them
+- keeping the type-inference `exprContainsFunctionBranch` policy plus the runtime `exprContainsFunctionBranch` / `exprDefinitelyNotFunctionValue` policies local while sharing the graph/free-var core
 - adding dedicated tests that characterize the shared helper behavior directly
 
 Out of scope:
 
 - new lambda semantics, parser syntax, runtime diagnostics, or analyzer visibility rules
-- changing the existing wrapper-policy difference between type inference (`any` function branch) and runtime (`all` branches yield function value)
+- changing the existing phase-local recursion policies for type inference/runtime self-seeding or the runtime non-function fail-fast heuristic
 - refactoring unrelated compiler utilities into the same shared module
 - broad documentation rewrites outside the active lambda tracker
 
@@ -156,7 +156,7 @@ Do not change any peer-environment or binding-seed logic in this step beyond swa
 Use `inferSelfRecursiveBindings` from the shared module while keeping phase-local wrapper policies:
 
 - `TypeInference.hs` keeps `exprContainsFunctionBranch`
-- `Runtime.hs` keeps `exprYieldsFunctionValue`
+- `Runtime.hs` keeps `exprContainsFunctionBranch` for closure seeding and `exprDefinitelyNotFunctionValue` for the fail-fast non-function check
 
 This step must not collapse those two predicates into one helper; the current semantic difference is intentional.
 

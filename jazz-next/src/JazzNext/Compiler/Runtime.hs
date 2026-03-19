@@ -10,7 +10,6 @@ module JazzNext.Compiler.Runtime
     renderRuntimeValue
   ) where
 
-import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (foldl')
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -32,6 +31,7 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
     BuiltinSymbol (..),
+    builtinNamesInMode,
     builtinSymbolArity,
     builtinSymbolName,
     lookupBuiltinSymbolInMode
@@ -39,6 +39,13 @@ import JazzNext.Compiler.BuiltinCatalog
 import JazzNext.Compiler.Identifier
   ( Identifier,
     identifierText
+  )
+import JazzNext.Compiler.RecursiveBindings
+  ( collectBindingNames,
+    freeVarsExprWithBound,
+    freeVarsScopeWithBound,
+    inferRecursiveGroupsOrdered,
+    inferSelfRecursiveBindings
   )
 
 -- | Runtime values produced by the interpreter, including partially applied
@@ -130,8 +137,12 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = Map.fromList indexedStatements
-    recursiveGroups = inferRecursiveGroups initialEnv indexedStatements
-    selfRecursiveFunctionStatements = inferSelfRecursiveFunctionStatements indexedStatements
+    recursiveGroups =
+      inferRecursiveGroupsOrdered
+        (Set.union (Map.keysSet initialEnv) (builtinNamesInMode builtinMode))
+        indexedStatements
+    selfRecursiveFunctionStatements =
+      inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
     bindingCells = map (uncurry cellForStatement) indexedStatements
 
@@ -230,7 +241,12 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
 
     recursiveBindingNeedsSelf :: Int -> Bool
     recursiveBindingNeedsSelf statementIndex =
+      -- Function-valued self recursion gets stitched onto the resulting
+      -- closure after wrapper evaluation. Pre-seeding `self` here is only
+      -- needed for non-function recursive bindings; doing it eagerly for block
+      -- alias wrappers can blackhole before the closure is returned.
       Map.member statementIndex recursiveGroups
+        && Set.notMember statementIndex selfRecursiveFunctionStatements
 
     -- Wrapper expressions like `if` and `{ g = \(x) -> f x. g. }` should
     -- evaluate to their closure first, then get their own binding stitched
@@ -391,30 +407,6 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
                 _ ->
                   envAcc
 
-collectBindingNames :: [(Int, Statement)] -> Map Int Text
-collectBindingNames =
-  foldl' collect Map.empty
-  where
-    collect bindingNames (statementIndex, statement) =
-      case statement of
-        SLet bindingName _ _ ->
-          Map.insert statementIndex (identifierText bindingName) bindingNames
-        _ -> bindingNames
-
-inferSelfRecursiveFunctionStatements :: [(Int, Statement)] -> Set Int
-inferSelfRecursiveFunctionStatements =
-  foldl' collect Set.empty
-  where
-    collect recursiveStatements (statementIndex, statement) =
-      case statement of
-        SLet bindingName _ valueExpr
-          | exprContainsFunctionBranch valueExpr,
-            Set.member
-              (identifierText bindingName)
-              (freeVarsExprWithBound Set.empty valueExpr) ->
-              Set.insert statementIndex recursiveStatements
-        _ -> recursiveStatements
-
 -- Match the type checker: self-seed recursion when any branch exposes a
 -- lambda, so wrapped self-recursive closures capture their own binding before
 -- runtime branch selection happens.
@@ -511,164 +503,6 @@ scopeDefinitelyNotFunctionValue statements =
   case reverse statements of
     SExpr _ expr : _ -> exprDefinitelyNotFunctionValue expr
     _ -> False
-
--- | Mirror the analyzer's recursive-group resolution so runtime closure capture
--- stays consistent with the binding visibility already accepted at compile time.
-inferRecursiveGroups ::
-  RuntimeEnv ->
-  [(Int, Statement)] ->
-  Map Int [Int]
-inferRecursiveGroups outerEnv indexedStatements =
-  Map.fromList
-    [ (statementIndex, componentStatements)
-      | component <- stronglyConnComp graphNodes,
-        let componentStatements = componentStatementIndices component,
-        isRecursiveComponent component,
-        statementIndex <- componentStatements
-    ]
-  where
-    declarationInfo =
-      [ (statementIndex, identifierText bindingName, valueExpr)
-        | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
-      ]
-    declarationStatementsByName =
-      foldl'
-        collectDeclaration
-        Map.empty
-        declarationInfo
-    outerBindingNames = Map.keysSet outerEnv
-    baseDependencies =
-      Map.fromList
-        [ (statementIndex, Set.empty)
-          | (statementIndex, _, _) <- declarationInfo
-        ]
-    dependenciesByStatement =
-      foldl' addBindingDependencies baseDependencies declarationInfo
-    graphNodes =
-      [ (statementIndex, statementIndex, Set.toList dependencies)
-        | (statementIndex, dependencies) <- Map.toList dependenciesByStatement
-      ]
-
-    collectDeclaration declarationsByName (statementIndex, bindingNameText, _) =
-      Map.insertWith (\new old -> old ++ new) bindingNameText [statementIndex] declarationsByName
-
-    addBindingDependencies dependencies (statementIndex, bindingNameText, valueExpr) =
-      let localDependencyNames =
-            Set.filter
-              (`Map.member` declarationStatementsByName)
-              (freeVarsExprWithBound (Set.singleton bindingNameText) valueExpr)
-          resolvedDependencies =
-            Set.fromList
-              [ dependencyStatementIndex
-                | dependencyName <- Set.toList localDependencyNames,
-                  Just dependencyStatementIndex <- [resolveDependencyStatement statementIndex dependencyName]
-              ]
-       in
-        Map.insert statementIndex resolvedDependencies dependencies
-
-    resolveDependencyStatement statementIndex dependencyName =
-      case Map.lookup dependencyName declarationStatementsByName of
-        Nothing -> Nothing
-        Just declarationStatements ->
-          case closestPriorDeclaration declarationStatements of
-            Just prior -> Just prior
-            Nothing
-              | Set.member dependencyName outerBindingNames -> Nothing
-              | otherwise -> closestFutureDeclaration declarationStatements
-      where
-        closestPriorDeclaration declarations =
-          case filter (< statementIndex) declarations of
-            [] -> Nothing
-            priorDeclarations -> Just (last priorDeclarations)
-
-        closestFutureDeclaration declarations =
-          case filter (> statementIndex) declarations of
-            [] -> Nothing
-            firstFuture : _ -> Just firstFuture
-
-    componentStatementIndices component =
-      let componentIndices =
-            case component of
-              AcyclicSCC statementIndex -> Set.singleton statementIndex
-              CyclicSCC statementIndices -> Set.fromList statementIndices
-       in
-        [ statementIndex
-          | (statementIndex, _) <- indexedStatements,
-            Set.member statementIndex componentIndices
-        ]
-
-    isRecursiveComponent component =
-      case component of
-        CyclicSCC _ -> True
-        AcyclicSCC statementIndex ->
-          Set.member
-            statementIndex
-            (Map.findWithDefault Set.empty statementIndex dependenciesByStatement)
-
-freeVarsExprWithBound :: Set Text -> Expr -> Set Text
-freeVarsExprWithBound bound expr =
-  case expr of
-    ELit _ -> Set.empty
-    EVar name
-      | Set.member nameText bound -> Set.empty
-      | otherwise -> Set.singleton nameText
-      where
-        nameText = identifierText name
-    ELambda parameterName bodyExpr ->
-      freeVarsExprWithBound
-        (Set.insert (identifierText parameterName) bound)
-        bodyExpr
-    EOperatorValue _ -> Set.empty
-    EList elements ->
-      Set.unions (map (freeVarsExprWithBound bound) elements)
-    EApply functionExpr argumentExpr ->
-      Set.union
-        (freeVarsExprWithBound bound functionExpr)
-        (freeVarsExprWithBound bound argumentExpr)
-    EIf conditionExpr thenExpr elseExpr ->
-      freeVarsExprWithBound bound (ECase conditionExpr thenExpr elseExpr)
-    ECase conditionExpr thenExpr elseExpr ->
-      Set.unions
-        [ freeVarsExprWithBound bound conditionExpr,
-          freeVarsExprWithBound bound thenExpr,
-          freeVarsExprWithBound bound elseExpr
-        ]
-    EPatternCase scrutineeExpr caseArms ->
-      Set.unions
-        ( freeVarsExprWithBound bound scrutineeExpr :
-          [ freeVarsExprWithBound (extendBoundWithPattern pattern bound) bodyExpr
-          | CaseArm pattern bodyExpr <- caseArms
-          ]
-        )
-    EBinary _ leftExpr rightExpr ->
-      Set.union
-        (freeVarsExprWithBound bound leftExpr)
-        (freeVarsExprWithBound bound rightExpr)
-    ESectionLeft leftExpr _ ->
-      freeVarsExprWithBound bound leftExpr
-    ESectionRight _ rightExpr ->
-      freeVarsExprWithBound bound rightExpr
-    EBlock statements -> freeVarsScopeWithBound bound statements
-
-freeVarsScopeWithBound :: Set Text -> [Statement] -> Set Text
-freeVarsScopeWithBound initialBound statements =
-  snd (foldl' step (initialBound, Set.empty) statements)
-  where
-    step (boundNames, freeNames) statement =
-      case statement of
-        SSignature {} -> (boundNames, freeNames)
-        SModule {} -> (boundNames, freeNames)
-        SImport {} -> (boundNames, freeNames)
-        SExpr _ expr ->
-          ( boundNames,
-            Set.union freeNames (freeVarsExprWithBound boundNames expr)
-          )
-        SLet bindingName _ valueExpr ->
-          let boundWithSelf = Set.insert (identifierText bindingName) boundNames
-           in
-            ( boundWithSelf,
-              Set.union freeNames (freeVarsExprWithBound boundWithSelf valueExpr)
-            )
 
 evalValue builtinMode env expr =
   case expr of
