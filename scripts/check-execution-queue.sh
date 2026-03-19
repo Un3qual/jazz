@@ -260,7 +260,14 @@ for row in ready_rows:
         if not real_target_paths:
             fail(f"{QUEUE_PATH} Ready Now row {row_id} is impl but has no target_paths")
         for target_path in real_target_paths:
-            if not (ROOT / target_path).exists():
+            target_path_obj = Path(target_path)
+            if target_path_obj.is_absolute() or ".." in target_path_obj.parts:
+                fail(
+                    f"{QUEUE_PATH} Ready Now row {row_id} names non-repo-relative "
+                    f"target path: {target_path}"
+                )
+                continue
+            if not (ROOT / target_path_obj).exists():
                 fail(
                     f"{QUEUE_PATH} Ready Now row {row_id} names missing target path: "
                     f"{target_path}"
