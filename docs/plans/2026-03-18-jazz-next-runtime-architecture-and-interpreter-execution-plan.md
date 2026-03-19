@@ -1,3 +1,26 @@
+---
+id: JN-RUNTIME-COMPILE-CONTRACT-001
+status: ready
+priority: P1
+size: M
+kind: impl
+autonomous_ready: no
+depends_on: []
+last_verified: 2026-03-19
+plan_section: "Milestone 1: Close the compile vs run contract gap"
+target_paths:
+  - jazz-next/src/JazzNext/CLI/Main.hs
+  - jazz-next/src/JazzNext/Compiler/Driver.hs
+  - jazz-next/test/JazzNext/CLI/CLISpec.hs
+  - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+verification:
+  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
+  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+  - bash jazz-next/scripts/test-warning-config.sh
+deliverable: "Successful `compile` paths stop surfacing the misleading `/* jazz-next codegen placeholder */` output as user-facing success behavior; `--run` stays canonical, and source/module-graph compile modes share deterministic exit-code/stdout/stderr behavior."
+supersedes: []
+---
+
 # Jazz Next Runtime Architecture and Interpreter Execution Plan
 
 > Active-path replacement for `docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md`. New runtime work belongs in `jazz-next/`; `jazz-hs/` remains reference-only evidence for historical planning context.

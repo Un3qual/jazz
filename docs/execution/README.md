@@ -92,6 +92,7 @@ Stay in curated mode until these are true:
 4. At least the top priority items have explicit dependency and verification fields.
 5. At least one high-priority executable implementation item carries `kind`, `plan_section`, and `target_paths` that name real non-doc paths.
 6. The team can trust `autonomous_ready: yes` as a real signal, not a guess.
+7. `bash scripts/check-execution-queue.sh` passes after queue or plan metadata changes.
 
 Switch to the autonomous prompt when:
 
@@ -99,12 +100,13 @@ Switch to the autonomous prompt when:
 - at least one high-priority `kind: impl` entry is marked `autonomous_ready: yes`,
 - linked plans are detailed enough that the executor does not need a broad docs scan to act safely.
 
-## Next Hardening Step
+## Queue Validation
 
-The next improvement after adopting this layout is a small validation script, for example `scripts/check-execution-queue.sh`, that checks:
+Use `bash scripts/check-execution-queue.sh` after queue or open-plan metadata changes. It checks:
 
 - required queue columns exist,
 - every dependency id resolves,
 - every linked plan path exists,
 - `last_verified` is present on non-done items,
-- every `kind: impl` entry names at least one non-doc `target_paths` location.
+- every `kind: impl` entry names at least one non-doc `target_paths` location,
+- every `Ready Now` row matches the linked plan frontmatter for the current executable batch.

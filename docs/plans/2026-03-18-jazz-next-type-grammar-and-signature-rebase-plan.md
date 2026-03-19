@@ -1,3 +1,30 @@
+---
+id: JN-TYPE-AST-IMPL-001
+status: ready
+priority: P1
+size: M
+kind: impl
+autonomous_ready: no
+depends_on: []
+last_verified: 2026-03-19
+plan_section: "Milestone 1: Move Signature Ownership To Parser/AST/Lowering"
+target_paths:
+  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
+  - jazz-next/src/JazzNext/Compiler/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
+  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+verification:
+  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
+  - bash jazz-next/scripts/test-warning-config.sh
+deliverable: "Monomorphic signatures stop flowing through the compiler as raw `Text`; the parser builds structured type/signature nodes, lowering carries them into the core AST, and the existing accepted/rejected signature surface still passes through compile/type checks."
+supersedes: []
+---
+
 # Jazz-Next Type Grammar And Signature Rebase Plan
 
 > Active-path replacement for `docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md`. New type-grammar planning and execution work belongs in `jazz-next/`; the older `07` plan remains reference-only because its execution targets are `jazz-hs` files.

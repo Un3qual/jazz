@@ -1,3 +1,28 @@
+---
+id: JN-ADT-CONSTR-LIST-PARSER-001
+status: ready
+priority: P1
+size: M
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-03-19
+plan_section: "Milestone 2: Rebase parser, surface AST, core AST, and lowering"
+target_paths:
+  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
+  - jazz-next/src/JazzNext/Compiler/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/IfExpressionParserSpec.hs
+verification:
+  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
+  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/IfExpressionParserSpec.hs
+  - bash jazz-next/scripts/test-warning-config.sh
+deliverable: "Surface and core pattern representations accept constructor and list patterns in `case` arms, lowering preserves them into `EPatternCase`, and parser coverage locks accepted/rejected forms without regressing existing `if` / `case` parsing boundaries."
+supersedes: []
+---
+
 # Jazz-Next ADT And Pattern-Matching Rebase Plan
 
 > Active-path replacement for `docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md`. New ADT/pattern planning and execution work belongs in `jazz-next/`; the older `11` plan remains reference-only because its execution targets are `jazz-hs` files.
