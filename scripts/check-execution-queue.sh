@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple
 
 ROOT = Path.cwd()
 QUEUE_PATH = ROOT / "docs/execution/queue.md"
+QUEUE_TEXT: Optional[str] = None
 
 EXPECTED_READY_HEADERS = [
     "id",
@@ -48,6 +49,12 @@ FAILURES: List[str] = []
 
 def fail(message: str) -> None:
     FAILURES.append(message)
+
+
+if not QUEUE_PATH.is_file():
+    fail(f"missing required file: {QUEUE_PATH}")
+else:
+    QUEUE_TEXT = QUEUE_PATH.read_text()
 
 
 def normalize_text(value: str) -> str:
@@ -86,7 +93,9 @@ def is_separator_cell(cell: str) -> bool:
 
 
 def parse_markdown_table(section_name: str) -> Tuple[List[str], List[Dict[str, str]]]:
-    section_lines = extract_section_lines(QUEUE_PATH.read_text(), section_name)
+    if QUEUE_TEXT is None:
+        return [], []
+    section_lines = extract_section_lines(QUEUE_TEXT, section_name)
     table_lines = [line for line in section_lines if line.startswith("|")]
     if len(table_lines) < 2:
         fail(f"{QUEUE_PATH} section '{section_name}' is missing a markdown table")
@@ -250,6 +259,12 @@ for row in ready_rows:
         ]
         if not real_target_paths:
             fail(f"{QUEUE_PATH} Ready Now row {row_id} is impl but has no target_paths")
+        for target_path in real_target_paths:
+            if not (ROOT / target_path).exists():
+                fail(
+                    f"{QUEUE_PATH} Ready Now row {row_id} names missing target path: "
+                    f"{target_path}"
+                )
 
     frontmatter = parse_frontmatter(plan_path)
     if not frontmatter:

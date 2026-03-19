@@ -61,7 +61,7 @@ status: ready
 priority: P1
 size: S
 kind: impl
-autonomous_ready: true
+autonomous_ready: yes
 depends_on: []
 last_verified: 2026-03-19
 plan_section: "Task 2"
