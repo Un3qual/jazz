@@ -54,6 +54,7 @@ tests =
     ("direct self alias produces deterministic runtime diagnostic", testDirectSelfAliasRuntimeError),
     ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError),
     ("wrapped direct self alias produces deterministic runtime diagnostic", testWrappedDirectSelfAliasRuntimeError),
+    ("same-name non-alias self application terminates with a diagnostic", testSameNameNonAliasSelfApplicationTerminates),
     ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError),
     ("mixed wrapped alias cycle still produces deterministic runtime diagnostic", testMixedWrappedAliasCycleRuntimeError),
     ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError),
@@ -61,6 +62,7 @@ tests =
     ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer),
     ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError),
     ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError),
+    ("nested block alias cycle ignores later outer peer name", testNestedBlockAliasCycleIgnoresLaterOuterPeer),
     ("pattern-case without a matching arm produces deterministic runtime diagnostic", testPatternCaseNoMatchRuntimeError),
     ("bare dollar operator value applies at runtime", testDollarOperatorValueRuntimeSuccess),
     ("bare operator value applies at runtime", testBareOperatorValueRuntimeSuccess),
@@ -178,6 +180,20 @@ testWrappedDirectSelfAliasRuntimeError = do
         "recursive alias cycle"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testSameNameNonAliasSelfApplicationTerminates :: IO ()
+testSameNameNonAliasSelfApplicationTerminates = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = (\\(x) -> x) f. f 1.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected same-name non-alias self application to terminate with a diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected same-name non-alias self application to report a diagnostic, but evaluation raised " <> Text.pack (show err))
+    Just (Right result)
+      | null (runCompileErrors result) && null (runRuntimeErrors result) ->
+          failTest "expected same-name non-alias self application to report a compile-time or runtime diagnostic"
+      | otherwise ->
+          assertEqual "runtime output is suppressed on failure" Nothing (runOutput result)
 
 testWrappedAliasOnlyRecursiveCycleRuntimeError :: IO ()
 testWrappedAliasOnlyRecursiveCycleRuntimeError = do
@@ -303,6 +319,26 @@ testNonFunctionRecursiveCycleRuntimeError = do
       assertSingleDiagnosticContains
         "non-function recursive cycle runtime text"
         "no concrete value"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testNestedBlockAliasCycleIgnoresLaterOuterPeer :: IO ()
+testNestedBlockAliasCycleIgnoresLaterOuterPeer = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "x = { y = z. z = y. y. }. z = x. x.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected nested block alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected nested block alias cycle to report a deterministic runtime diagnostic, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "nested block alias cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "nested block alias cycle runtime text"
+        "recursive alias cycle"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 

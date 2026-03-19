@@ -41,7 +41,10 @@ tests =
     ("free vars treat lambda parameters as bound", testFreeVarsLambdaParameterBound),
     ("free vars treat bindings as visible in their own rhs", testFreeVarsScopeBindsSelfRecursion),
     ("recursive groups keep singleton self-recursive bindings", testRecursiveGroupsKeepSingletonSelfRecursion),
+    ("recursive groups ignore same-name non-alias references", testRecursiveGroupsIgnoreSameNameNonAliasReference),
     ("recursive groups suppress singleton self edge when outer binding exists", testRecursiveGroupsPreferOuterBindingForSingletonName),
+    ("nested block SCC free vars stay local to the block", testFreeVarsScopeKeepsNestedRecursivePeersLocal),
+    ("recursive groups do not leak nested block SCC peers to outer scope", testRecursiveGroupsDoNotLeakNestedBlockPeers),
     ("recursive groups preserve declaration order through alias bridge", testRecursiveGroupsPreserveDeclarationOrder),
     ("recursive groups prefer nearest earlier rebinding over later declaration", testRecursiveGroupsPreferNearestEarlierRebinding),
     ("self-recursive binding detection is parameterized by caller predicate", testInferSelfRecursiveBindingsIsParameterized)
@@ -97,6 +100,17 @@ testRecursiveGroupsKeepSingletonSelfRecursion =
       [ (0, SLet (ident "f") span0 (EVar (ident "f")))
       ]
 
+testRecursiveGroupsIgnoreSameNameNonAliasReference :: IO ()
+testRecursiveGroupsIgnoreSameNameNonAliasReference =
+  assertEqual
+    "same-name non-alias reference does not create self edge"
+    Map.empty
+    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
+  where
+    indexedStatements =
+      [ (0, SLet (ident "f") span0 (EApply (ELambda (ident "x") (EVar (ident "x"))) (EVar (ident "f"))))
+      ]
+
 testRecursiveGroupsPreferOuterBindingForSingletonName :: IO ()
 testRecursiveGroupsPreferOuterBindingForSingletonName =
   assertEqual
@@ -106,6 +120,37 @@ testRecursiveGroupsPreferOuterBindingForSingletonName =
   where
     indexedStatements =
       [ (0, SLet (ident "f") span0 (EVar (ident "f")))
+      ]
+
+testFreeVarsScopeKeepsNestedRecursivePeersLocal :: IO ()
+testFreeVarsScopeKeepsNestedRecursivePeersLocal =
+  assertEqual
+    "nested recursive peer names stay local to block"
+    Set.empty
+    (freeVarsScopeWithBound Set.empty nestedStatements)
+  where
+    nestedStatements =
+      [ SLet (ident "y") span0 (EVar (ident "z")),
+        SLet (ident "z") span0 (EVar (ident "y")),
+        SExpr span0 (EVar (ident "y"))
+      ]
+
+testRecursiveGroupsDoNotLeakNestedBlockPeers :: IO ()
+testRecursiveGroupsDoNotLeakNestedBlockPeers =
+  assertEqual
+    "nested block recursive peer names do not form outer SCC"
+    Map.empty
+    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
+  where
+    nestedBlock =
+      EBlock
+        [ SLet (ident "y") span0 (EVar (ident "z")),
+          SLet (ident "z") span0 (EVar (ident "y")),
+          SExpr span0 (EVar (ident "y"))
+        ]
+    indexedStatements =
+      [ (0, SLet (ident "x") span0 nestedBlock),
+        (1, SLet (ident "z") span0 (EVar (ident "x")))
       ]
 
 testRecursiveGroupsPreserveDeclarationOrder :: IO ()

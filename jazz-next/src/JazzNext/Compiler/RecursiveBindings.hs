@@ -90,9 +90,22 @@ freeVarsExprWithBound bound expr =
 
 freeVarsScopeWithBound :: Set Text -> [Statement] -> Set Text
 freeVarsScopeWithBound initialBound statements =
-  snd (foldl' step (initialBound, Set.empty) statements)
+  snd (foldl' step (initialBound, Set.empty) indexedStatements)
   where
-    step (boundNames, freeNames) statement =
+    indexedStatements = zip [0 ..] statements
+    recursiveGroupsByStatement =
+      inferRecursiveGroupsOrdered initialBound indexedStatements
+    bindingNamesByStatement = collectBindingNames indexedStatements
+
+    recursivePeerNames statementIndex =
+      Set.fromList
+        [ peerName
+          | peerIndex <- Map.findWithDefault [] statementIndex recursiveGroupsByStatement,
+            peerIndex /= statementIndex,
+            Just peerName <- [Map.lookup peerIndex bindingNamesByStatement]
+        ]
+
+    step (boundNames, freeNames) (statementIndex, statement) =
       case statement of
         SSignature {} -> (boundNames, freeNames)
         SModule {} -> (boundNames, freeNames)
@@ -103,9 +116,10 @@ freeVarsScopeWithBound initialBound statements =
           )
         SLet bindingName _ valueExpr ->
           let boundWithSelf = Set.insert (identifierText bindingName) boundNames
+              rhsBoundNames = Set.union boundWithSelf (recursivePeerNames statementIndex)
            in
             ( boundWithSelf,
-              Set.union freeNames (freeVarsExprWithBound boundWithSelf valueExpr)
+              Set.union freeNames (freeVarsExprWithBound rhsBoundNames valueExpr)
             )
 
 inferRecursiveGroupsOrdered :: Set Text -> [(Int, Statement)] -> Map Int [Int]
@@ -149,25 +163,29 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
               [ dependencyStatementIndex
                 | dependencyName <- Set.toList localDependencyNames,
                   Just dependencyStatementIndex <-
-                    [resolveDependencyStatement statementIndex bindingNameText dependencyName]
+                    [resolveDependencyStatement statementIndex bindingNameText valueExpr dependencyName]
               ]
        in
         Map.insert statementIndex resolvedDependencies dependencies
 
-    resolveDependencyStatement statementIndex bindingNameText dependencyName =
+    resolveDependencyStatement statementIndex bindingNameText valueExpr dependencyName =
       case Map.lookup dependencyName declarationStatementsByName of
         Nothing -> Nothing
         Just declarationStatements ->
           -- Rebindings snapshot the nearest earlier declaration. If there is no
           -- prior local binding, fall back to an outer binding before creating
           -- a forward edge to the first later local declaration. Same-name
-          -- references become self-edges only when there is no prior or outer
-          -- binding to snapshot.
+          -- references only become self-edges for alias-shaped wrappers; eager
+          -- self-use stays on the existing non-recursive path instead of
+          -- forcing itself into an SCC.
           case closestPriorDeclaration declarationStatements of
             Just prior -> Just prior
             Nothing
               | Set.member dependencyName outerBindingNames -> Nothing
-              | dependencyName == bindingNameText -> Just statementIndex
+              | dependencyName == bindingNameText ->
+                  if selfAliasLikeReference bindingNameText valueExpr
+                    then Just statementIndex
+                    else Nothing
               | otherwise -> closestFutureDeclaration declarationStatements
       where
         closestPriorDeclaration declarations =
@@ -214,6 +232,65 @@ inferSelfRecursiveBindings predicate =
               (freeVarsExprWithBound Set.empty valueExpr) ->
               Set.insert statementIndex recursiveStatements
         _ -> recursiveStatements
+
+selfAliasLikeReference :: Text -> Expr -> Bool
+selfAliasLikeReference bindingNameText =
+  go Set.empty Map.empty Set.empty
+  where
+    go boundNames scopeBindings visitedBindings expr =
+      case expr of
+        EVar name ->
+          let nameText = identifierText name
+           in
+            if Set.member nameText boundNames
+              then False
+              else
+                case Map.lookup nameText scopeBindings of
+                  Just bindingExpr
+                    | Set.notMember nameText visitedBindings ->
+                        go
+                          boundNames
+                          scopeBindings
+                          (Set.insert nameText visitedBindings)
+                          bindingExpr
+                  _ -> nameText == bindingNameText
+        EIf _ thenExpr elseExpr ->
+          go boundNames scopeBindings visitedBindings thenExpr
+            || go boundNames scopeBindings visitedBindings elseExpr
+        ECase _ thenExpr elseExpr ->
+          go boundNames scopeBindings visitedBindings thenExpr
+            || go boundNames scopeBindings visitedBindings elseExpr
+        EPatternCase _ caseArms ->
+          any
+            (\(CaseArm pattern bodyExpr) ->
+               go
+                 (extendBoundWithPattern pattern boundNames)
+                 scopeBindings
+                 visitedBindings
+                 bodyExpr
+            )
+            caseArms
+        EBlock blockStatements ->
+          case reverse blockStatements of
+            SExpr _ terminalExpr : _ ->
+              let localScopeBindings = collectScopeBindingExprs blockStatements
+               in
+                go
+                  boundNames
+                  (localScopeBindings `Map.union` scopeBindings)
+                  visitedBindings
+                  terminalExpr
+            _ -> False
+        _ -> False
+
+    collectScopeBindingExprs =
+      foldl' collect Map.empty
+      where
+        collect scopeBindings statement =
+          case statement of
+            SLet bindingName _ valueExpr ->
+              Map.insert (identifierText bindingName) valueExpr scopeBindings
+            _ -> scopeBindings
 
 extendBoundWithPattern :: Pattern -> Set Text -> Set Text
 extendBoundWithPattern pattern bound =
