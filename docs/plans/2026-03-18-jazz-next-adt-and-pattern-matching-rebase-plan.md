@@ -1,3 +1,19 @@
+---
+id: JN-ADT-REBASE-001
+status: ready
+priority: P2
+size: M
+autonomous_ready: true
+depends_on: []
+last_verified: 2026-03-19
+verification:
+  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
+  - bash jazz-next/scripts/test-warning-config.sh
+deliverable: Extend the parser/core pattern representation from the current literal-wildcard-variable slice to constructor and list patterns without regressing existing case lowering.
+supersedes:
+  - docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md
+---
+
 # Jazz-Next ADT And Pattern-Matching Rebase Plan
 
 > Active-path replacement for `docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md`. New ADT/pattern planning and execution work belongs in `jazz-next/`; the older `11` plan remains reference-only because its execution targets are `jazz-hs` files.
@@ -22,6 +38,7 @@
 - [x] Published `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md` to lock the active-path subset and explicit non-goals.
 - [x] Milestone 1 complete: core ADT/pattern semantics docs and executable subset are locked for `jazz-next`.
 - [x] Replaced the temporary simple-pattern placeholders with real type/runtime semantics for literal, wildcard, and variable patterns, added dedicated type/runtime suites, and threaded them into active verification.
+- [x] Re-verified on `2026-03-19` that parser/core patterns still stop at wildcard, variable, and literal forms, and `AdtPatternParserSpec` does not yet cover constructor or list patterns.
 - [ ] Milestone 2 complete: parser, surface AST, core AST, and lowering represent the agreed ADT/case/pattern forms.
 - [ ] Milestone 3 complete: analyzer/type semantics cover data declarations, constructors, and branch-local pattern bindings.
 - [ ] Milestone 4 complete: runtime execution supports constructor values and pattern-matching evaluation with deterministic diagnostics.
