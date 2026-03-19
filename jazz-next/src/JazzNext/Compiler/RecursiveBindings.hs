@@ -295,17 +295,27 @@ selfAliasLikeReference bindingNameText =
         EBlock blockStatements ->
           let localScopeBindings = collectScopeBindingExprs blockStatements
               blockScopeBindings = localScopeBindings `Map.union` scopeBindings
-              terminalSummary =
+              (eagerStatements, terminalSummary) =
                 case reverse blockStatements of
-                  SExpr _ terminalExpr : _ ->
-                    aliasSummary boundNames blockScopeBindings visitedBindings terminalExpr
-                  _ -> noSummary
+                  SExpr _ terminalExpr : reversedLeadingStatements ->
+                    ( reverse reversedLeadingStatements,
+                      aliasSummary boundNames blockScopeBindings visitedBindings terminalExpr
+                    )
+                  _ ->
+                    (blockStatements, noSummary)
               eagerBindingSummary =
                 foldl'
                   combineSummaries
                   noSummary
-                  [ nonAliasSummary boundNames blockScopeBindings Set.empty valueExpr
-                    | SLet _ _ valueExpr <- blockStatements
+                  [ summary
+                    | statement <- eagerStatements,
+                      summary <-
+                        case statement of
+                          SLet _ _ valueExpr ->
+                            [nonAliasSummary boundNames blockScopeBindings Set.empty valueExpr]
+                          SExpr _ statementExpr ->
+                            [nonAliasSummary boundNames blockScopeBindings Set.empty statementExpr]
+                          _ -> []
                   ]
            in
             combineSummaries terminalSummary eagerBindingSummary

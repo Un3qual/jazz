@@ -43,6 +43,7 @@ tests =
     ("recursive groups keep singleton self-recursive bindings", testRecursiveGroupsKeepSingletonSelfRecursion),
     ("recursive groups ignore same-name non-alias references", testRecursiveGroupsIgnoreSameNameNonAliasReference),
     ("recursive groups ignore mixed alias and eager self wrapper branches", testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper),
+    ("recursive groups ignore eager block statements before alias terminal", testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal),
     ("recursive groups suppress singleton self edge when outer binding exists", testRecursiveGroupsPreferOuterBindingForSingletonName),
     ("nested block SCC free vars stay local to the block", testFreeVarsScopeKeepsNestedRecursivePeersLocal),
     ("recursive groups do not leak nested block SCC peers to outer scope", testRecursiveGroupsDoNotLeakNestedBlockPeers),
@@ -127,6 +128,22 @@ testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper =
         (ELit (LBool True))
         (EBinary "+" (EVar (ident "f")) (ELit (LInt 1)))
         (EVar (ident "f"))
+
+testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal :: IO ()
+testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal =
+  assertEqual
+    "eager block statement before alias terminal does not create self edge"
+    Map.empty
+    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
+  where
+    indexedStatements =
+      [ (0, SLet (ident "f") span0 blockExpr)
+      ]
+    blockExpr =
+      EBlock
+        [ SExpr span0 (EBinary "+" (EVar (ident "f")) (ELit (LInt 1))),
+          SExpr span0 (EVar (ident "f"))
+        ]
 
 testRecursiveGroupsPreferOuterBindingForSingletonName :: IO ()
 testRecursiveGroupsPreferOuterBindingForSingletonName =

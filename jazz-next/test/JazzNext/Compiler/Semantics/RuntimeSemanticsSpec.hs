@@ -56,6 +56,7 @@ tests =
     ("wrapped direct self alias produces deterministic runtime diagnostic", testWrappedDirectSelfAliasRuntimeError),
     ("same-name non-alias self application produces runtime unbound diagnostic", testSameNameNonAliasSelfApplicationTerminates),
     ("mixed wrapper with eager selected branch produces runtime unbound diagnostic", testMixedWrapperWithSelectedNonAliasSelfUseTerminates),
+    ("block wrapper with eager statement before alias terminal produces runtime unbound diagnostic", testBlockWrapperWithEagerStatementBeforeAliasTerminalTerminates),
     ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError),
     ("mixed wrapped alias cycle still produces deterministic runtime diagnostic", testMixedWrappedAliasCycleRuntimeError),
     ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError),
@@ -218,6 +219,26 @@ testMixedWrapperWithSelectedNonAliasSelfUseTerminates = do
         (runRuntimeErrors result)
       assertSingleDiagnosticContains
         "mixed wrapper selected branch runtime text"
+        "unbound variable 'f'"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on failure" Nothing (runOutput result)
+
+testBlockWrapperWithEagerStatementBeforeAliasTerminalTerminates :: IO ()
+testBlockWrapperWithEagerStatementBeforeAliasTerminalTerminates = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = { f + 1. f. }. 0.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected block wrapper with eager statement before alias terminal to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected block wrapper with eager statement before alias terminal to report a runtime diagnostic, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "block wrapper eager statement runtime code"
+        "E3002"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "block wrapper eager statement runtime text"
         "unbound variable 'f'"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on failure" Nothing (runOutput result)
