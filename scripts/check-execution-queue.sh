@@ -81,6 +81,10 @@ def extract_section_lines(text: str, section_name: str) -> List[str]:
     return collected
 
 
+def is_separator_cell(cell: str) -> bool:
+    return re.fullmatch(r":?-{3,}:?", cell) is not None
+
+
 def parse_markdown_table(section_name: str) -> Tuple[List[str], List[Dict[str, str]]]:
     section_lines = extract_section_lines(QUEUE_PATH.read_text(), section_name)
     table_lines = [line for line in section_lines if line.startswith("|")]
@@ -92,7 +96,27 @@ def parse_markdown_table(section_name: str) -> Tuple[List[str], List[Dict[str, s
         return [cell.strip() for cell in line.strip().strip("|").split("|")]
 
     headers = split_row(table_lines[0])
-    rows = [dict(zip(headers, split_row(line))) for line in table_lines[2:]]
+    separator_cells = split_row(table_lines[1])
+    separator_valid = len(separator_cells) == len(headers) and all(
+        is_separator_cell(cell) for cell in separator_cells
+    )
+    if not separator_valid:
+        fail(
+            f"{QUEUE_PATH} section '{section_name}' has a missing or malformed "
+            f"markdown separator row: {table_lines[1]}"
+        )
+
+    data_start = 2 if separator_valid else 1
+    rows: List[Dict[str, str]] = []
+    for row_index, line in enumerate(table_lines[data_start:], start=data_start + 1):
+        cells = split_row(line)
+        if len(cells) != len(headers):
+            fail(
+                f"{QUEUE_PATH} section '{section_name}' row {row_index} has "
+                f"{len(cells)} cells; expected {len(headers)}: {line}"
+            )
+            continue
+        rows.append(dict(zip(headers, cells)))
     return headers, rows
 
 
@@ -169,17 +193,33 @@ if ready_headers and ready_headers != EXPECTED_READY_HEADERS:
         f"{QUEUE_PATH} Ready Now headers do not match expected columns: "
         f"{ready_headers!r}"
     )
+    ready_rows = []
 
 if blocked_headers and blocked_headers != EXPECTED_BLOCKED_HEADERS:
     fail(
         f"{QUEUE_PATH} Blocked headers do not match expected columns: "
         f"{blocked_headers!r}"
     )
+    blocked_rows = []
 
 all_ids = set()
-for row in ready_rows + blocked_rows + done_rows:
-    row_id = normalize_text(row.get("id", ""))
-    if row_id:
+seen_ids: Dict[str, str] = {}
+for section_name, rows in (
+    ("Ready Now", ready_rows),
+    ("Blocked", blocked_rows),
+    ("Done", done_rows),
+):
+    for row in rows:
+        row_id = normalize_text(row.get("id", ""))
+        if not row_id:
+            continue
+        if row_id in seen_ids:
+            fail(
+                f"{QUEUE_PATH} duplicate id {row_id!r} appears in both "
+                f"{seen_ids[row_id]} and {section_name}"
+            )
+            continue
+        seen_ids[row_id] = section_name
         all_ids.add(row_id)
 
 for row in ready_rows:
@@ -203,12 +243,13 @@ for row in ready_rows:
 
     target_paths = split_inline_list(row["target_paths"], ",")
     if normalize_text(row["kind"]) == "impl":
-        if not target_paths:
+        real_target_paths = [
+            path
+            for path in target_paths
+            if path and path != "-" and not path.startswith("docs/")
+        ]
+        if not real_target_paths:
             fail(f"{QUEUE_PATH} Ready Now row {row_id} is impl but has no target_paths")
-        elif not any(not path.startswith("docs/") for path in target_paths):
-            fail(
-                f"{QUEUE_PATH} Ready Now row {row_id} is impl but only names doc targets"
-            )
 
     frontmatter = parse_frontmatter(plan_path)
     if not frontmatter:
