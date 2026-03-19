@@ -4,7 +4,7 @@
 
 **Goal:** Extract the duplicated recursive-binding graph and free-variable helpers used by analyzer, type inference, and runtime into one shared `jazz-next` module without changing current lambda or recursion behavior.
 
-**Architecture:** Introduce a new pure helper module, `JazzNext.Compiler.RecursiveBindings`, that owns declaration-ordered recursive-group discovery, binding-name collection, free-variable walking, and parameterized self-recursive binding detection. Keep phase-specific policy local: analyzer still decides how to store groups, type inference still decides when a wrapper contains any function branch, and runtime still decides when a wrapper reliably yields a function value.
+**Architecture:** Introduce a new pure helper module, `JazzNext.Compiler.RecursiveBindings`, that owns declaration-ordered recursive-group discovery, binding-name collection, free-variable walking, and parameterized self-recursive binding detection. Keep phase-specific policy local: analyzer still decides how to store groups, type inference still decides when a wrapper exposes any function branch, and runtime still decides both when to self-seed recursive closures and when to fail fast on obviously non-function recursive SCC members.
 
 **Tech Stack:** Haskell (`jazz-next` compiler modules and `runghc` test suites), Markdown plan tracking, shell verification via targeted `runghc` commands plus `bash jazz-next/scripts/test-warning-config.sh`.
 
@@ -30,7 +30,7 @@ In scope:
 Out of scope:
 
 - new lambda semantics, parser syntax, runtime diagnostics, or analyzer visibility rules
-- changing the existing wrapper-policy difference between type inference (`any` function branch) and runtime (`all` branches yield function value)
+- changing the existing phase-local recursion policies for type inference/runtime self-seeding or the runtime non-function fail-fast heuristic
 - refactoring unrelated compiler utilities into the same shared module
 - broad documentation rewrites outside the active lambda tracker
 
