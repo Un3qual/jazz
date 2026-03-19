@@ -45,6 +45,7 @@ EXPECTED_BLOCKED_HEADERS = [
 ]
 
 FAILURES: List[str] = []
+DOC_SUFFIXES = {".md", ".markdown", ".rst", ".txt"}
 
 
 def fail(message: str) -> None:
@@ -76,6 +77,10 @@ def normalize_target_path(value: str) -> Path:
     if not parts:
         return Path(".")
     return Path(*parts)
+
+
+def is_doc_target_path(path: Path) -> bool:
+    return any(part == "docs" for part in path.parts) or path.suffix.lower() in DOC_SUFFIXES
 
 
 def extract_section_lines(text: str, section_name: str) -> List[str]:
@@ -145,12 +150,12 @@ def extract_plan_path(cell: str) -> Optional[Path]:
     return (QUEUE_PATH.parent / match.group(1)).resolve()
 
 
-def parse_frontmatter(path: Path) -> Dict[str, object]:
+def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
     text = path.read_text()
     lines = text.splitlines()
     if not lines or lines[0] != "---":
         fail(f"{path} missing YAML frontmatter")
-        return {}
+        return None
 
     data: Dict[str, object] = {}
     idx = 1
@@ -198,6 +203,10 @@ def parse_frontmatter(path: Path) -> Dict[str, object]:
 
     if idx >= len(lines) or lines[idx] != "---":
         fail(f"{path} frontmatter is missing a closing --- delimiter")
+        return None
+    if not data:
+        fail(f"{path} frontmatter is empty")
+        return None
     return data
 
 
@@ -247,8 +256,11 @@ for row in ready_rows:
     plan_path = extract_plan_path(row["plan"])
     if not plan_path:
         continue
-    if not plan_path.exists():
-        fail(f"{QUEUE_PATH} Ready Now row {row_id} links to missing plan: {plan_path}")
+    if not plan_path.is_file():
+        fail(
+            f"{QUEUE_PATH} Ready Now row {row_id} links to missing or non-file plan: "
+            f"{plan_path}"
+        )
         continue
 
     dependencies = split_inline_list(row["depends_on"], ",")
@@ -265,10 +277,10 @@ for row in ready_rows:
             if not target_path or target_path == "-":
                 continue
             target_path_obj = normalize_target_path(target_path)
-            normalized_target_path = target_path_obj.as_posix()
-            if normalized_target_path in {".", "docs"} or normalized_target_path.startswith(
-                "docs/"
-            ):
+            if target_path_obj.is_absolute() or ".." in target_path_obj.parts:
+                real_target_paths.append((target_path, target_path_obj))
+                continue
+            if target_path_obj == Path(".") or is_doc_target_path(target_path_obj):
                 continue
             real_target_paths.append((target_path, target_path_obj))
         if not real_target_paths:
@@ -287,7 +299,7 @@ for row in ready_rows:
                 )
 
     frontmatter = parse_frontmatter(plan_path)
-    if not frontmatter:
+    if frontmatter is None:
         continue
 
     expected_scalars = {
@@ -332,8 +344,11 @@ for row in blocked_rows:
         fail(f"{QUEUE_PATH} Blocked row {row_id} is missing last_verified")
 
     plan_path = extract_plan_path(row["plan"])
-    if plan_path and not plan_path.exists():
-        fail(f"{QUEUE_PATH} Blocked row {row_id} links to missing plan: {plan_path}")
+    if plan_path and not plan_path.is_file():
+        fail(
+            f"{QUEUE_PATH} Blocked row {row_id} links to missing or non-file plan: "
+            f"{plan_path}"
+        )
 
 if FAILURES:
     for message in FAILURES:
