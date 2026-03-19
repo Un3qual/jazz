@@ -33,6 +33,7 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
     BuiltinSymbol,
+    builtinNamesInMode,
     builtinSymbolName,
     lookupBuiltinSymbolInMode
   )
@@ -654,7 +655,9 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
   where
     indexedStatements = zip [0 ..] statements
     recursiveGroupsByStatement =
-      inferRecursiveGroupsOrdered (Map.keysSet initialEnv) indexedStatements
+      inferRecursiveGroupsOrdered
+        (Set.union (Map.keysSet initialEnv) (builtinNamesInMode builtinMode))
+        indexedStatements
     selfRecursiveFunctionStatements =
       inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements

@@ -40,6 +40,8 @@ tests =
   [ ("collect binding names keeps let declaration indices", testCollectBindingNames),
     ("free vars treat lambda parameters as bound", testFreeVarsLambdaParameterBound),
     ("free vars treat bindings as visible in their own rhs", testFreeVarsScopeBindsSelfRecursion),
+    ("recursive groups keep singleton self-recursive bindings", testRecursiveGroupsKeepSingletonSelfRecursion),
+    ("recursive groups suppress singleton self edge when outer binding exists", testRecursiveGroupsPreferOuterBindingForSingletonName),
     ("recursive groups preserve declaration order through alias bridge", testRecursiveGroupsPreserveDeclarationOrder),
     ("recursive groups prefer nearest earlier rebinding over later declaration", testRecursiveGroupsPreferNearestEarlierRebinding),
     ("self-recursive binding detection is parameterized by caller predicate", testInferSelfRecursiveBindingsIsParameterized)
@@ -82,6 +84,28 @@ testFreeVarsScopeBindsSelfRecursion =
           (ident "f")
           span0
           (EApply (EVar (ident "f")) (EVar (ident "g")))
+      ]
+
+testRecursiveGroupsKeepSingletonSelfRecursion :: IO ()
+testRecursiveGroupsKeepSingletonSelfRecursion =
+  assertEqual
+    "singleton self-recursive group"
+    (Map.fromList [(0, [0])])
+    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
+  where
+    indexedStatements =
+      [ (0, SLet (ident "f") span0 (EVar (ident "f")))
+      ]
+
+testRecursiveGroupsPreferOuterBindingForSingletonName :: IO ()
+testRecursiveGroupsPreferOuterBindingForSingletonName =
+  assertEqual
+    "outer singleton binding suppresses self edge"
+    Map.empty
+    (inferRecursiveGroupsOrdered (Set.singleton "f") indexedStatements)
+  where
+    indexedStatements =
+      [ (0, SLet (ident "f") span0 (EVar (ident "f")))
       ]
 
 testRecursiveGroupsPreserveDeclarationOrder :: IO ()

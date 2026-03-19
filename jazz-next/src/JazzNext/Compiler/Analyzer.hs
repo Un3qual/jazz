@@ -29,6 +29,7 @@ import JazzNext.Compiler.AST
   )
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
+    builtinNamesInMode,
     isBuiltinSymbolNameInMode
   )
 import JazzNext.Compiler.Diagnostics
@@ -258,7 +259,12 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
     -- Build recursion groups from local binding dependencies so mutually recursive
     -- bindings can reference each other independent of declaration order.
     recursiveGroupsByStatement =
-      Map.map Set.fromList (inferRecursiveGroupsOrdered (Map.keysSet outerScope) indexedStatements)
+      Map.map
+        Set.fromList
+        ( inferRecursiveGroupsOrdered
+            (Set.union (Map.keysSet outerScope) (builtinNamesInMode builtinMode))
+            indexedStatements
+        )
     bindingDeclarationsByStatement = collectBindingDeclarations indexedStatements
 
     -- Internal accumulators are built in reverse for O(1) append.

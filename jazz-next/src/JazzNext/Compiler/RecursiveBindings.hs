@@ -143,27 +143,31 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
       let localDependencyNames =
             Set.filter
               (`Map.member` declarationStatementsByName)
-              (freeVarsExprWithBound (Set.singleton bindingNameText) valueExpr)
+              (freeVarsExprWithBound Set.empty valueExpr)
           resolvedDependencies =
             Set.fromList
               [ dependencyStatementIndex
                 | dependencyName <- Set.toList localDependencyNames,
-                  Just dependencyStatementIndex <- [resolveDependencyStatement statementIndex dependencyName]
+                  Just dependencyStatementIndex <-
+                    [resolveDependencyStatement statementIndex bindingNameText dependencyName]
               ]
        in
         Map.insert statementIndex resolvedDependencies dependencies
 
-    resolveDependencyStatement statementIndex dependencyName =
+    resolveDependencyStatement statementIndex bindingNameText dependencyName =
       case Map.lookup dependencyName declarationStatementsByName of
         Nothing -> Nothing
         Just declarationStatements ->
           -- Rebindings snapshot the nearest earlier declaration. If there is no
           -- prior local binding, fall back to an outer binding before creating
-          -- a forward edge to the first later local declaration.
+          -- a forward edge to the first later local declaration. Same-name
+          -- references become self-edges only when there is no prior or outer
+          -- binding to snapshot.
           case closestPriorDeclaration declarationStatements of
             Just prior -> Just prior
             Nothing
               | Set.member dependencyName outerBindingNames -> Nothing
+              | dependencyName == bindingNameText -> Just statementIndex
               | otherwise -> closestFutureDeclaration declarationStatements
       where
         closestPriorDeclaration declarations =

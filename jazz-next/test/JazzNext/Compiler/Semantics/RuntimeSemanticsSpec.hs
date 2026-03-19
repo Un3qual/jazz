@@ -51,7 +51,9 @@ tests =
   [ ("if with False condition skips then branch runtime failure", testIfFalseSkipsThenRuntimeFailure),
     ("if with True condition skips else branch runtime failure", testIfTrueSkipsElseRuntimeFailure),
     ("division by zero produces fatal runtime diagnostic", testDivisionByZeroRuntimeError),
+    ("direct self alias produces deterministic runtime diagnostic", testDirectSelfAliasRuntimeError),
     ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError),
+    ("wrapped direct self alias produces deterministic runtime diagnostic", testWrappedDirectSelfAliasRuntimeError),
     ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError),
     ("mixed wrapped alias cycle still produces deterministic runtime diagnostic", testMixedWrappedAliasCycleRuntimeError),
     ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError),
@@ -117,6 +119,26 @@ testDivisionByZeroRuntimeError = do
         (renderDiagnostic runtimeError)
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
+testDirectSelfAliasRuntimeError :: IO ()
+testDirectSelfAliasRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = f. f.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected direct self alias to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for direct self alias, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "direct self alias runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "direct self alias runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
 testAliasOnlyRecursiveCycleRuntimeError :: IO ()
 testAliasOnlyRecursiveCycleRuntimeError = do
   maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "even = odd. odd = even. even.") :: IO (Either SomeException RunResult))
@@ -133,6 +155,26 @@ testAliasOnlyRecursiveCycleRuntimeError = do
         (runRuntimeErrors result)
       assertSingleDiagnosticContains
         "alias-only recursive cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testWrappedDirectSelfAliasRuntimeError :: IO ()
+testWrappedDirectSelfAliasRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True f else 0. f.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected wrapped direct self alias to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for wrapped direct self alias, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "wrapped direct self alias runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "wrapped direct self alias runtime text"
         "recursive alias cycle"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)

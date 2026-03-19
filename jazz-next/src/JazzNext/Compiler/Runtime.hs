@@ -31,6 +31,7 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
     BuiltinSymbol (..),
+    builtinNamesInMode,
     builtinSymbolArity,
     builtinSymbolName,
     lookupBuiltinSymbolInMode
@@ -137,7 +138,9 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
     indexedStatements = zip [0 ..] statements
     statementsByIndex = Map.fromList indexedStatements
     recursiveGroups =
-      inferRecursiveGroupsOrdered (Map.keysSet initialEnv) indexedStatements
+      inferRecursiveGroupsOrdered
+        (Set.union (Map.keysSet initialEnv) (builtinNamesInMode builtinMode))
+        indexedStatements
     selfRecursiveFunctionStatements =
       inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
@@ -238,7 +241,12 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
 
     recursiveBindingNeedsSelf :: Int -> Bool
     recursiveBindingNeedsSelf statementIndex =
+      -- Function-valued self recursion gets stitched onto the resulting
+      -- closure after wrapper evaluation. Pre-seeding `self` here is only
+      -- needed for non-function recursive bindings; doing it eagerly for block
+      -- alias wrappers can blackhole before the closure is returned.
       Map.member statementIndex recursiveGroups
+        && Set.notMember statementIndex selfRecursiveFunctionStatements
 
     -- Wrapper expressions like `if` and `{ g = \(x) -> f x. g. }` should
     -- evaluate to their closure first, then get their own binding stitched
