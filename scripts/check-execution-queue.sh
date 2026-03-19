@@ -105,6 +105,34 @@ def is_separator_cell(cell: str) -> bool:
     return re.fullmatch(r":?-{3,}:?", cell) is not None
 
 
+def split_markdown_row(line: str) -> List[str]:
+    row = line.strip()
+    if row.startswith("|"):
+        row = row[1:]
+    if row.endswith("|"):
+        row = row[:-1]
+
+    cells: List[str] = []
+    current: List[str] = []
+    idx = 0
+    while idx < len(row):
+        char = row[idx]
+        if char == "\\" and idx + 1 < len(row) and row[idx + 1] in {"\\", "|"}:
+            current.append(row[idx + 1])
+            idx += 2
+            continue
+        if char == "|":
+            cells.append("".join(current).strip())
+            current = []
+            idx += 1
+            continue
+        current.append(char)
+        idx += 1
+
+    cells.append("".join(current).strip())
+    return cells
+
+
 def parse_markdown_table(section_name: str) -> Tuple[List[str], List[Dict[str, str]]]:
     if QUEUE_TEXT is None:
         return [], []
@@ -114,11 +142,8 @@ def parse_markdown_table(section_name: str) -> Tuple[List[str], List[Dict[str, s
         fail(f"{QUEUE_PATH} section '{section_name}' is missing a markdown table")
         return [], []
 
-    def split_row(line: str) -> List[str]:
-        return [cell.strip() for cell in line.strip().strip("|").split("|")]
-
-    headers = split_row(table_lines[0])
-    separator_cells = split_row(table_lines[1])
+    headers = split_markdown_row(table_lines[0])
+    separator_cells = split_markdown_row(table_lines[1])
     separator_valid = len(separator_cells) == len(headers) and all(
         is_separator_cell(cell) for cell in separator_cells
     )
@@ -131,7 +156,7 @@ def parse_markdown_table(section_name: str) -> Tuple[List[str], List[Dict[str, s
     data_start = 2 if separator_valid else 1
     rows: List[Dict[str, str]] = []
     for row_index, line in enumerate(table_lines[data_start:], start=data_start + 1):
-        cells = split_row(line)
+        cells = split_markdown_row(line)
         if len(cells) != len(headers):
             fail(
                 f"{QUEUE_PATH} section '{section_name}' row {row_index} has "
@@ -148,6 +173,30 @@ def extract_plan_path(cell: str) -> Optional[Path]:
         fail(f"{QUEUE_PATH} plan cell is not a markdown link: {cell}")
         return None
     return (QUEUE_PATH.parent / match.group(1)).resolve()
+
+
+def parse_block_scalar(lines: List[str], start_idx: int, folded: bool) -> Tuple[str, int]:
+    values: List[str] = []
+    idx = start_idx + 1
+    while idx < len(lines):
+        line = lines[idx]
+        if line == "---":
+            break
+        if not line.strip():
+            values.append("")
+            idx += 1
+            continue
+        if line.startswith((" ", "\t")):
+            values.append(line.lstrip(" \t"))
+            idx += 1
+            continue
+        break
+
+    if folded:
+        text = " ".join(value.strip() for value in values if value.strip())
+    else:
+        text = "\n".join(value.rstrip() for value in values).strip()
+    return text, idx
 
 
 def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
@@ -186,6 +235,9 @@ def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
 
         key, raw_value = scalar.groups()
         raw_value = raw_value.strip()
+        if raw_value.startswith((">", "|")):
+            data[key], idx = parse_block_scalar(lines, idx, raw_value.startswith(">"))
+            continue
         if raw_value.startswith("[") and raw_value.endswith("]"):
             inner = raw_value[1:-1].strip()
             if inner:
