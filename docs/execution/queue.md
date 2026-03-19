@@ -11,7 +11,7 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 
 | id | title | blocked_on | reason | plan | last_verified |
 | --- | --- | --- | --- | --- | --- |
-| `EXEC-QUEUE-EMPTY-001` | Seed the next curated batch | `Maintainer queue curation` | `Ready Now` is empty again after closing the shared recursive-binding helper batch. Smallest recovery action: add one verified active-path item to `Ready Now` with its plan link, concrete deliverable, and exact verification command. | [2026-03-17-execution-dispatch.md](../plans/2026-03-17-execution-dispatch.md) | `2026-03-18` |
+| `EXEC-QUEUE-EMPTY-001` | Seed the next curated batch | `Maintainer queue curation` | Curated execution was re-verified on `2026-03-19` and `Ready Now` is still empty after closing the shared recursive-binding helper batch. Smallest recovery action: add one verified active-path `jazz-next` item to `Ready Now` with its plan link, concrete deliverable, and exact verification command. | [2026-03-17-execution-dispatch.md](../plans/2026-03-17-execution-dispatch.md) | `2026-03-19` |
 
 ## Done
 

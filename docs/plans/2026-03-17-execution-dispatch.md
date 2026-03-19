@@ -16,6 +16,7 @@
 - [x] Task 2 complete: `docs/execution/README.md` defines the queue contract, plan metadata schema, and autonomous promotion checklist.
 - [x] Task 3 complete: `docs/execution/queue.md` seeds a small verified work queue instead of relying on broad `docs/` scans.
 - [x] Task 4 complete: curated and autonomous prompt files capture the expected execution flow.
+- [x] 2026-03-19 re-verification complete: curated execution is currently blocked only because `docs/execution/queue.md` has no `Ready Now` entries to dispatch.
 
 ### Task 1: Record The Dispatch Design
 
