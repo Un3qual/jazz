@@ -71,8 +71,30 @@ def split_inline_list(value: str, delimiter: str) -> List[str]:
     return [item for item in items if item]
 
 
+def strip_yaml_inline_comment(value: str) -> str:
+    in_single = False
+    in_double = False
+    idx = 0
+    while idx < len(value):
+        char = value[idx]
+        if char == "'" and not in_double:
+            if in_single and idx + 1 < len(value) and value[idx + 1] == "'":
+                idx += 2
+                continue
+            in_single = not in_single
+        elif char == '"' and not in_single:
+            if idx == 0 or value[idx - 1] != "\\":
+                in_double = not in_double
+        elif char == "#" and not in_single and not in_double:
+            if idx == 0 or value[idx - 1].isspace():
+                return value[:idx].rstrip()
+        idx += 1
+    return value.rstrip()
+
+
 def parse_yaml_scalar_value(value: str) -> str:
-    return value.strip().strip('"').strip("'")
+    value = strip_yaml_inline_comment(value).strip()
+    return value.strip('"').strip("'")
 
 
 def normalize_target_path(value: str) -> Path:
