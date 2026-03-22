@@ -1337,6 +1337,7 @@ inferPatternCaseType builtinMode env scrutineeType initialState caseArms =
     step (maybeExpectedBodyType, stateAcc) (CaseArm pattern bodyExpr) =
       let stateAfterPattern =
             inferPatternType scrutineeType pattern stateAcc
+          deferredPattern = isDeferredPatternForm pattern
           armEnv =
             extendTypeEnvWithPattern
               pattern
@@ -1345,24 +1346,27 @@ inferPatternCaseType builtinMode env scrutineeType initialState caseArms =
           (maybeBodyType, stateAfterBody) =
             inferExprType builtinMode armEnv stateAfterPattern bodyExpr
        in
-        case (maybeExpectedBodyType, maybeBodyType) of
-          (Nothing, _) ->
-            (fmap (resolveType stateAfterBody) maybeBodyType, stateAfterBody)
-          (expectedBodyType, Nothing) ->
-            (expectedBodyType, stateAfterBody)
-          (Just inferredExpectedBodyType, Just inferredBodyType) ->
-            case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBody of
-              Just unifiedState ->
-                (Just (resolveType unifiedState inferredExpectedBodyType), unifiedState)
-              Nothing ->
-                ( Just inferredExpectedBodyType,
-                  addTypeError
-                    stateAfterBody
-                    ( mkPatternBranchTypeMismatchError
-                        (resolveType stateAfterBody inferredExpectedBodyType)
-                        (resolveType stateAfterBody inferredBodyType)
+        if deferredPattern
+          then (maybeExpectedBodyType, stateAfterBody)
+          else
+            case (maybeExpectedBodyType, maybeBodyType) of
+              (Nothing, _) ->
+                (fmap (resolveType stateAfterBody) maybeBodyType, stateAfterBody)
+              (expectedBodyType, Nothing) ->
+                (expectedBodyType, stateAfterBody)
+              (Just inferredExpectedBodyType, Just inferredBodyType) ->
+                case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBody of
+                  Just unifiedState ->
+                    (Just (resolveType unifiedState inferredExpectedBodyType), unifiedState)
+                  Nothing ->
+                    ( Just inferredExpectedBodyType,
+                      addTypeError
+                        stateAfterBody
+                        ( mkPatternBranchTypeMismatchError
+                            (resolveType stateAfterBody inferredExpectedBodyType)
+                            (resolveType stateAfterBody inferredBodyType)
+                        )
                     )
-                )
 
 inferPatternType :: ExpressionType -> Pattern -> InferState -> InferState
 inferPatternType scrutineeType pattern state =
@@ -1404,6 +1408,13 @@ extendTypeEnvWithPattern pattern scrutineeType env =
     -- types into the arm body and trigger unrelated secondary errors.
     PConstructor {} -> env
     PList {} -> env
+
+isDeferredPatternForm :: Pattern -> Bool
+isDeferredPatternForm pattern =
+  case pattern of
+    PConstructor {} -> True
+    PList {} -> True
+    _ -> False
 
 mkDeferredPatternFormError :: Text -> Text -> Diagnostic
 mkDeferredPatternFormError patternKind patternLabel =

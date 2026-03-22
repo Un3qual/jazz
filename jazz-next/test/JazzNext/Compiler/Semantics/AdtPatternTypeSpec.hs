@@ -36,8 +36,14 @@ tests =
     ( "source pipeline reports only deferred diagnostics for constructor patterns",
       testSourcePipelineDefersConstructorPatternBodies
     ),
+    ( "source pipeline skips branch mismatch diagnostics for deferred constructor patterns",
+      testSourcePipelineSkipsConstructorBranchMismatch
+    ),
     ( "source pipeline reports only deferred diagnostics for list patterns",
       testSourcePipelineDefersListPatternBodies
+    ),
+    ( "source pipeline skips branch mismatch diagnostics for deferred list patterns",
+      testSourcePipelineSkipsListBranchMismatch
     ),
     ( "source pipeline rejects incompatible literal pattern types",
       testSourcePipelineRejectsIncompatibleLiteralPattern
@@ -69,6 +75,18 @@ testSourcePipelineDefersConstructorPatternBodies = do
     "constructor case patterns remain deferred"
     (compileErrors result)
 
+testSourcePipelineSkipsConstructorBranchMismatch :: IO ()
+testSourcePipelineSkipsConstructorBranchMismatch = do
+  result <- compileSource defaultWarningSettings "value = [1]. x = case value { | Just item -> 1 | _ -> False }."
+  assertSingleDiagnosticCode
+    "constructor deferred branch mismatch code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "constructor deferred branch mismatch text"
+    "constructor case patterns remain deferred"
+    (compileErrors result)
+
 testSourcePipelineDefersListPatternBodies :: IO ()
 testSourcePipelineDefersListPatternBodies = do
   result <- compileSource defaultWarningSettings "values = [True]. x = case values { | [head] -> head + 1 | _ -> 0 }."
@@ -78,6 +96,18 @@ testSourcePipelineDefersListPatternBodies = do
     (compileErrors result)
   assertSingleDiagnosticContains
     "list deferred error text"
+    "list case patterns remain deferred"
+    (compileErrors result)
+
+testSourcePipelineSkipsListBranchMismatch :: IO ()
+testSourcePipelineSkipsListBranchMismatch = do
+  result <- compileSource defaultWarningSettings "values = [[1]]. x = case values { | [head] -> 1 | _ -> False }."
+  assertSingleDiagnosticCode
+    "list deferred branch mismatch code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "list deferred branch mismatch text"
     "list case patterns remain deferred"
     (compileErrors result)
 
