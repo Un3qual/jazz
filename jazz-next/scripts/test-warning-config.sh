@@ -44,8 +44,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+bash_bin="$(command -v bash)"
+empty_path_dir="${tmpdir}/empty-path"
+mkdir -p "$empty_path_dir"
 runghc_stderr="${tmpdir}/runghc-stderr.txt"
-if env -u HOME PATH="/usr/bin:/bin" bash "$RUNGHC" >/dev/null 2>"$runghc_stderr"; then
+if env -u HOME PATH="$empty_path_dir" "$bash_bin" "$RUNGHC" >/dev/null 2>"$runghc_stderr"; then
   echo "FAIL: runghc wrapper should fail cleanly when HOME is unset and runghc is unavailable" >&2
   exit 1
 fi
