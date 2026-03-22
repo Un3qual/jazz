@@ -71,6 +71,10 @@ def split_inline_list(value: str, delimiter: str) -> List[str]:
     return [item for item in items if item]
 
 
+def parse_yaml_scalar_value(value: str) -> str:
+    return value.strip().strip('"').strip("'")
+
+
 def normalize_target_path(value: str) -> Path:
     path = Path(normalize_text(value))
     parts = [part for part in path.parts if part != "."]
@@ -222,7 +226,7 @@ def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
             values: List[str] = []
             idx += 1
             while idx < len(lines) and lines[idx].startswith("  - "):
-                values.append(lines[idx][4:].strip())
+                values.append(parse_yaml_scalar_value(lines[idx][4:]))
                 idx += 1
             data[key] = values
             continue
@@ -241,16 +245,12 @@ def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
         if raw_value.startswith("[") and raw_value.endswith("]"):
             inner = raw_value[1:-1].strip()
             if inner:
-                values = [
-                    item.strip().strip('"').strip("'")
-                    for item in inner.split(",")
-                    if item.strip()
-                ]
+                values = [parse_yaml_scalar_value(item) for item in inner.split(",") if item.strip()]
             else:
                 values = []
             data[key] = values
         else:
-            data[key] = raw_value.strip('"').strip("'")
+            data[key] = parse_yaml_scalar_value(raw_value)
         idx += 1
 
     if idx >= len(lines) or lines[idx] != "---":
@@ -381,9 +381,14 @@ for row in ready_rows:
     }
 
     for key, expected_values in expected_lists.items():
-        actual_values = [
-            normalize_text(str(item)) for item in frontmatter.get(key, [])
-        ]
+        raw_values = frontmatter.get(key, [])
+        if isinstance(raw_values, str):
+            fail(
+                f"{plan_path} frontmatter field '{key}' should be a list, "
+                f"not a scalar: {raw_values!r}"
+            )
+            continue
+        actual_values = [normalize_text(str(item)) for item in raw_values]
         if actual_values != expected_values:
             fail(
                 f"{plan_path} frontmatter list '{key}' does not match queue row "
