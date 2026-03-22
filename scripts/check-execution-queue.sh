@@ -277,7 +277,7 @@ def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
                 if not lines[idx].strip() or is_yaml_comment_line(lines[idx]):
                     idx += 1
                     continue
-                list_item = re.match(r"^[ ]+-\s+(.*)$", lines[idx])
+                list_item = re.match(r"^[ ]*-\s+(.*)$", lines[idx])
                 if not list_item:
                     break
                 values.append(parse_yaml_scalar_value(list_item.group(1)))
@@ -293,11 +293,12 @@ def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
 
         key, raw_value = scalar.groups()
         raw_value = raw_value.strip()
-        if raw_value.startswith((">", "|")):
-            data[key], idx = parse_block_scalar(lines, idx, raw_value.startswith(">"))
+        parsed_value = strip_yaml_inline_comment(raw_value).strip()
+        if parsed_value.startswith((">", "|")):
+            data[key], idx = parse_block_scalar(lines, idx, parsed_value.startswith(">"))
             continue
-        if raw_value.startswith("[") and raw_value.endswith("]"):
-            inner = raw_value[1:-1].strip()
+        if parsed_value.startswith("[") and parsed_value.endswith("]"):
+            inner = parsed_value[1:-1].strip()
             if inner:
                 values = [parse_yaml_scalar_value(item) for item in inner.split(",") if item.strip()]
             else:
