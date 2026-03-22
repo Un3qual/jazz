@@ -406,9 +406,10 @@ for row in ready_rows:
                     f"target path: {target_path}"
                 )
                 continue
-            if not (ROOT / target_path_obj).exists():
+            if not (ROOT / target_path_obj).is_file():
                 fail(
-                    f"{QUEUE_PATH} Ready Now row {row_id} names missing target path: "
+                    f"{QUEUE_PATH} Ready Now row {row_id} names missing or non-file "
+                    f"target path: "
                     f"{target_path}"
                 )
 

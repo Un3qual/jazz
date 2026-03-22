@@ -39,7 +39,7 @@ Each queue entry should capture:
 - `depends_on`: `-` or queue ids
 - `plan`: source plan or roadmap link
 - `plan_section`: exact task or section to execute next
-- `target_paths`: expected files or directories to change in the next batch
+- `target_paths`: expected files to change in the next batch
 - `deliverable`: concrete outcome expected from the next batch
 - `verification`: commands or docs-only checks required before closing the item
 - `last_verified`: absolute date of the latest manual status check
@@ -47,7 +47,7 @@ Each queue entry should capture:
 Guidance:
 
 - `kind: impl` is the default for `Ready Now`.
-- `target_paths` for `kind: impl` must include at least one non-doc path.
+- `target_paths` for `kind: impl` must include at least one non-doc file path.
 - `kind: docs` and `kind: coordination` belong in `Ready Now` only when they directly unblock an implementation item or close out a queue with no remaining executable code work.
 
 ## Active Plan Metadata Schema
@@ -108,5 +108,5 @@ Use `bash scripts/check-execution-queue.sh` after queue or open-plan metadata ch
 - every dependency id resolves,
 - every linked plan path exists,
 - `last_verified` is present on non-done items,
-- every `kind: impl` entry names at least one non-doc `target_paths` location,
+- every `kind: impl` entry names at least one non-doc file in `target_paths`,
 - every `Ready Now` row matches the linked plan frontmatter for the current executable batch.

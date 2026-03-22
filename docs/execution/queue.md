@@ -37,5 +37,5 @@ Move completed items here briefly with closure evidence, then prune aggressively
 ## Entry Template
 
 ```md
-| `ITEM-ID` | Short task name | `P1` | `S` | `impl` | `yes` | `-` | [linked-plan.md](../plans/example.md) | `Task 2` | `jazz-next/src/...`, `jazz-next/test/...` | Concrete implementation deliverable. | Exact verification command(s). | `YYYY-MM-DD` |
+| `ITEM-ID` | Short task name | `P1` | `S` | `impl` | `yes` | `-` | [linked-plan.md](../plans/example.md) | `Task 2` | `jazz-next/src/JazzNext/Compiler/Foo.hs`, `jazz-next/test/JazzNext/Compiler/FooSpec.hs` | Concrete implementation deliverable. | Exact verification command(s). | `YYYY-MM-DD` |
 ```
