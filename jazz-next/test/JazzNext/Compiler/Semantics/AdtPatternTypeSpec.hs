@@ -33,6 +33,12 @@ tests =
     ( "source pipeline accepts literal and wildcard case patterns",
       testSourcePipelineAcceptsLiteralAndWildcardPatterns
     ),
+    ( "source pipeline reports only deferred diagnostics for constructor patterns",
+      testSourcePipelineDefersConstructorPatternBodies
+    ),
+    ( "source pipeline reports only deferred diagnostics for list patterns",
+      testSourcePipelineDefersListPatternBodies
+    ),
     ( "source pipeline rejects incompatible literal pattern types",
       testSourcePipelineRejectsIncompatibleLiteralPattern
     ),
@@ -50,6 +56,30 @@ testSourcePipelineAcceptsLiteralAndWildcardPatterns :: IO ()
 testSourcePipelineAcceptsLiteralAndWildcardPatterns = do
   result <- compileSource defaultWarningSettings "x = case 1 { | 0 -> False | _ -> True }."
   assertCompiles "literal wildcard result" result
+
+testSourcePipelineDefersConstructorPatternBodies :: IO ()
+testSourcePipelineDefersConstructorPatternBodies = do
+  result <- compileSource defaultWarningSettings "value = [1]. x = case value { | Just item -> item + 1 | _ -> 0 }."
+  assertSingleDiagnosticCode
+    "constructor deferred error code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "constructor deferred error text"
+    "constructor case patterns remain deferred"
+    (compileErrors result)
+
+testSourcePipelineDefersListPatternBodies :: IO ()
+testSourcePipelineDefersListPatternBodies = do
+  result <- compileSource defaultWarningSettings "values = [True]. x = case values { | [head] -> head + 1 | _ -> 0 }."
+  assertSingleDiagnosticCode
+    "list deferred error code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "list deferred error text"
+    "list case patterns remain deferred"
+    (compileErrors result)
 
 testSourcePipelineRejectsIncompatibleLiteralPattern :: IO ()
 testSourcePipelineRejectsIncompatibleLiteralPattern = do

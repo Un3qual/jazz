@@ -831,6 +831,10 @@ parseCaseArm tokens = do
     startsDefiniteCaseArm remainingTokens =
       case parseCasePattern remainingTokens of
         Right (_, Token {tokenKind = TArrow} : _) -> True
+        -- Reserve the new pattern-only forms at top-level `|` so a later arm
+        -- missing `->` does not get swallowed into the previous body.
+        Right (SPConstructor _ _, _) -> True
+        Right (SPList _, _) -> True
         Right (SPWildcard, afterPattern) ->
           startsPrimaryExprTokens afterPattern
             && not (hasTopLevelDefiniteCaseArm afterPattern)

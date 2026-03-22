@@ -1400,21 +1400,10 @@ extendTypeEnvWithPattern pattern scrutineeType env =
       Map.insert (identifierText name) scrutineeType env
     PWildcard -> env
     PLiteral {} -> env
-    PConstructor _ patterns ->
-      foldl'
-        (\envAcc nestedPattern -> extendTypeEnvWithPattern nestedPattern scrutineeType envAcc)
-        env
-        patterns
-    PList patterns ->
-      foldl'
-        (\envAcc nestedPattern -> extendTypeEnvWithPattern nestedPattern listElementType envAcc)
-        env
-        patterns
-  where
-    listElementType =
-      case scrutineeType of
-        TListType elementType -> elementType
-        _ -> scrutineeType
+    -- These pattern forms are still deferred, so do not leak placeholder binder
+    -- types into the arm body and trigger unrelated secondary errors.
+    PConstructor {} -> env
+    PList {} -> env
 
 mkDeferredPatternFormError :: Text -> Text -> Diagnostic
 mkDeferredPatternFormError patternKind patternLabel =

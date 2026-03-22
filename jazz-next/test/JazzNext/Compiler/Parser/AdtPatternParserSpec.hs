@@ -54,6 +54,8 @@ tests =
     ("rejects case expression without leading pipe", testRejectsCaseExpressionWithoutPipe),
     ("rejects case expression without arm arrow", testRejectsCaseExpressionWithoutArrow),
     ("rejects missing arrow on later case arm", testRejectsMissingArrowOnLaterCaseArm),
+    ("rejects missing arrow on later constructor arm", testRejectsMissingArrowOnLaterConstructorArm),
+    ("rejects missing arrow on later list arm", testRejectsMissingArrowOnLaterListArm),
     ("rejects malformed list patterns", testRejectsMalformedListPattern),
     ("lowers parsed case nodes into core AST", testLowerCaseExpression)
   ]
@@ -364,6 +366,20 @@ testRejectsMissingArrowOnLaterCaseArm =
     "missing later case-arm arrow"
     "expected '->'"
     (parseSurfaceProgram "x = case n { | 0 -> 1 | _ False }.")
+
+testRejectsMissingArrowOnLaterConstructorArm :: IO ()
+testRejectsMissingArrowOnLaterConstructorArm =
+  assertLeftDiagnosticContains
+    "missing later constructor-arm arrow"
+    "expected '->'"
+    (parseSurfaceProgram "x = case value { | 0 -> 1 | Just item 2 }.")
+
+testRejectsMissingArrowOnLaterListArm :: IO ()
+testRejectsMissingArrowOnLaterListArm =
+  assertLeftDiagnosticContains
+    "missing later list-arm arrow"
+    "expected '->'"
+    (parseSurfaceProgram "x = case values { | 0 -> 1 | [head] 2 }.")
 
 testRejectsMalformedListPattern :: IO ()
 testRejectsMalformedListPattern =
