@@ -92,6 +92,10 @@ def strip_yaml_inline_comment(value: str) -> str:
     return value.rstrip()
 
 
+def is_yaml_comment_line(line: str) -> bool:
+    return line.lstrip().startswith("#")
+
+
 def parse_yaml_scalar_value(value: str) -> str:
     value = strip_yaml_inline_comment(value).strip()
     return value.strip('"').strip("'")
@@ -256,7 +260,7 @@ def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
         line = lines[idx]
         if line == "---":
             break
-        if not line.strip():
+        if not line.strip() or is_yaml_comment_line(line):
             idx += 1
             continue
 
@@ -266,6 +270,9 @@ def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
             values: List[str] = []
             idx += 1
             while idx < len(lines):
+                if not lines[idx].strip() or is_yaml_comment_line(lines[idx]):
+                    idx += 1
+                    continue
                 list_item = re.match(r"^[ ]+-\s+(.*)$", lines[idx])
                 if not list_item:
                     break
