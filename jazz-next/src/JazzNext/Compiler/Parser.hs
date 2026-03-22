@@ -831,13 +831,25 @@ parseCaseArm tokens = do
     startsDefiniteCaseArm remainingTokens =
       case parseCasePattern remainingTokens of
         Right (_, Token {tokenKind = TArrow} : _) -> True
-        -- Reserve the new pattern-only forms at top-level `|` so a later arm
-        -- missing `->` does not get swallowed into the previous body.
-        Right (SPConstructor _ _, _) -> True
-        Right (SPList _, _) -> True
         Right (SPWildcard, afterPattern) ->
           startsPrimaryExprTokens afterPattern
             && not (hasTopLevelDefiniteCaseArm afterPattern)
+        _ ->
+          startsMissingArrowConstructorOrListArm remainingTokens
+
+    startsMissingArrowConstructorOrListArm remainingTokens =
+      case remainingTokens of
+        Token {tokenKind = TIdentifier name} : rest
+          | isConstructorIdentifierText name ->
+              case parseConstructorPatternPrefix (mkIdentifier name) rest of
+                Right (_, afterPatternPrefix) ->
+                  startsPrimaryExprTokens afterPatternPrefix
+                Left _ -> False
+        Token {tokenKind = TLBracket} : rest ->
+          case parseListPattern rest of
+            Right (_, afterPattern) ->
+              startsPrimaryExprTokens afterPattern
+            Left _ -> False
         _ -> False
 
     hasTopLevelDefiniteCaseArm = go 0 0 0
@@ -911,6 +923,18 @@ parseConstructorPattern constructorName tokensAfterName =
           go (nextArgument : revArguments) afterArgument
       | otherwise =
           Right (SPConstructor constructorName (reverse revArguments), remainingTokens)
+
+parseConstructorPatternPrefix :: Identifier -> [Token] -> Either Diagnostic (SurfacePattern, [Token])
+parseConstructorPatternPrefix constructorName tokensAfterName =
+  case tokensAfterName of
+    _
+      | patternArgumentBoundary tokensAfterName ->
+          Right (SPConstructor constructorName [], tokensAfterName)
+      | startsCasePatternTokens tokensAfterName -> do
+          (firstArgument, afterFirstArgument) <- parseCasePattern tokensAfterName
+          Right (SPConstructor constructorName [firstArgument], afterFirstArgument)
+      | otherwise ->
+          Right (SPConstructor constructorName [], tokensAfterName)
 
 patternArgumentBoundary :: [Token] -> Bool
 patternArgumentBoundary tokens =

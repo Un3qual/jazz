@@ -47,6 +47,8 @@ tests =
     ("parses unparenthesized lambda expression inside case arm body", testParsesLambdaExpressionInsideCaseArmBody),
     ("parses pipe operator inside case arm body", testParsesPipeOperatorInsideCaseArmBody),
     ("keeps pipe operator inside body before constructor arm boundary", testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary),
+    ("keeps bare list literal after pipe operator inside body", testKeepsBareListLiteralAfterPipeOperator),
+    ("keeps bare constructor value after pipe operator inside body", testKeepsBareConstructorValueAfterPipeOperator),
     ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument),
     ("reports missing case body for block-valued scrutinee", testReportsMissingCaseBodyForBlockScrutinee),
     ("reports missing arm arrow for block-valued scrutinee", testReportsMissingArmArrowForBlockScrutinee),
@@ -294,6 +296,48 @@ testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary =
                   CaseArm
                     (PConstructor "Nothing" [])
                     (ELit (LInt 3))
+                ]
+            )
+        ]
+
+testKeepsBareListLiteralAfterPipeOperator :: IO ()
+testKeepsBareListLiteralAfterPipeOperator =
+  assertRight
+    "bare list literal stays in case arm body"
+    (parseSurfaceProgram "x = case value { | _ -> 1 | [2] }.")
+    (\surfaceProgram -> assertEqual "list literal in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    PWildcard
+                    (EBinary "|" (ELit (LInt 1)) (EList [ELit (LInt 2)]))
+                ]
+            )
+        ]
+
+testKeepsBareConstructorValueAfterPipeOperator :: IO ()
+testKeepsBareConstructorValueAfterPipeOperator =
+  assertRight
+    "bare constructor value stays in case arm body"
+    (parseSurfaceProgram "x = case value { | _ -> 1 | Nothing }.")
+    (\surfaceProgram -> assertEqual "constructor value in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    PWildcard
+                    (EBinary "|" (ELit (LInt 1)) (EVar "Nothing"))
                 ]
             )
         ]
