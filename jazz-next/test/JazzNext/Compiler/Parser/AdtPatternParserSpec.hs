@@ -49,6 +49,8 @@ tests =
     ("keeps pipe operator inside body before constructor arm boundary", testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary),
     ("keeps bare list literal after pipe operator inside body", testKeepsBareListLiteralAfterPipeOperator),
     ("keeps bare constructor value after pipe operator inside body", testKeepsBareConstructorValueAfterPipeOperator),
+    ("keeps list application after pipe operator inside body", testKeepsListApplicationAfterPipeOperator),
+    ("keeps constructor application after pipe operator inside body", testKeepsConstructorApplicationAfterPipeOperator),
     ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument),
     ("reports missing case body for block-valued scrutinee", testReportsMissingCaseBodyForBlockScrutinee),
     ("reports missing arm arrow for block-valued scrutinee", testReportsMissingArmArrowForBlockScrutinee),
@@ -56,8 +58,6 @@ tests =
     ("rejects case expression without leading pipe", testRejectsCaseExpressionWithoutPipe),
     ("rejects case expression without arm arrow", testRejectsCaseExpressionWithoutArrow),
     ("rejects missing arrow on later case arm", testRejectsMissingArrowOnLaterCaseArm),
-    ("rejects missing arrow on later constructor arm", testRejectsMissingArrowOnLaterConstructorArm),
-    ("rejects missing arrow on later list arm", testRejectsMissingArrowOnLaterListArm),
     ("rejects malformed list patterns", testRejectsMalformedListPattern),
     ("lowers parsed case nodes into core AST", testLowerCaseExpression)
   ]
@@ -342,6 +342,48 @@ testKeepsBareConstructorValueAfterPipeOperator =
             )
         ]
 
+testKeepsListApplicationAfterPipeOperator :: IO ()
+testKeepsListApplicationAfterPipeOperator =
+  assertRight
+    "list application stays in case arm body"
+    (parseSurfaceProgram "x = case values { | _ -> 1 | [head] 2 }.")
+    (\surfaceProgram -> assertEqual "list application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "values")
+                [ CaseArm
+                    PWildcard
+                    (EBinary "|" (ELit (LInt 1)) (EApply (EList [EVar "head"]) (ELit (LInt 2))))
+                ]
+            )
+        ]
+
+testKeepsConstructorApplicationAfterPipeOperator :: IO ()
+testKeepsConstructorApplicationAfterPipeOperator =
+  assertRight
+    "constructor application stays in case arm body"
+    (parseSurfaceProgram "x = case value { | _ -> 1 | Just a b }.")
+    (\surfaceProgram -> assertEqual "constructor application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    PWildcard
+                    (EBinary "|" (ELit (LInt 1)) (EApply (EApply (EVar "Just") (EVar "a")) (EVar "b")))
+                ]
+            )
+        ]
+
 testParsesCaseScrutineeWithBlockArgument :: IO ()
 testParsesCaseScrutineeWithBlockArgument =
   assertRight
@@ -410,20 +452,6 @@ testRejectsMissingArrowOnLaterCaseArm =
     "missing later case-arm arrow"
     "expected '->'"
     (parseSurfaceProgram "x = case n { | 0 -> 1 | _ False }.")
-
-testRejectsMissingArrowOnLaterConstructorArm :: IO ()
-testRejectsMissingArrowOnLaterConstructorArm =
-  assertLeftDiagnosticContains
-    "missing later constructor-arm arrow"
-    "expected '->'"
-    (parseSurfaceProgram "x = case value { | 0 -> 1 | Just item 2 }.")
-
-testRejectsMissingArrowOnLaterListArm :: IO ()
-testRejectsMissingArrowOnLaterListArm =
-  assertLeftDiagnosticContains
-    "missing later list-arm arrow"
-    "expected '->'"
-    (parseSurfaceProgram "x = case values { | 0 -> 1 | [head] 2 }.")
 
 testRejectsMalformedListPattern :: IO ()
 testRejectsMalformedListPattern =
