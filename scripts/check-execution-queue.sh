@@ -15,7 +15,7 @@ import re
 import sys
 from typing import Dict, List, Optional, Tuple
 
-ROOT = Path.cwd()
+ROOT = Path.cwd().resolve()
 QUEUE_PATH = ROOT / "docs/execution/queue.md"
 QUEUE_TEXT: Optional[str] = None
 
@@ -109,6 +109,11 @@ def is_separator_cell(cell: str) -> bool:
     return re.fullmatch(r":?-{3,}:?", cell) is not None
 
 
+def is_markdown_table_line(line: str) -> bool:
+    stripped = line.lstrip(" ")
+    return len(line) - len(stripped) <= 3 and stripped.startswith("|")
+
+
 def split_markdown_row(line: str) -> List[str]:
     row = line.strip()
     if row.startswith("|"):
@@ -141,7 +146,7 @@ def parse_markdown_table(section_name: str) -> Tuple[List[str], List[Dict[str, s
     if QUEUE_TEXT is None:
         return [], []
     section_lines = extract_section_lines(QUEUE_TEXT, section_name)
-    table_lines = [line for line in section_lines if line.startswith("|")]
+    table_lines = [line.lstrip(" ") for line in section_lines if is_markdown_table_line(line)]
     if len(table_lines) < 2:
         fail(f"{QUEUE_PATH} section '{section_name}' is missing a markdown table")
         return [], []
@@ -176,7 +181,16 @@ def extract_plan_path(cell: str) -> Optional[Path]:
     if not match:
         fail(f"{QUEUE_PATH} plan cell is not a markdown link: {cell}")
         return None
-    return (QUEUE_PATH.parent / match.group(1)).resolve()
+    plan_path = (QUEUE_PATH.parent / match.group(1)).resolve()
+    try:
+        plan_path.relative_to(ROOT)
+    except ValueError:
+        fail(f"{QUEUE_PATH} plan link escapes repository root: {cell}")
+        return None
+    if plan_path.suffix.lower() not in DOC_SUFFIXES:
+        fail(f"{QUEUE_PATH} plan link must point to a text plan file: {cell}")
+        return None
+    return plan_path
 
 
 def parse_block_scalar(lines: List[str], start_idx: int, folded: bool) -> Tuple[str, int]:
@@ -204,7 +218,11 @@ def parse_block_scalar(lines: List[str], start_idx: int, folded: bool) -> Tuple[
 
 
 def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
-    text = path.read_text()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        fail(f"{path} could not be read as UTF-8 text: {exc}")
+        return None
     lines = text.splitlines()
     if not lines or lines[0] != "---":
         fail(f"{path} missing YAML frontmatter")
@@ -225,8 +243,11 @@ def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
             key = list_key.group(1)
             values: List[str] = []
             idx += 1
-            while idx < len(lines) and lines[idx].startswith("  - "):
-                values.append(parse_yaml_scalar_value(lines[idx][4:]))
+            while idx < len(lines):
+                list_item = re.match(r"^[ ]+-\s+(.*)$", lines[idx])
+                if not list_item:
+                    break
+                values.append(parse_yaml_scalar_value(list_item.group(1)))
                 idx += 1
             data[key] = values
             continue
@@ -279,6 +300,10 @@ if blocked_headers and blocked_headers != EXPECTED_BLOCKED_HEADERS:
         f"{blocked_headers!r}"
     )
     blocked_rows = []
+
+if done_headers and "id" not in [normalize_text(header) for header in done_headers]:
+    fail(f"{QUEUE_PATH} Done headers must include an 'id' column: {done_headers!r}")
+    done_rows = []
 
 all_ids = set()
 seen_ids: Dict[str, str] = {}
