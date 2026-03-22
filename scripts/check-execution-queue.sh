@@ -137,7 +137,11 @@ def is_separator_cell(cell: str) -> bool:
 
 def is_markdown_table_line(line: str) -> bool:
     stripped = line.lstrip(" ")
-    return len(line) - len(stripped) <= 3 and stripped.startswith("|")
+    return (
+        len(line) - len(stripped) <= 3
+        and "|" in stripped
+        and len(split_markdown_row(stripped)) >= 2
+    )
 
 
 def split_markdown_row(line: str) -> List[str]:
