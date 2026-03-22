@@ -315,6 +315,7 @@ for section_name, rows in (
     for row in rows:
         row_id = normalize_text(row.get("id", ""))
         if not row_id:
+            fail(f"{QUEUE_PATH} {section_name} row is missing id")
             continue
         if row_id in seen_ids:
             fail(
@@ -327,6 +328,8 @@ for section_name, rows in (
 
 for row in ready_rows:
     row_id = normalize_text(row["id"])
+    if not row_id:
+        continue
     if not normalize_text(row.get("last_verified", "")):
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing last_verified")
 
@@ -422,6 +425,8 @@ for row in ready_rows:
 
 for row in blocked_rows:
     row_id = normalize_text(row["id"])
+    if not row_id:
+        continue
     if not normalize_text(row.get("last_verified", "")):
         fail(f"{QUEUE_PATH} Blocked row {row_id} is missing last_verified")
 
