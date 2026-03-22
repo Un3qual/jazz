@@ -41,6 +41,8 @@ tests =
   [ ("parses basic case expression with literal and wildcard arms", testParsesBasicCaseExpression),
     ("parses variable pattern case arm", testParsesVariablePatternCaseArm),
     ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms),
+    ("parses multi-argument constructor patterns with nullary subpatterns", testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns),
+    ("parses nullary constructor subpatterns without losing the outer argument", testParsesNullaryConstructorSubpatterns),
     ("parses list pattern case arms", testParsesListPatternCaseArms),
     ("parses nested case expression", testParsesNestedCaseExpression),
     ("parses unparenthesized if expression inside case arm body", testParsesIfExpressionInsideCaseArmBody),
@@ -135,6 +137,92 @@ testParsesConstructorPatternCaseArms =
                     (EVar "item"),
                   CaseArm
                     (PConstructor "Nothing" [])
+                    (ELit (LInt 0))
+                ]
+            )
+        ]
+
+testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns :: IO ()
+testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns =
+  assertRight
+    "multi-argument constructor pattern parse + lower"
+    (parseSurfaceProgram "x = case value { | Pair Nothing item -> item | _ -> 0 }.")
+    ( \surfaceProgram -> do
+        assertEqual "multi-argument constructor pattern surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "multi-argument constructor pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "value")
+                [ SurfaceCaseArm
+                    (SPConstructor "Pair" [SPConstructor "Nothing" [], SPVariable "item"])
+                    (SEVar "item"),
+                  SurfaceCaseArm
+                    SPWildcard
+                    (SELit (SLInt 0))
+                ]
+            )
+        ]
+    expectedLoweredProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    (PConstructor "Pair" [PConstructor "Nothing" [], PVariable "item"])
+                    (EVar "item"),
+                  CaseArm
+                    PWildcard
+                    (ELit (LInt 0))
+                ]
+            )
+        ]
+
+testParsesNullaryConstructorSubpatterns :: IO ()
+testParsesNullaryConstructorSubpatterns =
+  assertRight
+    "nullary constructor subpattern parse + lower"
+    (parseSurfaceProgram "x = case value { | Just Nothing -> 1 | _ -> 0 }.")
+    ( \surfaceProgram -> do
+        assertEqual "nullary constructor subpattern surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "nullary constructor subpattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "value")
+                [ SurfaceCaseArm
+                    (SPConstructor "Just" [SPConstructor "Nothing" []])
+                    (SELit (SLInt 1)),
+                  SurfaceCaseArm
+                    SPWildcard
+                    (SELit (SLInt 0))
+                ]
+            )
+        ]
+    expectedLoweredProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    (PConstructor "Just" [PConstructor "Nothing" []])
+                    (ELit (LInt 1)),
+                  CaseArm
+                    PWildcard
                     (ELit (LInt 0))
                 ]
             )

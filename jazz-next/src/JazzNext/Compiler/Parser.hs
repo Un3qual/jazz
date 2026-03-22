@@ -902,11 +902,46 @@ parseConstructorPattern constructorName tokensAfterName =
     go revArguments remainingTokens
       | patternArgumentBoundary remainingTokens =
           Right (SPConstructor constructorName (reverse revArguments), remainingTokens)
+      -- Constructor arguments currently use atomic subpatterns so ambiguous
+      -- forms like `Pair Nothing item` stay as two outer arguments.
       | startsCasePatternTokens remainingTokens = do
-          (nextArgument, afterArgument) <- parseCasePattern remainingTokens
+          (nextArgument, afterArgument) <- parseConstructorArgumentPattern remainingTokens
           go (nextArgument : revArguments) afterArgument
       | otherwise =
           Right (SPConstructor constructorName (reverse revArguments), remainingTokens)
+
+parseConstructorArgumentPattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
+parseConstructorArgumentPattern tokens =
+  case tokens of
+    Token {tokenKind = TInt value} : rest ->
+      Right (SPLiteral (SLInt value), rest)
+    Token {tokenKind = TIdentifier name} : rest ->
+      case name of
+        "True" ->
+          Right (SPLiteral (SLBool True), rest)
+        "False" ->
+          Right (SPLiteral (SLBool False), rest)
+        "_" ->
+          Right (SPWildcard, rest)
+        _
+          | isConstructorIdentifierText name ->
+              Right (SPConstructor (mkIdentifier name) [], rest)
+          | otherwise ->
+              Right (SPVariable (mkIdentifier name), rest)
+    Token {tokenKind = TLBracket} : rest ->
+      parseListPattern rest
+    [] ->
+      Left (parseDiagnostic "expected constructor pattern argument before end of input")
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected constructor pattern argument at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
 
 patternArgumentBoundary :: [Token] -> Bool
 patternArgumentBoundary tokens =
