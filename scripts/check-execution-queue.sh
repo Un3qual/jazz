@@ -55,7 +55,10 @@ def fail(message: str) -> None:
 if not QUEUE_PATH.is_file():
     fail(f"missing required file: {QUEUE_PATH}")
 else:
-    QUEUE_TEXT = QUEUE_PATH.read_text()
+    try:
+        QUEUE_TEXT = QUEUE_PATH.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        fail(f"{QUEUE_PATH} could not be read as UTF-8 text: {exc}")
 
 
 def normalize_text(value: str) -> str:
