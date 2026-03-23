@@ -46,6 +46,7 @@ EXPECTED_BLOCKED_HEADERS = [
 
 FAILURES: List[str] = []
 DOC_SUFFIXES = {".md", ".markdown", ".rst", ".txt"}
+ALLOWED_READY_KINDS = {"impl", "docs", "coordination"}
 
 
 def fail(message: str) -> None:
@@ -369,6 +370,12 @@ for row in ready_rows:
         continue
     if not normalize_text(row.get("last_verified", "")):
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing last_verified")
+    row_kind = normalize_text(row["kind"])
+    if row_kind not in ALLOWED_READY_KINDS:
+        fail(
+            f"{QUEUE_PATH} Ready Now row {row_id} has unsupported kind: "
+            f"{row['kind']!r}"
+        )
 
     plan_path = extract_plan_path(row["plan"])
     if not plan_path:
@@ -388,7 +395,7 @@ for row in ready_rows:
             fail(f"{QUEUE_PATH} Ready Now row {row_id} has unresolved dependency id: {dep}")
 
     target_paths = split_inline_list(row["target_paths"], ",")
-    if normalize_text(row["kind"]) == "impl":
+    if row_kind == "impl":
         real_target_paths: List[Tuple[str, Path]] = []
         for target_path in target_paths:
             if not target_path or target_path == "-":
@@ -425,7 +432,7 @@ for row in ready_rows:
         "status": "ready",
         "priority": normalize_text(row["priority"]),
         "size": normalize_text(row["size"]),
-        "kind": normalize_text(row["kind"]),
+        "kind": row_kind,
         "autonomous_ready": normalize_text(row["autonomous_ready"]),
         "last_verified": normalize_text(row["last_verified"]),
         "plan_section": normalize_text(row["plan_section"]),
