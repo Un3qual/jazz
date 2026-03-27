@@ -831,7 +831,44 @@ parseCaseArm tokens = do
     startsDefiniteCaseArm remainingTokens =
       case parseCasePattern remainingTokens of
         Right (_, Token {tokenKind = TArrow} : _) -> True
+        _
+          | startsCasePatternTokens remainingTokens ->
+              hasTopLevelArrowBeforeCaseArmBoundary remainingTokens
         _ -> False
+
+    hasTopLevelArrowBeforeCaseArmBoundary = go 0 0 0
+      where
+        go parenDepth braceDepth bracketDepth allTokens =
+          case allTokens of
+            []
+              -> False
+            Token {tokenKind = TArrow} : _
+              | atTopLevel -> True
+            Token {tokenKind = TOperator "|"} : _
+              | atTopLevel -> False
+            Token {tokenKind = TRBrace} : _
+              | atTopLevel -> False
+            Token {tokenKind = TLParen} : rest ->
+              go (parenDepth + 1) braceDepth bracketDepth rest
+            Token {tokenKind = TRParen} : rest ->
+              go (decrementIfPositive parenDepth) braceDepth bracketDepth rest
+            Token {tokenKind = TLBrace} : rest ->
+              go parenDepth (braceDepth + 1) bracketDepth rest
+            Token {tokenKind = TRBrace} : rest ->
+              go parenDepth (decrementIfPositive braceDepth) bracketDepth rest
+            Token {tokenKind = TLBracket} : rest ->
+              go parenDepth braceDepth (bracketDepth + 1) rest
+            Token {tokenKind = TRBracket} : rest ->
+              go parenDepth braceDepth (decrementIfPositive bracketDepth) rest
+            _ : rest ->
+              go parenDepth braceDepth bracketDepth rest
+          where
+            atTopLevel =
+              parenDepth == 0 && braceDepth == 0 && bracketDepth == 0
+
+        decrementIfPositive depth
+          | depth > 0 = depth - 1
+          | otherwise = 0
 
 parseCasePattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseCasePattern tokens =

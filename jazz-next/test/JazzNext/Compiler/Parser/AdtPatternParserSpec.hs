@@ -61,6 +61,7 @@ tests =
     ("rejects case expression without leading pipe", testRejectsCaseExpressionWithoutPipe),
     ("rejects case expression without arm arrow", testRejectsCaseExpressionWithoutArrow),
     ("rejects malformed list patterns", testRejectsMalformedListPattern),
+    ("rejects malformed later list patterns", testRejectsMalformedLaterListPattern),
     ("lowers parsed case nodes into core AST", testLowerCaseExpression)
   ]
 
@@ -561,6 +562,13 @@ testRejectsMalformedListPattern =
     "malformed list pattern"
     "expected ',' or ']'"
     (parseSurfaceProgram "x = case values { | [head tail] -> head }.")
+
+testRejectsMalformedLaterListPattern :: IO ()
+testRejectsMalformedLaterListPattern =
+  assertLeftDiagnosticContains
+    "malformed later list pattern"
+    "expected ',' or ']'"
+    (parseSurfaceProgram "x = case values { | 0 -> 1 | [head tail] -> head }.")
 
 testLowerCaseExpression :: IO ()
 testLowerCaseExpression =
