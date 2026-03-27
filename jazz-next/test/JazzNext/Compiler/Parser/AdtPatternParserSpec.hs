@@ -53,6 +53,7 @@ tests =
     ("keeps bare constructor value after pipe operator inside body", testKeepsBareConstructorValueAfterPipeOperator),
     ("keeps list application after pipe operator inside body", testKeepsListApplicationAfterPipeOperator),
     ("keeps constructor application after pipe operator inside body", testKeepsConstructorApplicationAfterPipeOperator),
+    ("keeps lambda application after pipe operator inside body", testKeepsLambdaApplicationAfterPipeOperator),
     ("keeps underscore application after pipe operator inside body", testKeepsUnderscoreApplicationAfterPipeOperator),
     ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument),
     ("reports missing case body for block-valued scrutinee", testReportsMissingCaseBodyForBlockScrutinee),
@@ -469,6 +470,31 @@ testKeepsConstructorApplicationAfterPipeOperator =
                 [ CaseArm
                     PWildcard
                     (EBinary "|" (ELit (LInt 1)) (EApply (EApply (EVar "Just") (EVar "a")) (EVar "b")))
+                ]
+            )
+        ]
+
+testKeepsLambdaApplicationAfterPipeOperator :: IO ()
+testKeepsLambdaApplicationAfterPipeOperator =
+  assertRight
+    "lambda application stays in case arm body"
+    (parseSurfaceProgram "x = case value { | _ -> 1 | f \\(y) -> y }.")
+    (\surfaceProgram -> assertEqual "lambda application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    PWildcard
+                    ( EBinary
+                        "|"
+                        (ELit (LInt 1))
+                        (EApply (EVar "f") (ELambda "y" (EVar "y")))
+                    )
                 ]
             )
         ]

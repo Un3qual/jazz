@@ -831,7 +831,7 @@ parseCaseArm tokens = do
     startsDefiniteCaseArm remainingTokens =
       case parseCasePattern remainingTokens of
         Right (_, Token {tokenKind = TArrow} : _) -> True
-        _
+        Left _
           | startsCasePatternTokens remainingTokens ->
               hasTopLevelArrowBeforeCaseArmBoundary remainingTokens
         _ -> False
