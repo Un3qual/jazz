@@ -102,7 +102,11 @@ def is_yaml_comment_line(line: str) -> bool:
 
 def parse_yaml_scalar_value(value: str) -> str:
     value = strip_yaml_inline_comment(value).strip()
-    return value.strip('"').strip("'")
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1].replace("''", "'")
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        return value[1:-1]
+    return value
 
 
 def normalize_target_path(value: str) -> Path:
@@ -391,6 +395,9 @@ for row in ready_rows:
     if dependencies == ["-"]:
         dependencies = []
     for dep in dependencies:
+        if dep == row_id:
+            fail(f"{QUEUE_PATH} Ready Now row {row_id} cannot depend on itself")
+            continue
         if dep not in all_ids:
             fail(f"{QUEUE_PATH} Ready Now row {row_id} has unresolved dependency id: {dep}")
 
