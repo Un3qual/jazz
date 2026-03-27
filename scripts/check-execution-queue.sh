@@ -74,8 +74,15 @@ def normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def split_inline_list(value: str, delimiter: str) -> List[str]:
-    items = [normalize_text(part) for part in value.split(delimiter)]
+def normalize_exact_item(value: str) -> str:
+    """Preserve backticks and exact whitespace for machine-readable fields."""
+    return value.strip()
+
+
+def split_inline_list(value: str, delimiter: str, normalizer=None) -> List[str]:
+    if normalizer is None:
+        normalizer = normalize_text
+    items = [normalizer(part) for part in value.split(delimiter)]
     return [item for item in items if item]
 
 
@@ -464,21 +471,21 @@ for row in ready_rows:
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing plan_section")
     if not normalize_text(row["deliverable"]):
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing deliverable")
-    verification_commands = split_inline_list(row["verification"], ";")
+    verification_commands = split_inline_list(row["verification"], ";", normalize_exact_item)
     if not verification_commands:
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing verification")
 
     plan_path = extract_plan_path(row["plan"])
     if not plan_path:
-        continue
-    if not plan_path.is_file():
+        pass  # Continue with queue-only checks below
+    elif not plan_path.is_file():
         fail(
             f"{QUEUE_PATH} Ready Now row {row_id} links to missing or non-file plan: "
             f"{plan_path}"
         )
-        continue
+        # Continue with queue-only checks below
 
-    dependencies = split_inline_list(row["depends_on"], ",")
+    dependencies = split_inline_list(row["depends_on"], ",", normalize_exact_item)
     if dependencies == ["-"]:
         dependencies = []
     for dep in dependencies:
@@ -488,7 +495,7 @@ for row in ready_rows:
         if dep not in all_ids:
             fail(f"{QUEUE_PATH} Ready Now row {row_id} has unresolved dependency id: {dep}")
 
-    target_paths = split_inline_list(row["target_paths"], ",")
+    target_paths = split_inline_list(row["target_paths"], ",", normalize_exact_item)
     if row_kind == "impl":
         real_target_paths: List[Tuple[str, Path]] = []
         for target_path in target_paths:
@@ -516,6 +523,9 @@ for row in ready_rows:
                     f"target path: "
                     f"{target_path}"
                 )
+
+    if not plan_path or not plan_path.is_file():
+        continue  # Skip frontmatter validation if plan is missing
 
     frontmatter = parse_frontmatter(plan_path)
     if frontmatter is None:
@@ -555,7 +565,7 @@ for row in ready_rows:
                 f"not a scalar: {raw_values!r}"
             )
             continue
-        actual_values = [normalize_text(str(item)) for item in raw_values]
+        actual_values = [normalize_exact_item(str(item)) for item in raw_values]
         if actual_values != expected_values:
             fail(
                 f"{plan_path} frontmatter list '{key}' does not match queue row "
