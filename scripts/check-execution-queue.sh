@@ -547,12 +547,14 @@ for row in blocked_rows:
     if not normalize_text(row.get("last_verified", "")):
         fail(f"{QUEUE_PATH} Blocked row {row_id} is missing last_verified")
 
-    plan_path = extract_plan_path(row["plan"])
-    if plan_path and not plan_path.is_file():
-        fail(
-            f"{QUEUE_PATH} Blocked row {row_id} links to missing or non-file plan: "
-            f"{plan_path}"
-        )
+    plan_text = normalize_text(row.get("plan", ""))
+    if plan_text and plan_text != "-":
+        plan_path = extract_plan_path(plan_text)
+        if plan_path and not plan_path.is_file():
+            fail(
+                f"{QUEUE_PATH} Blocked row {row_id} links to missing or non-file plan: "
+                f"{plan_path}"
+            )
 
 if FAILURES:
     for message in FAILURES:
