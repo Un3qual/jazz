@@ -13,6 +13,7 @@ python3 <<'PY'
 from pathlib import Path
 import re
 import sys
+import yaml
 from typing import Dict, List, Optional, Tuple
 
 ROOT = Path.cwd().resolve()
@@ -127,10 +128,11 @@ def extract_section_lines(text: str, section_name: str) -> List[str]:
     in_section = False
     collected: List[str] = []
     for line in lines:
-        if line == marker:
+        stripped = line.strip()
+        if stripped == marker:
             in_section = True
             continue
-        if in_section and line.startswith("## "):
+        if in_section and stripped.startswith("## "):
             break
         if in_section:
             collected.append(line)
@@ -306,12 +308,19 @@ def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
             data[key], idx = parse_block_scalar(lines, idx, parsed_value.startswith(">"))
             continue
         if parsed_value.startswith("[") and parsed_value.endswith("]"):
-            inner = parsed_value[1:-1].strip()
-            if inner:
-                values = [parse_yaml_scalar_value(item) for item in inner.split(",") if item.strip()]
-            else:
-                values = []
-            data[key] = values
+            try:
+                parsed_list = yaml.safe_load(parsed_value)
+                if isinstance(parsed_list, list):
+                    data[key] = [str(item) for item in parsed_list]
+                else:
+                    data[key] = []
+            except yaml.YAMLError:
+                inner = parsed_value[1:-1].strip()
+                if inner:
+                    values = [parse_yaml_scalar_value(item) for item in inner.split(",") if item.strip()]
+                else:
+                    values = []
+                data[key] = values
         else:
             data[key] = parse_yaml_scalar_value(raw_value)
         idx += 1
