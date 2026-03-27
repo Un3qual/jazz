@@ -460,6 +460,13 @@ for row in ready_rows:
             f"{QUEUE_PATH} Ready Now row {row_id} has unsupported autonomous_ready: "
             f"{row['autonomous_ready']!r}"
         )
+    if not normalize_text(row["plan_section"]):
+        fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing plan_section")
+    if not normalize_text(row["deliverable"]):
+        fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing deliverable")
+    verification_commands = split_inline_list(row["verification"], ";")
+    if not verification_commands:
+        fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing verification")
 
     plan_path = extract_plan_path(row["plan"])
     if not plan_path:
@@ -537,7 +544,7 @@ for row in ready_rows:
     expected_lists = {
         "depends_on": dependencies,
         "target_paths": target_paths,
-        "verification": split_inline_list(row["verification"], ";"),
+        "verification": verification_commands,
     }
 
     for key, expected_values in expected_lists.items():
