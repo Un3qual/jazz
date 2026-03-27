@@ -53,13 +53,13 @@ tests =
     ("keeps bare constructor value after pipe operator inside body", testKeepsBareConstructorValueAfterPipeOperator),
     ("keeps list application after pipe operator inside body", testKeepsListApplicationAfterPipeOperator),
     ("keeps constructor application after pipe operator inside body", testKeepsConstructorApplicationAfterPipeOperator),
+    ("keeps underscore application after pipe operator inside body", testKeepsUnderscoreApplicationAfterPipeOperator),
     ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument),
     ("reports missing case body for block-valued scrutinee", testReportsMissingCaseBodyForBlockScrutinee),
     ("reports missing arm arrow for block-valued scrutinee", testReportsMissingArmArrowForBlockScrutinee),
     ("reports invalid case scrutinee syntax before body diagnostics", testReportsInvalidCaseScrutineeSyntax),
     ("rejects case expression without leading pipe", testRejectsCaseExpressionWithoutPipe),
     ("rejects case expression without arm arrow", testRejectsCaseExpressionWithoutArrow),
-    ("rejects missing arrow on later case arm", testRejectsMissingArrowOnLaterCaseArm),
     ("rejects malformed list patterns", testRejectsMalformedListPattern),
     ("lowers parsed case nodes into core AST", testLowerCaseExpression)
   ]
@@ -472,6 +472,27 @@ testKeepsConstructorApplicationAfterPipeOperator =
             )
         ]
 
+testKeepsUnderscoreApplicationAfterPipeOperator :: IO ()
+testKeepsUnderscoreApplicationAfterPipeOperator =
+  assertRight
+    "underscore application stays in case arm body"
+    (parseSurfaceProgram "x = case value { | 0 -> 1 | _ y }.")
+    (\surfaceProgram -> assertEqual "underscore application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    (PLiteral (LInt 0))
+                    (EBinary "|" (ELit (LInt 1)) (EApply (EVar "_") (EVar "y")))
+                ]
+            )
+        ]
+
 testParsesCaseScrutineeWithBlockArgument :: IO ()
 testParsesCaseScrutineeWithBlockArgument =
   assertRight
@@ -533,13 +554,6 @@ testRejectsCaseExpressionWithoutArrow =
     "missing case-arm arrow"
     "expected '->'"
     (parseSurfaceProgram "x = case n { | 0 True }.")
-
-testRejectsMissingArrowOnLaterCaseArm :: IO ()
-testRejectsMissingArrowOnLaterCaseArm =
-  assertLeftDiagnosticContains
-    "missing later case-arm arrow"
-    "expected '->'"
-    (parseSurfaceProgram "x = case n { | 0 -> 1 | _ False }.")
 
 testRejectsMalformedListPattern :: IO ()
 testRejectsMalformedListPattern =

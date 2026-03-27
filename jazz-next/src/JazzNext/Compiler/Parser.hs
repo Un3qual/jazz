@@ -831,39 +831,7 @@ parseCaseArm tokens = do
     startsDefiniteCaseArm remainingTokens =
       case parseCasePattern remainingTokens of
         Right (_, Token {tokenKind = TArrow} : _) -> True
-        Right (SPWildcard, afterPattern) ->
-          startsPrimaryExprTokens afterPattern
-            && not (hasTopLevelDefiniteCaseArm afterPattern)
         _ -> False
-
-    hasTopLevelDefiniteCaseArm = go 0 0 0
-      where
-        go parenDepth bracketDepth braceDepth scanTokens =
-          case scanTokens of
-            [] -> False
-            Token {tokenKind = TLParen} : rest ->
-              go (parenDepth + 1) bracketDepth braceDepth rest
-            Token {tokenKind = TRParen} : rest ->
-              go (max 0 (parenDepth - 1)) bracketDepth braceDepth rest
-            Token {tokenKind = TLBracket} : rest ->
-              go parenDepth (bracketDepth + 1) braceDepth rest
-            Token {tokenKind = TRBracket} : rest ->
-              go parenDepth (max 0 (bracketDepth - 1)) braceDepth rest
-            Token {tokenKind = TLBrace} : rest ->
-              go parenDepth bracketDepth (braceDepth + 1) rest
-            Token {tokenKind = TRBrace} : _
-              | parenDepth == 0, bracketDepth == 0, braceDepth == 0 ->
-                  False
-            Token {tokenKind = TRBrace} : rest ->
-              go parenDepth bracketDepth (max 0 (braceDepth - 1)) rest
-            Token {tokenKind = TOperator "|"} : rest
-              | parenDepth == 0,
-                bracketDepth == 0,
-                braceDepth == 0,
-                startsDefiniteCaseArm rest ->
-                  True
-            _ : rest ->
-              go parenDepth bracketDepth braceDepth rest
 
 parseCasePattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseCasePattern tokens =
