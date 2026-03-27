@@ -91,7 +91,12 @@ def strip_yaml_inline_comment(value: str) -> str:
                 continue
             in_single = not in_single
         elif char == '"' and not in_single:
-            if idx == 0 or value[idx - 1] != "\\":
+            backslash_count = 0
+            check_idx = idx - 1
+            while check_idx >= 0 and value[check_idx] == "\\":
+                backslash_count += 1
+                check_idx -= 1
+            if backslash_count % 2 == 0:
                 in_double = not in_double
         elif char == "#" and not in_single and not in_double:
             if idx == 0 or value[idx - 1].isspace():
@@ -139,7 +144,12 @@ def split_yaml_flow_list(value: str) -> List[str]:
             idx += 1
             continue
         if char == '"' and not in_single:
-            if idx == 0 or inner[idx - 1] != "\\":
+            backslash_count = 0
+            check_idx = idx - 1
+            while check_idx >= 0 and inner[check_idx] == "\\":
+                backslash_count += 1
+                check_idx -= 1
+            if backslash_count % 2 == 0:
                 in_double = not in_double
             current.append(char)
             idx += 1
@@ -337,7 +347,7 @@ def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
                 if not lines[idx].strip() or is_yaml_comment_line(lines[idx]):
                     idx += 1
                     continue
-                list_item = re.match(r"^[ ]*-\s+(.*)$", lines[idx])
+                list_item = re.match(r"^[ ]*-\s*(.*)$", lines[idx])
                 if not list_item:
                     break
                 values.append(parse_yaml_scalar_value(list_item.group(1)))
