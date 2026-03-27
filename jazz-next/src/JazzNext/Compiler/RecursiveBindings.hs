@@ -427,3 +427,7 @@ extendBoundWithPattern pattern bound =
     PVariable name -> Set.insert (identifierText name) bound
     PWildcard -> bound
     PLiteral {} -> bound
+    PConstructor _ patterns ->
+      foldl' (flip extendBoundWithPattern) bound patterns
+    PList patterns ->
+      foldl' (flip extendBoundWithPattern) bound patterns

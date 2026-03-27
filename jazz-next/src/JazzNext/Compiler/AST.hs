@@ -29,6 +29,8 @@ data Pattern
   = PWildcard
   | PVariable Identifier
   | PLiteral Literal
+  | PConstructor Identifier [Pattern]
+  | PList [Pattern]
   deriving (Eq, Show)
 
 -- | One lowered pattern-match arm.

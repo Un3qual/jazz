@@ -345,10 +345,7 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
 
     caseArmBoundNames :: CaseArm -> Set Text
     caseArmBoundNames (CaseArm pattern _) =
-      case pattern of
-        PVariable name -> Set.singleton (identifierText name)
-        PWildcard -> Set.empty
-        PLiteral {} -> Set.empty
+      patternBoundNames pattern
 
     -- Single-expression blocks are semantically transparent here, so peel
     -- them before following recursive alias edges and cycle detection.
@@ -624,6 +621,8 @@ matchPattern scrutineeValue pattern =
           Just Map.empty
       | otherwise ->
           Nothing
+    PConstructor {} -> Nothing
+    PList {} -> Nothing
 
 -- | Apply any callable runtime value, including sections, builtin primitives,
 -- and curried operator values.
@@ -835,7 +834,15 @@ renderRuntimeType value =
 
 extendBoundWithPattern :: Pattern -> Set Text -> Set Text
 extendBoundWithPattern pattern bound =
+  Set.union bound (patternBoundNames pattern)
+
+patternBoundNames :: Pattern -> Set Text
+patternBoundNames pattern =
   case pattern of
-    PVariable name -> Set.insert (identifierText name) bound
-    PWildcard -> bound
-    PLiteral {} -> bound
+    PVariable name -> Set.singleton (identifierText name)
+    PWildcard -> Set.empty
+    PLiteral {} -> Set.empty
+    PConstructor _ patterns ->
+      Set.unions (map patternBoundNames patterns)
+    PList patterns ->
+      Set.unions (map patternBoundNames patterns)

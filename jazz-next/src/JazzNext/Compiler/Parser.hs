@@ -7,6 +7,9 @@ module JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   ) where
 
+import Data.Char
+  ( isUpper
+  )
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Set as Set
@@ -821,65 +824,69 @@ parseCaseArm tokens = do
     stopsBeforeCaseArmBoundary allTokens =
       case allTokens of
         Token {tokenKind = TOperator "|"} : rest ->
-          pipeStartsNextArm rest
+          startsDefiniteCaseArm rest
         Token {tokenKind = TRBrace} : _ -> True
         _ -> False
 
-    pipeStartsNextArm remainingTokens =
-      case remainingTokens of
-        Token {tokenKind = TInt _} : Token {tokenKind = TArrow} : _ -> True
-        Token {tokenKind = TIdentifier _} : Token {tokenKind = TArrow} : _ -> True
-        Token {tokenKind = TIdentifier "_"} : afterPattern ->
-          startsPrimaryExprTokens afterPattern
-            && not (hasTopLevelDefiniteCaseArm afterPattern)
+    startsDefiniteCaseArm remainingTokens =
+      case parseCasePattern remainingTokens of
+        Right (_, Token {tokenKind = TArrow} : _) -> True
+        Left _
+          | startsCasePatternTokens remainingTokens ->
+              hasTopLevelArrowBeforeCaseArmBoundary remainingTokens
         _ -> False
 
-    hasTopLevelDefiniteCaseArm = go 0 0 0
+    hasTopLevelArrowBeforeCaseArmBoundary = go 0 0 0
       where
-        go parenDepth bracketDepth braceDepth scanTokens =
-          case scanTokens of
-            [] -> False
-            Token {tokenKind = TLParen} : rest ->
-              go (parenDepth + 1) bracketDepth braceDepth rest
-            Token {tokenKind = TRParen} : rest ->
-              go (max 0 (parenDepth - 1)) bracketDepth braceDepth rest
-            Token {tokenKind = TLBracket} : rest ->
-              go parenDepth (bracketDepth + 1) braceDepth rest
-            Token {tokenKind = TRBracket} : rest ->
-              go parenDepth (max 0 (bracketDepth - 1)) braceDepth rest
-            Token {tokenKind = TLBrace} : rest ->
-              go parenDepth bracketDepth (braceDepth + 1) rest
+        go parenDepth braceDepth bracketDepth allTokens =
+          case allTokens of
+            []
+              -> False
+            Token {tokenKind = TArrow} : _
+              | atTopLevel -> True
+            Token {tokenKind = TOperator "|"} : _
+              | atTopLevel -> False
             Token {tokenKind = TRBrace} : _
-              | parenDepth == 0, bracketDepth == 0, braceDepth == 0 ->
-                  False
+              | atTopLevel -> False
+            Token {tokenKind = TLParen} : rest ->
+              go (parenDepth + 1) braceDepth bracketDepth rest
+            Token {tokenKind = TRParen} : rest ->
+              go (decrementIfPositive parenDepth) braceDepth bracketDepth rest
+            Token {tokenKind = TLBrace} : rest ->
+              go parenDepth (braceDepth + 1) bracketDepth rest
             Token {tokenKind = TRBrace} : rest ->
-              go parenDepth bracketDepth (max 0 (braceDepth - 1)) rest
-            Token {tokenKind = TOperator "|"} : rest
-              | parenDepth == 0,
-                bracketDepth == 0,
-                braceDepth == 0,
-                tokensStartDefiniteCaseArm rest ->
-                  True
+              go parenDepth (decrementIfPositive braceDepth) bracketDepth rest
+            Token {tokenKind = TLBracket} : rest ->
+              go parenDepth braceDepth (bracketDepth + 1) rest
+            Token {tokenKind = TRBracket} : rest ->
+              go parenDepth braceDepth (decrementIfPositive bracketDepth) rest
             _ : rest ->
-              go parenDepth bracketDepth braceDepth rest
+              go parenDepth braceDepth bracketDepth rest
+          where
+            atTopLevel =
+              parenDepth == 0 && braceDepth == 0 && bracketDepth == 0
 
-        tokensStartDefiniteCaseArm rest =
-          case rest of
-            Token {tokenKind = TInt _} : Token {tokenKind = TArrow} : _ -> True
-            Token {tokenKind = TIdentifier _} : Token {tokenKind = TArrow} : _ -> True
-            _ -> False
+        decrementIfPositive depth
+          | depth > 0 = depth - 1
+          | otherwise = 0
 
 parseCasePattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseCasePattern tokens =
   case tokens of
     Token {tokenKind = TInt value} : rest ->
       Right (SPLiteral (SLInt value), rest)
+    Token {tokenKind = TLBracket} : rest ->
+      parseListPattern rest
     Token {tokenKind = TIdentifier name} : rest ->
       case name of
         "_" -> Right (SPWildcard, rest)
         "True" -> Right (SPLiteral (SLBool True), rest)
         "False" -> Right (SPLiteral (SLBool False), rest)
-        _ -> Right (SPVariable (mkIdentifier name), rest)
+        _
+          | isConstructorIdentifierText name ->
+              parseConstructorPattern (mkIdentifier name) rest
+          | otherwise ->
+              Right (SPVariable (mkIdentifier name), rest)
     [] ->
       Left (parseDiagnostic "expected case pattern before end of input")
     token : _ ->
@@ -892,6 +899,107 @@ parseCasePattern tokens =
                 <> "'"
             )
         )
+
+parseConstructorPattern :: Identifier -> [Token] -> Either Diagnostic (SurfacePattern, [Token])
+parseConstructorPattern constructorName tokensAfterName =
+  go [] tokensAfterName
+  where
+    go revArguments remainingTokens
+      | patternArgumentBoundary remainingTokens =
+          Right (SPConstructor constructorName (reverse revArguments), remainingTokens)
+      -- Constructor arguments currently use atomic subpatterns so ambiguous
+      -- forms like `Pair Nothing item` stay as two outer arguments.
+      | startsCasePatternTokens remainingTokens = do
+          (nextArgument, afterArgument) <- parseConstructorArgumentPattern remainingTokens
+          go (nextArgument : revArguments) afterArgument
+      | otherwise =
+          Right (SPConstructor constructorName (reverse revArguments), remainingTokens)
+
+parseConstructorArgumentPattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
+parseConstructorArgumentPattern tokens =
+  case tokens of
+    Token {tokenKind = TInt value} : rest ->
+      Right (SPLiteral (SLInt value), rest)
+    Token {tokenKind = TIdentifier name} : rest ->
+      case name of
+        "True" ->
+          Right (SPLiteral (SLBool True), rest)
+        "False" ->
+          Right (SPLiteral (SLBool False), rest)
+        "_" ->
+          Right (SPWildcard, rest)
+        _
+          | isConstructorIdentifierText name ->
+              Right (SPConstructor (mkIdentifier name) [], rest)
+          | otherwise ->
+              Right (SPVariable (mkIdentifier name), rest)
+    Token {tokenKind = TLBracket} : rest ->
+      parseListPattern rest
+    [] ->
+      Left (parseDiagnostic "expected constructor pattern argument before end of input")
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected constructor pattern argument at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+
+patternArgumentBoundary :: [Token] -> Bool
+patternArgumentBoundary tokens =
+  case tokens of
+    [] -> True
+    Token {tokenKind = TArrow} : _ -> True
+    Token {tokenKind = TComma} : _ -> True
+    Token {tokenKind = TRBracket} : _ -> True
+    Token {tokenKind = TRBrace} : _ -> True
+    _ -> False
+
+startsCasePatternTokens :: [Token] -> Bool
+startsCasePatternTokens tokens =
+  case tokens of
+    Token {tokenKind = TInt _} : _ -> True
+    Token {tokenKind = TIdentifier _} : _ -> True
+    Token {tokenKind = TLBracket} : _ -> True
+    _ -> False
+
+parseListPattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
+parseListPattern tokensAfterLeftBracket =
+  case tokensAfterLeftBracket of
+    Token {tokenKind = TRBracket} : rest ->
+      Right (SPList [], rest)
+    _ -> do
+      (firstPattern, afterFirstPattern) <- parseCasePattern tokensAfterLeftBracket
+      go [firstPattern] afterFirstPattern
+  where
+    go revPatterns remainingTokens =
+      case remainingTokens of
+        Token {tokenKind = TComma} : rest -> do
+          (nextPattern, afterNextPattern) <- parseCasePattern rest
+          go (nextPattern : revPatterns) afterNextPattern
+        Token {tokenKind = TRBracket} : rest ->
+          Right (SPList (reverse revPatterns), rest)
+        [] ->
+          Left (parseDiagnostic "expected ']' before end of input in list pattern")
+        token : _ ->
+          Left
+            ( parseDiagnostic
+                ( "expected ',' or ']' at "
+                    <> renderSourceSpan (tokenSpan token)
+                    <> ", found '"
+                    <> tokenLexeme token
+                    <> "'"
+                )
+            )
+
+isConstructorIdentifierText :: Text -> Bool
+isConstructorIdentifierText name =
+  case Text.uncons name of
+    Just (firstChar, _) -> isUpper firstChar
+    Nothing -> False
 
 parseLambdaExpr :: Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseLambdaExpr = parseLambdaExprUntil neverStop

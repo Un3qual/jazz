@@ -566,6 +566,10 @@ extendBindingsWithPattern pattern bindings =
       Map.insert (identifierText name) patternVisibleBinding bindings
     PWildcard -> bindings
     PLiteral {} -> bindings
+    PConstructor _ patterns ->
+      foldl' (flip extendBindingsWithPattern) bindings patterns
+    PList patterns ->
+      foldl' (flip extendBindingsWithPattern) bindings patterns
 
 patternVisibleBinding :: VisibleBinding
 patternVisibleBinding =
