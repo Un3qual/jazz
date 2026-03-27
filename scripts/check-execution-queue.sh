@@ -293,6 +293,11 @@ def extract_plan_path(cell: str) -> Optional[Path]:
     return plan_path
 
 
+# parse_block_scalar handles only basic YAML block scalars (">" and "|").
+# The folded parameter selects folded-vs-literal behavior; chomping indicators
+# (-/+) and explicit indentation indicators are not supported by this parser.
+# That matches the current frontmatter contract and should be revisited only if
+# those modifiers become part of the queue format.
 def parse_block_scalar(lines: List[str], start_idx: int, folded: bool) -> Tuple[str, int]:
     values: List[str] = []
     idx = start_idx + 1
