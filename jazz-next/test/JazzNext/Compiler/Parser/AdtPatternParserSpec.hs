@@ -55,6 +55,7 @@ tests =
     ("keeps constructor application after pipe operator inside body", testKeepsConstructorApplicationAfterPipeOperator),
     ("keeps lambda application after pipe operator inside body", testKeepsLambdaApplicationAfterPipeOperator),
     ("keeps underscore application after pipe operator inside body", testKeepsUnderscoreApplicationAfterPipeOperator),
+    ("keeps underscore boolean application after pipe operator inside body", testKeepsUnderscoreBooleanApplicationAfterPipeOperator),
     ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument),
     ("reports missing case body for block-valued scrutinee", testReportsMissingCaseBodyForBlockScrutinee),
     ("reports missing arm arrow for block-valued scrutinee", testReportsMissingArmArrowForBlockScrutinee),
@@ -516,6 +517,27 @@ testKeepsUnderscoreApplicationAfterPipeOperator =
                 [ CaseArm
                     (PLiteral (LInt 0))
                     (EBinary "|" (ELit (LInt 1)) (EApply (EVar "_") (EVar "y")))
+                ]
+            )
+        ]
+
+testKeepsUnderscoreBooleanApplicationAfterPipeOperator :: IO ()
+testKeepsUnderscoreBooleanApplicationAfterPipeOperator =
+  assertRight
+    "underscore boolean application stays in case arm body"
+    (parseSurfaceProgram "x = case value { | 0 -> 1 | _ False }.")
+    (\surfaceProgram -> assertEqual "underscore boolean application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    (PLiteral (LInt 0))
+                    (EBinary "|" (ELit (LInt 1)) (EApply (EVar "_") (ELit (LBool False))))
                 ]
             )
         ]
