@@ -10,10 +10,10 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 python3 <<'PY'
+import ast
 from pathlib import Path
 import re
 import sys
-import yaml
 from typing import Dict, List, Optional, Tuple
 
 ROOT = Path.cwd().resolve()
@@ -48,6 +48,9 @@ EXPECTED_BLOCKED_HEADERS = [
 FAILURES: List[str] = []
 DOC_SUFFIXES = {".md", ".markdown", ".rst", ".txt"}
 ALLOWED_READY_KINDS = {"impl", "docs", "coordination"}
+ALLOWED_PRIORITIES = {"P1", "P2", "P3"}
+ALLOWED_SIZES = {"S", "M", "L"}
+ALLOWED_AUTONOMOUS_READY = {"yes", "no"}
 
 
 def fail(message: str) -> None:
@@ -106,8 +109,55 @@ def parse_yaml_scalar_value(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] == "'":
         return value[1:-1].replace("''", "'")
     if len(value) >= 2 and value[0] == value[-1] == '"':
-        return value[1:-1]
+        try:
+            parsed_value = ast.literal_eval(value)
+        except (SyntaxError, ValueError):
+            return value[1:-1]
+        return parsed_value if isinstance(parsed_value, str) else str(parsed_value)
     return value
+
+
+def split_yaml_flow_list(value: str) -> List[str]:
+    inner = value[1:-1].strip()
+    if not inner:
+        return []
+
+    items: List[str] = []
+    current: List[str] = []
+    in_single = False
+    in_double = False
+    idx = 0
+    while idx < len(inner):
+        char = inner[idx]
+        if char == "'" and not in_double:
+            if in_single and idx + 1 < len(inner) and inner[idx + 1] == "'":
+                current.extend(("'", "'"))
+                idx += 2
+                continue
+            in_single = not in_single
+            current.append(char)
+            idx += 1
+            continue
+        if char == '"' and not in_single:
+            if idx == 0 or inner[idx - 1] != "\\":
+                in_double = not in_double
+            current.append(char)
+            idx += 1
+            continue
+        if char == "," and not in_single and not in_double:
+            item = "".join(current).strip()
+            if item:
+                items.append(parse_yaml_scalar_value(item))
+            current = []
+            idx += 1
+            continue
+        current.append(char)
+        idx += 1
+
+    item = "".join(current).strip()
+    if item:
+        items.append(parse_yaml_scalar_value(item))
+    return items
 
 
 def normalize_target_path(value: str) -> Path:
@@ -217,7 +267,7 @@ def parse_markdown_table(section_name: str) -> Tuple[List[str], List[Dict[str, s
 
 
 def extract_plan_path(cell: str) -> Optional[Path]:
-    match = re.search(r"\[[^\]]+\]\(([^)]+)\)", cell)
+    match = re.fullmatch(r"\[[^\]]+\]\(([^)]+)\)", cell.strip())
     if not match:
         fail(f"{QUEUE_PATH} plan cell is not a markdown link: {cell}")
         return None
@@ -308,19 +358,7 @@ def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
             data[key], idx = parse_block_scalar(lines, idx, parsed_value.startswith(">"))
             continue
         if parsed_value.startswith("[") and parsed_value.endswith("]"):
-            try:
-                parsed_list = yaml.safe_load(parsed_value)
-                if isinstance(parsed_list, list):
-                    data[key] = [str(item) for item in parsed_list]
-                else:
-                    data[key] = []
-            except yaml.YAMLError:
-                inner = parsed_value[1:-1].strip()
-                if inner:
-                    values = [parse_yaml_scalar_value(item) for item in inner.split(",") if item.strip()]
-                else:
-                    values = []
-                data[key] = values
+            data[key] = split_yaml_flow_list(parsed_value)
         else:
             data[key] = parse_yaml_scalar_value(raw_value)
         idx += 1
@@ -384,10 +422,28 @@ for row in ready_rows:
     if not normalize_text(row.get("last_verified", "")):
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing last_verified")
     row_kind = normalize_text(row["kind"])
+    row_priority = normalize_text(row["priority"])
+    row_size = normalize_text(row["size"])
+    row_autonomous_ready = normalize_text(row["autonomous_ready"])
     if row_kind not in ALLOWED_READY_KINDS:
         fail(
             f"{QUEUE_PATH} Ready Now row {row_id} has unsupported kind: "
             f"{row['kind']!r}"
+        )
+    if row_priority not in ALLOWED_PRIORITIES:
+        fail(
+            f"{QUEUE_PATH} Ready Now row {row_id} has unsupported priority: "
+            f"{row['priority']!r}"
+        )
+    if row_size not in ALLOWED_SIZES:
+        fail(
+            f"{QUEUE_PATH} Ready Now row {row_id} has unsupported size: "
+            f"{row['size']!r}"
+        )
+    if row_autonomous_ready not in ALLOWED_AUTONOMOUS_READY:
+        fail(
+            f"{QUEUE_PATH} Ready Now row {row_id} has unsupported autonomous_ready: "
+            f"{row['autonomous_ready']!r}"
         )
 
     plan_path = extract_plan_path(row["plan"])
@@ -446,10 +502,10 @@ for row in ready_rows:
     expected_scalars = {
         "id": normalize_text(row["id"]),
         "status": "ready",
-        "priority": normalize_text(row["priority"]),
-        "size": normalize_text(row["size"]),
+        "priority": row_priority,
+        "size": row_size,
         "kind": row_kind,
-        "autonomous_ready": normalize_text(row["autonomous_ready"]),
+        "autonomous_ready": row_autonomous_ready,
         "last_verified": normalize_text(row["last_verified"]),
         "plan_section": normalize_text(row["plan_section"]),
         "deliverable": normalize_text(row["deliverable"]),
