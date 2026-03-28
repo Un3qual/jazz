@@ -475,7 +475,7 @@ for row in ready_rows:
     if not verification_commands:
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing verification")
 
-    plan_path = extract_plan_path(row["plan"])
+    plan_path = extract_plan_path(normalize_text(row["plan"]))
     if not plan_path:
         pass  # Continue with queue-only checks below
     elif not plan_path.is_file():
