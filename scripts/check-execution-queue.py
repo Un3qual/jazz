@@ -4,7 +4,7 @@ import re
 import sys
 from typing import Dict, List, Optional, Tuple
 
-ROOT = Path.cwd().resolve()
+ROOT = Path(__file__).resolve().parent.parent
 QUEUE_PATH = ROOT / "docs/execution/queue.md"
 QUEUE_TEXT: Optional[str] = None
 
@@ -460,6 +460,7 @@ for row in ready_rows:
     if not normalize_text(row["deliverable"]):
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing deliverable")
     verification_commands = split_inline_list(row["verification"], ";", normalize_exact_item)
+    verification_commands = [cmd for cmd in verification_commands if cmd != "-"]
     if not verification_commands:
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing verification")
 
