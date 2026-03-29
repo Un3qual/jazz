@@ -2,11 +2,10 @@ import ast
 from pathlib import Path
 import re
 import sys
-from typing import Dict, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 QUEUE_PATH = ROOT / "docs/execution/queue.md"
-QUEUE_TEXT: Optional[str] = None
+QUEUE_TEXT: str | None = None
 
 EXPECTED_READY_HEADERS = [
     "id",
@@ -33,7 +32,7 @@ EXPECTED_BLOCKED_HEADERS = [
     "last_verified",
 ]
 
-FAILURES: List[str] = []
+FAILURES: list[str] = []
 DOC_SUFFIXES = {".md", ".markdown", ".rst", ".txt"}
 ALLOWED_READY_KINDS = {"impl", "docs", "coordination"}
 ALLOWED_PRIORITIES = {"P1", "P2", "P3"}
@@ -67,7 +66,7 @@ def normalize_exact_item(value: str) -> str:
     return value.strip()
 
 
-def split_inline_list(value: str, delimiter: str, normalizer=None) -> List[str]:
+def split_inline_list(value: str, delimiter: str, normalizer=None) -> list[str]:
     if normalizer is None:
         normalizer = normalize_text
     items = [normalizer(part) for part in value.split(delimiter)]
@@ -117,13 +116,13 @@ def parse_yaml_scalar_value(value: str) -> str:
     return value
 
 
-def split_yaml_flow_list(value: str) -> List[str]:
+def split_yaml_flow_list(value: str) -> list[str]:
     inner = value[1:-1].strip()
     if not inner:
         return []
 
-    items: List[str] = []
-    current: List[str] = []
+    items: list[str] = []
+    current: list[str] = []
     in_single = False
     in_double = False
     idx = 0
@@ -177,11 +176,11 @@ def is_doc_target_path(path: Path) -> bool:
     return any(part == "docs" for part in path.parts) or path.suffix.lower() in DOC_SUFFIXES
 
 
-def extract_section_lines(text: str, section_name: str) -> List[str]:
+def extract_section_lines(text: str, section_name: str) -> list[str]:
     marker = f"## {section_name}"
     lines = text.splitlines()
     in_section = False
-    collected: List[str] = []
+    collected: list[str] = []
     for line in lines:
         stripped = line.strip()
         if stripped == marker:
@@ -209,15 +208,15 @@ def is_markdown_table_line(line: str) -> bool:
     )
 
 
-def split_markdown_row(line: str) -> List[str]:
+def split_markdown_row(line: str) -> list[str]:
     row = line.strip()
     if row.startswith("|"):
         row = row[1:]
     if row.endswith("|"):
         row = row[:-1]
 
-    cells: List[str] = []
-    current: List[str] = []
+    cells: list[str] = []
+    current: list[str] = []
     idx = 0
     while idx < len(row):
         char = row[idx]
@@ -237,7 +236,7 @@ def split_markdown_row(line: str) -> List[str]:
     return cells
 
 
-def parse_markdown_table(section_name: str) -> Tuple[List[str], List[Dict[str, str]]]:
+def parse_markdown_table(section_name: str) -> tuple[list[str], list[dict[str, str]]]:
     if QUEUE_TEXT is None:
         return [], []
     section_lines = extract_section_lines(QUEUE_TEXT, section_name)
@@ -258,7 +257,7 @@ def parse_markdown_table(section_name: str) -> Tuple[List[str], List[Dict[str, s
         )
 
     data_start = 2 if separator_valid else 1
-    rows: List[Dict[str, str]] = []
+    rows: list[dict[str, str]] = []
     for row_index, line in enumerate(table_lines[data_start:], start=data_start + 1):
         cells = split_markdown_row(line)
         if len(cells) != len(headers):
@@ -267,11 +266,11 @@ def parse_markdown_table(section_name: str) -> Tuple[List[str], List[Dict[str, s
                 f"{len(cells)} cells; expected {len(headers)}: {line}"
             )
             continue
-        rows.append(dict(zip(headers, cells)))
+        rows.append(dict(zip(headers, cells, strict=True)))
     return headers, rows
 
 
-def extract_plan_path(cell: str) -> Optional[Path]:
+def extract_plan_path(cell: str) -> Path | None:
     match = re.fullmatch(r"\[[^\]]+\]\(([^)]+)\)", cell.strip())
     if not match:
         fail(f"{QUEUE_PATH} plan cell is not a markdown link: {cell}")
@@ -293,8 +292,8 @@ def extract_plan_path(cell: str) -> Optional[Path]:
 # (-/+) and explicit indentation indicators are not supported by this parser.
 # That matches the current frontmatter contract and should be revisited only if
 # those modifiers become part of the queue format.
-def parse_block_scalar(lines: List[str], start_idx: int, folded: bool) -> Tuple[str, int]:
-    values: List[str] = []
+def parse_block_scalar(lines: list[str], start_idx: int, folded: bool) -> tuple[str, int]:
+    values: list[str] = []
     idx = start_idx + 1
     while idx < len(lines):
         line = lines[idx]
@@ -317,7 +316,7 @@ def parse_block_scalar(lines: List[str], start_idx: int, folded: bool) -> Tuple[
     return text, idx
 
 
-def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
+def parse_frontmatter(path: Path) -> dict[str, object] | None:
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
@@ -328,7 +327,7 @@ def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
         fail(f"{path} missing YAML frontmatter")
         return None
 
-    data: Dict[str, object] = {}
+    data: dict[str, object] = {}
     idx = 1
     while idx < len(lines):
         line = lines[idx]
@@ -341,7 +340,7 @@ def parse_frontmatter(path: Path) -> Optional[Dict[str, object]]:
         list_key = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):\s*$", line)
         if list_key:
             key = list_key.group(1)
-            values: List[str] = []
+            values: list[str] = []
             idx += 1
             while idx < len(lines):
                 if not lines[idx].strip() or is_yaml_comment_line(lines[idx]):
@@ -405,7 +404,7 @@ if done_headers and "id" not in [normalize_text(header) for header in done_heade
     done_rows = []
 
 all_ids = set()
-seen_ids: Dict[str, str] = {}
+seen_ids: dict[str, str] = {}
 for section_name, rows in (
     ("Ready Now", ready_rows),
     ("Blocked", blocked_rows),
@@ -486,7 +485,7 @@ for row in ready_rows:
 
     target_paths = split_inline_list(row["target_paths"], ",", normalize_exact_item)
     if row_kind == "impl":
-        real_target_paths: List[Tuple[str, Path]] = []
+        real_target_paths: list[tuple[str, Path]] = []
         for target_path in target_paths:
             if not target_path or target_path == "-":
                 continue
