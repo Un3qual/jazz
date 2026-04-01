@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import ast
 from pathlib import Path
 import re
@@ -61,8 +63,11 @@ def normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def normalize_exact_item(value: str) -> str:
-    """Preserve backticks and exact whitespace for machine-readable fields."""
+def normalize_list_item(value: str) -> str:
+    """Strip queue-formatting backticks without altering item contents."""
+    value = value.strip()
+    if value.startswith("`") and value.endswith("`"):
+        value = value[1:-1]
     return value.strip()
 
 
@@ -266,7 +271,7 @@ def parse_markdown_table(section_name: str) -> tuple[list[str], list[dict[str, s
                 f"{len(cells)} cells; expected {len(headers)}: {line}"
             )
             continue
-        rows.append(dict(zip(headers, cells, strict=True)))
+        rows.append(dict(zip(headers, cells)))
     return headers, rows
 
 
@@ -363,8 +368,15 @@ def parse_frontmatter(path: Path) -> dict[str, object] | None:
         key, raw_value = scalar.groups()
         raw_value = raw_value.strip()
         parsed_value = strip_yaml_inline_comment(raw_value).strip()
+        if parsed_value in {">", "|"}:
+            data[key], idx = parse_block_scalar(lines, idx, parsed_value == ">")
+            continue
         if parsed_value.startswith((">", "|")):
-            data[key], idx = parse_block_scalar(lines, idx, parsed_value.startswith(">"))
+            fail(
+                f"{path} frontmatter field '{key}' uses unsupported block scalar "
+                f"modifier: {raw_value!r}"
+            )
+            idx += 1
             continue
         if parsed_value.startswith("[") and parsed_value.endswith("]"):
             data[key] = split_yaml_flow_list(parsed_value)
@@ -458,7 +470,7 @@ for row in ready_rows:
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing plan_section")
     if not normalize_text(row["deliverable"]):
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing deliverable")
-    verification_commands = split_inline_list(row["verification"], ";", normalize_exact_item)
+    verification_commands = split_inline_list(row["verification"], ";", normalize_list_item)
     verification_commands = [cmd for cmd in verification_commands if cmd != "-"]
     if not verification_commands:
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing verification")
@@ -473,7 +485,7 @@ for row in ready_rows:
         )
         # Continue with queue-only checks below
 
-    dependencies = split_inline_list(row["depends_on"], ",", normalize_exact_item)
+    dependencies = split_inline_list(row["depends_on"], ",", normalize_list_item)
     if dependencies == ["-"]:
         dependencies = []
     for dep in dependencies:
@@ -483,7 +495,7 @@ for row in ready_rows:
         if dep not in all_ids:
             fail(f"{QUEUE_PATH} Ready Now row {row_id} has unresolved dependency id: {dep}")
 
-    target_paths = split_inline_list(row["target_paths"], ",", normalize_exact_item)
+    target_paths = split_inline_list(row["target_paths"], ",", normalize_list_item)
     if row_kind == "impl":
         real_target_paths: list[tuple[str, Path]] = []
         for target_path in target_paths:
@@ -497,7 +509,10 @@ for row in ready_rows:
                 continue
             real_target_paths.append((target_path, target_path_obj))
         if not real_target_paths:
-            fail(f"{QUEUE_PATH} Ready Now row {row_id} is impl but has no target_paths")
+            fail(
+                f"{QUEUE_PATH} Ready Now row {row_id} is impl but has no "
+                f"concrete non-doc target_paths"
+            )
         for target_path, target_path_obj in real_target_paths:
             if target_path_obj.is_absolute() or ".." in target_path_obj.parts:
                 fail(
@@ -553,7 +568,7 @@ for row in ready_rows:
                 f"not a scalar: {raw_values!r}"
             )
             continue
-        actual_values = [normalize_exact_item(str(item)) for item in raw_values]
+        actual_values = [normalize_list_item(str(item)) for item in raw_values]
         if actual_values != expected_values:
             fail(
                 f"{plan_path} frontmatter list '{key}' does not match queue row "

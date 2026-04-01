@@ -14,7 +14,7 @@
 
 - [x] Task 1: Added execution frontmatter to the three still-open active-path plans linked from `Ready Now`.
 - [x] Task 2: Added `scripts/check-execution-queue.sh`, wired `scripts/check-docs.sh` through it, and updated the execution docs to treat it as the queue contract validator.
-- [ ] Task 3: Verify the queue/docs state and create the stacked PR.
+- [x] Task 3: Verify the queue/docs state and create the stacked PR.
 
 ### Task 1: Backfill Active Plan Frontmatter
 
@@ -87,5 +87,5 @@ Capture the verification evidence here, then commit, push the stacked branch, an
 
 ## Verification Evidence
 
-- `bash scripts/check-execution-queue.sh` -> `Execution queue checks passed.`
-- `bash scripts/check-docs.sh` -> `Docs status checks passed.` (`prettier` was found outside the Nix shell, so the script skipped format enforcement to avoid version drift)
+- `2026-04-01`: `bash scripts/check-execution-queue.sh` -> `Execution queue checks passed.`
+- `2026-04-01`: `bash scripts/check-docs.sh` -> `Execution queue checks passed.` then `Docs status checks passed.` (`prettier` was found outside the Nix shell, so the script skipped format enforcement to avoid version drift)
