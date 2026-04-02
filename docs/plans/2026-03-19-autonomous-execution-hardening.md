@@ -55,7 +55,7 @@ Check required queue columns, dependency resolution, linked plan existence, and 
 
 **Step 2: Validate implementation-entry semantics**
 
-Require every `kind: impl` queue row to name at least one non-doc `target_paths` entry.
+Require every `kind: impl` queue row to include at least one concrete, already-existing, non-doc file path in `target_paths`.
 
 **Step 3: Validate queue-to-plan parity**
 

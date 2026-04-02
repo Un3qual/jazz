@@ -342,7 +342,7 @@ def parse_frontmatter(path: Path) -> dict[str, object] | None:
             idx += 1
             continue
 
-        list_key = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):\s*$", line)
+        list_key = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):\s*(?:#.*)?$", line)
         if list_key:
             key = list_key.group(1)
             values: list[str] = []
@@ -569,7 +569,12 @@ for row in ready_rows:
             )
             continue
         actual_values = [normalize_list_item(str(item)) for item in raw_values]
-        if actual_values != expected_values:
+        expected_compare = expected_values
+        actual_compare = actual_values
+        if key == "depends_on":
+            expected_compare = sorted(expected_values)
+            actual_compare = sorted(actual_values)
+        if actual_compare != expected_compare:
             fail(
                 f"{plan_path} frontmatter list '{key}' does not match queue row "
                 f"{row_id}: expected {expected_values!r}, got {actual_values!r}"
