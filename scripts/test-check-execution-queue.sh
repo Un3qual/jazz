@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 VALIDATOR_SOURCE="$ROOT/scripts/check-execution-queue.py"
+WRAPPER_SOURCE="$ROOT/scripts/check-execution-queue.sh"
 
 create_repo() {
   local repo_root="$1"
@@ -15,6 +16,7 @@ create_repo() {
     "$repo_root/test"
 
   cp "$VALIDATOR_SOURCE" "$repo_root/scripts/check-execution-queue.py"
+  cp "$WRAPPER_SOURCE" "$repo_root/scripts/check-execution-queue.sh"
   : > "$repo_root/src/Impl.hs"
   : > "$repo_root/test/ImplSpec.hs"
 }
@@ -364,6 +366,49 @@ run_case() {
   rm -rf "$repo_root"
 }
 
+run_wrapper_case() {
+  local name="$1"
+  local setup_fn="$2"
+  local expectation="${3:-pass}"
+  local expected_snippet="${4:-}"
+  local repo_root
+  local status
+  repo_root=$(mktemp -d)
+  create_repo "$repo_root"
+  "$setup_fn" "$repo_root"
+
+  if (cd "$repo_root" && bash scripts/check-execution-queue.sh > "$repo_root/output.log" 2>&1); then
+    status=0
+  else
+    status=$?
+  fi
+
+  if [[ "$expectation" == "pass" && "$status" -ne 0 ]]; then
+    printf '%s failed\n' "$name" >&2
+    cat "$repo_root/output.log" >&2
+    rm -rf "$repo_root"
+    exit 1
+  fi
+
+  if [[ "$expectation" == "fail" && "$status" -eq 0 ]]; then
+    printf '%s unexpectedly passed\n' "$name" >&2
+    cat "$repo_root/output.log" >&2
+    rm -rf "$repo_root"
+    exit 1
+  fi
+
+  if [[ "$expectation" == "fail" && -n "$expected_snippet" ]]; then
+    if ! grep -Fq "$expected_snippet" "$repo_root/output.log"; then
+      printf '%s failed for the wrong reason\n' "$name" >&2
+      cat "$repo_root/output.log" >&2
+      rm -rf "$repo_root"
+      exit 1
+    fi
+  fi
+
+  rm -rf "$repo_root"
+}
+
 main() {
   run_case "inline-comment regression" setup_inline_comment_case
   run_case "dependency-order regression" setup_dependency_order_case
@@ -380,6 +425,16 @@ main() {
     setup_verification_order_case \
     fail \
     "frontmatter list 'verification' does not match queue row CASE-VERIFY-ORDER-001"
+
+  # Wrapper smoke tests exercising repo-root detection and python3 preflight
+  run_wrapper_case "wrapper: inline-comment smoke test" setup_inline_comment_case
+  run_wrapper_case "wrapper: dependency-order smoke test" setup_dependency_order_case
+  run_wrapper_case \
+    "wrapper: target-path order smoke test" \
+    setup_target_paths_order_case \
+    fail \
+    "frontmatter list 'target_paths' does not match queue row CASE-TARGET-PATH-ORDER-001"
+
   printf 'check-execution-queue regressions passed\n'
 }
 

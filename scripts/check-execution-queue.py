@@ -260,8 +260,9 @@ def parse_markdown_table(section_name: str) -> tuple[list[str], list[dict[str, s
             f"{QUEUE_PATH} section '{section_name}' has a missing or malformed "
             f"markdown separator row: {table_lines[1]}"
         )
+        return [], []
 
-    data_start = 2 if separator_valid else 1
+    data_start = 2
     rows: list[dict[str, str]] = []
     for row_index, line in enumerate(table_lines[data_start:], start=data_start + 1):
         cells = split_markdown_row(line)
@@ -346,6 +347,9 @@ def parse_frontmatter(path: Path) -> dict[str, object] | None:
         list_key = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):\s*(?:#.*)?$", line)
         if list_key:
             key = list_key.group(1)
+            if key in data:
+                fail(f"{path} has duplicate frontmatter key: {key}")
+                return None
             values: list[str] = []
             idx += 1
             while idx < len(lines):
@@ -369,6 +373,9 @@ def parse_frontmatter(path: Path) -> dict[str, object] | None:
             continue
 
         key, raw_value = scalar.groups()
+        if key in data:
+            fail(f"{path} has duplicate frontmatter key: {key}")
+            return None
         raw_value = raw_value.strip()
         parsed_value = strip_yaml_inline_comment(raw_value).strip()
         if parsed_value in {">", "|"}:
