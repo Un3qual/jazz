@@ -193,6 +193,48 @@ supersedes: []
 EOF
 }
 
+setup_trailing_list_delimiter_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-TRAILING-LIST-001` | `Trailing list delimiter` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-trailing-list.md) | `Task 5` | `src/Impl.hs`, `test/ImplSpec.hs` | `Verification list may be the last frontmatter field.` | `bash verify.sh`; `bash verify-extra.sh` | `2026-04-01` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-trailing-list.md"
+---
+id: CASE-TRAILING-LIST-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-01
+plan_section: "Task 5"
+target_paths:
+  - src/Impl.hs
+  - test/ImplSpec.hs
+deliverable: "Verification list may be the last frontmatter field."
+verification:
+  - bash verify.sh
+  - bash verify-extra.sh
+---
+
+# Trailing list delimiter fixture
+EOF
+}
+
 run_case() {
   local name="$1"
   local setup_fn="$2"
@@ -240,6 +282,7 @@ main() {
   run_case "inline-comment regression" setup_inline_comment_case
   run_case "dependency-order regression" setup_dependency_order_case
   run_case "block-scalar delimiter regression" setup_block_scalar_delimiter_content_case
+  run_case "trailing list delimiter regression" setup_trailing_list_delimiter_case
   run_case \
     "target-path order regression" \
     setup_target_paths_order_case \

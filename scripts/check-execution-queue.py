@@ -349,6 +349,8 @@ def parse_frontmatter(path: Path) -> dict[str, object] | None:
             values: list[str] = []
             idx += 1
             while idx < len(lines):
+                if lines[idx] == "---":
+                    break
                 if not lines[idx].strip() or is_yaml_comment_line(lines[idx]):
                     idx += 1
                     continue
