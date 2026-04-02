@@ -235,6 +235,92 @@ verification:
 EOF
 }
 
+setup_mixed_target_paths_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-MIXED-TARGET-001` | `Mixed target paths` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-mixed-target.md) | `Task 6` | `src/Impl.hs`, `docs/plans/case-mixed-target.md`, `test/ImplSpec.hs` | `Accept mixed target_paths with concrete files and docs.` | `bash verify.sh` | `2026-04-01` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-mixed-target.md"
+---
+id: CASE-MIXED-TARGET-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-01
+plan_section: "Task 6"
+target_paths:
+  - src/Impl.hs
+  - docs/plans/case-mixed-target.md
+  - test/ImplSpec.hs
+deliverable: "Accept mixed target_paths with concrete files and docs."
+verification:
+  - bash verify.sh
+supersedes: []
+---
+
+# Mixed target paths fixture
+EOF
+}
+
+setup_verification_order_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-VERIFY-ORDER-001` | `Verification order` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-verify-order.md) | `Task 7` | `src/Impl.hs`, `test/ImplSpec.hs` | `Verification order must match exactly.` | `bash verify-first.sh`; `bash verify-second.sh` | `2026-04-01` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-verify-order.md"
+---
+id: CASE-VERIFY-ORDER-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-01
+plan_section: "Task 7"
+target_paths:
+  - src/Impl.hs
+  - test/ImplSpec.hs
+deliverable: "Verification order must match exactly."
+verification:
+  - bash verify-second.sh
+  - bash verify-first.sh
+supersedes: []
+---
+
+# Verification order fixture
+EOF
+}
+
 run_case() {
   local name="$1"
   local setup_fn="$2"
@@ -288,6 +374,12 @@ main() {
     setup_target_paths_order_case \
     fail \
     "frontmatter list 'target_paths' does not match queue row CASE-TARGET-PATH-ORDER-001"
+  run_case "mixed target_paths regression" setup_mixed_target_paths_case
+  run_case \
+    "verification order regression" \
+    setup_verification_order_case \
+    fail \
+    "frontmatter list 'verification' does not match queue row CASE-VERIFY-ORDER-001"
   printf 'check-execution-queue regressions passed\n'
 }
 

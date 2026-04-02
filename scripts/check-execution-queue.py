@@ -379,7 +379,20 @@ def parse_frontmatter(path: Path) -> dict[str, object] | None:
                 f"{path} frontmatter field '{key}' uses unsupported block scalar "
                 f"modifier: {raw_value!r}"
             )
+            # Consume the block scalar body to avoid repeated errors on indented lines
+            header_indent = len(line) - len(line.lstrip())
             idx += 1
+            while idx < len(lines):
+                if lines[idx] == "---":
+                    break
+                if not lines[idx].strip():
+                    idx += 1
+                    continue
+                line_indent = len(lines[idx]) - len(lines[idx].lstrip())
+                if line_indent > header_indent:
+                    idx += 1
+                    continue
+                break
             continue
         if parsed_value.startswith("[") and parsed_value.endswith("]"):
             data[key] = split_yaml_flow_list(parsed_value)
@@ -537,9 +550,16 @@ for row in ready_rows:
     if frontmatter is None:
         continue
 
+    # Check status separately: it is inferred from the entry living in Ready Now
+    actual_status = normalize_text(str(frontmatter.get("status", "")))
+    if actual_status != "ready":
+        fail(
+            f"{plan_path} frontmatter field 'status' must be 'ready' for queue row "
+            f"{row_id} in Ready Now section: got {actual_status!r}"
+        )
+
     expected_scalars = {
         "id": normalize_text(row["id"]),
-        "status": "ready",
         "priority": row_priority,
         "size": row_size,
         "kind": row_kind,
