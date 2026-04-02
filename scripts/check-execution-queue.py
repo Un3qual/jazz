@@ -302,6 +302,7 @@ def parse_block_scalar(lines: list[str], start_idx: int, folded: bool) -> tuple[
     idx = start_idx + 1
     while idx < len(lines):
         line = lines[idx]
+        # An unindented delimiter closes frontmatter; indented `---` is content.
         if line == "---":
             break
         if not line.strip():
@@ -571,6 +572,8 @@ for row in ready_rows:
         actual_values = [normalize_list_item(str(item)) for item in raw_values]
         expected_compare = expected_values
         actual_compare = actual_values
+        # depends_on is set-like; target_paths and verification stay ordered so
+        # the queue and frontmatter describe the same current batch shape.
         if key == "depends_on":
             expected_compare = sorted(expected_values)
             actual_compare = sorted(actual_values)

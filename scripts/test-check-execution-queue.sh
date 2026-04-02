@@ -107,19 +107,130 @@ supersedes: []
 EOF
 }
 
+setup_block_scalar_delimiter_content_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-BLOCK-SCALAR-001` | `Block scalar delimiter content` | `P1` | `S` | `docs` | `yes` | `-` | [Plan](../plans/case-block-scalar.md) | `Task 3` | `docs/plans/case-block-scalar.md` | Folded content keeps --- as data. | `bash verify.sh` | `2026-04-01` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-block-scalar.md"
+---
+id: CASE-BLOCK-SCALAR-001
+status: ready
+priority: P1
+size: S
+kind: docs
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-01
+plan_section: "Task 3"
+target_paths:
+  - docs/plans/case-block-scalar.md
+verification:
+  - bash verify.sh
+deliverable: >
+  Folded content keeps
+  ---
+  as data.
+supersedes: []
+---
+
+# Block scalar fixture
+EOF
+}
+
+setup_target_paths_order_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-TARGET-PATH-ORDER-001` | `Target path order` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-target-path-order.md) | `Task 4` | `src/Impl.hs`, `test/ImplSpec.hs` | `Target path order stays exact.` | `bash verify.sh` | `2026-04-01` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-target-path-order.md"
+---
+id: CASE-TARGET-PATH-ORDER-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-01
+plan_section: "Task 4"
+target_paths:
+  - test/ImplSpec.hs
+  - src/Impl.hs
+verification:
+  - bash verify.sh
+deliverable: "Target path order stays exact."
+supersedes: []
+---
+
+# Target path order fixture
+EOF
+}
+
 run_case() {
   local name="$1"
   local setup_fn="$2"
+  local expectation="${3:-pass}"
+  local expected_snippet="${4:-}"
   local repo_root
+  local status
   repo_root=$(mktemp -d)
   create_repo "$repo_root"
   "$setup_fn" "$repo_root"
 
-  if ! (cd "$repo_root" && python3 scripts/check-execution-queue.py > "$repo_root/output.log" 2>&1); then
+  if (cd "$repo_root" && python3 scripts/check-execution-queue.py > "$repo_root/output.log" 2>&1); then
+    status=0
+  else
+    status=$?
+  fi
+
+  if [[ "$expectation" == "pass" && "$status" -ne 0 ]]; then
     printf '%s failed\n' "$name" >&2
     cat "$repo_root/output.log" >&2
     rm -rf "$repo_root"
     exit 1
+  fi
+
+  if [[ "$expectation" == "fail" && "$status" -eq 0 ]]; then
+    printf '%s unexpectedly passed\n' "$name" >&2
+    cat "$repo_root/output.log" >&2
+    rm -rf "$repo_root"
+    exit 1
+  fi
+
+  if [[ "$expectation" == "fail" && -n "$expected_snippet" ]]; then
+    if ! grep -Fq "$expected_snippet" "$repo_root/output.log"; then
+      printf '%s failed for the wrong reason\n' "$name" >&2
+      cat "$repo_root/output.log" >&2
+      rm -rf "$repo_root"
+      exit 1
+    fi
   fi
 
   rm -rf "$repo_root"
@@ -128,6 +239,12 @@ run_case() {
 main() {
   run_case "inline-comment regression" setup_inline_comment_case
   run_case "dependency-order regression" setup_dependency_order_case
+  run_case "block-scalar delimiter regression" setup_block_scalar_delimiter_content_case
+  run_case \
+    "target-path order regression" \
+    setup_target_paths_order_case \
+    fail \
+    "frontmatter list 'target_paths' does not match queue row CASE-TARGET-PATH-ORDER-001"
   printf 'check-execution-queue regressions passed\n'
 }
 

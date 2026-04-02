@@ -48,6 +48,7 @@ Guidance:
 
 - `kind: impl` is the default for `Ready Now`.
 - `target_paths` for `kind: impl` must include at least one concrete, already-existing, non-doc file path.
+- Keep `target_paths` and `verification` in the same order between the queue row and linked plan frontmatter; parity treats those as ordered batch definitions, while `depends_on` stays set-like.
 - `kind: docs` and `kind: coordination` belong in `Ready Now` only when they directly unblock an implementation item or close out a queue with no remaining executable code work.
 
 ## Active Plan Metadata Schema
