@@ -375,6 +375,49 @@ supersedes: []
 EOF
 }
 
+setup_symlink_target_escape_case() {
+  local repo_root="$1"
+
+  ln -s /etc "$repo_root/alias"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-SYMLINK-TARGET-001` | `Symlink target escape` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-symlink-target.md) | `Task 7` | `alias/hosts` | `Reject impl target paths that escape the repo through symlinks.` | `bash verify.sh` | `2026-04-10` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-symlink-target.md"
+---
+id: CASE-SYMLINK-TARGET-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-10
+plan_section: "Task 7"
+target_paths:
+  - alias/hosts
+verification:
+  - bash verify.sh
+deliverable: "Reject impl target paths that escape the repo through symlinks."
+supersedes: []
+---
+
+# Symlink target escape fixture
+EOF
+}
+
 setup_non_contiguous_table_case() {
   local repo_root="$1"
 
@@ -382,7 +425,7 @@ setup_non_contiguous_table_case() {
 ## Ready Now
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `CASE-NONCONTIG-TABLE-001` | `Non-contiguous table` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-noncontig-table.md) | `Task 8` | `src/Impl.hs`, `test/ImplSpec.hs` | `Ignore later table examples in the section.` | `bash verify.sh` | `2026-04-10` |
+| `CASE-NONCONTIG-TABLE-001` | `Non-contiguous table` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-noncontig-table.md) | `Task 8` | `src/Impl.hs`, `test/ImplSpec.hs` | `Reject non-table content that splits the queue table.` | `bash verify.sh` | `2026-04-10` |
 
 Notes below document a table shape example and must not be parsed as queue rows.
 
@@ -415,7 +458,7 @@ target_paths:
   - test/ImplSpec.hs
 verification:
   - bash verify.sh
-deliverable: "Ignore later table examples in the section."
+deliverable: "Reject non-table content that splits the queue table."
 supersedes: []
 ---
 
@@ -722,6 +765,11 @@ main() {
     fail \
     "frontmatter list 'target_paths' does not match queue row CASE-TARGET-PATH-ORDER-001"
   run_case "mixed target_paths regression" setup_mixed_target_paths_case
+  run_case \
+    "symlink target escape regression" \
+    setup_symlink_target_escape_case \
+    fail \
+    "Ready Now row CASE-SYMLINK-TARGET-001 names non-repo-relative target path: alias/hosts"
   run_case \
     "verification order regression" \
     setup_verification_order_case \

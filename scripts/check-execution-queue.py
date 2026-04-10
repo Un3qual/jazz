@@ -576,7 +576,16 @@ for row in ready_rows:
                     f"target path: {target_path}"
                 )
                 continue
-            if not (ROOT / target_path_obj).is_file():
+            resolved_target_path = (ROOT / target_path_obj).resolve()
+            try:
+                resolved_target_path.relative_to(ROOT)
+            except ValueError:
+                fail(
+                    f"{QUEUE_PATH} Ready Now row {row_id} names non-repo-relative "
+                    f"target path: {target_path}"
+                )
+                continue
+            if not resolved_target_path.is_file():
                 fail(
                     f"{QUEUE_PATH} Ready Now row {row_id} names missing or non-file "
                     f"target path: "
