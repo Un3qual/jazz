@@ -19,6 +19,7 @@
 ### Task 1: Backfill Active Plan Frontmatter
 
 **Files:**
+
 - Modify: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 - Modify: `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
 - Modify: `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`
@@ -26,6 +27,7 @@
 **Step 1: Encode the queue-facing metadata on each open plan**
 
 Add frontmatter with:
+
 - `id`
 - `status`
 - `priority`
@@ -45,6 +47,7 @@ Use values that match the current `Ready Now` queue entries exactly.
 ### Task 2: Add Queue Validation
 
 **Files:**
+
 - Create: `scripts/check-execution-queue.sh`
 - Modify: `docs/execution/README.md`
 - Modify: `scripts/check-docs.sh`
@@ -68,6 +71,7 @@ Update `docs/execution/README.md` and `scripts/check-docs.sh` so the queue contr
 ### Task 3: Verify And Ship
 
 **Files:**
+
 - Modify: `docs/plans/2026-03-19-autonomous-execution-hardening.md`
 
 **Step 1: Run verification**
