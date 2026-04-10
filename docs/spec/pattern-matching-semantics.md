@@ -1,6 +1,6 @@
 # Pattern Matching Semantics
 
-Status: active (simple `case` subset is implemented end-to-end in `jazz-next`; constructor/list/ADT extensions remain staged)
+Status: active (simple `case` subset executes end-to-end in `jazz-next`; constructor and bracketed-list patterns now parse/lower on the active path, while ADT/type/runtime extensions remain staged)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -30,15 +30,19 @@ Current parser/core invariants:
 
 1. A `case` expression has one scrutinee expression and one or more arms.
 2. Every arm begins with `|` and uses `->` between pattern and body.
-3. The currently landed surface/core pattern set is limited to:
+3. The currently landed surface/core pattern set includes:
    - integer literals
    - boolean literals
    - wildcard `_`
    - variable binders such as `item`
-4. Arm bodies are full expressions; nested `case`, `if`, lambdas, block-valued
+   - uppercase constructor patterns such as `Just item` or `Nothing`
+   - bracketed list patterns such as `[head, _]` or `[]`
+4. Constructor/list patterns are preserved structurally in `EPatternCase`; full
+   ADT typing/runtime semantics for those forms remain deferred.
+5. Arm bodies are full expressions; nested `case`, `if`, lambdas, block-valued
    scrutinees, and infix/operator expressions remain valid inside arm bodies.
-5. Lowering preserves direct `case` expressions as `EPatternCase Expr [CaseArm]`.
-6. The older `ECase Expr Expr Expr` form remains the internal boolean-branch
+6. Lowering preserves direct `case` expressions as `EPatternCase Expr [CaseArm]`.
+7. The older `ECase Expr Expr Expr` form remains the internal boolean-branch
    representation used after `if` desugaring.
 
 ## Matching Contract For The Committed Simple Subset
@@ -59,25 +63,33 @@ Examples:
 ```jz
 flag = case n { | 0 -> True | _ -> False }.
 copy = case value { | item -> item }.
+maybeValue = case value { | Just item -> item | Nothing -> 0 }.
+firstOrZero = case values { | [head, _] -> head | [] -> 0 }.
 ```
 
 ## Current Active Execution State
 
-1. Parser, surface AST, core AST, analyzer/type flows, and runtime execution
-   now all implement this simple subset in `jazz-next`.
-2. Literal patterns must agree with the scrutinee type; incompatible literal
+1. Parser, surface AST, and core AST now represent constructor and bracketed
+   list patterns in `jazz-next`.
+2. Analyzer/type/runtime execution remains end-to-end only for the committed
+   literal / wildcard / variable subset.
+3. Constructor and bracketed-list patterns currently surface deterministic
+   compile-time `E2011` diagnostics until the later ADT/type/runtime milestones
+   land.
+4. Literal patterns must agree with the scrutinee type; incompatible literal
    patterns produce compile-time `E2011` diagnostics.
-3. All arm bodies must agree on one result type; mismatched arm result types
+5. All arm bodies must agree on one result type; mismatched arm result types
    produce compile-time `E2012` diagnostics.
-4. If no arm matches at runtime, evaluation emits deterministic `E3022`
+6. If no arm matches at runtime, evaluation emits deterministic `E3022`
    diagnostics rather than falling through silently.
 
 ## Deferred Pattern Forms
 
-The following remain explicitly out of scope for the committed simple subset:
+The following remain explicitly out of scope for the end-to-end committed
+subset:
 
-1. Constructor patterns.
-2. List patterns, including cons-like forms.
+1. Constructor-pattern typing and runtime execution.
+2. List-pattern typing and runtime execution, including cons-like forms.
 3. Tuple patterns.
 4. Lambda-parameter patterns.
 

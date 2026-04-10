@@ -81,6 +81,10 @@ lowerSurfacePattern surfacePattern =
     SPWildcard -> PWildcard
     SPVariable name -> PVariable name
     SPLiteral literal -> PLiteral (lowerSurfaceLiteral literal)
+    SPConstructor name patterns ->
+      PConstructor name (map lowerSurfacePattern patterns)
+    SPList patterns ->
+      PList (map lowerSurfacePattern patterns)
 
 lowerSurfaceCaseArm :: SurfaceCaseArm -> CaseArm
 lowerSurfaceCaseArm (SurfaceCaseArm patternExpr bodyExpr) =

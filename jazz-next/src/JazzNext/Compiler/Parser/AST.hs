@@ -30,6 +30,8 @@ data SurfacePattern
   = SPWildcard
   | SPVariable Identifier
   | SPLiteral SurfaceLiteral
+  | SPConstructor Identifier [SurfacePattern]
+  | SPList [SurfacePattern]
   deriving (Eq, Show)
 
 -- | One parser-surface pattern-match arm.

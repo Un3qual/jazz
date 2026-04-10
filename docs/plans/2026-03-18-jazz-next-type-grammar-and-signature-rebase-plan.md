@@ -17,12 +17,13 @@ target_paths:
   - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
 verification:
-  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
 deliverable: "Monomorphic signatures stop flowing through the compiler as raw `Text`; the parser builds structured type/signature nodes, lowering carries them into the core AST, and the existing accepted/rejected signature surface still passes through compile/type checks."
-supersedes: []
+supersedes:
+  - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
 ---
 
 # Jazz-Next Type Grammar And Signature Rebase Plan
@@ -43,6 +44,7 @@ supersedes: []
 - [x] Verified active `jazz-next` signatures still flow through parser/lowering/analyzer as raw `Text`.
 - [x] Verified `jazz-next` currently supports only a narrow monomorphic signature subset and intentionally rejects chained arrows.
 - [x] Captured the active-path owner map and replacement-plan scope for `JN-TYPE-PLAN-001`.
+- [x] Re-verified on `2026-03-19` that signatures are still stored as raw `Text` in parser/core statements and chained-arrow signature tests still fail with `E2009`.
 - [ ] Milestone 1 complete: parser-owned type AST replaces raw signature `Text` in the active path.
 - [ ] Milestone 2 complete: function-arrow associativity and parenthesization rules are canonical in `jazz-next`.
 - [ ] Milestone 3 complete: constrained-signature syntax and semantics are represented in `jazz-next` structures.

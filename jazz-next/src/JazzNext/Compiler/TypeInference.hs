@@ -1315,6 +1315,10 @@ extendBoundWithPattern pattern bound =
     PVariable name -> Set.insert (identifierText name) bound
     PWildcard -> bound
     PLiteral {} -> bound
+    PConstructor _ patterns ->
+      foldl' (flip extendBoundWithPattern) bound patterns
+    PList patterns ->
+      foldl' (flip extendBoundWithPattern) bound patterns
 
 inferPatternCaseType ::
   BuiltinResolutionMode ->
@@ -1333,6 +1337,7 @@ inferPatternCaseType builtinMode env scrutineeType initialState caseArms =
     step (maybeExpectedBodyType, stateAcc) (CaseArm pattern bodyExpr) =
       let stateAfterPattern =
             inferPatternType scrutineeType pattern stateAcc
+          deferredPattern = isDeferredPatternForm pattern
           armEnv =
             extendTypeEnvWithPattern
               pattern
@@ -1341,24 +1346,27 @@ inferPatternCaseType builtinMode env scrutineeType initialState caseArms =
           (maybeBodyType, stateAfterBody) =
             inferExprType builtinMode armEnv stateAfterPattern bodyExpr
        in
-        case (maybeExpectedBodyType, maybeBodyType) of
-          (Nothing, _) ->
-            (fmap (resolveType stateAfterBody) maybeBodyType, stateAfterBody)
-          (expectedBodyType, Nothing) ->
-            (expectedBodyType, stateAfterBody)
-          (Just inferredExpectedBodyType, Just inferredBodyType) ->
-            case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBody of
-              Just unifiedState ->
-                (Just (resolveType unifiedState inferredExpectedBodyType), unifiedState)
-              Nothing ->
-                ( Just inferredExpectedBodyType,
-                  addTypeError
-                    stateAfterBody
-                    ( mkPatternBranchTypeMismatchError
-                        (resolveType stateAfterBody inferredExpectedBodyType)
-                        (resolveType stateAfterBody inferredBodyType)
+        if deferredPattern
+          then (maybeExpectedBodyType, stateAfterBody)
+          else
+            case (maybeExpectedBodyType, maybeBodyType) of
+              (Nothing, _) ->
+                (fmap (resolveType stateAfterBody) maybeBodyType, stateAfterBody)
+              (expectedBodyType, Nothing) ->
+                (expectedBodyType, stateAfterBody)
+              (Just inferredExpectedBodyType, Just inferredBodyType) ->
+                case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBody of
+                  Just unifiedState ->
+                    (Just (resolveType unifiedState inferredExpectedBodyType), unifiedState)
+                  Nothing ->
+                    ( Just inferredExpectedBodyType,
+                      addTypeError
+                        stateAfterBody
+                        ( mkPatternBranchTypeMismatchError
+                            (resolveType stateAfterBody inferredExpectedBodyType)
+                            (resolveType stateAfterBody inferredBodyType)
+                        )
                     )
-                )
 
 inferPatternType :: ExpressionType -> Pattern -> InferState -> InferState
 inferPatternType scrutineeType pattern state =
@@ -1376,6 +1384,14 @@ inferPatternType scrutineeType pattern state =
                     (resolveType state scrutineeType)
                     literalType
                 )
+    PConstructor constructorName _ ->
+      addTypeError
+        state
+        (mkDeferredPatternFormError "constructor" (identifierText constructorName))
+    PList _ ->
+      addTypeError
+        state
+        (mkDeferredPatternFormError "list" "[]")
 
 extendTypeEnvWithPattern ::
   Pattern ->
@@ -1388,6 +1404,26 @@ extendTypeEnvWithPattern pattern scrutineeType env =
       Map.insert (identifierText name) scrutineeType env
     PWildcard -> env
     PLiteral {} -> env
+    -- These pattern forms are still deferred, so do not leak placeholder binder
+    -- types into the arm body and trigger unrelated secondary errors.
+    PConstructor {} -> env
+    PList {} -> env
+
+isDeferredPatternForm :: Pattern -> Bool
+isDeferredPatternForm pattern =
+  case pattern of
+    PConstructor {} -> True
+    PList {} -> True
+    _ -> False
+
+mkDeferredPatternFormError :: Text -> Text -> Diagnostic
+mkDeferredPatternFormError patternKind patternLabel =
+  mkDiagnostic
+    "E2011"
+    ( patternKind
+        <> " case patterns remain deferred on the active path: "
+        <> patternLabel
+    )
 
 supportsRuntimeEqualityType :: ExpressionType -> Bool
 supportsRuntimeEqualityType expressionType =

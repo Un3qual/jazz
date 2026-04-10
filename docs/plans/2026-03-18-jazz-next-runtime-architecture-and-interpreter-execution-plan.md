@@ -14,11 +14,12 @@ target_paths:
   - jazz-next/test/JazzNext/CLI/CLISpec.hs
   - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
 verification:
-  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
-  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
 deliverable: "Successful `compile` paths stop surfacing the misleading `/* jazz-next codegen placeholder */` output as user-facing success behavior; `--run` stays canonical, and source/module-graph compile modes share deterministic exit-code/stdout/stderr behavior."
-supersedes: []
+supersedes:
+  - docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 ---
 
 # Jazz Next Runtime Architecture and Interpreter Execution Plan
@@ -43,6 +44,7 @@ supersedes: []
 
 - [x] Captured the active-path runtime architecture and file ownership.
 - [x] Marked legacy `12a` runtime planning as reference-only for new execution work.
+- [x] Re-verified on `2026-03-19` that successful compile paths still emit `/* jazz-next codegen placeholder */`, and CLI/module tests still lock that contract.
 - [ ] Milestone 1 complete: compile and run contracts no longer depend on placeholder codegen output.
 - [ ] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next`.
 - [ ] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.

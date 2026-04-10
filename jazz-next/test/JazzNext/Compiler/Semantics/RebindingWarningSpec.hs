@@ -64,25 +64,26 @@ testEnabledCategoryEmitsWarning :: IO ()
 testEnabledCategoryEmitsWarning = do
   settings <- enabledSettings
   warnings <- analyzeRebindingWarnings settings sampleProgram
-  assertEqual "warning count" 1 (length warnings)
-  let warning = head warnings
-  assertEqual "warning category" SameScopeRebinding (warningCategory warning)
-  assertEqual "warning code" "W0001" (warningCodeText warning)
-  assertEqual "warning variable" "x" (warningVariableName warning)
-  assertEqual "warning span" (SourceSpan 2 1) (warningPrimarySpan warning)
-  assertEqual "previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan warning)
+  case warnings of
+    [warning] -> do
+      assertEqual "warning category" SameScopeRebinding (warningCategory warning)
+      assertEqual "warning code" "W0001" (warningCodeText warning)
+      assertEqual "warning variable" "x" (warningVariableName warning)
+      assertEqual "warning span" (SourceSpan 2 1) (warningPrimarySpan warning)
+      assertEqual "previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan warning)
+    _ -> failTest "expected exactly one warning record"
 
 testDeterministicWarningOrder :: IO ()
 testDeterministicWarningOrder = do
   settings <- enabledSettings
   warnings <- analyzeRebindingWarnings settings repeatedProgram
-  assertEqual "warning count" 2 (length warnings)
-  let firstWarning = warnings !! 0
-      secondWarning = warnings !! 1
-  assertEqual "first warning span" (SourceSpan 2 1) (warningPrimarySpan firstWarning)
-  assertEqual "first previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan firstWarning)
-  assertEqual "second warning span" (SourceSpan 3 1) (warningPrimarySpan secondWarning)
-  assertEqual "second previous span" (Just (SourceSpan 2 1)) (warningPreviousSpan secondWarning)
+  case warnings of
+    [firstWarning, secondWarning] -> do
+      assertEqual "first warning span" (SourceSpan 2 1) (warningPrimarySpan firstWarning)
+      assertEqual "first previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan firstWarning)
+      assertEqual "second warning span" (SourceSpan 3 1) (warningPrimarySpan secondWarning)
+      assertEqual "second previous span" (Just (SourceSpan 2 1)) (warningPreviousSpan secondWarning)
+    _ -> failTest "expected exactly two warning records"
 
 testNestedScopeShadowingNoWarning :: IO ()
 testNestedScopeShadowingNoWarning = do
