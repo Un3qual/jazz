@@ -323,18 +323,19 @@ supersedes: []
 EOF
 }
 
-run_case() {
-  local name="$1"
-  local setup_fn="$2"
-  local expectation="${3:-pass}"
-  local expected_snippet="${4:-}"
+run_case_with_command() {
+  local command="$1"
+  local name="$2"
+  local setup_fn="$3"
+  local expectation="${4:-pass}"
+  local expected_snippet="${5:-}"
   local repo_root
   local status
   repo_root=$(mktemp -d)
   create_repo "$repo_root"
   "$setup_fn" "$repo_root"
 
-  if (cd "$repo_root" && python3 scripts/check-execution-queue.py > "$repo_root/output.log" 2>&1); then
+  if (cd "$repo_root" && $command > "$repo_root/output.log" 2>&1); then
     status=0
   else
     status=$?
@@ -366,47 +367,12 @@ run_case() {
   rm -rf "$repo_root"
 }
 
+run_case() {
+  run_case_with_command "python3 scripts/check-execution-queue.py" "$@"
+}
+
 run_wrapper_case() {
-  local name="$1"
-  local setup_fn="$2"
-  local expectation="${3:-pass}"
-  local expected_snippet="${4:-}"
-  local repo_root
-  local status
-  repo_root=$(mktemp -d)
-  create_repo "$repo_root"
-  "$setup_fn" "$repo_root"
-
-  if (cd "$repo_root" && bash scripts/check-execution-queue.sh > "$repo_root/output.log" 2>&1); then
-    status=0
-  else
-    status=$?
-  fi
-
-  if [[ "$expectation" == "pass" && "$status" -ne 0 ]]; then
-    printf '%s failed\n' "$name" >&2
-    cat "$repo_root/output.log" >&2
-    rm -rf "$repo_root"
-    exit 1
-  fi
-
-  if [[ "$expectation" == "fail" && "$status" -eq 0 ]]; then
-    printf '%s unexpectedly passed\n' "$name" >&2
-    cat "$repo_root/output.log" >&2
-    rm -rf "$repo_root"
-    exit 1
-  fi
-
-  if [[ "$expectation" == "fail" && -n "$expected_snippet" ]]; then
-    if ! grep -Fq "$expected_snippet" "$repo_root/output.log"; then
-      printf '%s failed for the wrong reason\n' "$name" >&2
-      cat "$repo_root/output.log" >&2
-      rm -rf "$repo_root"
-      exit 1
-    fi
-  fi
-
-  rm -rf "$repo_root"
+  run_case_with_command "bash scripts/check-execution-queue.sh" "$@"
 }
 
 main() {
