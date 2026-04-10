@@ -337,6 +337,95 @@ supersedes: []
 EOF
 }
 
+setup_blocked_on_placeholder_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-BLOCKED-PLACEHOLDER-READY-001` | `Ready row` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-blocked-placeholder-ready.md) | `Task 9` | `src/Impl.hs`, `test/ImplSpec.hs` | `Keep Ready Now valid while Blocked row is checked.` | `bash verify.sh` | `2026-04-10` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+| `CASE-BLOCKED-PLACEHOLDER-001` | `Blocked placeholder` | `-` | `Needs a concrete blocker.` | [Plan](../plans/case-blocked-placeholder.md) | `2026-04-10` |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-blocked-placeholder-ready.md"
+---
+id: CASE-BLOCKED-PLACEHOLDER-READY-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-10
+plan_section: "Task 9"
+target_paths:
+  - src/Impl.hs
+  - test/ImplSpec.hs
+verification:
+  - bash verify.sh
+deliverable: "Keep Ready Now valid while Blocked row is checked."
+supersedes: []
+---
+
+# Blocked placeholder ready fixture
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-blocked-placeholder.md"
+# Blocked placeholder fixture
+EOF
+}
+
+setup_verification_mixed_sentinel_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-VERIFY-MIXED-SENTINEL-001` | `Verification mixed sentinel` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-verify-mixed-sentinel.md) | `Task 10` | `src/Impl.hs`, `test/ImplSpec.hs` | `Reject mixed verification sentinels.` | `-`; `bash verify.sh` | `2026-04-10` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-verify-mixed-sentinel.md"
+---
+id: CASE-VERIFY-MIXED-SENTINEL-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-10
+plan_section: "Task 10"
+target_paths:
+  - src/Impl.hs
+  - test/ImplSpec.hs
+verification:
+  - bash verify.sh
+deliverable: "Reject mixed verification sentinels."
+supersedes: []
+---
+
+# Verification mixed sentinel fixture
+EOF
+}
+
 setup_verification_order_case() {
   local repo_root="$1"
 
@@ -442,7 +531,21 @@ main() {
   run_case "dependency-order regression" setup_dependency_order_case
   run_case "block-scalar delimiter regression" setup_block_scalar_delimiter_content_case
   run_case "trailing list delimiter regression" setup_trailing_list_delimiter_case
-  run_case "non-contiguous table regression" setup_non_contiguous_table_case
+  run_case \
+    "non-contiguous table regression" \
+    setup_non_contiguous_table_case \
+    fail \
+    "section 'Ready Now' has non-table content splitting its markdown table"
+  run_case \
+    "blocked_on placeholder regression" \
+    setup_blocked_on_placeholder_case \
+    fail \
+    "Blocked row CASE-BLOCKED-PLACEHOLDER-001 is missing blocked_on"
+  run_case \
+    "verification mixed sentinel regression" \
+    setup_verification_mixed_sentinel_case \
+    fail \
+    "Ready Now row CASE-VERIFY-MIXED-SENTINEL-001 has malformed verification sentinel"
   run_case \
     "target-path order regression" \
     setup_target_paths_order_case \

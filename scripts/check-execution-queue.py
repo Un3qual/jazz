@@ -247,13 +247,18 @@ def parse_markdown_table(section_name: str) -> tuple[list[str], list[dict[str, s
     section_lines = extract_section_lines(QUEUE_TEXT, section_name)
     table_lines: list[str] = []
     in_table = False
-    for line in section_lines:
+    for idx, line in enumerate(section_lines):
         stripped = line.lstrip(" ")
         if is_markdown_table_line(line):
             table_lines.append(stripped)
             in_table = True
             continue
         if in_table:
+            if any(is_markdown_table_line(rest) for rest in section_lines[idx + 1 :]):
+                fail(
+                    f"{QUEUE_PATH} section '{section_name}' has non-table content "
+                    "splitting its markdown table"
+                )
             break
     if len(table_lines) < 2:
         fail(f"{QUEUE_PATH} section '{section_name}' is missing a markdown table")
@@ -502,8 +507,18 @@ for row in ready_rows:
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing plan_section")
     if not normalize_text(row["deliverable"]):
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing deliverable")
-    verification_commands = split_inline_list(row["verification"], ";", normalize_list_item)
-    verification_commands = [cmd for cmd in verification_commands if cmd != "-"]
+    if normalize_list_item(row["verification"]) == "-":
+        verification_commands = []
+    else:
+        verification_commands = split_inline_list(
+            row["verification"], ";", normalize_list_item
+        )
+        if any(cmd == "-" for cmd in verification_commands):
+            fail(
+                f"{QUEUE_PATH} Ready Now row {row_id} has malformed "
+                "verification sentinel"
+            )
+            verification_commands = []
     if not verification_commands:
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing verification")
 
@@ -625,6 +640,9 @@ for row in blocked_rows:
     row_id = normalize_text(row["id"])
     if not row_id:
         continue
+    blocked_on = normalize_text(row.get("blocked_on", ""))
+    if not blocked_on or blocked_on == "-":
+        fail(f"{QUEUE_PATH} Blocked row {row_id} is missing blocked_on")
     if not normalize_text(row.get("last_verified", "")):
         fail(f"{QUEUE_PATH} Blocked row {row_id} is missing last_verified")
 
