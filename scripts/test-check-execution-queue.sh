@@ -466,6 +466,50 @@ supersedes: []
 EOF
 }
 
+setup_pipe_prose_before_table_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+This note mentions A | B before the table and should not be treated as a queue row.
+
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-PIPE-PROSE-001` | `Pipe prose before table` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-pipe-prose-before-table.md) | `Task 12` | `src/Impl.hs`, `test/ImplSpec.hs` | `Ignore prose lines with pipes before the real table.` | `bash verify.sh` | `2026-04-10` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-pipe-prose-before-table.md"
+---
+id: CASE-PIPE-PROSE-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-10
+plan_section: "Task 12"
+target_paths:
+  - src/Impl.hs
+  - test/ImplSpec.hs
+verification:
+  - bash verify.sh
+deliverable: "Ignore prose lines with pipes before the real table."
+supersedes: []
+---
+
+# Pipe prose before table fixture
+EOF
+}
+
 setup_duplicate_section_case() {
   local repo_root="$1"
 
@@ -741,6 +785,7 @@ main() {
     setup_non_contiguous_table_case \
     fail \
     "section 'Ready Now' has non-table content splitting its markdown table"
+  run_case "pipe prose before table regression" setup_pipe_prose_before_table_case
   run_case \
     "duplicate section regression" \
     setup_duplicate_section_case \
@@ -800,6 +845,16 @@ main() {
     setup_target_paths_order_case \
     fail \
     "frontmatter list 'target_paths' does not match queue row CASE-TARGET-PATH-ORDER-001"
+  run_case_with_command \
+    env \
+    PATH=/nonexistent \
+    /bin/bash \
+    scripts/check-execution-queue.sh \
+    -- \
+    "wrapper: python3 preflight smoke test" \
+    setup_inline_comment_case \
+    fail \
+    "FAIL: python3 is required for scripts/check-execution-queue.sh"
 
   printf 'check-execution-queue regressions passed\n'
 }
