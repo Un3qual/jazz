@@ -281,7 +281,7 @@ def parse_markdown_table(section_name: str) -> tuple[list[str], list[dict[str, s
                 f"{len(cells)} cells; expected {len(headers)}: {line}"
             )
             continue
-        rows.append(dict(zip(headers, cells)))
+        rows.append(dict(zip(headers, cells, strict=True)))
     return headers, rows
 
 

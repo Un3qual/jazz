@@ -21,6 +21,15 @@ create_repo() {
   : > "$repo_root/test/ImplSpec.hs"
 }
 
+init_git_repo() {
+  local repo_root="$1"
+
+  (
+    cd "$repo_root"
+    git init -q
+  )
+}
+
 setup_inline_comment_case() {
   local repo_root="$1"
 
@@ -280,6 +289,54 @@ supersedes: []
 EOF
 }
 
+setup_non_contiguous_table_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-NONCONTIG-TABLE-001` | `Non-contiguous table` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-noncontig-table.md) | `Task 8` | `src/Impl.hs`, `test/ImplSpec.hs` | `Ignore later table examples in the section.` | `bash verify.sh` | `2026-04-10` |
+
+Notes below document a table shape example and must not be parsed as queue rows.
+
+| example | value |
+| --- | --- |
+| `ignored` | `row` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-noncontig-table.md"
+---
+id: CASE-NONCONTIG-TABLE-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-10
+plan_section: "Task 8"
+target_paths:
+  - src/Impl.hs
+  - test/ImplSpec.hs
+verification:
+  - bash verify.sh
+deliverable: "Ignore later table examples in the section."
+supersedes: []
+---
+
+# Non-contiguous table fixture
+EOF
+}
+
 setup_verification_order_case() {
   local repo_root="$1"
 
@@ -329,13 +386,18 @@ run_case_with_command() {
   local setup_fn="$3"
   local expectation="${4:-pass}"
   local expected_snippet="${5:-}"
+  local run_dir="${6:-.}"
+  local repo_mode="${7:-plain}"
   local repo_root
   local status
   repo_root=$(mktemp -d)
   create_repo "$repo_root"
   "$setup_fn" "$repo_root"
+  if [[ "$repo_mode" == "git" ]]; then
+    init_git_repo "$repo_root"
+  fi
 
-  if (cd "$repo_root" && $command > "$repo_root/output.log" 2>&1); then
+  if (cd "$repo_root/$run_dir" && $command > "$repo_root/output.log" 2>&1); then
     status=0
   else
     status=$?
@@ -380,6 +442,7 @@ main() {
   run_case "dependency-order regression" setup_dependency_order_case
   run_case "block-scalar delimiter regression" setup_block_scalar_delimiter_content_case
   run_case "trailing list delimiter regression" setup_trailing_list_delimiter_case
+  run_case "non-contiguous table regression" setup_non_contiguous_table_case
   run_case \
     "target-path order regression" \
     setup_target_paths_order_case \
@@ -394,6 +457,20 @@ main() {
 
   # Wrapper smoke tests exercising repo-root detection and python3 preflight
   run_wrapper_case "wrapper: inline-comment smoke test" setup_inline_comment_case
+  run_case_with_command \
+    "bash ../scripts/check-execution-queue.sh" \
+    "wrapper: inline-comment child-dir smoke test" \
+    setup_inline_comment_case \
+    pass \
+    "" \
+    src
+  run_wrapper_case \
+    "wrapper: inline-comment git-repo smoke test" \
+    setup_inline_comment_case \
+    pass \
+    "" \
+    . \
+    git
   run_wrapper_case "wrapper: dependency-order smoke test" setup_dependency_order_case
   run_wrapper_case \
     "wrapper: target-path order smoke test" \
