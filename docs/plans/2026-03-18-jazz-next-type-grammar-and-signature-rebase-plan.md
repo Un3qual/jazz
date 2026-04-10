@@ -43,7 +43,7 @@ supersedes:
 - [x] Verified the legacy `07` plan is still execution-bound to `jazz-hs`.
 - [x] Verified active `jazz-next` signatures still flow through parser/lowering/analyzer as raw `Text`.
 - [x] Verified `jazz-next` currently supports only a narrow monomorphic signature subset and intentionally rejects chained arrows.
-- [x] Captured the active-path owner map and replacement-plan scope for `JN-TYPE-PLAN-001`.
+- [x] Captured the active-path owner map and replacement-plan scope for `JN-TYPE-AST-IMPL-001`.
 - [x] Re-verified on `2026-03-19` that signatures are still stored as raw `Text` in parser/core statements and chained-arrow signature tests still fail with `E2009`.
 - [ ] Milestone 1 complete: parser-owned type AST replaces raw signature `Text` in the active path.
 - [ ] Milestone 2 complete: function-arrow associativity and parenthesization rules are canonical in `jazz-next`.

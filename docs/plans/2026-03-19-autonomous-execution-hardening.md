@@ -12,19 +12,19 @@
 
 ## Progress
 
-- [x] Task 1: Added execution frontmatter to the three still-open active-path plans linked from `Ready Now`.
+- [x] Task 1: Added execution frontmatter to the two still-open active-path plans linked from `Ready Now`.
 - [x] Task 2: Added `scripts/check-execution-queue.sh`, wired `scripts/check-docs.sh` through it, and updated the execution docs to treat it as the queue contract validator.
 - [x] Task 3: Verify the queue/docs state and create the stacked PR.
 
-### Task 1: Backfill Active Plan Frontmatter
+### Task 1: Backfill Active Plan Frontmatter (2026-03-19 Batch)
 
-**Files:**
+**Files touched in that batch:**
 
 - Modify: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 - Modify: `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
 - Modify: `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`
 
-**Step 1: Encode the queue-facing metadata on each open plan**
+**Step 1: Encode the queue-facing metadata on each plan in that batch**
 
 Add frontmatter with:
 
