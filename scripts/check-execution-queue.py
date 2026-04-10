@@ -245,7 +245,16 @@ def parse_markdown_table(section_name: str) -> tuple[list[str], list[dict[str, s
     if QUEUE_TEXT is None:
         return [], []
     section_lines = extract_section_lines(QUEUE_TEXT, section_name)
-    table_lines = [line.lstrip(" ") for line in section_lines if is_markdown_table_line(line)]
+    table_lines: list[str] = []
+    in_table = False
+    for line in section_lines:
+        stripped = line.lstrip(" ")
+        if is_markdown_table_line(line):
+            table_lines.append(stripped)
+            in_table = True
+            continue
+        if in_table:
+            break
     if len(table_lines) < 2:
         fail(f"{QUEUE_PATH} section '{section_name}' is missing a markdown table")
         return [], []
