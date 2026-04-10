@@ -118,6 +118,50 @@ supersedes: []
 EOF
 }
 
+setup_plan_link_fragment_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-PLAN-LINK-FRAGMENT-001` | `Plan link fragment anchor` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-plan-link-fragment.md#task-1) | `Task 1` | `src/Impl.hs`, `test/ImplSpec.hs` | `Accept plan links with local fragment anchors.` | `bash verify.sh` | `2026-04-01` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-plan-link-fragment.md"
+---
+id: CASE-PLAN-LINK-FRAGMENT-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-01
+plan_section: "Task 1"
+target_paths:
+  - src/Impl.hs
+  - test/ImplSpec.hs
+verification:
+  - bash verify.sh
+deliverable: "Accept plan links with local fragment anchors."
+supersedes: []
+---
+
+# Plan link fragment fixture
+
+## Task 1
+EOF
+}
+
 setup_block_scalar_delimiter_content_case() {
   local repo_root="$1"
 
@@ -159,6 +203,48 @@ supersedes: []
 ---
 
 # Block scalar fixture
+EOF
+}
+
+setup_non_list_scalar_frontmatter_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-NON-LIST-SCALAR-001` | `Non-list scalar frontmatter` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-non-list-scalar.md) | `Task 2` | `src/Impl.hs`, `test/ImplSpec.hs` | `Reject scalar values for list frontmatter fields.` | `bash verify.sh` | `2026-04-01` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-non-list-scalar.md"
+---
+id: CASE-NON-LIST-SCALAR-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: 123
+last_verified: 2026-04-01
+plan_section: "Task 2"
+target_paths:
+  - src/Impl.hs
+  - test/ImplSpec.hs
+verification:
+  - bash verify.sh
+deliverable: "Reject scalar values for list frontmatter fields."
+supersedes: []
+---
+
+# Non-list scalar fixture
 EOF
 }
 
@@ -470,13 +556,27 @@ EOF
 }
 
 run_case_with_command() {
-  local command="$1"
-  local name="$2"
-  local setup_fn="$3"
-  local expectation="${4:-pass}"
-  local expected_snippet="${5:-}"
-  local run_dir="${6:-.}"
-  local repo_mode="${7:-plain}"
+  local -a args=("$@")
+  local separator_index=-1
+  local i
+  for i in "${!args[@]}"; do
+    if [[ "${args[$i]}" == "--" ]]; then
+      separator_index=$i
+      break
+    fi
+  done
+  if (( separator_index < 0 )); then
+    printf 'run_case_with_command missing command separator\n' >&2
+    exit 1
+  fi
+
+  local -a command=("${args[@]:0:separator_index}")
+  local name="${args[$((separator_index + 1))]:-}"
+  local setup_fn="${args[$((separator_index + 2))]:-}"
+  local expectation="${args[$((separator_index + 3))]:-pass}"
+  local expected_snippet="${args[$((separator_index + 4))]:-}"
+  local run_dir="${args[$((separator_index + 5))]:-.}"
+  local repo_mode="${args[$((separator_index + 6))]:-plain}"
   local repo_root
   local status
   repo_root=$(mktemp -d)
@@ -486,7 +586,7 @@ run_case_with_command() {
     init_git_repo "$repo_root"
   fi
 
-  if (cd "$repo_root/$run_dir" && $command > "$repo_root/output.log" 2>&1); then
+  if (cd "$repo_root/$run_dir" && "${command[@]}" > "$repo_root/output.log" 2>&1); then
     status=0
   else
     status=$?
@@ -519,17 +619,23 @@ run_case_with_command() {
 }
 
 run_case() {
-  run_case_with_command "python3 scripts/check-execution-queue.py" "$@"
+  run_case_with_command python3 scripts/check-execution-queue.py -- "$@"
 }
 
 run_wrapper_case() {
-  run_case_with_command "bash scripts/check-execution-queue.sh" "$@"
+  run_case_with_command bash scripts/check-execution-queue.sh -- "$@"
 }
 
 main() {
   run_case "inline-comment regression" setup_inline_comment_case
   run_case "dependency-order regression" setup_dependency_order_case
+  run_case "plan-link fragment regression" setup_plan_link_fragment_case
   run_case "block-scalar delimiter regression" setup_block_scalar_delimiter_content_case
+  run_case \
+    "non-list scalar frontmatter regression" \
+    setup_non_list_scalar_frontmatter_case \
+    fail \
+    "frontmatter field 'depends_on' should be a list, not a scalar"
   run_case "trailing list delimiter regression" setup_trailing_list_delimiter_case
   run_case \
     "non-contiguous table regression" \
@@ -561,7 +667,9 @@ main() {
   # Wrapper smoke tests exercising repo-root detection and python3 preflight
   run_wrapper_case "wrapper: inline-comment smoke test" setup_inline_comment_case
   run_case_with_command \
-    "bash ../scripts/check-execution-queue.sh" \
+    bash \
+    ../scripts/check-execution-queue.sh \
+    -- \
     "wrapper: inline-comment child-dir smoke test" \
     setup_inline_comment_case \
     pass \

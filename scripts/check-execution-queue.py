@@ -295,7 +295,11 @@ def extract_plan_path(cell: str) -> Path | None:
     if not match:
         fail(f"{QUEUE_PATH} plan cell is not a markdown link: {cell}")
         return None
-    plan_path = (QUEUE_PATH.parent / match.group(1)).resolve()
+    link_target = match.group(1).split("#", 1)[0]
+    if not link_target:
+        fail(f"{QUEUE_PATH} plan link is missing a file target: {cell}")
+        return None
+    plan_path = (QUEUE_PATH.parent / link_target).resolve()
     try:
         plan_path.relative_to(ROOT)
     except ValueError:
@@ -620,6 +624,12 @@ for row in ready_rows:
             fail(
                 f"{plan_path} frontmatter field '{key}' should be a list, "
                 f"not a scalar: {raw_values!r}"
+            )
+            continue
+        if not isinstance(raw_values, list):
+            fail(
+                f"{plan_path} frontmatter field '{key}' should be a list, "
+                f"got {type(raw_values).__name__}: {raw_values!r}"
             )
             continue
         actual_values = [normalize_list_item(str(item)) for item in raw_values]
