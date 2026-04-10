@@ -64,7 +64,6 @@ testEnabledCategoryEmitsWarning :: IO ()
 testEnabledCategoryEmitsWarning = do
   settings <- enabledSettings
   warnings <- analyzeRebindingWarnings settings sampleProgram
-  assertEqual "warning count" 1 (length warnings)
   case warnings of
     [warning] -> do
       assertEqual "warning category" SameScopeRebinding (warningCategory warning)
@@ -78,7 +77,6 @@ testDeterministicWarningOrder :: IO ()
 testDeterministicWarningOrder = do
   settings <- enabledSettings
   warnings <- analyzeRebindingWarnings settings repeatedProgram
-  assertEqual "warning count" 2 (length warnings)
   case warnings of
     [firstWarning, secondWarning] -> do
       assertEqual "first warning span" (SourceSpan 2 1) (warningPrimarySpan firstWarning)
