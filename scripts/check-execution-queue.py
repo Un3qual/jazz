@@ -184,19 +184,22 @@ def is_doc_target_path(path: Path) -> bool:
 def extract_section_lines(text: str, section_name: str) -> list[str]:
     marker = f"## {section_name}"
     lines = text.splitlines()
-    in_section = False
-    collected: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped == marker:
-            in_section = True
-            continue
-        if in_section and stripped.startswith("## "):
-            break
-        if in_section:
-            collected.append(line)
-    if not in_section:
+    section_starts = [
+        idx for idx, line in enumerate(lines) if line.strip() == marker
+    ]
+    if not section_starts:
         fail(f"{QUEUE_PATH} missing section: {section_name}")
+        return []
+    if len(section_starts) > 1:
+        fail(f"{QUEUE_PATH} section '{section_name}' appears multiple times")
+        return []
+
+    collected: list[str] = []
+    for line in lines[section_starts[0] + 1 :]:
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            break
+        collected.append(line)
     return collected
 
 
@@ -286,7 +289,7 @@ def parse_markdown_table(section_name: str) -> tuple[list[str], list[dict[str, s
                 f"{len(cells)} cells; expected {len(headers)}: {line}"
             )
             continue
-        rows.append(dict(zip(headers, cells, strict=True)))
+        rows.append(dict(zip(headers, cells)))
     return headers, rows
 
 
@@ -513,17 +516,19 @@ for row in ready_rows:
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing deliverable")
     if normalize_list_item(row["verification"]) == "-":
         verification_commands = []
+        verification_sentinel_malformed = False
     else:
         verification_commands = split_inline_list(
             row["verification"], ";", normalize_list_item
         )
-        if any(cmd == "-" for cmd in verification_commands):
+        verification_sentinel_malformed = any(cmd == "-" for cmd in verification_commands)
+        if verification_sentinel_malformed:
             fail(
                 f"{QUEUE_PATH} Ready Now row {row_id} has malformed "
                 "verification sentinel"
             )
             verification_commands = []
-    if not verification_commands:
+    if not verification_commands and not verification_sentinel_malformed:
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing verification")
 
     plan_path = extract_plan_path(normalize_text(row["plan"]))

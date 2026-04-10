@@ -423,6 +423,52 @@ supersedes: []
 EOF
 }
 
+setup_duplicate_section_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-DUPLICATE-SECTION-001` | `Duplicate section` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-duplicate-section.md) | `Task 11` | `src/Impl.hs`, `test/ImplSpec.hs` | `Reject repeated queue sections.` | `bash verify.sh` | `2026-04-10` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-duplicate-section.md"
+---
+id: CASE-DUPLICATE-SECTION-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-10
+plan_section: "Task 11"
+target_paths:
+  - src/Impl.hs
+  - test/ImplSpec.hs
+verification:
+  - bash verify.sh
+deliverable: "Reject repeated queue sections."
+supersedes: []
+---
+
+# Duplicate section fixture
+EOF
+}
+
 setup_blocked_on_placeholder_case() {
   local repo_root="$1"
 
@@ -577,6 +623,7 @@ run_case_with_command() {
   local expected_snippet="${args[$((separator_index + 4))]:-}"
   local run_dir="${args[$((separator_index + 5))]:-.}"
   local repo_mode="${args[$((separator_index + 6))]:-plain}"
+  local forbidden_snippet="${args[$((separator_index + 7))]:-}"
   local repo_root
   local status
   repo_root=$(mktemp -d)
@@ -615,6 +662,15 @@ run_case_with_command() {
     fi
   fi
 
+  if [[ -n "$forbidden_snippet" ]]; then
+    if grep -Fq "$forbidden_snippet" "$repo_root/output.log"; then
+      printf '%s emitted an unexpected failure snippet\n' "$name" >&2
+      cat "$repo_root/output.log" >&2
+      rm -rf "$repo_root"
+      exit 1
+    fi
+  fi
+
   rm -rf "$repo_root"
 }
 
@@ -643,6 +699,11 @@ main() {
     fail \
     "section 'Ready Now' has non-table content splitting its markdown table"
   run_case \
+    "duplicate section regression" \
+    setup_duplicate_section_case \
+    fail \
+    "section 'Ready Now' appears multiple times"
+  run_case \
     "blocked_on placeholder regression" \
     setup_blocked_on_placeholder_case \
     fail \
@@ -651,7 +712,10 @@ main() {
     "verification mixed sentinel regression" \
     setup_verification_mixed_sentinel_case \
     fail \
-    "Ready Now row CASE-VERIFY-MIXED-SENTINEL-001 has malformed verification sentinel"
+    "Ready Now row CASE-VERIFY-MIXED-SENTINEL-001 has malformed verification sentinel" \
+    . \
+    plain \
+    "Ready Now row CASE-VERIFY-MIXED-SENTINEL-001 is missing verification"
   run_case \
     "target-path order regression" \
     setup_target_paths_order_case \
