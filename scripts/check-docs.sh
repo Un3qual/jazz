@@ -45,6 +45,13 @@ require_pattern "docs/jazz-language-state.md" "feature status reference" 'docs/f
 require_pattern "docs/jazz-language-state.md" "item `#5` status update" 'Status update for item `#5`'
 require_pattern "docs/feature-status.md" "active compiler path reference" 'jazz-next/'
 require_pattern "README.md" "active compiler path reference" 'jazz-next/'
+if [[ -f "scripts/check-execution-queue.sh" ]]; then
+  if ! bash scripts/check-execution-queue.sh; then
+    fail "scripts/check-execution-queue.sh reported queue/frontmatter drift"
+  fi
+else
+  fail "missing required file: scripts/check-execution-queue.sh"
+fi
 if command -v prettier >/dev/null 2>&1 && [[ -n "${IN_NIX_SHELL:-}" ]]; then
   markdown_files=(
     "README.md"

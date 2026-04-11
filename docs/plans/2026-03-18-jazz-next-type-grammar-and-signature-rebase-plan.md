@@ -1,17 +1,27 @@
 ---
-id: JN-TYPE-PLAN-001
+id: JN-TYPE-AST-IMPL-001
 status: ready
 priority: P1
 size: M
-autonomous_ready: true
+kind: impl
+autonomous_ready: no
 depends_on: []
 last_verified: 2026-03-19
+plan_section: "Milestone 1: Move Signature Ownership To Parser/AST/Lowering"
+target_paths:
+  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
+  - jazz-next/src/JazzNext/Compiler/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
+  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
 verification:
-  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
-deliverable: Replace raw signature text with parser-owned structured signature nodes for the current monomorphic surface, preserving existing accepted cases and deterministic rejections.
+deliverable: "Monomorphic signatures stop flowing through the compiler as raw `Text`; the parser builds structured type/signature nodes, lowering carries them into the core AST, and the existing accepted/rejected signature surface still passes through compile/type checks."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
 ---
@@ -33,7 +43,7 @@ supersedes:
 - [x] Verified the legacy `07` plan is still execution-bound to `jazz-hs`.
 - [x] Verified active `jazz-next` signatures still flow through parser/lowering/analyzer as raw `Text`.
 - [x] Verified `jazz-next` currently supports only a narrow monomorphic signature subset and intentionally rejects chained arrows.
-- [x] Captured the active-path owner map and replacement-plan scope for `JN-TYPE-PLAN-001`.
+- [x] Captured the active-path owner map and replacement-plan scope for `JN-TYPE-AST-IMPL-001`.
 - [x] Re-verified on `2026-03-19` that signatures are still stored as raw `Text` in parser/core statements and chained-arrow signature tests still fail with `E2009`.
 - [ ] Milestone 1 complete: parser-owned type AST replaces raw signature `Text` in the active path.
 - [ ] Milestone 2 complete: function-arrow associativity and parenthesization rules are canonical in `jazz-next`.
