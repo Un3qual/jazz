@@ -561,7 +561,15 @@ for row in ready_rows:
             if target_path_obj.is_absolute() or ".." in target_path_obj.parts:
                 real_target_paths.append((target_path, target_path_obj))
                 continue
-            if target_path_obj == Path(".") or is_doc_target_path(target_path_obj):
+            if target_path_obj == Path("."):
+                continue
+            resolved_target_path = (ROOT / target_path_obj).resolve()
+            try:
+                resolved_repo_relative = resolved_target_path.relative_to(ROOT)
+            except ValueError:
+                real_target_paths.append((target_path, target_path_obj))
+                continue
+            if is_doc_target_path(resolved_repo_relative):
                 continue
             real_target_paths.append((target_path, target_path_obj))
         if not real_target_paths:

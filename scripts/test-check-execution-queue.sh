@@ -418,6 +418,52 @@ supersedes: []
 EOF
 }
 
+setup_symlink_doc_target_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/plans/doc-target.md"
+# Doc target fixture
+EOF
+  ln -s docs/plans/doc-target.md "$repo_root/alias"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-SYMLINK-DOC-TARGET-001` | `Symlink doc target` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-symlink-doc-target.md) | `Task 7b` | `alias` | `Reject impl target paths that resolve to docs-only files.` | `bash verify.sh` | `2026-04-11` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-symlink-doc-target.md"
+---
+id: CASE-SYMLINK-DOC-TARGET-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-11
+plan_section: "Task 7b"
+target_paths:
+  - alias
+verification:
+  - bash verify.sh
+deliverable: "Reject impl target paths that resolve to docs-only files."
+supersedes: []
+---
+
+# Symlink doc target fixture
+EOF
+}
+
 setup_non_contiguous_table_case() {
   local repo_root="$1"
 
@@ -815,6 +861,11 @@ main() {
     setup_symlink_target_escape_case \
     fail \
     "Ready Now row CASE-SYMLINK-TARGET-001 names non-repo-relative target path: alias/hosts"
+  run_case \
+    "symlink doc target regression" \
+    setup_symlink_doc_target_case \
+    fail \
+    "Ready Now row CASE-SYMLINK-DOC-TARGET-001 is impl but has no concrete non-doc target_paths"
   run_case \
     "verification order regression" \
     setup_verification_order_case \
