@@ -1,12 +1,12 @@
 ---
 id: JN-RUNTIME-COMPILE-CONTRACT-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: no
 depends_on: []
-last_verified: 2026-03-19
+last_verified: 2026-04-10
 plan_section: "Milestone 1: Close the compile vs run contract gap"
 target_paths:
   - jazz-next/src/JazzNext/CLI/Main.hs
@@ -45,7 +45,8 @@ supersedes:
 - [x] Captured the active-path runtime architecture and file ownership.
 - [x] Marked legacy `12a` runtime planning as reference-only for new execution work.
 - [x] Re-verified on `2026-03-19` that successful compile paths still emit `/* jazz-next codegen placeholder */`, and CLI/module tests still lock that contract.
-- [ ] Milestone 1 complete: compile and run contracts no longer depend on placeholder codegen output.
+- [x] On `2026-04-10`, made CLI compile success diagnostic-only with deterministic empty stdout for standalone and module-graph compile paths while keeping `--run` as the canonical execution surface.
+- [x] Milestone 1 complete: compile and run contracts no longer depend on placeholder codegen output.
 - [ ] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next`.
 - [ ] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
 - [ ] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.
@@ -56,9 +57,15 @@ supersedes:
 
 - `JazzNext.Compiler.Driver` already coordinates standalone source, prelude-aware source, and module-graph execution.
 - `JazzNext.Compiler.Runtime` already interprets the current core subset: ints, bools, lists, closures, builtin/kernel functions, operator values and sections, `if` via canonical `ECase`, and block scope evaluation.
-- `JazzNext.Compiler.TypeInference` still behaves as a light canonicalization/type-check layer; signatures remain raw `Text`, so meaningful type-directed expansion is blocked on the type-grammar rebase plan.
+- `JazzNext.Compiler.TypeInference` still behaves as a light canonicalization/type-check layer; supported monomorphic signatures now arrive as structured parser/core payloads with right-associated chained arrows and parenthesized function-type overrides, but constrained-signature work remains blocked on the next type-grammar milestones.
 - `JazzNext.Compiler.ModuleResolver` already resolves and replays module graphs, but the normative module/runtime plan still needs an active-path rewrite around these files.
-- Successful compile paths still emit `"/* jazz-next codegen placeholder */"`; successful run paths already return interpreter output, so compile-mode semantics and CLI contract still need tightening.
+- Successful compile paths are now diagnostic-only and keep stdout empty on success, while successful run paths continue to return interpreter output.
+
+## Milestone 1 Closure (2026-04-10)
+
+- Successful CLI compile paths are now diagnostic-only: standalone and module-graph compile success both exit `0`, print warnings to stderr when present, and otherwise keep stdout empty.
+- `--run` remains the canonical interpreter-backed execution path and continues to be the only CLI mode that prints evaluated runtime output.
+- The driver still carries a placeholder `generatedJs` field internally for non-CLI compile callers until real code generation lands; this milestone closes the user-facing contract gap without pretending codegen exists.
 
 ## Runtime Pipeline and Owners
 
@@ -77,7 +84,7 @@ supersedes:
 | dependency | why it matters | what it unlocks |
 | --- | --- | --- |
 | `18-compiler-warning-flags.md` and current driver wiring | Warning/error promotion already shapes the compile/run contract. | Stable diagnostics while runtime milestones land. |
-| `JN-TYPE-PLAN-001` and `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md` | Signatures are still raw `Text`; meaningful type-directed runtime expansion depends on parsed type AST and active-path rules. | Real type-system phases in `TypeInference.hs` and parser/lowering changes. |
+| `JN-TYPE-PLAN-001` and `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md` | The supported monomorphic subset now uses structured parser/core signature payloads with canonical arrow associativity, but constrained-signature rules are still unresolved. | Real type-system phases in `TypeInference.hs` and the next parser/lowering grammar decisions. |
 | Active parser/operator/if/primitive work (`14`, `15`, `16`) | These domains are already partially represented in `jazz-next` runtime and tests. | Safe runtime-core expansion without reopening settled syntax decisions. |
 | `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md` | ADT/pattern semantics now have an active-path owner map and milestone plan tied to the current runtime pipeline. | Constructor values, `case`, pattern matching, and related diagnostics in `jazz-next`. |
 | Module-loader rebase (`09`) | Module resolution exists in code, but its normative execution plan is still legacy-targeted. | Deterministic module execution semantics, import diagnostics, and closure of multi-file runtime behavior. |
@@ -87,9 +94,9 @@ supersedes:
 
 ### Milestone 1: Close the compile vs run contract gap
 
-- [ ] Decide whether successful `compile` remains diagnostic-only or produces a real intermediate artifact; remove the misleading placeholder-only success contract.
-- [ ] Keep `run` as the canonical interpreter-backed execution path during the transition.
-- [ ] Make CLI exit-code and stdout/stderr behavior deterministic for compile-only, run-success, compile-failure, and runtime-failure paths.
+- [x] Decide whether successful `compile` remains diagnostic-only or produces a real intermediate artifact; remove the misleading placeholder-only success contract.
+- [x] Keep `run` as the canonical interpreter-backed execution path during the transition.
+- [x] Make CLI exit-code and stdout/stderr behavior deterministic for compile-only, run-success, compile-failure, and runtime-failure paths.
 
 Primary files:
 
@@ -110,8 +117,9 @@ bash jazz-next/scripts/test-warning-config.sh
 
 Depends on `JN-TYPE-PLAN-001`.
 
-- [ ] Replace raw `Text` signatures with parsed type AST owned by `jazz-next`.
-- [ ] Land arrow associativity and constrained-signature rules against `JazzNext.Compiler.Parser*`, `AST`, and `TypeInference`.
+- [x] Replace raw `Text` signatures with parsed type AST owned by `jazz-next` for the currently supported monomorphic subset.
+- [x] Land canonical right-associative arrow parsing and explicit parenthesized function-type overrides against `JazzNext.Compiler.Parser*`, `AST`, and `TypeInference`.
+- [ ] Land constrained-signature rules against `JazzNext.Compiler.Parser*`, `AST`, and `TypeInference`.
 - [ ] Keep runtime/evaluator expansion blocked until the type surface is represented in active-path data types rather than legacy references.
 
 Primary files:

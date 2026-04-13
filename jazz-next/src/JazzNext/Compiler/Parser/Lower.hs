@@ -9,6 +9,9 @@ import JazzNext.Compiler.AST
     Expr (..),
     Literal (..),
     Pattern (..),
+    SignaturePayload (..),
+    SignatureToken (..),
+    SignatureType (..),
     Statement (..)
   )
 import JazzNext.Compiler.Parser.AST
@@ -16,6 +19,9 @@ import JazzNext.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
+    SurfaceSignaturePayload (..),
+    SurfaceSignatureToken (..),
+    SurfaceSignatureType (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Identifier
@@ -98,11 +104,44 @@ lowerSurfaceStatement surfaceStatement =
   case surfaceStatement of
     SSLet name spanValue valueExpr ->
       SLet name spanValue (lowerSurfaceExpr valueExpr)
-    SSSignature name spanValue signatureText ->
-      SSignature name spanValue signatureText
+    SSSignature name spanValue signaturePayload ->
+      SSignature name spanValue (lowerSurfaceSignaturePayload signaturePayload)
     SSModule spanValue modulePath ->
       SModule spanValue modulePath
     SSImport spanValue modulePath alias importedSymbols ->
       SImport spanValue modulePath alias importedSymbols
     SSExpr spanValue expr ->
       SExpr spanValue (lowerSurfaceExpr expr)
+
+lowerSurfaceSignaturePayload :: SurfaceSignaturePayload -> SignaturePayload
+lowerSurfaceSignaturePayload surfaceSignaturePayload =
+  case surfaceSignaturePayload of
+    SurfaceSignatureType signatureType ->
+      SignatureType (lowerSurfaceSignatureType signatureType)
+    SurfaceUnsupportedSignature signatureTokens ->
+      UnsupportedSignature (map lowerSurfaceSignatureToken signatureTokens)
+
+lowerSurfaceSignatureType :: SurfaceSignatureType -> SignatureType
+lowerSurfaceSignatureType surfaceSignatureType =
+  case surfaceSignatureType of
+    SurfaceTypeInt -> TypeInt
+    SurfaceTypeBool -> TypeBool
+    SurfaceTypeList innerType ->
+      TypeList (lowerSurfaceSignatureType innerType)
+    SurfaceTypeFunction argumentType resultType ->
+      TypeFunction
+        (lowerSurfaceSignatureType argumentType)
+        (lowerSurfaceSignatureType resultType)
+
+lowerSurfaceSignatureToken :: SurfaceSignatureToken -> SignatureToken
+lowerSurfaceSignatureToken surfaceSignatureToken =
+  case surfaceSignatureToken of
+    SurfaceSignatureNameToken name -> SignatureNameToken name
+    SurfaceSignatureIntToken value -> SignatureIntToken value
+    SurfaceSignatureArrowToken -> SignatureArrowToken
+    SurfaceSignatureLParenToken -> SignatureLParenToken
+    SurfaceSignatureRParenToken -> SignatureRParenToken
+    SurfaceSignatureLBracketToken -> SignatureLBracketToken
+    SurfaceSignatureRBracketToken -> SignatureRBracketToken
+    SurfaceSignatureOperatorToken symbol -> SignatureOperatorToken symbol
+    SurfaceSignatureOtherToken lexeme -> SignatureOtherToken lexeme

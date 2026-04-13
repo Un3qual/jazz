@@ -180,12 +180,12 @@ The parser supports:
 - constrained type signatures:
   - `x :: @{Eq(a), Ord(b)}: a -> b -> c`
 
-Important caveat: function arrows are currently parsed left-associatively, not right-associatively. In other words:
+Active-path note: `jazz-next` now parses function arrows right-associatively. In other words:
 
-- `a -> b -> c` is parsed as `(a -> b) -> c`
-- not the more conventional `a -> (b -> c)`
+- `a -> b -> c` means `a -> (b -> c)`
+- `(a -> b) -> c` requires explicit parentheses
 
-That is almost certainly accidental and should be treated as an implementation bug rather than intended language design.
+The older left-associative behavior should be treated as legacy-reference drift rather than the active language contract.
 
 ### Builtins And Type Environment In `jazz-hs`
 
@@ -409,7 +409,7 @@ Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, bu
 
 Based on the full repo, these areas still require implementation convergence even when a decision lock now exists:
 
-- Extending parsed signature type grammar beyond the current monomorphic subset in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, and single-arrow function types are implemented and test-covered; chained arrows, constrained signatures, and named type variables remain pending):
+- Extending parsed signature type grammar beyond the current monomorphic subset in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, right-associative function types, and parenthesized function-type overrides are implemented and test-covered; constrained signatures and named type variables remain pending):
   - `docs/spec/semantics/bindings-and-signatures.md`
   - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Extending staged operator roadmap work in `jazz-next` beyond implemented v1 parser/fixity/sections behavior:
@@ -440,12 +440,12 @@ If you need a practical baseline for continuing Jazz, use this order:
    - dot-separated statements and scope blocks
    - canonical identifier-only lambdas with lexical closure runtime support (`\(x) -> expr`, multi-argument lambdas lowered into nested unary functions)
    - application and list literals
-   - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, single-arrow function types)
+   - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, right-associative function types, and explicit parenthesized function-type overrides)
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
    - direct `case <expr> { | pattern -> expr ... }` parsing/lowering for the active literal, wildcard, and variable-pattern subset documented in `docs/spec/pattern-matching-semantics.md`
    - built-in operator fixity plus executable left/right section semantics
    - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, plus prelude-provided public helpers `map`, `filter`, `hd`, `tl`, `print!`
-   - runtime execution via `--run` CLI mode plus compile-mode placeholder codegen output
+   - runtime execution via `--run` CLI mode, while successful CLI compile paths are diagnostic-only and keep stdout empty instead of printing placeholder codegen text
    - bundled-prelude loading by default in `compileSource`, `runSource`, and CLI paths, while explicit no-prelude entry points (`compileSourceWithPrelude Nothing`, `runSourceWithPrelude Nothing`, `--no-prelude`, and low-level AST/runtime helpers) expose only `__kernel_*` bridge names
 
 ## Hybrid Semantic-Change Workflow

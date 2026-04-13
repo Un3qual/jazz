@@ -265,10 +265,10 @@ runCompile settings resolvedPrelude source = do
   let warningLines = map formatWarningLine (compileWarnings result)
       errorLines = map (("error: " <>) . renderDiagnostic) (compileErrors result)
       stderrOutput = renderLines (warningLines ++ errorLines)
-      stdoutOutput =
-        case generatedJs result of
-          Just js -> js <> "\n"
-          Nothing -> ""
+      -- Compile mode is currently diagnostics-only. The driver may still carry
+      -- a placeholder artifact internally, but the CLI should not surface it
+      -- as if real code generation had happened.
+      stdoutOutput = ""
       exitCode =
         if null (compileErrors result)
           then 0
@@ -320,10 +320,9 @@ runCompileModuleGraph settings options resolvedPrelude entryModulePath sourceLoo
   let warningLines = map formatWarningLine (compileWarnings result)
       errorLines = map (("error: " <>) . renderDiagnostic) (compileErrors result)
       stderrOutput = renderLines (warningLines ++ errorLines)
-      stdoutOutput =
-        case generatedJs result of
-          Just js -> js <> "\n"
-          Nothing -> ""
+      -- Keep module-graph compile output aligned with standalone compile mode:
+      -- success is quiet unless warnings or errors need to be reported.
+      stdoutOutput = ""
       exitCode =
         if null (compileErrors result)
           then 0

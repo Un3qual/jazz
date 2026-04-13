@@ -7,6 +7,9 @@ module JazzNext.Compiler.AST
     Expr (..),
     Literal (..),
     Pattern (..),
+    SignaturePayload (..),
+    SignatureToken (..),
+    SignatureType (..),
     Statement (..)
   ) where
 
@@ -56,11 +59,38 @@ data Expr
   | EBlock [Statement]
   deriving (Eq, Show)
 
+-- | Lowered signature payload used by analyzer/type inference.
+data SignaturePayload
+  = SignatureType SignatureType
+  | UnsupportedSignature [SignatureToken]
+  deriving (Eq, Show)
+
+-- | Supported monomorphic signature types.
+data SignatureType
+  = TypeInt
+  | TypeBool
+  | TypeList SignatureType
+  | TypeFunction SignatureType SignatureType
+  deriving (Eq, Show)
+
+-- | Tokenized fallback for unsupported signature surfaces.
+data SignatureToken
+  = SignatureNameToken Text
+  | SignatureIntToken Int
+  | SignatureArrowToken
+  | SignatureLParenToken
+  | SignatureRParenToken
+  | SignatureLBracketToken
+  | SignatureRBracketToken
+  | SignatureOperatorToken Text
+  | SignatureOtherToken Text
+  deriving (Eq, Show)
+
 -- | Dot-terminated statements that can appear either at the top level or
 -- inside block expressions.
 data Statement
   = SLet Identifier SourceSpan Expr
-  | SSignature Identifier SourceSpan Text
+  | SSignature Identifier SourceSpan SignaturePayload
   | SModule SourceSpan [Text]
   | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SExpr SourceSpan Expr

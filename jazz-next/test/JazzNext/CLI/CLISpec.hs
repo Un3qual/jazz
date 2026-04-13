@@ -42,13 +42,14 @@ tests =
     ("parseCliOptions captures prelude path", testParsePreludePath),
     ("parseCliOptions captures no-prelude switch", testParseNoPrelude),
     ("parseCliOptions rejects conflicting prelude switches", testParsePreludeConflict),
-    ("cli run prints warning to stderr while keeping stdout output", testCliWarningOnlyBehavior),
+    ("cli compile prints warnings to stderr while keeping stdout empty", testCliWarningOnlyBehavior),
     ("cli run returns non-zero and suppresses stdout when warning promoted", testCliPromotedWarningBehavior),
     ("cli --run prints evaluated runtime output", testCliRunModeSuccess),
     ("cli --run prints evaluated section runtime output", testCliRunModeSectionSuccess),
     ("cli --run prints evaluated list primitive output", testCliRunModeListPrimitiveSuccess),
     ("cli --run prints evaluated filter primitive output", testCliRunModeFilterPrimitiveSuccess),
     ("cli --run with entry module loads module graph and ignores stdin", testCliRunModeModuleGraphSuccess),
+    ("cli module graph compile succeeds without runtime stdout", testCliModuleGraphCompileSuccess),
     ("cli module graph compile reports resolver diagnostics", testCliModuleGraphCompileError),
     ("cli module graph compile reports missing import symbol diagnostics", testCliModuleGraphMissingImportSymbol),
     ("cli module graph compile reports module declaration mismatch diagnostics", testCliModuleGraphDeclarationMismatch),
@@ -140,7 +141,7 @@ testCliWarningOnlyBehavior = do
   assertEqual "exit code" 0 (cliExitCode output)
   assertContains "stderr includes warning code" "W0001" (cliStderr output)
   assertContains "stderr includes warning category" "same-scope-rebinding" (cliStderr output)
-  assertContains "stdout includes generated output" "codegen placeholder" (cliStdout output)
+  assertEqual "stdout stays empty for compile-only success" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing
@@ -210,6 +211,30 @@ testCliRunModeModuleGraphSuccess = do
   assertEqual "runtime stdout" "1\n" (cliStdout output)
   assertEqual "stderr is empty" "" (cliStderr output)
   assertEqual "stdin source is ignored in module mode" False didRead
+  where
+    envLookup _ = pure Nothing
+    fileLookup key =
+      pure
+        ( Map.lookup
+            key
+            ( Map.fromList
+                [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
+                  ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
+                ]
+            )
+        )
+
+testCliModuleGraphCompileSuccess :: IO ()
+testCliModuleGraphCompileSuccess = do
+  output <-
+    runCliWith
+      ["--entry-module", "App::Main", "--module-root", "src"]
+      envLookup
+      fileLookup
+      (pure "ignored = 1.")
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "compile stdout stays empty" "" (cliStdout output)
+  assertEqual "compile stderr stays empty" "" (cliStderr output)
   where
     envLookup _ = pure Nothing
     fileLookup key =
@@ -505,7 +530,7 @@ testCliAcceptsConcreteListSignature :: IO ()
 testCliAcceptsConcreteListSignature = do
   output <- runCliWith [] envLookup configLookup (pure concreteListSignatureSource)
   assertEqual "exit code" 0 (cliExitCode output)
-  assertContains "stdout includes generated output" "codegen placeholder" (cliStdout output)
+  assertEqual "stdout stays empty for compile-only success" "" (cliStdout output)
   assertEqual "stderr is empty" "" (cliStderr output)
   where
     envLookup _ = pure Nothing
@@ -515,7 +540,7 @@ testCliAcceptsSimpleFunctionSignature :: IO ()
 testCliAcceptsSimpleFunctionSignature = do
   output <- runCliWith [] envLookup configLookup (pure simpleFunctionSignatureSource)
   assertEqual "exit code" 0 (cliExitCode output)
-  assertContains "stdout includes generated output" "codegen placeholder" (cliStdout output)
+  assertEqual "stdout stays empty for compile-only success" "" (cliStdout output)
   assertEqual "stderr is empty" "" (cliStderr output)
   where
     envLookup _ = pure Nothing
