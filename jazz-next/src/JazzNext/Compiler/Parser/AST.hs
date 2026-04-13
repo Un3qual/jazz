@@ -4,6 +4,7 @@
 -- into the smaller core AST used by later phases.
 module JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
+    SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
@@ -39,6 +40,10 @@ data SurfacePattern
 
 -- | One parser-surface pattern-match arm.
 data SurfaceCaseArm = SurfaceCaseArm SurfacePattern SurfaceExpr
+  deriving (Eq, Show)
+
+-- | Parser-owned constructor metadata for top-level `data` declarations.
+data SurfaceDataConstructor = SurfaceDataConstructor Identifier Int
   deriving (Eq, Show)
 
 -- | Parser-facing expression tree. This remains separate from the core AST so
@@ -91,6 +96,7 @@ data SurfaceSignatureToken
 data SurfaceStatement
   = SSLet Identifier SourceSpan SurfaceExpr
   | SSSignature Identifier SourceSpan SurfaceSignaturePayload
+  | SSData SourceSpan Identifier [SurfaceDataConstructor]
   | SSModule SourceSpan [Text]
   | SSImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SSExpr SourceSpan SurfaceExpr

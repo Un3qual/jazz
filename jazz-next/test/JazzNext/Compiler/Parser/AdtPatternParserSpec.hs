@@ -4,6 +4,7 @@ module Main (main) where
 
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    DataConstructor (..),
     Expr (..),
     Literal (..),
     Pattern (..),
@@ -17,6 +18,7 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
+    SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
@@ -44,6 +46,7 @@ tests =
     ("parses multi-argument constructor patterns with nullary subpatterns", testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns),
     ("parses nullary constructor subpatterns without losing the outer argument", testParsesNullaryConstructorSubpatterns),
     ("parses list pattern case arms", testParsesListPatternCaseArms),
+    ("parses canonical data declaration and lowers constructor arities", testParsesCanonicalDataDeclarationAndLowersConstructorArities),
     ("parses nested case expression", testParsesNestedCaseExpression),
     ("parses unparenthesized if expression inside case arm body", testParsesIfExpressionInsideCaseArmBody),
     ("parses unparenthesized lambda expression inside case arm body", testParsesLambdaExpressionInsideCaseArmBody),
@@ -62,6 +65,9 @@ tests =
     ("reports invalid case scrutinee syntax before body diagnostics", testReportsInvalidCaseScrutineeSyntax),
     ("rejects case expression without leading pipe", testRejectsCaseExpressionWithoutPipe),
     ("rejects case expression without arm arrow", testRejectsCaseExpressionWithoutArrow),
+    ("rejects data declaration without constructors", testRejectsDataDeclarationWithoutConstructors),
+    ("rejects data declaration with malformed pipe placement", testRejectsDataDeclarationWithMalformedPipePlacement),
+    ("rejects data declaration missing terminator", testRejectsDataDeclarationMissingTerminator),
     ("rejects malformed list patterns", testRejectsMalformedListPattern),
     ("rejects malformed later list patterns", testRejectsMalformedLaterListPattern),
     ("lowers parsed case nodes into core AST", testLowerCaseExpression)
@@ -272,6 +278,35 @@ testParsesListPatternCaseArms =
                     (ELit (LInt 0))
                 ]
             )
+        ]
+
+testParsesCanonicalDataDeclarationAndLowersConstructorArities :: IO ()
+testParsesCanonicalDataDeclarationAndLowersConstructorArities =
+  assertRight
+    "data declaration parse + lower"
+    (parseSurfaceProgram "data Maybe = Just value | Nothing.")
+    ( \surfaceProgram -> do
+        assertEqual "data declaration surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "data declaration lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSData
+            (SourceSpan 1 1)
+            "Maybe"
+            [ SurfaceDataConstructor "Just" 1,
+              SurfaceDataConstructor "Nothing" 0
+            ]
+        ]
+    expectedLoweredProgram =
+      EBlock
+        [ SData
+            (SourceSpan 1 1)
+            "Maybe"
+            [ DataConstructor "Just" 1,
+              DataConstructor "Nothing" 0
+            ]
         ]
 
 testParsesNestedCaseExpression :: IO ()
@@ -603,6 +638,27 @@ testRejectsCaseExpressionWithoutArrow =
     "missing case-arm arrow"
     "expected '->'"
     (parseSurfaceProgram "x = case n { | 0 True }.")
+
+testRejectsDataDeclarationWithoutConstructors :: IO ()
+testRejectsDataDeclarationWithoutConstructors =
+  assertLeftDiagnosticContains
+    "empty data constructor list"
+    "expected constructor declaration"
+    (parseSurfaceProgram "data Maybe = .")
+
+testRejectsDataDeclarationWithMalformedPipePlacement :: IO ()
+testRejectsDataDeclarationWithMalformedPipePlacement =
+  assertLeftDiagnosticContains
+    "malformed constructor separator"
+    "expected constructor declaration"
+    (parseSurfaceProgram "data Maybe = Just value | .")
+
+testRejectsDataDeclarationMissingTerminator :: IO ()
+testRejectsDataDeclarationMissingTerminator =
+  assertLeftDiagnosticContains
+    "missing data declaration terminator"
+    "expected '.'"
+    (parseSurfaceProgram "data Maybe = Just value | Nothing")
 
 testRejectsMalformedListPattern :: IO ()
 testRejectsMalformedListPattern =

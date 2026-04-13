@@ -26,6 +26,7 @@ import JazzNext.Compiler.Identifier
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
+    SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
@@ -139,6 +140,14 @@ parseStatement context tokens =
           rejectNestedModuleDeclaration moduleToken
     importToken@(Token {tokenKind = TImport}) : rest ->
       fmap singleStatement (parseImportStatement importToken rest)
+    dataToken@(Token {tokenKind = TData}) : rest ->
+      case context of
+        TopLevelContext ->
+          fmap singleStatement (parseDataStatement dataToken rest)
+        ModuleBodyContext ->
+          fmap singleStatement (parseDataStatement dataToken rest)
+        NestedBlockContext ->
+          rejectNestedDataDeclaration dataToken
     -- Statement-level forms take precedence over expression parsing when the
     -- leading identifier is followed by declaration syntax.
     (nameToken : afterName@(Token {tokenKind = TColonColon} : _))
@@ -177,6 +186,15 @@ rejectNestedModuleDeclaration moduleToken =
     ( parseDiagnostic
         ( "module declaration must remain top-level at "
             <> renderSourceSpan (tokenSpan moduleToken)
+        )
+    )
+
+rejectNestedDataDeclaration :: Token -> Either Diagnostic a
+rejectNestedDataDeclaration dataToken =
+  Left
+    ( parseDiagnostic
+        ( "data declaration must remain top-level at "
+            <> renderSourceSpan (tokenSpan dataToken)
         )
     )
 
@@ -304,6 +322,184 @@ parseImportTail importToken modulePath tokensAfterModulePath =
                 <> "'"
             )
         )
+
+parseDataStatement :: Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseDataStatement dataToken tokensAfterDataKeyword = do
+  (typeName, afterTypeName) <- parseDataTypeName tokensAfterDataKeyword
+  afterEquals <-
+    consumeEquals
+      afterTypeName
+      ( "expected '=' before end of input after data type name at "
+          <> renderSourceSpan (tokenSpan dataToken)
+      )
+  (constructors, remaining) <- parseDataConstructors afterEquals
+  pure (SSData (tokenSpan dataToken) typeName constructors, remaining)
+
+parseDataTypeName :: [Token] -> Either Diagnostic (Identifier, [Token])
+parseDataTypeName tokens =
+  case tokens of
+    Token {tokenKind = TIdentifier typeName, tokenSpan = typeSpan} : rest
+      | isConstructorIdentifierText typeName ->
+          Right (mkIdentifier typeName, rest)
+      | otherwise ->
+          Left
+            ( parseDiagnostic
+                ( "expected type constructor name at "
+                    <> renderSourceSpan typeSpan
+                    <> ", found '"
+                    <> typeName
+                    <> "'"
+                )
+            )
+    [] ->
+      Left (parseDiagnostic "expected type constructor name before end of input after 'data'")
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected type constructor name at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+
+parseDataConstructors :: [Token] -> Either Diagnostic ([SurfaceDataConstructor], [Token])
+parseDataConstructors tokensAfterEquals = do
+  (firstConstructor, afterFirstConstructor) <- parseDataConstructor tokensAfterEquals
+  go [firstConstructor] afterFirstConstructor
+  where
+    go revConstructors allTokens =
+      case allTokens of
+        Token {tokenKind = TDot} : rest ->
+          Right (reverse revConstructors, rest)
+        Token {tokenKind = TOperator "|"} : rest -> do
+          (nextConstructor, afterNextConstructor) <- parseDataConstructor rest
+          go (nextConstructor : revConstructors) afterNextConstructor
+        [] ->
+          Left (parseDiagnostic "expected '.' before end of input in data declaration")
+        token : _ ->
+          Left
+            ( parseDiagnostic
+                ( "expected '|' or '.' at "
+                    <> renderSourceSpan (tokenSpan token)
+                    <> ", found '"
+                    <> tokenLexeme token
+                    <> "'"
+                )
+            )
+
+parseDataConstructor :: [Token] -> Either Diagnostic (SurfaceDataConstructor, [Token])
+parseDataConstructor tokens =
+  case tokens of
+    Token {tokenKind = TIdentifier constructorName, tokenSpan = constructorSpan} : rest
+      | isConstructorIdentifierText constructorName -> do
+          (constructorArity, remaining) <- parseDataConstructorArity 0 rest
+          Right
+            ( SurfaceDataConstructor (mkIdentifier constructorName) constructorArity,
+              remaining
+            )
+      | otherwise ->
+          Left
+            ( parseDiagnostic
+                ( "expected constructor declaration at "
+                    <> renderSourceSpan constructorSpan
+                    <> ", found '"
+                    <> constructorName
+                    <> "'"
+                )
+            )
+    [] ->
+      Left (parseDiagnostic "expected constructor declaration before end of input in data declaration")
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected constructor declaration at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+
+parseDataConstructorArity :: Int -> [Token] -> Either Diagnostic (Int, [Token])
+parseDataConstructorArity arity allTokens =
+  case allTokens of
+    Token {tokenKind = TOperator "|"} : _ ->
+      Right (arity, allTokens)
+    Token {tokenKind = TDot} : _ ->
+      Right (arity, allTokens)
+    [] ->
+      Right (arity, allTokens)
+    _ -> do
+      remaining <- parseDataConstructorArgument allTokens
+      parseDataConstructorArity (arity + 1) remaining
+
+parseDataConstructorArgument :: [Token] -> Either Diagnostic [Token]
+parseDataConstructorArgument tokens =
+  case tokens of
+    Token {tokenKind = TIdentifier _} : rest ->
+      Right rest
+    Token {tokenKind = TLParen} : rest ->
+      consumeBalancedDataConstructorGroup 1 0 rest
+    Token {tokenKind = TLBracket} : rest ->
+      consumeBalancedDataConstructorGroup 0 1 rest
+    [] ->
+      Left (parseDiagnostic "expected constructor argument before end of input in data declaration")
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected constructor argument at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+
+consumeBalancedDataConstructorGroup :: Int -> Int -> [Token] -> Either Diagnostic [Token]
+consumeBalancedDataConstructorGroup parenDepth bracketDepth tokens =
+  case tokens of
+    [] ->
+      Left (parseDiagnostic "expected constructor argument to close before end of input in data declaration")
+    token : rest ->
+      case tokenKind token of
+        TLParen ->
+          consumeBalancedDataConstructorGroup (parenDepth + 1) bracketDepth rest
+        TRParen
+          | parenDepth > 0 ->
+              let nextParenDepth = parenDepth - 1
+               in
+                if nextParenDepth == 0 && bracketDepth == 0
+                  then Right rest
+                  else consumeBalancedDataConstructorGroup nextParenDepth bracketDepth rest
+          | otherwise ->
+              Left
+                ( parseDiagnostic
+                    ( "unexpected ')' at "
+                        <> renderSourceSpan (tokenSpan token)
+                        <> " in constructor argument"
+                    )
+                )
+        TLBracket ->
+          consumeBalancedDataConstructorGroup parenDepth (bracketDepth + 1) rest
+        TRBracket
+          | bracketDepth > 0 ->
+              let nextBracketDepth = bracketDepth - 1
+               in
+                if parenDepth == 0 && nextBracketDepth == 0
+                  then Right rest
+                  else consumeBalancedDataConstructorGroup parenDepth nextBracketDepth rest
+          | otherwise ->
+              Left
+                ( parseDiagnostic
+                    ( "unexpected ']' at "
+                        <> renderSourceSpan (tokenSpan token)
+                        <> " in constructor argument"
+                    )
+                )
+        _ ->
+          consumeBalancedDataConstructorGroup parenDepth bracketDepth rest
 
 -- | Parse `Foo::Bar` style module paths and leave the first non-path token
 -- untouched for the caller.
@@ -1146,6 +1342,7 @@ collectUntilDot = go []
       case tokens of
         Token {tokenKind = TModule} : _ -> True
         Token {tokenKind = TImport} : _ -> True
+        Token {tokenKind = TData} : _ -> True
         Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
         Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
         _ -> False
@@ -1358,6 +1555,22 @@ consumeArrow tokens endOfInputMessage =
       Left
         ( parseDiagnostic
             ( "expected '->' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+
+consumeEquals :: [Token] -> Text -> Either Diagnostic [Token]
+consumeEquals tokens endOfInputMessage =
+  case tokens of
+    Token {tokenKind = TEquals} : rest -> Right rest
+    [] -> Left (parseDiagnostic endOfInputMessage)
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected '=' at "
                 <> renderSourceSpan (tokenSpan token)
                 <> ", found '"
                 <> tokenLexeme token

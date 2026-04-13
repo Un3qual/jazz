@@ -307,6 +307,14 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
               warningsRev,
               errorsWithPending
             )
+        SData {} ->
+          let errorsWithPending = flushPendingSignature pendingSignature errorsRev
+           in
+            ( scopeBindings,
+              Nothing,
+              warningsRev,
+              errorsWithPending
+            )
         SSignature signatureName signatureSpan _signatureText ->
           -- Signature payload text is carried forward for future type parsing.
           -- This pass only enforces placement/name coherence.

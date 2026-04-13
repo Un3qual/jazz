@@ -160,6 +160,8 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
               go env Nothing rest
             SImport {} ->
               go env Nothing rest
+            SData {} ->
+              go env Nothing rest
             SLet name _ _ -> do
               value <- bindingCellAt statementIndex
               go (Map.insert (identifierText name) (Right value) env) Nothing rest

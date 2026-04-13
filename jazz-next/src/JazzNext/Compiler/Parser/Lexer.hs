@@ -27,6 +27,7 @@ data TokenKind
   | TModule
   | TImport
   | TAs
+  | TData
   | TIf
   | TElse
   | TCase
@@ -92,6 +93,7 @@ tokenize = go 1 1
                       "module" -> TModule
                       "import" -> TImport
                       "as" -> TAs
+                      "data" -> TData
                       "if" -> TIf
                       "else" -> TElse
                       "case" -> TCase

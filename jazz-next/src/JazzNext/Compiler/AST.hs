@@ -4,6 +4,7 @@
 -- small interpreter/runtime slice in `jazz-next`.
 module JazzNext.Compiler.AST
   ( CaseArm (..),
+    DataConstructor (..),
     Expr (..),
     Literal (..),
     Pattern (..),
@@ -38,6 +39,10 @@ data Pattern
 
 -- | One lowered pattern-match arm.
 data CaseArm = CaseArm Pattern Expr
+  deriving (Eq, Show)
+
+-- | Core constructor metadata lowered from parser-owned `data` declarations.
+data DataConstructor = DataConstructor Identifier Int
   deriving (Eq, Show)
 
 -- | Core expressions after surface syntax has been lowered into the stable
@@ -91,6 +96,7 @@ data SignatureToken
 data Statement
   = SLet Identifier SourceSpan Expr
   | SSignature Identifier SourceSpan SignaturePayload
+  | SData SourceSpan Identifier [DataConstructor]
   | SModule SourceSpan [Text]
   | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SExpr SourceSpan Expr

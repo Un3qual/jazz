@@ -6,6 +6,7 @@ module JazzNext.Compiler.Parser.Lower
 
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    DataConstructor (..),
     Expr (..),
     Literal (..),
     Pattern (..),
@@ -16,6 +17,7 @@ import JazzNext.Compiler.AST
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
+    SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
@@ -106,6 +108,8 @@ lowerSurfaceStatement surfaceStatement =
       SLet name spanValue (lowerSurfaceExpr valueExpr)
     SSSignature name spanValue signaturePayload ->
       SSignature name spanValue (lowerSurfaceSignaturePayload signaturePayload)
+    SSData spanValue typeName constructors ->
+      SData spanValue typeName (map lowerSurfaceDataConstructor constructors)
     SSModule spanValue modulePath ->
       SModule spanValue modulePath
     SSImport spanValue modulePath alias importedSymbols ->
@@ -145,3 +149,7 @@ lowerSurfaceSignatureToken surfaceSignatureToken =
     SurfaceSignatureRBracketToken -> SignatureRBracketToken
     SurfaceSignatureOperatorToken symbol -> SignatureOperatorToken symbol
     SurfaceSignatureOtherToken lexeme -> SignatureOtherToken lexeme
+
+lowerSurfaceDataConstructor :: SurfaceDataConstructor -> DataConstructor
+lowerSurfaceDataConstructor (SurfaceDataConstructor constructorName constructorArity) =
+  DataConstructor constructorName constructorArity

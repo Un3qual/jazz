@@ -161,6 +161,8 @@ canonicalizeStatement statement =
       SLet name spanValue (canonicalizeExpr valueExpr)
     SSignature name spanValue signaturePayload ->
       SSignature name spanValue signaturePayload
+    SData spanValue typeName constructors ->
+      SData spanValue typeName constructors
     SModule spanValue modulePath ->
       SModule spanValue modulePath
     SImport spanValue modulePath alias importedSymbols ->
@@ -674,6 +676,8 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
             SModule {} ->
               go env lastExprType pendingSignatureType state rest
             SImport {} ->
+              go env lastExprType pendingSignatureType state rest
+            SData {} ->
               go env lastExprType pendingSignatureType state rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
