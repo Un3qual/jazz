@@ -45,12 +45,14 @@ tests =
     ("parses parenthesized function signature into structured nodes", testParseParenthesizedFunctionSignature),
     ("parses chained function signature right associatively", testParseChainedFunctionSignature),
     ("parses parenthesized function override into structured nodes", testParseParenthesizedFunctionOverrideSignature),
+    ("parses list of parenthesized function types", testParseFunctionListSignature),
     ("ignores hash line comments between statements", testIgnoresHashLineComments),
     ("tracks tab-aligned expression spans", testTabAlignedExpressionSpan),
     ("parses nested scope expression", testParseNestedScopeExpression),
     ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
     ("lowers structured signature payload into analyzer AST", testLowerStructuredSignatureProgram),
     ("lowers right-associated function signature into analyzer AST", testLowerRightAssociativeFunctionSignatureProgram),
+    ("lowers list of function signature into analyzer AST", testLowerFunctionListSignatureProgram),
     ("rejects missing statement terminator", testRejectsMissingDotTerminator),
     ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot),
     ("rejects integer literal overflow", testRejectsIntOverflow),
@@ -155,6 +157,24 @@ testParseParenthesizedFunctionOverrideSignature =
     )
     (parseSurfaceProgram "f :: (Int -> Int) -> Int.\nf = applyToOne.")
 
+testParseFunctionListSignature :: IO ()
+testParseFunctionListSignature =
+  assertEqual
+    "list of parenthesized function types"
+    ( Right
+        ( SEBlock
+            [ SSSignature
+                "fns"
+                (SourceSpan 1 1)
+                ( SurfaceSignatureType
+                    (SurfaceTypeList (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeInt))
+                ),
+              SSLet "fns" (SourceSpan 2 1) (SEList [SESectionRight "+" (SELit (SLInt 1))])
+            ]
+        )
+    )
+    (parseSurfaceProgram "fns :: [(Int -> Int)].\nfns = [(+ 1)].")
+
 testIgnoresHashLineComments :: IO ()
 testIgnoresHashLineComments =
   assertEqual
@@ -249,6 +269,28 @@ testLowerRightAssociativeFunctionSignatureProgram =
                       (TypeFunction TypeInt TypeInt)
                   ),
                 SLet "f" (SourceSpan 2 1) (EOperatorValue "+")
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
+
+testLowerFunctionListSignatureProgram :: IO ()
+testLowerFunctionListSignatureProgram =
+  assertRight
+    "parse + lower list of function signature"
+    (parseSurfaceProgram "fns :: [(Int -> Int)].\nfns = [(+ 1)].")
+    ( \surfaceProgram ->
+        assertEqual
+          "lowered list of function signature AST"
+          ( EBlock
+              [ SSignature
+                  "fns"
+                  (SourceSpan 1 1)
+                  (SignatureType (TypeList (TypeFunction TypeInt TypeInt))),
+                SLet
+                  "fns"
+                  (SourceSpan 2 1)
+                  (EList [ESectionRight "+" (ELit (LInt 1))])
               ]
           )
           (lowerSurfaceExpr surfaceProgram)

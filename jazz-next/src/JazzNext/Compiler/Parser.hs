@@ -1203,7 +1203,7 @@ parseNonFunctionSignatureType signatureTokens =
         Nothing ->
           case stripWrappedSignatureTokens isLParenToken isRParenToken signatureTokens of
             Just innerTokens ->
-              parseNonFunctionSignatureType innerTokens
+              parseSupportedSignatureType innerTokens
             Nothing ->
               Nothing
 

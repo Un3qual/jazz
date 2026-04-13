@@ -59,7 +59,7 @@ supersedes:
 - `JazzNext.Compiler.Runtime` already interprets the current core subset: ints, bools, lists, closures, builtin/kernel functions, operator values and sections, `if` via canonical `ECase`, and block scope evaluation.
 - `JazzNext.Compiler.TypeInference` still behaves as a light canonicalization/type-check layer; supported monomorphic signatures now arrive as structured parser/core payloads with right-associated chained arrows and parenthesized function-type overrides, but constrained-signature work remains blocked on the next type-grammar milestones.
 - `JazzNext.Compiler.ModuleResolver` already resolves and replays module graphs, but the normative module/runtime plan still needs an active-path rewrite around these files.
-- Successful compile paths still emit `"/* jazz-next codegen placeholder */"`; successful run paths already return interpreter output, so compile-mode semantics and CLI contract still need tightening.
+- Successful compile paths are now diagnostic-only and keep stdout empty on success, while successful run paths continue to return interpreter output.
 
 ## Milestone 1 Closure (2026-04-10)
 

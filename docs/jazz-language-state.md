@@ -409,7 +409,7 @@ Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, bu
 
 Based on the full repo, these areas still require implementation convergence even when a decision lock now exists:
 
-- Extending parsed signature type grammar beyond the current monomorphic subset in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, right-associated function types, and parenthesized function-type overrides are implemented and test-covered; constrained signatures and named type variables remain pending):
+- Extending parsed signature type grammar beyond the current monomorphic subset in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, right-associative function types, and parenthesized function-type overrides are implemented and test-covered; constrained signatures and named type variables remain pending):
   - `docs/spec/semantics/bindings-and-signatures.md`
   - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Extending staged operator roadmap work in `jazz-next` beyond implemented v1 parser/fixity/sections behavior:
@@ -440,7 +440,7 @@ If you need a practical baseline for continuing Jazz, use this order:
    - dot-separated statements and scope blocks
    - canonical identifier-only lambdas with lexical closure runtime support (`\(x) -> expr`, multi-argument lambdas lowered into nested unary functions)
    - application and list literals
-   - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, right-associated function types, and explicit parenthesized function-type overrides)
+   - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, right-associative function types, and explicit parenthesized function-type overrides)
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
    - direct `case <expr> { | pattern -> expr ... }` parsing/lowering for the active literal, wildcard, and variable-pattern subset documented in `docs/spec/pattern-matching-semantics.md`
    - built-in operator fixity plus executable left/right section semantics

@@ -10,6 +10,8 @@ import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
+    SignaturePayload (..),
+    SignatureType (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -61,7 +63,7 @@ testCollectBindingNames =
   where
     indexedStatements =
       [ (0, SLet (ident "x") span0 (ELit (LInt 1))),
-        (1, SSignature (ident "x") span0 "Int"),
+        (1, SSignature (ident "x") span0 (SignatureType TypeInt)),
         (2, SLet (ident "y") span0 (EVar (ident "x")))
       ]
 

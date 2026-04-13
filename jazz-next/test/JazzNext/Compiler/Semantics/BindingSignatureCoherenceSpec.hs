@@ -65,6 +65,7 @@ tests =
     ("source pipeline accepts parenthesized function signature", testSourceAcceptsParenthesizedFunctionSignature),
     ("source pipeline accepts right-associated chained function signature", testSourceAcceptsChainedFunctionSignature),
     ("source pipeline accepts parenthesized function override signature", testSourceAcceptsParenthesizedFunctionOverrideSignature),
+    ("source pipeline accepts list of parenthesized function types", testSourceAcceptsFunctionListSignature),
     ("source pipeline rejects list signature mismatch", testSourceRejectsListSignatureMismatch),
     ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface),
     ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError),
@@ -348,6 +349,10 @@ testSourceAcceptsChainedFunctionSignature =
 testSourceAcceptsParenthesizedFunctionOverrideSignature :: IO ()
 testSourceAcceptsParenthesizedFunctionOverrideSignature =
   assertSourceOk "applyToOne :: (Int -> Int) -> Int.\napplyToOne = \\(f) -> f 1."
+
+testSourceAcceptsFunctionListSignature :: IO ()
+testSourceAcceptsFunctionListSignature =
+  assertSourceOk "fns :: [(Int -> Int)].\nfns = [(+ 1)]."
 
 testSourceRejectsListSignatureMismatch :: IO ()
 testSourceRejectsListSignatureMismatch = do
