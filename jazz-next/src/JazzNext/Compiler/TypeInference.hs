@@ -908,12 +908,6 @@ signaturePayloadToExpressionType signaturePayload =
   case signaturePayload of
     SignatureType signatureType ->
       Just (signatureTypeToExpressionType signatureType)
-    SignatureFunction argumentType resultType ->
-      Just
-        ( TFunctionType
-            (signatureTypeToExpressionType argumentType)
-            (signatureTypeToExpressionType resultType)
-        )
     UnsupportedSignature {} ->
       Nothing
 
@@ -934,8 +928,6 @@ renderSignaturePayload signaturePayload =
   case signaturePayload of
     SignatureType signatureType ->
       renderSignatureType signatureType
-    SignatureFunction argumentType resultType ->
-      renderFunctionArgumentType argumentType <> " -> " <> renderSignatureType resultType
     UnsupportedSignature signatureTokens ->
       renderUnsupportedSignatureTokens signatureTokens
 

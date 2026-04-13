@@ -62,7 +62,6 @@ data Expr
 -- | Lowered signature payload used by analyzer/type inference.
 data SignaturePayload
   = SignatureType SignatureType
-  | SignatureFunction SignatureType SignatureType
   | UnsupportedSignature [SignatureToken]
   deriving (Eq, Show)
 

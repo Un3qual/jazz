@@ -1208,12 +1208,7 @@ parseNonFunctionSignatureType signatureTokens =
               Nothing
 
 surfaceSignaturePayloadFromType :: SurfaceSignatureType -> SurfaceSignaturePayload
-surfaceSignaturePayloadFromType signatureType =
-  case signatureType of
-    SurfaceTypeFunction argumentType resultType ->
-      SurfaceSignatureFunction argumentType resultType
-    _ ->
-      SurfaceSignatureType signatureType
+surfaceSignaturePayloadFromType = SurfaceSignatureType
 
 splitFirstTopLevelArrowTokens :: [Token] -> Either () (Maybe ([Token], [Token]))
 splitFirstTopLevelArrowTokens tokens = go 0 0 [] tokens

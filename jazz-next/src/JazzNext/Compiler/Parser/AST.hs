@@ -63,7 +63,6 @@ data SurfaceExpr
 -- issuing the stable `E2009` diagnostic without storing joined raw text.
 data SurfaceSignaturePayload
   = SurfaceSignatureType SurfaceSignatureType
-  | SurfaceSignatureFunction SurfaceSignatureType SurfaceSignatureType
   | SurfaceUnsupportedSignature [SurfaceSignatureToken]
   deriving (Eq, Show)
 

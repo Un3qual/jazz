@@ -109,9 +109,11 @@ testParseParenthesizedFunctionSignature =
             [ SSSignature
                 "f"
                 (SourceSpan 1 1)
-                ( SurfaceSignatureFunction
-                    (SurfaceTypeList SurfaceTypeInt)
-                    (SurfaceTypeList SurfaceTypeInt)
+                ( SurfaceSignatureType
+                    (SurfaceTypeFunction
+                      (SurfaceTypeList SurfaceTypeInt)
+                      (SurfaceTypeList SurfaceTypeInt)
+                    )
                 ),
               SSLet "f" (SourceSpan 2 1) (SEOperatorValue "+")
             ]
@@ -128,9 +130,8 @@ testParseChainedFunctionSignature =
             [ SSSignature
                 "f"
                 (SourceSpan 1 1)
-                ( SurfaceSignatureFunction
-                    SurfaceTypeInt
-                    (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeInt)
+                ( SurfaceSignatureType
+                    (SurfaceTypeFunction SurfaceTypeInt (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeInt))
                 ),
               SSLet "f" (SourceSpan 2 1) (SEOperatorValue "+")
             ]
@@ -147,9 +148,8 @@ testParseParenthesizedFunctionOverrideSignature =
             [ SSSignature
                 "f"
                 (SourceSpan 1 1)
-                ( SurfaceSignatureFunction
-                    (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeInt)
-                    SurfaceTypeInt
+                ( SurfaceSignatureType
+                    (SurfaceTypeFunction (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeInt) SurfaceTypeInt)
                 ),
               SSLet "f" (SourceSpan 2 1) (SEVar "applyToOne")
             ]
@@ -264,10 +264,7 @@ testLowerRightAssociativeFunctionSignatureProgram =
               [ SSignature
                   "f"
                   (SourceSpan 1 1)
-                  ( SignatureFunction
-                      TypeInt
-                      (TypeFunction TypeInt TypeInt)
-                  ),
+                  (SignatureType (TypeFunction TypeInt (TypeFunction TypeInt TypeInt))),
                 SLet "f" (SourceSpan 2 1) (EOperatorValue "+")
               ]
           )

@@ -118,10 +118,6 @@ lowerSurfaceSignaturePayload surfaceSignaturePayload =
   case surfaceSignaturePayload of
     SurfaceSignatureType signatureType ->
       SignatureType (lowerSurfaceSignatureType signatureType)
-    SurfaceSignatureFunction argumentType resultType ->
-      SignatureFunction
-        (lowerSurfaceSignatureType argumentType)
-        (lowerSurfaceSignatureType resultType)
     SurfaceUnsupportedSignature signatureTokens ->
       UnsupportedSignature (map lowerSurfaceSignatureToken signatureTokens)
 
