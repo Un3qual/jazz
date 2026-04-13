@@ -6,6 +6,8 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
+    SignaturePayload (..),
+    SignatureType (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -60,9 +62,11 @@ tests =
     ("source pipeline accepts nested concrete list signature", testSourceAcceptsNestedConcreteListSignature),
     ("source pipeline accepts simple function signature", testSourceAcceptsSimpleFunctionSignature),
     ("source pipeline accepts list to list function signature", testSourceAcceptsListToListFunctionSignature),
+    ("source pipeline accepts parenthesized function signature", testSourceAcceptsParenthesizedFunctionSignature),
+    ("source pipeline accepts right-associated chained function signature", testSourceAcceptsChainedFunctionSignature),
+    ("source pipeline accepts parenthesized function override signature", testSourceAcceptsParenthesizedFunctionOverrideSignature),
     ("source pipeline rejects list signature mismatch", testSourceRejectsListSignatureMismatch),
     ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface),
-    ("source pipeline rejects chained function signature surface", testSourceRejectsChainedFunctionSignatureSurface),
     ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError),
     ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
   ]
@@ -138,7 +142,7 @@ testNestedScopeResolvesOuterBinding = do
 validSignatureProgram :: Expr
 validSignatureProgram =
   EBlock
-    [ SSignature "x" (SourceSpan 1 1) "Int",
+    [ SSignature "x" (SourceSpan 1 1) (SignatureType TypeInt),
       SLet "x" (SourceSpan 2 1) (ELit (LInt 1)),
       SExpr (SourceSpan 3 1) (EVar "x")
     ]
@@ -146,7 +150,7 @@ validSignatureProgram =
 separatedSignatureProgram :: Expr
 separatedSignatureProgram =
   EBlock
-    [ SSignature "x" (SourceSpan 1 1) "Int",
+    [ SSignature "x" (SourceSpan 1 1) (SignatureType TypeInt),
       SExpr (SourceSpan 2 1) (ELit (LInt 1)),
       SLet "x" (SourceSpan 3 1) (ELit (LInt 2))
     ]
@@ -154,7 +158,7 @@ separatedSignatureProgram =
 mismatchedSignatureProgram :: Expr
 mismatchedSignatureProgram =
   EBlock
-    [ SSignature "x" (SourceSpan 1 1) "Int",
+    [ SSignature "x" (SourceSpan 1 1) (SignatureType TypeInt),
       SLet "y" (SourceSpan 2 1) (ELit (LInt 2))
     ]
 
@@ -253,7 +257,7 @@ retroactiveRebindingProgram =
 signatureTypeMismatchProgram :: Expr
 signatureTypeMismatchProgram =
   EBlock
-    [ SSignature "x" (SourceSpan 1 1) "Int",
+    [ SSignature "x" (SourceSpan 1 1) (SignatureType TypeInt),
       SLet "x" (SourceSpan 2 1) (ELit (LBool True))
     ]
 
@@ -333,6 +337,18 @@ testSourceAcceptsListToListFunctionSignature :: IO ()
 testSourceAcceptsListToListFunctionSignature =
   assertSourceOk "f :: [Int] -> [Int].\nf = filter (> 1)."
 
+testSourceAcceptsParenthesizedFunctionSignature :: IO ()
+testSourceAcceptsParenthesizedFunctionSignature =
+  assertSourceOk "f :: ([Int]) -> ([Int]).\nf = filter (> 1)."
+
+testSourceAcceptsChainedFunctionSignature :: IO ()
+testSourceAcceptsChainedFunctionSignature =
+  assertSourceOk "f :: Int -> Int -> Int.\nf = (+)."
+
+testSourceAcceptsParenthesizedFunctionOverrideSignature :: IO ()
+testSourceAcceptsParenthesizedFunctionOverrideSignature =
+  assertSourceOk "applyToOne :: (Int -> Int) -> Int.\napplyToOne = \\(f) -> f 1."
+
 testSourceRejectsListSignatureMismatch :: IO ()
 testSourceRejectsListSignatureMismatch = do
   result <- compileSource defaultWarningSettings "x :: [Bool].\nx = [1]."
@@ -344,10 +360,6 @@ testSourceRejectsListSignatureMismatch = do
 testSourceRejectsUnsupportedSignatureSurface :: IO ()
 testSourceRejectsUnsupportedSignatureSurface =
   assertSourceSingleErrorContains "x :: [a].\nx = [1]." "E2009"
-
-testSourceRejectsChainedFunctionSignatureSurface :: IO ()
-testSourceRejectsChainedFunctionSignatureSurface =
-  assertSourceSingleErrorContains "f :: Int -> Int -> Int.\nf = (+)." "E2009"
 
 testSourceReportsSignedRecursiveRhsTypeError :: IO ()
 testSourceReportsSignedRecursiveRhsTypeError =

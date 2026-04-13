@@ -1,13 +1,13 @@
 ---
-id: JN-TYPE-AST-IMPL-001
-status: ready
+id: JN-TYPE-ARROW-ASSOC-001
+status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: no
 depends_on: []
-last_verified: 2026-03-19
-plan_section: "Milestone 1: Move Signature Ownership To Parser/AST/Lowering"
+last_verified: 2026-04-13
+plan_section: "Milestone 2 / Batch 1: Right-associated function arrows and parenthesized override support"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser.hs
   - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
@@ -21,7 +21,7 @@ verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
-deliverable: "Monomorphic signatures stop flowing through the compiler as raw `Text`; the parser builds structured type/signature nodes, lowering carries them into the core AST, and the existing accepted/rejected signature surface still passes through compile/type checks."
+deliverable: "Chained monomorphic function signatures are parsed right-associatively into recursive parser/core function-type nodes, explicit parenthesized function-type overrides are supported, `TypeInference` consumes the recursive function shape, and unsupported broader grammar still reports deterministic `E2009`."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
 ---
@@ -45,20 +45,23 @@ supersedes:
 - [x] Verified `jazz-next` currently supports only a narrow monomorphic signature subset and intentionally rejects chained arrows.
 - [x] Captured the active-path owner map and replacement-plan scope for `JN-TYPE-AST-IMPL-001`.
 - [x] Re-verified on `2026-03-19` that signatures are still stored as raw `Text` in parser/core statements and chained-arrow signature tests still fail with `E2009`.
-- [ ] Milestone 1 complete: parser-owned type AST replaces raw signature `Text` in the active path.
-- [ ] Milestone 2 complete: function-arrow associativity and parenthesization rules are canonical in `jazz-next`.
+- [x] On `2026-04-10`, narrowed the active queue target for `JN-TYPE-AST-IMPL-001` to a single autonomous-safe Milestone 1 batch covering structured monomorphic signature nodes plus lowering/type-inference handoff.
+- [x] On `2026-04-10`, landed parser-owned structured signature payloads for the supported monomorphic subset, preserved deterministic `E2009` rejection for unsupported forms including nested function signatures, and re-verified the parser/type/CLI suites.
+- [x] Milestone 1 complete: parser-owned type AST replaces raw signature `Text` in the active path.
+- [x] On `2026-04-13`, canonicalized right-associated chained function arrows, added explicit parenthesized function-type override support, and re-verified the parser/type/CLI suites on the active path.
+- [x] Milestone 2 complete: function-arrow associativity and parenthesization rules are canonical in `jazz-next`.
 - [ ] Milestone 3 complete: constrained-signature syntax and semantics are represented in `jazz-next` structures.
 - [ ] Milestone 4 complete: canonical grammar docs, normalization rules, and diagnostics align with the active parser/type pipeline.
 - [ ] Milestone 5 complete: active-path tests/docs close the rebase and future work no longer depends on legacy `07`.
 
-## Active Baseline (2026-03-18)
+## Active Baseline (2026-04-13)
 
-- `jazz-next/src/JazzNext/Compiler/Parser.hs` parses signature statements by collecting tokens until `.` and storing joined text, rather than building a type tree.
-- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs` and `jazz-next/src/JazzNext/Compiler/AST.hs` still represent signatures as `Text`.
-- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` forwards signature text unchanged into the core AST.
-- `jazz-next/src/JazzNext/Compiler/Analyzer.hs` enforces signature placement/name coherence only; it intentionally leaves signature payload parsing for later phases.
-- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` owns the current mini-parser for signatures. It accepts `Int`, `Bool`, nested concrete list forms, parenthesized subtypes, and exactly one top-level `->`.
-- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs` explicitly accepts simple list and single-arrow signatures, and explicitly rejects chained function signatures with `E2009`.
+- `jazz-next/src/JazzNext/Compiler/Parser.hs` now parses supported monomorphic signature statements into structured parser-owned payloads instead of joined raw text.
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs` and `jazz-next/src/JazzNext/Compiler/AST.hs` now carry explicit signature/type nodes for the supported subset plus tokenized fallback for unsupported surfaces.
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` forwards structured signature payloads into the core AST.
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs` still enforces signature placement/name coherence only; signature semantics remain owned by `TypeInference.hs`.
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now consumes structured signature payloads for `Int`, `Bool`, nested concrete list forms, right-associated chained function arrows, and explicit parenthesized function-type overrides, while unsupported broader forms continue to report through `E2009`.
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs` explicitly accepts simple list signatures, right-associated chained function signatures, parenthesized list-to-list signatures, and parenthesized function-type overrides while keeping unsupported broader surfaces on deterministic `E2009`.
 - `docs/plans/2026-03-16-jazz-next-monomorphic-signature-surface.md` already delivered the safe monomorphic subset. This rebase must preserve that subset while moving ownership to the correct compiler layers.
 
 ## Scope Guardrails
@@ -80,12 +83,12 @@ Out of scope:
 
 | stage | current owner files | current behavior | required rebase outcome |
 | --- | --- | --- | --- |
-| Signature parse surface | `jazz-next/src/JazzNext/Compiler/Parser.hs` | Collects raw tokens into signature `Text`. | Parse signature/type surface into dedicated parser-owned structures. |
-| Surface type/signature representation | `jazz-next/src/JazzNext/Compiler/Parser/AST.hs` | `SSSignature` stores raw `Text`. | Add parser-facing type/signature nodes with enough structure for associativity and constraints. |
-| Lowered/core representation | `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` | Carries signature text unchanged into core statements. | Lower parsed type/signature structures into core representations consumed by analysis and type inference. |
-| Signature bookkeeping | `jazz-next/src/JazzNext/Compiler/Analyzer.hs` | Validates adjacency/name coherence only. | Keep bookkeeping here, but consume structured signature payloads instead of raw text. |
-| Type semantics | `jazz-next/src/JazzNext/Compiler/TypeInference.hs` | Owns ad hoc signature parsing plus narrow type checking. | Consume parser-owned type structures and enforce the canonical grammar/semantics defined by this plan. |
-| Active verification | `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`, `jazz-next/test/JazzNext/CLI/CLISpec.hs` | Verifies raw-text-based acceptance/rejection behavior. | Expand toward parser-structure and semantic verification without regressing existing supported cases. |
+| Signature parse surface | `jazz-next/src/JazzNext/Compiler/Parser.hs` | Parses the supported monomorphic subset into dedicated parser-owned signature payloads. | Extend beyond the subset only through explicit associativity/constrained-signature decisions. |
+| Surface type/signature representation | `jazz-next/src/JazzNext/Compiler/Parser/AST.hs` | `SSSignature` now carries structured parser-facing payloads plus tokenized unsupported fallback. | Add enough structure for associativity and constraints once those rules are explicitly chosen. |
+| Lowered/core representation | `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` | Carries structured signature payloads into core statements. | Reuse the same representation as associativity and constrained-signature work lands. |
+| Signature bookkeeping | `jazz-next/src/JazzNext/Compiler/Analyzer.hs` | Validates adjacency/name coherence only. | Keep bookkeeping here, but continue consuming the structured payload shape. |
+| Type semantics | `jazz-next/src/JazzNext/Compiler/TypeInference.hs` | Consumes structured monomorphic signature payloads and preserves `E2009` for unsupported surfaces. | Extend the semantic model only after canonical grammar decisions are locked. |
+| Active verification | `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`, `jazz-next/test/JazzNext/CLI/CLISpec.hs` | Verifies parser-structure and semantic acceptance/rejection behavior for the supported subset. | Expand coverage toward broader grammar decisions without regressing existing supported cases. |
 
 ## Dependency Map
 
@@ -105,6 +108,34 @@ Out of scope:
 - [ ] Lower the new structures through `Parser/Lower.hs` into core AST nodes.
 - [ ] Keep current supported monomorphic signature surface accepted while preserving explicit rejection of unresolved grammar.
 
+#### Batch 1: Structured monomorphic signature AST and lowering handoff
+
+This batch landed on `2026-04-10`. Later type-grammar work should define a new executable batch explicitly instead of reusing this one.
+
+- [x] Add dedicated parser/core type nodes for the already-supported monomorphic subset: `Int`, `Bool`, nested concrete lists, and exactly one top-level `->`.
+- [x] Parse signature statements into those nodes instead of joined raw `Text`, while preserving current deterministic rejection for unsupported forms such as `[a]`, chained arrows, and nested function signatures.
+- [x] Lower the structured signature payload through `Parser/Lower.hs` into the core AST without reintroducing text-based signature plumbing.
+- [x] Update `TypeInference.hs` to consume the structured signature form while keeping the currently supported compile/type outcomes unchanged for the monomorphic subset.
+
+Batch 1 files:
+
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+
+Batch 1 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+```
+
 Primary files:
 
 - `jazz-next/src/JazzNext/Compiler/Parser.hs`
@@ -116,9 +147,37 @@ Primary files:
 
 ### Milestone 2: Canonicalize Function-Arrow Associativity
 
-- [ ] Decide and encode canonical associativity for chained arrows in `jazz-next`.
-- [ ] Support explicit parenthesized override forms and reject ambiguous or unsupported shapes deterministically.
-- [ ] Migrate current chained-arrow rejection tests into canonical parser/type tests once the decision is implemented.
+- [x] Decide and encode canonical associativity for chained arrows in `jazz-next`.
+- [x] Support explicit parenthesized override forms and reject ambiguous or unsupported shapes deterministically.
+- [x] Migrate current chained-arrow rejection tests into canonical parser/type tests once the decision is implemented.
+
+#### Batch 1: Right-associated function arrows and parenthesized override support
+
+This batch landed on `2026-04-13`.
+
+- [x] Extend parser/core signature type nodes so function types can nest recursively without reintroducing raw `Text`.
+- [x] Parse chained arrows right-associatively, so `a -> b -> c` means `a -> (b -> c)` on the active `jazz-next` path.
+- [x] Accept parenthesized function-type overrides such as `(Int -> Int) -> Int` while continuing to reject broader unsupported grammar deterministically through `E2009`.
+- [x] Update parser/lowering/type tests so the active acceptance surface matches the canonical associativity rule.
+
+Batch 1 files:
+
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+
+Batch 1 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+```
 
 Primary files:
 

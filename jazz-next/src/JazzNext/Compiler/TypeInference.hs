@@ -11,7 +11,6 @@ module JazzNext.Compiler.TypeInference
     inferExpressionDefault
   ) where
 
-import Data.Char (isSpace)
 import Data.List (foldl')
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -28,6 +27,9 @@ import JazzNext.Compiler.AST
     Expr (..),
     Literal (..),
     Pattern (..),
+    SignaturePayload (..),
+    SignatureToken (..),
+    SignatureType (..),
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
@@ -157,8 +159,8 @@ canonicalizeStatement statement =
   case statement of
     SLet name spanValue valueExpr ->
       SLet name spanValue (canonicalizeExpr valueExpr)
-    SSignature name spanValue signatureText ->
-      SSignature name spanValue signatureText
+    SSignature name spanValue signaturePayload ->
+      SSignature name spanValue signaturePayload
     SModule spanValue modulePath ->
       SModule spanValue modulePath
     SImport spanValue modulePath alias importedSymbols ->
@@ -673,16 +675,16 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
               go env lastExprType pendingSignatureType state rest
             SImport {} ->
               go env lastExprType pendingSignatureType state rest
-            SSignature name signatureSpan signatureText ->
+            SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
-                    case parseSignatureType signatureText of
+                    case signaturePayloadToExpressionType signaturePayload of
                       Just signatureType ->
                         (Just (PendingSignatureType (identifierText name) signatureSpan signatureType), state)
                       Nothing ->
                         ( Nothing,
                           addTypeError
                             state
-                            (mkInvalidSignatureTypeError (identifierText name) signatureSpan signatureText)
+                            (mkInvalidSignatureTypeError (identifierText name) signatureSpan signaturePayload)
                         )
                in go env lastExprType nextPendingSignature nextState rest
             SLet name bindingSpan valueExpr ->
@@ -901,80 +903,116 @@ annotateNewErrorsWithPrimarySpan spanValue previousState nextState =
         Just _ -> diagnostic
         Nothing -> setDiagnosticPrimarySpan spanValue diagnostic
 
-parseSignatureType :: Text -> Maybe ExpressionType
-parseSignatureType signatureText =
-  parseSupportedSignatureType (Text.filter (not . isSpace) signatureText)
+signaturePayloadToExpressionType :: SignaturePayload -> Maybe ExpressionType
+signaturePayloadToExpressionType signaturePayload =
+  case signaturePayload of
+    SignatureType signatureType ->
+      Just (signatureTypeToExpressionType signatureType)
+    SignatureFunction argumentType resultType ->
+      Just
+        ( TFunctionType
+            (signatureTypeToExpressionType argumentType)
+            (signatureTypeToExpressionType resultType)
+        )
+    UnsupportedSignature {} ->
+      Nothing
 
-parseSupportedSignatureType :: Text -> Maybe ExpressionType
-parseSupportedSignatureType rawSignature =
-  case splitSingleTopLevelArrow rawSignature of
-    Left () -> Nothing
-    Right (Just (argumentText, resultText)) ->
+signatureTypeToExpressionType :: SignatureType -> ExpressionType
+signatureTypeToExpressionType signatureType =
+  case signatureType of
+    TypeInt -> TIntType
+    TypeBool -> TBoolType
+    TypeList innerType ->
+      TListType (signatureTypeToExpressionType innerType)
+    TypeFunction argumentType resultType ->
       TFunctionType
-        <$> parseNonFunctionSignatureType argumentText
-        <*> parseNonFunctionSignatureType resultText
-    Right Nothing ->
-      parseNonFunctionSignatureType rawSignature
+        (signatureTypeToExpressionType argumentType)
+        (signatureTypeToExpressionType resultType)
 
-parseNonFunctionSignatureType :: Text -> Maybe ExpressionType
-parseNonFunctionSignatureType rawSignature
-  | Text.null rawSignature = Nothing
-  | rawSignature == "Int" = Just TIntType
-  | rawSignature == "Bool" = Just TBoolType
-  | Just innerType <- stripWrappedType '[' ']' rawSignature =
-      TListType <$> parseNonFunctionSignatureType innerType
-  | Just innerType <- stripWrappedType '(' ')' rawSignature =
-      parseNonFunctionSignatureType innerType
-  | otherwise = Nothing
+renderSignaturePayload :: SignaturePayload -> Text
+renderSignaturePayload signaturePayload =
+  case signaturePayload of
+    SignatureType signatureType ->
+      renderSignatureType signatureType
+    SignatureFunction argumentType resultType ->
+      renderFunctionArgumentType argumentType <> " -> " <> renderSignatureType resultType
+    UnsupportedSignature signatureTokens ->
+      renderUnsupportedSignatureTokens signatureTokens
 
-stripWrappedType :: Char -> Char -> Text -> Maybe Text
-stripWrappedType openChar closeChar rawSignature = do
-  withoutOpen <- Text.stripPrefix (Text.singleton openChar) rawSignature
-  innerType <- Text.stripSuffix (Text.singleton closeChar) withoutOpen
-  if Text.null innerType
-    then Nothing
-    else Just innerType
+renderSignatureType :: SignatureType -> Text
+renderSignatureType signatureType =
+  case signatureType of
+    TypeInt -> "Int"
+    TypeBool -> "Bool"
+    TypeList innerType ->
+      "[" <> renderListElementSignatureType innerType <> "]"
+    TypeFunction argumentType resultType ->
+      renderFunctionArgumentType argumentType <> " -> " <> renderSignatureType resultType
 
--- | Signature parsing intentionally stays narrow for now: only a single
--- top-level arrow is recognized, so chained function types stay rejected until
--- the broader type-grammar/associativity work is decided explicitly.
-splitSingleTopLevelArrow :: Text -> Either () (Maybe (Text, Text))
-splitSingleTopLevelArrow rawSignature = go 0 0 0 Nothing (Text.unpack rawSignature)
+renderFunctionArgumentType :: SignatureType -> Text
+renderFunctionArgumentType signatureType =
+  case signatureType of
+    TypeFunction {} ->
+      "(" <> renderSignatureType signatureType <> ")"
+    _ ->
+      renderSignatureType signatureType
+
+renderListElementSignatureType :: SignatureType -> Text
+renderListElementSignatureType signatureType =
+  case signatureType of
+    TypeFunction {} ->
+      "(" <> renderSignatureType signatureType <> ")"
+    _ ->
+      renderSignatureType signatureType
+
+renderUnsupportedSignatureTokens :: [SignatureToken] -> Text
+renderUnsupportedSignatureTokens signatureTokens =
+  Text.concat (go Nothing signatureTokens)
   where
-    go :: Int -> Int -> Int -> Maybe Int -> String -> Either () (Maybe (Text, Text))
-    go _ 0 0 foundArrow [] =
-      Right (fmap splitAtArrow foundArrow)
-    go _ _ _ _ [] =
-      Left ()
-    go index parenDepth bracketDepth foundArrow ('-':'>':rest)
-      | parenDepth == 0 && bracketDepth == 0 =
-          case foundArrow of
-            Nothing ->
-              go (index + 2) parenDepth bracketDepth (Just index) rest
-            Just _ ->
-              Left ()
-      | otherwise =
-          go (index + 2) parenDepth bracketDepth foundArrow rest
-    go index parenDepth bracketDepth foundArrow (nextChar : rest) =
-      case nextChar of
-        '(' ->
-          go (index + 1) (parenDepth + 1) bracketDepth foundArrow rest
-        ')' ->
-          if parenDepth > 0
-            then go (index + 1) (parenDepth - 1) bracketDepth foundArrow rest
-            else Left ()
-        '[' ->
-          go (index + 1) parenDepth (bracketDepth + 1) foundArrow rest
-        ']' ->
-          if bracketDepth > 0
-            then go (index + 1) parenDepth (bracketDepth - 1) foundArrow rest
-            else Left ()
-        _ ->
-          go (index + 1) parenDepth bracketDepth foundArrow rest
+    go _ [] = []
+    go previousToken (token : rest) =
+      let currentToken = renderSignatureToken token
+          needsLeadingSpace =
+            case previousToken of
+              Nothing -> False
+              Just previous ->
+                tokenNeedsLeadingSpace token
+                  && tokenNeedsTrailingSpace previous
+          prefix =
+            if needsLeadingSpace
+              then [" "]
+              else []
+       in prefix ++ [currentToken] ++ go (Just token) rest
 
-    splitAtArrow :: Int -> (Text, Text)
-    splitAtArrow arrowIndex =
-      (Text.take arrowIndex rawSignature, Text.drop (arrowIndex + 2) rawSignature)
+tokenNeedsLeadingSpace :: SignatureToken -> Bool
+tokenNeedsLeadingSpace token =
+  case token of
+    SignatureLParenToken -> False
+    SignatureLBracketToken -> False
+    SignatureRParenToken -> False
+    SignatureRBracketToken -> False
+    SignatureArrowToken -> True
+    _ -> True
+
+tokenNeedsTrailingSpace :: SignatureToken -> Bool
+tokenNeedsTrailingSpace token =
+  case token of
+    SignatureLParenToken -> False
+    SignatureLBracketToken -> False
+    _ -> True
+
+renderSignatureToken :: SignatureToken -> Text
+renderSignatureToken token =
+  case token of
+    SignatureNameToken name -> name
+    SignatureIntToken value -> Text.pack (show value)
+    SignatureArrowToken -> "->"
+    SignatureLParenToken -> "("
+    SignatureRParenToken -> ")"
+    SignatureLBracketToken -> "["
+    SignatureRBracketToken -> "]"
+    SignatureOperatorToken symbol -> symbol
+    SignatureOtherToken lexeme -> lexeme
 
 instantiateBuiltinType :: BuiltinResolutionMode -> Text -> InferState -> Maybe (ExpressionType, InferState)
 instantiateBuiltinType builtinMode name state =
@@ -1264,8 +1302,8 @@ mkPatternBranchTypeMismatchError leftType rightType =
         <> renderType rightType
     )
 
-mkInvalidSignatureTypeError :: Text -> SourceSpan -> Text -> Diagnostic
-mkInvalidSignatureTypeError symbol signatureSpan rawSignature =
+mkInvalidSignatureTypeError :: Text -> SourceSpan -> SignaturePayload -> Diagnostic
+mkInvalidSignatureTypeError symbol signatureSpan signaturePayload =
   setDiagnosticSubject symbol $
     setDiagnosticPrimarySpan
       signatureSpan
@@ -1274,7 +1312,7 @@ mkInvalidSignatureTypeError symbol signatureSpan rawSignature =
           ( "invalid or unsupported signature for '"
               <> symbol
               <> "': '"
-              <> rawSignature
+              <> renderSignaturePayload signaturePayload
               <> "'"
           )
       )

@@ -7,6 +7,9 @@ module JazzNext.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
+    SurfaceSignaturePayload (..),
+    SurfaceSignatureToken (..),
+    SurfaceSignatureType (..),
     SurfaceStatement (..)
   ) where
 
@@ -55,10 +58,40 @@ data SurfaceExpr
   | SEBlock [SurfaceStatement]
   deriving (Eq, Show)
 
+-- | Parser-owned signature payload for the currently supported monomorphic
+-- subset. Unsupported surfaces remain tokenized so later phases can keep
+-- issuing the stable `E2009` diagnostic without storing joined raw text.
+data SurfaceSignaturePayload
+  = SurfaceSignatureType SurfaceSignatureType
+  | SurfaceSignatureFunction SurfaceSignatureType SurfaceSignatureType
+  | SurfaceUnsupportedSignature [SurfaceSignatureToken]
+  deriving (Eq, Show)
+
+-- | Monomorphic signature types supported by the active parser/type slice.
+data SurfaceSignatureType
+  = SurfaceTypeInt
+  | SurfaceTypeBool
+  | SurfaceTypeList SurfaceSignatureType
+  | SurfaceTypeFunction SurfaceSignatureType SurfaceSignatureType
+  deriving (Eq, Show)
+
+-- | Tokenized fallback for unsupported signature surfaces.
+data SurfaceSignatureToken
+  = SurfaceSignatureNameToken Text
+  | SurfaceSignatureIntToken Int
+  | SurfaceSignatureArrowToken
+  | SurfaceSignatureLParenToken
+  | SurfaceSignatureRParenToken
+  | SurfaceSignatureLBracketToken
+  | SurfaceSignatureRBracketToken
+  | SurfaceSignatureOperatorToken Text
+  | SurfaceSignatureOtherToken Text
+  deriving (Eq, Show)
+
 -- | Statement forms preserved from the parsed surface program.
 data SurfaceStatement
   = SSLet Identifier SourceSpan SurfaceExpr
-  | SSSignature Identifier SourceSpan Text
+  | SSSignature Identifier SourceSpan SurfaceSignaturePayload
   | SSModule SourceSpan [Text]
   | SSImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SSExpr SourceSpan SurfaceExpr

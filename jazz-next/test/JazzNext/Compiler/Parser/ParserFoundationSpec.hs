@@ -6,6 +6,8 @@ import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
+    SignaturePayload (..),
+    SignatureType (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -17,6 +19,8 @@ import JazzNext.Compiler.Parser
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceLiteral (..),
+    SurfaceSignaturePayload (..),
+    SurfaceSignatureType (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Lower
@@ -38,10 +42,15 @@ tests =
   [ ("parses let binding and expression statement", testParseLetAndExpr),
     ("parseSurfaceProgram accepts Text input", testParseSurfaceProgramAcceptsTextInput),
     ("parses signature statement with source span", testParseSignatureSpan),
+    ("parses parenthesized function signature into structured nodes", testParseParenthesizedFunctionSignature),
+    ("parses chained function signature right associatively", testParseChainedFunctionSignature),
+    ("parses parenthesized function override into structured nodes", testParseParenthesizedFunctionOverrideSignature),
     ("ignores hash line comments between statements", testIgnoresHashLineComments),
     ("tracks tab-aligned expression spans", testTabAlignedExpressionSpan),
     ("parses nested scope expression", testParseNestedScopeExpression),
     ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
+    ("lowers structured signature payload into analyzer AST", testLowerStructuredSignatureProgram),
+    ("lowers right-associated function signature into analyzer AST", testLowerRightAssociativeFunctionSignatureProgram),
     ("rejects missing statement terminator", testRejectsMissingDotTerminator),
     ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot),
     ("rejects integer literal overflow", testRejectsIntOverflow),
@@ -82,12 +91,69 @@ testParseSignatureSpan =
     "signature span"
     ( Right
         ( SEBlock
-            [ SSSignature "x" (SourceSpan 1 1) "Int",
+            [ SSSignature "x" (SourceSpan 1 1) (SurfaceSignatureType (SurfaceTypeInt)),
               SSLet "x" (SourceSpan 2 1) (SELit (SLInt 1))
             ]
         )
     )
     (parseSurfaceProgram "x :: Int.\nx = 1.")
+
+testParseParenthesizedFunctionSignature :: IO ()
+testParseParenthesizedFunctionSignature =
+  assertEqual
+    "parenthesized function signature"
+    ( Right
+        ( SEBlock
+            [ SSSignature
+                "f"
+                (SourceSpan 1 1)
+                ( SurfaceSignatureFunction
+                    (SurfaceTypeList SurfaceTypeInt)
+                    (SurfaceTypeList SurfaceTypeInt)
+                ),
+              SSLet "f" (SourceSpan 2 1) (SEOperatorValue "+")
+            ]
+        )
+    )
+    (parseSurfaceProgram "f :: ([Int]) -> ([Int]).\nf = (+).")
+
+testParseChainedFunctionSignature :: IO ()
+testParseChainedFunctionSignature =
+  assertEqual
+    "right-associated function signature"
+    ( Right
+        ( SEBlock
+            [ SSSignature
+                "f"
+                (SourceSpan 1 1)
+                ( SurfaceSignatureFunction
+                    SurfaceTypeInt
+                    (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeInt)
+                ),
+              SSLet "f" (SourceSpan 2 1) (SEOperatorValue "+")
+            ]
+        )
+    )
+    (parseSurfaceProgram "f :: Int -> Int -> Int.\nf = (+).")
+
+testParseParenthesizedFunctionOverrideSignature :: IO ()
+testParseParenthesizedFunctionOverrideSignature =
+  assertEqual
+    "parenthesized function override signature"
+    ( Right
+        ( SEBlock
+            [ SSSignature
+                "f"
+                (SourceSpan 1 1)
+                ( SurfaceSignatureFunction
+                    (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeInt)
+                    SurfaceTypeInt
+                ),
+              SSLet "f" (SourceSpan 2 1) (SEVar "applyToOne")
+            ]
+        )
+    )
+    (parseSurfaceProgram "f :: (Int -> Int) -> Int.\nf = applyToOne.")
 
 testIgnoresHashLineComments :: IO ()
 testIgnoresHashLineComments =
@@ -143,6 +209,50 @@ testLowerSurfaceProgram =
         [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
           SExpr (SourceSpan 2 1) (EVar "x")
         ]
+
+testLowerStructuredSignatureProgram :: IO ()
+testLowerStructuredSignatureProgram =
+  assertRight
+    "parse + lower structured signature"
+    (parseSurfaceProgram "x :: [[Bool]].\nx = [[True], [False]].")
+    ( \surfaceProgram ->
+        assertEqual
+          "lowered signature AST"
+          ( EBlock
+              [ SSignature
+                  "x"
+                  (SourceSpan 1 1)
+                  (SignatureType (TypeList (TypeList TypeBool))),
+                SLet
+                  "x"
+                  (SourceSpan 2 1)
+                  (EList [EList [ELit (LBool True)], EList [ELit (LBool False)]])
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
+
+testLowerRightAssociativeFunctionSignatureProgram :: IO ()
+testLowerRightAssociativeFunctionSignatureProgram =
+  assertRight
+    "parse + lower right-associated function signature"
+    (parseSurfaceProgram "f :: Int -> Int -> Int.\nf = (+).")
+    ( \surfaceProgram ->
+        assertEqual
+          "lowered right-associated signature AST"
+          ( EBlock
+              [ SSignature
+                  "f"
+                  (SourceSpan 1 1)
+                  ( SignatureFunction
+                      TypeInt
+                      (TypeFunction TypeInt TypeInt)
+                  ),
+                SLet "f" (SourceSpan 2 1) (EOperatorValue "+")
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
 
 testRejectsMissingDotTerminator :: IO ()
 testRejectsMissingDotTerminator =
