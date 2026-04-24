@@ -4,9 +4,12 @@
 -- small interpreter/runtime slice in `jazz-next`.
 module JazzNext.Compiler.AST
   ( CaseArm (..),
+    ConstraintSignatureType (..),
+    DataConstructor (..),
     Expr (..),
     Literal (..),
     Pattern (..),
+    SignatureConstraint (..),
     SignaturePayload (..),
     SignatureToken (..),
     SignatureType (..),
@@ -40,6 +43,10 @@ data Pattern
 data CaseArm = CaseArm Pattern Expr
   deriving (Eq, Show)
 
+-- | Core constructor metadata lowered from parser-owned `data` declarations.
+data DataConstructor = DataConstructor Identifier Int
+  deriving (Eq, Show)
+
 -- | Core expressions after surface syntax has been lowered into the stable
 -- analyzer/runtime representation.
 data Expr
@@ -62,7 +69,21 @@ data Expr
 -- | Lowered signature payload used by analyzer/type inference.
 data SignaturePayload
   = SignatureType SignatureType
+  | ConstrainedSignature [SignatureConstraint] ConstraintSignatureType
   | UnsupportedSignature [SignatureToken]
+  deriving (Eq, Show)
+
+-- | Lowered representation for constrained signatures. Type inference rejects
+-- this payload until constraint semantics are defined, but the parser/lowering
+-- pipeline owns its shape.
+data SignatureConstraint = SignatureConstraint Identifier [ConstraintSignatureType]
+  deriving (Eq, Show)
+
+data ConstraintSignatureType
+  = ConstraintTypeName Identifier
+  | ConstraintTypeApplication Identifier [ConstraintSignatureType]
+  | ConstraintTypeList ConstraintSignatureType
+  | ConstraintTypeFunction ConstraintSignatureType ConstraintSignatureType
   deriving (Eq, Show)
 
 -- | Supported monomorphic signature types.
@@ -78,10 +99,15 @@ data SignatureToken
   = SignatureNameToken Text
   | SignatureIntToken Int
   | SignatureArrowToken
+  | SignatureAtToken
+  | SignatureColonToken
   | SignatureLParenToken
   | SignatureRParenToken
+  | SignatureLBraceToken
+  | SignatureRBraceToken
   | SignatureLBracketToken
   | SignatureRBracketToken
+  | SignatureCommaToken
   | SignatureOperatorToken Text
   | SignatureOtherToken Text
   deriving (Eq, Show)
@@ -91,6 +117,7 @@ data SignatureToken
 data Statement
   = SLet Identifier SourceSpan Expr
   | SSignature Identifier SourceSpan SignaturePayload
+  | SData SourceSpan Identifier [DataConstructor]
   | SModule SourceSpan [Text]
   | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SExpr SourceSpan Expr

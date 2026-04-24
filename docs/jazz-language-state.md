@@ -187,6 +187,8 @@ Active-path note: `jazz-next` now parses function arrows right-associatively. In
 
 The older left-associative behavior should be treated as legacy-reference drift rather than the active language contract.
 
+Active-path note: `jazz-next` now lexes and parses constrained signatures such as `x :: @{Eq(a), Ord(b)}: a -> b -> c` into structured parser/core payloads, then rejects them deterministically with `E2009` until constraint semantics, duplicate ordering, scope, and inference interaction rules are defined.
+
 ### Builtins And Type Environment In `jazz-hs`
 
 The hardcoded builtin type environment in [jazz-hs/src/Types.hs](../jazz-hs/src/Types.hs) only includes:
@@ -470,8 +472,8 @@ If this repo is going to become a coherent language project, the highest-value c
 Status update for item `#1`:
 
 - Active-path ADT/pattern contract is now recorded in `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md`.
-- The currently landed `jazz-next` subset is direct `case` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns, plus analyzer/type/runtime execution for the literal / wildcard / variable subset.
-- `data`, constructor values, tuple patterns, and lambda-parameter patterns remain explicitly deferred on the active path; constructor/list pattern semantics are still parser/core-only for now.
+- The currently landed `jazz-next` subset is direct `case` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; canonical `data` declaration parsing/lowering; analyzer/type/runtime execution for the literal / wildcard / variable `case` subset; and analyzer/type acceptance for constructor values and constructor application arity.
+- Runtime constructor values, constructor/list pattern semantics, tuple patterns, and lambda-parameter patterns remain explicitly deferred on the active path.
 
 Status update for item `#3`:
 
@@ -483,7 +485,7 @@ Status update for item `#5`:
 - Implemented-vs-planned split is now published in `README.md`.
 - Canonical evidence-backed feature status is now tracked in `docs/feature-status.md`.
 
-1. Execute the remaining active-path ADT/pattern batches in `jazz-next`, starting with `data` declarations, constructor values, and constructor/list pattern support.
+1. Execute the remaining active-path ADT/pattern batches in `jazz-next`, starting with runtime constructor values and constructor/list pattern support.
 2. Rebase module/import loader planning (`domain 09`) onto `jazz-next` with deterministic file-resolution diagnostics.
 3. Finish remaining stdlib-boundary follow-up work (`domain 10`) in `jazz-next`, especially broader catalog cleanup and reproducibility evidence.
 4. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.

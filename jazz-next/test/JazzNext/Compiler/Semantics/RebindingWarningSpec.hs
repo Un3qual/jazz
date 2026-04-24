@@ -3,7 +3,8 @@
 module Main (main) where
 
 import JazzNext.Compiler.AST
-  ( Expr (..),
+  ( DataConstructor (..),
+    Expr (..),
     Literal (..),
     Statement (..)
   )
@@ -48,6 +49,7 @@ tests =
   [ ("disabled warning category emits nothing", testDisabledCategoryEmitsNoWarnings),
     ("enabled warning emits one same-scope rebinding warning", testEnabledCategoryEmitsWarning),
     ("repeated same-scope rebinding order is deterministic", testDeterministicWarningOrder),
+    ("constructor rebinding emits same-scope warning", testConstructorRebindingEmitsWarning),
     ("nested scope shadowing does not emit same-scope warning", testNestedScopeShadowingNoWarning),
     ("bundled default prelude aliases do not trigger same-scope rebinding", testBundledPreludeAliasShadowingNoWarning),
     ("explicit prelude text matching bundled source still emits rebinding warnings", testExplicitPreludeMatchingBundledSourceEmitsWarning),
@@ -84,6 +86,19 @@ testDeterministicWarningOrder = do
       assertEqual "second warning span" (SourceSpan 3 1) (warningPrimarySpan secondWarning)
       assertEqual "second previous span" (Just (SourceSpan 2 1)) (warningPreviousSpan secondWarning)
     _ -> failTest "expected exactly two warning records"
+
+testConstructorRebindingEmitsWarning :: IO ()
+testConstructorRebindingEmitsWarning = do
+  settings <- enabledSettings
+  warnings <- analyzeRebindingWarnings settings constructorRebindingProgram
+  case warnings of
+    [warning] -> do
+      assertEqual "warning category" SameScopeRebinding (warningCategory warning)
+      assertEqual "warning code" "W0001" (warningCodeText warning)
+      assertEqual "warning variable" "Nothing" (warningVariableName warning)
+      assertEqual "warning span" (SourceSpan 2 1) (warningPrimarySpan warning)
+      assertEqual "previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan warning)
+    _ -> failTest "expected exactly one warning record"
 
 testNestedScopeShadowingNoWarning :: IO ()
 testNestedScopeShadowingNoWarning = do
@@ -146,6 +161,13 @@ repeatedProgram =
     [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
       SLet "x" (SourceSpan 2 1) (ELit (LInt 2)),
       SLet "x" (SourceSpan 3 1) (ELit (LInt 3))
+    ]
+
+constructorRebindingProgram :: Expr
+constructorRebindingProgram =
+  EBlock
+    [ SLet "Nothing" (SourceSpan 1 1) (ELit (LInt 1)),
+      SData (SourceSpan 2 1) "Maybe" [DataConstructor "Nothing" 0]
     ]
 
 nestedScopeProgram :: Expr

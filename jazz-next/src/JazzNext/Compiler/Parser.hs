@@ -22,13 +22,17 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Identifier
   ( Identifier,
+    identifierText,
     mkIdentifier
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
+    SurfaceConstrainedSignatureType (..),
+    SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
+    SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureToken (..),
     SurfaceSignatureType (..),
@@ -139,6 +143,14 @@ parseStatement context tokens =
           rejectNestedModuleDeclaration moduleToken
     importToken@(Token {tokenKind = TImport}) : rest ->
       fmap singleStatement (parseImportStatement importToken rest)
+    dataToken@(Token {tokenKind = TData}) : rest ->
+      case context of
+        TopLevelContext ->
+          fmap singleStatement (parseDataStatement dataToken rest)
+        ModuleBodyContext ->
+          fmap singleStatement (parseDataStatement dataToken rest)
+        NestedBlockContext ->
+          rejectNestedDataDeclaration dataToken
     -- Statement-level forms take precedence over expression parsing when the
     -- leading identifier is followed by declaration syntax.
     (nameToken : afterName@(Token {tokenKind = TColonColon} : _))
@@ -177,6 +189,15 @@ rejectNestedModuleDeclaration moduleToken =
     ( parseDiagnostic
         ( "module declaration must remain top-level at "
             <> renderSourceSpan (tokenSpan moduleToken)
+        )
+    )
+
+rejectNestedDataDeclaration :: Token -> Either Diagnostic a
+rejectNestedDataDeclaration dataToken =
+  Left
+    ( parseDiagnostic
+        ( "data declaration must remain top-level at "
+            <> renderSourceSpan (tokenSpan dataToken)
         )
     )
 
@@ -304,6 +325,202 @@ parseImportTail importToken modulePath tokensAfterModulePath =
                 <> "'"
             )
         )
+
+parseDataStatement :: Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseDataStatement dataToken tokensAfterDataKeyword = do
+  (typeName, afterTypeName) <- parseDataTypeName tokensAfterDataKeyword
+  afterEquals <-
+    consumeEquals
+      afterTypeName
+      ( "expected '=' before end of input after data type name at "
+          <> renderSourceSpan (tokenSpan dataToken)
+      )
+  (constructors, remaining) <- parseDataConstructors afterEquals
+  pure (SSData (tokenSpan dataToken) typeName constructors, remaining)
+
+parseDataTypeName :: [Token] -> Either Diagnostic (Identifier, [Token])
+parseDataTypeName tokens =
+  case tokens of
+    Token {tokenKind = TIdentifier typeName, tokenSpan = typeSpan} : rest
+      | isConstructorIdentifierText typeName ->
+          Right (mkIdentifier typeName, rest)
+      | otherwise ->
+          Left
+            ( parseDiagnostic
+                ( "expected type constructor name at "
+                    <> renderSourceSpan typeSpan
+                    <> ", found '"
+                    <> typeName
+                    <> "'"
+                )
+            )
+    [] ->
+      Left (parseDiagnostic "expected type constructor name before end of input after 'data'")
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected type constructor name at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+
+parseDataConstructors :: [Token] -> Either Diagnostic ([SurfaceDataConstructor], [Token])
+parseDataConstructors tokensAfterEquals = do
+  (firstConstructor, afterFirstConstructor) <- parseDataConstructor tokensAfterEquals
+  go
+    (Set.singleton (surfaceDataConstructorName firstConstructor))
+    [firstConstructor]
+    afterFirstConstructor
+  where
+    go seenConstructors revConstructors allTokens =
+      case allTokens of
+        Token {tokenKind = TDot} : rest ->
+          Right (reverse revConstructors, rest)
+        Token {tokenKind = TOperator "|"} : rest -> do
+          (nextConstructor, afterNextConstructor) <- parseDataConstructor rest
+          let constructorName = surfaceDataConstructorName nextConstructor
+          if Set.member constructorName seenConstructors
+            then
+              Left
+                ( parseDiagnostic
+                    ("duplicate constructor declaration '" <> constructorName <> "' in data declaration")
+                )
+            else
+              go
+                (Set.insert constructorName seenConstructors)
+                (nextConstructor : revConstructors)
+                afterNextConstructor
+        [] ->
+          Left (parseDiagnostic "expected '.' before end of input in data declaration")
+        token : _ ->
+          Left
+            ( parseDiagnostic
+                ( "expected '|' or '.' at "
+                    <> renderSourceSpan (tokenSpan token)
+                    <> ", found '"
+                    <> tokenLexeme token
+                    <> "'"
+                )
+            )
+
+    surfaceDataConstructorName :: SurfaceDataConstructor -> Text
+    surfaceDataConstructorName (SurfaceDataConstructor constructorName _) =
+      identifierText constructorName
+
+parseDataConstructor :: [Token] -> Either Diagnostic (SurfaceDataConstructor, [Token])
+parseDataConstructor tokens =
+  case tokens of
+    Token {tokenKind = TIdentifier constructorName, tokenSpan = constructorSpan} : rest
+      | isConstructorIdentifierText constructorName -> do
+          (constructorArity, remaining) <- parseDataConstructorArity 0 rest
+          Right
+            ( SurfaceDataConstructor (mkIdentifier constructorName) constructorArity,
+              remaining
+            )
+      | otherwise ->
+          Left
+            ( parseDiagnostic
+                ( "expected constructor declaration at "
+                    <> renderSourceSpan constructorSpan
+                    <> ", found '"
+                    <> constructorName
+                    <> "'"
+                )
+            )
+    [] ->
+      Left (parseDiagnostic "expected constructor declaration before end of input in data declaration")
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected constructor declaration at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+
+parseDataConstructorArity :: Int -> [Token] -> Either Diagnostic (Int, [Token])
+parseDataConstructorArity arity allTokens =
+  case allTokens of
+    Token {tokenKind = TOperator "|"} : _ ->
+      Right (arity, allTokens)
+    Token {tokenKind = TDot} : _ ->
+      Right (arity, allTokens)
+    [] ->
+      Right (arity, allTokens)
+    _ -> do
+      remaining <- parseDataConstructorArgument allTokens
+      parseDataConstructorArity (arity + 1) remaining
+
+parseDataConstructorArgument :: [Token] -> Either Diagnostic [Token]
+parseDataConstructorArgument tokens =
+  case tokens of
+    Token {tokenKind = TIdentifier _} : rest ->
+      Right rest
+    Token {tokenKind = TLParen} : rest ->
+      consumeBalancedDataConstructorGroup 1 0 rest
+    Token {tokenKind = TLBracket} : rest ->
+      consumeBalancedDataConstructorGroup 0 1 rest
+    [] ->
+      Left (parseDiagnostic "expected constructor argument before end of input in data declaration")
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected constructor argument at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+
+consumeBalancedDataConstructorGroup :: Int -> Int -> [Token] -> Either Diagnostic [Token]
+consumeBalancedDataConstructorGroup parenDepth bracketDepth tokens =
+  case tokens of
+    [] ->
+      Left (parseDiagnostic "expected constructor argument to close before end of input in data declaration")
+    token : rest ->
+      case tokenKind token of
+        TLParen ->
+          consumeBalancedDataConstructorGroup (parenDepth + 1) bracketDepth rest
+        TRParen
+          | parenDepth > 0 ->
+              let nextParenDepth = parenDepth - 1
+               in
+                if nextParenDepth == 0 && bracketDepth == 0
+                  then Right rest
+                  else consumeBalancedDataConstructorGroup nextParenDepth bracketDepth rest
+          | otherwise ->
+              Left
+                ( parseDiagnostic
+                    ( "unexpected ')' at "
+                        <> renderSourceSpan (tokenSpan token)
+                        <> " in constructor argument"
+                    )
+                )
+        TLBracket ->
+          consumeBalancedDataConstructorGroup parenDepth (bracketDepth + 1) rest
+        TRBracket
+          | bracketDepth > 0 ->
+              let nextBracketDepth = bracketDepth - 1
+               in
+                if parenDepth == 0 && nextBracketDepth == 0
+                  then Right rest
+                  else consumeBalancedDataConstructorGroup parenDepth nextBracketDepth rest
+          | otherwise ->
+              Left
+                ( parseDiagnostic
+                    ( "unexpected ']' at "
+                        <> renderSourceSpan (tokenSpan token)
+                        <> " in constructor argument"
+                    )
+                )
+        _ ->
+          consumeBalancedDataConstructorGroup parenDepth bracketDepth rest
 
 -- | Parse `Foo::Bar` style module paths and leave the first non-path token
 -- untouched for the caller.
@@ -1146,6 +1363,7 @@ collectUntilDot = go []
       case tokens of
         Token {tokenKind = TModule} : _ -> True
         Token {tokenKind = TImport} : _ -> True
+        Token {tokenKind = TData} : _ -> True
         Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
         Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
         _ -> False
@@ -1158,7 +1376,143 @@ parseSignaturePayload signatureTokens =
 
 parseSupportedSignaturePayload :: [Token] -> Maybe SurfaceSignaturePayload
 parseSupportedSignaturePayload signatureTokens =
-  surfaceSignaturePayloadFromType <$> parseSupportedSignatureType signatureTokens
+  case parseConstrainedSignaturePayload signatureTokens of
+    Just signaturePayload ->
+      Just signaturePayload
+    Nothing ->
+      surfaceSignaturePayloadFromType <$> parseSupportedSignatureType signatureTokens
+
+parseConstrainedSignaturePayload :: [Token] -> Maybe SurfaceSignaturePayload
+parseConstrainedSignaturePayload signatureTokens =
+  case signatureTokens of
+    Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest -> do
+      (constraintTokens, afterConstraintBlock) <- splitConstraintBlockTokens rest
+      constraintGroups <-
+        if null constraintTokens
+          then Just []
+          else splitTopLevelCommaTokens constraintTokens
+      constraints <- traverse parseSignatureConstraint constraintGroups
+      case afterConstraintBlock of
+        Token {tokenKind = TColon} : typeTokens -> do
+          signatureType <- parseConstrainedSignatureType typeTokens
+          Just (SurfaceConstrainedSignature constraints signatureType)
+        _ ->
+          Nothing
+    _ ->
+      Nothing
+
+parseSignatureConstraint :: [Token] -> Maybe SurfaceSignatureConstraint
+parseSignatureConstraint constraintTokens =
+  case parseConstrainedSignatureType constraintTokens of
+    Just (SurfaceConstrainedTypeApplication constraintName arguments) ->
+      Just (SurfaceSignatureConstraint constraintName arguments)
+    Just (SurfaceConstrainedTypeName constraintName) ->
+      Just (SurfaceSignatureConstraint constraintName [])
+    _ ->
+      Nothing
+
+parseConstrainedSignatureType :: [Token] -> Maybe SurfaceConstrainedSignatureType
+parseConstrainedSignatureType signatureTokens =
+  case splitFirstTopLevelArrowTokens signatureTokens of
+    Left () -> Nothing
+    Right (Just (argumentTokens, resultTokens)) ->
+      SurfaceConstrainedTypeFunction
+        <$> parseConstrainedFunctionOperandType argumentTokens
+        <*> parseConstrainedSignatureType resultTokens
+    Right Nothing ->
+      parseConstrainedFunctionOperandType signatureTokens
+
+parseConstrainedFunctionOperandType :: [Token] -> Maybe SurfaceConstrainedSignatureType
+parseConstrainedFunctionOperandType signatureTokens =
+  case parseConstrainedTypeApplication signatureTokens of
+    Just signatureType ->
+      Just signatureType
+    Nothing ->
+      case signatureTokens of
+        [Token {tokenKind = TIdentifier name}] ->
+          Just (SurfaceConstrainedTypeName (mkIdentifier name))
+        _ ->
+          case stripWrappedSignatureTokens isLBracketToken isRBracketToken signatureTokens of
+            Just innerTokens ->
+              SurfaceConstrainedTypeList <$> parseConstrainedSignatureType innerTokens
+            Nothing ->
+              case stripWrappedSignatureTokens isLParenToken isRParenToken signatureTokens of
+                Just innerTokens ->
+                  parseConstrainedSignatureType innerTokens
+                Nothing ->
+                  Nothing
+
+parseConstrainedTypeApplication :: [Token] -> Maybe SurfaceConstrainedSignatureType
+parseConstrainedTypeApplication signatureTokens =
+  case signatureTokens of
+    Token {tokenKind = TIdentifier typeName} : argumentTokens -> do
+      argumentTokenGroups <-
+        stripWrappedSignatureTokens isLParenToken isRParenToken argumentTokens
+          >>= splitTopLevelCommaTokens
+      arguments <- traverse parseConstrainedSignatureType argumentTokenGroups
+      Just (SurfaceConstrainedTypeApplication (mkIdentifier typeName) arguments)
+    _ ->
+      Nothing
+
+splitConstraintBlockTokens :: [Token] -> Maybe ([Token], [Token])
+splitConstraintBlockTokens = go 0 0 []
+  where
+    go _ _ _ [] = Nothing
+    go parenDepth bracketDepth acc (token : rest)
+      | isRBraceToken kind && parenDepth == 0 && bracketDepth == 0 =
+          Just (reverse acc, rest)
+      | isLParenToken kind =
+          go (parenDepth + 1) bracketDepth (token : acc) rest
+      | isRParenToken kind =
+          if parenDepth > 0
+            then go (parenDepth - 1) bracketDepth (token : acc) rest
+            else Nothing
+      | isLBracketToken kind =
+          go parenDepth (bracketDepth + 1) (token : acc) rest
+      | isRBracketToken kind =
+          if bracketDepth > 0
+            then go parenDepth (bracketDepth - 1) (token : acc) rest
+            else Nothing
+      | otherwise =
+          go parenDepth bracketDepth (token : acc) rest
+      where
+        kind = tokenKind token
+
+splitTopLevelCommaTokens :: [Token] -> Maybe [[Token]]
+splitTopLevelCommaTokens tokens =
+  if null tokens
+    then Nothing
+    else go 0 0 [] [] tokens
+  where
+    go parenDepth bracketDepth currentRev groupsRev remainingTokens =
+      case remainingTokens of
+        []
+          | parenDepth == 0 && bracketDepth == 0 && not (null currentRev) ->
+              Just (reverse (reverse currentRev : groupsRev))
+          | otherwise ->
+              Nothing
+        token : rest
+          | tokenKind token == TComma && parenDepth == 0 && bracketDepth == 0 ->
+              if null currentRev
+                then Nothing
+                else go parenDepth bracketDepth [] (reverse currentRev : groupsRev) rest
+          | isLParenToken kind ->
+              go (parenDepth + 1) bracketDepth nextCurrentRev groupsRev rest
+          | isRParenToken kind ->
+              if parenDepth > 0
+                then go (parenDepth - 1) bracketDepth nextCurrentRev groupsRev rest
+                else Nothing
+          | isLBracketToken kind ->
+              go parenDepth (bracketDepth + 1) nextCurrentRev groupsRev rest
+          | isRBracketToken kind ->
+              if bracketDepth > 0
+                then go parenDepth (bracketDepth - 1) nextCurrentRev groupsRev rest
+                else Nothing
+          | otherwise ->
+              go parenDepth bracketDepth nextCurrentRev groupsRev rest
+          where
+            kind = tokenKind token
+            nextCurrentRev = token : currentRev
 
 parseSupportedSignatureType :: [Token] -> Maybe SurfaceSignatureType
 parseSupportedSignatureType signatureTokens =
@@ -1280,10 +1634,15 @@ surfaceSignatureTokenFromToken token =
     TIdentifier name -> SurfaceSignatureNameToken name
     TInt value -> SurfaceSignatureIntToken value
     TArrow -> SurfaceSignatureArrowToken
+    TAt -> SurfaceSignatureAtToken
+    TColon -> SurfaceSignatureColonToken
     TLParen -> SurfaceSignatureLParenToken
     TRParen -> SurfaceSignatureRParenToken
+    TLBrace -> SurfaceSignatureLBraceToken
+    TRBrace -> SurfaceSignatureRBraceToken
     TLBracket -> SurfaceSignatureLBracketToken
     TRBracket -> SurfaceSignatureRBracketToken
+    TComma -> SurfaceSignatureCommaToken
     TOperator symbol -> SurfaceSignatureOperatorToken symbol
     _ -> SurfaceSignatureOtherToken (tokenLexeme token)
 
@@ -1315,6 +1674,12 @@ isRBracketToken :: TokenKind -> Bool
 isRBracketToken kind =
   case kind of
     TRBracket -> True
+    _ -> False
+
+isRBraceToken :: TokenKind -> Bool
+isRBraceToken kind =
+  case kind of
+    TRBrace -> True
     _ -> False
 
 consumeDot :: [Token] -> Either Diagnostic [Token]
@@ -1358,6 +1723,22 @@ consumeArrow tokens endOfInputMessage =
       Left
         ( parseDiagnostic
             ( "expected '->' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+
+consumeEquals :: [Token] -> Text -> Either Diagnostic [Token]
+consumeEquals tokens endOfInputMessage =
+  case tokens of
+    Token {tokenKind = TEquals} : rest -> Right rest
+    [] -> Left (parseDiagnostic endOfInputMessage)
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected '=' at "
                 <> renderSourceSpan (tokenSpan token)
                 <> ", found '"
                 <> tokenLexeme token

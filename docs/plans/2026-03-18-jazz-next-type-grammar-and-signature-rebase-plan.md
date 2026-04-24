@@ -1,14 +1,15 @@
 ---
-id: JN-TYPE-ARROW-ASSOC-001
+id: JN-TYPE-CONSTRAINT-AST-001
 status: done
-priority: P1
+priority: P2
 size: M
 kind: impl
-autonomous_ready: no
+autonomous_ready: yes
 depends_on: []
-last_verified: 2026-04-13
-plan_section: "Milestone 2 / Batch 1: Right-associated function arrows and parenthesized override support"
+last_verified: 2026-04-24
+plan_section: "Milestone 3 / Batch 1: Structured constrained-signature payloads with preserved E2009 rejection"
 target_paths:
+  - jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs
   - jazz-next/src/JazzNext/Compiler/Parser.hs
   - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
   - jazz-next/src/JazzNext/Compiler/AST.hs
@@ -21,7 +22,7 @@ verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
-deliverable: "Chained monomorphic function signatures are parsed right-associatively into recursive parser/core function-type nodes, explicit parenthesized function-type overrides are supported, `TypeInference` consumes the recursive function shape, and unsupported broader grammar still reports deterministic `E2009`."
+deliverable: "The current `@{...}:` constrained-signature surface gains explicit parser/core payload nodes and lowering ownership, while `TypeInference` continues surfacing deterministic `E2009` until full constraint semantics land."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
 ---
@@ -50,6 +51,8 @@ supersedes:
 - [x] Milestone 1 complete: parser-owned type AST replaces raw signature `Text` in the active path.
 - [x] On `2026-04-13`, canonicalized right-associated chained function arrows, added explicit parenthesized function-type override support, and re-verified the parser/type/CLI suites on the active path.
 - [x] Milestone 2 complete: function-arrow associativity and parenthesization rules are canonical in `jazz-next`.
+- [x] On `2026-04-13`, narrowed the next executable queue target to a single Milestone 3 batch that preserves the current `@{...}:` surface while moving constrained signatures into explicit parser/core payloads.
+- [x] On `2026-04-24`, landed the constrained-signature parser/core payload batch, preserving `@{...}:` syntax while keeping active-path semantics on deterministic `E2009`.
 - [ ] Milestone 3 complete: constrained-signature syntax and semantics are represented in `jazz-next` structures.
 - [ ] Milestone 4 complete: canonical grammar docs, normalization rules, and diagnostics align with the active parser/type pipeline.
 - [ ] Milestone 5 complete: active-path tests/docs close the rebase and future work no longer depends on legacy `07`.
@@ -194,6 +197,34 @@ Primary files:
 - [ ] Represent constraints explicitly in parser/core AST rather than as implicit text fragments.
 - [ ] Define duplicate-ordering, scope, and inference interaction rules in `TypeInference.hs`.
 - [ ] Add deterministic invalid-case diagnostics and tests.
+
+#### Batch 1: Structured constrained-signature payloads with preserved `E2009` rejection
+
+This batch landed on `2026-04-24`. It intentionally preserves the existing `@{...}:` syntax and stops at explicit AST ownership; full constraint semantics, duplicate normalization, and inference interaction remain later Milestone 3/4 work.
+
+- [x] Extend lexer/token plumbing so signature statements can preserve the current `@{ ... }:` constraint prefix without falling back to opaque unsupported-token blobs.
+- [x] Add parser/core signature payload nodes for explicit constraint lists and lower them through `Parser/Lower.hs`.
+- [x] Update parser and source-pipeline tests so constrained signatures round-trip through structured payloads while `TypeInference.hs` continues rejecting them deterministically with `E2009`.
+
+Batch 1 files:
+
+- `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+
+Batch 1 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+```
 
 Primary files:
 

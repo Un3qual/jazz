@@ -19,6 +19,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    DataConstructor (..),
     Expr (..),
     Literal (..),
     Pattern (..),
@@ -59,6 +60,7 @@ data RuntimeValue
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
   | VSectionRight Text RuntimeValue
+  | VConstructor Identifier Int [RuntimeValue]
 
 instance Eq RuntimeValue where
   leftValue == rightValue =
@@ -79,6 +81,8 @@ instance Eq RuntimeValue where
         leftOperator == rightOperator && leftOperand == rightOperand
       (VSectionRight leftOperator leftOperand, VSectionRight rightOperator rightOperand) ->
         leftOperator == rightOperator && leftOperand == rightOperand
+      (VConstructor leftName leftArity leftArgs, VConstructor rightName rightArity rightArgs) ->
+        leftName == rightName && leftArity == rightArity && leftArgs == rightArgs
       _ -> False
 
 instance Show RuntimeValue where
@@ -97,6 +101,8 @@ instance Show RuntimeValue where
         "VSectionLeft " <> show operatorSymbol <> " " <> show operand
       VSectionRight operatorSymbol operand ->
         "VSectionRight " <> show operatorSymbol <> " " <> show operand
+      VConstructor constructorName constructorArity capturedArgs ->
+        "VConstructor " <> show constructorName <> " " <> show constructorArity <> " " <> show capturedArgs
 
 evaluateRuntimeExpr :: Expr -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExpr = evaluateRuntimeExprWithBuiltins ResolveKernelOnly
@@ -124,6 +130,21 @@ renderRuntimeValue value =
     VOperator {} -> "<function>"
     VSectionLeft {} -> "<function>"
     VSectionRight {} -> "<function>"
+    VConstructor constructorName constructorArity capturedArgs
+      | constructorIsSaturated constructorArity capturedArgs ->
+          renderConstructorValue constructorName capturedArgs
+      | otherwise ->
+          "<function>"
+
+renderConstructorValue :: Identifier -> [RuntimeValue] -> Text
+renderConstructorValue constructorName arguments =
+  case arguments of
+    [] -> identifierText constructorName
+    _ ->
+      identifierText constructorName
+        <> "("
+        <> Text.intercalate ", " (map renderRuntimeValue arguments)
+        <> ")"
 
 type RuntimeCell = Either Diagnostic RuntimeValue
 
@@ -160,6 +181,8 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
               go env Nothing rest
             SImport {} ->
               go env Nothing rest
+            SData _ _ constructors ->
+              go (insertDataConstructors constructors env) Nothing rest
             SLet name _ _ -> do
               value <- bindingCellAt statementIndex
               go (Map.insert (identifierText name) (Right value) env) Nothing rest
@@ -381,6 +404,8 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
             (identifierText bindingName)
             (bindingCellAt statementIndex)
             (envBefore statementIndex)
+        Just (SData _ _ constructors) ->
+          insertDataConstructors constructors (envBefore statementIndex)
         Just _ ->
           envBefore statementIndex
         Nothing ->
@@ -403,6 +428,16 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
                       Map.insert peerName (bindingCellAt peerIndex) envAcc
                 _ ->
                   envAcc
+
+    insertDataConstructors :: [DataConstructor] -> RuntimeEnv -> RuntimeEnv
+    insertDataConstructors constructors env =
+      foldl' insertConstructor env constructors
+      where
+        insertConstructor envAcc (DataConstructor constructorName constructorArity) =
+          Map.insert
+            (identifierText constructorName)
+            (Right (VConstructor constructorName constructorArity []))
+            envAcc
 
 -- Match the type checker: self-seed recursion when any branch exposes a
 -- lambda, so wrapped self-recursive closures capture their own binding before
@@ -642,6 +677,8 @@ applyRuntimeFunction builtinMode functionValue argumentValue =
       applyBuiltin builtinMode builtinFunction (capturedArgs ++ [argumentValue])
     VOperator operatorSymbol capturedArgs ->
       applyOperator builtinMode operatorSymbol (capturedArgs ++ [argumentValue])
+    VConstructor constructorName constructorArity capturedArgs ->
+      applyConstructor constructorName constructorArity (capturedArgs ++ [argumentValue])
     _ ->
       Left
         ( runtimeDiagnostic
@@ -661,6 +698,17 @@ applyOperator builtinMode operatorSymbol arguments =
         ( runtimeDiagnostic
             "E3016"
             ("runtime primitive '" <> operatorSymbol <> "' received invalid arguments")
+        )
+
+applyConstructor :: Identifier -> Int -> [RuntimeValue] -> Either Diagnostic RuntimeValue
+applyConstructor constructorName constructorArity arguments
+  | length arguments <= constructorArity =
+      Right (VConstructor constructorName constructorArity arguments)
+  | otherwise =
+      Left
+        ( runtimeDiagnostic
+            "E3023"
+            ("runtime constructor '" <> identifierText constructorName <> "' received too many arguments")
         )
 
 -- | Builtin primitives are curried, so under-applied calls stay as function
@@ -776,6 +824,8 @@ isFunctionValue value =
     VClosure {} -> True
     VBuiltin {} -> True
     VOperator {} -> True
+    VConstructor _ constructorArity capturedArgs ->
+      not (constructorIsSaturated constructorArity capturedArgs)
     _ -> False
 
 -- | Evaluate the builtin operator subset supported by the runtime.
@@ -831,6 +881,13 @@ renderRuntimeType value =
     VClosure {} -> "Function"
     VBuiltin {} -> "Function"
     VOperator {} -> "Function"
+    VConstructor _ constructorArity capturedArgs
+      | constructorIsSaturated constructorArity capturedArgs -> "Data"
+      | otherwise -> "Function"
+
+constructorIsSaturated :: Int -> [RuntimeValue] -> Bool
+constructorIsSaturated constructorArity capturedArgs =
+  length capturedArgs >= constructorArity
 
 extendBoundWithPattern :: Pattern -> Set Text -> Set Text
 extendBoundWithPattern pattern bound =

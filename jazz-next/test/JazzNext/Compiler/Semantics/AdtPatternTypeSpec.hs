@@ -33,6 +33,15 @@ tests =
     ( "source pipeline accepts literal and wildcard case patterns",
       testSourcePipelineAcceptsLiteralAndWildcardPatterns
     ),
+    ( "source pipeline accepts data constructor values",
+      testSourcePipelineAcceptsDataConstructorValues
+    ),
+    ( "source pipeline accepts data constructor application",
+      testSourcePipelineAcceptsDataConstructorApplication
+    ),
+    ( "source pipeline rejects over-applied nullary constructors",
+      testSourcePipelineRejectsOverAppliedNullaryConstructor
+    ),
     ( "source pipeline reports only deferred diagnostics for constructor patterns",
       testSourcePipelineDefersConstructorPatternBodies
     ),
@@ -62,6 +71,28 @@ testSourcePipelineAcceptsLiteralAndWildcardPatterns :: IO ()
 testSourcePipelineAcceptsLiteralAndWildcardPatterns = do
   result <- compileSource defaultWarningSettings "x = case 1 { | 0 -> False | _ -> True }."
   assertCompiles "literal wildcard result" result
+
+testSourcePipelineAcceptsDataConstructorValues :: IO ()
+testSourcePipelineAcceptsDataConstructorValues = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just. x = Nothing."
+  assertCompiles "data constructor value" result
+
+testSourcePipelineAcceptsDataConstructorApplication :: IO ()
+testSourcePipelineAcceptsDataConstructorApplication = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. x = Just 1."
+  assertCompiles "data constructor application" result
+
+testSourcePipelineRejectsOverAppliedNullaryConstructor :: IO ()
+testSourcePipelineRejectsOverAppliedNullaryConstructor = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing. x = Nothing 1."
+  assertSingleDiagnosticCode
+    "over-applied nullary constructor code"
+    "E2006"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "over-applied nullary constructor text"
+    "cannot apply function of type Maybe"
+    (compileErrors result)
 
 testSourcePipelineDefersConstructorPatternBodies :: IO ()
 testSourcePipelineDefersConstructorPatternBodies = do

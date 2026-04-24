@@ -22,6 +22,7 @@ import Data.Set (Set)
 import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    DataConstructor (..),
     Expr (..),
     Literal (..),
     Pattern (..),
@@ -307,6 +308,27 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
               warningsRev,
               errorsWithPending
             )
+        SData spanValue _ constructors ->
+          let errorsWithPending = flushPendingSignature pendingSignature errorsRev
+              constructorWarnings =
+                collectDataConstructorRebindingWarnings
+                  settings
+                  hiddenStatementIndices
+                  statementIndex
+                  spanValue
+                  constructors
+                  scopeBindings
+           in
+            ( registerDataConstructors
+                hiddenStatementIndices
+                statementIndex
+                spanValue
+                constructors
+                scopeBindings,
+              Nothing,
+              appendWarnings warningsRev constructorWarnings,
+              errorsWithPending
+            )
         SSignature signatureName signatureSpan _signatureText ->
           -- Signature payload text is carried forward for future type parsing.
           -- This pass only enforces placement/name coherence.
@@ -545,6 +567,59 @@ mkVisibleBinding hiddenStatementIndices statementIndex spanValue =
     { visibleBindingSpan = spanValue,
       visibleBindingIsHiddenPrelude = statementIndex `Set.member` hiddenStatementIndices
     }
+
+registerDataConstructors ::
+  Set Int ->
+  Int ->
+  SourceSpan ->
+  [DataConstructor] ->
+  Map Text VisibleBinding ->
+  Map Text VisibleBinding
+registerDataConstructors hiddenStatementIndices statementIndex spanValue constructors bindings =
+  foldl' register bindings constructors
+  where
+    constructorBinding = mkVisibleBinding hiddenStatementIndices statementIndex spanValue
+    register bindingsAcc (DataConstructor constructorName _) =
+      Map.insert (identifierText constructorName) constructorBinding bindingsAcc
+
+collectDataConstructorRebindingWarnings ::
+  WarningSettings ->
+  Set Int ->
+  Int ->
+  SourceSpan ->
+  [DataConstructor] ->
+  Map Text VisibleBinding ->
+  [WarningRecord]
+collectDataConstructorRebindingWarnings
+  settings
+  hiddenStatementIndices
+  statementIndex
+  spanValue
+  constructors
+  bindings
+  | not (isWarningEnabled settings SameScopeRebinding) = []
+  | otherwise =
+      reverse warningsRev
+  where
+    constructorBinding = mkVisibleBinding hiddenStatementIndices statementIndex spanValue
+    (_, warningsRev) = foldl' collect (bindings, []) constructors
+
+    collect (bindingsAcc, warningsAcc) (DataConstructor constructorName _) =
+      let constructorNameText = identifierText constructorName
+          warning =
+            case Map.lookup constructorNameText bindingsAcc of
+              Just previousBinding
+                | not (visibleBindingIsHiddenPrelude previousBinding) ->
+                    [ mkSameScopeRebindingWarning
+                        constructorNameText
+                        spanValue
+                        (visibleBindingSpan previousBinding)
+                    ]
+              _ -> []
+       in
+        ( Map.insert constructorNameText constructorBinding bindingsAcc,
+          warning ++ warningsAcc
+        )
 
 visibleBindingDiagnosticSpan :: VisibleBinding -> Maybe SourceSpan
 visibleBindingDiagnosticSpan visibleBinding =

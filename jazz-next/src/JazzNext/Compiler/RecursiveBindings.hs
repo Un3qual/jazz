@@ -110,6 +110,7 @@ freeVarsScopeWithBound initialBound statements =
         SSignature {} -> (boundNames, freeNames)
         SModule {} -> (boundNames, freeNames)
         SImport {} -> (boundNames, freeNames)
+        SData {} -> (boundNames, freeNames)
         SExpr _ expr ->
           ( boundNames,
             Set.union freeNames (freeVarsExprWithBound boundNames expr)
