@@ -28,6 +28,8 @@ tests =
   [ ("runtime selects the first matching literal arm", testRuntimeSelectsLiteralArm),
     ("runtime binds variable patterns in the selected arm", testRuntimeBindsVariablePattern),
     ("runtime uses wildcard fallback when literals do not match", testRuntimeUsesWildcardFallback),
+    ("runtime binds nullary data constructor values", testRuntimeBindsNullaryDataConstructor),
+    ("runtime applies data constructors", testRuntimeAppliesDataConstructor),
     ("runtime reports a deterministic error when no case arm matches", testRuntimeReportsNoMatchingArm)
   ]
 
@@ -45,6 +47,16 @@ testRuntimeUsesWildcardFallback :: IO ()
 testRuntimeUsesWildcardFallback = do
   result <- runSource defaultWarningSettings "case 2 { | 1 -> 10 | _ -> 20 }."
   assertSuccessfulRuntime "wildcard fallback" (Just "20") result
+
+testRuntimeBindsNullaryDataConstructor :: IO ()
+testRuntimeBindsNullaryDataConstructor = do
+  result <- runSource defaultWarningSettings "data Maybe = Nothing. x = Nothing."
+  assertSuccessfulRuntime "nullary constructor binding" Nothing result
+
+testRuntimeAppliesDataConstructor :: IO ()
+testRuntimeAppliesDataConstructor = do
+  result <- runSource defaultWarningSettings "data Maybe = Just value. x = Just 1. x."
+  assertSuccessfulRuntime "constructor application" (Just "Just(1)") result
 
 testRuntimeReportsNoMatchingArm :: IO ()
 testRuntimeReportsNoMatchingArm = do

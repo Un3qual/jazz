@@ -1368,7 +1368,10 @@ parseConstrainedSignaturePayload signatureTokens =
   case signatureTokens of
     Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest -> do
       (constraintTokens, afterConstraintBlock) <- splitConstraintBlockTokens rest
-      constraintGroups <- splitTopLevelCommaTokens constraintTokens
+      constraintGroups <-
+        if null constraintTokens
+          then Just []
+          else splitTopLevelCommaTokens constraintTokens
       constraints <- traverse parseSignatureConstraint constraintGroups
       case afterConstraintBlock of
         Token {tokenKind = TColon} : typeTokens -> do

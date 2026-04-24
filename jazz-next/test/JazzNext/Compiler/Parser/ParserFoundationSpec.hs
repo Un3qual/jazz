@@ -51,6 +51,7 @@ tests =
     ("parses parenthesized function override into structured nodes", testParseParenthesizedFunctionOverrideSignature),
     ("parses list of parenthesized function types", testParseFunctionListSignature),
     ("parses constrained signature into structured nodes", testParseConstrainedSignaturePayload),
+    ("parses constrained signature with empty constraint block", testParseEmptyConstraintBlockSignaturePayload),
     ("ignores hash line comments between statements", testIgnoresHashLineComments),
     ("tracks tab-aligned expression spans", testTabAlignedExpressionSpan),
     ("parses nested scope expression", testParseNestedScopeExpression),
@@ -204,6 +205,22 @@ testParseConstrainedSignaturePayload =
         )
     )
     (parseSurfaceProgram "f :: @{Eq(a), Ord(b)}: a -> b -> c.\nf = combine.")
+
+testParseEmptyConstraintBlockSignaturePayload :: IO ()
+testParseEmptyConstraintBlockSignaturePayload =
+  assertEqual
+    "empty constrained signature payload"
+    ( Right
+        ( SEBlock
+            [ SSSignature
+                "f"
+                (SourceSpan 1 1)
+                (SurfaceConstrainedSignature [] (SurfaceConstrainedTypeName "Int")),
+              SSLet "f" (SourceSpan 2 1) (SEVar "value")
+            ]
+        )
+    )
+    (parseSurfaceProgram "f :: @{}: Int.\nf = value.")
 
 testIgnoresHashLineComments :: IO ()
 testIgnoresHashLineComments =
