@@ -4,10 +4,12 @@
 -- small interpreter/runtime slice in `jazz-next`.
 module JazzNext.Compiler.AST
   ( CaseArm (..),
+    ConstraintSignatureType (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
     Pattern (..),
+    SignatureConstraint (..),
     SignaturePayload (..),
     SignatureToken (..),
     SignatureType (..),
@@ -67,7 +69,21 @@ data Expr
 -- | Lowered signature payload used by analyzer/type inference.
 data SignaturePayload
   = SignatureType SignatureType
+  | ConstrainedSignature [SignatureConstraint] ConstraintSignatureType
   | UnsupportedSignature [SignatureToken]
+  deriving (Eq, Show)
+
+-- | Lowered representation for constrained signatures. Type inference rejects
+-- this payload until constraint semantics are defined, but the parser/lowering
+-- pipeline owns its shape.
+data SignatureConstraint = SignatureConstraint Identifier [ConstraintSignatureType]
+  deriving (Eq, Show)
+
+data ConstraintSignatureType
+  = ConstraintTypeName Identifier
+  | ConstraintTypeApplication Identifier [ConstraintSignatureType]
+  | ConstraintTypeList ConstraintSignatureType
+  | ConstraintTypeFunction ConstraintSignatureType ConstraintSignatureType
   deriving (Eq, Show)
 
 -- | Supported monomorphic signature types.
@@ -83,10 +99,15 @@ data SignatureToken
   = SignatureNameToken Text
   | SignatureIntToken Int
   | SignatureArrowToken
+  | SignatureAtToken
+  | SignatureColonToken
   | SignatureLParenToken
   | SignatureRParenToken
+  | SignatureLBraceToken
+  | SignatureRBraceToken
   | SignatureLBracketToken
   | SignatureRBracketToken
+  | SignatureCommaToken
   | SignatureOperatorToken Text
   | SignatureOtherToken Text
   deriving (Eq, Show)

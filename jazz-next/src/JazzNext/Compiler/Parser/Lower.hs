@@ -6,10 +6,12 @@ module JazzNext.Compiler.Parser.Lower
 
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    ConstraintSignatureType (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
     Pattern (..),
+    SignatureConstraint (..),
     SignaturePayload (..),
     SignatureToken (..),
     SignatureType (..),
@@ -17,10 +19,12 @@ import JazzNext.Compiler.AST
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
+    SurfaceConstrainedSignatureType (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
+    SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureToken (..),
     SurfaceSignatureType (..),
@@ -122,8 +126,32 @@ lowerSurfaceSignaturePayload surfaceSignaturePayload =
   case surfaceSignaturePayload of
     SurfaceSignatureType signatureType ->
       SignatureType (lowerSurfaceSignatureType signatureType)
+    SurfaceConstrainedSignature constraints signatureType ->
+      ConstrainedSignature
+        (map lowerSurfaceSignatureConstraint constraints)
+        (lowerSurfaceConstrainedSignatureType signatureType)
     SurfaceUnsupportedSignature signatureTokens ->
       UnsupportedSignature (map lowerSurfaceSignatureToken signatureTokens)
+
+lowerSurfaceSignatureConstraint :: SurfaceSignatureConstraint -> SignatureConstraint
+lowerSurfaceSignatureConstraint (SurfaceSignatureConstraint constraintName constraintArguments) =
+  SignatureConstraint
+    constraintName
+    (map lowerSurfaceConstrainedSignatureType constraintArguments)
+
+lowerSurfaceConstrainedSignatureType :: SurfaceConstrainedSignatureType -> ConstraintSignatureType
+lowerSurfaceConstrainedSignatureType signatureType =
+  case signatureType of
+    SurfaceConstrainedTypeName name ->
+      ConstraintTypeName name
+    SurfaceConstrainedTypeApplication name arguments ->
+      ConstraintTypeApplication name (map lowerSurfaceConstrainedSignatureType arguments)
+    SurfaceConstrainedTypeList innerType ->
+      ConstraintTypeList (lowerSurfaceConstrainedSignatureType innerType)
+    SurfaceConstrainedTypeFunction argumentType resultType ->
+      ConstraintTypeFunction
+        (lowerSurfaceConstrainedSignatureType argumentType)
+        (lowerSurfaceConstrainedSignatureType resultType)
 
 lowerSurfaceSignatureType :: SurfaceSignatureType -> SignatureType
 lowerSurfaceSignatureType surfaceSignatureType =
@@ -143,10 +171,15 @@ lowerSurfaceSignatureToken surfaceSignatureToken =
     SurfaceSignatureNameToken name -> SignatureNameToken name
     SurfaceSignatureIntToken value -> SignatureIntToken value
     SurfaceSignatureArrowToken -> SignatureArrowToken
+    SurfaceSignatureAtToken -> SignatureAtToken
+    SurfaceSignatureColonToken -> SignatureColonToken
     SurfaceSignatureLParenToken -> SignatureLParenToken
     SurfaceSignatureRParenToken -> SignatureRParenToken
+    SurfaceSignatureLBraceToken -> SignatureLBraceToken
+    SurfaceSignatureRBraceToken -> SignatureRBraceToken
     SurfaceSignatureLBracketToken -> SignatureLBracketToken
     SurfaceSignatureRBracketToken -> SignatureRBracketToken
+    SurfaceSignatureCommaToken -> SignatureCommaToken
     SurfaceSignatureOperatorToken symbol -> SignatureOperatorToken symbol
     SurfaceSignatureOtherToken lexeme -> SignatureOtherToken lexeme
 

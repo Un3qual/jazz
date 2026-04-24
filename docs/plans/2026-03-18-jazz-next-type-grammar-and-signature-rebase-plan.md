@@ -1,12 +1,12 @@
 ---
 id: JN-TYPE-CONSTRAINT-AST-001
-status: ready
+status: done
 priority: P2
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-04-13
+last_verified: 2026-04-24
 plan_section: "Milestone 3 / Batch 1: Structured constrained-signature payloads with preserved E2009 rejection"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs
@@ -52,6 +52,7 @@ supersedes:
 - [x] On `2026-04-13`, canonicalized right-associated chained function arrows, added explicit parenthesized function-type override support, and re-verified the parser/type/CLI suites on the active path.
 - [x] Milestone 2 complete: function-arrow associativity and parenthesization rules are canonical in `jazz-next`.
 - [x] On `2026-04-13`, narrowed the next executable queue target to a single Milestone 3 batch that preserves the current `@{...}:` surface while moving constrained signatures into explicit parser/core payloads.
+- [x] On `2026-04-24`, landed the constrained-signature parser/core payload batch, preserving `@{...}:` syntax while keeping active-path semantics on deterministic `E2009`.
 - [ ] Milestone 3 complete: constrained-signature syntax and semantics are represented in `jazz-next` structures.
 - [ ] Milestone 4 complete: canonical grammar docs, normalization rules, and diagnostics align with the active parser/type pipeline.
 - [ ] Milestone 5 complete: active-path tests/docs close the rebase and future work no longer depends on legacy `07`.
@@ -199,11 +200,11 @@ Primary files:
 
 #### Batch 1: Structured constrained-signature payloads with preserved `E2009` rejection
 
-This is the current queue-owned implementation batch. It intentionally preserves the existing `@{...}:` syntax and stops at explicit AST ownership; full constraint semantics, duplicate normalization, and inference interaction remain later Milestone 3/4 work.
+This batch landed on `2026-04-24`. It intentionally preserves the existing `@{...}:` syntax and stops at explicit AST ownership; full constraint semantics, duplicate normalization, and inference interaction remain later Milestone 3/4 work.
 
-- [ ] Extend lexer/token plumbing so signature statements can preserve the current `@{ ... }:` constraint prefix without falling back to opaque unsupported-token blobs.
-- [ ] Add parser/core signature payload nodes for explicit constraint lists and lower them through `Parser/Lower.hs`.
-- [ ] Update parser and source-pipeline tests so constrained signatures round-trip through structured payloads while `TypeInference.hs` continues rejecting them deterministically with `E2009`.
+- [x] Extend lexer/token plumbing so signature statements can preserve the current `@{ ... }:` constraint prefix without falling back to opaque unsupported-token blobs.
+- [x] Add parser/core signature payload nodes for explicit constraint lists and lower them through `Parser/Lower.hs`.
+- [x] Update parser and source-pipeline tests so constrained signatures round-trip through structured payloads while `TypeInference.hs` continues rejecting them deterministically with `E2009`.
 
 Batch 1 files:
 

@@ -4,8 +4,10 @@ module Main (main) where
 
 import Data.Text (Text)
 import JazzNext.Compiler.AST
-  ( Expr (..),
+  ( ConstraintSignatureType (..),
+    Expr (..),
     Literal (..),
+    SignatureConstraint (..),
     SignaturePayload (..),
     SignatureType (..),
     Statement (..)
@@ -17,8 +19,10 @@ import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
 import JazzNext.Compiler.Parser.AST
-  ( SurfaceExpr (..),
+  ( SurfaceConstrainedSignatureType (..),
+    SurfaceExpr (..),
     SurfaceLiteral (..),
+    SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureType (..),
     SurfaceStatement (..)
@@ -46,6 +50,7 @@ tests =
     ("parses chained function signature right associatively", testParseChainedFunctionSignature),
     ("parses parenthesized function override into structured nodes", testParseParenthesizedFunctionOverrideSignature),
     ("parses list of parenthesized function types", testParseFunctionListSignature),
+    ("parses constrained signature into structured nodes", testParseConstrainedSignaturePayload),
     ("ignores hash line comments between statements", testIgnoresHashLineComments),
     ("tracks tab-aligned expression spans", testTabAlignedExpressionSpan),
     ("parses nested scope expression", testParseNestedScopeExpression),
@@ -53,6 +58,7 @@ tests =
     ("lowers structured signature payload into analyzer AST", testLowerStructuredSignatureProgram),
     ("lowers right-associated function signature into analyzer AST", testLowerRightAssociativeFunctionSignatureProgram),
     ("lowers list of function signature into analyzer AST", testLowerFunctionListSignatureProgram),
+    ("lowers constrained signature payload into analyzer AST", testLowerConstrainedSignatureProgram),
     ("rejects missing statement terminator", testRejectsMissingDotTerminator),
     ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot),
     ("rejects integer literal overflow", testRejectsIntOverflow),
@@ -175,6 +181,30 @@ testParseFunctionListSignature =
     )
     (parseSurfaceProgram "fns :: [(Int -> Int)].\nfns = [(+ 1)].")
 
+testParseConstrainedSignaturePayload :: IO ()
+testParseConstrainedSignaturePayload =
+  assertEqual
+    "constrained signature payload"
+    ( Right
+        ( SEBlock
+            [ SSSignature
+                "f"
+                (SourceSpan 1 1)
+                ( SurfaceConstrainedSignature
+                    [ SurfaceSignatureConstraint "Eq" [SurfaceConstrainedTypeName "a"],
+                      SurfaceSignatureConstraint "Ord" [SurfaceConstrainedTypeName "b"]
+                    ]
+                    ( SurfaceConstrainedTypeFunction
+                        (SurfaceConstrainedTypeName "a")
+                        (SurfaceConstrainedTypeFunction (SurfaceConstrainedTypeName "b") (SurfaceConstrainedTypeName "c"))
+                    )
+                ),
+              SSLet "f" (SourceSpan 2 1) (SEVar "combine")
+            ]
+        )
+    )
+    (parseSurfaceProgram "f :: @{Eq(a), Ord(b)}: a -> b -> c.\nf = combine.")
+
 testIgnoresHashLineComments :: IO ()
 testIgnoresHashLineComments =
   assertEqual
@@ -288,6 +318,28 @@ testLowerFunctionListSignatureProgram =
                   "fns"
                   (SourceSpan 2 1)
                   (EList [ESectionRight "+" (ELit (LInt 1))])
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
+
+testLowerConstrainedSignatureProgram :: IO ()
+testLowerConstrainedSignatureProgram =
+  assertRight
+    "parse + lower constrained signature"
+    (parseSurfaceProgram "f :: @{Eq(a)}: a -> a.\nf = identity.")
+    ( \surfaceProgram ->
+        assertEqual
+          "lowered constrained signature AST"
+          ( EBlock
+              [ SSignature
+                  "f"
+                  (SourceSpan 1 1)
+                  ( ConstrainedSignature
+                      [SignatureConstraint "Eq" [ConstraintTypeName "a"]]
+                      (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "a"))
+                  ),
+                SLet "f" (SourceSpan 2 1) (EVar "identity")
               ]
           )
           (lowerSurfaceExpr surfaceProgram)

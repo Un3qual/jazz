@@ -26,10 +26,12 @@ import JazzNext.Compiler.Identifier
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
+    SurfaceConstrainedSignatureType (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
+    SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureToken (..),
     SurfaceSignatureType (..),
@@ -1355,7 +1357,140 @@ parseSignaturePayload signatureTokens =
 
 parseSupportedSignaturePayload :: [Token] -> Maybe SurfaceSignaturePayload
 parseSupportedSignaturePayload signatureTokens =
-  surfaceSignaturePayloadFromType <$> parseSupportedSignatureType signatureTokens
+  case parseConstrainedSignaturePayload signatureTokens of
+    Just signaturePayload ->
+      Just signaturePayload
+    Nothing ->
+      surfaceSignaturePayloadFromType <$> parseSupportedSignatureType signatureTokens
+
+parseConstrainedSignaturePayload :: [Token] -> Maybe SurfaceSignaturePayload
+parseConstrainedSignaturePayload signatureTokens =
+  case signatureTokens of
+    Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest -> do
+      (constraintTokens, afterConstraintBlock) <- splitConstraintBlockTokens rest
+      constraintGroups <- splitTopLevelCommaTokens constraintTokens
+      constraints <- traverse parseSignatureConstraint constraintGroups
+      case afterConstraintBlock of
+        Token {tokenKind = TColon} : typeTokens -> do
+          signatureType <- parseConstrainedSignatureType typeTokens
+          Just (SurfaceConstrainedSignature constraints signatureType)
+        _ ->
+          Nothing
+    _ ->
+      Nothing
+
+parseSignatureConstraint :: [Token] -> Maybe SurfaceSignatureConstraint
+parseSignatureConstraint constraintTokens =
+  case parseConstrainedSignatureType constraintTokens of
+    Just (SurfaceConstrainedTypeApplication constraintName arguments) ->
+      Just (SurfaceSignatureConstraint constraintName arguments)
+    Just (SurfaceConstrainedTypeName constraintName) ->
+      Just (SurfaceSignatureConstraint constraintName [])
+    _ ->
+      Nothing
+
+parseConstrainedSignatureType :: [Token] -> Maybe SurfaceConstrainedSignatureType
+parseConstrainedSignatureType signatureTokens =
+  case splitFirstTopLevelArrowTokens signatureTokens of
+    Left () -> Nothing
+    Right (Just (argumentTokens, resultTokens)) ->
+      SurfaceConstrainedTypeFunction
+        <$> parseConstrainedFunctionOperandType argumentTokens
+        <*> parseConstrainedSignatureType resultTokens
+    Right Nothing ->
+      parseConstrainedFunctionOperandType signatureTokens
+
+parseConstrainedFunctionOperandType :: [Token] -> Maybe SurfaceConstrainedSignatureType
+parseConstrainedFunctionOperandType signatureTokens =
+  case parseConstrainedTypeApplication signatureTokens of
+    Just signatureType ->
+      Just signatureType
+    Nothing ->
+      case signatureTokens of
+        [Token {tokenKind = TIdentifier name}] ->
+          Just (SurfaceConstrainedTypeName (mkIdentifier name))
+        _ ->
+          case stripWrappedSignatureTokens isLBracketToken isRBracketToken signatureTokens of
+            Just innerTokens ->
+              SurfaceConstrainedTypeList <$> parseConstrainedSignatureType innerTokens
+            Nothing ->
+              case stripWrappedSignatureTokens isLParenToken isRParenToken signatureTokens of
+                Just innerTokens ->
+                  parseConstrainedSignatureType innerTokens
+                Nothing ->
+                  Nothing
+
+parseConstrainedTypeApplication :: [Token] -> Maybe SurfaceConstrainedSignatureType
+parseConstrainedTypeApplication signatureTokens =
+  case signatureTokens of
+    Token {tokenKind = TIdentifier typeName} : argumentTokens -> do
+      argumentTokenGroups <-
+        stripWrappedSignatureTokens isLParenToken isRParenToken argumentTokens
+          >>= splitTopLevelCommaTokens
+      arguments <- traverse parseConstrainedSignatureType argumentTokenGroups
+      Just (SurfaceConstrainedTypeApplication (mkIdentifier typeName) arguments)
+    _ ->
+      Nothing
+
+splitConstraintBlockTokens :: [Token] -> Maybe ([Token], [Token])
+splitConstraintBlockTokens = go 0 0 []
+  where
+    go _ _ _ [] = Nothing
+    go parenDepth bracketDepth acc (token : rest)
+      | isRBraceToken kind && parenDepth == 0 && bracketDepth == 0 =
+          Just (reverse acc, rest)
+      | isLParenToken kind =
+          go (parenDepth + 1) bracketDepth (token : acc) rest
+      | isRParenToken kind =
+          if parenDepth > 0
+            then go (parenDepth - 1) bracketDepth (token : acc) rest
+            else Nothing
+      | isLBracketToken kind =
+          go parenDepth (bracketDepth + 1) (token : acc) rest
+      | isRBracketToken kind =
+          if bracketDepth > 0
+            then go parenDepth (bracketDepth - 1) (token : acc) rest
+            else Nothing
+      | otherwise =
+          go parenDepth bracketDepth (token : acc) rest
+      where
+        kind = tokenKind token
+
+splitTopLevelCommaTokens :: [Token] -> Maybe [[Token]]
+splitTopLevelCommaTokens tokens =
+  if null tokens
+    then Nothing
+    else go 0 0 [] [] tokens
+  where
+    go parenDepth bracketDepth currentRev groupsRev remainingTokens =
+      case remainingTokens of
+        []
+          | parenDepth == 0 && bracketDepth == 0 && not (null currentRev) ->
+              Just (reverse (reverse currentRev : groupsRev))
+          | otherwise ->
+              Nothing
+        token : rest
+          | tokenKind token == TComma && parenDepth == 0 && bracketDepth == 0 ->
+              if null currentRev
+                then Nothing
+                else go parenDepth bracketDepth [] (reverse currentRev : groupsRev) rest
+          | isLParenToken kind ->
+              go (parenDepth + 1) bracketDepth nextCurrentRev groupsRev rest
+          | isRParenToken kind ->
+              if parenDepth > 0
+                then go (parenDepth - 1) bracketDepth nextCurrentRev groupsRev rest
+                else Nothing
+          | isLBracketToken kind ->
+              go parenDepth (bracketDepth + 1) nextCurrentRev groupsRev rest
+          | isRBracketToken kind ->
+              if bracketDepth > 0
+                then go parenDepth (bracketDepth - 1) nextCurrentRev groupsRev rest
+                else Nothing
+          | otherwise ->
+              go parenDepth bracketDepth nextCurrentRev groupsRev rest
+          where
+            kind = tokenKind token
+            nextCurrentRev = token : currentRev
 
 parseSupportedSignatureType :: [Token] -> Maybe SurfaceSignatureType
 parseSupportedSignatureType signatureTokens =
@@ -1477,10 +1612,15 @@ surfaceSignatureTokenFromToken token =
     TIdentifier name -> SurfaceSignatureNameToken name
     TInt value -> SurfaceSignatureIntToken value
     TArrow -> SurfaceSignatureArrowToken
+    TAt -> SurfaceSignatureAtToken
+    TColon -> SurfaceSignatureColonToken
     TLParen -> SurfaceSignatureLParenToken
     TRParen -> SurfaceSignatureRParenToken
+    TLBrace -> SurfaceSignatureLBraceToken
+    TRBrace -> SurfaceSignatureRBraceToken
     TLBracket -> SurfaceSignatureLBracketToken
     TRBracket -> SurfaceSignatureRBracketToken
+    TComma -> SurfaceSignatureCommaToken
     TOperator symbol -> SurfaceSignatureOperatorToken symbol
     _ -> SurfaceSignatureOtherToken (tokenLexeme token)
 
@@ -1512,6 +1652,12 @@ isRBracketToken :: TokenKind -> Bool
 isRBracketToken kind =
   case kind of
     TRBracket -> True
+    _ -> False
+
+isRBraceToken :: TokenKind -> Bool
+isRBraceToken kind =
+  case kind of
+    TRBrace -> True
     _ -> False
 
 consumeDot :: [Token] -> Either Diagnostic [Token]

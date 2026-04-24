@@ -33,9 +33,11 @@ data TokenKind
   | TCase
   | TLambda
   | TArrow
+  | TAt
   | TInt Int
   | TEquals
   | TOperator Text
+  | TColon
   | TColonColon
   | TDot
   | TLBrace
@@ -111,8 +113,8 @@ tokenize = go 1 1
                   case Text.uncons rest of
                     Just (':', after) ->
                       withSingleToken TColonColon "::" 2 line column after
-                    _ ->
-                      Left (parseDiagnostic ("unexpected ':' at " <> renderSpan line column <> "; expected '::'"))
+                    _ -> withSingleToken TColon ":" 1 line column rest
+                '@' -> withSingleToken TAt "@" 1 line column rest
                 '=' ->
                   case Text.uncons rest of
                     Just ('=', after) -> withOperatorToken "==" 2 line column after

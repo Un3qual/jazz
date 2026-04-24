@@ -24,9 +24,11 @@ import JazzNext.Compiler.Analyzer
   )
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    ConstraintSignatureType (..),
     Expr (..),
     Literal (..),
     Pattern (..),
+    SignatureConstraint (..),
     SignaturePayload (..),
     SignatureToken (..),
     SignatureType (..),
@@ -912,6 +914,8 @@ signaturePayloadToExpressionType signaturePayload =
   case signaturePayload of
     SignatureType signatureType ->
       Just (signatureTypeToExpressionType signatureType)
+    ConstrainedSignature {} ->
+      Nothing
     UnsupportedSignature {} ->
       Nothing
 
@@ -932,8 +936,55 @@ renderSignaturePayload signaturePayload =
   case signaturePayload of
     SignatureType signatureType ->
       renderSignatureType signatureType
+    ConstrainedSignature constraints signatureType ->
+      renderConstrainedSignaturePayload constraints signatureType
     UnsupportedSignature signatureTokens ->
       renderUnsupportedSignatureTokens signatureTokens
+
+renderConstrainedSignaturePayload :: [SignatureConstraint] -> ConstraintSignatureType -> Text
+renderConstrainedSignaturePayload constraints signatureType =
+  "@{"
+    <> Text.intercalate ", " (map renderSignatureConstraint constraints)
+    <> "}: "
+    <> renderConstraintSignatureType signatureType
+
+renderSignatureConstraint :: SignatureConstraint -> Text
+renderSignatureConstraint (SignatureConstraint constraintName arguments) =
+  identifierText constraintName
+    <> if null arguments
+      then ""
+      else "(" <> Text.intercalate ", " (map renderConstraintSignatureType arguments) <> ")"
+
+renderConstraintSignatureType :: ConstraintSignatureType -> Text
+renderConstraintSignatureType signatureType =
+  case signatureType of
+    ConstraintTypeName name ->
+      identifierText name
+    ConstraintTypeApplication name arguments ->
+      identifierText name
+        <> "("
+        <> Text.intercalate ", " (map renderConstraintSignatureType arguments)
+        <> ")"
+    ConstraintTypeList innerType ->
+      "[" <> renderConstraintListElementType innerType <> "]"
+    ConstraintTypeFunction argumentType resultType ->
+      renderConstraintFunctionArgumentType argumentType <> " -> " <> renderConstraintSignatureType resultType
+
+renderConstraintFunctionArgumentType :: ConstraintSignatureType -> Text
+renderConstraintFunctionArgumentType signatureType =
+  case signatureType of
+    ConstraintTypeFunction {} ->
+      "(" <> renderConstraintSignatureType signatureType <> ")"
+    _ ->
+      renderConstraintSignatureType signatureType
+
+renderConstraintListElementType :: ConstraintSignatureType -> Text
+renderConstraintListElementType signatureType =
+  case signatureType of
+    ConstraintTypeFunction {} ->
+      "(" <> renderConstraintSignatureType signatureType <> ")"
+    _ ->
+      renderConstraintSignatureType signatureType
 
 renderSignatureType :: SignatureType -> Text
 renderSignatureType signatureType =
@@ -985,16 +1036,22 @@ tokenNeedsLeadingSpace token =
   case token of
     SignatureLParenToken -> False
     SignatureLBracketToken -> False
+    SignatureLBraceToken -> False
     SignatureRParenToken -> False
     SignatureRBracketToken -> False
+    SignatureRBraceToken -> False
+    SignatureCommaToken -> False
+    SignatureColonToken -> False
     SignatureArrowToken -> True
     _ -> True
 
 tokenNeedsTrailingSpace :: SignatureToken -> Bool
 tokenNeedsTrailingSpace token =
   case token of
+    SignatureAtToken -> False
     SignatureLParenToken -> False
     SignatureLBracketToken -> False
+    SignatureLBraceToken -> False
     _ -> True
 
 renderSignatureToken :: SignatureToken -> Text
@@ -1003,10 +1060,15 @@ renderSignatureToken token =
     SignatureNameToken name -> name
     SignatureIntToken value -> Text.pack (show value)
     SignatureArrowToken -> "->"
+    SignatureAtToken -> "@"
+    SignatureColonToken -> ":"
     SignatureLParenToken -> "("
     SignatureRParenToken -> ")"
+    SignatureLBraceToken -> "{"
+    SignatureRBraceToken -> "}"
     SignatureLBracketToken -> "["
     SignatureRBracketToken -> "]"
+    SignatureCommaToken -> ","
     SignatureOperatorToken symbol -> symbol
     SignatureOtherToken lexeme -> lexeme
 

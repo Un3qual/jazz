@@ -187,6 +187,8 @@ Active-path note: `jazz-next` now parses function arrows right-associatively. In
 
 The older left-associative behavior should be treated as legacy-reference drift rather than the active language contract.
 
+Active-path note: `jazz-next` now lexes and parses constrained signatures such as `x :: @{Eq(a), Ord(b)}: a -> b -> c` into structured parser/core payloads, then rejects them deterministically with `E2009` until constraint semantics, duplicate ordering, scope, and inference interaction rules are defined.
+
 ### Builtins And Type Environment In `jazz-hs`
 
 The hardcoded builtin type environment in [jazz-hs/src/Types.hs](../jazz-hs/src/Types.hs) only includes:
