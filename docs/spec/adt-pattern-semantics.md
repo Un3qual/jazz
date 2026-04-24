@@ -1,6 +1,6 @@
 # ADT Semantics
 
-Status: active (canonical `data` declarations, constructor values/applications, and declared constructor pattern typing are implemented in `jazz-next`; constructor/list pattern runtime matching and list pattern typing remain staged)
+Status: active (canonical `data` declarations, constructor values/applications, declared constructor pattern typing, and bracketed-list pattern typing are implemented in `jazz-next`; constructor/list pattern runtime matching remains staged)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -25,7 +25,9 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
    constructor patterns with deterministic `E2011` diagnostics.
 4. The active parser/core path accepts constructor and bracketed-list
    patterns in `case` arms and lowers them into `EPatternCase`.
-5. The end-to-end runtime-executed `case` subset is still the simple
+5. Bracketed-list patterns typecheck against list scrutinees and bind element
+   variables in arm bodies, but list pattern runtime matching remains staged.
+6. The end-to-end runtime-executed `case` subset is still the simple
    literal/wildcard/variable slice defined in
    `docs/spec/pattern-matching-semantics.md`.
 
@@ -58,9 +60,9 @@ none = Nothing.
    before the full surface is executable.
 3. Built-in lists remain separately implemented runtime values; user ADTs do
    not redefine list semantics in the first slice.
-4. Bracketed list patterns share the active parser/core pattern syntax, but
-   their type/runtime semantics remain deferred; constructor pattern runtime
-   matching also remains deferred.
+4. Bracketed list patterns share the active parser/core pattern syntax and
+   now have active-path type semantics, but their runtime matching remains
+   deferred with constructor pattern runtime matching.
 5. Tuple values and tuple patterns remain outside the first ADT slice until
    tuple ownership is explicitly planned on the active path.
 

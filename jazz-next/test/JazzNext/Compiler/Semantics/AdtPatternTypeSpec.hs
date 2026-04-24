@@ -57,11 +57,17 @@ tests =
     ( "source pipeline rejects constructor arm result mismatches",
       testSourcePipelineRejectsConstructorBranchMismatch
     ),
-    ( "source pipeline reports only deferred diagnostics for list patterns",
-      testSourcePipelineDefersListPatternBodies
+    ( "source pipeline accepts list patterns",
+      testSourcePipelineAcceptsListPatterns
     ),
-    ( "source pipeline skips branch mismatch diagnostics for deferred list patterns",
-      testSourcePipelineSkipsListBranchMismatch
+    ( "source pipeline types list pattern binders as element types",
+      testSourcePipelineTypesListPatternBinders
+    ),
+    ( "source pipeline rejects list patterns for incompatible scrutinees",
+      testSourcePipelineRejectsListPatternScrutineeMismatch
+    ),
+    ( "source pipeline rejects list arm result mismatches",
+      testSourcePipelineRejectsListBranchMismatch
     ),
     ( "source pipeline rejects incompatible literal pattern types",
       testSourcePipelineRejectsIncompatibleLiteralPattern
@@ -156,28 +162,45 @@ testSourcePipelineRejectsConstructorBranchMismatch = do
     "case arms must have matching types"
     (compileErrors result)
 
-testSourcePipelineDefersListPatternBodies :: IO ()
-testSourcePipelineDefersListPatternBodies = do
+testSourcePipelineAcceptsListPatterns :: IO ()
+testSourcePipelineAcceptsListPatterns = do
+  result <- compileSource defaultWarningSettings "values = [1]. x = case values { | [head] -> head + 1 | [] -> 0 }."
+  assertCompiles "list pattern" result
+
+testSourcePipelineTypesListPatternBinders :: IO ()
+testSourcePipelineTypesListPatternBinders = do
   result <- compileSource defaultWarningSettings "values = [True]. x = case values { | [head] -> head + 1 | _ -> 0 }."
   assertSingleDiagnosticCode
-    "list deferred error code"
-    "E2011"
+    "list pattern binder type error code"
+    "E2003"
     (compileErrors result)
   assertSingleDiagnosticContains
-    "list deferred error text"
-    "list case patterns remain deferred"
+    "list pattern binder type error text"
+    "cannot apply operator '+' to operands of type Bool and Int"
     (compileErrors result)
 
-testSourcePipelineSkipsListBranchMismatch :: IO ()
-testSourcePipelineSkipsListBranchMismatch = do
-  result <- compileSource defaultWarningSettings "values = [[1]]. x = case values { | [head] -> 1 | _ -> False }."
+testSourcePipelineRejectsListPatternScrutineeMismatch :: IO ()
+testSourcePipelineRejectsListPatternScrutineeMismatch = do
+  result <- compileSource defaultWarningSettings "value = 1. x = case value { | [head] -> head | _ -> 0 }."
   assertSingleDiagnosticCode
-    "list deferred branch mismatch code"
+    "list pattern scrutinee mismatch code"
     "E2011"
     (compileErrors result)
   assertSingleDiagnosticContains
-    "list deferred branch mismatch text"
-    "list case patterns remain deferred"
+    "list pattern scrutinee mismatch text"
+    "does not match scrutinee type Int"
+    (compileErrors result)
+
+testSourcePipelineRejectsListBranchMismatch :: IO ()
+testSourcePipelineRejectsListBranchMismatch = do
+  result <- compileSource defaultWarningSettings "values = [1]. x = case values { | [head] -> 1 | [] -> False }."
+  assertSingleDiagnosticCode
+    "list branch mismatch code"
+    "E2012"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "list branch mismatch text"
+    "case arms must have matching types"
     (compileErrors result)
 
 testSourcePipelineRejectsIncompatibleLiteralPattern :: IO ()

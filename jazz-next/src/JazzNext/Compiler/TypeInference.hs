@@ -1557,12 +1557,8 @@ inferPatternType env scrutineeType pattern state =
               )
     PConstructor constructorName patterns ->
       inferConstructorPatternType env scrutineeType constructorName patterns state
-    PList _ ->
-      ( skipBranchPatternTyping,
-        addTypeError
-          state
-          (mkDeferredPatternFormError "list" "[]")
-      )
+    PList patterns ->
+      inferListPatternType env scrutineeType patterns state
 
 inferConstructorPatternType ::
   TypeEnv ->
@@ -1625,6 +1621,49 @@ inferConstructorArgumentPatterns env argumentTypes patterns initialState =
     step (typingAcc, stateAcc) (argumentType, pattern) =
       let (typing, stateAfterPattern) =
             inferPatternType env argumentType pattern stateAcc
+       in (mergePatternTyping typing typingAcc, stateAfterPattern)
+
+inferListPatternType ::
+  TypeEnv ->
+  ExpressionType ->
+  [Pattern] ->
+  InferState ->
+  (PatternTyping, InferState)
+inferListPatternType env scrutineeType patterns state =
+  let (elementType, stateWithElementType) = freshTypeVar state
+      listPatternType = TListType elementType
+      stateAfterListCheck =
+        case unifyTypes scrutineeType listPatternType stateWithElementType of
+          Just unifiedState -> unifiedState
+          Nothing ->
+            addTypeError
+              stateWithElementType
+              ( mkPatternTypeMismatchError
+                  (resolveType stateWithElementType scrutineeType)
+                  (resolveType stateWithElementType listPatternType)
+              )
+   in
+    if hasNewPatternError stateWithElementType stateAfterListCheck
+      then (skipBranchPatternTyping, stateAfterListCheck)
+      else
+        inferListElementPatterns
+          env
+          (resolveType stateAfterListCheck elementType)
+          patterns
+          stateAfterListCheck
+
+inferListElementPatterns ::
+  TypeEnv ->
+  ExpressionType ->
+  [Pattern] ->
+  InferState ->
+  (PatternTyping, InferState)
+inferListElementPatterns env elementType patterns initialState =
+  foldl' step (emptyPatternTyping, initialState) patterns
+  where
+    step (typingAcc, stateAcc) pattern =
+      let (typing, stateAfterPattern) =
+            inferPatternType env elementType pattern stateAcc
        in (mergePatternTyping typing typingAcc, stateAfterPattern)
 
 hasNewPatternError :: InferState -> InferState -> Bool

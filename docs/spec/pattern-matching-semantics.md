@@ -1,6 +1,6 @@
 # Pattern Matching Semantics
 
-Status: active (simple `case` subset executes end-to-end in `jazz-next`; constructor and bracketed-list patterns parse/lower on the active path; declared constructor patterns typecheck, while list typing and constructor/list runtime matching remain staged)
+Status: active (simple `case` subset executes end-to-end in `jazz-next`; constructor and bracketed-list patterns parse/lower and typecheck on the active path, while constructor/list runtime matching remains staged)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -39,8 +39,9 @@ Current parser/core invariants:
    - bracketed list patterns such as `[head, _]` or `[]`
 4. Constructor/list patterns are preserved structurally in `EPatternCase`.
    Declared constructor patterns typecheck against ADT scrutinees and bind
-   payload variables in arm bodies; bracketed-list pattern typing and
-   constructor/list runtime matching remain deferred.
+   payload variables in arm bodies; bracketed-list patterns typecheck against
+   list scrutinees and bind element variables in arm bodies. Constructor/list
+   runtime matching remains deferred.
 5. Arm bodies are full expressions; nested `case`, `if`, lambdas, block-valued
    scrutinees, and infix/operator expressions remain valid inside arm bodies.
 6. Lowering preserves direct `case` expressions as `EPatternCase Expr [CaseArm]`.
@@ -83,8 +84,10 @@ firstOrZero = case values { | [head, _] -> head | [] -> 0 }.
    patterns produce compile-time `E2011` diagnostics.
 5. All arm bodies must agree on one result type; mismatched arm result types
    produce compile-time `E2012` diagnostics.
-6. Bracketed-list patterns currently surface deterministic compile-time
-   `E2011` diagnostics until the later list-pattern milestone lands.
+6. Bracketed-list patterns typecheck against list scrutinees, bind element
+   variables in arm bodies, reject incompatible scrutinees with deterministic
+   `E2011` diagnostics, and participate in ordinary arm-result agreement
+   checks.
 7. If no arm matches at runtime, evaluation emits deterministic `E3022`
    diagnostics rather than falling through silently.
 
@@ -94,7 +97,7 @@ The following remain explicitly out of scope for the end-to-end committed
 subset:
 
 1. Constructor-pattern runtime execution.
-2. List-pattern typing and runtime execution, including cons-like forms.
+2. List-pattern runtime execution, including cons-like forms.
 3. Tuple patterns.
 4. Lambda-parameter patterns.
 
