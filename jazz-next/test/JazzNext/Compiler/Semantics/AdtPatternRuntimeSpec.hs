@@ -30,6 +30,10 @@ tests =
     ("runtime uses wildcard fallback when literals do not match", testRuntimeUsesWildcardFallback),
     ("runtime binds nullary data constructor values", testRuntimeBindsNullaryDataConstructor),
     ("runtime applies data constructors", testRuntimeAppliesDataConstructor),
+    ("runtime matches constructor patterns", testRuntimeMatchesConstructorPatterns),
+    ("runtime matches nullary constructor patterns", testRuntimeMatchesNullaryConstructorPatterns),
+    ("runtime matches list patterns", testRuntimeMatchesListPatterns),
+    ("runtime requires exact list pattern length", testRuntimeRequiresExactListPatternLength),
     ("runtime reports a deterministic error when no case arm matches", testRuntimeReportsNoMatchingArm)
   ]
 
@@ -57,6 +61,26 @@ testRuntimeAppliesDataConstructor :: IO ()
 testRuntimeAppliesDataConstructor = do
   result <- runSource defaultWarningSettings "data Maybe = Just value. x = Just 1. x."
   assertSuccessfulRuntime "constructor application" (Just "Just(1)") result
+
+testRuntimeMatchesConstructorPatterns :: IO ()
+testRuntimeMatchesConstructorPatterns = do
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 41. case value { | Just item -> item + 1 | Nothing -> 0 }."
+  assertSuccessfulRuntime "constructor pattern match" (Just "42") result
+
+testRuntimeMatchesNullaryConstructorPatterns :: IO ()
+testRuntimeMatchesNullaryConstructorPatterns = do
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Nothing. case value { | Just item -> item | Nothing -> 7 }."
+  assertSuccessfulRuntime "nullary constructor pattern match" (Just "7") result
+
+testRuntimeMatchesListPatterns :: IO ()
+testRuntimeMatchesListPatterns = do
+  result <- runSource defaultWarningSettings "values = [1]. case values { | [head] -> head + 1 | [] -> 0 }."
+  assertSuccessfulRuntime "list pattern match" (Just "2") result
+
+testRuntimeRequiresExactListPatternLength :: IO ()
+testRuntimeRequiresExactListPatternLength = do
+  result <- runSource defaultWarningSettings "values = [1, 2]. case values { | [head] -> head | _ -> 9 }."
+  assertSuccessfulRuntime "list pattern length mismatch" (Just "9") result
 
 testRuntimeReportsNoMatchingArm :: IO ()
 testRuntimeReportsNoMatchingArm = do

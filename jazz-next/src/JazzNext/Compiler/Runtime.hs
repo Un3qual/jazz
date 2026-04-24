@@ -656,8 +656,30 @@ matchPattern scrutineeValue pattern =
           Just Map.empty
       | otherwise ->
           Nothing
-    PConstructor {} -> Nothing
-    PList {} -> Nothing
+    PConstructor constructorName patterns ->
+      case scrutineeValue of
+        VConstructor valueConstructorName constructorArity capturedArgs
+          | valueConstructorName == constructorName,
+            constructorIsSaturated constructorArity capturedArgs,
+            length capturedArgs == length patterns ->
+              matchPatternList capturedArgs patterns
+        _ -> Nothing
+    PList patterns ->
+      case scrutineeValue of
+        VList elements
+          | length elements == length patterns ->
+              matchPatternList elements patterns
+        _ -> Nothing
+
+matchPatternList :: [RuntimeValue] -> [Pattern] -> Maybe RuntimeEnv
+matchPatternList values patterns =
+  foldl' step (Just Map.empty) (zip values patterns)
+  where
+    step Nothing _ = Nothing
+    step (Just bindings) (value, pattern) =
+      case matchPattern value pattern of
+        Just patternBindings -> Just (patternBindings `Map.union` bindings)
+        Nothing -> Nothing
 
 -- | Apply any callable runtime value, including sections, builtin primitives,
 -- and curried operator values.
