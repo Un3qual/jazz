@@ -25,6 +25,7 @@ import JazzNext.Compiler.Analyzer
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ConstraintSignatureType (..),
+    DataConstructor (..),
     Expr (..),
     Literal (..),
     Pattern (..),
@@ -51,7 +52,8 @@ import JazzNext.Compiler.Diagnostics
     setDiagnosticSubject
   )
 import JazzNext.Compiler.Identifier
-  ( identifierText
+  ( Identifier,
+    identifierText
   )
 import JazzNext.Compiler.RecursiveBindings
   ( collectBindingNames,
@@ -177,9 +179,17 @@ data ExpressionType
   = TIntType
   | TBoolType
   | TListType ExpressionType
+  | TDataType Identifier
   | TFunctionType ExpressionType ExpressionType
   | TVarType Int
   deriving (Eq, Show)
+
+data TypeBinding
+  = PlainTypeBinding ExpressionType
+  | ConstructorTypeBinding Identifier Int
+  deriving (Eq, Show)
+
+type TypeEnv = Map Text TypeBinding
 
 -- | Mutable inference state threaded explicitly through the checker.
 data InferState = InferState
@@ -214,7 +224,7 @@ collectExprTypeErrors builtinMode expr =
 -- reuses the enclosing statement span as the best available location metadata.
 inferExprType ::
   BuiltinResolutionMode ->
-  Map Text ExpressionType ->
+  TypeEnv ->
   InferState ->
   Expr ->
   (Maybe ExpressionType, InferState)
@@ -223,7 +233,7 @@ inferExprType builtinMode env state expr =
     ELit literal -> (Just (literalExpressionType literal), state)
     EVar name ->
       case Map.lookup nameText env of
-        Just localType -> (Just (resolveType state localType), state)
+        Just localType -> instantiateTypeBinding localType state
         Nothing ->
           case instantiateBuiltinType builtinMode nameText state of
             Just (builtinType, nextState) -> (Just builtinType, nextState)
@@ -235,7 +245,7 @@ inferExprType builtinMode env state expr =
           extendedEnv =
             Map.insert
               (identifierText parameterName)
-              parameterType
+              (PlainTypeBinding parameterType)
               env
           (bodyType, stateAfterBody) =
             inferExprType builtinMode extendedEnv stateAfterParameter bodyExpr
@@ -369,7 +379,7 @@ literalExpressionType literal =
 
 inferListType ::
   BuiltinResolutionMode ->
-  Map Text ExpressionType ->
+  TypeEnv ->
   InferState ->
   [Expr] ->
   (Maybe ExpressionType, InferState)
@@ -656,7 +666,7 @@ applyStrictEqualitySectionRightRule operatorSymbol rightType state =
 
 -- | Scope/type-signature handling for block expressions. This mirrors the
 -- statement-order rules enforced by the analyzer while threading inferred types.
-inferScopeType :: BuiltinResolutionMode -> Map Text ExpressionType -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
+inferScopeType :: BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType builtinMode initialEnv initialState statements = go initialEnv Nothing Nothing seededState indexedStatements
   where
     indexedStatements = zip [0 ..] statements
@@ -679,8 +689,9 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
               go env lastExprType pendingSignatureType state rest
             SImport {} ->
               go env lastExprType pendingSignatureType state rest
-            SData {} ->
-              go env lastExprType pendingSignatureType state rest
+            SData _ typeName constructors ->
+              let nextEnv = registerDataConstructors typeName constructors env
+               in go nextEnv lastExprType Nothing state rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
                     case signaturePayloadToExpressionType signaturePayload of
@@ -708,7 +719,7 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                           Map.lookup statementIndex bindingSeedsByStatement
                         ) of
                       (True, Just bindingSeed) ->
-                        Map.insert nameText bindingSeed envWithRecursiveBindings
+                        Map.insert nameText (PlainTypeBinding bindingSeed) envWithRecursiveBindings
                       _ -> envWithRecursiveBindings
                   envWithPendingSignature =
                     case pendingSignatureType of
@@ -716,7 +727,7 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                         | pendingSignatureName pendingSignature == nameText ->
                             Map.insert
                               nameText
-                              (pendingSignatureDeclaredType pendingSignature)
+                              (PlainTypeBinding (pendingSignatureDeclaredType pendingSignature))
                               envWithBindingSeed
                       _ -> envWithBindingSeed
                   (valueType, rawStateAfterValue) = inferExprType builtinMode envWithPendingSignature state valueExpr
@@ -769,7 +780,7 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                           (Map.lookup statementIndex bindingSeedsByStatement)
                   nextEnv =
                     case nextBindingType of
-                      Just inferredType -> Map.insert nameText inferredType env
+                      Just inferredType -> Map.insert nameText (PlainTypeBinding inferredType) env
                       Nothing -> env
                in go nextEnv lastExprType Nothing stateAfterSignatureCheck rest
             SExpr exprSpan expr ->
@@ -864,11 +875,11 @@ scopeContainsFunctionBranch statements =
 
 recursiveBindingEnv ::
   Int ->
-  Map Text ExpressionType ->
+  TypeEnv ->
   Map Int [Int] ->
   Map Int Text ->
   Map Int ExpressionType ->
-  Map Text ExpressionType
+  TypeEnv
 recursiveBindingEnv statementIndex env recursiveGroupsByStatement bindingNamesByStatement bindingSeedsByStatement =
   case Map.lookup statementIndex recursiveGroupsByStatement of
     Nothing -> env
@@ -884,7 +895,7 @@ recursiveBindingEnv statementIndex env recursiveGroupsByStatement bindingNamesBy
           ) of
         (Just bindingNameText, Just bindingSeed)
           | Map.notMember bindingNameText env ->
-              Map.insert bindingNameText bindingSeed envAcc
+              Map.insert bindingNameText (PlainTypeBinding bindingSeed) envAcc
         _ -> envAcc
 
 data PendingSignatureType = PendingSignatureType
@@ -892,6 +903,35 @@ data PendingSignatureType = PendingSignatureType
     pendingSignatureSpan :: SourceSpan,
     pendingSignatureDeclaredType :: ExpressionType
   }
+
+registerDataConstructors :: Identifier -> [DataConstructor] -> TypeEnv -> TypeEnv
+registerDataConstructors typeName constructors env =
+  foldl' register env constructors
+  where
+    register envAcc (DataConstructor constructorName arity) =
+      Map.insert
+        (identifierText constructorName)
+        (ConstructorTypeBinding typeName arity)
+        envAcc
+
+instantiateTypeBinding :: TypeBinding -> InferState -> (Maybe ExpressionType, InferState)
+instantiateTypeBinding binding state =
+  case binding of
+    PlainTypeBinding expressionType ->
+      (Just (resolveType state expressionType), state)
+    ConstructorTypeBinding typeName arity ->
+      let (argumentTypes, nextState) = freshTypeVars arity state
+       in (Just (foldr TFunctionType (TDataType typeName) argumentTypes), nextState)
+
+freshTypeVars :: Int -> InferState -> ([ExpressionType], InferState)
+freshTypeVars count initialState =
+  go count [] initialState
+  where
+    go remaining acc state
+      | remaining <= 0 = (reverse acc, state)
+      | otherwise =
+          let (typeVar, nextState) = freshTypeVar state
+           in go (remaining - 1) (typeVar : acc) nextState
 
 -- | Attach the enclosing statement span to diagnostics that were just produced
 -- by an inner expression inference step.
@@ -1159,6 +1199,7 @@ applySubstitution subst expressionType =
     TIntType -> TIntType
     TBoolType -> TBoolType
     TListType elementType -> TListType (applySubstitution subst elementType)
+    TDataType typeName -> TDataType typeName
     TFunctionType inputType outputType ->
       TFunctionType
         (applySubstitution subst inputType)
@@ -1176,6 +1217,8 @@ unifyTypes leftType rightType state =
    in case (resolvedLeft, resolvedRight) of
         (TIntType, TIntType) -> Just state
         (TBoolType, TBoolType) -> Just state
+        (TDataType leftName, TDataType rightName)
+          | leftName == rightName -> Just state
         (TListType leftElementType, TListType rightElementType) ->
           unifyTypes leftElementType rightElementType state
         ( TFunctionType leftInputType leftOutputType,
@@ -1220,6 +1263,7 @@ occursInType typeVar expressionType =
     TIntType -> False
     TBoolType -> False
     TListType elementType -> occursInType typeVar elementType
+    TDataType {} -> False
     TFunctionType inputType outputType ->
       occursInType typeVar inputType || occursInType typeVar outputType
     TVarType otherVar -> typeVar == otherVar
@@ -1395,6 +1439,7 @@ renderType expressionType =
     TIntType -> "Int"
     TBoolType -> "Bool"
     TListType elementType -> "[" <> renderType elementType <> "]"
+    TDataType typeName -> identifierText typeName
     TFunctionType inputType outputType ->
       renderTypeAtom inputType <> " -> " <> renderType outputType
     TVarType typeVar -> "t" <> Text.pack (show typeVar)
@@ -1418,7 +1463,7 @@ extendBoundWithPattern pattern bound =
 
 inferPatternCaseType ::
   BuiltinResolutionMode ->
-  Map Text ExpressionType ->
+  TypeEnv ->
   ExpressionType ->
   InferState ->
   [CaseArm] ->
@@ -1492,12 +1537,12 @@ inferPatternType scrutineeType pattern state =
 extendTypeEnvWithPattern ::
   Pattern ->
   ExpressionType ->
-  Map Text ExpressionType ->
-  Map Text ExpressionType
+  TypeEnv ->
+  TypeEnv
 extendTypeEnvWithPattern pattern scrutineeType env =
   case pattern of
     PVariable name ->
-      Map.insert (identifierText name) scrutineeType env
+      Map.insert (identifierText name) (PlainTypeBinding scrutineeType) env
     PWildcard -> env
     PLiteral {} -> env
     -- These pattern forms are still deferred, so do not leak placeholder binder

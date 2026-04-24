@@ -22,6 +22,7 @@ import Data.Set (Set)
 import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    DataConstructor (..),
     Expr (..),
     Literal (..),
     Pattern (..),
@@ -307,10 +308,15 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
               warningsRev,
               errorsWithPending
             )
-        SData {} ->
+        SData spanValue _ constructors ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
            in
-            ( scopeBindings,
+            ( registerDataConstructors
+                hiddenStatementIndices
+                statementIndex
+                spanValue
+                constructors
+                scopeBindings,
               Nothing,
               warningsRev,
               errorsWithPending
@@ -553,6 +559,20 @@ mkVisibleBinding hiddenStatementIndices statementIndex spanValue =
     { visibleBindingSpan = spanValue,
       visibleBindingIsHiddenPrelude = statementIndex `Set.member` hiddenStatementIndices
     }
+
+registerDataConstructors ::
+  Set Int ->
+  Int ->
+  SourceSpan ->
+  [DataConstructor] ->
+  Map Text VisibleBinding ->
+  Map Text VisibleBinding
+registerDataConstructors hiddenStatementIndices statementIndex spanValue constructors bindings =
+  foldl' register bindings constructors
+  where
+    constructorBinding = mkVisibleBinding hiddenStatementIndices statementIndex spanValue
+    register bindingsAcc (DataConstructor constructorName _) =
+      Map.insert (identifierText constructorName) constructorBinding bindingsAcc
 
 visibleBindingDiagnosticSpan :: VisibleBinding -> Maybe SourceSpan
 visibleBindingDiagnosticSpan visibleBinding =
