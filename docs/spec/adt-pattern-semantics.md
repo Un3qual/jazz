@@ -1,6 +1,6 @@
 # ADT Semantics
 
-Status: active (Milestone 1 contract lock; active `jazz-next` implementation still pending parser/type/runtime follow-up)
+Status: active (canonical `data` declarations, constructor values/applications, and declared constructor pattern typing are implemented in `jazz-next`; constructor/list pattern runtime matching and list pattern typing remain staged)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -16,14 +16,16 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
 
 ## Current Active-Path Status
 
-1. `jazz-next` does not yet implement surface or lowered `data` declarations.
-2. `jazz-next` does not yet implement constructor values, constructor
-   application, or constructor-aware runtime values.
-3. This document locks the contract for upcoming active-path work; it is not a
-   claim that user-defined ADTs already execute today.
-4. The active parser/core path now accepts constructor and bracketed-list
+1. `jazz-next` implements canonical surface and lowered `data` declarations
+   with constructor arity metadata.
+2. `jazz-next` implements constructor values and ordinary constructor
+   application with first-order typing and runtime constructor values.
+3. Declared constructor patterns typecheck against ADT scrutinees, bind
+   payload variables in arm bodies, and reject unknown or arity-mismatched
+   constructor patterns with deterministic `E2011` diagnostics.
+4. The active parser/core path accepts constructor and bracketed-list
    patterns in `case` arms and lowers them into `EPatternCase`.
-5. The only end-to-end executed `case` subset is still the simple
+5. The end-to-end runtime-executed `case` subset is still the simple
    literal/wildcard/variable slice defined in
    `docs/spec/pattern-matching-semantics.md`.
 
@@ -42,7 +44,7 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
 Canonical shape example:
 
 ```jz
-data Maybe(a) { Just(a), Nothing }
+data Maybe = Just value | Nothing.
 
 some = Just 1.
 none = Nothing.
@@ -57,7 +59,8 @@ none = Nothing.
 3. Built-in lists remain separately implemented runtime values; user ADTs do
    not redefine list semantics in the first slice.
 4. Bracketed list patterns share the active parser/core pattern syntax, but
-   their full type/runtime semantics remain deferred with constructor patterns.
+   their type/runtime semantics remain deferred; constructor pattern runtime
+   matching also remains deferred.
 5. Tuple values and tuple patterns remain outside the first ADT slice until
    tuple ownership is explicitly planned on the active path.
 

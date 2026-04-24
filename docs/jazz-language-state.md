@@ -444,7 +444,7 @@ If you need a practical baseline for continuing Jazz, use this order:
    - application and list literals
    - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, right-associative function types, and explicit parenthesized function-type overrides)
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
-   - direct `case <expr> { | pattern -> expr ... }` parsing/lowering for the active literal, wildcard, and variable-pattern subset documented in `docs/spec/pattern-matching-semantics.md`
+   - canonical `data` declarations with constructor values/applications, plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; analyzer/type/runtime execution covers the literal / wildcard / variable runtime subset, and analyzer/type checking also covers declared constructor patterns
    - built-in operator fixity plus executable left/right section semantics
    - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, plus prelude-provided public helpers `map`, `filter`, `hd`, `tl`, `print!`
    - runtime execution via `--run` CLI mode, while successful CLI compile paths are diagnostic-only and keep stdout empty instead of printing placeholder codegen text
@@ -472,8 +472,8 @@ If this repo is going to become a coherent language project, the highest-value c
 Status update for item `#1`:
 
 - Active-path ADT/pattern contract is now recorded in `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md`.
-- The currently landed `jazz-next` subset is direct `case` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; canonical `data` declaration parsing/lowering; analyzer/type/runtime execution for the literal / wildcard / variable `case` subset; and analyzer/type acceptance for constructor values and constructor application arity.
-- Runtime constructor values, constructor/list pattern semantics, tuple patterns, and lambda-parameter patterns remain explicitly deferred on the active path.
+- The currently landed `jazz-next` subset is direct `case` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; canonical `data` declaration parsing/lowering; analyzer/type/runtime execution for the literal / wildcard / variable `case` subset; analyzer/type/runtime support for constructor values and constructor application arity; and analyzer/type checking for declared constructor patterns.
+- Constructor/list pattern runtime matching, bracketed-list pattern typing, tuple patterns, and lambda-parameter patterns remain explicitly deferred on the active path.
 
 Status update for item `#3`:
 
@@ -485,7 +485,7 @@ Status update for item `#5`:
 - Implemented-vs-planned split is now published in `README.md`.
 - Canonical evidence-backed feature status is now tracked in `docs/feature-status.md`.
 
-1. Execute the remaining active-path ADT/pattern batches in `jazz-next`, starting with runtime constructor values and constructor/list pattern support.
+1. Execute the remaining active-path ADT/pattern batches in `jazz-next`, starting with bracketed-list pattern typing and constructor/list pattern runtime matching.
 2. Rebase module/import loader planning (`domain 09`) onto `jazz-next` with deterministic file-resolution diagnostics.
 3. Finish remaining stdlib-boundary follow-up work (`domain 10`) in `jazz-next`, especially broader catalog cleanup and reproducibility evidence.
 4. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.

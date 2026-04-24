@@ -1476,18 +1476,14 @@ inferPatternCaseType builtinMode env scrutineeType initialState caseArms =
       CaseArm ->
       (Maybe ExpressionType, InferState)
     step (maybeExpectedBodyType, stateAcc) (CaseArm pattern bodyExpr) =
-      let stateAfterPattern =
-            inferPatternType scrutineeType pattern stateAcc
-          deferredPattern = isDeferredPatternForm pattern
+      let (patternTyping, stateAfterPattern) =
+            inferPatternType env scrutineeType pattern stateAcc
           armEnv =
-            extendTypeEnvWithPattern
-              pattern
-              (resolveType stateAfterPattern scrutineeType)
-              env
+            patternBindings patternTyping `Map.union` env
           (maybeBodyType, stateAfterBody) =
             inferExprType builtinMode armEnv stateAfterPattern bodyExpr
        in
-        if deferredPattern
+        if patternSkipsBranchType patternTyping
           then (maybeExpectedBodyType, stateAfterBody)
           else
             case (maybeExpectedBodyType, maybeBodyType) of
@@ -1509,53 +1505,131 @@ inferPatternCaseType builtinMode env scrutineeType initialState caseArms =
                         )
                     )
 
-inferPatternType :: ExpressionType -> Pattern -> InferState -> InferState
-inferPatternType scrutineeType pattern state =
+data PatternTyping = PatternTyping
+  { patternBindings :: TypeEnv,
+    patternSkipsBranchType :: Bool
+  }
+
+emptyPatternTyping :: PatternTyping
+emptyPatternTyping =
+  PatternTyping
+    { patternBindings = Map.empty,
+      patternSkipsBranchType = False
+    }
+
+skipBranchPatternTyping :: PatternTyping
+skipBranchPatternTyping =
+  emptyPatternTyping {patternSkipsBranchType = True}
+
+mergePatternTyping :: PatternTyping -> PatternTyping -> PatternTyping
+mergePatternTyping left right =
+  PatternTyping
+    { patternBindings = patternBindings left `Map.union` patternBindings right,
+      patternSkipsBranchType =
+        patternSkipsBranchType left || patternSkipsBranchType right
+    }
+
+inferPatternType :: TypeEnv -> ExpressionType -> Pattern -> InferState -> (PatternTyping, InferState)
+inferPatternType env scrutineeType pattern state =
   case pattern of
-    PVariable {} -> state
-    PWildcard -> state
+    PVariable name ->
+      ( emptyPatternTyping
+          { patternBindings =
+              Map.singleton
+                (identifierText name)
+                (PlainTypeBinding (resolveType state scrutineeType))
+          },
+        state
+      )
+    PWildcard -> (emptyPatternTyping, state)
     PLiteral literal ->
       let literalType = literalExpressionType literal
        in case unifyTypes scrutineeType literalType state of
-            Just unifiedState -> unifiedState
+            Just unifiedState -> (emptyPatternTyping, unifiedState)
             Nothing ->
-              addTypeError
-                state
-                ( mkPatternTypeMismatchError
-                    (resolveType state scrutineeType)
-                    literalType
-                )
-    PConstructor constructorName _ ->
-      addTypeError
-        state
-        (mkDeferredPatternFormError "constructor" (identifierText constructorName))
+              ( skipBranchPatternTyping,
+                addTypeError
+                  state
+                  ( mkPatternTypeMismatchError
+                      (resolveType state scrutineeType)
+                      literalType
+                  )
+              )
+    PConstructor constructorName patterns ->
+      inferConstructorPatternType env scrutineeType constructorName patterns state
     PList _ ->
-      addTypeError
-        state
-        (mkDeferredPatternFormError "list" "[]")
+      ( skipBranchPatternTyping,
+        addTypeError
+          state
+          (mkDeferredPatternFormError "list" "[]")
+      )
 
-extendTypeEnvWithPattern ::
-  Pattern ->
-  ExpressionType ->
+inferConstructorPatternType ::
   TypeEnv ->
-  TypeEnv
-extendTypeEnvWithPattern pattern scrutineeType env =
-  case pattern of
-    PVariable name ->
-      Map.insert (identifierText name) (PlainTypeBinding scrutineeType) env
-    PWildcard -> env
-    PLiteral {} -> env
-    -- These pattern forms are still deferred, so do not leak placeholder binder
-    -- types into the arm body and trigger unrelated secondary errors.
-    PConstructor {} -> env
-    PList {} -> env
+  ExpressionType ->
+  Identifier ->
+  [Pattern] ->
+  InferState ->
+  (PatternTyping, InferState)
+inferConstructorPatternType env scrutineeType constructorName patterns state =
+  case Map.lookup constructorNameText env of
+    Just (ConstructorTypeBinding typeName arity)
+      | arity /= length patterns ->
+          ( skipBranchPatternTyping,
+            addTypeError
+              state
+              (mkConstructorPatternArityError constructorNameText arity (length patterns))
+          )
+      | otherwise ->
+          let constructorResultType = TDataType typeName
+              stateAfterResultCheck =
+                case unifyTypes scrutineeType constructorResultType state of
+                  Just unifiedState -> unifiedState
+                  Nothing ->
+                    addTypeError
+                      state
+                      ( mkPatternTypeMismatchError
+                          (resolveType state scrutineeType)
+                          constructorResultType
+                      )
+              (argumentTypes, stateAfterArgumentTypes) =
+                freshTypeVars arity stateAfterResultCheck
+              (typing, finalState) =
+                inferConstructorArgumentPatterns
+                  env
+                  argumentTypes
+                  patterns
+                  stateAfterArgumentTypes
+           in
+            if hasNewPatternError state stateAfterResultCheck
+              then (typing {patternSkipsBranchType = True}, finalState)
+              else (typing, finalState)
+    _ ->
+      ( skipBranchPatternTyping,
+        addTypeError
+          state
+          (mkUnknownConstructorPatternError constructorNameText)
+      )
+  where
+    constructorNameText = identifierText constructorName
 
-isDeferredPatternForm :: Pattern -> Bool
-isDeferredPatternForm pattern =
-  case pattern of
-    PConstructor {} -> True
-    PList {} -> True
-    _ -> False
+inferConstructorArgumentPatterns ::
+  TypeEnv ->
+  [ExpressionType] ->
+  [Pattern] ->
+  InferState ->
+  (PatternTyping, InferState)
+inferConstructorArgumentPatterns env argumentTypes patterns initialState =
+  foldl' step (emptyPatternTyping, initialState) (zip argumentTypes patterns)
+  where
+    step (typingAcc, stateAcc) (argumentType, pattern) =
+      let (typing, stateAfterPattern) =
+            inferPatternType env argumentType pattern stateAcc
+       in (mergePatternTyping typing typingAcc, stateAfterPattern)
+
+hasNewPatternError :: InferState -> InferState -> Bool
+hasNewPatternError previousState nextState =
+  length (inferErrorsRev nextState) > length (inferErrorsRev previousState)
 
 mkDeferredPatternFormError :: Text -> Text -> Diagnostic
 mkDeferredPatternFormError patternKind patternLabel =
@@ -1565,6 +1639,24 @@ mkDeferredPatternFormError patternKind patternLabel =
         <> " case patterns remain deferred on the active path: "
         <> patternLabel
     )
+
+mkConstructorPatternArityError :: Text -> Int -> Int -> Diagnostic
+mkConstructorPatternArityError constructorName expectedArity actualArity =
+  mkDiagnostic
+    "E2011"
+    ( "constructor case pattern '"
+        <> constructorName
+        <> "' expects "
+        <> Text.pack (show expectedArity)
+        <> " argument(s), found "
+        <> Text.pack (show actualArity)
+    )
+
+mkUnknownConstructorPatternError :: Text -> Diagnostic
+mkUnknownConstructorPatternError constructorName =
+  mkDiagnostic
+    "E2011"
+    ("unknown constructor case pattern '" <> constructorName <> "'")
 
 supportsRuntimeEqualityType :: ExpressionType -> Bool
 supportsRuntimeEqualityType expressionType =

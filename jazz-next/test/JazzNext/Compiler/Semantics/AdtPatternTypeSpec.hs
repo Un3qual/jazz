@@ -42,11 +42,20 @@ tests =
     ( "source pipeline rejects over-applied nullary constructors",
       testSourcePipelineRejectsOverAppliedNullaryConstructor
     ),
-    ( "source pipeline reports only deferred diagnostics for constructor patterns",
-      testSourcePipelineDefersConstructorPatternBodies
+    ( "source pipeline accepts data constructor patterns",
+      testSourcePipelineAcceptsDataConstructorPatterns
     ),
-    ( "source pipeline skips branch mismatch diagnostics for deferred constructor patterns",
-      testSourcePipelineSkipsConstructorBranchMismatch
+    ( "source pipeline rejects constructor patterns for incompatible scrutinees",
+      testSourcePipelineRejectsConstructorPatternScrutineeMismatch
+    ),
+    ( "source pipeline rejects unknown constructor patterns",
+      testSourcePipelineRejectsUnknownConstructorPatterns
+    ),
+    ( "source pipeline rejects constructor pattern arity mismatches",
+      testSourcePipelineRejectsConstructorPatternArityMismatch
+    ),
+    ( "source pipeline rejects constructor arm result mismatches",
+      testSourcePipelineRejectsConstructorBranchMismatch
     ),
     ( "source pipeline reports only deferred diagnostics for list patterns",
       testSourcePipelineDefersListPatternBodies
@@ -94,28 +103,57 @@ testSourcePipelineRejectsOverAppliedNullaryConstructor = do
     "cannot apply function of type Maybe"
     (compileErrors result)
 
-testSourcePipelineDefersConstructorPatternBodies :: IO ()
-testSourcePipelineDefersConstructorPatternBodies = do
-  result <- compileSource defaultWarningSettings "value = [1]. x = case value { | Just item -> item + 1 | _ -> 0 }."
+testSourcePipelineAcceptsDataConstructorPatterns :: IO ()
+testSourcePipelineAcceptsDataConstructorPatterns = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just item -> item + 1 | Nothing -> 0 }."
+  assertCompiles "data constructor pattern" result
+
+testSourcePipelineRejectsConstructorPatternScrutineeMismatch :: IO ()
+testSourcePipelineRejectsConstructorPatternScrutineeMismatch = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = 1. x = case value { | Just item -> item | _ -> 0 }."
   assertSingleDiagnosticCode
-    "constructor deferred error code"
+    "constructor pattern scrutinee mismatch code"
     "E2011"
     (compileErrors result)
   assertSingleDiagnosticContains
-    "constructor deferred error text"
-    "constructor case patterns remain deferred"
+    "constructor pattern scrutinee mismatch text"
+    "case pattern of type Maybe does not match scrutinee type Int"
     (compileErrors result)
 
-testSourcePipelineSkipsConstructorBranchMismatch :: IO ()
-testSourcePipelineSkipsConstructorBranchMismatch = do
-  result <- compileSource defaultWarningSettings "value = [1]. x = case value { | Just item -> 1 | _ -> False }."
+testSourcePipelineRejectsUnknownConstructorPatterns :: IO ()
+testSourcePipelineRejectsUnknownConstructorPatterns = do
+  result <- compileSource defaultWarningSettings "value = [1]. x = case value { | Just item -> item + 1 | _ -> 0 }."
   assertSingleDiagnosticCode
-    "constructor deferred branch mismatch code"
+    "unknown constructor pattern error code"
     "E2011"
     (compileErrors result)
   assertSingleDiagnosticContains
-    "constructor deferred branch mismatch text"
-    "constructor case patterns remain deferred"
+    "unknown constructor pattern error text"
+    "unknown constructor case pattern 'Just'"
+    (compileErrors result)
+
+testSourcePipelineRejectsConstructorPatternArityMismatch :: IO ()
+testSourcePipelineRejectsConstructorPatternArityMismatch = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just -> 1 | Nothing -> 0 }."
+  assertSingleDiagnosticCode
+    "constructor pattern arity mismatch code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "constructor pattern arity mismatch text"
+    "constructor case pattern 'Just' expects 1 argument(s), found 0"
+    (compileErrors result)
+
+testSourcePipelineRejectsConstructorBranchMismatch :: IO ()
+testSourcePipelineRejectsConstructorBranchMismatch = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just item -> 1 | Nothing -> False }."
+  assertSingleDiagnosticCode
+    "constructor branch mismatch code"
+    "E2012"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "constructor branch mismatch text"
+    "case arms must have matching types"
     (compileErrors result)
 
 testSourcePipelineDefersListPatternBodies :: IO ()
