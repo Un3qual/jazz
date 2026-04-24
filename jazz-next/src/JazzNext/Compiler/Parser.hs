@@ -22,6 +22,7 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Identifier
   ( Identifier,
+    identifierText,
     mkIdentifier
   )
 import JazzNext.Compiler.Parser.AST
@@ -369,15 +370,29 @@ parseDataTypeName tokens =
 parseDataConstructors :: [Token] -> Either Diagnostic ([SurfaceDataConstructor], [Token])
 parseDataConstructors tokensAfterEquals = do
   (firstConstructor, afterFirstConstructor) <- parseDataConstructor tokensAfterEquals
-  go [firstConstructor] afterFirstConstructor
+  go
+    (Set.singleton (surfaceDataConstructorName firstConstructor))
+    [firstConstructor]
+    afterFirstConstructor
   where
-    go revConstructors allTokens =
+    go seenConstructors revConstructors allTokens =
       case allTokens of
         Token {tokenKind = TDot} : rest ->
           Right (reverse revConstructors, rest)
         Token {tokenKind = TOperator "|"} : rest -> do
           (nextConstructor, afterNextConstructor) <- parseDataConstructor rest
-          go (nextConstructor : revConstructors) afterNextConstructor
+          let constructorName = surfaceDataConstructorName nextConstructor
+          if Set.member constructorName seenConstructors
+            then
+              Left
+                ( parseDiagnostic
+                    ("duplicate constructor declaration '" <> constructorName <> "' in data declaration")
+                )
+            else
+              go
+                (Set.insert constructorName seenConstructors)
+                (nextConstructor : revConstructors)
+                afterNextConstructor
         [] ->
           Left (parseDiagnostic "expected '.' before end of input in data declaration")
         token : _ ->
@@ -390,6 +405,10 @@ parseDataConstructors tokensAfterEquals = do
                     <> "'"
                 )
             )
+
+    surfaceDataConstructorName :: SurfaceDataConstructor -> Text
+    surfaceDataConstructorName (SurfaceDataConstructor constructorName _) =
+      identifierText constructorName
 
 parseDataConstructor :: [Token] -> Either Diagnostic (SurfaceDataConstructor, [Token])
 parseDataConstructor tokens =

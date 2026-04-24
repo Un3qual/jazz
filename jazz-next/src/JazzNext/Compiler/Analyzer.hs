@@ -310,6 +310,14 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
             )
         SData spanValue _ constructors ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
+              constructorWarnings =
+                collectDataConstructorRebindingWarnings
+                  settings
+                  hiddenStatementIndices
+                  statementIndex
+                  spanValue
+                  constructors
+                  scopeBindings
            in
             ( registerDataConstructors
                 hiddenStatementIndices
@@ -318,7 +326,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
                 constructors
                 scopeBindings,
               Nothing,
-              warningsRev,
+              appendWarnings warningsRev constructorWarnings,
               errorsWithPending
             )
         SSignature signatureName signatureSpan _signatureText ->
@@ -573,6 +581,45 @@ registerDataConstructors hiddenStatementIndices statementIndex spanValue constru
     constructorBinding = mkVisibleBinding hiddenStatementIndices statementIndex spanValue
     register bindingsAcc (DataConstructor constructorName _) =
       Map.insert (identifierText constructorName) constructorBinding bindingsAcc
+
+collectDataConstructorRebindingWarnings ::
+  WarningSettings ->
+  Set Int ->
+  Int ->
+  SourceSpan ->
+  [DataConstructor] ->
+  Map Text VisibleBinding ->
+  [WarningRecord]
+collectDataConstructorRebindingWarnings
+  settings
+  hiddenStatementIndices
+  statementIndex
+  spanValue
+  constructors
+  bindings
+  | not (isWarningEnabled settings SameScopeRebinding) = []
+  | otherwise =
+      reverse warningsRev
+  where
+    constructorBinding = mkVisibleBinding hiddenStatementIndices statementIndex spanValue
+    (_, warningsRev) = foldl' collect (bindings, []) constructors
+
+    collect (bindingsAcc, warningsAcc) (DataConstructor constructorName _) =
+      let constructorNameText = identifierText constructorName
+          warning =
+            case Map.lookup constructorNameText bindingsAcc of
+              Just previousBinding
+                | not (visibleBindingIsHiddenPrelude previousBinding) ->
+                    [ mkSameScopeRebindingWarning
+                        constructorNameText
+                        spanValue
+                        (visibleBindingSpan previousBinding)
+                    ]
+              _ -> []
+       in
+        ( Map.insert constructorNameText constructorBinding bindingsAcc,
+          warning ++ warningsAcc
+        )
 
 visibleBindingDiagnosticSpan :: VisibleBinding -> Maybe SourceSpan
 visibleBindingDiagnosticSpan visibleBinding =

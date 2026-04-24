@@ -50,8 +50,8 @@ testRuntimeUsesWildcardFallback = do
 
 testRuntimeBindsNullaryDataConstructor :: IO ()
 testRuntimeBindsNullaryDataConstructor = do
-  result <- runSource defaultWarningSettings "data Maybe = Nothing. x = Nothing."
-  assertSuccessfulRuntime "nullary constructor binding" Nothing result
+  result <- runSource defaultWarningSettings "data Maybe = Nothing. x = Nothing. x."
+  assertSuccessfulRuntime "nullary constructor binding" (Just "Nothing") result
 
 testRuntimeAppliesDataConstructor :: IO ()
 testRuntimeAppliesDataConstructor = do

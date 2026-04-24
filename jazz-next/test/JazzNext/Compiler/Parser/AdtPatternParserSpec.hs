@@ -66,6 +66,7 @@ tests =
     ("rejects case expression without leading pipe", testRejectsCaseExpressionWithoutPipe),
     ("rejects case expression without arm arrow", testRejectsCaseExpressionWithoutArrow),
     ("rejects data declaration without constructors", testRejectsDataDeclarationWithoutConstructors),
+    ("rejects duplicate constructor names in one data declaration", testRejectsDuplicateConstructorsInDataDeclaration),
     ("rejects data declaration with malformed pipe placement", testRejectsDataDeclarationWithMalformedPipePlacement),
     ("rejects data declaration missing terminator", testRejectsDataDeclarationMissingTerminator),
     ("rejects malformed list patterns", testRejectsMalformedListPattern),
@@ -645,6 +646,13 @@ testRejectsDataDeclarationWithoutConstructors =
     "empty data constructor list"
     "expected constructor declaration"
     (parseSurfaceProgram "data Maybe = .")
+
+testRejectsDuplicateConstructorsInDataDeclaration :: IO ()
+testRejectsDuplicateConstructorsInDataDeclaration =
+  assertLeftDiagnosticContains
+    "duplicate data constructor"
+    "duplicate constructor declaration 'Nothing'"
+    (parseSurfaceProgram "data Maybe = Nothing | Nothing value.")
 
 testRejectsDataDeclarationWithMalformedPipePlacement :: IO ()
 testRejectsDataDeclarationWithMalformedPipePlacement =
