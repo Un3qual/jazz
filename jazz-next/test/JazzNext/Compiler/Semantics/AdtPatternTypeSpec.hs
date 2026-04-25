@@ -45,6 +45,9 @@ tests =
     ( "source pipeline accepts data constructor patterns",
       testSourcePipelineAcceptsDataConstructorPatterns
     ),
+    ( "source pipeline types constructor pattern binders as payload types",
+      testSourcePipelineTypesConstructorPatternBinders
+    ),
     ( "source pipeline rejects constructor patterns for incompatible scrutinees",
       testSourcePipelineRejectsConstructorPatternScrutineeMismatch
     ),
@@ -69,8 +72,14 @@ tests =
     ( "source pipeline rejects list arm result mismatches",
       testSourcePipelineRejectsListBranchMismatch
     ),
+    ( "source pipeline rejects duplicate pattern binders",
+      testSourcePipelineRejectsDuplicatePatternBinders
+    ),
     ( "source pipeline rejects incompatible literal pattern types",
       testSourcePipelineRejectsIncompatibleLiteralPattern
+    ),
+    ( "source pipeline skips invalid pattern arm bodies",
+      testSourcePipelineSkipsInvalidPatternArmBodies
     ),
     ( "source pipeline rejects mismatched case arm result types",
       testSourcePipelineRejectsMismatchedArmResultTypes
@@ -113,6 +122,18 @@ testSourcePipelineAcceptsDataConstructorPatterns :: IO ()
 testSourcePipelineAcceptsDataConstructorPatterns = do
   result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just item -> item + 1 | Nothing -> 0 }."
   assertCompiles "data constructor pattern" result
+
+testSourcePipelineTypesConstructorPatternBinders :: IO ()
+testSourcePipelineTypesConstructorPatternBinders = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just True. x = case value { | Just item -> item + 1 | Nothing -> 0 }."
+  assertSingleDiagnosticCode
+    "constructor pattern binder type error code"
+    "E2003"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "constructor pattern binder type error text"
+    "cannot apply operator '+' to operands of type Bool and Int"
+    (compileErrors result)
 
 testSourcePipelineRejectsConstructorPatternScrutineeMismatch :: IO ()
 testSourcePipelineRejectsConstructorPatternScrutineeMismatch = do
@@ -203,6 +224,18 @@ testSourcePipelineRejectsListBranchMismatch = do
     "case arms must have matching types"
     (compileErrors result)
 
+testSourcePipelineRejectsDuplicatePatternBinders :: IO ()
+testSourcePipelineRejectsDuplicatePatternBinders = do
+  result <- compileSource defaultWarningSettings "values = [1, 2]. x = case values { | [item, item] -> item | _ -> 0 }."
+  assertSingleDiagnosticCode
+    "duplicate pattern binder code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "duplicate pattern binder text"
+    "duplicate case pattern binder 'item'"
+    (compileErrors result)
+
 testSourcePipelineRejectsIncompatibleLiteralPattern :: IO ()
 testSourcePipelineRejectsIncompatibleLiteralPattern = do
   result <- compileSource defaultWarningSettings "x = case True { | 0 -> 1 | _ -> 2 }."
@@ -213,6 +246,18 @@ testSourcePipelineRejectsIncompatibleLiteralPattern = do
   assertSingleDiagnosticContains
     "pattern type error text"
     "does not match scrutinee type"
+    (compileErrors result)
+
+testSourcePipelineSkipsInvalidPatternArmBodies :: IO ()
+testSourcePipelineSkipsInvalidPatternArmBodies = do
+  result <- compileSource defaultWarningSettings "x = case True { | 0 -> 1 + False | _ -> 0 }."
+  assertSingleDiagnosticCode
+    "invalid pattern arm body is skipped code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "invalid pattern arm body is skipped text"
+    "case pattern of type Int does not match scrutinee type Bool"
     (compileErrors result)
 
 testSourcePipelineRejectsMismatchedArmResultTypes :: IO ()
