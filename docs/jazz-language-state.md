@@ -444,7 +444,7 @@ If you need a practical baseline for continuing Jazz, use this order:
    - application and list literals
    - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, right-associative function types, and explicit parenthesized function-type overrides)
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
-   - canonical `data` declarations with constructor values/applications, plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; analyzer/type/runtime execution covers the literal / wildcard / variable runtime subset, and analyzer/type checking also covers declared constructor patterns
+   - canonical `data` declarations with constructor values/applications, plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; analyzer/type/runtime execution covers literal, wildcard, variable, declared constructor patterns, and exact-length bracketed-list patterns
    - built-in operator fixity plus executable left/right section semantics
    - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, plus prelude-provided public helpers `map`, `filter`, `hd`, `tl`, `print!`
    - runtime execution via `--run` CLI mode, while successful CLI compile paths are diagnostic-only and keep stdout empty instead of printing placeholder codegen text

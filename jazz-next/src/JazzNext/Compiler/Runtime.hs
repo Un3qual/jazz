@@ -10,6 +10,7 @@ module JazzNext.Compiler.Runtime
     renderRuntimeValue
   ) where
 
+import Control.Monad (foldM)
 import Data.List (foldl')
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -673,10 +674,9 @@ matchPattern scrutineeValue pattern =
 
 matchPatternList :: [RuntimeValue] -> [Pattern] -> Maybe RuntimeEnv
 matchPatternList values patterns =
-  foldl' step (Just Map.empty) (zip values patterns)
+  foldM step Map.empty (zip values patterns)
   where
-    step Nothing _ = Nothing
-    step (Just bindings) (value, pattern) =
+    step bindings (value, pattern) =
       case matchPattern value pattern of
         Just patternBindings -> Just (patternBindings `Map.union` bindings)
         Nothing -> Nothing
