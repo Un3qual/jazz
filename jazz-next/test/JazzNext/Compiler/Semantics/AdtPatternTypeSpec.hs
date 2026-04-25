@@ -57,8 +57,14 @@ tests =
     ( "source pipeline rejects constructor pattern arity mismatches",
       testSourcePipelineRejectsConstructorPatternArityMismatch
     ),
+    ( "source pipeline skips constructor subpatterns after scrutinee mismatch",
+      testSourcePipelineSkipsConstructorSubpatternsAfterScrutineeMismatch
+    ),
     ( "source pipeline rejects constructor arm result mismatches",
       testSourcePipelineRejectsConstructorBranchMismatch
+    ),
+    ( "source pipeline treats constructor payloads as monomorphic",
+      testSourcePipelineTreatsConstructorPayloadsAsMonomorphic
     ),
     ( "source pipeline accepts list patterns",
       testSourcePipelineAcceptsListPatterns
@@ -171,6 +177,18 @@ testSourcePipelineRejectsConstructorPatternArityMismatch = do
     "constructor case pattern 'Just' expects 1 argument(s), found 0"
     (compileErrors result)
 
+testSourcePipelineSkipsConstructorSubpatternsAfterScrutineeMismatch :: IO ()
+testSourcePipelineSkipsConstructorSubpatternsAfterScrutineeMismatch = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = 1. x = case value { | Just True -> 0 | _ -> 0 }. y = Just 1."
+  assertSingleDiagnosticCode
+    "constructor subpattern skip code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "constructor subpattern skip text"
+    "case pattern of type Maybe does not match scrutinee type Int"
+    (compileErrors result)
+
 testSourcePipelineRejectsConstructorBranchMismatch :: IO ()
 testSourcePipelineRejectsConstructorBranchMismatch = do
   result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just item -> 1 | Nothing -> False }."
@@ -181,6 +199,18 @@ testSourcePipelineRejectsConstructorBranchMismatch = do
   assertSingleDiagnosticContains
     "constructor branch mismatch text"
     "case arms must have matching types"
+    (compileErrors result)
+
+testSourcePipelineTreatsConstructorPayloadsAsMonomorphic :: IO ()
+testSourcePipelineTreatsConstructorPayloadsAsMonomorphic = do
+  result <- compileSource defaultWarningSettings "data Box = Box value. first = Box 1. second = Box True."
+  assertSingleDiagnosticCode
+    "monomorphic constructor payload code"
+    "E2006"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "monomorphic constructor payload text"
+    "cannot apply function of type Int -> Box to argument of type Bool"
     (compileErrors result)
 
 testSourcePipelineAcceptsListPatterns :: IO ()

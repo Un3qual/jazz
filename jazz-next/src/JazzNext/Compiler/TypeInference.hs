@@ -1638,26 +1638,23 @@ inferConstructorPatternType env scrutineeType constructorName patterns state =
             )
           else
             let constructorResultType = TDataType typeName
-                stateAfterResultCheck =
-                  case unifyTypes scrutineeType constructorResultType state of
-                    Just unifiedState -> unifiedState
-                    Nothing ->
-                      addTypeError
-                        state
-                        ( mkPatternTypeMismatchError
-                            (resolveType state scrutineeType)
-                            constructorResultType
-                        )
-                (typing, finalState) =
+             in
+              case unifyTypes scrutineeType constructorResultType state of
+                Just stateAfterResultCheck ->
                   inferConstructorArgumentPatterns
                     env
                     (map (resolveType stateAfterResultCheck) argumentTypes)
                     patterns
                     stateAfterResultCheck
-             in
-              if hasNewPatternError state stateAfterResultCheck
-                then (typing {patternSkipsBranchType = True}, finalState)
-                else (typing, finalState)
+                Nothing ->
+                  ( skipBranchPatternTyping,
+                    addTypeError
+                      state
+                      ( mkPatternTypeMismatchError
+                          (resolveType state scrutineeType)
+                          constructorResultType
+                      )
+                  )
     _ ->
       ( skipBranchPatternTyping,
         addTypeError
@@ -1727,15 +1724,6 @@ inferListElementPatterns env elementType patterns initialState =
 hasNewPatternError :: InferState -> InferState -> Bool
 hasNewPatternError previousState nextState =
   inferErrorCount nextState > inferErrorCount previousState
-
-mkDeferredPatternFormError :: Text -> Text -> Diagnostic
-mkDeferredPatternFormError patternKind patternLabel =
-  mkDiagnostic
-    "E2011"
-    ( patternKind
-        <> " case patterns remain deferred on the active path: "
-        <> patternLabel
-    )
 
 mkConstructorPatternArityError :: Text -> Int -> Int -> Diagnostic
 mkConstructorPatternArityError constructorName expectedArity actualArity =

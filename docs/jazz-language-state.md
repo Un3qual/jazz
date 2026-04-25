@@ -473,6 +473,7 @@ Status update for item `#1`:
 
 - Active-path ADT/pattern contract is now recorded in `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md`.
 - The currently landed `jazz-next` subset is direct `case` parsing/lowering plus analyzer/type/runtime execution for literal, wildcard, variable, constructor, and exact-length bracketed-list patterns; canonical `data` declaration parsing/lowering; and analyzer/type/runtime support for constructor values and constructor application arity.
+- Constructor payload typing is intentionally monomorphic per constructor in the current active subset; named type parameters and fresh per-use constructor type schemes remain future ADT work.
 - Tuple patterns, cons-like list patterns, and lambda-parameter patterns remain explicitly deferred on the active path.
 
 Status update for item `#3`:
