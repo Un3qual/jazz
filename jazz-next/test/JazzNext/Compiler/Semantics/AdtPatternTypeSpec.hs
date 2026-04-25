@@ -60,6 +60,9 @@ tests =
     ( "source pipeline skips constructor subpatterns after scrutinee mismatch",
       testSourcePipelineSkipsConstructorSubpatternsAfterScrutineeMismatch
     ),
+    ( "source pipeline stops constructor argument checks after payload mismatch",
+      testSourcePipelineStopsConstructorArgumentChecksAfterPayloadMismatch
+    ),
     ( "source pipeline rejects constructor arm result mismatches",
       testSourcePipelineRejectsConstructorBranchMismatch
     ),
@@ -187,6 +190,18 @@ testSourcePipelineSkipsConstructorSubpatternsAfterScrutineeMismatch = do
   assertSingleDiagnosticContains
     "constructor subpattern skip text"
     "case pattern of type Maybe does not match scrutinee type Int"
+    (compileErrors result)
+
+testSourcePipelineStopsConstructorArgumentChecksAfterPayloadMismatch :: IO ()
+testSourcePipelineStopsConstructorArgumentChecksAfterPayloadMismatch = do
+  result <- compileSource defaultWarningSettings "data Pair = Pair left right. seed = Pair 1 []. x = case seed { | Pair True [False] -> 0 | _ -> 0 }. ok = Pair 1 [1]."
+  assertSingleDiagnosticCode
+    "constructor payload mismatch short-circuit code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "constructor payload mismatch short-circuit text"
+    "case pattern of type Bool does not match scrutinee type Int"
     (compileErrors result)
 
 testSourcePipelineRejectsConstructorBranchMismatch :: IO ()

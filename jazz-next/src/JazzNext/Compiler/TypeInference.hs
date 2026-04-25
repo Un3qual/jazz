@@ -1671,12 +1671,19 @@ inferConstructorArgumentPatterns ::
   InferState ->
   (PatternTyping, InferState)
 inferConstructorArgumentPatterns env argumentTypes patterns initialState =
-  foldl' step (emptyPatternTyping, initialState) (zip argumentTypes patterns)
+  go emptyPatternTyping initialState (zip argumentTypes patterns)
   where
-    step (typingAcc, stateAcc) (argumentType, pattern) =
-      let (typing, stateAfterPattern) =
-            inferPatternType env argumentType pattern stateAcc
-       in (mergePatternTyping typing typingAcc, stateAfterPattern)
+    go typingAcc stateAcc remainingPatterns =
+      case remainingPatterns of
+        [] -> (typingAcc, stateAcc)
+        (argumentType, pattern) : rest ->
+          let (typing, stateAfterPattern) =
+                inferPatternType env argumentType pattern stateAcc
+              mergedTyping = mergePatternTyping typing typingAcc
+           in
+            if patternSkipsBranchType mergedTyping
+              then (mergedTyping, stateAfterPattern)
+              else go mergedTyping stateAfterPattern rest
 
 inferListPatternType ::
   TypeEnv ->
