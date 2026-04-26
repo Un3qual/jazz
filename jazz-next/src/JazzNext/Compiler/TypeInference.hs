@@ -1721,12 +1721,19 @@ inferListElementPatterns ::
   InferState ->
   (PatternTyping, InferState)
 inferListElementPatterns env elementType patterns initialState =
-  foldl' step (emptyPatternTyping, initialState) patterns
+  go emptyPatternTyping initialState patterns
   where
-    step (typingAcc, stateAcc) pattern =
-      let (typing, stateAfterPattern) =
-            inferPatternType env elementType pattern stateAcc
-       in (mergePatternTyping typing typingAcc, stateAfterPattern)
+    go typingAcc stateAcc remainingPatterns =
+      case remainingPatterns of
+        [] -> (typingAcc, stateAcc)
+        pattern : rest ->
+          let (typing, stateAfterPattern) =
+                inferPatternType env elementType pattern stateAcc
+              mergedTyping = mergePatternTyping typing typingAcc
+           in
+            if patternSkipsBranchType mergedTyping
+              then (mergedTyping, stateAfterPattern)
+              else go mergedTyping stateAfterPattern rest
 
 hasNewPatternError :: InferState -> InferState -> Bool
 hasNewPatternError previousState nextState =

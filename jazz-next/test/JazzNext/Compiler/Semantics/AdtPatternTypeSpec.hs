@@ -78,6 +78,9 @@ tests =
     ( "source pipeline rejects list patterns for incompatible scrutinees",
       testSourcePipelineRejectsListPatternScrutineeMismatch
     ),
+    ( "source pipeline stops list element checks after payload mismatch",
+      testSourcePipelineStopsListElementChecksAfterPayloadMismatch
+    ),
     ( "source pipeline rejects list arm result mismatches",
       testSourcePipelineRejectsListBranchMismatch
     ),
@@ -255,6 +258,18 @@ testSourcePipelineRejectsListPatternScrutineeMismatch = do
   assertSingleDiagnosticContains
     "list pattern scrutinee mismatch text"
     "does not match scrutinee type Int"
+    (compileErrors result)
+
+testSourcePipelineStopsListElementChecksAfterPayloadMismatch :: IO ()
+testSourcePipelineStopsListElementChecksAfterPayloadMismatch = do
+  result <- compileSource defaultWarningSettings "data Box = Empty | Box value. seed = [Empty]. x = case seed { | [1, Box False] -> 0 | _ -> 0 }. ok = Box 1."
+  assertSingleDiagnosticCode
+    "list element mismatch short-circuit code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "list element mismatch short-circuit text"
+    "case pattern of type Int does not match scrutinee type Box"
     (compileErrors result)
 
 testSourcePipelineRejectsListBranchMismatch :: IO ()
