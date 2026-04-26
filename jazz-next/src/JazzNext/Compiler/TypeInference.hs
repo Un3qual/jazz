@@ -1410,6 +1410,12 @@ mkPatternTypeMismatchError scrutineeType patternType =
         <> renderType scrutineeType
     )
 
+mkListPatternTypeMismatchError :: ExpressionType -> Diagnostic
+mkListPatternTypeMismatchError scrutineeType =
+  mkDiagnostic
+    "E2011"
+    ("case pattern of list type does not match scrutinee type " <> renderType scrutineeType)
+
 mkPatternBranchTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkPatternBranchTypeMismatchError leftType rightType =
   mkDiagnostic
@@ -1495,7 +1501,7 @@ inferPatternCaseType builtinMode env scrutineeType initialState caseArms =
       let (rawPatternTyping, stateAfterPatternCheck) =
             inferPatternType env scrutineeType pattern stateAcc
           (patternTyping, stateAfterPattern) =
-            rejectDuplicatePatternBinders pattern rawPatternTyping stateAfterPatternCheck
+            rejectDuplicatePatternBinders pattern rawPatternTyping stateAcc stateAfterPatternCheck
        in
         if patternSkipsBranchType patternTyping
           then (maybeExpectedBodyType, stateAfterPattern)
@@ -1548,14 +1554,20 @@ mergePatternTyping left right =
         patternSkipsBranchType left || patternSkipsBranchType right
     }
 
-rejectDuplicatePatternBinders :: Pattern -> PatternTyping -> InferState -> (PatternTyping, InferState)
-rejectDuplicatePatternBinders pattern typing state =
-  foldl' reject (typing, state) (patternDuplicateBinderNames pattern)
+rejectDuplicatePatternBinders :: Pattern -> PatternTyping -> InferState -> InferState -> (PatternTyping, InferState)
+rejectDuplicatePatternBinders pattern typing stableState checkedState =
+  case patternDuplicateBinderNames pattern of
+    [] -> (typing, checkedState)
+    duplicateNames ->
+      let stateWithDuplicateErrors =
+            foldl' addDuplicateError checkedState duplicateNames
+       in
+        ( typing {patternSkipsBranchType = True},
+          rollbackSkippedPatternState stableState stateWithDuplicateErrors
+        )
   where
-    reject (typingAcc, stateAcc) duplicateName =
-      ( typingAcc {patternSkipsBranchType = True},
-        addTypeError stateAcc (mkDuplicatePatternBinderError duplicateName)
-      )
+    addDuplicateError stateAcc duplicateName =
+      addTypeError stateAcc (mkDuplicatePatternBinderError duplicateName)
 
 patternDuplicateBinderNames :: Pattern -> [Text]
 patternDuplicateBinderNames pattern =
@@ -1700,13 +1712,12 @@ inferListPatternType env scrutineeType patterns state =
           Nothing ->
             addTypeError
               stateWithElementType
-              ( mkPatternTypeMismatchError
+              ( mkListPatternTypeMismatchError
                   (resolveType stateWithElementType scrutineeType)
-                  (resolveType stateWithElementType listPatternType)
               )
    in
     if hasNewPatternError stateWithElementType stateAfterListCheck
-      then (skipBranchPatternTyping, stateAfterListCheck)
+      then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterListCheck)
       else
         inferListElementPatterns
           env

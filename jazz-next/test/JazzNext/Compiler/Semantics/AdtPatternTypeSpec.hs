@@ -93,6 +93,9 @@ tests =
     ( "source pipeline rejects duplicate pattern binders",
       testSourcePipelineRejectsDuplicatePatternBinders
     ),
+    ( "source pipeline rolls back duplicate binder pattern constraints",
+      testSourcePipelineRollsBackDuplicateBinderPatternConstraints
+    ),
     ( "source pipeline rejects incompatible literal pattern types",
       testSourcePipelineRejectsIncompatibleLiteralPattern
     ),
@@ -275,7 +278,7 @@ testSourcePipelineRejectsListPatternScrutineeMismatch = do
     (compileErrors result)
   assertSingleDiagnosticContains
     "list pattern scrutinee mismatch text"
-    "does not match scrutinee type Int"
+    "case pattern of list type does not match scrutinee type Int"
     (compileErrors result)
 
 testSourcePipelineStopsListElementChecksAfterPayloadMismatch :: IO ()
@@ -323,6 +326,18 @@ testSourcePipelineRejectsDuplicatePatternBinders = do
     (compileErrors result)
   assertSingleDiagnosticContains
     "duplicate pattern binder text"
+    "duplicate case pattern binder 'item'"
+    (compileErrors result)
+
+testSourcePipelineRollsBackDuplicateBinderPatternConstraints :: IO ()
+testSourcePipelineRollsBackDuplicateBinderPatternConstraints = do
+  result <- compileSource defaultWarningSettings "data Pair = Empty | Pair left right. seed = Empty. x = case seed { | Pair [item] item -> 0 | _ -> 0 }. ok = Pair 1 1."
+  assertSingleDiagnosticCode
+    "duplicate binder rollback code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "duplicate binder rollback text"
     "duplicate case pattern binder 'item'"
     (compileErrors result)
 
