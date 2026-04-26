@@ -187,7 +187,7 @@ Active-path note: `jazz-next` now parses function arrows right-associatively. In
 
 The older left-associative behavior should be treated as legacy-reference drift rather than the active language contract.
 
-Active-path note: `jazz-next` now lexes and parses constrained signatures such as `x :: @{Eq(a), Ord(b)}: a -> b -> c` into structured parser/core payloads, then rejects them deterministically with `E2009` until constraint semantics, duplicate ordering, scope, and inference interaction rules are defined.
+Active-path note: `jazz-next` now lexes and parses constrained signatures such as `x :: @{Eq(a), Ord(b)}: a -> b -> c` into structured parser/core payloads. Empty constraint blocks (`@{}:`) normalize to the existing monomorphic signature subset; non-empty constrained signatures still reject deterministically with `E2009` until constraint semantics, duplicate ordering, scope, and inference interaction rules are defined.
 
 ### Builtins And Type Environment In `jazz-hs`
 
@@ -411,7 +411,7 @@ Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, bu
 
 Based on the full repo, these areas still require implementation convergence even when a decision lock now exists:
 
-- Extending parsed signature type grammar beyond the current monomorphic subset in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, right-associative function types, and parenthesized function-type overrides are implemented and test-covered; constrained signatures and named type variables remain pending):
+- Extending parsed signature type grammar beyond the current monomorphic subset in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, right-associative function types, parenthesized function-type overrides, and empty `@{}:` constrained wrappers are implemented and test-covered; non-empty constrained signatures and named type variables remain pending):
   - `docs/spec/semantics/bindings-and-signatures.md`
   - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Extending staged operator roadmap work in `jazz-next` beyond implemented v1 parser/fixity/sections behavior:
@@ -442,7 +442,7 @@ If you need a practical baseline for continuing Jazz, use this order:
    - dot-separated statements and scope blocks
    - canonical identifier-only lambdas with lexical closure runtime support (`\(x) -> expr`, multi-argument lambdas lowered into nested unary functions)
    - application and list literals
-   - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, right-associative function types, and explicit parenthesized function-type overrides)
+   - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, right-associative function types, explicit parenthesized function-type overrides, and empty `@{}:` constrained wrappers)
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
    - canonical `data` declarations with constructor values/applications, plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; analyzer/type/runtime execution covers literal, wildcard, variable, declared constructor patterns, and exact-length bracketed-list patterns
    - built-in operator fixity plus executable left/right section semantics

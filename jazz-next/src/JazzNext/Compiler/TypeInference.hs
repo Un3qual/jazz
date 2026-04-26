@@ -967,7 +967,9 @@ signaturePayloadToExpressionType signaturePayload =
   case signaturePayload of
     SignatureType signatureType ->
       Just (signatureTypeToExpressionType signatureType)
-    ConstrainedSignature {} ->
+    ConstrainedSignature [] signatureType ->
+      constraintSignatureTypeToExpressionType signatureType
+    ConstrainedSignature (_ : _) _ ->
       Nothing
     UnsupportedSignature {} ->
       Nothing
@@ -983,6 +985,23 @@ signatureTypeToExpressionType signatureType =
       TFunctionType
         (signatureTypeToExpressionType argumentType)
         (signatureTypeToExpressionType resultType)
+
+constraintSignatureTypeToExpressionType :: ConstraintSignatureType -> Maybe ExpressionType
+constraintSignatureTypeToExpressionType signatureType =
+  case signatureType of
+    ConstraintTypeName name ->
+      case identifierText name of
+        "Int" -> Just TIntType
+        "Bool" -> Just TBoolType
+        _ -> Nothing
+    ConstraintTypeApplication {} ->
+      Nothing
+    ConstraintTypeList innerType ->
+      TListType <$> constraintSignatureTypeToExpressionType innerType
+    ConstraintTypeFunction argumentType resultType ->
+      TFunctionType
+        <$> constraintSignatureTypeToExpressionType argumentType
+        <*> constraintSignatureTypeToExpressionType resultType
 
 renderSignaturePayload :: SignaturePayload -> Text
 renderSignaturePayload signaturePayload =
