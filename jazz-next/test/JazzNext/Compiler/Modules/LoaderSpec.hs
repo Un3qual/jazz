@@ -45,6 +45,7 @@ tests =
     ("compile module graph reports missing import symbols", testCompileModuleGraphMissingImportSymbol),
     ("compile module graph hides dependency bindings excluded by explicit import list", testCompileModuleGraphExplicitImportListHidesUnlistedBindings),
     ("compile module graph hides dependency bindings imported only by alias", testCompileModuleGraphAliasImportHidesUnqualifiedBindings),
+    ("run module graph resolves qualified alias lookup", testRunModuleGraphQualifiedAliasLookup),
     ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
     ("run module graph reports cycle diagnostics", testRunModuleGraphCycle),
     ("loader reuses memoized source lookup across resolve and replay", testMemoizedLookupReuse)
@@ -235,6 +236,26 @@ testCompileModuleGraphAliasImportHidesUnqualifiedBindings = do
     sourceMap =
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Math as Math.\nsubtract."),
+          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphQualifiedAliasLookup :: IO ()
+testRunModuleGraphQualifiedAliasLookup = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "2") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math as Math.\nMath::subtract."),
           ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

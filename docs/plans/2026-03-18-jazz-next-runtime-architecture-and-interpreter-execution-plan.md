@@ -1,5 +1,5 @@
 ---
-id: JN-MODULE-ALIAS-VISIBILITY-001
+id: JN-MODULE-QUALIFIED-ALIAS-LOOKUP-001
 status: done
 priority: P1
 size: S
@@ -7,18 +7,24 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-04-26
-plan_section: "Milestone 5 / Batch 3: Alias import unqualified visibility"
+plan_section: "Milestone 5 / Batch 4: Qualified alias lookup"
 target_paths:
+  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
   - jazz-next/src/JazzNext/Compiler/ModuleResolver.hs
+  - jazz-next/src/JazzNext/Compiler/Driver.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
   - jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
   - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
 verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Alias imports no longer expose dependency exports as unqualified names: an importer that references a binding available only through an alias import receives deterministic E4012 before flattened module replay can leak the dependency declaration."
+deliverable: "Qualified alias lookup now uses `Alias::symbol`: parser/lowering preserve the qualified reference, the resolver validates alias ownership and exported symbols, and module replay injects internal alias bridge bindings so run/compile paths can resolve aliased dependency values without exposing them unqualified."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 ---
@@ -51,6 +57,7 @@ supersedes:
 - [x] On `2026-04-26`, rebased module/import execution work onto active owners and landed dependency-module expression isolation in the driver replay path.
 - [x] On `2026-04-26`, added explicit import symbol-list visibility validation in `ModuleResolver.hs`, so excluded dependency bindings now report deterministic `E4011` before flattened replay can leak them to an importer.
 - [x] On `2026-04-26`, added alias-import unqualified visibility validation in `ModuleResolver.hs`, so bindings available only through `import Foo::Bar as B` now report deterministic `E4012` if referenced by bare name.
+- [x] On `2026-04-26`, landed qualified alias lookup using `Alias::symbol`, with parser/lowering support, resolver validation (`E4013`/`E4014`), and driver alias bridge bindings for module replay.
 - [ ] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next`.
 - [ ] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
 - [ ] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.
@@ -62,7 +69,7 @@ supersedes:
 - `JazzNext.Compiler.Driver` already coordinates standalone source, prelude-aware source, and module-graph execution.
 - `JazzNext.Compiler.Runtime` already interprets the current core subset: ints, bools, lists, closures, builtin/kernel functions, operator values and sections, `if` via canonical `ECase`, and block scope evaluation.
 - `JazzNext.Compiler.TypeInference` still behaves as a light canonicalization/type-check layer; supported monomorphic signatures now arrive as structured parser/core payloads with right-associated chained arrows and parenthesized function-type overrides, but constrained-signature work remains blocked on the next type-grammar milestones.
-- `JazzNext.Compiler.ModuleResolver` resolves module graphs, validates import symbol lists/aliases, rejects importer references to exported dependency bindings excluded by explicit import lists, and prevents alias-only imports from leaking dependency exports as unqualified names. `JazzNext.Compiler.Driver` replays resolved modules through the shared pipeline; dependency modules contribute declarations during replay, while executable expression statements are preserved only for the entry module.
+- `JazzNext.Compiler.ModuleResolver` resolves module graphs, validates import symbol lists/aliases, rejects importer references to exported dependency bindings excluded by explicit import lists, prevents alias-only imports from leaking dependency exports as unqualified names, and validates `Alias::symbol` references. `JazzNext.Compiler.Driver` replays resolved modules through the shared pipeline, injecting internal alias bridge bindings for qualified lookup; dependency modules contribute declarations during replay, while executable expression statements are preserved only for the entry module.
 - Successful compile paths are now diagnostic-only and keep stdout empty on success, while successful run paths continue to return interpreter output.
 
 ## Milestone 1 Closure (2026-04-10)
@@ -175,11 +182,11 @@ Primary files:
 
 #### Coordination: Module/import active-path execution contract
 
-This coordination batch completed on `2026-04-26`. It selected dependency-module expression isolation as the first active-path implementation slice, then later narrowed and landed explicit symbol-list visibility plus alias-import unqualified visibility. Qualified alias lookup remains blocked until a concrete syntax/runtime contract exists.
+This coordination batch completed on `2026-04-26`. It selected dependency-module expression isolation as the first active-path implementation slice, then later narrowed and landed explicit symbol-list visibility, alias-import unqualified visibility, and qualified alias lookup. Remaining module/prelude/std-lib execution closure needs a narrower implementation contract.
 
 - [x] Rebase the module/import execution contract onto the current `ModuleResolver.hs`, `Driver.hs`, and `CLI/Main.hs` ownership boundaries.
 - [x] Identify the next missing executable behavior beyond already-landed resolution, graph replay, CLI entry-module routing, and import-symbol diagnostics: dependency module expression statements were still replayed into entry-module execution.
-- [x] Rewrite `JN-MODULE-REBASE-PLAN-001` to the remaining module/import semantics scope and execute the concrete dependency-expression, explicit import visibility, and alias visibility implementation batches.
+- [x] Rewrite `JN-MODULE-REBASE-PLAN-001` to the remaining module/import semantics scope and execute the concrete dependency-expression, explicit import visibility, alias visibility, and qualified alias lookup implementation batches.
 
 Coordination files:
 
@@ -266,6 +273,37 @@ Batch 3 files:
 Batch 3 verification:
 
 ```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+#### Batch 4: Qualified alias lookup
+
+This batch landed on `2026-04-26`. The active surface for alias-qualified module access is `Alias::symbol`. Qualified lookup validates that `Alias` names an alias import in the current module and that the imported module exports `symbol`; replay then injects internal alias bridge bindings so the existing analyzer/type/runtime pipeline can resolve the qualified value without making the dependency export visible as a bare name.
+
+- [x] Parse `Alias::symbol` as a qualified alias reference in expression position and lower it to an internal qualified binding name.
+- [x] Validate qualified references in `ModuleResolver.hs`, with deterministic `E4013` for undeclared aliases and `E4014` for missing exported symbols.
+- [x] Inject replay-time alias bridge bindings in `Driver.hs` for alias imports.
+- [x] Add parser/lowering, resolver, and loader coverage for successful and invalid qualified alias lookup.
+
+Batch 4 files:
+
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`
+- `jazz-next/src/JazzNext/Compiler/Driver.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`
+
+Batch 4 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
 bash jazz-next/scripts/test-warning-config.sh

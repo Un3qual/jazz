@@ -53,6 +53,7 @@ data SurfaceDataConstructor = SurfaceDataConstructor Identifier Int
 data SurfaceExpr
   = SELit SurfaceLiteral
   | SEVar Identifier
+  | SEQualifiedVar Identifier Identifier
   | SELambda [Identifier] SurfaceExpr
   | SEOperatorValue Text
   | SEList [SurfaceExpr]

@@ -153,6 +153,11 @@ parseStatement context tokens =
           rejectNestedDataDeclaration dataToken
     -- Statement-level forms take precedence over expression parsing when the
     -- leading identifier is followed by declaration syntax.
+    (nameToken : afterName@(Token {tokenKind = TColonColon} : Token {tokenKind = TIdentifier _} : _))
+      | TIdentifier name <- tokenKind nameToken,
+        not (isReservedLiteralName name),
+        isConstructorIdentifierText name ->
+          fmap singleStatement (parseExprStatement tokens)
     (nameToken : afterName@(Token {tokenKind = TColonColon} : _))
       | TIdentifier name <- tokenKind nameToken,
         isReservedLiteralName name ->
@@ -841,7 +846,11 @@ parsePrimaryExprUntil stop tokens =
           case name of
             "True" -> Right (SELit (SLBool True), rest)
             "False" -> Right (SELit (SLBool False), rest)
-            _ -> Right (SEVar (mkIdentifier name), rest)
+            _ ->
+              case rest of
+                Token {tokenKind = TColonColon} : Token {tokenKind = TIdentifier memberName} : afterMember ->
+                  Right (SEQualifiedVar (mkIdentifier name) (mkIdentifier memberName), afterMember)
+                _ -> Right (SEVar (mkIdentifier name), rest)
         TIf -> parseIfExprUntil stop token rest
         TCase -> parseCaseExpr token rest
         TLambda -> parseLambdaExprUntil stop token rest

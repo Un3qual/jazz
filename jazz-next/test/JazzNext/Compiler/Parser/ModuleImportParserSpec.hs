@@ -37,8 +37,10 @@ tests =
   [ ("parses module declaration statement", testParsesModuleDeclaration),
     ("parses import statement bare dot", testParsesImportBare),
     ("parses import statement with alias", testParsesImportAlias),
+    ("parses qualified alias lookup expression", testParsesQualifiedAliasLookup),
     ("parses import statement with symbol list", testParsesImportSymbolList),
     ("lowers module and import statements into core AST", testLowersModuleImportStatements),
+    ("lowers qualified alias lookup expression into internal qualified name", testLowersQualifiedAliasLookup),
     ("rejects legacy dot-only module declaration syntax", testRejectsLegacyDotOnlyModuleDeclaration),
     ("rejects trailing top-level statements after module body", testRejectsTrailingTopLevelStatementsAfterModuleBody),
     ("rejects module declaration after earlier top-level statement", testRejectsModuleDeclarationAfterTopLevelStatement),
@@ -86,6 +88,19 @@ testParsesImportAlias =
     )
     (parseSurfaceProgram "import Std::List as List.\nList.")
 
+testParsesQualifiedAliasLookup :: IO ()
+testParsesQualifiedAliasLookup =
+  assertEqual
+    "qualified alias lookup surface AST"
+    ( Right
+        ( SEBlock
+            [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "Math") Nothing,
+              SSExpr (SourceSpan 2 1) (SEQualifiedVar "Math" "subtract")
+            ]
+        )
+    )
+    (parseSurfaceProgram "import Lib::Math as Math.\nMath::subtract.")
+
 testParsesImportSymbolList :: IO ()
 testParsesImportSymbolList =
   assertEqual
@@ -115,6 +130,19 @@ testLowersModuleImportStatements =
         [ SModule (SourceSpan 1 1) ["App", "Core"],
           SImport (SourceSpan 2 1) ["Std", "List"] Nothing (Just ["map"]),
           SExpr (SourceSpan 3 1) (EVar "map")
+        ]
+
+testLowersQualifiedAliasLookup :: IO ()
+testLowersQualifiedAliasLookup =
+  assertRight
+    "parse + lower qualified alias lookup"
+    (parseSurfaceProgram "import Lib::Math as Math.\nMath::subtract.")
+    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SImport (SourceSpan 1 1) ["Lib", "Math"] (Just "Math") Nothing,
+          SExpr (SourceSpan 2 1) (EVar "Math::subtract")
         ]
 
 testRejectsLegacyDotOnlyModuleDeclaration :: IO ()

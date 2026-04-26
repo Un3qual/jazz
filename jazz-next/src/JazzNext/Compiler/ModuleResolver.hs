@@ -75,7 +75,8 @@ data ParsedImport = ParsedImport
 data ParsedModule = ParsedModule
   { parsedModuleImports :: [ParsedImport],
     parsedModuleExports :: Set Text,
-    parsedModuleReferences :: Set Text
+    parsedModuleReferences :: Set Text,
+    parsedModuleQualifiedReferences :: Set (Text, Text)
   }
 
 data BindingOrigin = BindingOrigin
@@ -191,6 +192,7 @@ resolveModuleGraphWithLookup config loadSource entryModulePath
                             modulePath
                             (parsedModuleImports parsedModule)
                             (parsedModuleReferences parsedModule)
+                            (parsedModuleQualifiedReferences parsedModule)
                             (resolvedExportsState stateAfterDeps) of
                         Left err -> pure (Left err)
                         Right () ->
@@ -303,7 +305,8 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
         ParsedModule
           { parsedModuleImports = collectImports surfaceExpr,
             parsedModuleExports = topLevelBindings,
-            parsedModuleReferences = collectReferencedNames surfaceExpr Set.\\ topLevelBindings
+            parsedModuleReferences = collectReferencedNames surfaceExpr Set.\\ topLevelBindings,
+            parsedModuleQualifiedReferences = collectQualifiedReferences surfaceExpr
           }
 
 collectImports :: SurfaceExpr -> [ParsedImport]
@@ -341,6 +344,7 @@ collectExprReferences boundNames surfaceExpr =
     SEVar name
       | identifierText name `Set.member` boundNames -> Set.empty
       | otherwise -> Set.singleton (identifierText name)
+    SEQualifiedVar _ _ -> Set.empty
     SELambda params body ->
       collectExprReferences
         (Set.union boundNames (Set.fromList (map identifierText params)))
@@ -414,6 +418,59 @@ collectPatternBinders patternValue =
     SPList nestedPatterns ->
       Set.unions (map collectPatternBinders nestedPatterns)
 
+collectQualifiedReferences :: SurfaceExpr -> Set (Text, Text)
+collectQualifiedReferences surfaceExpr =
+  case surfaceExpr of
+    SELit _ -> Set.empty
+    SEVar _ -> Set.empty
+    SEQualifiedVar qualifier member ->
+      Set.singleton (identifierText qualifier, identifierText member)
+    SELambda _ body ->
+      collectQualifiedReferences body
+    SEOperatorValue _ -> Set.empty
+    SEList items ->
+      Set.unions (map collectQualifiedReferences items)
+    SEApply function argument ->
+      Set.union
+        (collectQualifiedReferences function)
+        (collectQualifiedReferences argument)
+    SEIf condition trueBranch falseBranch ->
+      Set.unions
+        [ collectQualifiedReferences condition,
+          collectQualifiedReferences trueBranch,
+          collectQualifiedReferences falseBranch
+        ]
+    SECase scrutinee arms ->
+      Set.union
+        (collectQualifiedReferences scrutinee)
+        (Set.unions (map collectQualifiedCaseArmReferences arms))
+    SEBinary _ left right ->
+      Set.union
+        (collectQualifiedReferences left)
+        (collectQualifiedReferences right)
+    SESectionLeft left _ ->
+      collectQualifiedReferences left
+    SESectionRight _ right ->
+      collectQualifiedReferences right
+    SEBlock statements ->
+      Set.unions (map collectQualifiedStatementReferences statements)
+
+collectQualifiedStatementReferences :: SurfaceStatement -> Set (Text, Text)
+collectQualifiedStatementReferences statement =
+  case statement of
+    SSLet _ _ valueExpr ->
+      collectQualifiedReferences valueExpr
+    SSExpr _ expr ->
+      collectQualifiedReferences expr
+    SSSignature {} -> Set.empty
+    SSData {} -> Set.empty
+    SSModule {} -> Set.empty
+    SSImport {} -> Set.empty
+
+collectQualifiedCaseArmReferences :: SurfaceCaseArm -> Set (Text, Text)
+collectQualifiedCaseArmReferences (SurfaceCaseArm _ body) =
+  collectQualifiedReferences body
+
 validateModuleDeclarations :: FilePath -> [Text] -> SurfaceExpr -> Either Diagnostic ()
 validateModuleDeclarations sourcePath expectedModulePath surfaceExpr =
   case collectModuleDeclarations surfaceExpr of
@@ -462,10 +519,12 @@ validateImportBindings ::
   [Text] ->
   [ParsedImport] ->
   Set Text ->
+  Set (Text, Text) ->
   Map [Text] (Set Text) ->
   Either Diagnostic ()
-validateImportBindings sourcePath importerPath imports referencedNames exportsByModule = do
+validateImportBindings sourcePath importerPath imports referencedNames qualifiedReferences exportsByModule = do
   go Map.empty Map.empty imports
+  validateQualifiedReferences
   visibleSymbols <- collectVisibleImportSymbols imports
   case findHiddenExplicitImportReference visibleSymbols of
     Just (symbolName, importDecl) ->
@@ -528,6 +587,43 @@ validateImportBindings sourcePath importerPath imports referencedNames exportsBy
                 (validateImportSymbol importDecl exportedSymbols)
                 seenSymbols
                 symbolNames
+
+    validateQualifiedReferences :: Either Diagnostic ()
+    validateQualifiedReferences =
+      foldM
+        validateQualifiedReference
+        ()
+        (sortOn id (Set.toList qualifiedReferences))
+
+    validateQualifiedReference :: () -> (Text, Text) -> Either Diagnostic ()
+    validateQualifiedReference () (aliasName, symbolName) =
+      case findAliasImport aliasName of
+        Nothing ->
+          Left (mkUnknownQualifiedAliasError aliasName symbolName)
+        Just importDecl ->
+          case Map.lookup (parsedImportModulePath importDecl) exportsByModule of
+            Nothing ->
+              Left
+                ( mkDiagnostic
+                    "E4010"
+                    ( "internal resolver error while validating imports for '"
+                        <> renderModulePath importerPath
+                        <> "': missing exports for module '"
+                        <> renderModulePath (parsedImportModulePath importDecl)
+                        <> "'"
+                    )
+                )
+            Just exportedSymbols
+              | Set.member symbolName exportedSymbols -> Right ()
+              | otherwise -> Left (mkMissingQualifiedAliasSymbolError symbolName importDecl aliasName exportedSymbols)
+
+    findAliasImport :: Text -> Maybe ParsedImport
+    findAliasImport aliasName =
+      firstMatch
+        [ importDecl
+          | importDecl <- imports,
+            parsedImportAlias importDecl == Just aliasName
+        ]
 
     validateImportSymbol ::
       ParsedImport ->
@@ -594,6 +690,46 @@ validateImportBindings sourcePath importerPath imports referencedNames exportsBy
                       <> renderModulePath (parsedImportModulePath importDecl)
                       <> "'"
                   )
+              )
+          )
+
+    mkUnknownQualifiedAliasError :: Text -> Text -> Diagnostic
+    mkUnknownQualifiedAliasError aliasName symbolName =
+      setDiagnosticSubject aliasName $
+        mkDiagnostic
+          "E4013"
+          ( "qualified import alias '"
+              <> aliasName
+              <> "' is not declared in module '"
+              <> renderModulePath importerPath
+              <> "' while resolving '"
+              <> aliasName
+              <> "::"
+              <> symbolName
+              <> "' in '"
+              <> Text.pack sourcePath
+              <> "'"
+          )
+
+    mkMissingQualifiedAliasSymbolError :: Text -> ParsedImport -> Text -> Set Text -> Diagnostic
+    mkMissingQualifiedAliasSymbolError symbolName importDecl aliasName exportedSymbols =
+      setDiagnosticSubject symbolName $
+        setDiagnosticPrimarySpan
+          (parsedImportSpan importDecl)
+          ( mkDiagnostic
+              "E4014"
+              ( "qualified import symbol '"
+                  <> symbolName
+                  <> "' is not exported by module '"
+                  <> renderModulePath (parsedImportModulePath importDecl)
+                  <> "' imported as '"
+                  <> aliasName
+                  <> "' by '"
+                  <> renderModulePath importerPath
+                  <> "' in '"
+                  <> Text.pack sourcePath
+                  <> "'; available exports: "
+                  <> renderExports exportedSymbols
               )
           )
 

@@ -49,7 +49,10 @@ tests =
     ("reports non-exported import symbols with module context", testReportsMissingImportSymbol),
     ("reports import symbol collisions across imported modules", testReportsImportSymbolCollision),
     ("reports import alias collisions across imported modules", testReportsImportAliasCollision),
-    ("reports unqualified references to bindings imported only by alias", testReportsUnqualifiedAliasImportReference)
+    ("reports unqualified references to bindings imported only by alias", testReportsUnqualifiedAliasImportReference),
+    ("accepts qualified references through alias imports", testAcceptsQualifiedAliasImportReference),
+    ("reports qualified references through unknown aliases", testReportsUnknownQualifiedAliasReference),
+    ("reports qualified alias references to missing exports", testReportsMissingQualifiedAliasExport)
   ]
 
 testRejectsEmptyEntryModulePath :: IO ()
@@ -353,6 +356,73 @@ testReportsUnqualifiedAliasImportReference = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Math as Math.\nmain = subtract."),
           ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        ]
+
+testAcceptsQualifiedAliasImportReference :: IO ()
+testAcceptsQualifiedAliasImportReference =
+  assertRight
+    "qualified alias import reference resolves"
+    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (\modules -> assertEqual "resolved modules" expectedModules modules)
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math as Math.\nmain = Math::subtract."),
+          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        ]
+    expectedModules =
+      [ ResolvedModule
+          { resolvedModulePath = ["Lib", "Math"],
+            resolvedSourcePath = "src/Lib/Math.jz",
+            resolvedImports = []
+          },
+        ResolvedModule
+          { resolvedModulePath = ["App", "Main"],
+            resolvedSourcePath = "src/App/Main.jz",
+            resolvedImports = [["Lib", "Math"]]
+          }
+      ]
+
+testReportsUnknownQualifiedAliasReference :: IO ()
+testReportsUnknownQualifiedAliasReference = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "unknown alias code" "E4013" result
+  assertLeftContains "unknown alias text" "Math" result
+  assertLeftContains "referenced symbol text" "subtract" result
+  assertLeftContains "importer context" "App::Main" result
+  assertLeftDiagnosticMetadata
+    "unknown alias metadata"
+    Nothing
+    Nothing
+    (Just "Math")
+    result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [("src/App/Main.jz", "main = Math::subtract.")]
+
+testReportsMissingQualifiedAliasExport :: IO ()
+testReportsMissingQualifiedAliasExport = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "missing qualified alias code" "E4014" result
+  assertLeftContains "missing symbol text" "subtract" result
+  assertLeftContains "imported module context" "Lib::Math" result
+  assertLeftContains "alias context" "Math" result
+  assertLeftContains "importer context" "App::Main" result
+  assertLeftDiagnosticMetadata
+    "missing qualified alias metadata"
+    (Just (SourceSpan 1 1))
+    Nothing
+    (Just "subtract")
+    result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math as Math.\nmain = Math::subtract."),
+          ("src/Lib/Math.jz", "add = 1.")
         ]
 
 assertLeftDiagnosticMetadata ::

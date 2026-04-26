@@ -44,6 +44,10 @@ import JazzNext.Compiler.Diagnostics
     prependDiagnosticSummary,
     setDiagnosticCode
   )
+import JazzNext.Compiler.Identifier
+  ( identifierText,
+    mkIdentifier
+  )
 import JazzNext.Compiler.BundledPrelude
   ( loadBundledPreludeSource
   )
@@ -609,20 +613,64 @@ parseAndLowerResolvedModule resolvedModule sourceText =
 
 buildModuleGraphExpr :: [Text] -> [ResolvedModule] -> [Expr] -> ModuleGraphExpr
 buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
+  let exportsByModule = collectModuleExports resolvedModules loweredModules
+      loweredModulesWithAliasBindings =
+        map (addAliasImportBindings exportsByModule) loweredModules
+   in
   ModuleGraphExpr
     { moduleGraphValidationExpr =
         replayLoweredModules
           (\_ loweredModule -> stripModuleDeclarations loweredModule)
           resolvedModules
-          loweredModules,
+          loweredModulesWithAliasBindings,
       moduleGraphRuntimeExpr =
         replayLoweredModules
           ( \resolvedModule loweredModule ->
               stripModuleRuntimeReplayStatements (resolvedModulePath resolvedModule == entryModulePath) loweredModule
           )
           resolvedModules
-          loweredModules
+          loweredModulesWithAliasBindings
     }
+
+collectModuleExports :: [ResolvedModule] -> [Expr] -> Map [Text] [Text]
+collectModuleExports resolvedModules loweredModules =
+  Map.fromList
+    [ (resolvedModulePath resolvedModule, collectTopLevelBindingNames loweredModule)
+      | (resolvedModule, loweredModule) <- zip resolvedModules loweredModules
+    ]
+
+collectTopLevelBindingNames :: Expr -> [Text]
+collectTopLevelBindingNames expr =
+  case expr of
+    EBlock statements ->
+      [ identifierText bindingName
+        | SLet bindingName _ _ <- statements
+      ]
+    _ -> []
+
+addAliasImportBindings :: Map [Text] [Text] -> Expr -> Expr
+addAliasImportBindings exportsByModule expr =
+  case expr of
+    EBlock statements ->
+      EBlock (concatMap expandStatement statements)
+    _ -> expr
+  where
+    expandStatement statement =
+      statement : aliasBindingsForStatement statement
+
+    aliasBindingsForStatement statement =
+      case statement of
+        SImport spanValue modulePath (Just aliasName) Nothing ->
+          [ SLet
+              (mkIdentifier (aliasQualifiedName aliasName exportedName))
+              spanValue
+              (EVar (mkIdentifier exportedName))
+            | exportedName <- Map.findWithDefault [] modulePath exportsByModule
+          ]
+        _ -> []
+
+    aliasQualifiedName aliasName exportedName =
+      aliasName <> "::" <> exportedName
 
 replayLoweredModules ::
   (ResolvedModule -> Expr -> Expr) ->
