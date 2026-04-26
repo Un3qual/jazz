@@ -1009,7 +1009,8 @@ constraintSignatureTypeToExpressionType signatureType =
 
 supportedConcreteConstraints :: [SignatureConstraint] -> Bool
 supportedConcreteConstraints constraints =
-  isNothing (duplicateConstraintName constraints)
+  not (null constraints)
+    && isNothing (duplicateConstraintName constraints)
     && all supportedConcreteConstraint constraints
 
 supportedConcreteConstraint :: SignatureConstraint -> Bool
