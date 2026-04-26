@@ -1682,7 +1682,7 @@ inferConstructorArgumentPatterns env argumentTypes patterns initialState =
               mergedTyping = mergePatternTyping typing typingAcc
            in
             if patternSkipsBranchType mergedTyping
-              then (mergedTyping, stateAfterPattern)
+              then (mergedTyping, rollbackSkippedPatternState initialState stateAfterPattern)
               else go mergedTyping stateAfterPattern rest
 
 inferListPatternType ::
@@ -1732,8 +1732,15 @@ inferListElementPatterns env elementType patterns initialState =
               mergedTyping = mergePatternTyping typing typingAcc
            in
             if patternSkipsBranchType mergedTyping
-              then (mergedTyping, stateAfterPattern)
+              then (mergedTyping, rollbackSkippedPatternState initialState stateAfterPattern)
               else go mergedTyping stateAfterPattern rest
+
+rollbackSkippedPatternState :: InferState -> InferState -> InferState
+rollbackSkippedPatternState stableState failedState =
+  stableState
+    { inferErrorsRev = inferErrorsRev failedState,
+      inferErrorCount = inferErrorCount failedState
+    }
 
 hasNewPatternError :: InferState -> InferState -> Bool
 hasNewPatternError previousState nextState =

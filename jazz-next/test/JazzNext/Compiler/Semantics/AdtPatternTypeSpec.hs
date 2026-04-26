@@ -63,6 +63,9 @@ tests =
     ( "source pipeline stops constructor argument checks after payload mismatch",
       testSourcePipelineStopsConstructorArgumentChecksAfterPayloadMismatch
     ),
+    ( "source pipeline rolls back constructor payload constraints after payload mismatch",
+      testSourcePipelineRollsBackConstructorPayloadConstraintsAfterPayloadMismatch
+    ),
     ( "source pipeline rejects constructor arm result mismatches",
       testSourcePipelineRejectsConstructorBranchMismatch
     ),
@@ -80,6 +83,9 @@ tests =
     ),
     ( "source pipeline stops list element checks after payload mismatch",
       testSourcePipelineStopsListElementChecksAfterPayloadMismatch
+    ),
+    ( "source pipeline rolls back list element constraints after payload mismatch",
+      testSourcePipelineRollsBackListElementConstraintsAfterPayloadMismatch
     ),
     ( "source pipeline rejects list arm result mismatches",
       testSourcePipelineRejectsListBranchMismatch
@@ -207,6 +213,18 @@ testSourcePipelineStopsConstructorArgumentChecksAfterPayloadMismatch = do
     "case pattern of type Bool does not match scrutinee type Int"
     (compileErrors result)
 
+testSourcePipelineRollsBackConstructorPayloadConstraintsAfterPayloadMismatch :: IO ()
+testSourcePipelineRollsBackConstructorPayloadConstraintsAfterPayloadMismatch = do
+  result <- compileSource defaultWarningSettings "data Pair = Pair left right. seed = Pair [] 1. x = case seed { | Pair [False] True -> 0 | _ -> 0 }. ok = Pair [1] 1."
+  assertSingleDiagnosticCode
+    "constructor payload rollback code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "constructor payload rollback text"
+    "case pattern of type Bool does not match scrutinee type Int"
+    (compileErrors result)
+
 testSourcePipelineRejectsConstructorBranchMismatch :: IO ()
 testSourcePipelineRejectsConstructorBranchMismatch = do
   result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just item -> 1 | Nothing -> False }."
@@ -269,6 +287,18 @@ testSourcePipelineStopsListElementChecksAfterPayloadMismatch = do
     (compileErrors result)
   assertSingleDiagnosticContains
     "list element mismatch short-circuit text"
+    "case pattern of type Int does not match scrutinee type Box"
+    (compileErrors result)
+
+testSourcePipelineRollsBackListElementConstraintsAfterPayloadMismatch :: IO ()
+testSourcePipelineRollsBackListElementConstraintsAfterPayloadMismatch = do
+  result <- compileSource defaultWarningSettings "data Box = Empty | Box value. seed = [Empty]. x = case seed { | [Box False, 1] -> 0 | _ -> 0 }. ok = Box 1."
+  assertSingleDiagnosticCode
+    "list element rollback code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "list element rollback text"
     "case pattern of type Int does not match scrutinee type Box"
     (compileErrors result)
 
