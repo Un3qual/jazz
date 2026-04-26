@@ -12,6 +12,7 @@ module JazzNext.Compiler.TypeInference
   ) where
 
 import Data.List (foldl')
+import Data.Maybe (isNothing)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -1008,7 +1009,7 @@ constraintSignatureTypeToExpressionType signatureType =
 
 supportedConcreteConstraints :: [SignatureConstraint] -> Bool
 supportedConcreteConstraints constraints =
-  duplicateConstraintName constraints == Nothing
+  isNothing (duplicateConstraintName constraints)
     && all supportedConcreteConstraint constraints
 
 supportedConcreteConstraint :: SignatureConstraint -> Bool
