@@ -48,7 +48,8 @@ tests =
     ("accepts symbol-list imports when requested symbols are exported", testAcceptsValidImportSymbolList),
     ("reports non-exported import symbols with module context", testReportsMissingImportSymbol),
     ("reports import symbol collisions across imported modules", testReportsImportSymbolCollision),
-    ("reports import alias collisions across imported modules", testReportsImportAliasCollision)
+    ("reports import alias collisions across imported modules", testReportsImportAliasCollision),
+    ("reports unqualified references to bindings imported only by alias", testReportsUnqualifiedAliasImportReference)
   ]
 
 testRejectsEmptyEntryModulePath :: IO ()
@@ -330,6 +331,28 @@ testReportsImportAliasCollision = do
         [ ("src/App/Main.jz", "import A::Ops as Ops.\nimport B::Ops as Ops.\nmain = 1."),
           ("src/A/Ops.jz", "map = 1."),
           ("src/B/Ops.jz", "map = 2.")
+        ]
+
+testReportsUnqualifiedAliasImportReference :: IO ()
+testReportsUnqualifiedAliasImportReference = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "alias visibility code" "E4012" result
+  assertLeftContains "hidden symbol text" "subtract" result
+  assertLeftContains "imported module context" "Lib::Math" result
+  assertLeftContains "import alias context" "Math" result
+  assertLeftContains "importer context" "App::Main" result
+  assertLeftDiagnosticMetadata
+    "alias visibility metadata"
+    (Just (SourceSpan 1 1))
+    Nothing
+    (Just "subtract")
+    result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math as Math.\nmain = subtract."),
+          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
         ]
 
 assertLeftDiagnosticMetadata ::

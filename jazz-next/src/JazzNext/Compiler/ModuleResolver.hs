@@ -467,10 +467,14 @@ validateImportBindings ::
 validateImportBindings sourcePath importerPath imports referencedNames exportsByModule = do
   go Map.empty Map.empty imports
   visibleSymbols <- collectVisibleImportSymbols imports
-  case findHiddenImportReference visibleSymbols of
-    Nothing -> Right ()
+  case findHiddenExplicitImportReference visibleSymbols of
     Just (symbolName, importDecl) ->
-      Left (mkHiddenImportSymbolError symbolName importDecl)
+      Left (mkHiddenExplicitImportSymbolError symbolName importDecl)
+    Nothing ->
+      case findHiddenAliasImportReference visibleSymbols of
+        Just (symbolName, importDecl, aliasName) ->
+          Left (mkHiddenAliasImportSymbolError symbolName importDecl aliasName)
+        Nothing -> Right ()
   where
     go seenSymbols seenAliases remainingImports =
       case remainingImports of
@@ -615,14 +619,17 @@ validateImportBindings sourcePath importerPath imports referencedNames exportsBy
           Right
             ( Set.union
                 visibleSymbols
-                ( case parsedImportSymbols importDecl of
-                    Nothing -> exportedSymbols
-                    Just symbolNames -> Set.fromList symbolNames
+                ( case parsedImportAlias importDecl of
+                    Just _ -> Set.empty
+                    Nothing ->
+                      case parsedImportSymbols importDecl of
+                        Nothing -> exportedSymbols
+                        Just symbolNames -> Set.fromList symbolNames
                 )
             )
 
-    findHiddenImportReference :: Set Text -> Maybe (Text, ParsedImport)
-    findHiddenImportReference visibleSymbols =
+    findHiddenExplicitImportReference :: Set Text -> Maybe (Text, ParsedImport)
+    findHiddenExplicitImportReference visibleSymbols =
       firstMatch
         [ (symbolName, importDecl)
           | importDecl <- imports,
@@ -634,14 +641,26 @@ validateImportBindings sourcePath importerPath imports referencedNames exportsBy
             not (Set.member symbolName visibleSymbols)
         ]
 
+    findHiddenAliasImportReference :: Set Text -> Maybe (Text, ParsedImport, Text)
+    findHiddenAliasImportReference visibleSymbols =
+      firstMatch
+        [ (symbolName, importDecl, aliasName)
+          | importDecl <- imports,
+            Just aliasName <- [parsedImportAlias importDecl],
+            Just exportedSymbols <- [Map.lookup (parsedImportModulePath importDecl) exportsByModule],
+            symbolName <- sortOn id (Set.toList exportedSymbols),
+            Set.member symbolName referencedNames,
+            not (Set.member symbolName visibleSymbols)
+        ]
+
     firstMatch :: [a] -> Maybe a
     firstMatch matches =
       case matches of
         [] -> Nothing
         match : _ -> Just match
 
-    mkHiddenImportSymbolError :: Text -> ParsedImport -> Diagnostic
-    mkHiddenImportSymbolError symbolName importDecl =
+    mkHiddenExplicitImportSymbolError :: Text -> ParsedImport -> Diagnostic
+    mkHiddenExplicitImportSymbolError symbolName importDecl =
       setDiagnosticSubject symbolName $
         setDiagnosticPrimarySpan
           (parsedImportSpan importDecl)
@@ -651,6 +670,27 @@ validateImportBindings sourcePath importerPath imports referencedNames exportsBy
                   <> symbolName
                   <> "' is not visible from explicit import of module '"
                   <> renderModulePath (parsedImportModulePath importDecl)
+                  <> "' by '"
+                  <> renderModulePath importerPath
+                  <> "' in '"
+                  <> Text.pack sourcePath
+                  <> "'"
+              )
+          )
+
+    mkHiddenAliasImportSymbolError :: Text -> ParsedImport -> Text -> Diagnostic
+    mkHiddenAliasImportSymbolError symbolName importDecl aliasName =
+      setDiagnosticSubject symbolName $
+        setDiagnosticPrimarySpan
+          (parsedImportSpan importDecl)
+          ( mkDiagnostic
+              "E4012"
+              ( "import symbol '"
+                  <> symbolName
+                  <> "' is not visible unqualified from alias import of module '"
+                  <> renderModulePath (parsedImportModulePath importDecl)
+                  <> "' as '"
+                  <> aliasName
                   <> "' by '"
                   <> renderModulePath importerPath
                   <> "' in '"
