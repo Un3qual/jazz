@@ -1,6 +1,6 @@
 # Bindings and Signatures Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; adjacent monomorphic signatures and empty `@{}:` constrained signatures are implemented; non-empty constrained-signature semantics are blocked on `JN-TYPE-CONSTRAINT-SEM-CONTRACT-001`)
+Status: active (phase 1 partial implementation in `jazz-next`; adjacent monomorphic signatures, empty `@{}:` constrained signatures, and concrete unary non-empty constraints are implemented)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/semantics/13-binding-and-signature-coherence.md`
 
@@ -27,13 +27,14 @@ Out of scope:
 2. A type signature, when present, must appear immediately above the binding it annotates.
 3. A signature does not float across unrelated declarations or expressions.
 4. An empty constrained-signature prefix (`@{}:`) has no semantic obligations and normalizes to the same monomorphic type subset as an ordinary adjacent signature.
-5. Non-empty constrained-signature semantics remain deferred and must fail deterministically until constraint scope and inference rules are defined; duplicate constraint names produce a deterministic `E2009` diagnostic that names the duplicate.
-6. Same-scope rebinding is allowed and deterministic: last declaration in the same scope wins.
-7. Nested scopes may shadow outer bindings.
-8. Non-recursive use-before-definition is invalid and must produce a compile-time error.
-9. Recursion is allowed, including both self-recursion and mutual recursion, using fixpoint treatment for recursive groups.
-10. Binding references are value snapshots, not live references. Rebinding a name later does not retroactively change previously evaluated values.
-11. Rebinding diagnostics are silent by default in this phase; warning emission is available through compiler warning flags.
+5. Non-empty constrained signatures are accepted only for known unary constraint names (`Default`, `Eq`, `Fractional`, `Integral`, `Num`, `Ord`, `Showable`) whose single argument is a concrete `Int`, `Bool`, or nested list of those concrete types. Accepted concrete constraints are annotation-only obligations and normalize to the same monomorphic signature body as an ordinary adjacent signature.
+6. Non-empty constrained signatures with duplicate constraint names, unknown constraint names, wrong arity, type-variable arguments, type applications, or function-type constraint arguments must fail deterministically with `E2009`; duplicate constraint names must name the duplicate.
+7. Same-scope rebinding is allowed and deterministic: last declaration in the same scope wins.
+8. Nested scopes may shadow outer bindings.
+9. Non-recursive use-before-definition is invalid and must produce a compile-time error.
+10. Recursion is allowed, including both self-recursion and mutual recursion, using fixpoint treatment for recursive groups.
+11. Binding references are value snapshots, not live references. Rebinding a name later does not retroactively change previously evaluated values.
+12. Rebinding diagnostics are silent by default in this phase; warning emission is available through compiler warning flags.
 
 ## Decision Matrix: Baseline vs Canonical
 
@@ -116,6 +117,11 @@ applyToOne = \(f) -> f 1.
 ```
 
 ```jz
+x :: @{Eq(Int)}: Int.
+x = 1.
+```
+
+```jz
 counter = 0.
 counter = counter + 1.
 ```
@@ -149,8 +155,13 @@ x = y.
 y = 1.
 ```
 
+```jz
+id :: @{Eq(a)}: a -> a.
+id = \(x) -> x.
+```
+
 ## Deferred Work
 
 - Complete recursion-group semantics in `jazz-next` (self + mutual recursion) so implementation fully matches locked policy.
 - Add parser-surface tests once parser work lands in `jazz-next`.
-- Define non-empty constrained-signature duplicate ordering, scope, inference/defaulting, and acceptance rules before any additional non-empty constrained-signature implementation batch moves into `Ready Now`.
+- Define type-variable constrained-signature binding/defaulting and inference interaction before any variable-bearing non-empty constrained-signature implementation batch moves into `Ready Now`.
