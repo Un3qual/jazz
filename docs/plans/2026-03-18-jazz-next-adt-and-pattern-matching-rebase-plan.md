@@ -1,22 +1,23 @@
 ---
-id: JN-ADT-RUNTIME-PATTERN-MATCH-001
+id: JN-ADT-CONSTRUCTOR-SEM-001
 status: done
 priority: P1
-size: M
+size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-04-24
-plan_section: "Milestone 4 / Batch 1: Constructor and list runtime pattern matching"
+last_verified: 2026-04-26
+plan_section: "Milestone 4 / Batch 2: Invalid constructor application runtime diagnostics"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Runtime.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
 verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Runtime first-match evaluation supports declared constructor patterns and exact-length bracketed-list patterns with nested binder propagation while invalid constructor-application diagnostics remain a separate follow-up."
+deliverable: "Runtime constructor over-application emits deterministic E3023 diagnostics with constructor name and expected/received arity, closing the invalid constructor-application follow-up."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md
 ---
@@ -54,16 +55,17 @@ supersedes:
 - [x] On `2026-04-24`, landed bracketed-list pattern type semantics, including list-scrutinee checks, element binder typing, and ordinary branch result agreement, before the later runtime matching batch.
 - [x] Milestone 3 complete: analyzer/type semantics cover data declarations, constructors, and branch-local pattern bindings.
 - [x] On `2026-04-24`, landed first-match runtime evaluation for declared constructor patterns and exact-length bracketed-list patterns, including nested binder propagation.
-- [ ] Milestone 4 complete: runtime execution supports constructor values and pattern-matching evaluation with deterministic diagnostics.
+- [x] On `2026-04-26`, landed arity-specific `E3023` runtime diagnostics for constructor over-application, including direct runtime-helper coverage for the invalid application path that source type checking normally rejects first.
+- [x] Milestone 4 complete: runtime execution supports constructor values and pattern-matching evaluation with deterministic diagnostics.
 - [ ] Milestone 5 complete: docs, roadmap, and queue state close the rebase and future work no longer points at legacy `11`.
 
-## Current State (after bracketed-list pattern typing batch)
+## Current State (after invalid constructor application diagnostics batch)
 
 - `jazz-next/src/JazzNext/Compiler/AST.hs` now carries `Pattern`, `CaseArm`, and `EPatternCase`, including `PConstructor` and `PList`; the older `ECase Expr Expr Expr` remains the internal boolean branch form used after `if` desugaring.
 - `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `Parser.hs`, and `Parser/Lexer.hs` now accept canonical top-level `data <TypeName> = <Ctor> | <Ctor> ... .` declarations into dedicated statement nodes while continuing to parse `case <expr> { | <pattern> -> <expr> ... }` with literal, wildcard, variable, uppercase-constructor, and bracketed-list patterns.
 - `jazz-next/src/JazzNext/Compiler/AST.hs` and `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` now preserve data constructor names and arities via dedicated core declaration metadata while keeping the existing boolean-only `ECase` contract and richer `EPatternCase` lowering behavior unchanged.
 - `jazz-next/src/JazzNext/Compiler/Analyzer.hs` and `TypeInference.hs` now keep nested pattern binders visible to arm bodies, register `data` constructors as visible names, typecheck constructor values/applications in expression positions, typecheck declared constructor patterns against ADT scrutinees with payload binders scoped to arm bodies, and typecheck bracketed-list patterns against list scrutinees with element binders scoped to arm bodies.
-- `jazz-next/src/JazzNext/Compiler/Runtime.hs` preserves existing boolean `ECase` execution while evaluating literal / wildcard / variable / constructor / bracketed-list `EPatternCase` arms and constructor values/applications; invalid constructor-application diagnostic coverage remains a deferred runtime follow-up.
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs` preserves existing boolean `ECase` execution while evaluating literal / wildcard / variable / constructor / bracketed-list `EPatternCase` arms and constructor values/applications; constructor over-application now emits deterministic `E3023` diagnostics with the constructor name and expected/received arity.
 - `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs` now covers constructor patterns, bracketed list patterns, malformed list syntax, and constructor-arm `|` boundary handling in addition to the previously landed simple-pattern cases.
 - `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs` and `AdtPatternRuntimeSpec.hs` now cover the committed typed/runtime pattern subset and run from the default `bash jazz-next/scripts/test-warning-config.sh` path.
 - `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md` now lock the parser/core constructor-list slice while keeping full ADT/type/runtime semantics staged.
@@ -91,8 +93,8 @@ Out of scope for the first executable slices:
 | Surface parse | `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs` | Supports canonical top-level `data` declarations plus surface `case` with literal, wildcard, variable, uppercase-constructor, and bracketed-list patterns. | Reuse the parser-owned declaration and pattern nodes when constructor-expression parsing and semantic registration land. |
 | Core AST + lowering | `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/Desugar.hs` | Carries `EPatternCase`, `PConstructor` / `PList`, and dedicated `SData` declaration metadata with constructor arities; `ECase` remains bool-only for `if`. | Consume data declarations and richer pattern forms in later analyzer/runtime milestones without regressing `if`. |
 | Binding/type semantics | `jazz-next/src/JazzNext/Compiler/Analyzer.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs` | Supports branch-local binder visibility for nested pattern shapes, constructor expression typing, declared constructor pattern typing, and bracketed-list pattern typing. | Milestone 3 type semantics are complete for the currently represented constructor/list pattern forms. |
-| Runtime execution | `jazz-next/src/JazzNext/Compiler/Runtime.hs`, `jazz-next/src/JazzNext/Compiler/Driver.hs` | Preserves bool-only `ECase` execution while evaluating literal / wildcard / variable / constructor / bracketed-list `EPatternCase` arms plus constructor values/applications. | Add constructor-specific invalid-application diagnostic coverage before closing Milestone 4. |
-| Active verification | `jazz-next/test/JazzNext/Compiler/Parser/*.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/*.hs`, `jazz-next/test/JazzNext/CLI/CLISpec.hs` | Parser coverage includes constructor/list forms and case-boundary regressions; semantic coverage now includes constructor values/applications, constructor and bracketed-list pattern typing, and constructor/list pattern runtime matching. | Extend runtime coverage for remaining invalid constructor application diagnostics. |
+| Runtime execution | `jazz-next/src/JazzNext/Compiler/Runtime.hs`, `jazz-next/src/JazzNext/Compiler/Driver.hs` | Preserves bool-only `ECase` execution while evaluating literal / wildcard / variable / constructor / bracketed-list `EPatternCase` arms plus constructor values/applications. | Milestone 4 runtime semantics are complete for the active ADT/pattern subset, including deterministic invalid constructor over-application diagnostics. |
+| Active verification | `jazz-next/test/JazzNext/Compiler/Parser/*.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/*.hs`, `jazz-next/test/JazzNext/CLI/CLISpec.hs` | Parser coverage includes constructor/list forms and case-boundary regressions; semantic coverage now includes constructor values/applications, constructor and bracketed-list pattern typing, constructor/list pattern runtime matching, and invalid constructor over-application runtime diagnostics. | Keep future ADT/pattern work in focused `jazz-next` suites before broadening the default warning-config run. |
 
 ## Dependency Map
 
@@ -265,7 +267,7 @@ bash scripts/check-docs.sh
 - [x] Add dedicated runtime coverage and thread the new cases through the active-path default verification script.
 - [x] Add runtime value representation for constructors and constructed data.
 - [x] Extend first-match pattern evaluation to constructor/list patterns.
-- [ ] Emit deterministic runtime diagnostics for invalid constructor application paths.
+- [x] Emit deterministic runtime diagnostics for invalid constructor application paths.
 
 Primary files:
 
@@ -293,6 +295,29 @@ Batch 1 files:
 Batch 1 verification:
 
 ```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+#### Batch 2: Invalid constructor application runtime diagnostics
+
+This batch landed on `2026-04-26`. It closes the Milestone 4 runtime diagnostic follow-up for constructor application paths that source type checking normally rejects before evaluation.
+
+- [x] Preserve deterministic `E3023` for runtime constructor over-application.
+- [x] Include the constructor name plus expected and received argument counts in the runtime diagnostic text.
+- [x] Add direct runtime-helper coverage for an over-applied constructor AST so the invalid runtime path remains covered independently of source type checking.
+
+Batch 2 files:
+
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+
+Batch 2 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
 bash jazz-next/scripts/test-warning-config.sh
 bash scripts/check-execution-queue.sh
