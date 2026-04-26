@@ -42,20 +42,65 @@ tests =
     ( "source pipeline rejects over-applied nullary constructors",
       testSourcePipelineRejectsOverAppliedNullaryConstructor
     ),
-    ( "source pipeline reports only deferred diagnostics for constructor patterns",
-      testSourcePipelineDefersConstructorPatternBodies
+    ( "source pipeline accepts data constructor patterns",
+      testSourcePipelineAcceptsDataConstructorPatterns
     ),
-    ( "source pipeline skips branch mismatch diagnostics for deferred constructor patterns",
-      testSourcePipelineSkipsConstructorBranchMismatch
+    ( "source pipeline types constructor pattern binders as payload types",
+      testSourcePipelineTypesConstructorPatternBinders
     ),
-    ( "source pipeline reports only deferred diagnostics for list patterns",
-      testSourcePipelineDefersListPatternBodies
+    ( "source pipeline rejects constructor patterns for incompatible scrutinees",
+      testSourcePipelineRejectsConstructorPatternScrutineeMismatch
     ),
-    ( "source pipeline skips branch mismatch diagnostics for deferred list patterns",
-      testSourcePipelineSkipsListBranchMismatch
+    ( "source pipeline rejects unknown constructor patterns",
+      testSourcePipelineRejectsUnknownConstructorPatterns
+    ),
+    ( "source pipeline rejects constructor pattern arity mismatches",
+      testSourcePipelineRejectsConstructorPatternArityMismatch
+    ),
+    ( "source pipeline skips constructor subpatterns after scrutinee mismatch",
+      testSourcePipelineSkipsConstructorSubpatternsAfterScrutineeMismatch
+    ),
+    ( "source pipeline stops constructor argument checks after payload mismatch",
+      testSourcePipelineStopsConstructorArgumentChecksAfterPayloadMismatch
+    ),
+    ( "source pipeline rolls back constructor payload constraints after payload mismatch",
+      testSourcePipelineRollsBackConstructorPayloadConstraintsAfterPayloadMismatch
+    ),
+    ( "source pipeline rejects constructor arm result mismatches",
+      testSourcePipelineRejectsConstructorBranchMismatch
+    ),
+    ( "source pipeline treats constructor payloads as monomorphic",
+      testSourcePipelineTreatsConstructorPayloadsAsMonomorphic
+    ),
+    ( "source pipeline accepts list patterns",
+      testSourcePipelineAcceptsListPatterns
+    ),
+    ( "source pipeline types list pattern binders as element types",
+      testSourcePipelineTypesListPatternBinders
+    ),
+    ( "source pipeline rejects list patterns for incompatible scrutinees",
+      testSourcePipelineRejectsListPatternScrutineeMismatch
+    ),
+    ( "source pipeline stops list element checks after payload mismatch",
+      testSourcePipelineStopsListElementChecksAfterPayloadMismatch
+    ),
+    ( "source pipeline rolls back list element constraints after payload mismatch",
+      testSourcePipelineRollsBackListElementConstraintsAfterPayloadMismatch
+    ),
+    ( "source pipeline rejects list arm result mismatches",
+      testSourcePipelineRejectsListBranchMismatch
+    ),
+    ( "source pipeline rejects duplicate pattern binders",
+      testSourcePipelineRejectsDuplicatePatternBinders
+    ),
+    ( "source pipeline rolls back duplicate binder pattern constraints",
+      testSourcePipelineRollsBackDuplicateBinderPatternConstraints
     ),
     ( "source pipeline rejects incompatible literal pattern types",
       testSourcePipelineRejectsIncompatibleLiteralPattern
+    ),
+    ( "source pipeline skips invalid pattern arm bodies",
+      testSourcePipelineSkipsInvalidPatternArmBodies
     ),
     ( "source pipeline rejects mismatched case arm result types",
       testSourcePipelineRejectsMismatchedArmResultTypes
@@ -94,52 +139,206 @@ testSourcePipelineRejectsOverAppliedNullaryConstructor = do
     "cannot apply function of type Maybe"
     (compileErrors result)
 
-testSourcePipelineDefersConstructorPatternBodies :: IO ()
-testSourcePipelineDefersConstructorPatternBodies = do
+testSourcePipelineAcceptsDataConstructorPatterns :: IO ()
+testSourcePipelineAcceptsDataConstructorPatterns = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just item -> item + 1 | Nothing -> 0 }."
+  assertCompiles "data constructor pattern" result
+
+testSourcePipelineTypesConstructorPatternBinders :: IO ()
+testSourcePipelineTypesConstructorPatternBinders = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just True. x = case value { | Just item -> item + 1 | Nothing -> 0 }."
+  assertSingleDiagnosticCode
+    "constructor pattern binder type error code"
+    "E2003"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "constructor pattern binder type error text"
+    "cannot apply operator '+' to operands of type Bool and Int"
+    (compileErrors result)
+
+testSourcePipelineRejectsConstructorPatternScrutineeMismatch :: IO ()
+testSourcePipelineRejectsConstructorPatternScrutineeMismatch = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = 1. x = case value { | Just item -> item | _ -> 0 }."
+  assertSingleDiagnosticCode
+    "constructor pattern scrutinee mismatch code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "constructor pattern scrutinee mismatch text"
+    "case pattern of type Maybe does not match scrutinee type Int"
+    (compileErrors result)
+
+testSourcePipelineRejectsUnknownConstructorPatterns :: IO ()
+testSourcePipelineRejectsUnknownConstructorPatterns = do
   result <- compileSource defaultWarningSettings "value = [1]. x = case value { | Just item -> item + 1 | _ -> 0 }."
   assertSingleDiagnosticCode
-    "constructor deferred error code"
+    "unknown constructor pattern error code"
     "E2011"
     (compileErrors result)
   assertSingleDiagnosticContains
-    "constructor deferred error text"
-    "constructor case patterns remain deferred"
+    "unknown constructor pattern error text"
+    "unknown constructor case pattern 'Just'"
     (compileErrors result)
 
-testSourcePipelineSkipsConstructorBranchMismatch :: IO ()
-testSourcePipelineSkipsConstructorBranchMismatch = do
-  result <- compileSource defaultWarningSettings "value = [1]. x = case value { | Just item -> 1 | _ -> False }."
+testSourcePipelineRejectsConstructorPatternArityMismatch :: IO ()
+testSourcePipelineRejectsConstructorPatternArityMismatch = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just -> 1 | Nothing -> 0 }."
   assertSingleDiagnosticCode
-    "constructor deferred branch mismatch code"
+    "constructor pattern arity mismatch code"
     "E2011"
     (compileErrors result)
   assertSingleDiagnosticContains
-    "constructor deferred branch mismatch text"
-    "constructor case patterns remain deferred"
+    "constructor pattern arity mismatch text"
+    "constructor case pattern 'Just' expects 1 argument(s), found 0"
     (compileErrors result)
 
-testSourcePipelineDefersListPatternBodies :: IO ()
-testSourcePipelineDefersListPatternBodies = do
+testSourcePipelineSkipsConstructorSubpatternsAfterScrutineeMismatch :: IO ()
+testSourcePipelineSkipsConstructorSubpatternsAfterScrutineeMismatch = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = 1. x = case value { | Just True -> 0 | _ -> 0 }. y = Just 1."
+  assertSingleDiagnosticCode
+    "constructor subpattern skip code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "constructor subpattern skip text"
+    "case pattern of type Maybe does not match scrutinee type Int"
+    (compileErrors result)
+
+testSourcePipelineStopsConstructorArgumentChecksAfterPayloadMismatch :: IO ()
+testSourcePipelineStopsConstructorArgumentChecksAfterPayloadMismatch = do
+  result <- compileSource defaultWarningSettings "data Pair = Pair left right. seed = Pair 1 []. x = case seed { | Pair True [False] -> 0 | _ -> 0 }. ok = Pair 1 [1]."
+  assertSingleDiagnosticCode
+    "constructor payload mismatch short-circuit code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "constructor payload mismatch short-circuit text"
+    "case pattern of type Bool does not match scrutinee type Int"
+    (compileErrors result)
+
+testSourcePipelineRollsBackConstructorPayloadConstraintsAfterPayloadMismatch :: IO ()
+testSourcePipelineRollsBackConstructorPayloadConstraintsAfterPayloadMismatch = do
+  result <- compileSource defaultWarningSettings "data Pair = Pair left right. seed = Pair [] 1. x = case seed { | Pair [False] True -> 0 | _ -> 0 }. ok = Pair [1] 1."
+  assertSingleDiagnosticCode
+    "constructor payload rollback code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "constructor payload rollback text"
+    "case pattern of type Bool does not match scrutinee type Int"
+    (compileErrors result)
+
+testSourcePipelineRejectsConstructorBranchMismatch :: IO ()
+testSourcePipelineRejectsConstructorBranchMismatch = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just item -> 1 | Nothing -> False }."
+  assertSingleDiagnosticCode
+    "constructor branch mismatch code"
+    "E2012"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "constructor branch mismatch text"
+    "case arms must have matching types"
+    (compileErrors result)
+
+testSourcePipelineTreatsConstructorPayloadsAsMonomorphic :: IO ()
+testSourcePipelineTreatsConstructorPayloadsAsMonomorphic = do
+  result <- compileSource defaultWarningSettings "data Box = Box value. first = Box 1. second = Box True."
+  assertSingleDiagnosticCode
+    "monomorphic constructor payload code"
+    "E2006"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "monomorphic constructor payload text"
+    "cannot apply function of type Int -> Box to argument of type Bool"
+    (compileErrors result)
+
+testSourcePipelineAcceptsListPatterns :: IO ()
+testSourcePipelineAcceptsListPatterns = do
+  result <- compileSource defaultWarningSettings "values = [1]. x = case values { | [head] -> head + 1 | [] -> 0 }."
+  assertCompiles "list pattern" result
+
+testSourcePipelineTypesListPatternBinders :: IO ()
+testSourcePipelineTypesListPatternBinders = do
   result <- compileSource defaultWarningSettings "values = [True]. x = case values { | [head] -> head + 1 | _ -> 0 }."
   assertSingleDiagnosticCode
-    "list deferred error code"
-    "E2011"
+    "list pattern binder type error code"
+    "E2003"
     (compileErrors result)
   assertSingleDiagnosticContains
-    "list deferred error text"
-    "list case patterns remain deferred"
+    "list pattern binder type error text"
+    "cannot apply operator '+' to operands of type Bool and Int"
     (compileErrors result)
 
-testSourcePipelineSkipsListBranchMismatch :: IO ()
-testSourcePipelineSkipsListBranchMismatch = do
-  result <- compileSource defaultWarningSettings "values = [[1]]. x = case values { | [head] -> 1 | _ -> False }."
+testSourcePipelineRejectsListPatternScrutineeMismatch :: IO ()
+testSourcePipelineRejectsListPatternScrutineeMismatch = do
+  result <- compileSource defaultWarningSettings "value = 1. x = case value { | [head] -> head | _ -> 0 }."
   assertSingleDiagnosticCode
-    "list deferred branch mismatch code"
+    "list pattern scrutinee mismatch code"
     "E2011"
     (compileErrors result)
   assertSingleDiagnosticContains
-    "list deferred branch mismatch text"
-    "list case patterns remain deferred"
+    "list pattern scrutinee mismatch text"
+    "case pattern of list type does not match scrutinee type Int"
+    (compileErrors result)
+
+testSourcePipelineStopsListElementChecksAfterPayloadMismatch :: IO ()
+testSourcePipelineStopsListElementChecksAfterPayloadMismatch = do
+  result <- compileSource defaultWarningSettings "data Box = Empty | Box value. seed = [Empty]. x = case seed { | [1, Box False] -> 0 | _ -> 0 }. ok = Box 1."
+  assertSingleDiagnosticCode
+    "list element mismatch short-circuit code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "list element mismatch short-circuit text"
+    "case pattern of type Int does not match scrutinee type Box"
+    (compileErrors result)
+
+testSourcePipelineRollsBackListElementConstraintsAfterPayloadMismatch :: IO ()
+testSourcePipelineRollsBackListElementConstraintsAfterPayloadMismatch = do
+  result <- compileSource defaultWarningSettings "data Box = Empty | Box value. seed = [Empty]. x = case seed { | [Box False, 1] -> 0 | _ -> 0 }. ok = Box 1."
+  assertSingleDiagnosticCode
+    "list element rollback code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "list element rollback text"
+    "case pattern of type Int does not match scrutinee type Box"
+    (compileErrors result)
+
+testSourcePipelineRejectsListBranchMismatch :: IO ()
+testSourcePipelineRejectsListBranchMismatch = do
+  result <- compileSource defaultWarningSettings "values = [1]. x = case values { | [head] -> 1 | [] -> False }."
+  assertSingleDiagnosticCode
+    "list branch mismatch code"
+    "E2012"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "list branch mismatch text"
+    "case arms must have matching types"
+    (compileErrors result)
+
+testSourcePipelineRejectsDuplicatePatternBinders :: IO ()
+testSourcePipelineRejectsDuplicatePatternBinders = do
+  result <- compileSource defaultWarningSettings "values = [1, 2]. x = case values { | [item, item] -> item | _ -> 0 }."
+  assertSingleDiagnosticCode
+    "duplicate pattern binder code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "duplicate pattern binder text"
+    "duplicate case pattern binder 'item'"
+    (compileErrors result)
+
+testSourcePipelineRollsBackDuplicateBinderPatternConstraints :: IO ()
+testSourcePipelineRollsBackDuplicateBinderPatternConstraints = do
+  result <- compileSource defaultWarningSettings "data Pair = Empty | Pair left right. seed = Empty. x = case seed { | Pair [item] item -> 0 | _ -> 0 }. ok = Pair 1 1."
+  assertSingleDiagnosticCode
+    "duplicate binder rollback code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "duplicate binder rollback text"
+    "duplicate case pattern binder 'item'"
     (compileErrors result)
 
 testSourcePipelineRejectsIncompatibleLiteralPattern :: IO ()
@@ -152,6 +351,18 @@ testSourcePipelineRejectsIncompatibleLiteralPattern = do
   assertSingleDiagnosticContains
     "pattern type error text"
     "does not match scrutinee type"
+    (compileErrors result)
+
+testSourcePipelineSkipsInvalidPatternArmBodies :: IO ()
+testSourcePipelineSkipsInvalidPatternArmBodies = do
+  result <- compileSource defaultWarningSettings "x = case True { | 0 -> 1 + False | _ -> 0 }."
+  assertSingleDiagnosticCode
+    "invalid pattern arm body is skipped code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "invalid pattern arm body is skipped text"
+    "case pattern of type Int does not match scrutinee type Bool"
     (compileErrors result)
 
 testSourcePipelineRejectsMismatchedArmResultTypes :: IO ()

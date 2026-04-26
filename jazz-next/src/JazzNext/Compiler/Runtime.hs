@@ -10,6 +10,7 @@ module JazzNext.Compiler.Runtime
     renderRuntimeValue
   ) where
 
+import Control.Monad (foldM)
 import Data.List (foldl')
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -656,8 +657,29 @@ matchPattern scrutineeValue pattern =
           Just Map.empty
       | otherwise ->
           Nothing
-    PConstructor {} -> Nothing
-    PList {} -> Nothing
+    PConstructor constructorName patterns ->
+      case scrutineeValue of
+        VConstructor valueConstructorName constructorArity capturedArgs
+          | valueConstructorName == constructorName,
+            constructorIsSaturated constructorArity capturedArgs,
+            length capturedArgs == length patterns ->
+              matchPatternList capturedArgs patterns
+        _ -> Nothing
+    PList patterns ->
+      case scrutineeValue of
+        VList elements
+          | length elements == length patterns ->
+              matchPatternList elements patterns
+        _ -> Nothing
+
+matchPatternList :: [RuntimeValue] -> [Pattern] -> Maybe RuntimeEnv
+matchPatternList values patterns =
+  foldM step Map.empty (zip values patterns)
+  where
+    step bindings (value, pattern) =
+      case matchPattern value pattern of
+        Just patternBindings -> Just (patternBindings `Map.union` bindings)
+        Nothing -> Nothing
 
 -- | Apply any callable runtime value, including sections, builtin primitives,
 -- and curried operator values.
