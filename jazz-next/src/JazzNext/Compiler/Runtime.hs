@@ -730,8 +730,23 @@ applyConstructor constructorName constructorArity arguments
       Left
         ( runtimeDiagnostic
             "E3023"
-            ("runtime constructor '" <> identifierText constructorName <> "' received too many arguments")
+            ( "runtime constructor '"
+                <> identifierText constructorName
+                <> "' expected "
+                <> renderArityCount constructorArity
+                <> " but received "
+                <> renderArityCount (length arguments)
+            )
         )
+
+renderArityCount :: Int -> Text
+renderArityCount count =
+  Text.pack (show count) <> " " <> argumentWord
+  where
+    argumentWord =
+      if count == 1
+        then "argument"
+        else "arguments"
 
 -- | Builtin primitives are curried, so under-applied calls stay as function
 -- values and only exact arity triggers evaluation.

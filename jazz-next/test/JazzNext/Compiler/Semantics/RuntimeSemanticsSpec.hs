@@ -9,8 +9,9 @@ import Control.Exception
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( Expr (..),
-    CaseArm (..),
+  ( CaseArm (..),
+    DataConstructor (..),
+    Expr (..),
     Literal (..),
     Pattern (..),
     Statement (..)
@@ -66,6 +67,7 @@ tests =
     ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError),
     ("nested block alias cycle ignores later outer peer name", testNestedBlockAliasCycleIgnoresLaterOuterPeer),
     ("pattern-case without a matching arm produces deterministic runtime diagnostic", testPatternCaseNoMatchRuntimeError),
+    ("constructor over-application produces arity runtime diagnostic", testConstructorOverApplicationRuntimeError),
     ("bare dollar operator value applies at runtime", testDollarOperatorValueRuntimeSuccess),
     ("bare operator value applies at runtime", testBareOperatorValueRuntimeSuccess),
     ("explicit partial application of bare operator value applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess),
@@ -406,6 +408,27 @@ patternCaseNoMatchExpr =
     [ CaseArm
         (PLiteral (LInt 0))
         (ELit (LInt 2))
+    ]
+
+testConstructorOverApplicationRuntimeError :: IO ()
+testConstructorOverApplicationRuntimeError = do
+  let result = evaluateRuntimeExpr overAppliedConstructorExpr
+  assertLeftDiagnosticCodeAndContains
+    "constructor over-application runtime code"
+    "E3023"
+    "constructor 'Just' expected 1 argument but received 2"
+    result
+
+overAppliedConstructorExpr :: Expr
+overAppliedConstructorExpr =
+  EBlock
+    [ SData
+        (SourceSpan 1 1)
+        "Maybe"
+        [DataConstructor "Just" 1],
+      SExpr
+        (SourceSpan 1 20)
+        (EApply (EApply (EVar "Just") (ELit (LInt 1))) (ELit (LInt 2)))
     ]
 
 testDollarOperatorValueRuntimeSuccess :: IO ()

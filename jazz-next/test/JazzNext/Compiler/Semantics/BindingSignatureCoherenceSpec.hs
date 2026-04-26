@@ -66,8 +66,10 @@ tests =
     ("source pipeline accepts right-associated chained function signature", testSourceAcceptsChainedFunctionSignature),
     ("source pipeline accepts parenthesized function override signature", testSourceAcceptsParenthesizedFunctionOverrideSignature),
     ("source pipeline accepts list of parenthesized function types", testSourceAcceptsFunctionListSignature),
+    ("source pipeline accepts empty constrained signature as monomorphic", testSourceAcceptsEmptyConstrainedSignature),
     ("source pipeline rejects list signature mismatch", testSourceRejectsListSignatureMismatch),
     ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface),
+    ("source pipeline reports duplicate constrained signature constraints", testSourceRejectsDuplicateConstrainedSignatureConstraints),
     ("source pipeline rejects constrained signature surface with E2009", testSourceRejectsConstrainedSignatureSurface),
     ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError),
     ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
@@ -355,6 +357,10 @@ testSourceAcceptsFunctionListSignature :: IO ()
 testSourceAcceptsFunctionListSignature =
   assertSourceOk "fns :: [(Int -> Int)].\nfns = [(+ 1)]."
 
+testSourceAcceptsEmptyConstrainedSignature :: IO ()
+testSourceAcceptsEmptyConstrainedSignature =
+  assertSourceOk "applyToOne :: @{}: (Int -> Int) -> Int.\napplyToOne = \\(f) -> f 1."
+
 testSourceRejectsListSignatureMismatch :: IO ()
 testSourceRejectsListSignatureMismatch = do
   result <- compileSource defaultWarningSettings "x :: [Bool].\nx = [1]."
@@ -366,6 +372,18 @@ testSourceRejectsListSignatureMismatch = do
 testSourceRejectsUnsupportedSignatureSurface :: IO ()
 testSourceRejectsUnsupportedSignatureSurface =
   assertSourceSingleErrorContains "x :: [a].\nx = [1]." "E2009"
+
+testSourceRejectsDuplicateConstrainedSignatureConstraints :: IO ()
+testSourceRejectsDuplicateConstrainedSignatureConstraints = do
+  result <- compileSource defaultWarningSettings "f :: @{Eq(a), Eq(a)}: a -> a.\nf = \\(x) -> x."
+  assertSingleDiagnosticCode
+    "source duplicate constrained signature code"
+    "E2009"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "source duplicate constrained signature text"
+    "duplicate constraint 'Eq'"
+    (compileErrors result)
 
 testSourceRejectsConstrainedSignatureSurface :: IO ()
 testSourceRejectsConstrainedSignatureSurface = do

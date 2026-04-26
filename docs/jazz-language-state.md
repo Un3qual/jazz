@@ -187,7 +187,7 @@ Active-path note: `jazz-next` now parses function arrows right-associatively. In
 
 The older left-associative behavior should be treated as legacy-reference drift rather than the active language contract.
 
-Active-path note: `jazz-next` now lexes and parses constrained signatures such as `x :: @{Eq(a), Ord(b)}: a -> b -> c` into structured parser/core payloads, then rejects them deterministically with `E2009` until constraint semantics, duplicate ordering, scope, and inference interaction rules are defined.
+Active-path note: `jazz-next` now lexes and parses constrained signatures such as `x :: @{Eq(a), Ord(b)}: a -> b -> c` into structured parser/core payloads. Empty constraint blocks (`@{}:`) normalize to the existing monomorphic signature subset; non-empty constrained signatures still reject deterministically with `E2009` until constraint semantics, scope, and inference interaction rules are defined. Duplicate non-empty constraint names also reject with `E2009` and name the duplicate constraint.
 
 ### Builtins And Type Environment In `jazz-hs`
 
@@ -411,7 +411,7 @@ Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, bu
 
 Based on the full repo, these areas still require implementation convergence even when a decision lock now exists:
 
-- Extending parsed signature type grammar beyond the current monomorphic subset in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, right-associative function types, and parenthesized function-type overrides are implemented and test-covered; constrained signatures and named type variables remain pending):
+- Extending parsed signature type grammar beyond the current monomorphic subset in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, right-associative function types, parenthesized function-type overrides, empty `@{}:` constrained wrappers, and duplicate non-empty constraint diagnostics are implemented and test-covered; non-empty constrained signature acceptance and named type variables remain pending):
   - `docs/spec/semantics/bindings-and-signatures.md`
   - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Extending staged operator roadmap work in `jazz-next` beyond implemented v1 parser/fixity/sections behavior:
@@ -442,7 +442,7 @@ If you need a practical baseline for continuing Jazz, use this order:
    - dot-separated statements and scope blocks
    - canonical identifier-only lambdas with lexical closure runtime support (`\(x) -> expr`, multi-argument lambdas lowered into nested unary functions)
    - application and list literals
-   - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, right-associative function types, and explicit parenthesized function-type overrides)
+   - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, right-associative function types, explicit parenthesized function-type overrides, and empty `@{}:` constrained wrappers)
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
    - canonical `data` declarations with constructor values/applications, plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; analyzer/type/runtime execution covers literal, wildcard, variable, declared constructor patterns, and exact-length bracketed-list patterns
    - built-in operator fixity plus executable left/right section semantics
@@ -472,7 +472,7 @@ If this repo is going to become a coherent language project, the highest-value c
 Status update for item `#1`:
 
 - Active-path ADT/pattern contract is now recorded in `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md`.
-- The currently landed `jazz-next` subset is direct `case` parsing/lowering plus analyzer/type/runtime execution for literal, wildcard, variable, constructor, and exact-length bracketed-list patterns; canonical `data` declaration parsing/lowering; and analyzer/type/runtime support for constructor values and constructor application arity.
+- The currently landed `jazz-next` subset is direct `case` parsing/lowering plus analyzer/type/runtime execution for literal, wildcard, variable, constructor, and exact-length bracketed-list patterns; canonical `data` declaration parsing/lowering; analyzer/type/runtime support for constructor values and constructor application arity; and deterministic `E3023` runtime diagnostics for constructor over-application paths.
 - Constructor payload typing is intentionally monomorphic per constructor in the current active subset; named type parameters and fresh per-use constructor type schemes remain future ADT work.
 - Tuple patterns, cons-like list patterns, and lambda-parameter patterns remain explicitly deferred on the active path.
 
@@ -486,7 +486,7 @@ Status update for item `#5`:
 - Implemented-vs-planned split is now published in `README.md`.
 - Canonical evidence-backed feature status is now tracked in `docs/feature-status.md`.
 
-1. Execute the remaining active-path ADT/pattern batches in `jazz-next`, starting with a narrowed invalid-constructor-application diagnostic or tuple-pattern ownership batch.
+1. Execute the remaining active-path ADT/pattern batches in `jazz-next`, starting with a narrowed tuple-pattern ownership batch.
 2. Rebase module/import loader planning (`domain 09`) onto `jazz-next` with deterministic file-resolution diagnostics.
 3. Finish remaining stdlib-boundary follow-up work (`domain 10`) in `jazz-next`, especially broader catalog cleanup and reproducibility evidence.
 4. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.

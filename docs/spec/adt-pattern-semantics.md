@@ -1,6 +1,6 @@
 # ADT Semantics
 
-Status: active (canonical `data` declarations, constructor values/applications, and constructor/list pattern typing and runtime matching are implemented in `jazz-next`)
+Status: active (canonical `data` declarations, constructor values/applications, constructor over-application diagnostics, and constructor/list pattern typing and runtime matching are implemented in `jazz-next`)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -29,7 +29,9 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
    variables in arm bodies, and match exact-length runtime lists.
 6. Constructor patterns match saturated runtime constructor values with the
    same constructor name and payload count.
-7. The end-to-end runtime-executed `case` subset is defined in
+7. Runtime constructor over-application emits deterministic `E3023`
+   diagnostics with the constructor name plus expected and received arity.
+8. The end-to-end runtime-executed `case` subset is defined in
    `docs/spec/pattern-matching-semantics.md`.
 
 ## ADT Contract
@@ -41,7 +43,9 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
 4. Constructors are first-class values in expression position.
 5. Constructor application uses ordinary function application semantics rather
    than a special call form.
-6. Pattern matching over constructor values is defined by
+6. Applying a constructor beyond its declared arity is invalid; runtime-only
+   invalid paths emit deterministic `E3023` diagnostics.
+7. Pattern matching over constructor values is defined by
    `docs/spec/pattern-matching-semantics.md`.
 
 Canonical shape example:
