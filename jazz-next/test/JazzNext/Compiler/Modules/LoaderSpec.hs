@@ -39,6 +39,8 @@ tests :: [NamedTest]
 tests =
   [ ("compile module graph succeeds for resolvable entry module", testCompileModuleGraphSuccess),
     ("run module graph produces runtime output from entry module", testRunModuleGraphSuccess),
+    ("run module graph ignores dependency expression statements", testRunModuleGraphIgnoresDependencyExpressions),
+    ("compile module graph validates dependency expression statements", testCompileModuleGraphValidatesDependencyExpressions),
     ("compile module graph reports unresolved import diagnostics", testCompileModuleGraphUnresolved),
     ("compile module graph reports missing import symbols", testCompileModuleGraphMissingImportSymbol),
     ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
@@ -82,6 +84,52 @@ testRunModuleGraphSuccess = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
           ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphIgnoresDependencyExpressions :: IO ()
+testRunModuleGraphIgnoresDependencyExpressions = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
+          ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n1 / 0.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphValidatesDependencyExpressions :: IO ()
+testCompileModuleGraphValidatesDependencyExpressions = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  assertEqual "generated output" Nothing (generatedJs result)
+  case compileErrors result of
+    [err] ->
+      assertContains
+        "signature adjacency"
+        "must be immediately followed by a matching binding"
+        (renderDiagnostic err)
+    _ -> failTest "expected exactly one dependency signature adjacency error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
+          ("src/Lib/Util.jz", "module Lib::Util {\nutil :: Int.\nTrue.\nutil = 1.\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

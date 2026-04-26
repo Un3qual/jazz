@@ -12,6 +12,7 @@ module JazzNext.Compiler.TypeInference
   ) where
 
 import Data.List (foldl')
+import Data.Maybe (isNothing)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -969,8 +970,11 @@ signaturePayloadToExpressionType signaturePayload =
       Just (signatureTypeToExpressionType signatureType)
     ConstrainedSignature [] signatureType ->
       constraintSignatureTypeToExpressionType signatureType
-    ConstrainedSignature (_ : _) _ ->
-      Nothing
+    ConstrainedSignature constraints signatureType
+      | supportedConcreteConstraints constraints ->
+          constraintSignatureTypeToExpressionType signatureType
+      | otherwise ->
+          Nothing
     UnsupportedSignature {} ->
       Nothing
 
@@ -1002,6 +1006,44 @@ constraintSignatureTypeToExpressionType signatureType =
       TFunctionType
         <$> constraintSignatureTypeToExpressionType argumentType
         <*> constraintSignatureTypeToExpressionType resultType
+
+supportedConcreteConstraints :: [SignatureConstraint] -> Bool
+supportedConcreteConstraints constraints =
+  not (null constraints)
+    && isNothing (duplicateConstraintName constraints)
+    && all supportedConcreteConstraint constraints
+
+supportedConcreteConstraint :: SignatureConstraint -> Bool
+supportedConcreteConstraint (SignatureConstraint constraintName arguments) =
+  case arguments of
+    [argument] ->
+      supportedConstraintName (identifierText constraintName)
+        && concreteConstraintArgument argument
+    _ -> False
+
+supportedConstraintName :: Text -> Bool
+supportedConstraintName constraintName =
+  Set.member constraintName supportedConstraintNames
+
+concreteConstraintArgument :: ConstraintSignatureType -> Bool
+concreteConstraintArgument signatureType =
+  case signatureType of
+    ConstraintTypeName name ->
+      identifierText name `Set.member` concreteConstraintTypeNames
+    ConstraintTypeApplication {} ->
+      False
+    ConstraintTypeList innerType ->
+      concreteConstraintArgument innerType
+    ConstraintTypeFunction {} ->
+      False
+
+supportedConstraintNames :: Set Text
+supportedConstraintNames =
+  Set.fromList ["Default", "Eq", "Fractional", "Integral", "Num", "Ord", "Showable"]
+
+concreteConstraintTypeNames :: Set Text
+concreteConstraintTypeNames =
+  Set.fromList ["Bool", "Int"]
 
 renderSignaturePayload :: SignaturePayload -> Text
 renderSignaturePayload signaturePayload =

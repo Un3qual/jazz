@@ -190,7 +190,7 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
             generatedJs = Nothing
           }
     Right moduleGraphExpr ->
-      case mergeResolvedPrelude resolvedPrelude moduleGraphExpr of
+      case mergeResolvedPrelude resolvedPrelude (moduleGraphValidationExpr moduleGraphExpr) of
         Left parseErrorCode ->
           pure
             CompileResult
@@ -304,7 +304,7 @@ runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entr
             runOutput = Nothing
           }
     Right moduleGraphExpr ->
-      case mergeResolvedPrelude resolvedPrelude moduleGraphExpr of
+      case mergeResolvedPrelude resolvedPrelude (moduleGraphValidationExpr moduleGraphExpr) of
         Left parseErrorCode ->
           pure
             RunResult
@@ -313,12 +313,78 @@ runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entr
                 runRuntimeErrors = [],
                 runOutput = Nothing
               }
-        Right loweredProgram ->
-          runExprWithBuiltinsAndHiddenStatements
-            (parsedHiddenStatementIndices loweredProgram)
-            (builtinResolutionMode resolvedPrelude)
-            settings
-            (parsedExpr loweredProgram)
+        Right validationProgram ->
+          case mergeResolvedPrelude resolvedPrelude (moduleGraphRuntimeExpr moduleGraphExpr) of
+            Left parseErrorCode ->
+              pure
+                RunResult
+                  { runWarnings = [],
+                    runCompileErrors = [parseErrorCode],
+                    runRuntimeErrors = [],
+                    runOutput = Nothing
+                  }
+            Right runtimeProgram ->
+              runExprWithValidationAndRuntimeExprs
+                (parsedHiddenStatementIndices validationProgram)
+                (builtinResolutionMode resolvedPrelude)
+                settings
+                (parsedExpr validationProgram)
+                (parsedExpr runtimeProgram)
+
+runExprWithValidationAndRuntimeExprs ::
+  Set Int ->
+  BuiltinResolutionMode ->
+  WarningSettings ->
+  Expr ->
+  Expr ->
+  IO RunResult
+runExprWithValidationAndRuntimeExprs
+  hiddenStatementIndices
+  builtinMode
+  settings
+  validationExpr
+  runtimeExpr = do
+  (warnings, compileErrors, _) <-
+    analyzeWithWarnings hiddenStatementIndices builtinMode settings validationExpr
+  if not (null compileErrors)
+    then
+      pure
+        RunResult
+          { runWarnings = warnings,
+            runCompileErrors = compileErrors,
+            runRuntimeErrors = [],
+            runOutput = Nothing
+          }
+    else do
+      (_, runtimeCompileErrors, canonicalRuntimeExpr) <-
+        analyzeWithWarnings hiddenStatementIndices builtinMode settings runtimeExpr
+      if not (null runtimeCompileErrors)
+        then
+          pure
+            RunResult
+              { runWarnings = warnings,
+                runCompileErrors = runtimeCompileErrors,
+                runRuntimeErrors = [],
+                runOutput = Nothing
+              }
+        else
+          case evaluateRuntimeExprWithBuiltins builtinMode canonicalRuntimeExpr of
+            Left runtimeError ->
+              pure
+                RunResult
+                  { runWarnings = warnings,
+                    runCompileErrors = [],
+                    runRuntimeErrors = [runtimeError],
+                    runOutput = Nothing
+                  }
+            Right runtimeValue ->
+              pure
+                RunResult
+                  { runWarnings = warnings,
+                    runCompileErrors = [],
+                    runRuntimeErrors = [],
+                    runOutput = fmap renderRuntimeValue runtimeValue
+                  }
 
 -- | Run inference/canonicalization, collect warnings from `inferredWarnings`,
 -- promote configured warnings into errors, and return the canonicalized
@@ -403,6 +469,11 @@ data ParsedProgram = ParsedProgram
     parsedHiddenStatementIndices :: Set Int
   }
 
+data ModuleGraphExpr = ModuleGraphExpr
+  { moduleGraphValidationExpr :: Expr,
+    moduleGraphRuntimeExpr :: Expr
+  }
+
 resolvedExplicitPrelude :: Maybe Text -> ResolvedPrelude
 resolvedExplicitPrelude maybePrelude =
   case maybePrelude of
@@ -460,15 +531,14 @@ loadModuleGraphSource resolutionConfig entryModulePath sourceLookup = do
       sourceReplayResult <- replayResolvedSources resolvedModules memoizedSourceLookup
       pure (fmap (Text.intercalate "\n") sourceReplayResult)
 
--- | Resolve and lower a module graph into one executable block expression. The
--- module declarations themselves are stripped here because the resolver already
--- validated them, and replaying multiple files as one block should keep only
--- the combined executable/import statements.
+-- | Resolve and lower a module graph into validation and runtime replay
+-- expressions. Dependency expressions stay present for semantic validation and
+-- are stripped only from the runtime replay expression.
 loadLoweredModuleGraph ::
   ModuleResolutionConfig ->
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
-  IO (Either Diagnostic Expr)
+  IO (Either Diagnostic ModuleGraphExpr)
 loadLoweredModuleGraph resolutionConfig entryModulePath sourceLookup = do
   memoizedSourceLookup <- memoizeSourceLookup sourceLookup
   resolutionResult <-
@@ -486,7 +556,7 @@ loadLoweredModuleGraph resolutionConfig entryModulePath sourceLookup = do
               [ parseAndLowerResolvedModule resolvedModule sourceText
                 | (resolvedModule, sourceText) <- zip resolvedModules replayedSources
               ]
-          pure (EBlock (concatMap (scopeStatements . stripModuleDeclarations) loweredModules))
+          pure (buildModuleGraphExpr entryModulePath resolvedModules loweredModules)
 
 -- | Replay resolved source files from the memoized lookup so driver errors stay
 -- stable even after resolution has already succeeded.
@@ -537,6 +607,36 @@ parseAndLowerResolvedModule resolvedModule sourceText =
     Right loweredSource ->
       Right loweredSource
 
+buildModuleGraphExpr :: [Text] -> [ResolvedModule] -> [Expr] -> ModuleGraphExpr
+buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
+  ModuleGraphExpr
+    { moduleGraphValidationExpr =
+        replayLoweredModules
+          (\_ loweredModule -> stripModuleDeclarations loweredModule)
+          resolvedModules
+          loweredModules,
+      moduleGraphRuntimeExpr =
+        replayLoweredModules
+          ( \resolvedModule loweredModule ->
+              stripModuleRuntimeReplayStatements (resolvedModulePath resolvedModule == entryModulePath) loweredModule
+          )
+          resolvedModules
+          loweredModules
+    }
+
+replayLoweredModules ::
+  (ResolvedModule -> Expr -> Expr) ->
+  [ResolvedModule] ->
+  [Expr] ->
+  Expr
+replayLoweredModules transformModule resolvedModules loweredModules =
+  EBlock
+    ( concat
+        [ scopeStatements (transformModule resolvedModule loweredModule)
+          | (resolvedModule, loweredModule) <- zip resolvedModules loweredModules
+        ]
+    )
+
 stripModuleDeclarations :: Expr -> Expr
 stripModuleDeclarations expr =
   case expr of
@@ -544,14 +644,31 @@ stripModuleDeclarations expr =
       EBlock
         [ statement
           | statement <- statements,
-            not (isModuleStatement statement)
+            keepModuleValidationStatement statement
         ]
     _ -> expr
   where
-    isModuleStatement statement =
+    keepModuleValidationStatement statement =
       case statement of
-        SModule _ _ -> True
-        _ -> False
+        SModule _ _ -> False
+        _ -> True
+
+stripModuleRuntimeReplayStatements :: Bool -> Expr -> Expr
+stripModuleRuntimeReplayStatements isEntryModule expr =
+  case expr of
+    EBlock statements ->
+      EBlock
+        [ statement
+          | statement <- statements,
+            keepModuleRuntimeReplayStatement statement
+        ]
+    _ -> expr
+  where
+    keepModuleRuntimeReplayStatement statement =
+      case statement of
+        SModule _ _ -> False
+        SExpr _ _ -> isEntryModule
+        _ -> True
 
 renderModulePath :: [Text] -> Text
 renderModulePath segments = Text.intercalate "::" segments
