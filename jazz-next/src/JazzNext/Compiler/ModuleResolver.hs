@@ -41,7 +41,9 @@ import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
 import JazzNext.Compiler.Parser.AST
-  ( SurfaceExpr (..),
+  ( SurfaceCaseArm (..),
+    SurfacePattern (..),
+    SurfaceExpr (..),
     SurfaceStatement (..)
   )
 import System.FilePath ((</>))
@@ -72,7 +74,8 @@ data ParsedImport = ParsedImport
 
 data ParsedModule = ParsedModule
   { parsedModuleImports :: [ParsedImport],
-    parsedModuleExports :: Set Text
+    parsedModuleExports :: Set Text,
+    parsedModuleReferences :: Set Text
   }
 
 data BindingOrigin = BindingOrigin
@@ -187,6 +190,7 @@ resolveModuleGraphWithLookup config loadSource entryModulePath
                             sourcePath
                             modulePath
                             (parsedModuleImports parsedModule)
+                            (parsedModuleReferences parsedModule)
                             (resolvedExportsState stateAfterDeps) of
                         Left err -> pure (Left err)
                         Right () ->
@@ -294,10 +298,12 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
         )
     Right surfaceExpr -> do
       validateModuleDeclarations sourcePath expectedModulePath surfaceExpr
+      let topLevelBindings = collectTopLevelBindings surfaceExpr
       Right
         ParsedModule
           { parsedModuleImports = collectImports surfaceExpr,
-            parsedModuleExports = collectTopLevelBindings surfaceExpr
+            parsedModuleExports = topLevelBindings,
+            parsedModuleReferences = collectReferencedNames surfaceExpr Set.\\ topLevelBindings
           }
 
 collectImports :: SurfaceExpr -> [ParsedImport]
@@ -324,6 +330,89 @@ collectTopLevelBindings surfaceExpr =
           | SSLet bindingName _ _ <- statements
         ]
     _ -> Set.empty
+
+collectReferencedNames :: SurfaceExpr -> Set Text
+collectReferencedNames = collectExprReferences Set.empty
+
+collectExprReferences :: Set Text -> SurfaceExpr -> Set Text
+collectExprReferences boundNames surfaceExpr =
+  case surfaceExpr of
+    SELit _ -> Set.empty
+    SEVar name
+      | identifierText name `Set.member` boundNames -> Set.empty
+      | otherwise -> Set.singleton (identifierText name)
+    SELambda params body ->
+      collectExprReferences
+        (Set.union boundNames (Set.fromList (map identifierText params)))
+        body
+    SEOperatorValue _ -> Set.empty
+    SEList items ->
+      Set.unions (map (collectExprReferences boundNames) items)
+    SEApply function argument ->
+      Set.union
+        (collectExprReferences boundNames function)
+        (collectExprReferences boundNames argument)
+    SEIf condition trueBranch falseBranch ->
+      Set.unions
+        [ collectExprReferences boundNames condition,
+          collectExprReferences boundNames trueBranch,
+          collectExprReferences boundNames falseBranch
+        ]
+    SECase scrutinee arms ->
+      Set.union
+        (collectExprReferences boundNames scrutinee)
+        (Set.unions (map (collectCaseArmReferences boundNames) arms))
+    SEBinary _ left right ->
+      Set.union
+        (collectExprReferences boundNames left)
+        (collectExprReferences boundNames right)
+    SESectionLeft left _ ->
+      collectExprReferences boundNames left
+    SESectionRight _ right ->
+      collectExprReferences boundNames right
+    SEBlock statements ->
+      collectBlockReferences boundNames statements
+
+collectBlockReferences :: Set Text -> [SurfaceStatement] -> Set Text
+collectBlockReferences boundNames statements =
+  Set.unions (map collectStatementReferences statements)
+  where
+    blockBoundNames =
+      Set.union
+        boundNames
+        ( Set.fromList
+            [ identifierText bindingName
+              | SSLet bindingName _ _ <- statements
+            ]
+        )
+
+    collectStatementReferences statement =
+      case statement of
+        SSLet _ _ valueExpr ->
+          collectExprReferences blockBoundNames valueExpr
+        SSExpr _ expr ->
+          collectExprReferences blockBoundNames expr
+        SSSignature {} -> Set.empty
+        SSData {} -> Set.empty
+        SSModule {} -> Set.empty
+        SSImport {} -> Set.empty
+
+collectCaseArmReferences :: Set Text -> SurfaceCaseArm -> Set Text
+collectCaseArmReferences boundNames (SurfaceCaseArm patternValue body) =
+  collectExprReferences
+    (Set.union boundNames (collectPatternBinders patternValue))
+    body
+
+collectPatternBinders :: SurfacePattern -> Set Text
+collectPatternBinders patternValue =
+  case patternValue of
+    SPWildcard -> Set.empty
+    SPVariable name -> Set.singleton (identifierText name)
+    SPLiteral _ -> Set.empty
+    SPConstructor _ nestedPatterns ->
+      Set.unions (map collectPatternBinders nestedPatterns)
+    SPList nestedPatterns ->
+      Set.unions (map collectPatternBinders nestedPatterns)
 
 validateModuleDeclarations :: FilePath -> [Text] -> SurfaceExpr -> Either Diagnostic ()
 validateModuleDeclarations sourcePath expectedModulePath surfaceExpr =
@@ -372,10 +461,16 @@ validateImportBindings ::
   FilePath ->
   [Text] ->
   [ParsedImport] ->
+  Set Text ->
   Map [Text] (Set Text) ->
   Either Diagnostic ()
-validateImportBindings sourcePath importerPath imports exportsByModule =
+validateImportBindings sourcePath importerPath imports referencedNames exportsByModule = do
   go Map.empty Map.empty imports
+  visibleSymbols <- collectVisibleImportSymbols imports
+  case findHiddenImportReference visibleSymbols of
+    Nothing -> Right ()
+    Just (symbolName, importDecl) ->
+      Left (mkHiddenImportSymbolError symbolName importDecl)
   where
     go seenSymbols seenAliases remainingImports =
       case remainingImports of
@@ -495,6 +590,72 @@ validateImportBindings sourcePath importerPath imports exportsByModule =
                       <> renderModulePath (parsedImportModulePath importDecl)
                       <> "'"
                   )
+              )
+          )
+
+    collectVisibleImportSymbols :: [ParsedImport] -> Either Diagnostic (Set Text)
+    collectVisibleImportSymbols =
+      foldM collectVisibleImportSymbol Set.empty
+
+    collectVisibleImportSymbol :: Set Text -> ParsedImport -> Either Diagnostic (Set Text)
+    collectVisibleImportSymbol visibleSymbols importDecl =
+      case Map.lookup (parsedImportModulePath importDecl) exportsByModule of
+        Nothing ->
+          Left
+            ( mkDiagnostic
+                "E4010"
+                ( "internal resolver error while validating imports for '"
+                    <> renderModulePath importerPath
+                    <> "': missing exports for module '"
+                    <> renderModulePath (parsedImportModulePath importDecl)
+                    <> "'"
+                )
+            )
+        Just exportedSymbols ->
+          Right
+            ( Set.union
+                visibleSymbols
+                ( case parsedImportSymbols importDecl of
+                    Nothing -> exportedSymbols
+                    Just symbolNames -> Set.fromList symbolNames
+                )
+            )
+
+    findHiddenImportReference :: Set Text -> Maybe (Text, ParsedImport)
+    findHiddenImportReference visibleSymbols =
+      firstMatch
+        [ (symbolName, importDecl)
+          | importDecl <- imports,
+            Just symbolNames <- [parsedImportSymbols importDecl],
+            Just exportedSymbols <- [Map.lookup (parsedImportModulePath importDecl) exportsByModule],
+            let hiddenSymbols = Set.difference exportedSymbols (Set.fromList symbolNames),
+            symbolName <- sortOn id (Set.toList hiddenSymbols),
+            Set.member symbolName referencedNames,
+            not (Set.member symbolName visibleSymbols)
+        ]
+
+    firstMatch :: [a] -> Maybe a
+    firstMatch matches =
+      case matches of
+        [] -> Nothing
+        match : _ -> Just match
+
+    mkHiddenImportSymbolError :: Text -> ParsedImport -> Diagnostic
+    mkHiddenImportSymbolError symbolName importDecl =
+      setDiagnosticSubject symbolName $
+        setDiagnosticPrimarySpan
+          (parsedImportSpan importDecl)
+          ( mkDiagnostic
+              "E4011"
+              ( "import symbol '"
+                  <> symbolName
+                  <> "' is not visible from explicit import of module '"
+                  <> renderModulePath (parsedImportModulePath importDecl)
+                  <> "' by '"
+                  <> renderModulePath importerPath
+                  <> "' in '"
+                  <> Text.pack sourcePath
+                  <> "'"
               )
           )
 

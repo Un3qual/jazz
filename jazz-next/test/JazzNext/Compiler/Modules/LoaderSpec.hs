@@ -43,6 +43,7 @@ tests =
     ("compile module graph validates dependency expression statements", testCompileModuleGraphValidatesDependencyExpressions),
     ("compile module graph reports unresolved import diagnostics", testCompileModuleGraphUnresolved),
     ("compile module graph reports missing import symbols", testCompileModuleGraphMissingImportSymbol),
+    ("compile module graph hides dependency bindings excluded by explicit import list", testCompileModuleGraphExplicitImportListHidesUnlistedBindings),
     ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
     ("run module graph reports cycle diagnostics", testRunModuleGraphCycle),
     ("loader reuses memoized source lookup across resolve and replay", testMemoizedLookupReuse)
@@ -179,6 +180,33 @@ testCompileModuleGraphMissingImportSymbol = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Math (subtract).\n1."),
           ("src/Lib/Math.jz", "add = 1.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphExplicitImportListHidesUnlistedBindings :: IO ()
+testCompileModuleGraphExplicitImportListHidesUnlistedBindings = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  assertEqual "generated output" Nothing (generatedJs result)
+  case compileErrors result of
+    [err] -> do
+      let rendered = renderDiagnostic err
+      assertContains "hidden import code" "E4011" rendered
+      assertContains "hidden symbol" "subtract" rendered
+      assertContains "imported module context" "Lib::Math" rendered
+      assertContains "importer context" "App::Main" rendered
+    _ -> failTest "expected exactly one hidden import symbol error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math (add).\nsubtract."),
+          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

@@ -26,6 +26,8 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
    - Module declaration: `module A::B { ... }`
    - Import declaration: `import A::B`
    - Qualified forms remain canonical where needed: `import A::B as B`, `import Std::List (map, filter)`.
+   - In the active `jazz-next` resolver, an explicit symbol list is also a visibility boundary: `import Std::List (map, filter)` exposes only those selected names from that import, and references to other exported names from the same dependency report `E4011`.
+   - Alias imports are parsed and collision-validated; alias lookup/qualification semantics remain future active-path work.
 
 3. **Abstractions**
    - Canonical keywords: `class` and `impl`.
