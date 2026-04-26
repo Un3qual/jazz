@@ -1,20 +1,22 @@
 ---
-id: JN-MODULE-REBASE-CONTRACT-001
-status: ready
+id: JN-MODULE-DEPENDENCY-EXPR-001
+status: done
 priority: P1
 size: S
-kind: coordination
+kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-04-26
-plan_section: "Milestone 5 / Coordination: Module/import active-path execution contract"
+plan_section: "Milestone 5 / Batch 1: Dependency module expression isolation"
 target_paths:
-  - docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md
-  - docs/execution/queue.md
+  - jazz-next/src/JazzNext/Compiler/Driver.hs
+  - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
 verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+  - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Rebase module/import execution planning onto the current `ModuleResolver.hs`, `Driver.hs`, `CLI/Main.hs`, and loader/module test owners, then rewrite the blocked module/import item into one concrete autonomous `jazz-next` implementation batch with exact non-doc targets and verification."
+deliverable: "Module graph replay preserves executable expression statements only for the entry module, while dependency modules contribute declarations without evaluating dependency-local terminal expressions during entry-module compile/run."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 ---
@@ -44,7 +46,7 @@ supersedes:
 - [x] Re-verified on `2026-03-19` that successful compile paths still emit `/* jazz-next codegen placeholder */`, and CLI/module tests still lock that contract.
 - [x] On `2026-04-10`, made CLI compile success diagnostic-only with deterministic empty stdout for standalone and module-graph compile paths while keeping `--run` as the canonical execution surface.
 - [x] Milestone 1 complete: compile and run contracts no longer depend on placeholder codegen output.
-- [ ] On `2026-04-26`, module/import execution work is queued for a coordination rebase because existing code already covers the obvious loader/CLI slices, while the next active-path implementation batch still needs a concrete contract.
+- [x] On `2026-04-26`, rebased module/import execution work onto active owners and landed dependency-module expression isolation in the driver replay path.
 - [ ] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next`.
 - [ ] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
 - [ ] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.
@@ -56,7 +58,7 @@ supersedes:
 - `JazzNext.Compiler.Driver` already coordinates standalone source, prelude-aware source, and module-graph execution.
 - `JazzNext.Compiler.Runtime` already interprets the current core subset: ints, bools, lists, closures, builtin/kernel functions, operator values and sections, `if` via canonical `ECase`, and block scope evaluation.
 - `JazzNext.Compiler.TypeInference` still behaves as a light canonicalization/type-check layer; supported monomorphic signatures now arrive as structured parser/core payloads with right-associated chained arrows and parenthesized function-type overrides, but constrained-signature work remains blocked on the next type-grammar milestones.
-- `JazzNext.Compiler.ModuleResolver` already resolves and replays module graphs, but the normative module/runtime plan still needs an active-path rewrite around these files.
+- `JazzNext.Compiler.ModuleResolver` resolves module graphs and `JazzNext.Compiler.Driver` replays them through the shared pipeline. Dependency modules contribute declarations during replay, while executable expression statements are preserved only for the entry module.
 - Successful compile paths are now diagnostic-only and keep stdout empty on success, while successful run paths continue to return interpreter output.
 
 ## Milestone 1 Closure (2026-04-10)
@@ -169,11 +171,11 @@ Primary files:
 
 #### Coordination: Module/import active-path execution contract
 
-This coordination batch is the next unblocking step for module/import implementation work. `ModuleResolver.hs`, `Driver.hs`, `CLI/Main.hs`, and the loader/module specs already cover the obvious active-path module graph slices, so the next implementation item must be narrowed before it returns to `Ready Now`.
+This coordination batch completed on `2026-04-26`. It selected dependency-module expression isolation as the next active-path implementation slice, then left broader import visibility and alias semantics blocked until a narrower contract exists.
 
-- [ ] Rebase the module/import execution contract onto the current `ModuleResolver.hs`, `Driver.hs`, and `CLI/Main.hs` ownership boundaries.
-- [ ] Identify the next missing executable behavior beyond already-landed resolution, graph replay, CLI entry-module routing, and import-symbol diagnostics.
-- [ ] Rewrite `JN-MODULE-REBASE-PLAN-001` from blocked into one concrete `kind: impl` queue item with explicit non-doc target paths and focused verification.
+- [x] Rebase the module/import execution contract onto the current `ModuleResolver.hs`, `Driver.hs`, and `CLI/Main.hs` ownership boundaries.
+- [x] Identify the next missing executable behavior beyond already-landed resolution, graph replay, CLI entry-module routing, and import-symbol diagnostics: dependency module expression statements were still replayed into entry-module execution.
+- [x] Rewrite `JN-MODULE-REBASE-PLAN-001` to the remaining import visibility/alias semantics scope and execute the dependency-expression isolation implementation batch.
 
 Coordination files:
 
@@ -183,6 +185,29 @@ Coordination files:
 Coordination verification:
 
 ```bash
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+#### Batch 1: Dependency module expression isolation
+
+This batch landed on `2026-04-26`. Module graph replay still flattens resolved modules into the shared active compiler pipeline, but dependency modules now contribute declarations only. The entry module remains the only module whose expression statements participate in compile/run output or runtime failure.
+
+- [x] Keep `SLet`, `SSignature`, `SData`, and import/declaration statements from resolved dependency modules so imported declarations remain available.
+- [x] Strip dependency-module `SExpr` statements during driver replay, after resolver validation and before type/runtime evaluation.
+- [x] Preserve entry-module `SExpr` statements so entry-module compile/run behavior remains canonical.
+- [x] Add loader coverage proving a dependency-local `1 / 0.` expression does not fail an entry module run that imports a dependency binding.
+
+Batch 1 files:
+
+- `jazz-next/src/JazzNext/Compiler/Driver.hs`
+- `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`
+
+Batch 1 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```

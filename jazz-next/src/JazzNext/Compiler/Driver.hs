@@ -486,7 +486,15 @@ loadLoweredModuleGraph resolutionConfig entryModulePath sourceLookup = do
               [ parseAndLowerResolvedModule resolvedModule sourceText
                 | (resolvedModule, sourceText) <- zip resolvedModules replayedSources
               ]
-          pure (EBlock (concatMap (scopeStatements . stripModuleDeclarations) loweredModules))
+          pure
+            ( EBlock
+                ( concat
+                    [ scopeStatements
+                        (stripModuleReplayStatements (resolvedModulePath resolvedModule == entryModulePath) loweredModule)
+                      | (resolvedModule, loweredModule) <- zip resolvedModules loweredModules
+                    ]
+                )
+            )
 
 -- | Replay resolved source files from the memoized lookup so driver errors stay
 -- stable even after resolution has already succeeded.
@@ -537,21 +545,22 @@ parseAndLowerResolvedModule resolvedModule sourceText =
     Right loweredSource ->
       Right loweredSource
 
-stripModuleDeclarations :: Expr -> Expr
-stripModuleDeclarations expr =
+stripModuleReplayStatements :: Bool -> Expr -> Expr
+stripModuleReplayStatements isEntryModule expr =
   case expr of
     EBlock statements ->
       EBlock
         [ statement
           | statement <- statements,
-            not (isModuleStatement statement)
+            keepModuleReplayStatement statement
         ]
     _ -> expr
   where
-    isModuleStatement statement =
+    keepModuleReplayStatement statement =
       case statement of
-        SModule _ _ -> True
-        _ -> False
+        SModule _ _ -> False
+        SExpr _ _ -> isEntryModule
+        _ -> True
 
 renderModulePath :: [Text] -> Text
 renderModulePath segments = Text.intercalate "::" segments
