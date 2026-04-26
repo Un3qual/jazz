@@ -187,7 +187,7 @@ Active-path note: `jazz-next` now parses function arrows right-associatively. In
 
 The older left-associative behavior should be treated as legacy-reference drift rather than the active language contract.
 
-Active-path note: `jazz-next` now lexes and parses constrained signatures such as `x :: @{Eq(a), Ord(b)}: a -> b -> c` into structured parser/core payloads. Empty constraint blocks (`@{}:`) normalize to the existing monomorphic signature subset; non-empty constrained signatures still reject deterministically with `E2009` until constraint semantics, scope, and inference interaction rules are defined. Duplicate non-empty constraint names also reject with `E2009` and name the duplicate constraint.
+Active-path note: `jazz-next` now lexes and parses constrained signatures such as `x :: @{Eq(a), Ord(b)}: a -> b -> c` into structured parser/core payloads. Empty constraint blocks (`@{}:`) normalize to the existing monomorphic signature subset; non-empty constrained signatures still reject deterministically with `E2009` until `JN-TYPE-CONSTRAINT-SEM-CONTRACT-001` defines constraint semantics, scope, accepted constraint families, type-variable binding/defaulting, and inference interaction rules. Duplicate non-empty constraint names also reject with `E2009` and name the duplicate constraint.
 
 ### Builtins And Type Environment In `jazz-hs`
 

@@ -1,6 +1,6 @@
 # Bindings and Signatures Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; adjacent monomorphic signatures and empty `@{}:` constrained signatures are implemented)
+Status: active (phase 1 partial implementation in `jazz-next`; adjacent monomorphic signatures and empty `@{}:` constrained signatures are implemented; non-empty constrained-signature semantics are blocked on `JN-TYPE-CONSTRAINT-SEM-CONTRACT-001`)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/semantics/13-binding-and-signature-coherence.md`
 
@@ -153,4 +153,4 @@ y = 1.
 
 - Complete recursion-group semantics in `jazz-next` (self + mutual recursion) so implementation fully matches locked policy.
 - Add parser-surface tests once parser work lands in `jazz-next`.
-- Define non-empty constrained-signature duplicate ordering, scope, inference/defaulting, and acceptance rules.
+- Define non-empty constrained-signature duplicate ordering, scope, inference/defaulting, and acceptance rules before any additional non-empty constrained-signature implementation batch moves into `Ready Now`.

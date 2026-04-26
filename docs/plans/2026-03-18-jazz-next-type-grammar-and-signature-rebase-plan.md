@@ -1,22 +1,22 @@
 ---
-id: JN-TYPE-CONSTRAINT-DUP-DIAG-001
-status: done
-priority: P2
+id: JN-TYPE-CONSTRAINT-SEM-CONTRACT-001
+status: ready
+priority: P1
 size: S
-kind: impl
+kind: coordination
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-04-26
-plan_section: "Milestone 3 / Batch 3: Duplicate constrained-signature diagnostics"
+plan_section: "Milestone 3 / Coordination: Non-empty constrained-signature semantics contract"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md
+  - docs/spec/semantics/bindings-and-signatures.md
+  - docs/jazz-language-state.md
+  - docs/execution/queue.md
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Non-empty constrained signatures with duplicate constraint names produce deterministic E2009 diagnostics naming the duplicate while remaining unsupported for acceptance semantics."
+deliverable: "Lock a concrete non-empty constrained-signature acceptance/rejection contract and rewrite the blocked implementation item into the next autonomous jazz-next batch with exact non-doc targets and verification."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
 ---
@@ -49,6 +49,7 @@ supersedes:
 - [x] On `2026-04-24`, landed the constrained-signature parser/core payload batch, preserving `@{...}:` syntax while keeping active-path semantics on deterministic `E2009`.
 - [x] On `2026-04-26`, landed empty `@{}:` normalization to the existing monomorphic signature subset in `TypeInference.hs`, while keeping non-empty constrained signatures on deterministic `E2009`.
 - [x] On `2026-04-26`, landed deterministic duplicate-constraint diagnostics for non-empty constrained signatures, preserving `E2009` while naming the duplicate constraint.
+- [ ] On `2026-04-26`, re-verified that non-empty constrained-signature acceptance semantics are still blocked on a concrete active-path contract for constraint scope, accepted constraint families, type-variable binding/defaulting, and inference interaction.
 - [ ] Milestone 3 complete: constrained-signature syntax and semantics are represented in `jazz-next` structures.
 - [ ] Milestone 4 complete: canonical grammar docs, normalization rules, and diagnostics align with the active parser/type pipeline.
 - [ ] Milestone 5 complete: active-path tests/docs close the rebase and future work no longer depends on legacy `07`.
@@ -264,6 +265,29 @@ Batch 3 verification:
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
 bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+#### Coordination: Non-empty constrained-signature semantics contract
+
+This coordination batch is the next unblocking step before additional non-empty constrained-signature implementation work. The active code already owns parser/core payloads, empty `@{}:` normalization, and duplicate-name diagnostics, but `docs/spec/semantics/bindings-and-signatures.md` still defers the actual acceptance contract.
+
+- [ ] Decide the first accepted non-empty constrained-signature slice, including whether the batch accepts any concrete constraint families or continues to reject all non-empty forms with more specific diagnostics.
+- [ ] Define constraint scope and duplicate-ordering rules in source order, including how constraint arguments bind to named type variables in the signature body.
+- [ ] Define inference/defaulting interaction for the first slice so implementation can stay inside `jazz-next/src/JazzNext/Compiler/TypeInference.hs` without inventing an implicit typeclass solver.
+- [ ] Rewrite `JN-TYPE-CONSTRAINT-NONEMPTY-SEM-001` from blocked into one concrete `kind: impl` queue item with explicit non-doc target paths and focused verification.
+
+Coordination files:
+
+- `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
+- `docs/spec/semantics/bindings-and-signatures.md`
+- `docs/jazz-language-state.md`
+- `docs/execution/queue.md`
+
+Coordination verification:
+
+```bash
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
