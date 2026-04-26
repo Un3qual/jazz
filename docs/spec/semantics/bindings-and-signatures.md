@@ -27,7 +27,7 @@ Out of scope:
 2. A type signature, when present, must appear immediately above the binding it annotates.
 3. A signature does not float across unrelated declarations or expressions.
 4. An empty constrained-signature prefix (`@{}:`) has no semantic obligations and normalizes to the same monomorphic type subset as an ordinary adjacent signature.
-5. Non-empty constrained-signature semantics remain deferred and must fail deterministically until constraint scope and inference rules are defined.
+5. Non-empty constrained-signature semantics remain deferred and must fail deterministically until constraint scope and inference rules are defined; duplicate constraint names produce a deterministic `E2009` diagnostic that names the duplicate.
 6. Same-scope rebinding is allowed and deterministic: last declaration in the same scope wins.
 7. Nested scopes may shadow outer bindings.
 8. Non-recursive use-before-definition is invalid and must produce a compile-time error.

@@ -1,5 +1,5 @@
 ---
-id: JN-TYPE-CONSTRAINT-EMPTY-001
+id: JN-TYPE-CONSTRAINT-DUP-DIAG-001
 status: done
 priority: P2
 size: S
@@ -7,18 +7,16 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-04-26
-plan_section: "Milestone 3 / Batch 2: Empty constrained-signature monomorphic normalization"
+plan_section: "Milestone 3 / Batch 3: Duplicate constrained-signature diagnostics"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Empty constrained signatures (`@{}:`) normalize to the existing monomorphic signature subset in TypeInference while non-empty constraints remain deterministic E2009 follow-up work."
+deliverable: "Non-empty constrained signatures with duplicate constraint names produce deterministic E2009 diagnostics naming the duplicate while remaining unsupported for acceptance semantics."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
 ---
@@ -50,6 +48,7 @@ supersedes:
 - [x] On `2026-04-13`, narrowed the next executable queue target to a single Milestone 3 batch that preserves the current `@{...}:` surface while moving constrained signatures into explicit parser/core payloads.
 - [x] On `2026-04-24`, landed the constrained-signature parser/core payload batch, preserving `@{...}:` syntax while keeping active-path semantics on deterministic `E2009`.
 - [x] On `2026-04-26`, landed empty `@{}:` normalization to the existing monomorphic signature subset in `TypeInference.hs`, while keeping non-empty constrained signatures on deterministic `E2009`.
+- [x] On `2026-04-26`, landed deterministic duplicate-constraint diagnostics for non-empty constrained signatures, preserving `E2009` while naming the duplicate constraint.
 - [ ] Milestone 3 complete: constrained-signature syntax and semantics are represented in `jazz-next` structures.
 - [ ] Milestone 4 complete: canonical grammar docs, normalization rules, and diagnostics align with the active parser/type pipeline.
 - [ ] Milestone 5 complete: active-path tests/docs close the rebase and future work no longer depends on legacy `07`.
@@ -60,8 +59,8 @@ supersedes:
 - `jazz-next/src/JazzNext/Compiler/Parser/AST.hs` and `jazz-next/src/JazzNext/Compiler/AST.hs` now carry explicit signature/type nodes for the supported subset plus tokenized fallback for unsupported surfaces.
 - `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` forwards structured signature payloads into the core AST.
 - `jazz-next/src/JazzNext/Compiler/Analyzer.hs` still enforces signature placement/name coherence only; signature semantics remain owned by `TypeInference.hs`.
-- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now consumes structured signature payloads for `Int`, `Bool`, nested concrete list forms, right-associated chained function arrows, explicit parenthesized function-type overrides, and empty `@{}:` constrained signatures over that same monomorphic subset, while unsupported broader forms continue to report through `E2009`.
-- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs` explicitly accepts simple list signatures, right-associated chained function signatures, parenthesized list-to-list signatures, parenthesized function-type overrides, and empty constrained signatures over monomorphic function types while keeping unsupported broader surfaces on deterministic `E2009`.
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now consumes structured signature payloads for `Int`, `Bool`, nested concrete list forms, right-associated chained function arrows, explicit parenthesized function-type overrides, and empty `@{}:` constrained signatures over that same monomorphic subset, while unsupported broader forms continue to report through `E2009`; duplicate non-empty constraints are reported with specific duplicate-constraint text.
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs` explicitly accepts simple list signatures, right-associated chained function signatures, parenthesized list-to-list signatures, parenthesized function-type overrides, and empty constrained signatures over monomorphic function types while keeping unsupported broader surfaces and duplicate non-empty constraints on deterministic `E2009`.
 - `docs/plans/2026-03-16-jazz-next-monomorphic-signature-surface.md` already delivered the safe monomorphic subset. This rebase must preserve that subset while moving ownership to the correct compiler layers.
 
 ## Scope Guardrails
@@ -193,7 +192,7 @@ Primary files:
 - [x] Decide that constrained signatures remain in the current `@{...}:` surface for the active path.
 - [x] Represent constraints explicitly in parser/core AST rather than as implicit text fragments.
 - [ ] Define non-empty constraint duplicate-ordering, scope, and inference interaction rules in `TypeInference.hs`.
-- [x] Add deterministic invalid-case diagnostics and tests for unsupported constrained signatures while allowing empty `@{}:` normalization.
+- [x] Add deterministic invalid-case diagnostics and tests for unsupported and duplicate constrained signatures while allowing empty `@{}:` normalization.
 
 #### Batch 1: Structured constrained-signature payloads with preserved `E2009` rejection
 
@@ -242,6 +241,28 @@ Batch 2 verification:
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+#### Batch 3: Duplicate constrained-signature diagnostics
+
+This batch landed on `2026-04-26`. It does not accept non-empty constrained signatures; it only makes one invalid case deterministic and actionable before broader constraint semantics are defined.
+
+- [x] Detect duplicate constraint names in non-empty constrained signatures in source order.
+- [x] Keep diagnostic code `E2009` while naming the duplicate constraint in the summary.
+- [x] Preserve the generic unsupported-signature path for non-empty constrained signatures without duplicate names.
+
+Batch 3 files:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+
+Batch 3 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
 bash jazz-next/scripts/test-warning-config.sh
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh

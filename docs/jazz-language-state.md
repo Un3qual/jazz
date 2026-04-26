@@ -187,7 +187,7 @@ Active-path note: `jazz-next` now parses function arrows right-associatively. In
 
 The older left-associative behavior should be treated as legacy-reference drift rather than the active language contract.
 
-Active-path note: `jazz-next` now lexes and parses constrained signatures such as `x :: @{Eq(a), Ord(b)}: a -> b -> c` into structured parser/core payloads. Empty constraint blocks (`@{}:`) normalize to the existing monomorphic signature subset; non-empty constrained signatures still reject deterministically with `E2009` until constraint semantics, duplicate ordering, scope, and inference interaction rules are defined.
+Active-path note: `jazz-next` now lexes and parses constrained signatures such as `x :: @{Eq(a), Ord(b)}: a -> b -> c` into structured parser/core payloads. Empty constraint blocks (`@{}:`) normalize to the existing monomorphic signature subset; non-empty constrained signatures still reject deterministically with `E2009` until constraint semantics, scope, and inference interaction rules are defined. Duplicate non-empty constraint names also reject with `E2009` and name the duplicate constraint.
 
 ### Builtins And Type Environment In `jazz-hs`
 
@@ -411,7 +411,7 @@ Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, bu
 
 Based on the full repo, these areas still require implementation convergence even when a decision lock now exists:
 
-- Extending parsed signature type grammar beyond the current monomorphic subset in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, right-associative function types, parenthesized function-type overrides, and empty `@{}:` constrained wrappers are implemented and test-covered; non-empty constrained signatures and named type variables remain pending):
+- Extending parsed signature type grammar beyond the current monomorphic subset in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, right-associative function types, parenthesized function-type overrides, empty `@{}:` constrained wrappers, and duplicate non-empty constraint diagnostics are implemented and test-covered; non-empty constrained signature acceptance and named type variables remain pending):
   - `docs/spec/semantics/bindings-and-signatures.md`
   - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Extending staged operator roadmap work in `jazz-next` beyond implemented v1 parser/fixity/sections behavior:

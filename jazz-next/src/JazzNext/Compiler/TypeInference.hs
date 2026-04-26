@@ -1452,13 +1452,40 @@ mkInvalidSignatureTypeError symbol signatureSpan signaturePayload =
       signatureSpan
       ( mkDiagnostic
           "E2009"
-          ( "invalid or unsupported signature for '"
-              <> symbol
-              <> "': '"
-              <> renderSignaturePayload signaturePayload
-              <> "'"
-          )
+          (invalidSignatureSummary symbol signaturePayload)
       )
+
+invalidSignatureSummary :: Text -> SignaturePayload -> Text
+invalidSignatureSummary symbol signaturePayload =
+  case signaturePayload of
+    ConstrainedSignature constraints _
+      | Just duplicateName <- duplicateConstraintName constraints ->
+          "invalid or unsupported signature for '"
+            <> symbol
+            <> "': duplicate constraint '"
+            <> duplicateName
+            <> "' in '"
+            <> renderSignaturePayload signaturePayload
+            <> "'"
+    _ ->
+      "invalid or unsupported signature for '"
+        <> symbol
+        <> "': '"
+        <> renderSignaturePayload signaturePayload
+        <> "'"
+
+duplicateConstraintName :: [SignatureConstraint] -> Maybe Text
+duplicateConstraintName constraints =
+  go Set.empty constraints
+  where
+    go seen remainingConstraints =
+      case remainingConstraints of
+        [] -> Nothing
+        SignatureConstraint constraintName _ : rest ->
+          let constraintNameText = identifierText constraintName
+           in if Set.member constraintNameText seen
+                then Just constraintNameText
+                else go (Set.insert constraintNameText seen) rest
 
 mkIfConditionTypeError :: ExpressionType -> Diagnostic
 mkIfConditionTypeError foundType =
