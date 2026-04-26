@@ -68,6 +68,11 @@ tests =
     ("source pipeline accepts list of parenthesized function types", testSourceAcceptsFunctionListSignature),
     ("source pipeline accepts empty constrained signature as monomorphic", testSourceAcceptsEmptyConstrainedSignature),
     ("source pipeline accepts concrete constrained signature as monomorphic", testSourceAcceptsConcreteConstrainedSignature),
+    ("source pipeline accepts additional concrete constrained signatures", testSourceAcceptsAdditionalConcreteConstrainedSignatures),
+    ("source pipeline rejects unknown constrained signature constraint", testSourceRejectsUnknownConstrainedSignatureConstraint),
+    ("source pipeline rejects wrong-arity constrained signature constraint", testSourceRejectsWrongArityConstrainedSignatureConstraint),
+    ("source pipeline rejects type-application constrained signature argument", testSourceRejectsTypeApplicationConstrainedSignatureArgument),
+    ("source pipeline rejects function constrained signature argument", testSourceRejectsFunctionConstrainedSignatureArgument),
     ("source pipeline rejects list signature mismatch", testSourceRejectsListSignatureMismatch),
     ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface),
     ("source pipeline reports duplicate constrained signature constraints", testSourceRejectsDuplicateConstrainedSignatureConstraints),
@@ -365,6 +370,31 @@ testSourceAcceptsEmptyConstrainedSignature =
 testSourceAcceptsConcreteConstrainedSignature :: IO ()
 testSourceAcceptsConcreteConstrainedSignature =
   assertSourceOk "x :: @{Eq(Int)}: Int.\nx = 1."
+
+testSourceAcceptsAdditionalConcreteConstrainedSignatures :: IO ()
+testSourceAcceptsAdditionalConcreteConstrainedSignatures = do
+  assertSourceOk "x :: @{Default(Bool)}: Bool.\nx = True."
+  assertSourceOk "x :: @{Fractional(Int)}: Int.\nx = 1."
+  assertSourceOk "x :: @{Integral(Int)}: Int.\nx = 1."
+  assertSourceOk "x :: @{Num(Int)}: Int.\nx = 1."
+  assertSourceOk "x :: @{Ord(Int)}: Int.\nx = 1."
+  assertSourceOk "x :: @{Showable([[Bool]])}: [[Bool]].\nx = [[True], [False]]."
+
+testSourceRejectsUnknownConstrainedSignatureConstraint :: IO ()
+testSourceRejectsUnknownConstrainedSignatureConstraint =
+  assertSourceSingleErrorContains "x :: @{Unknown(Int)}: Int.\nx = 1." "E2009"
+
+testSourceRejectsWrongArityConstrainedSignatureConstraint :: IO ()
+testSourceRejectsWrongArityConstrainedSignatureConstraint =
+  assertSourceSingleErrorContains "x :: @{Eq(Int, Bool)}: Int.\nx = 1." "E2009"
+
+testSourceRejectsTypeApplicationConstrainedSignatureArgument :: IO ()
+testSourceRejectsTypeApplicationConstrainedSignatureArgument =
+  assertSourceSingleErrorContains "x :: @{Eq(Maybe(Int))}: Int.\nx = 1." "E2009"
+
+testSourceRejectsFunctionConstrainedSignatureArgument :: IO ()
+testSourceRejectsFunctionConstrainedSignatureArgument =
+  assertSourceSingleErrorContains "x :: @{Eq(Int -> Int)}: Int.\nx = 1." "E2009"
 
 testSourceRejectsListSignatureMismatch :: IO ()
 testSourceRejectsListSignatureMismatch = do
