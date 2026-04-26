@@ -106,7 +106,7 @@ Expected behavior under E2:
 Valid:
 
 ```jz
-sum : Int -> Int -> Int.
+sum :: Int -> Int -> Int.
 sum = a -> b -> a + b.
 ```
 
