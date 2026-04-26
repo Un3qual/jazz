@@ -1,23 +1,20 @@
 ---
-id: JN-RUNTIME-COMPILE-CONTRACT-001
-status: done
+id: JN-MODULE-REBASE-CONTRACT-001
+status: ready
 priority: P1
-size: M
-kind: impl
-autonomous_ready: no
+size: S
+kind: coordination
+autonomous_ready: yes
 depends_on: []
-last_verified: 2026-04-10
-plan_section: "Milestone 1: Close the compile vs run contract gap"
+last_verified: 2026-04-26
+plan_section: "Milestone 5 / Coordination: Module/import active-path execution contract"
 target_paths:
-  - jazz-next/src/JazzNext/CLI/Main.hs
-  - jazz-next/src/JazzNext/Compiler/Driver.hs
-  - jazz-next/test/JazzNext/CLI/CLISpec.hs
-  - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+  - docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md
+  - docs/execution/queue.md
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
-  - bash jazz-next/scripts/test-warning-config.sh
-deliverable: "Successful `compile` paths stop surfacing the misleading `/* jazz-next codegen placeholder */` output as user-facing success behavior; `--run` stays canonical, and source/module-graph compile modes share deterministic exit-code/stdout/stderr behavior."
+  - bash scripts/check-execution-queue.sh
+  - bash scripts/check-docs.sh
+deliverable: "Rebase module/import execution planning onto the current `ModuleResolver.hs`, `Driver.hs`, `CLI/Main.hs`, and loader/module test owners, then rewrite the blocked module/import item into one concrete autonomous `jazz-next` implementation batch with exact non-doc targets and verification."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 ---
@@ -47,6 +44,7 @@ supersedes:
 - [x] Re-verified on `2026-03-19` that successful compile paths still emit `/* jazz-next codegen placeholder */`, and CLI/module tests still lock that contract.
 - [x] On `2026-04-10`, made CLI compile success diagnostic-only with deterministic empty stdout for standalone and module-graph compile paths while keeping `--run` as the canonical execution surface.
 - [x] Milestone 1 complete: compile and run contracts no longer depend on placeholder codegen output.
+- [ ] On `2026-04-26`, module/import execution work is queued for a coordination rebase because existing code already covers the obvious loader/CLI slices, while the next active-path implementation batch still needs a concrete contract.
 - [ ] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next`.
 - [ ] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
 - [ ] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.
@@ -168,6 +166,26 @@ Primary files:
 - [ ] Rebase the module-loader plan onto the current `ModuleResolver.hs` and `Driver.hs` path instead of legacy loader files.
 - [ ] Finish stdlib phase-5 kernel reduction and keep module execution/prelude ownership on the same runtime contract.
 - [ ] Extend loader/runtime tests so multi-file execution and builtin/prelude ownership are verified together.
+
+#### Coordination: Module/import active-path execution contract
+
+This coordination batch is the next unblocking step for module/import implementation work. `ModuleResolver.hs`, `Driver.hs`, `CLI/Main.hs`, and the loader/module specs already cover the obvious active-path module graph slices, so the next implementation item must be narrowed before it returns to `Ready Now`.
+
+- [ ] Rebase the module/import execution contract onto the current `ModuleResolver.hs`, `Driver.hs`, and `CLI/Main.hs` ownership boundaries.
+- [ ] Identify the next missing executable behavior beyond already-landed resolution, graph replay, CLI entry-module routing, and import-symbol diagnostics.
+- [ ] Rewrite `JN-MODULE-REBASE-PLAN-001` from blocked into one concrete `kind: impl` queue item with explicit non-doc target paths and focused verification.
+
+Coordination files:
+
+- `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`
+- `docs/execution/queue.md`
+
+Coordination verification:
+
+```bash
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
 
 Primary files:
 
