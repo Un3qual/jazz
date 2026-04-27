@@ -381,6 +381,8 @@ collectBlockReferences :: Set Text -> [SurfaceStatement] -> Set Text
 collectBlockReferences boundNames statements =
   Set.unions (map collectStatementReferences statements)
   where
+    -- Match analyzer/runtime recursive binding semantics: all `let` binders in
+    -- a block are visible while collecting free import references.
     blockBoundNames =
       Set.union
         boundNames
@@ -418,6 +420,9 @@ collectPatternBinders patternValue =
     SPList nestedPatterns ->
       Set.unions (map collectPatternBinders nestedPatterns)
 
+-- Qualified alias lookups live in the module-alias namespace. Lexical binders
+-- intentionally do not shadow aliases, and this traversal should stay aligned
+-- with `collectExprReferences` whenever new surface expression forms are added.
 collectQualifiedReferences :: SurfaceExpr -> Set (Text, Text)
 collectQualifiedReferences surfaceExpr =
   case surfaceExpr of
@@ -593,7 +598,7 @@ validateImportBindings sourcePath importerPath imports referencedNames qualified
       foldM
         validateQualifiedReference
         ()
-        (sortOn id (Set.toList qualifiedReferences))
+        (Set.toList qualifiedReferences)
 
     validateQualifiedReference :: () -> (Text, Text) -> Either Diagnostic ()
     validateQualifiedReference () (aliasName, symbolName) =

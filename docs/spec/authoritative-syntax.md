@@ -29,6 +29,7 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
    - In the active `jazz-next` resolver, an explicit symbol list is also a visibility boundary: `import Std::List (map, filter)` exposes only those selected names from that import, and references to other exported names from the same dependency report `E4011`.
    - Alias imports are parsed, collision-validated, and do not expose dependency exports as unqualified names; bare references to bindings available only through an alias import report `E4012`.
    - Qualified alias lookup uses `Alias::symbol`; unknown aliases report `E4013`, and aliases that do not export the requested symbol report `E4014`.
+   - Import aliases live in a module-alias namespace for qualified lookup, so value binders do not shadow `Alias` in `Alias::symbol`.
 
 3. **Abstractions**
    - Canonical keywords: `class` and `impl`.

@@ -77,11 +77,11 @@ parseSurfaceProgram source =
 -- | Parse a complete sequence of statements until the token stream is
 -- exhausted.
 parseStatementsUntilEnd :: [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
-parseStatementsUntilEnd = go []
+parseStatementsUntilEnd = go Set.empty []
   where
-    go acc [] = Right (reverse acc, [])
-    go acc tokens = do
-      (statements, remaining) <- parseStatement TopLevelContext tokens
+    go _ acc [] = Right (reverse acc, [])
+    go knownAliases acc tokens = do
+      (statements, remaining) <- parseStatement TopLevelContext knownAliases tokens
       case leadingModuleDeclaration statements of
         Just moduleSpan
           | not (null acc) ->
@@ -93,7 +93,7 @@ parseStatementsUntilEnd = go []
                 )
           | otherwise ->
               case remaining of
-                [] -> go (prependStatements statements acc) remaining
+                [] -> go (registerImportAliases knownAliases statements) (prependStatements statements acc) remaining
                 token : _ ->
                   Left
                     ( parseDiagnostic
@@ -105,20 +105,20 @@ parseStatementsUntilEnd = go []
                         )
                     )
         Nothing ->
-          go (prependStatements statements acc) remaining
+          go (registerImportAliases knownAliases statements) (prependStatements statements acc) remaining
 
 -- | Parse statements inside `{ ... }`, stopping as soon as the closing brace is
 -- encountered so block parsing can hand the remaining tokens back to callers.
 parseStatementsUntilBrace :: StatementContext -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
-parseStatementsUntilBrace context = go []
+parseStatementsUntilBrace context = go Set.empty []
   where
-    go _ [] = Left (parseDiagnostic "expected '}' before end of input")
-    go acc allTokens@(token : rest) =
+    go _ _ [] = Left (parseDiagnostic "expected '}' before end of input")
+    go knownAliases acc allTokens@(token : rest) =
       case tokenKind token of
         TRBrace -> Right (reverse acc, rest)
         _ -> do
-          (statements, remaining) <- parseStatement context allTokens
-          go (prependStatements statements acc) remaining
+          (statements, remaining) <- parseStatement context knownAliases allTokens
+          go (registerImportAliases knownAliases statements) (prependStatements statements acc) remaining
 
 data StatementContext
   = TopLevelContext
@@ -130,8 +130,8 @@ data StatementContext
 
 -- | Disambiguate statement-level forms before expression parsing so leading
 -- identifiers can become signatures or bindings when followed by `::` or `=`.
-parseStatement :: StatementContext -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
-parseStatement context tokens =
+parseStatement :: StatementContext -> Set Text -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
+parseStatement context knownAliases tokens =
   case tokens of
     moduleToken@(Token {tokenKind = TModule}) : rest ->
       case context of
@@ -153,11 +153,6 @@ parseStatement context tokens =
           rejectNestedDataDeclaration dataToken
     -- Statement-level forms take precedence over expression parsing when the
     -- leading identifier is followed by declaration syntax.
-    (nameToken : afterName@(Token {tokenKind = TColonColon} : Token {tokenKind = TIdentifier _} : _))
-      | TIdentifier name <- tokenKind nameToken,
-        not (isReservedLiteralName name),
-        isConstructorIdentifierText name ->
-          fmap singleStatement (parseExprStatement tokens)
     (nameToken : afterName@(Token {tokenKind = TColonColon} : _))
       | TIdentifier name <- tokenKind nameToken,
         isReservedLiteralName name ->
@@ -169,6 +164,9 @@ parseStatement context tokens =
                     <> renderSourceSpan (tokenSpan nameToken)
                 )
             )
+      | TIdentifier name <- tokenKind nameToken,
+        shouldParseQualifiedAliasStatement knownAliases name ->
+          fmap singleStatement (parseExprStatement tokens)
       | TIdentifier name <- tokenKind nameToken ->
           fmap singleStatement (parseSignature (mkIdentifier name) nameToken afterName)
     (nameToken : afterName@(Token {tokenKind = TEquals} : _))
@@ -187,6 +185,20 @@ parseStatement context tokens =
     _ -> fmap singleStatement (parseExprStatement tokens)
   where
     singleStatement (statement, remaining) = ([statement], remaining)
+
+registerImportAliases :: Set Text -> [SurfaceStatement] -> Set Text
+registerImportAliases =
+  foldl registerImportAlias
+  where
+    registerImportAlias knownAliases statement =
+      case statement of
+        SSImport _ _ (Just aliasName) Nothing ->
+          Set.insert aliasName knownAliases
+        _ -> knownAliases
+
+shouldParseQualifiedAliasStatement :: Set Text -> Text -> Bool
+shouldParseQualifiedAliasStatement knownAliases name =
+  isConstructorIdentifierText name || Set.member name knownAliases
 
 rejectNestedModuleDeclaration :: Token -> Either Diagnostic a
 rejectNestedModuleDeclaration moduleToken =
@@ -850,6 +862,18 @@ parsePrimaryExprUntil stop tokens =
               case rest of
                 Token {tokenKind = TColonColon} : Token {tokenKind = TIdentifier memberName} : afterMember ->
                   Right (SEQualifiedVar (mkIdentifier name) (mkIdentifier memberName), afterMember)
+                Token {tokenKind = TColonColon} : [] ->
+                  Left (parseDiagnostic "expected member name after '::' before end of input")
+                Token {tokenKind = TColonColon} : memberToken : _ ->
+                  Left
+                    ( parseDiagnostic
+                        ( "expected member name after '::' at "
+                            <> renderSourceSpan (tokenSpan memberToken)
+                            <> ", found '"
+                            <> tokenLexeme memberToken
+                            <> "'"
+                        )
+                    )
                 _ -> Right (SEVar (mkIdentifier name), rest)
         TIf -> parseIfExprUntil stop token rest
         TCase -> parseCaseExpr token rest

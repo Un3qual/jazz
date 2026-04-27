@@ -38,9 +38,11 @@ tests =
     ("parses import statement bare dot", testParsesImportBare),
     ("parses import statement with alias", testParsesImportAlias),
     ("parses qualified alias lookup expression", testParsesQualifiedAliasLookup),
+    ("parses lowercase alias qualified lookup expression", testParsesLowercaseQualifiedAliasLookup),
     ("parses import statement with symbol list", testParsesImportSymbolList),
     ("lowers module and import statements into core AST", testLowersModuleImportStatements),
     ("lowers qualified alias lookup expression into internal qualified name", testLowersQualifiedAliasLookup),
+    ("rejects qualified alias lookup with non-identifier member", testRejectsNonIdentifierQualifiedMember),
     ("rejects legacy dot-only module declaration syntax", testRejectsLegacyDotOnlyModuleDeclaration),
     ("rejects trailing top-level statements after module body", testRejectsTrailingTopLevelStatementsAfterModuleBody),
     ("rejects module declaration after earlier top-level statement", testRejectsModuleDeclarationAfterTopLevelStatement),
@@ -101,6 +103,19 @@ testParsesQualifiedAliasLookup =
     )
     (parseSurfaceProgram "import Lib::Math as Math.\nMath::subtract.")
 
+testParsesLowercaseQualifiedAliasLookup :: IO ()
+testParsesLowercaseQualifiedAliasLookup =
+  assertEqual
+    "lowercase qualified alias lookup surface AST"
+    ( Right
+        ( SEBlock
+            [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "math") Nothing,
+              SSExpr (SourceSpan 2 1) (SEQualifiedVar "math" "subtract")
+            ]
+        )
+    )
+    (parseSurfaceProgram "import Lib::Math as math.\nmath::subtract.")
+
 testParsesImportSymbolList :: IO ()
 testParsesImportSymbolList =
   assertEqual
@@ -144,6 +159,13 @@ testLowersQualifiedAliasLookup =
         [ SImport (SourceSpan 1 1) ["Lib", "Math"] (Just "Math") Nothing,
           SExpr (SourceSpan 2 1) (EVar "Math::subtract")
         ]
+
+testRejectsNonIdentifierQualifiedMember :: IO ()
+testRejectsNonIdentifierQualifiedMember =
+  assertLeftDiagnosticContains
+    "non-identifier qualified alias member"
+    "expected member name after '::'"
+    (parseSurfaceProgram "import Lib::Math as Math.\nMath::1.")
 
 testRejectsLegacyDotOnlyModuleDeclaration :: IO ()
 testRejectsLegacyDotOnlyModuleDeclaration =

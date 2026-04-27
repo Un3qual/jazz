@@ -4,7 +4,6 @@ module JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr
   ) where
 
-import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ConstraintSignatureType (..),
@@ -33,8 +32,9 @@ import JazzNext.Compiler.Parser.AST
   )
 import JazzNext.Compiler.Identifier
   ( Identifier,
-    identifierText,
-    mkIdentifier
+    mkIdentifier,
+    mkQualifiedIdentifier,
+    identifierText
   )
 
 -- | Convert parser-surface nodes into core nodes while preserving statement
@@ -47,7 +47,7 @@ lowerSurfaceExpr surfaceExpr =
     SELit literal -> ELit (lowerSurfaceLiteral literal)
     SEVar name -> EVar name
     SEQualifiedVar qualifier member ->
-      EVar (mkIdentifier (identifierText qualifier <> Text.pack "::" <> identifierText member))
+      EVar (mkQualifiedIdentifier (identifierText qualifier) (identifierText member))
     SELambda parameters bodyExpr ->
       lowerSurfaceLambda parameters bodyExpr
     SEOperatorValue operatorSymbol -> EOperatorValue operatorSymbol
