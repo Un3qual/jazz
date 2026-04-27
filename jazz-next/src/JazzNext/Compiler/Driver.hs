@@ -621,12 +621,15 @@ parseAndLowerResolvedModule resolvedModule sourceText =
 buildModuleGraphExpr :: [Text] -> [ResolvedModule] -> [Expr] -> ModuleGraphExpr
 buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
   let exportsByModule = collectModuleExports resolvedModules loweredModules
-      neededAliasExportsByModule = collectNeededAliasExports exportsByModule loweredModules
+      aliasReferencesByModule = map collectAliasQualifiedReferences loweredModules
+      loweredModulesWithAliasReferences = zip loweredModules aliasReferencesByModule
+      neededAliasExportsByModule = collectNeededAliasExports exportsByModule loweredModulesWithAliasReferences
       loweredModulesWithAliasBindings =
-        zipWith
+        zipWith3
           (addAliasImportBindings exportsByModule neededAliasExportsByModule)
           resolvedModules
           loweredModules
+          aliasReferencesByModule
    in
   ModuleGraphExpr
     { moduleGraphValidationExpr =
@@ -659,17 +662,17 @@ collectTopLevelBindingNames expr =
       ]
     _ -> []
 
-collectNeededAliasExports :: Map [Text] [Text] -> [Expr] -> Map [Text] (Set Text)
+collectNeededAliasExports :: Map [Text] [Text] -> [(Expr, Map Text (Set Text))] -> Map [Text] (Set Text)
 collectNeededAliasExports exportsByModule =
   foldl' collectModule Map.empty
   where
-    collectModule neededExports expr =
-      Map.unionWith Set.union neededExports (collectNeededAliasExportsFromModule expr)
+    collectModule neededExports (expr, aliasReferences) =
+      Map.unionWith Set.union neededExports (collectNeededAliasExportsFromModule expr aliasReferences)
 
-    collectNeededAliasExportsFromModule expr =
+    collectNeededAliasExportsFromModule expr aliasReferences =
       case expr of
         EBlock statements ->
-          foldl' (collectImportNeededExports (collectAliasQualifiedReferences expr)) Map.empty statements
+          foldl' (collectImportNeededExports aliasReferences) Map.empty statements
         _ -> Map.empty
 
     collectImportNeededExports aliasReferences neededExports statement =
@@ -683,19 +686,25 @@ collectNeededAliasExports exportsByModule =
                 else Map.insertWith Set.union modulePath neededNames neededExports
         _ -> neededExports
 
-addAliasImportBindings :: Map [Text] [Text] -> Map [Text] (Set Text) -> ResolvedModule -> Expr -> Expr
-addAliasImportBindings exportsByModule neededAliasExportsByModule resolvedModule expr =
+addAliasImportBindings :: Map [Text] [Text] -> Map [Text] (Set Text) -> ResolvedModule -> Expr -> Map Text (Set Text) -> Expr
+addAliasImportBindings exportsByModule neededAliasExportsByModule resolvedModule expr aliasReferences =
   case expr of
     EBlock statements ->
-      EBlock (concatMap expandStatement statements)
+      EBlock (insertAliasBindings (concatMap aliasBindingsForStatement statements) statements)
     _ -> expr
   where
-    aliasReferences = collectAliasQualifiedReferences expr
     sourceExportNames =
       Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) neededAliasExportsByModule
 
+    insertAliasBindings aliasBindings statements =
+      case statements of
+        moduleStatement@(SModule _ _) : rest ->
+          moduleStatement : aliasBindings ++ concatMap expandStatement rest
+        _ ->
+          aliasBindings ++ concatMap expandStatement statements
+
     expandStatement statement =
-      statement : sourceExportBindingsForStatement statement ++ aliasBindingsForStatement statement
+      statement : sourceExportBindingsForStatement statement
 
     sourceExportBindingsForStatement statement =
       case statement of

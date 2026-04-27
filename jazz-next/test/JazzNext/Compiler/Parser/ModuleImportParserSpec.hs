@@ -39,6 +39,8 @@ tests =
     ("parses import statement with alias", testParsesImportAlias),
     ("parses qualified alias lookup expression", testParsesQualifiedAliasLookup),
     ("parses lowercase alias qualified lookup expression", testParsesLowercaseQualifiedAliasLookup),
+    ("parses lowercase qualified lookup before alias import", testParsesLowercaseQualifiedAliasLookupBeforeImport),
+    ("parses lowercase qualified lookup inside nested block", testParsesNestedLowercaseQualifiedAliasLookup),
     ("parses import statement with symbol list", testParsesImportSymbolList),
     ("lowers module and import statements into core AST", testLowersModuleImportStatements),
     ("lowers qualified alias lookup expression into internal qualified name", testLowersQualifiedAliasLookup),
@@ -115,6 +117,35 @@ testParsesLowercaseQualifiedAliasLookup =
         )
     )
     (parseSurfaceProgram "import Lib::Math as math.\nmath::subtract.")
+
+testParsesLowercaseQualifiedAliasLookupBeforeImport :: IO ()
+testParsesLowercaseQualifiedAliasLookupBeforeImport =
+  assertEqual
+    "lowercase qualified alias lookup before import surface AST"
+    ( Right
+        ( SEBlock
+            [ SSExpr (SourceSpan 1 1) (SEQualifiedVar "math" "subtract"),
+              SSImport (SourceSpan 2 1) ["Lib", "Math"] (Just "math") Nothing
+            ]
+        )
+    )
+    (parseSurfaceProgram "math::subtract.\nimport Lib::Math as math.")
+
+testParsesNestedLowercaseQualifiedAliasLookup :: IO ()
+testParsesNestedLowercaseQualifiedAliasLookup =
+  assertEqual
+    "nested lowercase qualified alias lookup surface AST"
+    ( Right
+        ( SEBlock
+            [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "math") Nothing,
+              SSLet
+                "result"
+                (SourceSpan 2 1)
+                (SEBlock [SSExpr (SourceSpan 3 3) (SEQualifiedVar "math" "subtract")])
+            ]
+        )
+    )
+    (parseSurfaceProgram "import Lib::Math as math.\nresult = {\n  math::subtract.\n}.")
 
 testParsesImportSymbolList :: IO ()
 testParsesImportSymbolList =

@@ -47,6 +47,7 @@ tests =
     ("compile module graph hides dependency bindings imported only by alias", testCompileModuleGraphAliasImportHidesUnqualifiedBindings),
     ("run module graph resolves qualified alias lookup", testRunModuleGraphQualifiedAliasLookup),
     ("run module graph resolves qualified alias lookup through dependency export", testRunModuleGraphQualifiedAliasLookupUsesDependencyExport),
+    ("compile module graph accepts qualified alias use before import", testCompileModuleGraphQualifiedAliasLookupBeforeImport),
     ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
     ("run module graph reports cycle diagnostics", testRunModuleGraphCycle),
     ("loader reuses memoized source lookup across resolve and replay", testMemoizedLookupReuse)
@@ -277,6 +278,25 @@ testRunModuleGraphQualifiedAliasLookupUsesDependencyExport = do
     sourceMap =
       Map.fromList
         [ ("src/App/Main.jz", "subtract = 99.\nimport Lib::Math as Math.\nMath::subtract."),
+          ("src/Lib/Math.jz", "subtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphQualifiedAliasLookupBeforeImport :: IO ()
+testCompileModuleGraphQualifiedAliasLookupBeforeImport = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (compileErrors result)
+  assertEqual "generated output" (Just "/* jazz-next codegen placeholder */") (generatedJs result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "math::subtract.\nimport Lib::Math as math."),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
