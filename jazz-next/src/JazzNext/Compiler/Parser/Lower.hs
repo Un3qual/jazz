@@ -31,7 +31,9 @@ import JazzNext.Compiler.Parser.AST
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Identifier
-  ( Identifier
+  ( Identifier,
+    mkQualifiedIdentifier,
+    identifierText
   )
 
 -- | Convert parser-surface nodes into core nodes while preserving statement
@@ -43,6 +45,8 @@ lowerSurfaceExpr surfaceExpr =
   case surfaceExpr of
     SELit literal -> ELit (lowerSurfaceLiteral literal)
     SEVar name -> EVar name
+    SEQualifiedVar qualifier member ->
+      EVar (mkQualifiedIdentifier (identifierText qualifier) (identifierText member))
     SELambda parameters bodyExpr ->
       lowerSurfaceLambda parameters bodyExpr
     SEOperatorValue operatorSymbol -> EOperatorValue operatorSymbol

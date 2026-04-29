@@ -22,6 +22,9 @@ module JazzNext.Compiler.Driver
 
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Data.List
+  ( foldl'
+  )
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -32,7 +35,8 @@ import Data.IORef
     writeIORef
   )
 import JazzNext.Compiler.AST
-  ( Expr (..),
+  ( CaseArm (..),
+    Expr (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -43,6 +47,13 @@ import JazzNext.Compiler.Diagnostics
     mkDiagnostic,
     prependDiagnosticSummary,
     setDiagnosticCode
+  )
+import JazzNext.Compiler.Identifier
+  ( identifierText,
+    mkIdentifier,
+    mkQualifiedIdentifier,
+    qualifiedIdentifierText,
+    splitQualifiedIdentifierText
   )
 import JazzNext.Compiler.BundledPrelude
   ( loadBundledPreludeSource
@@ -609,20 +620,185 @@ parseAndLowerResolvedModule resolvedModule sourceText =
 
 buildModuleGraphExpr :: [Text] -> [ResolvedModule] -> [Expr] -> ModuleGraphExpr
 buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
+  let exportsByModule = collectModuleExports resolvedModules loweredModules
+      aliasReferencesByModule = map collectAliasQualifiedReferences loweredModules
+      loweredModulesWithAliasReferences = zip loweredModules aliasReferencesByModule
+      neededAliasExportsByModule = collectNeededAliasExports exportsByModule loweredModulesWithAliasReferences
+      loweredModulesWithAliasBindings =
+        zipWith3
+          (addAliasImportBindings exportsByModule neededAliasExportsByModule)
+          resolvedModules
+          loweredModules
+          aliasReferencesByModule
+   in
   ModuleGraphExpr
     { moduleGraphValidationExpr =
         replayLoweredModules
           (\_ loweredModule -> stripModuleDeclarations loweredModule)
           resolvedModules
-          loweredModules,
+          loweredModulesWithAliasBindings,
       moduleGraphRuntimeExpr =
         replayLoweredModules
           ( \resolvedModule loweredModule ->
               stripModuleRuntimeReplayStatements (resolvedModulePath resolvedModule == entryModulePath) loweredModule
           )
           resolvedModules
-          loweredModules
+          loweredModulesWithAliasBindings
     }
+
+collectModuleExports :: [ResolvedModule] -> [Expr] -> Map [Text] [Text]
+collectModuleExports resolvedModules loweredModules =
+  Map.fromList
+    [ (resolvedModulePath resolvedModule, collectTopLevelBindingNames loweredModule)
+      | (resolvedModule, loweredModule) <- zip resolvedModules loweredModules
+    ]
+
+collectTopLevelBindingNames :: Expr -> [Text]
+collectTopLevelBindingNames expr =
+  case expr of
+    EBlock statements ->
+      [ identifierText bindingName
+        | SLet bindingName _ _ <- statements
+      ]
+    _ -> []
+
+collectNeededAliasExports :: Map [Text] [Text] -> [(Expr, Map Text (Set Text))] -> Map [Text] (Set Text)
+collectNeededAliasExports exportsByModule =
+  foldl' collectModule Map.empty
+  where
+    collectModule neededExports (expr, aliasReferences) =
+      Map.unionWith Set.union neededExports (collectNeededAliasExportsFromModule expr aliasReferences)
+
+    collectNeededAliasExportsFromModule expr aliasReferences =
+      case expr of
+        EBlock statements ->
+          foldl' (collectImportNeededExports aliasReferences) Map.empty statements
+        _ -> Map.empty
+
+    collectImportNeededExports aliasReferences neededExports statement =
+      case statement of
+        SImport _ modulePath (Just aliasName) Nothing ->
+          let referencedNames = Map.findWithDefault Set.empty aliasName aliasReferences
+              exportedNames = Set.fromList (Map.findWithDefault [] modulePath exportsByModule)
+              neededNames = Set.intersection referencedNames exportedNames
+           in if Set.null neededNames
+                then neededExports
+                else Map.insertWith Set.union modulePath neededNames neededExports
+        _ -> neededExports
+
+addAliasImportBindings :: Map [Text] [Text] -> Map [Text] (Set Text) -> ResolvedModule -> Expr -> Map Text (Set Text) -> Expr
+addAliasImportBindings exportsByModule neededAliasExportsByModule resolvedModule expr aliasReferences =
+  case expr of
+    EBlock statements ->
+      EBlock (insertAliasBindings (concatMap aliasBindingsForStatement statements) statements)
+    _ -> expr
+  where
+    sourceExportNames =
+      Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) neededAliasExportsByModule
+
+    insertAliasBindings aliasBindings statements =
+      case statements of
+        moduleStatement@(SModule _ _) : rest ->
+          moduleStatement : aliasBindings ++ concatMap expandStatement rest
+        _ ->
+          aliasBindings ++ concatMap expandStatement statements
+
+    expandStatement statement =
+      statement : sourceExportBindingsForStatement statement
+
+    sourceExportBindingsForStatement statement =
+      case statement of
+        SLet exportedName spanValue _
+          | Set.member (identifierText exportedName) sourceExportNames ->
+              [ SLet
+                  (mkIdentifier (moduleExportQualifiedName (resolvedModulePath resolvedModule) (identifierText exportedName)))
+                  spanValue
+                  (EVar exportedName)
+              ]
+        _ -> []
+
+    aliasBindingsForStatement statement =
+      case statement of
+        SImport spanValue modulePath (Just aliasName) Nothing ->
+          [ SLet
+              (mkQualifiedIdentifier aliasName exportedName)
+              spanValue
+              (EVar (mkIdentifier (moduleExportQualifiedName modulePath exportedName)))
+            | let referencedNames = Map.findWithDefault Set.empty aliasName aliasReferences,
+              let exportedNames = Set.fromList (Map.findWithDefault [] modulePath exportsByModule),
+              exportedName <- Set.toList (Set.intersection referencedNames exportedNames)
+          ]
+        _ -> []
+
+moduleExportQualifiedName :: [Text] -> Text -> Text
+moduleExportQualifiedName modulePath exportedName =
+  qualifiedIdentifierText "__module" (renderModulePath modulePath <> "::" <> exportedName)
+
+collectAliasQualifiedReferences :: Expr -> Map Text (Set Text)
+collectAliasQualifiedReferences expr =
+  Map.fromListWith Set.union
+    [ (aliasName, Set.singleton memberName)
+      | (aliasName, memberName) <- Set.toList (collectAliasQualifiedReferencePairs expr)
+    ]
+
+collectAliasQualifiedReferencePairs :: Expr -> Set (Text, Text)
+collectAliasQualifiedReferencePairs expr =
+  case expr of
+    ELit _ -> Set.empty
+    EVar name ->
+      case splitQualifiedIdentifierText (identifierText name) of
+        Just qualifiedName -> Set.singleton qualifiedName
+        Nothing -> Set.empty
+    ELambda _ bodyExpr ->
+      collectAliasQualifiedReferencePairs bodyExpr
+    EOperatorValue _ -> Set.empty
+    EList elements ->
+      Set.unions (map collectAliasQualifiedReferencePairs elements)
+    EApply functionExpr argumentExpr ->
+      Set.union
+        (collectAliasQualifiedReferencePairs functionExpr)
+        (collectAliasQualifiedReferencePairs argumentExpr)
+    EIf conditionExpr trueBranch falseBranch ->
+      Set.unions
+        [ collectAliasQualifiedReferencePairs conditionExpr,
+          collectAliasQualifiedReferencePairs trueBranch,
+          collectAliasQualifiedReferencePairs falseBranch
+        ]
+    ECase conditionExpr trueBranch falseBranch ->
+      Set.unions
+        [ collectAliasQualifiedReferencePairs conditionExpr,
+          collectAliasQualifiedReferencePairs trueBranch,
+          collectAliasQualifiedReferencePairs falseBranch
+        ]
+    EPatternCase scrutineeExpr caseArms ->
+      Set.unions
+        ( collectAliasQualifiedReferencePairs scrutineeExpr :
+          [ collectAliasQualifiedReferencePairs bodyExpr
+          | CaseArm _ bodyExpr <- caseArms
+          ]
+        )
+    EBinary _ leftExpr rightExpr ->
+      Set.union
+        (collectAliasQualifiedReferencePairs leftExpr)
+        (collectAliasQualifiedReferencePairs rightExpr)
+    ESectionLeft leftExpr _ ->
+      collectAliasQualifiedReferencePairs leftExpr
+    ESectionRight _ rightExpr ->
+      collectAliasQualifiedReferencePairs rightExpr
+    EBlock statements ->
+      Set.unions (map collectAliasQualifiedReferencesFromStatement statements)
+
+collectAliasQualifiedReferencesFromStatement :: Statement -> Set (Text, Text)
+collectAliasQualifiedReferencesFromStatement statement =
+  case statement of
+    SLet _ _ valueExpr ->
+      collectAliasQualifiedReferencePairs valueExpr
+    SExpr _ expr ->
+      collectAliasQualifiedReferencePairs expr
+    SSignature {} -> Set.empty
+    SData {} -> Set.empty
+    SModule {} -> Set.empty
+    SImport {} -> Set.empty
 
 replayLoweredModules ::
   (ResolvedModule -> Expr -> Expr) ->

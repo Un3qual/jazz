@@ -16,6 +16,9 @@ import JazzNext.Compiler.Parser
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceLiteral (..),
+    SurfaceSignaturePayload (..),
+    SurfaceSignatureToken (..),
+    SurfaceSignatureType (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Lower
@@ -37,8 +40,16 @@ tests =
   [ ("parses module declaration statement", testParsesModuleDeclaration),
     ("parses import statement bare dot", testParsesImportBare),
     ("parses import statement with alias", testParsesImportAlias),
+    ("parses qualified alias lookup expression", testParsesQualifiedAliasLookup),
+    ("parses lowercase alias qualified lookup expression", testParsesLowercaseQualifiedAliasLookup),
+    ("parses lowercase qualified lookup before alias import", testParsesLowercaseQualifiedAliasLookupBeforeImport),
+    ("parses lowercase qualified lookup inside nested block", testParsesNestedLowercaseQualifiedAliasLookup),
+    ("parses constructor-style signature when not an alias", testParsesConstructorStyleSignatureWhenNotAlias),
+    ("parses lowercase signature payload when not an alias", testParsesLowercaseSignaturePayloadWhenNotAlias),
     ("parses import statement with symbol list", testParsesImportSymbolList),
     ("lowers module and import statements into core AST", testLowersModuleImportStatements),
+    ("lowers qualified alias lookup expression into internal qualified name", testLowersQualifiedAliasLookup),
+    ("rejects qualified alias lookup with non-identifier member", testRejectsNonIdentifierQualifiedMember),
     ("rejects legacy dot-only module declaration syntax", testRejectsLegacyDotOnlyModuleDeclaration),
     ("rejects trailing top-level statements after module body", testRejectsTrailingTopLevelStatementsAfterModuleBody),
     ("rejects module declaration after earlier top-level statement", testRejectsModuleDeclarationAfterTopLevelStatement),
@@ -86,6 +97,87 @@ testParsesImportAlias =
     )
     (parseSurfaceProgram "import Std::List as List.\nList.")
 
+testParsesQualifiedAliasLookup :: IO ()
+testParsesQualifiedAliasLookup =
+  assertEqual
+    "qualified alias lookup surface AST"
+    ( Right
+        ( SEBlock
+            [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "Math") Nothing,
+              SSExpr (SourceSpan 2 1) (SEQualifiedVar "Math" "subtract")
+            ]
+        )
+    )
+    (parseSurfaceProgram "import Lib::Math as Math.\nMath::subtract.")
+
+testParsesLowercaseQualifiedAliasLookup :: IO ()
+testParsesLowercaseQualifiedAliasLookup =
+  assertEqual
+    "lowercase qualified alias lookup surface AST"
+    ( Right
+        ( SEBlock
+            [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "math") Nothing,
+              SSExpr (SourceSpan 2 1) (SEQualifiedVar "math" "subtract")
+            ]
+        )
+    )
+    (parseSurfaceProgram "import Lib::Math as math.\nmath::subtract.")
+
+testParsesLowercaseQualifiedAliasLookupBeforeImport :: IO ()
+testParsesLowercaseQualifiedAliasLookupBeforeImport =
+  assertEqual
+    "lowercase qualified alias lookup before import surface AST"
+    ( Right
+        ( SEBlock
+            [ SSExpr (SourceSpan 1 1) (SEQualifiedVar "math" "subtract"),
+              SSImport (SourceSpan 2 1) ["Lib", "Math"] (Just "math") Nothing
+            ]
+        )
+    )
+    (parseSurfaceProgram "math::subtract.\nimport Lib::Math as math.")
+
+testParsesNestedLowercaseQualifiedAliasLookup :: IO ()
+testParsesNestedLowercaseQualifiedAliasLookup =
+  assertEqual
+    "nested lowercase qualified alias lookup surface AST"
+    ( Right
+        ( SEBlock
+            [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "math") Nothing,
+              SSLet
+                "result"
+                (SourceSpan 2 1)
+                (SEBlock [SSExpr (SourceSpan 3 3) (SEQualifiedVar "math" "subtract")])
+            ]
+        )
+    )
+    (parseSurfaceProgram "import Lib::Math as math.\nresult = {\n  math::subtract.\n}.")
+
+testParsesConstructorStyleSignatureWhenNotAlias :: IO ()
+testParsesConstructorStyleSignatureWhenNotAlias =
+  assertEqual
+    "constructor-style signature surface AST"
+    ( Right
+        ( SEBlock
+            [ SSSignature "Result" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeInt),
+              SSLet "Result" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    (parseSurfaceProgram "Result :: Int.\nResult = 1.")
+
+testParsesLowercaseSignaturePayloadWhenNotAlias :: IO ()
+testParsesLowercaseSignaturePayloadWhenNotAlias =
+  assertEqual
+    "lowercase signature payload surface AST"
+    ( Right
+        ( SEBlock
+            [ SSSignature "value" (SourceSpan 1 1) (SurfaceUnsupportedSignature [SurfaceSignatureNameToken "a"]),
+              SSLet "value" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    (parseSurfaceProgram "value :: a.\nvalue = 1.")
+
 testParsesImportSymbolList :: IO ()
 testParsesImportSymbolList =
   assertEqual
@@ -116,6 +208,26 @@ testLowersModuleImportStatements =
           SImport (SourceSpan 2 1) ["Std", "List"] Nothing (Just ["map"]),
           SExpr (SourceSpan 3 1) (EVar "map")
         ]
+
+testLowersQualifiedAliasLookup :: IO ()
+testLowersQualifiedAliasLookup =
+  assertRight
+    "parse + lower qualified alias lookup"
+    (parseSurfaceProgram "import Lib::Math as Math.\nMath::subtract.")
+    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SImport (SourceSpan 1 1) ["Lib", "Math"] (Just "Math") Nothing,
+          SExpr (SourceSpan 2 1) (EVar "Math::subtract")
+        ]
+
+testRejectsNonIdentifierQualifiedMember :: IO ()
+testRejectsNonIdentifierQualifiedMember =
+  assertLeftDiagnosticContains
+    "non-identifier qualified alias member"
+    "expected member name after '::'"
+    (parseSurfaceProgram "import Lib::Math as Math.\nMath::1.")
 
 testRejectsLegacyDotOnlyModuleDeclaration :: IO ()
 testRejectsLegacyDotOnlyModuleDeclaration =
