@@ -166,7 +166,7 @@ parseStatement context knownAliases tokens =
                 )
             )
       | TIdentifier name <- tokenKind nameToken,
-        shouldParseQualifiedAliasStatement knownAliases name ->
+        shouldParseQualifiedAliasStatement knownAliases name afterName ->
           fmap singleStatement (parseExprStatement knownAliases tokens)
       | TIdentifier name <- tokenKind nameToken ->
           fmap singleStatement (parseSignature (mkIdentifier name) nameToken afterName)
@@ -197,9 +197,19 @@ registerImportAliases =
           Set.insert aliasName knownAliases
         _ -> knownAliases
 
-shouldParseQualifiedAliasStatement :: Set Text -> Text -> Bool
-shouldParseQualifiedAliasStatement knownAliases name =
-  isConstructorIdentifierText name || Set.member name knownAliases
+shouldParseQualifiedAliasStatement :: Set Text -> Text -> [Token] -> Bool
+shouldParseQualifiedAliasStatement knownAliases name tokensAfterName =
+  case tokensAfterName of
+    Token {tokenKind = TColonColon} : Token {tokenKind = TIdentifier memberName} : _ ->
+      Set.member name knownAliases || isValueIdentifierText memberName
+    Token {tokenKind = TColonColon} : _ ->
+      Set.member name knownAliases
+    _ ->
+      False
+
+isValueIdentifierText :: Text -> Bool
+isValueIdentifierText name =
+  not (isConstructorIdentifierText name) && not (isReservedLiteralName name)
 
 collectImportAliasesUntilEnd :: [Token] -> Set Text
 collectImportAliasesUntilEnd = collectImportAliasesInStatementList False

@@ -16,6 +16,8 @@ import JazzNext.Compiler.Parser
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceLiteral (..),
+    SurfaceSignaturePayload (..),
+    SurfaceSignatureType (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Lower
@@ -41,6 +43,7 @@ tests =
     ("parses lowercase alias qualified lookup expression", testParsesLowercaseQualifiedAliasLookup),
     ("parses lowercase qualified lookup before alias import", testParsesLowercaseQualifiedAliasLookupBeforeImport),
     ("parses lowercase qualified lookup inside nested block", testParsesNestedLowercaseQualifiedAliasLookup),
+    ("parses constructor-style signature when not an alias", testParsesConstructorStyleSignatureWhenNotAlias),
     ("parses import statement with symbol list", testParsesImportSymbolList),
     ("lowers module and import statements into core AST", testLowersModuleImportStatements),
     ("lowers qualified alias lookup expression into internal qualified name", testLowersQualifiedAliasLookup),
@@ -146,6 +149,19 @@ testParsesNestedLowercaseQualifiedAliasLookup =
         )
     )
     (parseSurfaceProgram "import Lib::Math as math.\nresult = {\n  math::subtract.\n}.")
+
+testParsesConstructorStyleSignatureWhenNotAlias :: IO ()
+testParsesConstructorStyleSignatureWhenNotAlias =
+  assertEqual
+    "constructor-style signature surface AST"
+    ( Right
+        ( SEBlock
+            [ SSSignature "Result" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeInt),
+              SSLet "Result" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    (parseSurfaceProgram "Result :: Int.\nResult = 1.")
 
 testParsesImportSymbolList :: IO ()
 testParsesImportSymbolList =

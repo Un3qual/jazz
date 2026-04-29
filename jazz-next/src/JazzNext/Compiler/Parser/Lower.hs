@@ -32,7 +32,6 @@ import JazzNext.Compiler.Parser.AST
   )
 import JazzNext.Compiler.Identifier
   ( Identifier,
-    mkIdentifier,
     mkQualifiedIdentifier,
     identifierText
   )
