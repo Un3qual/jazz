@@ -52,6 +52,7 @@ tests =
     ("reports unqualified references to bindings imported only by alias", testReportsUnqualifiedAliasImportReference),
     ("accepts qualified references through alias imports", testAcceptsQualifiedAliasImportReference),
     ("reports qualified references through unknown aliases", testReportsUnknownQualifiedAliasReference),
+    ("reports standalone qualified references through unknown aliases", testReportsStandaloneUnknownQualifiedAliasReference),
     ("reports qualified alias references to missing exports", testReportsMissingQualifiedAliasExport)
   ]
 
@@ -402,6 +403,19 @@ testReportsUnknownQualifiedAliasReference = do
     sourceFiles =
       Map.fromList
         [("src/App/Main.jz", "main = Math::subtract.")]
+
+testReportsStandaloneUnknownQualifiedAliasReference :: IO ()
+testReportsStandaloneUnknownQualifiedAliasReference = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "standalone unknown alias code" "E4013" result
+  assertLeftContains "standalone unknown alias text" "Math" result
+  assertLeftContains "standalone referenced symbol text" "subtract" result
+  assertLeftContains "standalone importer context" "App::Main" result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [("src/App/Main.jz", "Math::subtract.")]
 
 testReportsMissingQualifiedAliasExport :: IO ()
 testReportsMissingQualifiedAliasExport = do
