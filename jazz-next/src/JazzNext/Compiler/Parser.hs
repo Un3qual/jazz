@@ -200,16 +200,12 @@ registerImportAliases =
 shouldParseQualifiedAliasStatement :: Set Text -> Text -> [Token] -> Bool
 shouldParseQualifiedAliasStatement knownAliases name tokensAfterName =
   case tokensAfterName of
-    Token {tokenKind = TColonColon} : Token {tokenKind = TIdentifier memberName} : _ ->
-      Set.member name knownAliases || isValueIdentifierText memberName
+    Token {tokenKind = TColonColon} : Token {tokenKind = TIdentifier _} : _ ->
+      Set.member name knownAliases
     Token {tokenKind = TColonColon} : _ ->
       Set.member name knownAliases
     _ ->
       False
-
-isValueIdentifierText :: Text -> Bool
-isValueIdentifierText name =
-  not (isConstructorIdentifierText name) && not (isReservedLiteralName name)
 
 collectImportAliasesUntilEnd :: [Token] -> Set Text
 collectImportAliasesUntilEnd = collectImportAliasesInStatementList False
