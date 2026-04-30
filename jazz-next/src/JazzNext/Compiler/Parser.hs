@@ -166,7 +166,7 @@ parseStatement context knownAliases tokens =
                 )
             )
       | TIdentifier name <- tokenKind nameToken,
-        shouldParseQualifiedAliasStatement knownAliases name afterName ->
+        shouldParseQualifiedAliasStatement nameToken afterName ->
           fmap singleStatement (parseExprStatement knownAliases tokens)
       | TIdentifier name <- tokenKind nameToken ->
           fmap singleStatement (parseSignature (mkIdentifier name) nameToken afterName)
@@ -197,20 +197,18 @@ registerImportAliases =
           Set.insert aliasName knownAliases
         _ -> knownAliases
 
-shouldParseQualifiedAliasStatement :: Set Text -> Text -> [Token] -> Bool
-shouldParseQualifiedAliasStatement knownAliases name tokensAfterName =
+shouldParseQualifiedAliasStatement :: Token -> [Token] -> Bool
+shouldParseQualifiedAliasStatement nameToken tokensAfterName =
   case tokensAfterName of
-    Token {tokenKind = TColonColon} : Token {tokenKind = TIdentifier memberName} : _ ->
-      isValueIdentifierText memberName
-        && (Set.member name knownAliases || isConstructorIdentifierText name)
-    Token {tokenKind = TColonColon} : _ ->
-      Set.member name knownAliases || isConstructorIdentifierText name
+    colonToken@(Token {tokenKind = TColonColon}) : _ ->
+      isImmediatelyAfter nameToken colonToken
     _ ->
       False
 
-isValueIdentifierText :: Text -> Bool
-isValueIdentifierText name =
-  not (isConstructorIdentifierText name) && not (isReservedLiteralName name)
+isImmediatelyAfter :: Token -> Token -> Bool
+isImmediatelyAfter leftToken rightToken =
+  spanLine (tokenSpan leftToken) == spanLine (tokenSpan rightToken)
+    && spanColumn (tokenSpan rightToken) == spanColumn (tokenSpan leftToken) + Text.length (tokenLexeme leftToken)
 
 collectImportAliasesUntilEnd :: [Token] -> Set Text
 collectImportAliasesUntilEnd = collectImportAliasesInStatementList False

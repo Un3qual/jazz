@@ -44,8 +44,11 @@ tests =
     ("parses lowercase alias qualified lookup expression", testParsesLowercaseQualifiedAliasLookup),
     ("parses lowercase qualified lookup before alias import", testParsesLowercaseQualifiedAliasLookupBeforeImport),
     ("parses lowercase qualified lookup inside nested block", testParsesNestedLowercaseQualifiedAliasLookup),
+    ("parses uppercase qualified alias member lookup", testParsesUppercaseQualifiedAliasMemberLookup),
     ("parses constructor-style signature when not an alias", testParsesConstructorStyleSignatureWhenNotAlias),
+    ("parses constructor-style unsupported signature when not an alias", testParsesConstructorStyleUnsupportedSignatureWhenNotAlias),
     ("parses signature for binding sharing alias name", testParsesSignatureForBindingSharingAliasName),
+    ("parses lowercase signature payload for binding sharing alias name", testParsesLowercaseSignaturePayloadForBindingSharingAliasName),
     ("parses lowercase signature payload when not an alias", testParsesLowercaseSignaturePayloadWhenNotAlias),
     ("parses import statement with symbol list", testParsesImportSymbolList),
     ("lowers module and import statements into core AST", testLowersModuleImportStatements),
@@ -154,6 +157,19 @@ testParsesNestedLowercaseQualifiedAliasLookup =
     )
     (parseSurfaceProgram "import Lib::Math as math.\nresult = {\n  math::subtract.\n}.")
 
+testParsesUppercaseQualifiedAliasMemberLookup :: IO ()
+testParsesUppercaseQualifiedAliasMemberLookup =
+  assertEqual
+    "uppercase qualified alias member lookup surface AST"
+    ( Right
+        ( SEBlock
+            [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "Math") Nothing,
+              SSExpr (SourceSpan 2 1) (SEQualifiedVar "Math" "Result")
+            ]
+        )
+    )
+    (parseSurfaceProgram "import Lib::Math as Math.\nMath::Result.")
+
 testParsesConstructorStyleSignatureWhenNotAlias :: IO ()
 testParsesConstructorStyleSignatureWhenNotAlias =
   assertEqual
@@ -166,6 +182,19 @@ testParsesConstructorStyleSignatureWhenNotAlias =
         )
     )
     (parseSurfaceProgram "Result :: Int.\nResult = 1.")
+
+testParsesConstructorStyleUnsupportedSignatureWhenNotAlias :: IO ()
+testParsesConstructorStyleUnsupportedSignatureWhenNotAlias =
+  assertEqual
+    "constructor-style unsupported signature surface AST"
+    ( Right
+        ( SEBlock
+            [ SSSignature "Result" (SourceSpan 1 1) (SurfaceUnsupportedSignature [SurfaceSignatureNameToken "a"]),
+              SSLet "Result" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    (parseSurfaceProgram "Result :: a.\nResult = 1.")
 
 testParsesSignatureForBindingSharingAliasName :: IO ()
 testParsesSignatureForBindingSharingAliasName =
@@ -180,6 +209,20 @@ testParsesSignatureForBindingSharingAliasName =
         )
     )
     (parseSurfaceProgram "import Lib::Math as math.\nmath :: Int.\nmath = 1.")
+
+testParsesLowercaseSignaturePayloadForBindingSharingAliasName :: IO ()
+testParsesLowercaseSignaturePayloadForBindingSharingAliasName =
+  assertEqual
+    "alias-name binding lowercase signature surface AST"
+    ( Right
+        ( SEBlock
+            [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "math") Nothing,
+              SSSignature "math" (SourceSpan 2 1) (SurfaceUnsupportedSignature [SurfaceSignatureNameToken "a"]),
+              SSLet "math" (SourceSpan 3 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    (parseSurfaceProgram "import Lib::Math as math.\nmath :: a.\nmath = 1.")
 
 testParsesLowercaseSignaturePayloadWhenNotAlias :: IO ()
 testParsesLowercaseSignaturePayloadWhenNotAlias =
