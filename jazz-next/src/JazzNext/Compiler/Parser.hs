@@ -201,9 +201,10 @@ shouldParseQualifiedAliasStatement :: Set Text -> Text -> [Token] -> Bool
 shouldParseQualifiedAliasStatement knownAliases name tokensAfterName =
   case tokensAfterName of
     Token {tokenKind = TColonColon} : Token {tokenKind = TIdentifier memberName} : _ ->
-      Set.member name knownAliases || (isConstructorIdentifierText name && isValueIdentifierText memberName)
+      isValueIdentifierText memberName
+        && (Set.member name knownAliases || isConstructorIdentifierText name)
     Token {tokenKind = TColonColon} : _ ->
-      Set.member name knownAliases
+      Set.member name knownAliases || isConstructorIdentifierText name
     _ ->
       False
 

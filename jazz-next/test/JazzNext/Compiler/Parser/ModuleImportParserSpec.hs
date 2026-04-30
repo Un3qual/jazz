@@ -45,11 +45,13 @@ tests =
     ("parses lowercase qualified lookup before alias import", testParsesLowercaseQualifiedAliasLookupBeforeImport),
     ("parses lowercase qualified lookup inside nested block", testParsesNestedLowercaseQualifiedAliasLookup),
     ("parses constructor-style signature when not an alias", testParsesConstructorStyleSignatureWhenNotAlias),
+    ("parses signature for binding sharing alias name", testParsesSignatureForBindingSharingAliasName),
     ("parses lowercase signature payload when not an alias", testParsesLowercaseSignaturePayloadWhenNotAlias),
     ("parses import statement with symbol list", testParsesImportSymbolList),
     ("lowers module and import statements into core AST", testLowersModuleImportStatements),
     ("lowers qualified alias lookup expression into internal qualified name", testLowersQualifiedAliasLookup),
     ("rejects qualified alias lookup with non-identifier member", testRejectsNonIdentifierQualifiedMember),
+    ("rejects constructor qualified lookup with non-identifier member", testRejectsConstructorQualifiedNonIdentifierMember),
     ("rejects legacy dot-only module declaration syntax", testRejectsLegacyDotOnlyModuleDeclaration),
     ("rejects trailing top-level statements after module body", testRejectsTrailingTopLevelStatementsAfterModuleBody),
     ("rejects module declaration after earlier top-level statement", testRejectsModuleDeclarationAfterTopLevelStatement),
@@ -165,6 +167,20 @@ testParsesConstructorStyleSignatureWhenNotAlias =
     )
     (parseSurfaceProgram "Result :: Int.\nResult = 1.")
 
+testParsesSignatureForBindingSharingAliasName :: IO ()
+testParsesSignatureForBindingSharingAliasName =
+  assertEqual
+    "alias-name binding signature surface AST"
+    ( Right
+        ( SEBlock
+            [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "math") Nothing,
+              SSSignature "math" (SourceSpan 2 1) (SurfaceSignatureType SurfaceTypeInt),
+              SSLet "math" (SourceSpan 3 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    (parseSurfaceProgram "import Lib::Math as math.\nmath :: Int.\nmath = 1.")
+
 testParsesLowercaseSignaturePayloadWhenNotAlias :: IO ()
 testParsesLowercaseSignaturePayloadWhenNotAlias =
   assertEqual
@@ -228,6 +244,13 @@ testRejectsNonIdentifierQualifiedMember =
     "non-identifier qualified alias member"
     "expected member name after '::'"
     (parseSurfaceProgram "import Lib::Math as Math.\nMath::1.")
+
+testRejectsConstructorQualifiedNonIdentifierMember :: IO ()
+testRejectsConstructorQualifiedNonIdentifierMember =
+  assertLeftDiagnosticContains
+    "constructor qualified non-identifier member"
+    "expected member name after '::'"
+    (parseSurfaceProgram "Math::1.")
 
 testRejectsLegacyDotOnlyModuleDeclaration :: IO ()
 testRejectsLegacyDotOnlyModuleDeclaration =
