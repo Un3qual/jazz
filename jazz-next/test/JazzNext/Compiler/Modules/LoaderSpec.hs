@@ -14,7 +14,9 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
+    ResolvedPrelude (..),
     RunResult (..),
+    compileModuleGraphWithResolvedPrelude,
     compileModuleGraphWithPrelude,
     runModuleGraphWithPrelude
   )
@@ -44,7 +46,9 @@ tests =
     ("compile module graph reports unresolved import diagnostics", testCompileModuleGraphUnresolved),
     ("compile module graph reports missing import symbols", testCompileModuleGraphMissingImportSymbol),
     ("compile module graph hides dependency bindings excluded by explicit import list", testCompileModuleGraphExplicitImportListHidesUnlistedBindings),
+    ("compile module graph allows explicit-import hidden name supplied by prelude", testCompileModuleGraphExplicitImportAllowsPreludeBinding),
     ("compile module graph hides dependency bindings imported only by alias", testCompileModuleGraphAliasImportHidesUnqualifiedBindings),
+    ("compile module graph allows alias-hidden name supplied by prelude", testCompileModuleGraphAliasImportAllowsPreludeBinding),
     ("run module graph resolves qualified alias lookup", testRunModuleGraphQualifiedAliasLookup),
     ("run module graph resolves qualified alias lookup through dependency export", testRunModuleGraphQualifiedAliasLookupUsesDependencyExport),
     ("compile module graph accepts qualified alias use before import", testCompileModuleGraphQualifiedAliasLookupBeforeImport),
@@ -214,6 +218,26 @@ testCompileModuleGraphExplicitImportListHidesUnlistedBindings = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
+testCompileModuleGraphExplicitImportAllowsPreludeBinding :: IO ()
+testCompileModuleGraphExplicitImportAllowsPreludeBinding = do
+  result <-
+    compileModuleGraphWithResolvedPrelude
+      defaultWarningSettings
+      (PreludeExplicit "subtract = 99.")
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  assertEqual "compile errors" [] (compileErrors result)
+  assertEqual "generated output" (Just "/* jazz-next codegen placeholder */") (generatedJs result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math (add).\nsubtract."),
+          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
 testCompileModuleGraphAliasImportHidesUnqualifiedBindings :: IO ()
 testCompileModuleGraphAliasImportHidesUnqualifiedBindings = do
   result <-
@@ -234,6 +258,26 @@ testCompileModuleGraphAliasImportHidesUnqualifiedBindings = do
       assertContains "alias context" "Math" rendered
       assertContains "importer context" "App::Main" rendered
     _ -> failTest "expected exactly one alias visibility error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math as Math.\nsubtract."),
+          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphAliasImportAllowsPreludeBinding :: IO ()
+testCompileModuleGraphAliasImportAllowsPreludeBinding = do
+  result <-
+    compileModuleGraphWithResolvedPrelude
+      defaultWarningSettings
+      (PreludeExplicit "subtract = 99.")
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  assertEqual "compile errors" [] (compileErrors result)
+  assertEqual "generated output" (Just "/* jazz-next codegen placeholder */") (generatedJs result)
   where
     sourceMap =
       Map.fromList

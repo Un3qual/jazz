@@ -64,7 +64,8 @@ import JazzNext.Compiler.BuiltinCatalog
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
     ResolvedModule (..),
-    resolveModuleGraphWithLookup
+    resolveModuleGraphWithLookup,
+    resolveModuleGraphWithLookupAndVisibleSymbols
   )
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
@@ -191,30 +192,39 @@ compileModuleGraphWithResolvedPrelude ::
   (FilePath -> IO (Maybe Text)) ->
   IO CompileResult
 compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = do
-  moduleGraphExprResult <- loadLoweredModuleGraph resolutionConfig entryModulePath sourceLookup
-  case moduleGraphExprResult of
-    Left resolutionError ->
+  case resolvedPreludeVisibleSymbols resolvedPrelude of
+    Left preludeError ->
       pure
         CompileResult
           { compileWarnings = [],
-            compileErrors = [resolutionError],
+            compileErrors = [preludeError],
             generatedJs = Nothing
           }
-    Right moduleGraphExpr ->
-      case mergeResolvedPrelude resolvedPrelude (moduleGraphValidationExpr moduleGraphExpr) of
-        Left parseErrorCode ->
+    Right ambientVisibleSymbols -> do
+      moduleGraphExprResult <- loadLoweredModuleGraph ambientVisibleSymbols resolutionConfig entryModulePath sourceLookup
+      case moduleGraphExprResult of
+        Left resolutionError ->
           pure
             CompileResult
               { compileWarnings = [],
-                compileErrors = [parseErrorCode],
+                compileErrors = [resolutionError],
                 generatedJs = Nothing
               }
-        Right loweredProgram ->
-          compileExprWithBuiltinsAndHiddenStatements
-            (parsedHiddenStatementIndices loweredProgram)
-            (builtinResolutionMode resolvedPrelude)
-            settings
-            (parsedExpr loweredProgram)
+        Right moduleGraphExpr ->
+          case mergeResolvedPrelude resolvedPrelude (moduleGraphValidationExpr moduleGraphExpr) of
+            Left parseErrorCode ->
+              pure
+                CompileResult
+                  { compileWarnings = [],
+                    compileErrors = [parseErrorCode],
+                    generatedJs = Nothing
+                  }
+            Right loweredProgram ->
+              compileExprWithBuiltinsAndHiddenStatements
+                (parsedHiddenStatementIndices loweredProgram)
+                (builtinResolutionMode resolvedPrelude)
+                settings
+                (parsedExpr loweredProgram)
 
 runExpr :: WarningSettings -> Expr -> IO RunResult
 runExpr = runExprWithBuiltins ResolveKernelOnly
@@ -304,43 +314,53 @@ runModuleGraphWithResolvedPrelude ::
   (FilePath -> IO (Maybe Text)) ->
   IO RunResult
 runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = do
-  moduleGraphExprResult <- loadLoweredModuleGraph resolutionConfig entryModulePath sourceLookup
-  case moduleGraphExprResult of
-    Left resolutionError ->
+  case resolvedPreludeVisibleSymbols resolvedPrelude of
+    Left preludeError ->
       pure
         RunResult
           { runWarnings = [],
-            runCompileErrors = [resolutionError],
+            runCompileErrors = [preludeError],
             runRuntimeErrors = [],
             runOutput = Nothing
           }
-    Right moduleGraphExpr ->
-      case mergeResolvedPrelude resolvedPrelude (moduleGraphValidationExpr moduleGraphExpr) of
-        Left parseErrorCode ->
+    Right ambientVisibleSymbols -> do
+      moduleGraphExprResult <- loadLoweredModuleGraph ambientVisibleSymbols resolutionConfig entryModulePath sourceLookup
+      case moduleGraphExprResult of
+        Left resolutionError ->
           pure
             RunResult
               { runWarnings = [],
-                runCompileErrors = [parseErrorCode],
+                runCompileErrors = [resolutionError],
                 runRuntimeErrors = [],
                 runOutput = Nothing
               }
-        Right validationProgram ->
-          case mergeResolvedPrelude resolvedPrelude (moduleGraphRuntimeExpr moduleGraphExpr) of
+        Right moduleGraphExpr ->
+          case mergeResolvedPrelude resolvedPrelude (moduleGraphValidationExpr moduleGraphExpr) of
             Left parseErrorCode ->
               pure
                 RunResult
                   { runWarnings = [],
                     runCompileErrors = [parseErrorCode],
-                    runRuntimeErrors = [],
-                    runOutput = Nothing
-                  }
-            Right runtimeProgram ->
-              runExprWithValidationAndRuntimeExprs
-                (parsedHiddenStatementIndices validationProgram)
-                (builtinResolutionMode resolvedPrelude)
-                settings
-                (parsedExpr validationProgram)
-                (parsedExpr runtimeProgram)
+                  runRuntimeErrors = [],
+                  runOutput = Nothing
+                }
+            Right validationProgram ->
+              case mergeResolvedPrelude resolvedPrelude (moduleGraphRuntimeExpr moduleGraphExpr) of
+                Left parseErrorCode ->
+                  pure
+                    RunResult
+                      { runWarnings = [],
+                        runCompileErrors = [parseErrorCode],
+                        runRuntimeErrors = [],
+                        runOutput = Nothing
+                      }
+                Right runtimeProgram ->
+                  runExprWithValidationAndRuntimeExprs
+                    (parsedHiddenStatementIndices validationProgram)
+                    (builtinResolutionMode resolvedPrelude)
+                    settings
+                    (parsedExpr validationProgram)
+                    (parsedExpr runtimeProgram)
 
 runExprWithValidationAndRuntimeExprs ::
   Set Int ->
@@ -491,6 +511,16 @@ resolvedExplicitPrelude maybePrelude =
     Nothing -> PreludeAbsent
     Just preludeText -> PreludeExplicit preludeText
 
+resolvedPreludeVisibleSymbols :: ResolvedPrelude -> Either Diagnostic (Set Text)
+resolvedPreludeVisibleSymbols resolvedPrelude =
+  case resolvedPrelude of
+    PreludeAbsent -> Right Set.empty
+    PreludeBundled preludeText -> collectPreludeVisibleSymbols preludeText
+    PreludeExplicit preludeText -> collectPreludeVisibleSymbols preludeText
+  where
+    collectPreludeVisibleSymbols preludeText =
+      Set.fromList . collectTopLevelBindingNames <$> validateAndLowerPrelude preludeText
+
 -- | Parse and validate an explicit/bundled prelude before it is merged into the
 -- main program source.
 validateAndLowerPrelude :: Text -> Either Diagnostic Expr
@@ -546,14 +576,15 @@ loadModuleGraphSource resolutionConfig entryModulePath sourceLookup = do
 -- expressions. Dependency expressions stay present for semantic validation and
 -- are stripped only from the runtime replay expression.
 loadLoweredModuleGraph ::
+  Set Text ->
   ModuleResolutionConfig ->
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
   IO (Either Diagnostic ModuleGraphExpr)
-loadLoweredModuleGraph resolutionConfig entryModulePath sourceLookup = do
+loadLoweredModuleGraph ambientVisibleSymbols resolutionConfig entryModulePath sourceLookup = do
   memoizedSourceLookup <- memoizeSourceLookup sourceLookup
   resolutionResult <-
-    resolveModuleGraphWithLookup resolutionConfig memoizedSourceLookup entryModulePath
+    resolveModuleGraphWithLookupAndVisibleSymbols resolutionConfig ambientVisibleSymbols memoizedSourceLookup entryModulePath
   case resolutionResult of
     Left resolutionError ->
       pure (Left resolutionError)

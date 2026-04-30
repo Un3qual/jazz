@@ -9,7 +9,8 @@ module JazzNext.Compiler.ModuleResolver
     modulePathToRelativeFile,
     parseModulePathText,
     resolveModuleGraph,
-    resolveModuleGraphWithLookup
+    resolveModuleGraphWithLookup,
+    resolveModuleGraphWithLookupAndVisibleSymbols
   ) where
 
 import Control.Monad (foldM)
@@ -150,7 +151,17 @@ resolveModuleGraphWithLookup ::
   (FilePath -> m (Maybe Text)) ->
   [Text] ->
   m (Either Diagnostic [ResolvedModule])
-resolveModuleGraphWithLookup config loadSource entryModulePath
+resolveModuleGraphWithLookup config =
+  resolveModuleGraphWithLookupAndVisibleSymbols config Set.empty
+
+resolveModuleGraphWithLookupAndVisibleSymbols ::
+  Monad m =>
+  ModuleResolutionConfig ->
+  Set Text ->
+  (FilePath -> m (Maybe Text)) ->
+  [Text] ->
+  m (Either Diagnostic [ResolvedModule])
+resolveModuleGraphWithLookupAndVisibleSymbols config ambientVisibleSymbols loadSource entryModulePath
   | null entryModulePath =
       pure (Left (mkMessageDiagnostic "empty entry module path"))
   | otherwise =
@@ -193,6 +204,7 @@ resolveModuleGraphWithLookup config loadSource entryModulePath
                             (parsedModuleImports parsedModule)
                             (parsedModuleReferences parsedModule)
                             (parsedModuleQualifiedReferences parsedModule)
+                            ambientVisibleSymbols
                             (resolvedExportsState stateAfterDeps) of
                         Left err -> pure (Left err)
                         Right () ->
@@ -525,17 +537,19 @@ validateImportBindings ::
   [ParsedImport] ->
   Set Text ->
   Set (Text, Text) ->
+  Set Text ->
   Map [Text] (Set Text) ->
   Either Diagnostic ()
-validateImportBindings sourcePath importerPath imports referencedNames qualifiedReferences exportsByModule = do
+validateImportBindings sourcePath importerPath imports referencedNames qualifiedReferences ambientVisibleSymbols exportsByModule = do
   go Map.empty Map.empty imports
   validateQualifiedReferences
   visibleSymbols <- collectVisibleImportSymbols imports
-  case findHiddenExplicitImportReference visibleSymbols of
+  let visibleOrAmbientSymbols = Set.union visibleSymbols ambientVisibleSymbols
+  case findHiddenExplicitImportReference visibleOrAmbientSymbols of
     Just (symbolName, importDecl) ->
       Left (mkHiddenExplicitImportSymbolError symbolName importDecl)
     Nothing ->
-      case findHiddenAliasImportReference visibleSymbols of
+      case findHiddenAliasImportReference visibleOrAmbientSymbols of
         Just (symbolName, importDecl, aliasName) ->
           Left (mkHiddenAliasImportSymbolError symbolName importDecl aliasName)
         Nothing -> Right ()
