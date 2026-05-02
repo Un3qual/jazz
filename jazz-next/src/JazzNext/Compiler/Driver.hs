@@ -598,7 +598,7 @@ loadLoweredModuleGraph ambientVisibleSymbols resolutionConfig entryModulePath so
               [ parseAndLowerResolvedModule resolvedModule sourceText
                 | (resolvedModule, sourceText) <- zip resolvedModules replayedSources
               ]
-          pure (buildModuleGraphExpr entryModulePath resolvedModules loweredModules)
+          pure (buildModuleGraphExpr ambientVisibleSymbols entryModulePath resolvedModules loweredModules)
 
 -- | Replay resolved source files from the memoized lookup so driver errors stay
 -- stable even after resolution has already succeeded.
@@ -649,29 +649,48 @@ parseAndLowerResolvedModule resolvedModule sourceText =
     Right loweredSource ->
       Right loweredSource
 
-buildModuleGraphExpr :: [Text] -> [ResolvedModule] -> [Expr] -> ModuleGraphExpr
-buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
+buildModuleGraphExpr ::
+  Set Text ->
+  [Text] ->
+  [ResolvedModule] ->
+  [Expr] ->
+  ModuleGraphExpr
+buildModuleGraphExpr ambientVisibleSymbols entryModulePath resolvedModules loweredModules =
   let exportsByModule = collectModuleExports resolvedModules loweredModules
       aliasReferencesByModule = map collectAliasQualifiedReferences loweredModules
       loweredModulesWithAliasReferences = zip loweredModules aliasReferencesByModule
       neededAliasExportsByModule = collectNeededAliasExports exportsByModule loweredModulesWithAliasReferences
+      hiddenAmbientExportsByModule =
+        collectEntryHiddenAmbientExports
+          ambientVisibleSymbols
+          entryModulePath
+          exportsByModule
+          resolvedModules
+          loweredModules
       loweredModulesWithAliasBindings =
         zipWith3
           (addAliasImportBindings exportsByModule neededAliasExportsByModule)
           resolvedModules
           loweredModules
           aliasReferencesByModule
+      hiddenAmbientExportsFor resolvedModule =
+        Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) hiddenAmbientExportsByModule
    in
   ModuleGraphExpr
     { moduleGraphValidationExpr =
         replayLoweredModules
-          (\_ loweredModule -> stripModuleDeclarations loweredModule)
+          ( \resolvedModule loweredModule ->
+              stripModuleDeclarations (hiddenAmbientExportsFor resolvedModule) loweredModule
+          )
           resolvedModules
           loweredModulesWithAliasBindings,
       moduleGraphRuntimeExpr =
         replayLoweredModules
           ( \resolvedModule loweredModule ->
-              stripModuleRuntimeReplayStatements (resolvedModulePath resolvedModule == entryModulePath) loweredModule
+              stripModuleRuntimeReplayStatements
+                (resolvedModulePath resolvedModule == entryModulePath)
+                (hiddenAmbientExportsFor resolvedModule)
+                loweredModule
           )
           resolvedModules
           loweredModulesWithAliasBindings
@@ -692,6 +711,58 @@ collectTopLevelBindingNames expr =
         | SLet bindingName _ _ <- statements
       ]
     _ -> []
+
+collectEntryHiddenAmbientExports ::
+  Set Text ->
+  [Text] ->
+  Map [Text] [Text] ->
+  [ResolvedModule] ->
+  [Expr] ->
+  Map [Text] (Set Text)
+collectEntryHiddenAmbientExports ambientVisibleSymbols entryModulePath exportsByModule resolvedModules loweredModules =
+  Map.filter (not . Set.null) (Map.map hiddenWithoutVisible entryImportExposures)
+  where
+    entryImportExposures =
+      foldl'
+        collectImportExposure
+        Map.empty
+        [ statement
+          | (resolvedModule, EBlock statements) <- zip resolvedModules loweredModules,
+            resolvedModulePath resolvedModule == entryModulePath,
+            statement <- statements
+        ]
+
+    hiddenWithoutVisible (hiddenExports, visibleExports) =
+      Set.difference hiddenExports visibleExports
+
+    collectImportExposure exposures statement =
+      case statement of
+        SImport _ modulePath maybeAlias maybeSymbolNames ->
+          Map.insertWith
+            mergeImportExposures
+            modulePath
+            (importExposure modulePath maybeAlias maybeSymbolNames)
+            exposures
+        _ -> exposures
+
+    importExposure modulePath maybeAlias maybeSymbolNames =
+      let ambientExports =
+            Set.intersection
+              ambientVisibleSymbols
+              (Set.fromList (Map.findWithDefault [] modulePath exportsByModule))
+       in case maybeAlias of
+            Just _ ->
+              (ambientExports, Set.empty)
+            Nothing ->
+              case maybeSymbolNames of
+                Nothing ->
+                  (Set.empty, ambientExports)
+                Just symbolNames ->
+                  let visibleExports = Set.intersection ambientExports (Set.fromList symbolNames)
+                   in (Set.difference ambientExports visibleExports, visibleExports)
+
+    mergeImportExposures (newHidden, newVisible) (existingHidden, existingVisible) =
+      (Set.union newHidden existingHidden, Set.union newVisible existingVisible)
 
 collectNeededAliasExports :: Map [Text] [Text] -> [(Expr, Map Text (Set Text))] -> Map [Text] (Set Text)
 collectNeededAliasExports exportsByModule =
@@ -739,12 +810,12 @@ addAliasImportBindings exportsByModule neededAliasExportsByModule resolvedModule
 
     sourceExportBindingsForStatement statement =
       case statement of
-        SLet exportedName spanValue _
+        SLet exportedName spanValue valueExpr
           | Set.member (identifierText exportedName) sourceExportNames ->
               [ SLet
                   (mkIdentifier (moduleExportQualifiedName (resolvedModulePath resolvedModule) (identifierText exportedName)))
                   spanValue
-                  (EVar exportedName)
+                  valueExpr
               ]
         _ -> []
 
@@ -844,8 +915,8 @@ replayLoweredModules transformModule resolvedModules loweredModules =
         ]
     )
 
-stripModuleDeclarations :: Expr -> Expr
-stripModuleDeclarations expr =
+stripModuleDeclarations :: Set Text -> Expr -> Expr
+stripModuleDeclarations hiddenAmbientExports expr =
   case expr of
     EBlock statements ->
       EBlock
@@ -858,10 +929,11 @@ stripModuleDeclarations expr =
     keepModuleValidationStatement statement =
       case statement of
         SModule _ _ -> False
+        _ | isHiddenAmbientExportStatement hiddenAmbientExports statement -> False
         _ -> True
 
-stripModuleRuntimeReplayStatements :: Bool -> Expr -> Expr
-stripModuleRuntimeReplayStatements isEntryModule expr =
+stripModuleRuntimeReplayStatements :: Bool -> Set Text -> Expr -> Expr
+stripModuleRuntimeReplayStatements isEntryModule hiddenAmbientExports expr =
   case expr of
     EBlock statements ->
       EBlock
@@ -875,7 +947,15 @@ stripModuleRuntimeReplayStatements isEntryModule expr =
       case statement of
         SModule _ _ -> False
         SExpr _ _ -> isEntryModule
+        _ | isHiddenAmbientExportStatement hiddenAmbientExports statement -> False
         _ -> True
+
+isHiddenAmbientExportStatement :: Set Text -> Statement -> Bool
+isHiddenAmbientExportStatement hiddenAmbientExports statement =
+  case statement of
+    SLet bindingName _ _ -> Set.member (identifierText bindingName) hiddenAmbientExports
+    SSignature signatureName _ _ -> Set.member (identifierText signatureName) hiddenAmbientExports
+    _ -> False
 
 renderModulePath :: [Text] -> Text
 renderModulePath segments = Text.intercalate "::" segments

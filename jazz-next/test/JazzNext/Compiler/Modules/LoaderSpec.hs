@@ -18,6 +18,7 @@ import JazzNext.Compiler.Driver
     RunResult (..),
     compileModuleGraphWithResolvedPrelude,
     compileModuleGraphWithPrelude,
+    runModuleGraphWithResolvedPrelude,
     runModuleGraphWithPrelude
   )
 import JazzNext.Compiler.ModuleResolver
@@ -49,6 +50,9 @@ tests =
     ("compile module graph allows explicit-import hidden name supplied by prelude", testCompileModuleGraphExplicitImportAllowsPreludeBinding),
     ("compile module graph hides dependency bindings imported only by alias", testCompileModuleGraphAliasImportHidesUnqualifiedBindings),
     ("compile module graph allows alias-hidden name supplied by prelude", testCompileModuleGraphAliasImportAllowsPreludeBinding),
+    ("run module graph keeps explicit-import hidden dependency export from shadowing prelude", testRunModuleGraphExplicitImportHiddenExportUsesPrelude),
+    ("run module graph keeps alias-hidden dependency export from shadowing prelude", testRunModuleGraphAliasImportHiddenExportUsesPrelude),
+    ("run module graph keeps alias-qualified dependency export visible with prelude", testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude),
     ("run module graph resolves qualified alias lookup", testRunModuleGraphQualifiedAliasLookup),
     ("run module graph resolves qualified alias lookup through dependency export", testRunModuleGraphQualifiedAliasLookupUsesDependencyExport),
     ("compile module graph accepts qualified alias use before import", testCompileModuleGraphQualifiedAliasLookupBeforeImport),
@@ -282,6 +286,66 @@ testCompileModuleGraphAliasImportAllowsPreludeBinding = do
     sourceMap =
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Math as Math.\nsubtract."),
+          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphExplicitImportHiddenExportUsesPrelude :: IO ()
+testRunModuleGraphExplicitImportHiddenExportUsesPrelude = do
+  result <-
+    runModuleGraphWithResolvedPrelude
+      defaultWarningSettings
+      (PreludeExplicit "subtract = 99.")
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "99") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math (add).\nsubtract."),
+          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphAliasImportHiddenExportUsesPrelude :: IO ()
+testRunModuleGraphAliasImportHiddenExportUsesPrelude = do
+  result <-
+    runModuleGraphWithResolvedPrelude
+      defaultWarningSettings
+      (PreludeExplicit "subtract = 99.")
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "99") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math as Math.\nsubtract."),
+          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude :: IO ()
+testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude = do
+  result <-
+    runModuleGraphWithResolvedPrelude
+      defaultWarningSettings
+      (PreludeExplicit "subtract = 99.")
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "2") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math as Math.\nMath::subtract."),
           ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
