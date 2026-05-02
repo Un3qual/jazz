@@ -904,20 +904,23 @@ parsePrimaryExprUntil knownAliases stop tokens =
             "False" -> Right (SELit (SLBool False), rest)
             _ ->
               case rest of
-                Token {tokenKind = TColonColon} : Token {tokenKind = TIdentifier memberName} : afterMember ->
-                  Right (SEQualifiedVar (mkIdentifier name) (mkIdentifier memberName), afterMember)
-                Token {tokenKind = TColonColon} : [] ->
-                  Left (parseDiagnostic "expected member name after '::' before end of input")
-                Token {tokenKind = TColonColon} : memberToken : _ ->
-                  Left
-                    ( parseDiagnostic
-                        ( "expected member name after '::' at "
-                            <> renderSourceSpan (tokenSpan memberToken)
-                            <> ", found '"
-                            <> tokenLexeme memberToken
-                            <> "'"
+                colonToken@(Token {tokenKind = TColonColon}) : Token {tokenKind = TIdentifier memberName} : afterMember
+                  | isImmediatelyAfter token colonToken ->
+                      Right (SEQualifiedVar (mkIdentifier name) (mkIdentifier memberName), afterMember)
+                colonToken@(Token {tokenKind = TColonColon}) : []
+                  | isImmediatelyAfter token colonToken ->
+                      Left (parseDiagnostic "expected member name after '::' before end of input")
+                colonToken@(Token {tokenKind = TColonColon}) : memberToken : _
+                  | isImmediatelyAfter token colonToken ->
+                      Left
+                        ( parseDiagnostic
+                            ( "expected member name after '::' at "
+                                <> renderSourceSpan (tokenSpan memberToken)
+                                <> ", found '"
+                                <> tokenLexeme memberToken
+                                <> "'"
+                            )
                         )
-                    )
                 _ -> Right (SEVar (mkIdentifier name), rest)
         TIf -> parseIfExprUntil knownAliases stop token rest
         TCase -> parseCaseExpr knownAliases token rest

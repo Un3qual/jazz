@@ -53,6 +53,7 @@ tests =
     ("parses import statement with symbol list", testParsesImportSymbolList),
     ("lowers module and import statements into core AST", testLowersModuleImportStatements),
     ("lowers qualified alias lookup expression into internal qualified name", testLowersQualifiedAliasLookup),
+    ("rejects spaced qualified alias lookup inside binding expression", testRejectsSpacedQualifiedAliasLookupInBindingExpression),
     ("rejects qualified alias lookup with non-identifier member", testRejectsNonIdentifierQualifiedMember),
     ("rejects constructor qualified lookup with non-identifier member", testRejectsConstructorQualifiedNonIdentifierMember),
     ("rejects legacy dot-only module declaration syntax", testRejectsLegacyDotOnlyModuleDeclaration),
@@ -280,6 +281,13 @@ testLowersQualifiedAliasLookup =
         [ SImport (SourceSpan 1 1) ["Lib", "Math"] (Just "Math") Nothing,
           SExpr (SourceSpan 2 1) (EVar "Math::subtract")
         ]
+
+testRejectsSpacedQualifiedAliasLookupInBindingExpression :: IO ()
+testRejectsSpacedQualifiedAliasLookupInBindingExpression =
+  assertLeftDiagnosticContains
+    "spaced qualified alias lookup in binding expression"
+    "expected '.' at"
+    (parseSurfaceProgram "import Lib::Math as Math.\nmain = Math :: subtract.")
 
 testRejectsNonIdentifierQualifiedMember :: IO ()
 testRejectsNonIdentifierQualifiedMember =
