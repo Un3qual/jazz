@@ -53,6 +53,8 @@ tests =
     ("run module graph keeps explicit-import hidden dependency export from shadowing prelude", testRunModuleGraphExplicitImportHiddenExportUsesPrelude),
     ("run module graph keeps alias-hidden dependency export from shadowing prelude", testRunModuleGraphAliasImportHiddenExportUsesPrelude),
     ("run module graph keeps alias-qualified dependency export visible with prelude", testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude),
+    ("run module graph keeps transitive alias-hidden dependency export from shadowing prelude", testRunModuleGraphTransitiveAliasHiddenExportUsesPrelude),
+    ("compile module graph hides transitive alias-only exports from unqualified replay", testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport),
     ("run module graph resolves qualified alias lookup", testRunModuleGraphQualifiedAliasLookup),
     ("run module graph resolves qualified alias lookup through dependency export", testRunModuleGraphQualifiedAliasLookupUsesDependencyExport),
     ("compile module graph accepts qualified alias use before import", testCompileModuleGraphQualifiedAliasLookupBeforeImport),
@@ -347,6 +349,53 @@ testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Math as Math.\nMath::subtract."),
           ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphTransitiveAliasHiddenExportUsesPrelude :: IO ()
+testRunModuleGraphTransitiveAliasHiddenExportUsesPrelude = do
+  result <-
+    runModuleGraphWithResolvedPrelude
+      defaultWarningSettings
+      (PreludeExplicit "subtract = 99.")
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "99") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import App::UsesMath.\nuse."),
+          ("src/App/UsesMath.jz", "import Lib::Math as Math.\nuse = subtract."),
+          ("src/Lib/Math.jz", "subtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport :: IO ()
+testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  assertEqual "generated output" Nothing (generatedJs result)
+  case compileErrors result of
+    [err] -> do
+      let rendered = renderDiagnostic err
+      assertContains "unbound code" "E1001" rendered
+      assertContains "hidden export" "unbound variable 'subtract'" rendered
+    _ -> failTest "expected exactly one unbound hidden export error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import App::UsesMath.\nsubtract."),
+          ("src/App/UsesMath.jz", "import Lib::Math as Math.\nuse = 0."),
+          ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
