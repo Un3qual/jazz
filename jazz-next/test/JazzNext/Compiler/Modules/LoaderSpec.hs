@@ -55,6 +55,7 @@ tests =
     ("run module graph keeps alias-qualified dependency export visible with prelude", testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude),
     ("run module graph keeps transitive alias-hidden dependency export from shadowing prelude", testRunModuleGraphTransitiveAliasHiddenExportUsesPrelude),
     ("compile module graph hides transitive alias-only exports from unqualified replay", testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport),
+    ("run module graph keeps alias-hidden prelude binding isolated from visible importer", testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter),
     ("run module graph resolves qualified alias lookup", testRunModuleGraphQualifiedAliasLookup),
     ("run module graph resolves qualified alias lookup through dependency export", testRunModuleGraphQualifiedAliasLookupUsesDependencyExport),
     ("compile module graph accepts qualified alias use before import", testCompileModuleGraphQualifiedAliasLookupBeforeImport),
@@ -395,6 +396,28 @@ testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport = do
       Map.fromList
         [ ("src/App/Main.jz", "import App::UsesMath.\nsubtract."),
           ("src/App/UsesMath.jz", "import Lib::Math as Math.\nuse = 0."),
+          ("src/Lib/Math.jz", "subtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter :: IO ()
+testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter = do
+  result <-
+    runModuleGraphWithResolvedPrelude
+      defaultWarningSettings
+      (PreludeExplicit "subtract = 99.")
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "99") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import App::UsesMath.\nimport App::UsesPrelude.\npreludeValue."),
+          ("src/App/UsesMath.jz", "import Lib::Math.\nmathValue = subtract."),
+          ("src/App/UsesPrelude.jz", "import Lib::Math as Math.\npreludeValue = subtract."),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

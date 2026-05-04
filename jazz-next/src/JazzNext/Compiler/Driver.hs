@@ -37,6 +37,7 @@ import Data.IORef
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     Expr (..),
+    Pattern (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -663,11 +664,22 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
         collectHiddenImportExports
           exportsByModule
           loweredModules
+      neededVisibleImportExportsByModule =
+        collectNeededVisibleImportExports
+          hiddenImportExportsByModule
+          exportsByModule
+          loweredModules
+      neededModuleExportsByModule =
+        Map.unionWith Set.union neededAliasExportsByModule neededVisibleImportExportsByModule
+      loweredModulesWithVisibleImportReferences =
+        map
+          (rewriteVisibleImportReferences hiddenImportExportsByModule exportsByModule)
+          loweredModules
       loweredModulesWithAliasBindings =
         zipWith3
-          (addAliasImportBindings exportsByModule neededAliasExportsByModule)
+          (addAliasImportBindings exportsByModule neededModuleExportsByModule hiddenImportExportsByModule)
           resolvedModules
-          loweredModules
+          loweredModulesWithVisibleImportReferences
           aliasReferencesByModule
       hiddenImportExportsFor resolvedModule =
         Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) hiddenImportExportsByModule
@@ -713,7 +725,7 @@ collectHiddenImportExports ::
   [Expr] ->
   Map [Text] (Set Text)
 collectHiddenImportExports exportsByModule loweredModules =
-  Map.filter (not . Set.null) (Map.map hiddenWithoutVisible importExposures)
+  Map.filter (not . Set.null) importExposures
   where
     importExposures =
       foldl'
@@ -724,14 +736,11 @@ collectHiddenImportExports exportsByModule loweredModules =
             statement <- statements
         ]
 
-    hiddenWithoutVisible (hiddenExports, visibleExports) =
-      Set.difference hiddenExports visibleExports
-
     collectImportExposure exposures statement =
       case statement of
         SImport _ modulePath maybeAlias maybeSymbolNames ->
           Map.insertWith
-            mergeImportExposures
+            Set.union
             modulePath
             (importExposure modulePath maybeAlias maybeSymbolNames)
             exposures
@@ -742,19 +751,216 @@ collectHiddenImportExports exportsByModule loweredModules =
             Set.fromList (Map.findWithDefault [] modulePath exportsByModule)
        in case maybeAlias of
             Just _ ->
-              (exportedNames, Set.empty)
+              exportedNames
             Nothing ->
               case maybeSymbolNames of
                 Nothing ->
-                  (Set.empty, exportedNames)
+                  Set.empty
                 Just symbolNames ->
                   let visibleExports = Set.intersection exportedNames (Set.fromList symbolNames)
-                   in (Set.difference exportedNames visibleExports, visibleExports)
+                   in Set.difference exportedNames visibleExports
 
-    mergeImportExposures (newHidden, newVisible) (existingHidden, existingVisible) =
-      (Set.union newHidden existingHidden, Set.union newVisible existingVisible)
+collectNeededVisibleImportExports ::
+  Map [Text] (Set Text) ->
+  Map [Text] [Text] ->
+  [Expr] ->
+  Map [Text] (Set Text)
+collectNeededVisibleImportExports hiddenImportExportsByModule exportsByModule loweredModules =
+  Map.unionsWith Set.union
+    (map (visibleImportReferencesForModule hiddenImportExportsByModule exportsByModule) loweredModules)
 
-collectNeededAliasExports :: Map [Text] [Text] -> [(Expr, Map Text (Set Text))] -> Map [Text] (Set Text)
+visibleImportReferencesForModule ::
+  Map [Text] (Set Text) ->
+  Map [Text] [Text] ->
+  Expr ->
+  Map [Text] (Set Text)
+visibleImportReferencesForModule hiddenImportExportsByModule exportsByModule expr =
+  case expr of
+    EBlock statements ->
+      Map.fromListWith Set.union
+        [ (modulePath, Set.singleton exportedName)
+          | SImport _ modulePath Nothing maybeSymbolNames <- statements,
+            let hiddenExports = Map.findWithDefault Set.empty modulePath hiddenImportExportsByModule,
+            exportedName <- Set.toList (visibleImportNames modulePath maybeSymbolNames),
+            Set.member exportedName hiddenExports,
+            Set.member exportedName referencedNames
+        ]
+      where
+        referencedNames = collectUnqualifiedReferences expr
+        visibleImportNames modulePath maybeSymbolNames =
+          let exportedNames = Set.fromList (Map.findWithDefault [] modulePath exportsByModule)
+           in case maybeSymbolNames of
+                Nothing -> exportedNames
+                Just symbolNames -> Set.intersection exportedNames (Set.fromList symbolNames)
+    _ -> Map.empty
+
+rewriteVisibleImportReferences ::
+  Map [Text] (Set Text) ->
+  Map [Text] [Text] ->
+  Expr ->
+  Expr
+rewriteVisibleImportReferences hiddenImportExportsByModule exportsByModule expr =
+  case expr of
+    EBlock statements ->
+      EBlock (rewriteBlockReferences importTargets Set.empty statements)
+      where
+        importTargets = visibleImportReferenceTargets statements
+    _ -> expr
+  where
+    visibleImportReferenceTargets statements =
+      Map.fromList
+        [ (exportedName, modulePath)
+          | SImport _ modulePath Nothing maybeSymbolNames <- statements,
+            let hiddenExports = Map.findWithDefault Set.empty modulePath hiddenImportExportsByModule,
+            exportedName <- Set.toList (visibleImportNames modulePath maybeSymbolNames),
+            Set.member exportedName hiddenExports
+        ]
+
+    visibleImportNames modulePath maybeSymbolNames =
+      let exportedNames = Set.fromList (Map.findWithDefault [] modulePath exportsByModule)
+       in case maybeSymbolNames of
+            Nothing -> exportedNames
+            Just symbolNames -> Set.intersection exportedNames (Set.fromList symbolNames)
+
+    rewriteBlockReferences importTargets outerBoundNames statements =
+      map (rewriteStatementReferences importTargets blockBoundNames) statements
+      where
+        blockBoundNames =
+          Set.union
+            outerBoundNames
+            ( Set.fromList
+                [ identifierText bindingName
+                  | SLet bindingName _ _ <- statements
+                ]
+            )
+
+    rewriteStatementReferences importTargets boundNames statement =
+      case statement of
+        SLet bindingName spanValue valueExpr ->
+          SLet bindingName spanValue (rewriteExprReferences importTargets boundNames valueExpr)
+        SExpr spanValue exprValue ->
+          SExpr spanValue (rewriteExprReferences importTargets boundNames exprValue)
+        _ -> statement
+
+    rewriteExprReferences importTargets boundNames expression =
+      case expression of
+        ELit _ -> expression
+        EVar name ->
+          let nameText = identifierText name
+           in case Map.lookup nameText importTargets of
+                Just modulePath
+                  | Set.notMember nameText boundNames ->
+                      EVar (mkIdentifier (moduleExportQualifiedName modulePath nameText))
+                _ -> expression
+        ELambda parameterName bodyExpr ->
+          ELambda
+            parameterName
+            (rewriteExprReferences importTargets (Set.insert (identifierText parameterName) boundNames) bodyExpr)
+        EOperatorValue _ -> expression
+        EList elements ->
+          EList (map (rewriteExprReferences importTargets boundNames) elements)
+        EApply functionExpr argumentExpr ->
+          EApply
+            (rewriteExprReferences importTargets boundNames functionExpr)
+            (rewriteExprReferences importTargets boundNames argumentExpr)
+        EIf conditionExpr trueBranch falseBranch ->
+          EIf
+            (rewriteExprReferences importTargets boundNames conditionExpr)
+            (rewriteExprReferences importTargets boundNames trueBranch)
+            (rewriteExprReferences importTargets boundNames falseBranch)
+        ECase conditionExpr trueBranch falseBranch ->
+          ECase
+            (rewriteExprReferences importTargets boundNames conditionExpr)
+            (rewriteExprReferences importTargets boundNames trueBranch)
+            (rewriteExprReferences importTargets boundNames falseBranch)
+        EPatternCase scrutineeExpr caseArms ->
+          EPatternCase
+            (rewriteExprReferences importTargets boundNames scrutineeExpr)
+            [ CaseArm
+                patternValue
+                (rewriteExprReferences importTargets (Set.union boundNames (patternBinders patternValue)) bodyExpr)
+              | CaseArm patternValue bodyExpr <- caseArms
+            ]
+        EBinary operatorName leftExpr rightExpr ->
+          EBinary
+            operatorName
+            (rewriteExprReferences importTargets boundNames leftExpr)
+            (rewriteExprReferences importTargets boundNames rightExpr)
+        ESectionLeft leftExpr operatorName ->
+          ESectionLeft (rewriteExprReferences importTargets boundNames leftExpr) operatorName
+        ESectionRight operatorName rightExpr ->
+          ESectionRight operatorName (rewriteExprReferences importTargets boundNames rightExpr)
+        EBlock nestedStatements ->
+          EBlock (rewriteBlockReferences importTargets boundNames nestedStatements)
+
+patternBinders :: Pattern -> Set Text
+patternBinders patternValue =
+  case patternValue of
+    PWildcard -> Set.empty
+    PVariable name -> Set.singleton (identifierText name)
+    PLiteral _ -> Set.empty
+    PConstructor _ nestedPatterns -> Set.unions (map patternBinders nestedPatterns)
+    PList nestedPatterns -> Set.unions (map patternBinders nestedPatterns)
+
+collectUnqualifiedReferences :: Expr -> Set Text
+collectUnqualifiedReferences expr =
+  case expr of
+    ELit _ -> Set.empty
+    EVar name ->
+      let nameText = identifierText name
+       in case splitQualifiedIdentifierText nameText of
+            Just _ -> Set.empty
+            Nothing -> Set.singleton nameText
+    ELambda parameterName bodyExpr ->
+      Set.delete (identifierText parameterName) (collectUnqualifiedReferences bodyExpr)
+    EOperatorValue _ -> Set.empty
+    EList elements -> Set.unions (map collectUnqualifiedReferences elements)
+    EApply functionExpr argumentExpr ->
+      Set.union (collectUnqualifiedReferences functionExpr) (collectUnqualifiedReferences argumentExpr)
+    EIf conditionExpr trueBranch falseBranch ->
+      Set.unions
+        [ collectUnqualifiedReferences conditionExpr,
+          collectUnqualifiedReferences trueBranch,
+          collectUnqualifiedReferences falseBranch
+        ]
+    ECase conditionExpr trueBranch falseBranch ->
+      Set.unions
+        [ collectUnqualifiedReferences conditionExpr,
+          collectUnqualifiedReferences trueBranch,
+          collectUnqualifiedReferences falseBranch
+        ]
+    EPatternCase scrutineeExpr caseArms ->
+      Set.union
+        (collectUnqualifiedReferences scrutineeExpr)
+        ( Set.unions
+            [ Set.difference (collectUnqualifiedReferences bodyExpr) (patternBinders patternValue)
+              | CaseArm patternValue bodyExpr <- caseArms
+            ]
+        )
+    EBinary _ leftExpr rightExpr ->
+      Set.union (collectUnqualifiedReferences leftExpr) (collectUnqualifiedReferences rightExpr)
+    ESectionLeft leftExpr _ -> collectUnqualifiedReferences leftExpr
+    ESectionRight _ rightExpr -> collectUnqualifiedReferences rightExpr
+    EBlock statements ->
+      Set.difference
+        ( Set.unions
+            [ case statement of
+                SLet _ _ valueExpr -> collectUnqualifiedReferences valueExpr
+                SExpr _ exprValue -> collectUnqualifiedReferences exprValue
+                _ -> Set.empty
+              | statement <- statements
+            ]
+        )
+        ( Set.fromList
+            [ identifierText bindingName
+              | SLet bindingName _ _ <- statements
+            ]
+        )
+
+collectNeededAliasExports ::
+  Map [Text] [Text] ->
+  [(Expr, Map Text (Set Text))] ->
+  Map [Text] (Set Text)
 collectNeededAliasExports exportsByModule =
   foldl' collectModule Map.empty
   where
@@ -778,15 +984,25 @@ collectNeededAliasExports exportsByModule =
                 else Map.insertWith Set.union modulePath neededNames neededExports
         _ -> neededExports
 
-addAliasImportBindings :: Map [Text] [Text] -> Map [Text] (Set Text) -> ResolvedModule -> Expr -> Map Text (Set Text) -> Expr
-addAliasImportBindings exportsByModule neededAliasExportsByModule resolvedModule expr aliasReferences =
+addAliasImportBindings ::
+  Map [Text] [Text] ->
+  Map [Text] (Set Text) ->
+  Map [Text] (Set Text) ->
+  ResolvedModule ->
+  Expr ->
+  Map Text (Set Text) ->
+  Expr
+addAliasImportBindings exportsByModule neededModuleExportsByModule hiddenImportExportsByModule resolvedModule expr aliasReferences =
   case expr of
     EBlock statements ->
       EBlock (insertAliasBindings (concatMap aliasBindingsForStatement statements) statements)
     _ -> expr
   where
     sourceExportNames =
-      Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) neededAliasExportsByModule
+      Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) neededModuleExportsByModule
+
+    hiddenSourceExportNames =
+      Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) hiddenImportExportsByModule
 
     insertAliasBindings aliasBindings statements =
       case statements of
@@ -805,7 +1021,10 @@ addAliasImportBindings exportsByModule neededAliasExportsByModule resolvedModule
               [ SLet
                   (mkIdentifier (moduleExportQualifiedName (resolvedModulePath resolvedModule) (identifierText exportedName)))
                   spanValue
-                  valueExpr
+                  ( if Set.member (identifierText exportedName) hiddenSourceExportNames
+                      then valueExpr
+                      else EVar exportedName
+                  )
               ]
         _ -> []
 
