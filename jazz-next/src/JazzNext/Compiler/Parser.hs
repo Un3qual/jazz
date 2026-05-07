@@ -165,7 +165,7 @@ parseStatement context knownAliases tokens =
                     <> renderSourceSpan (tokenSpan nameToken)
                 )
             )
-      | TIdentifier name <- tokenKind nameToken,
+      | TIdentifier _ <- tokenKind nameToken,
         shouldParseQualifiedAliasStatement nameToken afterName ->
           fmap singleStatement (parseExprStatement knownAliases tokens)
       | TIdentifier name <- tokenKind nameToken ->
