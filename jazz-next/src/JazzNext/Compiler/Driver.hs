@@ -36,6 +36,7 @@ import Data.IORef
   )
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    DataConstructor (..),
     Expr (..),
     Pattern (..),
     Statement (..)
@@ -50,7 +51,8 @@ import JazzNext.Compiler.Diagnostics
     setDiagnosticCode
   )
 import JazzNext.Compiler.Identifier
-  ( identifierText,
+  ( Identifier,
+    identifierText,
     mkIdentifier,
     mkQualifiedIdentifier,
     qualifiedIdentifierText,
@@ -707,8 +709,10 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
         replayLoweredModules
           ( \resolvedModule loweredModule ->
               stripModuleRuntimeReplayStatements
+                (resolvedModulePath resolvedModule)
                 (resolvedModulePath resolvedModule == entryModulePath)
                 (hiddenImportExportsFor resolvedModule)
+                (neededModuleExportsFor resolvedModule)
                 loweredModule
           )
           resolvedModules
@@ -726,10 +730,18 @@ collectTopLevelBindingNames :: Expr -> [Text]
 collectTopLevelBindingNames expr =
   case expr of
     EBlock statements ->
-      [ identifierText bindingName
-        | SLet bindingName _ _ <- statements
-      ]
+      concatMap collectStatementBindingNames statements
     _ -> []
+  where
+    collectStatementBindingNames statement =
+      case statement of
+        SLet bindingName _ _ ->
+          [identifierText bindingName]
+        SData _ _ constructors ->
+          [ identifierText constructorName
+            | DataConstructor constructorName _ <- constructors
+          ]
+        _ -> []
 
 collectHiddenImportExports ::
   Map [Text] [Text] ->
@@ -1224,28 +1236,56 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
                   spanValue
                   signatureValue
               ]
+        SData spanValue typeName constructors ->
+          rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName constructors
         _ -> [statement]
 
     hiddenValidationIdentifier name =
       mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
 
-stripModuleRuntimeReplayStatements :: Bool -> Set Text -> Expr -> Expr
-stripModuleRuntimeReplayStatements isEntryModule hiddenImportExports expr =
+stripModuleRuntimeReplayStatements :: [Text] -> Bool -> Set Text -> Set Text -> Expr -> Expr
+stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports neededModuleExports expr =
   case expr of
     EBlock statements ->
-      EBlock
-        [ statement
-          | statement <- statements,
-            keepModuleRuntimeReplayStatement statement
-        ]
+      EBlock (concatMap keepModuleRuntimeReplayStatement statements)
     _ -> expr
   where
     keepModuleRuntimeReplayStatement statement =
       case statement of
-        SModule _ _ -> False
-        SExpr _ _ -> isEntryModule
-        _ | isHiddenImportExportStatement hiddenImportExports statement -> False
-        _ -> True
+        SModule _ _ -> []
+        SExpr _ _ ->
+          [ statement
+            | isEntryModule
+          ]
+        SData spanValue typeName constructors ->
+          rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName constructors
+        _ | isHiddenImportExportStatement hiddenImportExports statement -> []
+        _ -> [statement]
+
+rewriteDataStatementForReplay ::
+  [Text] ->
+  Set Text ->
+  Set Text ->
+  SourceSpan ->
+  Identifier ->
+  [DataConstructor] ->
+  [Statement]
+rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName constructors =
+  [ SData spanValue typeName replayConstructors
+    | not (null replayConstructors)
+  ]
+  where
+    replayConstructors =
+      [ replayConstructor
+        | constructor@(DataConstructor constructorName constructorArity) <- constructors,
+          let constructorText = identifierText constructorName,
+          let hiddenConstructor = Set.member constructorText hiddenImportExports,
+          not hiddenConstructor || Set.member constructorText neededModuleExports,
+          let replayConstructor =
+                if hiddenConstructor
+                  then DataConstructor (mkIdentifier (moduleExportQualifiedName modulePath constructorText)) constructorArity
+                  else constructor
+      ]
 
 isHiddenImportExportStatement :: Set Text -> Statement -> Bool
 isHiddenImportExportStatement hiddenImportExports statement =

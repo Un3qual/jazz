@@ -43,6 +43,7 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
+    SurfaceDataConstructor (..),
     SurfacePattern (..),
     SurfaceExpr (..),
     SurfaceStatement (..)
@@ -340,11 +341,18 @@ collectTopLevelBindings :: SurfaceExpr -> Set Text
 collectTopLevelBindings surfaceExpr =
   case surfaceExpr of
     SEBlock statements ->
-      Set.fromList
-        [ identifierText bindingName
-          | SSLet bindingName _ _ <- statements
-        ]
+      Set.fromList (concatMap collectStatementBindings statements)
     _ -> Set.empty
+  where
+    collectStatementBindings statement =
+      case statement of
+        SSLet bindingName _ _ ->
+          [identifierText bindingName]
+        SSData _ _ constructors ->
+          [ identifierText constructorName
+            | SurfaceDataConstructor constructorName _ <- constructors
+          ]
+        _ -> []
 
 collectReferencedNames :: SurfaceExpr -> Set Text
 collectReferencedNames = collectExprReferences Set.empty

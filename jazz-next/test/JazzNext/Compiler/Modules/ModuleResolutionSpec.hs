@@ -46,11 +46,13 @@ tests =
     ("reports module declaration mismatch for resolved file path", testReportsModuleDeclarationMismatch),
     ("reports nested module declaration parse failure in a module file", testReportsNestedModuleDeclarationParseFailure),
     ("accepts symbol-list imports when requested symbols are exported", testAcceptsValidImportSymbolList),
+    ("accepts symbol-list imports for data constructors", testAcceptsDataConstructorImportSymbolList),
     ("reports non-exported import symbols with module context", testReportsMissingImportSymbol),
     ("reports import symbol collisions across imported modules", testReportsImportSymbolCollision),
     ("reports import alias collisions across imported modules", testReportsImportAliasCollision),
     ("reports unqualified references to bindings imported only by alias", testReportsUnqualifiedAliasImportReference),
     ("accepts qualified references through alias imports", testAcceptsQualifiedAliasImportReference),
+    ("accepts qualified references to data constructors through alias imports", testAcceptsQualifiedAliasDataConstructorReference),
     ("reports qualified references through unknown aliases", testReportsUnknownQualifiedAliasReference),
     ("reports standalone qualified references through unknown aliases", testReportsStandaloneUnknownQualifiedAliasReference),
     ("reports qualified alias references to missing exports", testReportsMissingQualifiedAliasExport)
@@ -270,6 +272,32 @@ testAcceptsValidImportSymbolList =
           }
       ]
 
+testAcceptsDataConstructorImportSymbolList :: IO ()
+testAcceptsDataConstructorImportSymbolList =
+  assertRight
+    "data constructor import symbol list resolves"
+    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (\modules -> assertEqual "resolved modules" expectedModules modules)
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Maybe (Just).\nmain = Just 1."),
+          ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
+        ]
+    expectedModules =
+      [ ResolvedModule
+          { resolvedModulePath = ["Lib", "Maybe"],
+            resolvedSourcePath = "src/Lib/Maybe.jz",
+            resolvedImports = []
+          },
+        ResolvedModule
+          { resolvedModulePath = ["App", "Main"],
+            resolvedSourcePath = "src/App/Main.jz",
+            resolvedImports = [["Lib", "Maybe"]]
+          }
+      ]
+
 testReportsMissingImportSymbol :: IO ()
 testReportsMissingImportSymbol = do
   let result = resolveModuleGraph config sourceFiles ["App", "Main"]
@@ -382,6 +410,32 @@ testAcceptsQualifiedAliasImportReference =
           { resolvedModulePath = ["App", "Main"],
             resolvedSourcePath = "src/App/Main.jz",
             resolvedImports = [["Lib", "Math"]]
+          }
+      ]
+
+testAcceptsQualifiedAliasDataConstructorReference :: IO ()
+testAcceptsQualifiedAliasDataConstructorReference =
+  assertRight
+    "qualified alias data constructor reference resolves"
+    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (\modules -> assertEqual "resolved modules" expectedModules modules)
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Maybe as Maybe.\nmain = Maybe::Just 1."),
+          ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
+        ]
+    expectedModules =
+      [ ResolvedModule
+          { resolvedModulePath = ["Lib", "Maybe"],
+            resolvedSourcePath = "src/Lib/Maybe.jz",
+            resolvedImports = []
+          },
+        ResolvedModule
+          { resolvedModulePath = ["App", "Main"],
+            resolvedSourcePath = "src/App/Main.jz",
+            resolvedImports = [["Lib", "Maybe"]]
           }
       ]
 
