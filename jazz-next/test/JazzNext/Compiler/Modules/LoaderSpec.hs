@@ -45,6 +45,7 @@ tests =
     ("run module graph ignores dependency expression statements", testRunModuleGraphIgnoresDependencyExpressions),
     ("compile module graph validates dependency expression statements", testCompileModuleGraphValidatesDependencyExpressions),
     ("compile module graph validates hidden dependency exports", testCompileModuleGraphValidatesHiddenDependencyExports),
+    ("compile module graph rewrites hidden constructor dependency expressions", testCompileModuleGraphRewritesHiddenConstructorDependencyExpressions),
     ("compile module graph reports unresolved import diagnostics", testCompileModuleGraphUnresolved),
     ("compile module graph reports missing import symbols", testCompileModuleGraphMissingImportSymbol),
     ("compile module graph hides dependency bindings excluded by explicit import list", testCompileModuleGraphExplicitImportListHidesUnlistedBindings),
@@ -178,6 +179,26 @@ testCompileModuleGraphValidatesHiddenDependencyExports = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Math (add).\nadd."),
           ("src/Lib/Math.jz", "add = 1.\nsubtract = missingName.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphRewritesHiddenConstructorDependencyExpressions :: IO ()
+testCompileModuleGraphRewritesHiddenConstructorDependencyExpressions = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  assertEqual "compile errors" [] (compileErrors result)
+  assertEqual "generated output" (Just "/* jazz-next codegen placeholder */") (generatedJs result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Maybe (x).\nx."),
+          ("src/Lib/Maybe.jz", "data Maybe = Just value.\nx = 1.\nJust 1.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

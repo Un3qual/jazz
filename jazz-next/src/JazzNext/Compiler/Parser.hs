@@ -202,15 +202,27 @@ shouldParseQualifiedAliasStatement knownAliases name nameToken tokensAfterName =
   case tokensAfterName of
     colonToken@(Token {tokenKind = TColonColon}) : _ ->
       isImmediatelyAfter nameToken colonToken
-        && (Set.member name knownAliases || not (isCompactSignatureBeforeBinding name nameToken tokensAfterName))
+        && ( Set.member name knownAliases
+               || not (shouldParseCompactSignature name nameToken tokensAfterName)
+           )
     _ ->
       False
 
-isCompactSignatureBeforeBinding :: Text -> Token -> [Token] -> Bool
-isCompactSignatureBeforeBinding name nameToken tokensAfterName =
+shouldParseCompactSignature :: Text -> Token -> [Token] -> Bool
+shouldParseCompactSignature name nameToken tokensAfterName =
   case parseSignature (mkIdentifier name) nameToken tokensAfterName of
-    Right (_, remaining) -> nextStatementStartsMatchingBinding name remaining
+    Right (SSSignature _ _ signaturePayload, remaining) ->
+      isSupportedSignaturePayload signaturePayload
+        || not (isConstructorIdentifierText name)
+        || nextStatementStartsMatchingBinding name remaining
     Left _ -> False
+
+isSupportedSignaturePayload :: SurfaceSignaturePayload -> Bool
+isSupportedSignaturePayload signaturePayload =
+  case signaturePayload of
+    SurfaceSignatureType _ -> True
+    SurfaceConstrainedSignature _ _ -> True
+    SurfaceUnsupportedSignature _ -> False
 
 nextStatementStartsMatchingBinding :: Text -> [Token] -> Bool
 nextStatementStartsMatchingBinding name tokens =

@@ -1246,6 +1246,11 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
               spanValue
               (rewriteModuleExportReferences modulePath hiddenImportExports valueExpr)
           ]
+        SExpr spanValue exprValue ->
+          [ SExpr
+              spanValue
+              (rewriteModuleExportReferences modulePath hiddenImportExports exprValue)
+          ]
         SSignature signatureName spanValue signatureValue
           | Set.member (identifierText signatureName) hiddenImportExports ->
               [ SSignature
@@ -1276,8 +1281,10 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
     keepModuleRuntimeReplayStatement statement =
       case statement of
         SModule _ _ -> []
-        SExpr _ _ ->
-          [ statement
+        SExpr spanValue exprValue ->
+          [ SExpr
+              spanValue
+              (rewriteModuleExportReferences modulePath hiddenImportExports exprValue)
             | isEntryModule
           ]
         SData spanValue typeName constructors ->
