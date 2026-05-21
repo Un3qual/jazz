@@ -44,6 +44,7 @@ tests =
     ("run module graph produces runtime output from entry module", testRunModuleGraphSuccess),
     ("run module graph ignores dependency expression statements", testRunModuleGraphIgnoresDependencyExpressions),
     ("compile module graph validates dependency expression statements", testCompileModuleGraphValidatesDependencyExpressions),
+    ("compile module graph validates hidden dependency exports", testCompileModuleGraphValidatesHiddenDependencyExports),
     ("compile module graph reports unresolved import diagnostics", testCompileModuleGraphUnresolved),
     ("compile module graph reports missing import symbols", testCompileModuleGraphMissingImportSymbol),
     ("compile module graph hides dependency bindings excluded by explicit import list", testCompileModuleGraphExplicitImportListHidesUnlistedBindings),
@@ -148,6 +149,29 @@ testCompileModuleGraphValidatesDependencyExpressions = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
           ("src/Lib/Util.jz", "module Lib::Util {\nutil :: Int.\nTrue.\nutil = 1.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphValidatesHiddenDependencyExports :: IO ()
+testCompileModuleGraphValidatesHiddenDependencyExports = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  assertEqual "generated output" Nothing (generatedJs result)
+  case compileErrors result of
+    [err] ->
+      assertContains "hidden export unbound" "unbound variable 'missingName'" (renderDiagnostic err)
+    _ -> failTest "expected exactly one hidden dependency export validation error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math (add).\nadd."),
+          ("src/Lib/Math.jz", "add = 1.\nsubtract = missingName.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

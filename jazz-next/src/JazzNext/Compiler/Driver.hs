@@ -688,12 +688,18 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
           aliasReferencesByModule
       hiddenImportExportsFor resolvedModule =
         Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) hiddenImportExportsByModule
+      neededModuleExportsFor resolvedModule =
+        Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) neededModuleExportsByModule
    in
   ModuleGraphExpr
     { moduleGraphValidationExpr =
         replayLoweredModules
           ( \resolvedModule loweredModule ->
-              stripModuleDeclarations (hiddenImportExportsFor resolvedModule) loweredModule
+              stripModuleDeclarations
+                (resolvedModulePath resolvedModule)
+                (hiddenImportExportsFor resolvedModule)
+                (neededModuleExportsFor resolvedModule)
+                loweredModule
           )
           resolvedModules
           loweredModulesWithAliasBindings,
@@ -1191,22 +1197,37 @@ replayLoweredModules transformModule resolvedModules loweredModules =
         ]
     )
 
-stripModuleDeclarations :: Set Text -> Expr -> Expr
-stripModuleDeclarations hiddenImportExports expr =
+stripModuleDeclarations :: [Text] -> Set Text -> Set Text -> Expr -> Expr
+stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr =
   case expr of
     EBlock statements ->
-      EBlock
-        [ statement
-          | statement <- statements,
-            keepModuleValidationStatement statement
-        ]
+      EBlock (concatMap keepModuleValidationStatement statements)
     _ -> expr
   where
     keepModuleValidationStatement statement =
       case statement of
-        SModule _ _ -> False
-        _ | isHiddenImportExportStatement hiddenImportExports statement -> False
-        _ -> True
+        SModule _ _ -> []
+        SLet bindingName spanValue valueExpr
+          | Set.member (identifierText bindingName) hiddenImportExports ->
+              if Set.member (identifierText bindingName) neededModuleExports
+                then []
+                else
+                  [ SLet
+                      (hiddenValidationIdentifier bindingName)
+                      spanValue
+                      (rewriteModuleExportReferences modulePath hiddenImportExports valueExpr)
+                  ]
+        SSignature signatureName spanValue signatureValue
+          | Set.member (identifierText signatureName) hiddenImportExports ->
+              [ SSignature
+                  (hiddenValidationIdentifier signatureName)
+                  spanValue
+                  signatureValue
+              ]
+        _ -> [statement]
+
+    hiddenValidationIdentifier name =
+      mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
 
 stripModuleRuntimeReplayStatements :: Bool -> Set Text -> Expr -> Expr
 stripModuleRuntimeReplayStatements isEntryModule hiddenImportExports expr =

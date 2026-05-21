@@ -310,25 +310,35 @@ parseImportTail importToken modulePath tokensAfterModulePath =
       pure (SSImport (tokenSpan importToken) modulePath Nothing Nothing, rest)
     asToken@(Token {tokenKind = TAs}) : rest ->
       case rest of
-        aliasToken@(Token {tokenKind = TIdentifier aliasName}) : afterAlias -> do
-          case afterAlias of
-            parenToken@(Token {tokenKind = TLParen}) : _ ->
+        aliasToken@(Token {tokenKind = TIdentifier aliasName}) : afterAlias
+          | isReservedLiteralName aliasName ->
               Left
                 ( parseDiagnostic
-                    ( "cannot combine import alias and symbol list at "
-                        <> renderSourceSpan (tokenSpan parenToken)
+                    ( "reserved literal '"
+                        <> aliasName
+                        <> "' cannot be used as an import alias at "
+                        <> renderSourceSpan (tokenSpan aliasToken)
                     )
                 )
-            _ -> do
-              remaining <- consumeDot afterAlias
-              pure
-                ( SSImport
-                    (tokenSpan importToken)
-                    modulePath
-                    (Just aliasName)
-                    Nothing,
-                  remaining
-                )
+          | otherwise -> do
+              case afterAlias of
+                parenToken@(Token {tokenKind = TLParen}) : _ ->
+                  Left
+                    ( parseDiagnostic
+                        ( "cannot combine import alias and symbol list at "
+                            <> renderSourceSpan (tokenSpan parenToken)
+                        )
+                    )
+                _ -> do
+                  remaining <- consumeDot afterAlias
+                  pure
+                    ( SSImport
+                        (tokenSpan importToken)
+                        modulePath
+                        (Just aliasName)
+                        Nothing,
+                      remaining
+                    )
         [] ->
           Left
             ( parseDiagnostic

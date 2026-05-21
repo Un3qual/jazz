@@ -66,6 +66,7 @@ tests =
     ("rejects import statement with empty symbol list", testRejectsImportEmptySymbolList),
     ("rejects import statement with empty symbol list using rparen span", testRejectsImportEmptySymbolListSpan),
     ("rejects import statement with duplicate symbols", testRejectsImportDuplicateSymbols),
+    ("rejects import alias using reserved literal", testRejectsImportReservedLiteralAlias),
     ("rejects import statement with alias and symbol list together", testRejectsImportAliasWithSymbolList),
     ("rejects import statement with symbol list then alias", testRejectsImportSymbolListWithAlias)
   ]
@@ -372,6 +373,13 @@ testRejectsImportDuplicateSymbols =
     "import duplicate symbol error"
     "duplicate import symbol 'map'"
     (parseSurfaceProgram "import Std::List (map, filter, map).")
+
+testRejectsImportReservedLiteralAlias :: IO ()
+testRejectsImportReservedLiteralAlias =
+  assertLeftDiagnosticContains
+    "import reserved alias error"
+    "reserved literal 'True' cannot be used as an import alias"
+    (parseSurfaceProgram "import Std::List as True.")
 
 testRejectsImportAliasWithSymbolList :: IO ()
 testRejectsImportAliasWithSymbolList =
