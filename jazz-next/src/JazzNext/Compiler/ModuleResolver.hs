@@ -425,9 +425,23 @@ collectBlockReferences boundNames statements =
 
 collectCaseArmReferences :: Set Text -> SurfaceCaseArm -> Set Text
 collectCaseArmReferences boundNames (SurfaceCaseArm patternValue body) =
-  collectExprReferences
-    (Set.union boundNames (collectPatternBinders patternValue))
-    body
+  Set.union
+    (collectPatternReferences patternValue)
+    ( collectExprReferences
+        (Set.union boundNames (collectPatternBinders patternValue))
+        body
+    )
+
+collectPatternReferences :: SurfacePattern -> Set Text
+collectPatternReferences patternValue =
+  case patternValue of
+    SPWildcard -> Set.empty
+    SPVariable _ -> Set.empty
+    SPLiteral _ -> Set.empty
+    SPConstructor constructorName nestedPatterns ->
+      Set.insert (identifierText constructorName) (Set.unions (map collectPatternReferences nestedPatterns))
+    SPList nestedPatterns ->
+      Set.unions (map collectPatternReferences nestedPatterns)
 
 collectPatternBinders :: SurfacePattern -> Set Text
 collectPatternBinders patternValue =

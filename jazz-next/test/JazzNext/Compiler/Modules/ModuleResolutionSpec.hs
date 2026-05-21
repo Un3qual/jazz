@@ -50,7 +50,9 @@ tests =
     ("reports non-exported import symbols with module context", testReportsMissingImportSymbol),
     ("reports import symbol collisions across imported modules", testReportsImportSymbolCollision),
     ("reports import alias collisions across imported modules", testReportsImportAliasCollision),
+    ("reports pattern references to constructors hidden by explicit imports", testReportsHiddenExplicitImportConstructorPatternReference),
     ("reports unqualified references to bindings imported only by alias", testReportsUnqualifiedAliasImportReference),
+    ("reports pattern references to constructors hidden by alias imports", testReportsHiddenAliasImportConstructorPatternReference),
     ("accepts qualified references through alias imports", testAcceptsQualifiedAliasImportReference),
     ("accepts qualified references to data constructors through alias imports", testAcceptsQualifiedAliasDataConstructorReference),
     ("reports qualified references through unknown aliases", testReportsUnknownQualifiedAliasReference),
@@ -365,6 +367,27 @@ testReportsImportAliasCollision = do
           ("src/B/Ops.jz", "map = 2.")
         ]
 
+testReportsHiddenExplicitImportConstructorPatternReference :: IO ()
+testReportsHiddenExplicitImportConstructorPatternReference = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "explicit hidden constructor code" "E4011" result
+  assertLeftContains "hidden constructor text" "Just" result
+  assertLeftContains "imported module context" "Lib::Maybe" result
+  assertLeftContains "importer context" "App::Main" result
+  assertLeftDiagnosticMetadata
+    "explicit hidden constructor metadata"
+    (Just (SourceSpan 1 1))
+    Nothing
+    (Just "Just")
+    result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Maybe (Nothing).\nmain = case Nothing { | Just value -> value | _ -> 0 }."),
+          ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
+        ]
+
 testReportsUnqualifiedAliasImportReference :: IO ()
 testReportsUnqualifiedAliasImportReference = do
   let result = resolveModuleGraph config sourceFiles ["App", "Main"]
@@ -385,6 +408,28 @@ testReportsUnqualifiedAliasImportReference = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Math as Math.\nmain = subtract."),
           ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        ]
+
+testReportsHiddenAliasImportConstructorPatternReference :: IO ()
+testReportsHiddenAliasImportConstructorPatternReference = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "alias hidden constructor code" "E4012" result
+  assertLeftContains "hidden constructor text" "Just" result
+  assertLeftContains "imported module context" "Lib::Maybe" result
+  assertLeftContains "import alias context" "Maybe" result
+  assertLeftContains "importer context" "App::Main" result
+  assertLeftDiagnosticMetadata
+    "alias hidden constructor metadata"
+    (Just (SourceSpan 1 1))
+    Nothing
+    (Just "Just")
+    result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Maybe as Maybe.\nmain = case Maybe::Nothing { | Just value -> value | _ -> 0 }."),
+          ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
         ]
 
 testAcceptsQualifiedAliasImportReference :: IO ()
