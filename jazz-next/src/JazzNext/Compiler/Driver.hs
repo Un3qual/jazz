@@ -852,11 +852,18 @@ rewriteBlockReferences importTargets outerBoundNames statements =
     blockBoundNames =
       Set.union
         outerBoundNames
-        ( Set.fromList
-            [ identifierText bindingName
-              | SLet bindingName _ _ <- statements
-            ]
-        )
+        (Set.fromList (concatMap statementBindingNames statements))
+
+statementBindingNames :: Statement -> [Text]
+statementBindingNames statement =
+  case statement of
+    SLet bindingName _ _ ->
+      [identifierText bindingName]
+    SData _ _ constructors ->
+      [ identifierText constructorName
+        | DataConstructor constructorName _ <- constructors
+      ]
+    _ -> []
 
 rewriteStatementReferences :: Map Text [Text] -> Set Text -> Statement -> Statement
 rewriteStatementReferences importTargets boundNames statement =
@@ -872,12 +879,7 @@ rewriteExprReferences importTargets boundNames expression =
   case expression of
     ELit _ -> expression
     EVar name ->
-      let nameText = identifierText name
-       in case Map.lookup nameText importTargets of
-            Just modulePath
-              | Set.notMember nameText boundNames ->
-                  EVar (mkIdentifier (moduleExportQualifiedName modulePath nameText))
-            _ -> expression
+      EVar (rewriteReferenceIdentifier importTargets boundNames name)
     ELambda parameterName bodyExpr ->
       ELambda
         parameterName
@@ -903,7 +905,7 @@ rewriteExprReferences importTargets boundNames expression =
       EPatternCase
         (rewriteExprReferences importTargets boundNames scrutineeExpr)
         [ CaseArm
-            patternValue
+            (rewritePatternReferences importTargets boundNames patternValue)
             (rewriteExprReferences importTargets (Set.union boundNames (patternBinders patternValue)) bodyExpr)
           | CaseArm patternValue bodyExpr <- caseArms
         ]
@@ -918,6 +920,28 @@ rewriteExprReferences importTargets boundNames expression =
       ESectionRight operatorName (rewriteExprReferences importTargets boundNames rightExpr)
     EBlock nestedStatements ->
       EBlock (rewriteBlockReferences importTargets boundNames nestedStatements)
+
+rewriteReferenceIdentifier :: Map Text [Text] -> Set Text -> Identifier -> Identifier
+rewriteReferenceIdentifier importTargets boundNames name =
+  let nameText = identifierText name
+   in case Map.lookup nameText importTargets of
+        Just modulePath
+          | Set.notMember nameText boundNames ->
+              mkIdentifier (moduleExportQualifiedName modulePath nameText)
+        _ -> name
+
+rewritePatternReferences :: Map Text [Text] -> Set Text -> Pattern -> Pattern
+rewritePatternReferences importTargets boundNames patternValue =
+  case patternValue of
+    PWildcard -> PWildcard
+    PVariable name -> PVariable name
+    PLiteral literalValue -> PLiteral literalValue
+    PConstructor constructorName nestedPatterns ->
+      PConstructor
+        (rewriteReferenceIdentifier importTargets boundNames constructorName)
+        (map (rewritePatternReferences importTargets boundNames) nestedPatterns)
+    PList nestedPatterns ->
+      PList (map (rewritePatternReferences importTargets boundNames) nestedPatterns)
 
 patternBinders :: Pattern -> Set Text
 patternBinders patternValue =
@@ -956,13 +980,15 @@ collectUnqualifiedReferences expr =
           collectUnqualifiedReferences falseBranch
         ]
     EPatternCase scrutineeExpr caseArms ->
-      Set.union
-        (collectUnqualifiedReferences scrutineeExpr)
-        ( Set.unions
-            [ Set.difference (collectUnqualifiedReferences bodyExpr) (patternBinders patternValue)
+      Set.unions
+        [ collectUnqualifiedReferences scrutineeExpr,
+          Set.unions
+            [ Set.union
+                (patternConstructorReferences patternValue)
+                (Set.difference (collectUnqualifiedReferences bodyExpr) (patternBinders patternValue))
               | CaseArm patternValue bodyExpr <- caseArms
             ]
-        )
+        ]
     EBinary _ leftExpr rightExpr ->
       Set.union (collectUnqualifiedReferences leftExpr) (collectUnqualifiedReferences rightExpr)
     ESectionLeft leftExpr _ -> collectUnqualifiedReferences leftExpr
@@ -977,11 +1003,17 @@ collectUnqualifiedReferences expr =
               | statement <- statements
             ]
         )
-        ( Set.fromList
-            [ identifierText bindingName
-              | SLet bindingName _ _ <- statements
-            ]
-        )
+        (Set.fromList (concatMap statementBindingNames statements))
+
+patternConstructorReferences :: Pattern -> Set Text
+patternConstructorReferences patternValue =
+  case patternValue of
+    PWildcard -> Set.empty
+    PVariable _ -> Set.empty
+    PLiteral _ -> Set.empty
+    PConstructor constructorName nestedPatterns ->
+      Set.insert (identifierText constructorName) (Set.unions (map patternConstructorReferences nestedPatterns))
+    PList nestedPatterns -> Set.unions (map patternConstructorReferences nestedPatterns)
 
 expandNeededModuleExports ::
   [ResolvedModule] ->
@@ -1004,10 +1036,7 @@ collectExportDependencies expr =
   case expr of
     EBlock statements ->
       let exportedNames =
-            Set.fromList
-              [ identifierText bindingName
-                | SLet bindingName _ _ <- statements
-              ]
+            Set.fromList (concatMap statementBindingNames statements)
        in Map.fromList
             [ (identifierText bindingName, Set.intersection exportedNames (collectUnqualifiedReferences valueExpr))
               | SLet bindingName _ valueExpr <- statements
