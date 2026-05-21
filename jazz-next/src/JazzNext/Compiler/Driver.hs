@@ -1266,7 +1266,13 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
                   signatureValue
               ]
         SData spanValue typeName constructors ->
-          rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName constructors
+          rewriteDataStatementForReplay
+            modulePath
+            hiddenImportExports
+            (Set.union hiddenImportExports neededModuleExports)
+            spanValue
+            typeName
+            constructors
         _ -> [statement]
 
     hiddenValidationIdentifier name =

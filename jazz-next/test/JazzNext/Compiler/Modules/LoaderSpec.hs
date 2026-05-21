@@ -48,6 +48,7 @@ tests =
     ("compile module graph reports unresolved import diagnostics", testCompileModuleGraphUnresolved),
     ("compile module graph reports missing import symbols", testCompileModuleGraphMissingImportSymbol),
     ("compile module graph hides dependency bindings excluded by explicit import list", testCompileModuleGraphExplicitImportListHidesUnlistedBindings),
+    ("compile module graph keeps hidden constructor dependencies for validation", testCompileModuleGraphKeepsHiddenConstructorValidationDependencies),
     ("compile module graph allows explicit-import hidden name supplied by prelude", testCompileModuleGraphExplicitImportAllowsPreludeBinding),
     ("compile module graph hides dependency bindings imported only by alias", testCompileModuleGraphAliasImportHidesUnqualifiedBindings),
     ("compile module graph allows alias-hidden name supplied by prelude", testCompileModuleGraphAliasImportAllowsPreludeBinding),
@@ -252,6 +253,26 @@ testCompileModuleGraphExplicitImportListHidesUnlistedBindings = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Math (add).\nsubtract."),
           ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphKeepsHiddenConstructorValidationDependencies :: IO ()
+testCompileModuleGraphKeepsHiddenConstructorValidationDependencies = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  assertEqual "compile errors" [] (compileErrors result)
+  assertEqual "generated output" (Just "/* jazz-next codegen placeholder */") (generatedJs result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Maybe as Maybe.\n1."),
+          ("src/Lib/Maybe.jz", "data Maybe = Just value.\nx = Just 1.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

@@ -46,6 +46,7 @@ tests =
     ("parses lowercase qualified lookup inside nested block", testParsesNestedLowercaseQualifiedAliasLookup),
     ("parses uppercase qualified alias member lookup", testParsesUppercaseQualifiedAliasMemberLookup),
     ("parses constructor-style signature when not an alias", testParsesConstructorStyleSignatureWhenNotAlias),
+    ("parses compact signature when not an alias", testParsesCompactSignatureWhenNotAlias),
     ("parses constructor-style unsupported signature when not an alias", testParsesConstructorStyleUnsupportedSignatureWhenNotAlias),
     ("parses signature for binding sharing alias name", testParsesSignatureForBindingSharingAliasName),
     ("parses lowercase signature payload for binding sharing alias name", testParsesLowercaseSignaturePayloadForBindingSharingAliasName),
@@ -184,6 +185,19 @@ testParsesConstructorStyleSignatureWhenNotAlias =
         )
     )
     (parseSurfaceProgram "Result :: Int.\nResult = 1.")
+
+testParsesCompactSignatureWhenNotAlias :: IO ()
+testParsesCompactSignatureWhenNotAlias =
+  assertEqual
+    "compact signature surface AST"
+    ( Right
+        ( SEBlock
+            [ SSSignature "value" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeInt),
+              SSLet "value" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    (parseSurfaceProgram "value::Int.\nvalue = 1.")
 
 testParsesConstructorStyleUnsupportedSignatureWhenNotAlias :: IO ()
 testParsesConstructorStyleUnsupportedSignatureWhenNotAlias =

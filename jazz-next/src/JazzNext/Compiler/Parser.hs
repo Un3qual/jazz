@@ -165,8 +165,8 @@ parseStatement context knownAliases tokens =
                     <> renderSourceSpan (tokenSpan nameToken)
                 )
             )
-      | TIdentifier _ <- tokenKind nameToken,
-        shouldParseQualifiedAliasStatement nameToken afterName ->
+      | TIdentifier name <- tokenKind nameToken,
+        shouldParseQualifiedAliasStatement knownAliases name nameToken afterName ->
           fmap singleStatement (parseExprStatement knownAliases tokens)
       | TIdentifier name <- tokenKind nameToken ->
           fmap singleStatement (parseSignature (mkIdentifier name) nameToken afterName)
@@ -197,11 +197,26 @@ registerImportAliases =
           Set.insert aliasName knownAliases
         _ -> knownAliases
 
-shouldParseQualifiedAliasStatement :: Token -> [Token] -> Bool
-shouldParseQualifiedAliasStatement nameToken tokensAfterName =
+shouldParseQualifiedAliasStatement :: Set Text -> Text -> Token -> [Token] -> Bool
+shouldParseQualifiedAliasStatement knownAliases name nameToken tokensAfterName =
   case tokensAfterName of
     colonToken@(Token {tokenKind = TColonColon}) : _ ->
       isImmediatelyAfter nameToken colonToken
+        && (Set.member name knownAliases || not (isCompactSignatureBeforeBinding name nameToken tokensAfterName))
+    _ ->
+      False
+
+isCompactSignatureBeforeBinding :: Text -> Token -> [Token] -> Bool
+isCompactSignatureBeforeBinding name nameToken tokensAfterName =
+  case parseSignature (mkIdentifier name) nameToken tokensAfterName of
+    Right (_, remaining) -> nextStatementStartsMatchingBinding name remaining
+    Left _ -> False
+
+nextStatementStartsMatchingBinding :: Text -> [Token] -> Bool
+nextStatementStartsMatchingBinding name tokens =
+  case tokens of
+    Token {tokenKind = TIdentifier nextName} : Token {tokenKind = TEquals} : _ ->
+      nextName == name
     _ ->
       False
 
