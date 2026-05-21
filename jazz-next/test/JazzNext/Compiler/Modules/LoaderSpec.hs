@@ -56,6 +56,7 @@ tests =
     ("run module graph keeps transitive alias-hidden dependency export from shadowing prelude", testRunModuleGraphTransitiveAliasHiddenExportUsesPrelude),
     ("compile module graph hides transitive alias-only exports from unqualified replay", testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport),
     ("run module graph keeps alias-hidden prelude binding isolated from visible importer", testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter),
+    ("run module graph keeps visible sibling import isolated from alias-hidden replay", testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenReplay),
     ("run module graph keeps hidden qualified export dependencies available", testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge),
     ("run module graph resolves qualified alias lookup", testRunModuleGraphQualifiedAliasLookup),
     ("run module graph resolves qualified alias lookup through dependency export", testRunModuleGraphQualifiedAliasLookupUsesDependencyExport),
@@ -417,6 +418,28 @@ testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter = do
     sourceMap =
       Map.fromList
         [ ("src/App/Main.jz", "import App::UsesMath.\nimport App::UsesPrelude.\npreludeValue."),
+          ("src/App/UsesMath.jz", "import Lib::Math.\nmathValue = subtract."),
+          ("src/App/UsesPrelude.jz", "import Lib::Math as Math.\npreludeValue = subtract."),
+          ("src/Lib/Math.jz", "subtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenReplay :: IO ()
+testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenReplay = do
+  result <-
+    runModuleGraphWithResolvedPrelude
+      defaultWarningSettings
+      (PreludeExplicit "subtract = 99.")
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "2") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import App::UsesMath.\nimport App::UsesPrelude.\nmathValue."),
           ("src/App/UsesMath.jz", "import Lib::Math.\nmathValue = subtract."),
           ("src/App/UsesPrelude.jz", "import Lib::Math as Math.\npreludeValue = subtract."),
           ("src/Lib/Math.jz", "subtract = 2.")

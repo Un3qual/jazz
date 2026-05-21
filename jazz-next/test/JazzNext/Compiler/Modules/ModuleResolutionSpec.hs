@@ -411,6 +411,12 @@ testReportsStandaloneUnknownQualifiedAliasReference = do
   assertLeftContains "standalone unknown alias text" "Math" result
   assertLeftContains "standalone referenced symbol text" "subtract" result
   assertLeftContains "standalone importer context" "App::Main" result
+  assertLeftDiagnosticMetadata
+    "standalone unknown alias metadata"
+    Nothing
+    Nothing
+    (Just "Math")
+    result
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
