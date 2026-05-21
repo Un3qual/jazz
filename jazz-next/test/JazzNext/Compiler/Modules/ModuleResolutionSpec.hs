@@ -46,9 +46,16 @@ tests =
     ("reports module declaration mismatch for resolved file path", testReportsModuleDeclarationMismatch),
     ("reports nested module declaration parse failure in a module file", testReportsNestedModuleDeclarationParseFailure),
     ("accepts symbol-list imports when requested symbols are exported", testAcceptsValidImportSymbolList),
+    ("accepts symbol-list imports for data constructors", testAcceptsDataConstructorImportSymbolList),
     ("reports non-exported import symbols with module context", testReportsMissingImportSymbol),
     ("reports import symbol collisions across imported modules", testReportsImportSymbolCollision),
-    ("reports import alias collisions across imported modules", testReportsImportAliasCollision)
+    ("reports import alias collisions across imported modules", testReportsImportAliasCollision),
+    ("reports unqualified references to bindings imported only by alias", testReportsUnqualifiedAliasImportReference),
+    ("accepts qualified references through alias imports", testAcceptsQualifiedAliasImportReference),
+    ("accepts qualified references to data constructors through alias imports", testAcceptsQualifiedAliasDataConstructorReference),
+    ("reports qualified references through unknown aliases", testReportsUnknownQualifiedAliasReference),
+    ("reports standalone qualified references through unknown aliases", testReportsStandaloneUnknownQualifiedAliasReference),
+    ("reports qualified alias references to missing exports", testReportsMissingQualifiedAliasExport)
   ]
 
 testRejectsEmptyEntryModulePath :: IO ()
@@ -265,6 +272,32 @@ testAcceptsValidImportSymbolList =
           }
       ]
 
+testAcceptsDataConstructorImportSymbolList :: IO ()
+testAcceptsDataConstructorImportSymbolList =
+  assertRight
+    "data constructor import symbol list resolves"
+    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (\modules -> assertEqual "resolved modules" expectedModules modules)
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Maybe (Just).\nmain = Just 1."),
+          ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
+        ]
+    expectedModules =
+      [ ResolvedModule
+          { resolvedModulePath = ["Lib", "Maybe"],
+            resolvedSourcePath = "src/Lib/Maybe.jz",
+            resolvedImports = []
+          },
+        ResolvedModule
+          { resolvedModulePath = ["App", "Main"],
+            resolvedSourcePath = "src/App/Main.jz",
+            resolvedImports = [["Lib", "Maybe"]]
+          }
+      ]
+
 testReportsMissingImportSymbol :: IO ()
 testReportsMissingImportSymbol = do
   let result = resolveModuleGraph config sourceFiles ["App", "Main"]
@@ -330,6 +363,140 @@ testReportsImportAliasCollision = do
         [ ("src/App/Main.jz", "import A::Ops as Ops.\nimport B::Ops as Ops.\nmain = 1."),
           ("src/A/Ops.jz", "map = 1."),
           ("src/B/Ops.jz", "map = 2.")
+        ]
+
+testReportsUnqualifiedAliasImportReference :: IO ()
+testReportsUnqualifiedAliasImportReference = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "alias visibility code" "E4012" result
+  assertLeftContains "hidden symbol text" "subtract" result
+  assertLeftContains "imported module context" "Lib::Math" result
+  assertLeftContains "import alias context" "Math" result
+  assertLeftContains "importer context" "App::Main" result
+  assertLeftDiagnosticMetadata
+    "alias visibility metadata"
+    (Just (SourceSpan 1 1))
+    Nothing
+    (Just "subtract")
+    result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math as Math.\nmain = subtract."),
+          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        ]
+
+testAcceptsQualifiedAliasImportReference :: IO ()
+testAcceptsQualifiedAliasImportReference =
+  assertRight
+    "qualified alias import reference resolves"
+    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (\modules -> assertEqual "resolved modules" expectedModules modules)
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math as Math.\nmain = Math::subtract."),
+          ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        ]
+    expectedModules =
+      [ ResolvedModule
+          { resolvedModulePath = ["Lib", "Math"],
+            resolvedSourcePath = "src/Lib/Math.jz",
+            resolvedImports = []
+          },
+        ResolvedModule
+          { resolvedModulePath = ["App", "Main"],
+            resolvedSourcePath = "src/App/Main.jz",
+            resolvedImports = [["Lib", "Math"]]
+          }
+      ]
+
+testAcceptsQualifiedAliasDataConstructorReference :: IO ()
+testAcceptsQualifiedAliasDataConstructorReference =
+  assertRight
+    "qualified alias data constructor reference resolves"
+    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (\modules -> assertEqual "resolved modules" expectedModules modules)
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Maybe as Maybe.\nmain = Maybe::Just 1."),
+          ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.")
+        ]
+    expectedModules =
+      [ ResolvedModule
+          { resolvedModulePath = ["Lib", "Maybe"],
+            resolvedSourcePath = "src/Lib/Maybe.jz",
+            resolvedImports = []
+          },
+        ResolvedModule
+          { resolvedModulePath = ["App", "Main"],
+            resolvedSourcePath = "src/App/Main.jz",
+            resolvedImports = [["Lib", "Maybe"]]
+          }
+      ]
+
+testReportsUnknownQualifiedAliasReference :: IO ()
+testReportsUnknownQualifiedAliasReference = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "unknown alias code" "E4013" result
+  assertLeftContains "unknown alias text" "Math" result
+  assertLeftContains "referenced symbol text" "subtract" result
+  assertLeftContains "importer context" "App::Main" result
+  assertLeftDiagnosticMetadata
+    "unknown alias metadata"
+    Nothing
+    Nothing
+    (Just "Math")
+    result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [("src/App/Main.jz", "main = Math::subtract.")]
+
+testReportsStandaloneUnknownQualifiedAliasReference :: IO ()
+testReportsStandaloneUnknownQualifiedAliasReference = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "standalone unknown alias code" "E4013" result
+  assertLeftContains "standalone unknown alias text" "Math" result
+  assertLeftContains "standalone referenced symbol text" "subtract" result
+  assertLeftContains "standalone importer context" "App::Main" result
+  assertLeftDiagnosticMetadata
+    "standalone unknown alias metadata"
+    Nothing
+    Nothing
+    (Just "Math")
+    result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [("src/App/Main.jz", "Math::subtract.")]
+
+testReportsMissingQualifiedAliasExport :: IO ()
+testReportsMissingQualifiedAliasExport = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "missing qualified alias code" "E4014" result
+  assertLeftContains "missing symbol text" "subtract" result
+  assertLeftContains "imported module context" "Lib::Math" result
+  assertLeftContains "alias context" "Math" result
+  assertLeftContains "importer context" "App::Main" result
+  assertLeftDiagnosticMetadata
+    "missing qualified alias metadata"
+    (Just (SourceSpan 1 1))
+    Nothing
+    (Just "subtract")
+    result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Math as Math.\nmain = Math::subtract."),
+          ("src/Lib/Math.jz", "add = 1.")
         ]
 
 assertLeftDiagnosticMetadata ::
