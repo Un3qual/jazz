@@ -121,6 +121,11 @@ data ResolvedPrelude
   | PreludeExplicit Text
   deriving (Eq, Show)
 
+data LoweredResolvedPrelude
+  = LoweredPreludeAbsent
+  | LoweredPreludeBundled Expr
+  | LoweredPreludeExplicit Expr
+
 -- Compiler driver flow for the current implementation slice:
 -- analyze -> collect warnings/errors -> apply warning-as-error policy.
 compileExpr :: WarningSettings -> Expr -> IO CompileResult
@@ -195,7 +200,7 @@ compileModuleGraphWithResolvedPrelude ::
   (FilePath -> IO (Maybe Text)) ->
   IO CompileResult
 compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = do
-  case resolvedPreludeVisibleSymbols resolvedPrelude of
+  case lowerResolvedPrelude resolvedPrelude of
     Left preludeError ->
       pure
         CompileResult
@@ -203,7 +208,8 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
             compileErrors = [preludeError],
             generatedJs = Nothing
           }
-    Right ambientVisibleSymbols -> do
+    Right loweredPrelude -> do
+      let ambientVisibleSymbols = loweredPreludeVisibleSymbols loweredPrelude
       moduleGraphExprResult <- loadLoweredModuleGraph ambientVisibleSymbols resolutionConfig entryModulePath sourceLookup
       case moduleGraphExprResult of
         Left resolutionError ->
@@ -214,16 +220,8 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
                 generatedJs = Nothing
               }
         Right moduleGraphExpr ->
-          case mergeResolvedPrelude resolvedPrelude (moduleGraphValidationExpr moduleGraphExpr) of
-            Left parseErrorCode ->
-              pure
-                CompileResult
-                  { compileWarnings = [],
-                    compileErrors = [parseErrorCode],
-                    generatedJs = Nothing
-                  }
-            Right loweredProgram ->
-              compileExprWithBuiltinsAndHiddenStatements
+          let loweredProgram = mergeLoweredResolvedPrelude loweredPrelude (moduleGraphValidationExpr moduleGraphExpr)
+           in compileExprWithBuiltinsAndHiddenStatements
                 (parsedHiddenStatementIndices loweredProgram)
                 (builtinResolutionMode resolvedPrelude)
                 settings
@@ -317,7 +315,7 @@ runModuleGraphWithResolvedPrelude ::
   (FilePath -> IO (Maybe Text)) ->
   IO RunResult
 runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = do
-  case resolvedPreludeVisibleSymbols resolvedPrelude of
+  case lowerResolvedPrelude resolvedPrelude of
     Left preludeError ->
       pure
         RunResult
@@ -326,7 +324,8 @@ runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entr
             runRuntimeErrors = [],
             runOutput = Nothing
           }
-    Right ambientVisibleSymbols -> do
+    Right loweredPrelude -> do
+      let ambientVisibleSymbols = loweredPreludeVisibleSymbols loweredPrelude
       moduleGraphExprResult <- loadLoweredModuleGraph ambientVisibleSymbols resolutionConfig entryModulePath sourceLookup
       case moduleGraphExprResult of
         Left resolutionError ->
@@ -338,32 +337,14 @@ runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entr
                 runOutput = Nothing
               }
         Right moduleGraphExpr ->
-          case mergeResolvedPrelude resolvedPrelude (moduleGraphValidationExpr moduleGraphExpr) of
-            Left parseErrorCode ->
-              pure
-                RunResult
-                  { runWarnings = [],
-                    runCompileErrors = [parseErrorCode],
-                  runRuntimeErrors = [],
-                  runOutput = Nothing
-                }
-            Right validationProgram ->
-              case mergeResolvedPrelude resolvedPrelude (moduleGraphRuntimeExpr moduleGraphExpr) of
-                Left parseErrorCode ->
-                  pure
-                    RunResult
-                      { runWarnings = [],
-                        runCompileErrors = [parseErrorCode],
-                        runRuntimeErrors = [],
-                        runOutput = Nothing
-                      }
-                Right runtimeProgram ->
-                  runExprWithValidationAndRuntimeExprs
-                    (parsedHiddenStatementIndices validationProgram)
-                    (builtinResolutionMode resolvedPrelude)
-                    settings
-                    (parsedExpr validationProgram)
-                    (parsedExpr runtimeProgram)
+          let validationProgram = mergeLoweredResolvedPrelude loweredPrelude (moduleGraphValidationExpr moduleGraphExpr)
+              runtimeProgram = mergeLoweredResolvedPrelude loweredPrelude (moduleGraphRuntimeExpr moduleGraphExpr)
+           in runExprWithValidationAndRuntimeExprs
+                (parsedHiddenStatementIndices validationProgram)
+                (builtinResolutionMode resolvedPrelude)
+                settings
+                (parsedExpr validationProgram)
+                (parsedExpr runtimeProgram)
 
 runExprWithValidationAndRuntimeExprs ::
   Set Int ->
@@ -468,35 +449,34 @@ parseAndLowerSource resolvedPrelude source = do
 
 mergeResolvedPrelude :: ResolvedPrelude -> Expr -> Either Diagnostic ParsedProgram
 mergeResolvedPrelude resolvedPrelude loweredSource =
-  case resolvedPrelude of
-    PreludeAbsent ->
-      pure
-        ParsedProgram
-          { parsedExpr = loweredSource,
-            parsedHiddenStatementIndices = Set.empty
-          }
-    PreludeBundled preludeText -> do
-      loweredPrelude <- validateAndLowerPrelude preludeText
+  (`mergeLoweredResolvedPrelude` loweredSource) <$> lowerResolvedPrelude resolvedPrelude
+
+mergeLoweredResolvedPrelude :: LoweredResolvedPrelude -> Expr -> ParsedProgram
+mergeLoweredResolvedPrelude loweredResolvedPrelude loweredSource =
+  case loweredResolvedPrelude of
+    LoweredPreludeAbsent ->
+      ParsedProgram
+        { parsedExpr = loweredSource,
+          parsedHiddenStatementIndices = Set.empty
+        }
+    LoweredPreludeBundled loweredPrelude ->
       let preludeStatements = scopeStatements loweredPrelude
           combinedExpr =
             EBlock (preludeStatements ++ scopeStatements loweredSource)
           hiddenStatementIndices =
             Set.fromList [0 .. length preludeStatements - 1]
-      pure
-        ParsedProgram
-          { parsedExpr = combinedExpr,
-            parsedHiddenStatementIndices = hiddenStatementIndices
-          }
-    PreludeExplicit preludeText -> do
-      loweredPrelude <- validateAndLowerPrelude preludeText
+       in ParsedProgram
+            { parsedExpr = combinedExpr,
+              parsedHiddenStatementIndices = hiddenStatementIndices
+            }
+    LoweredPreludeExplicit loweredPrelude ->
       let preludeStatements = scopeStatements loweredPrelude
           combinedExpr =
             EBlock (preludeStatements ++ scopeStatements loweredSource)
-      pure
-        ParsedProgram
-          { parsedExpr = combinedExpr,
-            parsedHiddenStatementIndices = Set.empty
-          }
+       in ParsedProgram
+            { parsedExpr = combinedExpr,
+              parsedHiddenStatementIndices = Set.empty
+            }
 
 data ParsedProgram = ParsedProgram
   { parsedExpr :: Expr,
@@ -514,15 +494,22 @@ resolvedExplicitPrelude maybePrelude =
     Nothing -> PreludeAbsent
     Just preludeText -> PreludeExplicit preludeText
 
-resolvedPreludeVisibleSymbols :: ResolvedPrelude -> Either Diagnostic (Set Text)
-resolvedPreludeVisibleSymbols resolvedPrelude =
+lowerResolvedPrelude :: ResolvedPrelude -> Either Diagnostic LoweredResolvedPrelude
+lowerResolvedPrelude resolvedPrelude =
   case resolvedPrelude of
-    PreludeAbsent -> Right Set.empty
-    PreludeBundled preludeText -> collectPreludeVisibleSymbols preludeText
-    PreludeExplicit preludeText -> collectPreludeVisibleSymbols preludeText
+    PreludeAbsent -> Right LoweredPreludeAbsent
+    PreludeBundled preludeText -> LoweredPreludeBundled <$> validateAndLowerPrelude preludeText
+    PreludeExplicit preludeText -> LoweredPreludeExplicit <$> validateAndLowerPrelude preludeText
+
+loweredPreludeVisibleSymbols :: LoweredResolvedPrelude -> Set Text
+loweredPreludeVisibleSymbols loweredResolvedPrelude =
+  case loweredResolvedPrelude of
+    LoweredPreludeAbsent -> Set.empty
+    LoweredPreludeBundled loweredPrelude -> collectVisiblePreludeBindings loweredPrelude
+    LoweredPreludeExplicit loweredPrelude -> collectVisiblePreludeBindings loweredPrelude
   where
-    collectPreludeVisibleSymbols preludeText =
-      Set.fromList . collectTopLevelBindingNames <$> validateAndLowerPrelude preludeText
+    collectVisiblePreludeBindings loweredPrelude =
+      Set.fromList (collectTopLevelBindingNames loweredPrelude)
 
 -- | Parse and validate an explicit/bundled prelude before it is merged into the
 -- main program source.
@@ -668,7 +655,6 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
           loweredModules
       neededVisibleImportExportsByModule =
         collectNeededVisibleImportExports
-          hiddenImportExportsByModule
           exportsByModule
           loweredModules
       initialNeededModuleExportsByModule =
@@ -784,28 +770,24 @@ collectHiddenImportExports exportsByModule loweredModules =
                    in Set.difference exportedNames visibleExports
 
 collectNeededVisibleImportExports ::
-  Map [Text] (Set Text) ->
   Map [Text] [Text] ->
   [Expr] ->
   Map [Text] (Set Text)
-collectNeededVisibleImportExports hiddenImportExportsByModule exportsByModule loweredModules =
+collectNeededVisibleImportExports exportsByModule loweredModules =
   Map.unionsWith Set.union
-    (map (visibleImportReferencesForModule hiddenImportExportsByModule exportsByModule) loweredModules)
+    (map (visibleImportReferencesForModule exportsByModule) loweredModules)
 
 visibleImportReferencesForModule ::
-  Map [Text] (Set Text) ->
   Map [Text] [Text] ->
   Expr ->
   Map [Text] (Set Text)
-visibleImportReferencesForModule hiddenImportExportsByModule exportsByModule expr =
+visibleImportReferencesForModule exportsByModule expr =
   case expr of
     EBlock statements ->
       Map.fromListWith Set.union
         [ (modulePath, Set.singleton exportedName)
           | SImport _ modulePath Nothing maybeSymbolNames <- statements,
-            let hiddenExports = Map.findWithDefault Set.empty modulePath hiddenImportExportsByModule,
             exportedName <- Set.toList (visibleImportNames modulePath maybeSymbolNames),
-            Set.member exportedName hiddenExports,
             Set.member exportedName referencedNames
         ]
       where
@@ -1258,6 +1240,12 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
                       spanValue
                       (rewriteModuleExportReferences modulePath hiddenImportExports valueExpr)
                   ]
+        SLet bindingName spanValue valueExpr ->
+          [ SLet
+              bindingName
+              spanValue
+              (rewriteModuleExportReferences modulePath hiddenImportExports valueExpr)
+          ]
         SSignature signatureName spanValue signatureValue
           | Set.member (identifierText signatureName) hiddenImportExports ->
               [ SSignature
@@ -1294,6 +1282,13 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
           ]
         SData spanValue typeName constructors ->
           rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName constructors
+        SLet bindingName spanValue valueExpr
+          | Set.notMember (identifierText bindingName) hiddenImportExports ->
+              [ SLet
+                  bindingName
+                  spanValue
+                  (rewriteModuleExportReferences modulePath hiddenImportExports valueExpr)
+              ]
         _ | isHiddenImportExportStatement hiddenImportExports statement -> []
         _ -> [statement]
 

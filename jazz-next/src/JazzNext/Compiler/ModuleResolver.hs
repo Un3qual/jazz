@@ -813,7 +813,7 @@ validateImportBindings sourcePath importerPath imports referencedNames qualified
             Just symbolNames <- [parsedImportSymbols importDecl],
             Just exportedSymbols <- [Map.lookup (parsedImportModulePath importDecl) exportsByModule],
             let hiddenSymbols = Set.difference exportedSymbols (Set.fromList symbolNames),
-            symbolName <- sortOn id (Set.toList hiddenSymbols),
+            symbolName <- Set.toList hiddenSymbols,
             Set.member symbolName referencedNames,
             not (Set.member symbolName visibleSymbols)
         ]
@@ -825,7 +825,7 @@ validateImportBindings sourcePath importerPath imports referencedNames qualified
           | importDecl <- imports,
             Just aliasName <- [parsedImportAlias importDecl],
             Just exportedSymbols <- [Map.lookup (parsedImportModulePath importDecl) exportsByModule],
-            symbolName <- sortOn id (Set.toList exportedSymbols),
+            symbolName <- Set.toList exportedSymbols,
             Set.member symbolName referencedNames,
             not (Set.member symbolName visibleSymbols)
         ]
