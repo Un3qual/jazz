@@ -1,8 +1,8 @@
 # Bindings and Signatures Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; adjacent monomorphic signatures, empty `@{}:` constrained signatures, and concrete unary non-empty constraints are implemented)
+Status: active (phase 1 partial implementation in `jazz-next`; adjacent monomorphic signatures, empty `@{}:` constrained signatures, concrete unary non-empty constraints, and deterministic variable-constrained rejection diagnostics are implemented)
 Locked decisions: 2026-03-03
-Primary plan: `docs/plans/spec-clarification/2026-03-03/semantics/13-binding-and-signature-coherence.md`
+Primary plan: `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
 
 ## Purpose
 
@@ -28,7 +28,7 @@ Out of scope:
 3. A signature does not float across unrelated declarations or expressions.
 4. An empty constrained-signature prefix (`@{}:`) has no semantic obligations and normalizes to the same monomorphic type subset as an ordinary adjacent signature.
 5. Non-empty constrained signatures are accepted only for known unary constraint names (`Default`, `Eq`, `Fractional`, `Integral`, `Num`, `Ord`, `Showable`) whose single argument is a concrete `Int`, `Bool`, or nested list of those concrete types. Accepted concrete constraints are annotation-only obligations and normalize to the same monomorphic signature body as an ordinary adjacent signature.
-6. Non-empty constrained signatures with duplicate constraint names, unknown constraint names, wrong arity, type-variable arguments, type applications, or function-type constraint arguments must fail deterministically with `E2009`; duplicate constraint names must name the duplicate.
+6. Non-empty constrained signatures with duplicate constraint names, unknown constraint names, wrong arity, type-variable arguments, type-variable bodies, type applications, or function-type constraint arguments must fail deterministically with `E2009`; duplicate constraint names must name the duplicate, and variable-bearing constrained signatures must name the missing binding/defaulting contract.
 7. Same-scope rebinding is allowed and deterministic: last declaration in the same scope wins.
 8. Nested scopes may shadow outer bindings.
 9. Non-recursive use-before-definition is invalid and must produce a compile-time error.

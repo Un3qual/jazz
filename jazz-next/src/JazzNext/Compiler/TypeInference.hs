@@ -11,6 +11,7 @@ module JazzNext.Compiler.TypeInference
     inferExpressionDefault
   ) where
 
+import Data.Char (isLower)
 import Data.List (foldl')
 import Data.Maybe (isNothing)
 import qualified Data.Map.Strict as Map
@@ -1509,12 +1510,46 @@ invalidSignatureSummary symbol signaturePayload =
             <> "' in '"
             <> renderSignaturePayload signaturePayload
             <> "'"
+    ConstrainedSignature constraints signatureType
+      | constrainedSignatureHasTypeVariable constraints signatureType ->
+          "invalid or unsupported signature for '"
+            <> symbol
+            <> "': type-variable constrained signatures require a binding/defaulting contract before inference can accept '"
+            <> renderSignaturePayload signaturePayload
+            <> "'"
     _ ->
       "invalid or unsupported signature for '"
         <> symbol
         <> "': '"
         <> renderSignaturePayload signaturePayload
         <> "'"
+
+constrainedSignatureHasTypeVariable :: [SignatureConstraint] -> ConstraintSignatureType -> Bool
+constrainedSignatureHasTypeVariable constraints signatureType =
+  any constraintHasTypeVariable constraints
+    || constraintTypeHasTypeVariable signatureType
+
+constraintHasTypeVariable :: SignatureConstraint -> Bool
+constraintHasTypeVariable (SignatureConstraint _ arguments) =
+  any constraintTypeHasTypeVariable arguments
+
+constraintTypeHasTypeVariable :: ConstraintSignatureType -> Bool
+constraintTypeHasTypeVariable signatureType =
+  case signatureType of
+    ConstraintTypeName name ->
+      identifierLooksLikeTypeVariable name
+    ConstraintTypeApplication name arguments ->
+      identifierLooksLikeTypeVariable name || any constraintTypeHasTypeVariable arguments
+    ConstraintTypeList innerType ->
+      constraintTypeHasTypeVariable innerType
+    ConstraintTypeFunction argumentType resultType ->
+      constraintTypeHasTypeVariable argumentType || constraintTypeHasTypeVariable resultType
+
+identifierLooksLikeTypeVariable :: Identifier -> Bool
+identifierLooksLikeTypeVariable name =
+  case Text.uncons (identifierText name) of
+    Just (firstChar, _) -> isLower firstChar
+    Nothing -> False
 
 duplicateConstraintName :: [SignatureConstraint] -> Maybe Text
 duplicateConstraintName constraints =

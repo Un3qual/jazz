@@ -1,13 +1,13 @@
 ---
-id: JN-TYPE-CONSTRAINT-CONCRETE-001
+id: JN-TYPE-CONSTRAINT-VAR-DIAG-001
 status: done
 priority: P1
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-04-26
-plan_section: "Milestone 3 / Batch 4: Concrete constrained-signature normalization"
+last_verified: 2026-05-22
+plan_section: "Milestone 3 / Batch 5: Type-variable constrained-signature contract diagnostic"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
@@ -16,7 +16,7 @@ verification:
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Concrete unary non-empty constraints over Int, Bool, and nested concrete lists normalize to the existing monomorphic signature subset while variable-bearing, unknown, duplicate, wrong-arity, type-application, and function-argument constraints stay on deterministic E2009."
+deliverable: "Variable-bearing constrained signatures still reject with E2009, but now report that type-variable constrained signatures require a binding/defaulting contract before inference can accept them."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
 ---
@@ -50,6 +50,7 @@ supersedes:
 - [x] On `2026-04-26`, landed empty `@{}:` normalization to the existing monomorphic signature subset in `TypeInference.hs`, while keeping non-empty constrained signatures on deterministic `E2009`.
 - [x] On `2026-04-26`, landed deterministic duplicate-constraint diagnostics for non-empty constrained signatures, preserving `E2009` while naming the duplicate constraint.
 - [x] On `2026-04-26`, locked the first non-empty constrained-signature contract to concrete unary annotation-only constraints and landed the `jazz-next` implementation slice.
+- [x] On `2026-05-22`, added deterministic `E2009` diagnostic text for variable-bearing constrained signatures, naming the missing binding/defaulting contract while leaving full type-variable semantics blocked.
 - [ ] Type-variable constrained-signature semantics remain blocked on a concrete binding/defaulting and inference-interaction contract.
 - [ ] Milestone 3 complete: constrained-signature syntax and semantics are represented in `jazz-next` structures.
 - [ ] Milestone 4 complete: canonical grammar docs, normalization rules, and diagnostics align with the active parser/type pipeline.
@@ -308,6 +309,28 @@ Batch 4 files:
 - `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
 
 Batch 4 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+#### Batch 5: Type-variable constrained-signature contract diagnostic
+
+This batch landed on `2026-05-22`. It does not implement type-variable constrained-signature semantics. Instead, it keeps variable-bearing constrained signatures on deterministic `E2009` and makes the remaining blocker explicit: type-variable constrained signatures require a binding/defaulting contract before inference can accept them.
+
+- [x] Detect lower-case type-variable names inside constrained-signature constraints and bodies.
+- [x] Preserve duplicate-constraint diagnostics as the higher-priority invalid constrained-signature message.
+- [x] Add source-pipeline coverage for `@{Eq(a)}: a -> a` reporting the missing binding/defaulting contract.
+
+Batch 5 files:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+
+Batch 5 verification:
 
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs

@@ -76,6 +76,7 @@ tests =
     ("source pipeline rejects list signature mismatch", testSourceRejectsListSignatureMismatch),
     ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface),
     ("source pipeline reports duplicate constrained signature constraints", testSourceRejectsDuplicateConstrainedSignatureConstraints),
+    ("source pipeline reports variable constrained signature contract gap", testSourceRejectsVariableConstrainedSignatureContractGap),
     ("source pipeline rejects constrained signature surface with E2009", testSourceRejectsConstrainedSignatureSurface),
     ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError),
     ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
@@ -418,6 +419,22 @@ testSourceRejectsDuplicateConstrainedSignatureConstraints = do
   assertSingleDiagnosticContains
     "source duplicate constrained signature text"
     "duplicate constraint 'Eq'"
+    (compileErrors result)
+
+testSourceRejectsVariableConstrainedSignatureContractGap :: IO ()
+testSourceRejectsVariableConstrainedSignatureContractGap = do
+  result <- compileSource defaultWarningSettings "f :: @{Eq(a)}: a -> a.\nf = \\(x) -> x."
+  assertSingleDiagnosticCode
+    "source variable constrained signature code"
+    "E2009"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "source variable constrained signature contract"
+    "type-variable constrained signatures require a binding/defaulting contract"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "source variable constrained signature payload"
+    "@{Eq(a)}: a -> a"
     (compileErrors result)
 
 testSourceRejectsConstrainedSignatureSurface :: IO ()
