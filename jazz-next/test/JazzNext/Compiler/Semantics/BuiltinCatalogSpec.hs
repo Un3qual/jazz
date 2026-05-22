@@ -154,8 +154,9 @@ testBundledPreludeComparisonNormalizesLineEndings =
     (normalizePreludeLineEndings (Text.replace "\n" "\r\n" bundledPreludeSource))
 
 normalizePreludeLineEndings :: Text -> Text
-normalizePreludeLineEndings =
-  Text.replace "\r" "\n" . Text.replace "\r\n" "\n"
+normalizePreludeLineEndings text =
+  let withoutCrLf = Text.replace "\r\n" "\n" text
+   in Text.replace "\r" "\n" withoutCrLf
 
 readCheckedInBundledPrelude :: IO Text
 readCheckedInBundledPrelude = do
