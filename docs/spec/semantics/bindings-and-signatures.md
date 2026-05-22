@@ -123,6 +123,11 @@ x = 1.
 ```
 
 ```jz
+id :: @{Eq(a)}: a -> a.
+id = \(x) -> x.
+```
+
+```jz
 counter = 0.
 counter = counter + 1.
 ```
@@ -157,8 +162,8 @@ y = 1.
 ```
 
 ```jz
-id :: @{Eq(a)}: a -> a.
-id = \(x) -> x.
+bad :: @{Eq(a)}: a -> b.
+bad = \(x) -> x.
 ```
 
 ## Deferred Work
