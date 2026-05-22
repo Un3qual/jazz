@@ -444,7 +444,7 @@ If you need a practical baseline for continuing Jazz, use this order:
    - application and list literals
    - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, right-associative function types, explicit parenthesized function-type overrides, empty `@{}:` constrained wrappers, concrete unary constrained signatures, and known unary variable constrained signatures under the monomorphic annotation-only contract)
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
-   - canonical `data` declarations with constructor values/applications, plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; analyzer/type/runtime execution covers literal, wildcard, variable, declared constructor patterns, and exact-length bracketed-list patterns
+   - canonical `data` declarations with constructor values/applications, plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; analyzer/type/runtime execution covers literal, wildcard, variable, declared constructor patterns, and exact-length bracketed-list patterns; tuple-shaped case patterns reject with an explicit parser diagnostic
    - built-in operator fixity plus executable left/right section semantics
    - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, plus prelude-provided public helpers `map`, `filter`, `hd`, `tl`, `print!`
    - runtime execution via `--run` CLI mode, while successful CLI and driver compile paths are diagnostic-only: compile returns warnings/errors and no generated artifact
@@ -472,9 +472,9 @@ If this repo is going to become a coherent language project, the highest-value c
 Status update for item `#1`:
 
 - Active-path ADT/pattern contract is now recorded in `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md`.
-- The currently landed `jazz-next` subset is direct `case` parsing/lowering plus analyzer/type/runtime execution for literal, wildcard, variable, constructor, and exact-length bracketed-list patterns; canonical `data` declaration parsing/lowering; analyzer/type/runtime support for constructor values and constructor application arity; and deterministic `E3023` runtime diagnostics for constructor over-application paths.
+- The currently landed `jazz-next` subset is direct `case` parsing/lowering plus analyzer/type/runtime execution for literal, wildcard, variable, constructor, and exact-length bracketed-list patterns; explicit parser rejection for tuple-shaped case patterns; canonical `data` declaration parsing/lowering; analyzer/type/runtime support for constructor values and constructor application arity; and deterministic `E3023` runtime diagnostics for constructor over-application paths.
 - Constructor payload typing is intentionally monomorphic per constructor in the current active subset; named type parameters and fresh per-use constructor type schemes remain future ADT work.
-- Tuple patterns, cons-like list patterns, and lambda-parameter patterns remain explicitly deferred on the active path.
+- Tuple-pattern semantics, cons-like list patterns, and lambda-parameter patterns remain explicitly deferred on the active path; tuple-shaped case-pattern syntax now rejects deterministically during parsing.
 
 Status update for item `#3`:
 
@@ -486,7 +486,7 @@ Status update for item `#5`:
 - Implemented-vs-planned split is now published in `README.md`.
 - Canonical evidence-backed feature status is now tracked in `docs/feature-status.md`.
 
-1. Execute the remaining active-path ADT/pattern batches in `jazz-next`, starting with a narrowed tuple-pattern ownership batch.
+1. Keep future tuple-value and tuple-pattern semantics blocked until tuple ownership is explicitly planned on the active path; tuple-shaped case-pattern syntax now has deterministic parser rejection coverage.
 2. Rebase module/import loader planning (`domain 09`) onto `jazz-next` with deterministic file-resolution diagnostics.
 3. Keep remaining stdlib-boundary follow-up work (`domain 10`) scoped to concrete future prelude/catalog growth; the current bundled source/module graph paths and checked-in prelude reproducibility evidence are covered in `jazz-next`.
 4. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.
