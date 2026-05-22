@@ -180,7 +180,6 @@ testLambdaSignatureMismatch = do
     "signature mismatch code"
     "E2006"
     (compileErrors result)
-  assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
 
 testRecursiveLambdaTypeMismatch :: IO ()
 testRecursiveLambdaTypeMismatch = do
@@ -189,7 +188,6 @@ testRecursiveLambdaTypeMismatch = do
     "recursive lambda type mismatch code"
     "E2006"
     (compileErrors result)
-  assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
 
 testRecursiveBindingMismatchDiagnostic :: IO ()
 testRecursiveBindingMismatchDiagnostic = do
@@ -206,7 +204,6 @@ testRecursiveBindingMismatchDiagnostic = do
         (renderDiagnostic compileError)
     [] ->
       failTest "expected recursive binding mismatch diagnostic"
-  assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
 
 testWrappedRecursiveLambdaTypeMismatch :: IO ()
 testWrappedRecursiveLambdaTypeMismatch = do
@@ -215,7 +212,6 @@ testWrappedRecursiveLambdaTypeMismatch = do
     "wrapped recursive lambda type mismatch code"
     "E2006"
     (compileErrors result)
-  assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
 
 testMixedWrappedRecursiveLambdaTypeMismatch :: IO ()
 testMixedWrappedRecursiveLambdaTypeMismatch = do
@@ -228,7 +224,6 @@ testMixedWrappedRecursiveLambdaTypeMismatch = do
         "mixed wrapped recursive lambda type mismatch code"
         "E2002"
         (renderDiagnostic compileError)
-  assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
 
 testBlockWrappedRecursiveLambdaTypeMismatch :: IO ()
 testBlockWrappedRecursiveLambdaTypeMismatch = do
@@ -237,7 +232,6 @@ testBlockWrappedRecursiveLambdaTypeMismatch = do
     "block-wrapped recursive lambda type mismatch code"
     "E2006"
     (compileErrors result)
-  assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
 
 testBlockReturnedLambdaAliasTypeMismatch :: IO ()
 testBlockReturnedLambdaAliasTypeMismatch = do
@@ -246,7 +240,6 @@ testBlockReturnedLambdaAliasTypeMismatch = do
     "block-returned lambda alias type mismatch code"
     "E2006"
     (compileErrors result)
-  assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)
 
 testRejectsNonCallableApplication :: IO ()
 testRejectsNonCallableApplication = do
@@ -263,4 +256,3 @@ testRejectsNonCallableApplication = do
         "apply error text"
         "cannot apply function"
         (renderDiagnostic compileError)
-  assertEqual "generated JS suppressed on compile error" Nothing (generatedJs result)

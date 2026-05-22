@@ -101,8 +101,7 @@ import JazzNext.Compiler.WarningConfig
 -- semantic errors.
 data CompileResult = CompileResult
   { compileWarnings :: [WarningRecord],
-    compileErrors :: [Diagnostic],
-    generatedJs :: Maybe Text
+    compileErrors :: [Diagnostic]
   }
   deriving (Eq, Show)
 
@@ -144,18 +143,10 @@ compileExprWithBuiltinsAndHiddenStatements ::
   IO CompileResult
 compileExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr = do
   (warnings, errors, _) <- analyzeWithWarnings hiddenStatementIndices builtinMode settings expr
-  let output =
-        if null errors
-          then
-            -- This module is only responsible for warning/error control flow.
-            -- JS generation remains a placeholder until codegen lands in jazz-next.
-            Just "/* jazz-next codegen placeholder */"
-          else Nothing
   pure
     CompileResult
       { compileWarnings = warnings,
-        compileErrors = errors,
-        generatedJs = output
+        compileErrors = errors
       }
 
 compileSource :: WarningSettings -> Text -> IO CompileResult
@@ -174,8 +165,7 @@ compileSourceWithResolvedPrelude settings resolvedPrelude source =
       pure
         CompileResult
           { compileWarnings = [],
-            compileErrors = [parseErrorCode],
-            generatedJs = Nothing
+            compileErrors = [parseErrorCode]
           }
     Right loweredProgram ->
       compileExprWithBuiltinsAndHiddenStatements
@@ -222,8 +212,7 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
       pure
         CompileResult
           { compileWarnings = [],
-            compileErrors = [preludeError],
-            generatedJs = Nothing
+            compileErrors = [preludeError]
           }
     Right loweredPrelude -> do
       let ambientVisibleSymbols = loweredPreludeVisibleSymbols loweredPrelude
@@ -233,8 +222,7 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
           pure
             CompileResult
               { compileWarnings = [],
-                compileErrors = [resolutionError],
-                generatedJs = Nothing
+                compileErrors = [resolutionError]
               }
         Right moduleGraphExpr ->
           let loweredProgram = mergeLoweredResolvedPrelude loweredPrelude (moduleGraphValidationExpr moduleGraphExpr)

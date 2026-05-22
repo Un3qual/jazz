@@ -26,7 +26,6 @@ import JazzNext.Compiler.WarningConfig
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
-    assertJust,
     assertSingleDiagnosticContains,
     runTestSuite
   )
@@ -71,19 +70,16 @@ testAcceptsArithmeticIntOperands :: IO ()
 testAcceptsArithmeticIntOperands = do
   result <- compileExpr defaultWarningSettings arithmeticProgram
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
 
 testAcceptsIntEquality :: IO ()
 testAcceptsIntEquality = do
   result <- compileExpr defaultWarningSettings intEqualityProgram
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
 
 testAcceptsBoolEquality :: IO ()
 testAcceptsBoolEquality = do
   result <- compileExpr defaultWarningSettings boolEqualityProgram
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
 
 testRejectsEqualityTypeMismatch :: IO ()
 testRejectsEqualityTypeMismatch = do
@@ -248,13 +244,11 @@ assertCompiles :: String -> IO ()
 assertCompiles source = do
   result <- compileSource defaultWarningSettings (Text.pack source)
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
 
 assertCompilesWithBundledPrelude :: String -> IO ()
 assertCompilesWithBundledPrelude source = do
   result <- compileSourceWithPrelude defaultWarningSettings (Just bundledPreludeSource) (Text.pack source)
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
 
 assertCompileError :: String -> String -> String -> IO ()
 assertCompileError source failureLabel errorCode = do

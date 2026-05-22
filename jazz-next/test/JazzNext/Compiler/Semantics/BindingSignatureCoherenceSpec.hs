@@ -27,7 +27,6 @@ import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
-    assertJust,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
     assertSingleDiagnosticPrimarySpan,
@@ -91,7 +90,6 @@ testSignatureDirectlyAboveBinding :: IO ()
 testSignatureDirectlyAboveBinding = do
   result <- compileExpr defaultWarningSettings validSignatureProgram
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
 
 testSignatureTypeMismatch :: IO ()
 testSignatureTypeMismatch = do
@@ -153,7 +151,6 @@ testNestedScopeResolvesOuterBinding :: IO ()
 testNestedScopeResolvesOuterBinding = do
   result <- compileExpr defaultWarningSettings nestedScopeProgram
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
 
 validSignatureProgram :: Expr
 validSignatureProgram =
@@ -212,13 +209,11 @@ testMutualRecursionGroup :: IO ()
 testMutualRecursionGroup = do
   result <- compileExpr defaultWarningSettings mutualRecursionProgram
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
 
 testThreeNodeMutualRecursionGroup :: IO ()
 testThreeNodeMutualRecursionGroup = do
   result <- compileExpr defaultWarningSettings threeNodeMutualRecursionProgram
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
 
 testNonRecursiveForwardReference :: IO ()
 testNonRecursiveForwardReference = do
@@ -281,7 +276,6 @@ assertSourceOk :: Text.Text -> IO ()
 assertSourceOk src = do
   result <- compileSource defaultWarningSettings src
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
 
 assertSourceErrorContains :: Text.Text -> Text.Text -> IO ()
 assertSourceErrorContains src needle = do

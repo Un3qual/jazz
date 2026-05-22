@@ -25,6 +25,21 @@ require_pattern() {
   fi
 }
 
+reject_pattern() {
+  local label="$1"
+  local pattern="$2"
+  shift 2
+  local rg_output
+  if rg_output="$(rg -in -e "$pattern" "$@" 2>&1)"; then
+    fail "$label"
+  else
+    local rg_status=$?
+    if [[ "$rg_status" -ne 1 ]]; then
+      fail "$label: rg failed: $rg_output"
+    fi
+  fi
+}
+
 require_file "README.md"
 require_file "docs/feature-status.md"
 require_file "docs/jazz-language-state.md"
@@ -45,6 +60,12 @@ require_pattern "docs/jazz-language-state.md" "feature status reference" 'docs/f
 require_pattern "docs/jazz-language-state.md" "item `#5` status update" 'Status update for item `#5`'
 require_pattern "docs/feature-status.md" "active compiler path reference" 'jazz-next/'
 require_pattern "README.md" "active compiler path reference" 'jazz-next/'
+generated_artifact_pattern='generatedjs|generated js|js output|javascript output|javascript generation|codegen placeholder'
+reject_pattern "jazz-next must not reference JavaScript generation artifacts" "$generated_artifact_pattern" jazz-next
+reject_pattern "active compile docs must not expose generated-JS artifact naming" "$generated_artifact_pattern" \
+  docs/execution/queue.md \
+  docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md \
+  docs/spec/tooling/compiler-warning-flags.md
 if [[ -f "scripts/check-execution-queue.sh" ]]; then
   if ! bash scripts/check-execution-queue.sh; then
     fail "scripts/check-execution-queue.sh reported queue/frontmatter drift"

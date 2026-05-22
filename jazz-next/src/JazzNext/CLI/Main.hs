@@ -265,9 +265,8 @@ runCompile settings resolvedPrelude source = do
   let warningLines = map formatWarningLine (compileWarnings result)
       errorLines = map (("error: " <>) . renderDiagnostic) (compileErrors result)
       stderrOutput = renderLines (warningLines ++ errorLines)
-      -- Compile mode is currently diagnostics-only. The driver may still carry
-      -- a placeholder artifact internally, but the CLI should not surface it
-      -- as if real code generation had happened.
+      -- Compile mode is diagnostics-only; evaluated program output belongs to
+      -- `--run`.
       stdoutOutput = ""
       exitCode =
         if null (compileErrors result)
