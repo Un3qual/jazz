@@ -101,8 +101,7 @@ import JazzNext.Compiler.WarningConfig
 -- semantic errors.
 data CompileResult = CompileResult
   { compileWarnings :: [WarningRecord],
-    compileErrors :: [Diagnostic],
-    generatedJs :: Maybe Text
+    compileErrors :: [Diagnostic]
   }
   deriving (Eq, Show)
 
@@ -147,8 +146,7 @@ compileExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode se
   pure
     CompileResult
       { compileWarnings = warnings,
-        compileErrors = errors,
-        generatedJs = Nothing
+        compileErrors = errors
       }
 
 compileSource :: WarningSettings -> Text -> IO CompileResult
@@ -167,8 +165,7 @@ compileSourceWithResolvedPrelude settings resolvedPrelude source =
       pure
         CompileResult
           { compileWarnings = [],
-            compileErrors = [parseErrorCode],
-            generatedJs = Nothing
+            compileErrors = [parseErrorCode]
           }
     Right loweredProgram ->
       compileExprWithBuiltinsAndHiddenStatements
@@ -215,8 +212,7 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
       pure
         CompileResult
           { compileWarnings = [],
-            compileErrors = [preludeError],
-            generatedJs = Nothing
+            compileErrors = [preludeError]
           }
     Right loweredPrelude -> do
       let ambientVisibleSymbols = loweredPreludeVisibleSymbols loweredPrelude
@@ -226,8 +222,7 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
           pure
             CompileResult
               { compileWarnings = [],
-                compileErrors = [resolutionError],
-                generatedJs = Nothing
+                compileErrors = [resolutionError]
               }
         Right moduleGraphExpr ->
           let loweredProgram = mergeLoweredResolvedPrelude loweredPrelude (moduleGraphValidationExpr moduleGraphExpr)

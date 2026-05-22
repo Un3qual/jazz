@@ -379,4 +379,3 @@ testSourcePipelineRejectsMismatchedArmResultTypes = do
 assertCompiles :: Text -> CompileResult -> IO ()
 assertCompiles label result = do
   assertEqual (label <> " compile errors") [] (compileErrors result)
-  assertEqual (label <> " generated JS") Nothing (generatedJs result)

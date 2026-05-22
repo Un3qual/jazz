@@ -52,8 +52,8 @@ tests =
     ("nested scope shadowing does not emit same-scope warning", testNestedScopeShadowingNoWarning),
     ("bundled default prelude aliases do not trigger same-scope rebinding", testBundledPreludeAliasShadowingNoWarning),
     ("explicit prelude text matching bundled source still emits rebinding warnings", testExplicitPreludeMatchingBundledSourceEmitsWarning),
-    ("driver keeps warning-only success diagnostic-only", testDriverKeepsWarningOnlySuccessDiagnosticOnly),
-    ("driver suppresses JS output when warning is promoted to error", testDriverSuppressesOutputWhenPromoted)
+    ("driver keeps warning-only success diagnostics", testDriverKeepsWarningOnlySuccessDiagnosticOnly),
+    ("driver reports promoted warnings as compile errors", testDriverReportsPromotedWarningsAsCompileErrors)
   ]
 
 testDisabledCategoryEmitsNoWarnings :: IO ()
@@ -125,15 +125,13 @@ testDriverKeepsWarningOnlySuccessDiagnosticOnly = do
   result <- compileExpr settings sampleProgram
   assertEqual "error count" 0 (length (compileErrors result))
   assertEqual "warning count" 1 (length (compileWarnings result))
-  assertEqual "generated JS" Nothing (generatedJs result)
 
-testDriverSuppressesOutputWhenPromoted :: IO ()
-testDriverSuppressesOutputWhenPromoted = do
+testDriverReportsPromotedWarningsAsCompileErrors :: IO ()
+testDriverReportsPromotedWarningsAsCompileErrors = do
   settings <- promotedSettings
   result <- compileExpr settings sampleProgram
   assertEqual "error count" 1 (length (compileErrors result))
   assertEqual "warning count" 1 (length (compileWarnings result))
-  assertEqual "generated JS" Nothing (generatedJs result)
 
 enabledSettings :: IO WarningSettings
 enabledSettings =

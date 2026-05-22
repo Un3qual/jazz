@@ -88,7 +88,6 @@ testCompileModuleGraphSuccess = do
       ["App", "Main"]
       lookupSource
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated output" Nothing (generatedJs result)
   where
     sourceMap =
       Map.fromList
@@ -127,7 +126,6 @@ testCompileModuleGraphDefaultLoadsBundledPrelude = do
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated output" Nothing (generatedJs result)
   where
     sourceMap =
       Map.fromList
@@ -185,7 +183,6 @@ testCompileModuleGraphValidatesDependencyExpressions = do
       ["App", "Main"]
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
-  assertEqual "generated output" Nothing (generatedJs result)
   case compileErrors result of
     [err] ->
       assertContains
@@ -211,7 +208,6 @@ testCompileModuleGraphValidatesHiddenDependencyExports = do
       ["App", "Main"]
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
-  assertEqual "generated output" Nothing (generatedJs result)
   case compileErrors result of
     [err] ->
       assertContains "hidden export unbound" "unbound variable 'missingName'" (renderDiagnostic err)
@@ -235,7 +231,6 @@ testCompileModuleGraphRewritesHiddenConstructorDependencyExpressions = do
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated output" Nothing (generatedJs result)
   where
     sourceMap =
       Map.fromList
@@ -254,7 +249,6 @@ testCompileModuleGraphUnresolved = do
       ["App", "Main"]
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
-  assertEqual "generated output" Nothing (generatedJs result)
   case compileErrors result of
     [err] -> do
       assertContains "unresolved code" "E4001" (renderDiagnostic err)
@@ -276,7 +270,6 @@ testCompileModuleGraphMissingImportSymbol = do
       ["App", "Main"]
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
-  assertEqual "generated output" Nothing (generatedJs result)
   case compileErrors result of
     [err] -> do
       let rendered = renderDiagnostic err
@@ -303,7 +296,6 @@ testCompileModuleGraphExplicitImportListHidesUnlistedBindings = do
       ["App", "Main"]
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
-  assertEqual "generated output" Nothing (generatedJs result)
   case compileErrors result of
     [err] -> do
       let rendered = renderDiagnostic err
@@ -331,7 +323,6 @@ testCompileModuleGraphKeepsHiddenConstructorValidationDependencies = do
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated output" Nothing (generatedJs result)
   where
     sourceMap =
       Map.fromList
@@ -351,7 +342,6 @@ testCompileModuleGraphExplicitImportAllowsPreludeBinding = do
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated output" Nothing (generatedJs result)
   where
     sourceMap =
       Map.fromList
@@ -370,7 +360,6 @@ testCompileModuleGraphAliasImportHidesUnqualifiedBindings = do
       ["App", "Main"]
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
-  assertEqual "generated output" Nothing (generatedJs result)
   case compileErrors result of
     [err] -> do
       let rendered = renderDiagnostic err
@@ -399,7 +388,6 @@ testCompileModuleGraphAliasImportAllowsPreludeBinding = do
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated output" Nothing (generatedJs result)
   where
     sourceMap =
       Map.fromList
@@ -600,7 +588,6 @@ testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport = do
       ["App", "Main"]
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
-  assertEqual "generated output" Nothing (generatedJs result)
   case compileErrors result of
     [err] -> do
       let rendered = renderDiagnostic err
@@ -730,7 +717,6 @@ testCompileModuleGraphQualifiedAliasLookupBeforeImport = do
       ["App", "Main"]
       lookupSource
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated output" Nothing (generatedJs result)
   where
     sourceMap =
       Map.fromList
@@ -749,7 +735,6 @@ testCompileModuleGraphModuleDeclarationMismatch = do
       ["App", "Main"]
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
-  assertEqual "generated output" Nothing (generatedJs result)
   case compileErrors result of
     [err] -> do
       let rendered = renderDiagnostic err

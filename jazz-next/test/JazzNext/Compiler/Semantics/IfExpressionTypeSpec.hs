@@ -62,7 +62,6 @@ testAcceptsEqualityCondition :: IO ()
 testAcceptsEqualityCondition = do
   result <- compileExpr defaultWarningSettings equalityConditionProgram
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated JS" Nothing (generatedJs result)
 
 testRejectsInvalidEqualityCondition :: IO ()
 testRejectsInvalidEqualityCondition = do
@@ -84,7 +83,6 @@ testAcceptsWellTypedIf :: IO ()
 testAcceptsWellTypedIf = do
   result <- compileExpr defaultWarningSettings validIfProgram
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated JS" Nothing (generatedJs result)
 
 mkProgram :: Expr -> Expr
 mkProgram expr =
@@ -130,7 +128,6 @@ testSourcePipelineAcceptsWellTypedIf :: IO ()
 testSourcePipelineAcceptsWellTypedIf = do
   result <- compileSource defaultWarningSettings "x = if True 1 else 2."
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated JS" Nothing (generatedJs result)
 
 testSourcePipelineRejectsNonBoolCondition :: IO ()
 testSourcePipelineRejectsNonBoolCondition = do

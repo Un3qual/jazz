@@ -24,7 +24,7 @@ verification:
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Successful compile driver results stop returning the fake codegen placeholder and focused module/warning tests assert diagnostic-only compile artifacts."
+deliverable: "Successful compile driver results are diagnostic-only and focused module/warning tests assert compile success through warnings/errors only."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 ---
@@ -51,7 +51,7 @@ supersedes:
 
 - [x] Captured the active-path runtime architecture and file ownership.
 - [x] Marked legacy `12a` runtime planning as reference-only for new execution work.
-- [x] Re-verified on `2026-03-19` that successful compile paths still emit `/* jazz-next codegen placeholder */`, and CLI/module tests still lock that contract.
+- [x] Re-verified on `2026-03-19` that successful compile paths still emitted an internal placeholder artifact, and CLI/module tests still locked that contract.
 - [x] On `2026-04-10`, made CLI compile success diagnostic-only with deterministic empty stdout for standalone and module-graph compile paths while keeping `--run` as the canonical execution surface.
 - [x] Milestone 1 complete: compile and run contracts no longer depend on placeholder codegen output.
 - [x] On `2026-04-26`, rebased module/import execution work onto active owners and landed dependency-module expression isolation in the driver replay path.
@@ -61,7 +61,7 @@ supersedes:
 - [x] On `2026-05-22`, added default `compileModuleGraph` and `runModuleGraph` driver helpers that load the bundled prelude, with multi-file loader coverage for bundled public prelude aliases.
 - [x] On `2026-05-22`, verified the execution queue has no `Ready Now` implementation entries and kept `JN-MODULE-REBASE-PLAN-001` blocked on a concrete remaining stdlib phase-5 closure contract.
 - [x] On `2026-05-22`, added bundled-prelude reproducibility evidence: `BundledPrelude` now owns the checked-in prelude path and `BuiltinCatalogSpec` fails if that file drifts from catalog-generated bridge/alias source.
-- [x] On `2026-05-22`, retired the internal compile placeholder artifact: successful compile driver results now keep `generatedJs` empty, and loader/warning-flow/type/runtime coverage asserts diagnostic-only compile artifacts.
+- [x] On `2026-05-22`, retired the internal compile placeholder artifact: successful compile driver results now contain only diagnostics, and loader/warning-flow/type/runtime coverage asserts compile success through warnings/errors only.
 - [ ] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next`.
 - [ ] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
 - [ ] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.
@@ -80,7 +80,7 @@ supersedes:
 
 - Successful CLI compile paths are now diagnostic-only: standalone and module-graph compile success both exit `0`, print warnings to stderr when present, and otherwise keep stdout empty.
 - `--run` remains the canonical interpreter-backed execution path and continues to be the only CLI mode that prints evaluated runtime output.
-- The driver still carries `generatedJs` as a future-facing field for non-CLI compile callers, but successful compile-only results leave it empty until real code generation lands; this milestone closes the artifact contract gap without pretending codegen exists.
+- The driver compile result no longer carries a generated-artifact field; compile-only callers inspect warnings and errors only.
 
 ## Runtime Pipeline and Owners
 
@@ -369,9 +369,9 @@ bash scripts/check-docs.sh
 
 #### Batch 1: Internal compile placeholder retirement
 
-This batch landed on `2026-05-22`. It retired the internal fake codegen artifact that still appeared in successful `CompileResult.generatedJs` values for non-CLI compile callers. The CLI already kept compile stdout diagnostic-only; this batch made the lower-level driver/test contract match that product behavior without introducing real code generation.
+This batch landed on `2026-05-22`. It retired the internal generated-artifact placeholder for non-CLI compile callers. The CLI already kept compile stdout diagnostic-only; this batch made the lower-level driver/test contract match that product behavior.
 
-- [x] Change successful compile driver results to leave `generatedJs` empty instead of returning `/* jazz-next codegen placeholder */`.
+- [x] Change successful compile driver results to expose only warnings/errors rather than any generated-artifact field.
 - [x] Update module-loader compile success coverage to assert diagnostic-only compile artifacts.
 - [x] Update warning-flow and compile-success proxy coverage so success is still distinguishable by warnings/errors, not by placeholder output.
 
