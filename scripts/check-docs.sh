@@ -30,7 +30,7 @@ reject_pattern() {
   local pattern="$2"
   shift 2
   local rg_output
-  if rg_output="$(rg -n -e "$pattern" "$@" 2>&1)"; then
+  if rg_output="$(rg -in -e "$pattern" "$@" 2>&1)"; then
     fail "$label"
   else
     local rg_status=$?
@@ -60,8 +60,9 @@ require_pattern "docs/jazz-language-state.md" "feature status reference" 'docs/f
 require_pattern "docs/jazz-language-state.md" "item `#5` status update" 'Status update for item `#5`'
 require_pattern "docs/feature-status.md" "active compiler path reference" 'jazz-next/'
 require_pattern "README.md" "active compiler path reference" 'jazz-next/'
-reject_pattern "jazz-next must not reference JavaScript generation artifacts" 'generatedJs|generated JS|JS output|Javascript output|JavaScript output|Javascript generation|JavaScript generation|codegen placeholder' jazz-next
-reject_pattern "active compile docs must not expose generated-JS artifact naming" 'generatedJs|generated JS|JS output' \
+generated_artifact_pattern='generatedjs|generated js|js output|javascript output|javascript generation|codegen placeholder'
+reject_pattern "jazz-next must not reference JavaScript generation artifacts" "$generated_artifact_pattern" jazz-next
+reject_pattern "active compile docs must not expose generated-JS artifact naming" "$generated_artifact_pattern" \
   docs/execution/queue.md \
   docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md \
   docs/spec/tooling/compiler-warning-flags.md
