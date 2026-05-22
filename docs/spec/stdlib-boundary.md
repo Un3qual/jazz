@@ -46,6 +46,8 @@ planned.
 ## Bundled Prelude Contract
 
 - Bundled prelude path: `jazz-next/stdlib/Prelude.jz`
+- `JazzNext.Compiler.BundledPrelude.bundledPreludePath` owns that
+  repository-relative checked-in mirror path for active tests.
 - Current bridge declarations use the `__kernel_` prefix, remain kernel
   self-bridges, and satisfy `PreludeContract` validation.
 - Current bundled exports must alias the matching `__kernel_*` bridge names.
@@ -79,6 +81,8 @@ Required invariants:
 3. Runtime builtin lookup/arity must dispatch by shared catalog symbol and only
    through direct `__kernel_*` bridge references.
 4. Tests must fail if catalog entries drift from compile/runtime behavior.
+5. Tests must fail if the checked-in bundled prelude mirror drifts from the
+   catalog-generated bridge and alias source.
 
 ## Compatibility Window Policy
 

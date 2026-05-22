@@ -4,10 +4,15 @@ module Main (main) where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.IO as TextIO
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
     Statement (..)
+  )
+import JazzNext.Compiler.BundledPrelude
+  ( bundledPreludePath,
+    bundledPreludeSource
   )
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinOwnership (..),
@@ -62,6 +67,7 @@ tests =
     ("catalog ownership contract is stable", testCatalogOwnershipContract),
     ("kernel bridge names map to builtin targets", testKernelBridgeTargetName),
     ("kernel bridge prefix stays stable", testKernelBridgePrefix),
+    ("bundled prelude file stays reproducible from catalog", testBundledPreludeFileStaysReproducibleFromCatalog),
     ("direct compile helper stays kernel-only", testDirectCompileHelperStaysKernelOnly),
     ("compile pipeline treats catalog builtins as bound names", testCompilePipelineTreatsCatalogBuiltinsAsBound),
     ("runtime exposes catalog builtins as callable values", testRuntimeExposesCatalogBuiltinsAsFunctions),
@@ -122,6 +128,14 @@ testKernelBridgeTargetName = do
 testKernelBridgePrefix :: IO ()
 testKernelBridgePrefix =
   assertEqual "kernel bridge prefix" "__kernel_" kernelBridgeBindingPrefix
+
+testBundledPreludeFileStaysReproducibleFromCatalog :: IO ()
+testBundledPreludeFileStaysReproducibleFromCatalog = do
+  checkedInPrelude <- TextIO.readFile bundledPreludePath
+  assertEqual
+    "checked-in bundled prelude file matches catalog-generated prelude"
+    bundledPreludeSource
+    checkedInPrelude
 
 testDirectCompileHelperStaysKernelOnly :: IO ()
 testDirectCompileHelperStaysKernelOnly = do

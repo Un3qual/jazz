@@ -1,26 +1,22 @@
 ---
-id: JN-MODULE-REBASE-PLAN-001
-status: blocked
+id: JN-STDLIB-PRELUDE-REPRO-001
+status: done
 priority: P1
 size: S
 kind: impl
-autonomous_ready: no
-depends_on:
-  - Concrete remaining stdlib phase-5 closure contract
+autonomous_ready: yes
+depends_on: []
 last_verified: 2026-05-22
-plan_section: "Milestone 5: Close module/import and stdlib execution semantics"
+plan_section: "Milestone 5 / Batch 6: Bundled prelude reproducibility evidence"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/ModuleResolver.hs
-  - jazz-next/src/JazzNext/Compiler/Driver.hs
-  - jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs
-  - jazz-next/src/JazzNext/Compiler/PreludeContract.hs
-  - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
+  - jazz-next/src/JazzNext/Compiler/BundledPrelude.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
 verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+  - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Blocked: active module/import ownership, import visibility, qualified alias lookup, and default bundled-prelude module graph helpers are landed; remaining stdlib phase-5 closure needs a narrower executable contract before returning to Ready Now."
+deliverable: "BundledPrelude exposes the canonical checked-in prelude path and BuiltinCatalog coverage fails if `jazz-next/stdlib/Prelude.jz` drifts from the catalog-generated bundled prelude source."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 ---
@@ -56,6 +52,7 @@ supersedes:
 - [x] On `2026-04-26`, landed qualified alias lookup using `Alias::symbol`, with parser/lowering support, resolver validation (`E4013`/`E4014`), and driver alias bridge bindings for module replay.
 - [x] On `2026-05-22`, added default `compileModuleGraph` and `runModuleGraph` driver helpers that load the bundled prelude, with multi-file loader coverage for bundled public prelude aliases.
 - [x] On `2026-05-22`, verified the execution queue has no `Ready Now` implementation entries and kept `JN-MODULE-REBASE-PLAN-001` blocked on a concrete remaining stdlib phase-5 closure contract.
+- [x] On `2026-05-22`, added bundled-prelude reproducibility evidence: `BundledPrelude` now owns the checked-in prelude path and `BuiltinCatalogSpec` fails if that file drifts from catalog-generated bridge/alias source.
 - [ ] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next`.
 - [ ] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
 - [ ] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.
@@ -327,6 +324,28 @@ Batch 5 verification:
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+#### Batch 6: Bundled prelude reproducibility evidence
+
+This batch landed on `2026-05-22`. The bundled prelude source remains generated from `BuiltinCatalog`, and `jazz-next/stdlib/Prelude.jz` remains the checked-in mirror named by the stdlib boundary spec. `BundledPrelude` now exposes that canonical repository-relative path, and catalog coverage reads the file and compares it against the generated source so bridge/alias drift fails in the focused stdlib suite.
+
+- [x] Add `bundledPreludePath` in `BundledPrelude.hs` for the checked-in prelude mirror.
+- [x] Add `BuiltinCatalogSpec` coverage proving `jazz-next/stdlib/Prelude.jz` matches the catalog-generated bundled prelude source.
+- [x] Keep generated bundled-prelude loading behavior unchanged.
+
+Batch 6 files:
+
+- `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs`
+
+Batch 6 verification:
+
+```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
 bash jazz-next/scripts/test-warning-config.sh
 bash scripts/check-execution-queue.sh
