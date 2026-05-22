@@ -1,6 +1,6 @@
 # Bindings and Signatures Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; adjacent monomorphic signatures, empty `@{}:` constrained signatures, concrete unary non-empty constraints, and deterministic variable-constrained rejection diagnostics are implemented)
+Status: active (phase 1 partial implementation in `jazz-next`; adjacent monomorphic signatures, empty `@{}:` constrained signatures, concrete unary non-empty constraints, monomorphic variable constrained signatures, and deterministic unsupported-variable diagnostics are implemented)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
 
@@ -27,14 +27,15 @@ Out of scope:
 2. A type signature, when present, must appear immediately above the binding it annotates.
 3. A signature does not float across unrelated declarations or expressions.
 4. An empty constrained-signature prefix (`@{}:`) has no semantic obligations and normalizes to the same monomorphic type subset as an ordinary adjacent signature.
-5. Non-empty constrained signatures are accepted only for known unary constraint names (`Default`, `Eq`, `Fractional`, `Integral`, `Num`, `Ord`, `Showable`) whose single argument is a concrete `Int`, `Bool`, or nested list of those concrete types. Accepted concrete constraints are annotation-only obligations and normalize to the same monomorphic signature body as an ordinary adjacent signature.
-6. Non-empty constrained signatures with duplicate constraint names, unknown constraint names, wrong arity, type-variable arguments, type-variable bodies, type applications, or function-type constraint arguments must fail deterministically with `E2009`; duplicate constraint names must name the duplicate, and variable-bearing constrained signatures must name the missing binding/defaulting contract.
-7. Same-scope rebinding is allowed and deterministic: last declaration in the same scope wins.
-8. Nested scopes may shadow outer bindings.
-9. Non-recursive use-before-definition is invalid and must produce a compile-time error.
-10. Recursion is allowed, including both self-recursion and mutual recursion, using fixpoint treatment for recursive groups.
-11. Binding references are value snapshots, not live references. Rebinding a name later does not retroactively change previously evaluated values.
-12. Rebinding diagnostics are silent by default in this phase; warning emission is available through compiler warning flags.
+5. Non-empty constrained signatures are accepted for known unary constraint names (`Default`, `Eq`, `Fractional`, `Integral`, `Num`, `Ord`, `Showable`) whose single argument is a concrete `Int`, `Bool`, or nested list of those concrete types. Accepted concrete constraints are annotation-only obligations and normalize to the same monomorphic signature body as an ordinary adjacent signature.
+6. Non-empty constrained signatures are also accepted for known unary constraint names whose single argument is a lower-case type variable, when every lower-case type variable in the signature body appears in at least one supported unary constraint and every constrained variable appears in the body. Repeated source variable names in one signature map to the same fresh internal inference variable for that binding. These accepted variable constraints are monomorphic and annotation-only: they do not generalize at later use sites, do not introduce defaulting, do not call a typeclass solver, and do not add runtime dispatch.
+7. Non-empty constrained signatures with duplicate constraint names, unknown constraint names, wrong arity, unconstrained body variables, unused constrained variables, type applications, or function-type constraint arguments must fail deterministically with `E2009`; duplicate constraint names must name the duplicate, and unsupported variable-bearing constrained signatures must name the supported unary-constraint requirement.
+8. Same-scope rebinding is allowed and deterministic: last declaration in the same scope wins.
+9. Nested scopes may shadow outer bindings.
+10. Non-recursive use-before-definition is invalid and must produce a compile-time error.
+11. Recursion is allowed, including both self-recursion and mutual recursion, using fixpoint treatment for recursive groups.
+12. Binding references are value snapshots, not live references. Rebinding a name later does not retroactively change previously evaluated values.
+13. Rebinding diagnostics are silent by default in this phase; warning emission is available through compiler warning flags.
 
 ## Decision Matrix: Baseline vs Canonical
 
@@ -164,4 +165,4 @@ id = \(x) -> x.
 
 - Complete recursion-group semantics in `jazz-next` (self + mutual recursion) so implementation fully matches locked policy.
 - Add parser-surface tests once parser work lands in `jazz-next`.
-- Define type-variable constrained-signature binding/defaulting and inference interaction before any variable-bearing non-empty constrained-signature implementation batch moves into `Ready Now`.
+- Define polymorphic/generalized type-variable constrained signatures, defaulting, solver obligations, and any runtime dispatch beyond the current monomorphic annotation-only contract.

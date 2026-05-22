@@ -699,13 +699,13 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                in go nextEnv lastExprType Nothing nextState rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
-                    case signaturePayloadToExpressionType signaturePayload of
-                      Just signatureType ->
-                        (Just (PendingSignatureType (identifierText name) signatureSpan signatureType), state)
-                      Nothing ->
+                    case signaturePayloadToExpressionType signaturePayload state of
+                      (Just signatureType, stateAfterSignature) ->
+                        (Just (PendingSignatureType (identifierText name) signatureSpan signatureType), stateAfterSignature)
+                      (Nothing, stateAfterSignature) ->
                         ( Nothing,
                           addTypeError
-                            state
+                            stateAfterSignature
                             (mkInvalidSignatureTypeError (identifierText name) signatureSpan signaturePayload)
                         )
                in go env lastExprType nextPendingSignature nextState rest
@@ -964,20 +964,22 @@ annotateNewErrorsWithPrimarySpan spanValue previousState nextState =
         Just _ -> diagnostic
         Nothing -> setDiagnosticPrimarySpan spanValue diagnostic
 
-signaturePayloadToExpressionType :: SignaturePayload -> Maybe ExpressionType
-signaturePayloadToExpressionType signaturePayload =
+signaturePayloadToExpressionType :: SignaturePayload -> InferState -> (Maybe ExpressionType, InferState)
+signaturePayloadToExpressionType signaturePayload state =
   case signaturePayload of
     SignatureType signatureType ->
-      Just (signatureTypeToExpressionType signatureType)
+      (Just (signatureTypeToExpressionType signatureType), state)
     ConstrainedSignature [] signatureType ->
-      constraintSignatureTypeToExpressionType signatureType
+      (constraintSignatureTypeToExpressionType signatureType, state)
     ConstrainedSignature constraints signatureType
       | supportedConcreteConstraints constraints ->
-          constraintSignatureTypeToExpressionType signatureType
+          (constraintSignatureTypeToExpressionType signatureType, state)
+      | supportedVariableConstraints constraints signatureType ->
+          variableConstraintSignatureTypeToExpressionType signatureType state
       | otherwise ->
-          Nothing
+          (Nothing, state)
     UnsupportedSignature {} ->
-      Nothing
+      (Nothing, state)
 
 signatureTypeToExpressionType :: SignatureType -> ExpressionType
 signatureTypeToExpressionType signatureType =
@@ -992,27 +994,67 @@ signatureTypeToExpressionType signatureType =
         (signatureTypeToExpressionType resultType)
 
 constraintSignatureTypeToExpressionType :: ConstraintSignatureType -> Maybe ExpressionType
-constraintSignatureTypeToExpressionType signatureType =
+constraintSignatureTypeToExpressionType =
+  constraintSignatureTypeToExpressionTypeWithVariables Map.empty
+
+constraintSignatureTypeToExpressionTypeWithVariables ::
+  Map Text ExpressionType ->
+  ConstraintSignatureType ->
+  Maybe ExpressionType
+constraintSignatureTypeToExpressionTypeWithVariables signatureVariables signatureType =
   case signatureType of
     ConstraintTypeName name ->
       case identifierText name of
         "Int" -> Just TIntType
         "Bool" -> Just TBoolType
-        _ -> Nothing
+        typeName -> Map.lookup typeName signatureVariables
     ConstraintTypeApplication {} ->
       Nothing
     ConstraintTypeList innerType ->
-      TListType <$> constraintSignatureTypeToExpressionType innerType
+      TListType <$> constraintSignatureTypeToExpressionTypeWithVariables signatureVariables innerType
     ConstraintTypeFunction argumentType resultType ->
       TFunctionType
-        <$> constraintSignatureTypeToExpressionType argumentType
-        <*> constraintSignatureTypeToExpressionType resultType
+        <$> constraintSignatureTypeToExpressionTypeWithVariables signatureVariables argumentType
+        <*> constraintSignatureTypeToExpressionTypeWithVariables signatureVariables resultType
+
+variableConstraintSignatureTypeToExpressionType ::
+  ConstraintSignatureType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+variableConstraintSignatureTypeToExpressionType signatureType state =
+  let variableNames = Set.toAscList (constraintSignatureTypeVariableNames signatureType)
+      (signatureVariables, nextState) = allocateSignatureTypeVariables variableNames state
+   in
+    ( constraintSignatureTypeToExpressionTypeWithVariables signatureVariables signatureType,
+      nextState
+    )
+
+allocateSignatureTypeVariables :: [Text] -> InferState -> (Map Text ExpressionType, InferState)
+allocateSignatureTypeVariables variableNames state =
+  foldl' allocate (Map.empty, state) variableNames
+  where
+    allocate (signatureVariables, stateAcc) variableName =
+      let (variableType, nextState) = freshTypeVar stateAcc
+       in (Map.insert variableName variableType signatureVariables, nextState)
 
 supportedConcreteConstraints :: [SignatureConstraint] -> Bool
 supportedConcreteConstraints constraints =
   not (null constraints)
     && isNothing (duplicateConstraintName constraints)
     && all supportedConcreteConstraint constraints
+
+supportedVariableConstraints :: [SignatureConstraint] -> ConstraintSignatureType -> Bool
+supportedVariableConstraints constraints signatureType =
+  not (null constraints)
+    && isNothing (duplicateConstraintName constraints)
+    && all supportedVariableConstraint constraints
+    && not (Set.null signatureVariableNames)
+    && constraintVariableNames == signatureVariableNames
+  where
+    signatureVariableNames =
+      constraintSignatureTypeVariableNames signatureType
+    constraintVariableNames =
+      Set.unions (map constraintVariableNamesInSupportedConstraint constraints)
 
 supportedConcreteConstraint :: SignatureConstraint -> Bool
 supportedConcreteConstraint (SignatureConstraint constraintName arguments) =
@@ -1021,6 +1063,22 @@ supportedConcreteConstraint (SignatureConstraint constraintName arguments) =
       supportedConstraintName (identifierText constraintName)
         && concreteConstraintArgument argument
     _ -> False
+
+supportedVariableConstraint :: SignatureConstraint -> Bool
+supportedVariableConstraint (SignatureConstraint constraintName arguments) =
+  case arguments of
+    [ConstraintTypeName argumentName] ->
+      supportedConstraintName (identifierText constraintName)
+        && identifierLooksLikeTypeVariable argumentName
+    _ -> False
+
+constraintVariableNamesInSupportedConstraint :: SignatureConstraint -> Set Text
+constraintVariableNamesInSupportedConstraint constraint =
+  case constraint of
+    SignatureConstraint _ [ConstraintTypeName argumentName]
+      | identifierLooksLikeTypeVariable argumentName ->
+          Set.singleton (identifierText argumentName)
+    _ -> Set.empty
 
 supportedConstraintName :: Text -> Bool
 supportedConstraintName constraintName =
@@ -1037,6 +1095,28 @@ concreteConstraintArgument signatureType =
       concreteConstraintArgument innerType
     ConstraintTypeFunction {} ->
       False
+
+constraintSignatureTypeVariableNames :: ConstraintSignatureType -> Set Text
+constraintSignatureTypeVariableNames signatureType =
+  case signatureType of
+    ConstraintTypeName name
+      | identifierLooksLikeTypeVariable name ->
+          Set.singleton (identifierText name)
+      | otherwise ->
+          Set.empty
+    ConstraintTypeApplication name arguments ->
+      let argumentNames =
+            Set.unions (map constraintSignatureTypeVariableNames arguments)
+       in
+        if identifierLooksLikeTypeVariable name
+          then Set.insert (identifierText name) argumentNames
+          else argumentNames
+    ConstraintTypeList innerType ->
+      constraintSignatureTypeVariableNames innerType
+    ConstraintTypeFunction argumentType resultType ->
+      Set.union
+        (constraintSignatureTypeVariableNames argumentType)
+        (constraintSignatureTypeVariableNames resultType)
 
 supportedConstraintNames :: Set Text
 supportedConstraintNames =
@@ -1514,7 +1594,7 @@ invalidSignatureSummary symbol signaturePayload =
       | constrainedSignatureHasTypeVariable constraints signatureType ->
           "invalid or unsupported signature for '"
             <> symbol
-            <> "': type-variable constrained signatures require a binding/defaulting contract before inference can accept '"
+            <> "': type-variable constrained signatures require every signature variable to appear in a supported unary constraint before inference can accept '"
             <> renderSignaturePayload signaturePayload
             <> "'"
     _ ->

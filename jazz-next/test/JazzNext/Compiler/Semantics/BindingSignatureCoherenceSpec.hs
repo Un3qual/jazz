@@ -76,7 +76,9 @@ tests =
     ("source pipeline rejects list signature mismatch", testSourceRejectsListSignatureMismatch),
     ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface),
     ("source pipeline reports duplicate constrained signature constraints", testSourceRejectsDuplicateConstrainedSignatureConstraints),
-    ("source pipeline reports variable constrained signature contract gap", testSourceRejectsVariableConstrainedSignatureContractGap),
+    ("source pipeline accepts variable constrained signature as monomorphic", testSourceAcceptsVariableConstrainedSignatureAsMonomorphic),
+    ("source pipeline keeps variable constrained signatures monomorphic", testSourceKeepsVariableConstrainedSignatureMonomorphic),
+    ("source pipeline rejects unsupported variable constrained signature contract", testSourceRejectsUnsupportedVariableConstrainedSignatureContract),
     ("source pipeline rejects constrained signature surface with E2009", testSourceRejectsConstrainedSignatureSurface),
     ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError),
     ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
@@ -421,20 +423,36 @@ testSourceRejectsDuplicateConstrainedSignatureConstraints = do
     "duplicate constraint 'Eq'"
     (compileErrors result)
 
-testSourceRejectsVariableConstrainedSignatureContractGap :: IO ()
-testSourceRejectsVariableConstrainedSignatureContractGap = do
-  result <- compileSource defaultWarningSettings "f :: @{Eq(a)}: a -> a.\nf = \\(x) -> x."
+testSourceAcceptsVariableConstrainedSignatureAsMonomorphic :: IO ()
+testSourceAcceptsVariableConstrainedSignatureAsMonomorphic =
+  assertSourceOk "id :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nid 1."
+
+testSourceKeepsVariableConstrainedSignatureMonomorphic :: IO ()
+testSourceKeepsVariableConstrainedSignatureMonomorphic = do
+  result <- compileSource defaultWarningSettings "id :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nx = id 1.\ny = id True."
   assertSingleDiagnosticCode
-    "source variable constrained signature code"
+    "source variable constrained signature monomorphic code"
+    "E2006"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "source variable constrained signature monomorphic text"
+    "cannot apply function of type Int -> Int to argument of type Bool"
+    (compileErrors result)
+
+testSourceRejectsUnsupportedVariableConstrainedSignatureContract :: IO ()
+testSourceRejectsUnsupportedVariableConstrainedSignatureContract = do
+  result <- compileSource defaultWarningSettings "f :: @{Eq(a)}: a -> b.\nf = \\(x) -> x."
+  assertSingleDiagnosticCode
+    "source unsupported variable constrained signature code"
     "E2009"
     (compileErrors result)
   assertSingleDiagnosticContains
-    "source variable constrained signature contract"
-    "type-variable constrained signatures require a binding/defaulting contract"
+    "source unsupported variable constrained signature contract"
+    "type-variable constrained signatures require every signature variable to appear in a supported unary constraint"
     (compileErrors result)
   assertSingleDiagnosticContains
-    "source variable constrained signature payload"
-    "@{Eq(a)}: a -> a"
+    "source unsupported variable constrained signature payload"
+    "@{Eq(a)}: a -> b"
     (compileErrors result)
 
 testSourceRejectsConstrainedSignatureSurface :: IO ()

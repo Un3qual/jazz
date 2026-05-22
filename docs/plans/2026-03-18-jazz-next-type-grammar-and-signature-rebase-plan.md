@@ -1,5 +1,5 @@
 ---
-id: JN-TYPE-CONSTRAINT-VAR-DIAG-001
+id: JN-TYPE-CONSTRAINT-VAR-MONO-001
 status: done
 priority: P1
 size: S
@@ -7,7 +7,7 @@ kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-05-22
-plan_section: "Milestone 3 / Batch 5: Type-variable constrained-signature contract diagnostic"
+plan_section: "Milestone 3 / Batch 6: Monomorphic type-variable constrained signatures"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
@@ -16,7 +16,7 @@ verification:
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Variable-bearing constrained signatures still reject with E2009, but now report that type-variable constrained signatures require a binding/defaulting contract before inference can accept them."
+deliverable: "Known unary variable constrained signatures normalize to monomorphic annotation-only signatures, with deterministic E2009 for unsupported variable contracts."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
 ---
@@ -51,19 +51,19 @@ supersedes:
 - [x] On `2026-04-26`, landed deterministic duplicate-constraint diagnostics for non-empty constrained signatures, preserving `E2009` while naming the duplicate constraint.
 - [x] On `2026-04-26`, locked the first non-empty constrained-signature contract to concrete unary annotation-only constraints and landed the `jazz-next` implementation slice.
 - [x] On `2026-05-22`, added deterministic `E2009` diagnostic text for variable-bearing constrained signatures, naming the missing binding/defaulting contract while leaving full type-variable semantics blocked.
-- [ ] Type-variable constrained-signature semantics remain blocked on a concrete binding/defaulting and inference-interaction contract.
-- [ ] Milestone 3 complete: constrained-signature syntax and semantics are represented in `jazz-next` structures.
+- [x] On `2026-05-22`, landed the monomorphic type-variable constrained-signature contract for known unary constraints, with no polymorphic generalization, defaulting, solver obligations, or runtime dispatch.
+- [x] Milestone 3 complete: constrained-signature syntax and the active monomorphic semantics are represented in `jazz-next` structures.
 - [ ] Milestone 4 complete: canonical grammar docs, normalization rules, and diagnostics align with the active parser/type pipeline.
 - [ ] Milestone 5 complete: active-path tests/docs close the rebase and future work no longer depends on legacy `07`.
 
-## Active Baseline (2026-04-26)
+## Active Baseline (2026-05-22)
 
 - `jazz-next/src/JazzNext/Compiler/Parser.hs` now parses supported monomorphic signature statements into structured parser-owned payloads instead of joined raw text.
 - `jazz-next/src/JazzNext/Compiler/Parser/AST.hs` and `jazz-next/src/JazzNext/Compiler/AST.hs` now carry explicit signature/type nodes for the supported subset plus tokenized fallback for unsupported surfaces.
 - `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` forwards structured signature payloads into the core AST.
 - `jazz-next/src/JazzNext/Compiler/Analyzer.hs` still enforces signature placement/name coherence only; signature semantics remain owned by `TypeInference.hs`.
-- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now consumes structured signature payloads for `Int`, `Bool`, nested concrete list forms, right-associated chained function arrows, explicit parenthesized function-type overrides, empty `@{}:` constrained signatures over that same monomorphic subset, and concrete unary non-empty constraints over `Int`, `Bool`, and nested concrete lists. Unsupported broader forms continue to report through `E2009`; duplicate non-empty constraints are reported with specific duplicate-constraint text.
-- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs` explicitly accepts simple list signatures, right-associated chained function signatures, parenthesized list-to-list signatures, parenthesized function-type overrides, empty constrained signatures over monomorphic function types, and concrete unary constrained signatures while keeping unsupported broader surfaces and duplicate non-empty constraints on deterministic `E2009`.
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now consumes structured signature payloads for `Int`, `Bool`, nested concrete list forms, right-associated chained function arrows, explicit parenthesized function-type overrides, empty `@{}:` constrained signatures over that same monomorphic subset, concrete unary non-empty constraints over `Int`, `Bool`, and nested concrete lists, and known unary constraints over lower-case type variables that appear in the signature body. Unsupported broader forms continue to report through `E2009`; duplicate non-empty constraints are reported with specific duplicate-constraint text.
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs` explicitly accepts simple list signatures, right-associated chained function signatures, parenthesized list-to-list signatures, parenthesized function-type overrides, empty constrained signatures over monomorphic function types, concrete unary constrained signatures, and monomorphic variable constrained signatures while keeping unsupported broader surfaces, duplicate non-empty constraints, and unconstrained signature variables on deterministic `E2009`.
 - `docs/plans/2026-03-16-jazz-next-monomorphic-signature-surface.md` already delivered the safe monomorphic subset. This rebase must preserve that subset while moving ownership to the correct compiler layers.
 
 ## Scope Guardrails
@@ -194,7 +194,7 @@ Primary files:
 
 - [x] Decide that constrained signatures remain in the current `@{...}:` surface for the active path.
 - [x] Represent constraints explicitly in parser/core AST rather than as implicit text fragments.
-- [ ] Define non-empty constraint duplicate-ordering, scope, and inference interaction rules in `TypeInference.hs`.
+- [x] Define non-empty constraint duplicate-ordering, scope, and active monomorphic inference interaction rules in `TypeInference.hs`.
 - [x] Add deterministic invalid-case diagnostics and tests for unsupported and duplicate constrained signatures while allowing empty `@{}:` normalization.
 
 #### Batch 1: Structured constrained-signature payloads with preserved `E2009` rejection
@@ -331,6 +331,28 @@ Batch 5 files:
 - `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
 
 Batch 5 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+#### Batch 6: Monomorphic type-variable constrained signatures
+
+This batch landed on `2026-05-22`. It defines the first safe type-variable constrained-signature contract without adding polymorphic generalization, defaulting, a typeclass solver, or runtime dispatch. Known unary constraints over lower-case type variables normalize as annotation-only obligations when every source type variable in the signature body appears in a supported unary constraint and every constrained variable appears in the body.
+
+- [x] Allocate fresh internal inference variables per accepted constrained signature, reusing the same source variable name within that signature body.
+- [x] Keep accepted variable constrained signatures monomorphic: later use sites refine the same binding type instead of instantiating a fresh polymorphic scheme.
+- [x] Preserve deterministic `E2009` for unsupported variable contracts, including body variables without a supported unary constraint.
+
+Batch 6 files:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+
+Batch 6 verification:
 
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
