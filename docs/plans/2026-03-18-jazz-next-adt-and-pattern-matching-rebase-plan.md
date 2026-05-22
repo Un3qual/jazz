@@ -1,23 +1,22 @@
 ---
-id: JN-ADT-CONSTRUCTOR-SEM-001
-status: done
+id: JN-ADT-TUPLE-PATTERN-REJECT-001
+status: ready
 priority: P1
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-04-26
-plan_section: "Milestone 4 / Batch 2: Invalid constructor application runtime diagnostics"
+last_verified: 2026-05-22
+plan_section: "Milestone 5 / Batch 1: Tuple-pattern rejection boundary"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/Runtime.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Runtime constructor over-application emits deterministic E3023 diagnostics with constructor name and expected/received arity, closing the invalid constructor-application follow-up."
+deliverable: "Tuple-shaped case patterns are rejected with deterministic parser diagnostics and parser coverage records that tuple semantics remain explicitly unimplemented."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md
 ---
@@ -329,6 +328,28 @@ bash scripts/check-docs.sh
 - [ ] Update language-state, README, runtime roadmap, and queue metadata to point future work at the active-path plan and executed milestones.
 - [ ] Replace remaining references that imply legacy `11` is an execution target.
 - [ ] Run focused parser/type/runtime/CLI checks plus the active-path default verification script as milestones land.
+
+#### Batch 1: Tuple-pattern rejection boundary
+
+This is the next executable ADT/pattern slice. It is intentionally a boundary-locking parser batch, not tuple-pattern implementation. Tuple values and tuple-pattern semantics remain deferred until tuple ownership is planned on the active path.
+
+- [ ] Detect tuple-shaped case patterns such as `(left, right)` and reject them with a deterministic parser diagnostic instead of letting them fail through a generic arm parse path.
+- [ ] Add parser coverage proving tuple-shaped patterns are not accepted in `case` arms.
+- [ ] Preserve all currently accepted pattern forms: literals, `_`, variable binders, constructor patterns, and exact-length bracketed-list patterns.
+
+Batch 1 files:
+
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs`
+
+Batch 1 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
 
 Suggested verification:
 

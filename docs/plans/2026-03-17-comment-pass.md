@@ -1,3 +1,29 @@
+---
+id: JN-COMMENT-FOUNDATION-CONTRACTS-001
+status: ready
+priority: P3
+size: M
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-05-22
+plan_section: "Task 1: Document foundational compiler contracts"
+target_paths:
+  - jazz-next/src/JazzNext/Compiler/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Identifier.hs
+  - jazz-next/src/JazzNext/Compiler/Purity.hs
+  - jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs
+  - jazz-next/src/JazzNext/Compiler/BundledPrelude.hs
+  - jazz-next/src/JazzNext/Compiler/WarningCatalog.hs
+  - jazz-next/src/JazzNext/Compiler/Warnings.hs
+verification:
+  - bash jazz-next/scripts/test-warning-config.sh
+  - bash scripts/check-execution-queue.sh
+  - bash scripts/check-docs.sh
+deliverable: "Foundational compiler modules gain behavior-neutral Haddock/module comments explaining exported contracts and invariants."
+---
+
 # Compiler Comment Pass Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
