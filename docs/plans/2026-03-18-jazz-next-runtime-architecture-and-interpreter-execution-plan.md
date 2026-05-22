@@ -1,22 +1,25 @@
 ---
-id: JN-STDLIB-PRELUDE-REPRO-001
-status: done
+id: JN-RUNTIME-COMPILE-PLACEHOLDER-RETIRE-001
+status: ready
 priority: P1
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-05-22
-plan_section: "Milestone 5 / Batch 6: Bundled prelude reproducibility evidence"
+plan_section: "Milestone 6 / Batch 1: Internal compile placeholder retirement"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/BundledPrelude.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+  - jazz-next/src/JazzNext/Compiler/Driver.hs
+  - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "BundledPrelude exposes the canonical checked-in prelude path and BuiltinCatalog coverage fails if `jazz-next/stdlib/Prelude.jz` drifts from the catalog-generated bundled prelude source."
+deliverable: "Successful compile driver results stop returning the fake codegen placeholder and focused module/warning tests assert diagnostic-only compile artifacts."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 ---
@@ -357,6 +360,31 @@ bash scripts/check-docs.sh
 - [ ] Treat file/module execution through `jazz-next` as the canonical product path in CLI and docs.
 - [ ] Update README/status docs once compile/run behavior, module loading, and runtime coverage match observed behavior.
 - [ ] Close this plan only after queue entries and linked docs stop pointing at `jazz-hs` runtime files for new work.
+
+#### Batch 1: Internal compile placeholder retirement
+
+This is the next executable Milestone 6 slice. It is limited to retiring the internal fake codegen artifact that still appears in successful `CompileResult.generatedJs` values for non-CLI compile callers. The CLI already keeps compile stdout diagnostic-only; this batch makes the lower-level driver/test contract match that product behavior without introducing real code generation.
+
+- [ ] Change successful compile driver results to leave `generatedJs` empty instead of returning `/* jazz-next codegen placeholder */`.
+- [ ] Update module-loader compile success coverage to assert diagnostic-only compile artifacts.
+- [ ] Update warning-flow coverage so warning-only success is still distinguishable by warnings and absence of errors, not by placeholder output.
+
+Batch 1 files:
+
+- `jazz-next/src/JazzNext/Compiler/Driver.hs`
+- `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs`
+
+Batch 1 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
 
 Primary files:
 

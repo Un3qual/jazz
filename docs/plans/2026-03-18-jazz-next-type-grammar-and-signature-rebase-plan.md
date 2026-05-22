@@ -1,13 +1,13 @@
 ---
-id: JN-TYPE-CONSTRAINT-VAR-MONO-001
-status: done
+id: JN-TYPE-SIGNATURE-DIAG-SPANS-001
+status: ready
 priority: P1
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-05-22
-plan_section: "Milestone 3 / Batch 6: Monomorphic type-variable constrained signatures"
+plan_section: "Milestone 4 / Batch 1: Unsupported signature diagnostic spans"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
@@ -16,7 +16,7 @@ verification:
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Known unary variable constrained signatures normalize to monomorphic annotation-only signatures, with deterministic E2009 for unsupported variable contracts."
+deliverable: "Unsupported structured signature diagnostics consistently carry the attached signature statement span, with focused source-pipeline coverage for E2009 constrained-signature invalid cases."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
 ---
@@ -375,6 +375,28 @@ Primary files:
 - [ ] Publish active-path canonical grammar and normalization rules in docs/spec files.
 - [ ] Keep parser/type diagnostics aligned with the new structured representation, including any needed span improvements for inner type nodes.
 - [ ] Ensure CLI behavior stays consistent as signature parsing moves earlier in the pipeline.
+
+#### Batch 1: Unsupported signature diagnostic spans
+
+This is the next executable Milestone 4 slice. It is limited to unsupported structured signature diagnostics that already flow through `E2009`; it should not broaden the accepted type grammar, add polymorphic generalization, add defaulting, or introduce solver-backed constraints.
+
+- [ ] Add focused source-pipeline coverage proving unsupported constrained-signature cases report `E2009` with the primary span of the attached signature statement.
+- [ ] Cover the existing invalid constrained-signature families: unknown constraint names, wrong arity, type-application arguments, function-type arguments, duplicate constraints, unconstrained body variables, and unused constrained variables.
+- [ ] Adjust `TypeInference.hs` only as needed so all unsupported structured signature diagnostics retain deterministic text and carry the signature statement span.
+
+Batch 1 files:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+
+Batch 1 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
 
 Primary files:
 

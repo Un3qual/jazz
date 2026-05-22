@@ -1,3 +1,24 @@
+---
+id: JN-WARNING-RESERVED-METADATA-001
+status: ready
+priority: P2
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-05-22
+plan_section: "Phase 6 / Batch 1: Reserved warning metadata coverage"
+target_paths:
+  - jazz-next/src/JazzNext/Compiler/WarningCatalog.hs
+  - jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs
+verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs
+  - bash jazz-next/scripts/test-warning-config.sh
+  - bash scripts/check-execution-queue.sh
+  - bash scripts/check-docs.sh
+deliverable: "Reserved warning categories have stable published codes/tokens and config parsing coverage without emitting diagnostics."
+---
+
 # Compiler Warning Flags (Same-Scope Rebinding) Implementation Plan
 
 > **For implementers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
@@ -323,3 +344,27 @@ Phase 2+ (planned after analyzer and CLI integration):
 - [x] Analyzer emits optional same-scope rebinding diagnostics without changing default semantics.
 - [x] Warning-as-error flow is implemented and tested.
 - [x] Documentation includes clear migration notes for phased adoption.
+
+## Phase 6: Reserved Warning Metadata Coverage
+
+### Batch 1: Reserved warning metadata coverage
+
+This is a narrow active-path metadata batch. It does not implement new warning emitters; it locks the already-reserved category vocabulary so future warning families can build on stable codes and tokens without changing config parsing behavior.
+
+- [ ] Add focused `WarningConfigSpec` coverage for the reserved categories `shadowing-outer-scope`, `unused-binding`, and `deprecated-syntax`.
+- [ ] Assert their published `W0002`/`W0003`/`W0004` codes and CLI/config tokens remain stable in `WarningCatalog`.
+- [ ] Preserve the current no-emission behavior: only `same-scope-rebinding` has analyzer emission in this batch.
+
+Batch 1 files:
+
+- `jazz-next/src/JazzNext/Compiler/WarningCatalog.hs`
+- `jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs`
+
+Batch 1 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
