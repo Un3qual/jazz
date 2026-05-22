@@ -4,10 +4,23 @@ module Main (main) where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.IO as TextIO
+import System.Directory
+  ( doesFileExist,
+    getCurrentDirectory
+  )
+import System.FilePath
+  ( (</>),
+    takeDirectory
+  )
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
     Statement (..)
+  )
+import JazzNext.Compiler.BundledPrelude
+  ( bundledPreludePath,
+    bundledPreludeSource
   )
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinOwnership (..),
@@ -62,6 +75,8 @@ tests =
     ("catalog ownership contract is stable", testCatalogOwnershipContract),
     ("kernel bridge names map to builtin targets", testKernelBridgeTargetName),
     ("kernel bridge prefix stays stable", testKernelBridgePrefix),
+    ("bundled prelude file stays reproducible from catalog", testBundledPreludeFileStaysReproducibleFromCatalog),
+    ("bundled prelude comparison normalizes line endings", testBundledPreludeComparisonNormalizesLineEndings),
     ("direct compile helper stays kernel-only", testDirectCompileHelperStaysKernelOnly),
     ("compile pipeline treats catalog builtins as bound names", testCompilePipelineTreatsCatalogBuiltinsAsBound),
     ("runtime exposes catalog builtins as callable values", testRuntimeExposesCatalogBuiltinsAsFunctions),
@@ -122,6 +137,54 @@ testKernelBridgeTargetName = do
 testKernelBridgePrefix :: IO ()
 testKernelBridgePrefix =
   assertEqual "kernel bridge prefix" "__kernel_" kernelBridgeBindingPrefix
+
+testBundledPreludeFileStaysReproducibleFromCatalog :: IO ()
+testBundledPreludeFileStaysReproducibleFromCatalog = do
+  checkedInPrelude <- readCheckedInBundledPrelude
+  assertEqual
+    "checked-in bundled prelude file matches catalog-generated prelude"
+    bundledPreludeSource
+    (normalizePreludeLineEndings checkedInPrelude)
+
+testBundledPreludeComparisonNormalizesLineEndings :: IO ()
+testBundledPreludeComparisonNormalizesLineEndings =
+  assertEqual
+    "CRLF checked-in prelude text normalizes to generated source"
+    bundledPreludeSource
+    (normalizePreludeLineEndings (Text.replace "\n" "\r\n" bundledPreludeSource))
+
+normalizePreludeLineEndings :: Text -> Text
+normalizePreludeLineEndings text =
+  let withoutCrLf = Text.replace "\r\n" "\n" text
+   in Text.replace "\r" "\n" withoutCrLf
+
+readCheckedInBundledPrelude :: IO Text
+readCheckedInBundledPrelude = do
+  cwd <- getCurrentDirectory
+  maybePath <- findPreludeFrom cwd
+  case maybePath of
+    Just path -> TextIO.readFile path
+    Nothing ->
+      ioError $
+        userError
+          ( "could not find checked-in bundled prelude mirror '"
+              <> bundledPreludePath
+              <> "' from current directory '"
+              <> cwd
+              <> "' or any parent"
+          )
+  where
+    findPreludeFrom directory = do
+      let candidate = directory </> bundledPreludePath
+      exists <- doesFileExist candidate
+      if exists
+        then pure (Just candidate)
+        else
+          let parent = takeDirectory directory
+           in
+            if parent == directory
+              then pure Nothing
+              else findPreludeFrom parent
 
 testDirectCompileHelperStaysKernelOnly :: IO ()
 testDirectCompileHelperStaysKernelOnly = do
