@@ -6,7 +6,10 @@ module JazzNext.Compiler.Identifier
   ( Identifier,
     identifierText,
     identifierPurity,
-    mkIdentifier
+    mkIdentifier,
+    mkQualifiedIdentifier,
+    qualifiedIdentifierText,
+    splitQualifiedIdentifierText
   ) where
 
 import Data.String
@@ -36,6 +39,26 @@ mkIdentifier name =
     { identifierText = name,
       identifierPurity = namePurity name
     }
+
+qualifiedIdentifierText :: Text -> Text -> Text
+qualifiedIdentifierText qualifier member =
+  qualifier <> "::" <> member
+
+mkQualifiedIdentifier :: Text -> Text -> Identifier
+mkQualifiedIdentifier qualifier member =
+  mkIdentifier (qualifiedIdentifierText qualifier member)
+
+splitQualifiedIdentifierText :: Text -> Maybe (Text, Text)
+splitQualifiedIdentifierText name =
+  case Text.breakOn "::" name of
+    (qualifier, rest)
+      | Text.null qualifier -> Nothing
+      | Text.null rest -> Nothing
+      | Text.null member -> Nothing
+      | Text.isInfixOf "::" member -> Nothing
+      | otherwise -> Just (qualifier, member)
+      where
+        member = Text.drop 2 rest
 
 instance IsString Identifier where
   fromString = mkIdentifier . Text.pack

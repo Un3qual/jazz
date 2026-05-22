@@ -140,12 +140,20 @@ renderRuntimeValue value =
 renderConstructorValue :: Identifier -> [RuntimeValue] -> Text
 renderConstructorValue constructorName arguments =
   case arguments of
-    [] -> identifierText constructorName
+    [] -> renderConstructorName constructorName
     _ ->
-      identifierText constructorName
+      renderConstructorName constructorName
         <> "("
         <> Text.intercalate ", " (map renderRuntimeValue arguments)
         <> ")"
+
+renderConstructorName :: Identifier -> Text
+renderConstructorName constructorName =
+  let nameText = identifierText constructorName
+      segments = Text.splitOn "::" nameText
+   in case segments of
+        "__module" : _ -> last segments
+        _ -> nameText
 
 type RuntimeCell = Either Diagnostic RuntimeValue
 
