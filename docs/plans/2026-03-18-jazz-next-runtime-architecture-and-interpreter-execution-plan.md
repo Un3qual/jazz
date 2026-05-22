@@ -1,30 +1,24 @@
 ---
-id: JN-MODULE-QUALIFIED-ALIAS-LOOKUP-001
+id: JN-MODULE-BUNDLED-PRELUDE-GRAPH-001
 status: done
 priority: P1
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-04-26
-plan_section: "Milestone 5 / Batch 4: Qualified alias lookup"
+last_verified: 2026-05-22
+plan_section: "Milestone 5 / Batch 5: Default bundled-prelude module graph helpers"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/Parser.hs
-  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
-  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
-  - jazz-next/src/JazzNext/Compiler/ModuleResolver.hs
   - jazz-next/src/JazzNext/Compiler/Driver.hs
-  - jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
   - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Qualified alias lookup now uses `Alias::symbol`: parser/lowering preserve the qualified reference, the resolver validates alias ownership and exported symbols, and module replay injects internal alias bridge bindings so run/compile paths can resolve aliased dependency values without exposing them unqualified."
+deliverable: "Driver-level `compileModuleGraph` and `runModuleGraph` helpers load the bundled prelude by default, matching standalone source helpers while preserving explicit no-prelude module graph entry points; loader coverage proves bundled public prelude aliases execute across imported modules."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 ---
@@ -58,6 +52,7 @@ supersedes:
 - [x] On `2026-04-26`, added explicit import symbol-list visibility validation in `ModuleResolver.hs`, so excluded dependency bindings now report deterministic `E4011` before flattened replay can leak them to an importer.
 - [x] On `2026-04-26`, added alias-import unqualified visibility validation in `ModuleResolver.hs`, so bindings available only through `import Foo::Bar as B` now report deterministic `E4012` if referenced by bare name.
 - [x] On `2026-04-26`, landed qualified alias lookup using `Alias::symbol`, with parser/lowering support, resolver validation (`E4013`/`E4014`), and driver alias bridge bindings for module replay.
+- [x] On `2026-05-22`, added default `compileModuleGraph` and `runModuleGraph` driver helpers that load the bundled prelude, with multi-file loader coverage for bundled public prelude aliases.
 - [ ] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next`.
 - [ ] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
 - [ ] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.
@@ -306,6 +301,30 @@ Batch 4 verification:
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+#### Batch 5: Default bundled-prelude module graph helpers
+
+This batch landed on `2026-05-22`. The standalone source helpers already loaded the bundled prelude by default, while module-graph callers had only explicit prelude/no-prelude entry points. `compileModuleGraph` and `runModuleGraph` now mirror `compileSource` and `runSource`: they load `jazz-next/stdlib/Prelude.jz` by default and delegate through the same resolved-prelude module graph path. Explicit no-prelude module graph callers continue using `compileModuleGraphWithPrelude Nothing`, `runModuleGraphWithPrelude Nothing`, or `PreludeAbsent`.
+
+- [x] Add default bundled-prelude module graph driver helpers in `Driver.hs`.
+- [x] Preserve existing explicit and resolved prelude module graph entry points.
+- [x] Add loader coverage proving bundled public prelude aliases (`map`, `hd`) execute across an imported module graph.
+
+Batch 5 files:
+
+- `jazz-next/src/JazzNext/Compiler/Driver.hs`
+- `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`
+
+Batch 5 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
 bash jazz-next/scripts/test-warning-config.sh
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh

@@ -9,6 +9,7 @@ module JazzNext.Compiler.Driver
     compileSource,
     compileSourceWithPrelude,
     compileSourceWithResolvedPrelude,
+    compileModuleGraph,
     compileModuleGraphWithPrelude,
     compileModuleGraphWithResolvedPrelude,
     RunResult (..),
@@ -16,6 +17,7 @@ module JazzNext.Compiler.Driver
     runSource,
     runSourceWithPrelude,
     runSourceWithResolvedPrelude,
+    runModuleGraph,
     runModuleGraphWithPrelude,
     runModuleGraphWithResolvedPrelude
   ) where
@@ -182,6 +184,21 @@ compileSourceWithResolvedPrelude settings resolvedPrelude source =
         settings
         (parsedExpr loweredProgram)
 
+compileModuleGraph ::
+  WarningSettings ->
+  ModuleResolutionConfig ->
+  [Text] ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO CompileResult
+compileModuleGraph settings resolutionConfig entryModulePath sourceLookup = do
+  bundledPreludeSource <- loadBundledPreludeSource
+  compileModuleGraphWithResolvedPrelude
+    settings
+    (PreludeBundled bundledPreludeSource)
+    resolutionConfig
+    entryModulePath
+    sourceLookup
+
 compileModuleGraphWithPrelude ::
   WarningSettings ->
   Maybe Text ->
@@ -296,6 +313,21 @@ runSourceWithResolvedPrelude settings resolvedPrelude source =
         (builtinResolutionMode resolvedPrelude)
         settings
         (parsedExpr loweredProgram)
+
+runModuleGraph ::
+  WarningSettings ->
+  ModuleResolutionConfig ->
+  [Text] ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO RunResult
+runModuleGraph settings resolutionConfig entryModulePath sourceLookup = do
+  bundledPreludeSource <- loadBundledPreludeSource
+  runModuleGraphWithResolvedPrelude
+    settings
+    (PreludeBundled bundledPreludeSource)
+    resolutionConfig
+    entryModulePath
+    sourceLookup
 
 runModuleGraphWithPrelude ::
   WarningSettings ->

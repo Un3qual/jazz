@@ -16,8 +16,10 @@ import JazzNext.Compiler.Driver
   ( CompileResult (..),
     ResolvedPrelude (..),
     RunResult (..),
+    compileModuleGraph,
     compileModuleGraphWithResolvedPrelude,
     compileModuleGraphWithPrelude,
+    runModuleGraph,
     runModuleGraphWithResolvedPrelude,
     runModuleGraphWithPrelude
   )
@@ -42,6 +44,8 @@ tests :: [NamedTest]
 tests =
   [ ("compile module graph succeeds for resolvable entry module", testCompileModuleGraphSuccess),
     ("run module graph produces runtime output from entry module", testRunModuleGraphSuccess),
+    ("compile module graph default helper loads bundled prelude", testCompileModuleGraphDefaultLoadsBundledPrelude),
+    ("run module graph default helper executes bundled prelude aliases across files", testRunModuleGraphDefaultLoadsBundledPrelude),
     ("run module graph ignores dependency expression statements", testRunModuleGraphIgnoresDependencyExpressions),
     ("compile module graph validates dependency expression statements", testCompileModuleGraphValidatesDependencyExpressions),
     ("compile module graph validates hidden dependency exports", testCompileModuleGraphValidatesHiddenDependencyExports),
@@ -110,6 +114,44 @@ testRunModuleGraphSuccess = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
           ("src/Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphDefaultLoadsBundledPrelude :: IO ()
+testCompileModuleGraphDefaultLoadsBundledPrelude = do
+  result <-
+    compileModuleGraph
+      defaultWarningSettings
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  assertEqual "compile errors" [] (compileErrors result)
+  assertEqual "generated output" (Just "/* jazz-next codegen placeholder */") (generatedJs result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Data.\nmap hd values.\n}"),
+          ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3], [4, 5]].\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphDefaultLoadsBundledPrelude :: IO ()
+testRunModuleGraphDefaultLoadsBundledPrelude = do
+  result <-
+    runModuleGraph
+      defaultWarningSettings
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[1, 3, 4]") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Data.\nmap hd values.\n}"),
+          ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3], [4, 5]].\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

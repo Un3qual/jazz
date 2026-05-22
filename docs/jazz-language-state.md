@@ -425,7 +425,7 @@ Based on the full repo, these areas still require implementation convergence eve
 - Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding` category:
   - `docs/spec/tooling/compiler-warning-flags.md`
 - Whether tuples are a core runtime feature or just parsed syntax in active implementation behavior.
-- Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit symbol-list visibility diagnostics, alias-import unqualified visibility diagnostics, `Alias::symbol` qualified alias lookup, and deterministic resolver/binding diagnostics now work in the active parser/CLI path, but module/prelude/std-lib execution closure, broader file-layout, and long-term loader semantics are still unsettled.
+- Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit symbol-list visibility diagnostics, alias-import unqualified visibility diagnostics, `Alias::symbol` qualified alias lookup, default bundled-prelude module graph driver helpers, and deterministic resolver/binding diagnostics now work in the active parser/CLI path, but broader file-layout and long-term loader semantics are still unsettled.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
 - Whether the eventual target is JavaScript, LLVM, or both.
 
@@ -448,7 +448,7 @@ If you need a practical baseline for continuing Jazz, use this order:
    - built-in operator fixity plus executable left/right section semantics
    - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, plus prelude-provided public helpers `map`, `filter`, `hd`, `tl`, `print!`
    - runtime execution via `--run` CLI mode, while successful CLI compile paths are diagnostic-only and keep stdout empty instead of printing placeholder codegen text
-   - bundled-prelude loading by default in `compileSource`, `runSource`, and CLI paths, while explicit no-prelude entry points (`compileSourceWithPrelude Nothing`, `runSourceWithPrelude Nothing`, `--no-prelude`, and low-level AST/runtime helpers) expose only `__kernel_*` bridge names
+   - bundled-prelude loading by default in `compileSource`, `runSource`, `compileModuleGraph`, `runModuleGraph`, and CLI paths, while explicit no-prelude entry points (`compileSourceWithPrelude Nothing`, `runSourceWithPrelude Nothing`, `compileModuleGraphWithPrelude Nothing`, `runModuleGraphWithPrelude Nothing`, `--no-prelude`, and low-level AST/runtime helpers) expose only `__kernel_*` bridge names
 
 ## Hybrid Semantic-Change Workflow
 
@@ -488,7 +488,7 @@ Status update for item `#5`:
 
 1. Execute the remaining active-path ADT/pattern batches in `jazz-next`, starting with a narrowed tuple-pattern ownership batch.
 2. Rebase module/import loader planning (`domain 09`) onto `jazz-next` with deterministic file-resolution diagnostics.
-3. Finish remaining stdlib-boundary follow-up work (`domain 10`) in `jazz-next`, especially broader catalog cleanup and reproducibility evidence.
+3. Finish remaining stdlib-boundary follow-up work (`domain 10`) in `jazz-next`, especially broader catalog cleanup and reproducibility evidence beyond the current default bundled-prelude source/module graph paths.
 4. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.
 5. Extend warning-flag plumbing beyond `same-scope-rebinding` in `jazz-next` according to `docs/spec/tooling/compiler-warning-flags.md`.
 6. Keep legacy `jazz-hs` parse-only behavior documented as historical evidence only; do not add new compiler behavior there.
