@@ -88,7 +88,7 @@ testCompileModuleGraphSuccess = do
       ["App", "Main"]
       lookupSource
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated output" (Just "/* jazz-next codegen placeholder */") (generatedJs result)
+  assertEqual "generated output" Nothing (generatedJs result)
   where
     sourceMap =
       Map.fromList
@@ -127,7 +127,7 @@ testCompileModuleGraphDefaultLoadsBundledPrelude = do
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated output" (Just "/* jazz-next codegen placeholder */") (generatedJs result)
+  assertEqual "generated output" Nothing (generatedJs result)
   where
     sourceMap =
       Map.fromList
@@ -235,7 +235,7 @@ testCompileModuleGraphRewritesHiddenConstructorDependencyExpressions = do
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated output" (Just "/* jazz-next codegen placeholder */") (generatedJs result)
+  assertEqual "generated output" Nothing (generatedJs result)
   where
     sourceMap =
       Map.fromList
@@ -331,7 +331,7 @@ testCompileModuleGraphKeepsHiddenConstructorValidationDependencies = do
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated output" (Just "/* jazz-next codegen placeholder */") (generatedJs result)
+  assertEqual "generated output" Nothing (generatedJs result)
   where
     sourceMap =
       Map.fromList
@@ -351,7 +351,7 @@ testCompileModuleGraphExplicitImportAllowsPreludeBinding = do
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated output" (Just "/* jazz-next codegen placeholder */") (generatedJs result)
+  assertEqual "generated output" Nothing (generatedJs result)
   where
     sourceMap =
       Map.fromList
@@ -399,7 +399,7 @@ testCompileModuleGraphAliasImportAllowsPreludeBinding = do
       lookupSource
   assertEqual "warnings" [] (compileWarnings result)
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated output" (Just "/* jazz-next codegen placeholder */") (generatedJs result)
+  assertEqual "generated output" Nothing (generatedJs result)
   where
     sourceMap =
       Map.fromList
@@ -730,7 +730,7 @@ testCompileModuleGraphQualifiedAliasLookupBeforeImport = do
       ["App", "Main"]
       lookupSource
   assertEqual "compile errors" [] (compileErrors result)
-  assertEqual "generated output" (Just "/* jazz-next codegen placeholder */") (generatedJs result)
+  assertEqual "generated output" Nothing (generatedJs result)
   where
     sourceMap =
       Map.fromList

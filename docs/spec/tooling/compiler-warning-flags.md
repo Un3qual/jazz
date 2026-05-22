@@ -85,7 +85,8 @@ Minimum warning payload for `W0001`:
 
 1. If a warning category is enabled and promoted to error, compilation exits non-zero when that warning occurs.
 2. Warning-as-error does not change language semantics; it changes tool policy only.
-3. When warning-as-error triggers, generated output artifacts are not emitted.
+3. The active compile path is diagnostic-only until real code generation exists: warning-only success is distinguished by warnings plus no errors, and `generatedJs` remains absent.
+4. When warning-as-error triggers, generated output artifacts are not emitted.
 
 ## Migration Notes
 

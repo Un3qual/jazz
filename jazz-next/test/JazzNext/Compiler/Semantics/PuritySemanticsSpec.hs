@@ -32,7 +32,6 @@ import JazzNext.TestHarness
     assertSingleDiagnosticPrimarySpan,
     assertSingleDiagnosticRelatedSpan,
     assertSingleDiagnosticSubject,
-    assertJust,
     runTestSuite
   )
 
@@ -74,7 +73,7 @@ testImpureBindingCanCallImpureBuiltin :: IO ()
 testImpureBindingCanCallImpureBuiltin = do
   result <- compileWithBundledPrelude "x! = print! 1.\nx!."
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
+  assertEqual "generated JS" Nothing (generatedJs result)
 
 testPureBindingCannotCallImpureCallee :: IO ()
 testPureBindingCannotCallImpureCallee = do
@@ -100,13 +99,13 @@ testImpureBindingCanCallImpureCallee :: IO ()
 testImpureBindingCanCallImpureCallee = do
   result <- compileSource defaultWarningSettings "inc! = (+ 1).\nx! = inc! 1.\nx!."
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
+  assertEqual "generated JS" Nothing (generatedJs result)
 
 testPureBindingCanCallPureCallee :: IO ()
 testPureBindingCanCallPureCallee = do
   result <- compileSource defaultWarningSettings "inc = (+ 1).\nx = inc 1.\nx."
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
+  assertEqual "generated JS" Nothing (generatedJs result)
 
 testMkIdentifierKeepsSourceText :: IO ()
 testMkIdentifierKeepsSourceText = do
@@ -127,13 +126,13 @@ testTopLevelExpressionCanCallImpureCallee :: IO ()
 testTopLevelExpressionCanCallImpureCallee = do
   result <- compileSource defaultWarningSettings "inc! = (+ 1).\ninc! 1."
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
+  assertEqual "generated JS" Nothing (generatedJs result)
 
 testTopLevelExpressionCanCallImpureBuiltin :: IO ()
 testTopLevelExpressionCanCallImpureBuiltin = do
   result <- compileWithBundledPrelude "print! 1."
   assertEqual "compile errors" [] (compileErrors result)
-  assertJust "generated JS is present" (generatedJs result)
+  assertEqual "generated JS" Nothing (generatedJs result)
 
 compileWithBundledPrelude :: Text -> IO CompileResult
 compileWithBundledPrelude =

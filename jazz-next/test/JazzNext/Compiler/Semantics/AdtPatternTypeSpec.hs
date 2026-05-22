@@ -16,7 +16,6 @@ import JazzNext.Compiler.WarningConfig
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
-    assertJust,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
     runTestSuite
@@ -380,4 +379,4 @@ testSourcePipelineRejectsMismatchedArmResultTypes = do
 assertCompiles :: Text -> CompileResult -> IO ()
 assertCompiles label result = do
   assertEqual (label <> " compile errors") [] (compileErrors result)
-  assertJust (label <> " generated JS") (generatedJs result)
+  assertEqual (label <> " generated JS") Nothing (generatedJs result)

@@ -36,7 +36,6 @@ import JazzNext.Compiler.Warnings
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
-    assertJust,
     failTest,
     runTestSuite
   )
@@ -53,7 +52,7 @@ tests =
     ("nested scope shadowing does not emit same-scope warning", testNestedScopeShadowingNoWarning),
     ("bundled default prelude aliases do not trigger same-scope rebinding", testBundledPreludeAliasShadowingNoWarning),
     ("explicit prelude text matching bundled source still emits rebinding warnings", testExplicitPreludeMatchingBundledSourceEmitsWarning),
-    ("driver keeps JS output when warning is not promoted", testDriverKeepsOutputWhenNotPromoted),
+    ("driver keeps warning-only success diagnostic-only", testDriverKeepsWarningOnlySuccessDiagnosticOnly),
     ("driver suppresses JS output when warning is promoted to error", testDriverSuppressesOutputWhenPromoted)
   ]
 
@@ -120,13 +119,13 @@ testExplicitPreludeMatchingBundledSourceEmitsWarning = do
   assertEqual "warning count" 1 (length (compileWarnings result))
   assertEqual "error count" 1 (length (compileErrors result))
 
-testDriverKeepsOutputWhenNotPromoted :: IO ()
-testDriverKeepsOutputWhenNotPromoted = do
+testDriverKeepsWarningOnlySuccessDiagnosticOnly :: IO ()
+testDriverKeepsWarningOnlySuccessDiagnosticOnly = do
   settings <- enabledSettings
   result <- compileExpr settings sampleProgram
   assertEqual "error count" 0 (length (compileErrors result))
   assertEqual "warning count" 1 (length (compileWarnings result))
-  assertJust "generated JS" (generatedJs result)
+  assertEqual "generated JS" Nothing (generatedJs result)
 
 testDriverSuppressesOutputWhenPromoted :: IO ()
 testDriverSuppressesOutputWhenPromoted = do

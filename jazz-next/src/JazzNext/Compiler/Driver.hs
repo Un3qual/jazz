@@ -144,18 +144,11 @@ compileExprWithBuiltinsAndHiddenStatements ::
   IO CompileResult
 compileExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr = do
   (warnings, errors, _) <- analyzeWithWarnings hiddenStatementIndices builtinMode settings expr
-  let output =
-        if null errors
-          then
-            -- This module is only responsible for warning/error control flow.
-            -- JS generation remains a placeholder until codegen lands in jazz-next.
-            Just "/* jazz-next codegen placeholder */"
-          else Nothing
   pure
     CompileResult
       { compileWarnings = warnings,
         compileErrors = errors,
-        generatedJs = output
+        generatedJs = Nothing
       }
 
 compileSource :: WarningSettings -> Text -> IO CompileResult
