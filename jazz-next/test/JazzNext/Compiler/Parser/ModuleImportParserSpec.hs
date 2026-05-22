@@ -49,6 +49,7 @@ tests =
     ("parses compact signature when not an alias", testParsesCompactSignatureWhenNotAlias),
     ("parses compact signature before different binding when not an alias", testParsesCompactSignatureBeforeDifferentBindingWhenNotAlias),
     ("parses constructor-style unsupported signature when not an alias", testParsesConstructorStyleUnsupportedSignatureWhenNotAlias),
+    ("parses compact type-variable signature before different binding when not an alias", testParsesCompactTypeVariableSignatureBeforeDifferentBindingWhenNotAlias),
     ("parses signature for binding sharing alias name", testParsesSignatureForBindingSharingAliasName),
     ("parses lowercase signature payload for binding sharing alias name", testParsesLowercaseSignaturePayloadForBindingSharingAliasName),
     ("parses lowercase signature payload when not an alias", testParsesLowercaseSignaturePayloadWhenNotAlias),
@@ -225,6 +226,19 @@ testParsesConstructorStyleUnsupportedSignatureWhenNotAlias =
         )
     )
     (parseSurfaceProgram "Result :: a.\nResult = 1.")
+
+testParsesCompactTypeVariableSignatureBeforeDifferentBindingWhenNotAlias :: IO ()
+testParsesCompactTypeVariableSignatureBeforeDifferentBindingWhenNotAlias =
+  assertEqual
+    "compact type-variable signature before different binding surface AST"
+    ( Right
+        ( SEBlock
+            [ SSSignature "Result" (SourceSpan 1 1) (SurfaceUnsupportedSignature [SurfaceSignatureNameToken "a"]),
+              SSLet "other" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    (parseSurfaceProgram "Result::a.\nother = 1.")
 
 testParsesSignatureForBindingSharingAliasName :: IO ()
 testParsesSignatureForBindingSharingAliasName =

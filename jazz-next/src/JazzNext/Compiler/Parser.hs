@@ -8,7 +8,8 @@ module JazzNext.Compiler.Parser
   ) where
 
 import Data.Char
-  ( isUpper
+  ( isLower,
+    isUpper
   )
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -213,6 +214,7 @@ shouldParseCompactSignature name nameToken tokensAfterName =
   case parseSignature (mkIdentifier name) nameToken tokensAfterName of
     Right (SSSignature _ _ signaturePayload, remaining) ->
       isSupportedSignaturePayload signaturePayload
+        || isLikelyUnsupportedSignaturePayload signaturePayload
         || not (isConstructorIdentifierText name)
         || nextStatementStartsMatchingBinding name remaining
     Left _ -> False
@@ -223,6 +225,37 @@ isSupportedSignaturePayload signaturePayload =
     SurfaceSignatureType _ -> True
     SurfaceConstrainedSignature _ _ -> True
     SurfaceUnsupportedSignature _ -> False
+
+isLikelyUnsupportedSignaturePayload :: SurfaceSignaturePayload -> Bool
+isLikelyUnsupportedSignaturePayload signaturePayload =
+  case signaturePayload of
+    SurfaceUnsupportedSignature [SurfaceSignatureNameToken name] ->
+      isSingleLetterTypeVariable name
+    SurfaceUnsupportedSignature tokens ->
+      any isSignatureSyntaxToken tokens
+    _ ->
+      False
+
+isSingleLetterTypeVariable :: Text -> Bool
+isSingleLetterTypeVariable name =
+  case Text.uncons name of
+    Just (firstChar, rest) -> Text.null rest && isLower firstChar
+    Nothing -> False
+
+isSignatureSyntaxToken :: SurfaceSignatureToken -> Bool
+isSignatureSyntaxToken signatureToken =
+  case signatureToken of
+    SurfaceSignatureArrowToken -> True
+    SurfaceSignatureAtToken -> True
+    SurfaceSignatureColonToken -> True
+    SurfaceSignatureLParenToken -> True
+    SurfaceSignatureRParenToken -> True
+    SurfaceSignatureLBraceToken -> True
+    SurfaceSignatureRBraceToken -> True
+    SurfaceSignatureLBracketToken -> True
+    SurfaceSignatureRBracketToken -> True
+    SurfaceSignatureCommaToken -> True
+    _ -> False
 
 nextStatementStartsMatchingBinding :: Text -> [Token] -> Bool
 nextStatementStartsMatchingBinding name tokens =
