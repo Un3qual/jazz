@@ -17,7 +17,8 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     compileExpr,
-    compileSource
+    compileSource,
+    compileSourceWithPrelude
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -76,6 +77,11 @@ tests =
     ("source pipeline rejects list signature mismatch", testSourceRejectsListSignatureMismatch),
     ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface),
     ("source pipeline reports duplicate constrained signature constraints", testSourceRejectsDuplicateConstrainedSignatureConstraints),
+    ("source pipeline accepts variable constrained signature as monomorphic", testSourceAcceptsVariableConstrainedSignatureAsMonomorphic),
+    ("source pipeline keeps variable constrained signatures monomorphic", testSourceKeepsVariableConstrainedSignatureMonomorphic),
+    ("source pipeline rejects unsupported variable constrained signature contract", testSourceRejectsUnsupportedVariableConstrainedSignatureContract),
+    ("source pipeline rejects unused variable constraint with bidirectional contract", testSourceRejectsUnusedVariableConstraintWithBidirectionalContract),
+    ("source pipeline does not shift inference variables after rejected variable type application", testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState),
     ("source pipeline rejects constrained signature surface with E2009", testSourceRejectsConstrainedSignatureSurface),
     ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError),
     ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
@@ -419,6 +425,58 @@ testSourceRejectsDuplicateConstrainedSignatureConstraints = do
     "source duplicate constrained signature text"
     "duplicate constraint 'Eq'"
     (compileErrors result)
+
+testSourceAcceptsVariableConstrainedSignatureAsMonomorphic :: IO ()
+testSourceAcceptsVariableConstrainedSignatureAsMonomorphic =
+  assertSourceOk "id :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nid 1."
+
+testSourceKeepsVariableConstrainedSignatureMonomorphic :: IO ()
+testSourceKeepsVariableConstrainedSignatureMonomorphic = do
+  result <- compileSource defaultWarningSettings "id :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nx = id 1.\ny = id True."
+  assertSingleDiagnosticCode
+    "source variable constrained signature monomorphic code"
+    "E2006"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "source variable constrained signature monomorphic text"
+    "cannot apply function of type Int -> Int to argument of type Bool"
+    (compileErrors result)
+
+testSourceRejectsUnsupportedVariableConstrainedSignatureContract :: IO ()
+testSourceRejectsUnsupportedVariableConstrainedSignatureContract = do
+  result <- compileSource defaultWarningSettings "f :: @{Eq(a)}: a -> b.\nf = \\(x) -> x."
+  assertSingleDiagnosticCode
+    "source unsupported variable constrained signature code"
+    "E2009"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "source unsupported variable constrained signature contract"
+    "type-variable constrained signatures require every constrained variable to appear in the signature body and every body variable to appear in a supported unary constraint"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "source unsupported variable constrained signature payload"
+    "@{Eq(a)}: a -> b"
+    (compileErrors result)
+
+testSourceRejectsUnusedVariableConstraintWithBidirectionalContract :: IO ()
+testSourceRejectsUnusedVariableConstraintWithBidirectionalContract = do
+  result <- compileSource defaultWarningSettings "f :: @{Eq(a)}: Int -> Int.\nf = \\(x) -> x."
+  assertSingleDiagnosticCode
+    "source unused variable constraint code"
+    "E2009"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "source unused variable constraint contract"
+    "type-variable constrained signatures require every constrained variable to appear in the signature body and every body variable to appear in a supported unary constraint"
+    (compileErrors result)
+
+testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState :: IO ()
+testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState = do
+  result <- compileSourceWithPrelude defaultWarningSettings Nothing "bad :: @{Eq(f), Ord(a)}: f(a) -> a.\nbad = \\(x) -> x.\nuse = [] 1."
+  assertContains
+    "later diagnostic keeps deterministic type variable id"
+    "cannot apply function of type [t3] to argument of type Int"
+    (Text.unlines (map renderDiagnostic (compileErrors result)))
 
 testSourceRejectsConstrainedSignatureSurface :: IO ()
 testSourceRejectsConstrainedSignatureSurface = do

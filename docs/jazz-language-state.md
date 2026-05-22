@@ -187,7 +187,7 @@ Active-path note: `jazz-next` now parses function arrows right-associatively. In
 
 The older left-associative behavior should be treated as legacy-reference drift rather than the active language contract.
 
-Active-path note: `jazz-next` now lexes and parses constrained signatures such as `x :: @{Eq(a), Ord(b)}: a -> b -> c` into structured parser/core payloads. Empty constraint blocks (`@{}:`) normalize to the existing monomorphic signature subset. Non-empty concrete unary constraints using known constraint names (`Default`, `Eq`, `Fractional`, `Integral`, `Num`, `Ord`, `Showable`) over `Int`, `Bool`, or nested concrete lists also normalize as annotation-only monomorphic signatures, for example `x :: @{Eq(Int)}: Int`. Variable-bearing constraints such as `@{Eq(a)}: a -> a`, unknown constraints, wrong-arity constraints, type applications, and function-type constraint arguments still reject deterministically with `E2009` until type-variable binding/defaulting and inference interaction rules are defined. Duplicate non-empty constraint names also reject with `E2009` and name the duplicate constraint.
+Active-path note: `jazz-next` now lexes and parses constrained signatures such as `x :: @{Eq(a), Ord(b)}: a -> b -> c` into structured parser/core payloads. Empty constraint blocks (`@{}:`) normalize to the existing monomorphic signature subset. Non-empty concrete unary constraints using known constraint names (`Default`, `Eq`, `Fractional`, `Integral`, `Num`, `Ord`, `Showable`) over `Int`, `Bool`, or nested concrete lists also normalize as annotation-only monomorphic signatures, for example `x :: @{Eq(Int)}: Int`. Known unary constraints over lower-case type variables now normalize under a monomorphic annotation-only contract when every signature variable appears in a supported unary constraint and every constrained variable appears in the signature body; for example, `id :: @{Eq(a)}: a -> a` is accepted but later use sites refine the same binding type rather than receiving fresh polymorphic instantiations. Unknown constraints, wrong-arity constraints, unconstrained body variables, unused constrained variables, type applications, and function-type constraint arguments still reject deterministically with `E2009`. Duplicate non-empty constraint names also reject with `E2009` and name the duplicate constraint.
 
 ### Builtins And Type Environment In `jazz-hs`
 
@@ -411,7 +411,7 @@ Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, bu
 
 Based on the full repo, these areas still require implementation convergence even when a decision lock now exists:
 
-- Extending parsed signature type grammar beyond the current monomorphic subset in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, right-associative function types, parenthesized function-type overrides, empty `@{}:` constrained wrappers, and duplicate non-empty constraint diagnostics are implemented and test-covered; non-empty constrained signature acceptance and named type variables remain pending):
+- Extending parsed signature type grammar beyond the current monomorphic subset in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, right-associative function types, parenthesized function-type overrides, empty `@{}:` constrained wrappers, concrete unary constrained signatures, duplicate non-empty constraint diagnostics, monomorphic variable constrained signatures, and unsupported-variable constrained-signature diagnostics are implemented and test-covered; polymorphic/generalized type-variable signatures, defaulting, and solver-backed constraints remain pending):
   - `docs/spec/semantics/bindings-and-signatures.md`
   - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Extending staged operator roadmap work in `jazz-next` beyond implemented v1 parser/fixity/sections behavior:
@@ -425,7 +425,7 @@ Based on the full repo, these areas still require implementation convergence eve
 - Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding` category:
   - `docs/spec/tooling/compiler-warning-flags.md`
 - Whether tuples are a core runtime feature or just parsed syntax in active implementation behavior.
-- Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit symbol-list visibility diagnostics, alias-import unqualified visibility diagnostics, `Alias::symbol` qualified alias lookup, and deterministic resolver/binding diagnostics now work in the active parser/CLI path, but module/prelude/std-lib execution closure, broader file-layout, and long-term loader semantics are still unsettled.
+- Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit symbol-list visibility diagnostics, alias-import unqualified visibility diagnostics, `Alias::symbol` qualified alias lookup, default bundled-prelude module graph driver helpers, and deterministic resolver/binding diagnostics now work in the active parser/CLI path, but broader file-layout and long-term loader semantics are still unsettled.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
 - Whether the eventual target is JavaScript, LLVM, or both.
 
@@ -442,13 +442,13 @@ If you need a practical baseline for continuing Jazz, use this order:
    - dot-separated statements and scope blocks
    - canonical identifier-only lambdas with lexical closure runtime support (`\(x) -> expr`, multi-argument lambdas lowered into nested unary functions)
    - application and list literals
-   - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, right-associative function types, explicit parenthesized function-type overrides, and empty `@{}:` constrained wrappers)
+   - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, right-associative function types, explicit parenthesized function-type overrides, empty `@{}:` constrained wrappers, concrete unary constrained signatures, and known unary variable constrained signatures under the monomorphic annotation-only contract)
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
    - canonical `data` declarations with constructor values/applications, plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; analyzer/type/runtime execution covers literal, wildcard, variable, declared constructor patterns, and exact-length bracketed-list patterns
    - built-in operator fixity plus executable left/right section semantics
    - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, plus prelude-provided public helpers `map`, `filter`, `hd`, `tl`, `print!`
    - runtime execution via `--run` CLI mode, while successful CLI compile paths are diagnostic-only and keep stdout empty instead of printing placeholder codegen text
-   - bundled-prelude loading by default in `compileSource`, `runSource`, and CLI paths, while explicit no-prelude entry points (`compileSourceWithPrelude Nothing`, `runSourceWithPrelude Nothing`, `--no-prelude`, and low-level AST/runtime helpers) expose only `__kernel_*` bridge names
+   - bundled-prelude loading by default in `compileSource`, `runSource`, `compileModuleGraph`, `runModuleGraph`, and CLI paths, while explicit no-prelude entry points (`compileSourceWithPrelude Nothing`, `runSourceWithPrelude Nothing`, `compileModuleGraphWithPrelude Nothing`, `runModuleGraphWithPrelude Nothing`, `--no-prelude`, and low-level AST/runtime helpers) expose only `__kernel_*` bridge names
 
 ## Hybrid Semantic-Change Workflow
 
@@ -488,7 +488,7 @@ Status update for item `#5`:
 
 1. Execute the remaining active-path ADT/pattern batches in `jazz-next`, starting with a narrowed tuple-pattern ownership batch.
 2. Rebase module/import loader planning (`domain 09`) onto `jazz-next` with deterministic file-resolution diagnostics.
-3. Finish remaining stdlib-boundary follow-up work (`domain 10`) in `jazz-next`, especially broader catalog cleanup and reproducibility evidence.
+3. Finish remaining stdlib-boundary follow-up work (`domain 10`) in `jazz-next`, especially broader catalog cleanup and reproducibility evidence beyond the current default bundled-prelude source/module graph paths.
 4. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.
 5. Extend warning-flag plumbing beyond `same-scope-rebinding` in `jazz-next` according to `docs/spec/tooling/compiler-warning-flags.md`.
 6. Keep legacy `jazz-hs` parse-only behavior documented as historical evidence only; do not add new compiler behavior there.

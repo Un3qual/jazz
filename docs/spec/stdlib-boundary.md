@@ -2,8 +2,8 @@
 
 Status: active (closure verified for the current `jazz-next` runtime subset; bundled/explicit prelude paths expose public aliases while no-prelude paths remain kernel-bridge-only)
 Locked decisions (initial `jazz-next` contract): 2026-03-04
-Updated: 2026-03-18
-Primary plan: `docs/plans/spec-clarification/2026-03-02/stdlib/10-stdlib-boundary-selfhosted-vs-hardcoded.md`
+Updated: 2026-05-22
+Primary plan: `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`
 
 ## Purpose
 
@@ -20,16 +20,18 @@ planned.
 
 1. `kernel` symbols are compiler/runtime owned and may be hardcoded.
 2. `prelude` symbols are user-visible APIs and are prelude-owned by default.
-3. `jazz-next` now supports a bundled default prelude load path in CLI mode:
+3. `jazz-next` now supports a bundled default prelude load path in CLI and
+   driver-default source/module-graph modes:
    - resolution order: `--prelude` flag > `JAZZ_PRELUDE` env > bundled default path.
    - `--no-prelude` disables all prelude loading.
 4. Public names such as `map` and `print!` are available only through bundled
    or explicit prelude aliases; direct no-prelude flows must reference the
    `__kernel_*` bridge names.
-5. `compileSource` and `runSource` load the bundled prelude by default.
-   Explicit no-prelude entry points (`compileSourceWithPrelude Nothing`,
-   `runSourceWithPrelude Nothing`, `--no-prelude`, and low-level AST/runtime
-   helpers) are kernel-only.
+5. `compileSource`, `runSource`, `compileModuleGraph`, and `runModuleGraph`
+   load the bundled prelude by default. Explicit no-prelude entry points
+   (`compileSourceWithPrelude Nothing`, `runSourceWithPrelude Nothing`,
+   `compileModuleGraphWithPrelude Nothing`, `runModuleGraphWithPrelude Nothing`,
+   `--no-prelude`, and low-level AST/runtime helpers) are kernel-only.
 
 ## Kernel Catalog (Current `jazz-next` Runtime Subset)
 
@@ -81,7 +83,8 @@ Required invariants:
 ## Compatibility Window Policy
 
 1. Current default mode is `prelude-owned`: bundled and explicit-prelude
-   compile/run paths resolve public helpers through prelude aliases.
+   compile/run paths, including default module graph helpers, resolve public
+   helpers through prelude aliases.
 2. Explicit no-prelude mode is `kernel-only`: `--no-prelude`, `Nothing`
    prelude driver entry points, and low-level AST/runtime helpers resolve only
    the `__kernel_*` bridge names.
@@ -93,7 +96,8 @@ Required invariants:
 
 ## Non-Goals (Current Phase)
 
-1. This document does not define module loader behavior for prelude discovery.
+1. This document does not define broader package discovery or module-root
+   layout semantics beyond the current resolver configuration.
 2. This document does not define full stdlib API surface beyond the active
    kernel subset.
 3. This document does not guarantee immediate removal dates for kernel aliases.
