@@ -76,6 +76,7 @@ tests =
     ("kernel bridge names map to builtin targets", testKernelBridgeTargetName),
     ("kernel bridge prefix stays stable", testKernelBridgePrefix),
     ("bundled prelude file stays reproducible from catalog", testBundledPreludeFileStaysReproducibleFromCatalog),
+    ("bundled prelude comparison normalizes line endings", testBundledPreludeComparisonNormalizesLineEndings),
     ("direct compile helper stays kernel-only", testDirectCompileHelperStaysKernelOnly),
     ("compile pipeline treats catalog builtins as bound names", testCompilePipelineTreatsCatalogBuiltinsAsBound),
     ("runtime exposes catalog builtins as callable values", testRuntimeExposesCatalogBuiltinsAsFunctions),
@@ -143,7 +144,18 @@ testBundledPreludeFileStaysReproducibleFromCatalog = do
   assertEqual
     "checked-in bundled prelude file matches catalog-generated prelude"
     bundledPreludeSource
-    checkedInPrelude
+    (normalizePreludeLineEndings checkedInPrelude)
+
+testBundledPreludeComparisonNormalizesLineEndings :: IO ()
+testBundledPreludeComparisonNormalizesLineEndings =
+  assertEqual
+    "CRLF checked-in prelude text normalizes to generated source"
+    bundledPreludeSource
+    (normalizePreludeLineEndings (Text.replace "\n" "\r\n" bundledPreludeSource))
+
+normalizePreludeLineEndings :: Text -> Text
+normalizePreludeLineEndings =
+  Text.replace "\r" "\n" . Text.replace "\r\n" "\n"
 
 readCheckedInBundledPrelude :: IO Text
 readCheckedInBundledPrelude = do
