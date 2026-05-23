@@ -71,7 +71,7 @@ testParseWarningCategoryTextToken =
 testReservedWarningMetadataStable :: IO ()
 testReservedWarningMetadataStable = do
   assertWarningMetadata ShadowingOuterScope "W0002" "shadowing-outer-scope" True
-  assertWarningMetadata UnusedBinding "W0003" "unused-binding" False
+  assertWarningMetadata UnusedBinding "W0003" "unused-binding" True
   assertWarningMetadata DeprecatedSyntax "W0004" "deprecated-syntax" False
   assertEqual "same-scope rebinding has analyzer emitter" True (warningHasAnalyzerEmitter SameScopeRebinding)
 
@@ -85,7 +85,7 @@ testReservedWarningConfigParsing =
         assertCategoryState settings UnusedBinding True False
         assertCategoryState settings DeprecatedSyntax True False
         assertEqual "shadowing analyzer emitter" True (warningHasAnalyzerEmitter ShadowingOuterScope)
-        assertEqual "unused reserved emitter" False (warningHasAnalyzerEmitter UnusedBinding)
+        assertEqual "unused analyzer emitter" True (warningHasAnalyzerEmitter UnusedBinding)
         assertEqual "deprecated reserved emitter" False (warningHasAnalyzerEmitter DeprecatedSyntax)
     )
 

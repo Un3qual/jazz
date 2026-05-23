@@ -1,6 +1,6 @@
 ---
 id: JN-WARNING-UNUSED-BINDING-LET-001
-status: ready
+status: done
 priority: P2
 size: M
 kind: impl
@@ -51,7 +51,7 @@ Execution note:
 - [x] Documentation and migration notes published.
 - [x] Reserved warning metadata coverage landed for `shadowing-outer-scope`, `unused-binding`, and `deprecated-syntax`; `shadowing-outer-scope` is now the second active emitter.
 - [x] Analyzer warning plumbing implemented for opt-in `shadowing-outer-scope`.
-- [ ] Analyzer warning plumbing planned for opt-in `unused-binding` on ordinary block `let` bindings.
+- [x] Analyzer warning plumbing implemented for opt-in `unused-binding` on ordinary block `let` bindings.
 
 ## Decision Lock (Inherited from Item 13)
 
@@ -443,7 +443,7 @@ bash scripts/check-docs.sh
 
 ### Batch 2: unused-binding ordinary let analyzer emitter
 
-This executor-safe active-path warning batch is queued for implementation. It
+This executor-safe active-path warning batch landed on `2026-05-23`. It
 builds on the reserved `unused-binding` / `W0003` metadata and keeps the
 category opt-in.
 
@@ -468,6 +468,20 @@ Batch scope:
 - Update `jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs` so
   catalog coverage reflects the active `unused-binding` analyzer emitter while
   `deprecated-syntax` remains reserved-only.
+
+Closure evidence:
+
+- `jazz-next/src/JazzNext/Compiler/WarningCatalog.hs` marks `UnusedBinding` as
+  having an analyzer emitter.
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs` emits `W0003` only when
+  `unused-binding` is enabled and an ordinary block `let` binding is not
+  referenced by another same-block binding RHS or expression statement.
+- The binding's own right-hand side does not count as usage, hidden prelude
+  statements are excluded, and lambda parameters, pattern binders, data
+  constructors, imports/modules, cross-module export analysis, and
+  `deprecated-syntax` remain deferred.
+- The W0003 tests cover disabled, enabled, warning-as-error, used ordinary
+  `let`, and self-referential-RHS behavior.
 
 Batch verification:
 

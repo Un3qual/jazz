@@ -66,7 +66,7 @@ warningMetadata category =
     UnusedBinding ->
       WarningMetadata
         { metadataCode = "W0003",
-          metadataHasAnalyzerEmitter = False,
+          metadataHasAnalyzerEmitter = True,
           metadataToken = "unused-binding"
         }
     DeprecatedSyntax ->

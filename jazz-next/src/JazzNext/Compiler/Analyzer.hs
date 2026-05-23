@@ -281,6 +281,11 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
             indexedStatements
         )
     bindingDeclarationsByStatement = collectBindingDeclarations indexedStatements
+    unusedBindingWarningsByStatement =
+      collectUnusedBindingWarnings
+        settings
+        hiddenStatementIndices
+        indexedStatements
 
     -- Internal accumulators are built in reverse for O(1) append.
     -- `pendingSignature` tracks exactly one immediately-preceding signature that
@@ -407,10 +412,13 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
               errorsWithValue =
                 appendErrors (appendErrors errorsRev errorsFromSignature) valueErrors
               warningsWithRebinding = appendWarnings warningsWithValue rebindingWarning
+              warningsWithShadowing = appendWarnings warningsWithRebinding shadowingWarning
+              unusedWarnings =
+                Map.findWithDefault [] statementIndex unusedBindingWarningsByStatement
            in
             ( nextScope,
               Nothing,
-              appendWarnings warningsWithRebinding shadowingWarning,
+              appendWarnings warningsWithShadowing unusedWarnings,
               errorsWithValue
             )
 
@@ -649,6 +657,45 @@ collectDataConstructorRebindingWarnings
           warning ++ warningsAcc
         )
 
+collectUnusedBindingWarnings ::
+  WarningSettings ->
+  Set Int ->
+  [(Int, Statement)] ->
+  Map Int [WarningRecord]
+collectUnusedBindingWarnings settings hiddenStatementIndices indexedStatements
+  | not (isWarningEnabled settings UnusedBinding) = Map.empty
+  | otherwise =
+      Map.fromList
+        [ (statementIndex, [mkUnusedBindingWarning bindingNameText bindingSpan])
+          | (statementIndex, SLet bindingName bindingSpan _) <- indexedStatements,
+            statementIndex `Set.notMember` hiddenStatementIndices,
+            let bindingNameText = identifierText bindingName,
+            not (isBindingUsedByOtherStatements statementIndex bindingNameText)
+        ]
+  where
+    freeVarsByStatement =
+      Map.fromList
+        [ (statementIndex, statementFreeVars statement)
+          | (statementIndex, statement) <- indexedStatements,
+            statementIndex `Set.notMember` hiddenStatementIndices
+        ]
+
+    statementFreeVars statement =
+      case statement of
+        SLet _ _ valueExpr ->
+          freeVarsExprWithBound Set.empty valueExpr
+        SExpr _ expr ->
+          freeVarsExprWithBound Set.empty expr
+        _ -> Set.empty
+
+    isBindingUsedByOtherStatements bindingStatementIndex bindingName =
+      any
+        ( \(statementIndex, freeVars) ->
+            statementIndex /= bindingStatementIndex
+              && Set.member bindingName freeVars
+        )
+        (Map.toList freeVarsByStatement)
+
 visibleBindingDiagnosticSpan :: VisibleBinding -> Maybe SourceSpan
 visibleBindingDiagnosticSpan visibleBinding =
   if visibleBindingIsHiddenPrelude visibleBinding
@@ -686,6 +733,20 @@ mkOuterScopeShadowingWarning variableName primarySpan previousSpan =
         "outer-scope shadowing: '"
           <> variableName
           <> "' shadows a visible binding from an outer scope"
+    }
+
+mkUnusedBindingWarning :: Text -> SourceSpan -> WarningRecord
+mkUnusedBindingWarning variableName primarySpan =
+  WarningRecord
+    { warningCategory = UnusedBinding,
+      warningCodeText = warningCode UnusedBinding,
+      warningVariableName = variableName,
+      warningPrimarySpan = primarySpan,
+      warningPreviousSpan = Nothing,
+      warningMessage =
+        "unused binding: '"
+          <> variableName
+          <> "' is never referenced in this lexical block"
     }
 
 lambdaShadowingSpan :: AnalysisContext -> SourceSpan

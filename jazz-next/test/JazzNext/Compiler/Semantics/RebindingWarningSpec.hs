@@ -55,6 +55,11 @@ tests =
     ("enabled outer-scope shadowing emits lambda-parameter warning", testLambdaParameterShadowingEmitsWarning),
     ("outer-scope shadowing promotion reports compile errors", testPromotedOuterScopeShadowingReportsCompileErrors),
     ("outer-scope shadowing ignores same-scope rebinding", testOuterScopeShadowingIgnoresSameScopeRebinding),
+    ("disabled unused-binding emits nothing", testDisabledUnusedBindingEmitsNoWarnings),
+    ("enabled unused-binding emits ordinary-let warning", testUnusedBindingEmitsWarning),
+    ("used ordinary let emits no unused-binding warning", testUsedOrdinaryLetEmitsNoWarning),
+    ("self-referential right hand side does not count as unused-binding use", testSelfReferentialRhsStillUnused),
+    ("unused-binding promotion reports compile errors", testPromotedUnusedBindingReportsCompileErrors),
     ("bundled default prelude aliases do not trigger same-scope rebinding", testBundledPreludeAliasShadowingNoWarning),
     ("explicit prelude text matching bundled source still emits rebinding warnings", testExplicitPreludeMatchingBundledSourceEmitsWarning),
     ("driver keeps warning-only success diagnostics", testDriverKeepsWarningOnlySuccessDiagnosticOnly),
@@ -154,6 +159,48 @@ testOuterScopeShadowingIgnoresSameScopeRebinding = do
   warnings <- analyzeRebindingWarnings settings sampleProgram
   assertEqual "warning count" 0 (length warnings)
 
+testDisabledUnusedBindingEmitsNoWarnings :: IO ()
+testDisabledUnusedBindingEmitsNoWarnings = do
+  warnings <- analyzeRebindingWarnings defaultWarningSettings unusedBindingProgram
+  assertEqual "warning count" 0 (length warnings)
+
+testUnusedBindingEmitsWarning :: IO ()
+testUnusedBindingEmitsWarning = do
+  settings <- unusedBindingEnabledSettings
+  warnings <- analyzeRebindingWarnings settings unusedBindingProgram
+  case warnings of
+    [warning] -> do
+      assertEqual "warning category" UnusedBinding (warningCategory warning)
+      assertEqual "warning code" "W0003" (warningCodeText warning)
+      assertEqual "warning variable" "unused" (warningVariableName warning)
+      assertEqual "warning span" (SourceSpan 1 1) (warningPrimarySpan warning)
+      assertEqual "previous span" Nothing (warningPreviousSpan warning)
+    _ -> failTest "expected exactly one unused-binding warning record"
+
+testUsedOrdinaryLetEmitsNoWarning :: IO ()
+testUsedOrdinaryLetEmitsNoWarning = do
+  settings <- unusedBindingEnabledSettings
+  warnings <- analyzeRebindingWarnings settings usedOrdinaryLetProgram
+  assertEqual "warning count" 0 (length warnings)
+
+testSelfReferentialRhsStillUnused :: IO ()
+testSelfReferentialRhsStillUnused = do
+  settings <- unusedBindingEnabledSettings
+  warnings <- analyzeRebindingWarnings settings selfReferentialUnusedProgram
+  case warnings of
+    [warning] -> do
+      assertEqual "warning category" UnusedBinding (warningCategory warning)
+      assertEqual "warning variable" "loop" (warningVariableName warning)
+      assertEqual "warning span" (SourceSpan 1 1) (warningPrimarySpan warning)
+    _ -> failTest "expected self-referential binding to remain unused"
+
+testPromotedUnusedBindingReportsCompileErrors :: IO ()
+testPromotedUnusedBindingReportsCompileErrors = do
+  settings <- unusedBindingPromotedSettings
+  result <- compileExpr settings unusedBindingProgram
+  assertEqual "error count" 1 (length (compileErrors result))
+  assertEqual "warning count" 1 (length (compileWarnings result))
+
 testBundledPreludeAliasShadowingNoWarning :: IO ()
 testBundledPreludeAliasShadowingNoWarning = do
   settings <- promotedSettings
@@ -206,6 +253,18 @@ shadowingPromotedSettings =
     Left err -> failTest ("failed to resolve promoted shadowing settings: " <> renderDiagnostic err)
     Right settings -> pure settings
 
+unusedBindingEnabledSettings :: IO WarningSettings
+unusedBindingEnabledSettings =
+  case resolveWarningSettings ["-Wunused-binding"] Nothing Nothing Nothing of
+    Left err -> failTest ("failed to resolve unused-binding settings: " <> renderDiagnostic err)
+    Right settings -> pure settings
+
+unusedBindingPromotedSettings :: IO WarningSettings
+unusedBindingPromotedSettings =
+  case resolveWarningSettings ["-Werror=unused-binding"] Nothing Nothing Nothing of
+    Left err -> failTest ("failed to resolve promoted unused-binding settings: " <> renderDiagnostic err)
+    Right settings -> pure settings
+
 sampleProgram :: Expr
 sampleProgram =
   EBlock
@@ -246,4 +305,24 @@ lambdaShadowingProgram =
   EBlock
     [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
       SLet "f" (SourceSpan 2 1) (ELambda "x" (EVar "x"))
+    ]
+
+unusedBindingProgram :: Expr
+unusedBindingProgram =
+  EBlock
+    [ SLet "unused" (SourceSpan 1 1) (ELit (LInt 1))
+    ]
+
+usedOrdinaryLetProgram :: Expr
+usedOrdinaryLetProgram =
+  EBlock
+    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
+      SLet "y" (SourceSpan 2 1) (EVar "x"),
+      SExpr (SourceSpan 3 1) (EVar "y")
+    ]
+
+selfReferentialUnusedProgram :: Expr
+selfReferentialUnusedProgram =
+  EBlock
+    [ SLet "loop" (SourceSpan 1 1) (EVar "loop")
     ]
