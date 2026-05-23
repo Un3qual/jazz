@@ -422,7 +422,7 @@ Based on the full repo, these areas still require implementation convergence eve
   - `docs/spec/runtime/primitive-semantics.md`
   - `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
   - `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
-- Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding` category:
+- Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding` emitter (reserved metadata for `shadowing-outer-scope` / `W0002`, `unused-binding` / `W0003`, and `deprecated-syntax` / `W0004` is covered, but these categories do not emit diagnostics yet):
   - `docs/spec/tooling/compiler-warning-flags.md`
 - Whether tuples are a core runtime feature or just parsed syntax in active implementation behavior.
 - Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit symbol-list visibility diagnostics, alias-import unqualified visibility diagnostics, `Alias::symbol` qualified alias lookup, default bundled-prelude module graph driver helpers, and deterministic resolver/binding diagnostics now work in the active parser/CLI path, but broader file-layout and long-term loader semantics are still unsettled.
@@ -490,5 +490,5 @@ Status update for item `#5`:
 2. Rebase module/import loader planning (`domain 09`) onto `jazz-next` with deterministic file-resolution diagnostics.
 3. Keep remaining stdlib-boundary follow-up work (`domain 10`) scoped to concrete future prelude/catalog growth; the current bundled source/module graph paths and checked-in prelude reproducibility evidence are covered in `jazz-next`.
 4. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.
-5. Extend warning-flag plumbing beyond `same-scope-rebinding` in `jazz-next` according to `docs/spec/tooling/compiler-warning-flags.md`.
+5. Implement future warning emitters for the reserved `shadowing-outer-scope`, `unused-binding`, and `deprecated-syntax` metadata in `jazz-next` according to `docs/spec/tooling/compiler-warning-flags.md`.
 6. Keep legacy `jazz-hs` parse-only behavior documented as historical evidence only; do not add new compiler behavior there.
