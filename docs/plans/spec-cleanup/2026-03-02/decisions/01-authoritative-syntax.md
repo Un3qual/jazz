@@ -1,3 +1,24 @@
+---
+id: JN-ABSTRACTION-SYNTAX-BOUNDARY-001
+status: ready
+priority: P2
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-05-22
+plan_section: "Active jazz-next batch: class/impl parser boundary"
+target_paths:
+  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - bash jazz-next/scripts/test-warning-config.sh
+  - bash scripts/check-execution-queue.sh
+  - bash scripts/check-docs.sh
+deliverable: "The active parser reserves canonical class/impl abstraction syntax behind deterministic unsupported-syntax diagnostics and focused parser coverage, without adding class/impl semantics."
+---
+
 # Jazz Spec-Cleanup #1: Authoritative Syntax Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
@@ -42,6 +63,32 @@
 - [x] Canonical abstraction keyword is `class`/`impl`.
 - [x] Canonical collection combinator order is function-first (`map f xs`, `filter p xs`).
 - [x] Function/module surface continues parser-first style (`name = expr.`, `module A::B { ... }`, `import A::B`).
+
+## Active jazz-next batch: class/impl parser boundary
+
+This is the next executor-safe active-path implementation batch for this plan.
+It deliberately stops at a parser boundary and does not add class/impl
+semantics.
+
+Batch scope:
+
+- Treat top-level `class` and `impl` forms as reserved abstraction syntax in
+  `jazz-next/src/JazzNext/Compiler/Parser.hs`.
+- Reject `class` and `impl` declarations with deterministic unsupported-syntax
+  diagnostics that name the deferred abstraction semantics.
+- Add focused parser coverage in
+  `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`.
+- Preserve existing implemented syntax for bindings, signatures, lambdas,
+  modules/imports, data declarations, and expressions.
+
+Verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
 
 ## Verification Evidence (Item Is Still Unfinished)
 
