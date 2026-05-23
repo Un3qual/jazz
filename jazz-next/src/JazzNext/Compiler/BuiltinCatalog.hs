@@ -53,9 +53,14 @@ data BuiltinSymbol
   | BuiltinPrint
   deriving (Eq, Ord, Show, Enum, Bounded)
 
+-- | Exhaustive builtin inventory in declaration order. Generated prelude text
+-- and tests rely on this order for reproducible output.
 allBuiltinSymbols :: [BuiltinSymbol]
 allBuiltinSymbols = [minBound .. maxBound]
 
+-- | Render the accepted builtin names for one resolution mode. The resulting
+-- set is intentionally mode-specific so kernel-only phases do not accept
+-- compatibility aliases by accident.
 builtinNamesInMode :: BuiltinResolutionMode -> Set Text
 builtinNamesInMode mode =
   Set.fromList
@@ -65,6 +70,8 @@ builtinNamesInMode mode =
       | symbol <- allBuiltinSymbols
     ]
 
+-- | Classify the public ownership contract for a builtin independent of the
+-- temporary runtime implementation that backs it.
 builtinSymbolOwnership :: BuiltinSymbol -> BuiltinOwnership
 builtinSymbolOwnership builtinSymbol =
   case builtinSymbol of
@@ -76,6 +83,7 @@ builtinSymbolOwnership builtinSymbol =
     BuiltinTl -> PreludeTarget
     BuiltinPrint -> PreludeTarget
 
+-- | Public compatibility/prelude spelling for a builtin symbol.
 builtinSymbolName :: BuiltinSymbol -> Text
 builtinSymbolName builtinSymbol =
   case builtinSymbol of
@@ -85,10 +93,12 @@ builtinSymbolName builtinSymbol =
     BuiltinTl -> "tl"
     BuiltinPrint -> "print!"
 
+-- | Kernel bridge spelling reserved for compiler-generated prelude bindings.
 builtinSymbolKernelName :: BuiltinSymbol -> Text
 builtinSymbolKernelName builtinSymbol =
   kernelBridgeBindingPrefix <> builtinSymbolName builtinSymbol
 
+-- | Runtime arity expected by analyzer/type/runtime calls for each builtin.
 builtinSymbolArity :: BuiltinSymbol -> Int
 builtinSymbolArity builtinSymbol =
   case builtinSymbol of
@@ -115,10 +125,12 @@ kernelBridgeTargetName bindingName
           else Just bindingName
   | otherwise = Nothing
 
+-- | Resolve a public compatibility/prelude builtin spelling.
 lookupBuiltinSymbol :: Text -> Maybe BuiltinSymbol
 lookupBuiltinSymbol name =
   lookupByRenderedName builtinSymbolName name
 
+-- | Resolve a compiler-owned kernel bridge builtin spelling.
 lookupKernelBuiltinSymbol :: Text -> Maybe BuiltinSymbol
 lookupKernelBuiltinSymbol name =
   lookupByRenderedName builtinSymbolKernelName name
@@ -133,18 +145,21 @@ lookupBuiltinSymbolInMode mode name =
     ResolveCompatibility ->
       lookupBuiltinSymbol name
 
+-- | Test whether a name is accepted by the selected builtin resolution mode.
 isBuiltinSymbolNameInMode :: BuiltinResolutionMode -> Text -> Bool
 isBuiltinSymbolNameInMode mode name =
   case lookupBuiltinSymbolInMode mode name of
     Just _ -> True
     Nothing -> False
 
+-- | Test whether a name is a public compatibility/prelude builtin spelling.
 isBuiltinSymbolName :: Text -> Bool
 isBuiltinSymbolName name =
   case lookupBuiltinSymbol name of
     Just _ -> True
     Nothing -> False
 
+-- | Test whether a name is reserved for the compiler-owned kernel bridge.
 isKernelBuiltinSymbolName :: Text -> Bool
 isKernelBuiltinSymbolName name =
   case lookupKernelBuiltinSymbol name of

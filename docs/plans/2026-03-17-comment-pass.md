@@ -1,27 +1,32 @@
 ---
-id: JN-COMMENT-FOUNDATION-CONTRACTS-001
+id: JN-COMMENT-PHASE-BOUNDARY-CONTRACTS-001
 status: ready
 priority: P3
-size: M
+size: L
 kind: impl
 autonomous_ready: yes
-depends_on: []
+depends_on:
+  - JN-COMMENT-FOUNDATION-CONTRACTS-001
 last_verified: 2026-05-22
-plan_section: "Task 1: Document foundational compiler contracts"
+plan_section: "Task 2: Document phase-boundary modules"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/AST.hs
-  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
-  - jazz-next/src/JazzNext/Compiler/Identifier.hs
-  - jazz-next/src/JazzNext/Compiler/Purity.hs
-  - jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs
-  - jazz-next/src/JazzNext/Compiler/BundledPrelude.hs
-  - jazz-next/src/JazzNext/Compiler/WarningCatalog.hs
-  - jazz-next/src/JazzNext/Compiler/Warnings.hs
+  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Operator.hs
+  - jazz-next/src/JazzNext/Compiler/Desugar.hs
+  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
+  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
+  - jazz-next/src/JazzNext/Compiler/Runtime.hs
+  - jazz-next/src/JazzNext/Compiler/ModuleResolver.hs
+  - jazz-next/src/JazzNext/Compiler/Driver.hs
+  - jazz-next/src/JazzNext/Compiler/PreludeContract.hs
+  - jazz-next/src/JazzNext/CLI/Main.hs
 verification:
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Foundational compiler modules gain behavior-neutral Haddock/module comments explaining exported contracts and invariants."
+deliverable: "Phase-boundary compiler modules gain behavior-neutral Haddock/module comments explaining parser, lowering, analyzer, runtime, resolver, driver, and CLI contracts."
 ---
 
 # Compiler Comment Pass Implementation Plan

@@ -29,15 +29,20 @@ data WarningMetadata = WarningMetadata
     metadataToken :: Text
   }
 
+-- | Exhaustive warning inventory in enum order for help text and config
+-- validation.
 allWarningCategories :: [WarningCategory]
 allWarningCategories = [minBound .. maxBound]
 
+-- | Published diagnostic code for a warning category.
 warningCode :: WarningCategory -> Text
 warningCode = metadataCode . warningMetadata
 
+-- | Whether the active analyzer can currently emit this warning category.
 warningHasAnalyzerEmitter :: WarningCategory -> Bool
 warningHasAnalyzerEmitter = metadataHasAnalyzerEmitter . warningMetadata
 
+-- | Stable CLI/config token for a warning category.
 warningToken :: WarningCategory -> Text
 warningToken = metadataToken . warningMetadata
 

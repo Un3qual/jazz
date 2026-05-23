@@ -79,6 +79,9 @@ data SignaturePayload
 data SignatureConstraint = SignatureConstraint Identifier [ConstraintSignatureType]
   deriving (Eq, Show)
 
+-- | Type grammar fragment allowed inside constraint argument lists. It remains
+-- separate from `SignatureType` so unsupported constrained surfaces can keep a
+-- faithful shape while the accepted monomorphic signature subset stays small.
 data ConstraintSignatureType
   = ConstraintTypeName Identifier
   | ConstraintTypeApplication Identifier [ConstraintSignatureType]
@@ -94,7 +97,9 @@ data SignatureType
   | TypeFunction SignatureType SignatureType
   deriving (Eq, Show)
 
--- | Tokenized fallback for unsupported signature surfaces.
+-- | Tokenized fallback for unsupported signature surfaces. Tokens are stored
+-- structurally so diagnostics can remain deterministic without preserving raw
+-- source slices.
 data SignatureToken
   = SignatureNameToken Text
   | SignatureIntToken Int

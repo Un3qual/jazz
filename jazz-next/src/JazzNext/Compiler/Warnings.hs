@@ -31,6 +31,7 @@ data WarningSeverity
   | SeverityError
   deriving (Eq, Ord, Show)
 
+-- | Normalized warning token lookup table derived from the canonical catalog.
 tokenCatalog :: [(Text, WarningCategory)]
 tokenCatalog =
   [ (warningToken category, category)

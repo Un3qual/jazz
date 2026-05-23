@@ -17,6 +17,8 @@ data Purity
   | Impure
   deriving (Eq, Show)
 
+-- | Check the only active impurity marker. The parser permits ordinary text;
+-- callers use this predicate when they need the raw spelling rule directly.
 isImpureName :: Text -> Bool
 isImpureName name = Text.isSuffixOf "!" name
 
