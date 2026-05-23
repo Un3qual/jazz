@@ -1438,10 +1438,13 @@ unifyTypes leftType rightType state =
 
 unifyTypeLists :: [ExpressionType] -> [ExpressionType] -> InferState -> Maybe InferState
 unifyTypeLists leftTypes rightTypes state =
-  foldl'
-    step
-    (Just state)
-    (zip leftTypes rightTypes)
+  if length leftTypes /= length rightTypes
+    then Nothing
+    else
+      foldl'
+        step
+        (Just state)
+        (zip leftTypes rightTypes)
   where
     step maybeState (leftType, rightType) =
       case maybeState of
