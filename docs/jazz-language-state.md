@@ -422,6 +422,10 @@ Based on the full repo, these areas still require implementation convergence eve
   - `docs/spec/runtime/primitive-semantics.md`
   - `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
   - `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+- Implementing class/impl abstraction semantics in `jazz-next`; the active
+  parser now reserves top-level and module-body `class`/`impl` forms with
+  deterministic unsupported-syntax diagnostics, but analyzer/type/runtime
+  behavior remains future work.
 - Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding` emitter (reserved metadata for `shadowing-outer-scope` / `W0002`, `unused-binding` / `W0003`, and `deprecated-syntax` / `W0004` is covered, but these categories do not emit diagnostics yet):
   - `docs/spec/tooling/compiler-warning-flags.md`
 - Whether tuples are a core runtime feature or just parsed syntax in active implementation behavior.
@@ -445,6 +449,7 @@ If you need a practical baseline for continuing Jazz, use this order:
    - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, right-associative function types, explicit parenthesized function-type overrides, empty `@{}:` constrained wrappers, concrete unary constrained signatures, and known unary variable constrained signatures under the monomorphic annotation-only contract)
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
    - canonical `data` declarations with constructor values/applications, plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; analyzer/type/runtime execution covers literal, wildcard, variable, declared constructor patterns, and exact-length bracketed-list patterns; tuple-shaped case patterns reject with an explicit parser diagnostic
+   - reserved top-level/module-body `class` and `impl` abstraction declarations that reject with deferred-semantics parser diagnostics; class/impl analyzer, type, and runtime semantics are not implemented yet
    - built-in operator fixity plus executable left/right section semantics
    - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, plus prelude-provided public helpers `map`, `filter`, `hd`, `tl`, `print!`
    - runtime execution via `--run` CLI mode, while successful CLI and driver compile paths are diagnostic-only: compile returns warnings/errors and no generated artifact

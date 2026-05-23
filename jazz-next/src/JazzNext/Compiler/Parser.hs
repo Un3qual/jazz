@@ -138,6 +138,10 @@ data StatementContext
 parseStatement :: StatementContext -> Set Text -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
 parseStatement context knownAliases tokens =
   case tokens of
+    abstractionToken@(Token {tokenKind = TIdentifier name}) : _
+      | isDeclarationContext context,
+        isReservedAbstractionKeyword name ->
+          rejectReservedAbstractionSyntax abstractionToken
     moduleToken@(Token {tokenKind = TModule}) : rest ->
       case context of
         TopLevelContext ->
@@ -190,6 +194,32 @@ parseStatement context knownAliases tokens =
     _ -> fmap singleStatement (parseExprStatement knownAliases tokens)
   where
     singleStatement (statement, remaining) = ([statement], remaining)
+
+isDeclarationContext :: StatementContext -> Bool
+isDeclarationContext context =
+  case context of
+    TopLevelContext -> True
+    ModuleBodyContext -> True
+    NestedBlockContext -> False
+
+isReservedAbstractionKeyword :: Text -> Bool
+isReservedAbstractionKeyword name =
+  case name of
+    "class" -> True
+    "impl" -> True
+    _ -> False
+
+rejectReservedAbstractionSyntax :: Token -> Either Diagnostic a
+rejectReservedAbstractionSyntax abstractionToken =
+  Left
+    ( parseDiagnostic
+        ( "unsupported abstraction syntax '"
+            <> tokenLexeme abstractionToken
+            <> "' at "
+            <> renderSourceSpan (tokenSpan abstractionToken)
+            <> ": class/impl abstraction semantics are deferred in jazz-next"
+        )
+    )
 
 registerImportAliases :: Set Text -> [SurfaceStatement] -> Set Text
 registerImportAliases =

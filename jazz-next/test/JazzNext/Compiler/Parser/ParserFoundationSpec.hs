@@ -63,7 +63,9 @@ tests =
     ("rejects missing statement terminator", testRejectsMissingDotTerminator),
     ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot),
     ("rejects integer literal overflow", testRejectsIntOverflow),
-    ("rejects negative literal syntax for now", testRejectsNegativeLiteralSyntax)
+    ("rejects negative literal syntax for now", testRejectsNegativeLiteralSyntax),
+    ("rejects class abstraction declarations as deferred syntax", testRejectsClassAbstractionSyntax),
+    ("rejects impl abstraction declarations as deferred syntax", testRejectsImplAbstractionSyntax)
   ]
 
 testParseLetAndExpr :: IO ()
@@ -389,3 +391,17 @@ testRejectsNegativeLiteralSyntax =
     "negative literal unsupported"
     "expected expression"
     (parseSurfaceProgram "x = -1.")
+
+testRejectsClassAbstractionSyntax :: IO ()
+testRejectsClassAbstractionSyntax =
+  assertLeftDiagnosticContains
+    "class abstraction syntax deferred"
+    "unsupported abstraction syntax 'class'"
+    (parseSurfaceProgram "class Eq { }.")
+
+testRejectsImplAbstractionSyntax :: IO ()
+testRejectsImplAbstractionSyntax =
+  assertLeftDiagnosticContains
+    "impl abstraction syntax deferred"
+    "unsupported abstraction syntax 'impl'"
+    (parseSurfaceProgram "impl Eq { }.")
