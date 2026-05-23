@@ -110,9 +110,12 @@ Minimum warning payload for `W0003`:
 The active `W0003` implementation is limited to ordinary block `let`
 declarations in lexical block scopes. It warns only when `unused-binding` is
 enabled and the declaration's name is not referenced by a reachable expression
-in the same block. References from other bindings' right-hand sides and
-expression statements in the same block count as usage; the binding's own
-right-hand side does not. Lambda parameters, pattern binders, data constructors,
+while that binding is in scope in the same block. Later references from other
+bindings' right-hand sides and expression statements count as usage until a
+same-name declaration shadows the binding; earlier pre-declaration references
+and the binding's own right-hand side do not. When `same-scope-rebinding` is
+also enabled, the rebinding declaration site emits `W0001` only instead of
+cofiring `W0003`. Lambda parameters, pattern binders, data constructors,
 imports/modules, cross-module export analysis, and `deprecated-syntax` remain
 outside this `W0003` batch.
 

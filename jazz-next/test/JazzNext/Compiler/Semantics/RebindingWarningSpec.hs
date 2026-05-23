@@ -53,12 +53,16 @@ tests =
     ("disabled outer-scope shadowing emits nothing", testDisabledOuterScopeShadowingEmitsNoWarnings),
     ("enabled outer-scope shadowing emits nested-let warning", testNestedLetShadowingEmitsWarning),
     ("enabled outer-scope shadowing emits lambda-parameter warning", testLambdaParameterShadowingEmitsWarning),
+    ("outer-scope shadowing uses expression statement span for lambda warning", testLambdaExpressionShadowingUsesStatementSpan),
     ("outer-scope shadowing promotion reports compile errors", testPromotedOuterScopeShadowingReportsCompileErrors),
     ("outer-scope shadowing ignores same-scope rebinding", testOuterScopeShadowingIgnoresSameScopeRebinding),
     ("disabled unused-binding emits nothing", testDisabledUnusedBindingEmitsNoWarnings),
     ("enabled unused-binding emits ordinary-let warning", testUnusedBindingEmitsWarning),
     ("used ordinary let emits no unused-binding warning", testUsedOrdinaryLetEmitsNoWarning),
+    ("pre-declaration references do not count as unused-binding use", testPreDeclarationReferenceDoesNotCountAsUse),
+    ("same-name rebinding does not count later use for earlier binding", testSameNameRebindingKeepsEarlierBindingUnused),
     ("self-referential right hand side does not count as unused-binding use", testSelfReferentialRhsStillUnused),
+    ("unused-binding suppresses rebinding-site duplicate when W0001 also emits", testUnusedBindingSuppressesRebindingSiteDuplicate),
     ("unused-binding promotion reports compile errors", testPromotedUnusedBindingReportsCompileErrors),
     ("bundled default prelude aliases do not trigger same-scope rebinding", testBundledPreludeAliasShadowingNoWarning),
     ("explicit prelude text matching bundled source still emits rebinding warnings", testExplicitPreludeMatchingBundledSourceEmitsWarning),
@@ -146,6 +150,18 @@ testLambdaParameterShadowingEmitsWarning = do
       assertEqual "previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan warning)
     _ -> failTest "expected exactly one lambda-parameter shadowing warning record"
 
+testLambdaExpressionShadowingUsesStatementSpan :: IO ()
+testLambdaExpressionShadowingUsesStatementSpan = do
+  settings <- shadowingEnabledSettings
+  warnings <- analyzeRebindingWarnings settings lambdaExpressionShadowingProgram
+  case warnings of
+    [warning] -> do
+      assertEqual "warning category" ShadowingOuterScope (warningCategory warning)
+      assertEqual "warning variable" "x" (warningVariableName warning)
+      assertEqual "warning span" (SourceSpan 2 1) (warningPrimarySpan warning)
+      assertEqual "previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan warning)
+    _ -> failTest "expected exactly one expression lambda shadowing warning record"
+
 testPromotedOuterScopeShadowingReportsCompileErrors :: IO ()
 testPromotedOuterScopeShadowingReportsCompileErrors = do
   settings <- shadowingPromotedSettings
@@ -183,6 +199,28 @@ testUsedOrdinaryLetEmitsNoWarning = do
   warnings <- analyzeRebindingWarnings settings usedOrdinaryLetProgram
   assertEqual "warning count" 0 (length warnings)
 
+testPreDeclarationReferenceDoesNotCountAsUse :: IO ()
+testPreDeclarationReferenceDoesNotCountAsUse = do
+  settings <- unusedBindingEnabledSettings
+  warnings <- analyzeRebindingWarnings settings preDeclarationReferenceProgram
+  case warnings of
+    [warning] -> do
+      assertEqual "warning category" UnusedBinding (warningCategory warning)
+      assertEqual "warning variable" "x" (warningVariableName warning)
+      assertEqual "warning span" (SourceSpan 2 1) (warningPrimarySpan warning)
+    _ -> failTest "expected pre-declaration reference not to satisfy use"
+
+testSameNameRebindingKeepsEarlierBindingUnused :: IO ()
+testSameNameRebindingKeepsEarlierBindingUnused = do
+  settings <- unusedBindingEnabledSettings
+  warnings <- analyzeRebindingWarnings settings sameNameRebindingUsedProgram
+  case warnings of
+    [warning] -> do
+      assertEqual "warning category" UnusedBinding (warningCategory warning)
+      assertEqual "warning variable" "x" (warningVariableName warning)
+      assertEqual "warning span" (SourceSpan 1 1) (warningPrimarySpan warning)
+    _ -> failTest "expected later same-name use to belong to the rebinding only"
+
 testSelfReferentialRhsStillUnused :: IO ()
 testSelfReferentialRhsStillUnused = do
   settings <- unusedBindingEnabledSettings
@@ -193,6 +231,18 @@ testSelfReferentialRhsStillUnused = do
       assertEqual "warning variable" "loop" (warningVariableName warning)
       assertEqual "warning span" (SourceSpan 1 1) (warningPrimarySpan warning)
     _ -> failTest "expected self-referential binding to remain unused"
+
+testUnusedBindingSuppressesRebindingSiteDuplicate :: IO ()
+testUnusedBindingSuppressesRebindingSiteDuplicate = do
+  settings <- rebindingAndUnusedEnabledSettings
+  warnings <- analyzeRebindingWarnings settings sampleProgram
+  case warnings of
+    [firstWarning, secondWarning] -> do
+      assertEqual "first warning category" UnusedBinding (warningCategory firstWarning)
+      assertEqual "first warning span" (SourceSpan 1 1) (warningPrimarySpan firstWarning)
+      assertEqual "second warning category" SameScopeRebinding (warningCategory secondWarning)
+      assertEqual "second warning span" (SourceSpan 2 1) (warningPrimarySpan secondWarning)
+    _ -> failTest "expected first binding unused and rebinding site to emit only W0001"
 
 testPromotedUnusedBindingReportsCompileErrors :: IO ()
 testPromotedUnusedBindingReportsCompileErrors = do
@@ -265,6 +315,12 @@ unusedBindingPromotedSettings =
     Left err -> failTest ("failed to resolve promoted unused-binding settings: " <> renderDiagnostic err)
     Right settings -> pure settings
 
+rebindingAndUnusedEnabledSettings :: IO WarningSettings
+rebindingAndUnusedEnabledSettings =
+  case resolveWarningSettings ["-Wsame-scope-rebinding", "-Wunused-binding"] Nothing Nothing Nothing of
+    Left err -> failTest ("failed to resolve rebinding plus unused-binding settings: " <> renderDiagnostic err)
+    Right settings -> pure settings
+
 sampleProgram :: Expr
 sampleProgram =
   EBlock
@@ -307,6 +363,13 @@ lambdaShadowingProgram =
       SLet "f" (SourceSpan 2 1) (ELambda "x" (EVar "x"))
     ]
 
+lambdaExpressionShadowingProgram :: Expr
+lambdaExpressionShadowingProgram =
+  EBlock
+    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
+      SExpr (SourceSpan 2 1) (ELambda "x" (EVar "x"))
+    ]
+
 unusedBindingProgram :: Expr
 unusedBindingProgram =
   EBlock
@@ -319,6 +382,21 @@ usedOrdinaryLetProgram =
     [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
       SLet "y" (SourceSpan 2 1) (EVar "x"),
       SExpr (SourceSpan 3 1) (EVar "y")
+    ]
+
+preDeclarationReferenceProgram :: Expr
+preDeclarationReferenceProgram =
+  EBlock
+    [ SExpr (SourceSpan 1 1) (EVar "x"),
+      SLet "x" (SourceSpan 2 1) (ELit (LInt 1))
+    ]
+
+sameNameRebindingUsedProgram :: Expr
+sameNameRebindingUsedProgram =
+  EBlock
+    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
+      SLet "x" (SourceSpan 2 1) (ELit (LInt 2)),
+      SExpr (SourceSpan 3 1) (EVar "x")
     ]
 
 selfReferentialUnusedProgram :: Expr

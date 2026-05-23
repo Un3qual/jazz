@@ -452,11 +452,14 @@ Batch scope:
 - Enable the `UnusedBinding` analyzer emitter metadata in
   `jazz-next/src/JazzNext/Compiler/WarningCatalog.hs`.
 - Emit `W0003` only when the category is enabled and an ordinary block `let`
-  binding is never referenced by a reachable expression in the same lexical
-  block.
-- Count references from other bindings' right-hand sides and expression
-  statements in that same block; the binding's own right-hand side does not
-  satisfy usage.
+  binding is never referenced by a reachable expression while that binding is
+  in scope in the same lexical block.
+- Count later in-scope references from other bindings' right-hand sides and
+  expression statements in that same block; earlier pre-declaration references,
+  later references after a same-name shadowing declaration, and the binding's
+  own right-hand side do not satisfy usage.
+- When `same-scope-rebinding` is also enabled, suppress `W0003` on a rebinding
+  declaration that already emits `W0001`.
 - Keep lambda parameters, pattern binders, data constructors, imports/modules,
   cross-module export analysis, and `deprecated-syntax` deferred.
 - Preserve default warning-silent behavior and warning-as-error promotion for
@@ -475,13 +478,17 @@ Closure evidence:
   having an analyzer emitter.
 - `jazz-next/src/JazzNext/Compiler/Analyzer.hs` emits `W0003` only when
   `unused-binding` is enabled and an ordinary block `let` binding is not
-  referenced by another same-block binding RHS or expression statement.
-- The binding's own right-hand side does not count as usage, hidden prelude
-  statements are excluded, and lambda parameters, pattern binders, data
-  constructors, imports/modules, cross-module export analysis, and
-  `deprecated-syntax` remain deferred.
+  referenced later while in scope by another same-block binding RHS or
+  expression statement.
+- The binding's own right-hand side, earlier pre-declaration references, and
+  later references after a same-name shadowing declaration do not count as
+  usage; hidden prelude statements are excluded; and `W0003` is suppressed on a
+  rebinding declaration when `W0001` also emits.
+- Lambda parameters, pattern binders, data constructors, imports/modules,
+  cross-module export analysis, and `deprecated-syntax` remain deferred.
 - The W0003 tests cover disabled, enabled, warning-as-error, used ordinary
-  `let`, and self-referential-RHS behavior.
+  `let`, pre-declaration references, same-name rebinding/shadowing, duplicate
+  W0001/W0003 suppression, and self-referential-RHS behavior.
 
 Batch verification:
 

@@ -51,7 +51,6 @@ import JazzNext.Compiler.Identifier
   )
 import JazzNext.Compiler.RecursiveBindings
   ( freeVarsExprWithBound,
-    freeVarsScopeWithBound,
     inferRecursiveGroupsOrdered
   )
 import JazzNext.Compiler.Purity
@@ -81,7 +80,8 @@ data AnalysisContext = AnalysisContext
   { contextLabel :: Text,
     contextAllowsImpureCalls :: Bool,
     contextPrimarySpan :: Maybe SourceSpan,
-    contextSubject :: Maybe Text
+    contextSubject :: Maybe Text,
+    contextLambdaSpan :: Maybe SourceSpan
   }
 
 -- | Binding metadata retained in visibility maps so diagnostics can decide
@@ -159,11 +159,14 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
               lambdaVisibleBinding
               visibleBindings
           shadowingWarnings =
-            collectOuterScopeShadowingWarnings
-              settings
-              parameterNameText
-              (lambdaShadowingSpan context)
-              visibleBindings
+            case lambdaShadowingSpan context of
+              Nothing -> []
+              Just primarySpan ->
+                collectOuterScopeShadowingWarnings
+                  settings
+                  parameterNameText
+                  primarySpan
+                  visibleBindings
           (bodyWarnings, bodyErrors) =
             collectExprDiagnostics builtinMode settings lambdaBindings context bodyExpr
        in (shadowingWarnings ++ bodyWarnings, bodyErrors)
@@ -300,11 +303,17 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
       (Map Text VisibleBinding, Maybe PendingSignature, [WarningRecord], [Diagnostic])
     step (scopeBindings, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
       case statement of
-        SExpr _ expr ->
+        SExpr exprSpan expr ->
           -- Any signature followed by a non-binding is invalid by contract.
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
               visible = currentVisibleBindings scopeBindings
-              (exprWarnings, exprErrors) = collectExprDiagnostics builtinMode settings visible context expr
+              (exprWarnings, exprErrors) =
+                collectExprDiagnostics
+                  builtinMode
+                  settings
+                  visible
+                  (contextForExpressionStatement exprSpan context)
+                  expr
            in
             ( scopeBindings,
               Nothing,
@@ -518,7 +527,8 @@ topLevelContext =
     { contextLabel = "top-level expression",
       contextAllowsImpureCalls = True,
       contextPrimarySpan = Nothing,
-      contextSubject = Nothing
+      contextSubject = Nothing,
+      contextLambdaSpan = Nothing
     }
 
 -- | Create the purity/diagnostic context that should apply while checking the
@@ -529,8 +539,13 @@ contextForBinding bindingName bindingSpan =
     { contextLabel = "binding '" <> identifierText bindingName <> "'",
       contextAllowsImpureCalls = identifierPurity bindingName == Impure,
       contextPrimarySpan = Just bindingSpan,
-      contextSubject = Just (identifierText bindingName)
+      contextSubject = Just (identifierText bindingName),
+      contextLambdaSpan = Just bindingSpan
     }
+
+contextForExpressionStatement :: SourceSpan -> AnalysisContext -> AnalysisContext
+contextForExpressionStatement statementSpan context =
+  context {contextLambdaSpan = Just statementSpan}
 
 -- | Purity is name-based in this compiler slice; reject only when the current
 -- context is pure and the callee is known either locally or through builtins.
@@ -670,31 +685,81 @@ collectUnusedBindingWarnings settings hiddenStatementIndices indexedStatements
           | (statementIndex, SLet bindingName bindingSpan _) <- indexedStatements,
             statementIndex `Set.notMember` hiddenStatementIndices,
             let bindingNameText = identifierText bindingName,
-            not (isBindingUsedByOtherStatements statementIndex bindingNameText)
+            not (isBindingUsedByOtherStatements statementIndex),
+            not (shouldSuppressRebindingDuplicate statementIndex)
         ]
   where
-    freeVarsByStatement =
-      Map.fromList
-        [ (statementIndex, statementFreeVars statement)
-          | (statementIndex, statement) <- indexedStatements,
-            statementIndex `Set.notMember` hiddenStatementIndices
-        ]
+    (usedBindingStatementIndices, rebindingStatementIndices) =
+      collectUnusedBindingUseState hiddenStatementIndices indexedStatements
 
-    statementFreeVars statement =
+    isBindingUsedByOtherStatements bindingStatementIndex =
+      Set.member bindingStatementIndex usedBindingStatementIndices
+
+    shouldSuppressRebindingDuplicate statementIndex =
+      isWarningEnabled settings SameScopeRebinding
+        && Set.member statementIndex rebindingStatementIndices
+
+collectUnusedBindingUseState ::
+  Set Int ->
+  [(Int, Statement)] ->
+  (Set Int, Set Int)
+collectUnusedBindingUseState hiddenStatementIndices indexedStatements =
+  let (_, usedStatementIndices, rebindingStatementIndices) =
+        foldl' step (Map.empty, Set.empty, Set.empty) indexedStatements
+   in (usedStatementIndices, rebindingStatementIndices)
+  where
+    step (activeBindings, usedStatementIndices, rebindingStatementIndices) (statementIndex, statement)
+      | statementIndex `Set.member` hiddenStatementIndices =
+          (activeBindings, usedStatementIndices, rebindingStatementIndices)
+      | otherwise =
+          let referenceNames = statementReferenceNames statement
+              usedWithStatementReferences =
+                Set.foldl'
+                  (markReferencedBinding activeBindings)
+                  usedStatementIndices
+                  referenceNames
+           in
+            case statement of
+              SLet bindingName _ _ ->
+                let bindingNameText = identifierText bindingName
+                    rebindingStatementIndices' =
+                      if Map.member bindingNameText activeBindings
+                        then Set.insert statementIndex rebindingStatementIndices
+                        else rebindingStatementIndices
+                 in
+                  ( Map.insert bindingNameText statementIndex activeBindings,
+                    usedWithStatementReferences,
+                    rebindingStatementIndices'
+                  )
+              SData _ _ constructors ->
+                ( foldl' removeConstructor activeBindings constructors,
+                  usedWithStatementReferences,
+                  rebindingStatementIndices
+                )
+              _ ->
+                ( activeBindings,
+                  usedWithStatementReferences,
+                  rebindingStatementIndices
+                )
+
+    statementReferenceNames statement =
       case statement of
-        SLet _ _ valueExpr ->
-          freeVarsExprWithBound Set.empty valueExpr
+        SLet bindingName _ valueExpr ->
+          Set.delete
+            (identifierText bindingName)
+            (freeVarsExprWithBound Set.empty valueExpr)
         SExpr _ expr ->
           freeVarsExprWithBound Set.empty expr
         _ -> Set.empty
 
-    isBindingUsedByOtherStatements bindingStatementIndex bindingName =
-      any
-        ( \(statementIndex, freeVars) ->
-            statementIndex /= bindingStatementIndex
-              && Set.member bindingName freeVars
-        )
-        (Map.toList freeVarsByStatement)
+    markReferencedBinding activeBindings usedStatementIndices referenceName =
+      case Map.lookup referenceName activeBindings of
+        Nothing -> usedStatementIndices
+        Just bindingStatementIndex ->
+          Set.insert bindingStatementIndex usedStatementIndices
+
+    removeConstructor activeBindings (DataConstructor constructorName _) =
+      Map.delete (identifierText constructorName) activeBindings
 
 visibleBindingDiagnosticSpan :: VisibleBinding -> Maybe SourceSpan
 visibleBindingDiagnosticSpan visibleBinding =
@@ -749,11 +814,11 @@ mkUnusedBindingWarning variableName primarySpan =
           <> "' is never referenced in this lexical block"
     }
 
-lambdaShadowingSpan :: AnalysisContext -> SourceSpan
+lambdaShadowingSpan :: AnalysisContext -> Maybe SourceSpan
 lambdaShadowingSpan context =
-  case contextPrimarySpan context of
-    Just spanValue -> spanValue
-    Nothing -> SourceSpan 0 0
+  case contextLambdaSpan context of
+    Just spanValue -> Just spanValue
+    Nothing -> contextPrimarySpan context
 
 lambdaVisibleBinding :: VisibleBinding
 lambdaVisibleBinding =
