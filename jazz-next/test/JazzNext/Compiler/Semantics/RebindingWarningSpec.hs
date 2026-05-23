@@ -63,6 +63,7 @@ tests =
     ("same-name rebinding does not count later use for earlier binding", testSameNameRebindingKeepsEarlierBindingUnused),
     ("self-referential right hand side does not count as unused-binding use", testSelfReferentialRhsStillUnused),
     ("unused-binding suppresses rebinding-site duplicate when W0001 also emits", testUnusedBindingSuppressesRebindingSiteDuplicate),
+    ("unused-binding suppresses constructor-rebinding duplicate when W0001 also emits", testUnusedBindingSuppressesConstructorRebindingSiteDuplicate),
     ("unused-binding promotion reports compile errors", testPromotedUnusedBindingReportsCompileErrors),
     ("bundled default prelude aliases do not trigger same-scope rebinding", testBundledPreludeAliasShadowingNoWarning),
     ("explicit prelude text matching bundled source still emits rebinding warnings", testExplicitPreludeMatchingBundledSourceEmitsWarning),
@@ -244,6 +245,18 @@ testUnusedBindingSuppressesRebindingSiteDuplicate = do
       assertEqual "second warning span" (SourceSpan 2 1) (warningPrimarySpan secondWarning)
     _ -> failTest "expected first binding unused and rebinding site to emit only W0001"
 
+testUnusedBindingSuppressesConstructorRebindingSiteDuplicate :: IO ()
+testUnusedBindingSuppressesConstructorRebindingSiteDuplicate = do
+  settings <- rebindingAndUnusedEnabledSettings
+  warnings <- analyzeRebindingWarnings settings letRebindsConstructorProgram
+  case warnings of
+    [warning] -> do
+      assertEqual "warning category" SameScopeRebinding (warningCategory warning)
+      assertEqual "warning variable" "Just" (warningVariableName warning)
+      assertEqual "warning span" (SourceSpan 2 1) (warningPrimarySpan warning)
+      assertEqual "previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan warning)
+    _ -> failTest "expected constructor rebinding site to emit W0001 without W0003"
+
 testPromotedUnusedBindingReportsCompileErrors :: IO ()
 testPromotedUnusedBindingReportsCompileErrors = do
   settings <- unusedBindingPromotedSettings
@@ -403,4 +416,11 @@ selfReferentialUnusedProgram :: Expr
 selfReferentialUnusedProgram =
   EBlock
     [ SLet "loop" (SourceSpan 1 1) (EVar "loop")
+    ]
+
+letRebindsConstructorProgram :: Expr
+letRebindsConstructorProgram =
+  EBlock
+    [ SData (SourceSpan 1 1) "Maybe" [DataConstructor "Just" 1],
+      SLet "Just" (SourceSpan 2 1) (ELit (LInt 1))
     ]

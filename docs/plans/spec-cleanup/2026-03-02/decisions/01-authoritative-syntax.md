@@ -71,8 +71,8 @@ deliberately stops at a parser boundary and does not add class/impl semantics.
 
 Batch scope:
 
-- Treat top-level `class` and `impl` forms as reserved abstraction syntax in
-  `jazz-next/src/JazzNext/Compiler/Parser.hs`.
+- Treat top-level `class ... { ... }` and `impl ... { ... }` declaration-shaped
+  forms as reserved abstraction syntax in `jazz-next/src/JazzNext/Compiler/Parser.hs`.
 - Reject `class` and `impl` declarations with deterministic unsupported-syntax
   diagnostics that name the deferred abstraction semantics.
 - Add focused parser coverage in
@@ -83,8 +83,10 @@ Batch scope:
 Closure evidence:
 
 - `jazz-next/src/JazzNext/Compiler/Parser.hs` rejects top-level and module-body
-  `class`/`impl` abstraction forms with deterministic unsupported-syntax
-  diagnostics that name the deferred class/impl semantics.
+  `class`/`impl` abstraction declaration forms with deterministic
+  unsupported-syntax diagnostics that name the deferred class/impl semantics,
+  while preserving ordinary binding, signature, and qualified-alias uses of
+  those identifier names.
 - `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs` covers the
   reserved parser boundary for both canonical abstraction keywords.
 - `docs/spec/authoritative-syntax.md`, `docs/jazz-language-state.md`, and

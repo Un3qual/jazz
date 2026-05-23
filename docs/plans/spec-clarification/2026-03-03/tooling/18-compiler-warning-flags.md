@@ -459,7 +459,8 @@ Batch scope:
   later references after a same-name shadowing declaration, and the binding's
   own right-hand side do not satisfy usage.
 - When `same-scope-rebinding` is also enabled, suppress `W0003` on a rebinding
-  declaration that already emits `W0001`.
+  declaration, including an ordinary `let` that rebinds a same-scope data
+  constructor name, that already emits `W0001`.
 - Keep lambda parameters, pattern binders, data constructors, imports/modules,
   cross-module export analysis, and `deprecated-syntax` deferred.
 - Preserve default warning-silent behavior and warning-as-error promotion for
@@ -483,7 +484,8 @@ Closure evidence:
 - The binding's own right-hand side, earlier pre-declaration references, and
   later references after a same-name shadowing declaration do not count as
   usage; hidden prelude statements are excluded; and `W0003` is suppressed on a
-  rebinding declaration when `W0001` also emits.
+  rebinding declaration, including an ordinary `let` that rebinds a same-scope
+  data constructor name, when `W0001` also emits.
 - Lambda parameters, pattern binders, data constructors, imports/modules,
   cross-module export analysis, and `deprecated-syntax` remain deferred.
 - The W0003 tests cover disabled, enabled, warning-as-error, used ordinary

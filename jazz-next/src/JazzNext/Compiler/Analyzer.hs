@@ -704,13 +704,15 @@ collectUnusedBindingUseState ::
   [(Int, Statement)] ->
   (Set Int, Set Int)
 collectUnusedBindingUseState hiddenStatementIndices indexedStatements =
-  let (_, usedStatementIndices, rebindingStatementIndices) =
-        foldl' step (Map.empty, Set.empty, Set.empty) indexedStatements
+  let (_, _, usedStatementIndices, rebindingStatementIndices) =
+        foldl' step (Map.empty, Set.empty, Set.empty, Set.empty) indexedStatements
    in (usedStatementIndices, rebindingStatementIndices)
   where
-    step (activeBindings, usedStatementIndices, rebindingStatementIndices) (statementIndex, statement)
+    step
+      (activeBindings, activeRebindingNames, usedStatementIndices, rebindingStatementIndices)
+      (statementIndex, statement)
       | statementIndex `Set.member` hiddenStatementIndices =
-          (activeBindings, usedStatementIndices, rebindingStatementIndices)
+          (activeBindings, activeRebindingNames, usedStatementIndices, rebindingStatementIndices)
       | otherwise =
           let referenceNames = statementReferenceNames statement
               usedWithStatementReferences =
@@ -723,21 +725,24 @@ collectUnusedBindingUseState hiddenStatementIndices indexedStatements =
               SLet bindingName _ _ ->
                 let bindingNameText = identifierText bindingName
                     rebindingStatementIndices' =
-                      if Map.member bindingNameText activeBindings
+                      if Set.member bindingNameText activeRebindingNames
                         then Set.insert statementIndex rebindingStatementIndices
                         else rebindingStatementIndices
                  in
                   ( Map.insert bindingNameText statementIndex activeBindings,
+                    Set.insert bindingNameText activeRebindingNames,
                     usedWithStatementReferences,
                     rebindingStatementIndices'
                   )
               SData _ _ constructors ->
                 ( foldl' removeConstructor activeBindings constructors,
+                  foldl' registerConstructor activeRebindingNames constructors,
                   usedWithStatementReferences,
                   rebindingStatementIndices
                 )
               _ ->
                 ( activeBindings,
+                  activeRebindingNames,
                   usedWithStatementReferences,
                   rebindingStatementIndices
                 )
@@ -760,6 +765,9 @@ collectUnusedBindingUseState hiddenStatementIndices indexedStatements =
 
     removeConstructor activeBindings (DataConstructor constructorName _) =
       Map.delete (identifierText constructorName) activeBindings
+
+    registerConstructor activeRebindingNames (DataConstructor constructorName _) =
+      Set.insert (identifierText constructorName) activeRebindingNames
 
 visibleBindingDiagnosticSpan :: VisibleBinding -> Maybe SourceSpan
 visibleBindingDiagnosticSpan visibleBinding =

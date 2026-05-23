@@ -64,6 +64,8 @@ tests =
     ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot),
     ("rejects integer literal overflow", testRejectsIntOverflow),
     ("rejects negative literal syntax for now", testRejectsNegativeLiteralSyntax),
+    ("parses class and impl as ordinary binding names", testParsesAbstractionKeywordsAsBindingNames),
+    ("parses class and impl as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames),
     ("rejects class abstraction declarations as deferred syntax", testRejectsClassAbstractionSyntax),
     ("rejects impl abstraction declarations as deferred syntax", testRejectsImplAbstractionSyntax)
   ]
@@ -391,6 +393,34 @@ testRejectsNegativeLiteralSyntax =
     "negative literal unsupported"
     "expected expression"
     (parseSurfaceProgram "x = -1.")
+
+testParsesAbstractionKeywordsAsBindingNames :: IO ()
+testParsesAbstractionKeywordsAsBindingNames =
+  assertEqual
+    "class/impl binding names"
+    ( Right
+        ( SEBlock
+            [ SSLet "class" (SourceSpan 1 1) (SELit (SLInt 1)),
+              SSLet "impl" (SourceSpan 2 1) (SEVar "class")
+            ]
+        )
+    )
+    (parseSurfaceProgram "class = 1.\nimpl = class.")
+
+testParsesAbstractionKeywordsAsSignatureNames :: IO ()
+testParsesAbstractionKeywordsAsSignatureNames =
+  assertEqual
+    "class/impl signature names"
+    ( Right
+        ( SEBlock
+            [ SSSignature "class" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeInt),
+              SSLet "class" (SourceSpan 2 1) (SELit (SLInt 1)),
+              SSSignature "impl" (SourceSpan 3 1) (SurfaceSignatureType SurfaceTypeBool),
+              SSLet "impl" (SourceSpan 4 1) (SELit (SLBool True))
+            ]
+        )
+    )
+    (parseSurfaceProgram "class :: Int.\nclass = 1.\nimpl :: Bool.\nimpl = True.")
 
 testRejectsClassAbstractionSyntax :: IO ()
 testRejectsClassAbstractionSyntax =

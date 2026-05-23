@@ -114,7 +114,8 @@ while that binding is in scope in the same block. Later references from other
 bindings' right-hand sides and expression statements count as usage until a
 same-name declaration shadows the binding; earlier pre-declaration references
 and the binding's own right-hand side do not. When `same-scope-rebinding` is
-also enabled, the rebinding declaration site emits `W0001` only instead of
+also enabled, a rebinding declaration site, including an ordinary `let` that
+rebinds a same-scope data constructor name, emits `W0001` only instead of
 cofiring `W0003`. Lambda parameters, pattern binders, data constructors,
 imports/modules, cross-module export analysis, and `deprecated-syntax` remain
 outside this `W0003` batch.

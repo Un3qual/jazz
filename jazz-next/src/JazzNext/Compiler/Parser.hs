@@ -138,9 +138,10 @@ data StatementContext
 parseStatement :: StatementContext -> Set Text -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
 parseStatement context knownAliases tokens =
   case tokens of
-    abstractionToken@(Token {tokenKind = TIdentifier name}) : _
+    abstractionToken@(Token {tokenKind = TIdentifier name}) : rest
       | isDeclarationContext context,
-        isReservedAbstractionKeyword name ->
+        isReservedAbstractionKeyword name,
+        looksLikeAbstractionDeclaration rest ->
           rejectReservedAbstractionSyntax abstractionToken
     moduleToken@(Token {tokenKind = TModule}) : rest ->
       case context of
@@ -208,6 +209,21 @@ isReservedAbstractionKeyword name =
     "class" -> True
     "impl" -> True
     _ -> False
+
+looksLikeAbstractionDeclaration :: [Token] -> Bool
+looksLikeAbstractionDeclaration tokensAfterKeyword =
+  case tokensAfterKeyword of
+    Token {tokenKind = TIdentifier {}} : rest -> hasAbstractionBodyBeforeTerminator rest
+    Token {tokenKind = TAt} : rest -> hasAbstractionBodyBeforeTerminator rest
+    _ -> False
+
+hasAbstractionBodyBeforeTerminator :: [Token] -> Bool
+hasAbstractionBodyBeforeTerminator tokens =
+  case tokens of
+    [] -> False
+    Token {tokenKind = TDot} : _ -> False
+    Token {tokenKind = TLBrace} : _ -> True
+    _ : rest -> hasAbstractionBodyBeforeTerminator rest
 
 rejectReservedAbstractionSyntax :: Token -> Either Diagnostic a
 rejectReservedAbstractionSyntax abstractionToken =
