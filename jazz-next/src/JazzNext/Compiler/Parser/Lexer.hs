@@ -218,9 +218,13 @@ tokenize = go 1 1
     tabStep :: Int -> Int
     tabStep column = tabWidth - ((column - 1) `mod` tabWidth)
 
+-- | Render a compact source position for lexer diagnostics before full span
+-- rendering is available at this phase.
 renderSpan :: Int -> Int -> Text
 renderSpan line column = Text.pack (show line) <> ":" <> Text.pack (show column)
 
+-- | Parse through `Integer` first so range failures become stable diagnostics
+-- rather than host-`Int` overflow behavior.
 parseIntLiteral :: Int -> Int -> Text -> Either Diagnostic Int
 parseIntLiteral line column digits =
   case TextRead.decimal digits :: Either String (Integer, Text) of
@@ -257,5 +261,6 @@ invalidIntegerDiagnostic digits line column =
         )
     )
 
+-- | Parser/lexer diagnostics currently share the `E0001` parse-error code.
 parseDiagnostic :: Text -> Diagnostic
 parseDiagnostic = mkDiagnostic "E0001"

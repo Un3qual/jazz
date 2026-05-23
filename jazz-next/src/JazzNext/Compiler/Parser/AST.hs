@@ -75,9 +75,9 @@ data SurfaceSignaturePayload
   | SurfaceUnsupportedSignature [SurfaceSignatureToken]
   deriving (Eq, Show)
 
--- | Parser-owned constraint payload for the legacy `@{...}:` surface. It is
--- structured before semantics are implemented so later phases can reject it
--- deterministically without depending on opaque raw text.
+-- | Parser-owned constraint payload for the `@{...}:` surface. It is
+-- structured before the full type-class model exists so later phases can
+-- reject or narrow it deterministically without depending on opaque raw text.
 data SurfaceSignatureConstraint = SurfaceSignatureConstraint Identifier [SurfaceConstrainedSignatureType]
   deriving (Eq, Show)
 
@@ -99,7 +99,9 @@ data SurfaceSignatureType
   | SurfaceTypeFunction SurfaceSignatureType SurfaceSignatureType
   deriving (Eq, Show)
 
--- | Tokenized fallback for unsupported signature surfaces.
+-- | Tokenized fallback for unsupported signature surfaces. The parser records
+-- enough structure for stable downstream diagnostics while avoiding raw-text
+-- coupling between phases.
 data SurfaceSignatureToken
   = SurfaceSignatureNameToken Text
   | SurfaceSignatureIntToken Int

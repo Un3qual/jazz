@@ -43,6 +43,8 @@ builtinOperatorInfos =
     OperatorInfo "$" 1 AssocRight
   ]
 
+-- | Lexer-facing membership check so unsupported operator spellings are
+-- rejected before expression parsing.
 isBuiltinOperatorSymbol :: Text -> Bool
 isBuiltinOperatorSymbol symbol =
   case lookupOperatorInfo symbol of

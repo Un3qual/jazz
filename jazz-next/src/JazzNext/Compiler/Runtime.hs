@@ -155,6 +155,8 @@ renderConstructorName constructorName =
         "__module" : _ -> last segments
         _ -> nameText
 
+-- | Runtime cells can hold either a value or the deterministic failure for a
+-- recursive binding that cannot be forced safely.
 type RuntimeCell = Either Diagnostic RuntimeValue
 
 type RuntimeEnv = Map Text RuntimeCell
@@ -642,6 +644,8 @@ selectMatchingCaseArm env scrutineeValue =
         Just matchedArm -> Just matchedArm
         Nothing -> nextMatch
 
+-- | Pattern bindings are prepended to the arm environment so they shadow outer
+-- runtime bindings only while evaluating the selected arm body.
 matchCaseArm ::
   RuntimeEnv ->
   RuntimeValue ->
@@ -730,6 +734,8 @@ applyOperator builtinMode operatorSymbol arguments =
             ("runtime primitive '" <> operatorSymbol <> "' received invalid arguments")
         )
 
+-- | Constructor values are curried like builtins until their declared arity is
+-- saturated; extra applications are runtime errors.
 applyConstructor :: Identifier -> Int -> [RuntimeValue] -> Either Diagnostic RuntimeValue
 applyConstructor constructorName constructorArity arguments
   | length arguments <= constructorArity =

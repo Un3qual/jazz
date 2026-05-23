@@ -64,6 +64,8 @@ validatePreludeKernelBridges preludeExpr =
         _ ->
           (diagnostics, seenBindings, seenBindingSpans)
 
+    -- Only names with the reserved bridge prefix participate in this contract;
+    -- ordinary prelude aliases are validated by the normal analyzer/type path.
     validateBridge :: Set Text -> Map Text SourceSpan -> Text -> SourceSpan -> Expr -> [Diagnostic]
     validateBridge seenBindings seenBindingSpans bindingName bindingSpan bindingExpr =
       case kernelBridgeTargetName bindingName of

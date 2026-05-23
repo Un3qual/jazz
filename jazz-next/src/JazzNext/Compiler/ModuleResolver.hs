@@ -66,6 +66,8 @@ data ResolvedModule = ResolvedModule
   }
   deriving (Eq, Show)
 
+-- | Import declaration details retained after parsing so validation can report
+-- diagnostics with the original import span.
 data ParsedImport = ParsedImport
   { parsedImportSpan :: SourceSpan,
     parsedImportModulePath :: [Text],
@@ -74,6 +76,8 @@ data ParsedImport = ParsedImport
   }
   deriving (Eq, Show)
 
+-- | Resolver-local view of a parsed module. It deliberately stores only import,
+-- export, and reference inventories, not the lowered executable program.
 data ParsedModule = ParsedModule
   { parsedModuleImports :: [ParsedImport],
     parsedModuleExports :: Set Text,
@@ -81,6 +85,8 @@ data ParsedModule = ParsedModule
     parsedModuleQualifiedReferences :: Set (Text, Text)
   }
 
+-- | Origin metadata for imported bindings/aliases used in collision
+-- diagnostics.
 data BindingOrigin = BindingOrigin
   { bindingOriginModulePath :: [Text],
     bindingOriginSpan :: SourceSpan
@@ -354,6 +360,8 @@ collectTopLevelBindings surfaceExpr =
           ]
         _ -> []
 
+-- | Collect unqualified free references used to validate explicit and alias
+-- import visibility before driver replay rewrites names.
 collectReferencedNames :: SurfaceExpr -> Set Text
 collectReferencedNames = collectExprReferences Set.empty
 
@@ -774,6 +782,8 @@ validateImportBindings sourcePath importerPath imports referencedNames qualified
               )
           )
 
+    -- Visible imports include all bare imports and explicit symbol-list imports;
+    -- alias-only imports intentionally expose nothing unqualified.
     collectVisibleImportSymbols :: [ParsedImport] -> Either Diagnostic (Set Text)
     collectVisibleImportSymbols =
       foldM collectVisibleImportSymbol Set.empty

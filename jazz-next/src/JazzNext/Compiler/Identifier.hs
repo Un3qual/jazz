@@ -40,14 +40,21 @@ mkIdentifier name =
       identifierPurity = namePurity name
     }
 
+-- | Render the canonical textual form used when module import replay exposes a
+-- qualified binding to later compiler phases.
 qualifiedIdentifierText :: Text -> Text -> Text
 qualifiedIdentifierText qualifier member =
   qualifier <> "::" <> member
 
+-- | Build a qualified identifier and classify purity from the rendered
+-- qualified text, matching every other identifier construction path.
 mkQualifiedIdentifier :: Text -> Text -> Identifier
 mkQualifiedIdentifier qualifier member =
   mkIdentifier (qualifiedIdentifierText qualifier member)
 
+-- | Split a canonical qualified identifier into qualifier and member pieces.
+-- Nested qualifiers are rejected because the active module system owns exactly
+-- one alias/module segment at this boundary.
 splitQualifiedIdentifierText :: Text -> Maybe (Text, Text)
 splitQualifiedIdentifierText name =
   case Text.breakOn "::" name of

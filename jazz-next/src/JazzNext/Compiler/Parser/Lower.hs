@@ -85,6 +85,8 @@ lowerSurfaceLambda parameters bodyExpr =
     _ ->
       foldr ELambda (lowerSurfaceExpr bodyExpr) parameters
 
+-- | Lower literal syntax without changing the value domain available to later
+-- semantic phases.
 lowerSurfaceLiteral :: SurfaceLiteral -> Literal
 lowerSurfaceLiteral literal =
   case literal of
@@ -137,6 +139,8 @@ lowerSurfaceSignaturePayload surfaceSignaturePayload =
     SurfaceUnsupportedSignature signatureTokens ->
       UnsupportedSignature (map lowerSurfaceSignatureToken signatureTokens)
 
+-- | Preserve structured constrained-signature payloads exactly; acceptance or
+-- rejection of the constraint subset belongs to type inference.
 lowerSurfaceSignatureConstraint :: SurfaceSignatureConstraint -> SignatureConstraint
 lowerSurfaceSignatureConstraint (SurfaceSignatureConstraint constraintName constraintArguments) =
   SignatureConstraint

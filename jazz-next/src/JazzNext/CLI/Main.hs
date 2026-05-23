@@ -73,6 +73,8 @@ data CliOutput = CliOutput
   }
   deriving (Eq, Show)
 
+-- | Distinguishes required config paths from the optional default probe so
+-- missing files can produce the right CLI behavior.
 data WarningConfigSelection
   = ExplicitWarningConfig FilePath
   | DefaultWarningConfigProbe FilePath
@@ -301,6 +303,8 @@ runExecute settings resolvedPrelude source = do
         cliStderr = stderrOutput
       }
 
+-- | Compile-mode module graph runs share the same diagnostics-only stdout
+-- contract as standalone compile mode.
 runCompileModuleGraph ::
   WarningSettings ->
   CliOptions ->
@@ -379,6 +383,7 @@ cliModuleConfig options =
       moduleExtension = ".jz"
     }
 
+-- | Render warnings in the CLI's stable single-line format.
 formatWarningLine :: WarningRecord -> Text
 formatWarningLine warning =
   warningCodeText warning

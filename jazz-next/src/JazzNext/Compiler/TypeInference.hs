@@ -903,6 +903,8 @@ recursiveBindingEnv statementIndex env recursiveGroupsByStatement bindingNamesBy
               Map.insert bindingNameText (PlainTypeBinding bindingSeed) envAcc
         _ -> envAcc
 
+-- | Pending type signature state mirrors analyzer adjacency rules while
+-- carrying the normalized declaration type for the next binding.
 data PendingSignatureType = PendingSignatureType
   { pendingSignatureName :: Text,
     pendingSignatureSpan :: SourceSpan,
@@ -923,6 +925,8 @@ registerDataConstructors typeName constructors env initialState =
           nextState
         )
 
+-- | Instantiate local bindings and constructors at use sites. Constructors are
+-- rendered as curried functions ending in their declared data type.
 instantiateTypeBinding :: TypeBinding -> InferState -> (Maybe ExpressionType, InferState)
 instantiateTypeBinding binding state =
   case binding of
@@ -964,6 +968,8 @@ annotateNewErrorsWithPrimarySpan spanValue previousState nextState =
         Just _ -> diagnostic
         Nothing -> setDiagnosticPrimarySpan spanValue diagnostic
 
+-- | Normalize the currently accepted signature subset. Unsupported surfaces
+-- return `Nothing` so callers can emit the stable signature diagnostic.
 signaturePayloadToExpressionType :: SignaturePayload -> InferState -> (Maybe ExpressionType, InferState)
 signaturePayloadToExpressionType signaturePayload state =
   case signaturePayload of
@@ -1045,6 +1051,8 @@ supportedConcreteConstraints constraints =
     && isNothing (duplicateConstraintName constraints)
     && all supportedConcreteConstraint constraints
 
+-- | Variable constrained signatures are accepted only when constraints and
+-- body mention exactly the same supported unary variables.
 supportedVariableConstraints :: [SignatureConstraint] -> ConstraintSignatureType -> Bool
 supportedVariableConstraints constraints signatureType =
   not (null constraints)

@@ -29,6 +29,8 @@ bundledPreludeSource =
       <> [""]
       <> map renderPublicAlias allBuiltinSymbols
   where
+    -- Kernel bridge bindings must precede public aliases so alias definitions
+    -- can reference already-declared names in the checked-in mirror.
     renderKernelBridge symbol =
       let kernelName = builtinSymbolKernelName symbol
        in kernelName <> " = " <> kernelName <> "."
