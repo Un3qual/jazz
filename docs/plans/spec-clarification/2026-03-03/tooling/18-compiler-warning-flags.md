@@ -1,6 +1,6 @@
 ---
 id: JN-WARNING-RESERVED-METADATA-001
-status: ready
+status: done
 priority: P2
 size: S
 kind: impl
@@ -45,6 +45,7 @@ Execution note:
 - [x] Analyzer warning plumbing implemented for same-scope rebinding.
 - [x] Warning tests (unit + integration) passing.
 - [x] Documentation and migration notes published.
+- [x] Reserved warning metadata coverage landed for `shadowing-outer-scope`, `unused-binding`, and `deprecated-syntax` without enabling new emitters.
 
 ## Decision Lock (Inherited from Item 13)
 
@@ -349,11 +350,11 @@ Phase 2+ (planned after analyzer and CLI integration):
 
 ### Batch 1: Reserved warning metadata coverage
 
-This is a narrow active-path metadata batch. It does not implement new warning emitters; it locks the already-reserved category vocabulary so future warning families can build on stable codes and tokens without changing config parsing behavior.
+This batch landed on `2026-05-22`. It is a narrow active-path metadata batch. It does not implement new warning emitters; it locks the already-reserved category vocabulary so future warning families can build on stable codes and tokens without changing config parsing behavior.
 
-- [ ] Add focused `WarningConfigSpec` coverage for the reserved categories `shadowing-outer-scope`, `unused-binding`, and `deprecated-syntax`.
-- [ ] Assert their published `W0002`/`W0003`/`W0004` codes and CLI/config tokens remain stable in `WarningCatalog`.
-- [ ] Preserve the current no-emission behavior: only `same-scope-rebinding` has analyzer emission in this batch.
+- [x] Add focused `WarningConfigSpec` coverage for the reserved categories `shadowing-outer-scope`, `unused-binding`, and `deprecated-syntax`.
+- [x] Assert their published `W0002`/`W0003`/`W0004` codes and CLI/config tokens remain stable in `WarningCatalog`.
+- [x] Preserve the current no-emission behavior: only `same-scope-rebinding` has analyzer emission in this batch.
 
 Batch 1 files:
 

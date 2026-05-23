@@ -73,6 +73,7 @@ tests =
     ("source pipeline rejects wrong-arity constrained signature constraint", testSourceRejectsWrongArityConstrainedSignatureConstraint),
     ("source pipeline rejects type-application constrained signature argument", testSourceRejectsTypeApplicationConstrainedSignatureArgument),
     ("source pipeline rejects function constrained signature argument", testSourceRejectsFunctionConstrainedSignatureArgument),
+    ("source pipeline keeps unsupported constrained signature spans on signatures", testSourceRejectsUnsupportedConstrainedSignatureSpans),
     ("source pipeline rejects list signature mismatch", testSourceRejectsListSignatureMismatch),
     ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface),
     ("source pipeline reports duplicate constrained signature constraints", testSourceRejectsDuplicateConstrainedSignatureConstraints),
@@ -287,6 +288,12 @@ assertSourceSingleErrorContains src needle = do
   result <- compileSource defaultWarningSettings src
   assertSingleDiagnosticContains "source error" needle (compileErrors result)
 
+assertSourceSingleErrorCodeAndPrimarySpan :: Text.Text -> Text.Text -> SourceSpan -> IO ()
+assertSourceSingleErrorCodeAndPrimarySpan src expectedCode expectedSpan = do
+  result <- compileSource defaultWarningSettings src
+  assertSingleDiagnosticCode "source error code" expectedCode (compileErrors result)
+  assertSingleDiagnosticPrimarySpan "source error primary span" expectedSpan (compileErrors result)
+
 testSourceAcceptsSignatureAdjacency :: IO ()
 testSourceAcceptsSignatureAdjacency =
   assertSourceOk "x :: Int.\nx = 1.\nx."
@@ -395,6 +402,21 @@ testSourceRejectsTypeApplicationConstrainedSignatureArgument =
 testSourceRejectsFunctionConstrainedSignatureArgument :: IO ()
 testSourceRejectsFunctionConstrainedSignatureArgument =
   assertSourceSingleErrorContains "x :: @{Eq(Int -> Int)}: Int.\nx = 1." "E2009"
+
+testSourceRejectsUnsupportedConstrainedSignatureSpans :: IO ()
+testSourceRejectsUnsupportedConstrainedSignatureSpans = do
+  let assertSignatureSpan signatureSource =
+        assertSourceSingleErrorCodeAndPrimarySpan
+          ("prefix = 0.\n" <> signatureSource <> "\n")
+          "E2009"
+          (SourceSpan 2 1)
+  assertSignatureSpan "x :: @{Unknown(Int)}: Int.\nx = 1."
+  assertSignatureSpan "x :: @{Eq(Int, Bool)}: Int.\nx = 1."
+  assertSignatureSpan "x :: @{Eq(Maybe(Int))}: Int.\nx = 1."
+  assertSignatureSpan "x :: @{Eq(Int -> Int)}: Int.\nx = 1."
+  assertSignatureSpan "f :: @{Eq(a), Eq(a)}: a -> a.\nf = \\(x) -> x."
+  assertSignatureSpan "f :: @{Eq(a)}: a -> b.\nf = \\(x) -> x."
+  assertSignatureSpan "f :: @{Eq(a)}: Int -> Int.\nf = \\(x) -> x."
 
 testSourceRejectsListSignatureMismatch :: IO ()
 testSourceRejectsListSignatureMismatch = do

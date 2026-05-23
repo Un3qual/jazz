@@ -1,6 +1,6 @@
 # Pattern Matching Semantics
 
-Status: active (literal, wildcard, variable, constructor, and exact-length bracketed-list `case` patterns parse/lower, typecheck, and execute end-to-end in `jazz-next`)
+Status: active (literal, wildcard, variable, constructor, and exact-length bracketed-list `case` patterns parse/lower, typecheck, and execute end-to-end in `jazz-next`; tuple-shaped case patterns reject with an explicit parser diagnostic)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -47,6 +47,9 @@ Current parser/core invariants:
 6. Lowering preserves direct `case` expressions as `EPatternCase Expr [CaseArm]`.
 7. The older `ECase Expr Expr Expr` form remains the internal boolean-branch
    representation used after `if` desugaring.
+8. Tuple-shaped case patterns such as `(left, right)` are not part of the
+   active pattern set and reject during parsing with an explicit deferred
+   tuple-pattern diagnostic.
 
 ## Matching Contract For The Committed Runtime Subset
 
@@ -97,6 +100,8 @@ firstOrZero = case values { | [head, _] -> head | [] -> 0 }.
    nested subpatterns.
 8. If no arm matches at runtime, evaluation emits deterministic `E3022`
    diagnostics rather than falling through silently.
+9. Tuple-pattern semantics remain deferred; tuple-shaped case patterns do not
+   lower into `EPatternCase`.
 
 ## Deferred Pattern Forms
 
@@ -104,7 +109,8 @@ The following remain explicitly out of scope for the end-to-end committed
 subset:
 
 1. Cons-like list patterns.
-2. Tuple patterns.
+2. Tuple-pattern semantics. Tuple-shaped case pattern syntax currently rejects
+   during parsing instead of falling through a generic arm parse error.
 3. Lambda-parameter patterns.
 
 ## Non-Goals (Milestone 1)

@@ -1,6 +1,6 @@
 # Compiler Warning Flags
 
-Status: active (phase 0 contract lock)
+Status: active (same-scope rebinding warning emission is implemented; reserved warning metadata is locked for future categories)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`
 
@@ -21,9 +21,14 @@ Implemented in this item:
 
 Reserved namespace for future items:
 
-- `shadowing-outer-scope`
-- `unused-binding`
-- `deprecated-syntax`
+- `shadowing-outer-scope` (`W0002`)
+- `unused-binding` (`W0003`)
+- `deprecated-syntax` (`W0004`)
+
+Only `same-scope-rebinding` has an analyzer emitter in the active
+implementation. Reserved categories parse through CLI/env/config and keep
+stable IDs/tokens, but they do not emit diagnostics until a future
+implementation batch adds the corresponding analyzer behavior.
 
 ## Default Behavior
 

@@ -12,9 +12,14 @@ import JazzNext.Compiler.WarningConfig
     parseCliWarningDirective,
     resolveWarningSettings
   )
+import JazzNext.Compiler.WarningCatalog
+  ( warningHasAnalyzerEmitter
+  )
 import JazzNext.Compiler.Warnings
   ( WarningCategory (..),
-    parseWarningCategory
+    parseWarningCategory,
+    warningCode,
+    warningToken
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -31,6 +36,8 @@ tests :: [NamedTest]
 tests =
   [ ("parseWarningCategory accepts known category", testParseWarningCategoryKnown),
     ("parseWarningCategory accepts Text token", testParseWarningCategoryTextToken),
+    ("reserved warning metadata stays stable", testReservedWarningMetadataStable),
+    ("reserved warning categories parse from config without emitters", testReservedWarningConfigParsing),
     ("parseWarningCategory rejects unknown category", testParseWarningCategoryUnknown),
     ("parseCliWarningDirective parses all phase-1 forms", testParseCliWarningDirectiveForms),
     ("resolveWarningSettings handles standalone -Werror=<category>", testCliPromoteCategoryStandalone),
@@ -60,6 +67,27 @@ testParseWarningCategoryTextToken =
       "same-scope-rebinding Text token"
       (Right SameScopeRebinding)
       (parseWarningCategory token)
+
+testReservedWarningMetadataStable :: IO ()
+testReservedWarningMetadataStable = do
+  assertReservedMetadata ShadowingOuterScope "W0002" "shadowing-outer-scope"
+  assertReservedMetadata UnusedBinding "W0003" "unused-binding"
+  assertReservedMetadata DeprecatedSyntax "W0004" "deprecated-syntax"
+  assertEqual "same-scope rebinding has analyzer emitter" True (warningHasAnalyzerEmitter SameScopeRebinding)
+
+testReservedWarningConfigParsing :: IO ()
+testReservedWarningConfigParsing =
+  assertRight
+    "reserved warning config parsing"
+    (resolveWarningSettings [] Nothing Nothing (Just "shadowing-outer-scope\nunused-binding,deprecated-syntax\n"))
+    ( \settings -> do
+        assertCategoryState settings ShadowingOuterScope True False
+        assertCategoryState settings UnusedBinding True False
+        assertCategoryState settings DeprecatedSyntax True False
+        assertEqual "shadowing reserved emitter" False (warningHasAnalyzerEmitter ShadowingOuterScope)
+        assertEqual "unused reserved emitter" False (warningHasAnalyzerEmitter UnusedBinding)
+        assertEqual "deprecated reserved emitter" False (warningHasAnalyzerEmitter DeprecatedSyntax)
+    )
 
 testParseWarningCategoryUnknown :: IO ()
 testParseWarningCategoryUnknown =
@@ -187,3 +215,9 @@ assertCategoryState settings category expectedEnabled expectedError = do
     ("error state for " <> Text.pack (show category))
     expectedError
     (isWarningError settings category)
+
+assertReservedMetadata :: WarningCategory -> Text -> Text -> IO ()
+assertReservedMetadata category expectedCode expectedToken = do
+  assertEqual ("warning code for " <> expectedToken) expectedCode (warningCode category)
+  assertEqual ("warning token for " <> expectedToken) expectedToken (warningToken category)
+  assertEqual ("reserved emitter for " <> expectedToken) False (warningHasAnalyzerEmitter category)

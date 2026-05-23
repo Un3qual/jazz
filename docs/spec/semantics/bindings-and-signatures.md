@@ -1,6 +1,6 @@
 # Bindings and Signatures Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; adjacent monomorphic signatures, empty `@{}:` constrained signatures, concrete unary non-empty constraints, monomorphic variable constrained signatures, and deterministic unsupported-variable diagnostics are implemented)
+Status: active (phase 1 partial implementation in `jazz-next`; adjacent monomorphic signatures, empty `@{}:` constrained signatures, concrete unary non-empty constraints, monomorphic variable constrained signatures, deterministic unsupported-variable diagnostics, and unsupported constrained-signature primary spans are implemented)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
 
@@ -29,7 +29,7 @@ Out of scope:
 4. An empty constrained-signature prefix (`@{}:`) has no semantic obligations and normalizes to the same monomorphic type subset as an ordinary adjacent signature.
 5. Non-empty constrained signatures are accepted for known unary constraint names (`Default`, `Eq`, `Fractional`, `Integral`, `Num`, `Ord`, `Showable`) whose single argument is a concrete `Int`, `Bool`, or nested list of those concrete types. Accepted concrete constraints are annotation-only obligations and normalize to the same monomorphic signature body as an ordinary adjacent signature.
 6. Non-empty constrained signatures are also accepted for known unary constraint names whose single argument is a lower-case type variable, when every lower-case type variable in the signature body appears in at least one supported unary constraint and every constrained variable appears in the body. Repeated source variable names in one signature map to the same fresh internal inference variable for that binding. These accepted variable constraints are monomorphic and annotation-only: they do not generalize at later use sites, do not introduce defaulting, do not call a typeclass solver, and do not add runtime dispatch.
-7. Non-empty constrained signatures with duplicate constraint names, unknown constraint names, wrong arity, unconstrained body variables, unused constrained variables, type applications, or function-type constraint arguments must fail deterministically with `E2009`; duplicate constraint names must name the duplicate, and unsupported variable-bearing constrained signatures must name the supported unary-constraint requirement.
+7. Non-empty constrained signatures with duplicate constraint names, unknown constraint names, wrong arity, unconstrained body variables, unused constrained variables, type applications, or function-type constraint arguments must fail deterministically with `E2009`; duplicate constraint names must name the duplicate, unsupported variable-bearing constrained signatures must name the supported unary-constraint requirement, and the diagnostic primary span must remain attached to the signature statement.
 8. Same-scope rebinding is allowed and deterministic: last declaration in the same scope wins.
 9. Nested scopes may shadow outer bindings.
 10. Non-recursive use-before-definition is invalid and must produce a compile-time error.

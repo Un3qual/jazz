@@ -1,6 +1,6 @@
 ---
 id: JN-TYPE-SIGNATURE-DIAG-SPANS-001
-status: ready
+status: done
 priority: P1
 size: S
 kind: impl
@@ -53,6 +53,7 @@ supersedes:
 - [x] On `2026-05-22`, added deterministic `E2009` diagnostic text for variable-bearing constrained signatures, naming the missing binding/defaulting contract while leaving full type-variable semantics blocked.
 - [x] On `2026-05-22`, landed the monomorphic type-variable constrained-signature contract for known unary constraints, with no polymorphic generalization, defaulting, solver obligations, or runtime dispatch.
 - [x] Milestone 3 complete: constrained-signature syntax and the active monomorphic semantics are represented in `jazz-next` structures.
+- [x] On `2026-05-22`, locked unsupported constrained-signature `E2009` diagnostics to the attached signature statement span across the invalid constrained-signature families.
 - [ ] Milestone 4 complete: canonical grammar docs, normalization rules, and diagnostics align with the active parser/type pipeline.
 - [ ] Milestone 5 complete: active-path tests/docs close the rebase and future work no longer depends on legacy `07`.
 
@@ -63,7 +64,7 @@ supersedes:
 - `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` forwards structured signature payloads into the core AST.
 - `jazz-next/src/JazzNext/Compiler/Analyzer.hs` still enforces signature placement/name coherence only; signature semantics remain owned by `TypeInference.hs`.
 - `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now consumes structured signature payloads for `Int`, `Bool`, nested concrete list forms, right-associated chained function arrows, explicit parenthesized function-type overrides, empty `@{}:` constrained signatures over that same monomorphic subset, concrete unary non-empty constraints over `Int`, `Bool`, and nested concrete lists, and known unary constraints over lower-case type variables that appear in the signature body. Unsupported broader forms continue to report through `E2009`; duplicate non-empty constraints are reported with specific duplicate-constraint text.
-- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs` explicitly accepts simple list signatures, right-associated chained function signatures, parenthesized list-to-list signatures, parenthesized function-type overrides, empty constrained signatures over monomorphic function types, concrete unary constrained signatures, and monomorphic variable constrained signatures while keeping unsupported broader surfaces, duplicate non-empty constraints, and unconstrained signature variables on deterministic `E2009`.
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs` explicitly accepts simple list signatures, right-associated chained function signatures, parenthesized list-to-list signatures, parenthesized function-type overrides, empty constrained signatures over monomorphic function types, concrete unary constrained signatures, and monomorphic variable constrained signatures while keeping unsupported broader surfaces, duplicate non-empty constraints, and unconstrained signature variables on deterministic `E2009` with primary spans attached to the signature statement.
 - `docs/plans/2026-03-16-jazz-next-monomorphic-signature-surface.md` already delivered the safe monomorphic subset. This rebase must preserve that subset while moving ownership to the correct compiler layers.
 
 ## Scope Guardrails
@@ -378,11 +379,11 @@ Primary files:
 
 #### Batch 1: Unsupported signature diagnostic spans
 
-This is the next executable Milestone 4 slice. It is limited to unsupported structured signature diagnostics that already flow through `E2009`; it should not broaden the accepted type grammar, add polymorphic generalization, add defaulting, or introduce solver-backed constraints.
+This batch landed on `2026-05-22`. It is limited to unsupported structured signature diagnostics that already flow through `E2009`; it does not broaden the accepted type grammar, add polymorphic generalization, add defaulting, or introduce solver-backed constraints.
 
-- [ ] Add focused source-pipeline coverage proving unsupported constrained-signature cases report `E2009` with the primary span of the attached signature statement.
-- [ ] Cover the existing invalid constrained-signature families: unknown constraint names, wrong arity, type-application arguments, function-type arguments, duplicate constraints, unconstrained body variables, and unused constrained variables.
-- [ ] Adjust `TypeInference.hs` only as needed so all unsupported structured signature diagnostics retain deterministic text and carry the signature statement span.
+- [x] Add focused source-pipeline coverage proving unsupported constrained-signature cases report `E2009` with the primary span of the attached signature statement.
+- [x] Cover the existing invalid constrained-signature families: unknown constraint names, wrong arity, type-application arguments, function-type arguments, duplicate constraints, unconstrained body variables, and unused constrained variables.
+- [x] Confirm `TypeInference.hs` already attaches the signature statement span to these diagnostics, so no semantic change is needed.
 
 Batch 1 files:
 

@@ -1247,6 +1247,10 @@ parseCasePattern tokens =
       Right (SPLiteral (SLInt value), rest)
     Token {tokenKind = TLBracket} : rest ->
       parseListPattern rest
+    token@Token {tokenKind = TLParen} : rest ->
+      case tupleCasePatternDiagnostic token rest of
+        Just diagnostic -> Left diagnostic
+        Nothing -> Left (expectedCasePatternDiagnostic token)
     Token {tokenKind = TIdentifier name} : rest ->
       case name of
         "_" -> Right (SPWildcard, rest)
@@ -1260,15 +1264,61 @@ parseCasePattern tokens =
     [] ->
       Left (parseDiagnostic "expected case pattern before end of input")
     token : _ ->
-      Left
+      Left (expectedCasePatternDiagnostic token)
+
+expectedCasePatternDiagnostic :: Token -> Diagnostic
+expectedCasePatternDiagnostic token =
+  parseDiagnostic
+    ( "expected case pattern at "
+        <> renderSourceSpan (tokenSpan token)
+        <> ", found '"
+        <> tokenLexeme token
+        <> "'"
+    )
+
+tupleCasePatternDiagnostic :: Token -> [Token] -> Maybe Diagnostic
+tupleCasePatternDiagnostic leftParenToken tokensAfterLeftParen
+  | hasTopLevelCommaBeforeRightParen tokensAfterLeftParen =
+      Just
         ( parseDiagnostic
-            ( "expected case pattern at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
-                <> tokenLexeme token
-                <> "'"
+            ( "tuple case patterns are not implemented at "
+                <> renderSourceSpan (tokenSpan leftParenToken)
+                <> "; tuple-pattern semantics are deferred"
             )
         )
+  | otherwise = Nothing
+
+hasTopLevelCommaBeforeRightParen :: [Token] -> Bool
+hasTopLevelCommaBeforeRightParen = go 0 0 False
+  where
+    go parenDepth bracketDepth sawComma remainingTokens =
+      case remainingTokens of
+        [] -> False
+        token : rest ->
+          case tokenKind token of
+            TLParen ->
+              go (parenDepth + 1) bracketDepth sawComma rest
+            TRParen
+              | parenDepth > 0 ->
+                  go (parenDepth - 1) bracketDepth sawComma rest
+              | bracketDepth == 0 ->
+                  sawComma
+              | otherwise ->
+                  False
+            TLBracket ->
+              go parenDepth (bracketDepth + 1) sawComma rest
+            TRBracket
+              | bracketDepth > 0 ->
+                  go parenDepth (bracketDepth - 1) sawComma rest
+              | otherwise ->
+                  False
+            TComma
+              | parenDepth == 0 && bracketDepth == 0 ->
+                  go parenDepth bracketDepth True rest
+              | otherwise ->
+                  go parenDepth bracketDepth sawComma rest
+            _ ->
+              go parenDepth bracketDepth sawComma rest
 
 parseConstructorPattern :: Identifier -> [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseConstructorPattern constructorName tokensAfterName =
@@ -1279,6 +1329,9 @@ parseConstructorPattern constructorName tokensAfterName =
           Right (SPConstructor constructorName (reverse revArguments), remainingTokens)
       -- Constructor arguments currently use atomic subpatterns so ambiguous
       -- forms like `Pair Nothing item` stay as two outer arguments.
+      | token@Token {tokenKind = TLParen} : rest <- remainingTokens,
+        Just diagnostic <- tupleCasePatternDiagnostic token rest =
+          Left diagnostic
       | startsCasePatternTokens remainingTokens = do
           (nextArgument, afterArgument) <- parseConstructorArgumentPattern remainingTokens
           go (nextArgument : revArguments) afterArgument

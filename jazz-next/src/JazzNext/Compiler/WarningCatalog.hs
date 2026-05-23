@@ -6,6 +6,7 @@ module JazzNext.Compiler.WarningCatalog
   ( WarningCategory (..),
     allWarningCategories,
     warningCode,
+    warningHasAnalyzerEmitter,
     warningToken
   ) where
 
@@ -24,6 +25,7 @@ data WarningCategory
 -- enum cases they describe.
 data WarningMetadata = WarningMetadata
   { metadataCode :: Text,
+    metadataHasAnalyzerEmitter :: Bool,
     metadataToken :: Text
   }
 
@@ -32,6 +34,9 @@ allWarningCategories = [minBound .. maxBound]
 
 warningCode :: WarningCategory -> Text
 warningCode = metadataCode . warningMetadata
+
+warningHasAnalyzerEmitter :: WarningCategory -> Bool
+warningHasAnalyzerEmitter = metadataHasAnalyzerEmitter . warningMetadata
 
 warningToken :: WarningCategory -> Text
 warningToken = metadataToken . warningMetadata
@@ -44,20 +49,24 @@ warningMetadata category =
     SameScopeRebinding ->
       WarningMetadata
         { metadataCode = "W0001",
+          metadataHasAnalyzerEmitter = True,
           metadataToken = "same-scope-rebinding"
         }
     ShadowingOuterScope ->
       WarningMetadata
         { metadataCode = "W0002",
+          metadataHasAnalyzerEmitter = False,
           metadataToken = "shadowing-outer-scope"
         }
     UnusedBinding ->
       WarningMetadata
         { metadataCode = "W0003",
+          metadataHasAnalyzerEmitter = False,
           metadataToken = "unused-binding"
         }
     DeprecatedSyntax ->
       WarningMetadata
         { metadataCode = "W0004",
+          metadataHasAnalyzerEmitter = False,
           metadataToken = "deprecated-syntax"
         }

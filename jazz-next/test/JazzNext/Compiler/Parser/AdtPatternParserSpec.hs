@@ -69,6 +69,8 @@ tests =
     ("rejects duplicate constructor names in one data declaration", testRejectsDuplicateConstructorsInDataDeclaration),
     ("rejects data declaration with malformed pipe placement", testRejectsDataDeclarationWithMalformedPipePlacement),
     ("rejects data declaration missing terminator", testRejectsDataDeclarationMissingTerminator),
+    ("rejects tuple-shaped case patterns", testRejectsTupleShapedCasePattern),
+    ("rejects malformed parenthesized list-like patterns without tuple diagnostic", testRejectsMalformedParenthesizedListLikePattern),
     ("rejects malformed list patterns", testRejectsMalformedListPattern),
     ("rejects malformed later list patterns", testRejectsMalformedLaterListPattern),
     ("lowers parsed case nodes into core AST", testLowerCaseExpression)
@@ -667,6 +669,20 @@ testRejectsDataDeclarationMissingTerminator =
     "missing data declaration terminator"
     "expected '.'"
     (parseSurfaceProgram "data Maybe = Just value | Nothing")
+
+testRejectsTupleShapedCasePattern :: IO ()
+testRejectsTupleShapedCasePattern =
+  assertLeftDiagnosticContains
+    "tuple-shaped case pattern"
+    "tuple case patterns are not implemented"
+    (parseSurfaceProgram "x = case pair { | (left, right) -> left | _ -> 0 }.")
+
+testRejectsMalformedParenthesizedListLikePattern :: IO ()
+testRejectsMalformedParenthesizedListLikePattern =
+  assertLeftDiagnosticContains
+    "malformed parenthesized list-like pattern"
+    "expected case pattern"
+    (parseSurfaceProgram "x = case pair { | (left, [right) ]) -> left | _ -> 0 }.")
 
 testRejectsMalformedListPattern :: IO ()
 testRejectsMalformedListPattern =
