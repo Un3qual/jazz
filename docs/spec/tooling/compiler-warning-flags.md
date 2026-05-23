@@ -30,7 +30,9 @@ analyzer emitters in the active implementation. The `unused-binding` emitter is
 limited to ordinary block `let` declarations in the same lexical block.
 Reserved categories parse through CLI/env/config and keep stable IDs/tokens,
 but they do not emit diagnostics until a future implementation batch adds the
-corresponding analyzer behavior.
+corresponding analyzer behavior. The concrete `deprecated-syntax` / `W0004`
+warning policy is explicitly deferred until an accepted active-path syntax
+surface is both implemented and deprecated enough to warn on.
 
 ## Default Behavior
 

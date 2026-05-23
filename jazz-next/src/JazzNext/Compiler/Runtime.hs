@@ -56,6 +56,7 @@ data RuntimeValue
   = VInt Int
   | VBool Bool
   | VList [RuntimeValue]
+  | VTuple [RuntimeValue]
   | VClosure RuntimeEnv Identifier Expr
   | VBuiltin BuiltinSymbol [RuntimeValue]
   | VOperator Text [RuntimeValue]
@@ -69,6 +70,7 @@ instance Eq RuntimeValue where
       (VInt leftInt, VInt rightInt) -> leftInt == rightInt
       (VBool leftBool, VBool rightBool) -> leftBool == rightBool
       (VList leftElements, VList rightElements) -> leftElements == rightElements
+      (VTuple leftElements, VTuple rightElements) -> leftElements == rightElements
       -- Captured environments are intentionally ignored here because recursive
       -- closures tie the knot through RuntimeEnv; comparing envs would
       -- reintroduce the recursion hazards this custom instance avoids.
@@ -92,6 +94,7 @@ instance Show RuntimeValue where
       VInt intValue -> "VInt " <> show intValue
       VBool boolValue -> "VBool " <> show boolValue
       VList elements -> "VList " <> show elements
+      VTuple elements -> "VTuple " <> show elements
       VClosure _ parameterName bodyExpr ->
         "VClosure <env> " <> show parameterName <> " " <> show bodyExpr
       VBuiltin builtinSymbol capturedArgs ->
@@ -126,6 +129,8 @@ renderRuntimeValue value =
         else "False"
     VList elements ->
       "[" <> Text.intercalate ", " (map renderRuntimeValue elements) <> "]"
+    VTuple elements ->
+      "(" <> Text.intercalate ", " (map renderRuntimeValue elements) <> ")"
     VClosure {} -> "<function>"
     VBuiltin _ _ -> "<function>"
     VOperator {} -> "<function>"
@@ -528,6 +533,7 @@ exprDefinitelyNotFunctionValue expr =
   case expr of
     ELit {} -> True
     EList {} -> True
+    ETuple {} -> True
     EBinary {} -> True
     EIf _ thenExpr elseExpr ->
       exprDefinitelyNotFunctionValue thenExpr
@@ -570,6 +576,8 @@ evalValue builtinMode env expr =
       Right (VOperator operatorSymbol [])
     EList elements ->
       VList <$> mapM (evalValue builtinMode env) elements
+    ETuple elements ->
+      VTuple <$> mapM (evalValue builtinMode env) elements
     EApply functionExpr argumentExpr -> do
       functionValue <- evalValue builtinMode env functionExpr
       argumentValue <- evalValue builtinMode env argumentExpr
@@ -927,6 +935,7 @@ renderRuntimeType value =
     VInt {} -> "Int"
     VBool {} -> "Bool"
     VList {} -> "List"
+    VTuple {} -> "Tuple"
     VSectionLeft {} -> "Function"
     VSectionRight {} -> "Function"
     VClosure {} -> "Function"

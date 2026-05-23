@@ -52,6 +52,8 @@ lowerSurfaceExpr surfaceExpr =
     SEOperatorValue operatorSymbol -> EOperatorValue operatorSymbol
     SEList elements ->
       EList (map lowerSurfaceExpr elements)
+    SETuple elements ->
+      ETuple (map lowerSurfaceExpr elements)
     SEApply functionExpr argumentExpr ->
       EApply (lowerSurfaceExpr functionExpr) (lowerSurfaceExpr argumentExpr)
     SEIf conditionExpr thenExpr elseExpr ->
@@ -168,6 +170,8 @@ lowerSurfaceSignatureType surfaceSignatureType =
     SurfaceTypeBool -> TypeBool
     SurfaceTypeList innerType ->
       TypeList (lowerSurfaceSignatureType innerType)
+    SurfaceTypeTuple elementTypes ->
+      TypeTuple (map lowerSurfaceSignatureType elementTypes)
     SurfaceTypeFunction argumentType resultType ->
       TypeFunction
         (lowerSurfaceSignatureType argumentType)

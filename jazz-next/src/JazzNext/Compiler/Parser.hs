@@ -7,6 +7,7 @@ module JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   ) where
 
+import Control.Applicative ((<|>))
 import Data.Char
   ( isLower,
     isUpper
@@ -1082,11 +1083,24 @@ parseParenExpr knownAliases tokensAfterLeftParen =
     _ -> do
       (innerExpr, afterInnerExpr) <- parseExpr knownAliases tokensAfterLeftParen
       case afterInnerExpr of
+        Token {tokenKind = TComma} : rest -> do
+          (tupleElements, afterTupleElements) <- parseTupleElements knownAliases [innerExpr] rest
+          remaining <- consumeRightParen afterTupleElements
+          Right (SETuple tupleElements, remaining)
         Token {tokenKind = TOperator operatorSymbol} : Token {tokenKind = TRParen} : rest ->
           Right (SESectionLeft innerExpr operatorSymbol, rest)
         _ -> do
           remaining <- consumeRightParen afterInnerExpr
           Right (innerExpr, remaining)
+
+parseTupleElements :: Set Text -> [SurfaceExpr] -> [Token] -> Either Diagnostic ([SurfaceExpr], [Token])
+parseTupleElements knownAliases reversedElements tokens = do
+  (nextElement, afterNextElement) <- parseExpr knownAliases tokens
+  case afterNextElement of
+    Token {tokenKind = TComma} : rest ->
+      parseTupleElements knownAliases (nextElement : reversedElements) rest
+    _ ->
+      Right (reverse (nextElement : reversedElements), afterNextElement)
 
 parseListExpr :: Set Text -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseListExpr knownAliases tokensAfterLeftBracket =
@@ -1799,7 +1813,8 @@ parseFunctionOperandType signatureTokens =
         Nothing ->
           case stripWrappedSignatureTokens isLParenToken isRParenToken signatureTokens of
             Just innerTokens ->
-              parseSupportedSignatureType innerTokens
+              parseTupleSignatureType innerTokens
+                <|> parseSupportedSignatureType innerTokens
             Nothing ->
               Nothing
 
@@ -1817,9 +1832,18 @@ parseNonFunctionSignatureType signatureTokens =
         Nothing ->
           case stripWrappedSignatureTokens isLParenToken isRParenToken signatureTokens of
             Just innerTokens ->
-              parseSupportedSignatureType innerTokens
+              parseTupleSignatureType innerTokens
+                <|> parseSupportedSignatureType innerTokens
             Nothing ->
               Nothing
+
+parseTupleSignatureType :: [Token] -> Maybe SurfaceSignatureType
+parseTupleSignatureType signatureTokens =
+  case splitTopLevelCommaTokens signatureTokens of
+    Just elementTokenGroups
+      | length elementTokenGroups >= 2 ->
+          SurfaceTypeTuple <$> traverse parseSupportedSignatureType elementTokenGroups
+    _ -> Nothing
 
 surfaceSignaturePayloadFromType :: SurfaceSignatureType -> SurfaceSignaturePayload
 surfaceSignaturePayloadFromType = SurfaceSignatureType

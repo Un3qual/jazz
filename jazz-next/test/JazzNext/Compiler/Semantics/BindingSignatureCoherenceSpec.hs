@@ -60,6 +60,8 @@ tests =
     ("source pipeline rejects signature type mismatch", testSourceRejectsSignatureTypeMismatch),
     ("source pipeline accepts concrete list signature", testSourceAcceptsConcreteListSignature),
     ("source pipeline accepts nested concrete list signature", testSourceAcceptsNestedConcreteListSignature),
+    ("source pipeline accepts concrete tuple signature", testSourceAcceptsConcreteTupleSignature),
+    ("source pipeline rejects tuple signature mismatch", testSourceRejectsTupleSignatureMismatch),
     ("source pipeline accepts simple function signature", testSourceAcceptsSimpleFunctionSignature),
     ("source pipeline accepts list to list function signature", testSourceAcceptsListToListFunctionSignature),
     ("source pipeline accepts parenthesized function signature", testSourceAcceptsParenthesizedFunctionSignature),
@@ -345,6 +347,18 @@ testSourceAcceptsConcreteListSignature =
 testSourceAcceptsNestedConcreteListSignature :: IO ()
 testSourceAcceptsNestedConcreteListSignature =
   assertSourceOk "x :: [[Bool]].\nx = [[True], [False]]."
+
+testSourceAcceptsConcreteTupleSignature :: IO ()
+testSourceAcceptsConcreteTupleSignature =
+  assertSourceOk "pair :: (Int, Bool).\npair = (1, True).\npair."
+
+testSourceRejectsTupleSignatureMismatch :: IO ()
+testSourceRejectsTupleSignatureMismatch = do
+  result <- compileSource defaultWarningSettings "pair :: (Int, Bool).\npair = (1, 2)."
+  assertSingleDiagnosticCode
+    "source tuple signature mismatch code"
+    "E2005"
+    (compileErrors result)
 
 testSourceAcceptsSimpleFunctionSignature :: IO ()
 testSourceAcceptsSimpleFunctionSignature =

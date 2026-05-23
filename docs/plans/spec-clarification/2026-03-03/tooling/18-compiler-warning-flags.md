@@ -1,10 +1,10 @@
 ---
 id: JN-WARNING-DEPRECATED-SYNTAX-CONTRACT-001
-status: ready
+status: blocked
 priority: P2
 size: S
 kind: coordination
-autonomous_ready: yes
+autonomous_ready: no
 depends_on:
   - JN-WARNING-UNUSED-BINDING-LET-001
 last_verified: 2026-05-23
@@ -49,6 +49,7 @@ Execution note:
 - [x] Analyzer warning plumbing implemented for opt-in `shadowing-outer-scope`.
 - [x] Analyzer warning plumbing implemented for opt-in `unused-binding` on ordinary block `let` bindings.
 - [ ] Decide the concrete `deprecated-syntax` / `W0004` warning contract before any emitter implementation row is added.
+- [x] On `2026-05-23`, deferred the W0004 policy choice because no accepted active-path syntax is both implemented and deprecated enough to warn on; kept the remaining emitter blocked while tuple runtime ownership proceeds.
 
 ## Decision Lock (Inherited from Item 13)
 
@@ -502,6 +503,13 @@ bash scripts/check-docs.sh
 ## Phase 8: Deprecated-Syntax Warning Contract
 
 ### Coordination: deprecated-syntax W0004 contract decision
+
+Status: blocked as of `2026-05-23`. The active `jazz-next` parser now
+reserves some future syntax with deterministic errors, and the warning catalog
+reserves `deprecated-syntax` / `W0004`, but there is still no accepted
+active-path parser or analyzer surface that is both implemented and deprecated
+enough to emit this warning. Keep this decision out of `Ready Now` until the
+deprecated-syntax policy is chosen.
 
 This is a flow-restoring coordination batch for the reserved
 `deprecated-syntax` / `W0004` warning category. It does not implement warning

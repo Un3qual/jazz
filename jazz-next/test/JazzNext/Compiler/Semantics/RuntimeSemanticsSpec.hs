@@ -77,6 +77,7 @@ tests =
     ("map + hd evaluates over nested list literals", testMapHdNestedListsRuntimeSuccess),
     ("filter keeps only matching list elements", testFilterRuntimeSuccess),
     ("tl returns the tail of a non-empty list", testTlReturnsTailRuntimeValue),
+    ("tuple literal evaluates and renders at runtime", testTupleLiteralRuntimeValue),
     ("hd on empty list produces fatal runtime diagnostic", testHdEmptyListRuntimeError),
     ("tl on empty list produces fatal runtime diagnostic", testTlEmptyListRuntimeError),
     ("direct runtime helper rejects canonical prelude alias without bundled prelude", testRuntimeHelperRejectsCanonicalAlias),
@@ -497,6 +498,13 @@ testTlReturnsTailRuntimeValue = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[2, 3]") (runOutput result)
+
+testTupleLiteralRuntimeValue :: IO ()
+testTupleLiteralRuntimeValue = do
+  result <- runSource defaultWarningSettings "(1, True)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(1, True)") (runOutput result)
 
 testHdEmptyListRuntimeError :: IO ()
 testHdEmptyListRuntimeError = do

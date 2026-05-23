@@ -47,6 +47,8 @@ tests =
     ("parseSurfaceProgram accepts Text input", testParseSurfaceProgramAcceptsTextInput),
     ("parses signature statement with source span", testParseSignatureSpan),
     ("parses parenthesized function signature into structured nodes", testParseParenthesizedFunctionSignature),
+    ("parses tuple literal into structured nodes", testParseTupleLiteral),
+    ("parses tuple signature into structured nodes", testParseTupleSignature),
     ("parses chained function signature right associatively", testParseChainedFunctionSignature),
     ("parses parenthesized function override into structured nodes", testParseParenthesizedFunctionOverrideSignature),
     ("parses list of parenthesized function types", testParseFunctionListSignature),
@@ -56,6 +58,7 @@ tests =
     ("tracks tab-aligned expression spans", testTabAlignedExpressionSpan),
     ("parses nested scope expression", testParseNestedScopeExpression),
     ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
+    ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram),
     ("lowers structured signature payload into analyzer AST", testLowerStructuredSignatureProgram),
     ("lowers right-associated function signature into analyzer AST", testLowerRightAssociativeFunctionSignatureProgram),
     ("lowers list of function signature into analyzer AST", testLowerFunctionListSignatureProgram),
@@ -131,6 +134,36 @@ testParseParenthesizedFunctionSignature =
         )
     )
     (parseSurfaceProgram "f :: ([Int]) -> ([Int]).\nf = (+).")
+
+testParseTupleLiteral :: IO ()
+testParseTupleLiteral =
+  assertEqual
+    "tuple literal surface AST"
+    ( Right
+        ( SEBlock
+            [ SSExpr
+                (SourceSpan 1 1)
+                (SETuple [SELit (SLInt 1), SELit (SLBool True)])
+            ]
+        )
+    )
+    (parseSurfaceProgram "(1, True).")
+
+testParseTupleSignature :: IO ()
+testParseTupleSignature =
+  assertEqual
+    "tuple signature"
+    ( Right
+        ( SEBlock
+            [ SSSignature
+                "pair"
+                (SourceSpan 1 1)
+                (SurfaceSignatureType (SurfaceTypeTuple [SurfaceTypeInt, SurfaceTypeBool])),
+              SSLet "pair" (SourceSpan 2 1) (SETuple [SELit (SLInt 1), SELit (SLBool True)])
+            ]
+        )
+    )
+    (parseSurfaceProgram "pair :: (Int, Bool).\npair = (1, True).")
 
 testParseChainedFunctionSignature :: IO ()
 testParseChainedFunctionSignature =
@@ -280,6 +313,28 @@ testLowerSurfaceProgram =
         [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
           SExpr (SourceSpan 2 1) (EVar "x")
         ]
+
+testLowerTupleLiteralAndSignatureProgram :: IO ()
+testLowerTupleLiteralAndSignatureProgram =
+  assertRight
+    "parse + lower tuple literal/signature"
+    (parseSurfaceProgram "pair :: (Int, Bool).\npair = (1, True).")
+    ( \surfaceProgram ->
+        assertEqual
+          "lowered tuple AST"
+          ( EBlock
+              [ SSignature
+                  "pair"
+                  (SourceSpan 1 1)
+                  (SignatureType (TypeTuple [TypeInt, TypeBool])),
+                SLet
+                  "pair"
+                  (SourceSpan 2 1)
+                  (ETuple [ELit (LInt 1), ELit (LBool True)])
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
 
 testLowerStructuredSignatureProgram :: IO ()
 testLowerStructuredSignatureProgram =

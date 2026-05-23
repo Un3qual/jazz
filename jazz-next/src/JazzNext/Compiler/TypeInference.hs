@@ -124,6 +124,7 @@ canonicalizeExpr expr =
       ELambda parameterName (canonicalizeExpr bodyExpr)
     EOperatorValue operatorSymbol -> EOperatorValue operatorSymbol
     EList elements -> EList (map canonicalizeExpr elements)
+    ETuple elements -> ETuple (map canonicalizeExpr elements)
     EApply functionExpr argumentExpr ->
       EApply (canonicalizeExpr functionExpr) (canonicalizeExpr argumentExpr)
     EIf conditionExpr thenExpr elseExpr ->
@@ -181,6 +182,7 @@ data ExpressionType
   = TIntType
   | TBoolType
   | TListType ExpressionType
+  | TTupleType [ExpressionType]
   | TDataType Identifier
   | TFunctionType ExpressionType ExpressionType
   | TVarType Int
@@ -270,6 +272,7 @@ inferExprType builtinMode env state expr =
               (mkUnsupportedOperatorValueError operatorSymbol)
           )
     EList elements -> inferListType builtinMode env state elements
+    ETuple elements -> inferTupleType builtinMode env state elements
     EApply functionExpr argumentExpr ->
       let (functionType, stateAfterFunction) =
             inferExprType builtinMode env state functionExpr
@@ -421,6 +424,29 @@ inferListType builtinMode env state elements =
                       )
                   )
             _ -> (expectedType, stateAfterElement)
+
+inferTupleType ::
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  [Expr] ->
+  (Maybe ExpressionType, InferState)
+inferTupleType builtinMode env state elements =
+  go (Just []) state elements
+  where
+    go maybeReversedTypes stateAcc remainingElements =
+      case remainingElements of
+        [] ->
+          (TTupleType . reverse <$> maybeReversedTypes, stateAcc)
+        element : rest ->
+          let (elementType, stateAfterElement) =
+                inferExprType builtinMode env stateAcc element
+              nextReversedTypes =
+                case (maybeReversedTypes, elementType) of
+                  (Just reversedTypes, Just inferredElementType) ->
+                    Just (resolveType stateAfterElement inferredElementType : reversedTypes)
+                  _ -> Nothing
+           in go nextReversedTypes stateAfterElement rest
 
 data OperatorRule
   = NumericRule ExpressionType
@@ -994,6 +1020,8 @@ signatureTypeToExpressionType signatureType =
     TypeBool -> TBoolType
     TypeList innerType ->
       TListType (signatureTypeToExpressionType innerType)
+    TypeTuple elementTypes ->
+      TTupleType (map signatureTypeToExpressionType elementTypes)
     TypeFunction argumentType resultType ->
       TFunctionType
         (signatureTypeToExpressionType argumentType)
@@ -1205,6 +1233,8 @@ renderSignatureType signatureType =
     TypeBool -> "Bool"
     TypeList innerType ->
       "[" <> renderListElementSignatureType innerType <> "]"
+    TypeTuple elementTypes ->
+      "(" <> Text.intercalate ", " (map renderSignatureType elementTypes) <> ")"
     TypeFunction argumentType resultType ->
       renderFunctionArgumentType argumentType <> " -> " <> renderSignatureType resultType
 
@@ -1371,6 +1401,7 @@ applySubstitution subst expressionType =
     TIntType -> TIntType
     TBoolType -> TBoolType
     TListType elementType -> TListType (applySubstitution subst elementType)
+    TTupleType elementTypes -> TTupleType (map (applySubstitution subst) elementTypes)
     TDataType typeName -> TDataType typeName
     TFunctionType inputType outputType ->
       TFunctionType
@@ -1393,6 +1424,9 @@ unifyTypes leftType rightType state =
           | leftName == rightName -> Just state
         (TListType leftElementType, TListType rightElementType) ->
           unifyTypes leftElementType rightElementType state
+        (TTupleType leftElementTypes, TTupleType rightElementTypes)
+          | length leftElementTypes == length rightElementTypes ->
+              unifyTypeLists leftElementTypes rightElementTypes state
         ( TFunctionType leftInputType leftOutputType,
           TFunctionType rightInputType rightOutputType
           ) -> do
@@ -1401,6 +1435,18 @@ unifyTypes leftType rightType state =
         (TVarType leftVar, _) -> bindTypeVar leftVar resolvedRight state
         (_, TVarType rightVar) -> bindTypeVar rightVar resolvedLeft state
         _ -> Nothing
+
+unifyTypeLists :: [ExpressionType] -> [ExpressionType] -> InferState -> Maybe InferState
+unifyTypeLists leftTypes rightTypes state =
+  foldl'
+    step
+    (Just state)
+    (zip leftTypes rightTypes)
+  where
+    step maybeState (leftType, rightType) =
+      case maybeState of
+        Just stateAcc -> unifyTypes leftType rightType stateAcc
+        Nothing -> Nothing
 
 -- | Bind a type variable while preserving the deferred equality constraints
 -- introduced by strict-equality operator sections.
@@ -1435,6 +1481,7 @@ occursInType typeVar expressionType =
     TIntType -> False
     TBoolType -> False
     TListType elementType -> occursInType typeVar elementType
+    TTupleType elementTypes -> any (occursInType typeVar) elementTypes
     TDataType {} -> False
     TFunctionType inputType outputType ->
       occursInType typeVar inputType || occursInType typeVar outputType
@@ -1681,6 +1728,7 @@ renderType expressionType =
     TIntType -> "Int"
     TBoolType -> "Bool"
     TListType elementType -> "[" <> renderType elementType <> "]"
+    TTupleType elementTypes -> "(" <> Text.intercalate ", " (map renderType elementTypes) <> ")"
     TDataType typeName -> identifierText typeName
     TFunctionType inputType outputType ->
       renderTypeAtom inputType <> " -> " <> renderType outputType

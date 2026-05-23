@@ -55,6 +55,7 @@ data Expr
   | ELambda Identifier Expr
   | EOperatorValue Text
   | EList [Expr]
+  | ETuple [Expr]
   | EApply Expr Expr
   | EIf Expr Expr Expr
   -- Internal canonical branch form used after control-flow desugaring.
@@ -94,6 +95,7 @@ data SignatureType
   = TypeInt
   | TypeBool
   | TypeList SignatureType
+  | TypeTuple [SignatureType]
   | TypeFunction SignatureType SignatureType
   deriving (Eq, Show)
 

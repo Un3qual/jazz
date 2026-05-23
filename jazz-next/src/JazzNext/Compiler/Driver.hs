@@ -899,6 +899,8 @@ rewriteExprReferences importTargets boundNames expression =
     EOperatorValue _ -> expression
     EList elements ->
       EList (map (rewriteExprReferences importTargets boundNames) elements)
+    ETuple elements ->
+      ETuple (map (rewriteExprReferences importTargets boundNames) elements)
     EApply functionExpr argumentExpr ->
       EApply
         (rewriteExprReferences importTargets boundNames functionExpr)
@@ -977,6 +979,7 @@ collectUnqualifiedReferences expr =
       Set.delete (identifierText parameterName) (collectUnqualifiedReferences bodyExpr)
     EOperatorValue _ -> Set.empty
     EList elements -> Set.unions (map collectUnqualifiedReferences elements)
+    ETuple elements -> Set.unions (map collectUnqualifiedReferences elements)
     EApply functionExpr argumentExpr ->
       Set.union (collectUnqualifiedReferences functionExpr) (collectUnqualifiedReferences argumentExpr)
     EIf conditionExpr trueBranch falseBranch ->
@@ -1192,6 +1195,8 @@ collectAliasQualifiedReferencePairs expr =
       collectAliasQualifiedReferencePairs bodyExpr
     EOperatorValue _ -> Set.empty
     EList elements ->
+      Set.unions (map collectAliasQualifiedReferencePairs elements)
+    ETuple elements ->
       Set.unions (map collectAliasQualifiedReferencePairs elements)
     EApply functionExpr argumentExpr ->
       Set.union

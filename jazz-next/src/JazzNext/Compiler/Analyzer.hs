@@ -175,6 +175,8 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
     EOperatorValue _ -> ([], [])
     EList elements ->
       collectExprListDiagnostics builtinMode settings visibleBindings context elements
+    ETuple elements ->
+      collectExprListDiagnostics builtinMode settings visibleBindings context elements
     EApply functionExpr argumentExpr ->
       let (functionWarnings, functionErrors) =
             collectExprDiagnostics builtinMode settings visibleBindings context functionExpr
