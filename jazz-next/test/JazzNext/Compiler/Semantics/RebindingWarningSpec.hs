@@ -50,6 +50,11 @@ tests =
     ("repeated same-scope rebinding order is deterministic", testDeterministicWarningOrder),
     ("constructor rebinding emits same-scope warning", testConstructorRebindingEmitsWarning),
     ("nested scope shadowing does not emit same-scope warning", testNestedScopeShadowingNoWarning),
+    ("disabled outer-scope shadowing emits nothing", testDisabledOuterScopeShadowingEmitsNoWarnings),
+    ("enabled outer-scope shadowing emits nested-let warning", testNestedLetShadowingEmitsWarning),
+    ("enabled outer-scope shadowing emits lambda-parameter warning", testLambdaParameterShadowingEmitsWarning),
+    ("outer-scope shadowing promotion reports compile errors", testPromotedOuterScopeShadowingReportsCompileErrors),
+    ("outer-scope shadowing ignores same-scope rebinding", testOuterScopeShadowingIgnoresSameScopeRebinding),
     ("bundled default prelude aliases do not trigger same-scope rebinding", testBundledPreludeAliasShadowingNoWarning),
     ("explicit prelude text matching bundled source still emits rebinding warnings", testExplicitPreludeMatchingBundledSourceEmitsWarning),
     ("driver keeps warning-only success diagnostics", testDriverKeepsWarningOnlySuccessDiagnosticOnly),
@@ -105,6 +110,50 @@ testNestedScopeShadowingNoWarning = do
   warnings <- analyzeRebindingWarnings settings nestedScopeProgram
   assertEqual "warning count" 0 (length warnings)
 
+testDisabledOuterScopeShadowingEmitsNoWarnings :: IO ()
+testDisabledOuterScopeShadowingEmitsNoWarnings = do
+  warnings <- analyzeRebindingWarnings defaultWarningSettings nestedScopeProgram
+  assertEqual "warning count" 0 (length warnings)
+
+testNestedLetShadowingEmitsWarning :: IO ()
+testNestedLetShadowingEmitsWarning = do
+  settings <- shadowingEnabledSettings
+  warnings <- analyzeRebindingWarnings settings nestedScopeProgram
+  case warnings of
+    [warning] -> do
+      assertEqual "warning category" ShadowingOuterScope (warningCategory warning)
+      assertEqual "warning code" "W0002" (warningCodeText warning)
+      assertEqual "warning variable" "x" (warningVariableName warning)
+      assertEqual "warning span" (SourceSpan 2 3) (warningPrimarySpan warning)
+      assertEqual "previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan warning)
+    _ -> failTest "expected exactly one outer-scope shadowing warning record"
+
+testLambdaParameterShadowingEmitsWarning :: IO ()
+testLambdaParameterShadowingEmitsWarning = do
+  settings <- shadowingEnabledSettings
+  warnings <- analyzeRebindingWarnings settings lambdaShadowingProgram
+  case warnings of
+    [warning] -> do
+      assertEqual "warning category" ShadowingOuterScope (warningCategory warning)
+      assertEqual "warning code" "W0002" (warningCodeText warning)
+      assertEqual "warning variable" "x" (warningVariableName warning)
+      assertEqual "warning span" (SourceSpan 2 1) (warningPrimarySpan warning)
+      assertEqual "previous span" (Just (SourceSpan 1 1)) (warningPreviousSpan warning)
+    _ -> failTest "expected exactly one lambda-parameter shadowing warning record"
+
+testPromotedOuterScopeShadowingReportsCompileErrors :: IO ()
+testPromotedOuterScopeShadowingReportsCompileErrors = do
+  settings <- shadowingPromotedSettings
+  result <- compileExpr settings nestedScopeProgram
+  assertEqual "error count" 1 (length (compileErrors result))
+  assertEqual "warning count" 1 (length (compileWarnings result))
+
+testOuterScopeShadowingIgnoresSameScopeRebinding :: IO ()
+testOuterScopeShadowingIgnoresSameScopeRebinding = do
+  settings <- shadowingEnabledSettings
+  warnings <- analyzeRebindingWarnings settings sampleProgram
+  assertEqual "warning count" 0 (length warnings)
+
 testBundledPreludeAliasShadowingNoWarning :: IO ()
 testBundledPreludeAliasShadowingNoWarning = do
   settings <- promotedSettings
@@ -145,6 +194,18 @@ promotedSettings =
     Left err -> failTest ("failed to resolve promoted settings: " <> renderDiagnostic err)
     Right settings -> pure settings
 
+shadowingEnabledSettings :: IO WarningSettings
+shadowingEnabledSettings =
+  case resolveWarningSettings ["-Wshadowing-outer-scope"] Nothing Nothing Nothing of
+    Left err -> failTest ("failed to resolve shadowing settings: " <> renderDiagnostic err)
+    Right settings -> pure settings
+
+shadowingPromotedSettings :: IO WarningSettings
+shadowingPromotedSettings =
+  case resolveWarningSettings ["-Werror=shadowing-outer-scope"] Nothing Nothing Nothing of
+    Left err -> failTest ("failed to resolve promoted shadowing settings: " <> renderDiagnostic err)
+    Right settings -> pure settings
+
 sampleProgram :: Expr
 sampleProgram =
   EBlock
@@ -174,8 +235,15 @@ nestedScopeProgram =
       SExpr
         (SourceSpan 2 1)
         ( EBlock
-            [ SLet "x" (SourceSpan 2 1) (ELit (LInt 2))
+            [ SLet "x" (SourceSpan 2 3) (ELit (LInt 2))
             ]
         ),
       SExpr (SourceSpan 4 1) (EVar "x")
+    ]
+
+lambdaShadowingProgram :: Expr
+lambdaShadowingProgram =
+  EBlock
+    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
+      SLet "f" (SourceSpan 2 1) (ELambda "x" (EVar "x"))
     ]

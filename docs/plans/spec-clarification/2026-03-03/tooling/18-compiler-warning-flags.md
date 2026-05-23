@@ -1,18 +1,19 @@
 ---
 id: JN-WARNING-SHADOWING-OUTER-SCOPE-001
-status: ready
+status: done
 priority: P2
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
   - JN-WARNING-RESERVED-METADATA-001
-last_verified: 2026-05-22
+last_verified: 2026-05-23
 plan_section: "Phase 7 / Batch 1: shadowing-outer-scope analyzer emitter"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Analyzer.hs
   - jazz-next/src/JazzNext/Compiler/WarningCatalog.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs
@@ -48,7 +49,8 @@ Execution note:
 - [x] Analyzer warning plumbing implemented for same-scope rebinding.
 - [x] Warning tests (unit + integration) passing.
 - [x] Documentation and migration notes published.
-- [x] Reserved warning metadata coverage landed for `shadowing-outer-scope`, `unused-binding`, and `deprecated-syntax` without enabling new emitters.
+- [x] Reserved warning metadata coverage landed for `shadowing-outer-scope`, `unused-binding`, and `deprecated-syntax`; `shadowing-outer-scope` is now the second active emitter.
+- [x] Analyzer warning plumbing implemented for opt-in `shadowing-outer-scope`.
 
 ## Decision Lock (Inherited from Item 13)
 
@@ -377,9 +379,9 @@ bash scripts/check-docs.sh
 
 ### Batch 1: shadowing-outer-scope analyzer emitter
 
-This is the next executor-safe active-path warning batch. It builds on the
-reserved `shadowing-outer-scope` / `W0002` metadata without changing default
-compiler behavior.
+This executor-safe active-path warning batch landed on `2026-05-23`. It builds
+on the reserved `shadowing-outer-scope` / `W0002` metadata without changing
+default compiler behavior.
 
 Batch scope:
 
@@ -396,6 +398,20 @@ Batch scope:
   `jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs` for
   disabled/enabled/error-promoted `W0002`, lambda-parameter shadowing, nested
   let shadowing, and no warning for same-scope rebinding.
+- Update `jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs` so
+  catalog coverage reflects the active `shadowing-outer-scope` analyzer
+  emitter while `unused-binding` and `deprecated-syntax` remain reserved-only.
+
+Closure evidence:
+
+- `jazz-next/src/JazzNext/Compiler/WarningCatalog.hs` marks
+  `ShadowingOuterScope` as having an analyzer emitter.
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs` emits `W0002` only when
+  `shadowing-outer-scope` is enabled and a nested ordinary `let` binding or
+  lambda parameter shadows a visible outer name.
+- Same-scope rebinding stays on the existing `W0001` path, and the W0002 tests
+  cover disabled, enabled, warning-as-error, lambda parameter, nested let, and
+  same-scope non-duplication behavior.
 
 Batch verification:
 

@@ -1,6 +1,6 @@
 # Compiler Warning Flags
 
-Status: active (same-scope rebinding warning emission is implemented; reserved warning metadata is locked for future categories)
+Status: active (same-scope rebinding and outer-scope shadowing warning emission are implemented; remaining reserved warning metadata is locked for future categories)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`
 
@@ -18,16 +18,16 @@ Define a stable warning-flag contract so semantically valid same-scope rebinding
 Implemented in this item:
 
 - `same-scope-rebinding` (`W0001`)
+- `shadowing-outer-scope` (`W0002`)
 
 Reserved namespace for future items:
 
-- `shadowing-outer-scope` (`W0002`)
 - `unused-binding` (`W0003`)
 - `deprecated-syntax` (`W0004`)
 
-Only `same-scope-rebinding` has an analyzer emitter in the active
-implementation. Reserved categories parse through CLI/env/config and keep
-stable IDs/tokens, but they do not emit diagnostics until a future
+`same-scope-rebinding` and `shadowing-outer-scope` have analyzer emitters in
+the active implementation. Reserved categories parse through CLI/env/config and
+keep stable IDs/tokens, but they do not emit diagnostics until a future
 implementation batch adds the corresponding analyzer behavior.
 
 ## Default Behavior
@@ -86,6 +86,16 @@ Minimum warning payload for `W0001`:
 6. stable short message:
    - `same-scope rebinding: '<name>' shadows previous same-scope binding (last declaration wins)`
 
+Minimum warning payload for `W0002`:
+
+1. warning ID (`W0002`),
+2. category (`shadowing-outer-scope`),
+3. binding name,
+4. source span for the nested binding or lambda-bearing binding,
+5. source span for the visible outer binding when available,
+6. stable short message:
+   - `outer-scope shadowing: '<name>' shadows a visible binding from an outer scope`
+
 ## Warning-As-Error Contract
 
 1. If a warning category is enabled and promoted to error, compilation exits non-zero when that warning occurs.
@@ -99,8 +109,10 @@ Recommended rollout:
 
 1. Start with default silent mode.
 2. Enable `-Wsame-scope-rebinding` in CI as warning-only.
-3. Address frequent warning sites.
-4. Promote to `-Werror=same-scope-rebinding` once codebase is clean.
+3. Optionally enable `-Wshadowing-outer-scope` to surface nested `let` and
+   lambda-parameter shadowing without changing language semantics.
+4. Address frequent warning sites.
+5. Promote selected categories to `-Werror=<category>` once codebase is clean.
 
 Compatibility notes:
 

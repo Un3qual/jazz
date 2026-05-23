@@ -36,7 +36,7 @@ import JazzNext.Compiler.BuiltinCatalog
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan (..),
-    WarningRecord,
+    WarningRecord (..),
     mkDiagnostic,
     mkSameScopeRebindingWarning,
     setDiagnosticPrimarySpan,
@@ -62,7 +62,8 @@ import JazzNext.Compiler.WarningConfig
     isWarningEnabled
   )
 import JazzNext.Compiler.Warnings
-  ( WarningCategory (..)
+  ( WarningCategory (..),
+    warningCode
   )
 
 -- | Analyzer output keeps the original expression plus the warnings/errors
@@ -154,10 +155,20 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
     ELambda parameterName bodyExpr ->
       let lambdaBindings =
             Map.insert
-              (identifierText parameterName)
+              parameterNameText
               lambdaVisibleBinding
               visibleBindings
-       in collectExprDiagnostics builtinMode settings lambdaBindings context bodyExpr
+          shadowingWarnings =
+            collectOuterScopeShadowingWarnings
+              settings
+              parameterNameText
+              (lambdaShadowingSpan context)
+              visibleBindings
+          (bodyWarnings, bodyErrors) =
+            collectExprDiagnostics builtinMode settings lambdaBindings context bodyExpr
+       in (shadowingWarnings ++ bodyWarnings, bodyErrors)
+      where
+        parameterNameText = identifierText parameterName
     EOperatorValue _ -> ([], [])
     EList elements ->
       collectExprListDiagnostics builtinMode settings visibleBindings context elements
@@ -369,6 +380,15 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
                             (visibleBindingSpan previousBinding)
                         ]
                   _ -> []
+              shadowingWarning =
+                case Map.lookup bindingNameText scopeBindings of
+                  Just _ -> []
+                  Nothing ->
+                    collectOuterScopeShadowingWarnings
+                      settings
+                      bindingNameText
+                      bindingSpan
+                      outerScope
               nextScope =
                 Map.insert
                   bindingNameText
@@ -386,10 +406,11 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
               warningsWithValue = appendWarnings warningsRev valueWarnings
               errorsWithValue =
                 appendErrors (appendErrors errorsRev errorsFromSignature) valueErrors
+              warningsWithRebinding = appendWarnings warningsWithValue rebindingWarning
            in
             ( nextScope,
               Nothing,
-              appendWarnings warningsWithValue rebindingWarning,
+              appendWarnings warningsWithRebinding shadowingWarning,
               errorsWithValue
             )
 
@@ -633,6 +654,45 @@ visibleBindingDiagnosticSpan visibleBinding =
   if visibleBindingIsHiddenPrelude visibleBinding
     then Nothing
     else Just (visibleBindingSpan visibleBinding)
+
+collectOuterScopeShadowingWarnings ::
+  WarningSettings ->
+  Text ->
+  SourceSpan ->
+  Map Text VisibleBinding ->
+  [WarningRecord]
+collectOuterScopeShadowingWarnings settings bindingName primarySpan outerScope
+  | not (isWarningEnabled settings ShadowingOuterScope) = []
+  | otherwise =
+      case Map.lookup bindingName outerScope of
+        Just previousBinding
+          | not (visibleBindingIsHiddenPrelude previousBinding) ->
+              [ mkOuterScopeShadowingWarning
+                  bindingName
+                  primarySpan
+                  (visibleBindingDiagnosticSpan previousBinding)
+              ]
+        _ -> []
+
+mkOuterScopeShadowingWarning :: Text -> SourceSpan -> Maybe SourceSpan -> WarningRecord
+mkOuterScopeShadowingWarning variableName primarySpan previousSpan =
+  WarningRecord
+    { warningCategory = ShadowingOuterScope,
+      warningCodeText = warningCode ShadowingOuterScope,
+      warningVariableName = variableName,
+      warningPrimarySpan = primarySpan,
+      warningPreviousSpan = previousSpan,
+      warningMessage =
+        "outer-scope shadowing: '"
+          <> variableName
+          <> "' shadows a visible binding from an outer scope"
+    }
+
+lambdaShadowingSpan :: AnalysisContext -> SourceSpan
+lambdaShadowingSpan context =
+  case contextPrimarySpan context of
+    Just spanValue -> spanValue
+    Nothing -> SourceSpan 0 0
 
 lambdaVisibleBinding :: VisibleBinding
 lambdaVisibleBinding =
