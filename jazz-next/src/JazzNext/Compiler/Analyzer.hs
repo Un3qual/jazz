@@ -102,6 +102,9 @@ analyzeProgramWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -
 analyzeProgramWithBuiltins builtinMode =
   analyzeProgramWithBuiltinsAndHiddenStatements builtinMode Set.empty
 
+-- | Analyzer entrypoint used by prelude/module flows. Hidden statement indices
+-- suppress synthetic-source locations while preserving the same semantic walk
+-- used for ordinary user code.
 analyzeProgramWithBuiltinsAndHiddenStatements ::
   BuiltinResolutionMode ->
   Set Int ->
@@ -500,6 +503,8 @@ contextForBinding bindingName bindingSpan =
       contextSubject = Just (identifierText bindingName)
     }
 
+-- | Purity is name-based in this compiler slice; reject only when the current
+-- context is pure and the callee is known either locally or through builtins.
 shouldRejectImpureCall ::
   BuiltinResolutionMode ->
   Map Text VisibleBinding ->
@@ -568,6 +573,8 @@ mkVisibleBinding hiddenStatementIndices statementIndex spanValue =
       visibleBindingIsHiddenPrelude = statementIndex `Set.member` hiddenStatementIndices
     }
 
+-- | Data constructors join the value namespace for analyzer visibility and
+-- same-scope rebinding checks.
 registerDataConstructors ::
   Set Int ->
   Int ->

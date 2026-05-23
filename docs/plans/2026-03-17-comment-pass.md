@@ -1,6 +1,6 @@
 ---
 id: JN-COMMENT-PHASE-BOUNDARY-CONTRACTS-001
-status: ready
+status: done
 priority: P3
 size: L
 kind: impl

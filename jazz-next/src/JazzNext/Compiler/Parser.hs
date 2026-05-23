@@ -122,6 +122,9 @@ parseStatementsUntilBrace context inheritedAliases tokens =
           (statements, remaining) <- parseStatement context knownAliases allTokens
           go (registerImportAliases knownAliases statements) (prependStatements statements acc) remaining
 
+-- | Statement grammar context. Module and data declarations are intentionally
+-- restricted here instead of in later phases so nested declarations fail with
+-- parser diagnostics before lowering.
 data StatementContext
   = TopLevelContext
   -- Module bodies can contain bindings/imports but must not introduce a second
@@ -198,6 +201,9 @@ registerImportAliases =
           Set.insert aliasName knownAliases
         _ -> knownAliases
 
+-- | Decide whether `Name::member` at statement start is a qualified alias
+-- expression or a compact signature. The parser has to make this choice before
+-- expression parsing because both forms begin with the same token pair.
 shouldParseQualifiedAliasStatement :: Set Text -> Text -> Token -> [Token] -> Bool
 shouldParseQualifiedAliasStatement knownAliases name nameToken tokensAfterName =
   case tokensAfterName of
@@ -276,6 +282,9 @@ collectImportAliasesUntilEnd = collectImportAliasesInStatementList False
 collectImportAliasesUntilBrace :: [Token] -> Set Text
 collectImportAliasesUntilBrace = collectImportAliasesInStatementList True
 
+-- | Pre-scan import statements in the current statement list so qualified
+-- alias lookups can be parsed even when the alias is declared later in the
+-- same top-level/module body.
 collectImportAliasesInStatementList :: Bool -> [Token] -> Set Text
 collectImportAliasesInStatementList stopAtRightBrace = go 0 Set.empty
   where
@@ -1191,6 +1200,8 @@ parseCaseArm knownAliases tokens = do
   (bodyExpr, remaining) <- parseExprWithMinPrecedenceUntil knownAliases stopsBeforeCaseArmBoundary 1 afterArrow
   pure (SurfaceCaseArm casePattern bodyExpr, remaining)
   where
+    -- Case-arm bodies are expression-shaped, so a `|` operator only starts the
+    -- next arm when the following tokens can form a pattern and arrow.
     stopsBeforeCaseArmBoundary allTokens =
       case allTokens of
         Token {tokenKind = TOperator "|"} : rest ->

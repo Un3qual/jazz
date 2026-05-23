@@ -122,6 +122,8 @@ data ResolvedPrelude
   | PreludeExplicit Text
   deriving (Eq, Show)
 
+-- | Parsed/lowered prelude form after source selection. The constructor records
+-- whether statements should be hidden from user-facing diagnostics.
 data LoweredResolvedPrelude
   = LoweredPreludeAbsent
   | LoweredPreludeBundled Expr
@@ -498,11 +500,15 @@ mergeLoweredResolvedPrelude loweredResolvedPrelude loweredSource =
               parsedHiddenStatementIndices = Set.empty
             }
 
+-- | Lowered program paired with statement indices that came from synthetic
+-- bundled prelude source.
 data ParsedProgram = ParsedProgram
   { parsedExpr :: Expr,
     parsedHiddenStatementIndices :: Set Int
   }
 
+-- | Module graph replay needs two programs: one that keeps dependency
+-- expression statements for validation and one that strips them for runtime.
 data ModuleGraphExpr = ModuleGraphExpr
   { moduleGraphValidationExpr :: Expr,
     moduleGraphRuntimeExpr :: Expr
@@ -659,6 +665,8 @@ parseAndLowerResolvedModule resolvedModule sourceText =
     Right loweredSource ->
       Right loweredSource
 
+-- | Build validation/runtime replay programs while preserving module import
+-- visibility rules through qualified synthetic bindings.
 buildModuleGraphExpr ::
   [Text] ->
   [ResolvedModule] ->
@@ -819,6 +827,8 @@ visibleImportReferencesForModule exportsByModule expr =
                 Just symbolNames -> Set.intersection exportedNames (Set.fromList symbolNames)
     _ -> Map.empty
 
+-- | Qualify references that came from imports whose other exports must stay
+-- hidden, preventing dependency names from shadowing prelude/local bindings.
 rewriteVisibleImportReferences ::
   Map [Text] (Set Text) ->
   Map [Text] [Text] ->
@@ -1086,6 +1096,8 @@ collectNeededAliasExports exportsByModule =
                 else Map.insertWith Set.union modulePath neededNames neededExports
         _ -> neededExports
 
+-- | Insert synthetic alias-qualified bridge bindings required by `Alias::name`
+-- references without making alias-only exports visible unqualified.
 addAliasImportBindings ::
   Map [Text] [Text] ->
   Map [Text] (Set Text) ->

@@ -63,4 +63,6 @@ desugarStatement statement =
 
 desugarCaseArm :: CaseArm -> CaseArm
 desugarCaseArm (CaseArm patternExpr bodyExpr) =
+  -- Patterns are already canonical core nodes; only arm bodies can contain
+  -- desugarable control-flow expressions.
   CaseArm patternExpr (desugarExpr bodyExpr)
