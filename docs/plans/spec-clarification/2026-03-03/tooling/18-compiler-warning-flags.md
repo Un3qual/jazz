@@ -375,6 +375,23 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
+### Remaining warning emitters: blocked
+
+After the `W0002` batch, the warning catalog still reserves
+`unused-binding` / `W0003` and `deprecated-syntax` / `W0004`, but neither is an
+executor-safe implementation batch yet.
+
+Before either category can move to `Ready Now`, the plan needs a concrete
+active-path contract that names:
+
+- the analyzer predicate or parser surface that should produce the warning,
+- the scope ownership rules and explicit non-goals,
+- the `jazz-next/` implementation and test target paths,
+- the focused verification command set.
+
+Until those details exist, keep the remaining warning-emitter work blocked in
+`docs/execution/queue.md` instead of adding a broad implementation row.
+
 ## Phase 7: Future Warning Emitters
 
 ### Batch 1: shadowing-outer-scope analyzer emitter
