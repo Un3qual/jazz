@@ -1304,7 +1304,7 @@ hasTopLevelCommaBeforeRightParen = go 0 0 False
               | bracketDepth == 0 ->
                   sawComma
               | otherwise ->
-                  go parenDepth bracketDepth sawComma rest
+                  False
             TLBracket ->
               go parenDepth (bracketDepth + 1) sawComma rest
             TRBracket
