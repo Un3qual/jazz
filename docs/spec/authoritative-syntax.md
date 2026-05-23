@@ -1,10 +1,10 @@
 # Authoritative Syntax
 
-Status: active (module/import and lambda slices are implemented in `jazz-next`; abstraction alignment remains pending)
+Status: active (module/import and lambda slices are implemented in `jazz-next`; `class`/`impl` abstraction declaration forms are reserved by parser diagnostics while semantics remain pending)
 Locked decisions: 2026-03-02
 Primary plan: `docs/plans/spec-cleanup/2026-03-02/decisions/01-authoritative-syntax.md`
 
-Implementation note (2026-03-17): `jazz-next` now accepts canonical brace-bodied module declarations (`module A::B { ... }`) and canonical identifier-only lambdas (`\(x) -> expr`) in the active parser/type/runtime/CLI path. Remaining alignment gaps are primarily abstraction syntax.
+Implementation note (2026-05-23): `jazz-next` accepts canonical brace-bodied module declarations (`module A::B { ... }`) and canonical identifier-only lambdas (`\(x) -> expr`) in the active parser/type/runtime/CLI path. The active parser also reserves top-level and module-body `class`/`impl` declaration-shaped forms such as `class Eq { ... }` with deterministic unsupported-syntax diagnostics; ordinary uses of those identifiers as binding names, signature names, or qualified aliases remain valid, and class/impl semantics remain future work.
 
 ## Purpose
 
@@ -34,6 +34,7 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
 3. **Abstractions**
    - Canonical keywords: `class` and `impl`.
    - `trait` is non-canonical and retained only in legacy-reference discussion until migration work is complete.
+   - Active `jazz-next` parser behavior reserves top-level and module-body `class`/`impl` declarations and rejects them with deferred class/impl semantics diagnostics until the abstraction model is implemented.
 
 4. **Collections**
    - List literal/type forms remain canonical: `[1, 2, 3]`, `[a]`.
@@ -74,4 +75,5 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
 - [x] Legacy/non-canonical forms identified with migration notes.
 - [x] `jazz-next/` parser tests aligned to the implemented function/module/lambda slice of the canonical contract.
 - [x] `jazz-next/` implementation aligned to the implemented function/module/lambda slice of the canonical contract.
+- [x] `jazz-next/` parser reserves canonical `class`/`impl` declaration forms with deferred-semantics diagnostics.
 - [ ] Summary docs fully converge with implementation behavior.

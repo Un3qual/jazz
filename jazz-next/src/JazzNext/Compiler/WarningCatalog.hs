@@ -60,13 +60,13 @@ warningMetadata category =
     ShadowingOuterScope ->
       WarningMetadata
         { metadataCode = "W0002",
-          metadataHasAnalyzerEmitter = False,
+          metadataHasAnalyzerEmitter = True,
           metadataToken = "shadowing-outer-scope"
         }
     UnusedBinding ->
       WarningMetadata
         { metadataCode = "W0003",
-          metadataHasAnalyzerEmitter = False,
+          metadataHasAnalyzerEmitter = True,
           metadataToken = "unused-binding"
         }
     DeprecatedSyntax ->

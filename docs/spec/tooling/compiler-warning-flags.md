@@ -1,6 +1,6 @@
 # Compiler Warning Flags
 
-Status: active (same-scope rebinding warning emission is implemented; reserved warning metadata is locked for future categories)
+Status: active (same-scope rebinding, outer-scope shadowing, and ordinary `let` unused-binding warning emission are implemented; remaining reserved warning metadata is locked for future categories)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`
 
@@ -18,17 +18,19 @@ Define a stable warning-flag contract so semantically valid same-scope rebinding
 Implemented in this item:
 
 - `same-scope-rebinding` (`W0001`)
+- `shadowing-outer-scope` (`W0002`)
+- `unused-binding` (`W0003`)
 
 Reserved namespace for future items:
 
-- `shadowing-outer-scope` (`W0002`)
-- `unused-binding` (`W0003`)
 - `deprecated-syntax` (`W0004`)
 
-Only `same-scope-rebinding` has an analyzer emitter in the active
-implementation. Reserved categories parse through CLI/env/config and keep
-stable IDs/tokens, but they do not emit diagnostics until a future
-implementation batch adds the corresponding analyzer behavior.
+`same-scope-rebinding`, `shadowing-outer-scope`, and `unused-binding` have
+analyzer emitters in the active implementation. The `unused-binding` emitter is
+limited to ordinary block `let` declarations in the same lexical block.
+Reserved categories parse through CLI/env/config and keep stable IDs/tokens,
+but they do not emit diagnostics until a future implementation batch adds the
+corresponding analyzer behavior.
 
 ## Default Behavior
 
@@ -86,6 +88,38 @@ Minimum warning payload for `W0001`:
 6. stable short message:
    - `same-scope rebinding: '<name>' shadows previous same-scope binding (last declaration wins)`
 
+Minimum warning payload for `W0002`:
+
+1. warning ID (`W0002`),
+2. category (`shadowing-outer-scope`),
+3. binding name,
+4. source span for the nested binding or lambda-bearing binding,
+5. source span for the visible outer binding when available,
+6. stable short message:
+   - `outer-scope shadowing: '<name>' shadows a visible binding from an outer scope`
+
+Minimum warning payload for `W0003`:
+
+1. warning ID (`W0003`),
+2. category (`unused-binding`),
+3. binding name,
+4. source span for the unused ordinary block `let` binding,
+5. stable short message:
+   - `unused binding: '<name>' is never referenced in this lexical block`
+
+The active `W0003` implementation is limited to ordinary block `let`
+declarations in lexical block scopes. It warns only when `unused-binding` is
+enabled and the declaration's name is not referenced by a reachable expression
+while that binding is in scope in the same block. Later references from other
+bindings' right-hand sides and expression statements count as usage until a
+same-name declaration shadows the binding; earlier pre-declaration references
+and the binding's own right-hand side do not. When `same-scope-rebinding` is
+also enabled, a rebinding declaration site, including an ordinary `let` that
+rebinds a same-scope data constructor name, emits `W0001` only instead of
+cofiring `W0003`. Lambda parameters, pattern binders, data constructors,
+imports/modules, cross-module export analysis, and `deprecated-syntax` remain
+outside this `W0003` batch.
+
 ## Warning-As-Error Contract
 
 1. If a warning category is enabled and promoted to error, compilation exits non-zero when that warning occurs.
@@ -99,8 +133,12 @@ Recommended rollout:
 
 1. Start with default silent mode.
 2. Enable `-Wsame-scope-rebinding` in CI as warning-only.
-3. Address frequent warning sites.
-4. Promote to `-Werror=same-scope-rebinding` once codebase is clean.
+3. Optionally enable `-Wshadowing-outer-scope` to surface nested `let` and
+   lambda-parameter shadowing without changing language semantics.
+4. Optionally enable `-Wunused-binding` to surface unused ordinary block `let`
+   bindings.
+5. Address frequent warning sites.
+6. Promote selected categories to `-Werror=<category>` once codebase is clean.
 
 Compatibility notes:
 

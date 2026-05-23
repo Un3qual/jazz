@@ -41,6 +41,7 @@ tests =
     ("parses import statement bare dot", testParsesImportBare),
     ("parses import statement with alias", testParsesImportAlias),
     ("parses qualified alias lookup expression", testParsesQualifiedAliasLookup),
+    ("parses abstraction keyword alias lookup expression", testParsesAbstractionKeywordAliasLookup),
     ("parses lowercase alias qualified lookup expression", testParsesLowercaseQualifiedAliasLookup),
     ("parses lowercase qualified lookup before alias import", testParsesLowercaseQualifiedAliasLookupBeforeImport),
     ("parses lowercase qualified lookup inside nested block", testParsesNestedLowercaseQualifiedAliasLookup),
@@ -119,6 +120,19 @@ testParsesQualifiedAliasLookup =
         )
     )
     (parseSurfaceProgram "import Lib::Math as Math.\nMath::subtract.")
+
+testParsesAbstractionKeywordAliasLookup :: IO ()
+testParsesAbstractionKeywordAliasLookup =
+  assertEqual
+    "abstraction keyword alias lookup surface AST"
+    ( Right
+        ( SEBlock
+            [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "class") Nothing,
+              SSExpr (SourceSpan 2 1) (SEQualifiedVar "class" "subtract")
+            ]
+        )
+    )
+    (parseSurfaceProgram "import Lib::Math as class.\nclass::subtract.")
 
 testParsesLowercaseQualifiedAliasLookup :: IO ()
 testParsesLowercaseQualifiedAliasLookup =

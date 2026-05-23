@@ -1,25 +1,26 @@
 ---
-id: JN-WARNING-SHADOWING-OUTER-SCOPE-001
-status: ready
+id: JN-WARNING-UNUSED-BINDING-LET-001
+status: done
 priority: P2
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
-  - JN-WARNING-RESERVED-METADATA-001
-last_verified: 2026-05-22
-plan_section: "Phase 7 / Batch 1: shadowing-outer-scope analyzer emitter"
+  - JN-WARNING-SHADOWING-OUTER-SCOPE-001
+last_verified: 2026-05-23
+plan_section: "Phase 7 / Batch 2: unused-binding ordinary let analyzer emitter"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Analyzer.hs
   - jazz-next/src/JazzNext/Compiler/WarningCatalog.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "The shadowing-outer-scope warning has an analyzer emitter for nested-scope bindings that shadow visible outer names, remains opt-in, and preserves same-scope rebinding as W0001."
+deliverable: "The unused-binding warning has an analyzer emitter for ordinary block `let` bindings that are never referenced by reachable expressions in the same lexical block, remains opt-in, and leaves lambda parameters, pattern binders, data constructors, exports, and deprecated syntax to later batches."
 ---
 
 # Compiler Warning Flags (Same-Scope Rebinding) Implementation Plan
@@ -48,7 +49,9 @@ Execution note:
 - [x] Analyzer warning plumbing implemented for same-scope rebinding.
 - [x] Warning tests (unit + integration) passing.
 - [x] Documentation and migration notes published.
-- [x] Reserved warning metadata coverage landed for `shadowing-outer-scope`, `unused-binding`, and `deprecated-syntax` without enabling new emitters.
+- [x] Reserved warning metadata coverage landed for `shadowing-outer-scope`, `unused-binding`, and `deprecated-syntax`; `shadowing-outer-scope` is now the second active emitter.
+- [x] Analyzer warning plumbing implemented for opt-in `shadowing-outer-scope`.
+- [x] Analyzer warning plumbing implemented for opt-in `unused-binding` on ordinary block `let` bindings.
 
 ## Decision Lock (Inherited from Item 13)
 
@@ -373,13 +376,30 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
+### Remaining deprecated-syntax emitter: blocked
+
+After the `W0003` ordinary `let` carve-out, the warning catalog still reserves
+`deprecated-syntax` / `W0004`, but it is not an executor-safe implementation
+batch yet.
+
+Before `deprecated-syntax` can move to `Ready Now`, the plan needs a concrete
+active-path contract that names:
+
+- the parser or analyzer surface that should produce the warning,
+- the scope ownership rules and explicit non-goals,
+- the `jazz-next/` implementation and test target paths,
+- the focused verification command set.
+
+Until those details exist, keep the remaining `W0004` warning-emitter work blocked in
+`docs/execution/queue.md` instead of adding a broad implementation row.
+
 ## Phase 7: Future Warning Emitters
 
 ### Batch 1: shadowing-outer-scope analyzer emitter
 
-This is the next executor-safe active-path warning batch. It builds on the
-reserved `shadowing-outer-scope` / `W0002` metadata without changing default
-compiler behavior.
+This executor-safe active-path warning batch landed on `2026-05-23`. It builds
+on the reserved `shadowing-outer-scope` / `W0002` metadata without changing
+default compiler behavior.
 
 Batch scope:
 
@@ -396,6 +416,81 @@ Batch scope:
   `jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs` for
   disabled/enabled/error-promoted `W0002`, lambda-parameter shadowing, nested
   let shadowing, and no warning for same-scope rebinding.
+- Update `jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs` so
+  catalog coverage reflects the active `shadowing-outer-scope` analyzer
+  emitter while `unused-binding` and `deprecated-syntax` remain reserved-only.
+
+Closure evidence:
+
+- `jazz-next/src/JazzNext/Compiler/WarningCatalog.hs` marks
+  `ShadowingOuterScope` as having an analyzer emitter.
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs` emits `W0002` only when
+  `shadowing-outer-scope` is enabled and a nested ordinary `let` binding or
+  lambda parameter shadows a visible outer name.
+- Same-scope rebinding stays on the existing `W0001` path, and the W0002 tests
+  cover disabled, enabled, warning-as-error, lambda parameter, nested let, and
+  same-scope non-duplication behavior.
+
+Batch verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+### Batch 2: unused-binding ordinary let analyzer emitter
+
+This executor-safe active-path warning batch landed on `2026-05-23`. It
+builds on the reserved `unused-binding` / `W0003` metadata and keeps the
+category opt-in.
+
+Batch scope:
+
+- Enable the `UnusedBinding` analyzer emitter metadata in
+  `jazz-next/src/JazzNext/Compiler/WarningCatalog.hs`.
+- Emit `W0003` only when the category is enabled and an ordinary block `let`
+  binding is never referenced by a reachable expression while that binding is
+  in scope in the same lexical block.
+- Count later in-scope references from other bindings' right-hand sides and
+  expression statements in that same block; earlier pre-declaration references,
+  later references after a same-name shadowing declaration, and the binding's
+  own right-hand side do not satisfy usage.
+- When `same-scope-rebinding` is also enabled, suppress `W0003` on a rebinding
+  declaration, including an ordinary `let` that rebinds a same-scope data
+  constructor name, that already emits `W0001`.
+- Keep lambda parameters, pattern binders, data constructors, imports/modules,
+  cross-module export analysis, and `deprecated-syntax` deferred.
+- Preserve default warning-silent behavior and warning-as-error promotion for
+  the enabled category.
+- Add focused coverage in
+  `jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs` for
+  disabled/enabled/error-promoted `W0003`, a used ordinary `let` with no
+  warning, and a self-referential right-hand side that does not count as use.
+- Update `jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs` so
+  catalog coverage reflects the active `unused-binding` analyzer emitter while
+  `deprecated-syntax` remains reserved-only.
+
+Closure evidence:
+
+- `jazz-next/src/JazzNext/Compiler/WarningCatalog.hs` marks `UnusedBinding` as
+  having an analyzer emitter.
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs` emits `W0003` only when
+  `unused-binding` is enabled and an ordinary block `let` binding is not
+  referenced later while in scope by another same-block binding RHS or
+  expression statement.
+- The binding's own right-hand side, earlier pre-declaration references, and
+  later references after a same-name shadowing declaration do not count as
+  usage; hidden prelude statements are excluded; and `W0003` is suppressed on a
+  rebinding declaration, including an ordinary `let` that rebinds a same-scope
+  data constructor name, when `W0001` also emits.
+- Lambda parameters, pattern binders, data constructors, imports/modules,
+  cross-module export analysis, and `deprecated-syntax` remain deferred.
+- The W0003 tests cover disabled, enabled, warning-as-error, used ordinary
+  `let`, pre-declaration references, same-name rebinding/shadowing, duplicate
+  W0001/W0003 suppression, and self-referential-RHS behavior.
 
 Batch verification:
 

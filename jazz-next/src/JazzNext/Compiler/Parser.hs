@@ -138,6 +138,11 @@ data StatementContext
 parseStatement :: StatementContext -> Set Text -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
 parseStatement context knownAliases tokens =
   case tokens of
+    abstractionToken@(Token {tokenKind = TIdentifier name}) : rest
+      | isDeclarationContext context,
+        isReservedAbstractionKeyword name,
+        looksLikeAbstractionDeclaration rest ->
+          rejectReservedAbstractionSyntax abstractionToken
     moduleToken@(Token {tokenKind = TModule}) : rest ->
       case context of
         TopLevelContext ->
@@ -190,6 +195,47 @@ parseStatement context knownAliases tokens =
     _ -> fmap singleStatement (parseExprStatement knownAliases tokens)
   where
     singleStatement (statement, remaining) = ([statement], remaining)
+
+isDeclarationContext :: StatementContext -> Bool
+isDeclarationContext context =
+  case context of
+    TopLevelContext -> True
+    ModuleBodyContext -> True
+    NestedBlockContext -> False
+
+isReservedAbstractionKeyword :: Text -> Bool
+isReservedAbstractionKeyword name =
+  case name of
+    "class" -> True
+    "impl" -> True
+    _ -> False
+
+looksLikeAbstractionDeclaration :: [Token] -> Bool
+looksLikeAbstractionDeclaration tokensAfterKeyword =
+  case tokensAfterKeyword of
+    Token {tokenKind = TIdentifier {}} : rest -> hasAbstractionBodyBeforeTerminator rest
+    Token {tokenKind = TAt} : rest -> hasAbstractionBodyBeforeTerminator rest
+    _ -> False
+
+hasAbstractionBodyBeforeTerminator :: [Token] -> Bool
+hasAbstractionBodyBeforeTerminator tokens =
+  case tokens of
+    [] -> False
+    Token {tokenKind = TDot} : _ -> False
+    Token {tokenKind = TLBrace} : _ -> True
+    _ : rest -> hasAbstractionBodyBeforeTerminator rest
+
+rejectReservedAbstractionSyntax :: Token -> Either Diagnostic a
+rejectReservedAbstractionSyntax abstractionToken =
+  Left
+    ( parseDiagnostic
+        ( "unsupported abstraction syntax '"
+            <> tokenLexeme abstractionToken
+            <> "' at "
+            <> renderSourceSpan (tokenSpan abstractionToken)
+            <> ": class/impl abstraction semantics are deferred in jazz-next"
+        )
+    )
 
 registerImportAliases :: Set Text -> [SurfaceStatement] -> Set Text
 registerImportAliases =

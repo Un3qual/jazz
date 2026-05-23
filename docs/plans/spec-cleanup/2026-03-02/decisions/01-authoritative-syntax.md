@@ -1,12 +1,12 @@
 ---
 id: JN-ABSTRACTION-SYNTAX-BOUNDARY-001
-status: ready
+status: done
 priority: P2
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-05-22
+last_verified: 2026-05-23
 plan_section: "Active jazz-next batch: class/impl parser boundary"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser.hs
@@ -35,9 +35,9 @@ deliverable: "The active parser reserves canonical class/impl abstraction syntax
 
 - [x] Discovery complete
 - [x] Design decision complete
-- [ ] Implementation complete
-- [ ] Verification complete
-- [ ] Docs updates complete
+- [x] Implementation complete
+- [x] Verification complete
+- [x] Docs updates complete
 
 ## Implementation Status Verification (2026-03-17, `jazz-next`)
 
@@ -64,22 +64,34 @@ deliverable: "The active parser reserves canonical class/impl abstraction syntax
 - [x] Canonical collection combinator order is function-first (`map f xs`, `filter p xs`).
 - [x] Function/module surface continues parser-first style (`name = expr.`, `module A::B { ... }`, `import A::B`).
 
-## Active jazz-next batch: class/impl parser boundary
+## Completed jazz-next batch: class/impl parser boundary
 
-This is the next executor-safe active-path implementation batch for this plan.
-It deliberately stops at a parser boundary and does not add class/impl
-semantics.
+This executor-safe active-path implementation batch is complete. It
+deliberately stops at a parser boundary and does not add class/impl semantics.
 
 Batch scope:
 
-- Treat top-level `class` and `impl` forms as reserved abstraction syntax in
-  `jazz-next/src/JazzNext/Compiler/Parser.hs`.
+- Treat top-level `class ... { ... }` and `impl ... { ... }` declaration-shaped
+  forms as reserved abstraction syntax in `jazz-next/src/JazzNext/Compiler/Parser.hs`.
 - Reject `class` and `impl` declarations with deterministic unsupported-syntax
   diagnostics that name the deferred abstraction semantics.
 - Add focused parser coverage in
   `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`.
 - Preserve existing implemented syntax for bindings, signatures, lambdas,
   modules/imports, data declarations, and expressions.
+
+Closure evidence:
+
+- `jazz-next/src/JazzNext/Compiler/Parser.hs` rejects top-level and module-body
+  `class`/`impl` abstraction declaration forms with deterministic
+  unsupported-syntax diagnostics that name the deferred class/impl semantics,
+  while preserving ordinary binding, signature, and qualified-alias uses of
+  those identifier names.
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs` covers the
+  reserved parser boundary for both canonical abstraction keywords.
+- `docs/spec/authoritative-syntax.md`, `docs/jazz-language-state.md`, and
+  `docs/execution/queue.md` record the completed active parser boundary while
+  keeping class/impl semantics future work.
 
 Verification:
 
@@ -90,7 +102,7 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
-## Verification Evidence (Item Is Still Unfinished)
+## Historical Verification Evidence
 
 - `docs/jazz-language-state.md` contains the open cleanup list and explicitly includes: `1. Pick one authoritative syntax for functions, modules, traits, and collections.` (section `## Recommended Next Spec Cleanup`, around lines 418-423).
 - `docs/jazz-language-state.md` also documents unresolved syntax conflicts, e.g. parser supports `class` while `Prelude.jz` uses `trait`, and collection API order disagreements (around lines 286-346).

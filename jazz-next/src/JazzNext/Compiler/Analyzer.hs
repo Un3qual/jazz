@@ -36,7 +36,7 @@ import JazzNext.Compiler.BuiltinCatalog
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan (..),
-    WarningRecord,
+    WarningRecord (..),
     mkDiagnostic,
     mkSameScopeRebindingWarning,
     setDiagnosticPrimarySpan,
@@ -51,7 +51,6 @@ import JazzNext.Compiler.Identifier
   )
 import JazzNext.Compiler.RecursiveBindings
   ( freeVarsExprWithBound,
-    freeVarsScopeWithBound,
     inferRecursiveGroupsOrdered
   )
 import JazzNext.Compiler.Purity
@@ -62,7 +61,8 @@ import JazzNext.Compiler.WarningConfig
     isWarningEnabled
   )
 import JazzNext.Compiler.Warnings
-  ( WarningCategory (..)
+  ( WarningCategory (..),
+    warningCode
   )
 
 -- | Analyzer output keeps the original expression plus the warnings/errors
@@ -80,7 +80,8 @@ data AnalysisContext = AnalysisContext
   { contextLabel :: Text,
     contextAllowsImpureCalls :: Bool,
     contextPrimarySpan :: Maybe SourceSpan,
-    contextSubject :: Maybe Text
+    contextSubject :: Maybe Text,
+    contextLambdaSpan :: Maybe SourceSpan
   }
 
 -- | Binding metadata retained in visibility maps so diagnostics can decide
@@ -154,10 +155,23 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
     ELambda parameterName bodyExpr ->
       let lambdaBindings =
             Map.insert
-              (identifierText parameterName)
+              parameterNameText
               lambdaVisibleBinding
               visibleBindings
-       in collectExprDiagnostics builtinMode settings lambdaBindings context bodyExpr
+          shadowingWarnings =
+            case lambdaShadowingSpan context of
+              Nothing -> []
+              Just primarySpan ->
+                collectOuterScopeShadowingWarnings
+                  settings
+                  parameterNameText
+                  primarySpan
+                  visibleBindings
+          (bodyWarnings, bodyErrors) =
+            collectExprDiagnostics builtinMode settings lambdaBindings context bodyExpr
+       in (shadowingWarnings ++ bodyWarnings, bodyErrors)
+      where
+        parameterNameText = identifierText parameterName
     EOperatorValue _ -> ([], [])
     EList elements ->
       collectExprListDiagnostics builtinMode settings visibleBindings context elements
@@ -270,6 +284,11 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
             indexedStatements
         )
     bindingDeclarationsByStatement = collectBindingDeclarations indexedStatements
+    unusedBindingWarningsByStatement =
+      collectUnusedBindingWarnings
+        settings
+        hiddenStatementIndices
+        indexedStatements
 
     -- Internal accumulators are built in reverse for O(1) append.
     -- `pendingSignature` tracks exactly one immediately-preceding signature that
@@ -284,11 +303,17 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
       (Map Text VisibleBinding, Maybe PendingSignature, [WarningRecord], [Diagnostic])
     step (scopeBindings, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
       case statement of
-        SExpr _ expr ->
+        SExpr exprSpan expr ->
           -- Any signature followed by a non-binding is invalid by contract.
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
               visible = currentVisibleBindings scopeBindings
-              (exprWarnings, exprErrors) = collectExprDiagnostics builtinMode settings visible context expr
+              (exprWarnings, exprErrors) =
+                collectExprDiagnostics
+                  builtinMode
+                  settings
+                  visible
+                  (contextForExpressionStatement exprSpan context)
+                  expr
            in
             ( scopeBindings,
               Nothing,
@@ -369,6 +394,15 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
                             (visibleBindingSpan previousBinding)
                         ]
                   _ -> []
+              shadowingWarning =
+                case Map.lookup bindingNameText scopeBindings of
+                  Just _ -> []
+                  Nothing ->
+                    collectOuterScopeShadowingWarnings
+                      settings
+                      bindingNameText
+                      bindingSpan
+                      outerScope
               nextScope =
                 Map.insert
                   bindingNameText
@@ -386,10 +420,14 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
               warningsWithValue = appendWarnings warningsRev valueWarnings
               errorsWithValue =
                 appendErrors (appendErrors errorsRev errorsFromSignature) valueErrors
+              warningsWithRebinding = appendWarnings warningsWithValue rebindingWarning
+              warningsWithShadowing = appendWarnings warningsWithRebinding shadowingWarning
+              unusedWarnings =
+                Map.findWithDefault [] statementIndex unusedBindingWarningsByStatement
            in
             ( nextScope,
               Nothing,
-              appendWarnings warningsWithValue rebindingWarning,
+              appendWarnings warningsWithShadowing unusedWarnings,
               errorsWithValue
             )
 
@@ -489,7 +527,8 @@ topLevelContext =
     { contextLabel = "top-level expression",
       contextAllowsImpureCalls = True,
       contextPrimarySpan = Nothing,
-      contextSubject = Nothing
+      contextSubject = Nothing,
+      contextLambdaSpan = Nothing
     }
 
 -- | Create the purity/diagnostic context that should apply while checking the
@@ -500,8 +539,13 @@ contextForBinding bindingName bindingSpan =
     { contextLabel = "binding '" <> identifierText bindingName <> "'",
       contextAllowsImpureCalls = identifierPurity bindingName == Impure,
       contextPrimarySpan = Just bindingSpan,
-      contextSubject = Just (identifierText bindingName)
+      contextSubject = Just (identifierText bindingName),
+      contextLambdaSpan = Just bindingSpan
     }
+
+contextForExpressionStatement :: SourceSpan -> AnalysisContext -> AnalysisContext
+contextForExpressionStatement statementSpan context =
+  context {contextLambdaSpan = Just statementSpan}
 
 -- | Purity is name-based in this compiler slice; reject only when the current
 -- context is pure and the callee is known either locally or through builtins.
@@ -628,11 +672,161 @@ collectDataConstructorRebindingWarnings
           warning ++ warningsAcc
         )
 
+collectUnusedBindingWarnings ::
+  WarningSettings ->
+  Set Int ->
+  [(Int, Statement)] ->
+  Map Int [WarningRecord]
+collectUnusedBindingWarnings settings hiddenStatementIndices indexedStatements
+  | not (isWarningEnabled settings UnusedBinding) = Map.empty
+  | otherwise =
+      Map.fromList
+        [ (statementIndex, [mkUnusedBindingWarning bindingNameText bindingSpan])
+          | (statementIndex, SLet bindingName bindingSpan _) <- indexedStatements,
+            statementIndex `Set.notMember` hiddenStatementIndices,
+            let bindingNameText = identifierText bindingName,
+            not (isBindingUsedByOtherStatements statementIndex),
+            not (shouldSuppressRebindingDuplicate statementIndex)
+        ]
+  where
+    (usedBindingStatementIndices, rebindingStatementIndices) =
+      collectUnusedBindingUseState hiddenStatementIndices indexedStatements
+
+    isBindingUsedByOtherStatements bindingStatementIndex =
+      Set.member bindingStatementIndex usedBindingStatementIndices
+
+    shouldSuppressRebindingDuplicate statementIndex =
+      isWarningEnabled settings SameScopeRebinding
+        && Set.member statementIndex rebindingStatementIndices
+
+collectUnusedBindingUseState ::
+  Set Int ->
+  [(Int, Statement)] ->
+  (Set Int, Set Int)
+collectUnusedBindingUseState hiddenStatementIndices indexedStatements =
+  let (_, _, usedStatementIndices, rebindingStatementIndices) =
+        foldl' step (Map.empty, Set.empty, Set.empty, Set.empty) indexedStatements
+   in (usedStatementIndices, rebindingStatementIndices)
+  where
+    step
+      (activeBindings, activeRebindingNames, usedStatementIndices, rebindingStatementIndices)
+      (statementIndex, statement)
+      | statementIndex `Set.member` hiddenStatementIndices =
+          (activeBindings, activeRebindingNames, usedStatementIndices, rebindingStatementIndices)
+      | otherwise =
+          let referenceNames = statementReferenceNames statement
+              usedWithStatementReferences =
+                Set.foldl'
+                  (markReferencedBinding activeBindings)
+                  usedStatementIndices
+                  referenceNames
+           in
+            case statement of
+              SLet bindingName _ _ ->
+                let bindingNameText = identifierText bindingName
+                    rebindingStatementIndices' =
+                      if Set.member bindingNameText activeRebindingNames
+                        then Set.insert statementIndex rebindingStatementIndices
+                        else rebindingStatementIndices
+                 in
+                  ( Map.insert bindingNameText statementIndex activeBindings,
+                    Set.insert bindingNameText activeRebindingNames,
+                    usedWithStatementReferences,
+                    rebindingStatementIndices'
+                  )
+              SData _ _ constructors ->
+                ( foldl' removeConstructor activeBindings constructors,
+                  foldl' registerConstructor activeRebindingNames constructors,
+                  usedWithStatementReferences,
+                  rebindingStatementIndices
+                )
+              _ ->
+                ( activeBindings,
+                  activeRebindingNames,
+                  usedWithStatementReferences,
+                  rebindingStatementIndices
+                )
+
+    statementReferenceNames statement =
+      case statement of
+        SLet bindingName _ valueExpr ->
+          Set.delete
+            (identifierText bindingName)
+            (freeVarsExprWithBound Set.empty valueExpr)
+        SExpr _ expr ->
+          freeVarsExprWithBound Set.empty expr
+        _ -> Set.empty
+
+    markReferencedBinding activeBindings usedStatementIndices referenceName =
+      case Map.lookup referenceName activeBindings of
+        Nothing -> usedStatementIndices
+        Just bindingStatementIndex ->
+          Set.insert bindingStatementIndex usedStatementIndices
+
+    removeConstructor activeBindings (DataConstructor constructorName _) =
+      Map.delete (identifierText constructorName) activeBindings
+
+    registerConstructor activeRebindingNames (DataConstructor constructorName _) =
+      Set.insert (identifierText constructorName) activeRebindingNames
+
 visibleBindingDiagnosticSpan :: VisibleBinding -> Maybe SourceSpan
 visibleBindingDiagnosticSpan visibleBinding =
   if visibleBindingIsHiddenPrelude visibleBinding
     then Nothing
     else Just (visibleBindingSpan visibleBinding)
+
+collectOuterScopeShadowingWarnings ::
+  WarningSettings ->
+  Text ->
+  SourceSpan ->
+  Map Text VisibleBinding ->
+  [WarningRecord]
+collectOuterScopeShadowingWarnings settings bindingName primarySpan outerScope
+  | not (isWarningEnabled settings ShadowingOuterScope) = []
+  | otherwise =
+      case Map.lookup bindingName outerScope of
+        Just previousBinding
+          | not (visibleBindingIsHiddenPrelude previousBinding) ->
+              [ mkOuterScopeShadowingWarning
+                  bindingName
+                  primarySpan
+                  (visibleBindingDiagnosticSpan previousBinding)
+              ]
+        _ -> []
+
+mkOuterScopeShadowingWarning :: Text -> SourceSpan -> Maybe SourceSpan -> WarningRecord
+mkOuterScopeShadowingWarning variableName primarySpan previousSpan =
+  WarningRecord
+    { warningCategory = ShadowingOuterScope,
+      warningCodeText = warningCode ShadowingOuterScope,
+      warningVariableName = variableName,
+      warningPrimarySpan = primarySpan,
+      warningPreviousSpan = previousSpan,
+      warningMessage =
+        "outer-scope shadowing: '"
+          <> variableName
+          <> "' shadows a visible binding from an outer scope"
+    }
+
+mkUnusedBindingWarning :: Text -> SourceSpan -> WarningRecord
+mkUnusedBindingWarning variableName primarySpan =
+  WarningRecord
+    { warningCategory = UnusedBinding,
+      warningCodeText = warningCode UnusedBinding,
+      warningVariableName = variableName,
+      warningPrimarySpan = primarySpan,
+      warningPreviousSpan = Nothing,
+      warningMessage =
+        "unused binding: '"
+          <> variableName
+          <> "' is never referenced in this lexical block"
+    }
+
+lambdaShadowingSpan :: AnalysisContext -> Maybe SourceSpan
+lambdaShadowingSpan context =
+  case contextLambdaSpan context of
+    Just spanValue -> Just spanValue
+    Nothing -> contextPrimarySpan context
 
 lambdaVisibleBinding :: VisibleBinding
 lambdaVisibleBinding =
