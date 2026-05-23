@@ -1,6 +1,6 @@
 # Compiler Warning Flags
 
-Status: active (same-scope rebinding and outer-scope shadowing warning emission are implemented; remaining reserved warning metadata is locked for future categories)
+Status: active (same-scope rebinding and outer-scope shadowing warning emission are implemented; unused-binding ordinary `let` emission is queued; remaining reserved warning metadata is locked for future categories)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`
 
@@ -20,14 +20,19 @@ Implemented in this item:
 - `same-scope-rebinding` (`W0001`)
 - `shadowing-outer-scope` (`W0002`)
 
-Reserved namespace for future items:
+Queued for the next implementation batch:
 
 - `unused-binding` (`W0003`)
+
+Reserved namespace for future items:
+
 - `deprecated-syntax` (`W0004`)
 
 `same-scope-rebinding` and `shadowing-outer-scope` have analyzer emitters in
-the active implementation. Reserved categories parse through CLI/env/config and
-keep stable IDs/tokens, but they do not emit diagnostics until a future
+the active implementation. `unused-binding` parses through CLI/env/config and
+has a stable ID/token, but it does not emit diagnostics until the queued
+ordinary `let` batch lands. Reserved categories parse through CLI/env/config
+and keep stable IDs/tokens, but they do not emit diagnostics until a future
 implementation batch adds the corresponding analyzer behavior.
 
 ## Default Behavior
@@ -96,6 +101,24 @@ Minimum warning payload for `W0002`:
 6. stable short message:
    - `outer-scope shadowing: '<name>' shadows a visible binding from an outer scope`
 
+Planned minimum warning payload for `W0003`:
+
+1. warning ID (`W0003`),
+2. category (`unused-binding`),
+3. binding name,
+4. source span for the unused ordinary block `let` binding,
+5. stable short message:
+   - `unused binding: '<name>' is never referenced in this lexical block`
+
+The first queued `W0003` implementation batch is limited to ordinary block
+`let` declarations in lexical block scopes. It warns only when
+`unused-binding` is enabled and the declaration's name is not referenced by a
+reachable expression in the same block. References from other bindings'
+right-hand sides and expression statements in the same block count as usage; the
+binding's own right-hand side does not. Lambda parameters, pattern binders, data
+constructors, imports/modules, cross-module export analysis, and
+`deprecated-syntax` remain outside this `W0003` batch.
+
 ## Warning-As-Error Contract
 
 1. If a warning category is enabled and promoted to error, compilation exits non-zero when that warning occurs.
@@ -111,8 +134,10 @@ Recommended rollout:
 2. Enable `-Wsame-scope-rebinding` in CI as warning-only.
 3. Optionally enable `-Wshadowing-outer-scope` to surface nested `let` and
    lambda-parameter shadowing without changing language semantics.
-4. Address frequent warning sites.
-5. Promote selected categories to `-Werror=<category>` once codebase is clean.
+4. After the queued ordinary-`let` emitter lands, optionally enable
+   `-Wunused-binding` to surface unused block bindings.
+5. Address frequent warning sites.
+6. Promote selected categories to `-Werror=<category>` once codebase is clean.
 
 Compatibility notes:
 
