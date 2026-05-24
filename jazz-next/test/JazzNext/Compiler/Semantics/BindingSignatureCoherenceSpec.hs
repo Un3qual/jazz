@@ -73,6 +73,7 @@ tests =
     ("source pipeline accepts empty constrained tuple signature as monomorphic", testSourceAcceptsEmptyConstrainedTupleSignature),
     ("source pipeline accepts concrete constrained signature as monomorphic", testSourceAcceptsConcreteConstrainedSignature),
     ("source pipeline accepts additional concrete constrained signatures", testSourceAcceptsAdditionalConcreteConstrainedSignatures),
+    ("source pipeline accepts concrete tuple constrained signature argument", testSourceAcceptsConcreteTupleConstrainedSignatureArgument),
     ("source pipeline rejects unknown constrained signature constraint", testSourceRejectsUnknownConstrainedSignatureConstraint),
     ("source pipeline rejects wrong-arity constrained signature constraint", testSourceRejectsWrongArityConstrainedSignatureConstraint),
     ("source pipeline rejects type-application constrained signature argument", testSourceRejectsTypeApplicationConstrainedSignatureArgument),
@@ -414,6 +415,10 @@ testSourceAcceptsAdditionalConcreteConstrainedSignatures = do
   assertSourceOk "x :: @{Num(Int)}: Int.\nx = 1."
   assertSourceOk "x :: @{Ord(Int)}: Int.\nx = 1."
   assertSourceOk "x :: @{Showable([[Bool]])}: [[Bool]].\nx = [[True], [False]]."
+
+testSourceAcceptsConcreteTupleConstrainedSignatureArgument :: IO ()
+testSourceAcceptsConcreteTupleConstrainedSignatureArgument =
+  assertSourceOk "pair :: @{Eq((Int, Bool))}: (Int, Bool).\npair = (1, True)."
 
 testSourceRejectsUnknownConstrainedSignatureConstraint :: IO ()
 testSourceRejectsUnknownConstrainedSignatureConstraint =

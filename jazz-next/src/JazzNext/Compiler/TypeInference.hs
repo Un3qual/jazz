@@ -1134,8 +1134,8 @@ concreteConstraintArgument signatureType =
       False
     ConstraintTypeList innerType ->
       concreteConstraintArgument innerType
-    ConstraintTypeTuple {} ->
-      False
+    ConstraintTypeTuple elementTypes ->
+      all concreteConstraintArgument elementTypes
     ConstraintTypeFunction {} ->
       False
 
