@@ -1046,6 +1046,8 @@ constraintSignatureTypeToExpressionTypeWithVariables signatureVariables signatur
       Nothing
     ConstraintTypeList innerType ->
       TListType <$> constraintSignatureTypeToExpressionTypeWithVariables signatureVariables innerType
+    ConstraintTypeTuple elementTypes ->
+      TTupleType <$> traverse (constraintSignatureTypeToExpressionTypeWithVariables signatureVariables) elementTypes
     ConstraintTypeFunction argumentType resultType ->
       TFunctionType
         <$> constraintSignatureTypeToExpressionTypeWithVariables signatureVariables argumentType
@@ -1132,6 +1134,8 @@ concreteConstraintArgument signatureType =
       False
     ConstraintTypeList innerType ->
       concreteConstraintArgument innerType
+    ConstraintTypeTuple {} ->
+      False
     ConstraintTypeFunction {} ->
       False
 
@@ -1147,6 +1151,8 @@ constraintSignatureTypeVariableNames signatureType =
       Set.unions (map constraintSignatureTypeVariableNames arguments)
     ConstraintTypeList innerType ->
       constraintSignatureTypeVariableNames innerType
+    ConstraintTypeTuple elementTypes ->
+      Set.unions (map constraintSignatureTypeVariableNames elementTypes)
     ConstraintTypeFunction argumentType resultType ->
       Set.union
         (constraintSignatureTypeVariableNames argumentType)
@@ -1159,6 +1165,8 @@ constraintSignatureTypeSupportsVariableBody signatureType =
     ConstraintTypeApplication {} -> False
     ConstraintTypeList innerType ->
       constraintSignatureTypeSupportsVariableBody innerType
+    ConstraintTypeTuple elementTypes ->
+      all constraintSignatureTypeSupportsVariableBody elementTypes
     ConstraintTypeFunction argumentType resultType ->
       constraintSignatureTypeSupportsVariableBody argumentType
         && constraintSignatureTypeSupportsVariableBody resultType
@@ -1207,6 +1215,8 @@ renderConstraintSignatureType signatureType =
         <> ")"
     ConstraintTypeList innerType ->
       "[" <> renderConstraintListElementType innerType <> "]"
+    ConstraintTypeTuple elementTypes ->
+      "(" <> Text.intercalate ", " (map renderConstraintSignatureType elementTypes) <> ")"
     ConstraintTypeFunction argumentType resultType ->
       renderConstraintFunctionArgumentType argumentType <> " -> " <> renderConstraintSignatureType resultType
 
@@ -1689,6 +1699,8 @@ constraintTypeHasTypeVariable signatureType =
       identifierLooksLikeTypeVariable name || any constraintTypeHasTypeVariable arguments
     ConstraintTypeList innerType ->
       constraintTypeHasTypeVariable innerType
+    ConstraintTypeTuple elementTypes ->
+      any constraintTypeHasTypeVariable elementTypes
     ConstraintTypeFunction argumentType resultType ->
       constraintTypeHasTypeVariable argumentType || constraintTypeHasTypeVariable resultType
 

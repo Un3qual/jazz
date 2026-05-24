@@ -1712,7 +1712,8 @@ parseConstrainedFunctionOperandType signatureTokens =
             Nothing ->
               case stripWrappedSignatureTokens isLParenToken isRParenToken signatureTokens of
                 Just innerTokens ->
-                  parseConstrainedSignatureType innerTokens
+                  parseConstrainedTupleSignatureType innerTokens
+                    <|> parseConstrainedSignatureType innerTokens
                 Nothing ->
                   Nothing
 
@@ -1727,6 +1728,14 @@ parseConstrainedTypeApplication signatureTokens =
       Just (SurfaceConstrainedTypeApplication (mkIdentifier typeName) arguments)
     _ ->
       Nothing
+
+parseConstrainedTupleSignatureType :: [Token] -> Maybe SurfaceConstrainedSignatureType
+parseConstrainedTupleSignatureType signatureTokens =
+  case splitTopLevelCommaTokens signatureTokens of
+    Just elementTokenGroups
+      | length elementTokenGroups >= 2 ->
+          SurfaceConstrainedTypeTuple <$> traverse parseConstrainedSignatureType elementTokenGroups
+    _ -> Nothing
 
 splitConstraintBlockTokens :: [Token] -> Maybe ([Token], [Token])
 splitConstraintBlockTokens = go 0 0 []

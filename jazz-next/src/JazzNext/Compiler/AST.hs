@@ -87,6 +87,7 @@ data ConstraintSignatureType
   = ConstraintTypeName Identifier
   | ConstraintTypeApplication Identifier [ConstraintSignatureType]
   | ConstraintTypeList ConstraintSignatureType
+  | ConstraintTypeTuple [ConstraintSignatureType]
   | ConstraintTypeFunction ConstraintSignatureType ConstraintSignatureType
   deriving (Eq, Show)
 

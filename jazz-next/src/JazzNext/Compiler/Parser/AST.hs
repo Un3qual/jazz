@@ -89,6 +89,7 @@ data SurfaceConstrainedSignatureType
   = SurfaceConstrainedTypeName Identifier
   | SurfaceConstrainedTypeApplication Identifier [SurfaceConstrainedSignatureType]
   | SurfaceConstrainedTypeList SurfaceConstrainedSignatureType
+  | SurfaceConstrainedTypeTuple [SurfaceConstrainedSignatureType]
   | SurfaceConstrainedTypeFunction SurfaceConstrainedSignatureType SurfaceConstrainedSignatureType
   deriving (Eq, Show)
 

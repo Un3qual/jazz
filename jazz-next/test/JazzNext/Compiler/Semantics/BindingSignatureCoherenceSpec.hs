@@ -70,6 +70,7 @@ tests =
     ("source pipeline accepts parenthesized function override signature", testSourceAcceptsParenthesizedFunctionOverrideSignature),
     ("source pipeline accepts list of parenthesized function types", testSourceAcceptsFunctionListSignature),
     ("source pipeline accepts empty constrained signature as monomorphic", testSourceAcceptsEmptyConstrainedSignature),
+    ("source pipeline accepts empty constrained tuple signature as monomorphic", testSourceAcceptsEmptyConstrainedTupleSignature),
     ("source pipeline accepts concrete constrained signature as monomorphic", testSourceAcceptsConcreteConstrainedSignature),
     ("source pipeline accepts additional concrete constrained signatures", testSourceAcceptsAdditionalConcreteConstrainedSignatures),
     ("source pipeline rejects unknown constrained signature constraint", testSourceRejectsUnknownConstrainedSignatureConstraint),
@@ -396,6 +397,10 @@ testSourceAcceptsFunctionListSignature =
 testSourceAcceptsEmptyConstrainedSignature :: IO ()
 testSourceAcceptsEmptyConstrainedSignature =
   assertSourceOk "applyToOne :: @{}: (Int -> Int) -> Int.\napplyToOne = \\(f) -> f 1."
+
+testSourceAcceptsEmptyConstrainedTupleSignature :: IO ()
+testSourceAcceptsEmptyConstrainedTupleSignature =
+  assertSourceOk "pair :: @{}: (Int, Bool).\npair = (1, True).\npair."
 
 testSourceAcceptsConcreteConstrainedSignature :: IO ()
 testSourceAcceptsConcreteConstrainedSignature =

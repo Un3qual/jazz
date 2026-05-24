@@ -158,6 +158,8 @@ lowerSurfaceConstrainedSignatureType signatureType =
       ConstraintTypeApplication name (map lowerSurfaceConstrainedSignatureType arguments)
     SurfaceConstrainedTypeList innerType ->
       ConstraintTypeList (lowerSurfaceConstrainedSignatureType innerType)
+    SurfaceConstrainedTypeTuple elementTypes ->
+      ConstraintTypeTuple (map lowerSurfaceConstrainedSignatureType elementTypes)
     SurfaceConstrainedTypeFunction argumentType resultType ->
       ConstraintTypeFunction
         (lowerSurfaceConstrainedSignatureType argumentType)
