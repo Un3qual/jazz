@@ -433,7 +433,7 @@ Based on the full repo, these areas still require implementation convergence eve
   read stdin by default or one positional `.jz` source file when provided; source
   files are rejected with module-graph `--entry-module` mode. The tooling
   contract is tracked in `docs/spec/tooling/cli-source-input.md`.
-- Tuple patterns, cons-like list patterns, and lambda-parameter patterns remain deferred; tuple literals and concrete tuple signature types are now active core runtime/type features in `jazz-next`.
+- Tuple patterns, cons-like list patterns, and lambda-parameter patterns remain deferred; tuple literals and concrete tuple signature types are now active core runtime/type features in `jazz-next`, and tuple-shaped plus cons-like list case-pattern syntax reject with explicit deferred parser diagnostics.
 - Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit symbol-list visibility diagnostics, alias-import unqualified visibility diagnostics, `Alias::symbol` qualified alias lookup, default bundled-prelude module graph driver helpers, and deterministic resolver/binding diagnostics now work in the active parser/CLI path, but broader file-layout and long-term loader semantics are still unsettled.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
 - Which non-JavaScript product backend, if any, should exist beyond interpreter-backed execution.
@@ -453,7 +453,7 @@ If you need a practical baseline for continuing Jazz, use this order:
    - application, list literals, and tuple literals
    - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, concrete tuple types, right-associative function types, explicit parenthesized function-type overrides, empty `@{}:` constrained wrappers, concrete unary constrained signatures, and known unary variable constrained signatures under the monomorphic annotation-only contract)
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
-   - canonical `data` declarations with constructor values/applications, plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; analyzer/type/runtime execution covers literal, wildcard, variable, declared constructor patterns, and exact-length bracketed-list patterns; tuple-shaped case patterns reject with an explicit parser diagnostic
+   - canonical `data` declarations with constructor values/applications, plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; analyzer/type/runtime execution covers literal, wildcard, variable, declared constructor patterns, and exact-length bracketed-list patterns; tuple-shaped and cons-like list case patterns reject with explicit parser diagnostics
    - reserved top-level/module-body `class` and `impl` abstraction declarations that reject with deferred-semantics parser diagnostics while `class`/`impl` remain available as ordinary binding, signature, and qualified-alias identifiers; class/impl analyzer, type, and runtime semantics are not implemented yet
    - opt-in compiler warnings for same-scope rebinding (`W0001`),
      outer-scope shadowing (`W0002`), and ordinary block unused bindings
@@ -486,9 +486,9 @@ If this repo is going to become a coherent language project, the highest-value c
 Status update for item `#1`:
 
 - Active-path ADT/pattern contract is now recorded in `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md`.
-- The currently landed `jazz-next` subset is direct `case` parsing/lowering plus analyzer/type/runtime execution for literal, wildcard, variable, constructor, and exact-length bracketed-list patterns; explicit parser rejection for tuple-shaped case patterns; canonical `data` declaration parsing/lowering; analyzer/type/runtime support for constructor values and constructor application arity; tuple literal values and concrete tuple signature types; and deterministic `E3023` runtime diagnostics for constructor over-application paths.
+- The currently landed `jazz-next` subset is direct `case` parsing/lowering plus analyzer/type/runtime execution for literal, wildcard, variable, constructor, and exact-length bracketed-list patterns; explicit parser rejection for tuple-shaped and cons-like list case patterns; canonical `data` declaration parsing/lowering; analyzer/type/runtime support for constructor values and constructor application arity; tuple literal values and concrete tuple signature types; and deterministic `E3023` runtime diagnostics for constructor over-application paths.
 - Constructor payload typing is intentionally monomorphic per constructor in the current active subset; named type parameters and fresh per-use constructor type schemes remain future ADT work.
-- Tuple-pattern semantics, cons-like list patterns, and lambda-parameter patterns remain explicitly deferred on the active path; tuple-shaped case-pattern syntax now rejects deterministically during parsing.
+- Tuple-pattern semantics, cons-like list patterns, and lambda-parameter patterns remain explicitly deferred on the active path; tuple-shaped and cons-like list case-pattern syntax now reject deterministically during parsing.
 
 Status update for item `#3`:
 

@@ -1474,6 +1474,8 @@ parseListPattern tokensAfterLeftBracket =
         Token {tokenKind = TComma} : rest -> do
           (nextPattern, afterNextPattern) <- parseCasePattern rest
           go (nextPattern : revPatterns) afterNextPattern
+        token@Token {tokenKind = TOperator "|"} : _ ->
+          Left (consLikeListPatternDiagnostic token)
         Token {tokenKind = TRBracket} : rest ->
           Right (SPList (reverse revPatterns), rest)
         [] ->
@@ -1488,6 +1490,14 @@ parseListPattern tokensAfterLeftBracket =
                     <> "'"
                 )
             )
+
+consLikeListPatternDiagnostic :: Token -> Diagnostic
+consLikeListPatternDiagnostic pipeToken =
+  parseDiagnostic
+    ( "cons-like list patterns are not implemented at "
+        <> renderSourceSpan (tokenSpan pipeToken)
+        <> "; cons-like list pattern semantics are deferred"
+    )
 
 isConstructorIdentifierText :: Text -> Bool
 isConstructorIdentifierText name =

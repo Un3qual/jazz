@@ -1,12 +1,12 @@
 ---
 id: JN-CONS-LIST-PATTERN-REJECT-001
-status: ready
+status: done
 priority: P1
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-05-23
+last_verified: 2026-05-24
 plan_section: "Milestone 5 / Batch 3: Cons-like list pattern rejection boundary"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser.hs
@@ -396,17 +396,17 @@ bash scripts/check-docs.sh
 
 #### Batch 3: Cons-like list pattern rejection boundary
 
-Next executor-safe batch. It is intentionally a boundary-locking parser batch,
-not cons-list pattern implementation.
+This batch landed on `2026-05-24`. It is intentionally a boundary-locking parser
+batch, not cons-list pattern implementation.
 
-- [ ] Detect cons-style bracketed list patterns and reject them with a
+- [x] Detect cons-style bracketed list patterns and reject them with a
   deterministic parser diagnostic that names deferred cons-like list pattern
   semantics.
-- [ ] Add parser coverage proving cons-like list patterns are not accepted in
+- [x] Add parser coverage proving cons-like list patterns are not accepted in
   `case` arms.
-- [ ] Preserve all currently accepted pattern forms: literals, `_`, variable
+- [x] Preserve all currently accepted pattern forms: literals, `_`, variable
   binders, constructor patterns, and exact-length bracketed-list patterns.
-- [ ] Preserve existing tuple-value behavior and tuple-shaped case-pattern
+- [x] Preserve existing tuple-value behavior and tuple-shaped case-pattern
   rejection behavior.
 
 Batch 3 files:

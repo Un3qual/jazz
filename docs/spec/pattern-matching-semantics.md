@@ -1,6 +1,6 @@
 # Pattern Matching Semantics
 
-Status: active (literal, wildcard, variable, constructor, and exact-length bracketed-list `case` patterns parse/lower, typecheck, and execute end-to-end in `jazz-next`; tuple-shaped case patterns reject with an explicit parser diagnostic)
+Status: active (literal, wildcard, variable, constructor, and exact-length bracketed-list `case` patterns parse/lower, typecheck, and execute end-to-end in `jazz-next`; tuple-shaped and cons-like list case patterns reject with explicit parser diagnostics)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -50,6 +50,9 @@ Current parser/core invariants:
 8. Tuple values are active core runtime values, but tuple-shaped case patterns
    such as `(left, right)` are not part of the active pattern set and reject
    during parsing with an explicit deferred tuple-pattern diagnostic.
+9. Cons-like list patterns such as `[head | tail]` are not part of the active
+   pattern set and reject during parsing with an explicit deferred cons-like
+   list pattern diagnostic.
 
 ## Matching Contract For The Committed Runtime Subset
 
@@ -102,13 +105,17 @@ firstOrZero = case values { | [head, _] -> head | [] -> 0 }.
    diagnostics rather than falling through silently.
 9. Tuple-pattern semantics remain deferred; tuple-shaped case patterns do not
    lower into `EPatternCase`.
+10. Cons-like list pattern semantics remain deferred; cons-style bracketed list
+    patterns do not lower into `EPatternCase`.
 
 ## Deferred Pattern Forms
 
 The following remain explicitly out of scope for the end-to-end committed
 subset:
 
-1. Cons-like list patterns.
+1. Cons-like list patterns. Cons-style bracketed list syntax such as
+   `[head | tail]` currently rejects during parsing with an explicit deferred
+   cons-like list pattern diagnostic.
 2. Tuple-pattern semantics. Tuple-shaped case pattern syntax currently rejects
    during parsing instead of falling through a generic arm parse error; tuple
    values themselves are implemented outside the pattern subset.
