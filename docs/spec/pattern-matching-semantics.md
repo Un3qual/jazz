@@ -119,7 +119,9 @@ subset:
 2. Tuple-pattern semantics. Tuple-shaped case pattern syntax currently rejects
    during parsing instead of falling through a generic arm parse error; tuple
    values themselves are implemented outside the pattern subset.
-3. Lambda-parameter patterns.
+3. Lambda-parameter patterns. Pattern-shaped lambda parameters currently reject
+   during parsing with an explicit deferred lambda-parameter pattern diagnostic;
+   canonical lambdas remain identifier-only.
 
 ## Non-Goals (Milestone 1)
 

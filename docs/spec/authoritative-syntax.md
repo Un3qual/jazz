@@ -4,7 +4,7 @@ Status: active (module/import and lambda slices are implemented in `jazz-next`; 
 Locked decisions: 2026-03-02
 Primary plan: `docs/plans/spec-cleanup/2026-03-02/decisions/01-authoritative-syntax.md`
 
-Implementation note (2026-05-23): `jazz-next` accepts canonical brace-bodied module declarations (`module A::B { ... }`), canonical identifier-only lambdas (`\(x) -> expr`), list literals/types, tuple literals, and concrete tuple signature types in the active parser/type/runtime/CLI path. The active parser also reserves top-level and module-body `class`/`impl` declaration-shaped forms such as `class Eq { ... }` with deterministic unsupported-syntax diagnostics; ordinary uses of those identifiers as binding names, signature names, or qualified aliases remain valid, and class/impl semantics remain future work.
+Implementation note (2026-05-24): `jazz-next` accepts canonical brace-bodied module declarations (`module A::B { ... }`), canonical identifier-only lambdas (`\(x) -> expr`), list literals/types, tuple literals, and concrete tuple signature types in the active parser/type/runtime/CLI path. Pattern-shaped lambda parameters such as `_`, `(left, right)`, `[head, tail]`, and `Just item` reject with a deterministic deferred-semantics diagnostic. The active parser also reserves top-level and module-body `class`/`impl` declaration-shaped forms such as `class Eq { ... }` with deterministic unsupported-syntax diagnostics; ordinary uses of those identifiers as binding names, signature names, or qualified aliases remain valid, and class/impl semantics remain future work.
 
 ## Purpose
 

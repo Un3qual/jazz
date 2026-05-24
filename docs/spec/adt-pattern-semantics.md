@@ -95,4 +95,6 @@ none = Nothing.
 2. Infix constructors or alternate constructor call syntax.
 3. Automatic deriving or trait/class synthesis for user ADTs.
 4. Tuple-constructor sugar, tuple-pattern semantics, cons-like list pattern
-   semantics, or lambda-parameter patterns.
+   semantics, or lambda-parameter pattern semantics. Pattern-shaped lambda
+   parameter syntax rejects in the active parser until that separate contract
+   exists.

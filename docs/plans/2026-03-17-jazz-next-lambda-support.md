@@ -1,12 +1,12 @@
 ---
 id: JN-LAMBDA-PARAM-PATTERN-REJECT-001
-status: ready
+status: done
 priority: P2
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-05-23
+last_verified: 2026-05-24
 plan_section: "Follow-up Batch: Lambda parameter pattern rejection boundary"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser.hs
@@ -77,15 +77,15 @@ Out of scope:
 
 ## Follow-up Batch: Lambda parameter pattern rejection boundary
 
-Next executor-safe batch. It keeps lambda support identifier-only and only makes
-the deferred parameter-pattern boundary explicit.
+This batch landed on `2026-05-24`. It keeps lambda support identifier-only and
+only makes the deferred parameter-pattern boundary explicit.
 
-- [ ] Reject tuple-shaped, bracketed-list, wildcard, and constructor-like lambda
+- [x] Reject tuple-shaped, bracketed-list, wildcard, and constructor-like lambda
   parameter forms with a deterministic parser diagnostic that names deferred
   lambda-parameter pattern semantics.
-- [ ] Preserve canonical identifier-only lambda parsing and multi-argument
+- [x] Preserve canonical identifier-only lambda parsing and multi-argument
   lowering behavior.
-- [ ] Add focused parser coverage in the lambda parser suite.
+- [x] Add focused parser coverage in the lambda parser suite.
 
 Batch files:
 

@@ -1587,7 +1587,13 @@ parseLambdaParameters tokensAfterLeftParen =
 parseLambdaParameter :: [Token] -> Either Diagnostic (Identifier, [Token])
 parseLambdaParameter tokens =
   case tokens of
-    Token {tokenKind = TIdentifier parameterName, tokenSpan = parameterSpan} : rest
+    token@Token {tokenKind = TLParen} : _ ->
+      Left (lambdaParameterPatternDiagnostic token)
+    token@Token {tokenKind = TLBracket} : _ ->
+      Left (lambdaParameterPatternDiagnostic token)
+    token@Token {tokenKind = TIdentifier parameterName, tokenSpan = parameterSpan} : rest
+      | parameterName == "_" ->
+          Left (lambdaParameterPatternDiagnostic token)
       | isReservedLiteralName parameterName ->
           Left
             ( parseDiagnostic
@@ -1597,6 +1603,8 @@ parseLambdaParameter tokens =
                     <> renderSourceSpan parameterSpan
                 )
             )
+      | isConstructorIdentifierText parameterName ->
+          Left (lambdaParameterPatternDiagnostic token)
       | otherwise ->
           Right (mkIdentifier parameterName, rest)
     [] ->
@@ -1611,6 +1619,14 @@ parseLambdaParameter tokens =
                 <> "'"
             )
         )
+
+lambdaParameterPatternDiagnostic :: Token -> Diagnostic
+lambdaParameterPatternDiagnostic patternToken =
+  parseDiagnostic
+    ( "lambda parameter patterns are not implemented at "
+        <> renderSourceSpan (tokenSpan patternToken)
+        <> "; lambda-parameter pattern semantics are deferred"
+    )
 
 collectUntilDot :: [Token] -> Either Diagnostic ([Token], [Token])
 collectUntilDot = go []

@@ -52,6 +52,10 @@ tests =
     ("rejects empty lambda parameter list", testRejectsEmptyLambdaParameters),
     ("rejects lambda without parenthesized parameters", testRejectsUnparenthesizedLambda),
     ("rejects lambda parameter trailing comma", testRejectsTrailingCommaParameterList),
+    ("rejects wildcard lambda parameter patterns", testRejectsWildcardLambdaParameterPattern),
+    ("rejects tuple-shaped lambda parameter patterns", testRejectsTupleLambdaParameterPattern),
+    ("rejects bracketed-list lambda parameter patterns", testRejectsListLambdaParameterPattern),
+    ("rejects constructor-like lambda parameter patterns", testRejectsConstructorLikeLambdaParameterPattern),
     ("rejects reserved keyword as lambda parameter", testRejectsKeywordLambdaParameter)
   ]
 
@@ -177,6 +181,34 @@ testRejectsTrailingCommaParameterList =
     "lambda trailing comma"
     "expected identifier"
     (parseSurfaceProgram "f = \\(x,) -> x.")
+
+testRejectsWildcardLambdaParameterPattern :: IO ()
+testRejectsWildcardLambdaParameterPattern =
+  assertLeftDiagnosticContains
+    "wildcard lambda parameter pattern"
+    "lambda parameter patterns are not implemented"
+    (parseSurfaceProgram "f = \\(_) -> 1.")
+
+testRejectsTupleLambdaParameterPattern :: IO ()
+testRejectsTupleLambdaParameterPattern =
+  assertLeftDiagnosticContains
+    "tuple lambda parameter pattern"
+    "lambda parameter patterns are not implemented"
+    (parseSurfaceProgram "f = \\((left, right)) -> left.")
+
+testRejectsListLambdaParameterPattern :: IO ()
+testRejectsListLambdaParameterPattern =
+  assertLeftDiagnosticContains
+    "list lambda parameter pattern"
+    "lambda parameter patterns are not implemented"
+    (parseSurfaceProgram "f = \\([head, tail]) -> head.")
+
+testRejectsConstructorLikeLambdaParameterPattern :: IO ()
+testRejectsConstructorLikeLambdaParameterPattern =
+  assertLeftDiagnosticContains
+    "constructor-like lambda parameter pattern"
+    "lambda parameter patterns are not implemented"
+    (parseSurfaceProgram "f = \\(Just item) -> item.")
 
 testRejectsKeywordLambdaParameter :: IO ()
 testRejectsKeywordLambdaParameter =
