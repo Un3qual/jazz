@@ -61,7 +61,8 @@ data CliOptions = CliOptions
     cliPreludePath :: Maybe FilePath,
     cliDisablePrelude :: Bool,
     cliEntryModule :: Maybe [Text],
-    cliModuleRoots :: [FilePath]
+    cliModuleRoots :: [FilePath],
+    cliSourcePath :: Maybe FilePath
   }
   deriving (Eq, Show)
 
@@ -82,12 +83,14 @@ data WarningConfigSelection
 -- Parse currently supported warning and prelude-loading flags.
 parseCliOptions :: [String] -> Either Diagnostic CliOptions
 parseCliOptions args = do
-  options <- go (CliOptions [] Nothing False Nothing False Nothing []) args
+  options <- go (CliOptions [] Nothing False Nothing False Nothing [] Nothing) args
   finalize options
   where
     finalize options
       | cliDisablePrelude options && isJust (cliPreludePath options) =
           Left (mkMessageDiagnostic "cannot combine --prelude with --no-prelude")
+      | isJust (cliSourcePath options) && isJust (cliEntryModule options) =
+          Left (mkMessageDiagnostic "cannot combine source file with --entry-module")
       | null (cliModuleRoots options) =
           Right options {cliWarningFlags = reverse (cliWarningFlags options)}
       | isJust (cliEntryModule options) =
@@ -126,7 +129,12 @@ parseCliOptions args = do
     go options (arg : rest)
       | "-W" `isPrefixOf` arg =
           go options {cliWarningFlags = Text.pack arg : cliWarningFlags options} rest
-      | otherwise = Left (mkMessageDiagnostic ("unknown argument: " <> Text.pack arg))
+      | "-" `isPrefixOf` arg =
+          Left (mkMessageDiagnostic ("unknown argument: " <> Text.pack arg))
+      | isJust (cliSourcePath options) =
+          Left (mkMessageDiagnostic "multiple source files are not supported")
+      | otherwise =
+          go options {cliSourcePath = Just arg} rest
 
 -- | End-to-end CLI entrypoint with injectable env/config/source lookups so the
 -- behavior stays testable without shelling out.
@@ -136,7 +144,7 @@ runCliWith ::
   (FilePath -> IO (Maybe Text)) ->
   IO Text ->
   IO CliOutput
-runCliWith args envLookup configLookup loadSource =
+runCliWith args envLookup fileLookup loadSource =
   case parseCliOptions args of
     Left parseError ->
       pure
@@ -146,7 +154,7 @@ runCliWith args envLookup configLookup loadSource =
             cliStderr = "error: " <> renderDiagnostic parseError <> "\n"
           }
     Right options -> do
-      settingsResult <- resolveSettings options envLookup configLookup
+      settingsResult <- resolveSettings options envLookup fileLookup
       case settingsResult of
         Left configError ->
           pure
@@ -156,7 +164,7 @@ runCliWith args envLookup configLookup loadSource =
                 cliStderr = "error: " <> renderDiagnostic configError <> "\n"
               }
         Right settings -> do
-          preludeSourceResult <- resolvePreludeSource options envLookup configLookup
+          preludeSourceResult <- resolvePreludeSource options envLookup fileLookup
           case preludeSourceResult of
             Left preludeError ->
               pure
@@ -169,13 +177,22 @@ runCliWith args envLookup configLookup loadSource =
               case cliEntryModule options of
                 Just entryModulePath ->
                   if cliRunMode options
-                    then runExecuteModuleGraph settings options preludeSource entryModulePath configLookup
-                    else runCompileModuleGraph settings options preludeSource entryModulePath configLookup
+                    then runExecuteModuleGraph settings options preludeSource entryModulePath fileLookup
+                    else runCompileModuleGraph settings options preludeSource entryModulePath fileLookup
                 Nothing -> do
-                  source <- loadSource
-                  if cliRunMode options
-                    then runExecute settings preludeSource source
-                    else runCompile settings preludeSource source
+                  sourceResult <- loadCliSource options fileLookup loadSource
+                  case sourceResult of
+                    Left sourceError ->
+                      pure
+                        CliOutput
+                          { cliExitCode = 2,
+                            cliStdout = "",
+                            cliStderr = "error: " <> renderDiagnostic sourceError <> "\n"
+                          }
+                    Right source ->
+                      if cliRunMode options
+                        then runExecute settings preludeSource source
+                        else runCompile settings preludeSource source
 
 main :: IO ()
 main = do
@@ -228,6 +245,23 @@ loadWarningConfig configSelection configLookup =
               )
     DefaultWarningConfigProbe configPath ->
       Right <$> configLookup configPath
+
+loadCliSource ::
+  CliOptions ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO Text ->
+  IO (Either Diagnostic Text)
+loadCliSource options fileLookup loadStdin =
+  case cliSourcePath options of
+    Nothing -> Right <$> loadStdin
+    Just sourcePath -> do
+      sourceContents <- fileLookup sourcePath
+      pure $
+        case sourceContents of
+          Just contents -> Right contents
+          Nothing ->
+            Left
+              (mkMessageDiagnostic ("source file could not be read at '" <> Text.pack sourcePath <> "'"))
 
 -- | Resolve the prelude source according to CLI/env flags, defaulting to the
 -- bundled prelude when neither an explicit path nor `--no-prelude` is given.
