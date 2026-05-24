@@ -1,32 +1,22 @@
 ---
-id: JN-TUPLE-LITERAL-VALUE-001
-status: done
+id: JN-CONS-LIST-PATTERN-REJECT-001
+status: ready
 priority: P1
-size: M
+size: S
 kind: impl
 autonomous_ready: yes
-depends_on:
-  - JN-ADT-TUPLE-PATTERN-REJECT-001
+depends_on: []
 last_verified: 2026-05-23
-plan_section: "Milestone 5 / Batch 2: Tuple literal values and concrete tuple signatures"
+plan_section: "Milestone 5 / Batch 3: Cons-like list pattern rejection boundary"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
-  - jazz-next/src/JazzNext/Compiler/AST.hs
   - jazz-next/src/JazzNext/Compiler/Parser.hs
-  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
-  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
-  - jazz-next/src/JazzNext/Compiler/Runtime.hs
-  - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Tuple literals and concrete tuple signature types parse/lower into active `jazz-next` nodes, infer as fixed-arity heterogeneous tuple values, and evaluate/render at runtime while tuple-pattern semantics remain deferred."
+deliverable: "Cons-style bracketed list patterns reject with a deterministic deferred-semantics parser diagnostic while existing exact-length list, constructor, tuple-value, and tuple-pattern rejection behavior stays unchanged."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md
 ---
@@ -399,6 +389,35 @@ Batch 2 verification:
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+#### Batch 3: Cons-like list pattern rejection boundary
+
+Next executor-safe batch. It is intentionally a boundary-locking parser batch,
+not cons-list pattern implementation.
+
+- [ ] Detect cons-style bracketed list patterns and reject them with a
+  deterministic parser diagnostic that names deferred cons-like list pattern
+  semantics.
+- [ ] Add parser coverage proving cons-like list patterns are not accepted in
+  `case` arms.
+- [ ] Preserve all currently accepted pattern forms: literals, `_`, variable
+  binders, constructor patterns, and exact-length bracketed-list patterns.
+- [ ] Preserve existing tuple-value behavior and tuple-shaped case-pattern
+  rejection behavior.
+
+Batch 3 files:
+
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs`
+
+Batch 3 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
 bash jazz-next/scripts/test-warning-config.sh
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh

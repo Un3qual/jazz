@@ -1,3 +1,24 @@
+---
+id: JN-LAMBDA-PARAM-PATTERN-REJECT-001
+status: ready
+priority: P2
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-05-23
+plan_section: "Follow-up Batch: Lambda parameter pattern rejection boundary"
+target_paths:
+  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs
+verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs
+  - bash jazz-next/scripts/test-warning-config.sh
+  - bash scripts/check-execution-queue.sh
+  - bash scripts/check-docs.sh
+deliverable: "Lambda parameter pattern-shaped forms reject with deterministic deferred pattern-parameter diagnostics while canonical identifier-only lambda parsing and lowering remain unchanged."
+---
+
 # Jazz-Next Lambda Support Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
@@ -53,6 +74,32 @@ Out of scope:
 - tuple parameters or tuple literals as lambda arguments
 - general ADT / pattern matching execution work
 - new warning categories or purity-policy redesign
+
+## Follow-up Batch: Lambda parameter pattern rejection boundary
+
+Next executor-safe batch. It keeps lambda support identifier-only and only makes
+the deferred parameter-pattern boundary explicit.
+
+- [ ] Reject tuple-shaped, bracketed-list, wildcard, and constructor-like lambda
+  parameter forms with a deterministic parser diagnostic that names deferred
+  lambda-parameter pattern semantics.
+- [ ] Preserve canonical identifier-only lambda parsing and multi-argument
+  lowering behavior.
+- [ ] Add focused parser coverage in the lambda parser suite.
+
+Batch files:
+
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs`
+
+Batch verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
 
 ## Task 1: Lock Canonical Lambda Surface With Failing Parser Tests
 
