@@ -47,6 +47,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Ma
 ### Task 1: Lock positional file CLI behavior
 
 **Files:**
+
 - Modify: `jazz-next/test/JazzNext/CLI/CLISpec.hs`
 
 - [ ] **Step 1: Add tests to the suite list**
@@ -152,6 +153,7 @@ Expected: the suite fails because `cliSourcePath` and positional source-path par
 ### Task 2: Implement positional source-file loading
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/CLI/Main.hs`
 
 - [ ] **Step 1: Add the source path field**
@@ -242,6 +244,7 @@ Expected: `CLISpec` passes.
 ### Task 3: Document the first-program flow
 
 **Files:**
+
 - Modify: `jazz-next/README.md`
 
 - [ ] **Step 1: Add a first-program quickstart**
