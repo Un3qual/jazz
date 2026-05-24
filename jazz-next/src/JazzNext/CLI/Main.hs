@@ -144,7 +144,7 @@ runCliWith ::
   (FilePath -> IO (Maybe Text)) ->
   IO Text ->
   IO CliOutput
-runCliWith args envLookup configLookup loadSource =
+runCliWith args envLookup fileLookup loadSource =
   case parseCliOptions args of
     Left parseError ->
       pure
@@ -154,7 +154,7 @@ runCliWith args envLookup configLookup loadSource =
             cliStderr = "error: " <> renderDiagnostic parseError <> "\n"
           }
     Right options -> do
-      settingsResult <- resolveSettings options envLookup configLookup
+      settingsResult <- resolveSettings options envLookup fileLookup
       case settingsResult of
         Left configError ->
           pure
@@ -164,7 +164,7 @@ runCliWith args envLookup configLookup loadSource =
                 cliStderr = "error: " <> renderDiagnostic configError <> "\n"
               }
         Right settings -> do
-          preludeSourceResult <- resolvePreludeSource options envLookup configLookup
+          preludeSourceResult <- resolvePreludeSource options envLookup fileLookup
           case preludeSourceResult of
             Left preludeError ->
               pure
@@ -177,10 +177,10 @@ runCliWith args envLookup configLookup loadSource =
               case cliEntryModule options of
                 Just entryModulePath ->
                   if cliRunMode options
-                    then runExecuteModuleGraph settings options preludeSource entryModulePath configLookup
-                    else runCompileModuleGraph settings options preludeSource entryModulePath configLookup
+                    then runExecuteModuleGraph settings options preludeSource entryModulePath fileLookup
+                    else runCompileModuleGraph settings options preludeSource entryModulePath fileLookup
                 Nothing -> do
-                  sourceResult <- loadCliSource options configLookup loadSource
+                  sourceResult <- loadCliSource options fileLookup loadSource
                   case sourceResult of
                     Left sourceError ->
                       pure

@@ -123,12 +123,17 @@ testParseMultipleSourcePaths =
       failTest "expected multiple source paths to fail option parsing"
 
 testParseSourcePathWithEntryModule :: IO ()
-testParseSourcePathWithEntryModule =
+testParseSourcePathWithEntryModule = do
   case parseCliOptions ["--entry-module", "App::Main", "first.jz"] of
     Left err ->
       assertContains "source path with entry module message" "cannot combine source file with --entry-module" (renderDiagnostic err)
     Right _ ->
       failTest "expected source path plus entry module to fail option parsing"
+  case parseCliOptions ["first.jz", "--entry-module", "App::Main"] of
+    Left err ->
+      assertContains "source path with entry module reversed message" "cannot combine source file with --entry-module" (renderDiagnostic err)
+    Right _ ->
+      failTest "expected source path before entry module to fail option parsing"
 
 testParseModuleGraphOptions :: IO ()
 testParseModuleGraphOptions = do
@@ -234,6 +239,10 @@ testCliSourceFileMissing = do
   assertEqual "exit code" 2 (cliExitCode output)
   assertContains "missing source diagnostic" "source file could not be read at 'missing.jz'" (cliStderr output)
   assertEqual "stdout is suppressed" "" (cliStdout output)
+  compileOutput <- runCliWith ["missing.jz"] envLookup fileLookup (pure "ignored = 1.")
+  assertEqual "compile exit code" 2 (cliExitCode compileOutput)
+  assertContains "compile missing source diagnostic" "source file could not be read at 'missing.jz'" (cliStderr compileOutput)
+  assertEqual "compile stdout is suppressed" "" (cliStdout compileOutput)
   where
     envLookup _ = pure Nothing
     fileLookup _ = pure Nothing
