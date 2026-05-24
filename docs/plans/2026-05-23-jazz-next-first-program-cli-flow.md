@@ -18,8 +18,6 @@ verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
 deliverable: "The `jazz-next` CLI accepts one positional `.jz` source file for compile and `--run`, preserves stdin behavior when no file is provided, reports missing source files deterministically, and documents a first-program quickstart."
-supersedes:
-  - docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md
 ---
 
 # Jazz Next First Program CLI Flow Implementation Plan
@@ -250,7 +248,7 @@ Expected: `CLISpec` passes.
 
 Add this section before `## Run tests`:
 
-````markdown
+`````markdown
 ## Run a first program
 
 Create `first.jz`:
@@ -264,7 +262,7 @@ Compile it:
 
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs first.jz
-````
+```
 
 Successful compile output is quiet. Run it:
 
@@ -277,7 +275,7 @@ Expected output:
 ```text
 42
 ```
-```
+`````
 
 - [ ] **Step 2: Run focused and queue verification**
 
