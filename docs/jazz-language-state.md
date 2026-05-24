@@ -429,6 +429,10 @@ Based on the full repo, these areas still require implementation convergence eve
   analyzer/type/runtime behavior remains future work.
 - Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding`, `shadowing-outer-scope`, and ordinary block `unused-binding` emitters (reserved metadata for `deprecated-syntax` / `W0004` is covered, but this category does not emit diagnostics yet and its concrete warning policy is deferred):
   - `docs/spec/tooling/compiler-warning-flags.md`
+- CLI source selection is active in `jazz-next`: standalone compile and `--run`
+  read stdin by default or one positional `.jz` source file when provided; source
+  files are rejected with module-graph `--entry-module` mode. The tooling
+  contract is tracked in `docs/spec/tooling/cli-source-input.md`.
 - Tuple patterns, cons-like list patterns, and lambda-parameter patterns remain deferred; tuple literals and concrete tuple signature types are now active core runtime/type features in `jazz-next`.
 - Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit symbol-list visibility diagnostics, alias-import unqualified visibility diagnostics, `Alias::symbol` qualified alias lookup, default bundled-prelude module graph driver helpers, and deterministic resolver/binding diagnostics now work in the active parser/CLI path, but broader file-layout and long-term loader semantics are still unsettled.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
@@ -457,7 +461,7 @@ If you need a practical baseline for continuing Jazz, use this order:
      warning-silent compilation
    - built-in operator fixity plus executable left/right section semantics
    - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, plus prelude-provided public helpers `map`, `filter`, `hd`, `tl`, `print!`
-   - runtime execution via `--run` CLI mode, while successful CLI and driver compile paths are diagnostic-only: compile returns warnings/errors and no generated artifact
+   - runtime execution via `--run` CLI mode, with standalone CLI source input selected from stdin by default or one positional `.jz` file, while successful CLI and driver compile paths are diagnostic-only: compile returns warnings/errors and no generated artifact
    - bundled-prelude loading by default in `compileSource`, `runSource`, `compileModuleGraph`, `runModuleGraph`, and CLI paths, while explicit no-prelude entry points (`compileSourceWithPrelude Nothing`, `runSourceWithPrelude Nothing`, `compileModuleGraphWithPrelude Nothing`, `runModuleGraphWithPrelude Nothing`, `--no-prelude`, and low-level AST/runtime helpers) expose only `__kernel_*` bridge names; the checked-in `jazz-next/stdlib/Prelude.jz` mirror is covered against the catalog-generated bundled prelude source
 
 ## Hybrid Semantic-Change Workflow

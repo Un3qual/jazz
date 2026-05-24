@@ -38,6 +38,9 @@ tests :: [NamedTest]
 tests =
   [ ("parseCliOptions captures warning flags and config path", testParseOptions),
     ("parseCliOptions captures run mode", testParseRunMode),
+    ("parseCliOptions captures positional source path", testParseSourcePath),
+    ("parseCliOptions rejects multiple positional source paths", testParseMultipleSourcePaths),
+    ("parseCliOptions rejects source path with entry module", testParseSourcePathWithEntryModule),
     ("parseCliOptions captures entry module and module roots", testParseModuleGraphOptions),
     ("parseCliOptions captures prelude path", testParsePreludePath),
     ("parseCliOptions captures no-prelude switch", testParseNoPrelude),
@@ -45,6 +48,9 @@ tests =
     ("cli compile prints warnings to stderr while keeping stdout empty", testCliWarningOnlyBehavior),
     ("cli run returns non-zero and suppresses stdout when warning promoted", testCliPromotedWarningBehavior),
     ("cli --run prints evaluated runtime output", testCliRunModeSuccess),
+    ("cli compiles positional source file quietly", testCliCompileSourceFileSuccess),
+    ("cli --run executes positional source file", testCliRunSourceFileSuccess),
+    ("cli positional source file reports missing file", testCliSourceFileMissing),
     ("cli --run prints evaluated section runtime output", testCliRunModeSectionSuccess),
     ("cli --run prints evaluated list primitive output", testCliRunModeListPrimitiveSuccess),
     ("cli --run prints evaluated filter primitive output", testCliRunModeFilterPrimitiveSuccess),
@@ -98,6 +104,31 @@ testParseRunMode = do
   assertEqual "warning flags" [] (cliWarningFlags options)
   assertEqual "prelude path" Nothing (cliPreludePath options)
   assertEqual "prelude disabled" False (cliDisablePrelude options)
+
+testParseSourcePath :: IO ()
+testParseSourcePath = do
+  options <-
+    case parseCliOptions ["--run", "first.jz"] of
+      Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
+      Right parsed -> pure parsed
+  assertEqual "run mode" True (cliRunMode options)
+  assertEqual "source path" (Just "first.jz") (cliSourcePath options)
+
+testParseMultipleSourcePaths :: IO ()
+testParseMultipleSourcePaths =
+  case parseCliOptions ["first.jz", "second.jz"] of
+    Left err ->
+      assertContains "multiple source path message" "multiple source files are not supported" (renderDiagnostic err)
+    Right _ ->
+      failTest "expected multiple source paths to fail option parsing"
+
+testParseSourcePathWithEntryModule :: IO ()
+testParseSourcePathWithEntryModule =
+  case parseCliOptions ["--entry-module", "App::Main", "first.jz"] of
+    Left err ->
+      assertContains "source path with entry module message" "cannot combine source file with --entry-module" (renderDiagnostic err)
+    Right _ ->
+      failTest "expected source path plus entry module to fail option parsing"
 
 testParseModuleGraphOptions :: IO ()
 testParseModuleGraphOptions = do
@@ -166,6 +197,46 @@ testCliRunModeSuccess = do
   where
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing
+
+testCliCompileSourceFileSuccess :: IO ()
+testCliCompileSourceFileSuccess = do
+  sourceRead <- newIORef False
+  output <-
+    runCliWith
+      ["first.jz"]
+      envLookup
+      fileLookup
+      (recordSourceRead sourceRead)
+  didRead <- readIORef sourceRead
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "compile stdout stays empty" "" (cliStdout output)
+  assertEqual "compile stderr stays empty" "" (cliStderr output)
+  assertEqual "stdin source is ignored when source file is present" False didRead
+  where
+    envLookup _ = pure Nothing
+    fileLookup "first.jz" = pure (Just firstProgramSource)
+    fileLookup _ = pure Nothing
+
+testCliRunSourceFileSuccess :: IO ()
+testCliRunSourceFileSuccess = do
+  output <- runCliWith ["--run", "first.jz"] envLookup fileLookup (pure "ignored = 1.")
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "runtime stdout" "42\n" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
+  where
+    envLookup _ = pure Nothing
+    fileLookup "first.jz" = pure (Just firstProgramSource)
+    fileLookup _ = pure Nothing
+
+testCliSourceFileMissing :: IO ()
+testCliSourceFileMissing = do
+  output <- runCliWith ["--run", "missing.jz"] envLookup fileLookup (pure "ignored = 1.")
+  assertEqual "exit code" 2 (cliExitCode output)
+  assertContains "missing source diagnostic" "source file could not be read at 'missing.jz'" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    fileLookup _ = pure Nothing
 
 testCliRunModeSectionSuccess :: IO ()
 testCliRunModeSectionSuccess = do
@@ -565,6 +636,9 @@ testCliReportsSignatureTypeMismatch = do
 
 sampleSource :: Text
 sampleSource = "x = 1. x = 2."
+
+firstProgramSource :: Text
+firstProgramSource = "answer = 40 + 2.\nanswer."
 
 nestedModuleInModuleBodySource :: Text
 nestedModuleInModuleBodySource = "module App::Main {\nmodule Inner::Thing {\nx = 1.\n}\n}"

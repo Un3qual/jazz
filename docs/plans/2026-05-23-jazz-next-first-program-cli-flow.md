@@ -1,12 +1,12 @@
 ---
 id: JN-FIRST-PROGRAM-CLI-FILE-001
-status: ready
+status: done
 priority: P1
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-05-23
+last_verified: 2026-05-24
 plan_section: "Batch 1: Positional source file run path"
 target_paths:
   - jazz-next/src/JazzNext/CLI/Main.hs
@@ -50,19 +50,20 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Ma
 
 - Modify: `jazz-next/test/JazzNext/CLI/CLISpec.hs`
 
-- [ ] **Step 1: Add tests to the suite list**
+- [x] **Step 1: Add tests to the suite list**
 
 Insert these test names near the existing run-mode tests:
 
 ```haskell
     ("parseCliOptions captures positional source path", testParseSourcePath),
     ("parseCliOptions rejects multiple positional source paths", testParseMultipleSourcePaths),
+    ("parseCliOptions rejects source path with entry module", testParseSourcePathWithEntryModule),
     ("cli compiles positional source file quietly", testCliCompileSourceFileSuccess),
     ("cli --run executes positional source file", testCliRunSourceFileSuccess),
     ("cli positional source file reports missing file", testCliSourceFileMissing),
 ```
 
-- [ ] **Step 2: Add parser-option tests**
+- [x] **Step 2: Add parser-option tests**
 
 Add these tests near the other `parseCliOptions` tests:
 
@@ -83,9 +84,17 @@ testParseMultipleSourcePaths =
       assertContains "multiple source path message" "multiple source files are not supported" (renderDiagnostic err)
     Right _ ->
       failTest "expected multiple source paths to fail option parsing"
+
+testParseSourcePathWithEntryModule :: IO ()
+testParseSourcePathWithEntryModule =
+  case parseCliOptions ["--entry-module", "App::Main", "first.jz"] of
+    Left err ->
+      assertContains "source path with entry module message" "cannot combine source file with --entry-module" (renderDiagnostic err)
+    Right _ ->
+      failTest "expected source path plus entry module to fail option parsing"
 ```
 
-- [ ] **Step 3: Add end-to-end CLI tests**
+- [x] **Step 3: Add end-to-end CLI tests**
 
 Add these tests near the other `runCliWith` tests:
 
@@ -131,7 +140,7 @@ testCliSourceFileMissing = do
     fileLookup _ = pure Nothing
 ```
 
-- [ ] **Step 4: Add the sample source fixture**
+- [x] **Step 4: Add the sample source fixture**
 
 Add this fixture near the other source constants:
 
@@ -140,7 +149,7 @@ firstProgramSource :: Text
 firstProgramSource = "answer = 40 + 2.\nanswer."
 ```
 
-- [ ] **Step 5: Run the focused suite and confirm RED**
+- [x] **Step 5: Run the focused suite and confirm RED**
 
 Run:
 
@@ -156,7 +165,7 @@ Expected: the suite fails because `cliSourcePath` and positional source-path par
 
 - Modify: `jazz-next/src/JazzNext/CLI/Main.hs`
 
-- [ ] **Step 1: Add the source path field**
+- [x] **Step 1: Add the source path field**
 
 Extend `CliOptions` with:
 
@@ -166,7 +175,7 @@ Extend `CliOptions` with:
 
 Initialize it in the default `CliOptions` value as `Nothing`.
 
-- [ ] **Step 2: Parse one positional source path**
+- [x] **Step 2: Parse one positional source path**
 
 Replace the final unknown-argument branch in `parseCliOptions` with logic that accepts one non-flag argument:
 
@@ -181,7 +190,7 @@ Replace the final unknown-argument branch in `parseCliOptions` with logic that a
 
 Keep the existing warning-flag branch above this code so `-W...` handling stays unchanged.
 
-- [ ] **Step 3: Reject source path plus module graph mode**
+- [x] **Step 3: Reject source path plus module graph mode**
 
 Add this `finalize` guard before accepting module graph options:
 
@@ -190,7 +199,7 @@ Add this `finalize` guard before accepting module graph options:
           Left (mkMessageDiagnostic "cannot combine source file with --entry-module")
 ```
 
-- [ ] **Step 4: Load the source from file lookup when present**
+- [x] **Step 4: Load the source from file lookup when present**
 
 Replace the standalone source read in `runCliWith` with a helper:
 
@@ -231,7 +240,7 @@ loadCliSource options fileLookup loadStdin =
               (mkMessageDiagnostic ("source file could not be read at '" <> Text.pack sourcePath <> "'"))
 ```
 
-- [ ] **Step 5: Run the focused suite and confirm GREEN**
+- [x] **Step 5: Run the focused suite and confirm GREEN**
 
 Run:
 
@@ -247,7 +256,7 @@ Expected: `CLISpec` passes.
 
 - Modify: `jazz-next/README.md`
 
-- [ ] **Step 1: Add a first-program quickstart**
+- [x] **Step 1: Add a first-program quickstart**
 
 Add this section before `## Run tests`:
 
@@ -280,7 +289,7 @@ Expected output:
 ```
 `````
 
-- [ ] **Step 2: Run focused and queue verification**
+- [x] **Step 2: Run focused and queue verification**
 
 Run:
 
@@ -292,3 +301,12 @@ bash scripts/check-docs.sh
 ```
 
 Expected: all commands pass; `check-docs.sh` may print the existing Prettier skip warning outside the Nix shell.
+
+## Closure Evidence
+
+Implemented 2026-05-24 in `jazz-next`: the CLI accepts one positional source
+file for standalone compile and `--run`, keeps stdin as the no-file default,
+rejects duplicate source paths and `--entry-module` combinations, reports
+missing files deterministically, and documents the first-program file flow.
+The source-input contract is tracked in
+`docs/spec/tooling/cli-source-input.md`.

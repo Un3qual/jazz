@@ -34,6 +34,33 @@ Do not implement new compiler functionality in legacy directories.
 - `test/JazzNext/Compiler/Parser/`: parser, lowering, and operator-surface coverage.
 - `test/JazzNext/Compiler/Semantics/`: analyzer, type, runtime, and builtin semantics coverage.
 
+## Run a first program
+
+Create `first.jz`:
+
+```jazz
+answer = 40 + 2.
+answer.
+```
+
+Compile it:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs first.jz
+```
+
+Successful compile output is quiet. Run it:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs --run first.jz
+```
+
+Expected output:
+
+```text
+42
+```
+
 ## Run tests
 
 ```bash
