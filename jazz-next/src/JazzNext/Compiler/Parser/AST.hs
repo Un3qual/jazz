@@ -57,6 +57,7 @@ data SurfaceExpr
   | SELambda [Identifier] SurfaceExpr
   | SEOperatorValue Text
   | SEList [SurfaceExpr]
+  | SETuple [SurfaceExpr]
   | SEApply SurfaceExpr SurfaceExpr
   | SEIf SurfaceExpr SurfaceExpr SurfaceExpr
   | SECase SurfaceExpr [SurfaceCaseArm]
@@ -88,6 +89,7 @@ data SurfaceConstrainedSignatureType
   = SurfaceConstrainedTypeName Identifier
   | SurfaceConstrainedTypeApplication Identifier [SurfaceConstrainedSignatureType]
   | SurfaceConstrainedTypeList SurfaceConstrainedSignatureType
+  | SurfaceConstrainedTypeTuple [SurfaceConstrainedSignatureType]
   | SurfaceConstrainedTypeFunction SurfaceConstrainedSignatureType SurfaceConstrainedSignatureType
   deriving (Eq, Show)
 
@@ -96,6 +98,7 @@ data SurfaceSignatureType
   = SurfaceTypeInt
   | SurfaceTypeBool
   | SurfaceTypeList SurfaceSignatureType
+  | SurfaceTypeTuple [SurfaceSignatureType]
   | SurfaceTypeFunction SurfaceSignatureType SurfaceSignatureType
   deriving (Eq, Show)
 

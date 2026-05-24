@@ -60,6 +60,9 @@ tests =
     ("source pipeline rejects signature type mismatch", testSourceRejectsSignatureTypeMismatch),
     ("source pipeline accepts concrete list signature", testSourceAcceptsConcreteListSignature),
     ("source pipeline accepts nested concrete list signature", testSourceAcceptsNestedConcreteListSignature),
+    ("source pipeline accepts concrete tuple signature", testSourceAcceptsConcreteTupleSignature),
+    ("source pipeline rejects tuple signature mismatch", testSourceRejectsTupleSignatureMismatch),
+    ("source pipeline rejects tuple signature arity mismatch", testSourceRejectsTupleSignatureArityMismatch),
     ("source pipeline accepts simple function signature", testSourceAcceptsSimpleFunctionSignature),
     ("source pipeline accepts list to list function signature", testSourceAcceptsListToListFunctionSignature),
     ("source pipeline accepts parenthesized function signature", testSourceAcceptsParenthesizedFunctionSignature),
@@ -67,8 +70,10 @@ tests =
     ("source pipeline accepts parenthesized function override signature", testSourceAcceptsParenthesizedFunctionOverrideSignature),
     ("source pipeline accepts list of parenthesized function types", testSourceAcceptsFunctionListSignature),
     ("source pipeline accepts empty constrained signature as monomorphic", testSourceAcceptsEmptyConstrainedSignature),
+    ("source pipeline accepts empty constrained tuple signature as monomorphic", testSourceAcceptsEmptyConstrainedTupleSignature),
     ("source pipeline accepts concrete constrained signature as monomorphic", testSourceAcceptsConcreteConstrainedSignature),
     ("source pipeline accepts additional concrete constrained signatures", testSourceAcceptsAdditionalConcreteConstrainedSignatures),
+    ("source pipeline accepts concrete tuple constrained signature argument", testSourceAcceptsConcreteTupleConstrainedSignatureArgument),
     ("source pipeline rejects unknown constrained signature constraint", testSourceRejectsUnknownConstrainedSignatureConstraint),
     ("source pipeline rejects wrong-arity constrained signature constraint", testSourceRejectsWrongArityConstrainedSignatureConstraint),
     ("source pipeline rejects type-application constrained signature argument", testSourceRejectsTypeApplicationConstrainedSignatureArgument),
@@ -346,6 +351,26 @@ testSourceAcceptsNestedConcreteListSignature :: IO ()
 testSourceAcceptsNestedConcreteListSignature =
   assertSourceOk "x :: [[Bool]].\nx = [[True], [False]]."
 
+testSourceAcceptsConcreteTupleSignature :: IO ()
+testSourceAcceptsConcreteTupleSignature =
+  assertSourceOk "pair :: (Int, Bool).\npair = (1, True).\npair."
+
+testSourceRejectsTupleSignatureMismatch :: IO ()
+testSourceRejectsTupleSignatureMismatch = do
+  result <- compileSource defaultWarningSettings "pair :: (Int, Bool).\npair = (1, 2)."
+  assertSingleDiagnosticCode
+    "source tuple signature mismatch code"
+    "E2005"
+    (compileErrors result)
+
+testSourceRejectsTupleSignatureArityMismatch :: IO ()
+testSourceRejectsTupleSignatureArityMismatch = do
+  result <- compileSource defaultWarningSettings "pair :: (Int, Bool).\npair = (1, True, 3)."
+  assertSingleDiagnosticCode
+    "source tuple signature arity mismatch code"
+    "E2005"
+    (compileErrors result)
+
 testSourceAcceptsSimpleFunctionSignature :: IO ()
 testSourceAcceptsSimpleFunctionSignature =
   assertSourceOk "f :: Int -> Int.\nf = (+ 1)."
@@ -374,6 +399,10 @@ testSourceAcceptsEmptyConstrainedSignature :: IO ()
 testSourceAcceptsEmptyConstrainedSignature =
   assertSourceOk "applyToOne :: @{}: (Int -> Int) -> Int.\napplyToOne = \\(f) -> f 1."
 
+testSourceAcceptsEmptyConstrainedTupleSignature :: IO ()
+testSourceAcceptsEmptyConstrainedTupleSignature =
+  assertSourceOk "pair :: @{}: (Int, Bool).\npair = (1, True).\npair."
+
 testSourceAcceptsConcreteConstrainedSignature :: IO ()
 testSourceAcceptsConcreteConstrainedSignature =
   assertSourceOk "x :: @{Eq(Int)}: Int.\nx = 1."
@@ -386,6 +415,10 @@ testSourceAcceptsAdditionalConcreteConstrainedSignatures = do
   assertSourceOk "x :: @{Num(Int)}: Int.\nx = 1."
   assertSourceOk "x :: @{Ord(Int)}: Int.\nx = 1."
   assertSourceOk "x :: @{Showable([[Bool]])}: [[Bool]].\nx = [[True], [False]]."
+
+testSourceAcceptsConcreteTupleConstrainedSignatureArgument :: IO ()
+testSourceAcceptsConcreteTupleConstrainedSignatureArgument =
+  assertSourceOk "pair :: @{Eq((Int, Bool))}: (Int, Bool).\npair = (1, True)."
 
 testSourceRejectsUnknownConstrainedSignatureConstraint :: IO ()
 testSourceRejectsUnknownConstrainedSignatureConstraint =

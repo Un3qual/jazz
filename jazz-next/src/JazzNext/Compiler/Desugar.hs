@@ -21,6 +21,7 @@ desugarExpr expr =
       ELambda parameterName (desugarExpr bodyExpr)
     EOperatorValue operatorSymbol -> EOperatorValue operatorSymbol
     EList elements -> EList (map desugarExpr elements)
+    ETuple elements -> ETuple (map desugarExpr elements)
     EApply functionExpr argumentExpr ->
       EApply (desugarExpr functionExpr) (desugarExpr argumentExpr)
     EIf conditionExpr thenExpr elseExpr ->

@@ -1,26 +1,22 @@
 ---
-id: JN-WARNING-UNUSED-BINDING-LET-001
-status: done
+id: JN-WARNING-DEPRECATED-SYNTAX-CONTRACT-001
+status: blocked
 priority: P2
-size: M
-kind: impl
-autonomous_ready: yes
+size: S
+kind: coordination
+autonomous_ready: no
 depends_on:
-  - JN-WARNING-SHADOWING-OUTER-SCOPE-001
+  - JN-WARNING-UNUSED-BINDING-LET-001
 last_verified: 2026-05-23
-plan_section: "Phase 7 / Batch 2: unused-binding ordinary let analyzer emitter"
+plan_section: "Phase 8 / Coordination: deprecated-syntax W0004 contract decision"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
-  - jazz-next/src/JazzNext/Compiler/WarningCatalog.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs
+  - docs/spec/tooling/compiler-warning-flags.md
+  - docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md
+  - docs/execution/queue.md
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs
-  - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "The unused-binding warning has an analyzer emitter for ordinary block `let` bindings that are never referenced by reachable expressions in the same lexical block, remains opt-in, and leaves lambda parameters, pattern binders, data constructors, exports, and deprecated syntax to later batches."
+deliverable: "Decide whether `deprecated-syntax` has an accepted active-path parser/analyzer surface that can emit W0004; if yes, publish the exact warning payload, target paths, verification, and next implementation row, otherwise keep the W0004 emitter blocked with concrete evidence."
 ---
 
 # Compiler Warning Flags (Same-Scope Rebinding) Implementation Plan
@@ -52,6 +48,8 @@ Execution note:
 - [x] Reserved warning metadata coverage landed for `shadowing-outer-scope`, `unused-binding`, and `deprecated-syntax`; `shadowing-outer-scope` is now the second active emitter.
 - [x] Analyzer warning plumbing implemented for opt-in `shadowing-outer-scope`.
 - [x] Analyzer warning plumbing implemented for opt-in `unused-binding` on ordinary block `let` bindings.
+- [ ] Decide the concrete `deprecated-syntax` / `W0004` warning contract before any emitter implementation row is added.
+- [x] On `2026-05-23`, deferred the W0004 policy choice because no accepted active-path syntax is both implemented and deprecated enough to warn on; kept the remaining emitter blocked while tuple runtime ownership proceeds.
 
 ## Decision Lock (Inherited from Item 13)
 
@@ -498,6 +496,54 @@ Batch verification:
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs
 bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Phase 8: Deprecated-Syntax Warning Contract
+
+### Coordination: deprecated-syntax W0004 contract decision
+
+Status: blocked as of `2026-05-23`. The active `jazz-next` parser now
+reserves some future syntax with deterministic errors, and the warning catalog
+reserves `deprecated-syntax` / `W0004`, but there is still no accepted
+active-path parser or analyzer surface that is both implemented and deprecated
+enough to emit this warning. Keep this decision out of `Ready Now` until the
+deprecated-syntax policy is chosen.
+
+This is a flow-restoring coordination batch for the reserved
+`deprecated-syntax` / `W0004` warning category. It does not implement warning
+emission. Its purpose is to decide whether there is an accepted active-path
+syntax surface that can emit W0004 without inventing class/impl semantics,
+parser warning plumbing, or a broader deprecation policy inside an
+implementation batch.
+
+Batch scope:
+
+- Inspect only the current `jazz-next` parser/analyzer behavior and the linked
+  abstraction-keyword decision context needed for W0004.
+- Decide whether any accepted active-path syntax is both supported and
+  deprecated enough to emit `deprecated-syntax`.
+- If a concrete surface exists, update
+  `docs/spec/tooling/compiler-warning-flags.md` with the minimum W0004 payload,
+  scope ownership rules, non-goals, target paths, and focused verification for
+  the next implementation batch; then add that implementation batch to
+  `docs/execution/queue.md`.
+- If no accepted active-path deprecated surface exists, keep
+  `JN-WARNING-REMAINING-EMITTERS-PLAN-001` blocked and update its reason with
+  the exact evidence.
+- Do not modify `jazz-next/src/**` or `jazz-next/test/**` in this coordination
+  batch.
+
+Batch files:
+
+- `docs/spec/tooling/compiler-warning-flags.md`
+- `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`
+- `docs/execution/queue.md`
+
+Batch verification:
+
+```bash
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```

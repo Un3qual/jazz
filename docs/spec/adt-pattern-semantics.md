@@ -1,6 +1,6 @@
 # ADT Semantics
 
-Status: active (canonical `data` declarations, constructor values/applications, constructor over-application diagnostics, constructor/list pattern typing and runtime matching, and explicit tuple-shaped case-pattern rejection are implemented in `jazz-next`)
+Status: active (canonical `data` declarations, constructor values/applications, constructor over-application diagnostics, constructor/list pattern typing and runtime matching, tuple literal values/signature types, and explicit tuple-shaped case-pattern rejection are implemented in `jazz-next`)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -33,9 +33,10 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
    diagnostics with the constructor name plus expected and received arity.
 8. The end-to-end runtime-executed `case` subset is defined in
    `docs/spec/pattern-matching-semantics.md`.
-9. Tuple-shaped case patterns reject during parsing with an explicit deferred
-   tuple-pattern diagnostic; tuple values and tuple-pattern semantics remain
-   outside the implemented ADT slice.
+9. Tuple literal values and concrete tuple signature types are active core
+   runtime/type features in `jazz-next`. Tuple-shaped case patterns reject
+   during parsing with an explicit deferred tuple-pattern diagnostic; tuple
+   pattern semantics remain outside the implemented ADT slice.
 
 ## ADT Contract
 
@@ -70,9 +71,10 @@ none = Nothing.
    not redefine list semantics in the first slice.
 4. Bracketed list patterns share the active parser/core pattern syntax and
    now have active-path type/runtime semantics for exact-length list shapes.
-5. Tuple values and tuple-pattern semantics remain outside the first ADT slice
-   until tuple ownership is explicitly planned on the active path. Tuple-shaped
-   case-pattern syntax is rejected explicitly by the parser.
+5. Tuple values are implemented as core runtime values outside the ADT slice.
+   Tuple-pattern semantics remain outside the first ADT slice until the
+   pattern-specific binder/type/runtime contract is planned on the active path.
+   Tuple-shaped case-pattern syntax is rejected explicitly by the parser.
 
 ## Decision Cross-References
 

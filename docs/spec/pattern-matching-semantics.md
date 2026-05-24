@@ -47,9 +47,9 @@ Current parser/core invariants:
 6. Lowering preserves direct `case` expressions as `EPatternCase Expr [CaseArm]`.
 7. The older `ECase Expr Expr Expr` form remains the internal boolean-branch
    representation used after `if` desugaring.
-8. Tuple-shaped case patterns such as `(left, right)` are not part of the
-   active pattern set and reject during parsing with an explicit deferred
-   tuple-pattern diagnostic.
+8. Tuple values are active core runtime values, but tuple-shaped case patterns
+   such as `(left, right)` are not part of the active pattern set and reject
+   during parsing with an explicit deferred tuple-pattern diagnostic.
 
 ## Matching Contract For The Committed Runtime Subset
 
@@ -110,7 +110,8 @@ subset:
 
 1. Cons-like list patterns.
 2. Tuple-pattern semantics. Tuple-shaped case pattern syntax currently rejects
-   during parsing instead of falling through a generic arm parse error.
+   during parsing instead of falling through a generic arm parse error; tuple
+   values themselves are implemented outside the pattern subset.
 3. Lambda-parameter patterns.
 
 ## Non-Goals (Milestone 1)

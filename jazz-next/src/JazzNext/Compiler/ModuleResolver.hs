@@ -380,6 +380,8 @@ collectExprReferences boundNames surfaceExpr =
     SEOperatorValue _ -> Set.empty
     SEList items ->
       Set.unions (map (collectExprReferences boundNames) items)
+    SETuple items ->
+      Set.unions (map (collectExprReferences boundNames) items)
     SEApply function argument ->
       Set.union
         (collectExprReferences boundNames function)
@@ -476,6 +478,8 @@ collectQualifiedReferences surfaceExpr =
       collectQualifiedReferences body
     SEOperatorValue _ -> Set.empty
     SEList items ->
+      Set.unions (map collectQualifiedReferences items)
+    SETuple items ->
       Set.unions (map collectQualifiedReferences items)
     SEApply function argument ->
       Set.union

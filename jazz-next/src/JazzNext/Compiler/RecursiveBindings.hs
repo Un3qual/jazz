@@ -58,6 +58,8 @@ freeVarsExprWithBound bound expr =
     EOperatorValue _ -> Set.empty
     EList elements ->
       Set.unions (map (freeVarsExprWithBound bound) elements)
+    ETuple elements ->
+      Set.unions (map (freeVarsExprWithBound bound) elements)
     EApply functionExpr argumentExpr ->
       Set.union
         (freeVarsExprWithBound bound functionExpr)
@@ -346,6 +348,11 @@ selfAliasLikeReference bindingNameText =
         ELambda {} -> noSummary
         EOperatorValue {} -> noSummary
         EList elements ->
+          foldl'
+            combineSummaries
+            noSummary
+            (map (nonAliasSummary boundNames scopeBindings visitedBindings) elements)
+        ETuple elements ->
           foldl'
             combineSummaries
             noSummary
