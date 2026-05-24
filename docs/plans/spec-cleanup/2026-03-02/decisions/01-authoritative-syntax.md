@@ -1,13 +1,13 @@
 ---
-id: JN-ABSTRACTION-SYNTAX-BOUNDARY-001
-status: done
+id: JN-TRAIT-SYNTAX-REJECT-001
+status: ready
 priority: P2
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-05-23
-plan_section: "Active jazz-next batch: class/impl parser boundary"
+plan_section: "Active jazz-next batch: trait declaration rejection boundary"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser.hs
   - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
@@ -16,7 +16,7 @@ verification:
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "The active parser reserves canonical class/impl abstraction syntax behind deterministic unsupported-syntax diagnostics and focused parser coverage, without adding class/impl semantics."
+deliverable: "The active parser rejects non-canonical trait declaration-shaped forms with deterministic unsupported-syntax diagnostics while preserving canonical class/impl rejection and ordinary identifier uses."
 ---
 
 # Jazz Spec-Cleanup #1: Authoritative Syntax Implementation Plan
@@ -94,6 +94,33 @@ Closure evidence:
   keeping class/impl semantics future work.
 
 Verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Active jazz-next batch: trait declaration rejection boundary
+
+Next executor-safe active-path implementation batch. It deliberately stops at a
+parser boundary and does not add class/impl or trait semantics.
+
+Batch scope:
+
+- Treat top-level and module-body `trait ... { ... }` declaration-shaped forms
+  as non-canonical abstraction syntax in
+  `jazz-next/src/JazzNext/Compiler/Parser.hs`.
+- Reject `trait` declarations with deterministic unsupported-syntax diagnostics
+  that name the canonical `class`/`impl` abstraction surface and deferred
+  abstraction semantics.
+- Add focused parser coverage in
+  `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`.
+- Preserve canonical `class`/`impl` parser-boundary rejection and ordinary
+  binding, signature, and qualified-alias uses of `trait`.
+
+Batch verification:
 
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
