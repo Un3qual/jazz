@@ -142,8 +142,7 @@ parseStatement context knownAliases tokens =
   case tokens of
     abstractionToken@(Token {tokenKind = TIdentifier name}) : rest
       | isDeclarationContext context,
-        isReservedAbstractionKeyword name,
-        looksLikeAbstractionDeclaration rest ->
+        looksLikeReservedAbstractionDeclaration name rest ->
           rejectReservedAbstractionSyntax abstractionToken
     moduleToken@(Token {tokenKind = TModule}) : rest ->
       case context of
@@ -205,18 +204,27 @@ isDeclarationContext context =
     ModuleBodyContext -> True
     NestedBlockContext -> False
 
-isReservedAbstractionKeyword :: Text -> Bool
-isReservedAbstractionKeyword name =
+looksLikeReservedAbstractionDeclaration :: Text -> [Token] -> Bool
+looksLikeReservedAbstractionDeclaration name tokensAfterKeyword =
   case name of
-    "class" -> True
-    "impl" -> True
-    "trait" -> True
+    "class" -> looksLikeAbstractionDeclaration tokensAfterKeyword
+    "impl" -> looksLikeAbstractionDeclaration tokensAfterKeyword
+    "trait" -> looksLikeTraitAbstractionDeclaration tokensAfterKeyword
     _ -> False
 
 looksLikeAbstractionDeclaration :: [Token] -> Bool
 looksLikeAbstractionDeclaration tokensAfterKeyword =
   case tokensAfterKeyword of
     Token {tokenKind = TIdentifier {}} : rest -> hasAbstractionBodyBeforeTerminator rest
+    Token {tokenKind = TAt} : rest -> hasAbstractionBodyBeforeTerminator rest
+    _ -> False
+
+looksLikeTraitAbstractionDeclaration :: [Token] -> Bool
+looksLikeTraitAbstractionDeclaration tokensAfterKeyword =
+  case tokensAfterKeyword of
+    Token {tokenKind = TIdentifier traitName} : rest
+      | isConstructorIdentifierText traitName ->
+          hasAbstractionBodyBeforeTerminator rest
     Token {tokenKind = TAt} : rest -> hasAbstractionBodyBeforeTerminator rest
     _ -> False
 
@@ -1576,20 +1584,11 @@ parseLambdaParameter tokens =
     Token {tokenKind = TInt _} : _ -> parsePatternLambdaParameter tokens
     Token {tokenKind = TLParen} : _ -> parsePatternLambdaParameter tokens
     Token {tokenKind = TLBracket} : _ -> parsePatternLambdaParameter tokens
-    token@Token {tokenKind = TIdentifier parameterName, tokenSpan = parameterSpan} : rest
+    Token {tokenKind = TIdentifier parameterName} : rest
       | parameterName == "_" ->
           parsePatternLambdaParameter tokens
-      | parameterName == "True" || parameterName == "False" ->
-          parsePatternLambdaParameter tokens
       | isReservedLiteralName parameterName ->
-          Left
-            ( parseDiagnostic
-                ( "reserved literal '"
-                    <> parameterName
-                    <> "' cannot be used as a lambda parameter at "
-                    <> renderSourceSpan parameterSpan
-                )
-            )
+          parsePatternLambdaParameter tokens
       | isConstructorIdentifierText parameterName ->
           parsePatternLambdaParameter tokens
       | otherwise ->

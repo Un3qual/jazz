@@ -60,6 +60,7 @@ tests =
     ("parses tuple-shaped lambda parameter patterns", testParsesTupleLambdaParameterPattern),
     ("parses bracketed-list lambda parameter patterns", testParsesListLambdaParameterPattern),
     ("parses cons-like lambda parameter patterns", testParsesConsLikeListLambdaParameterPattern),
+    ("parses boolean literal lambda parameter patterns", testParsesBooleanLiteralLambdaParameterPattern),
     ("parses constructor-like lambda parameter patterns", testParsesConstructorLikeLambdaParameterPattern),
     ("rejects reserved keyword as lambda parameter", testRejectsKeywordLambdaParameter)
   ]
@@ -238,6 +239,13 @@ testParsesConsLikeListLambdaParameterPattern =
   assertRight
     "cons-like list lambda parameter pattern"
     (parseSurfaceProgram "f = \\([head | tail]) -> head.")
+    (\_ -> pure ())
+
+testParsesBooleanLiteralLambdaParameterPattern :: IO ()
+testParsesBooleanLiteralLambdaParameterPattern =
+  assertRight
+    "boolean literal lambda parameter pattern"
+    (parseSurfaceProgram "f = \\(True) -> 1.")
     (\_ -> pure ())
 
 testParsesConstructorLikeLambdaParameterPattern :: IO ()
