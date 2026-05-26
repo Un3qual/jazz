@@ -131,9 +131,9 @@ The parser and AST support:
 
 ### Parsed Pattern Forms
 
-Pattern syntax is active in the `case` parser. Pattern-shaped lambda parameters
-now reject in `jazz-next` with deferred-semantics parser diagnostics while
-lambda support stays identifier-only:
+Pattern syntax is active in the `case` parser and in lambda parameter lists.
+Pattern-shaped lambda parameters lower through internal `case` expressions so
+they reuse the same binder, type, and runtime matching rules:
 
 - literal patterns
 - variable patterns
@@ -426,16 +426,20 @@ Based on the full repo, these areas still require implementation convergence eve
   - `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
 - Implementing class/impl abstraction semantics in `jazz-next`; the active
   parser now reserves top-level and module-body `class`/`impl` declaration
-  forms with deterministic unsupported-syntax diagnostics, while preserving
-  ordinary binding, signature, and qualified-alias uses of those names;
-  analyzer/type/runtime behavior remains future work.
+  forms with deterministic unsupported-syntax diagnostics, rejects
+  non-canonical `trait` declaration forms with diagnostics that point future
+  abstraction syntax back to `class`/`impl`, and preserves ordinary binding,
+  signature, and qualified-alias uses of those names; analyzer/type/runtime
+  behavior remains future work.
 - Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding`, `shadowing-outer-scope`, and ordinary block `unused-binding` emitters (reserved metadata for `deprecated-syntax` / `W0004` is covered, but this category does not emit diagnostics yet and its concrete warning policy is deferred):
   - `docs/spec/tooling/compiler-warning-flags.md`
 - CLI source selection is active in `jazz-next`: standalone compile and `--run`
   read stdin by default or one positional `.jz` source file when provided; source
   files are rejected with module-graph `--entry-module` mode. The tooling
   contract is tracked in `docs/spec/tooling/cli-source-input.md`.
-- Tuple patterns, cons-like list patterns, and lambda-parameter patterns remain deferred; tuple literals and concrete tuple signature types are now active core runtime/type features in `jazz-next`, tuple-shaped plus cons-like list case-pattern syntax reject with explicit deferred parser diagnostics, and pattern-shaped lambda parameters reject with explicit deferred parser diagnostics.
+- Tuple literals, concrete tuple signature types, fixed-arity tuple case
+  patterns, cons-like list case patterns, and pattern-shaped lambda parameters
+  are now active core runtime/type features in `jazz-next`.
 - Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit symbol-list visibility diagnostics, alias-import unqualified visibility diagnostics, `Alias::symbol` qualified alias lookup, default bundled-prelude module graph driver helpers, and deterministic resolver/binding diagnostics now work in the active parser/CLI path, but broader file-layout and long-term loader semantics are still unsettled.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
 - Which non-JavaScript product backend, if any, should exist beyond interpreter-backed execution.
@@ -451,12 +455,12 @@ If you need a practical baseline for continuing Jazz, use this order:
 5. Treat `jazz2` as a reference-only redesign source, not the active implementation target.
 6. Assume the currently working active implementation (`jazz-next`) is a small interpreter-oriented expression language with:
    - dot-separated statements and scope blocks
-   - canonical identifier-only lambdas with lexical closure runtime support (`\(x) -> expr`, multi-argument lambdas lowered into nested unary functions); pattern-shaped lambda parameters reject with explicit deferred parser diagnostics
+   - canonical lambdas with lexical closure runtime support (`\(x) -> expr`, multi-argument lambdas lowered into nested unary functions); pattern-shaped parameters lower through internal pattern-case bodies while preserving ordinary unary core lambdas
    - application, list literals, and tuple literals
    - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, concrete tuple types, right-associative function types, explicit parenthesized function-type overrides, empty `@{}:` constrained wrappers, concrete unary constrained signatures, and known unary variable constrained signatures under the monomorphic annotation-only contract)
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
-   - canonical `data` declarations with constructor values/applications, plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, and bracketed-list patterns; analyzer/type/runtime execution covers literal, wildcard, variable, declared constructor patterns, and exact-length bracketed-list patterns; tuple-shaped and cons-like list case patterns reject with explicit parser diagnostics
-   - reserved top-level/module-body `class` and `impl` abstraction declarations that reject with deferred-semantics parser diagnostics while `class`/`impl` remain available as ordinary binding, signature, and qualified-alias identifiers; class/impl analyzer, type, and runtime semantics are not implemented yet
+   - canonical `data` declarations with constructor values/applications, plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, bracketed-list, cons-like list, and tuple patterns; analyzer/type/runtime execution covers literal, wildcard, variable, declared constructor patterns, exact-length bracketed-list patterns, cons-like list head/tail patterns, and fixed-arity tuple patterns
+   - reserved top-level/module-body `class` and `impl` abstraction declarations that reject with deferred-semantics parser diagnostics, plus non-canonical `trait` declarations that reject with diagnostics pointing future abstraction syntax back to `class`/`impl`, while `class`/`impl`/`trait` remain available as ordinary binding, signature, and qualified-alias identifiers; abstraction analyzer, type, and runtime semantics are not implemented yet
    - opt-in compiler warnings for same-scope rebinding (`W0001`),
      outer-scope shadowing (`W0002`), and ordinary block unused bindings
      (`W0003`), with warning-as-error promotion while preserving default
@@ -488,9 +492,9 @@ If this repo is going to become a coherent language project, the highest-value c
 Status update for item `#1`:
 
 - Active-path ADT/pattern contract is now recorded in `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md`.
-- The currently landed `jazz-next` subset is direct `case` parsing/lowering plus analyzer/type/runtime execution for literal, wildcard, variable, constructor, and exact-length bracketed-list patterns; explicit parser rejection for tuple-shaped and cons-like list case patterns; canonical `data` declaration parsing/lowering; analyzer/type/runtime support for constructor values and constructor application arity; tuple literal values and concrete tuple signature types; and deterministic `E3023` runtime diagnostics for constructor over-application paths.
+- The currently landed `jazz-next` subset is direct `case` parsing/lowering plus analyzer/type/runtime execution for literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, and fixed-arity tuple patterns; canonical `data` declaration parsing/lowering; analyzer/type/runtime support for constructor values and constructor application arity; tuple literal values and concrete tuple signature types; and deterministic `E3023` runtime diagnostics for constructor over-application paths.
 - Constructor payload typing is intentionally monomorphic per constructor in the current active subset; named type parameters and fresh per-use constructor type schemes remain future ADT work.
-- Tuple-pattern semantics, cons-like list patterns, and lambda-parameter patterns remain explicitly deferred on the active path; tuple-shaped and cons-like list case-pattern syntax plus pattern-shaped lambda parameters now reject deterministically during parsing.
+- Pattern-shaped lambda parameters are active on the `jazz-next` path and reuse the committed `case` pattern engine through lowering.
 
 Status update for item `#3`:
 
@@ -502,7 +506,7 @@ Status update for item `#5`:
 - Implemented-vs-planned split is now published in `README.md`.
 - Canonical evidence-backed feature status is now tracked in `docs/feature-status.md`.
 
-1. Keep future tuple-pattern semantics blocked until a concrete binder/type/runtime contract is planned on the active path; tuple literals and concrete tuple signature types now execute as core runtime/type features, and tuple-shaped case-pattern syntax has deterministic parser rejection coverage.
+1. Keep future pattern forms such as guards, or-patterns, as-patterns, and pattern synonyms blocked until concrete binder/type/runtime contracts are planned on the active path; tuple literals, concrete tuple signature types, fixed-arity tuple case patterns, cons-like list case patterns, and lambda parameter patterns now execute as core runtime/type features.
 2. Rebase module/import loader planning (`domain 09`) onto `jazz-next` with deterministic file-resolution diagnostics.
 3. Keep remaining stdlib-boundary follow-up work (`domain 10`) scoped to concrete future prelude/catalog growth; the current bundled source/module graph paths and checked-in prelude reproducibility evidence are covered in `jazz-next`.
 4. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.

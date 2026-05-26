@@ -1,6 +1,6 @@
 # Pattern Matching Semantics
 
-Status: active (literal, wildcard, variable, constructor, and exact-length bracketed-list `case` patterns parse/lower, typecheck, and execute end-to-end in `jazz-next`; tuple-shaped and cons-like list case patterns reject with explicit parser diagnostics)
+Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, and fixed-arity tuple patterns parse/lower, typecheck, and execute end-to-end in `jazz-next` `case` arms and lambda parameters)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -37,22 +37,28 @@ Current parser/core invariants:
    - variable binders such as `item`
    - uppercase constructor patterns such as `Just item` or `Nothing`
    - bracketed list patterns such as `[head, _]` or `[]`
-4. Constructor/list patterns are preserved structurally in `EPatternCase`.
+   - cons-like list patterns such as `[head | tail]`
+   - tuple patterns such as `(left, right)` or `(1, flag)`
+4. Constructor/list/tuple patterns are preserved structurally in `EPatternCase`.
    Declared constructor patterns typecheck against ADT scrutinees and bind
    payload variables in arm bodies; bracketed-list patterns typecheck against
-   list scrutinees and bind element variables in arm bodies. Runtime matching
-   supports declared constructors and exact-length bracketed lists.
+   list scrutinees and bind element variables in arm bodies; cons-like list
+   patterns typecheck against non-empty list deconstruction with the head
+   subpattern at the element type and the tail subpattern at the same list type;
+   tuple patterns typecheck against fixed-arity tuple scrutinees and bind
+   element variables in arm bodies. Runtime matching supports declared
+   constructors, exact-length bracketed lists, cons-like lists, and fixed-arity
+   tuples.
 5. Arm bodies are full expressions; nested `case`, `if`, lambdas, block-valued
    scrutinees, and infix/operator expressions remain valid inside arm bodies.
 6. Lowering preserves direct `case` expressions as `EPatternCase Expr [CaseArm]`.
 7. The older `ECase Expr Expr Expr` form remains the internal boolean-branch
    representation used after `if` desugaring.
-8. Tuple values are active core runtime values, but tuple-shaped case patterns
-   such as `(left, right)` are not part of the active pattern set and reject
-   during parsing with an explicit deferred tuple-pattern diagnostic.
-9. Cons-like list patterns such as `[head | tail]` are not part of the active
-   pattern set and reject during parsing with an explicit deferred cons-like
-   list pattern diagnostic.
+8. Tuple values and fixed-arity tuple case patterns are active core runtime
+   features.
+9. Lambda parameter patterns lower to ordinary unary lambdas whose bodies
+   perform an internal single-arm `EPatternCase`, so parameter destructuring
+   reuses the same binder, type, and runtime matching contract.
 
 ## Matching Contract For The Committed Runtime Subset
 
@@ -68,8 +74,13 @@ Current parser/core invariants:
    subpatterns.
 7. A bracketed-list pattern matches a runtime list with exactly the same
    element count, then recursively matches element subpatterns.
-8. Non-selected arm bodies are not evaluated.
-9. A binder introduced by one arm is not visible in sibling arms or outside the
+8. A cons-like list pattern matches a non-empty runtime list, recursively
+   matching its head subpattern against the first element and its tail
+   subpattern against the remaining list.
+9. A tuple pattern matches a runtime tuple with exactly the same element count,
+   then recursively matches element subpatterns.
+10. Non-selected arm bodies are not evaluated.
+11. A binder introduced by one arm is not visible in sibling arms or outside the
    `case` expression.
 
 Examples:
@@ -79,14 +90,18 @@ flag = case n { | 0 -> True | _ -> False }.
 copy = case value { | item -> item }.
 maybeValue = case value { | Just item -> item | Nothing -> 0 }.
 firstOrZero = case values { | [head, _] -> head | [] -> 0 }.
+headPlusNext = case values { | [head | tail] -> head + hd tail | [] -> 0 }.
+sumPair = case pair { | (left, right) -> left + right }.
+sumPairFn = \((left, right)) -> left + right.
 ```
 
 ## Current Active Execution State
 
-1. Parser, surface AST, and core AST now represent constructor and bracketed
-   list patterns in `jazz-next`.
+1. Parser, surface AST, and core AST now represent constructor, bracketed-list,
+   and tuple patterns in `jazz-next`.
 2. Analyzer/type/runtime execution is end-to-end for literal / wildcard /
-   variable / constructor / exact-length bracketed-list patterns.
+   variable / constructor / exact-length bracketed-list / cons-like list /
+   fixed-arity tuple patterns.
 3. Declared constructor patterns typecheck against the scrutinee ADT type,
    bind payload variables in arm bodies, reject unknown constructor names or
    arity mismatches with deterministic `E2011` diagnostics, and participate
@@ -99,29 +114,22 @@ firstOrZero = case values { | [head, _] -> head | [] -> 0 }.
    variables in arm bodies, reject incompatible scrutinees with deterministic
    `E2011` diagnostics, and participate in ordinary arm-result agreement
    checks.
-7. Runtime constructor/list pattern matching is first-match and recursive over
-   nested subpatterns.
-8. If no arm matches at runtime, evaluation emits deterministic `E3022`
+7. Cons-like list patterns typecheck against list scrutinees, bind the head
+   subpattern at the list element type and the tail subpattern at the same list
+   type, reject incompatible scrutinees with deterministic `E2011` diagnostics,
+   and participate in ordinary arm-result agreement checks.
+8. Tuple patterns typecheck against fixed-arity tuple scrutinees, bind element
+   variables in arm bodies, reject incompatible scrutinees or arity mismatches
+   with deterministic `E2011` diagnostics, and participate in ordinary
+   arm-result agreement checks.
+9. Runtime constructor/list/tuple pattern matching is first-match and recursive
+   over nested subpatterns, including cons-like list head/tail matching.
+10. If no arm matches at runtime, evaluation emits deterministic `E3022`
    diagnostics rather than falling through silently.
-9. Tuple-pattern semantics remain deferred; tuple-shaped case patterns do not
-   lower into `EPatternCase`.
-10. Cons-like list pattern semantics remain deferred; cons-style bracketed list
-    patterns do not lower into `EPatternCase`.
 
 ## Deferred Pattern Forms
 
-The following remain explicitly out of scope for the end-to-end committed
-subset:
-
-1. Cons-like list patterns. Cons-style bracketed list syntax such as
-   `[head | tail]` currently rejects during parsing with an explicit deferred
-   cons-like list pattern diagnostic.
-2. Tuple-pattern semantics. Tuple-shaped case pattern syntax currently rejects
-   during parsing instead of falling through a generic arm parse error; tuple
-   values themselves are implemented outside the pattern subset.
-3. Lambda-parameter patterns. Pattern-shaped lambda parameters currently reject
-   during parsing with an explicit deferred lambda-parameter pattern diagnostic;
-   canonical lambdas remain identifier-only.
+No additional pattern forms are part of the end-to-end committed subset.
 
 ## Non-Goals (Milestone 1)
 

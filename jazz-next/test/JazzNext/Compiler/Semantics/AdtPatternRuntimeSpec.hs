@@ -34,6 +34,11 @@ tests =
     ("runtime matches nullary constructor patterns", testRuntimeMatchesNullaryConstructorPatterns),
     ("runtime matches list patterns", testRuntimeMatchesListPatterns),
     ("runtime requires exact list pattern length", testRuntimeRequiresExactListPatternLength),
+    ("runtime matches cons-like list patterns", testRuntimeMatchesConsLikeListPatterns),
+    ("runtime falls back when cons-like list pattern tail does not match", testRuntimeFallsBackWhenConsLikeTailDoesNotMatch),
+    ("runtime falls back when cons-like list pattern sees an empty list", testRuntimeFallsBackWhenConsLikeListSeesEmptyList),
+    ("runtime matches tuple patterns", testRuntimeMatchesTuplePatterns),
+    ("runtime falls back when tuple element patterns do not match", testRuntimeFallsBackWhenTupleElementPatternsDoNotMatch),
     ("runtime reports a deterministic error when no case arm matches", testRuntimeReportsNoMatchingArm)
   ]
 
@@ -81,6 +86,31 @@ testRuntimeRequiresExactListPatternLength :: IO ()
 testRuntimeRequiresExactListPatternLength = do
   result <- runSource defaultWarningSettings "values = [1, 2]. case values { | [head] -> head | _ -> 9 }."
   assertSuccessfulRuntime "list pattern length mismatch" (Just "9") result
+
+testRuntimeMatchesConsLikeListPatterns :: IO ()
+testRuntimeMatchesConsLikeListPatterns = do
+  result <- runSource defaultWarningSettings "values = [1, 2, 3]. case values { | [head | tail] -> head + hd tail | [] -> 0 }."
+  assertSuccessfulRuntime "cons-like list pattern match" (Just "3") result
+
+testRuntimeFallsBackWhenConsLikeTailDoesNotMatch :: IO ()
+testRuntimeFallsBackWhenConsLikeTailDoesNotMatch = do
+  result <- runSource defaultWarningSettings "values = [1, 2, 3]. case values { | [head | [second]] -> head + second | _ -> 9 }."
+  assertSuccessfulRuntime "cons-like tail pattern mismatch" (Just "9") result
+
+testRuntimeFallsBackWhenConsLikeListSeesEmptyList :: IO ()
+testRuntimeFallsBackWhenConsLikeListSeesEmptyList = do
+  result <- runSource defaultWarningSettings "values = []. case values { | [head | tail] -> head | [] -> 9 }."
+  assertSuccessfulRuntime "cons-like empty-list mismatch" (Just "9") result
+
+testRuntimeMatchesTuplePatterns :: IO ()
+testRuntimeMatchesTuplePatterns = do
+  result <- runSource defaultWarningSettings "pair = (41, True). case pair { | (item, True) -> item + 1 | _ -> 0 }."
+  assertSuccessfulRuntime "tuple pattern match" (Just "42") result
+
+testRuntimeFallsBackWhenTupleElementPatternsDoNotMatch :: IO ()
+testRuntimeFallsBackWhenTupleElementPatternsDoNotMatch = do
+  result <- runSource defaultWarningSettings "pair = (1, 2). case pair { | (1, 3) -> 10 | _ -> 9 }."
+  assertSuccessfulRuntime "tuple pattern element mismatch" (Just "9") result
 
 testRuntimeReportsNoMatchingArm :: IO ()
 testRuntimeReportsNoMatchingArm = do

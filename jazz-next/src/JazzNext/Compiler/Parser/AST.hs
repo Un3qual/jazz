@@ -7,6 +7,7 @@ module JazzNext.Compiler.Parser.AST
     SurfaceConstrainedSignatureType (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
     SurfaceSignatureConstraint (..),
@@ -38,10 +39,20 @@ data SurfacePattern
   | SPLiteral SurfaceLiteral
   | SPConstructor Identifier [SurfacePattern]
   | SPList [SurfacePattern]
+  | SPConsList SurfacePattern SurfacePattern
+  | SPTuple [SurfacePattern]
   deriving (Eq, Show)
 
 -- | One parser-surface pattern-match arm.
 data SurfaceCaseArm = SurfaceCaseArm SurfacePattern SurfaceExpr
+  deriving (Eq, Show)
+
+-- | Lambda parameters preserve ordinary identifier parameters separately from
+-- destructuring patterns so lowering can keep the direct core lambda shape for
+-- the common case.
+data SurfaceLambdaParameter
+  = SurfaceLambdaIdentifier Identifier
+  | SurfaceLambdaPattern SurfacePattern
   deriving (Eq, Show)
 
 -- | Parser-owned constructor metadata for top-level `data` declarations.
@@ -54,7 +65,7 @@ data SurfaceExpr
   = SELit SurfaceLiteral
   | SEVar Identifier
   | SEQualifiedVar Identifier Identifier
-  | SELambda [Identifier] SurfaceExpr
+  | SELambda [SurfaceLambdaParameter] SurfaceExpr
   | SEOperatorValue Text
   | SEList [SurfaceExpr]
   | SETuple [SurfaceExpr]

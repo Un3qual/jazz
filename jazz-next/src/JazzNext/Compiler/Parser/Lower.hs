@@ -4,6 +4,7 @@ module JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr
   ) where
 
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ConstraintSignatureType (..),
@@ -22,6 +23,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceConstrainedSignatureType (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
     SurfaceSignatureConstraint (..),
@@ -31,7 +33,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Identifier
-  ( Identifier,
+  ( mkIdentifier,
     mkQualifiedIdentifier,
     identifierText
   )
@@ -76,7 +78,7 @@ lowerSurfaceExpr surfaceExpr =
       ESectionRight operatorSymbol (lowerSurfaceExpr rightExpr)
     SEBlock statements -> EBlock (map lowerSurfaceStatement statements)
 
-lowerSurfaceLambda :: [Identifier] -> SurfaceExpr -> Expr
+lowerSurfaceLambda :: [SurfaceLambdaParameter] -> SurfaceExpr -> Expr
 lowerSurfaceLambda parameters bodyExpr =
   case parameters of
     [] ->
@@ -85,7 +87,20 @@ lowerSurfaceLambda parameters bodyExpr =
             ++ show bodyExpr
         )
     _ ->
-      foldr ELambda (lowerSurfaceExpr bodyExpr) parameters
+      foldr lowerParameter (lowerSurfaceExpr bodyExpr) (zip [1 :: Int ..] parameters)
+  where
+    lowerParameter (_, SurfaceLambdaIdentifier parameterName) loweredBody =
+      ELambda parameterName loweredBody
+    lowerParameter (parameterIndex, SurfaceLambdaPattern parameterPattern) loweredBody =
+      let generatedName =
+            mkIdentifier
+              (Text.pack "$lambda_pattern_arg_" <> Text.pack (show parameterIndex))
+       in ELambda
+            generatedName
+            ( EPatternCase
+                (EVar generatedName)
+                [CaseArm (lowerSurfacePattern parameterPattern) loweredBody]
+            )
 
 -- | Lower literal syntax without changing the value domain available to later
 -- semantic phases.
@@ -105,6 +120,10 @@ lowerSurfacePattern surfacePattern =
       PConstructor name (map lowerSurfacePattern patterns)
     SPList patterns ->
       PList (map lowerSurfacePattern patterns)
+    SPConsList headPattern tailPattern ->
+      PConsList (lowerSurfacePattern headPattern) (lowerSurfacePattern tailPattern)
+    SPTuple patterns ->
+      PTuple (map lowerSurfacePattern patterns)
 
 lowerSurfaceCaseArm :: SurfaceCaseArm -> CaseArm
 lowerSurfaceCaseArm (SurfaceCaseArm patternExpr bodyExpr) =

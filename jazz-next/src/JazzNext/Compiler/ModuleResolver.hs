@@ -44,6 +44,7 @@ import JazzNext.Compiler.Parser
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceDataConstructor (..),
+    SurfaceLambdaParameter (..),
     SurfacePattern (..),
     SurfaceExpr (..),
     SurfaceStatement (..)
@@ -374,9 +375,12 @@ collectExprReferences boundNames surfaceExpr =
       | otherwise -> Set.singleton (identifierText name)
     SEQualifiedVar _ _ -> Set.empty
     SELambda params body ->
-      collectExprReferences
-        (Set.union boundNames (Set.fromList (map identifierText params)))
-        body
+      Set.union
+        (Set.unions (map collectLambdaParameterReferences params))
+        ( collectExprReferences
+            (Set.union boundNames (Set.unions (map collectLambdaParameterBinders params)))
+            body
+        )
     SEOperatorValue _ -> Set.empty
     SEList items ->
       Set.unions (map (collectExprReferences boundNames) items)
@@ -452,6 +456,10 @@ collectPatternReferences patternValue =
       Set.insert (identifierText constructorName) (Set.unions (map collectPatternReferences nestedPatterns))
     SPList nestedPatterns ->
       Set.unions (map collectPatternReferences nestedPatterns)
+    SPConsList headPattern tailPattern ->
+      Set.union (collectPatternReferences headPattern) (collectPatternReferences tailPattern)
+    SPTuple nestedPatterns ->
+      Set.unions (map collectPatternReferences nestedPatterns)
 
 collectPatternBinders :: SurfacePattern -> Set Text
 collectPatternBinders patternValue =
@@ -463,6 +471,22 @@ collectPatternBinders patternValue =
       Set.unions (map collectPatternBinders nestedPatterns)
     SPList nestedPatterns ->
       Set.unions (map collectPatternBinders nestedPatterns)
+    SPConsList headPattern tailPattern ->
+      Set.union (collectPatternBinders headPattern) (collectPatternBinders tailPattern)
+    SPTuple nestedPatterns ->
+      Set.unions (map collectPatternBinders nestedPatterns)
+
+collectLambdaParameterReferences :: SurfaceLambdaParameter -> Set Text
+collectLambdaParameterReferences parameter =
+  case parameter of
+    SurfaceLambdaIdentifier _ -> Set.empty
+    SurfaceLambdaPattern patternValue -> collectPatternReferences patternValue
+
+collectLambdaParameterBinders :: SurfaceLambdaParameter -> Set Text
+collectLambdaParameterBinders parameter =
+  case parameter of
+    SurfaceLambdaIdentifier name -> Set.singleton (identifierText name)
+    SurfaceLambdaPattern patternValue -> collectPatternBinders patternValue
 
 -- Qualified alias lookups live in the module-alias namespace. Lexical binders
 -- intentionally do not shadow aliases, and this traversal should stay aligned

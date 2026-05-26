@@ -32,6 +32,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceConstrainedSignatureType (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
     SurfaceSignatureConstraint (..),
@@ -209,6 +210,7 @@ isReservedAbstractionKeyword name =
   case name of
     "class" -> True
     "impl" -> True
+    "trait" -> True
     _ -> False
 
 looksLikeAbstractionDeclaration :: [Token] -> Bool
@@ -230,13 +232,24 @@ rejectReservedAbstractionSyntax :: Token -> Either Diagnostic a
 rejectReservedAbstractionSyntax abstractionToken =
   Left
     ( parseDiagnostic
-        ( "unsupported abstraction syntax '"
-            <> tokenLexeme abstractionToken
-            <> "' at "
-            <> renderSourceSpan (tokenSpan abstractionToken)
-            <> ": class/impl abstraction semantics are deferred in jazz-next"
-        )
+        (abstractionSyntaxDiagnosticText abstractionToken)
     )
+
+abstractionSyntaxDiagnosticText :: Token -> Text
+abstractionSyntaxDiagnosticText abstractionToken =
+  let abstractionName = tokenLexeme abstractionToken
+      location = renderSourceSpan (tokenSpan abstractionToken)
+   in case abstractionName of
+        "trait" ->
+          "unsupported abstraction syntax 'trait' at "
+            <> location
+            <> ": trait declarations are non-canonical; use class/impl once abstraction semantics land in jazz-next"
+        _ ->
+          "unsupported abstraction syntax '"
+            <> abstractionName
+            <> "' at "
+            <> location
+            <> ": class/impl abstraction semantics are deferred in jazz-next"
 
 registerImportAliases :: Set Text -> [SurfaceStatement] -> Set Text
 registerImportAliases =
@@ -1319,9 +1332,7 @@ parseCasePattern tokens =
     Token {tokenKind = TLBracket} : rest ->
       parseListPattern rest
     token@Token {tokenKind = TLParen} : rest ->
-      case tupleCasePatternDiagnostic token rest of
-        Just diagnostic -> Left diagnostic
-        Nothing -> Left (expectedCasePatternDiagnostic token)
+      parseTuplePattern token rest
     Token {tokenKind = TIdentifier name} : rest ->
       case name of
         "_" -> Right (SPWildcard, rest)
@@ -1347,49 +1358,25 @@ expectedCasePatternDiagnostic token =
         <> "'"
     )
 
-tupleCasePatternDiagnostic :: Token -> [Token] -> Maybe Diagnostic
-tupleCasePatternDiagnostic leftParenToken tokensAfterLeftParen
-  | hasTopLevelCommaBeforeRightParen tokensAfterLeftParen =
-      Just
-        ( parseDiagnostic
-            ( "tuple case patterns are not implemented at "
-                <> renderSourceSpan (tokenSpan leftParenToken)
-                <> "; tuple-pattern semantics are deferred"
-            )
-        )
-  | otherwise = Nothing
+parseTuplePattern :: Token -> [Token] -> Either Diagnostic (SurfacePattern, [Token])
+parseTuplePattern leftParenToken tokensAfterLeftParen = do
+  (firstPattern, afterFirstPattern) <- parseCasePattern tokensAfterLeftParen
+  case afterFirstPattern of
+    Token {tokenKind = TComma} : rest -> do
+      (tuplePatterns, afterTuplePatterns) <- parseTuplePatternElements [firstPattern] rest
+      remaining <- consumeRightParen afterTuplePatterns
+      Right (SPTuple tuplePatterns, remaining)
+    _ ->
+      Left (expectedCasePatternDiagnostic leftParenToken)
 
-hasTopLevelCommaBeforeRightParen :: [Token] -> Bool
-hasTopLevelCommaBeforeRightParen = go 0 0 False
-  where
-    go parenDepth bracketDepth sawComma remainingTokens =
-      case remainingTokens of
-        [] -> False
-        token : rest ->
-          case tokenKind token of
-            TLParen ->
-              go (parenDepth + 1) bracketDepth sawComma rest
-            TRParen
-              | parenDepth > 0 ->
-                  go (parenDepth - 1) bracketDepth sawComma rest
-              | bracketDepth == 0 ->
-                  sawComma
-              | otherwise ->
-                  False
-            TLBracket ->
-              go parenDepth (bracketDepth + 1) sawComma rest
-            TRBracket
-              | bracketDepth > 0 ->
-                  go parenDepth (bracketDepth - 1) sawComma rest
-              | otherwise ->
-                  False
-            TComma
-              | parenDepth == 0 && bracketDepth == 0 ->
-                  go parenDepth bracketDepth True rest
-              | otherwise ->
-                  go parenDepth bracketDepth sawComma rest
-            _ ->
-              go parenDepth bracketDepth sawComma rest
+parseTuplePatternElements :: [SurfacePattern] -> [Token] -> Either Diagnostic ([SurfacePattern], [Token])
+parseTuplePatternElements reversedPatterns tokens = do
+  (nextPattern, afterNextPattern) <- parseCasePattern tokens
+  case afterNextPattern of
+    Token {tokenKind = TComma} : rest ->
+      parseTuplePatternElements (nextPattern : reversedPatterns) rest
+    _ ->
+      Right (reverse (nextPattern : reversedPatterns), afterNextPattern)
 
 parseConstructorPattern :: Identifier -> [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseConstructorPattern constructorName tokensAfterName =
@@ -1400,9 +1387,6 @@ parseConstructorPattern constructorName tokensAfterName =
           Right (SPConstructor constructorName (reverse revArguments), remainingTokens)
       -- Constructor arguments currently use atomic subpatterns so ambiguous
       -- forms like `Pair Nothing item` stay as two outer arguments.
-      | token@Token {tokenKind = TLParen} : rest <- remainingTokens,
-        Just diagnostic <- tupleCasePatternDiagnostic token rest =
-          Left diagnostic
       | startsCasePatternTokens remainingTokens = do
           (nextArgument, afterArgument) <- parseConstructorArgumentPattern remainingTokens
           go (nextArgument : revArguments) afterArgument
@@ -1429,6 +1413,8 @@ parseConstructorArgumentPattern tokens =
               Right (SPVariable (mkIdentifier name), rest)
     Token {tokenKind = TLBracket} : rest ->
       parseListPattern rest
+    token@Token {tokenKind = TLParen} : rest ->
+      parseTuplePattern token rest
     [] ->
       Left (parseDiagnostic "expected constructor pattern argument before end of input")
     token : _ ->
@@ -1449,6 +1435,7 @@ patternArgumentBoundary tokens =
     Token {tokenKind = TArrow} : _ -> True
     Token {tokenKind = TComma} : _ -> True
     Token {tokenKind = TRBracket} : _ -> True
+    Token {tokenKind = TRParen} : _ -> True
     Token {tokenKind = TRBrace} : _ -> True
     _ -> False
 
@@ -1458,6 +1445,7 @@ startsCasePatternTokens tokens =
     Token {tokenKind = TInt _} : _ -> True
     Token {tokenKind = TIdentifier _} : _ -> True
     Token {tokenKind = TLBracket} : _ -> True
+    Token {tokenKind = TLParen} : _ -> True
     _ -> False
 
 parseListPattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
@@ -1474,8 +1462,14 @@ parseListPattern tokensAfterLeftBracket =
         Token {tokenKind = TComma} : rest -> do
           (nextPattern, afterNextPattern) <- parseCasePattern rest
           go (nextPattern : revPatterns) afterNextPattern
-        token@Token {tokenKind = TOperator "|"} : _ ->
-          Left (consLikeListPatternDiagnostic token)
+        Token {tokenKind = TOperator "|"} : rest -> do
+          (tailPattern, afterTailPattern) <- parseCasePattern rest
+          remaining <- consumeRightBracket afterTailPattern
+          case reverse revPatterns of
+            [headPattern] ->
+              Right (SPConsList headPattern tailPattern, remaining)
+            _ ->
+              Left (parseDiagnostic "cons-like list patterns require exactly one head pattern before '|'")
         Token {tokenKind = TRBracket} : rest ->
           Right (SPList (reverse revPatterns), rest)
         [] ->
@@ -1490,14 +1484,6 @@ parseListPattern tokensAfterLeftBracket =
                     <> "'"
                 )
             )
-
-consLikeListPatternDiagnostic :: Token -> Diagnostic
-consLikeListPatternDiagnostic pipeToken =
-  parseDiagnostic
-    ( "cons-like list patterns are not implemented at "
-        <> renderSourceSpan (tokenSpan pipeToken)
-        <> "; cons-like list pattern semantics are deferred"
-    )
 
 isConstructorIdentifierText :: Text -> Bool
 isConstructorIdentifierText name =
@@ -1550,7 +1536,7 @@ parseLambdaExprUntil knownAliases stop lambdaToken tokensAfterLambda =
             )
         )
 
-parseLambdaParameters :: [Token] -> Either Diagnostic ([Identifier], [Token])
+parseLambdaParameters :: [Token] -> Either Diagnostic ([SurfaceLambdaParameter], [Token])
 parseLambdaParameters tokensAfterLeftParen =
   case tokensAfterLeftParen of
     token@(Token {tokenKind = TRParen}) : _ ->
@@ -1584,16 +1570,17 @@ parseLambdaParameters tokensAfterLeftParen =
                 )
             )
 
-parseLambdaParameter :: [Token] -> Either Diagnostic (Identifier, [Token])
+parseLambdaParameter :: [Token] -> Either Diagnostic (SurfaceLambdaParameter, [Token])
 parseLambdaParameter tokens =
   case tokens of
-    token@Token {tokenKind = TLParen} : _ ->
-      Left (lambdaParameterPatternDiagnostic token)
-    token@Token {tokenKind = TLBracket} : _ ->
-      Left (lambdaParameterPatternDiagnostic token)
+    Token {tokenKind = TInt _} : _ -> parsePatternLambdaParameter tokens
+    Token {tokenKind = TLParen} : _ -> parsePatternLambdaParameter tokens
+    Token {tokenKind = TLBracket} : _ -> parsePatternLambdaParameter tokens
     token@Token {tokenKind = TIdentifier parameterName, tokenSpan = parameterSpan} : rest
       | parameterName == "_" ->
-          Left (lambdaParameterPatternDiagnostic token)
+          parsePatternLambdaParameter tokens
+      | parameterName == "True" || parameterName == "False" ->
+          parsePatternLambdaParameter tokens
       | isReservedLiteralName parameterName ->
           Left
             ( parseDiagnostic
@@ -1604,9 +1591,9 @@ parseLambdaParameter tokens =
                 )
             )
       | isConstructorIdentifierText parameterName ->
-          Left (lambdaParameterPatternDiagnostic token)
+          parsePatternLambdaParameter tokens
       | otherwise ->
-          Right (mkIdentifier parameterName, rest)
+          Right (SurfaceLambdaIdentifier (mkIdentifier parameterName), rest)
     [] ->
       Left (parseDiagnostic "expected identifier before end of input in lambda parameter list")
     token : _ ->
@@ -1620,13 +1607,10 @@ parseLambdaParameter tokens =
             )
         )
 
-lambdaParameterPatternDiagnostic :: Token -> Diagnostic
-lambdaParameterPatternDiagnostic patternToken =
-  parseDiagnostic
-    ( "lambda parameter patterns are not implemented at "
-        <> renderSourceSpan (tokenSpan patternToken)
-        <> "; lambda-parameter pattern semantics are deferred"
-    )
+parsePatternLambdaParameter :: [Token] -> Either Diagnostic (SurfaceLambdaParameter, [Token])
+parsePatternLambdaParameter tokens = do
+  (patternValue, rest) <- parseCasePattern tokens
+  Right (SurfaceLambdaPattern patternValue, rest)
 
 collectUntilDot :: [Token] -> Either Diagnostic ([Token], [Token])
 collectUntilDot = go []

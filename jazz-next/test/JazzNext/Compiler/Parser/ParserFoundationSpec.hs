@@ -69,10 +69,13 @@ tests =
     ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot),
     ("rejects integer literal overflow", testRejectsIntOverflow),
     ("rejects negative literal syntax for now", testRejectsNegativeLiteralSyntax),
-    ("parses class and impl as ordinary binding names", testParsesAbstractionKeywordsAsBindingNames),
-    ("parses class and impl as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames),
+    ("parses abstraction keywords as ordinary binding names", testParsesAbstractionKeywordsAsBindingNames),
+    ("parses abstraction keywords as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames),
+    ("parses trait as an ordinary import alias", testParsesTraitAsImportAlias),
     ("rejects class abstraction declarations as deferred syntax", testRejectsClassAbstractionSyntax),
-    ("rejects impl abstraction declarations as deferred syntax", testRejectsImplAbstractionSyntax)
+    ("rejects impl abstraction declarations as deferred syntax", testRejectsImplAbstractionSyntax),
+    ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax),
+    ("rejects trait abstraction declarations inside module bodies", testRejectsTraitAbstractionSyntaxInModuleBody)
   ]
 
 testParseLetAndExpr :: IO ()
@@ -498,30 +501,46 @@ testRejectsNegativeLiteralSyntax =
 testParsesAbstractionKeywordsAsBindingNames :: IO ()
 testParsesAbstractionKeywordsAsBindingNames =
   assertEqual
-    "class/impl binding names"
+    "abstraction keyword binding names"
     ( Right
         ( SEBlock
             [ SSLet "class" (SourceSpan 1 1) (SELit (SLInt 1)),
-              SSLet "impl" (SourceSpan 2 1) (SEVar "class")
+              SSLet "impl" (SourceSpan 2 1) (SEVar "class"),
+              SSLet "trait" (SourceSpan 3 1) (SEVar "impl")
             ]
         )
     )
-    (parseSurfaceProgram "class = 1.\nimpl = class.")
+    (parseSurfaceProgram "class = 1.\nimpl = class.\ntrait = impl.")
 
 testParsesAbstractionKeywordsAsSignatureNames :: IO ()
 testParsesAbstractionKeywordsAsSignatureNames =
   assertEqual
-    "class/impl signature names"
+    "abstraction keyword signature names"
     ( Right
         ( SEBlock
             [ SSSignature "class" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeInt),
               SSLet "class" (SourceSpan 2 1) (SELit (SLInt 1)),
               SSSignature "impl" (SourceSpan 3 1) (SurfaceSignatureType SurfaceTypeBool),
-              SSLet "impl" (SourceSpan 4 1) (SELit (SLBool True))
+              SSLet "impl" (SourceSpan 4 1) (SELit (SLBool True)),
+              SSSignature "trait" (SourceSpan 5 1) (SurfaceSignatureType SurfaceTypeInt),
+              SSLet "trait" (SourceSpan 6 1) (SELit (SLInt 2))
             ]
         )
     )
-    (parseSurfaceProgram "class :: Int.\nclass = 1.\nimpl :: Bool.\nimpl = True.")
+    (parseSurfaceProgram "class :: Int.\nclass = 1.\nimpl :: Bool.\nimpl = True.\ntrait :: Int.\ntrait = 2.")
+
+testParsesTraitAsImportAlias :: IO ()
+testParsesTraitAsImportAlias =
+  assertEqual
+    "trait import alias lookup"
+    ( Right
+        ( SEBlock
+            [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "trait") Nothing,
+              SSExpr (SourceSpan 2 1) (SEQualifiedVar "trait" "subtract")
+            ]
+        )
+    )
+    (parseSurfaceProgram "import Lib::Math as trait.\ntrait::subtract.")
 
 testRejectsClassAbstractionSyntax :: IO ()
 testRejectsClassAbstractionSyntax =
@@ -536,3 +555,17 @@ testRejectsImplAbstractionSyntax =
     "impl abstraction syntax deferred"
     "unsupported abstraction syntax 'impl'"
     (parseSurfaceProgram "impl Eq { }.")
+
+testRejectsTraitAbstractionSyntax :: IO ()
+testRejectsTraitAbstractionSyntax =
+  assertLeftDiagnosticContains
+    "trait abstraction syntax non-canonical"
+    "unsupported abstraction syntax 'trait'"
+    (parseSurfaceProgram "trait Eq { }.")
+
+testRejectsTraitAbstractionSyntaxInModuleBody :: IO ()
+testRejectsTraitAbstractionSyntaxInModuleBody =
+  assertLeftDiagnosticContains
+    "trait abstraction syntax in module body"
+    "unsupported abstraction syntax 'trait'"
+    (parseSurfaceProgram "module App::Core {\ntrait Eq { }.\n}")

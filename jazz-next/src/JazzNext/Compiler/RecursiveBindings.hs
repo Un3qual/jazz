@@ -439,3 +439,7 @@ extendBoundWithPattern pattern bound =
       foldl' (flip extendBoundWithPattern) bound patterns
     PList patterns ->
       foldl' (flip extendBoundWithPattern) bound patterns
+    PConsList headPattern tailPattern ->
+      extendBoundWithPattern tailPattern (extendBoundWithPattern headPattern bound)
+    PTuple patterns ->
+      foldl' (flip extendBoundWithPattern) bound patterns

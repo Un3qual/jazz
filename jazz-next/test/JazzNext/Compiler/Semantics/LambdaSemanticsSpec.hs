@@ -43,6 +43,12 @@ tests =
     ("mutual recursion through alias bridge runs", testMutualRecursiveAliasBridgeRuntime),
     ("recursive type seeding preserves earlier outer rebinding", testRecursiveTypeSeedingPreservesOuterBindingRuntime),
     ("higher-order apply lambda runs", testHigherOrderApplyRuntime),
+    ("tuple-pattern lambda parameter runs", testTuplePatternLambdaParameterRuntime),
+    ("cons-like list lambda parameter runs", testConsLikeListPatternLambdaParameterRuntime),
+    ("constructor-pattern lambda parameter runs", testConstructorPatternLambdaParameterRuntime),
+    ("wildcard lambda parameter runs", testWildcardPatternLambdaParameterRuntime),
+    ("pattern lambda parameter reports no match at runtime", testPatternLambdaParameterNoMatchRuntime),
+    ("pattern lambda parameter keeps binder type constraints", testPatternLambdaParameterTypeMismatch),
     ("signature-checked lambda rejects mismatched application", testLambdaSignatureMismatch),
     ("recursive lambda rejects mismatched recursive application", testRecursiveLambdaTypeMismatch),
     ("recursive binding mismatch reports binding-specific diagnostic", testRecursiveBindingMismatchDiagnostic),
@@ -172,6 +178,57 @@ testHigherOrderApplyRuntime = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
+
+testTuplePatternLambdaParameterRuntime :: IO ()
+testTuplePatternLambdaParameterRuntime = do
+  result <- runSource defaultWarningSettings "sumPair = \\((left, right)) -> left + right. sumPair (1, 2)."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testConsLikeListPatternLambdaParameterRuntime :: IO ()
+testConsLikeListPatternLambdaParameterRuntime = do
+  result <- runSource defaultWarningSettings "sumFirstTwo = \\([head | tail]) -> head + hd tail. sumFirstTwo [1, 2]."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testConstructorPatternLambdaParameterRuntime :: IO ()
+testConstructorPatternLambdaParameterRuntime = do
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value. get = \\(Just item) -> item. get (Just 41)."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "41") (runOutput result)
+
+testWildcardPatternLambdaParameterRuntime :: IO ()
+testWildcardPatternLambdaParameterRuntime = do
+  result <- runSource defaultWarningSettings "ignore = \\(_) -> 1. ignore True."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1") (runOutput result)
+
+testPatternLambdaParameterNoMatchRuntime :: IO ()
+testPatternLambdaParameterNoMatchRuntime = do
+  result <- runSource defaultWarningSettings "first = \\([head | tail]) -> head. first []."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticCode
+    "pattern lambda no-match runtime code"
+    "E3022"
+    (runRuntimeErrors result)
+  assertEqual "runtime output" Nothing (runOutput result)
+
+testPatternLambdaParameterTypeMismatch :: IO ()
+testPatternLambdaParameterTypeMismatch = do
+  result <- compileSource defaultWarningSettings "sumPair = \\((left, right)) -> left + right. sumPair (True, 1)."
+  assertSingleDiagnosticCode
+    "pattern lambda type mismatch code"
+    "E2006"
+    (compileErrors result)
 
 testLambdaSignatureMismatch :: IO ()
 testLambdaSignatureMismatch = do

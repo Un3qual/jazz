@@ -691,6 +691,19 @@ matchPattern scrutineeValue pattern =
           | length elements == length patterns ->
               matchPatternList elements patterns
         _ -> Nothing
+    PConsList headPattern tailPattern ->
+      case scrutineeValue of
+        VList (headValue : tailValues) -> do
+          headBindings <- matchPattern headValue headPattern
+          tailBindings <- matchPattern (VList tailValues) tailPattern
+          Just (tailBindings `Map.union` headBindings)
+        _ -> Nothing
+    PTuple patterns ->
+      case scrutineeValue of
+        VTuple elements
+          | length elements == length patterns ->
+              matchPatternList elements patterns
+        _ -> Nothing
 
 matchPatternList :: [RuntimeValue] -> [Pattern] -> Maybe RuntimeEnv
 matchPatternList values patterns =
@@ -962,4 +975,8 @@ patternBoundNames pattern =
     PConstructor _ patterns ->
       Set.unions (map patternBoundNames patterns)
     PList patterns ->
+      Set.unions (map patternBoundNames patterns)
+    PConsList headPattern tailPattern ->
+      Set.union (patternBoundNames headPattern) (patternBoundNames tailPattern)
+    PTuple patterns ->
       Set.unions (map patternBoundNames patterns)
