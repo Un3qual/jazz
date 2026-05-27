@@ -209,22 +209,13 @@ looksLikeReservedAbstractionDeclaration name tokensAfterKeyword =
   case name of
     "class" -> looksLikeAbstractionDeclaration tokensAfterKeyword
     "impl" -> looksLikeAbstractionDeclaration tokensAfterKeyword
-    "trait" -> looksLikeTraitAbstractionDeclaration tokensAfterKeyword
+    "trait" -> looksLikeAbstractionDeclaration tokensAfterKeyword
     _ -> False
 
 looksLikeAbstractionDeclaration :: [Token] -> Bool
 looksLikeAbstractionDeclaration tokensAfterKeyword =
   case tokensAfterKeyword of
     Token {tokenKind = TIdentifier {}} : rest -> hasAbstractionBodyBeforeTerminator rest
-    Token {tokenKind = TAt} : rest -> hasAbstractionBodyBeforeTerminator rest
-    _ -> False
-
-looksLikeTraitAbstractionDeclaration :: [Token] -> Bool
-looksLikeTraitAbstractionDeclaration tokensAfterKeyword =
-  case tokensAfterKeyword of
-    Token {tokenKind = TIdentifier traitName} : rest
-      | isConstructorIdentifierText traitName ->
-          hasAbstractionBodyBeforeTerminator rest
     Token {tokenKind = TAt} : rest -> hasAbstractionBodyBeforeTerminator rest
     _ -> False
 

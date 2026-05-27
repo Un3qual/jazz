@@ -696,7 +696,7 @@ matchPattern scrutineeValue pattern =
         VList (headValue : tailValues) -> do
           headBindings <- matchPattern headValue headPattern
           tailBindings <- matchPattern (VList tailValues) tailPattern
-          Just (headBindings `Map.union` tailBindings)
+          Just (tailBindings `Map.union` headBindings)
         _ -> Nothing
     PTuple patterns ->
       case scrutineeValue of

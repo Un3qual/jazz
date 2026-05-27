@@ -72,10 +72,10 @@ tests =
     ("parses abstraction keywords as ordinary binding names", testParsesAbstractionKeywordsAsBindingNames),
     ("parses abstraction keywords as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames),
     ("parses trait as an ordinary import alias", testParsesTraitAsImportAlias),
-    ("parses trait-led expression calls with block arguments", testParsesTraitLedExpressionCallWithBlockArgument),
     ("rejects class abstraction declarations as deferred syntax", testRejectsClassAbstractionSyntax),
     ("rejects impl abstraction declarations as deferred syntax", testRejectsImplAbstractionSyntax),
     ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax),
+    ("rejects lowercase trait abstraction declarations", testRejectsLowercaseTraitAbstractionSyntax),
     ("rejects trait abstraction declarations inside module bodies", testRejectsTraitAbstractionSyntaxInModuleBody)
   ]
 
@@ -543,25 +543,6 @@ testParsesTraitAsImportAlias =
     )
     (parseSurfaceProgram "import Lib::Math as trait.\ntrait::subtract.")
 
-testParsesTraitLedExpressionCallWithBlockArgument :: IO ()
-testParsesTraitLedExpressionCallWithBlockArgument =
-  assertEqual
-    "trait-led expression call"
-    ( Right
-        ( SEBlock
-            [ SSExpr
-                (SourceSpan 1 1)
-                ( SEApply
-                    (SEApply (SEVar "trait") (SEVar "value"))
-                    ( SEBlock
-                        [SSExpr (SourceSpan 1 15) (SELit (SLInt 1))]
-                    )
-                )
-            ]
-        )
-    )
-    (parseSurfaceProgram "trait value { 1. }.")
-
 testRejectsClassAbstractionSyntax :: IO ()
 testRejectsClassAbstractionSyntax =
   assertLeftDiagnosticContains
@@ -582,6 +563,13 @@ testRejectsTraitAbstractionSyntax =
     "trait abstraction syntax non-canonical"
     "unsupported abstraction syntax 'trait'"
     (parseSurfaceProgram "trait Eq { }.")
+
+testRejectsLowercaseTraitAbstractionSyntax :: IO ()
+testRejectsLowercaseTraitAbstractionSyntax =
+  assertLeftDiagnosticContains
+    "lowercase trait abstraction syntax non-canonical"
+    "unsupported abstraction syntax 'trait'"
+    (parseSurfaceProgram "trait eq { }.")
 
 testRejectsTraitAbstractionSyntaxInModuleBody :: IO ()
 testRejectsTraitAbstractionSyntaxInModuleBody =
