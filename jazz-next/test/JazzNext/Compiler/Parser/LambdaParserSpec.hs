@@ -9,8 +9,10 @@ import Control.Exception
   )
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( Expr (..),
+  ( CaseArm (..),
+    Expr (..),
     Literal (..),
+    Pattern (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -21,6 +23,7 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfaceStatement (..)
   )
@@ -47,11 +50,18 @@ tests =
     ("parses lambda body application", testParsesLambdaBodyApplication),
     ("parses parenthesized lambda in application position", testParsesParenthesizedLambdaApplication),
     ("lowering nests multi-argument lambdas into unary core nodes", testLowerNestsMultiArgumentLambda),
+    ("lowering desugars pattern parameters through case nodes", testLowerDesugarsPatternParametersThroughCase),
     ("lowering preserves duplicate parameter shadowing", testLowerPreservesDuplicateParameterShadowing),
     ("lowering rejects impossible empty lambda surface nodes", testLowerRejectsImpossibleEmptyLambda),
     ("rejects empty lambda parameter list", testRejectsEmptyLambdaParameters),
     ("rejects lambda without parenthesized parameters", testRejectsUnparenthesizedLambda),
     ("rejects lambda parameter trailing comma", testRejectsTrailingCommaParameterList),
+    ("parses wildcard lambda parameter patterns", testParsesWildcardLambdaParameterPattern),
+    ("parses tuple-shaped lambda parameter patterns", testParsesTupleLambdaParameterPattern),
+    ("parses bracketed-list lambda parameter patterns", testParsesListLambdaParameterPattern),
+    ("parses cons-like lambda parameter patterns", testParsesConsLikeListLambdaParameterPattern),
+    ("parses boolean literal lambda parameter patterns", testParsesBooleanLiteralLambdaParameterPattern),
+    ("parses constructor-like lambda parameter patterns", testParsesConstructorLikeLambdaParameterPattern),
     ("rejects reserved keyword as lambda parameter", testRejectsKeywordLambdaParameter)
   ]
 
@@ -61,7 +71,7 @@ testParsesSingleArgumentLambda =
     "single-argument lambda AST"
     ( Right
         ( SEBlock
-            [ SSLet "id" (SourceSpan 1 1) (SELambda ["x"] (SEVar "x"))
+            [ SSLet "id" (SourceSpan 1 1) (SELambda [SurfaceLambdaIdentifier "x"] (SEVar "x"))
             ]
         )
     )
@@ -73,7 +83,7 @@ testParsesMultiArgumentLambda =
     "multi-argument lambda AST"
     ( Right
         ( SEBlock
-            [ SSLet "const" (SourceSpan 1 1) (SELambda ["x", "y"] (SEVar "x"))
+            [ SSLet "const" (SourceSpan 1 1) (SELambda [SurfaceLambdaIdentifier "x", SurfaceLambdaIdentifier "y"] (SEVar "x"))
             ]
         )
     )
@@ -89,7 +99,7 @@ testParsesLambdaBodyApplication =
                 "apply"
                 (SourceSpan 1 1)
                 ( SELambda
-                    ["f", "x"]
+                    [SurfaceLambdaIdentifier "f", SurfaceLambdaIdentifier "x"]
                     (SEApply (SEVar "f") (SEVar "x"))
                 )
             ]
@@ -106,7 +116,7 @@ testParsesParenthesizedLambdaApplication =
             [ SSLet
                 "run"
                 (SourceSpan 1 1)
-                (SEApply (SELambda ["x"] (SEVar "x")) (SELit (SLInt 1)))
+                (SEApply (SELambda [SurfaceLambdaIdentifier "x"] (SEVar "x")) (SELit (SLInt 1)))
             ]
         )
     )
@@ -125,6 +135,31 @@ testLowerNestsMultiArgumentLambda =
             "const"
             (SourceSpan 1 1)
             (ELambda "x" (ELambda "y" (EVar "x")))
+        ]
+
+testLowerDesugarsPatternParametersThroughCase :: IO ()
+testLowerDesugarsPatternParametersThroughCase =
+  assertRight
+    "parse + lower tuple-pattern lambda"
+    (parseSurfaceProgram "sumPair = \\((left, right)) -> left + right.")
+    (\surfaceProgram -> assertEqual "lowered pattern lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    generatedName = "$lambda_pattern_arg_1"
+    expectedProgram =
+      EBlock
+        [ SLet
+            "sumPair"
+            (SourceSpan 1 1)
+            ( ELambda
+                generatedName
+                ( EPatternCase
+                    (EVar generatedName)
+                    [ CaseArm
+                        (PTuple [PVariable "left", PVariable "right"])
+                        (EBinary "+" (EVar "left") (EVar "right"))
+                    ]
+                )
+            )
         ]
 
 testLowerPreservesDuplicateParameterShadowing :: IO ()
@@ -177,6 +212,48 @@ testRejectsTrailingCommaParameterList =
     "lambda trailing comma"
     "expected identifier"
     (parseSurfaceProgram "f = \\(x,) -> x.")
+
+testParsesWildcardLambdaParameterPattern :: IO ()
+testParsesWildcardLambdaParameterPattern =
+  assertRight
+    "wildcard lambda parameter pattern"
+    (parseSurfaceProgram "f = \\(_) -> 1.")
+    (\_ -> pure ())
+
+testParsesTupleLambdaParameterPattern :: IO ()
+testParsesTupleLambdaParameterPattern =
+  assertRight
+    "tuple lambda parameter pattern"
+    (parseSurfaceProgram "f = \\((left, right)) -> left.")
+    (\_ -> pure ())
+
+testParsesListLambdaParameterPattern :: IO ()
+testParsesListLambdaParameterPattern =
+  assertRight
+    "list lambda parameter pattern"
+    (parseSurfaceProgram "f = \\([head, tail]) -> head.")
+    (\_ -> pure ())
+
+testParsesConsLikeListLambdaParameterPattern :: IO ()
+testParsesConsLikeListLambdaParameterPattern =
+  assertRight
+    "cons-like list lambda parameter pattern"
+    (parseSurfaceProgram "f = \\([head | tail]) -> head.")
+    (\_ -> pure ())
+
+testParsesBooleanLiteralLambdaParameterPattern :: IO ()
+testParsesBooleanLiteralLambdaParameterPattern =
+  assertRight
+    "boolean literal lambda parameter pattern"
+    (parseSurfaceProgram "f = \\(True) -> 1.")
+    (\_ -> pure ())
+
+testParsesConstructorLikeLambdaParameterPattern :: IO ()
+testParsesConstructorLikeLambdaParameterPattern =
+  assertRight
+    "constructor-like lambda parameter pattern"
+    (parseSurfaceProgram "f = \\(Just item) -> item.")
+    (\_ -> pure ())
 
 testRejectsKeywordLambdaParameter :: IO ()
 testRejectsKeywordLambdaParameter =

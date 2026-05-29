@@ -1635,6 +1635,22 @@ mkListPatternTypeMismatchError scrutineeType =
     "E2011"
     ("case pattern of list type does not match scrutinee type " <> renderType scrutineeType)
 
+mkTuplePatternTypeMismatchError :: ExpressionType -> Diagnostic
+mkTuplePatternTypeMismatchError scrutineeType =
+  mkDiagnostic
+    "E2011"
+    ("tuple case pattern does not match scrutinee type " <> renderType scrutineeType)
+
+mkTuplePatternArityMismatchError :: Int -> Int -> Diagnostic
+mkTuplePatternArityMismatchError patternArity scrutineeArity =
+  mkDiagnostic
+    "E2011"
+    ( "tuple case pattern expects "
+        <> Text.pack (show patternArity)
+        <> " element(s), found "
+        <> Text.pack (show scrutineeArity)
+    )
+
 mkPatternBranchTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkPatternBranchTypeMismatchError leftType rightType =
   mkDiagnostic
@@ -1765,6 +1781,10 @@ extendBoundWithPattern pattern bound =
       foldl' (flip extendBoundWithPattern) bound patterns
     PList patterns ->
       foldl' (flip extendBoundWithPattern) bound patterns
+    PConsList headPattern tailPattern ->
+      extendBoundWithPattern tailPattern (extendBoundWithPattern headPattern bound)
+    PTuple patterns ->
+      foldl' (flip extendBoundWithPattern) bound patterns
 
 inferPatternCaseType ::
   BuiltinResolutionMode ->
@@ -1873,6 +1893,10 @@ patternDuplicateBinderNames pattern =
           collectNested seen duplicatesAcc nestedPatterns
         PList nestedPatterns ->
           collectNested seen duplicatesAcc nestedPatterns
+        PConsList headPattern tailPattern ->
+          collectNested seen duplicatesAcc [headPattern, tailPattern]
+        PTuple nestedPatterns ->
+          collectNested seen duplicatesAcc nestedPatterns
 
     collectNested seen duplicatesAcc =
       foldl'
@@ -1911,6 +1935,10 @@ inferPatternType env scrutineeType pattern state =
       inferConstructorPatternType env scrutineeType constructorName patterns state
     PList patterns ->
       inferListPatternType env scrutineeType patterns state
+    PConsList headPattern tailPattern ->
+      inferConsListPatternType env scrutineeType headPattern tailPattern state
+    PTuple patterns ->
+      inferTuplePatternType env scrutineeType patterns state
 
 inferConstructorPatternType ::
   TypeEnv ->
@@ -2028,6 +2056,106 @@ inferListElementPatterns env elementType patterns initialState =
             if patternSkipsBranchType mergedTyping
               then (mergedTyping, rollbackSkippedPatternState initialState stateAfterPattern)
               else go mergedTyping stateAfterPattern rest
+
+inferConsListPatternType ::
+  TypeEnv ->
+  ExpressionType ->
+  Pattern ->
+  Pattern ->
+  InferState ->
+  (PatternTyping, InferState)
+inferConsListPatternType env scrutineeType headPattern tailPattern state =
+  let (elementType, stateWithElementType) = freshTypeVar state
+      listPatternType = TListType elementType
+      stateAfterListCheck =
+        case unifyTypes scrutineeType listPatternType stateWithElementType of
+          Just unifiedState -> unifiedState
+          Nothing ->
+            addTypeError
+              stateWithElementType
+              ( mkListPatternTypeMismatchError
+                  (resolveType stateWithElementType scrutineeType)
+              )
+   in
+    if hasNewPatternError stateWithElementType stateAfterListCheck
+      then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterListCheck)
+      else
+        inferConsListSubpatterns
+          env
+          (resolveType stateAfterListCheck elementType)
+          headPattern
+          tailPattern
+          stateAfterListCheck
+
+inferConsListSubpatterns ::
+  TypeEnv ->
+  ExpressionType ->
+  Pattern ->
+  Pattern ->
+  InferState ->
+  (PatternTyping, InferState)
+inferConsListSubpatterns env elementType headPattern tailPattern initialState =
+  let (headTyping, stateAfterHeadPattern) =
+        inferPatternType env elementType headPattern initialState
+   in
+    if patternSkipsBranchType headTyping
+      then (headTyping, rollbackSkippedPatternState initialState stateAfterHeadPattern)
+      else
+        let tailListType = TListType (resolveType stateAfterHeadPattern elementType)
+            (tailTyping, stateAfterTailPattern) =
+              inferPatternType env tailListType tailPattern stateAfterHeadPattern
+            mergedTyping = mergePatternTyping tailTyping headTyping
+         in
+          if patternSkipsBranchType mergedTyping
+            then (mergedTyping, rollbackSkippedPatternState initialState stateAfterTailPattern)
+            else (mergedTyping, stateAfterTailPattern)
+
+inferTuplePatternType ::
+  TypeEnv ->
+  ExpressionType ->
+  [Pattern] ->
+  InferState ->
+  (PatternTyping, InferState)
+inferTuplePatternType env scrutineeType patterns state =
+  case resolveType state scrutineeType of
+    TTupleType elementTypes
+      | length elementTypes == length patterns ->
+          inferConstructorArgumentPatterns env elementTypes patterns state
+      | otherwise ->
+          ( skipBranchPatternTyping,
+            addTypeError
+              state
+              (mkTuplePatternArityMismatchError (length patterns) (length elementTypes))
+          )
+    resolvedScrutineeType ->
+      let (elementTypes, stateWithElementTypes) =
+            freshTypeVars (length patterns) state
+          tuplePatternType = TTupleType elementTypes
+          stateAfterTupleCheck =
+            case unifyTypes scrutineeType tuplePatternType stateWithElementTypes of
+              Just unifiedState -> unifiedState
+              Nothing ->
+                addTypeError
+                  stateWithElementTypes
+                  (mkTuplePatternTypeMismatchError resolvedScrutineeType)
+       in
+        if hasNewPatternError stateWithElementTypes stateAfterTupleCheck
+          then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterTupleCheck)
+          else
+            inferConstructorArgumentPatterns
+              env
+              (map (resolveType stateAfterTupleCheck) elementTypes)
+              patterns
+              stateAfterTupleCheck
+  where
+    freshTypeVars count initialState =
+      go [] initialState count
+
+    go reversedTypes stateAcc remainingCount
+      | remainingCount <= 0 = (reverse reversedTypes, stateAcc)
+      | otherwise =
+          let (nextType, nextState) = freshTypeVar stateAcc
+           in go (nextType : reversedTypes) nextState (remainingCount - 1)
 
 rollbackSkippedPatternState :: InferState -> InferState -> InferState
 rollbackSkippedPatternState stableState failedState =

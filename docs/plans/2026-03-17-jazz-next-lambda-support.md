@@ -1,22 +1,27 @@
 ---
-id: JN-LAMBDA-PARAM-PATTERN-REJECT-001
-status: ready
-priority: P2
-size: S
+id: JN-LAMBDA-PARAM-PATTERN-SEMANTICS-001
+status: done
+priority: P1
+size: M
 kind: impl
 autonomous_ready: yes
-depends_on: []
-last_verified: 2026-05-23
-plan_section: "Follow-up Batch: Lambda parameter pattern rejection boundary"
+depends_on:
+  - JN-CONS-LIST-PATTERN-SEMANTICS-001
+last_verified: 2026-05-25
+plan_section: "Follow-up Batch: Lambda parameter pattern semantics"
 target_paths:
+  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
   - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
   - jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Lambda parameter pattern-shaped forms reject with deterministic deferred pattern-parameter diagnostics while canonical identifier-only lambda parsing and lowering remain unchanged."
+deliverable: "Pattern-shaped lambda parameters parse into surface parameter patterns and lower into ordinary unary core lambdas plus internal pattern-case bodies, reusing active case-pattern type/runtime semantics."
 ---
 
 # Jazz-Next Lambda Support Implementation Plan
@@ -50,6 +55,7 @@ deliverable: "Lambda parameter pattern-shaped forms reject with deterministic de
 - [x] Review follow-up complete: wrapped alias-only recursive cycles now resolve to deterministic `E3021` instead of bypassing the recursive alias guard.
 - [x] Review follow-up complete: wrapped recursive alias cycles now preserve `if`/`case` condition evaluation before alias resolution while still returning deterministic `E3021` on the selected alias branch.
 - [x] Next task queued and un-deferred: shared recursive-binding helpers landed in `JazzNext.Compiler.RecursiveBindings` per `docs/plans/2026-03-17-jazz-next-shared-recursive-binding-helpers.md`.
+- [x] On `2026-05-25`, landed lambda parameter pattern semantics by lowering pattern parameters through ordinary unary lambdas and internal pattern-case bodies.
 
 ## Next Task
 
@@ -61,31 +67,31 @@ deliverable: "Lambda parameter pattern-shaped forms reject with deterministic de
 In scope:
 
 - canonical lambda syntax `\(x) -> expr` and `\(x, y) -> expr`
-- identifier-only parameter lists
-- lowering multi-argument lambdas into nested unary core lambdas
+- identifier and pattern-shaped parameter lists
+- lowering multi-argument lambdas into nested unary core lambdas, with pattern
+  parameters lowering through internal `EPatternCase` bodies
 - lexical closure capture in runtime execution
 - type inference for lambda introduction and ordinary application
 - docs/tracker updates needed to stop relying on legacy-only evidence for first-class functions
 
-Out of scope:
+Out of scope for the first lambda batch:
 
-- pattern lambda parameters
+- pattern lambda parameters, now handled by the follow-up semantics batch below
 - `class` / `impl` parser support
-- tuple parameters or tuple literals as lambda arguments
-- general ADT / pattern matching execution work
+- pattern features beyond the active case-pattern subset
 - new warning categories or purity-policy redesign
 
 ## Follow-up Batch: Lambda parameter pattern rejection boundary
 
-Next executor-safe batch. It keeps lambda support identifier-only and only makes
-the deferred parameter-pattern boundary explicit.
+This batch landed on `2026-05-24`. It keeps lambda support identifier-only and
+only makes the deferred parameter-pattern boundary explicit.
 
-- [ ] Reject tuple-shaped, bracketed-list, wildcard, and constructor-like lambda
+- [x] Reject tuple-shaped, bracketed-list, wildcard, and constructor-like lambda
   parameter forms with a deterministic parser diagnostic that names deferred
   lambda-parameter pattern semantics.
-- [ ] Preserve canonical identifier-only lambda parsing and multi-argument
+- [x] Preserve canonical identifier-only lambda parsing and multi-argument
   lowering behavior.
-- [ ] Add focused parser coverage in the lambda parser suite.
+- [x] Add focused parser coverage in the lambda parser suite.
 
 Batch files:
 
@@ -96,6 +102,41 @@ Batch verification:
 
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Follow-up Batch: Lambda parameter pattern semantics
+
+This batch landed on `2026-05-25`. It consumed the rejection boundary by
+lowering pattern-shaped lambda parameters through the existing `case` pattern
+engine instead of adding a second runtime matcher.
+
+- [x] Represent lambda parameters as either identifiers or surface patterns.
+- [x] Parse wildcard, tuple, bracketed-list, cons-like list, and constructor
+  parameter patterns while preserving the existing identifier-parameter syntax.
+- [x] Lower each pattern parameter to an ordinary internal unary core lambda
+  whose body performs a single-arm `EPatternCase` over the generated argument,
+  then continue nesting multi-argument lambdas in source order.
+- [x] Reuse existing pattern typing, binder scoping, and runtime no-match
+  diagnostics; do not add a new core callable form.
+- [x] Add parser and semantic coverage for accepted destructuring parameters,
+  typed binder failures, and runtime no-match behavior.
+
+Batch files:
+
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs`
+
+Batch verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs
 bash jazz-next/scripts/test-warning-config.sh
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
@@ -295,7 +336,7 @@ git commit -m "feat(jazz-next): add canonical lambda closures"
 
 Reflect that active `jazz-next` now supports:
 
-- canonical identifier-only lambdas
+- canonical lambdas with identifier or pattern-shaped parameters
 - first-class user-defined functions
 - currying through nested unary lambda lowering plus ordinary application
 

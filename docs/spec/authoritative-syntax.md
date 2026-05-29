@@ -1,10 +1,10 @@
 # Authoritative Syntax
 
-Status: active (module/import and lambda slices are implemented in `jazz-next`; `class`/`impl` abstraction declaration forms are reserved by parser diagnostics while semantics remain pending)
+Status: active (module/import and lambda slices are implemented in `jazz-next`; `class`/`impl` abstraction declaration forms are reserved by parser diagnostics, non-canonical `trait` declarations reject explicitly, and abstraction semantics remain pending)
 Locked decisions: 2026-03-02
 Primary plan: `docs/plans/spec-cleanup/2026-03-02/decisions/01-authoritative-syntax.md`
 
-Implementation note (2026-05-23): `jazz-next` accepts canonical brace-bodied module declarations (`module A::B { ... }`), canonical identifier-only lambdas (`\(x) -> expr`), list literals/types, tuple literals, and concrete tuple signature types in the active parser/type/runtime/CLI path. The active parser also reserves top-level and module-body `class`/`impl` declaration-shaped forms such as `class Eq { ... }` with deterministic unsupported-syntax diagnostics; ordinary uses of those identifiers as binding names, signature names, or qualified aliases remain valid, and class/impl semantics remain future work.
+Implementation note (2026-05-25): `jazz-next` accepts canonical brace-bodied module declarations (`module A::B { ... }`), canonical lambdas (`\(x) -> expr`) including pattern-shaped parameters such as `_`, `(left, right)`, `[head | tail]`, and `Just item`, list literals/types, tuple literals, and concrete tuple signature types in the active parser/type/runtime/CLI path. The active parser also reserves top-level and module-body `class`/`impl` declaration-shaped forms such as `class Eq { ... }` with deterministic unsupported-syntax diagnostics, and rejects non-canonical `trait ... { ... }` declaration-shaped forms with diagnostics that point future abstraction syntax back to `class`/`impl`; ordinary uses of those identifiers as binding names, signature names, or qualified aliases remain valid, and abstraction semantics remain future work.
 
 ## Purpose
 
@@ -20,7 +20,8 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
 1. **Bindings and function definitions**
    - Canonical form: `name = expr.`
    - Optional type signature form: `name :: Type.` directly above its binding.
-   - Lambda form: `\(args) -> expr`.
+   - Lambda form: `\(args) -> expr`; arguments may be identifiers or active
+     pattern forms.
 
 2. **Modules and imports**
    - Module declaration: `module A::B { ... }`
@@ -35,6 +36,7 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
    - Canonical keywords: `class` and `impl`.
    - `trait` is non-canonical and retained only in legacy-reference discussion until migration work is complete.
    - Active `jazz-next` parser behavior reserves top-level and module-body `class`/`impl` declarations and rejects them with deferred class/impl semantics diagnostics until the abstraction model is implemented.
+   - Active `jazz-next` parser behavior rejects non-canonical top-level and module-body `trait` declarations with unsupported-syntax diagnostics that point future abstraction syntax back to `class`/`impl`.
 
 4. **Collections**
    - List literal/type forms remain canonical: `[1, 2, 3]`, `[a]`.
@@ -78,4 +80,5 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
 - [x] `jazz-next/` parser tests aligned to the implemented function/module/lambda slice of the canonical contract.
 - [x] `jazz-next/` implementation aligned to the implemented function/module/lambda slice of the canonical contract.
 - [x] `jazz-next/` parser reserves canonical `class`/`impl` declaration forms with deferred-semantics diagnostics.
+- [x] `jazz-next/` parser rejects non-canonical `trait` declaration forms while preserving ordinary identifier uses.
 - [ ] Summary docs fully converge with implementation behavior.

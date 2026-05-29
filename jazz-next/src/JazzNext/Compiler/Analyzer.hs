@@ -848,6 +848,10 @@ extendBindingsWithPattern pattern bindings =
       foldl' (flip extendBindingsWithPattern) bindings patterns
     PList patterns ->
       foldl' (flip extendBindingsWithPattern) bindings patterns
+    PConsList headPattern tailPattern ->
+      extendBindingsWithPattern tailPattern (extendBindingsWithPattern headPattern bindings)
+    PTuple patterns ->
+      foldl' (flip extendBindingsWithPattern) bindings patterns
 
 patternVisibleBinding :: VisibleBinding
 patternVisibleBinding =

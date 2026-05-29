@@ -89,6 +89,30 @@ tests =
     ( "source pipeline rejects list arm result mismatches",
       testSourcePipelineRejectsListBranchMismatch
     ),
+    ( "source pipeline accepts cons-like list patterns",
+      testSourcePipelineAcceptsConsLikeListPatterns
+    ),
+    ( "source pipeline types cons-like head binders as element types",
+      testSourcePipelineTypesConsLikeHeadBinders
+    ),
+    ( "source pipeline types cons-like tail binders as list types",
+      testSourcePipelineTypesConsLikeTailBinders
+    ),
+    ( "source pipeline rejects cons-like list patterns for incompatible scrutinees",
+      testSourcePipelineRejectsConsLikeListPatternScrutineeMismatch
+    ),
+    ( "source pipeline accepts tuple patterns",
+      testSourcePipelineAcceptsTuplePatterns
+    ),
+    ( "source pipeline types tuple pattern binders as element types",
+      testSourcePipelineTypesTuplePatternBinders
+    ),
+    ( "source pipeline rejects tuple patterns for incompatible scrutinees",
+      testSourcePipelineRejectsTuplePatternScrutineeMismatch
+    ),
+    ( "source pipeline rejects tuple pattern arity mismatches",
+      testSourcePipelineRejectsTuplePatternArityMismatch
+    ),
     ( "source pipeline rejects duplicate pattern binders",
       testSourcePipelineRejectsDuplicatePatternBinders
     ),
@@ -314,6 +338,88 @@ testSourcePipelineRejectsListBranchMismatch = do
   assertSingleDiagnosticContains
     "list branch mismatch text"
     "case arms must have matching types"
+    (compileErrors result)
+
+testSourcePipelineAcceptsConsLikeListPatterns :: IO ()
+testSourcePipelineAcceptsConsLikeListPatterns = do
+  result <- compileSource defaultWarningSettings "values = [1, 2]. x = case values { | [head | tail] -> head + hd tail | [] -> 0 }."
+  assertCompiles "cons-like list pattern" result
+
+testSourcePipelineTypesConsLikeHeadBinders :: IO ()
+testSourcePipelineTypesConsLikeHeadBinders = do
+  result <- compileSource defaultWarningSettings "values = [True]. x = case values { | [head | tail] -> head + 1 | _ -> 0 }."
+  assertSingleDiagnosticCode
+    "cons-like head binder type error code"
+    "E2003"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "cons-like head binder type error text"
+    "cannot apply operator '+' to operands of type Bool and Int"
+    (compileErrors result)
+
+testSourcePipelineTypesConsLikeTailBinders :: IO ()
+testSourcePipelineTypesConsLikeTailBinders = do
+  result <- compileSource defaultWarningSettings "values = [1]. x = case values { | [head | tail] -> tail + 1 | _ -> 0 }."
+  assertSingleDiagnosticCode
+    "cons-like tail binder type error code"
+    "E2003"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "cons-like tail binder type error text"
+    "cannot apply operator '+' to operands of type [Int] and Int"
+    (compileErrors result)
+
+testSourcePipelineRejectsConsLikeListPatternScrutineeMismatch :: IO ()
+testSourcePipelineRejectsConsLikeListPatternScrutineeMismatch = do
+  result <- compileSource defaultWarningSettings "value = 1. x = case value { | [head | tail] -> head | _ -> 0 }."
+  assertSingleDiagnosticCode
+    "cons-like list pattern scrutinee mismatch code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "cons-like list pattern scrutinee mismatch text"
+    "case pattern of list type does not match scrutinee type Int"
+    (compileErrors result)
+
+testSourcePipelineAcceptsTuplePatterns :: IO ()
+testSourcePipelineAcceptsTuplePatterns = do
+  result <- compileSource defaultWarningSettings "pair = (1, 2). x = case pair { | (left, right) -> left + right }."
+  assertCompiles "tuple pattern" result
+
+testSourcePipelineTypesTuplePatternBinders :: IO ()
+testSourcePipelineTypesTuplePatternBinders = do
+  result <- compileSource defaultWarningSettings "pair = (True, 1). x = case pair { | (left, right) -> right + left }."
+  assertSingleDiagnosticCode
+    "tuple pattern binder type error code"
+    "E2003"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "tuple pattern binder type error text"
+    "cannot apply operator '+' to operands of type Int and Bool"
+    (compileErrors result)
+
+testSourcePipelineRejectsTuplePatternScrutineeMismatch :: IO ()
+testSourcePipelineRejectsTuplePatternScrutineeMismatch = do
+  result <- compileSource defaultWarningSettings "value = 1. x = case value { | (left, right) -> left | _ -> 0 }."
+  assertSingleDiagnosticCode
+    "tuple pattern scrutinee mismatch code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "tuple pattern scrutinee mismatch text"
+    "tuple case pattern does not match scrutinee type Int"
+    (compileErrors result)
+
+testSourcePipelineRejectsTuplePatternArityMismatch :: IO ()
+testSourcePipelineRejectsTuplePatternArityMismatch = do
+  result <- compileSource defaultWarningSettings "pair = (1, 2). x = case pair { | (left, right, extra) -> left | _ -> 0 }."
+  assertSingleDiagnosticCode
+    "tuple pattern arity mismatch code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "tuple pattern arity mismatch text"
+    "tuple case pattern expects 3 element(s), found 2"
     (compileErrors result)
 
 testSourcePipelineRejectsDuplicatePatternBinders :: IO ()

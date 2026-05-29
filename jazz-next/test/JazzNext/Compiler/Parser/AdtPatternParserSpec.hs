@@ -69,7 +69,9 @@ tests =
     ("rejects duplicate constructor names in one data declaration", testRejectsDuplicateConstructorsInDataDeclaration),
     ("rejects data declaration with malformed pipe placement", testRejectsDataDeclarationWithMalformedPipePlacement),
     ("rejects data declaration missing terminator", testRejectsDataDeclarationMissingTerminator),
-    ("rejects tuple-shaped case patterns", testRejectsTupleShapedCasePattern),
+    ("parses tuple pattern case arms", testParsesTuplePatternCaseArms),
+    ("parses cons-like list patterns", testParsesConsLikeListPattern),
+    ("parses cons-like list patterns inside constructor patterns", testParsesConsLikeListPatternInsideConstructorPattern),
     ("rejects malformed parenthesized list-like patterns without tuple diagnostic", testRejectsMalformedParenthesizedListLikePattern),
     ("rejects malformed list patterns", testRejectsMalformedListPattern),
     ("rejects malformed later list patterns", testRejectsMalformedLaterListPattern),
@@ -670,18 +672,104 @@ testRejectsDataDeclarationMissingTerminator =
     "expected '.'"
     (parseSurfaceProgram "data Maybe = Just value | Nothing")
 
-testRejectsTupleShapedCasePattern :: IO ()
-testRejectsTupleShapedCasePattern =
-  assertLeftDiagnosticContains
-    "tuple-shaped case pattern"
-    "tuple case patterns are not implemented"
+testParsesTuplePatternCaseArms :: IO ()
+testParsesTuplePatternCaseArms =
+  assertRight
+    "tuple pattern case arm"
     (parseSurfaceProgram "x = case pair { | (left, right) -> left | _ -> 0 }.")
+    (\_ -> pure ())
+
+testParsesConsLikeListPattern :: IO ()
+testParsesConsLikeListPattern =
+  assertRight
+    "cons-like list pattern parse + lower"
+    (parseSurfaceProgram "x = case values { | [head | tail] -> head | _ -> 0 }.")
+    ( \surfaceProgram -> do
+        assertEqual "cons-like list pattern surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "cons-like list pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "values")
+                [ SurfaceCaseArm
+                    (SPConsList (SPVariable "head") (SPVariable "tail"))
+                    (SEVar "head"),
+                  SurfaceCaseArm
+                    SPWildcard
+                    (SELit (SLInt 0))
+                ]
+            )
+        ]
+    expectedLoweredProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "values")
+                [ CaseArm
+                    (PConsList (PVariable "head") (PVariable "tail"))
+                    (EVar "head"),
+                  CaseArm
+                    PWildcard
+                    (ELit (LInt 0))
+                ]
+            )
+        ]
+
+testParsesConsLikeListPatternInsideConstructorPattern :: IO ()
+testParsesConsLikeListPatternInsideConstructorPattern =
+  assertRight
+    "cons-like list pattern inside constructor pattern parse + lower"
+    (parseSurfaceProgram "x = case value { | Just [head | tail] -> head | _ -> 0 }.")
+    ( \surfaceProgram -> do
+        assertEqual "cons-like list constructor surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "cons-like list constructor lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "value")
+                [ SurfaceCaseArm
+                    (SPConstructor "Just" [SPConsList (SPVariable "head") (SPVariable "tail")])
+                    (SEVar "head"),
+                  SurfaceCaseArm
+                    SPWildcard
+                    (SELit (SLInt 0))
+                ]
+            )
+        ]
+    expectedLoweredProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    (PConstructor "Just" [PConsList (PVariable "head") (PVariable "tail")])
+                    (EVar "head"),
+                  CaseArm
+                    PWildcard
+                    (ELit (LInt 0))
+                ]
+            )
+        ]
 
 testRejectsMalformedParenthesizedListLikePattern :: IO ()
 testRejectsMalformedParenthesizedListLikePattern =
   assertLeftDiagnosticContains
     "malformed parenthesized list-like pattern"
-    "expected case pattern"
+    "expected ',' or ']'"
     (parseSurfaceProgram "x = case pair { | (left, [right) ]) -> left | _ -> 0 }.")
 
 testRejectsMalformedListPattern :: IO ()

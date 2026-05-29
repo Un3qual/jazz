@@ -37,6 +37,8 @@ data Pattern
   | PLiteral Literal
   | PConstructor Identifier [Pattern]
   | PList [Pattern]
+  | PConsList Pattern Pattern
+  | PTuple [Pattern]
   deriving (Eq, Show)
 
 -- | One lowered pattern-match arm.

@@ -1,13 +1,13 @@
 ---
 id: JN-TRAIT-SYNTAX-REJECT-001
-status: ready
+status: done
 priority: P2
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-05-23
-plan_section: "Active jazz-next batch: trait declaration rejection boundary"
+last_verified: 2026-05-25
+plan_section: "Completed jazz-next batch: trait declaration rejection boundary"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser.hs
   - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
@@ -102,9 +102,10 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
-## Active jazz-next batch: trait declaration rejection boundary
+## Completed jazz-next batch: trait declaration rejection boundary
 
-Next executor-safe active-path implementation batch. It deliberately stops at a
+This executor-safe active-path implementation batch is complete. It
+deliberately stops at a
 parser boundary and does not add class/impl or trait semantics.
 
 Batch scope:
@@ -128,6 +129,20 @@ bash jazz-next/scripts/test-warning-config.sh
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
+
+Closure evidence:
+
+- `jazz-next/src/JazzNext/Compiler/Parser.hs` rejects top-level and
+  module-body `trait ... { ... }` declaration-shaped forms with deterministic
+  unsupported-syntax diagnostics that name `trait` as non-canonical and point
+  future abstraction syntax back to `class`/`impl`.
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs` covers the
+  RED/GREEN parser boundary for top-level and module-body `trait`
+  declarations, while preserving ordinary binding, signature, and
+  qualified-alias uses of `trait`.
+- `docs/spec/authoritative-syntax.md`, `docs/jazz-language-state.md`, and
+  `docs/execution/queue.md` record the completed active parser boundary while
+  keeping abstraction semantics future work.
 
 ## Historical Verification Evidence
 

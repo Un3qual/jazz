@@ -1,6 +1,6 @@
 # ADT Semantics
 
-Status: active (canonical `data` declarations, constructor values/applications, constructor over-application diagnostics, constructor/list pattern typing and runtime matching, tuple literal values/signature types, and explicit tuple-shaped case-pattern rejection are implemented in `jazz-next`)
+Status: active (canonical `data` declarations, constructor values/applications, constructor over-application diagnostics, constructor/list/tuple pattern typing and runtime matching, and tuple literal values/signature types are implemented in `jazz-next`)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -23,8 +23,9 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
 3. Declared constructor patterns typecheck against ADT scrutinees, bind
    payload variables in arm bodies, and reject unknown or arity-mismatched
    constructor patterns with deterministic `E2011` diagnostics.
-4. The active parser/core path accepts constructor and bracketed-list
-   patterns in `case` arms and lowers them into `EPatternCase`.
+4. The active parser/core path accepts constructor, bracketed-list,
+   cons-like list, and tuple patterns in `case` arms and lowers them into
+   `EPatternCase`.
 5. Bracketed-list patterns typecheck against list scrutinees, bind element
    variables in arm bodies, and match exact-length runtime lists.
 6. Constructor patterns match saturated runtime constructor values with the
@@ -33,10 +34,11 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
    diagnostics with the constructor name plus expected and received arity.
 8. The end-to-end runtime-executed `case` subset is defined in
    `docs/spec/pattern-matching-semantics.md`.
-9. Tuple literal values and concrete tuple signature types are active core
-   runtime/type features in `jazz-next`. Tuple-shaped case patterns reject
-   during parsing with an explicit deferred tuple-pattern diagnostic; tuple
-   pattern semantics remain outside the implemented ADT slice.
+9. Tuple literal values, concrete tuple signature types, and fixed-arity tuple
+   case patterns are active core runtime/type features in `jazz-next`.
+10. Cons-like list patterns such as `[head | tail]` are active `case` patterns:
+    the head subpattern matches the first list element, the tail subpattern
+    matches the remaining list, and empty lists fall through to later arms.
 
 ## ADT Contract
 
@@ -71,10 +73,11 @@ none = Nothing.
    not redefine list semantics in the first slice.
 4. Bracketed list patterns share the active parser/core pattern syntax and
    now have active-path type/runtime semantics for exact-length list shapes.
-5. Tuple values are implemented as core runtime values outside the ADT slice.
-   Tuple-pattern semantics remain outside the first ADT slice until the
-   pattern-specific binder/type/runtime contract is planned on the active path.
-   Tuple-shaped case-pattern syntax is rejected explicitly by the parser.
+   Cons-style bracketed list patterns now have active-path type/runtime
+   semantics for non-empty head/tail list deconstruction.
+5. Tuple values are implemented as core runtime values outside the ADT slice,
+   and tuple case patterns are implemented through the shared pattern-matching
+   subset for fixed-arity tuple scrutinees.
 
 ## Decision Cross-References
 
@@ -89,5 +92,6 @@ none = Nothing.
 1. GADTs, existential constructors, or record/named-field constructors.
 2. Infix constructors or alternate constructor call syntax.
 3. Automatic deriving or trait/class synthesis for user ADTs.
-4. Tuple-constructor sugar, tuple-pattern semantics, or lambda-parameter
-   patterns.
+4. Tuple-constructor sugar or pattern features beyond the committed
+   constructor/list/tuple subset such as guards, or-patterns, as-patterns, and
+   pattern synonyms.
