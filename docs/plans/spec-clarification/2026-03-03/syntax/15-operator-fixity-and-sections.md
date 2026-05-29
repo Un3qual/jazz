@@ -25,6 +25,7 @@ Execution note:
 - [x] Parser/tests aligned with canonical contract
 - [x] Runtime/type/CLI section execution semantics aligned with canonical contract
 - [x] User-defined operator roadmap direction decided (staged)
+- [ ] Queue Stage 2 user-defined operator implementation only after numeric-width/defaulting semantics are specified.
 
 ## Decision Lock (Approved 2026-03-03)
 
@@ -32,6 +33,7 @@ Execution note:
 - [x] Stage architecture must preserve easy completion in later phases (no parser rewrite trap).
 - [x] Built-in operator set and fixity are frozen for v1.
 - [x] Section representation lock (Gate B): explicit AST node for operator sections.
+- [x] Expansion order lock: numeric width/defaulting lands before user-defined operators.
 
 ## Verification Evidence (Current Drift)
 

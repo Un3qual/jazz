@@ -4,7 +4,7 @@ status: done
 priority: P1
 size: M
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on:
   - JN-CONS-LIST-PATTERN-SEMANTICS-001
 last_verified: 2026-05-25

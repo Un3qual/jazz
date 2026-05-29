@@ -1,22 +1,22 @@
 ---
-id: JN-TYPE-SIGNATURE-DIAG-SPANS-001
-status: done
-priority: P1
+id: JN-TYPE-GRAMMAR-REBASE-CLOSURE-001
+status: ready
+priority: P2
 size: S
-kind: impl
+kind: docs
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-05-22
-plan_section: "Milestone 4 / Batch 1: Unsupported signature diagnostic spans"
+last_verified: 2026-05-29
+plan_section: "Milestone 5: Verification And Tracker Closure"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md
+  - docs/spec/semantics/bindings-and-signatures.md
+  - docs/jazz-language-state.md
+  - docs/execution/queue.md
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Unsupported structured signature diagnostics consistently carry the attached signature statement span, with focused source-pipeline coverage for E2009 constrained-signature invalid cases."
+deliverable: "Close the rebase metadata for the implemented structured signature subset and keep broader polymorphism/defaulting work blocked as a separate semantics decision."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
 ---

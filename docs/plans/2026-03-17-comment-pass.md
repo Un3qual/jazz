@@ -4,7 +4,7 @@ status: done
 priority: P3
 size: L
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on:
   - JN-COMMENT-FOUNDATION-CONTRACTS-001
 last_verified: 2026-05-22
