@@ -39,6 +39,8 @@ The normative numeric width/defaulting contract lives in `docs/spec/runtime/prim
 
 ## Staging
 
-The first implementation batch should be parser/AST ownership only. It should parse and lower class/impl declarations as inert declaration nodes and keep analyzer, typechecker, solver, and runtime semantics out of scope.
+The first implementation batch should be parser/AST ownership plus downstream inert traversal. It should parse and lower class/impl declarations as inert declaration nodes, and analyzer/type/runtime statement walkers must skip those nodes without adding bindings, constraints, method lookup, dispatch, defaulting, or runtime values.
+
+That batch must include source-pipeline coverage proving programs that contain class/impl declarations do not hit non-exhaustive statement handling during compile or run.
 
 Later batches must define class environments, impl lookup, constraint solving, method dispatch, overlap/orphan policy, cross-module visibility, and diagnostics before enabling executable class/impl semantics.

@@ -13,17 +13,24 @@ target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
   - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
   - jazz-next/src/JazzNext/Compiler/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
+  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
+  - jazz-next/src/JazzNext/Compiler/Runtime.hs
   - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - docs/spec/abstractions/trait-vocabulary.md
   - docs/spec/abstractions/capability-model.md
   - docs/plans/spec-clarification/2026-03-02/abstractions/08-trait-vocabulary-and-capability-model.md
   - docs/execution/queue.md
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Replace canonical `class`/`impl` deferred parser rejection with syntax-only surface/core AST ownership for inert declarations, keep `trait` declarations rejected, and leave analyzer/type/runtime semantics out of scope."
+deliverable: "Replace canonical `class`/`impl` deferred parser rejection with surface/core AST ownership plus explicit analyzer/type/runtime inert traversal, keep `trait` declarations rejected, and leave class environments, solver obligations, method dispatch, defaulting, and executable semantics out of scope."
 ---
 
 # Trait Vocabulary and Capability Model Clarification Plan (Item 08)
@@ -208,11 +215,12 @@ git add docs/plans/spec-clarification/2026-03-02/abstractions/08a-vocabulary-dec
 
 First implementation target:
 - Parse canonical `class`/`impl` declarations into inert surface/core AST nodes.
+- Thread those nodes through analyzer/type/runtime as inert declarations so compile/run pipelines do not hit non-exhaustive statement handling.
 - Keep `trait` declarations rejected as non-canonical syntax.
 - Preserve ordinary binding, signature, and qualified-alias uses of `class`, `impl`, and `trait`.
-- Do not add analyzer, solver, method lookup, dispatch, defaulting, or runtime semantics in the parser/AST batch.
-- Target paths: `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/AST.hs`, and `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`.
-- Verification: `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`; `bash jazz-next/scripts/test-warning-config.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
+- Do not add class environments, solver obligations, method lookup, dispatch, defaulting, or runtime values in this batch.
+- Target paths: `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/Analyzer.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/src/JazzNext/Compiler/Runtime.hs`, `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`, and `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`.
+- Verification: `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`; `bash jazz-next/scripts/test-warning-config.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
 
 Primary file targets:
 - `docs/plans/spec-clarification/2026-03-02/abstractions/08b-capability-model-semantics.md`
@@ -366,4 +374,4 @@ nix shell nixpkgs#ripgrep nixpkgs#coreutils --command zsh -lc 'cd . && rg -n "Co
 - [x] Evidence-backed contradictions and gaps documented with exact paths.
 - [x] Detailed phased plan added with commit messages and exact `git add` targets.
 - [x] Nix-based reproducible validation commands included.
-- [ ] Execute first parser/AST implementation slice before queuing solver/runtime implementation.
+- [ ] Execute first parser/AST plus inert pipeline implementation slice before queuing solver/runtime implementation.
