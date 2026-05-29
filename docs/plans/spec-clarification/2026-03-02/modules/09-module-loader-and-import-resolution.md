@@ -1,3 +1,25 @@
+---
+id: JN-MODULE-FILE-LAYOUT-SPEC-001
+status: ready
+priority: P1
+size: M
+kind: docs
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-05-29
+plan_section: "Phase 1: File Layout and Package-Root Contract"
+target_paths:
+  - docs/spec/modules/01-file-layout-and-package-roots.md
+  - docs/spec/modules/00-module-clarification-matrix.md
+  - docs/plans/spec-clarification/2026-03-02/modules/09-module-loader-and-import-resolution.md
+  - docs/jazz-language-state.md
+  - docs/execution/queue.md
+verification:
+  - bash scripts/check-execution-queue.sh
+  - bash scripts/check-docs.sh
+deliverable: "Define canonical module-to-file mapping, package roots, extension policy, declaration/path mismatch behavior, and brace-bodied module compatibility without changing compiler behavior."
+---
+
 # Spec Clarification Item #09: Module Loader and Import Resolution Semantics Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to execute this plan task-by-task.
@@ -20,7 +42,8 @@
 - [x] Executed `jazz-next` module declaration contract batch (`E4005`/`E4006`) with resolver/loader/CLI regression coverage.
 - [x] Executed `jazz-next` qualified-import parser hardening batch for duplicate symbol-list imports.
 - [x] Executed `jazz-next` qualified-import binding batch with resolver-enforced symbol export validation and alias/symbol collision diagnostics (`E4007`/`E4008`/`E4009`).
-- [ ] Execute clarification phases and publish normative module/import specs.
+- [x] Publish baseline clarification matrix for module/import semantics.
+- [ ] Execute follow-up clarification phases and publish normative module/import specs.
 - [ ] Implement/verify final semantics in compiler/runtime code after clarification approval.
 
 ## Verification Evidence (Unresolved Semantics)
@@ -74,15 +97,15 @@
 
 ## Phase 0: Baseline Clarification Matrix and Decision Inputs
 
-- [ ] Create a baseline matrix documenting unresolved semantics and candidate options:
+- [x] Create a baseline matrix documenting unresolved semantics and candidate options:
   - `docs/spec/modules/00-module-clarification-matrix.md`
-- [ ] For each semantic area (layout, resolution, loader, qualified imports), record:
+- [x] For each semantic area (layout, resolution, loader, qualified imports), record:
   - current behavior (if any)
   - known gaps
   - invariants to preserve
   - open decision questions
-- [ ] Add evidence links to current code/specs for every matrix row.
-- [ ] Explicitly tag which rows require maintainer product decisions vs executor research decisions.
+- [x] Add evidence links to current code/specs for every matrix row.
+- [x] Explicitly tag which rows require maintainer product decisions vs executor research decisions.
 
 ### Commit Checkpoint (Phase 0)
 

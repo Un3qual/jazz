@@ -4,7 +4,7 @@ status: done
 priority: P1
 size: S
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
 last_verified: 2026-05-24
 plan_section: "Batch 1: Positional source file run path"

@@ -1,3 +1,38 @@
+---
+id: JN-CAPABILITY-DECL-PARSER-AST-001
+status: ready
+priority: P1
+size: M
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-05-29
+plan_section: "Phase 2: Capability Model Specification"
+target_paths:
+  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
+  - jazz-next/src/JazzNext/Compiler/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
+  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
+  - jazz-next/src/JazzNext/Compiler/Runtime.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+  - docs/spec/abstractions/trait-vocabulary.md
+  - docs/spec/abstractions/capability-model.md
+  - docs/plans/spec-clarification/2026-03-02/abstractions/08-trait-vocabulary-and-capability-model.md
+  - docs/execution/queue.md
+verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+  - bash jazz-next/scripts/test-warning-config.sh
+  - bash scripts/check-execution-queue.sh
+  - bash scripts/check-docs.sh
+deliverable: "Replace canonical `class`/`impl` deferred parser rejection with surface/core AST ownership plus explicit analyzer/type/runtime inert traversal, keep `trait` declarations rejected, and leave class environments, solver obligations, method dispatch, defaulting, and executable semantics out of scope."
+---
+
 # Trait Vocabulary and Capability Model Clarification Plan (Item 08)
 
 > Focus: resolve abstraction vocabulary and capability-model ambiguity.
@@ -8,9 +43,11 @@
 
 - [x] Collected contradictions from old code and current specs.
 - [x] Defined scope boundary excluding the approved `class` keyword decision.
-- [ ] Choose canonical vocabulary model (`Eq`/`Ord`/`Num` family vs `Collection`/`Orderable` family).
-- [ ] Specify canonical capability model semantics (declaration, implementation, solver behavior, defaulting, extensibility).
-- [ ] Align docs/spec text to one vocabulary and one capability narrative.
+- [x] Choose canonical vocabulary model: Haskell-like `Eq`/`Ord`/`Num` family.
+- [x] Select defaulting policy: deterministic cross-platform numeric defaults.
+- [x] Specify canonical capability model semantics for first parser/AST implementation slice.
+- [x] Choose capability openness direction: classes and impls are user-defined Jazz code, with builtin classes/impls supplied by the standard library and builtin bodies allowed to call internal/FFI/kernel functions.
+- [x] Align docs/spec text to one vocabulary and one capability narrative.
 - [ ] Add repeatable validation checks and close this clarification item.
 
 ## Scope Guardrails
@@ -99,7 +136,7 @@ Out of scope:
 
 ### Gate A: Vocabulary Model
 
-- [ ] Option A1: Haskell-core canonical (`Eq`, `Ord`, `Num`), domain names as aliases/docs wrappers.
+- [x] Option A1 (selected): Haskell-core canonical (`Eq`, `Ord`, `Num`), domain names as aliases/docs wrappers.
 - [ ] Option A2: Domain-core canonical (`Collection`, `Orderable`, `Numeric`), Haskell names as compatibility aliases.
 - [ ] Option A3: Two-tier model: compiler-internal canonical names + user-facing canonical aliases with explicit mapping table.
 
@@ -113,7 +150,7 @@ Decision criteria:
 
 - [ ] Option B1: Closed-world now (hardcoded registry is normative); parser/docs must reflect that.
 - [ ] Option B2: Staged openness (closed execution today + explicit roadmap and syntax for open user-defined capabilities).
-- [ ] Option B3: Fully open now (implement user-defined capability declarations/instances in analyzer/solver).
+- [x] Option B3 (selected target semantics): open user-defined capability declarations/instances, implemented through staged executor-safe `jazz-next` batches.
 
 Decision criteria:
 - Current implementation feasibility.
@@ -123,9 +160,14 @@ Decision criteria:
 
 ### Gate C: Defaulting Policy
 
-- [ ] C1: Keep implicit defaulting, but document deterministic rules and scope.
+- [x] C1 (selected): Keep implicit defaulting, but document deterministic cross-platform rules and scope.
 - [ ] C2: Restrict defaulting to explicit opt-in contexts.
 - [ ] C3: Remove defaulting and require explicit annotation in ambiguous cases.
+
+Selected defaulting contract (the normative wording lives in `docs/spec/runtime/primitive-semantics.md`):
+- Bare `Int` and otherwise ambiguous integer literals default to `Int64` across all targets.
+- Bare `Float` and otherwise ambiguous fractional literals default to `Float64` across all targets.
+- Width-specific names such as `Int8`, `Int32`, `UInt64`, and `Float32` remain explicit annotations, not target-dependent defaults.
 
 Decision criteria:
 - Predictability for users.
@@ -148,9 +190,9 @@ git add docs/plans/spec-clarification/2026-03-02/abstractions/08-trait-vocabular
 
 ### Phase 1: Vocabulary Decision Artifact
 
-- [ ] Create a dedicated decision matrix artifact with side-by-side naming mappings and examples.
-- [ ] Select one canonical vocabulary model from Gate A and document non-canonical term handling.
-- [ ] Define compatibility wording (`alias`, `deprecated alias`, or `historical note`) for every non-canonical term.
+- [x] Create a dedicated decision matrix artifact with side-by-side naming mappings and examples.
+- [x] Select one canonical vocabulary model from Gate A and document non-canonical term handling.
+- [x] Define compatibility wording (`alias`, `deprecated alias`, or `historical note`) for every non-canonical term.
 
 Primary file targets:
 - `docs/plans/spec-clarification/2026-03-02/abstractions/08a-vocabulary-decision-matrix.md`
@@ -166,10 +208,19 @@ git add docs/plans/spec-clarification/2026-03-02/abstractions/08a-vocabulary-dec
 
 ### Phase 2: Capability Model Specification
 
-- [ ] Select openness model from Gate B and codify expected runtime/typechecker behavior.
-- [ ] Define declaration/implementation/constraint semantics in one normative section.
-- [ ] Select and document defaulting policy from Gate C with examples and failure cases.
-- [ ] State authoritative source order (`compiler behavior`, `spec docs`, `examples`) to prevent future drift.
+- [x] Select openness model from Gate B and codify expected runtime/typechecker behavior.
+- [x] Define declaration/implementation/constraint semantics in one normative section.
+- [x] Select and document defaulting policy from Gate C with examples and failure cases.
+- [x] State authoritative source order (`compiler behavior`, `spec docs`, `examples`) to prevent future drift.
+
+First implementation target:
+- Parse canonical `class`/`impl` declarations into inert surface/core AST nodes.
+- Thread those nodes through analyzer/type/runtime as inert declarations so compile/run pipelines do not hit non-exhaustive statement handling.
+- Keep `trait` declarations rejected as non-canonical syntax.
+- Preserve ordinary binding, signature, and qualified-alias uses of `class`, `impl`, and `trait`.
+- Do not add class environments, solver obligations, method lookup, dispatch, defaulting, or runtime values in this batch.
+- Target paths: `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/Analyzer.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/src/JazzNext/Compiler/Runtime.hs`, `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`, and `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`.
+- Verification: `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`; `bash jazz-next/scripts/test-warning-config.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
 
 Primary file targets:
 - `docs/plans/spec-clarification/2026-03-02/abstractions/08b-capability-model-semantics.md`
@@ -216,23 +267,37 @@ git add README.md \
 - [ ] Add tests that enforce chosen vocabulary and capability behavior.
 
 File targets (select exact subset actually changed):
-- `jazz-hs/src/Types.hs`
-- `jazz-hs/src/Analyzer/TypeInference.hs`
-- `jazz-hs/src/Parser/Lang.hs`
-- `jazz-hs/test/ParserSpec.hs`
-- `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
-- `jazz-hs/static/Prelude.jz`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`
+- `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`
+- `jazz-next/stdlib/Prelude.jz`
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs`
 
 Commit checkpoint:
 - Message: `feat(typeclass): align compiler capability behavior with clarified model`
 - Exact add targets:
 ```bash
-git add jazz-hs/src/Types.hs \
-  jazz-hs/src/Analyzer/TypeInference.hs \
-  jazz-hs/src/Parser/Lang.hs \
-  jazz-hs/test/ParserSpec.hs \
-  jazz-hs/test/Analyzer/TypeInferenceSpec.hs \
-  jazz-hs/static/Prelude.jz
+git add jazz-next/src/JazzNext/Compiler/Parser.hs \
+  jazz-next/src/JazzNext/Compiler/Parser/AST.hs \
+  jazz-next/src/JazzNext/Compiler/Parser/Lower.hs \
+  jazz-next/src/JazzNext/Compiler/AST.hs \
+  jazz-next/src/JazzNext/Compiler/Analyzer.hs \
+  jazz-next/src/JazzNext/Compiler/TypeInference.hs \
+  jazz-next/src/JazzNext/Compiler/Runtime.hs \
+  jazz-next/src/JazzNext/Compiler/BundledPrelude.hs \
+  jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs \
+  jazz-next/stdlib/Prelude.jz \
+  jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs \
+  jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs \
+  jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
 ```
 
 ### Phase 4: Closure and Cross-Plan Consistency
@@ -260,26 +325,31 @@ git add docs/jazz-language-state.md \
 Run from repo root (`.`).
 
 1. Baseline vocabulary inventory.
+
 ```bash
-nix shell nixpkgs#ripgrep nixpkgs#coreutils --command zsh -lc 'cd . && rg -n "\\b(Collection|Orderable|Eq|Ord|Num|Integral|Fractional|Showable|Default)\\b" README.md docs jazz-hs/src jazz-hs/static jazz-hs/test --glob "!jazz-hs/local-deps/**"'
+rg -n "\\b(Collection|Orderable|Eq|Ord|Num|Integral|Fractional|Showable|Default)\\b" README.md docs jazz-next/src jazz-next/stdlib jazz-next/test
 ```
 
 2. Constraint-surface inventory (`@{...}:` and class/impl grammar references).
+
 ```bash
-nix shell nixpkgs#ripgrep nixpkgs#coreutils --command zsh -lc 'cd . && rg -n "@\\{|typeclassDeclP|typeclassImplP|traitsTable|defaultTraitType" jazz-hs/src/Parser/Lang.hs jazz-hs/src/Types.hs jazz-hs/src/Analyzer/TypeInference.hs jazz-hs/static/Prelude.jz'
+rg -n "@\\{|\\bclass\\b|\\bimpl\\b|BuiltinCatalog|BundledPrelude|PreludeContract" jazz-next/src jazz-next/stdlib jazz-next/test
 ```
 
 3. Parser capability syntax regression slice.
+
 ```bash
-nix shell nixpkgs#stack nixpkgs#ghc --command zsh -lc 'cd jazz-hs && stack test --test-arguments="--match typeclass"'
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
 ```
 
 4. Full compiler test baseline after any capability/vocabulary change.
+
 ```bash
-nix shell nixpkgs#stack nixpkgs#ghc --command zsh -lc 'cd jazz-hs && stack test'
+bash jazz-next/scripts/test-warning-config.sh
 ```
 
 5. Documentation drift check after convergence.
+
 ```bash
 nix shell nixpkgs#ripgrep nixpkgs#coreutils --command zsh -lc 'cd . && rg -n "Collection|Orderable|Eq|Ord|Num|capability model|trait vocabulary" README.md docs/spec docs/jazz-language-state.md'
 ```
@@ -304,4 +374,4 @@ nix shell nixpkgs#ripgrep nixpkgs#coreutils --command zsh -lc 'cd . && rg -n "Co
 - [x] Evidence-backed contradictions and gaps documented with exact paths.
 - [x] Detailed phased plan added with commit messages and exact `git add` targets.
 - [x] Nix-based reproducible validation commands included.
-- [ ] Await Gate A/B/C decisions to execute the implementation track.
+- [ ] Execute first parser/AST plus inert pipeline implementation slice before queuing solver/runtime implementation.

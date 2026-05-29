@@ -4,7 +4,7 @@ status: done
 priority: P2
 size: S
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
 last_verified: 2026-05-25
 plan_section: "Completed jazz-next batch: trait declaration rejection boundary"

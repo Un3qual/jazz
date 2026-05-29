@@ -56,12 +56,24 @@ Invalid examples:
 ## Numeric Behavior and Defaulting
 
 1. Numeric operations are trait-driven (`Num` family constraints).
-2. Defaulting behavior must be deterministic for ambiguous numeric literals.
-3. The contract must scale to future width-specific families:
+2. Defaulting behavior is deterministic for ambiguous numeric literals.
+3. The contract must scale to the approved width-specific families:
    - signed: `Int8`, `Int16`, `Int32`, `Int64`
    - unsigned: `UInt8`, `UInt16`, `UInt32`, `UInt64`
-   - floating: `Float8`, `Float16`, `Float32`, `Float64`
-4. Backends may differ internally, but observable language results must stay contract-equivalent.
+   - floating: `Float16`, `Float32`, `Float64`
+4. `Float8` is deferred until a separate format contract selects the bit layout, conversion behavior, and cross-platform determinism rules.
+5. Backends may differ internally, but observable language results must stay contract-equivalent.
+
+### Width And Defaulting Contract
+
+- `Int` is the cross-platform default integer type and maps to `Int64`.
+- Ambiguous integer literals default to `Int64`.
+- `Float` is the cross-platform default fractional type and maps to `Float64`.
+- Ambiguous fractional literals default to `Float64`.
+- Context can choose a narrower explicit type for a literal, for example an `Int32` annotation can make `2` an `Int32`.
+- Numeric operators require one concrete numeric type per operation, matching the Haskell-like `(+) :: Num a => a -> a -> a` shape.
+- Mixed concrete widths, such as `Int32 + Int64`, are type errors unless one side is converted explicitly.
+- The first numeric-width implementation batch should add parser/core/type ownership for the width-specific type names and aliases before widening runtime arithmetic behavior.
 
 ## List Primitive Behavior
 

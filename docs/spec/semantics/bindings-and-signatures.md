@@ -21,6 +21,12 @@ Out of scope:
 - module import/name-resolution behavior,
 - effect typing semantics.
 
+Adjacent numeric-width work:
+
+- `Int` remains accepted as the default integer signature spelling and maps to `Int64` once width-specific aliases land.
+- `Float` maps to `Float64` once fractional signature spelling lands.
+- Explicit width names such as `Int32`, `UInt64`, and `Float32` are planned as ordinary monomorphic signature types before broader polymorphic/defaulting work.
+
 ## Canonical Contract
 
 1. Type signatures are optional when a binding can be inferred.

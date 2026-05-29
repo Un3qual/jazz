@@ -1,36 +1,23 @@
 ---
-id: JN-CONS-LIST-PATTERN-SEMANTICS-001
-status: done
-priority: P1
-size: M
-kind: impl
+id: JN-ADT-PATTERN-REBASE-CLOSURE-001
+status: ready
+priority: P2
+size: S
+kind: docs
 autonomous_ready: yes
-depends_on:
-  - JN-TUPLE-PATTERN-SEMANTICS-001
-last_verified: 2026-05-25
-plan_section: "Milestone 5 / Batch 5: Cons-like list pattern semantics"
+depends_on: []
+last_verified: 2026-05-29
+plan_section: "Milestone 5: Verification and tracker closure"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
-  - jazz-next/src/JazzNext/Compiler/AST.hs
-  - jazz-next/src/JazzNext/Compiler/Parser.hs
-  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
-  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
-  - jazz-next/src/JazzNext/Compiler/Driver.hs
-  - jazz-next/src/JazzNext/Compiler/ModuleResolver.hs
-  - jazz-next/src/JazzNext/Compiler/RecursiveBindings.hs
-  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
-  - jazz-next/src/JazzNext/Compiler/Runtime.hs
-  - jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
+  - docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md
+  - docs/spec/adt-pattern-semantics.md
+  - docs/spec/pattern-matching-semantics.md
+  - docs/jazz-language-state.md
+  - docs/execution/queue.md
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
-  - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Cons-like list case patterns parse/lower into core patterns, typecheck against non-empty list deconstruction with head and tail subpatterns, and execute through first-match runtime list matching while preserving exact-length list, tuple, and constructor pattern behavior."
+deliverable: "Close the ADT/pattern rebase metadata around the implemented constructor/list/tuple/lambda-pattern subset while leaving generic ADTs and future pattern forms blocked."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md
 ---

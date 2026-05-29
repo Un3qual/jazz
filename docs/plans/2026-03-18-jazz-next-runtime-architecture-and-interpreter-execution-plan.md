@@ -1,30 +1,23 @@
 ---
-id: JN-RUNTIME-COMPILE-PLACEHOLDER-RETIRE-001
-status: done
-priority: P1
+id: JN-RUNTIME-INTERPRETER-DOC-CLOSURE-001
+status: ready
+priority: P2
 size: S
-kind: impl
+kind: docs
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-05-22
-plan_section: "Milestone 6 / Batch 1: Internal compile placeholder retirement"
+last_verified: 2026-05-29
+plan_section: "Milestone 6: Productize interpreter-first execution"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/Driver.hs
-  - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/IfExpressionTypeSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/PuritySemanticsSpec.hs
+  - docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md
+  - README.md
+  - docs/jazz-language-state.md
+  - docs/feature-status.md
+  - docs/execution/queue.md
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
-  - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Successful compile driver results are diagnostic-only and focused module/warning tests assert compile success through warnings/errors only."
+deliverable: "Align runtime/product docs around the active interpreter-backed compile/run path and keep new runtime behavior changes out of scope."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 ---
