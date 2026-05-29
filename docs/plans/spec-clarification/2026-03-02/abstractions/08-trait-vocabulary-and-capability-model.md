@@ -317,26 +317,31 @@ git add docs/jazz-language-state.md \
 Run from repo root (`.`).
 
 1. Baseline vocabulary inventory.
+
 ```bash
 rg -n "\\b(Collection|Orderable|Eq|Ord|Num|Integral|Fractional|Showable|Default)\\b" README.md docs jazz-next/src jazz-next/stdlib jazz-next/test
 ```
 
-2. Constraint-surface inventory (`@{...}:` and class/impl grammar references).
+1. Constraint-surface inventory (`@{...}:` and class/impl grammar references).
+
 ```bash
 rg -n "@\\{|\\bclass\\b|\\bimpl\\b|BuiltinCatalog|BundledPrelude|PreludeContract" jazz-next/src jazz-next/stdlib jazz-next/test
 ```
 
-3. Parser capability syntax regression slice.
+1. Parser capability syntax regression slice.
+
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
 ```
 
-4. Full compiler test baseline after any capability/vocabulary change.
+1. Full compiler test baseline after any capability/vocabulary change.
+
 ```bash
 bash jazz-next/scripts/test-warning-config.sh
 ```
 
-5. Documentation drift check after convergence.
+1. Documentation drift check after convergence.
+
 ```bash
 nix shell nixpkgs#ripgrep nixpkgs#coreutils --command zsh -lc 'cd . && rg -n "Collection|Orderable|Eq|Ord|Num|capability model|trait vocabulary" README.md docs/spec docs/jazz-language-state.md'
 ```
