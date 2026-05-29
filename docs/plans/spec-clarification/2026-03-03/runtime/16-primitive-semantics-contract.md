@@ -63,12 +63,12 @@ Execution note:
 - [x] Equality is strict and type-directed.
 - [x] No backend coercive equality semantics in the canonical language contract.
 - [x] Numeric behavior remains trait-driven with deterministic cross-platform defaulting rules.
-- [x] Numeric model must scale to planned width-specific types (`Int8..Int64`, `UInt8..UInt64`, `Float8..Float64`).
+- [x] Numeric model must scale to planned width-specific types (`Int8..Int64`, `UInt8..UInt64`, `Float16..Float64`); `Float8` is deferred until a concrete bit-layout and determinism contract exists.
 - [x] Primitive runtime failures use fatal diagnostics in v1 (with compile-time prevention preferred where possible).
 
 ## Follow-up: Numeric width and defaulting rollout
 
-- [x] Preserve the approved numeric family direction: `Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float8`, `Float16`, `Float32`, and `Float64`.
+- [x] Preserve the approved numeric family direction: `Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float16`, `Float32`, and `Float64`; defer `Float8` until the language specifies its format and cross-platform behavior.
 - [x] Select cross-platform numeric defaults before any user-defined operator implementation batch.
 - [x] Define literal defaulting and ambiguous numeric constraint behavior using `Int64` for integer defaults and `Float64` for fractional defaults.
 - [x] Decide whether `Int`/`Float` are platform-native aliases (`Int32`/`Float32` on 32-bit targets and `Int64`/`Float64` on 64-bit targets), deterministic cross-platform aliases, or non-canonical aliases outside the width-specific family: selected deterministic cross-platform aliases/defaults.
@@ -77,6 +77,7 @@ Execution note:
 - [x] Keep user-defined operators as a follow-up stage after this numeric-width/defaulting contract lands.
 
 First implementation target:
+
 - Add parser/core/type ownership for width-specific signature type names and cross-platform aliases before broadening runtime arithmetic behavior.
 - Target paths: `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, and `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`.
 - Verification: `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`; `bash jazz-next/scripts/test-warning-config.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
@@ -123,7 +124,7 @@ Out of scope:
 - [x] Add trait/defaulting extension rules that preserve compatibility with planned numeric widths:
   - signed integer family (`Int8`, `Int16`, `Int32`, `Int64`),
   - unsigned integer family (`UInt8`, `UInt16`, `UInt32`, `UInt64`),
-  - floating family (`Float8`, `Float16`, `Float32`, `Float64`).
+  - floating family (`Float16`, `Float32`, `Float64`), with `Float8` deferred until its bit layout and deterministic conversion behavior are specified.
 - [x] Include explicit non-coercion equality examples:
   - valid: `1 == 1`, `True == False`.
   - invalid/type error: `1 == True`, `"1" == 1`.

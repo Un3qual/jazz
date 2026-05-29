@@ -31,23 +31,14 @@ impl Eq(Int64) {
 
 ## Numeric Defaulting
 
-Numeric defaults are deterministic across targets:
+The normative numeric width/defaulting contract lives in `docs/spec/runtime/primitive-semantics.md`. Capability semantics consume that contract rather than redefining it here:
 
-- `Int` defaults to `Int64`.
-- Ambiguous integer literals default to `Int64`.
-- `Float` defaults to `Float64`.
-- Ambiguous fractional literals default to `Float64`.
-- Width-specific names such as `Int8`, `Int32`, `UInt64`, and `Float32` are explicit source types.
-
-Numeric operators follow the Haskell-like same-type rule:
-
-- `+`, `-`, `*`, `/`, and numeric comparisons operate on one concrete numeric type per expression.
-- A literal may take its type from context.
-- Mixed concrete widths, such as `Int32 + Int64`, are type errors unless one side is converted explicitly.
+- Standard numeric classes and impls use deterministic cross-platform `Int64` and `Float64` defaults for ambiguous source types and literals.
+- Width-specific source names remain explicit.
+- Numeric operators follow the Haskell-like same-type rule; mixed concrete widths require explicit conversions.
 
 ## Staging
 
 The first implementation batch should be parser/AST ownership only. It should parse and lower class/impl declarations as inert declaration nodes and keep analyzer, typechecker, solver, and runtime semantics out of scope.
 
 Later batches must define class environments, impl lookup, constraint solving, method dispatch, overlap/orphan policy, cross-module visibility, and diagnostics before enabling executable class/impl semantics.
-

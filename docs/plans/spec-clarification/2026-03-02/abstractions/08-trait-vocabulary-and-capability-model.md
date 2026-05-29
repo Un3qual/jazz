@@ -157,7 +157,7 @@ Decision criteria:
 - [ ] C2: Restrict defaulting to explicit opt-in contexts.
 - [ ] C3: Remove defaulting and require explicit annotation in ambiguous cases.
 
-Selected defaulting contract:
+Selected defaulting contract (the normative wording lives in `docs/spec/runtime/primitive-semantics.md`):
 - Bare `Int` and otherwise ambiguous integer literals default to `Int64` across all targets.
 - Bare `Float` and otherwise ambiguous fractional literals default to `Float64` across all targets.
 - Width-specific names such as `Int8`, `Int32`, `UInt64`, and `Float32` remain explicit annotations, not target-dependent defaults.

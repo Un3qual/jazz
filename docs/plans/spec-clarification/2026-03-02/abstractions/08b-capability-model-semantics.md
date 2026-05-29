@@ -53,4 +53,3 @@ Later batches must separately specify:
 - orphan/overlap policy,
 - cross-module impl visibility,
 - diagnostics and source spans.
-

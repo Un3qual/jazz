@@ -17,6 +17,8 @@ Canonical family:
 - `Showable`
 - `Default`
 
+`Showable` intentionally preserves Jazz's existing accepted spelling even though Haskell uses `Show`. Treat `Show` as a future stdlib alias or migration question, not as an implicit rename in this parser/AST batch.
+
 Domain-oriented words such as `Collection`, `Orderable`, and `Numeric` may appear in prose or examples only when they are clearly aliases, pedagogical wording, or future-library names. They are not the canonical core capability vocabulary.
 
 ## Matrix
@@ -32,4 +34,3 @@ Domain-oriented words such as `Collection`, `Orderable`, and `Numeric` may appea
 - `trait` is not canonical syntax; canonical declarations use `class` and `impl`.
 - `Collection`, `Orderable`, and `Numeric` are not builtin compiler vocabulary.
 - Docs may mention non-canonical terms only with explicit wording such as "historical", "example alias", or "future library name".
-

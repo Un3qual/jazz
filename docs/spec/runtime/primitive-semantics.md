@@ -57,11 +57,12 @@ Invalid examples:
 
 1. Numeric operations are trait-driven (`Num` family constraints).
 2. Defaulting behavior is deterministic for ambiguous numeric literals.
-3. The contract must scale to future width-specific families:
+3. The contract must scale to the approved width-specific families:
    - signed: `Int8`, `Int16`, `Int32`, `Int64`
    - unsigned: `UInt8`, `UInt16`, `UInt32`, `UInt64`
-   - floating: `Float8`, `Float16`, `Float32`, `Float64`
-4. Backends may differ internally, but observable language results must stay contract-equivalent.
+   - floating: `Float16`, `Float32`, `Float64`
+4. `Float8` is deferred until a separate format contract selects the bit layout, conversion behavior, and cross-platform determinism rules.
+5. Backends may differ internally, but observable language results must stay contract-equivalent.
 
 ### Width And Defaulting Contract
 

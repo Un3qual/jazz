@@ -34,4 +34,3 @@ Questions intentionally deferred past the file-layout batch:
 - Whether future package metadata changes module-root discovery.
 - Whether future cache behavior exists; current v1 can remain no-cache.
 - Whether additional qualified-import forms are introduced.
-
