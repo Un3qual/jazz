@@ -1,6 +1,6 @@
 # Primitive Semantics
 
-Status: active (phase 0 contract lock)
+Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, while runtime arithmetic widening remains out of scope)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md`
 
@@ -73,7 +73,9 @@ Invalid examples:
 - Context can choose a narrower explicit type for a literal, for example an `Int32` annotation can make `2` an `Int32`.
 - Numeric operators require one concrete numeric type per operation, matching the Haskell-like `(+) :: Num a => a -> a -> a` shape.
 - Mixed concrete widths, such as `Int32 + Int64`, are type errors unless one side is converted explicitly.
-- The first numeric-width implementation batch should add parser/core/type ownership for the width-specific type names and aliases before widening runtime arithmetic behavior.
+- `jazz-next` now parses, lowers, and type-checks width-specific numeric signature names plus `Int`/`Float` aliases before any runtime arithmetic widening.
+- Integer literals can satisfy an explicit integral-width signature annotation; ambiguous integer literals still default through `Int`.
+- `Float`/`Float64` signature names are accepted for type/operator ownership, but fractional literal syntax and runtime floating arithmetic remain out of scope for this slice.
 
 ## List Primitive Behavior
 

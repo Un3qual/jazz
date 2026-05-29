@@ -61,6 +61,10 @@ tests =
     ("source pipeline accepts concrete list signature", testSourceAcceptsConcreteListSignature),
     ("source pipeline accepts nested concrete list signature", testSourceAcceptsNestedConcreteListSignature),
     ("source pipeline accepts concrete tuple signature", testSourceAcceptsConcreteTupleSignature),
+    ("source pipeline accepts width-specific integer signatures", testSourceAcceptsWidthSpecificIntegerSignatures),
+    ("source pipeline accepts same-width numeric operator signatures", testSourceAcceptsSameWidthNumericOperatorSignatures),
+    ("source pipeline rejects mixed-width numeric operator signatures", testSourceRejectsMixedWidthNumericOperatorSignatures),
+    ("source pipeline keeps float signatures distinct from integer literals", testSourceRejectsFloatSignatureForIntegerLiteral),
     ("source pipeline rejects tuple signature mismatch", testSourceRejectsTupleSignatureMismatch),
     ("source pipeline rejects tuple signature arity mismatch", testSourceRejectsTupleSignatureArityMismatch),
     ("source pipeline accepts simple function signature", testSourceAcceptsSimpleFunctionSignature),
@@ -354,6 +358,27 @@ testSourceAcceptsNestedConcreteListSignature =
 testSourceAcceptsConcreteTupleSignature :: IO ()
 testSourceAcceptsConcreteTupleSignature =
   assertSourceOk "pair :: (Int, Bool).\npair = (1, True).\npair."
+
+testSourceAcceptsWidthSpecificIntegerSignatures :: IO ()
+testSourceAcceptsWidthSpecificIntegerSignatures = do
+  assertSourceOk "x :: Int8.\nx = 1."
+  assertSourceOk "x :: UInt64.\nx = 1."
+  assertSourceOk "xs :: [Int32].\nxs = [1, 2, 3]."
+  assertSourceOk "x :: @{Num(UInt16)}: UInt16.\nx = 1."
+
+testSourceAcceptsSameWidthNumericOperatorSignatures :: IO ()
+testSourceAcceptsSameWidthNumericOperatorSignatures = do
+  assertSourceOk "add :: Int8 -> Int8 -> Int8.\nadd = (+)."
+  assertSourceOk "lt :: UInt32 -> UInt32 -> Bool.\nlt = (<)."
+  assertSourceOk "fadd :: Float -> Float64 -> Float64.\nfadd = (+)."
+
+testSourceRejectsMixedWidthNumericOperatorSignatures :: IO ()
+testSourceRejectsMixedWidthNumericOperatorSignatures =
+  assertSourceSingleErrorContains "add :: Int8 -> UInt8 -> Int8.\nadd = (+)." "E2005"
+
+testSourceRejectsFloatSignatureForIntegerLiteral :: IO ()
+testSourceRejectsFloatSignatureForIntegerLiteral =
+  assertSourceSingleErrorContains "x :: Float64.\nx = 1." "E2005"
 
 testSourceRejectsTupleSignatureMismatch :: IO ()
 testSourceRejectsTupleSignatureMismatch = do

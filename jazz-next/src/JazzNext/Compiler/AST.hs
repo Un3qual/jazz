@@ -8,6 +8,7 @@ module JazzNext.Compiler.AST
     DataConstructor (..),
     Expr (..),
     Literal (..),
+    NumericType (..),
     Pattern (..),
     SignatureConstraint (..),
     SignaturePayload (..),
@@ -94,8 +95,24 @@ data ConstraintSignatureType
   deriving (Eq, Show)
 
 -- | Supported monomorphic signature types.
+data NumericType
+  = NumericInt8
+  | NumericInt16
+  | NumericInt32
+  | NumericInt64
+  | NumericUInt8
+  | NumericUInt16
+  | NumericUInt32
+  | NumericUInt64
+  | NumericFloat16
+  | NumericFloat32
+  | NumericFloat64
+  deriving (Eq, Ord, Show)
+
 data SignatureType
   = TypeInt
+  | TypeFloat
+  | TypeNumeric NumericType
   | TypeBool
   | TypeList SignatureType
   | TypeTuple [SignatureType]

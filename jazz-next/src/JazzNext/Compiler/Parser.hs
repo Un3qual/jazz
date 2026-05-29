@@ -34,6 +34,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
+    SurfaceNumericType (..),
     SurfacePattern (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
@@ -1811,10 +1812,8 @@ parseSupportedSignatureType signatureTokens =
 parseFunctionOperandType :: [Token] -> Maybe SurfaceSignatureType
 parseFunctionOperandType signatureTokens =
   case signatureTokens of
-    [Token {tokenKind = TIdentifier "Int"}] ->
-      Just SurfaceTypeInt
-    [Token {tokenKind = TIdentifier "Bool"}] ->
-      Just SurfaceTypeBool
+    [Token {tokenKind = TIdentifier typeName}] ->
+      parseNamedSignatureType typeName
     _ ->
       case stripWrappedSignatureTokens isLBracketToken isRBracketToken signatureTokens of
         Just innerTokens ->
@@ -1830,10 +1829,8 @@ parseFunctionOperandType signatureTokens =
 parseNonFunctionSignatureType :: [Token] -> Maybe SurfaceSignatureType
 parseNonFunctionSignatureType signatureTokens =
   case signatureTokens of
-    [Token {tokenKind = TIdentifier "Int"}] ->
-      Just SurfaceTypeInt
-    [Token {tokenKind = TIdentifier "Bool"}] ->
-      Just SurfaceTypeBool
+    [Token {tokenKind = TIdentifier typeName}] ->
+      parseNamedSignatureType typeName
     _ ->
       case stripWrappedSignatureTokens isLBracketToken isRBracketToken signatureTokens of
         Just innerTokens ->
@@ -1852,6 +1849,30 @@ parseTupleSignatureType signatureTokens =
     Just elementTokenGroups
       | length elementTokenGroups >= 2 ->
           SurfaceTypeTuple <$> traverse parseSupportedSignatureType elementTokenGroups
+    _ -> Nothing
+
+parseNamedSignatureType :: Text -> Maybe SurfaceSignatureType
+parseNamedSignatureType typeName =
+  case typeName of
+    "Int" -> Just SurfaceTypeInt
+    "Float" -> Just SurfaceTypeFloat
+    "Bool" -> Just SurfaceTypeBool
+    _ -> SurfaceTypeNumeric <$> parseSurfaceNumericType typeName
+
+parseSurfaceNumericType :: Text -> Maybe SurfaceNumericType
+parseSurfaceNumericType typeName =
+  case typeName of
+    "Int8" -> Just SurfaceNumericInt8
+    "Int16" -> Just SurfaceNumericInt16
+    "Int32" -> Just SurfaceNumericInt32
+    "Int64" -> Just SurfaceNumericInt64
+    "UInt8" -> Just SurfaceNumericUInt8
+    "UInt16" -> Just SurfaceNumericUInt16
+    "UInt32" -> Just SurfaceNumericUInt32
+    "UInt64" -> Just SurfaceNumericUInt64
+    "Float16" -> Just SurfaceNumericFloat16
+    "Float32" -> Just SurfaceNumericFloat32
+    "Float64" -> Just SurfaceNumericFloat64
     _ -> Nothing
 
 surfaceSignaturePayloadFromType :: SurfaceSignatureType -> SurfaceSignaturePayload

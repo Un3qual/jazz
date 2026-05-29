@@ -9,6 +9,7 @@ module JazzNext.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
+    SurfaceNumericType (..),
     SurfacePattern (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
@@ -105,8 +106,24 @@ data SurfaceConstrainedSignatureType
   deriving (Eq, Show)
 
 -- | Monomorphic signature types supported by the active parser/type slice.
+data SurfaceNumericType
+  = SurfaceNumericInt8
+  | SurfaceNumericInt16
+  | SurfaceNumericInt32
+  | SurfaceNumericInt64
+  | SurfaceNumericUInt8
+  | SurfaceNumericUInt16
+  | SurfaceNumericUInt32
+  | SurfaceNumericUInt64
+  | SurfaceNumericFloat16
+  | SurfaceNumericFloat32
+  | SurfaceNumericFloat64
+  deriving (Eq, Ord, Show)
+
 data SurfaceSignatureType
   = SurfaceTypeInt
+  | SurfaceTypeFloat
+  | SurfaceTypeNumeric SurfaceNumericType
   | SurfaceTypeBool
   | SurfaceTypeList SurfaceSignatureType
   | SurfaceTypeTuple [SurfaceSignatureType]

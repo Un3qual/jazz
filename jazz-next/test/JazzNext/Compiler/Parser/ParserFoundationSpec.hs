@@ -7,6 +7,7 @@ import JazzNext.Compiler.AST
   ( ConstraintSignatureType (..),
     Expr (..),
     Literal (..),
+    NumericType (..),
     SignatureConstraint (..),
     SignaturePayload (..),
     SignatureType (..),
@@ -22,6 +23,7 @@ import JazzNext.Compiler.Parser.AST
   ( SurfaceConstrainedSignatureType (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
+    SurfaceNumericType (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureType (..),
@@ -49,6 +51,7 @@ tests =
     ("parses parenthesized function signature into structured nodes", testParseParenthesizedFunctionSignature),
     ("parses tuple literal into structured nodes", testParseTupleLiteral),
     ("parses tuple signature into structured nodes", testParseTupleSignature),
+    ("parses numeric width signature names into structured nodes", testParseNumericWidthSignatureTypes),
     ("parses chained function signature right associatively", testParseChainedFunctionSignature),
     ("parses parenthesized function override into structured nodes", testParseParenthesizedFunctionOverrideSignature),
     ("parses list of parenthesized function types", testParseFunctionListSignature),
@@ -60,6 +63,7 @@ tests =
     ("parses nested scope expression", testParseNestedScopeExpression),
     ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
     ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram),
+    ("lowers numeric width signature names into analyzer AST", testLowerNumericWidthSignatureProgram),
     ("lowers structured signature payload into analyzer AST", testLowerStructuredSignatureProgram),
     ("lowers right-associated function signature into analyzer AST", testLowerRightAssociativeFunctionSignatureProgram),
     ("lowers list of function signature into analyzer AST", testLowerFunctionListSignatureProgram),
@@ -170,6 +174,34 @@ testParseTupleSignature =
         )
     )
     (parseSurfaceProgram "pair :: (Int, Bool).\npair = (1, True).")
+
+testParseNumericWidthSignatureTypes :: IO ()
+testParseNumericWidthSignatureTypes = do
+  assertEqual
+    "Int8 signature"
+    ( Right
+        ( SEBlock
+            [ SSSignature "x" (SourceSpan 1 1) (SurfaceSignatureType (SurfaceTypeNumeric SurfaceNumericInt8)),
+              SSLet "x" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    (parseSurfaceProgram "x :: Int8.\nx = 1.")
+  assertEqual
+    "Float alias signature"
+    ( Right
+        ( SEBlock
+            [ SSSignature
+                "f"
+                (SourceSpan 1 1)
+                ( SurfaceSignatureType
+                    (SurfaceTypeFunction SurfaceTypeFloat (SurfaceTypeNumeric SurfaceNumericFloat64))
+                ),
+              SSLet "f" (SourceSpan 2 1) (SEOperatorValue "+")
+            ]
+        )
+    )
+    (parseSurfaceProgram "f :: Float -> Float64.\nf = (+).")
 
 testParseChainedFunctionSignature :: IO ()
 testParseChainedFunctionSignature =
@@ -356,6 +388,30 @@ testLowerTupleLiteralAndSignatureProgram =
                   "pair"
                   (SourceSpan 2 1)
                   (ETuple [ELit (LInt 1), ELit (LBool True)])
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
+
+testLowerNumericWidthSignatureProgram :: IO ()
+testLowerNumericWidthSignatureProgram =
+  assertRight
+    "parse + lower numeric width signatures"
+    (parseSurfaceProgram "f :: UInt8 -> Int64 -> Float.\nf = (+).")
+    ( \surfaceProgram ->
+        assertEqual
+          "lowered numeric width signature AST"
+          ( EBlock
+              [ SSignature
+                  "f"
+                  (SourceSpan 1 1)
+                  ( SignatureType
+                      ( TypeFunction
+                          (TypeNumeric NumericUInt8)
+                          (TypeFunction (TypeNumeric NumericInt64) TypeFloat)
+                      )
+                  ),
+                SLet "f" (SourceSpan 2 1) (EOperatorValue "+")
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
