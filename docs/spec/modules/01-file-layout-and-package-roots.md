@@ -63,6 +63,13 @@ Multiple module declarations in one resolved source are `E4005`. A declaration t
 
 Nested module declarations and legacy dot-only module declarations are invalid parser surfaces. Brace-bodied declarations remain the compatibility target because they are already used in public examples and active parser tests.
 
+Implementation evidence (2026-05-30): `ModuleImportParserSpec.hs` and
+`ModuleResolutionSpec.hs` now lock the active `jazz-next` harness for
+brace-bodied module boundaries, rejected legacy declaration shapes, exact path
+segment preservation, canonical nested `.jz` mapping, declaration omission,
+declaration/path match and mismatch, duplicate-root dedupe, and deterministic
+candidate ordering.
+
 ## Single-File Compatibility
 
 Standalone compile/run mode remains a single source input and does not use module roots. CLI source-file mode cannot be combined with `--entry-module`.

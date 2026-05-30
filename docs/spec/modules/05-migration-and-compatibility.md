@@ -140,6 +140,18 @@ default-suite targets plus focused verification commands. Legacy `jazz-hs/` and
 `jazz2/` paths remain read-only reference material and are not valid targets for
 new module verification closure.
 
+Status update (2026-05-30): `JN-MODULE-FILE-LAYOUT-HARNESS-001` is complete.
+The active parser/resolver harness now covers the file-layout and rejected-form
+boundary for this migration policy. `JN-MODULE-RESOLUTION-BINDING-HARNESS-001`
+is also complete; the active resolver harness now covers deterministic
+resolution ordering, duplicate import collapse, shared dependency reuse, cycle
+traces, and the qualified import diagnostic truth table.
+`JN-MODULE-LOADER-MIGRATION-HARNESS-001` is complete as well; the active loader
+and CLI harness now covers exclusive source selection, default module roots,
+dependency expression validation versus runtime isolation, memoized source
+lookup reuse, and fail-fast migration diagnostics. No active Phase 6 harness row
+remains in `Ready Now`.
+
 ## Non-Goals
 
 This migration slice does not define:

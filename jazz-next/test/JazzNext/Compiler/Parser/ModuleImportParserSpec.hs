@@ -38,6 +38,7 @@ main = runTestSuite "ModuleImportParser" tests
 tests :: [NamedTest]
 tests =
   [ ("parses module declaration statement", testParsesModuleDeclaration),
+    ("parses canonical brace-bodied module declaration boundary", testParsesCanonicalModuleDeclarationBoundary),
     ("parses import statement bare dot", testParsesImportBare),
     ("parses import statement with alias", testParsesImportAlias),
     ("parses qualified alias lookup expression", testParsesQualifiedAliasLookup),
@@ -61,6 +62,8 @@ tests =
     ("rejects qualified alias lookup with non-identifier member", testRejectsNonIdentifierQualifiedMember),
     ("rejects constructor qualified lookup with non-identifier member", testRejectsConstructorQualifiedNonIdentifierMember),
     ("rejects legacy dot-only module declaration syntax", testRejectsLegacyDotOnlyModuleDeclaration),
+    ("rejects legacy equals-style module declaration syntax", testRejectsLegacyEqualsStyleModuleDeclaration),
+    ("rejects legacy newline module declaration syntax", testRejectsLegacyNewlineModuleDeclaration),
     ("rejects trailing top-level statements after module body", testRejectsTrailingTopLevelStatementsAfterModuleBody),
     ("rejects module declaration after earlier top-level statement", testRejectsModuleDeclarationAfterTopLevelStatement),
     ("rejects module declaration nested inside module body", testRejectsModuleDeclarationNestedInsideModuleBody),
@@ -87,6 +90,20 @@ testParsesModuleDeclaration =
         )
     )
     (parseSurfaceProgram "module App::Core {\nx = 1.\n}")
+
+testParsesCanonicalModuleDeclarationBoundary :: IO ()
+testParsesCanonicalModuleDeclarationBoundary =
+  assertEqual
+    "canonical module boundary surface AST"
+    ( Right
+        ( SEBlock
+            [ SSModule (SourceSpan 1 1) ["App", "Main"],
+              SSImport (SourceSpan 2 1) ["Lib", "Math"] (Just "Math") Nothing,
+              SSLet "result" (SourceSpan 3 1) (SEQualifiedVar "Math" "answer")
+            ]
+        )
+    )
+    (parseSurfaceProgram "module App::Main {\nimport Lib::Math as Math.\nresult = Math::answer.\n}")
 
 testParsesImportBare :: IO ()
 testParsesImportBare =
@@ -366,6 +383,20 @@ testRejectsLegacyDotOnlyModuleDeclaration =
     "legacy module declaration rejected"
     "expected '{'"
     (parseSurfaceProgram "module App::Core.")
+
+testRejectsLegacyEqualsStyleModuleDeclaration :: IO ()
+testRejectsLegacyEqualsStyleModuleDeclaration =
+  assertLeftDiagnosticContains
+    "legacy equals-style module declaration rejected"
+    "expected '{'"
+    (parseSurfaceProgram "module App::Core = 1.")
+
+testRejectsLegacyNewlineModuleDeclaration :: IO ()
+testRejectsLegacyNewlineModuleDeclaration =
+  assertLeftDiagnosticContains
+    "legacy newline module declaration rejected"
+    "expected '{'"
+    (parseSurfaceProgram "module App::Core\nx = 1.")
 
 testRejectsTrailingTopLevelStatementsAfterModuleBody :: IO ()
 testRejectsTrailingTopLevelStatementsAfterModuleBody =

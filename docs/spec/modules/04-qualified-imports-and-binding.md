@@ -158,6 +158,14 @@ Diagnostics include importer module context, imported module context when applic
 | `import Lib::Math as Math.` then `Math::subtract` when only `add` is exported | `E4014` |
 | local binding `math` plus `import Lib::Math as math` | allowed; `math` and `math::name` are different namespaces |
 
+Implementation evidence (2026-05-30): `ModuleResolutionSpec.hs` now locks the
+active `jazz-next` harness for the v1 import truth table, including bare import
+unqualified visibility, symbol-list visibility and hidden-export diagnostics,
+local binding precedence over hidden imports, alias references before alias
+declarations, local value names sharing alias identifiers, data-constructor
+imports, and the `E4007`/`E4008`/`E4009`/`E4011`/`E4012`/`E4013`/`E4014`
+diagnostic contexts and metadata exposed by the resolver.
+
 ## Non-Goals
 
 This qualified import slice does not define:
