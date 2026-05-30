@@ -71,6 +71,7 @@ tests =
     ("lowers constrained tuple signature payload into analyzer AST", testLowerConstrainedTupleSignatureProgram),
     ("rejects missing statement terminator", testRejectsMissingDotTerminator),
     ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot),
+    ("rejects signature missing terminator before class declaration", testRejectsMissingSignatureDotBeforeClass),
     ("rejects integer literal overflow", testRejectsIntOverflow),
     ("rejects negative literal syntax for now", testRejectsNegativeLiteralSyntax),
     ("parses abstraction keywords as ordinary binding names", testParsesAbstractionKeywordsAsBindingNames),
@@ -543,6 +544,13 @@ testRejectsMissingSignatureDot =
     "missing signature dot error"
     "expected '.'"
     (parseSurfaceProgram "x :: Int\nx = 1.")
+
+testRejectsMissingSignatureDotBeforeClass :: IO ()
+testRejectsMissingSignatureDotBeforeClass =
+  assertLeftDiagnosticContains
+    "missing signature dot before class"
+    "expected '.' before 'class'"
+    (parseSurfaceProgram "x :: Int\nclass Eq { }.")
 
 testRejectsIntOverflow :: IO ()
 testRejectsIntOverflow =

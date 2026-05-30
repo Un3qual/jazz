@@ -198,6 +198,7 @@ data ExpressionType
 
 data NumericConstraint
   = AnyNumericConstraint
+  | IntegralNumericConstraint
   deriving (Eq, Show)
 
 data TypeBinding
@@ -524,7 +525,7 @@ applyNumericBinaryRule ::
 applyNumericBinaryRule operatorSymbol resultRule leftType rightType state =
   case unifyTypes leftType rightType state of
     Just stateAfterUnify ->
-      let resolvedOperandType = resolveType stateAfterUnify leftType
+      let resolvedOperandType = numericBinaryOperandType stateAfterUnify leftType rightType
        in case constrainNumericType resolvedOperandType stateAfterUnify of
             Just stateAfterNumericConstraint ->
               (Just (numericRuleResultType resultRule resolvedOperandType), stateAfterNumericConstraint)
@@ -548,6 +549,17 @@ numericRuleResultType resultRule operandType =
   case resultRule of
     NumericSameTypeResult -> operandType
     NumericBoolResult -> TBoolType
+
+numericBinaryOperandType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
+numericBinaryOperandType state leftType rightType =
+  case (resolveType state leftType, resolveType state rightType) of
+    (TIntegerLiteralType, numericType@(TNumericType concreteNumericType))
+      | numericTypeIsIntegral concreteNumericType -> numericType
+    (numericType@(TNumericType concreteNumericType), TIntegerLiteralType)
+      | numericTypeIsIntegral concreteNumericType -> numericType
+    (TIntegerLiteralType, TIntType) -> TIntType
+    (TIntType, TIntegerLiteralType) -> TIntType
+    (resolvedLeftType, _) -> resolvedLeftType
 
 applyApplicationBinaryRule ::
   ExpressionType ->
@@ -627,13 +639,16 @@ applyNumericSectionLeftRule operatorSymbol resultRule leftType state =
   let resolvedLeftType = resolveType state leftType
    in case constrainNumericType resolvedLeftType state of
         Just stateAfterNumericConstraint ->
-          ( Just
-              ( TFunctionType
-                  resolvedLeftType
-                  (numericRuleResultType resultRule resolvedLeftType)
-              ),
-            stateAfterNumericConstraint
-          )
+          let (rightType, stateAfterSectionType) =
+                numericSectionCounterpartType resolvedLeftType stateAfterNumericConstraint
+           in
+            ( Just
+                ( TFunctionType
+                    rightType
+                    (numericRuleResultType resultRule rightType)
+                ),
+              stateAfterSectionType
+            )
         Nothing ->
           ( Nothing,
             addTypeError
@@ -692,13 +707,16 @@ applyNumericSectionRightRule operatorSymbol resultRule rightType state =
   let resolvedRightType = resolveType state rightType
    in case constrainNumericType resolvedRightType state of
         Just stateAfterNumericConstraint ->
-          ( Just
-              ( TFunctionType
-                  resolvedRightType
-                  (numericRuleResultType resultRule resolvedRightType)
-              ),
-            stateAfterNumericConstraint
-          )
+          let (leftType, stateAfterSectionType) =
+                numericSectionCounterpartType resolvedRightType stateAfterNumericConstraint
+           in
+            ( Just
+                ( TFunctionType
+                    leftType
+                    (numericRuleResultType resultRule leftType)
+                ),
+              stateAfterSectionType
+            )
         Nothing ->
           ( Nothing,
             addTypeError
@@ -728,6 +746,17 @@ applyStrictEqualitySectionRightRule operatorSymbol rightType state =
                 state
                 (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedRightType)
             )
+
+numericSectionCounterpartType :: ExpressionType -> InferState -> (ExpressionType, InferState)
+numericSectionCounterpartType sectionOperandType state =
+  case sectionOperandType of
+    TIntegerLiteralType ->
+      let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
+       in
+        ( operandType,
+          addNumericTypeVarConstraint typeVar IntegralNumericConstraint stateAfterOperandType
+        )
+    _ -> (sectionOperandType, state)
 
 -- | Scope/type-signature handling for block expressions. This mirrors the
 -- statement-order rules enforced by the analyzer while threading inferred types.
@@ -1715,6 +1744,13 @@ typeSatisfiesNumericConstraint numericConstraint expressionType =
         TNumericType {} -> True
         TVarType {} -> True
         _ -> False
+    IntegralNumericConstraint ->
+      case expressionType of
+        TIntType -> True
+        TIntegerLiteralType -> True
+        TNumericType numericType -> numericTypeIsIntegral numericType
+        TVarType {} -> True
+        _ -> False
 
 mkBinaryTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
 mkBinaryTypeError operatorSymbol leftType rightType =
@@ -1746,7 +1782,7 @@ mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
     "E2004"
     ( "strict equality operator '"
         <> operatorSymbol
-        <> "' is only supported for Int and Bool operands, found "
+        <> "' is only supported for Bool and integral numeric types, found "
         <> renderType foundType
     )
 

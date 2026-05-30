@@ -55,6 +55,9 @@ tests =
     ("source pipeline accepts equality section application", testSourcePipelineAcceptsEqualitySection),
     ("source pipeline accepts deferred left equality section once constrained", testSourcePipelineAcceptsDeferredLeftEqualitySection),
     ("source pipeline accepts deferred right equality section once constrained", testSourcePipelineAcceptsDeferredRightEqualitySection),
+    ("source pipeline preserves numeric width through left integer literal arithmetic", testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral),
+    ("source pipeline preserves numeric width through left integer literal section", testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteralSection),
+    ("source pipeline preserves numeric width through right integer literal section", testSourcePipelinePreservesNumericWidthWithRightIntegerLiteralSection),
     ("source pipeline rejects left arithmetic section with non-numeric operand", testSourcePipelineRejectsLeftArithmeticSectionTypeMismatch),
     ("source pipeline rejects right arithmetic section with non-numeric operand", testSourcePipelineRejectsRightArithmeticSectionTypeMismatch),
     ("source pipeline rejects equality section mismatched application", testSourcePipelineRejectsEqualitySectionTypeMismatch),
@@ -187,6 +190,18 @@ testSourcePipelineAcceptsDeferredRightEqualitySection :: IO ()
 testSourcePipelineAcceptsDeferredRightEqualitySection =
   assertCompilesWithBundledPrelude "x = (== hd []) 1."
 
+testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral :: IO ()
+testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral =
+  assertCompiles "y :: UInt8.\ny = 2.\nx = 1 + y.\nz :: UInt8.\nz = x."
+
+testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteralSection :: IO ()
+testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteralSection =
+  assertCompiles "y :: UInt8.\ny = 2.\nf = (1 +).\nz :: UInt8.\nz = f y."
+
+testSourcePipelinePreservesNumericWidthWithRightIntegerLiteralSection :: IO ()
+testSourcePipelinePreservesNumericWidthWithRightIntegerLiteralSection =
+  assertCompiles "y :: UInt8.\ny = 2.\nf = (+ 1).\nz :: UInt8.\nz = f y."
+
 testSourcePipelineRejectsLeftArithmeticSectionTypeMismatch :: IO ()
 testSourcePipelineRejectsLeftArithmeticSectionTypeMismatch = do
   result <- compileSource defaultWarningSettings "x = (True +) 1."
@@ -226,11 +241,16 @@ testSourcePipelineRejectsDeferredEqualitySectionListConstraint =
     "E2006"
 
 testSourcePipelineRejectsListEquality :: IO ()
-testSourcePipelineRejectsListEquality =
-  assertCompileError
-    "x = [1] == [1]."
-    "list equality unsupported in runtime subset"
+testSourcePipelineRejectsListEquality = do
+  result <- compileSource defaultWarningSettings "x = [1] == [1]."
+  assertSingleDiagnosticContains
+    "list equality unsupported code"
     "E2004"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "list equality unsupported summary"
+    "Bool and integral numeric types"
+    (compileErrors result)
 
 testSourcePipelineRejectsUnsupportedSectionOperator :: IO ()
 testSourcePipelineRejectsUnsupportedSectionOperator =

@@ -1835,6 +1835,8 @@ collectUntilDot = go []
         Token {tokenKind = TModule} : _ -> True
         Token {tokenKind = TImport} : _ -> True
         Token {tokenKind = TData} : _ -> True
+        Token {tokenKind = TIdentifier name} : rest
+          | looksLikeReservedAbstractionDeclaration name rest -> True
         Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
         Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
         _ -> False
