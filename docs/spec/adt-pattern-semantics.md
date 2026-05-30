@@ -14,6 +14,17 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
 - All new ADT implementation work for this contract lands in `jazz-next/`.
 - `jazz-hs/` and `jazz2/` are read-only legacy evidence only.
 
+## Rebase Closure Status
+
+The active ADT/pattern rebase is closed as of `2026-05-30` for the
+monomorphic constructor/list/tuple/lambda-pattern subset implemented in
+`jazz-next`.
+
+Future ADT work is blocked on a separate generic constructor type-scheme
+contract. That contract must define named type parameters, fresh per-use
+constructor schemes, instantiation/defaulting behavior, diagnostics, target
+paths, and focused verification before implementation resumes.
+
 ## Current Active-Path Status
 
 1. `jazz-next` implements canonical surface and lowered `data` declarations
@@ -39,6 +50,8 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
 10. Cons-like list patterns such as `[head | tail]` are active `case` patterns:
     the head subpattern matches the first list element, the tail subpattern
     matches the remaining list, and empty lists fall through to later arms.
+11. Pattern-shaped lambda parameters reuse the active pattern-matching contract
+    through internal single-arm pattern cases.
 
 ## ADT Contract
 
@@ -87,7 +100,7 @@ none = Nothing.
 - `if` continues to desugar through the existing boolean-only `ECase` contract
   defined in `docs/spec/control-flow/if-expressions.md`.
 
-## Non-Goals (Milestone 1)
+## Non-Goals
 
 1. GADTs, existential constructors, or record/named-field constructors.
 2. Infix constructors or alternate constructor call syntax.
@@ -95,3 +108,5 @@ none = Nothing.
 4. Tuple-constructor sugar or pattern features beyond the committed
    constructor/list/tuple subset such as guards, or-patterns, as-patterns, and
    pattern synonyms.
+5. Generic ADT constructor type schemes until the future active-path contract
+   is approved.

@@ -1,23 +1,20 @@
 ---
-id: JN-ADT-PATTERN-REBASE-CLOSURE-001
-status: ready
+id: JN-ADT-GENERIC-CONSTRUCTOR-TYPES-PLAN-001
+status: blocked
 priority: P2
 size: S
 kind: docs
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-last_verified: 2026-05-29
-plan_section: "Milestone 5: Verification and tracker closure"
+last_verified: 2026-05-30
+plan_section: "Future generic ADT and pattern-form contracts"
 target_paths:
   - docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md
-  - docs/spec/adt-pattern-semantics.md
-  - docs/spec/pattern-matching-semantics.md
-  - docs/jazz-language-state.md
   - docs/execution/queue.md
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Close the ADT/pattern rebase metadata around the implemented constructor/list/tuple/lambda-pattern subset while leaving generic ADTs and future pattern forms blocked."
+deliverable: "Define named type parameters, fresh per-use constructor type schemes, instantiation/defaulting behavior, diagnostics, target paths, and focused verification before expanding beyond the closed monomorphic ADT/pattern subset."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md
 ---
@@ -61,9 +58,11 @@ supersedes:
 - [x] On `2026-05-23`, recorded tuples as an active core runtime feature and landed tuple literals, concrete tuple signature types, heterogenous tuple inference, and runtime tuple rendering.
 - [x] On `2026-05-25`, landed fixed-arity tuple case pattern semantics across parser/core AST, lowering, analyzer/module reference traversal, type inference, and runtime matching.
 - [x] On `2026-05-25`, landed cons-like list case pattern semantics across parser/core AST, lowering, analyzer/module reference traversal, type inference, and runtime matching.
-- [ ] Milestone 5 complete: docs, roadmap, and queue state close the rebase and future work no longer points at legacy `11`.
+- [x] On `2026-05-25`, landed lambda parameter pattern semantics by lowering pattern-shaped parameters through ordinary unary lambdas and internal single-arm `EPatternCase` bodies.
+- [x] Milestone 5 complete: docs, roadmap, and queue state close the rebase and future work no longer points at legacy `11`.
+- [x] On `2026-05-30`, closed the active ADT/pattern rebase metadata around the implemented constructor/list/tuple/lambda-parameter pattern subset and kept generic ADT type schemes plus future pattern forms blocked as separate active-path planning items.
 
-## Current State (after tuple case pattern semantics)
+## Current State (after lambda-parameter pattern semantics)
 
 - `jazz-next/src/JazzNext/Compiler/AST.hs` now carries `Pattern`, `CaseArm`, and `EPatternCase`, including `PConstructor`, `PList`, and `PTuple`; it also carries tuple expression and concrete tuple signature nodes for active runtime values. The older `ECase Expr Expr Expr` remains the internal boolean branch form used after `if` desugaring.
 - `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `Parser.hs`, and `Parser/Lexer.hs` now accept canonical top-level `data <TypeName> = <Ctor> | <Ctor> ... .` declarations into dedicated statement nodes while continuing to parse `case <expr> { | <pattern> -> <expr> ... }` with literal, wildcard, variable, uppercase-constructor, bracketed-list, cons-like list, and tuple patterns. Tuple literals such as `(1, True)` and concrete tuple signature types such as `(Int, Bool)` are parsed into structured nodes.
@@ -74,7 +73,7 @@ supersedes:
 - `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs` now covers constructor patterns, bracketed list patterns, cons-like list patterns, tuple patterns, malformed list syntax, and constructor-arm `|` boundary handling in addition to the previously landed simple-pattern cases.
 - `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, `BindingSignatureCoherenceSpec.hs`, and `RuntimeSemanticsSpec.hs` now cover tuple literal parsing/lowering, concrete tuple signature acceptance/rejection, and runtime tuple rendering.
 - `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs` and `AdtPatternRuntimeSpec.hs` now cover the committed typed/runtime pattern subset, including cons-like list and tuple patterns, and run from the default `bash jazz-next/scripts/test-warning-config.sh` path.
-- `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md` now lock the active constructor/list/tuple pattern slice while keeping lambda-parameter pattern semantics staged.
+- `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md` now lock the active constructor/list/tuple/lambda-parameter pattern slice while keeping generic ADT type schemes and additional pattern forms staged behind new active-path contracts.
 
 ## Scope Guardrails
 
@@ -95,11 +94,11 @@ Out of scope for the first executable slices:
 
 | stage | current owner files | current behavior | required rebase outcome |
 | --- | --- | --- | --- |
-| Surface parse | `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs` | Supports canonical top-level `data` declarations plus surface `case` with literal, wildcard, variable, uppercase-constructor, bracketed-list, cons-like list, and tuple patterns; tuple literals and concrete tuple signature types parse into structured nodes. | Keep future pattern work focused on lambda-parameter destructuring without changing active `case` parsing. |
-| Core AST + lowering | `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/Desugar.hs` | Carries `EPatternCase`, `PConstructor` / `PList`, tuple expression/signature nodes, and dedicated `SData` declaration metadata with constructor arities; `ECase` remains bool-only for `if`. | Consume data declarations and richer pattern forms in later analyzer/runtime milestones without regressing `if`. |
-| Binding/type semantics | `jazz-next/src/JazzNext/Compiler/Analyzer.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs` | Supports branch-local binder visibility for nested pattern shapes, constructor expression typing, declared constructor pattern typing, exact-length bracketed-list pattern typing, cons-like list head/tail typing, tuple pattern typing, and fixed-arity heterogeneous tuple value/signature typing. | Type semantics are complete for active `case` pattern forms; lambda-parameter patterns remain future work. |
-| Runtime execution | `jazz-next/src/JazzNext/Compiler/Runtime.hs`, `jazz-next/src/JazzNext/Compiler/Driver.hs` | Preserves bool-only `ECase` execution while evaluating literal / wildcard / variable / constructor / bracketed-list / cons-like list / tuple `EPatternCase` arms plus constructor values/applications and tuple values. | Runtime semantics are complete for active `case` pattern forms; lambda-parameter patterns remain staged. |
-| Active verification | `jazz-next/test/JazzNext/Compiler/Parser/*.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/*.hs`, `jazz-next/test/JazzNext/CLI/CLISpec.hs` | Parser coverage includes constructor/list/cons-like-list/tuple forms, tuple literals/signature types, and case-boundary regressions; semantic coverage now includes constructor values/applications, constructor/list/tuple pattern typing, constructor/list/tuple pattern runtime matching, concrete tuple signatures, tuple runtime values, and invalid constructor over-application runtime diagnostics. | Keep future ADT/pattern work in focused `jazz-next` suites before broadening the default warning-config run. |
+| Surface parse | `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs` | Supports canonical top-level `data` declarations plus surface `case` and lambda parameters with literal, wildcard, variable, uppercase-constructor, bracketed-list, cons-like list, and tuple patterns; tuple literals and concrete tuple signature types parse into structured nodes. | Keep future pattern work focused on new binder/type/runtime contracts for guards, or-patterns, as-patterns, and pattern synonyms. |
+| Core AST + lowering | `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/Desugar.hs` | Carries `EPatternCase`, `PConstructor` / `PList`, tuple expression/signature nodes, and dedicated `SData` declaration metadata with constructor arities; pattern-shaped lambda parameters lower to ordinary unary lambdas with internal single-arm pattern cases; `ECase` remains bool-only for `if`. | Future pattern work should extend the shared pattern representation without regressing `if` or ordinary unary lambda lowering. |
+| Binding/type semantics | `jazz-next/src/JazzNext/Compiler/Analyzer.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs` | Supports branch-local binder visibility for nested pattern shapes, constructor expression typing, declared constructor pattern typing, exact-length bracketed-list pattern typing, cons-like list head/tail typing, tuple pattern typing, lambda-parameter pattern typing through the same case engine, and fixed-arity heterogeneous tuple value/signature typing. | Type semantics are complete for the active pattern subset; generic ADT type schemes and additional pattern forms need separate contracts. |
+| Runtime execution | `jazz-next/src/JazzNext/Compiler/Runtime.hs`, `jazz-next/src/JazzNext/Compiler/Driver.hs` | Preserves bool-only `ECase` execution while evaluating literal / wildcard / variable / constructor / bracketed-list / cons-like list / tuple `EPatternCase` arms plus constructor values/applications, tuple values, and pattern-shaped lambda parameters lowered through internal pattern cases. | Runtime semantics are complete for the active pattern subset; future matcher forms remain staged. |
+| Active verification | `jazz-next/test/JazzNext/Compiler/Parser/*.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/*.hs`, `jazz-next/test/JazzNext/CLI/CLISpec.hs` | Parser coverage includes constructor/list/cons-like-list/tuple forms, tuple literals/signature types, lambda parameter patterns, and case-boundary regressions; semantic coverage now includes constructor values/applications, constructor/list/tuple pattern typing, constructor/list/tuple pattern runtime matching, lambda pattern parameters, concrete tuple signatures, tuple runtime values, and invalid constructor over-application runtime diagnostics. | Keep future ADT/pattern work in focused `jazz-next` suites before broadening the default warning-config run. |
 
 ## Dependency Map
 
@@ -108,7 +107,7 @@ Out of scope for the first executable slices:
 | `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md` | The runtime plan already names this domain as Milestone 4 work and identifies the active owner files. | Keeps ADT/pattern implementation attached to the active interpreter pipeline. |
 | `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md` | Constructor typing and pattern typing should consume active-path type structures as they evolve. | Avoids wiring ADT semantics into a temporary representation. |
 | Current `if` -> `ECase` desugaring in `jazz-next/src/JazzNext/Compiler/Desugar.hs` | Existing control-flow already relies on the current boolean `ECase` form. | Defines the migration constraint when general case forms land. |
-| Lambda-parameter pattern follow-up still unresolved in `docs/jazz-language-state.md` | Tuple values, tuple case patterns, and cons-like list case patterns are now part of the current active runtime subset; lambda-parameter patterns are not active. | Leaves lambda destructuring blocked until it has an independent contract. |
+| `docs/plans/2026-03-17-jazz-next-lambda-support.md` | Lambda-parameter patterns now lower through internal single-arm pattern cases and share the active `case` binder/type/runtime contract. | Keeps lambda destructuring closed with the same pattern engine while future pattern forms stay blocked separately. |
 
 ## Milestone Plan
 
@@ -116,7 +115,7 @@ Out of scope for the first executable slices:
 
 - [x] Create `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md`.
 - [x] Define the first committed `jazz-next` `case` slice: literal, wildcard, and variable patterns lower to `EPatternCase`, while `data`, constructor application, and richer pattern forms stayed queued follow-up work.
-- [x] Explicitly stage tuple patterns, cons-like list patterns, and lambda-pattern parameters behind concrete active-path contracts; tuple and cons-like list case patterns are now implemented, while lambda-parameter pattern semantics remain staged.
+- [x] Explicitly stage tuple patterns, cons-like list patterns, and lambda-pattern parameters behind concrete active-path contracts; all three now have active-path parser/type/runtime coverage.
 - [x] Link the new docs from this plan and the relevant roadmap/status trackers.
 
 Primary files:
@@ -331,9 +330,9 @@ bash scripts/check-docs.sh
 
 ### Milestone 5: Verification and tracker closure
 
-- [ ] Update language-state, README, runtime roadmap, and queue metadata to point future work at the active-path plan and executed milestones.
-- [ ] Replace remaining references that imply legacy `11` is an execution target.
-- [ ] Run focused parser/type/runtime/CLI checks plus the active-path default verification script as milestones land.
+- [x] Update language-state, README, runtime roadmap, and queue metadata to point future work at the active-path plan and executed milestones.
+- [x] Replace remaining references that imply legacy `11` is an execution target.
+- [x] Run focused parser/type/runtime/CLI checks plus the active-path default verification script as milestones land.
 
 #### Batch 1: Tuple-pattern rejection boundary
 
@@ -523,7 +522,7 @@ bash jazz-next/scripts/test-warning-config.sh
 
 ## Definition of Done
 
-- [ ] Active ADT/pattern work targets only `jazz-next` files, tests, and docs.
+- [x] Active ADT/pattern work targets only `jazz-next` files, tests, and docs.
 - [x] `jazz-next` parser, AST/lowering, analyzer/type, and runtime agree on one ADT/case/pattern representation for the committed simple slice.
 - [x] Docs describe the implemented active-path subset and explicit non-goals.
-- [ ] Queue, roadmap, and runtime-plan linkage no longer point new ADT work at legacy `jazz-hs` execution files.
+- [x] Queue, roadmap, and runtime-plan linkage no longer point new ADT work at legacy `jazz-hs` execution files.

@@ -57,7 +57,7 @@ supersedes:
 - [x] On `2026-05-22`, retired the internal compile placeholder artifact: successful compile driver results now contain only diagnostics, and loader/warning-flow/type/runtime coverage asserts compile success through warnings/errors only.
 - [ ] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next`.
 - [ ] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
-- [ ] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.
+- [x] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.
 - [ ] Milestone 5 complete: module/import and stdlib execution semantics are closed on the active path.
 - [ ] Milestone 6 complete: CLI/docs treat interpreter-backed execution as the canonical product path.
 
@@ -159,8 +159,8 @@ Primary files:
 Depends on `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`.
 
 - [x] Re-author the ADT/pattern plan against the active runtime pipeline in this document.
-- [ ] Add constructor values, `case` branches beyond boolean canonicalization, and pattern-match diagnostics in `jazz-next`.
-- [ ] Keep parser, analyzer/type, and runtime changes in one vertical slice so runtime semantics never drift from new AST shapes.
+- [x] Add constructor values, `case` branches beyond boolean canonicalization, and pattern-match diagnostics in `jazz-next`.
+- [x] Keep parser, analyzer/type, and runtime changes in one vertical slice so runtime semantics never drift from new AST shapes.
 
 Primary files:
 

@@ -13,15 +13,16 @@ Jazz is a functional language that takes inspiration from Elixir and Haskell. I 
 - Immutable bindings
 - First-class functions
 - Functions are curried by default
+- Partial ADT, tuple, and pattern-matching runtime subset: canonical `data` declarations, constructor values/applications, tuple literals/signatures, and `case`/lambda patterns for literal, wildcard, variable, constructor, list, and tuple forms
 - Bundled-prelude runtime helpers (`map`, `filter`, `hd`, `tl`, `print!`) in the active CLI/run path
 - Stub purity enforcement for direct `!` callee calls in binding bodies
 - Dot-terminated source forms and brace-bodied module declarations
 
 ### Planned / Aspirational
 
-- ADTs as end-to-end runtime/compiler behavior
-- Pattern matching as end-to-end runtime/compiler behavior
-- Tuple code generation/runtime behavior
+- Generic ADT type schemes and broader constructor typing
+- Future pattern forms such as guards, or-patterns, as-patterns, and pattern synonyms
+- Broader tuple feature surface beyond the current runtime/signature/pattern subset
 - Full module/import loader semantics
 - LLVM backend and performance target
 - Readability/usability goals such as "easy to understand syntax"
