@@ -1,6 +1,6 @@
 # Bindings and Signatures Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints, monomorphic variable constrained signatures, deterministic unsupported-variable diagnostics, and unsupported constrained-signature primary spans are implemented)
+Status: active (`jazz-next` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints, monomorphic variable constrained signatures, deterministic unsupported-variable diagnostics, and unsupported constrained-signature primary spans are implemented)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
 
@@ -176,5 +176,4 @@ bad = \(x) -> x.
 ## Deferred Work
 
 - Complete recursion-group semantics in `jazz-next` (self + mutual recursion) so implementation fully matches locked policy.
-- Add parser-surface tests once parser work lands in `jazz-next`.
-- Define polymorphic/generalized type-variable constrained signatures, defaulting, solver obligations, and any runtime dispatch beyond the current monomorphic annotation-only contract.
+- Define polymorphic/generalized type-variable constrained signatures, type-scheme instantiation/generalization, defaulting, solver obligations, diagnostics, and any runtime dispatch beyond the current monomorphic annotation-only contract under a separate future semantics contract.
