@@ -137,11 +137,13 @@ git add docs/spec/modules/00-module-clarification-matrix.md \
 - [x] Add migration notes for old patterns (`module A::B {}` in nested blocks vs one-file-per-module expectations).
 
 Research latitude for executor:
+
 - [x] May evaluate two strategies before final recommendation:
   - strict one-file-per-module canonicalization
   - hybrid explicit-module-block compatibility mode
 
 Selected contract:
+
 - Use strict module-path-to-file canonicalization (`App::Main` -> `App/Main.jz`) under ordered module roots.
 - Keep brace-bodied `module App::Main { ... }` declarations as optional compatibility declarations; when present they must match the resolved module path.
 - Keep standalone single-file compile/run separate from explicit `--entry-module` module-graph mode.
@@ -171,9 +173,11 @@ git add docs/spec/modules/01-file-layout-and-package-roots.md \
 - [x] Attach pseudocode and truth-table examples for ambiguous/cyclic cases.
 
 Research latitude for executor:
+
 - [x] Can choose DFS or BFS graph traversal as long as deterministic ordering and diagnostics requirements are met.
 
 Selected contract:
+
 - Document the active depth-first resolver, not a new traversal strategy.
 - Deduplicate imports and traverse them in lexical rendered-path order.
 - Keep bundled prelude loading out of module-root fallback semantics; it remains a driver-layer concern.
@@ -203,9 +207,11 @@ git add docs/spec/modules/02-resolution-algorithm-and-cycles.md \
 - [x] Document minimum behavior required to retire "parse-only import/module" status.
 
 Research latitude for executor:
+
 - [x] Can recommend no-cache V1 loader if explicitly justified with complexity and correctness tradeoffs.
 
 Selected contract:
+
 - Keep standalone source compile/run and explicit module-graph compile/run as separate entrypoint modes.
 - Keep v1 free of persistent module caches; only per-invocation source lookup memoization is normative.
 - Validate dependency expressions during compile/run analysis but strip them from runtime replay so only the entry module produces output.
@@ -238,9 +244,11 @@ git add docs/spec/modules/03-loader-behavior-and-diagnostics.md \
 - [x] Add executable examples and explicit invalid-case examples.
 
 Research latitude for executor:
+
 - [x] May propose additional syntax restrictions if they reduce ambiguity and are migration-safe.
 
 Selected contract:
+
 - Keep v1 import syntax to bare imports, non-empty symbol-list imports, and alias imports.
 - Reject alias plus symbol-list combinations and duplicate symbols in the parser.
 - Treat alias imports as qualified-only; `Alias::name` is required for exported names from alias imports.
@@ -276,6 +284,7 @@ git add docs/spec/modules/04-qualified-imports-and-binding.md \
   - `docs/jazz-language-state.md`
 
 Selected contract:
+
 - Keep standalone compile/run behavior unchanged and module graph loading explicitly opt-in through `--entry-module`.
 - Keep brace-bodied module declarations as the migration target; rejected legacy syntax remains a parser or CLI error, not a deprecated-syntax warning.
 - Keep legacy `jazz-hs/` and `jazz2/` behavior as reference evidence only.
