@@ -28,7 +28,7 @@ import JazzNext.Compiler.Identifier
 
 -- | Literals as they appear in parsed source before lowering.
 data SurfaceLiteral
-  = SLInt Int
+  = SLInt Integer
   | SLBool Bool
   deriving (Eq, Show)
 
@@ -135,7 +135,7 @@ data SurfaceSignatureType
 -- coupling between phases.
 data SurfaceSignatureToken
   = SurfaceSignatureNameToken Text
-  | SurfaceSignatureIntToken Int
+  | SurfaceSignatureIntToken Integer
   | SurfaceSignatureArrowToken
   | SurfaceSignatureAtToken
   | SurfaceSignatureColonToken

@@ -72,7 +72,7 @@ tests =
     ("rejects missing statement terminator", testRejectsMissingDotTerminator),
     ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot),
     ("rejects signature missing terminator before class declaration", testRejectsMissingSignatureDotBeforeClass),
-    ("rejects integer literal overflow", testRejectsIntOverflow),
+    ("parses integer literals beyond host Int", testParsesLargeIntegerLiteral),
     ("rejects negative literal syntax for now", testRejectsNegativeLiteralSyntax),
     ("parses abstraction keywords as ordinary binding names", testParsesAbstractionKeywordsAsBindingNames),
     ("parses abstraction keywords as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames),
@@ -553,12 +553,18 @@ testRejectsMissingSignatureDotBeforeClass =
     "expected '.' before 'class'"
     (parseSurfaceProgram "x :: Int\nclass Eq { }.")
 
-testRejectsIntOverflow :: IO ()
-testRejectsIntOverflow =
-  assertLeftDiagnosticContains
-    "integer overflow"
-    "integer literal out of range"
-    (parseSurfaceProgram "x = 9999999999999999999999999999999999999.")
+testParsesLargeIntegerLiteral :: IO ()
+testParsesLargeIntegerLiteral =
+  assertRight
+    "large integer literal"
+    (parseSurfaceProgram "x = 9223372036854775808.")
+    ( assertEqual
+        "large integer surface AST"
+        ( SEBlock
+            [ SSLet "x" (SourceSpan 1 1) (SELit (SLInt 9223372036854775808))
+            ]
+        )
+    )
 
 testRejectsNegativeLiteralSyntax :: IO ()
 testRejectsNegativeLiteralSyntax =

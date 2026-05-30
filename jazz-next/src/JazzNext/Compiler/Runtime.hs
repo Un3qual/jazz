@@ -53,7 +53,7 @@ import JazzNext.Compiler.RecursiveBindings
 -- | Runtime values produced by the interpreter, including partially applied
 -- builtins/operators.
 data RuntimeValue
-  = VInt Int
+  = VInt Integer
   | VBool Bool
   | VList [RuntimeValue]
   | VTuple [RuntimeValue]

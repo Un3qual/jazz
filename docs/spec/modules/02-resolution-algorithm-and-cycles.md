@@ -90,7 +90,7 @@ Resolved modules outside the active stack do not create cycles when referenced a
 
 ```text
 resolve(entry):
-  visit([], empty_state, entry)
+  state = visit([], empty_state, entry)
   return state.resolved_modules
 
 visit(call_stack, state, module_path):

@@ -196,7 +196,7 @@ data ExpressionType
   | TVarType Int
   deriving (Eq, Show)
 
-data IntegerLiteralRange = IntegerLiteralRange Int Int
+data IntegerLiteralRange = IntegerLiteralRange Integer Integer
   deriving (Eq, Show)
 
 data NumericConstraint
@@ -343,7 +343,7 @@ inferExprType builtinMode env state expr =
           (Just inferredThenType, Just inferredElseType) ->
             case unifyTypes inferredThenType inferredElseType stateAfterConditionCheck of
               Just unifiedState ->
-                (Just (resolveType unifiedState inferredThenType), unifiedState)
+                (Just (mergedUnifiedType unifiedState inferredThenType inferredElseType), unifiedState)
               Nothing ->
                 ( Nothing,
                   addTypeError
@@ -535,7 +535,7 @@ applyNumericBinaryRule ::
 applyNumericBinaryRule operatorSymbol resultRule leftType rightType state =
   case unifyTypes leftType rightType state of
     Just stateAfterUnify ->
-      let resolvedOperandType = numericBinaryOperandType stateAfterUnify leftType rightType
+      let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
        in case constrainNumericType resolvedOperandType stateAfterUnify of
             Just stateAfterNumericConstraint ->
               (Just (numericRuleResultType resultRule resolvedOperandType), stateAfterNumericConstraint)
@@ -560,11 +560,17 @@ numericRuleResultType resultRule operandType =
     NumericSameTypeResult -> operandType
     NumericBoolResult -> TBoolType
 
-numericBinaryOperandType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
-numericBinaryOperandType state leftType rightType =
+numericBinaryOperandType ::
+  Text ->
+  NumericRuleResult ->
+  InferState ->
+  ExpressionType ->
+  ExpressionType ->
+  ExpressionType
+numericBinaryOperandType operatorSymbol resultRule state leftType rightType =
   case (resolveType state leftType, resolveType state rightType) of
     (TIntegerLiteralType leftRange, TIntegerLiteralType rightRange) ->
-      TIntegerLiteralType (combineIntegerLiteralRanges leftRange rightRange)
+      TIntegerLiteralType (numericLiteralBinaryRange operatorSymbol resultRule leftRange rightRange)
     (TIntegerLiteralType literalRange, numericType@(TNumericType concreteNumericType))
       | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
     (numericType@(TNumericType concreteNumericType), TIntegerLiteralType literalRange)
@@ -1338,8 +1344,54 @@ numericTypeIntegerBounds numericType =
     signedUpper bits = (2 ^ (bits - 1)) - 1
     unsignedUpper bits = (2 ^ bits) - 1
 
-singletonIntegerLiteralRange :: Int -> IntegerLiteralRange
+singletonIntegerLiteralRange :: Integer -> IntegerLiteralRange
 singletonIntegerLiteralRange value = IntegerLiteralRange value value
+
+numericLiteralBinaryRange ::
+  Text ->
+  NumericRuleResult ->
+  IntegerLiteralRange ->
+  IntegerLiteralRange ->
+  IntegerLiteralRange
+numericLiteralBinaryRange operatorSymbol resultRule leftRange rightRange =
+  case resultRule of
+    NumericSameTypeResult ->
+      let operandRange = combineIntegerLiteralRanges leftRange rightRange
+       in case integerLiteralArithmeticResultRange operatorSymbol leftRange rightRange of
+            Just resultRange -> combineIntegerLiteralRanges operandRange resultRange
+            Nothing -> operandRange
+    NumericBoolResult ->
+      combineIntegerLiteralRanges leftRange rightRange
+
+integerLiteralArithmeticResultRange ::
+  Text ->
+  IntegerLiteralRange ->
+  IntegerLiteralRange ->
+  Maybe IntegerLiteralRange
+integerLiteralArithmeticResultRange operatorSymbol (IntegerLiteralRange leftMin leftMax) (IntegerLiteralRange rightMin rightMax) =
+  case operatorSymbol of
+    "+" -> Just (IntegerLiteralRange (leftMin + rightMin) (leftMax + rightMax))
+    "-" -> Just (IntegerLiteralRange (leftMin - rightMax) (leftMax - rightMin))
+    "*" -> Just (rangeFromValues [leftMin * rightMin, leftMin * rightMax, leftMax * rightMin, leftMax * rightMax])
+    "/"
+      | rightMin <= 0 && rightMax >= 0 -> Nothing
+      | otherwise ->
+          Just
+            ( rangeFromValues
+                [ leftMin `div` rightMin,
+                  leftMin `div` rightMax,
+                  leftMax `div` rightMin,
+                  leftMax `div` rightMax
+                ]
+            )
+    _ -> Nothing
+
+rangeFromValues :: [Integer] -> IntegerLiteralRange
+rangeFromValues values = IntegerLiteralRange (minimum values) (maximum values)
+
+mergedUnifiedType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
+mergedUnifiedType state leftType rightType =
+  mergeIntegerLiteralRanges (resolveType state leftType) (resolveType state rightType)
 
 mergeIntegerLiteralRanges :: ExpressionType -> ExpressionType -> ExpressionType
 mergeIntegerLiteralRanges leftType rightType =
@@ -1356,7 +1408,7 @@ combineIntegerLiteralRanges (IntegerLiteralRange leftMin leftMax) (IntegerLitera
 
 integerLiteralRangeBounds :: IntegerLiteralRange -> (Integer, Integer)
 integerLiteralRangeBounds (IntegerLiteralRange lower upper) =
-  (toInteger lower, toInteger upper)
+  (lower, upper)
 
 renderNumericTypeName :: NumericType -> Text
 renderNumericTypeName numericType =
@@ -2173,7 +2225,7 @@ inferPatternCaseType builtinMode env scrutineeType initialState caseArms =
                 (Just inferredExpectedBodyType, Just inferredBodyType) ->
                   case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBody of
                     Just unifiedState ->
-                      (Just (resolveType unifiedState inferredExpectedBodyType), unifiedState)
+                      (Just (mergedUnifiedType unifiedState inferredExpectedBodyType inferredBodyType), unifiedState)
                     Nothing ->
                       ( Just inferredExpectedBodyType,
                         addTypeError

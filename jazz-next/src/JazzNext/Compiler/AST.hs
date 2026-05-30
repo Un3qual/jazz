@@ -27,7 +27,7 @@ import JazzNext.Compiler.Identifier
 
 -- | Literals currently supported by the lowered core language.
 data Literal
-  = LInt Int
+  = LInt Integer
   | LBool Bool
   deriving (Eq, Show)
 
@@ -124,7 +124,7 @@ data SignatureType
 -- source slices.
 data SignatureToken
   = SignatureNameToken Text
-  | SignatureIntToken Int
+  | SignatureIntToken Integer
   | SignatureArrowToken
   | SignatureAtToken
   | SignatureColonToken

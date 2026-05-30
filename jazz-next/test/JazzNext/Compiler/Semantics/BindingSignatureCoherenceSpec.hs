@@ -65,6 +65,7 @@ tests =
     ("source pipeline accepts concrete tuple signature", testSourceAcceptsConcreteTupleSignature),
     ("source pipeline accepts width-specific integer signatures", testSourceAcceptsWidthSpecificIntegerSignatures),
     ("source pipeline rejects out-of-range width-specific integer literals", testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals),
+    ("source pipeline rejects out-of-range width-specific branch literals", testSourceRejectsOutOfRangeWidthSpecificBranchLiterals),
     ("source pipeline rejects out-of-range width-specific literal arithmetic", testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic),
     ("source pipeline rejects out-of-range width-specific section literals", testSourceRejectsOutOfRangeWidthSpecificSectionLiterals),
     ("source pipeline accepts same-width numeric operator signatures", testSourceAcceptsSameWidthNumericOperatorSignatures),
@@ -378,6 +379,7 @@ testSourceAcceptsWidthSpecificIntegerSignatures = do
   assertSourceOk "x :: Int8.\nx = 127."
   assertSourceOk "x :: UInt8.\nx = 255."
   assertSourceOk "x :: UInt64.\nx = 1."
+  assertSourceOk "x :: UInt64.\nx = 18446744073709551615."
   assertSourceOk "xs :: [Int32].\nxs = [1, 2, 3]."
   assertSourceOk "x :: @{Num(UInt16)}: UInt16.\nx = 1."
 
@@ -385,11 +387,20 @@ testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals :: IO ()
 testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals = do
   assertSourceSingleErrorContains "x :: UInt8.\nx = 300." "E2005"
   assertSourceSingleErrorContains "x :: Int8.\nx = 128." "E2005"
+  assertSourceSingleErrorContains "x :: UInt64.\nx = 18446744073709551616." "E2005"
   assertSourceSingleErrorContains "xs :: [UInt8].\nxs = [1, 300]." "E2005"
 
+testSourceRejectsOutOfRangeWidthSpecificBranchLiterals :: IO ()
+testSourceRejectsOutOfRangeWidthSpecificBranchLiterals = do
+  assertSourceSingleErrorContains "x :: UInt8.\nx = if True 1 else 300." "E2005"
+  assertSourceSingleErrorContains "x :: UInt8.\nx = case 0 { | 0 -> 1 | _ -> 300 }." "E2005"
+
 testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic :: IO ()
-testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic =
+testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic = do
   assertSourceSingleErrorContains "x :: UInt8.\nx = 1 + 300." "E2005"
+  assertSourceSingleErrorContains "x :: UInt8.\nx = 200 + 100." "E2005"
+  assertSourceSingleErrorContains "x :: UInt8.\nx = 0 - 1." "E2005"
+  assertSourceSingleErrorContains "x :: UInt8.\nx = 16 * 16." "E2005"
 
 testSourceRejectsOutOfRangeWidthSpecificSectionLiterals :: IO ()
 testSourceRejectsOutOfRangeWidthSpecificSectionLiterals = do
