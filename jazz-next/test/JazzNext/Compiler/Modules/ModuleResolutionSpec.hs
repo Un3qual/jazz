@@ -35,7 +35,10 @@ tests :: [NamedTest]
 tests =
   [ ("rejects empty entry module path before traversal", testRejectsEmptyEntryModulePath),
     ("accepts lexer-compatible continuation characters in CLI module paths", testParseModulePathContinuations),
+    ("preserves exact module path segments while resolving", testPreservesExactModulePathSegments),
     ("maps module path to relative .jz file", testModulePathMapping),
+    ("maps nested module paths to canonical .jz files", testNestedModulePathMapping),
+    ("accepts omitted module declaration from resolved source path", testAcceptsOmittedModuleDeclaration),
     ("accepts matching module declaration in resolved file", testAcceptsMatchingModuleDeclaration),
     ("resolves dependency graph in deterministic order", testResolveDependencyGraph),
     ("deduplicates duplicate module roots before ambiguity checks", testDeduplicatesDuplicateRoots),
@@ -81,12 +84,74 @@ testModulePathMapping =
     "App/Core.jz"
     (modulePathToRelativeFile ["App", "Core"])
 
+testNestedModulePathMapping :: IO ()
+testNestedModulePathMapping = do
+  assertEqual
+    "nested relative file path"
+    "App/Core/Parser.jz"
+    (modulePathToRelativeFile ["App", "Core", "Parser"])
+  assertEqual
+    "punctuated relative file path"
+    "Lib/Build!.jz"
+    (modulePathToRelativeFile ["Lib", "Build!"])
+
 testParseModulePathContinuations :: IO ()
 testParseModulePathContinuations =
   assertEqual
     "continuation chars"
     (Right ["App", "Main'", "Build!"])
     (parseModulePathText "App::Main'::Build!")
+
+testPreservesExactModulePathSegments :: IO ()
+testPreservesExactModulePathSegments =
+  assertRight
+    "case-distinct module paths resolve independently"
+    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (\modules -> assertEqual "resolved modules" expectedModules modules)
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Util.\nimport lib::Util.\nmain = upperValue."),
+          ("src/Lib/Util.jz", "upperValue = 1."),
+          ("src/lib/Util.jz", "lowerValue = 2.")
+        ]
+    expectedModules =
+      [ ResolvedModule
+          { resolvedModulePath = ["Lib", "Util"],
+            resolvedSourcePath = "src/Lib/Util.jz",
+            resolvedImports = []
+          },
+        ResolvedModule
+          { resolvedModulePath = ["lib", "Util"],
+            resolvedSourcePath = "src/lib/Util.jz",
+            resolvedImports = []
+          },
+        ResolvedModule
+          { resolvedModulePath = ["App", "Main"],
+            resolvedSourcePath = "src/App/Main.jz",
+            resolvedImports = [["Lib", "Util"], ["lib", "Util"]]
+          }
+      ]
+
+testAcceptsOmittedModuleDeclaration :: IO ()
+testAcceptsOmittedModuleDeclaration =
+  assertRight
+    "omitted declaration uses resolved source path"
+    (resolveModuleGraph config sourceFiles ["App", "Nested", "Main"])
+    (\modules -> assertEqual "resolved modules" expectedModules modules)
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [("src/App/Nested/Main.jz", "main = 1.")]
+    expectedModules =
+      [ ResolvedModule
+          { resolvedModulePath = ["App", "Nested", "Main"],
+            resolvedSourcePath = "src/App/Nested/Main.jz",
+            resolvedImports = []
+          }
+      ]
 
 testResolveDependencyGraph :: IO ()
 testResolveDependencyGraph =
@@ -188,6 +253,7 @@ testReportsAmbiguousImport = do
   assertLeftContains "ambiguous code" "E4002" result
   assertLeftContains "ambiguous first candidate" "rootA/Lib/Util.jz" result
   assertLeftContains "ambiguous second candidate" "rootB/Lib/Util.jz" result
+  assertLeftContains "ambiguous candidate order" "matched rootA/Lib/Util.jz, rootB/Lib/Util.jz" result
   where
     config = ModuleResolutionConfig {moduleRoots = ["rootA", "rootB"], moduleExtension = ".jz"}
     sourceFiles =

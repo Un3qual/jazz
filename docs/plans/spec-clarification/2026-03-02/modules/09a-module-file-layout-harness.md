@@ -1,12 +1,13 @@
 ---
 id: JN-MODULE-FILE-LAYOUT-HARNESS-001
-status: ready
+status: done
 priority: P1
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-05-30
+completed_on: 2026-05-30
 plan_section: "Batch 1: File layout parser and resolver harness"
 target_paths:
   - jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
@@ -38,6 +39,22 @@ Executor scope:
 - Add or tighten resolver coverage in `ModuleResolutionSpec.hs` for exact module path segment preservation, canonical `.jz` path mapping, declaration omission, declaration/path match, declaration/path mismatch, duplicate root dedupe, and deterministic candidate order.
 - Do not change parser, resolver, loader, or runtime behavior unless a focused RED test proves the active implementation violates the published v1 module layout contract.
 - Do not inspect or modify `jazz-hs/` or `jazz2/`.
+
+## Closure evidence
+
+Completed on 2026-05-30 without parser, resolver, loader, or runtime behavior
+changes. The active implementation already satisfied the file-layout contract
+once the missing harness assertions were added.
+
+Added parser coverage in `ModuleImportParserSpec.hs` for the canonical
+brace-bodied module boundary, equals-style legacy declaration rejection, and
+newline legacy declaration rejection.
+
+Added resolver coverage in `ModuleResolutionSpec.hs` for exact module path
+segment preservation, nested canonical `.jz` file mapping, declaration omission
+from resolved paths, and deterministic ambiguous candidate ordering. Existing
+coverage continues to lock declaration/path match and mismatch boundaries plus
+duplicate-root dedupe.
 
 Verification:
 
