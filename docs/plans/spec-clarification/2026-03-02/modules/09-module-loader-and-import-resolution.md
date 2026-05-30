@@ -1,5 +1,5 @@
 ---
-id: JN-MODULE-LOADER-PIPELINE-SPEC-001
+id: JN-MODULE-QUALIFIED-IMPORT-SPEC-001
 status: ready
 priority: P1
 size: M
@@ -7,9 +7,9 @@ kind: docs
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-05-30
-plan_section: "Phase 3: Loader Pipeline Behavior (Parse, Analyze, Cache, Emit)"
+plan_section: "Phase 4: Qualified Import and Name-Binding Semantics"
 target_paths:
-  - docs/spec/modules/03-loader-behavior-and-diagnostics.md
+  - docs/spec/modules/04-qualified-imports-and-binding.md
   - docs/spec/modules/00-module-clarification-matrix.md
   - docs/plans/spec-clarification/2026-03-02/modules/09-module-loader-and-import-resolution.md
   - docs/jazz-language-state.md
@@ -17,7 +17,7 @@ target_paths:
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Define module-graph loader entrypoints, parse/resolve/analyze/run pipeline order, no-cache v1 policy, diagnostic context requirements, and compile/run output behavior without changing compiler behavior."
+deliverable: "Define bare imports, symbol-list imports, alias imports, alias qualification, local/import shadowing, and collision diagnostics without changing compiler behavior."
 ---
 
 # Spec Clarification Item #09: Module Loader and Import Resolution Semantics Plan
@@ -45,6 +45,7 @@ deliverable: "Define module-graph loader entrypoints, parse/resolve/analyze/run 
 - [x] Publish baseline clarification matrix for module/import semantics.
 - [x] Publish normative file-layout and package-root spec.
 - [x] Publish normative deterministic resolution and cycle spec.
+- [x] Publish normative loader pipeline and diagnostics spec.
 - [ ] Execute follow-up clarification phases and publish normative module/import specs.
 - [ ] Implement/verify final semantics in compiler/runtime code after clarification approval.
 
@@ -191,19 +192,25 @@ git add docs/spec/modules/02-resolution-algorithm-and-cycles.md \
 
 ## Phase 3: Loader Pipeline Behavior (Parse, Analyze, Cache, Emit)
 
-- [ ] Define loader entrypoint contract (single-file compile vs module-graph compile).
-- [ ] Define when parsing, resolution, analysis, and codegen occur in the pipeline.
-- [ ] Define cache semantics and invalidation invariants (if cache is introduced).
-- [ ] Define stable diagnostic contract including:
+- [x] Define loader entrypoint contract (single-file compile vs module-graph compile).
+- [x] Define when parsing, resolution, analysis, and codegen occur in the pipeline.
+- [x] Define cache semantics and invalidation invariants (if cache is introduced).
+- [x] Define stable diagnostic contract including:
   - source location requirements
   - import chain context requirements
   - reproducibility expectations
-- [ ] Publish loader behavior spec:
+- [x] Publish loader behavior spec:
   - `docs/spec/modules/03-loader-behavior-and-diagnostics.md`
-- [ ] Document minimum behavior required to retire "parse-only import/module" status.
+- [x] Document minimum behavior required to retire "parse-only import/module" status.
 
 Research latitude for executor:
-- [ ] Can recommend no-cache V1 loader if explicitly justified with complexity and correctness tradeoffs.
+- [x] Can recommend no-cache V1 loader if explicitly justified with complexity and correctness tradeoffs.
+
+Selected contract:
+- Keep standalone source compile/run and explicit module-graph compile/run as separate entrypoint modes.
+- Keep v1 free of persistent module caches; only per-invocation source lookup memoization is normative.
+- Validate dependency expressions during compile/run analysis but strip them from runtime replay so only the entry module produces output.
+- Keep successful compile mode diagnostics-only for both standalone and module-graph paths.
 
 ### Commit Checkpoint (Phase 3)
 
