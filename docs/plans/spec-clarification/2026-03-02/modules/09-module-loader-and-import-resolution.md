@@ -1,20 +1,24 @@
 ---
 id: JN-MODULE-SPECS-PLAN-001
-status: blocked
+status: done
 priority: P1
-size: M
-kind: docs
+size: S
+kind: coordination
 autonomous_ready: no
 depends_on: []
 last_verified: 2026-05-30
 plan_section: "Phase 6: Verification Harness and Closure"
 target_paths:
   - docs/plans/spec-clarification/2026-03-02/modules/09-module-loader-and-import-resolution.md
+  - docs/plans/spec-clarification/2026-03-02/modules/09a-module-file-layout-harness.md
+  - docs/plans/spec-clarification/2026-03-02/modules/09b-module-resolution-binding-harness.md
+  - docs/plans/spec-clarification/2026-03-02/modules/09c-module-loader-migration-harness.md
+  - docs/spec/modules/05-migration-and-compatibility.md
   - docs/execution/queue.md
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Rewrite the stale legacy Phase 6 verification checklist as an active jazz-next verification-harness contract before any further module implementation work."
+deliverable: "Replace the stale legacy Phase 6 verification checklist with active jazz-next child harness plans and queue rows for file layout, resolution/import binding, and loader/migration coverage."
 ---
 
 # Spec Clarification Item #09: Module Loader and Import Resolution Semantics Plan
@@ -25,7 +29,7 @@ deliverable: "Rewrite the stale legacy Phase 6 verification checklist as an acti
 
 **Architecture:** Use a docs-first clarification flow: capture unresolved behavior from current code/specs, publish normative semantics docs, then encode the semantics in parser/analyzer/loader verification tests before implementation changes.
 
-**Tech Stack:** Markdown specs and plans, `rg`/`sed`/`git`, Haskell (`stack`, `hspec`, `tasty`) in `jazz-hs`, Nix (`flake.nix`, `nix develop`) for reproducible checks.
+**Tech Stack:** Markdown specs and plans, `rg`/`sed`/`git`, active `jazz-next` Haskell suites invoked through `bash jazz-next/scripts/runghc.sh`, and repo-root queue/docs gates.
 
 ---
 
@@ -304,69 +308,64 @@ git add docs/spec/modules/05-migration-and-compatibility.md \
 
 ## Phase 6: Verification Harness and Closure
 
-Blocker note (2026-05-30): this checklist still names legacy `jazz-hs` parser/analyzer/loader tests and a docs script that is not the active verification boundary. Under the current workspace policy, Phase 6 is blocked until it is rewritten as an active `jazz-next` verification-harness contract with concrete target paths and focused commands.
+Closure note (2026-05-30): the legacy Phase 6 checklist has been rewritten as
+active `jazz-next` verification-harness child batches. The next implementation
+work is no longer blocked on legacy `jazz-hs` parser/analyzer/loader targets.
 
-- [ ] Add parser/analyzer/loader verification tests aligned to clarified semantics:
-  - `jazz-hs/test/ParserSpec.hs`
-  - `jazz-hs/test/Analyzer/TypeInferenceSpec.hs`
-  - `jazz-hs/test/ModuleResolutionSpec.hs` (new)
-  - `jazz-hs/test/LoaderSpec.hs` (new)
-- [ ] Add docs consistency checks for module semantics references:
-  - `scripts/check-module-docs.sh`
-- [ ] Ensure docs/spec/test contract stays synchronized with reproducible commands.
-- [ ] Close clarification item status once all checks pass and docs are linked.
+Remaining implementation closure is tracked by the active child queue rows rather
+than by reopening this parent coordination item:
+
+- [`JN-MODULE-FILE-LAYOUT-HARNESS-001`](09a-module-file-layout-harness.md) locks the file-layout parser/resolver harness against `docs/spec/modules/01` and the migration boundary.
+- [`JN-MODULE-RESOLUTION-BINDING-HARNESS-001`](09b-module-resolution-binding-harness.md) locks deterministic resolution ordering and qualified import binding diagnostics against `docs/spec/modules/02` and `04`.
+- [`JN-MODULE-LOADER-MIGRATION-HARNESS-001`](09c-module-loader-migration-harness.md) locks loader/CLI source-selection, memoization, dependency-expression isolation, and migration failure modes against `docs/spec/modules/03` and `05`.
 
 ### Commit Checkpoint (Phase 6)
 
 Suggested message:
-`test(spec-modules): add module resolution and loader verification coverage`
+`test(spec-modules): close active module verification harness`
 
 Exact `git add` targets:
+
 ```bash
-git add jazz-hs/test/ParserSpec.hs \
-  jazz-hs/test/Analyzer/TypeInferenceSpec.hs \
-  jazz-hs/test/ModuleResolutionSpec.hs \
-  jazz-hs/test/LoaderSpec.hs \
-  scripts/check-module-docs.sh \
-  docs/spec/modules
+git add jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs \
+  jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs \
+  jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs \
+  jazz-next/test/JazzNext/CLI/CLISpec.hs \
+  jazz-next/scripts/test-warning-config.sh \
+  docs/execution/queue.md \
+  docs/plans/spec-clarification/2026-03-02/modules
 ```
 
-## Nix Environment and Reproducible Command Matrix
+## Active Reproducible Command Matrix
 
-### Nix Environment (Required)
+Run from the repository root.
 
-- [ ] Add/maintain a pinned dev shell in the repository root:
-  - `flake.nix`
-  - `flake.lock`
-- [ ] Ensure shell includes: `stack`, `ghc`, `nodejs`, `bash`, `git`, `ripgrep`.
-
-### Environment Sanity Commands
+### Parser and Layout Harness
 
 ```bash
-nix --extra-experimental-features "nix-command flakes" develop -c stack --version
-nix --extra-experimental-features "nix-command flakes" develop -c ghc --version
-nix --extra-experimental-features "nix-command flakes" develop -c node --version
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
 ```
 
-### Parser Checks (Reproducible)
+### Resolution and Import-Binding Harness
 
 ```bash
-nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd jazz-hs && stack test --ta "--match \"when given an import statement|when given a module definition\""'
-nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd jazz-hs && stack test --ta "--match \"Should handle a simple program with imports\""'
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
 ```
 
-### Analyzer/Loader Checks (Reproducible)
+### Loader, CLI, and Default Suite Harness
 
 ```bash
-nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd jazz-hs && stack test --ta "--match \"Type Inference\""'
-nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd jazz-hs && stack test --ta "--match \"ModuleResolutionSpec|LoaderSpec\""'
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/CLI/CLISpec.hs
+bash jazz-next/scripts/test-warning-config.sh
 ```
 
-### Documentation Consistency Checks (Reproducible)
+### Queue and Docs Gates
 
 ```bash
-nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd . && rg -n "module|import|resolution|loader|qualified" docs/spec/modules docs/jazz-language-state.md README.md'
-nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd . && bash scripts/check-module-docs.sh'
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
 ```
 
 ## Final Exit Criteria
@@ -376,7 +375,7 @@ nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd .
 - [ ] Loader behavior is documented with deterministic diagnostics requirements.
 - [ ] Qualified import/name-binding rules are explicit and testable.
 - [ ] Migration constraints preserve current users while enabling loader rollout.
-- [ ] Nix-based parser/analyzer/doc checks are reproducible and documented.
+- [ ] Active runghc parser/resolver/loader/CLI checks and queue/docs gates are reproducible and documented.
 
 ## Implementation Status Verification (2026-03-04, Batch 1, `jazz-next`)
 
@@ -468,5 +467,5 @@ nix --extra-experimental-features "nix-command flakes" develop -c bash -lc 'cd .
 
 - [x] Evidence of unresolved module/import semantics recorded with exact paths.
 - [x] Phased clarification plan with commit checkpoints and exact `git add` targets.
-- [x] Nix environment and reproducible parser/analyzer/doc command matrix included.
+- [x] Active runghc verification matrix plus queue/docs gates included.
 - [x] Sub-plan paths proposed for deeper research-driven breakdown.

@@ -128,9 +128,17 @@ Implementation batches that change module/import behavior must preserve these ch
 
 ## Phase 6 Follow-Up Boundary
 
-The historical plan's Phase 6 verification-harness checklist still names `jazz-hs` parser/analyzer/loader tests. That checklist is not executor-safe under the current workspace policy.
+The historical plan's Phase 6 verification-harness checklist has been rewritten
+as active `jazz-next` child implementation batches:
 
-Future module verification closure must first be rewritten as an active `jazz-next` contract, naming concrete `jazz-next` test paths or docs-check scripts and a focused verification command set. Until then, no additional module implementation row should be unblocked by the legacy Phase 6 text.
+- `JN-MODULE-FILE-LAYOUT-HARNESS-001`
+- `JN-MODULE-RESOLUTION-BINDING-HARNESS-001`
+- `JN-MODULE-LOADER-MIGRATION-HARNESS-001`
+
+Those rows name concrete `jazz-next` parser, resolver, loader, CLI, and
+default-suite targets plus focused verification commands. Legacy `jazz-hs/` and
+`jazz2/` paths remain read-only reference material and are not valid targets for
+new module verification closure.
 
 ## Non-Goals
 
