@@ -514,7 +514,7 @@ Runtime/product status:
   until they have concrete target paths and verification.
 
 1. Keep future pattern forms such as guards, or-patterns, as-patterns, and pattern synonyms blocked until concrete binder/type/runtime contracts are planned on the active path; tuple literals, concrete tuple signature types, fixed-arity tuple case patterns, cons-like list case patterns, and lambda parameter patterns now execute as core runtime/type features.
-2. Keep future module/import work (`domain 09`) scoped to concrete product or semantics deltas beyond the closed active Phase 6 harness. The file-layout parser/resolver, resolution/import-binding, and loader/migration harnesses are complete, and the file layout/package-root, deterministic resolution/cycle, loader pipeline, qualified import, and migration policy specs are published.
+2. Keep future module/import work (`domain 09`) scoped to concrete product or semantic deltas beyond the closed active Phase 6 harness. The file-layout parser/resolver, resolution/import-binding, and loader/migration harnesses are complete, and the file layout/package-root, deterministic resolution/cycle, loader pipeline, qualified import, and migration policy specs are published.
 3. Keep remaining stdlib-boundary follow-up work (`domain 10`) scoped to concrete future prelude/catalog growth; the current bundled source/module graph paths and checked-in prelude reproducibility evidence are covered in `jazz-next`.
 4. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.
 5. Implement future warning emitters for the remaining reserved `deprecated-syntax` metadata in `jazz-next` according to `docs/spec/tooling/compiler-warning-flags.md`.

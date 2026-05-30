@@ -73,6 +73,13 @@ tests =
     ("reports qualified alias references to missing exports", testReportsMissingQualifiedAliasExport)
   ]
 
+sharedCycleSourceFiles :: Map.Map FilePath Text
+sharedCycleSourceFiles =
+  Map.fromList
+    [ ("src/A/One.jz", "import B::Two.\na = 1."),
+      ("src/B/Two.jz", "import A::One.\nb = 2.")
+    ]
+
 testRejectsEmptyEntryModulePath :: IO ()
 testRejectsEmptyEntryModulePath =
   assertLeftContains
@@ -376,11 +383,7 @@ testReportsCycle = do
   assertLeftContains "cycle trace" "A::One -> B::Two -> A::One" result
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
-    sourceFiles =
-      Map.fromList
-        [ ("src/A/One.jz", "import B::Two.\na = 1."),
-          ("src/B/Two.jz", "import A::One.\nb = 2.")
-        ]
+    sourceFiles = sharedCycleSourceFiles
 
 testReportsNestedCycleMinimalTrace :: IO ()
 testReportsNestedCycleMinimalTrace = do
@@ -391,11 +394,10 @@ testReportsNestedCycleMinimalTrace = do
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
-      Map.fromList
-        [ ("src/App/Main.jz", "import A::One.\nmain = a."),
-          ("src/A/One.jz", "import B::Two.\na = 1."),
-          ("src/B/Two.jz", "import A::One.\nb = 2.")
-        ]
+      Map.insert
+        "src/App/Main.jz"
+        "import A::One.\nmain = a."
+        sharedCycleSourceFiles
 
 testReportsImportedModuleParseFailure :: IO ()
 testReportsImportedModuleParseFailure = do
