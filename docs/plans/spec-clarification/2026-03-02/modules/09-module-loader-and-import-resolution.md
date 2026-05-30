@@ -1,23 +1,20 @@
 ---
-id: JN-MODULE-MIGRATION-SPEC-001
-status: ready
+id: JN-MODULE-SPECS-PLAN-001
+status: blocked
 priority: P1
 size: M
 kind: docs
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
 last_verified: 2026-05-30
-plan_section: "Phase 5: Migration Constraints and Compatibility Windows"
+plan_section: "Phase 6: Verification Harness and Closure"
 target_paths:
-  - docs/spec/modules/05-migration-and-compatibility.md
-  - docs/spec/modules/00-module-clarification-matrix.md
   - docs/plans/spec-clarification/2026-03-02/modules/09-module-loader-and-import-resolution.md
-  - docs/jazz-language-state.md
   - docs/execution/queue.md
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Define module/import migration constraints, compatibility policy, deterministic failure modes, and tracker updates without changing compiler behavior."
+deliverable: "Rewrite the stale legacy Phase 6 verification checklist as an active jazz-next verification-harness contract before any further module implementation work."
 ---
 
 # Spec Clarification Item #09: Module Loader and Import Resolution Semantics Plan
@@ -47,7 +44,8 @@ deliverable: "Define module/import migration constraints, compatibility policy, 
 - [x] Publish normative deterministic resolution and cycle spec.
 - [x] Publish normative loader pipeline and diagnostics spec.
 - [x] Publish normative qualified import and name-binding spec.
-- [ ] Execute follow-up clarification phases and publish normative module/import specs.
+- [x] Publish normative migration and compatibility spec.
+- [x] Execute follow-up clarification phases and publish normative module/import specs.
 - [ ] Implement/verify final semantics in compiler/runtime code after clarification approval.
 
 ## Verification Evidence (Unresolved Semantics)
@@ -261,21 +259,27 @@ git add docs/spec/modules/04-qualified-imports-and-binding.md \
 
 ## Phase 5: Migration Constraints and Compatibility Windows
 
-- [ ] Define migration constraints from current behavior:
-  - parser accepts module/import forms today
-  - analyzer/codegen do not implement them
-  - single-file CLI contract currently exists
-- [ ] Define compatibility policy:
+- [x] Define migration constraints from current behavior:
+  - active `jazz-next` has explicit module-graph resolver/driver behavior
+  - standalone source mode remains single-source and does not resolve dependencies
+  - legacy parser-only behavior remains historical evidence only
+- [x] Define compatibility policy:
   - accepted legacy forms
   - deprecation warnings timeline
   - removal gates
-- [ ] Define migration safety checks:
+- [x] Define migration safety checks:
   - no silent behavior changes for existing single-file programs
   - deterministic failure modes for newly enforced import semantics
-- [ ] Publish migration spec:
+- [x] Publish migration spec:
   - `docs/spec/modules/05-migration-and-compatibility.md`
-- [ ] Update tracking docs to reference clarified module semantics:
+- [x] Update tracking docs to reference clarified module semantics:
   - `docs/jazz-language-state.md`
+
+Selected contract:
+- Keep standalone compile/run behavior unchanged and module graph loading explicitly opt-in through `--entry-module`.
+- Keep brace-bodied module declarations as the migration target; rejected legacy syntax remains a parser or CLI error, not a deprecated-syntax warning.
+- Keep legacy `jazz-hs/` and `jazz2/` behavior as reference evidence only.
+- Require a future active `jazz-next` verification-harness contract before using Phase 6 to unblock more module implementation.
 
 ### Commit Checkpoint (Phase 5)
 
@@ -290,6 +294,8 @@ git add docs/spec/modules/05-migration-and-compatibility.md \
 ```
 
 ## Phase 6: Verification Harness and Closure
+
+Blocker note (2026-05-30): this checklist still names legacy `jazz-hs` parser/analyzer/loader tests and a docs script that is not the active verification boundary. Under the current workspace policy, Phase 6 is blocked until it is rewritten as an active `jazz-next` verification-harness contract with concrete target paths and focused commands.
 
 - [ ] Add parser/analyzer/loader verification tests aligned to clarified semantics:
   - `jazz-hs/test/ParserSpec.hs`
