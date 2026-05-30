@@ -506,6 +506,13 @@ Status update for item `#5`:
 - Implemented-vs-planned split is now published in `README.md`.
 - Canonical evidence-backed feature status is now tracked in `docs/feature-status.md`.
 
+Runtime/product status:
+
+- Active `jazz-next` product docs now describe one interpreter-backed path:
+  successful compile is diagnostic-only, successful `--run` prints evaluated
+  runtime output, and future product/runtime behavior deltas remain blocked
+  until they have concrete target paths and verification.
+
 1. Keep future pattern forms such as guards, or-patterns, as-patterns, and pattern synonyms blocked until concrete binder/type/runtime contracts are planned on the active path; tuple literals, concrete tuple signature types, fixed-arity tuple case patterns, cons-like list case patterns, and lambda parameter patterns now execute as core runtime/type features.
 2. Keep further module/import closure (`domain 09`) blocked until the stale legacy Phase 6 harness is rewritten for active `jazz-next`; file layout/package-root, deterministic resolution/cycle, loader pipeline, qualified import, and migration policy specs are now published.
 3. Keep remaining stdlib-boundary follow-up work (`domain 10`) scoped to concrete future prelude/catalog growth; the current bundled source/module graph paths and checked-in prelude reproducibility evidence are covered in `jazz-next`.
