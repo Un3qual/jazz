@@ -1,15 +1,15 @@
 ---
-id: JN-MODULE-FILE-LAYOUT-SPEC-001
+id: JN-MODULE-RESOLUTION-SPEC-001
 status: ready
 priority: P1
 size: M
 kind: docs
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-05-29
-plan_section: "Phase 1: File Layout and Package-Root Contract"
+last_verified: 2026-05-30
+plan_section: "Phase 2: Resolution Algorithm and Dependency Graph Semantics"
 target_paths:
-  - docs/spec/modules/01-file-layout-and-package-roots.md
+  - docs/spec/modules/02-resolution-algorithm-and-cycles.md
   - docs/spec/modules/00-module-clarification-matrix.md
   - docs/plans/spec-clarification/2026-03-02/modules/09-module-loader-and-import-resolution.md
   - docs/jazz-language-state.md
@@ -17,7 +17,7 @@ target_paths:
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Define canonical module-to-file mapping, package roots, extension policy, declaration/path mismatch behavior, and brace-bodied module compatibility without changing compiler behavior."
+deliverable: "Define deterministic import resolution order, ambiguity policy, unresolved import diagnostics, cycle reporting, and resolver pseudocode/examples without changing compiler behavior."
 ---
 
 # Spec Clarification Item #09: Module Loader and Import Resolution Semantics Plan
@@ -43,6 +43,7 @@ deliverable: "Define canonical module-to-file mapping, package roots, extension 
 - [x] Executed `jazz-next` qualified-import parser hardening batch for duplicate symbol-list imports.
 - [x] Executed `jazz-next` qualified-import binding batch with resolver-enforced symbol export validation and alias/symbol collision diagnostics (`E4007`/`E4008`/`E4009`).
 - [x] Publish baseline clarification matrix for module/import semantics.
+- [x] Publish normative file-layout and package-root spec.
 - [ ] Execute follow-up clarification phases and publish normative module/import specs.
 - [ ] Implement/verify final semantics in compiler/runtime code after clarification approval.
 
@@ -124,20 +125,25 @@ git add docs/spec/modules/00-module-clarification-matrix.md \
 
 ## Phase 1: File Layout and Package-Root Contract
 
-- [ ] Define canonical mapping rules from module names to files.
-- [ ] Clarify root semantics for:
+- [x] Define canonical mapping rules from module names to files.
+- [x] Clarify root semantics for:
   - workspace-local modules
   - optional package roots
   - relative module references (if retained)
-- [ ] Decide case-sensitivity, separator normalization, and extension rules (`.jz`, future alternatives).
-- [ ] Publish normative file-layout spec:
+- [x] Decide case-sensitivity, separator normalization, and extension rules (`.jz`, future alternatives).
+- [x] Publish normative file-layout spec:
   - `docs/spec/modules/01-file-layout-and-package-roots.md`
-- [ ] Add migration notes for old patterns (`module A::B {}` in nested blocks vs one-file-per-module expectations).
+- [x] Add migration notes for old patterns (`module A::B {}` in nested blocks vs one-file-per-module expectations).
 
 Research latitude for executor:
-- [ ] May evaluate two strategies before final recommendation:
+- [x] May evaluate two strategies before final recommendation:
   - strict one-file-per-module canonicalization
   - hybrid explicit-module-block compatibility mode
+
+Selected contract:
+- Use strict module-path-to-file canonicalization (`App::Main` -> `App/Main.jz`) under ordered module roots.
+- Keep brace-bodied `module App::Main { ... }` declarations as optional compatibility declarations; when present they must match the resolved module path.
+- Keep standalone single-file compile/run separate from explicit `--entry-module` module-graph mode.
 
 ### Commit Checkpoint (Phase 1)
 

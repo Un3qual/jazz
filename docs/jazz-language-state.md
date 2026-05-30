@@ -440,7 +440,7 @@ Based on the full repo, these areas still require implementation convergence eve
 - Tuple literals, concrete tuple signature types, fixed-arity tuple case
   patterns, cons-like list case patterns, and pattern-shaped lambda parameters
   are now active core runtime/type features in `jazz-next`.
-- Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit symbol-list visibility diagnostics, alias-import unqualified visibility diagnostics, `Alias::symbol` qualified alias lookup, default bundled-prelude module graph driver helpers, and deterministic resolver/binding diagnostics now work in the active parser/CLI path. The baseline clarification matrix is tracked in `docs/spec/modules/00-module-clarification-matrix.md`; the next normative slice is the module file-layout/package-root contract.
+- Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit symbol-list visibility diagnostics, alias-import unqualified visibility diagnostics, `Alias::symbol` qualified alias lookup, default bundled-prelude module graph driver helpers, and deterministic resolver/binding diagnostics now work in the active parser/CLI path. The baseline clarification matrix is tracked in `docs/spec/modules/00-module-clarification-matrix.md`; module file layout and package-root behavior are specified in `docs/spec/modules/01-file-layout-and-package-roots.md`; the next normative slice is deterministic resolution and cycle semantics.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
 - Which non-JavaScript product backend, if any, should exist beyond interpreter-backed execution.
 
@@ -507,7 +507,7 @@ Status update for item `#5`:
 - Canonical evidence-backed feature status is now tracked in `docs/feature-status.md`.
 
 1. Keep future pattern forms such as guards, or-patterns, as-patterns, and pattern synonyms blocked until concrete binder/type/runtime contracts are planned on the active path; tuple literals, concrete tuple signature types, fixed-arity tuple case patterns, cons-like list case patterns, and lambda parameter patterns now execute as core runtime/type features.
-2. Rebase module/import loader planning (`domain 09`) onto `jazz-next` with deterministic file-resolution diagnostics.
+2. Continue module/import loader spec slices (`domain 09`) on `jazz-next`; file layout/package-root rules are now specified, while deterministic resolution/cycle, loader pipeline, qualified import, and migration specs remain future docs work.
 3. Keep remaining stdlib-boundary follow-up work (`domain 10`) scoped to concrete future prelude/catalog growth; the current bundled source/module graph paths and checked-in prelude reproducibility evidence are covered in `jazz-next`.
 4. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.
 5. Implement future warning emitters for the remaining reserved `deprecated-syntax` metadata in `jazz-next` according to `docs/spec/tooling/compiler-warning-flags.md`.
