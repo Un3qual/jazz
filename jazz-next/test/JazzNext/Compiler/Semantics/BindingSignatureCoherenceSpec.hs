@@ -65,6 +65,8 @@ tests =
     ("source pipeline accepts concrete tuple signature", testSourceAcceptsConcreteTupleSignature),
     ("source pipeline accepts width-specific integer signatures", testSourceAcceptsWidthSpecificIntegerSignatures),
     ("source pipeline rejects out-of-range width-specific integer literals", testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals),
+    ("source pipeline rejects out-of-range width-specific literal arithmetic", testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic),
+    ("source pipeline rejects out-of-range width-specific section literals", testSourceRejectsOutOfRangeWidthSpecificSectionLiterals),
     ("source pipeline accepts same-width numeric operator signatures", testSourceAcceptsSameWidthNumericOperatorSignatures),
     ("source pipeline rejects mixed-width numeric operator signatures", testSourceRejectsMixedWidthNumericOperatorSignatures),
     ("source pipeline keeps float signatures distinct from integer literals", testSourceRejectsFloatSignatureForIntegerLiteral),
@@ -384,6 +386,15 @@ testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals = do
   assertSourceSingleErrorContains "x :: UInt8.\nx = 300." "E2005"
   assertSourceSingleErrorContains "x :: Int8.\nx = 128." "E2005"
   assertSourceSingleErrorContains "xs :: [UInt8].\nxs = [1, 300]." "E2005"
+
+testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic :: IO ()
+testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic =
+  assertSourceSingleErrorContains "x :: UInt8.\nx = 1 + 300." "E2005"
+
+testSourceRejectsOutOfRangeWidthSpecificSectionLiterals :: IO ()
+testSourceRejectsOutOfRangeWidthSpecificSectionLiterals = do
+  assertSourceSingleErrorContains "inc :: UInt8 -> UInt8.\ninc = (+ 300)." "E2005"
+  assertSourceSingleErrorContains "inc :: UInt8 -> UInt8.\ninc = (300 +)." "E2005"
 
 testSourceAcceptsSameWidthNumericOperatorSignatures :: IO ()
 testSourceAcceptsSameWidthNumericOperatorSignatures = do

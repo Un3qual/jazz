@@ -202,6 +202,7 @@ data IntegerLiteralRange = IntegerLiteralRange Int Int
 data NumericConstraint
   = AnyNumericConstraint
   | IntegralNumericConstraint
+  | IntegralLiteralNumericConstraint IntegerLiteralRange
   deriving (Eq, Show)
 
 data TypeBinding
@@ -562,6 +563,8 @@ numericRuleResultType resultRule operandType =
 numericBinaryOperandType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
 numericBinaryOperandType state leftType rightType =
   case (resolveType state leftType, resolveType state rightType) of
+    (TIntegerLiteralType leftRange, TIntegerLiteralType rightRange) ->
+      TIntegerLiteralType (combineIntegerLiteralRanges leftRange rightRange)
     (TIntegerLiteralType literalRange, numericType@(TNumericType concreteNumericType))
       | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
     (numericType@(TNumericType concreteNumericType), TIntegerLiteralType literalRange)
@@ -759,11 +762,11 @@ applyStrictEqualitySectionRightRule operatorSymbol rightType state =
 numericSectionCounterpartType :: ExpressionType -> InferState -> (ExpressionType, InferState)
 numericSectionCounterpartType sectionOperandType state =
   case sectionOperandType of
-    TIntegerLiteralType {} ->
+    TIntegerLiteralType literalRange ->
       let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
        in
         ( operandType,
-          addNumericTypeVarConstraint typeVar IntegralNumericConstraint stateAfterOperandType
+          addNumericTypeVarConstraint typeVar (IntegralLiteralNumericConstraint literalRange) stateAfterOperandType
         )
     _ -> (sectionOperandType, state)
 
@@ -1708,32 +1711,37 @@ bindTypeVar typeVar replacementType state
   -- Preserve compile/runtime contract when deferred section vars later unify.
   | typeVarIsStrictEqualityConstrained && not (supportsDeferredEqualityOperandType replacementType) =
       Nothing
-  | Just numericConstraint <- typeVarNumericConstraint,
-    not (typeSatisfiesNumericConstraint numericConstraint replacementType) =
-      Nothing
   | otherwise =
-      Just
-        stateAfterNumericConstraint
-          { inferSubst = Map.insert typeVar replacementType (inferSubst state),
-            inferStrictEqualityVars = nextStrictEqualityVars
-          }
+      case constrainedReplacementType of
+        Nothing -> Nothing
+        Just nextReplacementType ->
+          Just
+            (stateAfterNumericConstraint nextReplacementType)
+              { inferSubst = Map.insert typeVar nextReplacementType (inferSubst state),
+                inferStrictEqualityVars = nextStrictEqualityVars nextReplacementType
+              }
   where
     typeVarIsStrictEqualityConstrained =
       Set.member typeVar (inferStrictEqualityVars state)
     typeVarNumericConstraint =
       Map.lookup typeVar (inferNumericVars state)
+    constrainedReplacementType =
+      case typeVarNumericConstraint of
+        Just numericConstraint ->
+          applyNumericConstraintToReplacement numericConstraint replacementType
+        Nothing -> Just replacementType
     strictEqualityVarsWithoutTypeVar =
       Set.delete typeVar (inferStrictEqualityVars state)
-    nextStrictEqualityVars =
-      case replacementType of
+    nextStrictEqualityVars nextReplacementType =
+      case nextReplacementType of
         TVarType replacementVar
           | typeVarIsStrictEqualityConstrained ->
               Set.insert replacementVar strictEqualityVarsWithoutTypeVar
         _ -> strictEqualityVarsWithoutTypeVar
     numericVarsWithoutTypeVar =
       Map.delete typeVar (inferNumericVars state)
-    stateAfterNumericConstraint =
-      case (typeVarNumericConstraint, replacementType) of
+    stateAfterNumericConstraint nextReplacementType =
+      case (typeVarNumericConstraint, nextReplacementType) of
         (Just numericConstraint, TVarType replacementVar) ->
           addNumericTypeVarConstraint
             replacementVar
@@ -1785,9 +1793,26 @@ addNumericTypeVarConstraint typeVar numericConstraint state =
 combineNumericConstraints :: NumericConstraint -> NumericConstraint -> NumericConstraint
 combineNumericConstraints leftConstraint rightConstraint =
   case (leftConstraint, rightConstraint) of
+    (IntegralLiteralNumericConstraint leftRange, IntegralLiteralNumericConstraint rightRange) ->
+      IntegralLiteralNumericConstraint (combineIntegerLiteralRanges leftRange rightRange)
+    (IntegralLiteralNumericConstraint literalRange, _) ->
+      IntegralLiteralNumericConstraint literalRange
+    (_, IntegralLiteralNumericConstraint literalRange) ->
+      IntegralLiteralNumericConstraint literalRange
     (IntegralNumericConstraint, _) -> IntegralNumericConstraint
     (_, IntegralNumericConstraint) -> IntegralNumericConstraint
     _ -> AnyNumericConstraint
+
+applyNumericConstraintToReplacement :: NumericConstraint -> ExpressionType -> Maybe ExpressionType
+applyNumericConstraintToReplacement numericConstraint replacementType =
+  case (numericConstraint, replacementType) of
+    (IntegralLiteralNumericConstraint constraintRange, TIntegerLiteralType replacementRange) ->
+      Just (TIntegerLiteralType (combineIntegerLiteralRanges constraintRange replacementRange))
+    _
+      | typeSatisfiesNumericConstraint numericConstraint replacementType ->
+          Just replacementType
+      | otherwise ->
+          Nothing
 
 constrainNumericType :: ExpressionType -> InferState -> Maybe InferState
 constrainNumericType expressionType state =
@@ -1816,6 +1841,14 @@ typeSatisfiesNumericConstraint numericConstraint expressionType =
         TIntType -> True
         TIntegerLiteralType {} -> True
         TNumericType numericType -> numericTypeIsIntegral numericType
+        TVarType {} -> True
+        _ -> False
+    IntegralLiteralNumericConstraint literalRange ->
+      case expressionType of
+        TIntType -> True
+        TIntegerLiteralType {} -> True
+        TNumericType numericType ->
+          numericTypeIsIntegral numericType && integerLiteralRangeFitsNumericType literalRange numericType
         TVarType {} -> True
         _ -> False
 
