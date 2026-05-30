@@ -52,6 +52,8 @@ tests =
     ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference),
     ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion),
     ("source pipeline accepts adjacent signature and binding", testSourceAcceptsSignatureAdjacency),
+    ("source pipeline accepts inert class and impl declarations", testSourceAcceptsCapabilityDeclarations),
+    ("source pipeline treats capability declarations as signature separators", testSourceRejectsSignatureSeparatedByCapabilityDeclaration),
     ("source pipeline rejects separated signature", testSourceRejectsSeparatedSignature),
     ("source pipeline rejects signature name mismatch", testSourceRejectsSignatureNameMismatch),
     ("source pipeline rejects non-recursive forward reference", testSourceRejectsNonRecursiveForwardReference),
@@ -306,6 +308,14 @@ assertSourceSingleErrorCodeAndPrimarySpan src expectedCode expectedSpan = do
 testSourceAcceptsSignatureAdjacency :: IO ()
 testSourceAcceptsSignatureAdjacency =
   assertSourceOk "x :: Int.\nx = 1.\nx."
+
+testSourceAcceptsCapabilityDeclarations :: IO ()
+testSourceAcceptsCapabilityDeclarations =
+  assertSourceOk "class Eq { }.\nimpl Eq(Int) { }.\nx :: Int.\nx = 1.\nx."
+
+testSourceRejectsSignatureSeparatedByCapabilityDeclaration :: IO ()
+testSourceRejectsSignatureSeparatedByCapabilityDeclaration =
+  assertSourceErrorContains "x :: Int.\nclass Eq { }.\nx = 1." "E1002"
 
 testSourceRejectsSeparatedSignature :: IO ()
 testSourceRejectsSeparatedSignature =

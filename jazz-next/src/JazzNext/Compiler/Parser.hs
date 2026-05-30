@@ -143,6 +143,9 @@ parseStatement context knownAliases tokens =
   case tokens of
     abstractionToken@(Token {tokenKind = TIdentifier name}) : rest
       | isDeclarationContext context,
+        looksLikeSupportedCapabilityDeclaration name rest ->
+          fmap singleStatement (parseCapabilityDeclaration name abstractionToken rest)
+      | isDeclarationContext context,
         looksLikeReservedAbstractionDeclaration name rest ->
           rejectReservedAbstractionSyntax abstractionToken
     moduleToken@(Token {tokenKind = TModule}) : rest ->
@@ -213,6 +216,13 @@ looksLikeReservedAbstractionDeclaration name tokensAfterKeyword =
     "trait" -> looksLikeAbstractionDeclaration tokensAfterKeyword
     _ -> False
 
+looksLikeSupportedCapabilityDeclaration :: Text -> [Token] -> Bool
+looksLikeSupportedCapabilityDeclaration name tokensAfterKeyword =
+  case name of
+    "class" -> looksLikeAbstractionDeclaration tokensAfterKeyword
+    "impl" -> looksLikeAbstractionDeclaration tokensAfterKeyword
+    _ -> False
+
 looksLikeAbstractionDeclaration :: [Token] -> Bool
 looksLikeAbstractionDeclaration tokensAfterKeyword =
   case tokensAfterKeyword of
@@ -249,7 +259,108 @@ abstractionSyntaxDiagnosticText abstractionToken =
             <> abstractionName
             <> "' at "
             <> location
-            <> ": class/impl abstraction semantics are deferred in jazz-next"
+            <> ": executable class/impl abstraction semantics are deferred in jazz-next"
+
+parseCapabilityDeclaration :: Text -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseCapabilityDeclaration declarationKind declarationToken tokensAfterKeyword = do
+  (capabilityName, headerRemaining) <-
+    parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword
+  afterBody <- consumeCapabilityDeclarationBody declarationKind declarationToken headerRemaining
+  remaining <- consumeDot afterBody
+  case declarationKind of
+    "class" ->
+      Right (SSClass (tokenSpan declarationToken) capabilityName, remaining)
+    "impl" ->
+      Right (SSImpl (tokenSpan declarationToken) capabilityName, remaining)
+    _ ->
+      rejectReservedAbstractionSyntax declarationToken
+
+parseCapabilityHeaderName :: Text -> Token -> [Token] -> Either Diagnostic (Identifier, [Token])
+parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
+  go Nothing tokensAfterKeyword
+  where
+    go maybeCapabilityName tokens =
+      case tokens of
+        Token {tokenKind = TLBrace} : _ ->
+          case maybeCapabilityName of
+            Just capabilityName -> Right (capabilityName, tokens)
+            Nothing ->
+              Left
+                ( parseDiagnostic
+                    ( "expected capability name before '{' in "
+                        <> declarationKind
+                        <> " declaration at "
+                        <> renderSourceSpan (tokenSpan declarationToken)
+                    )
+                )
+        Token {tokenKind = TDot} : _ ->
+          Left
+            ( parseDiagnostic
+                ( "expected '{' before '.' in "
+                    <> declarationKind
+                    <> " declaration at "
+                    <> renderSourceSpan (tokenSpan declarationToken)
+                )
+            )
+        Token {tokenKind = TIdentifier candidateName} : rest
+          | isConstructorIdentifierText candidateName ->
+              go (maybeCapabilityName <|> Just (mkIdentifier candidateName)) rest
+        _ : rest ->
+          go maybeCapabilityName rest
+        [] ->
+          Left
+            ( parseDiagnostic
+                ( "expected '{' before end of input in "
+                    <> declarationKind
+                    <> " declaration at "
+                    <> renderSourceSpan (tokenSpan declarationToken)
+                )
+            )
+
+consumeCapabilityDeclarationBody :: Text -> Token -> [Token] -> Either Diagnostic [Token]
+consumeCapabilityDeclarationBody declarationKind declarationToken tokens =
+  case tokens of
+    Token {tokenKind = TLBrace} : rest -> go 1 rest
+    [] ->
+      Left
+        ( parseDiagnostic
+            ( "expected '{' before end of input in "
+                <> declarationKind
+                <> " declaration at "
+                <> renderSourceSpan (tokenSpan declarationToken)
+            )
+        )
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected '{' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+  where
+    go depth remainingTokens =
+      case remainingTokens of
+        [] ->
+          Left
+            ( parseDiagnostic
+                ( "expected '}' before end of input in "
+                    <> declarationKind
+                    <> " declaration at "
+                    <> renderSourceSpan (tokenSpan declarationToken)
+                )
+            )
+        token : rest ->
+          case tokenKind token of
+            TLBrace ->
+              go (depth + 1) rest
+            TRBrace
+              | depth == 1 -> Right rest
+              | otherwise -> go (depth - 1) rest
+            _ ->
+              go depth rest
 
 registerImportAliases :: Set Text -> [SurfaceStatement] -> Set Text
 registerImportAliases =

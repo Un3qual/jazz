@@ -79,6 +79,6 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
 - [x] Legacy/non-canonical forms identified with migration notes.
 - [x] `jazz-next/` parser tests aligned to the implemented function/module/lambda slice of the canonical contract.
 - [x] `jazz-next/` implementation aligned to the implemented function/module/lambda slice of the canonical contract.
-- [x] `jazz-next/` parser reserves canonical `class`/`impl` declaration forms with deferred-semantics diagnostics.
+- [x] `jazz-next/` parser lowers canonical `class`/`impl` declaration forms as inert AST nodes.
 - [x] `jazz-next/` parser rejects non-canonical `trait` declaration forms while preserving ordinary identifier uses.
 - [ ] Summary docs fully converge with implementation behavior.

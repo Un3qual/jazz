@@ -143,6 +143,10 @@ lowerSurfaceStatement surfaceStatement =
       SSignature name spanValue (lowerSurfaceSignaturePayload signaturePayload)
     SSData spanValue typeName constructors ->
       SData spanValue typeName (map lowerSurfaceDataConstructor constructors)
+    SSClass spanValue capabilityName ->
+      SClass spanValue capabilityName
+    SSImpl spanValue capabilityName ->
+      SImpl spanValue capabilityName
     SSModule spanValue modulePath ->
       SModule spanValue modulePath
     SSImport spanValue modulePath alias importedSymbols ->

@@ -76,8 +76,10 @@ tests =
     ("parses abstraction keywords as ordinary binding names", testParsesAbstractionKeywordsAsBindingNames),
     ("parses abstraction keywords as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames),
     ("parses trait as an ordinary import alias", testParsesTraitAsImportAlias),
-    ("rejects class abstraction declarations as deferred syntax", testRejectsClassAbstractionSyntax),
-    ("rejects impl abstraction declarations as deferred syntax", testRejectsImplAbstractionSyntax),
+    ("parses class capability declarations into surface AST", testParsesClassCapabilityDeclaration),
+    ("parses impl capability declarations into surface AST", testParsesImplCapabilityDeclaration),
+    ("lowers class and impl capability declarations as inert AST nodes", testLowersCapabilityDeclarations),
+    ("parses class and impl capability declarations inside module bodies", testParsesCapabilityDeclarationsInModuleBody),
     ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax),
     ("rejects lowercase trait abstraction declarations", testRejectsLowercaseTraitAbstractionSyntax),
     ("rejects trait abstraction declarations inside module bodies", testRejectsTraitAbstractionSyntaxInModuleBody)
@@ -599,19 +601,59 @@ testParsesTraitAsImportAlias =
     )
     (parseSurfaceProgram "import Lib::Math as trait.\ntrait::subtract.")
 
-testRejectsClassAbstractionSyntax :: IO ()
-testRejectsClassAbstractionSyntax =
-  assertLeftDiagnosticContains
-    "class abstraction syntax deferred"
-    "unsupported abstraction syntax 'class'"
+testParsesClassCapabilityDeclaration :: IO ()
+testParsesClassCapabilityDeclaration =
+  assertEqual
+    "class capability declaration"
+    ( Right
+        ( SEBlock
+            [ SSClass (SourceSpan 1 1) "Eq"
+            ]
+        )
+    )
     (parseSurfaceProgram "class Eq { }.")
 
-testRejectsImplAbstractionSyntax :: IO ()
-testRejectsImplAbstractionSyntax =
-  assertLeftDiagnosticContains
-    "impl abstraction syntax deferred"
-    "unsupported abstraction syntax 'impl'"
-    (parseSurfaceProgram "impl Eq { }.")
+testParsesImplCapabilityDeclaration :: IO ()
+testParsesImplCapabilityDeclaration =
+  assertEqual
+    "impl capability declaration"
+    ( Right
+        ( SEBlock
+            [ SSImpl (SourceSpan 1 1) "Eq"
+            ]
+        )
+    )
+    (parseSurfaceProgram "impl Eq(Int) { }.")
+
+testLowersCapabilityDeclarations :: IO ()
+testLowersCapabilityDeclarations =
+  assertRight
+    "surface parse"
+    (parseSurfaceProgram "class Eq { }.\nimpl Eq(Int) { }.")
+    ( \surfaceProgram ->
+        assertEqual
+          "lowered capability declarations"
+          ( EBlock
+              [ SClass (SourceSpan 1 1) "Eq",
+                SImpl (SourceSpan 2 1) "Eq"
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
+
+testParsesCapabilityDeclarationsInModuleBody :: IO ()
+testParsesCapabilityDeclarationsInModuleBody =
+  assertEqual
+    "module body capability declarations"
+    ( Right
+        ( SEBlock
+            [ SSModule (SourceSpan 1 1) ["App", "Core"],
+              SSClass (SourceSpan 2 1) "Eq",
+              SSImpl (SourceSpan 3 1) "Eq"
+            ]
+        )
+    )
+    (parseSurfaceProgram "module App::Core {\nclass Eq { }.\nimpl Eq(Int) { }.\n}")
 
 testRejectsTraitAbstractionSyntax :: IO ()
 testRejectsTraitAbstractionSyntax =

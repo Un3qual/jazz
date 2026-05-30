@@ -39,8 +39,8 @@ The normative numeric width/defaulting contract lives in `docs/spec/runtime/prim
 
 ## Staging
 
-The first implementation batch should be parser/AST ownership plus downstream inert traversal. It should parse and lower class/impl declarations as inert declaration nodes, and analyzer/type/runtime statement walkers must skip those nodes without adding bindings, constraints, method lookup, dispatch, defaulting, or runtime values.
+The first implementation batch has landed as parser/AST ownership plus downstream inert traversal. `jazz-next` parses and lowers class/impl declarations as inert declaration nodes, and analyzer/type/runtime statement walkers skip those nodes without adding bindings, constraints, method lookup, dispatch, defaulting, or runtime values.
 
-That batch must include source-pipeline coverage proving programs that contain class/impl declarations do not hit non-exhaustive statement handling during compile or run.
+That batch includes source-pipeline coverage proving programs that contain class/impl declarations do not hit non-exhaustive statement handling during compile or run.
 
 Later batches must define class environments, impl lookup, constraint solving, method dispatch, overlap/orphan policy, cross-module visibility, and diagnostics before enabling executable class/impl semantics.

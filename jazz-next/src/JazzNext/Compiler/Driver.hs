@@ -1253,6 +1253,8 @@ collectAliasQualifiedReferencesFromStatement statement =
       collectAliasQualifiedReferencePairs expr
     SSignature {} -> Set.empty
     SData {} -> Set.empty
+    SClass {} -> Set.empty
+    SImpl {} -> Set.empty
     SModule {} -> Set.empty
     SImport {} -> Set.empty
 
@@ -1315,6 +1317,8 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
             spanValue
             typeName
             constructors
+        SClass {} -> [statement]
+        SImpl {} -> [statement]
         _ -> [statement]
 
     hiddenValidationIdentifier name =

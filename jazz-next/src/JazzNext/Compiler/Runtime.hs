@@ -197,6 +197,10 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
               go env Nothing rest
             SImport {} ->
               go env Nothing rest
+            SClass {} ->
+              go env Nothing rest
+            SImpl {} ->
+              go env Nothing rest
             SData _ _ constructors ->
               go (insertDataConstructors constructors env) Nothing rest
             SLet name _ _ -> do

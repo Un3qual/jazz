@@ -434,6 +434,8 @@ collectBlockReferences boundNames statements =
           collectExprReferences blockBoundNames expr
         SSSignature {} -> Set.empty
         SSData {} -> Set.empty
+        SSClass {} -> Set.empty
+        SSImpl {} -> Set.empty
         SSModule {} -> Set.empty
         SSImport {} -> Set.empty
 
@@ -539,6 +541,8 @@ collectQualifiedStatementReferences statement =
       collectQualifiedReferences expr
     SSSignature {} -> Set.empty
     SSData {} -> Set.empty
+    SSClass {} -> Set.empty
+    SSImpl {} -> Set.empty
     SSModule {} -> Set.empty
     SSImport {} -> Set.empty
 

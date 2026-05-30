@@ -145,6 +145,8 @@ data Statement
   = SLet Identifier SourceSpan Expr
   | SSignature Identifier SourceSpan SignaturePayload
   | SData SourceSpan Identifier [DataConstructor]
+  | SClass SourceSpan Identifier
+  | SImpl SourceSpan Identifier
   | SModule SourceSpan [Text]
   | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SExpr SourceSpan Expr

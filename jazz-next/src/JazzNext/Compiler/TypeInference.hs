@@ -171,6 +171,10 @@ canonicalizeStatement statement =
       SSignature name spanValue signaturePayload
     SData spanValue typeName constructors ->
       SData spanValue typeName constructors
+    SClass spanValue capabilityName ->
+      SClass spanValue capabilityName
+    SImpl spanValue capabilityName ->
+      SImpl spanValue capabilityName
     SModule spanValue modulePath ->
       SModule spanValue modulePath
     SImport spanValue modulePath alias importedSymbols ->
@@ -758,6 +762,10 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
               go env lastExprType pendingSignatureType state rest
             SImport {} ->
               go env lastExprType pendingSignatureType state rest
+            SClass {} ->
+              go env lastExprType Nothing state rest
+            SImpl {} ->
+              go env lastExprType Nothing state rest
             SData _ typeName constructors ->
               let (nextEnv, nextState) =
                     registerDataConstructors typeName constructors env state
