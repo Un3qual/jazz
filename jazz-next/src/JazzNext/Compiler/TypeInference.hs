@@ -1400,6 +1400,13 @@ mergeIntegerLiteralRanges leftType rightType =
       TIntegerLiteralType (combineIntegerLiteralRanges leftRange rightRange)
     (TListType leftElementType, TListType rightElementType) ->
       TListType (mergeIntegerLiteralRanges leftElementType rightElementType)
+    (TTupleType leftElementTypes, TTupleType rightElementTypes)
+      | length leftElementTypes == length rightElementTypes ->
+          TTupleType (zipWith mergeIntegerLiteralRanges leftElementTypes rightElementTypes)
+    (TFunctionType leftInputType leftOutputType, TFunctionType rightInputType rightOutputType) ->
+      TFunctionType
+        (mergeIntegerLiteralRanges leftInputType rightInputType)
+        (mergeIntegerLiteralRanges leftOutputType rightOutputType)
     _ -> leftType
 
 combineIntegerLiteralRanges :: IntegerLiteralRange -> IntegerLiteralRange -> IntegerLiteralRange
