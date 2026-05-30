@@ -312,10 +312,12 @@ Closure note (2026-05-30): the legacy Phase 6 checklist has been rewritten as
 active `jazz-next` verification-harness child batches. The next implementation
 work is no longer blocked on legacy `jazz-hs` parser/analyzer/loader targets.
 
-- [ ] Execute [`JN-MODULE-FILE-LAYOUT-HARNESS-001`](09a-module-file-layout-harness.md) to lock the file-layout parser/resolver harness against `docs/spec/modules/01` and the migration boundary.
-- [ ] Execute [`JN-MODULE-RESOLUTION-BINDING-HARNESS-001`](09b-module-resolution-binding-harness.md) to lock deterministic resolution ordering and qualified import binding diagnostics against `docs/spec/modules/02` and `04`.
-- [ ] Execute [`JN-MODULE-LOADER-MIGRATION-HARNESS-001`](09c-module-loader-migration-harness.md) to lock loader/CLI source-selection, memoization, dependency-expression isolation, and migration failure modes against `docs/spec/modules/03` and `05`.
-- [ ] Close the module clarification item after the three active harness batches land and the queue/docs gates pass.
+Remaining implementation closure is tracked by the active child queue rows rather
+than by reopening this parent coordination item:
+
+- [`JN-MODULE-FILE-LAYOUT-HARNESS-001`](09a-module-file-layout-harness.md) locks the file-layout parser/resolver harness against `docs/spec/modules/01` and the migration boundary.
+- [`JN-MODULE-RESOLUTION-BINDING-HARNESS-001`](09b-module-resolution-binding-harness.md) locks deterministic resolution ordering and qualified import binding diagnostics against `docs/spec/modules/02` and `04`.
+- [`JN-MODULE-LOADER-MIGRATION-HARNESS-001`](09c-module-loader-migration-harness.md) locks loader/CLI source-selection, memoization, dependency-expression isolation, and migration failure modes against `docs/spec/modules/03` and `05`.
 
 ### Commit Checkpoint (Phase 6)
 
