@@ -27,4 +27,4 @@ The canonical declaration keyword is `class`. Implementations use `impl`.
 
 ## Implementation Status
 
-`jazz-next` currently reserves canonical `class` and `impl` declaration-shaped syntax at the parser boundary and rejects those declarations until implementation lands. It also rejects non-canonical `trait` declarations. Ordinary bindings, signatures, and qualified import aliases may still use these words where the parser already permits them.
+`jazz-next` parses and lowers canonical `class` and `impl` declaration-shaped syntax as inert declaration nodes. Those declarations intentionally add no class environments, solver obligations, method lookup, dispatch, defaulting, or runtime values yet. It still rejects non-canonical `trait` declarations. Ordinary bindings, signatures, and qualified import aliases may still use these words where the parser permits them.

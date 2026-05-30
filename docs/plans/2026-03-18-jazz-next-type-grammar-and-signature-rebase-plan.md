@@ -1,22 +1,20 @@
 ---
-id: JN-TYPE-GRAMMAR-REBASE-CLOSURE-001
-status: ready
+id: JN-TYPE-GRAMMAR-CLOSURE-PLAN-001
+status: blocked
 priority: P2
 size: S
 kind: docs
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-last_verified: 2026-05-29
-plan_section: "Milestone 5: Verification And Tracker Closure"
+last_verified: 2026-05-30
+plan_section: "Future polymorphism/defaulting/type-scheme contract"
 target_paths:
   - docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md
-  - docs/spec/semantics/bindings-and-signatures.md
-  - docs/jazz-language-state.md
   - docs/execution/queue.md
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Close the rebase metadata for the implemented structured signature subset and keep broader polymorphism/defaulting work blocked as a separate semantics decision."
+deliverable: "Define generalized type schemes, instantiation/generalization, defaulting, diagnostics, target paths, and focused verification before expanding beyond the closed structured-signature rebase."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
 ---
@@ -54,8 +52,9 @@ supersedes:
 - [x] On `2026-05-22`, landed the monomorphic type-variable constrained-signature contract for known unary constraints, with no polymorphic generalization, defaulting, solver obligations, or runtime dispatch.
 - [x] Milestone 3 complete: constrained-signature syntax and the active monomorphic semantics are represented in `jazz-next` structures.
 - [x] On `2026-05-22`, locked unsupported constrained-signature `E2009` diagnostics to the attached signature statement span across the invalid constrained-signature families.
-- [ ] Milestone 4 complete: canonical grammar docs, normalization rules, and diagnostics align with the active parser/type pipeline.
-- [ ] Milestone 5 complete: active-path tests/docs close the rebase and future work no longer depends on legacy `07`.
+- [x] Milestone 4 complete: canonical grammar docs, normalization rules, and diagnostics align with the active parser/type pipeline.
+- [x] Milestone 5 complete: active-path tests/docs close the rebase and future work no longer depends on legacy `07`.
+- [x] On `2026-05-30`, closed the structured-signature rebase metadata and kept generalized polymorphism/defaulting/type-scheme work blocked as `JN-TYPE-GRAMMAR-CLOSURE-PLAN-001`.
 
 ## Active Baseline (2026-05-22)
 
@@ -373,9 +372,9 @@ Primary files:
 
 ### Milestone 4: Canonical Grammar Docs, Normalization, And Diagnostics
 
-- [ ] Publish active-path canonical grammar and normalization rules in docs/spec files.
-- [ ] Keep parser/type diagnostics aligned with the new structured representation, including any needed span improvements for inner type nodes.
-- [ ] Ensure CLI behavior stays consistent as signature parsing moves earlier in the pipeline.
+- [x] Publish active-path canonical grammar and normalization rules in docs/spec files.
+- [x] Keep parser/type diagnostics aligned with the new structured representation, including any needed span improvements for inner type nodes.
+- [x] Ensure CLI behavior stays consistent as signature parsing moves earlier in the pipeline.
 
 #### Batch 1: Unsupported signature diagnostic spans
 
@@ -401,8 +400,7 @@ bash scripts/check-docs.sh
 
 Primary files:
 
-- `docs/spec/type-system/type-grammar.md`
-- `docs/spec/type-system/type-signatures.md`
+- `docs/spec/semantics/bindings-and-signatures.md`
 - `docs/jazz-language-state.md`
 - `jazz-next/src/JazzNext/Compiler/Parser.hs`
 - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
@@ -410,9 +408,11 @@ Primary files:
 
 ### Milestone 5: Verification And Tracker Closure
 
-- [ ] Replace references that still send future execution toward legacy `07`.
-- [ ] Run focused parser/type/CLI checks plus the active-path default verification script.
-- [ ] Close the queue item and dependent roadmap/runtime links only after the active-path rebase docs are in place.
+- [x] Replace references that still send future execution toward legacy `07`.
+- [x] Confirm focused parser/type/CLI checks are recorded in the completed active-path batch evidence; this metadata-only closure reruns the queue/docs gates listed by the execution queue.
+- [x] Close the queue item and dependent roadmap/runtime links only after the active-path rebase docs are in place.
+
+Closure note (2026-05-30): the structured signature rebase is complete for the active monomorphic subset. Future generalized type schemes, polymorphic instantiation/generalization, defaulting, solver-backed constraints, runtime dispatch, and associated diagnostics are intentionally blocked as a separate semantics contract under `JN-TYPE-GRAMMAR-CLOSURE-PLAN-001`.
 
 Suggested verification:
 
@@ -425,7 +425,7 @@ bash jazz-next/scripts/test-warning-config.sh
 
 ## Definition of Done
 
-- [ ] Active type-grammar work targets only `jazz-next` files and tests.
-- [ ] Parser, AST, lowering, analyzer, and type inference agree on one structured signature representation instead of raw `Text`.
-- [ ] Arrow associativity, constrained-signature semantics, and normalization rules are represented in active-path docs and tests.
-- [ ] Queue/roadmap/runtime linkage no longer points new type work at legacy `jazz-hs` execution files.
+- [x] Active type-grammar work targets only `jazz-next` files and tests.
+- [x] Parser, AST, lowering, analyzer, and type inference agree on one structured signature representation instead of raw `Text`.
+- [x] Arrow associativity, constrained-signature semantics, and normalization rules are represented in active-path docs and tests.
+- [x] Queue/roadmap/runtime linkage no longer points new type work at legacy `jazz-hs` execution files.

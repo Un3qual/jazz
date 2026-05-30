@@ -52,6 +52,8 @@ tests =
     ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference),
     ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion),
     ("source pipeline accepts adjacent signature and binding", testSourceAcceptsSignatureAdjacency),
+    ("source pipeline accepts inert class and impl declarations", testSourceAcceptsCapabilityDeclarations),
+    ("source pipeline treats capability declarations as signature separators", testSourceRejectsSignatureSeparatedByCapabilityDeclaration),
     ("source pipeline rejects separated signature", testSourceRejectsSeparatedSignature),
     ("source pipeline rejects signature name mismatch", testSourceRejectsSignatureNameMismatch),
     ("source pipeline rejects non-recursive forward reference", testSourceRejectsNonRecursiveForwardReference),
@@ -61,6 +63,14 @@ tests =
     ("source pipeline accepts concrete list signature", testSourceAcceptsConcreteListSignature),
     ("source pipeline accepts nested concrete list signature", testSourceAcceptsNestedConcreteListSignature),
     ("source pipeline accepts concrete tuple signature", testSourceAcceptsConcreteTupleSignature),
+    ("source pipeline accepts width-specific integer signatures", testSourceAcceptsWidthSpecificIntegerSignatures),
+    ("source pipeline rejects out-of-range width-specific integer literals", testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals),
+    ("source pipeline rejects out-of-range width-specific branch literals", testSourceRejectsOutOfRangeWidthSpecificBranchLiterals),
+    ("source pipeline rejects out-of-range width-specific literal arithmetic", testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic),
+    ("source pipeline rejects out-of-range width-specific section literals", testSourceRejectsOutOfRangeWidthSpecificSectionLiterals),
+    ("source pipeline accepts same-width numeric operator signatures", testSourceAcceptsSameWidthNumericOperatorSignatures),
+    ("source pipeline rejects mixed-width numeric operator signatures", testSourceRejectsMixedWidthNumericOperatorSignatures),
+    ("source pipeline keeps float signatures distinct from integer literals", testSourceRejectsFloatSignatureForIntegerLiteral),
     ("source pipeline rejects tuple signature mismatch", testSourceRejectsTupleSignatureMismatch),
     ("source pipeline rejects tuple signature arity mismatch", testSourceRejectsTupleSignatureArityMismatch),
     ("source pipeline accepts simple function signature", testSourceAcceptsSimpleFunctionSignature),
@@ -303,6 +313,14 @@ testSourceAcceptsSignatureAdjacency :: IO ()
 testSourceAcceptsSignatureAdjacency =
   assertSourceOk "x :: Int.\nx = 1.\nx."
 
+testSourceAcceptsCapabilityDeclarations :: IO ()
+testSourceAcceptsCapabilityDeclarations =
+  assertSourceOk "class Eq { }.\nimpl Eq(Int) { }.\nx :: Int.\nx = 1.\nx."
+
+testSourceRejectsSignatureSeparatedByCapabilityDeclaration :: IO ()
+testSourceRejectsSignatureSeparatedByCapabilityDeclaration =
+  assertSourceErrorContains "x :: Int.\nclass Eq { }.\nx = 1." "E1002"
+
 testSourceRejectsSeparatedSignature :: IO ()
 testSourceRejectsSeparatedSignature =
   assertSourceErrorContains "x :: Int.\n1.\nx = 2." "E1002"
@@ -354,6 +372,56 @@ testSourceAcceptsNestedConcreteListSignature =
 testSourceAcceptsConcreteTupleSignature :: IO ()
 testSourceAcceptsConcreteTupleSignature =
   assertSourceOk "pair :: (Int, Bool).\npair = (1, True).\npair."
+
+testSourceAcceptsWidthSpecificIntegerSignatures :: IO ()
+testSourceAcceptsWidthSpecificIntegerSignatures = do
+  assertSourceOk "x :: Int8.\nx = 1."
+  assertSourceOk "x :: Int8.\nx = 127."
+  assertSourceOk "x :: UInt8.\nx = 255."
+  assertSourceOk "x :: UInt64.\nx = 1."
+  assertSourceOk "x :: UInt64.\nx = 18446744073709551615."
+  assertSourceOk "xs :: [Int32].\nxs = [1, 2, 3]."
+  assertSourceOk "x :: @{Num(UInt16)}: UInt16.\nx = 1."
+
+testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals :: IO ()
+testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals = do
+  assertSourceSingleErrorContains "x :: UInt8.\nx = 300." "E2005"
+  assertSourceSingleErrorContains "x :: Int8.\nx = 128." "E2005"
+  assertSourceSingleErrorContains "x :: UInt64.\nx = 18446744073709551616." "E2005"
+  assertSourceSingleErrorContains "xs :: [UInt8].\nxs = [1, 300]." "E2005"
+
+testSourceRejectsOutOfRangeWidthSpecificBranchLiterals :: IO ()
+testSourceRejectsOutOfRangeWidthSpecificBranchLiterals = do
+  assertSourceSingleErrorContains "x :: UInt8.\nx = if True 1 else 300." "E2005"
+  assertSourceSingleErrorContains "x :: UInt8.\nx = case 0 { | 0 -> 1 | _ -> 300 }." "E2005"
+  assertSourceSingleErrorContains "x :: (UInt8, UInt8).\nx = if True (1, 1) else (2, 300)." "E2005"
+  assertSourceSingleErrorContains "f :: UInt8 -> UInt8.\nf = if True (\\(x) -> 1) else (\\(x) -> 300)." "E2005"
+
+testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic :: IO ()
+testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic = do
+  assertSourceSingleErrorContains "x :: UInt8.\nx = 1 + 300." "E2005"
+  assertSourceSingleErrorContains "x :: UInt8.\nx = 200 + 100." "E2005"
+  assertSourceSingleErrorContains "x :: UInt8.\nx = 0 - 1." "E2005"
+  assertSourceSingleErrorContains "x :: UInt8.\nx = 16 * 16." "E2005"
+
+testSourceRejectsOutOfRangeWidthSpecificSectionLiterals :: IO ()
+testSourceRejectsOutOfRangeWidthSpecificSectionLiterals = do
+  assertSourceSingleErrorContains "inc :: UInt8 -> UInt8.\ninc = (+ 300)." "E2005"
+  assertSourceSingleErrorContains "inc :: UInt8 -> UInt8.\ninc = (300 +)." "E2005"
+
+testSourceAcceptsSameWidthNumericOperatorSignatures :: IO ()
+testSourceAcceptsSameWidthNumericOperatorSignatures = do
+  assertSourceOk "add :: Int8 -> Int8 -> Int8.\nadd = (+)."
+  assertSourceOk "lt :: UInt32 -> UInt32 -> Bool.\nlt = (<)."
+  assertSourceOk "fadd :: Float -> Float64 -> Float64.\nfadd = (+)."
+
+testSourceRejectsMixedWidthNumericOperatorSignatures :: IO ()
+testSourceRejectsMixedWidthNumericOperatorSignatures =
+  assertSourceSingleErrorContains "add :: Int8 -> UInt8 -> Int8.\nadd = (+)." "E2005"
+
+testSourceRejectsFloatSignatureForIntegerLiteral :: IO ()
+testSourceRejectsFloatSignatureForIntegerLiteral =
+  assertSourceSingleErrorContains "x :: Float64.\nx = 1." "E2005"
 
 testSourceRejectsTupleSignatureMismatch :: IO ()
 testSourceRejectsTupleSignatureMismatch = do

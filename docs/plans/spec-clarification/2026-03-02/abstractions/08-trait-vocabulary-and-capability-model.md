@@ -1,12 +1,12 @@
 ---
 id: JN-CAPABILITY-DECL-PARSER-AST-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-05-29
+last_verified: 2026-05-30
 plan_section: "Phase 2: Capability Model Specification"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser.hs
@@ -16,11 +16,16 @@ target_paths:
   - jazz-next/src/JazzNext/Compiler/Analyzer.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/src/JazzNext/Compiler/Runtime.hs
+  - jazz-next/src/JazzNext/Compiler/RecursiveBindings.hs
+  - jazz-next/src/JazzNext/Compiler/Desugar.hs
+  - jazz-next/src/JazzNext/Compiler/ModuleResolver.hs
+  - jazz-next/src/JazzNext/Compiler/Driver.hs
   - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - docs/spec/abstractions/trait-vocabulary.md
   - docs/spec/abstractions/capability-model.md
+  - docs/spec/authoritative-syntax.md
   - docs/plans/spec-clarification/2026-03-02/abstractions/08-trait-vocabulary-and-capability-model.md
   - docs/execution/queue.md
 verification:
@@ -215,12 +220,13 @@ git add docs/plans/spec-clarification/2026-03-02/abstractions/08a-vocabulary-dec
 
 First implementation target:
 - Parse canonical `class`/`impl` declarations into inert surface/core AST nodes.
-- Thread those nodes through analyzer/type/runtime as inert declarations so compile/run pipelines do not hit non-exhaustive statement handling.
+- Thread those nodes through analyzer/type/runtime plus module/import/desugar statement walkers as inert declarations so compile/run pipelines do not hit non-exhaustive statement handling.
 - Keep `trait` declarations rejected as non-canonical syntax.
 - Preserve ordinary binding, signature, and qualified-alias uses of `class`, `impl`, and `trait`.
 - Do not add class environments, solver obligations, method lookup, dispatch, defaulting, or runtime values in this batch.
-- Target paths: `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/Analyzer.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/src/JazzNext/Compiler/Runtime.hs`, `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`, and `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`.
+- Target paths: `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/Analyzer.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/src/JazzNext/Compiler/Runtime.hs`, `jazz-next/src/JazzNext/Compiler/RecursiveBindings.hs`, `jazz-next/src/JazzNext/Compiler/Desugar.hs`, `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`, `jazz-next/src/JazzNext/Compiler/Driver.hs`, `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`, and `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`.
 - Verification: `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`; `bash jazz-next/scripts/test-warning-config.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
+- Status: landed on 2026-05-30 with inert `SSClass`/`SSImpl` and `SClass`/`SImpl` nodes, parser/lowering coverage, compile-pipeline coverage, and runtime inertness coverage. Executable class/impl semantics remain out of scope.
 
 Primary file targets:
 - `docs/plans/spec-clarification/2026-03-02/abstractions/08b-capability-model-semantics.md`

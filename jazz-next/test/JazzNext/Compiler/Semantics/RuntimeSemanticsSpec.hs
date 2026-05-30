@@ -90,6 +90,8 @@ tests =
     ("runtime fallback rejects kernel filter predicate returning non-Bool", testRuntimeFallbackRejectsFilterPredicateNonBool),
     ("print! returns evaluated argument value", testPrintBuiltinReturnsArgument),
     ("scope with only declarations has no runtime output", testDeclarationOnlyScopeHasNoOutput),
+    ("scope with only capability declarations has no runtime output", testCapabilityDeclarationOnlyScopeHasNoOutput),
+    ("capability declarations are inert at runtime", testCapabilityDeclarationsRuntimeInert),
     ("scope result requires terminal expression", testScopeDeclarationAfterExprClearsResult)
   ]
 
@@ -597,6 +599,20 @@ testDeclarationOnlyScopeHasNoOutput = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "declaration-only scope produces no output" Nothing (runOutput result)
+
+testCapabilityDeclarationOnlyScopeHasNoOutput :: IO ()
+testCapabilityDeclarationOnlyScopeHasNoOutput = do
+  result <- runSource defaultWarningSettings "class Eq { }.\nimpl Eq(Int) { }."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "declaration-only capability scope produces no output" Nothing (runOutput result)
+
+testCapabilityDeclarationsRuntimeInert :: IO ()
+testCapabilityDeclarationsRuntimeInert = do
+  result <- runSource defaultWarningSettings "class Eq { }.\nimpl Eq(Int) { }.\nx = 1.\nx."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "capability declarations do not affect runtime output" (Just "1") (runOutput result)
 
 testScopeDeclarationAfterExprClearsResult :: IO ()
 testScopeDeclarationAfterExprClearsResult = do

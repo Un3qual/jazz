@@ -34,6 +34,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
+    SurfaceNumericType (..),
     SurfacePattern (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
@@ -142,6 +143,9 @@ parseStatement context knownAliases tokens =
   case tokens of
     abstractionToken@(Token {tokenKind = TIdentifier name}) : rest
       | isDeclarationContext context,
+        looksLikeSupportedCapabilityDeclaration name rest ->
+          fmap singleStatement (parseCapabilityDeclaration name abstractionToken rest)
+      | isDeclarationContext context,
         looksLikeReservedAbstractionDeclaration name rest ->
           rejectReservedAbstractionSyntax abstractionToken
     moduleToken@(Token {tokenKind = TModule}) : rest ->
@@ -212,6 +216,13 @@ looksLikeReservedAbstractionDeclaration name tokensAfterKeyword =
     "trait" -> looksLikeAbstractionDeclaration tokensAfterKeyword
     _ -> False
 
+looksLikeSupportedCapabilityDeclaration :: Text -> [Token] -> Bool
+looksLikeSupportedCapabilityDeclaration name tokensAfterKeyword =
+  case name of
+    "class" -> looksLikeAbstractionDeclaration tokensAfterKeyword
+    "impl" -> looksLikeAbstractionDeclaration tokensAfterKeyword
+    _ -> False
+
 looksLikeAbstractionDeclaration :: [Token] -> Bool
 looksLikeAbstractionDeclaration tokensAfterKeyword =
   case tokensAfterKeyword of
@@ -248,7 +259,192 @@ abstractionSyntaxDiagnosticText abstractionToken =
             <> abstractionName
             <> "' at "
             <> location
-            <> ": class/impl abstraction semantics are deferred in jazz-next"
+            <> ": executable class/impl abstraction semantics are deferred in jazz-next"
+
+parseCapabilityDeclaration :: Text -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseCapabilityDeclaration declarationKind declarationToken tokensAfterKeyword = do
+  (capabilityName, headerRemaining) <-
+    parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword
+  afterBody <- consumeCapabilityDeclarationBody declarationKind declarationToken headerRemaining
+  remaining <- consumeDot afterBody
+  case declarationKind of
+    "class" ->
+      Right (SSClass (tokenSpan declarationToken) capabilityName, remaining)
+    "impl" ->
+      Right (SSImpl (tokenSpan declarationToken) capabilityName, remaining)
+    _ ->
+      rejectReservedAbstractionSyntax declarationToken
+
+parseCapabilityHeaderName :: Text -> Token -> [Token] -> Either Diagnostic (Identifier, [Token])
+parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
+  case tokensAfterKeyword of
+    Token {tokenKind = TIdentifier candidateName, tokenSpan = nameSpan} : rest
+      | isConstructorIdentifierText candidateName ->
+          parseCapabilityHeaderTail (mkIdentifier candidateName) rest
+      | otherwise ->
+          Left
+            ( parseDiagnostic
+                ( "expected uppercase capability name at "
+                    <> renderSourceSpan nameSpan
+                    <> ", found '"
+                    <> candidateName
+                    <> "'"
+                )
+            )
+    Token {tokenKind = TLBrace} : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected capability name before '{' in "
+                <> declarationKind
+                <> " declaration at "
+                <> renderSourceSpan (tokenSpan declarationToken)
+            )
+        )
+    Token {tokenKind = TDot} : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected capability name before '.' in "
+                <> declarationKind
+                <> " declaration at "
+                <> renderSourceSpan (tokenSpan declarationToken)
+            )
+        )
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected capability name at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+    [] ->
+      Left
+        ( parseDiagnostic
+            ( "expected capability name before end of input in "
+                <> declarationKind
+                <> " declaration at "
+                <> renderSourceSpan (tokenSpan declarationToken)
+            )
+        )
+  where
+    parseCapabilityHeaderTail capabilityName tokens =
+      case tokens of
+        Token {tokenKind = TLParen} : rest -> do
+          afterHeaderParameters <- consumeParenthesizedCapabilityHeader rest
+          requireCapabilityBodyStart capabilityName afterHeaderParameters
+        _ -> requireCapabilityBodyStart capabilityName tokens
+
+    requireCapabilityBodyStart capabilityName tokens =
+      case tokens of
+        Token {tokenKind = TLBrace} : _ ->
+          Right (capabilityName, tokens)
+        Token {tokenKind = TDot} : _ ->
+          Left
+            ( parseDiagnostic
+                ( "expected '{' before '.' in "
+                    <> declarationKind
+                    <> " declaration at "
+                    <> renderSourceSpan (tokenSpan declarationToken)
+                )
+            )
+        token : _ ->
+          Left
+            ( parseDiagnostic
+                ( "unexpected token '"
+                    <> tokenLexeme token
+                    <> "' in "
+                    <> declarationKind
+                    <> " declaration header at "
+                    <> renderSourceSpan (tokenSpan token)
+                )
+            )
+        [] ->
+          Left
+            ( parseDiagnostic
+                ( "expected '{' before end of input in "
+                    <> declarationKind
+                    <> " declaration at "
+                    <> renderSourceSpan (tokenSpan declarationToken)
+                )
+            )
+
+    consumeParenthesizedCapabilityHeader tokens =
+      go 1 tokens
+      where
+        go depth remaining =
+          case remaining of
+            Token {tokenKind = TLParen} : rest ->
+              go (depth + 1) rest
+            Token {tokenKind = TRParen} : rest
+              | depth == 1 -> Right rest
+              | otherwise -> go (depth - 1) rest
+            Token {tokenKind = TLBrace, tokenSpan = braceSpan} : _ ->
+              Left
+                ( parseDiagnostic
+                    ( "expected ')' before '{' in "
+                        <> declarationKind
+                        <> " declaration header at "
+                        <> renderSourceSpan braceSpan
+                    )
+                )
+            _ : rest ->
+              go depth rest
+            [] ->
+              Left
+                ( parseDiagnostic
+                    ( "expected ')' before end of input in "
+                        <> declarationKind
+                        <> " declaration header at "
+                        <> renderSourceSpan (tokenSpan declarationToken)
+                    )
+                )
+
+consumeCapabilityDeclarationBody :: Text -> Token -> [Token] -> Either Diagnostic [Token]
+consumeCapabilityDeclarationBody declarationKind declarationToken tokens =
+  case tokens of
+    Token {tokenKind = TLBrace} : rest -> go 1 rest
+    [] ->
+      Left
+        ( parseDiagnostic
+            ( "expected '{' before end of input in "
+                <> declarationKind
+                <> " declaration at "
+                <> renderSourceSpan (tokenSpan declarationToken)
+            )
+        )
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected '{' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+  where
+    go depth remainingTokens =
+      case remainingTokens of
+        [] ->
+          Left
+            ( parseDiagnostic
+                ( "expected '}' before end of input in "
+                    <> declarationKind
+                    <> " declaration at "
+                    <> renderSourceSpan (tokenSpan declarationToken)
+                )
+            )
+        token : rest ->
+          case tokenKind token of
+            TLBrace ->
+              go (depth + 1) rest
+            TRBrace
+              | depth == 1 -> Right rest
+              | otherwise -> go (depth - 1) rest
+            _ ->
+              go depth rest
 
 registerImportAliases :: Set Text -> [SurfaceStatement] -> Set Text
 registerImportAliases =
@@ -1638,6 +1834,8 @@ collectUntilDot = go []
         Token {tokenKind = TModule} : _ -> True
         Token {tokenKind = TImport} : _ -> True
         Token {tokenKind = TData} : _ -> True
+        Token {tokenKind = TIdentifier name} : rest
+          | looksLikeReservedAbstractionDeclaration name rest -> True
         Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
         Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
         _ -> False
@@ -1811,10 +2009,8 @@ parseSupportedSignatureType signatureTokens =
 parseFunctionOperandType :: [Token] -> Maybe SurfaceSignatureType
 parseFunctionOperandType signatureTokens =
   case signatureTokens of
-    [Token {tokenKind = TIdentifier "Int"}] ->
-      Just SurfaceTypeInt
-    [Token {tokenKind = TIdentifier "Bool"}] ->
-      Just SurfaceTypeBool
+    [Token {tokenKind = TIdentifier typeName}] ->
+      parseNamedSignatureType typeName
     _ ->
       case stripWrappedSignatureTokens isLBracketToken isRBracketToken signatureTokens of
         Just innerTokens ->
@@ -1830,10 +2026,8 @@ parseFunctionOperandType signatureTokens =
 parseNonFunctionSignatureType :: [Token] -> Maybe SurfaceSignatureType
 parseNonFunctionSignatureType signatureTokens =
   case signatureTokens of
-    [Token {tokenKind = TIdentifier "Int"}] ->
-      Just SurfaceTypeInt
-    [Token {tokenKind = TIdentifier "Bool"}] ->
-      Just SurfaceTypeBool
+    [Token {tokenKind = TIdentifier typeName}] ->
+      parseNamedSignatureType typeName
     _ ->
       case stripWrappedSignatureTokens isLBracketToken isRBracketToken signatureTokens of
         Just innerTokens ->
@@ -1852,6 +2046,30 @@ parseTupleSignatureType signatureTokens =
     Just elementTokenGroups
       | length elementTokenGroups >= 2 ->
           SurfaceTypeTuple <$> traverse parseSupportedSignatureType elementTokenGroups
+    _ -> Nothing
+
+parseNamedSignatureType :: Text -> Maybe SurfaceSignatureType
+parseNamedSignatureType typeName =
+  case typeName of
+    "Int" -> Just SurfaceTypeInt
+    "Float" -> Just SurfaceTypeFloat
+    "Bool" -> Just SurfaceTypeBool
+    _ -> SurfaceTypeNumeric <$> parseSurfaceNumericType typeName
+
+parseSurfaceNumericType :: Text -> Maybe SurfaceNumericType
+parseSurfaceNumericType typeName =
+  case typeName of
+    "Int8" -> Just SurfaceNumericInt8
+    "Int16" -> Just SurfaceNumericInt16
+    "Int32" -> Just SurfaceNumericInt32
+    "Int64" -> Just SurfaceNumericInt64
+    "UInt8" -> Just SurfaceNumericUInt8
+    "UInt16" -> Just SurfaceNumericUInt16
+    "UInt32" -> Just SurfaceNumericUInt32
+    "UInt64" -> Just SurfaceNumericUInt64
+    "Float16" -> Just SurfaceNumericFloat16
+    "Float32" -> Just SurfaceNumericFloat32
+    "Float64" -> Just SurfaceNumericFloat64
     _ -> Nothing
 
 surfaceSignaturePayloadFromType :: SurfaceSignatureType -> SurfaceSignaturePayload

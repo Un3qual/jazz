@@ -53,7 +53,7 @@ import JazzNext.Compiler.RecursiveBindings
 -- | Runtime values produced by the interpreter, including partially applied
 -- builtins/operators.
 data RuntimeValue
-  = VInt Int
+  = VInt Integer
   | VBool Bool
   | VList [RuntimeValue]
   | VTuple [RuntimeValue]
@@ -196,6 +196,10 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
             SModule {} ->
               go env Nothing rest
             SImport {} ->
+              go env Nothing rest
+            SClass {} ->
+              go env Nothing rest
+            SImpl {} ->
               go env Nothing rest
             SData _ _ constructors ->
               go (insertDataConstructors constructors env) Nothing rest

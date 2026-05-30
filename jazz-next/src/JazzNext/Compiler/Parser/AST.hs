@@ -9,6 +9,7 @@ module JazzNext.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
+    SurfaceNumericType (..),
     SurfacePattern (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
@@ -27,7 +28,7 @@ import JazzNext.Compiler.Identifier
 
 -- | Literals as they appear in parsed source before lowering.
 data SurfaceLiteral
-  = SLInt Int
+  = SLInt Integer
   | SLBool Bool
   deriving (Eq, Show)
 
@@ -105,8 +106,24 @@ data SurfaceConstrainedSignatureType
   deriving (Eq, Show)
 
 -- | Monomorphic signature types supported by the active parser/type slice.
+data SurfaceNumericType
+  = SurfaceNumericInt8
+  | SurfaceNumericInt16
+  | SurfaceNumericInt32
+  | SurfaceNumericInt64
+  | SurfaceNumericUInt8
+  | SurfaceNumericUInt16
+  | SurfaceNumericUInt32
+  | SurfaceNumericUInt64
+  | SurfaceNumericFloat16
+  | SurfaceNumericFloat32
+  | SurfaceNumericFloat64
+  deriving (Eq, Ord, Show)
+
 data SurfaceSignatureType
   = SurfaceTypeInt
+  | SurfaceTypeFloat
+  | SurfaceTypeNumeric SurfaceNumericType
   | SurfaceTypeBool
   | SurfaceTypeList SurfaceSignatureType
   | SurfaceTypeTuple [SurfaceSignatureType]
@@ -118,7 +135,7 @@ data SurfaceSignatureType
 -- coupling between phases.
 data SurfaceSignatureToken
   = SurfaceSignatureNameToken Text
-  | SurfaceSignatureIntToken Int
+  | SurfaceSignatureIntToken Integer
   | SurfaceSignatureArrowToken
   | SurfaceSignatureAtToken
   | SurfaceSignatureColonToken
@@ -138,6 +155,8 @@ data SurfaceStatement
   = SSLet Identifier SourceSpan SurfaceExpr
   | SSSignature Identifier SourceSpan SurfaceSignaturePayload
   | SSData SourceSpan Identifier [SurfaceDataConstructor]
+  | SSClass SourceSpan Identifier
+  | SSImpl SourceSpan Identifier
   | SSModule SourceSpan [Text]
   | SSImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SSExpr SourceSpan SurfaceExpr

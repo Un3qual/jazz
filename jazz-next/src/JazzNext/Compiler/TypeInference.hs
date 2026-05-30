@@ -30,6 +30,7 @@ import JazzNext.Compiler.AST
     DataConstructor (..),
     Expr (..),
     Literal (..),
+    NumericType (..),
     Pattern (..),
     SignatureConstraint (..),
     SignaturePayload (..),
@@ -170,6 +171,10 @@ canonicalizeStatement statement =
       SSignature name spanValue signaturePayload
     SData spanValue typeName constructors ->
       SData spanValue typeName constructors
+    SClass spanValue capabilityName ->
+      SClass spanValue capabilityName
+    SImpl spanValue capabilityName ->
+      SImpl spanValue capabilityName
     SModule spanValue modulePath ->
       SModule spanValue modulePath
     SImport spanValue modulePath alias importedSymbols ->
@@ -180,12 +185,24 @@ canonicalizeStatement statement =
 -- | Internal type language used by the current inferencer.
 data ExpressionType
   = TIntType
+  | TIntegerLiteralType IntegerLiteralRange
+  | TFloatType
+  | TNumericType NumericType
   | TBoolType
   | TListType ExpressionType
   | TTupleType [ExpressionType]
   | TDataType Identifier
   | TFunctionType ExpressionType ExpressionType
   | TVarType Int
+  deriving (Eq, Show)
+
+data IntegerLiteralRange = IntegerLiteralRange Integer Integer
+  deriving (Eq, Show)
+
+data NumericConstraint
+  = AnyNumericConstraint
+  | IntegralNumericConstraint
+  | IntegralLiteralNumericConstraint IntegerLiteralRange
   deriving (Eq, Show)
 
 data TypeBinding
@@ -202,6 +219,9 @@ data InferState = InferState
     -- Type variables originating from strict-equality sections must eventually
     -- resolve to runtime-supported equality families.
     inferStrictEqualityVars :: Set Int,
+    -- Type variables originating from generic numeric operators must resolve
+    -- to a concrete numeric family before they can be applied.
+    inferNumericVars :: Map Int NumericConstraint,
     inferErrorsRev :: [Diagnostic],
     inferErrorCount :: Int
   }
@@ -212,6 +232,7 @@ initialInferState =
     { inferNextTypeVar = 0,
       inferSubst = Map.empty,
       inferStrictEqualityVars = Set.empty,
+      inferNumericVars = Map.empty,
       inferErrorsRev = [],
       inferErrorCount = 0
     }
@@ -322,7 +343,7 @@ inferExprType builtinMode env state expr =
           (Just inferredThenType, Just inferredElseType) ->
             case unifyTypes inferredThenType inferredElseType stateAfterConditionCheck of
               Just unifiedState ->
-                (Just (resolveType unifiedState inferredThenType), unifiedState)
+                (Just (mergedUnifiedType unifiedState inferredThenType inferredElseType), unifiedState)
               Nothing ->
                 ( Nothing,
                   addTypeError
@@ -381,7 +402,7 @@ inferExprType builtinMode env state expr =
 literalExpressionType :: Literal -> ExpressionType
 literalExpressionType literal =
   case literal of
-    LInt _ -> TIntType
+    LInt value -> TIntegerLiteralType (singletonIntegerLiteralRange value)
     LBool _ -> TBoolType
 
 inferListType ::
@@ -413,7 +434,13 @@ inferListType builtinMode env state elements =
             (Just inferredExpectedType, Just inferredActualType) ->
               case unifyTypes inferredExpectedType inferredActualType stateAfterElement of
                 Just unifiedState ->
-                  (Just (resolveType unifiedState inferredExpectedType), unifiedState)
+                  ( Just
+                      ( mergeIntegerLiteralRanges
+                          (resolveType unifiedState inferredExpectedType)
+                          (resolveType unifiedState inferredActualType)
+                      ),
+                    unifiedState
+                  )
                 Nothing ->
                   ( Just inferredExpectedType,
                     addTypeError
@@ -449,21 +476,25 @@ inferTupleType builtinMode env state elements =
            in go nextReversedTypes stateAfterElement rest
 
 data OperatorRule
-  = NumericRule ExpressionType
+  = NumericRule NumericRuleResult
   | StrictEqualityRule
   | ApplicationRule
+
+data NumericRuleResult
+  = NumericSameTypeResult
+  | NumericBoolResult
 
 lookupOperatorRule :: Text -> Maybe OperatorRule
 lookupOperatorRule operatorSymbol =
   case operatorSymbol of
-    "+" -> Just (NumericRule TIntType)
-    "-" -> Just (NumericRule TIntType)
-    "*" -> Just (NumericRule TIntType)
-    "/" -> Just (NumericRule TIntType)
-    "<" -> Just (NumericRule TBoolType)
-    "<=" -> Just (NumericRule TBoolType)
-    ">" -> Just (NumericRule TBoolType)
-    ">=" -> Just (NumericRule TBoolType)
+    "+" -> Just (NumericRule NumericSameTypeResult)
+    "-" -> Just (NumericRule NumericSameTypeResult)
+    "*" -> Just (NumericRule NumericSameTypeResult)
+    "/" -> Just (NumericRule NumericSameTypeResult)
+    "<" -> Just (NumericRule NumericBoolResult)
+    "<=" -> Just (NumericRule NumericBoolResult)
+    ">" -> Just (NumericRule NumericBoolResult)
+    ">=" -> Just (NumericRule NumericBoolResult)
     "==" -> Just StrictEqualityRule
     "!=" -> Just StrictEqualityRule
     "$" -> Just ApplicationRule
@@ -496,17 +527,20 @@ inferBinaryType operatorSymbol leftType rightType state =
 
 applyNumericBinaryRule ::
   Text ->
-  ExpressionType ->
+  NumericRuleResult ->
   ExpressionType ->
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-applyNumericBinaryRule operatorSymbol resultType leftType rightType state =
-  case unifyTypes leftType TIntType state of
-    Just stateAfterLeft ->
-      case unifyTypes rightType TIntType stateAfterLeft of
-        Just stateAfterRight -> (Just resultType, stateAfterRight)
-        Nothing -> numericOperandError stateAfterLeft
+applyNumericBinaryRule operatorSymbol resultRule leftType rightType state =
+  case unifyTypes leftType rightType state of
+    Just stateAfterUnify ->
+      let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
+       in case constrainNumericType resolvedOperandType stateAfterUnify of
+            Just stateAfterNumericConstraint ->
+              (Just (numericRuleResultType resultRule resolvedOperandType), stateAfterNumericConstraint)
+            Nothing ->
+              numericOperandError stateAfterUnify
     Nothing -> numericOperandError state
   where
     numericOperandError errState =
@@ -519,6 +553,31 @@ applyNumericBinaryRule operatorSymbol resultType leftType rightType state =
               (resolveType errState rightType)
           )
       )
+
+numericRuleResultType :: NumericRuleResult -> ExpressionType -> ExpressionType
+numericRuleResultType resultRule operandType =
+  case resultRule of
+    NumericSameTypeResult -> operandType
+    NumericBoolResult -> TBoolType
+
+numericBinaryOperandType ::
+  Text ->
+  NumericRuleResult ->
+  InferState ->
+  ExpressionType ->
+  ExpressionType ->
+  ExpressionType
+numericBinaryOperandType operatorSymbol resultRule state leftType rightType =
+  case (resolveType state leftType, resolveType state rightType) of
+    (TIntegerLiteralType leftRange, TIntegerLiteralType rightRange) ->
+      TIntegerLiteralType (numericLiteralBinaryRange operatorSymbol resultRule leftRange rightRange)
+    (TIntegerLiteralType literalRange, numericType@(TNumericType concreteNumericType))
+      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
+    (numericType@(TNumericType concreteNumericType), TIntegerLiteralType literalRange)
+      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
+    (TIntegerLiteralType {}, TIntType) -> TIntType
+    (TIntType, TIntegerLiteralType {}) -> TIntType
+    (resolvedLeftType, _) -> resolvedLeftType
 
 applyApplicationBinaryRule ::
   ExpressionType ->
@@ -590,24 +649,30 @@ inferSectionLeftType operatorSymbol leftType state =
 
 applyNumericSectionLeftRule ::
   Text ->
-  ExpressionType ->
+  NumericRuleResult ->
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-applyNumericSectionLeftRule operatorSymbol resultType leftType state =
-  case unifyTypes leftType TIntType state of
-    Just unifiedState ->
-      (Just (TFunctionType TIntType resultType), unifiedState)
-    Nothing ->
-      ( Nothing,
-        addTypeError
-          state
-          ( mkBinaryTypeError
-              operatorSymbol
-              (resolveType state leftType)
-              TIntType
+applyNumericSectionLeftRule operatorSymbol resultRule leftType state =
+  let resolvedLeftType = resolveType state leftType
+   in case constrainNumericType resolvedLeftType state of
+        Just stateAfterNumericConstraint ->
+          let (rightType, stateAfterSectionType) =
+                numericSectionCounterpartType resolvedLeftType stateAfterNumericConstraint
+           in
+            ( Just
+                ( TFunctionType
+                    rightType
+                    (numericRuleResultType resultRule rightType)
+                ),
+              stateAfterSectionType
+            )
+        Nothing ->
+          ( Nothing,
+            addTypeError
+              state
+              (mkNumericSectionOperandTypeError operatorSymbol (resolveType state leftType))
           )
-      )
 
 applyStrictEqualitySectionLeftRule ::
   Text ->
@@ -652,24 +717,30 @@ inferSectionRightType operatorSymbol rightType state =
 
 applyNumericSectionRightRule ::
   Text ->
-  ExpressionType ->
+  NumericRuleResult ->
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-applyNumericSectionRightRule operatorSymbol resultType rightType state =
-  case unifyTypes rightType TIntType state of
-    Just unifiedState ->
-      (Just (TFunctionType TIntType resultType), unifiedState)
-    Nothing ->
-      ( Nothing,
-        addTypeError
-          state
-          ( mkBinaryTypeError
-              operatorSymbol
-              TIntType
-              (resolveType state rightType)
+applyNumericSectionRightRule operatorSymbol resultRule rightType state =
+  let resolvedRightType = resolveType state rightType
+   in case constrainNumericType resolvedRightType state of
+        Just stateAfterNumericConstraint ->
+          let (leftType, stateAfterSectionType) =
+                numericSectionCounterpartType resolvedRightType stateAfterNumericConstraint
+           in
+            ( Just
+                ( TFunctionType
+                    leftType
+                    (numericRuleResultType resultRule leftType)
+                ),
+              stateAfterSectionType
+            )
+        Nothing ->
+          ( Nothing,
+            addTypeError
+              state
+              (mkNumericSectionOperandTypeError operatorSymbol (resolveType state rightType))
           )
-      )
 
 applyStrictEqualitySectionRightRule ::
   Text ->
@@ -693,6 +764,17 @@ applyStrictEqualitySectionRightRule operatorSymbol rightType state =
                 state
                 (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedRightType)
             )
+
+numericSectionCounterpartType :: ExpressionType -> InferState -> (ExpressionType, InferState)
+numericSectionCounterpartType sectionOperandType state =
+  case sectionOperandType of
+    TIntegerLiteralType literalRange ->
+      let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
+       in
+        ( operandType,
+          addNumericTypeVarConstraint typeVar (IntegralLiteralNumericConstraint literalRange) stateAfterOperandType
+        )
+    _ -> (sectionOperandType, state)
 
 -- | Scope/type-signature handling for block expressions. This mirrors the
 -- statement-order rules enforced by the analyzer while threading inferred types.
@@ -719,6 +801,10 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
               go env lastExprType pendingSignatureType state rest
             SImport {} ->
               go env lastExprType pendingSignatureType state rest
+            SClass {} ->
+              go env lastExprType Nothing state rest
+            SImpl {} ->
+              go env lastExprType Nothing state rest
             SData _ typeName constructors ->
               let (nextEnv, nextState) =
                     registerDataConstructors typeName constructors env state
@@ -807,7 +893,7 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                             Just (resolveType stateAfterSignatureCheck (pendingSignatureDeclaredType pendingSignature))
                       _ ->
                         fmap
-                          (resolveType stateAfterSignatureCheck)
+                          (defaultLiteralTypes . resolveType stateAfterSignatureCheck)
                           (Map.lookup statementIndex bindingSeedsByStatement)
                   nextEnv =
                     case nextBindingType of
@@ -1017,6 +1103,8 @@ signatureTypeToExpressionType :: SignatureType -> ExpressionType
 signatureTypeToExpressionType signatureType =
   case signatureType of
     TypeInt -> TIntType
+    TypeFloat -> TFloatType
+    TypeNumeric numericType -> TNumericType numericType
     TypeBool -> TBoolType
     TypeList innerType ->
       TListType (signatureTypeToExpressionType innerType)
@@ -1040,8 +1128,12 @@ constraintSignatureTypeToExpressionTypeWithVariables signatureVariables signatur
     ConstraintTypeName name ->
       case identifierText name of
         "Int" -> Just TIntType
+        "Float" -> Just TFloatType
         "Bool" -> Just TBoolType
-        typeName -> Map.lookup typeName signatureVariables
+        typeName ->
+          case numericTypeNameToExpressionType typeName of
+            Just numericType -> Just numericType
+            Nothing -> Map.lookup typeName signatureVariables
     ConstraintTypeApplication {} ->
       Nothing
     ConstraintTypeList innerType ->
@@ -1175,9 +1267,177 @@ supportedConstraintNames :: Set Text
 supportedConstraintNames =
   Set.fromList ["Default", "Eq", "Fractional", "Integral", "Num", "Ord", "Showable"]
 
+numericTypes :: [NumericType]
+numericTypes =
+  [ NumericInt8,
+    NumericInt16,
+    NumericInt32,
+    NumericInt64,
+    NumericUInt8,
+    NumericUInt16,
+    NumericUInt32,
+    NumericUInt64,
+    NumericFloat16,
+    NumericFloat32,
+    NumericFloat64
+  ]
+
+numericTypeNameToExpressionType :: Text -> Maybe ExpressionType
+numericTypeNameToExpressionType typeName =
+  TNumericType <$> numericTypeFromName typeName
+
+numericTypeFromName :: Text -> Maybe NumericType
+numericTypeFromName typeName =
+  case typeName of
+    "Int8" -> Just NumericInt8
+    "Int16" -> Just NumericInt16
+    "Int32" -> Just NumericInt32
+    "Int64" -> Just NumericInt64
+    "UInt8" -> Just NumericUInt8
+    "UInt16" -> Just NumericUInt16
+    "UInt32" -> Just NumericUInt32
+    "UInt64" -> Just NumericUInt64
+    "Float16" -> Just NumericFloat16
+    "Float32" -> Just NumericFloat32
+    "Float64" -> Just NumericFloat64
+    _ -> Nothing
+
+numericTypeIsIntegral :: NumericType -> Bool
+numericTypeIsIntegral numericType =
+  case numericType of
+    NumericInt8 -> True
+    NumericInt16 -> True
+    NumericInt32 -> True
+    NumericInt64 -> True
+    NumericUInt8 -> True
+    NumericUInt16 -> True
+    NumericUInt32 -> True
+    NumericUInt64 -> True
+    NumericFloat16 -> False
+    NumericFloat32 -> False
+    NumericFloat64 -> False
+
+integerLiteralRangeFitsNumericType :: IntegerLiteralRange -> NumericType -> Bool
+integerLiteralRangeFitsNumericType literalRange numericType =
+  case numericTypeIntegerBounds numericType of
+    Just (lowerBound, upperBound) ->
+      let (literalMin, literalMax) = integerLiteralRangeBounds literalRange
+       in literalMin >= lowerBound && literalMax <= upperBound
+    Nothing -> False
+
+numericTypeIntegerBounds :: NumericType -> Maybe (Integer, Integer)
+numericTypeIntegerBounds numericType =
+  case numericType of
+    NumericInt8 -> Just (signedLower 8, signedUpper 8)
+    NumericInt16 -> Just (signedLower 16, signedUpper 16)
+    NumericInt32 -> Just (signedLower 32, signedUpper 32)
+    NumericInt64 -> Just (signedLower 64, signedUpper 64)
+    NumericUInt8 -> Just (0, unsignedUpper 8)
+    NumericUInt16 -> Just (0, unsignedUpper 16)
+    NumericUInt32 -> Just (0, unsignedUpper 32)
+    NumericUInt64 -> Just (0, unsignedUpper 64)
+    NumericFloat16 -> Nothing
+    NumericFloat32 -> Nothing
+    NumericFloat64 -> Nothing
+  where
+    signedLower bits = negate (2 ^ (bits - 1))
+    signedUpper bits = (2 ^ (bits - 1)) - 1
+    unsignedUpper bits = (2 ^ bits) - 1
+
+singletonIntegerLiteralRange :: Integer -> IntegerLiteralRange
+singletonIntegerLiteralRange value = IntegerLiteralRange value value
+
+numericLiteralBinaryRange ::
+  Text ->
+  NumericRuleResult ->
+  IntegerLiteralRange ->
+  IntegerLiteralRange ->
+  IntegerLiteralRange
+numericLiteralBinaryRange operatorSymbol resultRule leftRange rightRange =
+  case resultRule of
+    NumericSameTypeResult ->
+      let operandRange = combineIntegerLiteralRanges leftRange rightRange
+       in case integerLiteralArithmeticResultRange operatorSymbol leftRange rightRange of
+            Just resultRange -> combineIntegerLiteralRanges operandRange resultRange
+            Nothing -> operandRange
+    NumericBoolResult ->
+      combineIntegerLiteralRanges leftRange rightRange
+
+integerLiteralArithmeticResultRange ::
+  Text ->
+  IntegerLiteralRange ->
+  IntegerLiteralRange ->
+  Maybe IntegerLiteralRange
+integerLiteralArithmeticResultRange operatorSymbol (IntegerLiteralRange leftMin leftMax) (IntegerLiteralRange rightMin rightMax) =
+  case operatorSymbol of
+    "+" -> Just (IntegerLiteralRange (leftMin + rightMin) (leftMax + rightMax))
+    "-" -> Just (IntegerLiteralRange (leftMin - rightMax) (leftMax - rightMin))
+    "*" -> Just (rangeFromValues [leftMin * rightMin, leftMin * rightMax, leftMax * rightMin, leftMax * rightMax])
+    "/"
+      | rightMin <= 0 && rightMax >= 0 -> Nothing
+      | otherwise ->
+          Just
+            ( rangeFromValues
+                [ leftMin `div` rightMin,
+                  leftMin `div` rightMax,
+                  leftMax `div` rightMin,
+                  leftMax `div` rightMax
+                ]
+            )
+    _ -> Nothing
+
+rangeFromValues :: [Integer] -> IntegerLiteralRange
+rangeFromValues values = IntegerLiteralRange (minimum values) (maximum values)
+
+mergedUnifiedType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
+mergedUnifiedType state leftType rightType =
+  mergeIntegerLiteralRanges (resolveType state leftType) (resolveType state rightType)
+
+mergeIntegerLiteralRanges :: ExpressionType -> ExpressionType -> ExpressionType
+mergeIntegerLiteralRanges leftType rightType =
+  case (leftType, rightType) of
+    (TIntegerLiteralType leftRange, TIntegerLiteralType rightRange) ->
+      TIntegerLiteralType (combineIntegerLiteralRanges leftRange rightRange)
+    (TListType leftElementType, TListType rightElementType) ->
+      TListType (mergeIntegerLiteralRanges leftElementType rightElementType)
+    (TTupleType leftElementTypes, TTupleType rightElementTypes)
+      | length leftElementTypes == length rightElementTypes ->
+          TTupleType (zipWith mergeIntegerLiteralRanges leftElementTypes rightElementTypes)
+    (TFunctionType leftInputType leftOutputType, TFunctionType rightInputType rightOutputType) ->
+      TFunctionType
+        (mergeIntegerLiteralRanges leftInputType rightInputType)
+        (mergeIntegerLiteralRanges leftOutputType rightOutputType)
+    _ -> leftType
+
+combineIntegerLiteralRanges :: IntegerLiteralRange -> IntegerLiteralRange -> IntegerLiteralRange
+combineIntegerLiteralRanges (IntegerLiteralRange leftMin leftMax) (IntegerLiteralRange rightMin rightMax) =
+  IntegerLiteralRange (min leftMin rightMin) (max leftMax rightMax)
+
+integerLiteralRangeBounds :: IntegerLiteralRange -> (Integer, Integer)
+integerLiteralRangeBounds (IntegerLiteralRange lower upper) =
+  (lower, upper)
+
+renderNumericTypeName :: NumericType -> Text
+renderNumericTypeName numericType =
+  case numericType of
+    NumericInt8 -> "Int8"
+    NumericInt16 -> "Int16"
+    NumericInt32 -> "Int32"
+    NumericInt64 -> "Int64"
+    NumericUInt8 -> "UInt8"
+    NumericUInt16 -> "UInt16"
+    NumericUInt32 -> "UInt32"
+    NumericUInt64 -> "UInt64"
+    NumericFloat16 -> "Float16"
+    NumericFloat32 -> "Float32"
+    NumericFloat64 -> "Float64"
+
 concreteConstraintTypeNames :: Set Text
 concreteConstraintTypeNames =
-  Set.fromList ["Bool", "Int"]
+  Set.fromList
+    ( ["Bool", "Int", "Float"]
+        ++ map renderNumericTypeName numericTypes
+    )
 
 renderSignaturePayload :: SignaturePayload -> Text
 renderSignaturePayload signaturePayload =
@@ -1240,6 +1500,8 @@ renderSignatureType :: SignatureType -> Text
 renderSignatureType signatureType =
   case signatureType of
     TypeInt -> "Int"
+    TypeFloat -> "Float"
+    TypeNumeric numericType -> renderNumericTypeName numericType
     TypeBool -> "Bool"
     TypeList innerType ->
       "[" <> renderListElementSignatureType innerType <> "]"
@@ -1333,18 +1595,24 @@ instantiateBuiltinType builtinMode name state =
 instantiateOperatorType :: Text -> InferState -> Maybe (ExpressionType, InferState)
 instantiateOperatorType operatorSymbol state =
   case lookupOperatorRule operatorSymbol of
-    Just (NumericRule resultType) ->
-      Just (TFunctionType TIntType (TFunctionType TIntType resultType), state)
-    Just StrictEqualityRule ->
-      let (operandType, stateAfterOperandType) = freshTypeVar state
+    Just (NumericRule resultRule) ->
+      let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
+          stateAfterNumericConstraint =
+            addNumericTypeVarConstraint typeVar AnyNumericConstraint stateAfterOperandType
        in
-        case operandType of
-          TVarType typeVar ->
-            Just
-              ( TFunctionType operandType (TFunctionType operandType TBoolType),
-                addStrictEqualityTypeVarConstraint typeVar stateAfterOperandType
-              )
-          _ -> Nothing
+        Just
+          ( TFunctionType
+              operandType
+              (TFunctionType operandType (numericRuleResultType resultRule operandType)),
+            stateAfterNumericConstraint
+          )
+    Just StrictEqualityRule ->
+      let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
+       in
+        Just
+          ( TFunctionType operandType (TFunctionType operandType TBoolType),
+            addStrictEqualityTypeVarConstraint typeVar stateAfterOperandType
+          )
     Just ApplicationRule ->
       let (argumentType, stateAfterArgumentType) = freshTypeVar state
           (resultType, stateAfterResultType) = freshTypeVar stateAfterArgumentType
@@ -1399,16 +1667,34 @@ instantiateBuiltinSymbolType builtinSymbol state =
 -- | Allocate a fresh type variable for the current inference run.
 freshTypeVar :: InferState -> (ExpressionType, InferState)
 freshTypeVar state =
+  let (_, expressionType, nextState) = freshTypeVariable state
+   in (expressionType, nextState)
+
+freshTypeVariable :: InferState -> (Int, ExpressionType, InferState)
+freshTypeVariable state =
   let nextVar = inferNextTypeVar state
-   in (TVarType nextVar, state {inferNextTypeVar = nextVar + 1})
+   in (nextVar, TVarType nextVar, state {inferNextTypeVar = nextVar + 1})
 
 resolveType :: InferState -> ExpressionType -> ExpressionType
 resolveType state = applySubstitution (inferSubst state)
+
+defaultLiteralTypes :: ExpressionType -> ExpressionType
+defaultLiteralTypes expressionType =
+  case expressionType of
+    TIntegerLiteralType {} -> TIntType
+    TListType elementType -> TListType (defaultLiteralTypes elementType)
+    TTupleType elementTypes -> TTupleType (map defaultLiteralTypes elementTypes)
+    TFunctionType inputType outputType ->
+      TFunctionType (defaultLiteralTypes inputType) (defaultLiteralTypes outputType)
+    _ -> expressionType
 
 applySubstitution :: Map Int ExpressionType -> ExpressionType -> ExpressionType
 applySubstitution subst expressionType =
   case expressionType of
     TIntType -> TIntType
+    TIntegerLiteralType literalRange -> TIntegerLiteralType literalRange
+    TFloatType -> TFloatType
+    TNumericType numericType -> TNumericType numericType
     TBoolType -> TBoolType
     TListType elementType -> TListType (applySubstitution subst elementType)
     TTupleType elementTypes -> TTupleType (map (applySubstitution subst) elementTypes)
@@ -1429,6 +1715,20 @@ unifyTypes leftType rightType state =
       resolvedRight = resolveType state rightType
    in case (resolvedLeft, resolvedRight) of
         (TIntType, TIntType) -> Just state
+        (TIntegerLiteralType {}, TIntegerLiteralType {}) -> Just state
+        (TIntegerLiteralType {}, TIntType) -> Just state
+        (TIntType, TIntegerLiteralType {}) -> Just state
+        (TIntegerLiteralType literalRange, TNumericType rightNumericType)
+          | integerLiteralRangeFitsNumericType literalRange rightNumericType -> Just state
+        (TNumericType leftNumericType, TIntegerLiteralType literalRange)
+          | integerLiteralRangeFitsNumericType literalRange leftNumericType -> Just state
+        (TFloatType, TFloatType) -> Just state
+        (TFloatType, TNumericType NumericFloat64) -> Just state
+        (TNumericType NumericFloat64, TFloatType) -> Just state
+        (TIntType, TNumericType NumericInt64) -> Just state
+        (TNumericType NumericInt64, TIntType) -> Just state
+        (TNumericType leftNumericType, TNumericType rightNumericType)
+          | leftNumericType == rightNumericType -> Just state
         (TBoolType, TBoolType) -> Just state
         (TDataType leftName, TDataType rightName)
           | leftName == rightName -> Just state
@@ -1471,27 +1771,51 @@ bindTypeVar typeVar replacementType state
   | typeVarIsStrictEqualityConstrained && not (supportsDeferredEqualityOperandType replacementType) =
       Nothing
   | otherwise =
-      Just
-        state
-          { inferSubst = Map.insert typeVar replacementType (inferSubst state),
-            inferStrictEqualityVars = nextStrictEqualityVars
-          }
+      case constrainedReplacementType of
+        Nothing -> Nothing
+        Just nextReplacementType ->
+          Just
+            (stateAfterNumericConstraint nextReplacementType)
+              { inferSubst = Map.insert typeVar nextReplacementType (inferSubst state),
+                inferStrictEqualityVars = nextStrictEqualityVars nextReplacementType
+              }
   where
     typeVarIsStrictEqualityConstrained =
       Set.member typeVar (inferStrictEqualityVars state)
+    typeVarNumericConstraint =
+      Map.lookup typeVar (inferNumericVars state)
+    constrainedReplacementType =
+      case typeVarNumericConstraint of
+        Just numericConstraint ->
+          applyNumericConstraintToReplacement numericConstraint replacementType
+        Nothing -> Just replacementType
     strictEqualityVarsWithoutTypeVar =
       Set.delete typeVar (inferStrictEqualityVars state)
-    nextStrictEqualityVars =
-      case replacementType of
+    nextStrictEqualityVars nextReplacementType =
+      case nextReplacementType of
         TVarType replacementVar
           | typeVarIsStrictEqualityConstrained ->
               Set.insert replacementVar strictEqualityVarsWithoutTypeVar
         _ -> strictEqualityVarsWithoutTypeVar
+    numericVarsWithoutTypeVar =
+      Map.delete typeVar (inferNumericVars state)
+    stateAfterNumericConstraint nextReplacementType =
+      case (typeVarNumericConstraint, nextReplacementType) of
+        (Just numericConstraint, TVarType replacementVar) ->
+          addNumericTypeVarConstraint
+            replacementVar
+            numericConstraint
+            state {inferNumericVars = numericVarsWithoutTypeVar}
+        _ ->
+          state {inferNumericVars = numericVarsWithoutTypeVar}
 
 occursInType :: Int -> ExpressionType -> Bool
 occursInType typeVar expressionType =
   case expressionType of
     TIntType -> False
+    TIntegerLiteralType {} -> False
+    TFloatType -> False
+    TNumericType {} -> False
     TBoolType -> False
     TListType elementType -> occursInType typeVar elementType
     TTupleType elementTypes -> any (occursInType typeVar) elementTypes
@@ -1513,6 +1837,79 @@ addStrictEqualityTypeVarConstraint typeVar state =
     { inferStrictEqualityVars =
         Set.insert typeVar (inferStrictEqualityVars state)
     }
+
+addNumericTypeVarConstraint :: Int -> NumericConstraint -> InferState -> InferState
+addNumericTypeVarConstraint typeVar numericConstraint state =
+  state
+    { inferNumericVars =
+        Map.insertWith
+          combineNumericConstraints
+          typeVar
+          numericConstraint
+          (inferNumericVars state)
+    }
+
+combineNumericConstraints :: NumericConstraint -> NumericConstraint -> NumericConstraint
+combineNumericConstraints leftConstraint rightConstraint =
+  case (leftConstraint, rightConstraint) of
+    (IntegralLiteralNumericConstraint leftRange, IntegralLiteralNumericConstraint rightRange) ->
+      IntegralLiteralNumericConstraint (combineIntegerLiteralRanges leftRange rightRange)
+    (IntegralLiteralNumericConstraint literalRange, _) ->
+      IntegralLiteralNumericConstraint literalRange
+    (_, IntegralLiteralNumericConstraint literalRange) ->
+      IntegralLiteralNumericConstraint literalRange
+    (IntegralNumericConstraint, _) -> IntegralNumericConstraint
+    (_, IntegralNumericConstraint) -> IntegralNumericConstraint
+    _ -> AnyNumericConstraint
+
+applyNumericConstraintToReplacement :: NumericConstraint -> ExpressionType -> Maybe ExpressionType
+applyNumericConstraintToReplacement numericConstraint replacementType =
+  case (numericConstraint, replacementType) of
+    (IntegralLiteralNumericConstraint constraintRange, TIntegerLiteralType replacementRange) ->
+      Just (TIntegerLiteralType (combineIntegerLiteralRanges constraintRange replacementRange))
+    _
+      | typeSatisfiesNumericConstraint numericConstraint replacementType ->
+          Just replacementType
+      | otherwise ->
+          Nothing
+
+constrainNumericType :: ExpressionType -> InferState -> Maybe InferState
+constrainNumericType expressionType state =
+  case resolveType state expressionType of
+    TVarType typeVar ->
+      Just (addNumericTypeVarConstraint typeVar AnyNumericConstraint state)
+    resolvedType
+      | typeSatisfiesNumericConstraint AnyNumericConstraint resolvedType ->
+          Just state
+      | otherwise ->
+          Nothing
+
+typeSatisfiesNumericConstraint :: NumericConstraint -> ExpressionType -> Bool
+typeSatisfiesNumericConstraint numericConstraint expressionType =
+  case numericConstraint of
+    AnyNumericConstraint ->
+      case expressionType of
+        TIntType -> True
+        TIntegerLiteralType {} -> True
+        TFloatType -> True
+        TNumericType {} -> True
+        TVarType {} -> True
+        _ -> False
+    IntegralNumericConstraint ->
+      case expressionType of
+        TIntType -> True
+        TIntegerLiteralType {} -> True
+        TNumericType numericType -> numericTypeIsIntegral numericType
+        TVarType {} -> True
+        _ -> False
+    IntegralLiteralNumericConstraint literalRange ->
+      case expressionType of
+        TIntType -> True
+        TIntegerLiteralType {} -> True
+        TNumericType numericType ->
+          numericTypeIsIntegral numericType && integerLiteralRangeFitsNumericType literalRange numericType
+        TVarType {} -> True
+        _ -> False
 
 mkBinaryTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
 mkBinaryTypeError operatorSymbol leftType rightType =
@@ -1544,7 +1941,7 @@ mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
     "E2004"
     ( "strict equality operator '"
         <> operatorSymbol
-        <> "' is only supported for Int and Bool operands, found "
+        <> "' is only supported for Bool and integral numeric types, found "
         <> renderType foundType
     )
 
@@ -1614,6 +2011,16 @@ mkListElementTypeMismatchError expectedType foundType =
 mkUnsupportedSectionOperatorError :: Text -> Diagnostic
 mkUnsupportedSectionOperatorError operatorSymbol =
   mkDiagnostic "E2008" ("unsupported operator section '" <> operatorSymbol <> "'")
+
+mkNumericSectionOperandTypeError :: Text -> ExpressionType -> Diagnostic
+mkNumericSectionOperandTypeError operatorSymbol operandType =
+  mkDiagnostic
+    "E2003"
+    ( "operator section '"
+        <> operatorSymbol
+        <> "' requires a numeric operand, found "
+        <> renderType operandType
+    )
 
 mkUnsupportedOperatorValueError :: Text -> Diagnostic
 mkUnsupportedOperatorValueError operatorSymbol =
@@ -1757,6 +2164,9 @@ renderType :: ExpressionType -> Text
 renderType expressionType =
   case expressionType of
     TIntType -> "Int"
+    TIntegerLiteralType {} -> "Int"
+    TFloatType -> "Float"
+    TNumericType numericType -> renderNumericTypeName numericType
     TBoolType -> "Bool"
     TListType elementType -> "[" <> renderType elementType <> "]"
     TTupleType elementTypes -> "(" <> Text.intercalate ", " (map renderType elementTypes) <> ")"
@@ -1822,7 +2232,7 @@ inferPatternCaseType builtinMode env scrutineeType initialState caseArms =
                 (Just inferredExpectedBodyType, Just inferredBodyType) ->
                   case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBody of
                     Just unifiedState ->
-                      (Just (resolveType unifiedState inferredExpectedBodyType), unifiedState)
+                      (Just (mergedUnifiedType unifiedState inferredExpectedBodyType inferredBodyType), unifiedState)
                     Nothing ->
                       ( Just inferredExpectedBodyType,
                         addTypeError
@@ -2198,6 +2608,8 @@ supportsRuntimeEqualityType expressionType =
   -- runtime equality evaluator to avoid compile/runtime contract drift.
   case expressionType of
     TIntType -> True
+    TIntegerLiteralType {} -> True
+    TNumericType numericType -> numericTypeIsIntegral numericType
     TBoolType -> True
     _ -> False
 

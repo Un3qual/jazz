@@ -413,7 +413,7 @@ Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, bu
 
 Based on the full repo, these areas still require implementation convergence even when a decision lock now exists:
 
-- Extending parsed signature type grammar beyond the current monomorphic subset in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, right-associative function types, parenthesized function-type overrides, empty `@{}:` constrained wrappers, concrete unary constrained signatures, duplicate non-empty constraint diagnostics, monomorphic variable constrained signatures, unsupported-variable constrained-signature diagnostics, and unsupported constrained-signature primary spans are implemented and test-covered; polymorphic/generalized type-variable signatures, defaulting, and solver-backed constraints remain pending):
+- Extending parsed signature type grammar beyond the closed structured-signature rebase in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, concrete tuple types, right-associative function types, parenthesized function-type overrides, empty `@{}:` constrained wrappers, concrete unary constrained signatures, duplicate non-empty constraint diagnostics, monomorphic variable constrained signatures, unsupported-variable constrained-signature diagnostics, and unsupported constrained-signature primary spans are implemented and test-covered; polymorphic/generalized type-variable signatures, type-scheme instantiation/generalization, defaulting, and solver-backed constraints remain blocked behind a future semantics contract):
   - `docs/spec/semantics/bindings-and-signatures.md`
   - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Extending staged operator roadmap work in `jazz-next` beyond implemented v1 parser/fixity/sections behavior:
@@ -440,7 +440,7 @@ Based on the full repo, these areas still require implementation convergence eve
 - Tuple literals, concrete tuple signature types, fixed-arity tuple case
   patterns, cons-like list case patterns, and pattern-shaped lambda parameters
   are now active core runtime/type features in `jazz-next`.
-- Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit symbol-list visibility diagnostics, alias-import unqualified visibility diagnostics, `Alias::symbol` qualified alias lookup, default bundled-prelude module graph driver helpers, and deterministic resolver/binding diagnostics now work in the active parser/CLI path. The baseline clarification matrix is tracked in `docs/spec/modules/00-module-clarification-matrix.md`; the next normative slice is the module file-layout/package-root contract.
+- Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit symbol-list visibility diagnostics, alias-import unqualified visibility diagnostics, `Alias::symbol` qualified alias lookup, default bundled-prelude module graph driver helpers, and deterministic resolver/binding diagnostics now work in the active parser/CLI path. The baseline clarification matrix is tracked in `docs/spec/modules/00-module-clarification-matrix.md`; module file layout/package-root behavior, deterministic resolution/cycle behavior, loader pipeline behavior, qualified import/name-binding semantics, and migration/compatibility policy are specified in `docs/spec/modules/01-file-layout-and-package-roots.md`, `docs/spec/modules/02-resolution-algorithm-and-cycles.md`, `docs/spec/modules/03-loader-behavior-and-diagnostics.md`, `docs/spec/modules/04-qualified-imports-and-binding.md`, and `docs/spec/modules/05-migration-and-compatibility.md`; any further module verification closure needs an active `jazz-next` harness contract because the historical Phase 6 checklist still targets legacy `jazz-hs`.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
 - Which non-JavaScript product backend, if any, should exist beyond interpreter-backed execution.
 
@@ -492,7 +492,7 @@ If this repo is going to become a coherent language project, the highest-value c
 Status update for item `#1`:
 
 - Active-path ADT/pattern contract is now recorded in `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md`.
-- The currently landed `jazz-next` subset is direct `case` parsing/lowering plus analyzer/type/runtime execution for literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, and fixed-arity tuple patterns; canonical `data` declaration parsing/lowering; analyzer/type/runtime support for constructor values and constructor application arity; tuple literal values and concrete tuple signature types; and deterministic `E3023` runtime diagnostics for constructor over-application paths.
+- The active ADT/pattern rebase is closed around the currently landed `jazz-next` subset: direct `case` parsing/lowering plus analyzer/type/runtime execution for literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, and fixed-arity tuple patterns; pattern-shaped lambda parameters lowered through internal pattern cases; canonical `data` declaration parsing/lowering; analyzer/type/runtime support for constructor values and constructor application arity; tuple literal values and concrete tuple signature types; and deterministic `E3023` runtime diagnostics for constructor over-application paths.
 - Constructor payload typing is intentionally monomorphic per constructor in the current active subset; named type parameters and fresh per-use constructor type schemes remain future ADT work.
 - Pattern-shaped lambda parameters are active on the `jazz-next` path and reuse the committed `case` pattern engine through lowering.
 
@@ -506,8 +506,15 @@ Status update for item `#5`:
 - Implemented-vs-planned split is now published in `README.md`.
 - Canonical evidence-backed feature status is now tracked in `docs/feature-status.md`.
 
+Runtime/product status:
+
+- Active `jazz-next` product docs now describe one interpreter-backed path:
+  successful compile is diagnostic-only, successful `--run` prints evaluated
+  runtime output, and future product/runtime behavior deltas remain blocked
+  until they have concrete target paths and verification.
+
 1. Keep future pattern forms such as guards, or-patterns, as-patterns, and pattern synonyms blocked until concrete binder/type/runtime contracts are planned on the active path; tuple literals, concrete tuple signature types, fixed-arity tuple case patterns, cons-like list case patterns, and lambda parameter patterns now execute as core runtime/type features.
-2. Rebase module/import loader planning (`domain 09`) onto `jazz-next` with deterministic file-resolution diagnostics.
+2. Keep further module/import closure (`domain 09`) blocked until the stale legacy Phase 6 harness is rewritten for active `jazz-next`; file layout/package-root, deterministic resolution/cycle, loader pipeline, qualified import, and migration policy specs are now published.
 3. Keep remaining stdlib-boundary follow-up work (`domain 10`) scoped to concrete future prelude/catalog growth; the current bundled source/module graph paths and checked-in prelude reproducibility evidence are covered in `jazz-next`.
 4. Extend staged operator roadmap work in `jazz-next` (user-defined operator phases) according to `docs/spec/syntax/operators.md`.
 5. Implement future warning emitters for the remaining reserved `deprecated-syntax` metadata in `jazz-next` according to `docs/spec/tooling/compiler-warning-flags.md`.

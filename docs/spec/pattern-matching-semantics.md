@@ -102,36 +102,42 @@ sumPairFn = \((left, right)) -> left + right.
 2. Analyzer/type/runtime execution is end-to-end for literal / wildcard /
    variable / constructor / exact-length bracketed-list / cons-like list /
    fixed-arity tuple patterns.
-3. Declared constructor patterns typecheck against the scrutinee ADT type,
+3. Pattern-shaped lambda parameters lower to internal single-arm pattern cases
+   and reuse the same binder, type, runtime matching, and no-match diagnostic
+   behavior.
+4. Declared constructor patterns typecheck against the scrutinee ADT type,
    bind payload variables in arm bodies, reject unknown constructor names or
    arity mismatches with deterministic `E2011` diagnostics, and participate
    in ordinary arm-result agreement checks.
-4. Literal patterns must agree with the scrutinee type; incompatible literal
+5. Literal patterns must agree with the scrutinee type; incompatible literal
    patterns produce compile-time `E2011` diagnostics.
-5. All arm bodies must agree on one result type; mismatched arm result types
+6. All arm bodies must agree on one result type; mismatched arm result types
    produce compile-time `E2012` diagnostics.
-6. Bracketed-list patterns typecheck against list scrutinees, bind element
+7. Bracketed-list patterns typecheck against list scrutinees, bind element
    variables in arm bodies, reject incompatible scrutinees with deterministic
    `E2011` diagnostics, and participate in ordinary arm-result agreement
    checks.
-7. Cons-like list patterns typecheck against list scrutinees, bind the head
+8. Cons-like list patterns typecheck against list scrutinees, bind the head
    subpattern at the list element type and the tail subpattern at the same list
    type, reject incompatible scrutinees with deterministic `E2011` diagnostics,
    and participate in ordinary arm-result agreement checks.
-8. Tuple patterns typecheck against fixed-arity tuple scrutinees, bind element
+9. Tuple patterns typecheck against fixed-arity tuple scrutinees, bind element
    variables in arm bodies, reject incompatible scrutinees or arity mismatches
    with deterministic `E2011` diagnostics, and participate in ordinary
    arm-result agreement checks.
-9. Runtime constructor/list/tuple pattern matching is first-match and recursive
+10. Runtime constructor/list/tuple pattern matching is first-match and recursive
    over nested subpatterns, including cons-like list head/tail matching.
-10. If no arm matches at runtime, evaluation emits deterministic `E3022`
+11. If no arm matches at runtime, evaluation emits deterministic `E3022`
    diagnostics rather than falling through silently.
 
 ## Deferred Pattern Forms
 
 No additional pattern forms are part of the end-to-end committed subset.
+Pattern guards, as-patterns, or-patterns, and pattern synonyms remain blocked
+until an active-path contract defines parser shape, binder scope, type rules,
+runtime matching behavior, diagnostics, target paths, and focused verification.
 
-## Non-Goals (Milestone 1)
+## Non-Goals
 
 1. Pattern guards, as-patterns, or-patterns, and pattern synonyms.
 2. Exhaustiveness analysis beyond deterministic first-match semantics.

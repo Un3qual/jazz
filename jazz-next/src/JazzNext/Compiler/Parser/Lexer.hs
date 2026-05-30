@@ -34,7 +34,7 @@ data TokenKind
   | TLambda
   | TArrow
   | TAt
-  | TInt Int
+  | TInt Integer
   | TEquals
   | TOperator Text
   | TColon
@@ -223,32 +223,15 @@ tokenize = go 1 1
 renderSpan :: Int -> Int -> Text
 renderSpan line column = Text.pack (show line) <> ":" <> Text.pack (show column)
 
--- | Parse through `Integer` first so range failures become stable diagnostics
--- rather than host-`Int` overflow behavior.
-parseIntLiteral :: Int -> Int -> Text -> Either Diagnostic Int
+-- | Parse source integer literals into unbounded `Integer` values so width-
+-- specific signatures can validate the full declared numeric domain.
+parseIntLiteral :: Int -> Int -> Text -> Either Diagnostic Integer
 parseIntLiteral line column digits =
   case TextRead.decimal digits :: Either String (Integer, Text) of
     Right (value, trailing)
-      | Text.null trailing ->
-          if value < minInt || value > maxInt
-            then
-              -- Parse into Integer first so out-of-range literals become diagnostics
-              -- instead of overflowing during conversion to Int.
-              Left
-                ( parseDiagnostic
-                    ( "integer literal out of range at "
-                        <> renderSpan line column
-                        <> ": '"
-                        <> digits
-                        <> "'"
-                    )
-                )
-            else Right (fromInteger value)
+      | Text.null trailing -> Right value
       | otherwise -> invalidIntegerDiagnostic digits line column
     Left _ -> invalidIntegerDiagnostic digits line column
-  where
-    minInt = toInteger (minBound :: Int)
-    maxInt = toInteger (maxBound :: Int)
 
 invalidIntegerDiagnostic :: Text -> Int -> Int -> Either Diagnostic a
 invalidIntegerDiagnostic digits line column =

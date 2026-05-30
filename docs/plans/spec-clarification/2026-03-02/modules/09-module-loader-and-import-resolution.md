@@ -1,23 +1,20 @@
 ---
-id: JN-MODULE-FILE-LAYOUT-SPEC-001
-status: ready
+id: JN-MODULE-SPECS-PLAN-001
+status: blocked
 priority: P1
 size: M
 kind: docs
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-last_verified: 2026-05-29
-plan_section: "Phase 1: File Layout and Package-Root Contract"
+last_verified: 2026-05-30
+plan_section: "Phase 6: Verification Harness and Closure"
 target_paths:
-  - docs/spec/modules/01-file-layout-and-package-roots.md
-  - docs/spec/modules/00-module-clarification-matrix.md
   - docs/plans/spec-clarification/2026-03-02/modules/09-module-loader-and-import-resolution.md
-  - docs/jazz-language-state.md
   - docs/execution/queue.md
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Define canonical module-to-file mapping, package roots, extension policy, declaration/path mismatch behavior, and brace-bodied module compatibility without changing compiler behavior."
+deliverable: "Rewrite the stale legacy Phase 6 verification checklist as an active jazz-next verification-harness contract before any further module implementation work."
 ---
 
 # Spec Clarification Item #09: Module Loader and Import Resolution Semantics Plan
@@ -43,7 +40,12 @@ deliverable: "Define canonical module-to-file mapping, package roots, extension 
 - [x] Executed `jazz-next` qualified-import parser hardening batch for duplicate symbol-list imports.
 - [x] Executed `jazz-next` qualified-import binding batch with resolver-enforced symbol export validation and alias/symbol collision diagnostics (`E4007`/`E4008`/`E4009`).
 - [x] Publish baseline clarification matrix for module/import semantics.
-- [ ] Execute follow-up clarification phases and publish normative module/import specs.
+- [x] Publish normative file-layout and package-root spec.
+- [x] Publish normative deterministic resolution and cycle spec.
+- [x] Publish normative loader pipeline and diagnostics spec.
+- [x] Publish normative qualified import and name-binding spec.
+- [x] Publish normative migration and compatibility spec.
+- [x] Execute follow-up clarification phases and publish normative module/import specs.
 - [ ] Implement/verify final semantics in compiler/runtime code after clarification approval.
 
 ## Verification Evidence (Unresolved Semantics)
@@ -124,20 +126,27 @@ git add docs/spec/modules/00-module-clarification-matrix.md \
 
 ## Phase 1: File Layout and Package-Root Contract
 
-- [ ] Define canonical mapping rules from module names to files.
-- [ ] Clarify root semantics for:
+- [x] Define canonical mapping rules from module names to files.
+- [x] Clarify root semantics for:
   - workspace-local modules
   - optional package roots
   - relative module references (if retained)
-- [ ] Decide case-sensitivity, separator normalization, and extension rules (`.jz`, future alternatives).
-- [ ] Publish normative file-layout spec:
+- [x] Decide case-sensitivity, separator normalization, and extension rules (`.jz`, future alternatives).
+- [x] Publish normative file-layout spec:
   - `docs/spec/modules/01-file-layout-and-package-roots.md`
-- [ ] Add migration notes for old patterns (`module A::B {}` in nested blocks vs one-file-per-module expectations).
+- [x] Add migration notes for old patterns (`module A::B {}` in nested blocks vs one-file-per-module expectations).
 
 Research latitude for executor:
-- [ ] May evaluate two strategies before final recommendation:
+
+- [x] May evaluate two strategies before final recommendation:
   - strict one-file-per-module canonicalization
   - hybrid explicit-module-block compatibility mode
+
+Selected contract:
+
+- Use strict module-path-to-file canonicalization (`App::Main` -> `App/Main.jz`) under ordered module roots.
+- Keep brace-bodied `module App::Main { ... }` declarations as optional compatibility declarations; when present they must match the resolved module path.
+- Keep standalone single-file compile/run separate from explicit `--entry-module` module-graph mode.
 
 ### Commit Checkpoint (Phase 1)
 
@@ -152,19 +161,26 @@ git add docs/spec/modules/01-file-layout-and-package-roots.md \
 
 ## Phase 2: Resolution Algorithm and Dependency Graph Semantics
 
-- [ ] Specify import resolution order deterministically:
-  - local module scope
-  - explicit package roots
-  - standard library root
-- [ ] Define ambiguity policy when multiple modules match.
-- [ ] Define unresolved import diagnostics (error categories, required context in messages).
-- [ ] Define cycle detection and reporting behavior (including minimal cycle trace requirement).
-- [ ] Publish normative resolver spec:
+- [x] Specify import resolution order deterministically:
+  - ordered module-root candidate lookup
+  - lexical rendered-path dependency traversal
+  - bundled prelude kept outside module-root fallback semantics
+- [x] Define ambiguity policy when multiple modules match.
+- [x] Define unresolved import diagnostics (error categories, required context in messages).
+- [x] Define cycle detection and reporting behavior (including minimal cycle trace requirement).
+- [x] Publish normative resolver spec:
   - `docs/spec/modules/02-resolution-algorithm-and-cycles.md`
-- [ ] Attach pseudocode and truth-table examples for ambiguous/cyclic cases.
+- [x] Attach pseudocode and truth-table examples for ambiguous/cyclic cases.
 
 Research latitude for executor:
-- [ ] Can choose DFS or BFS graph traversal as long as deterministic ordering and diagnostics requirements are met.
+
+- [x] Can choose DFS or BFS graph traversal as long as deterministic ordering and diagnostics requirements are met.
+
+Selected contract:
+
+- Document the active depth-first resolver, not a new traversal strategy.
+- Deduplicate imports and traverse them in lexical rendered-path order.
+- Keep bundled prelude loading out of module-root fallback semantics; it remains a driver-layer concern.
 
 ### Commit Checkpoint (Phase 2)
 
@@ -179,19 +195,27 @@ git add docs/spec/modules/02-resolution-algorithm-and-cycles.md \
 
 ## Phase 3: Loader Pipeline Behavior (Parse, Analyze, Cache, Emit)
 
-- [ ] Define loader entrypoint contract (single-file compile vs module-graph compile).
-- [ ] Define when parsing, resolution, analysis, and codegen occur in the pipeline.
-- [ ] Define cache semantics and invalidation invariants (if cache is introduced).
-- [ ] Define stable diagnostic contract including:
+- [x] Define loader entrypoint contract (single-file compile vs module-graph compile).
+- [x] Define when parsing, resolution, analysis, and codegen occur in the pipeline.
+- [x] Define cache semantics and invalidation invariants (if cache is introduced).
+- [x] Define stable diagnostic contract including:
   - source location requirements
   - import chain context requirements
   - reproducibility expectations
-- [ ] Publish loader behavior spec:
+- [x] Publish loader behavior spec:
   - `docs/spec/modules/03-loader-behavior-and-diagnostics.md`
-- [ ] Document minimum behavior required to retire "parse-only import/module" status.
+- [x] Document minimum behavior required to retire "parse-only import/module" status.
 
 Research latitude for executor:
-- [ ] Can recommend no-cache V1 loader if explicitly justified with complexity and correctness tradeoffs.
+
+- [x] Can recommend no-cache V1 loader if explicitly justified with complexity and correctness tradeoffs.
+
+Selected contract:
+
+- Keep standalone source compile/run and explicit module-graph compile/run as separate entrypoint modes.
+- Keep v1 free of persistent module caches; only per-invocation source lookup memoization is normative.
+- Validate dependency expressions during compile/run analysis but strip them from runtime replay so only the entry module produces output.
+- Keep successful compile mode diagnostics-only for both standalone and module-graph paths.
 
 ### Commit Checkpoint (Phase 3)
 
@@ -206,21 +230,29 @@ git add docs/spec/modules/03-loader-behavior-and-diagnostics.md \
 
 ## Phase 4: Qualified Import and Name-Binding Semantics
 
-- [ ] Clarify exact semantics for:
+- [x] Clarify exact semantics for:
   - `import Foo::Bar as B`
   - `import Std::List (map, filter)`
   - coexistence of `as` alias and symbol-list import (allowed/disallowed)
-- [ ] Define namespace collision/shadowing rules:
+- [x] Define namespace collision/shadowing rules:
   - local bindings vs imported names
   - alias conflicts
   - duplicate symbol imports
-- [ ] Define whether qualification is required or optional after `as`.
-- [ ] Publish qualified-import spec:
+- [x] Define whether qualification is required or optional after `as`.
+- [x] Publish qualified-import spec:
   - `docs/spec/modules/04-qualified-imports-and-binding.md`
-- [ ] Add executable examples and explicit invalid-case examples.
+- [x] Add executable examples and explicit invalid-case examples.
 
 Research latitude for executor:
-- [ ] May propose additional syntax restrictions if they reduce ambiguity and are migration-safe.
+
+- [x] May propose additional syntax restrictions if they reduce ambiguity and are migration-safe.
+
+Selected contract:
+
+- Keep v1 import syntax to bare imports, non-empty symbol-list imports, and alias imports.
+- Reject alias plus symbol-list combinations and duplicate symbols in the parser.
+- Treat alias imports as qualified-only; `Alias::name` is required for exported names from alias imports.
+- Keep value and alias namespaces separate so local binders do not shadow qualified aliases.
 
 ### Commit Checkpoint (Phase 4)
 
@@ -235,21 +267,28 @@ git add docs/spec/modules/04-qualified-imports-and-binding.md \
 
 ## Phase 5: Migration Constraints and Compatibility Windows
 
-- [ ] Define migration constraints from current behavior:
-  - parser accepts module/import forms today
-  - analyzer/codegen do not implement them
-  - single-file CLI contract currently exists
-- [ ] Define compatibility policy:
+- [x] Define migration constraints from current behavior:
+  - active `jazz-next` has explicit module-graph resolver/driver behavior
+  - standalone source mode remains single-source and does not resolve dependencies
+  - legacy parser-only behavior remains historical evidence only
+- [x] Define compatibility policy:
   - accepted legacy forms
   - deprecation warnings timeline
   - removal gates
-- [ ] Define migration safety checks:
+- [x] Define migration safety checks:
   - no silent behavior changes for existing single-file programs
   - deterministic failure modes for newly enforced import semantics
-- [ ] Publish migration spec:
+- [x] Publish migration spec:
   - `docs/spec/modules/05-migration-and-compatibility.md`
-- [ ] Update tracking docs to reference clarified module semantics:
+- [x] Update tracking docs to reference clarified module semantics:
   - `docs/jazz-language-state.md`
+
+Selected contract:
+
+- Keep standalone compile/run behavior unchanged and module graph loading explicitly opt-in through `--entry-module`.
+- Keep brace-bodied module declarations as the migration target; rejected legacy syntax remains a parser or CLI error, not a deprecated-syntax warning.
+- Keep legacy `jazz-hs/` and `jazz2/` behavior as reference evidence only.
+- Require a future active `jazz-next` verification-harness contract before using Phase 6 to unblock more module implementation.
 
 ### Commit Checkpoint (Phase 5)
 
@@ -264,6 +303,8 @@ git add docs/spec/modules/05-migration-and-compatibility.md \
 ```
 
 ## Phase 6: Verification Harness and Closure
+
+Blocker note (2026-05-30): this checklist still names legacy `jazz-hs` parser/analyzer/loader tests and a docs script that is not the active verification boundary. Under the current workspace policy, Phase 6 is blocked until it is rewritten as an active `jazz-next` verification-harness contract with concrete target paths and focused commands.
 
 - [ ] Add parser/analyzer/loader verification tests aligned to clarified semantics:
   - `jazz-hs/test/ParserSpec.hs`

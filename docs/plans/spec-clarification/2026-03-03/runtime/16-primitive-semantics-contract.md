@@ -1,6 +1,6 @@
 ---
 id: JN-NUMERIC-WIDTH-SIGNATURE-TYPES-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
@@ -57,6 +57,7 @@ Execution note:
 - [x] Batch 4 list-primitive fallback diagnostics are deterministic and conformance-tested (`E3011/E3012/E3013/E3015`)
 - [x] Docs and trackers aligned
 - [x] Specify the first numeric-width/defaulting rollout before user-defined operator work.
+- [x] First numeric-width signature type ownership slice landed in `jazz-next`.
 
 ## Decision Lock (Approved 2026-03-03)
 
@@ -76,9 +77,9 @@ Execution note:
 - [x] Name exact future implementation target paths in `jazz-next/` and focused verification commands, without changing compiler behavior in this docs batch.
 - [x] Keep user-defined operators as a follow-up stage after this numeric-width/defaulting contract lands.
 
-First implementation target:
+First implementation target (landed 2026-05-29):
 
-- Add parser/core/type ownership for width-specific signature type names and cross-platform aliases before broadening runtime arithmetic behavior.
+- Added parser/core/type ownership for width-specific signature type names and cross-platform aliases before broadening runtime arithmetic behavior.
 - Target paths: `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, and `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`.
 - Verification: `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`; `bash jazz-next/scripts/test-warning-config.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
 

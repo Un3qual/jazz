@@ -1,23 +1,20 @@
 ---
-id: JN-RUNTIME-INTERPRETER-DOC-CLOSURE-001
-status: ready
+id: JN-RUNTIME-PRODUCTIZE-CLOSURE-PLAN-001
+status: blocked
 priority: P2
 size: S
 kind: docs
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-last_verified: 2026-05-29
-plan_section: "Milestone 6: Productize interpreter-first execution"
+last_verified: 2026-05-30
+plan_section: "Future runtime product delta contract"
 target_paths:
   - docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md
-  - README.md
-  - docs/jazz-language-state.md
-  - docs/feature-status.md
   - docs/execution/queue.md
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Align runtime/product docs around the active interpreter-backed compile/run path and keep new runtime behavior changes out of scope."
+deliverable: "Define a concrete CLI/runtime product delta, target paths, and focused verification before adding behavior beyond the closed interpreter-first compile/run documentation baseline."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 ---
@@ -55,19 +52,21 @@ supersedes:
 - [x] On `2026-05-22`, verified the execution queue has no `Ready Now` implementation entries and kept `JN-MODULE-REBASE-PLAN-001` blocked on a concrete remaining stdlib phase-5 closure contract.
 - [x] On `2026-05-22`, added bundled-prelude reproducibility evidence: `BundledPrelude` now owns the checked-in prelude path and `BuiltinCatalogSpec` fails if that file drifts from catalog-generated bridge/alias source.
 - [x] On `2026-05-22`, retired the internal compile placeholder artifact: successful compile driver results now contain only diagnostics, and loader/warning-flow/type/runtime coverage asserts compile success through warnings/errors only.
-- [ ] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next`.
-- [ ] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
-- [ ] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.
+- [x] On `2026-05-30`, closed the type-signature/type-grammar rebase metadata around the implemented structured monomorphic subset and left broader type schemes/defaulting blocked under the dedicated type plan.
+- [x] On `2026-05-30`, aligned runtime/product docs around the active interpreter-backed compile/run path: successful compile is diagnostic-only, successful `--run` prints interpreter output, and future product deltas are blocked on concrete behavior contracts.
+- [x] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next` for the active structured monomorphic subset.
+- [x] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
+- [x] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.
 - [ ] Milestone 5 complete: module/import and stdlib execution semantics are closed on the active path.
-- [ ] Milestone 6 complete: CLI/docs treat interpreter-backed execution as the canonical product path.
+- [x] Milestone 6 complete: CLI/docs treat interpreter-backed execution as the canonical product path.
 
-## Active Baseline (2026-03-18)
+## Active Baseline (2026-05-30)
 
 - `JazzNext.Compiler.Driver` already coordinates standalone source, prelude-aware source, and module-graph execution.
-- `JazzNext.Compiler.Runtime` already interprets the current core subset: ints, bools, lists, closures, builtin/kernel functions, operator values and sections, `if` via canonical `ECase`, and block scope evaluation.
-- `JazzNext.Compiler.TypeInference` still behaves as a light canonicalization/type-check layer; supported monomorphic signatures now arrive as structured parser/core payloads with right-associated chained arrows and parenthesized function-type overrides, but constrained-signature work remains blocked on the next type-grammar milestones.
+- `JazzNext.Compiler.Runtime` interprets the current core subset: ints, bools, lists, tuples, closures, constructor values/applications, pattern cases, builtin/kernel functions, operator values and sections, `if` via canonical `ECase`, and block scope evaluation.
+- `JazzNext.Compiler.TypeInference` consumes structured parser/core signature payloads for the supported monomorphic subset, including right-associated arrows, parenthesized function-type overrides, concrete tuples/lists, and the active constrained-signature subset; broader type schemes/defaulting remain blocked under the dedicated type plan.
 - `JazzNext.Compiler.ModuleResolver` resolves module graphs, validates import symbol lists/aliases, rejects importer references to exported dependency bindings excluded by explicit import lists, prevents alias-only imports from leaking dependency exports as unqualified names, and validates `Alias::symbol` references. `JazzNext.Compiler.Driver` replays resolved modules through the shared pipeline, injecting internal alias bridge bindings for qualified lookup; dependency modules contribute declarations during replay, while executable expression statements are preserved only for the entry module.
-- Successful compile paths are now diagnostic-only and keep stdout empty on success, while successful run paths continue to return interpreter output.
+- Successful compile paths are diagnostic-only and keep stdout empty on success, while successful run paths return interpreter output.
 
 ## Milestone 1 Closure (2026-04-10)
 
@@ -127,8 +126,8 @@ Depends on `JN-TYPE-PLAN-001`.
 
 - [x] Replace raw `Text` signatures with parsed type AST owned by `jazz-next` for the currently supported monomorphic subset.
 - [x] Land canonical right-associative arrow parsing and explicit parenthesized function-type overrides against `JazzNext.Compiler.Parser*`, `AST`, and `TypeInference`.
-- [ ] Land constrained-signature rules against `JazzNext.Compiler.Parser*`, `AST`, and `TypeInference`.
-- [ ] Keep runtime/evaluator expansion blocked until the type surface is represented in active-path data types rather than legacy references.
+- [x] Land active constrained-signature rules against `JazzNext.Compiler.Parser*`, `AST`, and `TypeInference` for the structured monomorphic subset.
+- [x] Keep broader runtime/evaluator expansion tied to active-path type data structures rather than legacy references.
 
 Primary files:
 
@@ -140,9 +139,9 @@ Primary files:
 
 ### Milestone 3: Expand the runtime-backed core language slice
 
-- [ ] Extend the core AST and runtime value model only where locked specs already require it.
-- [ ] Keep interpreter execution in `JazzNext.Compiler.Runtime` and avoid introducing a second backend abstraction.
-- [ ] Align runtime diagnostics with the compile-time diagnostic model so CLI output stays uniform.
+- [x] Extend the core AST and runtime value model only where locked specs already require it.
+- [x] Keep interpreter execution in `JazzNext.Compiler.Runtime` and avoid introducing a second backend abstraction.
+- [x] Align runtime diagnostics with the compile-time diagnostic model so CLI output stays uniform.
 
 Primary files:
 
@@ -159,8 +158,8 @@ Primary files:
 Depends on `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`.
 
 - [x] Re-author the ADT/pattern plan against the active runtime pipeline in this document.
-- [ ] Add constructor values, `case` branches beyond boolean canonicalization, and pattern-match diagnostics in `jazz-next`.
-- [ ] Keep parser, analyzer/type, and runtime changes in one vertical slice so runtime semantics never drift from new AST shapes.
+- [x] Add constructor values, `case` branches beyond boolean canonicalization, and pattern-match diagnostics in `jazz-next`.
+- [x] Keep parser, analyzer/type, and runtime changes in one vertical slice so runtime semantics never drift from new AST shapes.
 
 Primary files:
 
@@ -356,9 +355,9 @@ bash scripts/check-docs.sh
 
 ### Milestone 6: Productize interpreter-first execution
 
-- [ ] Treat file/module execution through `jazz-next` as the canonical product path in CLI and docs.
-- [ ] Update README/status docs once compile/run behavior, module loading, and runtime coverage match observed behavior.
-- [ ] Close this plan only after queue entries and linked docs stop pointing at `jazz-hs` runtime files for new work.
+- [x] Treat file/module execution through `jazz-next` as the canonical product path in CLI and docs.
+- [x] Update README/status docs once compile/run behavior, module loading, and runtime coverage match observed behavior.
+- [x] Close this docs baseline after queue entries and linked docs stop pointing at `jazz-hs` runtime files for new work.
 
 #### Batch 1: Internal compile placeholder retirement
 
@@ -413,7 +412,7 @@ bash jazz-next/scripts/test-warning-config.sh
 
 ## Definition of Done
 
-- [ ] `jazz-next` compile, run, and docs all describe one active interpreter pipeline instead of a mix of placeholder codegen and legacy runtime targets.
-- [ ] Runtime, parser/lowering, analyzer/type, and CLI work all point at the concrete `jazz-next` files listed above.
-- [ ] Dependent plans (`07`, `09`, `11`, `10`) reference this architecture when they are rebased.
-- [ ] Queue dispatch no longer uses `jazz-hs` runtime plans as active implementation guidance.
+- [x] `jazz-next` compile, run, and docs all describe one active interpreter pipeline instead of a mix of placeholder codegen and legacy runtime targets.
+- [x] Runtime, parser/lowering, analyzer/type, and CLI work all point at the concrete `jazz-next` files listed above.
+- [x] Dependent active-path plans reference this architecture when they are rebased or stay blocked on narrower concrete contracts.
+- [x] Queue dispatch no longer uses `jazz-hs` runtime plans as active implementation guidance.

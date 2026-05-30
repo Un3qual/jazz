@@ -338,6 +338,22 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
               warningsRev,
               errorsWithPending
             )
+        SClass {} ->
+          let errorsWithPending = flushPendingSignature pendingSignature errorsRev
+           in
+            ( scopeBindings,
+              Nothing,
+              warningsRev,
+              errorsWithPending
+            )
+        SImpl {} ->
+          let errorsWithPending = flushPendingSignature pendingSignature errorsRev
+           in
+            ( scopeBindings,
+              Nothing,
+              warningsRev,
+              errorsWithPending
+            )
         SData spanValue _ constructors ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
               constructorWarnings =

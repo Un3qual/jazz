@@ -11,6 +11,7 @@ import JazzNext.Compiler.AST
     DataConstructor (..),
     Expr (..),
     Literal (..),
+    NumericType (..),
     Pattern (..),
     SignatureConstraint (..),
     SignaturePayload (..),
@@ -25,6 +26,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
+    SurfaceNumericType (..),
     SurfacePattern (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
@@ -141,6 +143,10 @@ lowerSurfaceStatement surfaceStatement =
       SSignature name spanValue (lowerSurfaceSignaturePayload signaturePayload)
     SSData spanValue typeName constructors ->
       SData spanValue typeName (map lowerSurfaceDataConstructor constructors)
+    SSClass spanValue capabilityName ->
+      SClass spanValue capabilityName
+    SSImpl spanValue capabilityName ->
+      SImpl spanValue capabilityName
     SSModule spanValue modulePath ->
       SModule spanValue modulePath
     SSImport spanValue modulePath alias importedSymbols ->
@@ -188,6 +194,8 @@ lowerSurfaceSignatureType :: SurfaceSignatureType -> SignatureType
 lowerSurfaceSignatureType surfaceSignatureType =
   case surfaceSignatureType of
     SurfaceTypeInt -> TypeInt
+    SurfaceTypeFloat -> TypeFloat
+    SurfaceTypeNumeric numericType -> TypeNumeric (lowerSurfaceNumericType numericType)
     SurfaceTypeBool -> TypeBool
     SurfaceTypeList innerType ->
       TypeList (lowerSurfaceSignatureType innerType)
@@ -197,6 +205,21 @@ lowerSurfaceSignatureType surfaceSignatureType =
       TypeFunction
         (lowerSurfaceSignatureType argumentType)
         (lowerSurfaceSignatureType resultType)
+
+lowerSurfaceNumericType :: SurfaceNumericType -> NumericType
+lowerSurfaceNumericType surfaceNumericType =
+  case surfaceNumericType of
+    SurfaceNumericInt8 -> NumericInt8
+    SurfaceNumericInt16 -> NumericInt16
+    SurfaceNumericInt32 -> NumericInt32
+    SurfaceNumericInt64 -> NumericInt64
+    SurfaceNumericUInt8 -> NumericUInt8
+    SurfaceNumericUInt16 -> NumericUInt16
+    SurfaceNumericUInt32 -> NumericUInt32
+    SurfaceNumericUInt64 -> NumericUInt64
+    SurfaceNumericFloat16 -> NumericFloat16
+    SurfaceNumericFloat32 -> NumericFloat32
+    SurfaceNumericFloat64 -> NumericFloat64
 
 lowerSurfaceSignatureToken :: SurfaceSignatureToken -> SignatureToken
 lowerSurfaceSignatureToken surfaceSignatureToken =

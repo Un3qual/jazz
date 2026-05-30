@@ -7,6 +7,7 @@ import JazzNext.Compiler.AST
   ( ConstraintSignatureType (..),
     Expr (..),
     Literal (..),
+    NumericType (..),
     SignatureConstraint (..),
     SignaturePayload (..),
     SignatureType (..),
@@ -22,6 +23,7 @@ import JazzNext.Compiler.Parser.AST
   ( SurfaceConstrainedSignatureType (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
+    SurfaceNumericType (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureType (..),
@@ -49,6 +51,7 @@ tests =
     ("parses parenthesized function signature into structured nodes", testParseParenthesizedFunctionSignature),
     ("parses tuple literal into structured nodes", testParseTupleLiteral),
     ("parses tuple signature into structured nodes", testParseTupleSignature),
+    ("parses numeric width signature names into structured nodes", testParseNumericWidthSignatureTypes),
     ("parses chained function signature right associatively", testParseChainedFunctionSignature),
     ("parses parenthesized function override into structured nodes", testParseParenthesizedFunctionOverrideSignature),
     ("parses list of parenthesized function types", testParseFunctionListSignature),
@@ -60,6 +63,7 @@ tests =
     ("parses nested scope expression", testParseNestedScopeExpression),
     ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
     ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram),
+    ("lowers numeric width signature names into analyzer AST", testLowerNumericWidthSignatureProgram),
     ("lowers structured signature payload into analyzer AST", testLowerStructuredSignatureProgram),
     ("lowers right-associated function signature into analyzer AST", testLowerRightAssociativeFunctionSignatureProgram),
     ("lowers list of function signature into analyzer AST", testLowerFunctionListSignatureProgram),
@@ -67,13 +71,18 @@ tests =
     ("lowers constrained tuple signature payload into analyzer AST", testLowerConstrainedTupleSignatureProgram),
     ("rejects missing statement terminator", testRejectsMissingDotTerminator),
     ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot),
-    ("rejects integer literal overflow", testRejectsIntOverflow),
+    ("rejects signature missing terminator before class declaration", testRejectsMissingSignatureDotBeforeClass),
+    ("parses integer literals beyond host Int", testParsesLargeIntegerLiteral),
     ("rejects negative literal syntax for now", testRejectsNegativeLiteralSyntax),
     ("parses abstraction keywords as ordinary binding names", testParsesAbstractionKeywordsAsBindingNames),
     ("parses abstraction keywords as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames),
     ("parses trait as an ordinary import alias", testParsesTraitAsImportAlias),
-    ("rejects class abstraction declarations as deferred syntax", testRejectsClassAbstractionSyntax),
-    ("rejects impl abstraction declarations as deferred syntax", testRejectsImplAbstractionSyntax),
+    ("parses class capability declarations into surface AST", testParsesClassCapabilityDeclaration),
+    ("parses parameterized class capability declarations into surface AST", testParsesParameterizedClassCapabilityDeclaration),
+    ("parses impl capability declarations into surface AST", testParsesImplCapabilityDeclaration),
+    ("lowers class and impl capability declarations as inert AST nodes", testLowersCapabilityDeclarations),
+    ("parses class and impl capability declarations inside module bodies", testParsesCapabilityDeclarationsInModuleBody),
+    ("rejects malformed class capability headers", testRejectsMalformedClassCapabilityHeader),
     ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax),
     ("rejects lowercase trait abstraction declarations", testRejectsLowercaseTraitAbstractionSyntax),
     ("rejects trait abstraction declarations inside module bodies", testRejectsTraitAbstractionSyntaxInModuleBody)
@@ -170,6 +179,34 @@ testParseTupleSignature =
         )
     )
     (parseSurfaceProgram "pair :: (Int, Bool).\npair = (1, True).")
+
+testParseNumericWidthSignatureTypes :: IO ()
+testParseNumericWidthSignatureTypes = do
+  assertEqual
+    "Int8 signature"
+    ( Right
+        ( SEBlock
+            [ SSSignature "x" (SourceSpan 1 1) (SurfaceSignatureType (SurfaceTypeNumeric SurfaceNumericInt8)),
+              SSLet "x" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    (parseSurfaceProgram "x :: Int8.\nx = 1.")
+  assertEqual
+    "Float alias signature"
+    ( Right
+        ( SEBlock
+            [ SSSignature
+                "f"
+                (SourceSpan 1 1)
+                ( SurfaceSignatureType
+                    (SurfaceTypeFunction SurfaceTypeFloat (SurfaceTypeNumeric SurfaceNumericFloat64))
+                ),
+              SSLet "f" (SourceSpan 2 1) (SEOperatorValue "+")
+            ]
+        )
+    )
+    (parseSurfaceProgram "f :: Float -> Float64.\nf = (+).")
 
 testParseChainedFunctionSignature :: IO ()
 testParseChainedFunctionSignature =
@@ -361,6 +398,30 @@ testLowerTupleLiteralAndSignatureProgram =
           (lowerSurfaceExpr surfaceProgram)
     )
 
+testLowerNumericWidthSignatureProgram :: IO ()
+testLowerNumericWidthSignatureProgram =
+  assertRight
+    "parse + lower numeric width signatures"
+    (parseSurfaceProgram "f :: UInt8 -> Int64 -> Float.\nf = (+).")
+    ( \surfaceProgram ->
+        assertEqual
+          "lowered numeric width signature AST"
+          ( EBlock
+              [ SSignature
+                  "f"
+                  (SourceSpan 1 1)
+                  ( SignatureType
+                      ( TypeFunction
+                          (TypeNumeric NumericUInt8)
+                          (TypeFunction (TypeNumeric NumericInt64) TypeFloat)
+                      )
+                  ),
+                SLet "f" (SourceSpan 2 1) (EOperatorValue "+")
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
+
 testLowerStructuredSignatureProgram :: IO ()
 testLowerStructuredSignatureProgram =
   assertRight
@@ -485,12 +546,25 @@ testRejectsMissingSignatureDot =
     "expected '.'"
     (parseSurfaceProgram "x :: Int\nx = 1.")
 
-testRejectsIntOverflow :: IO ()
-testRejectsIntOverflow =
+testRejectsMissingSignatureDotBeforeClass :: IO ()
+testRejectsMissingSignatureDotBeforeClass =
   assertLeftDiagnosticContains
-    "integer overflow"
-    "integer literal out of range"
-    (parseSurfaceProgram "x = 9999999999999999999999999999999999999.")
+    "missing signature dot before class"
+    "expected '.' before 'class'"
+    (parseSurfaceProgram "x :: Int\nclass Eq { }.")
+
+testParsesLargeIntegerLiteral :: IO ()
+testParsesLargeIntegerLiteral =
+  assertRight
+    "large integer literal"
+    (parseSurfaceProgram "x = 9223372036854775808.")
+    ( assertEqual
+        "large integer surface AST"
+        ( SEBlock
+            [ SSLet "x" (SourceSpan 1 1) (SELit (SLInt 9223372036854775808))
+            ]
+        )
+    )
 
 testRejectsNegativeLiteralSyntax :: IO ()
 testRejectsNegativeLiteralSyntax =
@@ -543,19 +617,78 @@ testParsesTraitAsImportAlias =
     )
     (parseSurfaceProgram "import Lib::Math as trait.\ntrait::subtract.")
 
-testRejectsClassAbstractionSyntax :: IO ()
-testRejectsClassAbstractionSyntax =
-  assertLeftDiagnosticContains
-    "class abstraction syntax deferred"
-    "unsupported abstraction syntax 'class'"
+testParsesClassCapabilityDeclaration :: IO ()
+testParsesClassCapabilityDeclaration =
+  assertEqual
+    "class capability declaration"
+    ( Right
+        ( SEBlock
+            [ SSClass (SourceSpan 1 1) "Eq"
+            ]
+        )
+    )
     (parseSurfaceProgram "class Eq { }.")
 
-testRejectsImplAbstractionSyntax :: IO ()
-testRejectsImplAbstractionSyntax =
+testParsesParameterizedClassCapabilityDeclaration :: IO ()
+testParsesParameterizedClassCapabilityDeclaration =
+  assertEqual
+    "parameterized class capability declaration"
+    ( Right
+        ( SEBlock
+            [ SSClass (SourceSpan 1 1) "Eq"
+            ]
+        )
+    )
+    (parseSurfaceProgram "class Eq(a) { }.")
+
+testParsesImplCapabilityDeclaration :: IO ()
+testParsesImplCapabilityDeclaration =
+  assertEqual
+    "impl capability declaration"
+    ( Right
+        ( SEBlock
+            [ SSImpl (SourceSpan 1 1) "Eq"
+            ]
+        )
+    )
+    (parseSurfaceProgram "impl Eq(Int) { }.")
+
+testLowersCapabilityDeclarations :: IO ()
+testLowersCapabilityDeclarations =
+  assertRight
+    "surface parse"
+    (parseSurfaceProgram "class Eq { }.\nimpl Eq(Int) { }.")
+    ( \surfaceProgram ->
+        assertEqual
+          "lowered capability declarations"
+          ( EBlock
+              [ SClass (SourceSpan 1 1) "Eq",
+                SImpl (SourceSpan 2 1) "Eq"
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
+
+testParsesCapabilityDeclarationsInModuleBody :: IO ()
+testParsesCapabilityDeclarationsInModuleBody =
+  assertEqual
+    "module body capability declarations"
+    ( Right
+        ( SEBlock
+            [ SSModule (SourceSpan 1 1) ["App", "Core"],
+              SSClass (SourceSpan 2 1) "Eq",
+              SSImpl (SourceSpan 3 1) "Eq"
+            ]
+        )
+    )
+    (parseSurfaceProgram "module App::Core {\nclass Eq { }.\nimpl Eq(Int) { }.\n}")
+
+testRejectsMalformedClassCapabilityHeader :: IO ()
+testRejectsMalformedClassCapabilityHeader =
   assertLeftDiagnosticContains
-    "impl abstraction syntax deferred"
-    "unsupported abstraction syntax 'impl'"
-    (parseSurfaceProgram "impl Eq { }.")
+    "malformed class capability header"
+    "unexpected token 'Bar' in class declaration header"
+    (parseSurfaceProgram "class Foo Bar Baz(Int, String) { }.")
 
 testRejectsTraitAbstractionSyntax :: IO ()
 testRejectsTraitAbstractionSyntax =

@@ -8,6 +8,7 @@ module JazzNext.Compiler.AST
     DataConstructor (..),
     Expr (..),
     Literal (..),
+    NumericType (..),
     Pattern (..),
     SignatureConstraint (..),
     SignaturePayload (..),
@@ -26,7 +27,7 @@ import JazzNext.Compiler.Identifier
 
 -- | Literals currently supported by the lowered core language.
 data Literal
-  = LInt Int
+  = LInt Integer
   | LBool Bool
   deriving (Eq, Show)
 
@@ -94,8 +95,24 @@ data ConstraintSignatureType
   deriving (Eq, Show)
 
 -- | Supported monomorphic signature types.
+data NumericType
+  = NumericInt8
+  | NumericInt16
+  | NumericInt32
+  | NumericInt64
+  | NumericUInt8
+  | NumericUInt16
+  | NumericUInt32
+  | NumericUInt64
+  | NumericFloat16
+  | NumericFloat32
+  | NumericFloat64
+  deriving (Eq, Ord, Show)
+
 data SignatureType
   = TypeInt
+  | TypeFloat
+  | TypeNumeric NumericType
   | TypeBool
   | TypeList SignatureType
   | TypeTuple [SignatureType]
@@ -107,7 +124,7 @@ data SignatureType
 -- source slices.
 data SignatureToken
   = SignatureNameToken Text
-  | SignatureIntToken Int
+  | SignatureIntToken Integer
   | SignatureArrowToken
   | SignatureAtToken
   | SignatureColonToken
@@ -128,6 +145,8 @@ data Statement
   = SLet Identifier SourceSpan Expr
   | SSignature Identifier SourceSpan SignaturePayload
   | SData SourceSpan Identifier [DataConstructor]
+  | SClass SourceSpan Identifier
+  | SImpl SourceSpan Identifier
   | SModule SourceSpan [Text]
   | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SExpr SourceSpan Expr
