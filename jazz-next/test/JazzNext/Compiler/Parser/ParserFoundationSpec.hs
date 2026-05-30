@@ -80,6 +80,7 @@ tests =
     ("parses impl capability declarations into surface AST", testParsesImplCapabilityDeclaration),
     ("lowers class and impl capability declarations as inert AST nodes", testLowersCapabilityDeclarations),
     ("parses class and impl capability declarations inside module bodies", testParsesCapabilityDeclarationsInModuleBody),
+    ("rejects malformed class capability headers", testRejectsMalformedClassCapabilityHeader),
     ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax),
     ("rejects lowercase trait abstraction declarations", testRejectsLowercaseTraitAbstractionSyntax),
     ("rejects trait abstraction declarations inside module bodies", testRejectsTraitAbstractionSyntaxInModuleBody)
@@ -654,6 +655,13 @@ testParsesCapabilityDeclarationsInModuleBody =
         )
     )
     (parseSurfaceProgram "module App::Core {\nclass Eq { }.\nimpl Eq(Int) { }.\n}")
+
+testRejectsMalformedClassCapabilityHeader :: IO ()
+testRejectsMalformedClassCapabilityHeader =
+  assertLeftDiagnosticContains
+    "malformed class capability header"
+    "unexpected token 'Bar' in class declaration header"
+    (parseSurfaceProgram "class Foo Bar Baz(Int, String) { }.")
 
 testRejectsTraitAbstractionSyntax :: IO ()
 testRejectsTraitAbstractionSyntax =

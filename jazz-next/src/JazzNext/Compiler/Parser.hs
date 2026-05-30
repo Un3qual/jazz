@@ -277,22 +277,74 @@ parseCapabilityDeclaration declarationKind declarationToken tokensAfterKeyword =
 
 parseCapabilityHeaderName :: Text -> Token -> [Token] -> Either Diagnostic (Identifier, [Token])
 parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
-  go Nothing tokensAfterKeyword
+  case tokensAfterKeyword of
+    Token {tokenKind = TIdentifier candidateName, tokenSpan = nameSpan} : rest
+      | isConstructorIdentifierText candidateName ->
+          parseCapabilityHeaderTail (mkIdentifier candidateName) rest
+      | otherwise ->
+          Left
+            ( parseDiagnostic
+                ( "expected uppercase capability name at "
+                    <> renderSourceSpan nameSpan
+                    <> ", found '"
+                    <> candidateName
+                    <> "'"
+                )
+            )
+    Token {tokenKind = TLBrace} : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected capability name before '{' in "
+                <> declarationKind
+                <> " declaration at "
+                <> renderSourceSpan (tokenSpan declarationToken)
+            )
+        )
+    Token {tokenKind = TDot} : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected capability name before '.' in "
+                <> declarationKind
+                <> " declaration at "
+                <> renderSourceSpan (tokenSpan declarationToken)
+            )
+        )
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected capability name at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+    [] ->
+      Left
+        ( parseDiagnostic
+            ( "expected capability name before end of input in "
+                <> declarationKind
+                <> " declaration at "
+                <> renderSourceSpan (tokenSpan declarationToken)
+            )
+        )
   where
-    go maybeCapabilityName tokens =
+    parseCapabilityHeaderTail capabilityName tokens =
+      case declarationKind of
+        "impl" -> parseImplCapabilityHeaderTail capabilityName tokens
+        _ -> requireCapabilityBodyStart capabilityName tokens
+
+    parseImplCapabilityHeaderTail capabilityName tokens =
+      case tokens of
+        Token {tokenKind = TLParen} : rest -> do
+          afterTarget <- consumeImplTargetType rest
+          requireCapabilityBodyStart capabilityName afterTarget
+        _ -> requireCapabilityBodyStart capabilityName tokens
+
+    requireCapabilityBodyStart capabilityName tokens =
       case tokens of
         Token {tokenKind = TLBrace} : _ ->
-          case maybeCapabilityName of
-            Just capabilityName -> Right (capabilityName, tokens)
-            Nothing ->
-              Left
-                ( parseDiagnostic
-                    ( "expected capability name before '{' in "
-                        <> declarationKind
-                        <> " declaration at "
-                        <> renderSourceSpan (tokenSpan declarationToken)
-                    )
-                )
+          Right (capabilityName, tokens)
         Token {tokenKind = TDot} : _ ->
           Left
             ( parseDiagnostic
@@ -302,11 +354,17 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
                     <> renderSourceSpan (tokenSpan declarationToken)
                 )
             )
-        Token {tokenKind = TIdentifier candidateName} : rest
-          | isConstructorIdentifierText candidateName ->
-              go (maybeCapabilityName <|> Just (mkIdentifier candidateName)) rest
-        _ : rest ->
-          go maybeCapabilityName rest
+        token : _ ->
+          Left
+            ( parseDiagnostic
+                ( "unexpected token '"
+                    <> tokenLexeme token
+                    <> "' in "
+                    <> declarationKind
+                    <> " declaration header at "
+                    <> renderSourceSpan (tokenSpan token)
+                )
+            )
         [] ->
           Left
             ( parseDiagnostic
@@ -316,6 +374,33 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
                     <> renderSourceSpan (tokenSpan declarationToken)
                 )
             )
+
+    consumeImplTargetType tokens =
+      go 1 tokens
+      where
+        go depth remaining =
+          case remaining of
+            Token {tokenKind = TLParen} : rest ->
+              go (depth + 1) rest
+            Token {tokenKind = TRParen} : rest
+              | depth == 1 -> Right rest
+              | otherwise -> go (depth - 1) rest
+            Token {tokenKind = TLBrace, tokenSpan = braceSpan} : _ ->
+              Left
+                ( parseDiagnostic
+                    ( "expected ')' before '{' in impl declaration header at "
+                        <> renderSourceSpan braceSpan
+                    )
+                )
+            _ : rest ->
+              go depth rest
+            [] ->
+              Left
+                ( parseDiagnostic
+                    ( "expected ')' before end of input in impl declaration header at "
+                        <> renderSourceSpan (tokenSpan declarationToken)
+                    )
+                )
 
 consumeCapabilityDeclarationBody :: Text -> Token -> [Token] -> Either Diagnostic [Token]
 consumeCapabilityDeclarationBody declarationKind declarationToken tokens =

@@ -638,11 +638,7 @@ applyNumericSectionLeftRule operatorSymbol resultRule leftType state =
           ( Nothing,
             addTypeError
               state
-              ( mkBinaryTypeError
-                  operatorSymbol
-                  (resolveType state leftType)
-                  (resolveType state leftType)
-              )
+              (mkNumericSectionOperandTypeError operatorSymbol (resolveType state leftType))
           )
 
 applyStrictEqualitySectionLeftRule ::
@@ -707,11 +703,7 @@ applyNumericSectionRightRule operatorSymbol resultRule rightType state =
           ( Nothing,
             addTypeError
               state
-              ( mkBinaryTypeError
-                  operatorSymbol
-                  (resolveType state rightType)
-                  (resolveType state rightType)
-              )
+              (mkNumericSectionOperandTypeError operatorSymbol (resolveType state rightType))
           )
 
 applyStrictEqualitySectionRightRule ::
@@ -1457,29 +1449,23 @@ instantiateOperatorType :: Text -> InferState -> Maybe (ExpressionType, InferSta
 instantiateOperatorType operatorSymbol state =
   case lookupOperatorRule operatorSymbol of
     Just (NumericRule resultRule) ->
-      let (operandType, stateAfterOperandType) = freshTypeVar state
-       in case operandType of
-            TVarType typeVar ->
-              let stateAfterNumericConstraint =
-                    addNumericTypeVarConstraint typeVar AnyNumericConstraint stateAfterOperandType
-               in
-                Just
-                  ( TFunctionType
-                      operandType
-                      (TFunctionType operandType (numericRuleResultType resultRule operandType)),
-                    stateAfterNumericConstraint
-                  )
-            _ -> Nothing
-    Just StrictEqualityRule ->
-      let (operandType, stateAfterOperandType) = freshTypeVar state
+      let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
+          stateAfterNumericConstraint =
+            addNumericTypeVarConstraint typeVar AnyNumericConstraint stateAfterOperandType
        in
-        case operandType of
-          TVarType typeVar ->
-            Just
-              ( TFunctionType operandType (TFunctionType operandType TBoolType),
-                addStrictEqualityTypeVarConstraint typeVar stateAfterOperandType
-              )
-          _ -> Nothing
+        Just
+          ( TFunctionType
+              operandType
+              (TFunctionType operandType (numericRuleResultType resultRule operandType)),
+            stateAfterNumericConstraint
+          )
+    Just StrictEqualityRule ->
+      let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
+       in
+        Just
+          ( TFunctionType operandType (TFunctionType operandType TBoolType),
+            addStrictEqualityTypeVarConstraint typeVar stateAfterOperandType
+          )
     Just ApplicationRule ->
       let (argumentType, stateAfterArgumentType) = freshTypeVar state
           (resultType, stateAfterResultType) = freshTypeVar stateAfterArgumentType
@@ -1534,8 +1520,13 @@ instantiateBuiltinSymbolType builtinSymbol state =
 -- | Allocate a fresh type variable for the current inference run.
 freshTypeVar :: InferState -> (ExpressionType, InferState)
 freshTypeVar state =
+  let (_, expressionType, nextState) = freshTypeVariable state
+   in (expressionType, nextState)
+
+freshTypeVariable :: InferState -> (Int, ExpressionType, InferState)
+freshTypeVariable state =
   let nextVar = inferNextTypeVar state
-   in (TVarType nextVar, state {inferNextTypeVar = nextVar + 1})
+   in (nextVar, TVarType nextVar, state {inferNextTypeVar = nextVar + 1})
 
 resolveType :: InferState -> ExpressionType -> ExpressionType
 resolveType state = applySubstitution (inferSubst state)
@@ -1825,6 +1816,16 @@ mkListElementTypeMismatchError expectedType foundType =
 mkUnsupportedSectionOperatorError :: Text -> Diagnostic
 mkUnsupportedSectionOperatorError operatorSymbol =
   mkDiagnostic "E2008" ("unsupported operator section '" <> operatorSymbol <> "'")
+
+mkNumericSectionOperandTypeError :: Text -> ExpressionType -> Diagnostic
+mkNumericSectionOperandTypeError operatorSymbol operandType =
+  mkDiagnostic
+    "E2003"
+    ( "operator section '"
+        <> operatorSymbol
+        <> "' requires a numeric operand, found "
+        <> renderType operandType
+    )
 
 mkUnsupportedOperatorValueError :: Text -> Diagnostic
 mkUnsupportedOperatorValueError operatorSymbol =
