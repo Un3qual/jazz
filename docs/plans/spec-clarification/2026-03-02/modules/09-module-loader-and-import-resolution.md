@@ -1,5 +1,5 @@
 ---
-id: JN-MODULE-RESOLUTION-SPEC-001
+id: JN-MODULE-LOADER-PIPELINE-SPEC-001
 status: ready
 priority: P1
 size: M
@@ -7,9 +7,9 @@ kind: docs
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-05-30
-plan_section: "Phase 2: Resolution Algorithm and Dependency Graph Semantics"
+plan_section: "Phase 3: Loader Pipeline Behavior (Parse, Analyze, Cache, Emit)"
 target_paths:
-  - docs/spec/modules/02-resolution-algorithm-and-cycles.md
+  - docs/spec/modules/03-loader-behavior-and-diagnostics.md
   - docs/spec/modules/00-module-clarification-matrix.md
   - docs/plans/spec-clarification/2026-03-02/modules/09-module-loader-and-import-resolution.md
   - docs/jazz-language-state.md
@@ -17,7 +17,7 @@ target_paths:
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Define deterministic import resolution order, ambiguity policy, unresolved import diagnostics, cycle reporting, and resolver pseudocode/examples without changing compiler behavior."
+deliverable: "Define module-graph loader entrypoints, parse/resolve/analyze/run pipeline order, no-cache v1 policy, diagnostic context requirements, and compile/run output behavior without changing compiler behavior."
 ---
 
 # Spec Clarification Item #09: Module Loader and Import Resolution Semantics Plan
@@ -44,6 +44,7 @@ deliverable: "Define deterministic import resolution order, ambiguity policy, un
 - [x] Executed `jazz-next` qualified-import binding batch with resolver-enforced symbol export validation and alias/symbol collision diagnostics (`E4007`/`E4008`/`E4009`).
 - [x] Publish baseline clarification matrix for module/import semantics.
 - [x] Publish normative file-layout and package-root spec.
+- [x] Publish normative deterministic resolution and cycle spec.
 - [ ] Execute follow-up clarification phases and publish normative module/import specs.
 - [ ] Implement/verify final semantics in compiler/runtime code after clarification approval.
 
@@ -158,19 +159,24 @@ git add docs/spec/modules/01-file-layout-and-package-roots.md \
 
 ## Phase 2: Resolution Algorithm and Dependency Graph Semantics
 
-- [ ] Specify import resolution order deterministically:
-  - local module scope
-  - explicit package roots
-  - standard library root
-- [ ] Define ambiguity policy when multiple modules match.
-- [ ] Define unresolved import diagnostics (error categories, required context in messages).
-- [ ] Define cycle detection and reporting behavior (including minimal cycle trace requirement).
-- [ ] Publish normative resolver spec:
+- [x] Specify import resolution order deterministically:
+  - ordered module-root candidate lookup
+  - lexical rendered-path dependency traversal
+  - bundled prelude kept outside module-root fallback semantics
+- [x] Define ambiguity policy when multiple modules match.
+- [x] Define unresolved import diagnostics (error categories, required context in messages).
+- [x] Define cycle detection and reporting behavior (including minimal cycle trace requirement).
+- [x] Publish normative resolver spec:
   - `docs/spec/modules/02-resolution-algorithm-and-cycles.md`
-- [ ] Attach pseudocode and truth-table examples for ambiguous/cyclic cases.
+- [x] Attach pseudocode and truth-table examples for ambiguous/cyclic cases.
 
 Research latitude for executor:
-- [ ] Can choose DFS or BFS graph traversal as long as deterministic ordering and diagnostics requirements are met.
+- [x] Can choose DFS or BFS graph traversal as long as deterministic ordering and diagnostics requirements are met.
+
+Selected contract:
+- Document the active depth-first resolver, not a new traversal strategy.
+- Deduplicate imports and traverse them in lexical rendered-path order.
+- Keep bundled prelude loading out of module-root fallback semantics; it remains a driver-layer concern.
 
 ### Commit Checkpoint (Phase 2)
 
