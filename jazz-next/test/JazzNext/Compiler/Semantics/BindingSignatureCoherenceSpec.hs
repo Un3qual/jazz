@@ -64,6 +64,7 @@ tests =
     ("source pipeline accepts nested concrete list signature", testSourceAcceptsNestedConcreteListSignature),
     ("source pipeline accepts concrete tuple signature", testSourceAcceptsConcreteTupleSignature),
     ("source pipeline accepts width-specific integer signatures", testSourceAcceptsWidthSpecificIntegerSignatures),
+    ("source pipeline rejects out-of-range width-specific integer literals", testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals),
     ("source pipeline accepts same-width numeric operator signatures", testSourceAcceptsSameWidthNumericOperatorSignatures),
     ("source pipeline rejects mixed-width numeric operator signatures", testSourceRejectsMixedWidthNumericOperatorSignatures),
     ("source pipeline keeps float signatures distinct from integer literals", testSourceRejectsFloatSignatureForIntegerLiteral),
@@ -372,9 +373,17 @@ testSourceAcceptsConcreteTupleSignature =
 testSourceAcceptsWidthSpecificIntegerSignatures :: IO ()
 testSourceAcceptsWidthSpecificIntegerSignatures = do
   assertSourceOk "x :: Int8.\nx = 1."
+  assertSourceOk "x :: Int8.\nx = 127."
+  assertSourceOk "x :: UInt8.\nx = 255."
   assertSourceOk "x :: UInt64.\nx = 1."
   assertSourceOk "xs :: [Int32].\nxs = [1, 2, 3]."
   assertSourceOk "x :: @{Num(UInt16)}: UInt16.\nx = 1."
+
+testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals :: IO ()
+testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals = do
+  assertSourceSingleErrorContains "x :: UInt8.\nx = 300." "E2005"
+  assertSourceSingleErrorContains "x :: Int8.\nx = 128." "E2005"
+  assertSourceSingleErrorContains "xs :: [UInt8].\nxs = [1, 300]." "E2005"
 
 testSourceAcceptsSameWidthNumericOperatorSignatures :: IO ()
 testSourceAcceptsSameWidthNumericOperatorSignatures = do
