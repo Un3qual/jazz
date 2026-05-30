@@ -5,7 +5,8 @@ priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
-depends_on: []
+depends_on:
+  - JN-MODULE-FILE-LAYOUT-HARNESS-001
 last_verified: 2026-05-30
 plan_section: "Batch 1: Resolution order and import-binding harness"
 target_paths:
@@ -14,7 +15,7 @@ verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Add focused active jazz-next coverage for lexical import traversal, duplicate import collapse, already-resolved module reuse, and E4007-E4014 import-binding diagnostics from the qualified import contract."
+deliverable: "Add focused active jazz-next coverage for lexical import traversal, duplicate import collapse, already-resolved module reuse, and E4007-E4009/E4011-E4014 import-binding diagnostics from the qualified import contract."
 ---
 
 # Module Resolution And Binding Harness Batch

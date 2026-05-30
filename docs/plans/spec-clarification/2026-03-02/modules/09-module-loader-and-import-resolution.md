@@ -323,6 +323,7 @@ Suggested message:
 `test(spec-modules): close active module verification harness`
 
 Exact `git add` targets:
+
 ```bash
 git add jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs \
   jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs \
@@ -372,7 +373,7 @@ bash scripts/check-docs.sh
 - [ ] Loader behavior is documented with deterministic diagnostics requirements.
 - [ ] Qualified import/name-binding rules are explicit and testable.
 - [ ] Migration constraints preserve current users while enabling loader rollout.
-- [ ] Nix-based parser/analyzer/doc checks are reproducible and documented.
+- [ ] Active runghc parser/resolver/loader/CLI checks and queue/docs gates are reproducible and documented.
 
 ## Implementation Status Verification (2026-03-04, Batch 1, `jazz-next`)
 
@@ -464,5 +465,5 @@ bash scripts/check-docs.sh
 
 - [x] Evidence of unresolved module/import semantics recorded with exact paths.
 - [x] Phased clarification plan with commit checkpoints and exact `git add` targets.
-- [x] Nix environment and reproducible parser/analyzer/doc command matrix included.
+- [x] Active runghc verification matrix plus queue/docs gates included.
 - [x] Sub-plan paths proposed for deeper research-driven breakdown.
