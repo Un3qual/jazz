@@ -52,7 +52,7 @@ For each module:
 3. Load the module source using candidate lookup.
 4. Parse the source and collect module declarations, imports, exports, unqualified references, and qualified references. Parse failure while loading a module is `E4004`.
 5. Validate module declarations:
-   - no declaration is allowed and uses the resolved path as module identity;
+   - a source file with no module declaration is allowed; it uses the resolved path as module identity;
    - exactly one matching top-level brace-bodied declaration is allowed;
    - multiple declarations are `E4005`;
    - a declaration/path mismatch is `E4006`.
@@ -91,7 +91,7 @@ Resolved modules outside the active stack do not create cycles when referenced a
 ```text
 resolve(entry):
   visit([], empty_state, entry)
-  return reverse(state.resolved_modules)
+  return state.resolved_modules
 
 visit(call_stack, state, module_path):
   if module_path in state.resolved_set:
