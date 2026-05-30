@@ -1,5 +1,5 @@
 ---
-id: JN-MODULE-QUALIFIED-IMPORT-SPEC-001
+id: JN-MODULE-MIGRATION-SPEC-001
 status: ready
 priority: P1
 size: M
@@ -7,9 +7,9 @@ kind: docs
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-05-30
-plan_section: "Phase 4: Qualified Import and Name-Binding Semantics"
+plan_section: "Phase 5: Migration Constraints and Compatibility Windows"
 target_paths:
-  - docs/spec/modules/04-qualified-imports-and-binding.md
+  - docs/spec/modules/05-migration-and-compatibility.md
   - docs/spec/modules/00-module-clarification-matrix.md
   - docs/plans/spec-clarification/2026-03-02/modules/09-module-loader-and-import-resolution.md
   - docs/jazz-language-state.md
@@ -17,7 +17,7 @@ target_paths:
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Define bare imports, symbol-list imports, alias imports, alias qualification, local/import shadowing, and collision diagnostics without changing compiler behavior."
+deliverable: "Define module/import migration constraints, compatibility policy, deterministic failure modes, and tracker updates without changing compiler behavior."
 ---
 
 # Spec Clarification Item #09: Module Loader and Import Resolution Semantics Plan
@@ -46,6 +46,7 @@ deliverable: "Define bare imports, symbol-list imports, alias imports, alias qua
 - [x] Publish normative file-layout and package-root spec.
 - [x] Publish normative deterministic resolution and cycle spec.
 - [x] Publish normative loader pipeline and diagnostics spec.
+- [x] Publish normative qualified import and name-binding spec.
 - [ ] Execute follow-up clarification phases and publish normative module/import specs.
 - [ ] Implement/verify final semantics in compiler/runtime code after clarification approval.
 
@@ -225,21 +226,27 @@ git add docs/spec/modules/03-loader-behavior-and-diagnostics.md \
 
 ## Phase 4: Qualified Import and Name-Binding Semantics
 
-- [ ] Clarify exact semantics for:
+- [x] Clarify exact semantics for:
   - `import Foo::Bar as B`
   - `import Std::List (map, filter)`
   - coexistence of `as` alias and symbol-list import (allowed/disallowed)
-- [ ] Define namespace collision/shadowing rules:
+- [x] Define namespace collision/shadowing rules:
   - local bindings vs imported names
   - alias conflicts
   - duplicate symbol imports
-- [ ] Define whether qualification is required or optional after `as`.
-- [ ] Publish qualified-import spec:
+- [x] Define whether qualification is required or optional after `as`.
+- [x] Publish qualified-import spec:
   - `docs/spec/modules/04-qualified-imports-and-binding.md`
-- [ ] Add executable examples and explicit invalid-case examples.
+- [x] Add executable examples and explicit invalid-case examples.
 
 Research latitude for executor:
-- [ ] May propose additional syntax restrictions if they reduce ambiguity and are migration-safe.
+- [x] May propose additional syntax restrictions if they reduce ambiguity and are migration-safe.
+
+Selected contract:
+- Keep v1 import syntax to bare imports, non-empty symbol-list imports, and alias imports.
+- Reject alias plus symbol-list combinations and duplicate symbols in the parser.
+- Treat alias imports as qualified-only; `Alias::name` is required for exported names from alias imports.
+- Keep value and alias namespaces separate so local binders do not shadow qualified aliases.
 
 ### Commit Checkpoint (Phase 4)
 
