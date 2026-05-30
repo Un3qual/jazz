@@ -41,6 +41,7 @@ tests =
     ("parseCliOptions captures positional source path", testParseSourcePath),
     ("parseCliOptions rejects multiple positional source paths", testParseMultipleSourcePaths),
     ("parseCliOptions rejects source path with entry module", testParseSourcePathWithEntryModule),
+    ("parseCliOptions rejects module roots without entry module", testParseModuleRootWithoutEntryModule),
     ("parseCliOptions captures entry module and module roots", testParseModuleGraphOptions),
     ("parseCliOptions captures prelude path", testParsePreludePath),
     ("parseCliOptions captures no-prelude switch", testParseNoPrelude),
@@ -55,10 +56,12 @@ tests =
     ("cli --run prints evaluated list primitive output", testCliRunModeListPrimitiveSuccess),
     ("cli --run prints evaluated filter primitive output", testCliRunModeFilterPrimitiveSuccess),
     ("cli --run with entry module loads module graph and ignores stdin", testCliRunModeModuleGraphSuccess),
+    ("cli module graph uses default dot root when roots are omitted", testCliModuleGraphDefaultRootSuccess),
     ("cli module graph compile succeeds without runtime stdout", testCliModuleGraphCompileSuccess),
     ("cli module graph compile reports resolver diagnostics", testCliModuleGraphCompileError),
     ("cli module graph compile reports missing import symbol diagnostics", testCliModuleGraphMissingImportSymbol),
     ("cli module graph compile reports module declaration mismatch diagnostics", testCliModuleGraphDeclarationMismatch),
+    ("cli module graph compile reports fail-fast module parse diagnostics", testCliModuleGraphParseFailure),
     ("cli loads bundled default prelude when no flag or env override is set", testCliLoadsBundledDefaultPrelude),
     ("cli bundled default prelude preserves user diagnostic spans", testCliBundledPreludePreservesUserDiagnosticSpans),
     ("cli loads bundled default prelude without path lookup fallback", testCliLoadsBundledPreludeWithoutPathLookup),
@@ -76,6 +79,8 @@ tests =
     ("cli explicit --warnings-config read failures return config error", testCliExplicitConfigPathFailure),
     ("cli explicit env warning config read failures return config error", testCliExplicitEnvConfigPathFailure),
     ("cli defers source read until after arg validation", testCliDefersSourceReadOnArgError),
+    ("cli rejects source plus entry module before reading source", testCliRejectsSourcePathWithEntryModuleBeforeRead),
+    ("cli rejects module roots without entry before reading source", testCliRejectsModuleRootWithoutEntryBeforeRead),
     ("cli rejects nested module declaration in source input", testCliRejectsNestedModuleDeclarationInSourceInput),
     ("cli accepts concrete list signature from source input", testCliAcceptsConcreteListSignature),
     ("cli accepts simple function signature from source input", testCliAcceptsSimpleFunctionSignature),
@@ -134,6 +139,14 @@ testParseSourcePathWithEntryModule = do
       assertContains "source path with entry module reversed message" "cannot combine source file with --entry-module" (renderDiagnostic err)
     Right _ ->
       failTest "expected source path before entry module to fail option parsing"
+
+testParseModuleRootWithoutEntryModule :: IO ()
+testParseModuleRootWithoutEntryModule =
+  case parseCliOptions ["--module-root", "src"] of
+    Left err ->
+      assertContains "module root without entry message" "cannot use --module-root without --entry-module" (renderDiagnostic err)
+    Right _ ->
+      failTest "expected module root without entry module to fail option parsing"
 
 testParseModuleGraphOptions :: IO ()
 testParseModuleGraphOptions = do
@@ -304,6 +317,33 @@ testCliRunModeModuleGraphSuccess = do
             )
         )
 
+testCliModuleGraphDefaultRootSuccess :: IO ()
+testCliModuleGraphDefaultRootSuccess = do
+  sourceRead <- newIORef False
+  output <-
+    runCliWith
+      ["--entry-module", "App::Main"]
+      envLookup
+      fileLookup
+      (recordSourceRead sourceRead)
+  didRead <- readIORef sourceRead
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "compile stdout stays empty" "" (cliStdout output)
+  assertEqual "compile stderr stays empty" "" (cliStderr output)
+  assertEqual "stdin source is ignored in default-root module mode" False didRead
+  where
+    envLookup _ = pure Nothing
+    fileLookup key =
+      pure
+        ( Map.lookup
+            key
+            ( Map.fromList
+                [ ("./App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
+                  ("./Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
+                ]
+            )
+        )
+
 testCliModuleGraphCompileSuccess :: IO ()
 testCliModuleGraphCompileSuccess = do
   output <-
@@ -390,6 +430,25 @@ testCliModuleGraphDeclarationMismatch = do
             key
             (Map.fromList [("src/App/Main.jz", "module Wrong::Name {\n1.\n}")])
         )
+
+testCliModuleGraphParseFailure :: IO ()
+testCliModuleGraphParseFailure = do
+  output <-
+    runCliWith
+      ["--entry-module", "App::Main", "--module-root", "src"]
+      envLookup
+      fileLookup
+      (pure "ignored = 1.")
+  assertEqual "exit code" 1 (cliExitCode output)
+  assertContains "module parse diagnostic code" "E4004" (cliStderr output)
+  assertContains "module parse diagnostic path" "src/App/Main.jz" (cliStderr output)
+  assertContains "fail-fast module syntax" "expected '{'" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  where
+    envLookup _ = pure Nothing
+    fileLookup key =
+      pure
+        (Map.lookup key (Map.fromList [("src/App/Main.jz", "module App::Main.")]))
 
 testCliLoadsBundledDefaultPrelude :: IO ()
 testCliLoadsBundledDefaultPrelude = do
@@ -592,6 +651,32 @@ testCliDefersSourceReadOnArgError = do
   assertEqual "exit code" 2 (cliExitCode output)
   assertContains "stderr parse error prefix" "error: unknown argument" (cliStderr output)
   assertEqual "source should not be read when arg parse fails" False didRead
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
+testCliRejectsSourcePathWithEntryModuleBeforeRead :: IO ()
+testCliRejectsSourcePathWithEntryModuleBeforeRead = do
+  sourceRead <- newIORef False
+  output <- runCliWith ["--entry-module", "App::Main", "first.jz"] envLookup configLookup (recordSourceRead sourceRead)
+  didRead <- readIORef sourceRead
+  assertEqual "exit code" 2 (cliExitCode output)
+  assertContains "source plus entry diagnostic" "cannot combine source file with --entry-module" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  assertEqual "source should not be read when source selection is invalid" False didRead
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
+testCliRejectsModuleRootWithoutEntryBeforeRead :: IO ()
+testCliRejectsModuleRootWithoutEntryBeforeRead = do
+  sourceRead <- newIORef False
+  output <- runCliWith ["--module-root", "src"] envLookup configLookup (recordSourceRead sourceRead)
+  didRead <- readIORef sourceRead
+  assertEqual "exit code" 2 (cliExitCode output)
+  assertContains "module root without entry diagnostic" "cannot use --module-root without --entry-module" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  assertEqual "source should not be read when module roots are invalid" False didRead
   where
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing

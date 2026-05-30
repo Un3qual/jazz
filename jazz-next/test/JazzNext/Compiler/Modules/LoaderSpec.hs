@@ -48,9 +48,12 @@ tests =
     ("run module graph default helper executes bundled prelude aliases across files", testRunModuleGraphDefaultLoadsBundledPrelude),
     ("run module graph ignores dependency expression statements", testRunModuleGraphIgnoresDependencyExpressions),
     ("compile module graph validates dependency expression statements", testCompileModuleGraphValidatesDependencyExpressions),
+    ("run module graph validates dependency expression statements before runtime", testRunModuleGraphValidatesDependencyExpressionsBeforeRuntime),
     ("compile module graph validates hidden dependency exports", testCompileModuleGraphValidatesHiddenDependencyExports),
     ("compile module graph rewrites hidden constructor dependency expressions", testCompileModuleGraphRewritesHiddenConstructorDependencyExpressions),
     ("compile module graph reports unresolved import diagnostics", testCompileModuleGraphUnresolved),
+    ("compile module graph reports ambiguous import diagnostics", testCompileModuleGraphAmbiguousImport),
+    ("compile module graph reports module source parse diagnostics", testCompileModuleGraphParseFailure),
     ("compile module graph reports missing import symbols", testCompileModuleGraphMissingImportSymbol),
     ("compile module graph hides dependency bindings excluded by explicit import list", testCompileModuleGraphExplicitImportListHidesUnlistedBindings),
     ("compile module graph keeps hidden constructor dependencies for validation", testCompileModuleGraphKeepsHiddenConstructorValidationDependencies),
@@ -198,6 +201,33 @@ testCompileModuleGraphValidatesDependencyExpressions = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
+testRunModuleGraphValidatesDependencyExpressionsBeforeRuntime :: IO ()
+testRunModuleGraphValidatesDependencyExpressionsBeforeRuntime = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output is suppressed" Nothing (runOutput result)
+  case runCompileErrors result of
+    [err] ->
+      assertContains
+        "dependency validation error"
+        "must be immediately followed by a matching binding"
+        (renderDiagnostic err)
+    _ -> failTest "expected exactly one dependency validation compile error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
+          ("src/Lib/Util.jz", "module Lib::Util {\nutil :: Int.\nTrue.\nutil = 1.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
 testCompileModuleGraphValidatesHiddenDependencyExports :: IO ()
 testCompileModuleGraphValidatesHiddenDependencyExports = do
   result <-
@@ -258,6 +288,61 @@ testCompileModuleGraphUnresolved = do
     sourceMap =
       Map.fromList
         [("src/App/Main.jz", "import Missing::Thing.\n1.")]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphAmbiguousImport :: IO ()
+testCompileModuleGraphAmbiguousImport = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      ambiguousResolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  case compileErrors result of
+    [err] -> do
+      let rendered = renderDiagnostic err
+      assertContains "ambiguous code" "E4002" rendered
+      assertContains "first candidate" "rootA/Lib/Util.jz" rendered
+      assertContains "second candidate" "rootB/Lib/Util.jz" rendered
+      assertContains "importer context" "App::Main" rendered
+    _ -> failTest "expected exactly one ambiguous import error"
+  where
+    ambiguousResolverConfig =
+      ModuleResolutionConfig
+        { moduleRoots = ["rootA", "rootB"],
+          moduleExtension = ".jz"
+        }
+    sourceMap =
+      Map.fromList
+        [ ("rootA/App/Main.jz", "import Lib::Util.\nutil."),
+          ("rootA/Lib/Util.jz", "util = 1."),
+          ("rootB/Lib/Util.jz", "util = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphParseFailure :: IO ()
+testCompileModuleGraphParseFailure = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  case compileErrors result of
+    [err] -> do
+      let rendered = renderDiagnostic err
+      assertContains "module parse code" "E4004" rendered
+      assertContains "module parse path" "src/App/Main.jz" rendered
+      assertContains "fail-fast module syntax" "expected '{'" rendered
+    _ -> failTest "expected exactly one module parse error"
+  where
+    sourceMap =
+      Map.fromList
+        [("src/App/Main.jz", "module App::Main.")]
     lookupSource path = pure (Map.lookup path sourceMap)
 
 testCompileModuleGraphMissingImportSymbol :: IO ()

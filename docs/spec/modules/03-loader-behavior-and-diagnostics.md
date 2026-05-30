@@ -154,6 +154,13 @@ Module diagnostics should preserve the context from earlier spec slices:
 | dependency module expression is semantically invalid | compile diagnostic before runtime |
 | same file is requested during resolution and replay | first source lookup result is reused |
 
+Implementation evidence (2026-05-30): `LoaderSpec.hs` and `CLISpec.hs` now
+lock the active `jazz-next` harness for module-graph default roots, exclusive
+CLI source selection, dependency expression validation before run-mode runtime
+evaluation, dependency expression runtime isolation, memoized source lookup
+reuse, ambiguous/resolver diagnostics, fail-fast module source parse diagnostics,
+and stable compile/run stdout suppression for diagnostics.
+
 ## Non-Goals
 
 This loader slice does not define:
