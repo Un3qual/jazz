@@ -78,6 +78,7 @@ tests =
     ("parses abstraction keywords as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames),
     ("parses trait as an ordinary import alias", testParsesTraitAsImportAlias),
     ("parses class capability declarations into surface AST", testParsesClassCapabilityDeclaration),
+    ("parses parameterized class capability declarations into surface AST", testParsesParameterizedClassCapabilityDeclaration),
     ("parses impl capability declarations into surface AST", testParsesImplCapabilityDeclaration),
     ("lowers class and impl capability declarations as inert AST nodes", testLowersCapabilityDeclarations),
     ("parses class and impl capability declarations inside module bodies", testParsesCapabilityDeclarationsInModuleBody),
@@ -621,6 +622,18 @@ testParsesClassCapabilityDeclaration =
         )
     )
     (parseSurfaceProgram "class Eq { }.")
+
+testParsesParameterizedClassCapabilityDeclaration :: IO ()
+testParsesParameterizedClassCapabilityDeclaration =
+  assertEqual
+    "parameterized class capability declaration"
+    ( Right
+        ( SEBlock
+            [ SSClass (SourceSpan 1 1) "Eq"
+            ]
+        )
+    )
+    (parseSurfaceProgram "class Eq(a) { }.")
 
 testParsesImplCapabilityDeclaration :: IO ()
 testParsesImplCapabilityDeclaration =

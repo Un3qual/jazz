@@ -330,15 +330,10 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
         )
   where
     parseCapabilityHeaderTail capabilityName tokens =
-      case declarationKind of
-        "impl" -> parseImplCapabilityHeaderTail capabilityName tokens
-        _ -> requireCapabilityBodyStart capabilityName tokens
-
-    parseImplCapabilityHeaderTail capabilityName tokens =
       case tokens of
         Token {tokenKind = TLParen} : rest -> do
-          afterTarget <- consumeImplTargetType rest
-          requireCapabilityBodyStart capabilityName afterTarget
+          afterHeaderParameters <- consumeParenthesizedCapabilityHeader rest
+          requireCapabilityBodyStart capabilityName afterHeaderParameters
         _ -> requireCapabilityBodyStart capabilityName tokens
 
     requireCapabilityBodyStart capabilityName tokens =
@@ -375,7 +370,7 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
                 )
             )
 
-    consumeImplTargetType tokens =
+    consumeParenthesizedCapabilityHeader tokens =
       go 1 tokens
       where
         go depth remaining =
@@ -388,7 +383,9 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
             Token {tokenKind = TLBrace, tokenSpan = braceSpan} : _ ->
               Left
                 ( parseDiagnostic
-                    ( "expected ')' before '{' in impl declaration header at "
+                    ( "expected ')' before '{' in "
+                        <> declarationKind
+                        <> " declaration header at "
                         <> renderSourceSpan braceSpan
                     )
                 )
@@ -397,7 +394,9 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
             [] ->
               Left
                 ( parseDiagnostic
-                    ( "expected ')' before end of input in impl declaration header at "
+                    ( "expected ')' before end of input in "
+                        <> declarationKind
+                        <> " declaration header at "
                         <> renderSourceSpan (tokenSpan declarationToken)
                     )
                 )
