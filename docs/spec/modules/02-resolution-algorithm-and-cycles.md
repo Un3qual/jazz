@@ -127,6 +127,11 @@ visit(call_stack, state, module_path):
 | Two imports render in reverse source order | traversal still uses lexical rendered-path order |
 | Already resolved module is imported again by another module | resolved result is reused |
 
+Implementation evidence (2026-05-30): `ModuleResolutionSpec.hs` now locks the
+active `jazz-next` harness for lexical rendered-path traversal when source
+imports appear in reverse order, duplicate import collapse, already-resolved
+shared dependency reuse across branches, and nested minimal cycle traces.
+
 ## Non-Goals
 
 This resolution slice does not define:

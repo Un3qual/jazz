@@ -142,9 +142,11 @@ new module verification closure.
 
 Status update (2026-05-30): `JN-MODULE-FILE-LAYOUT-HARNESS-001` is complete.
 The active parser/resolver harness now covers the file-layout and rejected-form
-boundary for this migration policy. The resolution/import-binding and
-loader/migration harness rows remain the next active implementation closure
-items.
+boundary for this migration policy. `JN-MODULE-RESOLUTION-BINDING-HARNESS-001`
+is also complete; the active resolver harness now covers deterministic
+resolution ordering, duplicate import collapse, shared dependency reuse, cycle
+traces, and the qualified import diagnostic truth table. The loader/migration
+harness row remains the next active implementation closure item.
 
 ## Non-Goals
 
