@@ -37,6 +37,7 @@ tests =
     ("equality binds looser than arithmetic", testEqualityAfterArithmetic),
     ("dollar is right associative", testDollarRightAssociative),
     ("subtraction is left associative", testSubtractionLeftAssociative),
+    ("same-precedence arithmetic operators associate left", testSamePrecedenceArithmeticAssociatesLeft),
     ("application binds tighter than infix operators", testApplicationBeforeInfix),
     ("operator value application participates in infix precedence", testOperatorValueApplicationBeforeInfix),
     ("lowering preserves parsed fixity tree", testLowerFixityTree)
@@ -101,6 +102,21 @@ testSubtractionLeftAssociative =
         )
     )
     (parseSurfaceProgram "x = 10 - 3 - 1.")
+
+testSamePrecedenceArithmeticAssociatesLeft :: IO ()
+testSamePrecedenceArithmeticAssociatesLeft =
+  assertEqual
+    "same-precedence arithmetic associativity"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "x"
+                (SourceSpan 1 1)
+                (SEBinary "-" (SEBinary "+" (SELit (SLInt 1)) (SELit (SLInt 2))) (SELit (SLInt 3)))
+            ]
+        )
+    )
+    (parseSurfaceProgram "x = 1 + 2 - 3.")
 
 testApplicationBeforeInfix :: IO ()
 testApplicationBeforeInfix =

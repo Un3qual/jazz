@@ -455,6 +455,7 @@ If you need a practical baseline for continuing Jazz, use this order:
 5. Treat `jazz2` as a reference-only redesign source, not the active implementation target.
 6. Assume the currently working active implementation (`jazz-next`) is a small interpreter-oriented expression language with:
    - dot-separated statements and scope blocks
+   - handwritten-parser parity coverage in `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, `ModuleImportParserSpec.hs`, `OperatorFixitySpec.hs`, and `OperatorSectionSpec.hs` that locks current core expression, module/import, operator/fixity, and section AST shape, span, and deterministic diagnostic behavior before any future Megaparsec/CST migration
    - canonical lambdas with lexical closure runtime support (`\(x) -> expr`, multi-argument lambdas lowered into nested unary functions); pattern-shaped parameters lower through internal pattern-case bodies while preserving ordinary unary core lambdas
    - application, list literals, and tuple literals
    - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, concrete tuple types, right-associative function types, explicit parenthesized function-type overrides, empty `@{}:` constrained wrappers, concrete unary constrained signatures, and known unary variable constrained signatures under the monomorphic annotation-only contract)

@@ -41,8 +41,10 @@ tests =
     ("parses left section form", testParsesLeftSection),
     ("parses right section form", testParsesRightSection),
     ("grouped infix expression is not treated as section", testGroupedExpressionIsNotSection),
+    ("section application binds before infix operators", testSectionApplicationBeforeInfix),
     ("lowering preserves bare operator value nodes", testLowerPreservesBareOperatorValue),
     ("desugaring preserves bare operator value nodes", testDesugarPreservesBareOperatorValue),
+    ("lowering preserves explicit left section nodes", testLowerPreservesLeftSectionNodes),
     ("lowering preserves explicit section nodes", testLowerPreservesSectionNodes)
   ]
 
@@ -108,6 +110,37 @@ testGroupedExpressionIsNotSection =
         )
     )
     (parseSurfaceProgram "x = (1 + 2).")
+
+testSectionApplicationBeforeInfix :: IO ()
+testSectionApplicationBeforeInfix =
+  assertEqual
+    "section application before infix"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "x"
+                (SourceSpan 1 1)
+                ( SEBinary
+                    "*"
+                    (SEApply (SESectionRight "+" (SELit (SLInt 1))) (SELit (SLInt 2)))
+                    (SELit (SLInt 3))
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "x = (+ 1) 2 * 3.")
+
+testLowerPreservesLeftSectionNodes :: IO ()
+testLowerPreservesLeftSectionNodes =
+  assertRight
+    "parse + lower left section"
+    (parseSurfaceProgram "f = (10 +).")
+    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet "f" (SourceSpan 1 1) (ESectionLeft (ELit (LInt 10)) "+")
+        ]
 
 testLowerPreservesSectionNodes :: IO ()
 testLowerPreservesSectionNodes =
