@@ -1,14 +1,14 @@
 ---
 id: JN-ADT-GENERIC-CONSTRUCTOR-SCHEMES-001
-status: ready
+status: completed
 priority: P1
 size: M
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on:
   - JN-ADT-GENERIC-DATA-PARAMS-001
 last_verified: 2026-05-31
-plan_section: "Ready implementation batch: generic constructor value/application schemes"
+plan_section: "Completed implementation batch: generic constructor value/application schemes"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Analyzer.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
@@ -62,14 +62,15 @@ supersedes:
 - [x] On `2026-05-30`, closed the structured-signature rebase metadata and kept generalized polymorphism/defaulting/type-scheme work blocked as `JN-TYPE-GRAMMAR-CLOSURE-PLAN-001`.
 - [x] On `2026-05-31`, split the future generic ADT constructor-scheme slice from broader ordinary binding polymorphism/defaulting solver work.
 - [x] On `2026-05-31`, the prerequisite generic ADT declaration-parameter parser/core batch landed, so this constructor value/application scheme batch is now dependency-satisfied.
+- [x] On `2026-05-31`, landed generic ADT constructor value/application schemes in `jazz-next`: direct constructor uses instantiate fresh type parameters, repeated payload parameter occurrences are linked within one application, and ordinary constructor aliases remain monomorphic.
 
-## Active Baseline (2026-05-22)
+## Active Baseline (2026-05-31)
 
 - `jazz-next/src/JazzNext/Compiler/Parser.hs` now parses supported monomorphic signature statements into structured parser-owned payloads instead of joined raw text.
 - `jazz-next/src/JazzNext/Compiler/Parser/AST.hs` and `jazz-next/src/JazzNext/Compiler/AST.hs` now carry explicit signature/type nodes for the supported subset plus tokenized fallback for unsupported surfaces.
 - `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` forwards structured signature payloads into the core AST.
 - `jazz-next/src/JazzNext/Compiler/Analyzer.hs` still enforces signature placement/name coherence only; signature semantics remain owned by `TypeInference.hs`.
-- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now consumes structured signature payloads for `Int`, `Bool`, nested concrete list forms, concrete tuple forms, right-associated chained function arrows, explicit parenthesized function-type overrides, empty `@{}:` constrained signatures over that same monomorphic subset, concrete unary non-empty constraints over `Int`, `Bool`, nested concrete lists, and concrete tuple compositions, and known unary constraints over lower-case type variables that appear in the signature body. Unsupported broader forms continue to report through `E2009`; duplicate non-empty constraints are reported with specific duplicate-constraint text.
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now consumes structured signature payloads for `Int`, `Bool`, nested concrete list forms, concrete tuple forms, right-associated chained function arrows, explicit parenthesized function-type overrides, empty `@{}:` constrained signatures over that same monomorphic subset, concrete unary non-empty constraints over `Int`, `Bool`, nested concrete lists, and concrete tuple compositions, and known unary constraints over lower-case type variables that appear in the signature body. It also derives generic ADT constructor value/application schemes from declaration-owned `data` type parameters while preserving ordinary user binding monomorphism. Unsupported broader forms continue to report through `E2009`; duplicate non-empty constraints are reported with specific duplicate-constraint text.
 - `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs` explicitly accepts simple list signatures, right-associated chained function signatures, parenthesized list-to-list signatures, parenthesized function-type overrides, empty constrained signatures over monomorphic function types, concrete unary constrained signatures, and monomorphic variable constrained signatures while keeping unsupported broader surfaces, duplicate non-empty constraints, and unconstrained signature variables on deterministic `E2009` with primary spans attached to the signature statement.
 - `docs/plans/2026-03-16-jazz-next-monomorphic-signature-surface.md` already delivered the safe monomorphic subset. This rebase must preserve that subset while moving ownership to the correct compiler layers.
 
@@ -90,21 +91,21 @@ Out of scope:
 
 ## Future Polymorphism Boundary
 
-The next generic ADT constructor-scheme slice is intentionally narrower than
+The completed generic ADT constructor-scheme slice is intentionally narrower than
 the full type-solver work tracked by this plan.
 
 Allowed in the generic ADT slice:
 
 - named type parameters on `data` declarations,
 - constructor schemes derived from those declarations,
-- fresh per-use constructor instantiation for values, applications, and
-  patterns,
+- fresh per-use constructor instantiation for direct values and applications,
 - deterministic diagnostics for malformed generic declarations and
   incompatible constructor instantiations.
 
 Still blocked under this type-grammar plan:
 
 - ordinary user binding generalization,
+- generic constructor pattern typing,
 - inferred class constraints,
 - defaulting beyond the already locked numeric literal defaults,
 - typeclass solver-backed constrained signatures,
@@ -112,26 +113,28 @@ Still blocked under this type-grammar plan:
 - higher-rank polymorphism,
 - runtime dispatch or dictionary passing.
 
-## Ready implementation batch: generic constructor value/application schemes
+## Completed implementation batch: generic constructor value/application schemes
 
-This executor-safe active-path implementation batch follows the completed
-`JN-ADT-GENERIC-DATA-PARAMS-001` parser/core metadata batch. It adds
+This executor-safe active-path implementation batch followed the completed
+`JN-ADT-GENERIC-DATA-PARAMS-001` parser/core metadata batch. It added
 constructor-owned schemes for generic ADT declarations and fresh per-use
 instantiation for constructor values and applications only.
 
 Batch scope:
 
-- Derive constructor type schemes from generic `data` declarations now that
+- Derived constructor type schemes from generic `data` declarations now that
   parser and core declarations preserve type parameters and bare constructor
   payload names.
-- Instantiate each constructor value use with fresh type variables.
-- Instantiate constructor applications independently so multiple uses of the
+- Instantiated each direct constructor value use with fresh type variables.
+- Instantiated constructor applications independently so multiple uses of the
   same generic constructor can refine to different concrete result types.
-- Preserve ordinary user bindings as monomorphic; do not add let
+- Linked repeated type-parameter payload positions inside a single generic
+  constructor application.
+- Preserved ordinary user bindings as monomorphic; did not add let
   generalization, inferred class constraints, defaulting, explicit type
   application, generic constructor pattern typing, runtime dispatch, or
   dictionary passing.
-- Keep malformed generic declaration diagnostics owned by the parser/data
+- Kept malformed generic declaration diagnostics owned by the parser/data
   parameter batch; this batch owns incompatible value/application
   instantiation diagnostics.
 

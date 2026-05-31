@@ -27,6 +27,7 @@ import JazzNext.Compiler.Analyzer
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ConstraintSignatureType (..),
+    DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -194,9 +195,15 @@ data ExpressionType
   | TBoolType
   | TListType ExpressionType
   | TTupleType [ExpressionType]
-  | TDataType Identifier
+  | TDataType Identifier [ExpressionType]
   | TFunctionType ExpressionType ExpressionType
   | TVarType Int
+  deriving (Eq, Show)
+
+data ConstructorArgumentType
+  = ConstructorArgumentMonomorphic ExpressionType
+  | ConstructorArgumentParameter Text
+  | ConstructorArgumentFresh
   deriving (Eq, Show)
 
 data IntegerLiteralRange = IntegerLiteralRange Integer Integer
@@ -211,7 +218,7 @@ data NumericConstraint
 data TypeBinding
   = PlainTypeBinding ExpressionType
   | BuiltinAliasTypeBinding BuiltinSymbol
-  | ConstructorTypeBinding Identifier [ExpressionType]
+  | ConstructorTypeBinding Identifier [Identifier] [ConstructorArgumentType]
   deriving (Eq, Show)
 
 type TypeEnv = Map Text TypeBinding
@@ -817,9 +824,9 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
               go env lastExprType Nothing state rest
             SImpl {} ->
               go env lastExprType Nothing state rest
-            SData _ typeName _ constructors ->
+            SData _ typeName typeParameters constructors ->
               let (nextEnv, nextState) =
-                    registerDataConstructors typeName constructors env state
+                    registerDataConstructors typeName typeParameters constructors env state
                in go nextEnv lastExprType Nothing nextState rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
@@ -1051,19 +1058,37 @@ data PendingSignatureType = PendingSignatureType
     pendingSignatureDeclaredType :: ExpressionType
   }
 
-registerDataConstructors :: Identifier -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
-registerDataConstructors typeName constructors env initialState =
+registerDataConstructors :: Identifier -> [Identifier] -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
+registerDataConstructors typeName typeParameters constructors env initialState =
   foldl' register (env, initialState) constructors
   where
     register (envAcc, stateAcc) (DataConstructor constructorName constructorArguments) =
-      let (argumentTypes, nextState) = freshTypeVars (length constructorArguments) stateAcc
+      let (argumentTypes, nextState) =
+            constructorArgumentTypes typeParameters constructorArguments stateAcc
        in
         ( Map.insert
             (identifierText constructorName)
-            (ConstructorTypeBinding typeName argumentTypes)
+            (ConstructorTypeBinding typeName typeParameters argumentTypes)
             envAcc,
           nextState
         )
+
+constructorArgumentTypes :: [Identifier] -> [DataConstructorArgument] -> InferState -> ([ConstructorArgumentType], InferState)
+constructorArgumentTypes typeParameters constructorArguments state
+  | null typeParameters =
+      let (argumentTypes, nextState) = freshTypeVars (length constructorArguments) state
+       in (map ConstructorArgumentMonomorphic argumentTypes, nextState)
+  | otherwise =
+      (map genericConstructorArgumentType constructorArguments, state)
+  where
+    typeParameterNames = Set.fromList (map identifierText typeParameters)
+
+    genericConstructorArgumentType constructorArgument =
+      case constructorArgument of
+        DataConstructorArgumentName argumentName
+          | Set.member (identifierText argumentName) typeParameterNames ->
+              ConstructorArgumentParameter (identifierText argumentName)
+        _ -> ConstructorArgumentFresh
 
 -- | Instantiate local bindings and constructors at use sites. Constructors are
 -- rendered as curried functions ending in their declared data type.
@@ -1076,15 +1101,76 @@ instantiateTypeBinding binding state =
       case instantiateBuiltinSymbolType builtinSymbol state of
         Just (expressionType, nextState) -> (Just expressionType, nextState)
         Nothing -> (Nothing, state)
-    ConstructorTypeBinding typeName argumentTypes ->
-      ( Just
-          ( foldr
-              TFunctionType
-              (TDataType typeName)
-              (map (resolveType state) argumentTypes)
-          ),
-        state
-      )
+    ConstructorTypeBinding {} ->
+      case instantiateConstructorBinding binding state of
+        Just (constructorArgumentTypes', constructorResultType, nextState) ->
+          ( Just
+              (foldr TFunctionType constructorResultType constructorArgumentTypes'),
+            nextState
+          )
+        Nothing -> (Nothing, state)
+
+instantiateConstructorBinding :: TypeBinding -> InferState -> Maybe ([ExpressionType], ExpressionType, InferState)
+instantiateConstructorBinding binding state =
+  case binding of
+    ConstructorTypeBinding typeName typeParameters argumentTypes ->
+      Just (instantiateConstructorType typeName typeParameters argumentTypes state)
+    _ -> Nothing
+
+instantiateConstructorType ::
+  Identifier ->
+  [Identifier] ->
+  [ConstructorArgumentType] ->
+  InferState ->
+  ([ExpressionType], ExpressionType, InferState)
+instantiateConstructorType typeName typeParameters argumentTypes state =
+  let (typeParameterBindings, resultParameterTypes, stateAfterParameters) =
+        instantiateConstructorTypeParameters typeParameters state
+      (constructorArgumentTypesRev, stateAfterArguments) =
+        instantiateConstructorArguments typeParameterBindings argumentTypes stateAfterParameters
+   in
+    ( reverse constructorArgumentTypesRev,
+      TDataType typeName (reverse resultParameterTypes),
+      stateAfterArguments
+    )
+
+instantiateConstructorTypeParameters ::
+  [Identifier] ->
+  InferState ->
+  (Map Text ExpressionType, [ExpressionType], InferState)
+instantiateConstructorTypeParameters typeParameters state =
+  foldl' step (Map.empty, [], state) typeParameters
+  where
+    step (bindings, parameterTypesRev, stateAcc) typeParameter =
+      let (parameterType, nextState) = freshTypeVar stateAcc
+       in
+        ( Map.insert (identifierText typeParameter) parameterType bindings,
+          parameterType : parameterTypesRev,
+          nextState
+        )
+
+instantiateConstructorArguments ::
+  Map Text ExpressionType ->
+  [ConstructorArgumentType] ->
+  InferState ->
+  ([ExpressionType], InferState)
+instantiateConstructorArguments typeParameterBindings argumentTypes initialState =
+  foldl' step ([], initialState) argumentTypes
+  where
+    step (argumentTypesRev, stateAcc) argumentType =
+      case argumentType of
+        ConstructorArgumentMonomorphic expressionType ->
+          (resolveType stateAcc expressionType : argumentTypesRev, stateAcc)
+        ConstructorArgumentParameter parameterName ->
+          case Map.lookup parameterName typeParameterBindings of
+            Just parameterType ->
+              (parameterType : argumentTypesRev, stateAcc)
+            Nothing ->
+              let (freshArgumentType, nextState) = freshTypeVar stateAcc
+               in (freshArgumentType : argumentTypesRev, nextState)
+        ConstructorArgumentFresh ->
+          let (freshArgumentType, nextState) = freshTypeVar stateAcc
+           in (freshArgumentType : argumentTypesRev, nextState)
 
 freshTypeVars :: Int -> InferState -> ([ExpressionType], InferState)
 freshTypeVars count initialState =
@@ -1485,6 +1571,10 @@ mergeIntegerLiteralRanges leftType rightType =
     (TTupleType leftElementTypes, TTupleType rightElementTypes)
       | length leftElementTypes == length rightElementTypes ->
           TTupleType (zipWith mergeIntegerLiteralRanges leftElementTypes rightElementTypes)
+    (TDataType leftName leftArguments, TDataType rightName rightArguments)
+      | leftName == rightName,
+        length leftArguments == length rightArguments ->
+          TDataType leftName (zipWith mergeIntegerLiteralRanges leftArguments rightArguments)
     (TFunctionType leftInputType leftOutputType, TFunctionType rightInputType rightOutputType) ->
       TFunctionType
         (mergeIntegerLiteralRanges leftInputType rightInputType)
@@ -1777,6 +1867,8 @@ defaultLiteralTypes expressionType =
     TIntegerLiteralType {} -> TIntType
     TListType elementType -> TListType (defaultLiteralTypes elementType)
     TTupleType elementTypes -> TTupleType (map defaultLiteralTypes elementTypes)
+    TDataType typeName typeArguments ->
+      TDataType typeName (map defaultLiteralTypes typeArguments)
     TFunctionType inputType outputType ->
       TFunctionType (defaultLiteralTypes inputType) (defaultLiteralTypes outputType)
     _ -> expressionType
@@ -1791,7 +1883,8 @@ applySubstitution subst expressionType =
     TBoolType -> TBoolType
     TListType elementType -> TListType (applySubstitution subst elementType)
     TTupleType elementTypes -> TTupleType (map (applySubstitution subst) elementTypes)
-    TDataType typeName -> TDataType typeName
+    TDataType typeName typeArguments ->
+      TDataType typeName (map (applySubstitution subst) typeArguments)
     TFunctionType inputType outputType ->
       TFunctionType
         (applySubstitution subst inputType)
@@ -1823,8 +1916,10 @@ unifyTypes leftType rightType state =
         (TNumericType leftNumericType, TNumericType rightNumericType)
           | leftNumericType == rightNumericType -> Just state
         (TBoolType, TBoolType) -> Just state
-        (TDataType leftName, TDataType rightName)
-          | leftName == rightName -> Just state
+        (TDataType leftName leftArguments, TDataType rightName rightArguments)
+          | leftName == rightName,
+            length leftArguments == length rightArguments ->
+              unifyTypeLists leftArguments rightArguments state
         (TListType leftElementType, TListType rightElementType) ->
           unifyTypes leftElementType rightElementType state
         (TTupleType leftElementTypes, TTupleType rightElementTypes)
@@ -1912,7 +2007,7 @@ occursInType typeVar expressionType =
     TBoolType -> False
     TListType elementType -> occursInType typeVar elementType
     TTupleType elementTypes -> any (occursInType typeVar) elementTypes
-    TDataType {} -> False
+    TDataType _ typeArguments -> any (occursInType typeVar) typeArguments
     TFunctionType inputType outputType ->
       occursInType typeVar inputType || occursInType typeVar outputType
     TVarType otherVar -> typeVar == otherVar
@@ -2279,7 +2374,13 @@ renderType expressionType =
     TBoolType -> "Bool"
     TListType elementType -> "[" <> renderType elementType <> "]"
     TTupleType elementTypes -> "(" <> Text.intercalate ", " (map renderType elementTypes) <> ")"
-    TDataType typeName -> identifierText typeName
+    TDataType typeName typeArguments
+      | null typeArguments -> identifierText typeName
+      | otherwise ->
+          identifierText typeName
+            <> "<"
+            <> Text.intercalate ", " (map renderType typeArguments)
+            <> ">"
     TFunctionType inputType outputType ->
       renderTypeAtom inputType <> " -> " <> renderType outputType
     TVarType typeVar -> "t" <> Text.pack (show typeVar)
@@ -2493,35 +2594,41 @@ inferConstructorPatternType ::
   (PatternTyping, InferState)
 inferConstructorPatternType env scrutineeType constructorName patterns state =
   case Map.lookup constructorNameText env of
-    Just (ConstructorTypeBinding typeName argumentTypes) ->
-      let expectedArity = length argumentTypes
-       in
-        if expectedArity /= length patterns
-          then
-            ( skipBranchPatternTyping,
-              addTypeError
-                state
-                (mkConstructorPatternArityError constructorNameText expectedArity (length patterns))
-            )
-          else
-            let constructorResultType = TDataType typeName
-             in
-              case unifyTypes scrutineeType constructorResultType state of
-                Just stateAfterResultCheck ->
-                  inferConstructorArgumentPatterns
-                    env
-                    (map (resolveType stateAfterResultCheck) argumentTypes)
-                    patterns
-                    stateAfterResultCheck
-                Nothing ->
-                  ( skipBranchPatternTyping,
-                    addTypeError
-                      state
-                      ( mkPatternTypeMismatchError
-                          (resolveType state scrutineeType)
-                          constructorResultType
-                      )
-                  )
+    Just constructorBinding ->
+      case instantiateConstructorBinding constructorBinding state of
+        Just (argumentTypes, constructorResultType, stateAfterConstructor) ->
+          let expectedArity = length argumentTypes
+           in
+            if expectedArity /= length patterns
+              then
+                ( skipBranchPatternTyping,
+                  addTypeError
+                    stateAfterConstructor
+                    (mkConstructorPatternArityError constructorNameText expectedArity (length patterns))
+                )
+              else
+                case unifyTypes scrutineeType constructorResultType stateAfterConstructor of
+                  Just stateAfterResultCheck ->
+                    inferConstructorArgumentPatterns
+                      env
+                      (map (resolveType stateAfterResultCheck) argumentTypes)
+                      patterns
+                      stateAfterResultCheck
+                  Nothing ->
+                    ( skipBranchPatternTyping,
+                      addTypeError
+                        stateAfterConstructor
+                        ( mkPatternTypeMismatchError
+                            (resolveType stateAfterConstructor scrutineeType)
+                            constructorResultType
+                        )
+                    )
+        Nothing ->
+          ( skipBranchPatternTyping,
+            addTypeError
+              state
+              (mkUnknownConstructorPatternError constructorNameText)
+          )
     _ ->
       ( skipBranchPatternTyping,
         addTypeError

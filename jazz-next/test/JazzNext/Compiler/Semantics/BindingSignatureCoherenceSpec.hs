@@ -101,6 +101,7 @@ tests =
     ("source pipeline rejects unsupported variable constrained signature contract", testSourceRejectsUnsupportedVariableConstrainedSignatureContract),
     ("source pipeline rejects unused variable constraint with bidirectional contract", testSourceRejectsUnusedVariableConstraintWithBidirectionalContract),
     ("source pipeline does not shift inference variables after rejected variable type application", testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState),
+    ("source pipeline keeps generic constructor aliases monomorphic", testSourceKeepsGenericConstructorAliasesMonomorphic),
     ("source pipeline rejects constrained signature surface with E2009", testSourceRejectsConstrainedSignatureSurface),
     ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError),
     ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
@@ -613,6 +614,18 @@ testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState = do
     "later diagnostic keeps deterministic type variable id"
     "cannot apply function of type [t3] to argument of type Int"
     (Text.unlines (map renderDiagnostic (compileErrors result)))
+
+testSourceKeepsGenericConstructorAliasesMonomorphic :: IO ()
+testSourceKeepsGenericConstructorAliasesMonomorphic = do
+  result <- compileSource defaultWarningSettings "data Box a = Box a. make = Box. first = make 1. second = make True."
+  assertSingleDiagnosticCode
+    "generic constructor alias monomorphic code"
+    "E2006"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "generic constructor alias monomorphic text"
+    "cannot apply function of type Int -> Box"
+    (compileErrors result)
 
 testSourceRejectsConstrainedSignatureSurface :: IO ()
 testSourceRejectsConstrainedSignatureSurface = do
