@@ -71,6 +71,10 @@ tests =
     ("source pipeline accepts target-named integer conversions", testSourcePipelineAcceptsTargetNamedIntegerConversions),
     ("source pipeline accepts target-named float conversions", testSourcePipelineAcceptsTargetNamedFloatConversions),
     ("source pipeline rejects out-of-range literal conversions", testSourcePipelineRejectsOutOfRangeLiteralConversions),
+    ("source pipeline rejects out-of-range float-target literal conversions", testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions),
+    ("source pipeline ignores conversion literal checks for shadowed names", testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames),
+    ("source pipeline freshens prelude conversion aliases", testSourcePipelineFreshensPreludeConversionAliases),
+    ("source pipeline rejects float conversion operands in numeric operators", testSourcePipelineRejectsFloatConversionOperandsInNumericOperators),
     ("source pipeline rejects non-numeric conversion source", testSourcePipelineRejectsNonNumericConversionSource)
   ]
 
@@ -296,6 +300,29 @@ testSourcePipelineRejectsOutOfRangeLiteralConversions =
     "x = toUInt8 256."
     "out-of-range literal conversion"
     "E2006"
+
+testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions :: IO ()
+testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions =
+  assertCompileErrorWithBundledPrelude
+    "x = toFloat16 70000."
+    "out-of-range float-target literal conversion"
+    "E2006"
+
+testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames :: IO ()
+testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames =
+  assertCompiles "toUInt8 = \\(x) -> x.\nx = toUInt8 256."
+
+testSourcePipelineFreshensPreludeConversionAliases :: IO ()
+testSourcePipelineFreshensPreludeConversionAliases =
+  assertCompilesWithBundledPrelude
+    "a :: Int16.\na = toInt16 1.\nb :: UInt8.\nb = toUInt8 a.\nc :: UInt16.\nc = toUInt16 2.\nd :: UInt8.\nd = toUInt8 c."
+
+testSourcePipelineRejectsFloatConversionOperandsInNumericOperators :: IO ()
+testSourcePipelineRejectsFloatConversionOperandsInNumericOperators =
+  assertCompileErrorWithBundledPrelude
+    "x = toFloat64 1 + toFloat64 2."
+    "float conversion numeric operator"
+    "E2003"
 
 testSourcePipelineRejectsNonNumericConversionSource :: IO ()
 testSourcePipelineRejectsNonNumericConversionSource =

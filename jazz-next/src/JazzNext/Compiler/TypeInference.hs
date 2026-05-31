@@ -44,9 +44,7 @@ import JazzNext.Compiler.BuiltinCatalog
     builtinNamesInMode,
     builtinSymbolName,
     builtinSymbolNumericConversionTarget,
-    lookupBuiltinSymbol,
-    lookupBuiltinSymbolInMode,
-    lookupKernelBuiltinSymbol
+    lookupBuiltinSymbolInMode
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic (..),
@@ -210,6 +208,7 @@ data NumericConstraint
 
 data TypeBinding
   = PlainTypeBinding ExpressionType
+  | BuiltinAliasTypeBinding BuiltinSymbol
   | ConstructorTypeBinding Identifier [ExpressionType]
   deriving (Eq, Show)
 
@@ -311,7 +310,7 @@ inferExprType builtinMode env state expr =
                     (TFunctionType inferredArgumentType resultTypeVar)
                     stateWithResultVar of
                 Just unifiedState ->
-                  case numericConversionLiteralDiagnostic functionExpr argumentExpr of
+                  case numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr of
                     Just diagnostic ->
                       (Nothing, addTypeError unifiedState diagnostic)
                     Nothing ->
@@ -543,7 +542,7 @@ applyNumericBinaryRule operatorSymbol resultRule leftType rightType state =
   case unifyTypes leftType rightType state of
     Just stateAfterUnify ->
       let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
-       in case constrainNumericType resolvedOperandType stateAfterUnify of
+       in case constrainRuntimeNumericOperatorType resolvedOperandType stateAfterUnify of
             Just stateAfterNumericConstraint ->
               (Just (numericRuleResultType resultRule resolvedOperandType), stateAfterNumericConstraint)
             Nothing ->
@@ -662,7 +661,7 @@ applyNumericSectionLeftRule ::
   (Maybe ExpressionType, InferState)
 applyNumericSectionLeftRule operatorSymbol resultRule leftType state =
   let resolvedLeftType = resolveType state leftType
-   in case constrainNumericType resolvedLeftType state of
+   in case constrainRuntimeNumericOperatorType resolvedLeftType state of
         Just stateAfterNumericConstraint ->
           let (rightType, stateAfterSectionType) =
                 numericSectionCounterpartType resolvedLeftType stateAfterNumericConstraint
@@ -730,7 +729,7 @@ applyNumericSectionRightRule ::
   (Maybe ExpressionType, InferState)
 applyNumericSectionRightRule operatorSymbol resultRule rightType state =
   let resolvedRightType = resolveType state rightType
-   in case constrainNumericType resolvedRightType state of
+   in case constrainRuntimeNumericOperatorType resolvedRightType state of
         Just stateAfterNumericConstraint ->
           let (leftType, stateAfterSectionType) =
                 numericSectionCounterpartType resolvedRightType stateAfterNumericConstraint
@@ -903,8 +902,8 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                           (defaultLiteralTypes . resolveType stateAfterSignatureCheck)
                           (Map.lookup statementIndex bindingSeedsByStatement)
                   nextEnv =
-                    case nextBindingType of
-                      Just inferredType -> Map.insert nameText (PlainTypeBinding inferredType) env
+                    case nextBindingForValue valueExpr nextBindingType pendingSignatureType of
+                      Just binding -> Map.insert nameText binding env
                       Nothing -> env
                in go nextEnv lastExprType Nothing stateAfterSignatureCheck rest
             SExpr exprSpan expr ->
@@ -912,6 +911,15 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                   stateAfterExpr =
                     annotateNewErrorsWithPrimarySpan exprSpan state rawStateAfterExpr
                in go env exprType Nothing stateAfterExpr rest
+
+    nextBindingForValue :: Expr -> Maybe ExpressionType -> Maybe PendingSignatureType -> Maybe TypeBinding
+    nextBindingForValue valueExpr maybeInferredType maybePendingSignature =
+      case (maybePendingSignature, valueExpr) of
+        (Nothing, EVar builtinName) ->
+          case lookupBuiltinSymbolInMode builtinMode (identifierText builtinName) of
+            Just builtinSymbol -> Just (BuiltinAliasTypeBinding builtinSymbol)
+            Nothing -> PlainTypeBinding <$> maybeInferredType
+        _ -> PlainTypeBinding <$> maybeInferredType
 
 allocateBindingSeeds ::
   [(Int, Statement)] ->
@@ -1051,6 +1059,10 @@ instantiateTypeBinding binding state =
   case binding of
     PlainTypeBinding expressionType ->
       (Just (resolveType state expressionType), state)
+    BuiltinAliasTypeBinding builtinSymbol ->
+      case instantiateBuiltinSymbolType builtinSymbol state of
+        Just (expressionType, nextState) -> (Just expressionType, nextState)
+        Nothing -> (Nothing, state)
     ConstructorTypeBinding typeName argumentTypes ->
       ( Just
           ( foldr
@@ -1351,13 +1363,13 @@ numericTypeIntegerBounds numericType =
     signedUpper bits = (2 ^ (bits - 1)) - 1
     unsignedUpper bits = (2 ^ bits) - 1
 
-numericConversionLiteralDiagnostic :: Expr -> Expr -> Maybe Diagnostic
-numericConversionLiteralDiagnostic functionExpr argumentExpr =
+numericConversionLiteralDiagnostic :: BuiltinResolutionMode -> TypeEnv -> Expr -> Expr -> Maybe Diagnostic
+numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr =
   case (functionExpr, argumentExpr) of
     (EVar functionName, ELit (LInt literalValue)) ->
-      case numericConversionTargetFromCallableName (identifierText functionName) of
+      case numericConversionTargetFromCallable builtinMode env functionName of
         Just targetType ->
-          case numericTypeIntegerBounds targetType of
+          case numericTypeLiteralIntegerBounds targetType of
             Just bounds@(lowerBound, upperBound)
               | literalValue < lowerBound || literalValue > upperBound ->
                   Just (mkNumericConversionLiteralTypeError (identifierText functionName) literalValue targetType bounds)
@@ -1365,14 +1377,37 @@ numericConversionLiteralDiagnostic functionExpr argumentExpr =
         Nothing -> Nothing
     _ -> Nothing
 
-numericConversionTargetFromCallableName :: Text -> Maybe NumericType
-numericConversionTargetFromCallableName name =
-  case lookupBuiltinSymbol name of
-    Just symbol -> builtinSymbolNumericConversionTarget symbol
-    Nothing ->
-      case lookupKernelBuiltinSymbol name of
-        Just symbol -> builtinSymbolNumericConversionTarget symbol
-        Nothing -> Nothing
+numericConversionTargetFromCallable :: BuiltinResolutionMode -> TypeEnv -> Identifier -> Maybe NumericType
+numericConversionTargetFromCallable builtinMode env functionName =
+  let nameText = identifierText functionName
+   in case Map.lookup nameText env of
+        Just (BuiltinAliasTypeBinding builtinSymbol) ->
+          builtinSymbolNumericConversionTarget builtinSymbol
+        Just _ ->
+          Nothing
+        Nothing ->
+          lookupBuiltinSymbolInMode builtinMode nameText >>= builtinSymbolNumericConversionTarget
+
+numericTypeLiteralIntegerBounds :: NumericType -> Maybe (Integer, Integer)
+numericTypeLiteralIntegerBounds numericType =
+  case numericTypeIntegerBounds numericType of
+    Just bounds -> Just bounds
+    Nothing -> numericTypeFloatIntegerBounds numericType
+
+numericTypeFloatIntegerBounds :: NumericType -> Maybe (Integer, Integer)
+numericTypeFloatIntegerBounds numericType =
+  case numericTypeFloatMax numericType of
+    Just maxMagnitude ->
+      Just (ceiling (negate maxMagnitude), floor maxMagnitude)
+    Nothing -> Nothing
+
+numericTypeFloatMax :: NumericType -> Maybe Double
+numericTypeFloatMax numericType =
+  case numericType of
+    NumericFloat16 -> Just 65504.0
+    NumericFloat32 -> Just 3.4028234663852886e38
+    NumericFloat64 -> Just 1.7976931348623157e308
+    _ -> Nothing
 
 singletonIntegerLiteralRange :: Integer -> IntegerLiteralRange
 singletonIntegerLiteralRange value = IntegerLiteralRange value value
@@ -1914,13 +1949,13 @@ applyNumericConstraintToReplacement numericConstraint replacementType =
       | otherwise ->
           Nothing
 
-constrainNumericType :: ExpressionType -> InferState -> Maybe InferState
-constrainNumericType expressionType state =
+constrainRuntimeNumericOperatorType :: ExpressionType -> InferState -> Maybe InferState
+constrainRuntimeNumericOperatorType expressionType state =
   case resolveType state expressionType of
     TVarType typeVar ->
-      Just (addNumericTypeVarConstraint typeVar AnyNumericConstraint state)
+      Just (addNumericTypeVarConstraint typeVar IntegralNumericConstraint state)
     resolvedType
-      | typeSatisfiesNumericConstraint AnyNumericConstraint resolvedType ->
+      | typeSatisfiesNumericConstraint IntegralNumericConstraint resolvedType ->
           Just state
       | otherwise ->
           Nothing

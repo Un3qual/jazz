@@ -925,6 +925,8 @@ convertFloatToNumericTarget builtinFunction targetType floatValue
   | otherwise =
       case numericTypeIntegerBounds targetType of
         Just bounds ->
+          -- `round` is half-to-even, but the equality check below rejects every
+          -- non-integral value instead of observing a rounding mode.
           let roundedInteger = round floatValue :: Integer
            in
             if fromInteger roundedInteger == floatValue && integerValueWithinBounds roundedInteger bounds
@@ -957,17 +959,17 @@ roundFloatTarget targetType value =
 roundFloat16 :: Double -> Double
 roundFloat16 value
   | value == 0 = 0
-  | magnitude < halfMinSubnormal = 0
+  | magnitude < (halfMinSubnormal / 2.0) = 0
   | magnitude < halfMinNormal =
       withSign (fromInteger (round (magnitude / halfMinSubnormal) :: Integer) * halfMinSubnormal)
   | otherwise =
       let exponentValue = floor (logBase 2 magnitude) :: Int
           unit = 2.0 ** fromIntegral (exponentValue - 10)
           roundedMagnitude = fromInteger (round (magnitude / unit) :: Integer) * unit
-       in withSign (min halfMaxFinite roundedMagnitude)
+       in withSign (min float16MaxFinite roundedMagnitude)
   where
     magnitude = abs value
-    halfMaxFinite = 65504.0 :: Double
+    float16MaxFinite = 65504.0 :: Double
     halfMinNormal = 2.0 ** (-14.0 :: Double)
     halfMinSubnormal = 2.0 ** (-24.0 :: Double)
     withSign roundedMagnitude =

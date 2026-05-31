@@ -1537,7 +1537,7 @@ parseCasePattern tokens =
           | isConstructorIdentifierText name ->
               parseConstructorPattern (mkIdentifier name) rest
           | otherwise ->
-              parseAsPatternOrVariable name rest
+              parseAsPatternOrVariable parseCasePattern name rest
     [] ->
       Left (parseDiagnostic "expected case pattern before end of input")
     token : _ ->
@@ -1605,7 +1605,7 @@ parseConstructorArgumentPattern tokens =
           | isConstructorIdentifierText name ->
               Right (SPConstructor (mkIdentifier name) [], rest)
           | otherwise ->
-              parseAsPatternOrVariable name rest
+              parseAsPatternOrVariable parseConstructorArgumentPattern name rest
     Token {tokenKind = TLBracket} : rest ->
       parseListPattern rest
     token@Token {tokenKind = TLParen} : rest ->
@@ -1623,11 +1623,15 @@ parseConstructorArgumentPattern tokens =
             )
         )
 
-parseAsPatternOrVariable :: Text -> [Token] -> Either Diagnostic (SurfacePattern, [Token])
-parseAsPatternOrVariable name tokensAfterName =
+parseAsPatternOrVariable ::
+  ([Token] -> Either Diagnostic (SurfacePattern, [Token])) ->
+  Text ->
+  [Token] ->
+  Either Diagnostic (SurfacePattern, [Token])
+parseAsPatternOrVariable parseAsTail name tokensAfterName =
   case tokensAfterName of
     Token {tokenKind = TAt} : tokensAfterAt -> do
-      (patternExpr, remaining) <- parseCasePattern tokensAfterAt
+      (patternExpr, remaining) <- parseAsTail tokensAfterAt
       Right (SPAs (mkIdentifier name) patternExpr, remaining)
     _ ->
       Right (SPVariable (mkIdentifier name), tokensAfterName)

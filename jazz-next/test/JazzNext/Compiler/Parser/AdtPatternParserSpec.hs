@@ -44,6 +44,7 @@ tests =
   [ ("parses basic case expression with literal and wildcard arms", testParsesBasicCaseExpression),
     ("parses variable pattern case arm", testParsesVariablePatternCaseArm),
     ("parses as-pattern case arms", testParsesAsPatternCaseArm),
+    ("keeps as-pattern constructor arguments atomic", testKeepsAsPatternConstructorArgumentsAtomic),
     ("parses as-pattern lambda parameters", testParsesAsPatternLambdaParameter),
     ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms),
     ("parses multi-argument constructor patterns with nullary subpatterns", testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns),
@@ -151,6 +152,49 @@ testParsesAsPatternCaseArm =
                     (PAs "whole" (PConstructor "Just" [PVariable "item"]))
                     (EVar "whole"),
                   CaseArm PWildcard (EVar "value")
+                ]
+            )
+        ]
+
+testKeepsAsPatternConstructorArgumentsAtomic :: IO ()
+testKeepsAsPatternConstructorArgumentsAtomic =
+  assertRight
+    "as-pattern constructor argument parse + lower"
+    (parseSurfaceProgram "x = case value { | Pair whole @ Nothing item -> item | _ -> 0 }.")
+    ( \surfaceProgram -> do
+        assertEqual "as-pattern constructor argument surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "as-pattern constructor argument lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "value")
+                [ SurfaceCaseArm
+                    (SPConstructor "Pair" [SPAs "whole" (SPConstructor "Nothing" []), SPVariable "item"])
+                    (SEVar "item"),
+                  SurfaceCaseArm
+                    SPWildcard
+                    (SELit (SLInt 0))
+                ]
+            )
+        ]
+    expectedLoweredProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    (PConstructor "Pair" [PAs "whole" (PConstructor "Nothing" []), PVariable "item"])
+                    (EVar "item"),
+                  CaseArm
+                    PWildcard
+                    (ELit (LInt 0))
                 ]
             )
         ]
