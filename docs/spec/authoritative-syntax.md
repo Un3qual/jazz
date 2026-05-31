@@ -1,10 +1,10 @@
 # Authoritative Syntax
 
-Status: active (module/import and lambda slices are implemented in `jazz-next`; `class`/`impl` abstraction declaration forms parse as inert AST nodes, non-canonical `trait` declarations reject explicitly, and abstraction semantics remain pending)
+Status: active (module/import and lambda slices are implemented in `jazz-next`; `class`/`impl` abstraction declaration forms parse as inert AST nodes, non-canonical `trait` declarations reject explicitly with no compatibility path, and abstraction semantics remain pending)
 Locked decisions: 2026-03-02
 Primary plan: `docs/plans/spec-cleanup/2026-03-02/decisions/01-authoritative-syntax.md`
 
-Implementation note (2026-05-25): `jazz-next` accepts canonical brace-bodied module declarations (`module A::B { ... }`), canonical lambdas (`\(x) -> expr`) including pattern-shaped parameters such as `_`, `(left, right)`, `[head | tail]`, and `Just item`, list literals/types, tuple literals, and concrete tuple signature types in the active parser/type/runtime/CLI path. The active parser also lowers top-level and module-body `class`/`impl` declaration-shaped forms such as `class Eq { ... }` into inert AST nodes, and rejects non-canonical `trait ... { ... }` declaration-shaped forms with diagnostics that point future abstraction syntax back to `class`/`impl`; ordinary uses of those identifiers as binding names, signature names, or qualified aliases remain valid, and abstraction semantics remain future work.
+Implementation note (2026-05-31): `jazz-next` accepts canonical brace-bodied module declarations (`module A::B { ... }`), canonical lambdas (`\(x) -> expr`) including pattern-shaped parameters such as `_`, `(left, right)`, `[head | tail]`, and `Just item`, list literals/types, tuple literals, and concrete tuple signature types in the active parser/type/runtime/CLI path. The active parser also lowers top-level and module-body `class`/`impl` declaration-shaped forms such as `class Eq { ... }` into inert AST nodes, and rejects non-canonical `trait ... { ... }` declaration-shaped forms with diagnostics that point future abstraction syntax back to `class`/`impl`. `trait` has no active compatibility or deprecation-warning path; ordinary uses of those identifiers as binding names, signature names, or qualified aliases remain valid, and abstraction semantics remain future work.
 
 ## Purpose
 
@@ -34,9 +34,20 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
 
 3. **Abstractions**
    - Canonical keywords: `class` and `impl`.
-   - `trait` is non-canonical and retained only in legacy-reference discussion until migration work is complete.
+   - `trait` is non-canonical, is never accepted as an active compatibility alias, and is retained only in archival legacy-reference discussion.
    - Active `jazz-next` parser behavior lowers top-level and module-body `class`/`impl` declarations into inert AST nodes until the abstraction model is implemented.
    - Active `jazz-next` parser behavior rejects non-canonical top-level and module-body `trait` declarations with unsupported-syntax diagnostics that point future abstraction syntax back to `class`/`impl`.
+
+   Future first semantics slice:
+   - collect class declarations and concrete `impl` facts into analyzer/type
+     environments;
+   - reject duplicate class names and duplicate `(class, concrete type)` impls
+     in the visible module graph;
+   - validate constrained signatures against known class/impl facts where the
+     active type subset can prove the concrete type;
+   - keep method dispatch, dictionary passing, default methods, superclass
+     constraints, overlap, orphans, and runtime behavior out of the first
+     environment-validation batch.
 
 4. **Collections**
    - List literal/type forms remain canonical: `[1, 2, 3]`, `[a]`.
@@ -54,7 +65,7 @@ Define one canonical surface syntax for functions, modules/imports, abstractions
 ## Legacy Compatibility and Migration Notes
 
 - Historical collection-first examples (`map xs f`, `filter xs p`) are non-canonical and should be rewritten in active docs.
-- Historical `trait` examples are non-canonical and should be rewritten to `class` in active docs/spec text.
+- Historical `trait` examples are non-canonical archival evidence only and should be rewritten to `class` in active docs/spec text. Active `jazz-next` must not accept `trait`, even temporarily.
 - During migration, legacy forms may remain in archival references, but new docs/tests must only introduce canonical forms.
 
 ## Non-Goals (This Item)

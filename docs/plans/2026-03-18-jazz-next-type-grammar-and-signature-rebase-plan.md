@@ -6,7 +6,7 @@ size: S
 kind: docs
 autonomous_ready: no
 depends_on: []
-last_verified: 2026-05-30
+last_verified: 2026-05-31
 plan_section: "Future polymorphism/defaulting/type-scheme contract"
 target_paths:
   - docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md
@@ -14,7 +14,7 @@ target_paths:
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Define generalized type schemes, instantiation/generalization, defaulting, diagnostics, target paths, and focused verification before expanding beyond the closed structured-signature rebase."
+deliverable: "Keep ordinary binding polymorphism/defaulting blocked behind a dedicated solver contract while allowing the future generic ADT constructor-scheme slice to proceed separately with fresh per-use constructor instantiation only."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
 ---
@@ -55,6 +55,7 @@ supersedes:
 - [x] Milestone 4 complete: canonical grammar docs, normalization rules, and diagnostics align with the active parser/type pipeline.
 - [x] Milestone 5 complete: active-path tests/docs close the rebase and future work no longer depends on legacy `07`.
 - [x] On `2026-05-30`, closed the structured-signature rebase metadata and kept generalized polymorphism/defaulting/type-scheme work blocked as `JN-TYPE-GRAMMAR-CLOSURE-PLAN-001`.
+- [x] On `2026-05-31`, split the future generic ADT constructor-scheme slice from broader ordinary binding polymorphism/defaulting solver work.
 
 ## Active Baseline (2026-05-22)
 
@@ -80,6 +81,30 @@ Out of scope:
 - implementing full polymorphism/inference beyond the rebase milestones in this document
 - ADT/type-constructor semantics outside the type-grammar ownership work
 - module-loader or runtime-execution changes unrelated to type-grammar representation
+
+## Future Polymorphism Boundary
+
+The next generic ADT constructor-scheme slice is intentionally narrower than
+the full type-solver work tracked by this plan.
+
+Allowed in the generic ADT slice:
+
+- named type parameters on `data` declarations,
+- constructor schemes derived from those declarations,
+- fresh per-use constructor instantiation for values, applications, and
+  patterns,
+- deterministic diagnostics for malformed generic declarations and
+  incompatible constructor instantiations.
+
+Still blocked under this type-grammar plan:
+
+- ordinary user binding generalization,
+- inferred class constraints,
+- defaulting beyond the already locked numeric literal defaults,
+- typeclass solver-backed constrained signatures,
+- explicit type application syntax,
+- higher-rank polymorphism,
+- runtime dispatch or dictionary passing.
 
 ## Active-Path Owner Map
 

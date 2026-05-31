@@ -1,6 +1,6 @@
 # Compiler Warning Flags
 
-Status: active (same-scope rebinding, outer-scope shadowing, and ordinary `let` unused-binding warning emission are implemented; remaining reserved warning metadata is locked for future categories)
+Status: active (same-scope rebinding, outer-scope shadowing, and ordinary `let` unused-binding warning emission are implemented; `deprecated-syntax` / `W0004` remains reserved-only until a future accepted syntax surface is intentionally deprecated)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`
 
@@ -33,6 +33,12 @@ but they do not emit diagnostics until a future implementation batch adds the
 corresponding analyzer behavior. The concrete `deprecated-syntax` / `W0004`
 warning policy is explicitly deferred until an accepted active-path syntax
 surface is both implemented and deprecated enough to warn on.
+
+Policy lock (2026-05-31): non-canonical `trait` declarations are never an
+accepted compatibility surface in active `jazz-next`, so they must not emit
+`W0004`. Syntax rejected by the parser is an error, not a deprecation warning.
+`deprecated-syntax` remains reserved for a future surface that is first
+accepted by the active parser/analyzer and then intentionally deprecated.
 
 ## Default Behavior
 

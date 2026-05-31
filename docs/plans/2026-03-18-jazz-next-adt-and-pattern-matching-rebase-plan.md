@@ -6,7 +6,7 @@ size: S
 kind: docs
 autonomous_ready: no
 depends_on: []
-last_verified: 2026-05-30
+last_verified: 2026-05-31
 plan_section: "Future generic ADT and pattern-form contracts"
 target_paths:
   - docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md
@@ -14,7 +14,7 @@ target_paths:
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Define named type parameters, fresh per-use constructor type schemes, instantiation/defaulting behavior, diagnostics, target paths, and focused verification before expanding beyond the closed monomorphic ADT/pattern subset."
+deliverable: "Define named ADT type parameters, fresh per-use constructor type schemes, the monomorphic binding boundary, diagnostics, target paths, and focused verification before expanding beyond the closed monomorphic ADT/pattern subset."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md
 ---
@@ -61,6 +61,7 @@ supersedes:
 - [x] On `2026-05-25`, landed lambda parameter pattern semantics by lowering pattern-shaped parameters through ordinary unary lambdas and internal single-arm `EPatternCase` bodies.
 - [x] Milestone 5 complete: docs, roadmap, and queue state close the rebase and future work no longer points at legacy `11`.
 - [x] On `2026-05-30`, closed the active ADT/pattern rebase metadata around the implemented constructor/list/tuple/lambda-parameter pattern subset and kept generic ADT type schemes plus future pattern forms blocked as separate active-path planning items.
+- [x] On `2026-05-31`, recorded the next future-contract decisions: the first generic ADT slice is constructor type schemes with fresh per-use instantiation only, and the first additional pattern form is `name @ pattern` as-patterns.
 
 ## Current State (after lambda-parameter pattern semantics)
 
@@ -73,7 +74,131 @@ supersedes:
 - `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs` now covers constructor patterns, bracketed list patterns, cons-like list patterns, tuple patterns, malformed list syntax, and constructor-arm `|` boundary handling in addition to the previously landed simple-pattern cases.
 - `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, `BindingSignatureCoherenceSpec.hs`, and `RuntimeSemanticsSpec.hs` now cover tuple literal parsing/lowering, concrete tuple signature acceptance/rejection, and runtime tuple rendering.
 - `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs` and `AdtPatternRuntimeSpec.hs` now cover the committed typed/runtime pattern subset, including cons-like list and tuple patterns, and run from the default `bash jazz-next/scripts/test-warning-config.sh` path.
-- `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md` now lock the active constructor/list/tuple/lambda-parameter pattern slice while keeping generic ADT type schemes and additional pattern forms staged behind new active-path contracts.
+- `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md` now lock the active constructor/list/tuple/lambda-parameter pattern slice. Future work is staged behind two documented active-path contracts: generic ADT constructor schemes with fresh per-use instantiation, and `name @ pattern` as-patterns.
+
+## Future Contract Seed: Generic ADT Constructor Schemes
+
+This seed is not a queue entry yet. It records the first approved generic ADT
+scope without pulling in the whole polymorphism/defaulting solver.
+
+Surface contract:
+
+- Accept named type parameters after the type constructor:
+
+  ```jz
+  data Maybe a = Nothing | Just a.
+  data Pair a b = Pair a b.
+  ```
+
+- Type constructor names and value constructor names remain uppercase.
+- Type parameters are lowercase identifiers scoped only to the `data`
+  declaration.
+- In a generic `data` declaration, constructor payload identifiers must refer
+  to declared type parameters. Unknown lower-case payload names reject
+  deterministically.
+- Existing monomorphic declarations such as `data Box = Box value.` remain
+  valid and keep their current monomorphic placeholder behavior.
+
+Type contract:
+
+- Each constructor receives a declaration-owned type scheme:
+  - `Nothing : Maybe a`
+  - `Just : a -> Maybe a`
+  - `Pair : a -> b -> Pair a b`
+- Constructor value use, constructor application, and constructor patterns
+  instantiate the scheme with fresh type variables per use.
+- Fresh constructor instantiation is the only generalized scheme behavior in
+  this first batch. Ordinary bindings remain monomorphic.
+- No class/defaulting solver, inferred user binding generalization, explicit
+  type application syntax, higher-rank polymorphism, or runtime dispatch is in
+  scope.
+
+Diagnostics to define before queue promotion:
+
+- duplicate type parameter names,
+- generic payload names not declared as type parameters,
+- arity mismatches for generic constructors,
+- incompatible instantiations across one expression or pattern branch,
+- constructor pattern payload binder type mismatches after instantiation.
+
+Likely active-path target files:
+
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+
+Likely focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Future Contract Seed: As-Patterns
+
+This seed is not a queue entry yet. It records the first approved additional
+pattern form.
+
+Surface contract:
+
+- Accept `name @ pattern` in every pattern position that currently accepts the
+  active pattern subset.
+- `name` must be a lowercase binder.
+- The right side is any currently accepted pattern form.
+
+Binder/type/runtime contract:
+
+- Matching first evaluates the inner pattern.
+- If the inner pattern matches, `name` binds to the whole scrutinee value for
+  the selected arm body.
+- Nested binders from the inner pattern remain visible as they are today.
+- Duplicate binders in one pattern tree reject deterministically at
+  compile-time, including duplicates between the as-pattern binder and inner
+  binders.
+- Type inference gives the as-pattern binder the scrutinee type and reuses the
+  existing inner-pattern type checks.
+- Runtime matching delegates to the inner pattern and adds the whole-value
+  binding only on success.
+
+Out of scope:
+
+- or-patterns,
+- pattern guards,
+- pattern synonyms,
+- exhaustiveness analysis,
+- match-compilation optimizations.
+
+Likely active-path target files:
+
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs`
+
+Likely focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
 
 ## Scope Guardrails
 

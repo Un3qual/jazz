@@ -1,6 +1,6 @@
 # Primitive Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, while runtime arithmetic widening remains out of scope)
+Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit numeric conversions are selected as the next future primitive-surface expansion, and runtime arithmetic widening remains out of scope)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md`
 
@@ -76,6 +76,45 @@ Invalid examples:
 - `jazz-next` now parses, lowers, and type-checks width-specific numeric signature names plus `Int`/`Float` aliases before any runtime arithmetic widening.
 - Integer literals can satisfy an explicit integral-width signature annotation; ambiguous integer literals still default through `Int`.
 - `Float`/`Float64` signature names are accepted for type/operator ownership, but fractional literal syntax and runtime floating arithmetic remain out of scope for this slice.
+
+### Future Explicit Conversion Contract
+
+Explicit numeric conversions are the next selected primitive-surface expansion.
+They are ordinary prelude-owned APIs backed by catalog/kernel bridge names, not
+parser magic.
+
+Public target-named conversions:
+
+- `toInt8`, `toInt16`, `toInt32`, `toInt64`
+- `toUInt8`, `toUInt16`, `toUInt32`, `toUInt64`
+- `toFloat16`, `toFloat32`, `toFloat64`
+
+Optional aliases (catalog-boundary conditional):
+
+- `toInt` may alias `toInt64` only if the prelude/catalog boundary records it
+  as an alias rather than a distinct numeric semantic.
+- `toFloat` may alias `toFloat64` under the same condition.
+
+Rules:
+
+1. There are no implicit numeric conversions.
+2. Mixed-width operators remain type errors unless the program calls an
+   explicit conversion.
+3. Non-numeric conversion sources are compile-time type errors.
+4. Literal conversions are checked at compile time when possible:
+   - integer literals must fit the target integral range,
+   - unsigned targets reject negative integer literals,
+   - fractional literals targeting integral types must be exactly integral and
+     in range,
+   - finite floating targets reject literal overflow instead of producing
+     silent infinities.
+5. Dynamic integer narrowing, sign changes, float-to-integer conversion, and
+   floating narrowing emit deterministic fatal runtime diagnostics only when
+   the value is not statically known.
+6. Integer-to-integer conversions are exact and range-checked.
+7. Float-to-integer conversions require finite integral values in range.
+8. Integer-to-float and float-to-float conversions use deterministic
+   target-format rounding; target overflow is a diagnostic.
 
 ## List Primitive Behavior
 

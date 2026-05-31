@@ -21,6 +21,15 @@ Out of scope:
 - module import/name-resolution behavior,
 - effect typing semantics.
 
+Adjacent future generic ADT work:
+
+- Generic ADT constructor schemes are separate from ordinary binding
+  polymorphism. A future `data Maybe a = Nothing | Just a.` slice may give
+  constructors fresh per-use schemes without generalizing user bindings.
+- Ordinary bindings, adjacent signatures, and constrained signatures remain in
+  the active monomorphic/annotation-only subset until a dedicated
+  polymorphism/defaulting/typeclass-solver contract is approved.
+
 Adjacent numeric-width work:
 
 - `Int` remains accepted as the default integer signature spelling and maps to `Int64`.

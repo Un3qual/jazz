@@ -1,6 +1,6 @@
 # Pattern Matching Semantics
 
-Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, and fixed-arity tuple patterns parse/lower, typecheck, and execute end-to-end in `jazz-next` `case` arms and lambda parameters)
+Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, and fixed-arity tuple patterns parse/lower, typecheck, and execute end-to-end in `jazz-next` `case` arms and lambda parameters; as-patterns are selected as the next future pattern form but are not implemented)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -133,13 +133,36 @@ sumPairFn = \((left, right)) -> left + right.
 ## Deferred Pattern Forms
 
 No additional pattern forms are part of the end-to-end committed subset.
-Pattern guards, as-patterns, or-patterns, and pattern synonyms remain blocked
-until an active-path contract defines parser shape, binder scope, type rules,
-runtime matching behavior, diagnostics, target paths, and focused verification.
+As-patterns are selected as the first future pattern-form extension:
+
+```jz
+case value {
+  | whole @ Just item -> item
+  | _ -> 0
+}
+```
+
+Future as-pattern contract:
+
+1. Surface form is `name @ pattern`.
+2. `name` is a lowercase binder for the whole scrutinee value.
+3. The inner `pattern` is any already-supported pattern form.
+4. Matching delegates to the inner pattern first.
+5. On success, the as-pattern binder and all inner binders are visible in the
+   selected arm body.
+6. Duplicate binders in the same pattern tree reject deterministically at
+   compile-time.
+7. The as-pattern binder receives the scrutinee type; the inner pattern keeps
+   the existing type rules.
+8. Runtime adds the whole-value binding only after the inner pattern succeeds.
+
+Pattern guards, or-patterns, and pattern synonyms remain blocked until separate
+active-path contracts define parser shape, binder scope, type rules, runtime
+matching behavior, diagnostics, target paths, and focused verification.
 
 ## Non-Goals
 
-1. Pattern guards, as-patterns, or-patterns, and pattern synonyms.
+1. Pattern guards, or-patterns, and pattern synonyms.
 2. Exhaustiveness analysis beyond deterministic first-match semantics.
 3. Match-compilation optimizations or decision-tree lowering.
 4. Any new parser/type/runtime behavior under `jazz-hs/` or `jazz2/`.
