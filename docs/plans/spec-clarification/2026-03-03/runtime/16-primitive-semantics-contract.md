@@ -1,32 +1,32 @@
 ---
-id: JN-NUMERIC-WIDTH-SIGNATURE-TYPES-001
+id: JN-NUMERIC-CONVERSIONS-API-001
 status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-05-29
-plan_section: "Follow-up: Numeric width and defaulting rollout"
+last_verified: 2026-05-31
+plan_section: "Completed implementation target: explicit numeric conversions"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
-  - jazz-next/src/JazzNext/Compiler/Parser.hs
-  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
-  - jazz-next/src/JazzNext/Compiler/AST.hs
+  - jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs
+  - jazz-next/src/JazzNext/Compiler/BundledPrelude.hs
+  - jazz-next/src/JazzNext/Compiler/PreludeContract.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
-  - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - docs/spec/runtime/primitive-semantics.md
-  - docs/spec/semantics/bindings-and-signatures.md
-  - docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md
-  - docs/execution/queue.md
+  - jazz-next/src/JazzNext/Compiler/Runtime.hs
+  - jazz-next/stdlib/Prelude.jz
+  - jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - bash jazz-next/scripts/test-warning-config.sh
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Add parser/core/type ownership for width-specific numeric signature type names and cross-platform `Int`/`Float` aliases, preserving Haskell-like same-type operator rules and leaving runtime arithmetic widening out of scope."
+deliverable: "Add target-named numeric conversion functions through the active prelude/catalog/runtime boundary with compile-time literal rejection where possible and deterministic runtime diagnostics only for dynamic failures."
 ---
 
 # Primitive Semantics Contract Implementation Plan
@@ -77,6 +77,7 @@ Execution note:
 - [x] Name exact future implementation target paths in `jazz-next/` and focused verification commands, without changing compiler behavior in this docs batch.
 - [x] Keep user-defined operators as a follow-up stage after this numeric-width/defaulting contract lands.
 - [x] On `2026-05-31`, selected explicit numeric conversions as the next primitive-surface expansion before broader runtime arithmetic widening.
+- [x] On `2026-05-31`, landed explicit target-named numeric conversions through the active `jazz-next` prelude/catalog/runtime boundary.
 
 First implementation target (landed 2026-05-29):
 
@@ -84,7 +85,8 @@ First implementation target (landed 2026-05-29):
 - Target paths: `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, and `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`.
 - Verification: `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`; `bash jazz-next/scripts/test-warning-config.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
 
-Future implementation target (not queued yet): explicit numeric conversions.
+Completed implementation target (landed 2026-05-31 as `JN-NUMERIC-CONVERSIONS-API-001`):
+explicit numeric conversions.
 
 - Public conversion names are explicit by target type: `toInt8`, `toInt16`,
   `toInt32`, `toInt64`, `toUInt8`, `toUInt16`, `toUInt32`, `toUInt64`,
@@ -107,19 +109,20 @@ Future implementation target (not queued yet): explicit numeric conversions.
 - Conversion functions are ordinary prelude-owned public APIs backed by
   catalog/kernel bridge names, not parser magic.
 
-Likely active-path target files:
+Landed active-path target files:
 
 - `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`
 - `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`
 - `jazz-next/src/JazzNext/Compiler/PreludeContract.hs`
 - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/stdlib/Prelude.jz`
 - `jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs`
 - `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
 - `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
 - `jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`
 
-Likely focused verification:
+Focused verification:
 
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs

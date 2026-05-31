@@ -1,20 +1,31 @@
 ---
-id: JN-ADT-GENERIC-CONSTRUCTOR-TYPES-PLAN-001
-status: blocked
-priority: P2
-size: S
-kind: docs
-autonomous_ready: no
+id: JN-AS-PATTERN-SEMANTICS-001
+status: ready
+priority: P1
+size: M
+kind: impl
+autonomous_ready: yes
 depends_on: []
 last_verified: 2026-05-31
-plan_section: "Future generic ADT and pattern-form contracts"
+plan_section: "Future Contract Seed: As-Patterns"
 target_paths:
-  - docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md
-  - docs/execution/queue.md
+  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
+  - jazz-next/src/JazzNext/Compiler/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
+  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
+  - jazz-next/src/JazzNext/Compiler/Runtime.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
 verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Define named ADT type parameters, fresh per-use constructor type schemes, the monomorphic binding boundary, diagnostics, target paths, and focused verification before expanding beyond the closed monomorphic ADT/pattern subset."
+deliverable: "Add `name @ pattern` across existing pattern positions, bind the whole scrutinee after inner-pattern success, reject duplicate binders, and reuse existing type/runtime matcher behavior."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md
 ---
@@ -145,8 +156,8 @@ bash scripts/check-docs.sh
 
 ## Future Contract Seed: As-Patterns
 
-This seed is not a queue entry yet. It records the first approved additional
-pattern form.
+This section is queued as `JN-AS-PATTERN-SEMANTICS-001`. It records the first
+approved additional pattern form.
 
 Surface contract:
 

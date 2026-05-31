@@ -43,7 +43,10 @@ import JazzNext.Compiler.BuiltinCatalog
     BuiltinSymbol,
     builtinNamesInMode,
     builtinSymbolName,
-    lookupBuiltinSymbolInMode
+    builtinSymbolNumericConversionTarget,
+    lookupBuiltinSymbol,
+    lookupBuiltinSymbolInMode,
+    lookupKernelBuiltinSymbol
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic (..),
@@ -308,7 +311,11 @@ inferExprType builtinMode env state expr =
                     (TFunctionType inferredArgumentType resultTypeVar)
                     stateWithResultVar of
                 Just unifiedState ->
-                  (Just (resolveType unifiedState resultTypeVar), unifiedState)
+                  case numericConversionLiteralDiagnostic functionExpr argumentExpr of
+                    Just diagnostic ->
+                      (Nothing, addTypeError unifiedState diagnostic)
+                    Nothing ->
+                      (Just (resolveType unifiedState resultTypeVar), unifiedState)
                 Nothing ->
                   ( Nothing,
                     addTypeError
@@ -1344,6 +1351,29 @@ numericTypeIntegerBounds numericType =
     signedUpper bits = (2 ^ (bits - 1)) - 1
     unsignedUpper bits = (2 ^ bits) - 1
 
+numericConversionLiteralDiagnostic :: Expr -> Expr -> Maybe Diagnostic
+numericConversionLiteralDiagnostic functionExpr argumentExpr =
+  case (functionExpr, argumentExpr) of
+    (EVar functionName, ELit (LInt literalValue)) ->
+      case numericConversionTargetFromCallableName (identifierText functionName) of
+        Just targetType ->
+          case numericTypeIntegerBounds targetType of
+            Just bounds@(lowerBound, upperBound)
+              | literalValue < lowerBound || literalValue > upperBound ->
+                  Just (mkNumericConversionLiteralTypeError (identifierText functionName) literalValue targetType bounds)
+            _ -> Nothing
+        Nothing -> Nothing
+    _ -> Nothing
+
+numericConversionTargetFromCallableName :: Text -> Maybe NumericType
+numericConversionTargetFromCallableName name =
+  case lookupBuiltinSymbol name of
+    Just symbol -> builtinSymbolNumericConversionTarget symbol
+    Nothing ->
+      case lookupKernelBuiltinSymbol name of
+        Just symbol -> builtinSymbolNumericConversionTarget symbol
+        Nothing -> Nothing
+
 singletonIntegerLiteralRange :: Integer -> IntegerLiteralRange
 singletonIntegerLiteralRange value = IntegerLiteralRange value value
 
@@ -1631,7 +1661,18 @@ instantiateBuiltinSymbolType :: BuiltinSymbol -> InferState -> Maybe (Expression
 instantiateBuiltinSymbolType builtinSymbol state =
   -- Use catalog names here so newly-added symbols safely fall back to `Nothing`
   -- until an explicit type-instantiation rule is defined.
-  case builtinSymbolName builtinSymbol of
+  case builtinSymbolNumericConversionTarget builtinSymbol of
+    Just targetType ->
+      let (sourceTypeVar, sourceType, stateAfterSourceType) = freshTypeVariable state
+          stateAfterNumericConstraint =
+            addNumericTypeVarConstraint sourceTypeVar AnyNumericConstraint stateAfterSourceType
+       in Just (TFunctionType sourceType (TNumericType targetType), stateAfterNumericConstraint)
+    Nothing ->
+      instantiateBuiltinSymbolTypeByName (builtinSymbolName builtinSymbol) state
+
+instantiateBuiltinSymbolTypeByName :: Text -> InferState -> Maybe (ExpressionType, InferState)
+instantiateBuiltinSymbolTypeByName builtinName state =
+  case builtinName of
     "hd" ->
       let (elementType, stateAfterElement) = freshTypeVar state
        in Just (TFunctionType (TListType elementType) elementType, stateAfterElement)
@@ -1978,6 +2019,22 @@ mkApplyTypeError functionType argumentType =
         <> renderType functionType
         <> " to argument of type "
         <> renderType argumentType
+    )
+
+mkNumericConversionLiteralTypeError :: Text -> Integer -> NumericType -> (Integer, Integer) -> Diagnostic
+mkNumericConversionLiteralTypeError conversionName literalValue targetType (lowerBound, upperBound) =
+  mkDiagnostic
+    "E2006"
+    ( "numeric conversion '"
+        <> conversionName
+        <> "' cannot convert integer literal "
+        <> Text.pack (show literalValue)
+        <> " outside "
+        <> renderNumericTypeName targetType
+        <> " range "
+        <> Text.pack (show lowerBound)
+        <> ".."
+        <> Text.pack (show upperBound)
     )
 
 mkBindingTypeMismatchError :: Text -> ExpressionType -> SourceSpan -> ExpressionType -> Diagnostic

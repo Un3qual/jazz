@@ -67,7 +67,11 @@ tests =
     ("source pipeline accepts bare operator value", testSourcePipelineAcceptsBareOperatorValue),
     ("source pipeline accepts bare operator value application", testSourcePipelineAcceptsBareOperatorValueApplication),
     ("source pipeline accepts explicit partial application of bare operator value", testSourcePipelineAcceptsExplicitPartialOperatorApplication),
-    ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral)
+    ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral),
+    ("source pipeline accepts target-named integer conversions", testSourcePipelineAcceptsTargetNamedIntegerConversions),
+    ("source pipeline accepts target-named float conversions", testSourcePipelineAcceptsTargetNamedFloatConversions),
+    ("source pipeline rejects out-of-range literal conversions", testSourcePipelineRejectsOutOfRangeLiteralConversions),
+    ("source pipeline rejects non-numeric conversion source", testSourcePipelineRejectsNonNumericConversionSource)
   ]
 
 testAcceptsArithmeticIntOperands :: IO ()
@@ -277,6 +281,28 @@ testSourcePipelineRejectsMixedTypeListLiteral =
     "x = [1, True]."
     "list literal element mismatch"
     "E2007"
+
+testSourcePipelineAcceptsTargetNamedIntegerConversions :: IO ()
+testSourcePipelineAcceptsTargetNamedIntegerConversions =
+  assertCompilesWithBundledPrelude "x :: UInt8.\nx = toUInt8 255.\ny :: Int16.\ny = toInt16 x."
+
+testSourcePipelineAcceptsTargetNamedFloatConversions :: IO ()
+testSourcePipelineAcceptsTargetNamedFloatConversions =
+  assertCompilesWithBundledPrelude "x :: Float64.\nx = toFloat64 1."
+
+testSourcePipelineRejectsOutOfRangeLiteralConversions :: IO ()
+testSourcePipelineRejectsOutOfRangeLiteralConversions =
+  assertCompileErrorWithBundledPrelude
+    "x = toUInt8 256."
+    "out-of-range literal conversion"
+    "E2006"
+
+testSourcePipelineRejectsNonNumericConversionSource :: IO ()
+testSourcePipelineRejectsNonNumericConversionSource =
+  assertCompileErrorWithBundledPrelude
+    "x = toInt8 True."
+    "non-numeric conversion source"
+    "E2006"
 
 assertCompiles :: String -> IO ()
 assertCompiles source = do

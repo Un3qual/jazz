@@ -420,7 +420,7 @@ Based on the full repo, these areas still require implementation convergence eve
   - `docs/spec/syntax/operators.md`
   - `jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`
   - `jazz-next/test/JazzNext/Compiler/Parser/OperatorSectionSpec.hs`
-- Extending primitive semantics coverage beyond the implemented v1 runtime/type subset (`+`, `-`, `*`, `/`, `==`, `!=`, `map`, `filter`, `hd`, `tl`, `print!`) as the runtime surface expands:
+- Extending primitive semantics coverage beyond the implemented v1 runtime/type subset (`+`, `-`, `*`, `/`, `==`, `!=`, `map`, `filter`, `hd`, `tl`, `print!`, and target-named numeric conversions `toInt8`..`toFloat64`) as the runtime surface expands:
   - `docs/spec/runtime/primitive-semantics.md`
   - `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
   - `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
@@ -467,7 +467,7 @@ If you need a practical baseline for continuing Jazz, use this order:
      (`W0003`), with warning-as-error promotion while preserving default
      warning-silent compilation
    - built-in operator fixity plus executable left/right section semantics
-   - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, plus prelude-provided public helpers `map`, `filter`, `hd`, `tl`, `print!`; numeric-width planning now uses cross-platform `Int64`/`Float64` defaults, context-directed literals, and explicit conversion for mixed concrete widths
+   - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, plus prelude-provided public helpers `map`, `filter`, `hd`, `tl`, `print!`, and target-named numeric conversions `toInt8`..`toFloat64`; numeric-width planning now uses cross-platform `Int64`/`Float64` defaults, context-directed literals, and explicit conversion for mixed concrete widths
    - runtime execution via `--run` CLI mode, with standalone CLI source input selected from stdin by default or one positional `.jz` file, while successful CLI and driver compile paths are diagnostic-only: compile returns warnings/errors and no generated artifact
    - bundled-prelude loading by default in `compileSource`, `runSource`, `compileModuleGraph`, `runModuleGraph`, and CLI paths, while explicit no-prelude entry points (`compileSourceWithPrelude Nothing`, `runSourceWithPrelude Nothing`, `compileModuleGraphWithPrelude Nothing`, `runModuleGraphWithPrelude Nothing`, `--no-prelude`, and low-level AST/runtime helpers) expose only `__kernel_*` bridge names; source and module graph harnesses now cover public alias rejection, kernel bridge availability, bundled helper visibility, and explicit-prelude helper visibility, and the checked-in `jazz-next/stdlib/Prelude.jz` mirror is covered against the catalog-generated bundled prelude source
 
