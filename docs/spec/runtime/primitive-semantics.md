@@ -1,6 +1,6 @@
 # Primitive Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit numeric conversions are selected as the next future primitive-surface expansion, and runtime arithmetic widening remains out of scope)
+Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, and runtime arithmetic widening remains out of scope)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md`
 
@@ -75,13 +75,15 @@ Invalid examples:
 - Mixed concrete widths, such as `Int32 + Int64`, are type errors unless one side is converted explicitly.
 - `jazz-next` now parses, lowers, and type-checks width-specific numeric signature names plus `Int`/`Float` aliases before any runtime arithmetic widening.
 - Integer literals can satisfy an explicit integral-width signature annotation; ambiguous integer literals still default through `Int`.
-- `Float`/`Float64` signature names are accepted for type/operator ownership, but fractional literal syntax and runtime floating arithmetic remain out of scope for this slice.
+- `Float`/`Float64` signature names are accepted for type/operator ownership, and explicit integer-to-float conversion can produce runtime float values; fractional literal syntax and runtime floating arithmetic remain out of scope for this slice.
 
-### Future Explicit Conversion Contract
+### Explicit Conversion Contract
 
-Explicit numeric conversions are the next selected primitive-surface expansion.
-They are ordinary prelude-owned APIs backed by catalog/kernel bridge names, not
-parser magic.
+Explicit numeric conversions are ordinary prelude-owned APIs backed by
+catalog/kernel bridge names, not parser magic. The active `jazz-next`
+implementation exposes the public aliases from the bundled prelude and keeps
+the corresponding `__kernel_*` bridge names available only to no-prelude and
+low-level paths.
 
 Public target-named conversions:
 
@@ -102,15 +104,15 @@ Rules:
    explicit conversion.
 3. Non-numeric conversion sources are compile-time type errors.
 4. Literal conversions are checked at compile time when possible:
-   - integer literals must fit the target integral range,
-   - unsigned targets reject negative integer literals,
+   - direct integer literals must fit the target integral range,
+   - direct integer literals for unsigned targets must be non-negative,
    - fractional literals targeting integral types must be exactly integral and
      in range,
    - finite floating targets reject literal overflow instead of producing
      silent infinities.
 5. Dynamic integer narrowing, sign changes, float-to-integer conversion, and
-   floating narrowing emit deterministic fatal runtime diagnostics only when
-   the value is not statically known.
+   floating narrowing emit deterministic fatal `E3024` runtime diagnostics only
+   when the value is not statically known.
 6. Integer-to-integer conversions are exact and range-checked.
 7. Float-to-integer conversions require finite integral values in range.
 8. Integer-to-float and float-to-float conversions use deterministic

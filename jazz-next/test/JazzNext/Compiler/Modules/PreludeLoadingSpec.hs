@@ -43,6 +43,9 @@ tests =
     ("prelude bridge rejects canonical alias in bridge declaration", testPreludeBridgeRejectsCanonicalAlias),
     ("prelude bridge rebinding reports current and previous bridge spans", testPreludeBridgeRebindingDiagnostic),
     ("prelude bridge allows canonical alias after kernel self-bridge", testPreludeBridgeAllowsCanonicalAliasAfterBridge),
+    ("prelude exposes numeric conversion aliases", testPreludeExposesNumericConversionAliases),
+    ("compile without prelude rejects numeric conversion aliases", testCompileWithoutPreludeRejectsNumericConversionAliases),
+    ("compile without prelude keeps numeric conversion kernel bridges available", testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable),
     ("compile without prelude rejects public prelude aliases", testCompileWithoutPreludeRejectsPreludeAliases),
     ("compile without prelude keeps kernel bridge names available", testCompileWithoutPreludeKeepsKernelBridgeNamesAvailable),
     ("compile without prelude keeps missing binding behavior unchanged", testCompileWithoutPreludeStillFailsMissingBinding)
@@ -149,6 +152,27 @@ testPreludeBridgeAllowsCanonicalAliasAfterBridge = do
   result <- compileSourceWithPrelude defaultWarningSettings (Just "__kernel_map = __kernel_map. map = __kernel_map.") "1."
   assertEqual
     "bridge validation accepts canonical alias after kernel self-bridge"
+    []
+    (compileErrors result)
+
+testPreludeExposesNumericConversionAliases :: IO ()
+testPreludeExposesNumericConversionAliases = do
+  result <- compileSource defaultWarningSettings "x :: UInt8.\nx = toUInt8 1."
+  assertEqual "bundled prelude exposes toUInt8" [] (compileErrors result)
+
+testCompileWithoutPreludeRejectsNumericConversionAliases :: IO ()
+testCompileWithoutPreludeRejectsNumericConversionAliases = do
+  result <- compileSourceWithPrelude defaultWarningSettings Nothing "x = toUInt8 1."
+  assertEqual
+    "public numeric conversion aliases are unavailable without prelude"
+    ["E1001: unbound variable 'toUInt8'"]
+    (map renderDiagnostic (compileErrors result))
+
+testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable :: IO ()
+testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable = do
+  result <- compileSourceWithPrelude defaultWarningSettings Nothing "x :: UInt8.\nx = __kernel_toUInt8 1."
+  assertEqual
+    "numeric conversion kernel bridge names remain available without prelude"
     []
     (compileErrors result)
 

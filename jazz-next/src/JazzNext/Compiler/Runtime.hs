@@ -23,6 +23,7 @@ import JazzNext.Compiler.AST
     DataConstructor (..),
     Expr (..),
     Literal (..),
+    NumericType (..),
     Pattern (..),
     Statement (..)
   )
@@ -36,7 +37,10 @@ import JazzNext.Compiler.BuiltinCatalog
     builtinNamesInMode,
     builtinSymbolArity,
     builtinSymbolName,
-    lookupBuiltinSymbolInMode
+    builtinSymbolNumericConversionTarget,
+    lookupBuiltinSymbolInMode,
+    numericTypeFloatMax,
+    numericTypeIntegerBounds
   )
 import JazzNext.Compiler.Identifier
   ( Identifier,
@@ -54,6 +58,7 @@ import JazzNext.Compiler.RecursiveBindings
 -- builtins/operators.
 data RuntimeValue
   = VInt Integer
+  | VFloat Double
   | VBool Bool
   | VList [RuntimeValue]
   | VTuple [RuntimeValue]
@@ -68,6 +73,7 @@ instance Eq RuntimeValue where
   leftValue == rightValue =
     case (leftValue, rightValue) of
       (VInt leftInt, VInt rightInt) -> leftInt == rightInt
+      (VFloat leftFloat, VFloat rightFloat) -> leftFloat == rightFloat
       (VBool leftBool, VBool rightBool) -> leftBool == rightBool
       (VList leftElements, VList rightElements) -> leftElements == rightElements
       (VTuple leftElements, VTuple rightElements) -> leftElements == rightElements
@@ -92,6 +98,7 @@ instance Show RuntimeValue where
   show value =
     case value of
       VInt intValue -> "VInt " <> show intValue
+      VFloat floatValue -> "VFloat " <> show floatValue
       VBool boolValue -> "VBool " <> show boolValue
       VList elements -> "VList " <> show elements
       VTuple elements -> "VTuple " <> show elements
@@ -123,6 +130,7 @@ renderRuntimeValue :: RuntimeValue -> Text
 renderRuntimeValue value =
   case value of
     VInt intValue -> Text.pack (show intValue)
+    VFloat floatValue -> Text.pack (show floatValue)
     VBool boolValue ->
       if boolValue
         then "True"
@@ -708,6 +716,9 @@ matchPattern scrutineeValue pattern =
           | length elements == length patterns ->
               matchPatternList elements patterns
         _ -> Nothing
+    PAs name pattern -> do
+      patternBindings <- matchPattern scrutineeValue pattern
+      Just (Map.insert (identifierText name) (Right scrutineeValue) patternBindings)
 
 matchPatternList :: [RuntimeValue] -> [Pattern] -> Maybe RuntimeEnv
 matchPatternList values patterns =
@@ -806,6 +817,9 @@ applyBuiltin builtinMode builtinFunction arguments
 evalBuiltin :: BuiltinResolutionMode -> BuiltinSymbol -> [RuntimeValue] -> Either Diagnostic RuntimeValue
 evalBuiltin builtinMode builtinFunction arguments =
   case (builtinFunction, arguments) of
+    (_, [value])
+      | Just targetType <- builtinSymbolNumericConversionTarget builtinFunction ->
+          evalNumericConversion builtinFunction targetType value
     (BuiltinHd, [VList []]) ->
       Left (runtimeDiagnostic "E3009" "runtime primitive 'hd' failed: empty list")
     (BuiltinHd, [VList (headValue : _)]) ->
@@ -870,6 +884,167 @@ evalBuiltin builtinMode builtinFunction arguments =
             "E3016"
             ("runtime primitive '" <> builtinSymbolName builtinFunction <> "' received invalid arguments")
         )
+
+evalNumericConversion :: BuiltinSymbol -> NumericType -> RuntimeValue -> Either Diagnostic RuntimeValue
+evalNumericConversion builtinFunction targetType value =
+  case value of
+    VInt integerValue ->
+      convertIntegerToNumericTarget builtinFunction targetType integerValue
+    VFloat floatValue ->
+      convertFloatToNumericTarget builtinFunction targetType floatValue
+    other ->
+      Left
+        ( runtimeDiagnostic
+            "E3024"
+            ( "runtime numeric conversion '"
+                <> builtinSymbolName builtinFunction
+                <> "' expects a numeric value, found "
+                <> renderRuntimeType other
+            )
+        )
+
+convertIntegerToNumericTarget :: BuiltinSymbol -> NumericType -> Integer -> Either Diagnostic RuntimeValue
+convertIntegerToNumericTarget builtinFunction targetType integerValue =
+  case numericTypeIntegerBounds targetType of
+    Just bounds ->
+      if integerValueWithinBounds integerValue bounds
+        then Right (VInt integerValue)
+        else Left (numericConversionRangeDiagnostic builtinFunction targetType integerValue bounds)
+    Nothing ->
+      convertIntegerToFloatTarget builtinFunction targetType integerValue
+
+convertFloatToNumericTarget :: BuiltinSymbol -> NumericType -> Double -> Either Diagnostic RuntimeValue
+convertFloatToNumericTarget builtinFunction targetType floatValue
+  | isNaN floatValue || isInfinite floatValue =
+      Left
+        ( runtimeDiagnostic
+            "E3024"
+            ( "runtime numeric conversion '"
+                <> builtinSymbolName builtinFunction
+                <> "' cannot convert non-finite Float value"
+            )
+        )
+  | otherwise =
+      case numericTypeIntegerBounds targetType of
+        Just bounds ->
+          -- `round` is half-to-even, but the equality check below rejects every
+          -- non-integral value instead of observing a rounding mode.
+          let roundedInteger = round floatValue :: Integer
+           in
+            if fromInteger roundedInteger == floatValue && integerValueWithinBounds roundedInteger bounds
+              then Right (VInt roundedInteger)
+              else Left (numericConversionFloatToIntegralDiagnostic builtinFunction targetType floatValue bounds)
+        Nothing ->
+          convertFiniteFloatToFloatTarget builtinFunction targetType floatValue
+
+convertIntegerToFloatTarget :: BuiltinSymbol -> NumericType -> Integer -> Either Diagnostic RuntimeValue
+convertIntegerToFloatTarget builtinFunction targetType integerValue =
+  let floatValue = fromInteger integerValue :: Double
+   in
+    if isInfinite floatValue || exceedsFloatTarget targetType floatValue
+      then Left (numericConversionFloatOverflowDiagnostic builtinFunction targetType)
+      else Right (VFloat (roundFloatTarget targetType floatValue))
+
+convertFiniteFloatToFloatTarget :: BuiltinSymbol -> NumericType -> Double -> Either Diagnostic RuntimeValue
+convertFiniteFloatToFloatTarget builtinFunction targetType floatValue =
+  if exceedsFloatTarget targetType floatValue
+    then Left (numericConversionFloatOverflowDiagnostic builtinFunction targetType)
+    else Right (VFloat (roundFloatTarget targetType floatValue))
+
+roundFloatTarget :: NumericType -> Double -> Double
+roundFloatTarget targetType value =
+  case targetType of
+    NumericFloat16 -> roundFloat16 value
+    NumericFloat32 -> realToFrac (realToFrac value :: Float)
+    _ -> value
+
+roundFloat16 :: Double -> Double
+roundFloat16 value
+  | value == 0 = 0
+  | magnitude < (halfMinSubnormal / 2.0) = 0
+  | magnitude < halfMinNormal =
+      withSign (fromInteger (round (magnitude / halfMinSubnormal) :: Integer) * halfMinSubnormal)
+  | otherwise =
+      let exponentValue = floor (logBase 2 magnitude) :: Int
+          unit = 2.0 ** fromIntegral (exponentValue - 10)
+          roundedMagnitude = fromInteger (round (magnitude / unit) :: Integer) * unit
+       in withSign (min float16MaxFinite roundedMagnitude)
+  where
+    magnitude = abs value
+    float16MaxFinite = 65504.0 :: Double
+    halfMinNormal = 2.0 ** (-14.0 :: Double)
+    halfMinSubnormal = 2.0 ** (-24.0 :: Double)
+    withSign roundedMagnitude =
+      if value < 0
+        then negate roundedMagnitude
+        else roundedMagnitude
+
+exceedsFloatTarget :: NumericType -> Double -> Bool
+exceedsFloatTarget targetType value =
+  case numericTypeFloatMax targetType of
+    Just maxMagnitude -> abs value > maxMagnitude
+    Nothing -> False
+
+integerValueWithinBounds :: Integer -> (Integer, Integer) -> Bool
+integerValueWithinBounds value (lowerBound, upperBound) =
+  value >= lowerBound && value <= upperBound
+
+numericConversionRangeDiagnostic :: BuiltinSymbol -> NumericType -> Integer -> (Integer, Integer) -> Diagnostic
+numericConversionRangeDiagnostic builtinFunction targetType value (lowerBound, upperBound) =
+  runtimeDiagnostic
+    "E3024"
+    ( "runtime numeric conversion '"
+        <> builtinSymbolName builtinFunction
+        <> "' failed: integer value "
+        <> Text.pack (show value)
+        <> " outside "
+        <> renderNumericTypeName targetType
+        <> " range "
+        <> Text.pack (show lowerBound)
+        <> ".."
+        <> Text.pack (show upperBound)
+    )
+
+numericConversionFloatToIntegralDiagnostic :: BuiltinSymbol -> NumericType -> Double -> (Integer, Integer) -> Diagnostic
+numericConversionFloatToIntegralDiagnostic builtinFunction targetType value (lowerBound, upperBound) =
+  runtimeDiagnostic
+    "E3024"
+    ( "runtime numeric conversion '"
+        <> builtinSymbolName builtinFunction
+        <> "' failed: Float value "
+        <> Text.pack (show value)
+        <> " must be integral and inside "
+        <> renderNumericTypeName targetType
+        <> " range "
+        <> Text.pack (show lowerBound)
+        <> ".."
+        <> Text.pack (show upperBound)
+    )
+
+numericConversionFloatOverflowDiagnostic :: BuiltinSymbol -> NumericType -> Diagnostic
+numericConversionFloatOverflowDiagnostic builtinFunction targetType =
+  runtimeDiagnostic
+    "E3024"
+    ( "runtime numeric conversion '"
+        <> builtinSymbolName builtinFunction
+        <> "' failed: value cannot be represented as finite "
+        <> renderNumericTypeName targetType
+    )
+
+renderNumericTypeName :: NumericType -> Text
+renderNumericTypeName numericType =
+  case numericType of
+    NumericInt8 -> "Int8"
+    NumericInt16 -> "Int16"
+    NumericInt32 -> "Int32"
+    NumericInt64 -> "Int64"
+    NumericUInt8 -> "UInt8"
+    NumericUInt16 -> "UInt16"
+    NumericUInt32 -> "UInt32"
+    NumericUInt64 -> "UInt64"
+    NumericFloat16 -> "Float16"
+    NumericFloat32 -> "Float32"
+    NumericFloat64 -> "Float64"
 
 -- | Evaluate filter predicates element-by-element and enforce that each
 -- predicate application returns a Bool.
@@ -950,6 +1125,7 @@ renderRuntimeType :: RuntimeValue -> Text
 renderRuntimeType value =
   case value of
     VInt {} -> "Int"
+    VFloat {} -> "Float"
     VBool {} -> "Bool"
     VList {} -> "List"
     VTuple {} -> "Tuple"
@@ -984,3 +1160,5 @@ patternBoundNames pattern =
       Set.union (patternBoundNames headPattern) (patternBoundNames tailPattern)
     PTuple patterns ->
       Set.unions (map patternBoundNames patterns)
+    PAs name pattern ->
+      Set.insert (identifierText name) (patternBoundNames pattern)

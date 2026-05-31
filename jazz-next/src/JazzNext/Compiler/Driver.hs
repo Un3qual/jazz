@@ -962,6 +962,14 @@ rewritePatternReferences importTargets boundNames patternValue =
         (rewritePatternReferences importTargets boundNames tailPattern)
     PTuple nestedPatterns ->
       PTuple (map (rewritePatternReferences importTargets boundNames) nestedPatterns)
+    PAs name nestedPattern ->
+      PAs
+        name
+        ( rewritePatternReferences
+            importTargets
+            (Set.insert (identifierText name) boundNames)
+            nestedPattern
+        )
 
 patternBinders :: Pattern -> Set Text
 patternBinders patternValue =
@@ -974,6 +982,8 @@ patternBinders patternValue =
     PConsList headPattern tailPattern ->
       Set.union (patternBinders headPattern) (patternBinders tailPattern)
     PTuple nestedPatterns -> Set.unions (map patternBinders nestedPatterns)
+    PAs name nestedPattern ->
+      Set.insert (identifierText name) (patternBinders nestedPattern)
 
 collectUnqualifiedReferences :: Expr -> Set Text
 collectUnqualifiedReferences expr =
@@ -1041,6 +1051,7 @@ patternConstructorReferences patternValue =
     PConsList headPattern tailPattern ->
       Set.union (patternConstructorReferences headPattern) (patternConstructorReferences tailPattern)
     PTuple nestedPatterns -> Set.unions (map patternConstructorReferences nestedPatterns)
+    PAs _ nestedPattern -> patternConstructorReferences nestedPattern
 
 expandNeededModuleExports ::
   [ResolvedModule] ->

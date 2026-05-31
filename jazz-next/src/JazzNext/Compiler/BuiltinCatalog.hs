@@ -12,6 +12,9 @@ module JazzNext.Compiler.BuiltinCatalog
     builtinSymbolArity,
     builtinSymbolName,
     builtinSymbolKernelName,
+    builtinSymbolNumericConversionTarget,
+    numericTypeFloatMax,
+    numericTypeIntegerBounds,
     kernelBridgeBindingPrefix,
     kernelBridgeTargetName,
     isBuiltinSymbolNameInMode,
@@ -29,6 +32,9 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import JazzNext.Compiler.AST
+  ( NumericType (..)
+  )
 
 -- | Selects exactly one builtin naming scheme for a compiler phase: either the
 -- kernel bridge names or the older compatibility/public names.
@@ -51,6 +57,17 @@ data BuiltinSymbol
   | BuiltinHd
   | BuiltinTl
   | BuiltinPrint
+  | BuiltinToInt8
+  | BuiltinToInt16
+  | BuiltinToInt32
+  | BuiltinToInt64
+  | BuiltinToUInt8
+  | BuiltinToUInt16
+  | BuiltinToUInt32
+  | BuiltinToUInt64
+  | BuiltinToFloat16
+  | BuiltinToFloat32
+  | BuiltinToFloat64
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 -- | Exhaustive builtin inventory in declaration order. Generated prelude text
@@ -82,6 +99,17 @@ builtinSymbolOwnership builtinSymbol =
     BuiltinHd -> PreludeTarget
     BuiltinTl -> PreludeTarget
     BuiltinPrint -> PreludeTarget
+    BuiltinToInt8 -> PreludeTarget
+    BuiltinToInt16 -> PreludeTarget
+    BuiltinToInt32 -> PreludeTarget
+    BuiltinToInt64 -> PreludeTarget
+    BuiltinToUInt8 -> PreludeTarget
+    BuiltinToUInt16 -> PreludeTarget
+    BuiltinToUInt32 -> PreludeTarget
+    BuiltinToUInt64 -> PreludeTarget
+    BuiltinToFloat16 -> PreludeTarget
+    BuiltinToFloat32 -> PreludeTarget
+    BuiltinToFloat64 -> PreludeTarget
 
 -- | Public compatibility/prelude spelling for a builtin symbol.
 builtinSymbolName :: BuiltinSymbol -> Text
@@ -92,6 +120,17 @@ builtinSymbolName builtinSymbol =
     BuiltinHd -> "hd"
     BuiltinTl -> "tl"
     BuiltinPrint -> "print!"
+    BuiltinToInt8 -> "toInt8"
+    BuiltinToInt16 -> "toInt16"
+    BuiltinToInt32 -> "toInt32"
+    BuiltinToInt64 -> "toInt64"
+    BuiltinToUInt8 -> "toUInt8"
+    BuiltinToUInt16 -> "toUInt16"
+    BuiltinToUInt32 -> "toUInt32"
+    BuiltinToUInt64 -> "toUInt64"
+    BuiltinToFloat16 -> "toFloat16"
+    BuiltinToFloat32 -> "toFloat32"
+    BuiltinToFloat64 -> "toFloat64"
 
 -- | Kernel bridge spelling reserved for compiler-generated prelude bindings.
 builtinSymbolKernelName :: BuiltinSymbol -> Text
@@ -107,6 +146,61 @@ builtinSymbolArity builtinSymbol =
     BuiltinHd -> 1
     BuiltinTl -> 1
     BuiltinPrint -> 1
+    BuiltinToInt8 -> 1
+    BuiltinToInt16 -> 1
+    BuiltinToInt32 -> 1
+    BuiltinToInt64 -> 1
+    BuiltinToUInt8 -> 1
+    BuiltinToUInt16 -> 1
+    BuiltinToUInt32 -> 1
+    BuiltinToUInt64 -> 1
+    BuiltinToFloat16 -> 1
+    BuiltinToFloat32 -> 1
+    BuiltinToFloat64 -> 1
+
+-- | Numeric conversion builtins target one explicit concrete numeric type.
+builtinSymbolNumericConversionTarget :: BuiltinSymbol -> Maybe NumericType
+builtinSymbolNumericConversionTarget builtinSymbol =
+  case builtinSymbol of
+    BuiltinToInt8 -> Just NumericInt8
+    BuiltinToInt16 -> Just NumericInt16
+    BuiltinToInt32 -> Just NumericInt32
+    BuiltinToInt64 -> Just NumericInt64
+    BuiltinToUInt8 -> Just NumericUInt8
+    BuiltinToUInt16 -> Just NumericUInt16
+    BuiltinToUInt32 -> Just NumericUInt32
+    BuiltinToUInt64 -> Just NumericUInt64
+    BuiltinToFloat16 -> Just NumericFloat16
+    BuiltinToFloat32 -> Just NumericFloat32
+    BuiltinToFloat64 -> Just NumericFloat64
+    _ -> Nothing
+
+numericTypeFloatMax :: NumericType -> Maybe Double
+numericTypeFloatMax numericType =
+  case numericType of
+    NumericFloat16 -> Just 65504.0
+    NumericFloat32 -> Just 3.4028234663852886e38
+    NumericFloat64 -> Just 1.7976931348623157e308
+    _ -> Nothing
+
+numericTypeIntegerBounds :: NumericType -> Maybe (Integer, Integer)
+numericTypeIntegerBounds numericType =
+  case numericType of
+    NumericInt8 -> Just (signedLower 8, signedUpper 8)
+    NumericInt16 -> Just (signedLower 16, signedUpper 16)
+    NumericInt32 -> Just (signedLower 32, signedUpper 32)
+    NumericInt64 -> Just (signedLower 64, signedUpper 64)
+    NumericUInt8 -> Just (0, unsignedUpper 8)
+    NumericUInt16 -> Just (0, unsignedUpper 16)
+    NumericUInt32 -> Just (0, unsignedUpper 32)
+    NumericUInt64 -> Just (0, unsignedUpper 64)
+    NumericFloat16 -> Nothing
+    NumericFloat32 -> Nothing
+    NumericFloat64 -> Nothing
+  where
+    signedLower bits = negate (2 ^ (bits - 1))
+    signedUpper bits = (2 ^ (bits - 1)) - 1
+    unsignedUpper bits = (2 ^ bits) - 1
 
 -- | Prefix reserved for prelude bindings that directly expose kernel-owned
 -- builtin symbols. Example: `__kernel_map = __kernel_map.`

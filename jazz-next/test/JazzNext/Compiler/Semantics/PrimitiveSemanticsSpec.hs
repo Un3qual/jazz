@@ -67,7 +67,17 @@ tests =
     ("source pipeline accepts bare operator value", testSourcePipelineAcceptsBareOperatorValue),
     ("source pipeline accepts bare operator value application", testSourcePipelineAcceptsBareOperatorValueApplication),
     ("source pipeline accepts explicit partial application of bare operator value", testSourcePipelineAcceptsExplicitPartialOperatorApplication),
-    ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral)
+    ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral),
+    ("source pipeline accepts target-named integer conversions", testSourcePipelineAcceptsTargetNamedIntegerConversions),
+    ("source pipeline accepts target-named float conversions", testSourcePipelineAcceptsTargetNamedFloatConversions),
+    ("source pipeline rejects out-of-range literal conversions", testSourcePipelineRejectsOutOfRangeLiteralConversions),
+    ("source pipeline rejects out-of-range float-target literal conversions", testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions),
+    ("source pipeline ignores conversion literal checks for shadowed names", testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames),
+    ("source pipeline freshens prelude conversion aliases", testSourcePipelineFreshensPreludeConversionAliases),
+    ("source pipeline rejects float conversion operands in numeric operators", testSourcePipelineRejectsFloatConversionOperandsInNumericOperators),
+    ("source pipeline rejects float conversion operands through operator values", testSourcePipelineRejectsFloatConversionOperandsThroughOperatorValues),
+    ("source pipeline keeps locally shadowed kernel aliases ordinary", testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary),
+    ("source pipeline rejects non-numeric conversion source", testSourcePipelineRejectsNonNumericConversionSource)
   ]
 
 testAcceptsArithmeticIntOperands :: IO ()
@@ -277,6 +287,63 @@ testSourcePipelineRejectsMixedTypeListLiteral =
     "x = [1, True]."
     "list literal element mismatch"
     "E2007"
+
+testSourcePipelineAcceptsTargetNamedIntegerConversions :: IO ()
+testSourcePipelineAcceptsTargetNamedIntegerConversions =
+  assertCompilesWithBundledPrelude "x :: UInt8.\nx = toUInt8 255.\ny :: Int16.\ny = toInt16 x."
+
+testSourcePipelineAcceptsTargetNamedFloatConversions :: IO ()
+testSourcePipelineAcceptsTargetNamedFloatConversions =
+  assertCompilesWithBundledPrelude "x :: Float64.\nx = toFloat64 1."
+
+testSourcePipelineRejectsOutOfRangeLiteralConversions :: IO ()
+testSourcePipelineRejectsOutOfRangeLiteralConversions =
+  assertCompileErrorWithBundledPrelude
+    "x = toUInt8 256."
+    "out-of-range literal conversion"
+    "E2006"
+
+testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions :: IO ()
+testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions =
+  assertCompileErrorWithBundledPrelude
+    "x = toFloat16 70000."
+    "out-of-range float-target literal conversion"
+    "E2006"
+
+testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames :: IO ()
+testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames =
+  assertCompiles "toUInt8 = \\(x) -> x.\nx = toUInt8 256."
+
+testSourcePipelineFreshensPreludeConversionAliases :: IO ()
+testSourcePipelineFreshensPreludeConversionAliases =
+  assertCompilesWithBundledPrelude
+    "a :: Int16.\na = toInt16 1.\nb :: UInt8.\nb = toUInt8 a.\nc :: UInt16.\nc = toUInt16 2.\nd :: UInt8.\nd = toUInt8 c."
+
+testSourcePipelineRejectsFloatConversionOperandsInNumericOperators :: IO ()
+testSourcePipelineRejectsFloatConversionOperandsInNumericOperators =
+  assertCompileErrorWithBundledPrelude
+    "x = toFloat64 1 + toFloat64 2."
+    "float conversion numeric operator"
+    "E2003"
+
+testSourcePipelineRejectsFloatConversionOperandsThroughOperatorValues :: IO ()
+testSourcePipelineRejectsFloatConversionOperandsThroughOperatorValues =
+  assertCompileErrorWithBundledPrelude
+    "x = (+) (toFloat64 1) (toFloat64 2)."
+    "float conversion operator value"
+    "E2006"
+
+testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary :: IO ()
+testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary =
+  assertCompilesWithBundledPrelude
+    "x = {\n__kernel_toUInt8 = \\(value) -> value.\nalias = __kernel_toUInt8.\nalias 256.\n}."
+
+testSourcePipelineRejectsNonNumericConversionSource :: IO ()
+testSourcePipelineRejectsNonNumericConversionSource =
+  assertCompileErrorWithBundledPrelude
+    "flag = True.\nx = toInt8 flag."
+    "non-numeric conversion argument"
+    "E2006"
 
 assertCompiles :: String -> IO ()
 assertCompiles source = do

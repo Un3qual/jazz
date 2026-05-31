@@ -43,7 +43,10 @@ import JazzNext.Compiler.BuiltinCatalog
     BuiltinSymbol,
     builtinNamesInMode,
     builtinSymbolName,
-    lookupBuiltinSymbolInMode
+    builtinSymbolNumericConversionTarget,
+    lookupBuiltinSymbolInMode,
+    numericTypeFloatMax,
+    numericTypeIntegerBounds
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic (..),
@@ -207,6 +210,7 @@ data NumericConstraint
 
 data TypeBinding
   = PlainTypeBinding ExpressionType
+  | BuiltinAliasTypeBinding BuiltinSymbol
   | ConstructorTypeBinding Identifier [ExpressionType]
   deriving (Eq, Show)
 
@@ -308,7 +312,11 @@ inferExprType builtinMode env state expr =
                     (TFunctionType inferredArgumentType resultTypeVar)
                     stateWithResultVar of
                 Just unifiedState ->
-                  (Just (resolveType unifiedState resultTypeVar), unifiedState)
+                  case numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr of
+                    Just diagnostic ->
+                      (Nothing, addTypeError unifiedState diagnostic)
+                    Nothing ->
+                      (Just (resolveType unifiedState resultTypeVar), unifiedState)
                 Nothing ->
                   ( Nothing,
                     addTypeError
@@ -536,7 +544,7 @@ applyNumericBinaryRule operatorSymbol resultRule leftType rightType state =
   case unifyTypes leftType rightType state of
     Just stateAfterUnify ->
       let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
-       in case constrainNumericType resolvedOperandType stateAfterUnify of
+       in case constrainRuntimeNumericOperatorType resolvedOperandType stateAfterUnify of
             Just stateAfterNumericConstraint ->
               (Just (numericRuleResultType resultRule resolvedOperandType), stateAfterNumericConstraint)
             Nothing ->
@@ -655,7 +663,7 @@ applyNumericSectionLeftRule ::
   (Maybe ExpressionType, InferState)
 applyNumericSectionLeftRule operatorSymbol resultRule leftType state =
   let resolvedLeftType = resolveType state leftType
-   in case constrainNumericType resolvedLeftType state of
+   in case constrainRuntimeNumericOperatorType resolvedLeftType state of
         Just stateAfterNumericConstraint ->
           let (rightType, stateAfterSectionType) =
                 numericSectionCounterpartType resolvedLeftType stateAfterNumericConstraint
@@ -723,7 +731,7 @@ applyNumericSectionRightRule ::
   (Maybe ExpressionType, InferState)
 applyNumericSectionRightRule operatorSymbol resultRule rightType state =
   let resolvedRightType = resolveType state rightType
-   in case constrainNumericType resolvedRightType state of
+   in case constrainRuntimeNumericOperatorType resolvedRightType state of
         Just stateAfterNumericConstraint ->
           let (leftType, stateAfterSectionType) =
                 numericSectionCounterpartType resolvedRightType stateAfterNumericConstraint
@@ -896,8 +904,8 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                           (defaultLiteralTypes . resolveType stateAfterSignatureCheck)
                           (Map.lookup statementIndex bindingSeedsByStatement)
                   nextEnv =
-                    case nextBindingType of
-                      Just inferredType -> Map.insert nameText (PlainTypeBinding inferredType) env
+                    case nextBindingForValue env valueExpr nextBindingType pendingSignatureType of
+                      Just binding -> Map.insert nameText binding env
                       Nothing -> env
                in go nextEnv lastExprType Nothing stateAfterSignatureCheck rest
             SExpr exprSpan expr ->
@@ -905,6 +913,22 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                   stateAfterExpr =
                     annotateNewErrorsWithPrimarySpan exprSpan state rawStateAfterExpr
                in go env exprType Nothing stateAfterExpr rest
+
+    nextBindingForValue :: TypeEnv -> Expr -> Maybe ExpressionType -> Maybe PendingSignatureType -> Maybe TypeBinding
+    nextBindingForValue currentEnv valueExpr maybeInferredType maybePendingSignature =
+      case (maybePendingSignature, valueExpr) of
+        (Nothing, EVar builtinName) ->
+          let referencedName = identifierText builtinName
+           in case Map.lookup referencedName currentEnv of
+                Just (BuiltinAliasTypeBinding builtinSymbol) ->
+                  Just (BuiltinAliasTypeBinding builtinSymbol)
+                Just _ ->
+                  PlainTypeBinding <$> maybeInferredType
+                Nothing ->
+                  case lookupBuiltinSymbolInMode builtinMode referencedName of
+                    Just builtinSymbol -> Just (BuiltinAliasTypeBinding builtinSymbol)
+                    Nothing -> PlainTypeBinding <$> maybeInferredType
+        _ -> PlainTypeBinding <$> maybeInferredType
 
 allocateBindingSeeds ::
   [(Int, Statement)] ->
@@ -1044,6 +1068,10 @@ instantiateTypeBinding binding state =
   case binding of
     PlainTypeBinding expressionType ->
       (Just (resolveType state expressionType), state)
+    BuiltinAliasTypeBinding builtinSymbol ->
+      case instantiateBuiltinSymbolType builtinSymbol state of
+        Just (expressionType, nextState) -> (Just expressionType, nextState)
+        Nothing -> (Nothing, state)
     ConstructorTypeBinding typeName argumentTypes ->
       ( Just
           ( foldr
@@ -1325,24 +1353,43 @@ integerLiteralRangeFitsNumericType literalRange numericType =
        in literalMin >= lowerBound && literalMax <= upperBound
     Nothing -> False
 
-numericTypeIntegerBounds :: NumericType -> Maybe (Integer, Integer)
-numericTypeIntegerBounds numericType =
-  case numericType of
-    NumericInt8 -> Just (signedLower 8, signedUpper 8)
-    NumericInt16 -> Just (signedLower 16, signedUpper 16)
-    NumericInt32 -> Just (signedLower 32, signedUpper 32)
-    NumericInt64 -> Just (signedLower 64, signedUpper 64)
-    NumericUInt8 -> Just (0, unsignedUpper 8)
-    NumericUInt16 -> Just (0, unsignedUpper 16)
-    NumericUInt32 -> Just (0, unsignedUpper 32)
-    NumericUInt64 -> Just (0, unsignedUpper 64)
-    NumericFloat16 -> Nothing
-    NumericFloat32 -> Nothing
-    NumericFloat64 -> Nothing
-  where
-    signedLower bits = negate (2 ^ (bits - 1))
-    signedUpper bits = (2 ^ (bits - 1)) - 1
-    unsignedUpper bits = (2 ^ bits) - 1
+numericConversionLiteralDiagnostic :: BuiltinResolutionMode -> TypeEnv -> Expr -> Expr -> Maybe Diagnostic
+numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr =
+  case (functionExpr, argumentExpr) of
+    (EVar functionName, ELit (LInt literalValue)) ->
+      case numericConversionTargetFromCallable builtinMode env functionName of
+        Just targetType ->
+          case numericTypeLiteralIntegerBounds targetType of
+            Just bounds@(lowerBound, upperBound)
+              | literalValue < lowerBound || literalValue > upperBound ->
+                  Just (mkNumericConversionLiteralTypeError (identifierText functionName) literalValue targetType bounds)
+            _ -> Nothing
+        Nothing -> Nothing
+    _ -> Nothing
+
+numericConversionTargetFromCallable :: BuiltinResolutionMode -> TypeEnv -> Identifier -> Maybe NumericType
+numericConversionTargetFromCallable builtinMode env functionName =
+  let nameText = identifierText functionName
+   in case Map.lookup nameText env of
+        Just (BuiltinAliasTypeBinding builtinSymbol) ->
+          builtinSymbolNumericConversionTarget builtinSymbol
+        Just _ ->
+          Nothing
+        Nothing ->
+          lookupBuiltinSymbolInMode builtinMode nameText >>= builtinSymbolNumericConversionTarget
+
+numericTypeLiteralIntegerBounds :: NumericType -> Maybe (Integer, Integer)
+numericTypeLiteralIntegerBounds numericType =
+  case numericTypeIntegerBounds numericType of
+    Just bounds -> Just bounds
+    Nothing -> numericTypeFloatIntegerBounds numericType
+
+numericTypeFloatIntegerBounds :: NumericType -> Maybe (Integer, Integer)
+numericTypeFloatIntegerBounds numericType =
+  case numericTypeFloatMax numericType of
+    Just maxMagnitude ->
+      Just (ceiling (negate maxMagnitude), floor maxMagnitude)
+    Nothing -> Nothing
 
 singletonIntegerLiteralRange :: Integer -> IntegerLiteralRange
 singletonIntegerLiteralRange value = IntegerLiteralRange value value
@@ -1598,7 +1645,7 @@ instantiateOperatorType operatorSymbol state =
     Just (NumericRule resultRule) ->
       let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
           stateAfterNumericConstraint =
-            addNumericTypeVarConstraint typeVar AnyNumericConstraint stateAfterOperandType
+            addNumericTypeVarConstraint typeVar IntegralNumericConstraint stateAfterOperandType
        in
         Just
           ( TFunctionType
@@ -1631,7 +1678,18 @@ instantiateBuiltinSymbolType :: BuiltinSymbol -> InferState -> Maybe (Expression
 instantiateBuiltinSymbolType builtinSymbol state =
   -- Use catalog names here so newly-added symbols safely fall back to `Nothing`
   -- until an explicit type-instantiation rule is defined.
-  case builtinSymbolName builtinSymbol of
+  case builtinSymbolNumericConversionTarget builtinSymbol of
+    Just targetType ->
+      let (sourceTypeVar, sourceType, stateAfterSourceType) = freshTypeVariable state
+          stateAfterNumericConstraint =
+            addNumericTypeVarConstraint sourceTypeVar AnyNumericConstraint stateAfterSourceType
+       in Just (TFunctionType sourceType (TNumericType targetType), stateAfterNumericConstraint)
+    Nothing ->
+      instantiateBuiltinSymbolTypeByName (builtinSymbolName builtinSymbol) state
+
+instantiateBuiltinSymbolTypeByName :: Text -> InferState -> Maybe (ExpressionType, InferState)
+instantiateBuiltinSymbolTypeByName builtinName state =
+  case builtinName of
     "hd" ->
       let (elementType, stateAfterElement) = freshTypeVar state
        in Just (TFunctionType (TListType elementType) elementType, stateAfterElement)
@@ -1873,13 +1931,13 @@ applyNumericConstraintToReplacement numericConstraint replacementType =
       | otherwise ->
           Nothing
 
-constrainNumericType :: ExpressionType -> InferState -> Maybe InferState
-constrainNumericType expressionType state =
+constrainRuntimeNumericOperatorType :: ExpressionType -> InferState -> Maybe InferState
+constrainRuntimeNumericOperatorType expressionType state =
   case resolveType state expressionType of
     TVarType typeVar ->
-      Just (addNumericTypeVarConstraint typeVar AnyNumericConstraint state)
+      Just (addNumericTypeVarConstraint typeVar IntegralNumericConstraint state)
     resolvedType
-      | typeSatisfiesNumericConstraint AnyNumericConstraint resolvedType ->
+      | typeSatisfiesNumericConstraint IntegralNumericConstraint resolvedType ->
           Just state
       | otherwise ->
           Nothing
@@ -1978,6 +2036,22 @@ mkApplyTypeError functionType argumentType =
         <> renderType functionType
         <> " to argument of type "
         <> renderType argumentType
+    )
+
+mkNumericConversionLiteralTypeError :: Text -> Integer -> NumericType -> (Integer, Integer) -> Diagnostic
+mkNumericConversionLiteralTypeError conversionName literalValue targetType (lowerBound, upperBound) =
+  mkDiagnostic
+    "E2006"
+    ( "numeric conversion '"
+        <> conversionName
+        <> "' cannot convert integer literal "
+        <> Text.pack (show literalValue)
+        <> " outside "
+        <> renderNumericTypeName targetType
+        <> " range "
+        <> Text.pack (show lowerBound)
+        <> ".."
+        <> Text.pack (show upperBound)
     )
 
 mkBindingTypeMismatchError :: Text -> ExpressionType -> SourceSpan -> ExpressionType -> Diagnostic
@@ -2195,6 +2269,8 @@ extendBoundWithPattern pattern bound =
       extendBoundWithPattern tailPattern (extendBoundWithPattern headPattern bound)
     PTuple patterns ->
       foldl' (flip extendBoundWithPattern) bound patterns
+    PAs name pattern ->
+      extendBoundWithPattern pattern (Set.insert (identifierText name) bound)
 
 inferPatternCaseType ::
   BuiltinResolutionMode ->
@@ -2307,6 +2383,13 @@ patternDuplicateBinderNames pattern =
           collectNested seen duplicatesAcc [headPattern, tailPattern]
         PTuple nestedPatterns ->
           collectNested seen duplicatesAcc nestedPatterns
+        PAs name nestedPattern ->
+          let nameText = identifierText name
+              (seenAfterName, duplicatesAfterName) =
+                if Set.member nameText seen
+                  then (seen, Set.insert nameText duplicatesAcc)
+                  else (Set.insert nameText seen, duplicatesAcc)
+           in collect nestedPattern seenAfterName duplicatesAfterName
 
     collectNested seen duplicatesAcc =
       foldl'
@@ -2349,6 +2432,22 @@ inferPatternType env scrutineeType pattern state =
       inferConsListPatternType env scrutineeType headPattern tailPattern state
     PTuple patterns ->
       inferTuplePatternType env scrutineeType patterns state
+    PAs name pattern ->
+      let (typing, stateAfterPattern) =
+            inferPatternType env scrutineeType pattern state
+       in
+        if patternSkipsBranchType typing
+          then (typing, stateAfterPattern)
+          else
+            ( typing
+                { patternBindings =
+                    Map.insert
+                      (identifierText name)
+                      (PlainTypeBinding (resolveType stateAfterPattern scrutineeType))
+                      (patternBindings typing)
+                },
+              stateAfterPattern
+            )
 
 inferConstructorPatternType ::
   TypeEnv ->

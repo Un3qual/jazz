@@ -1,22 +1,28 @@
 ---
-id: JN-TRAIT-SYNTAX-REJECT-001
-status: done
+id: JN-CLASS-IMPL-ENV-VALIDATION-001
+status: ready
 priority: P2
-size: S
+size: M
 kind: impl
-autonomous_ready: no
+autonomous_ready: yes
 depends_on: []
-last_verified: 2026-05-25
-plan_section: "Completed jazz-next batch: trait declaration rejection boundary"
+last_verified: 2026-05-31
+plan_section: "Future jazz-next batch seed: class/impl environment validation"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
+  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
+  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  - bash jazz-next/scripts/test-warning-config.sh
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "The active parser rejects non-canonical trait declaration-shaped forms with deterministic unsupported-syntax diagnostics while preserving canonical class/impl rejection and ordinary identifier uses."
+deliverable: "Collect canonical class/impl declarations into analyzer/type environments, reject duplicate class and duplicate concrete impl facts, and validate known concrete constrained signatures without adding dispatch/runtime semantics."
 ---
 
 # Jazz Spec-Cleanup #1: Authoritative Syntax Implementation Plan
@@ -147,8 +153,8 @@ Closure evidence:
 
 ## Future jazz-next batch seed: class/impl environment validation
 
-This seed is not a queue entry yet. It records the first acceptable semantics
-slice for future active-path abstraction work.
+This section is queued as `JN-CLASS-IMPL-ENV-VALIDATION-001`. It records the
+first acceptable semantics slice for future active-path abstraction work.
 
 Batch scope:
 

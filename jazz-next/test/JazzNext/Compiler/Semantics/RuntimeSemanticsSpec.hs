@@ -89,6 +89,11 @@ tests =
     ("runtime fallback rejects kernel filter with non-list collection", testRuntimeFallbackRejectsFilterNonListCollection),
     ("runtime fallback rejects kernel filter predicate returning non-Bool", testRuntimeFallbackRejectsFilterPredicateNonBool),
     ("print! returns evaluated argument value", testPrintBuiltinReturnsArgument),
+    ("target-named integer conversion evaluates at runtime", testIntegerConversionRuntimeSuccess),
+    ("target-named float conversion evaluates at runtime", testFloatConversionRuntimeSuccess),
+    ("Float16 conversion rounds to target precision", testFloat16ConversionRoundsRuntimeValue),
+    ("dynamic integer conversion range failure reports deterministic diagnostic", testDynamicIntegerConversionRangeRuntimeError),
+    ("runtime fallback rejects non-numeric conversion values", testRuntimeFallbackRejectsNonNumericConversionValue),
     ("scope with only declarations has no runtime output", testDeclarationOnlyScopeHasNoOutput),
     ("scope with only capability declarations has no runtime output", testCapabilityDeclarationOnlyScopeHasNoOutput),
     ("capability declarations are inert at runtime", testCapabilityDeclarationsRuntimeInert),
@@ -592,6 +597,46 @@ testPrintBuiltinReturnsArgument = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "1") (runOutput result)
+
+testIntegerConversionRuntimeSuccess :: IO ()
+testIntegerConversionRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "toUInt8 255."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "255") (runOutput result)
+
+testFloatConversionRuntimeSuccess :: IO ()
+testFloatConversionRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "toFloat64 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1.0") (runOutput result)
+
+testFloat16ConversionRoundsRuntimeValue :: IO ()
+testFloat16ConversionRoundsRuntimeValue = do
+  result <- runSource defaultWarningSettings "toFloat16 2049."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "2048.0") (runOutput result)
+
+testDynamicIntegerConversionRangeRuntimeError :: IO ()
+testDynamicIntegerConversionRangeRuntimeError = do
+  result <- runSource defaultWarningSettings "x :: Int.\nx = 256.\ntoUInt8 x."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "dynamic conversion range runtime code"
+    "E3024"
+    (runRuntimeErrors result)
+  assertSingleDiagnosticContains
+    "dynamic conversion range runtime text"
+    "outside UInt8 range"
+    (runRuntimeErrors result)
+  assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testRuntimeFallbackRejectsNonNumericConversionValue :: IO ()
+testRuntimeFallbackRejectsNonNumericConversionValue = do
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "__kernel_toInt8") (ELit (LBool True))))
+  assertRuntimeErrorContains "runtime fallback conversion non-numeric" "E3024" result
 
 testDeclarationOnlyScopeHasNoOutput :: IO ()
 testDeclarationOnlyScopeHasNoOutput = do

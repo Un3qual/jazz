@@ -39,6 +39,9 @@ tests =
     ("runtime falls back when cons-like list pattern sees an empty list", testRuntimeFallsBackWhenConsLikeListSeesEmptyList),
     ("runtime matches tuple patterns", testRuntimeMatchesTuplePatterns),
     ("runtime falls back when tuple element patterns do not match", testRuntimeFallsBackWhenTupleElementPatternsDoNotMatch),
+    ("runtime binds as-patterns after inner matches", testRuntimeBindsAsPatternAfterInnerMatch),
+    ("runtime falls back when as-pattern inner pattern does not match", testRuntimeFallsBackWhenAsPatternInnerDoesNotMatch),
+    ("runtime supports as-pattern lambda parameters", testRuntimeSupportsAsPatternLambdaParameters),
     ("runtime reports a deterministic error when no case arm matches", testRuntimeReportsNoMatchingArm)
   ]
 
@@ -111,6 +114,21 @@ testRuntimeFallsBackWhenTupleElementPatternsDoNotMatch :: IO ()
 testRuntimeFallsBackWhenTupleElementPatternsDoNotMatch = do
   result <- runSource defaultWarningSettings "pair = (1, 2). case pair { | (1, 3) -> 10 | _ -> 9 }."
   assertSuccessfulRuntime "tuple pattern element mismatch" (Just "9") result
+
+testRuntimeBindsAsPatternAfterInnerMatch :: IO ()
+testRuntimeBindsAsPatternAfterInnerMatch = do
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 41. case value { | whole @ Just item -> case whole { | Just nested -> item + nested | Nothing -> 0 } | Nothing -> 0 }."
+  assertSuccessfulRuntime "as-pattern whole binding" (Just "82") result
+
+testRuntimeFallsBackWhenAsPatternInnerDoesNotMatch :: IO ()
+testRuntimeFallsBackWhenAsPatternInnerDoesNotMatch = do
+  result <- runSource defaultWarningSettings "values = [1, 2]. case values { | whole @ [only] -> hd whole | _ -> 9 }."
+  assertSuccessfulRuntime "as-pattern inner mismatch fallback" (Just "9") result
+
+testRuntimeSupportsAsPatternLambdaParameters :: IO ()
+testRuntimeSupportsAsPatternLambdaParameters = do
+  result <- runSource defaultWarningSettings "f = \\(whole @ [head | tail]) -> head + hd tail. f [1, 2]."
+  assertSuccessfulRuntime "as-pattern lambda parameter" (Just "3") result
 
 testRuntimeReportsNoMatchingArm :: IO ()
 testRuntimeReportsNoMatchingArm = do

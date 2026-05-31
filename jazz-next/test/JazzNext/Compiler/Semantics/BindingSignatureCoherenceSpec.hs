@@ -68,8 +68,9 @@ tests =
     ("source pipeline rejects out-of-range width-specific branch literals", testSourceRejectsOutOfRangeWidthSpecificBranchLiterals),
     ("source pipeline rejects out-of-range width-specific literal arithmetic", testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic),
     ("source pipeline rejects out-of-range width-specific section literals", testSourceRejectsOutOfRangeWidthSpecificSectionLiterals),
-    ("source pipeline accepts same-width numeric operator signatures", testSourceAcceptsSameWidthNumericOperatorSignatures),
+    ("source pipeline accepts same-width integral operator signatures", testSourceAcceptsSameWidthIntegralOperatorSignatures),
     ("source pipeline rejects mixed-width numeric operator signatures", testSourceRejectsMixedWidthNumericOperatorSignatures),
+    ("source pipeline rejects float numeric operator signatures", testSourceRejectsFloatNumericOperatorSignatures),
     ("source pipeline keeps float signatures distinct from integer literals", testSourceRejectsFloatSignatureForIntegerLiteral),
     ("source pipeline rejects tuple signature mismatch", testSourceRejectsTupleSignatureMismatch),
     ("source pipeline rejects tuple signature arity mismatch", testSourceRejectsTupleSignatureArityMismatch),
@@ -409,15 +410,18 @@ testSourceRejectsOutOfRangeWidthSpecificSectionLiterals = do
   assertSourceSingleErrorContains "inc :: UInt8 -> UInt8.\ninc = (+ 300)." "E2005"
   assertSourceSingleErrorContains "inc :: UInt8 -> UInt8.\ninc = (300 +)." "E2005"
 
-testSourceAcceptsSameWidthNumericOperatorSignatures :: IO ()
-testSourceAcceptsSameWidthNumericOperatorSignatures = do
+testSourceAcceptsSameWidthIntegralOperatorSignatures :: IO ()
+testSourceAcceptsSameWidthIntegralOperatorSignatures = do
   assertSourceOk "add :: Int8 -> Int8 -> Int8.\nadd = (+)."
   assertSourceOk "lt :: UInt32 -> UInt32 -> Bool.\nlt = (<)."
-  assertSourceOk "fadd :: Float -> Float64 -> Float64.\nfadd = (+)."
 
 testSourceRejectsMixedWidthNumericOperatorSignatures :: IO ()
 testSourceRejectsMixedWidthNumericOperatorSignatures =
   assertSourceSingleErrorContains "add :: Int8 -> UInt8 -> Int8.\nadd = (+)." "E2005"
+
+testSourceRejectsFloatNumericOperatorSignatures :: IO ()
+testSourceRejectsFloatNumericOperatorSignatures =
+  assertSourceSingleErrorContains "fadd :: Float -> Float64 -> Float64.\nfadd = (+)." "E2005"
 
 testSourceRejectsFloatSignatureForIntegerLiteral :: IO ()
 testSourceRejectsFloatSignatureForIntegerLiteral =

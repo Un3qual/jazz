@@ -20,6 +20,7 @@ import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
     SurfaceStatement (..)
@@ -42,6 +43,9 @@ tests :: [NamedTest]
 tests =
   [ ("parses basic case expression with literal and wildcard arms", testParsesBasicCaseExpression),
     ("parses variable pattern case arm", testParsesVariablePatternCaseArm),
+    ("parses as-pattern case arms", testParsesAsPatternCaseArm),
+    ("keeps as-pattern constructor arguments atomic", testKeepsAsPatternConstructorArgumentsAtomic),
+    ("parses as-pattern lambda parameters", testParsesAsPatternLambdaParameter),
     ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms),
     ("parses multi-argument constructor patterns with nullary subpatterns", testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns),
     ("parses nullary constructor subpatterns without losing the outer argument", testParsesNullaryConstructorSubpatterns),
@@ -112,6 +116,106 @@ testParsesVariablePatternCaseArm =
         )
     )
     (parseSurfaceProgram "x = case value { | item -> item }.")
+
+testParsesAsPatternCaseArm :: IO ()
+testParsesAsPatternCaseArm =
+  assertRight
+    "as-pattern case arm parse + lower"
+    (parseSurfaceProgram "x = case value { | whole @ Just item -> whole | _ -> value }.")
+    ( \surfaceProgram -> do
+        assertEqual "as-pattern surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "as-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "value")
+                [ SurfaceCaseArm
+                    (SPAs "whole" (SPConstructor "Just" [SPVariable "item"]))
+                    (SEVar "whole"),
+                  SurfaceCaseArm SPWildcard (SEVar "value")
+                ]
+            )
+        ]
+    expectedLoweredProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    (PAs "whole" (PConstructor "Just" [PVariable "item"]))
+                    (EVar "whole"),
+                  CaseArm PWildcard (EVar "value")
+                ]
+            )
+        ]
+
+testKeepsAsPatternConstructorArgumentsAtomic :: IO ()
+testKeepsAsPatternConstructorArgumentsAtomic =
+  assertRight
+    "as-pattern constructor argument parse + lower"
+    (parseSurfaceProgram "x = case value { | Pair whole @ Nothing item -> item | _ -> 0 }.")
+    ( \surfaceProgram -> do
+        assertEqual "as-pattern constructor argument surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "as-pattern constructor argument lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "value")
+                [ SurfaceCaseArm
+                    (SPConstructor "Pair" [SPAs "whole" (SPConstructor "Nothing" []), SPVariable "item"])
+                    (SEVar "item"),
+                  SurfaceCaseArm
+                    SPWildcard
+                    (SELit (SLInt 0))
+                ]
+            )
+        ]
+    expectedLoweredProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    (PConstructor "Pair" [PAs "whole" (PConstructor "Nothing" []), PVariable "item"])
+                    (EVar "item"),
+                  CaseArm
+                    PWildcard
+                    (ELit (LInt 0))
+                ]
+            )
+        ]
+
+testParsesAsPatternLambdaParameter :: IO ()
+testParsesAsPatternLambdaParameter =
+  assertEqual
+    "as-pattern lambda parameter"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "f"
+                (SourceSpan 1 1)
+                ( SELambda
+                    [SurfaceLambdaPattern (SPAs "whole" (SPConsList (SPVariable "head") (SPVariable "tail")))]
+                    (SEVar "head")
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "f = \\(whole @ [head | tail]) -> head.")
 
 testParsesConstructorPatternCaseArms :: IO ()
 testParsesConstructorPatternCaseArms =

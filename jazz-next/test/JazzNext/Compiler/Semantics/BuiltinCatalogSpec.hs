@@ -91,7 +91,18 @@ expectedBuiltins =
     (BuiltinFilter, "filter", 2, PreludeTarget),
     (BuiltinHd, "hd", 1, PreludeTarget),
     (BuiltinTl, "tl", 1, PreludeTarget),
-    (BuiltinPrint, "print!", 1, PreludeTarget)
+    (BuiltinPrint, "print!", 1, PreludeTarget),
+    (BuiltinToInt8, "toInt8", 1, PreludeTarget),
+    (BuiltinToInt16, "toInt16", 1, PreludeTarget),
+    (BuiltinToInt32, "toInt32", 1, PreludeTarget),
+    (BuiltinToInt64, "toInt64", 1, PreludeTarget),
+    (BuiltinToUInt8, "toUInt8", 1, PreludeTarget),
+    (BuiltinToUInt16, "toUInt16", 1, PreludeTarget),
+    (BuiltinToUInt32, "toUInt32", 1, PreludeTarget),
+    (BuiltinToUInt64, "toUInt64", 1, PreludeTarget),
+    (BuiltinToFloat16, "toFloat16", 1, PreludeTarget),
+    (BuiltinToFloat32, "toFloat32", 1, PreludeTarget),
+    (BuiltinToFloat64, "toFloat64", 1, PreludeTarget)
   ]
 
 testCatalogRoundTripsBuiltinNames :: IO ()
@@ -287,6 +298,50 @@ overAppliedBuiltinExpr name =
       "print!" ->
         EApply
           (EApply (EVar "__kernel_print!") (ELit (LInt 1)))
+          (ELit (LInt 2))
+      "toInt8" ->
+        EApply
+          (EApply (EVar "__kernel_toInt8") (ELit (LInt 1)))
+          (ELit (LInt 2))
+      "toInt16" ->
+        EApply
+          (EApply (EVar "__kernel_toInt16") (ELit (LInt 1)))
+          (ELit (LInt 2))
+      "toInt32" ->
+        EApply
+          (EApply (EVar "__kernel_toInt32") (ELit (LInt 1)))
+          (ELit (LInt 2))
+      "toInt64" ->
+        EApply
+          (EApply (EVar "__kernel_toInt64") (ELit (LInt 1)))
+          (ELit (LInt 2))
+      "toUInt8" ->
+        EApply
+          (EApply (EVar "__kernel_toUInt8") (ELit (LInt 1)))
+          (ELit (LInt 2))
+      "toUInt16" ->
+        EApply
+          (EApply (EVar "__kernel_toUInt16") (ELit (LInt 1)))
+          (ELit (LInt 2))
+      "toUInt32" ->
+        EApply
+          (EApply (EVar "__kernel_toUInt32") (ELit (LInt 1)))
+          (ELit (LInt 2))
+      "toUInt64" ->
+        EApply
+          (EApply (EVar "__kernel_toUInt64") (ELit (LInt 1)))
+          (ELit (LInt 2))
+      "toFloat16" ->
+        EApply
+          (EApply (EVar "__kernel_toFloat16") (ELit (LInt 1)))
+          (ELit (LInt 2))
+      "toFloat32" ->
+        EApply
+          (EApply (EVar "__kernel_toFloat32") (ELit (LInt 1)))
+          (ELit (LInt 2))
+      "toFloat64" ->
+        EApply
+          (EApply (EVar "__kernel_toFloat64") (ELit (LInt 1)))
           (ELit (LInt 2))
       _ -> EApply (EVar (mkIdentifier name)) (ELit (LInt 1))
 

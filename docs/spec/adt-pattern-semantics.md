@@ -1,6 +1,6 @@
 # ADT Semantics
 
-Status: active (canonical `data` declarations, constructor values/applications, constructor over-application diagnostics, constructor/list/tuple pattern typing and runtime matching, and tuple literal values/signature types are implemented in `jazz-next`)
+Status: active (canonical `data` declarations, constructor values/applications, constructor over-application diagnostics, constructor/list/tuple/as-pattern typing and runtime matching, and tuple literal values/signature types are implemented in `jazz-next`)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -16,8 +16,8 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
 
 ## Rebase Closure Status
 
-The active ADT/pattern rebase is closed as of `2026-05-30` for the
-monomorphic constructor/list/tuple/lambda-pattern subset implemented in
+The active ADT/pattern rebase is closed for the monomorphic
+constructor/list/tuple/as-pattern/lambda-pattern subset implemented in
 `jazz-next`.
 
 Future ADT work is blocked on a separate generic constructor type-scheme
@@ -36,8 +36,8 @@ explicit type application, or runtime dispatch.
    payload variables in arm bodies, and reject unknown or arity-mismatched
    constructor patterns with deterministic `E2011` diagnostics.
 4. The active parser/core path accepts constructor, bracketed-list,
-   cons-like list, and tuple patterns in `case` arms and lowers them into
-   `EPatternCase`.
+   cons-like list, tuple, and `name @ pattern` as-patterns in `case` arms and
+   lowers them into `EPatternCase`.
 5. Bracketed-list patterns typecheck against list scrutinees, bind element
    variables in arm bodies, and match exact-length runtime lists.
 6. Constructor patterns match saturated runtime constructor values with the
@@ -53,6 +53,9 @@ explicit type application, or runtime dispatch.
     matches the remaining list, and empty lists fall through to later arms.
 11. Pattern-shaped lambda parameters reuse the active pattern-matching contract
     through internal single-arm pattern cases.
+12. As-patterns delegate to the inner pattern first, bind the whole scrutinee
+    value on success, give the as-binder the scrutinee type, and reject
+    duplicate binders with deterministic `E2011` diagnostics.
 
 ## ADT Contract
 
@@ -121,7 +124,7 @@ bindings remain monomorphic in that first slice.
 2. Infix constructors or alternate constructor call syntax.
 3. Automatic deriving or trait/class synthesis for user ADTs.
 4. Tuple-constructor sugar or pattern features beyond the committed
-   constructor/list/tuple subset such as guards, or-patterns, as-patterns, and
+   constructor/list/tuple/as-pattern subset such as guards, or-patterns, and
    pattern synonyms.
 5. Generalized user binding polymorphism, class/defaulting solver behavior,
    explicit type application, or runtime dispatch as part of the first generic

@@ -55,16 +55,19 @@ planned.
 - Current bundled exports must alias the matching `__kernel_*` bridge names.
 - Current bundled exports/aliases are:
   - `map`, `filter`, `hd`, `tl`, `print!`
+  - `toInt8`, `toInt16`, `toInt32`, `toInt64`
+  - `toUInt8`, `toUInt16`, `toUInt32`, `toUInt64`
+  - `toFloat16`, `toFloat32`, `toFloat64`
 - Catalog ownership metadata (`PreludeTarget` vs future intrinsic-only entries)
   is declared in `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`.
 
-Future explicit numeric conversions:
+Explicit numeric conversions:
 
 - Conversion APIs such as `toInt8`, `toUInt64`, and `toFloat64` are
   prelude-owned public names backed by catalog/kernel bridge symbols.
 - Direct no-prelude flows may use only the corresponding `__kernel_*` bridge
-  names once those bridges exist.
-- Adding conversion APIs must update the builtin catalog, bundled prelude
+  names.
+- Conversion API changes must update the builtin catalog, bundled prelude
   generation/mirror, prelude contract validation, primitive type/runtime
   semantics, and no-prelude/prelude visibility tests together.
 

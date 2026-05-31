@@ -462,6 +462,8 @@ collectPatternReferences patternValue =
       Set.union (collectPatternReferences headPattern) (collectPatternReferences tailPattern)
     SPTuple nestedPatterns ->
       Set.unions (map collectPatternReferences nestedPatterns)
+    SPAs _ nestedPattern ->
+      collectPatternReferences nestedPattern
 
 collectPatternBinders :: SurfacePattern -> Set Text
 collectPatternBinders patternValue =
@@ -477,6 +479,8 @@ collectPatternBinders patternValue =
       Set.union (collectPatternBinders headPattern) (collectPatternBinders tailPattern)
     SPTuple nestedPatterns ->
       Set.unions (map collectPatternBinders nestedPatterns)
+    SPAs name nestedPattern ->
+      Set.insert (identifierText name) (collectPatternBinders nestedPattern)
 
 collectLambdaParameterReferences :: SurfaceLambdaParameter -> Set Text
 collectLambdaParameterReferences parameter =
