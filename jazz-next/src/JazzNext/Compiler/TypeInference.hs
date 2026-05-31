@@ -44,7 +44,9 @@ import JazzNext.Compiler.BuiltinCatalog
     builtinNamesInMode,
     builtinSymbolName,
     builtinSymbolNumericConversionTarget,
-    lookupBuiltinSymbolInMode
+    lookupBuiltinSymbolInMode,
+    numericTypeFloatMax,
+    numericTypeIntegerBounds
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic (..),
@@ -902,7 +904,7 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                           (defaultLiteralTypes . resolveType stateAfterSignatureCheck)
                           (Map.lookup statementIndex bindingSeedsByStatement)
                   nextEnv =
-                    case nextBindingForValue valueExpr nextBindingType pendingSignatureType of
+                    case nextBindingForValue env valueExpr nextBindingType pendingSignatureType of
                       Just binding -> Map.insert nameText binding env
                       Nothing -> env
                in go nextEnv lastExprType Nothing stateAfterSignatureCheck rest
@@ -912,13 +914,20 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                     annotateNewErrorsWithPrimarySpan exprSpan state rawStateAfterExpr
                in go env exprType Nothing stateAfterExpr rest
 
-    nextBindingForValue :: Expr -> Maybe ExpressionType -> Maybe PendingSignatureType -> Maybe TypeBinding
-    nextBindingForValue valueExpr maybeInferredType maybePendingSignature =
+    nextBindingForValue :: TypeEnv -> Expr -> Maybe ExpressionType -> Maybe PendingSignatureType -> Maybe TypeBinding
+    nextBindingForValue currentEnv valueExpr maybeInferredType maybePendingSignature =
       case (maybePendingSignature, valueExpr) of
         (Nothing, EVar builtinName) ->
-          case lookupBuiltinSymbolInMode builtinMode (identifierText builtinName) of
-            Just builtinSymbol -> Just (BuiltinAliasTypeBinding builtinSymbol)
-            Nothing -> PlainTypeBinding <$> maybeInferredType
+          let referencedName = identifierText builtinName
+           in case Map.lookup referencedName currentEnv of
+                Just (BuiltinAliasTypeBinding builtinSymbol) ->
+                  Just (BuiltinAliasTypeBinding builtinSymbol)
+                Just _ ->
+                  PlainTypeBinding <$> maybeInferredType
+                Nothing ->
+                  case lookupBuiltinSymbolInMode builtinMode referencedName of
+                    Just builtinSymbol -> Just (BuiltinAliasTypeBinding builtinSymbol)
+                    Nothing -> PlainTypeBinding <$> maybeInferredType
         _ -> PlainTypeBinding <$> maybeInferredType
 
 allocateBindingSeeds ::
@@ -1344,25 +1353,6 @@ integerLiteralRangeFitsNumericType literalRange numericType =
        in literalMin >= lowerBound && literalMax <= upperBound
     Nothing -> False
 
-numericTypeIntegerBounds :: NumericType -> Maybe (Integer, Integer)
-numericTypeIntegerBounds numericType =
-  case numericType of
-    NumericInt8 -> Just (signedLower 8, signedUpper 8)
-    NumericInt16 -> Just (signedLower 16, signedUpper 16)
-    NumericInt32 -> Just (signedLower 32, signedUpper 32)
-    NumericInt64 -> Just (signedLower 64, signedUpper 64)
-    NumericUInt8 -> Just (0, unsignedUpper 8)
-    NumericUInt16 -> Just (0, unsignedUpper 16)
-    NumericUInt32 -> Just (0, unsignedUpper 32)
-    NumericUInt64 -> Just (0, unsignedUpper 64)
-    NumericFloat16 -> Nothing
-    NumericFloat32 -> Nothing
-    NumericFloat64 -> Nothing
-  where
-    signedLower bits = negate (2 ^ (bits - 1))
-    signedUpper bits = (2 ^ (bits - 1)) - 1
-    unsignedUpper bits = (2 ^ bits) - 1
-
 numericConversionLiteralDiagnostic :: BuiltinResolutionMode -> TypeEnv -> Expr -> Expr -> Maybe Diagnostic
 numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr =
   case (functionExpr, argumentExpr) of
@@ -1400,14 +1390,6 @@ numericTypeFloatIntegerBounds numericType =
     Just maxMagnitude ->
       Just (ceiling (negate maxMagnitude), floor maxMagnitude)
     Nothing -> Nothing
-
-numericTypeFloatMax :: NumericType -> Maybe Double
-numericTypeFloatMax numericType =
-  case numericType of
-    NumericFloat16 -> Just 65504.0
-    NumericFloat32 -> Just 3.4028234663852886e38
-    NumericFloat64 -> Just 1.7976931348623157e308
-    _ -> Nothing
 
 singletonIntegerLiteralRange :: Integer -> IntegerLiteralRange
 singletonIntegerLiteralRange value = IntegerLiteralRange value value
@@ -1663,7 +1645,7 @@ instantiateOperatorType operatorSymbol state =
     Just (NumericRule resultRule) ->
       let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
           stateAfterNumericConstraint =
-            addNumericTypeVarConstraint typeVar AnyNumericConstraint stateAfterOperandType
+            addNumericTypeVarConstraint typeVar IntegralNumericConstraint stateAfterOperandType
        in
         Just
           ( TFunctionType

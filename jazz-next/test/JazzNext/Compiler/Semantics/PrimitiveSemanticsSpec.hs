@@ -75,6 +75,8 @@ tests =
     ("source pipeline ignores conversion literal checks for shadowed names", testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames),
     ("source pipeline freshens prelude conversion aliases", testSourcePipelineFreshensPreludeConversionAliases),
     ("source pipeline rejects float conversion operands in numeric operators", testSourcePipelineRejectsFloatConversionOperandsInNumericOperators),
+    ("source pipeline rejects float conversion operands through operator values", testSourcePipelineRejectsFloatConversionOperandsThroughOperatorValues),
+    ("source pipeline keeps locally shadowed kernel aliases ordinary", testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary),
     ("source pipeline rejects non-numeric conversion source", testSourcePipelineRejectsNonNumericConversionSource)
   ]
 
@@ -324,11 +326,23 @@ testSourcePipelineRejectsFloatConversionOperandsInNumericOperators =
     "float conversion numeric operator"
     "E2003"
 
+testSourcePipelineRejectsFloatConversionOperandsThroughOperatorValues :: IO ()
+testSourcePipelineRejectsFloatConversionOperandsThroughOperatorValues =
+  assertCompileErrorWithBundledPrelude
+    "x = (+) (toFloat64 1) (toFloat64 2)."
+    "float conversion operator value"
+    "E2006"
+
+testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary :: IO ()
+testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary =
+  assertCompilesWithBundledPrelude
+    "x = {\n__kernel_toUInt8 = \\(value) -> value.\nalias = __kernel_toUInt8.\nalias 256.\n}."
+
 testSourcePipelineRejectsNonNumericConversionSource :: IO ()
 testSourcePipelineRejectsNonNumericConversionSource =
   assertCompileErrorWithBundledPrelude
-    "x = toInt8 True."
-    "non-numeric conversion source"
+    "flag = True.\nx = toInt8 flag."
+    "non-numeric conversion argument"
     "E2006"
 
 assertCompiles :: String -> IO ()

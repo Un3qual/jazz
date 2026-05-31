@@ -13,6 +13,8 @@ module JazzNext.Compiler.BuiltinCatalog
     builtinSymbolName,
     builtinSymbolKernelName,
     builtinSymbolNumericConversionTarget,
+    numericTypeFloatMax,
+    numericTypeIntegerBounds,
     kernelBridgeBindingPrefix,
     kernelBridgeTargetName,
     isBuiltinSymbolNameInMode,
@@ -172,6 +174,33 @@ builtinSymbolNumericConversionTarget builtinSymbol =
     BuiltinToFloat32 -> Just NumericFloat32
     BuiltinToFloat64 -> Just NumericFloat64
     _ -> Nothing
+
+numericTypeFloatMax :: NumericType -> Maybe Double
+numericTypeFloatMax numericType =
+  case numericType of
+    NumericFloat16 -> Just 65504.0
+    NumericFloat32 -> Just 3.4028234663852886e38
+    NumericFloat64 -> Just 1.7976931348623157e308
+    _ -> Nothing
+
+numericTypeIntegerBounds :: NumericType -> Maybe (Integer, Integer)
+numericTypeIntegerBounds numericType =
+  case numericType of
+    NumericInt8 -> Just (signedLower 8, signedUpper 8)
+    NumericInt16 -> Just (signedLower 16, signedUpper 16)
+    NumericInt32 -> Just (signedLower 32, signedUpper 32)
+    NumericInt64 -> Just (signedLower 64, signedUpper 64)
+    NumericUInt8 -> Just (0, unsignedUpper 8)
+    NumericUInt16 -> Just (0, unsignedUpper 16)
+    NumericUInt32 -> Just (0, unsignedUpper 32)
+    NumericUInt64 -> Just (0, unsignedUpper 64)
+    NumericFloat16 -> Nothing
+    NumericFloat32 -> Nothing
+    NumericFloat64 -> Nothing
+  where
+    signedLower bits = negate (2 ^ (bits - 1))
+    signedUpper bits = (2 ^ (bits - 1)) - 1
+    unsignedUpper bits = (2 ^ bits) - 1
 
 -- | Prefix reserved for prelude bindings that directly expose kernel-owned
 -- builtin symbols. Example: `__kernel_map = __kernel_map.`
