@@ -751,7 +751,7 @@ collectTopLevelBindingNames expr =
       case statement of
         SLet bindingName _ _ ->
           [identifierText bindingName]
-        SData _ _ constructors ->
+        SData _ _ _ constructors ->
           [ identifierText constructorName
             | DataConstructor constructorName _ <- constructors
           ]
@@ -871,7 +871,7 @@ statementBindingNames statement =
   case statement of
     SLet bindingName _ _ ->
       [identifierText bindingName]
-    SData _ _ constructors ->
+    SData _ _ _ constructors ->
       [ identifierText constructorName
         | DataConstructor constructorName _ <- constructors
       ]
@@ -1320,13 +1320,14 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
                   spanValue
                   signatureValue
               ]
-        SData spanValue typeName constructors ->
+        SData spanValue typeName typeParameters constructors ->
           rewriteDataStatementForReplay
             modulePath
             hiddenImportExports
             (Set.union hiddenImportExports neededModuleExports)
             spanValue
             typeName
+            typeParameters
             constructors
         SClass {} -> [statement]
         SImpl {} -> [statement]
@@ -1351,8 +1352,8 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
               (rewriteModuleExportReferences modulePath hiddenImportExports exprValue)
             | isEntryModule
           ]
-        SData spanValue typeName constructors ->
-          rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName constructors
+        SData spanValue typeName typeParameters constructors ->
+          rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName typeParameters constructors
         SLet bindingName spanValue valueExpr
           | Set.notMember (identifierText bindingName) hiddenImportExports ->
               [ SLet
@@ -1369,22 +1370,23 @@ rewriteDataStatementForReplay ::
   Set Text ->
   SourceSpan ->
   Identifier ->
+  [Identifier] ->
   [DataConstructor] ->
   [Statement]
-rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName constructors =
-  [ SData spanValue typeName replayConstructors
+rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName typeParameters constructors =
+  [ SData spanValue typeName typeParameters replayConstructors
     | not (null replayConstructors)
   ]
   where
     replayConstructors =
       [ replayConstructor
-        | constructor@(DataConstructor constructorName constructorArity) <- constructors,
+        | constructor@(DataConstructor constructorName constructorArguments) <- constructors,
           let constructorText = identifierText constructorName,
           let hiddenConstructor = Set.member constructorText hiddenImportExports,
           not hiddenConstructor || Set.member constructorText neededModuleExports,
           let replayConstructor =
                 if hiddenConstructor
-                  then DataConstructor (mkIdentifier (moduleExportQualifiedName modulePath constructorText)) constructorArity
+                  then DataConstructor (mkIdentifier (moduleExportQualifiedName modulePath constructorText)) constructorArguments
                   else constructor
       ]
 

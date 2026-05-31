@@ -1,6 +1,6 @@
 # ADT Semantics
 
-Status: active (canonical `data` declarations, constructor values/applications, constructor over-application diagnostics, constructor/list/tuple/as-pattern typing and runtime matching, and tuple literal values/signature types are implemented in `jazz-next`)
+Status: active (canonical and generic-parameter `data` declarations, constructor values/applications, constructor over-application diagnostics, constructor/list/tuple/as-pattern typing and runtime matching, and tuple literal values/signature types are implemented in `jazz-next`)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -20,16 +20,18 @@ The active ADT/pattern rebase is closed for the monomorphic
 constructor/list/tuple/as-pattern/lambda-pattern subset implemented in
 `jazz-next`.
 
-Future ADT work is blocked on a separate generic constructor type-scheme
-implementation row. The first approved future slice is limited to named ADT
-type parameters and fresh per-use constructor scheme instantiation. It does not
-include ordinary binding generalization, class/defaulting solver behavior,
-explicit type application, or runtime dispatch.
+Future ADT typing work is blocked on a separate generic constructor type-scheme
+implementation row. The generic declaration-parameter syntax and metadata slice
+has landed; the remaining approved future slice is limited to fresh per-use
+constructor scheme instantiation. It does not include ordinary binding
+generalization, class/defaulting solver behavior, explicit type application, or
+runtime dispatch.
 
 ## Current Active-Path Status
 
 1. `jazz-next` implements canonical surface and lowered `data` declarations
-   with constructor arity metadata.
+   with constructor arity metadata, plus lowercase generic type parameters
+   preserved in declaration metadata.
 2. `jazz-next` implements constructor values and ordinary constructor
    application with first-order typing and runtime constructor values.
 3. Declared constructor patterns typecheck against ADT scrutinees, bind
@@ -80,19 +82,19 @@ some = Just 1.
 none = Nothing.
 ```
 
-Future generic shape:
+Generic declaration shape:
 
 ```jz
 data Maybe a = Nothing | Just a.
 data Pair a b = Pair a b.
 ```
 
-In a future generic `data` declaration, lowercase identifiers after the type
-constructor introduce type parameters scoped to that declaration. Constructor
-payload identifiers that appear in a generic declaration must refer to those
-parameters. Constructors receive declaration-owned schemes and instantiate
-freshly at each constructor value, application, and pattern use; ordinary
-bindings remain monomorphic in that first slice.
+In a generic `data` declaration, lowercase identifiers after the type
+constructor introduce type parameters scoped to that declaration. Duplicate type
+parameters reject deterministically. Lowercase constructor payload identifiers
+that appear in a generic declaration must refer to those parameters. Constructor
+value/application schemes remain the next queued slice; ordinary bindings remain
+monomorphic in that first typing slice.
 
 ## Staged First Slice
 

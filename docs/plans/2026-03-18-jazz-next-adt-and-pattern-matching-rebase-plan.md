@@ -1,18 +1,19 @@
 ---
-id: JN-AS-PATTERN-SEMANTICS-001
-status: done
+id: JN-ADT-GENERIC-DATA-PARAMS-001
+status: completed
 priority: P1
-size: M
+size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-05-31
-plan_section: "Completed implementation target: As-Patterns"
+plan_section: "Completed implementation batch: generic data declaration parameters"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
   - jazz-next/src/JazzNext/Compiler/Parser.hs
   - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
   - jazz-next/src/JazzNext/Compiler/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Desugar.hs
   - jazz-next/src/JazzNext/Compiler/Analyzer.hs
   - jazz-next/src/JazzNext/Compiler/ModuleResolver.hs
   - jazz-next/src/JazzNext/Compiler/Driver.hs
@@ -21,16 +22,18 @@ target_paths:
   - jazz-next/src/JazzNext/Compiler/Runtime.hs
   - jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Add `name @ pattern` across existing pattern positions, bind the whole scrutinee after inner-pattern success, reject duplicate binders, and reuse existing type/runtime matcher behavior."
+deliverable: "Accept lowercase type parameters on `data` declarations, preserve them through surface/core AST lowering, and reject duplicate parameters or undeclared lowercase constructor payload names without adding constructor schemes yet."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md
 ---
@@ -79,12 +82,13 @@ supersedes:
 - [x] On `2026-05-30`, closed the active ADT/pattern rebase metadata around the implemented constructor/list/tuple/lambda-parameter pattern subset and kept generic ADT type schemes plus future pattern forms blocked as separate active-path planning items.
 - [x] On `2026-05-31`, recorded the next future-contract decisions: the first generic ADT slice is constructor type schemes with fresh per-use instantiation only, and the first additional pattern form is `name @ pattern` as-patterns.
 - [x] On `2026-05-31`, landed `name @ pattern` as-pattern semantics across parser/core AST, lowering, analyzer/module/driver/recursive-binding traversal, type inference, and runtime matching.
+- [x] On `2026-05-31`, landed the parser/core generic ADT declaration-parameter batch: `data Maybe a = ...` now preserves type parameters through surface/core declarations, retains bare constructor payload names for the dependent scheme batch, and rejects duplicate parameters plus undeclared lowercase payload names in generic declarations.
 
-## Current State (after as-pattern semantics)
+## Current State (after generic data declaration parameters)
 
 - `jazz-next/src/JazzNext/Compiler/AST.hs` now carries `Pattern`, `CaseArm`, and `EPatternCase`, including `PConstructor`, `PList`, `PTuple`, and `PAs`; it also carries tuple expression and concrete tuple signature nodes for active runtime values. The older `ECase Expr Expr Expr` remains the internal boolean branch form used after `if` desugaring.
-- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `Parser.hs`, and `Parser/Lexer.hs` now accept canonical top-level `data <TypeName> = <Ctor> | <Ctor> ... .` declarations into dedicated statement nodes while continuing to parse `case <expr> { | <pattern> -> <expr> ... }` with literal, wildcard, variable, uppercase-constructor, bracketed-list, cons-like list, tuple, and `name @ pattern` as-patterns. Tuple literals such as `(1, True)` and concrete tuple signature types such as `(Int, Bool)` are parsed into structured nodes.
-- `jazz-next/src/JazzNext/Compiler/AST.hs` and `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` now preserve data constructor names and arities via dedicated core declaration metadata, lower tuple literals to core tuple values, lower tuple / cons-like list / as-patterns to core patterns, lower concrete tuple signature types, and keep the existing boolean-only `ECase` contract unchanged.
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `Parser.hs`, and `Parser/Lexer.hs` now accept canonical top-level `data <TypeName> = <Ctor> | <Ctor> ... .` declarations and generic declarations such as `data Maybe a = Nothing | Just a.` into dedicated statement nodes while continuing to parse `case <expr> { | <pattern> -> <expr> ... }` with literal, wildcard, variable, uppercase-constructor, bracketed-list, cons-like list, tuple, and `name @ pattern` as-patterns. Tuple literals such as `(1, True)` and concrete tuple signature types such as `(Int, Bool)` are parsed into structured nodes.
+- `jazz-next/src/JazzNext/Compiler/AST.hs` and `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` now preserve data type parameters, constructor payload metadata, and constructor arity via dedicated core declaration metadata, lower tuple literals to core tuple values, lower tuple / cons-like list / as-patterns to core patterns, lower concrete tuple signature types, and keep the existing boolean-only `ECase` contract unchanged.
 - `jazz-next/src/JazzNext/Compiler/Analyzer.hs` and `TypeInference.hs` now keep nested pattern binders visible to arm bodies, register `data` constructors as visible names, typecheck constructor values/applications in expression positions, typecheck declared constructor patterns against ADT scrutinees with payload binders scoped to arm bodies, typecheck bracketed-list and cons-like list patterns against list scrutinees, typecheck tuple patterns against fixed-arity tuple scrutinees, and give as-pattern binders the whole scrutinee type after reusing the inner pattern checks.
 - `jazz-next/src/JazzNext/Compiler/TypeInference.hs` infers tuple literals as fixed-arity heterogeneous tuple types, checks concrete tuple signatures against bindings, checks tuple pattern arity/type compatibility, and keeps tuple equality outside the strict runtime equality subset.
 - `jazz-next/src/JazzNext/Compiler/Runtime.hs` preserves existing boolean `ECase` execution while evaluating literal / wildcard / variable / constructor / bracketed-list / cons-like list / tuple / as-pattern `EPatternCase` arms and constructor values/applications; constructor over-application now emits deterministic `E3023` diagnostics with the constructor name and expected/received arity. Runtime tuple values evaluate, render, and match in canonical `(value, value)` form.
@@ -95,8 +99,62 @@ supersedes:
 
 ## Future Contract Seed: Generic ADT Constructor Schemes
 
-This seed is not a queue entry yet. It records the first approved generic ADT
-scope without pulling in the whole polymorphism/defaulting solver.
+This seed is split into queue-ready child implementation rows. The first batch
+is parser/core ownership for generic data declaration parameters; constructor
+value/application schemes follow after that parser batch lands. Pattern
+instantiation remains a later dependent batch and must not pull in ordinary
+binding polymorphism or a class/defaulting solver.
+
+## Completed implementation batch: generic data declaration parameters
+
+This active-path implementation batch landed on `2026-05-31` as the first child
+of the generic ADT constructor-scheme seed. It owns syntax and declaration
+metadata only; constructor schemes, constructor application typing, generic
+constructor patterns, runtime dispatch, and ordinary binding polymorphism remain
+out of scope.
+
+Batch scope:
+
+- Accept lowercase type parameters after uppercase `data` type constructors.
+- Preserve declared type parameters in the surface and core declaration nodes.
+- Thread the extended declaration shape through lowering and existing
+  statement/reference walkers without changing runtime behavior.
+- Reject duplicate type parameter names deterministically.
+- In generic declarations, reject lowercase constructor payload names that are
+  not declared type parameters.
+- Preserve existing monomorphic declarations such as `data Box = Box value.`
+  and their current monomorphic placeholder behavior.
+
+Batch target paths:
+
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Desugar.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`
+- `jazz-next/src/JazzNext/Compiler/Driver.hs`
+- `jazz-next/src/JazzNext/Compiler/RecursiveBindings.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`
+
+Batch verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
 
 Surface contract:
 

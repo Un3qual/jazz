@@ -172,8 +172,8 @@ canonicalizeStatement statement =
       SLet name spanValue (canonicalizeExpr valueExpr)
     SSignature name spanValue signaturePayload ->
       SSignature name spanValue signaturePayload
-    SData spanValue typeName constructors ->
-      SData spanValue typeName constructors
+    SData spanValue typeName typeParameters constructors ->
+      SData spanValue typeName typeParameters constructors
     SClass spanValue capabilityName ->
       SClass spanValue capabilityName
     SImpl spanValue capabilityName arguments ->
@@ -817,7 +817,7 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
               go env lastExprType Nothing state rest
             SImpl {} ->
               go env lastExprType Nothing state rest
-            SData _ typeName constructors ->
+            SData _ typeName _ constructors ->
               let (nextEnv, nextState) =
                     registerDataConstructors typeName constructors env state
                in go nextEnv lastExprType Nothing nextState rest
@@ -1055,8 +1055,8 @@ registerDataConstructors :: Identifier -> [DataConstructor] -> TypeEnv -> InferS
 registerDataConstructors typeName constructors env initialState =
   foldl' register (env, initialState) constructors
   where
-    register (envAcc, stateAcc) (DataConstructor constructorName arity) =
-      let (argumentTypes, nextState) = freshTypeVars arity stateAcc
+    register (envAcc, stateAcc) (DataConstructor constructorName constructorArguments) =
+      let (argumentTypes, nextState) = freshTypeVars (length constructorArguments) stateAcc
        in
         ( Map.insert
             (identifierText constructorName)

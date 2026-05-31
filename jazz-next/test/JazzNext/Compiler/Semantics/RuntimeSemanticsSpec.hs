@@ -10,6 +10,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -433,7 +434,8 @@ overAppliedConstructorExpr =
     [ SData
         (SourceSpan 1 1)
         "Maybe"
-        [DataConstructor "Just" 1],
+        []
+        [DataConstructor "Just" [DataConstructorArgumentName "value"]],
       SExpr
         (SourceSpan 1 20)
         (EApply (EApply (EVar "Just") (ELit (LInt 1))) (ELit (LInt 2)))

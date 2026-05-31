@@ -3,7 +3,8 @@
 module Main (main) where
 
 import JazzNext.Compiler.AST
-  ( DataConstructor (..),
+  ( DataConstructorArgument (..),
+    DataConstructor (..),
     Expr (..),
     Literal (..),
     Statement (..)
@@ -353,7 +354,7 @@ constructorRebindingProgram :: Expr
 constructorRebindingProgram =
   EBlock
     [ SLet "Nothing" (SourceSpan 1 1) (ELit (LInt 1)),
-      SData (SourceSpan 2 1) "Maybe" [DataConstructor "Nothing" 0]
+      SData (SourceSpan 2 1) "Maybe" [] [DataConstructor "Nothing" []]
     ]
 
 nestedScopeProgram :: Expr
@@ -421,6 +422,6 @@ selfReferentialUnusedProgram =
 letRebindsConstructorProgram :: Expr
 letRebindsConstructorProgram =
   EBlock
-    [ SData (SourceSpan 1 1) "Maybe" [DataConstructor "Just" 1],
+    [ SData (SourceSpan 1 1) "Maybe" [] [DataConstructor "Just" [DataConstructorArgumentName "value"]],
       SLet "Just" (SourceSpan 2 1) (ELit (LInt 1))
     ]

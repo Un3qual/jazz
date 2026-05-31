@@ -1,20 +1,25 @@
 ---
-id: JN-TYPE-GRAMMAR-CLOSURE-PLAN-001
-status: blocked
-priority: P2
-size: S
-kind: docs
-autonomous_ready: no
-depends_on: []
+id: JN-ADT-GENERIC-CONSTRUCTOR-SCHEMES-001
+status: ready
+priority: P1
+size: M
+kind: impl
+autonomous_ready: yes
+depends_on:
+  - JN-ADT-GENERIC-DATA-PARAMS-001
 last_verified: 2026-05-31
-plan_section: "Future polymorphism/defaulting/type-scheme contract"
+plan_section: "Ready implementation batch: generic constructor value/application schemes"
 target_paths:
-  - docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md
-  - docs/execution/queue.md
+  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
+  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
 verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Keep ordinary binding polymorphism/defaulting blocked behind a dedicated solver contract while allowing the future generic ADT constructor-scheme slice to proceed separately with fresh per-use constructor instantiation only."
+deliverable: "Derive declaration-owned constructor type schemes from generic data declarations and instantiate them freshly for constructor values and applications, while keeping ordinary bindings monomorphic and pattern/runtime dispatch out of scope."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
 ---
@@ -56,6 +61,7 @@ supersedes:
 - [x] Milestone 5 complete: active-path tests/docs close the rebase and future work no longer depends on legacy `07`.
 - [x] On `2026-05-30`, closed the structured-signature rebase metadata and kept generalized polymorphism/defaulting/type-scheme work blocked as `JN-TYPE-GRAMMAR-CLOSURE-PLAN-001`.
 - [x] On `2026-05-31`, split the future generic ADT constructor-scheme slice from broader ordinary binding polymorphism/defaulting solver work.
+- [x] On `2026-05-31`, the prerequisite generic ADT declaration-parameter parser/core batch landed, so this constructor value/application scheme batch is now dependency-satisfied.
 
 ## Active Baseline (2026-05-22)
 
@@ -105,6 +111,45 @@ Still blocked under this type-grammar plan:
 - explicit type application syntax,
 - higher-rank polymorphism,
 - runtime dispatch or dictionary passing.
+
+## Ready implementation batch: generic constructor value/application schemes
+
+This executor-safe active-path implementation batch follows the completed
+`JN-ADT-GENERIC-DATA-PARAMS-001` parser/core metadata batch. It adds
+constructor-owned schemes for generic ADT declarations and fresh per-use
+instantiation for constructor values and applications only.
+
+Batch scope:
+
+- Derive constructor type schemes from generic `data` declarations now that
+  parser and core declarations preserve type parameters and bare constructor
+  payload names.
+- Instantiate each constructor value use with fresh type variables.
+- Instantiate constructor applications independently so multiple uses of the
+  same generic constructor can refine to different concrete result types.
+- Preserve ordinary user bindings as monomorphic; do not add let
+  generalization, inferred class constraints, defaulting, explicit type
+  application, generic constructor pattern typing, runtime dispatch, or
+  dictionary passing.
+- Keep malformed generic declaration diagnostics owned by the parser/data
+  parameter batch; this batch owns incompatible value/application
+  instantiation diagnostics.
+
+Batch target paths:
+
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+
+Batch verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
 
 ## Active-Path Owner Map
 

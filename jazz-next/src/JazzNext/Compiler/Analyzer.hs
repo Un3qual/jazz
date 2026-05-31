@@ -387,7 +387,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
               warningsRev,
               appendErrors errorsWithPending implErrors
             )
-        SData spanValue _ constructors ->
+        SData spanValue _ _ constructors ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
               constructorWarnings =
                 collectDataConstructorRebindingWarnings
@@ -862,7 +862,7 @@ collectUnusedBindingUseState hiddenStatementIndices indexedStatements =
                     usedWithStatementReferences,
                     rebindingStatementIndices'
                   )
-              SData _ _ constructors ->
+              SData _ _ _ constructors ->
                 ( foldl' removeConstructor activeBindings constructors,
                   foldl' registerConstructor activeRebindingNames constructors,
                   usedWithStatementReferences,

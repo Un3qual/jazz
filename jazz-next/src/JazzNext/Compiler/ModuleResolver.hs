@@ -355,7 +355,7 @@ collectTopLevelBindings surfaceExpr =
       case statement of
         SSLet bindingName _ _ ->
           [identifierText bindingName]
-        SSData _ _ constructors ->
+        SSData _ _ _ constructors ->
           [ identifierText constructorName
             | SurfaceDataConstructor constructorName _ <- constructors
           ]

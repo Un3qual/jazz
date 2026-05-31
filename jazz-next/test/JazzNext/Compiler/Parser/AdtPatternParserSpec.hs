@@ -4,6 +4,7 @@ module Main (main) where
 
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -18,6 +19,7 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
+    SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceLambdaParameter (..),
@@ -51,6 +53,7 @@ tests =
     ("parses nullary constructor subpatterns without losing the outer argument", testParsesNullaryConstructorSubpatterns),
     ("parses list pattern case arms", testParsesListPatternCaseArms),
     ("parses canonical data declaration and lowers constructor arities", testParsesCanonicalDataDeclarationAndLowersConstructorArities),
+    ("parses generic data declaration parameters", testParsesGenericDataDeclarationParameters),
     ("parses nested case expression", testParsesNestedCaseExpression),
     ("parses unparenthesized if expression inside case arm body", testParsesIfExpressionInsideCaseArmBody),
     ("parses unparenthesized lambda expression inside case arm body", testParsesLambdaExpressionInsideCaseArmBody),
@@ -71,6 +74,8 @@ tests =
     ("rejects case expression without arm arrow", testRejectsCaseExpressionWithoutArrow),
     ("rejects data declaration without constructors", testRejectsDataDeclarationWithoutConstructors),
     ("rejects duplicate constructor names in one data declaration", testRejectsDuplicateConstructorsInDataDeclaration),
+    ("rejects duplicate data type parameters", testRejectsDuplicateDataTypeParameters),
+    ("rejects undeclared generic constructor payload names", testRejectsUndeclaredGenericConstructorPayloadNames),
     ("rejects data declaration with malformed pipe placement", testRejectsDataDeclarationWithMalformedPipePlacement),
     ("rejects data declaration missing terminator", testRejectsDataDeclarationMissingTerminator),
     ("parses tuple pattern case arms", testParsesTuplePatternCaseArms),
@@ -404,8 +409,9 @@ testParsesCanonicalDataDeclarationAndLowersConstructorArities =
         [ SSData
             (SourceSpan 1 1)
             "Maybe"
-            [ SurfaceDataConstructor "Just" 1,
-              SurfaceDataConstructor "Nothing" 0
+            []
+            [ SurfaceDataConstructor "Just" [SurfaceDataConstructorArgumentName "value"],
+              SurfaceDataConstructor "Nothing" []
             ]
         ]
     expectedLoweredProgram =
@@ -413,8 +419,40 @@ testParsesCanonicalDataDeclarationAndLowersConstructorArities =
         [ SData
             (SourceSpan 1 1)
             "Maybe"
-            [ DataConstructor "Just" 1,
-              DataConstructor "Nothing" 0
+            []
+            [ DataConstructor "Just" [DataConstructorArgumentName "value"],
+              DataConstructor "Nothing" []
+            ]
+        ]
+
+testParsesGenericDataDeclarationParameters :: IO ()
+testParsesGenericDataDeclarationParameters =
+  assertRight
+    "generic data declaration parse + lower"
+    (parseSurfaceProgram "data Maybe a = Nothing | Just a.")
+    ( \surfaceProgram -> do
+        assertEqual "generic data declaration surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "generic data declaration lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSData
+            (SourceSpan 1 1)
+            "Maybe"
+            ["a"]
+            [ SurfaceDataConstructor "Nothing" [],
+              SurfaceDataConstructor "Just" [SurfaceDataConstructorArgumentName "a"]
+            ]
+        ]
+    expectedLoweredProgram =
+      EBlock
+        [ SData
+            (SourceSpan 1 1)
+            "Maybe"
+            ["a"]
+            [ DataConstructor "Nothing" [],
+              DataConstructor "Just" [DataConstructorArgumentName "a"]
             ]
         ]
 
@@ -761,6 +799,20 @@ testRejectsDuplicateConstructorsInDataDeclaration =
     "duplicate data constructor"
     "duplicate constructor declaration 'Nothing'"
     (parseSurfaceProgram "data Maybe = Nothing | Nothing value.")
+
+testRejectsDuplicateDataTypeParameters :: IO ()
+testRejectsDuplicateDataTypeParameters =
+  assertLeftDiagnosticContains
+    "duplicate data type parameter diagnostic"
+    "duplicate type parameter 'a' in data declaration"
+    (parseSurfaceProgram "data Pair a a = Pair a a.")
+
+testRejectsUndeclaredGenericConstructorPayloadNames :: IO ()
+testRejectsUndeclaredGenericConstructorPayloadNames =
+  assertLeftDiagnosticContains
+    "undeclared generic constructor payload diagnostic"
+    "constructor payload type parameter 'b' is not declared in data type 'Maybe'"
+    (parseSurfaceProgram "data Maybe a = Just b.")
 
 testRejectsDataDeclarationWithMalformedPipePlacement :: IO ()
 testRejectsDataDeclarationWithMalformedPipePlacement =

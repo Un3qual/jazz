@@ -5,6 +5,7 @@
 module JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceConstrainedSignatureType (..),
+    SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceLambdaParameter (..),
@@ -57,8 +58,16 @@ data SurfaceLambdaParameter
   | SurfaceLambdaPattern SurfacePattern
   deriving (Eq, Show)
 
+-- | Parser-owned constructor payload metadata for top-level `data`
+-- declarations. Opaque payloads preserve current arity-only behavior for
+-- grouped forms until constructor type schemes own those surfaces.
+data SurfaceDataConstructorArgument
+  = SurfaceDataConstructorArgumentName Identifier
+  | SurfaceDataConstructorArgumentOpaque
+  deriving (Eq, Show)
+
 -- | Parser-owned constructor metadata for top-level `data` declarations.
-data SurfaceDataConstructor = SurfaceDataConstructor Identifier Int
+data SurfaceDataConstructor = SurfaceDataConstructor Identifier [SurfaceDataConstructorArgument]
   deriving (Eq, Show)
 
 -- | Parser-facing expression tree. This remains separate from the core AST so
@@ -155,7 +164,7 @@ data SurfaceSignatureToken
 data SurfaceStatement
   = SSLet Identifier SourceSpan SurfaceExpr
   | SSSignature Identifier SourceSpan SurfaceSignaturePayload
-  | SSData SourceSpan Identifier [SurfaceDataConstructor]
+  | SSData SourceSpan Identifier [Identifier] [SurfaceDataConstructor]
   | SSClass SourceSpan Identifier
   | SSImpl SourceSpan Identifier [SurfaceConstrainedSignatureType]
   | SSModule SourceSpan [Text]
