@@ -147,7 +147,7 @@ data Statement
   | SSignature Identifier SourceSpan SignaturePayload
   | SData SourceSpan Identifier [DataConstructor]
   | SClass SourceSpan Identifier
-  | SImpl SourceSpan Identifier
+  | SImpl SourceSpan Identifier [ConstraintSignatureType]
   | SModule SourceSpan [Text]
   | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SExpr SourceSpan Expr

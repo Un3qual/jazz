@@ -57,8 +57,8 @@ desugarStatement statement =
       SSignature name spanValue signatureText
     SClass spanValue capabilityName ->
       SClass spanValue capabilityName
-    SImpl spanValue capabilityName ->
-      SImpl spanValue capabilityName
+    SImpl spanValue capabilityName arguments ->
+      SImpl spanValue capabilityName arguments
     SModule spanValue modulePath ->
       SModule spanValue modulePath
     SImport spanValue modulePath alias importedSymbols ->

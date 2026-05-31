@@ -53,6 +53,8 @@ tests =
     ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion),
     ("source pipeline accepts adjacent signature and binding", testSourceAcceptsSignatureAdjacency),
     ("source pipeline accepts inert class and impl declarations", testSourceAcceptsCapabilityDeclarations),
+    ("source pipeline rejects duplicate class declarations", testSourceRejectsDuplicateClassDeclarations),
+    ("source pipeline rejects duplicate concrete impl declarations", testSourceRejectsDuplicateConcreteImplDeclarations),
     ("source pipeline treats capability declarations as signature separators", testSourceRejectsSignatureSeparatedByCapabilityDeclaration),
     ("source pipeline rejects separated signature", testSourceRejectsSeparatedSignature),
     ("source pipeline rejects signature name mismatch", testSourceRejectsSignatureNameMismatch),
@@ -85,6 +87,7 @@ tests =
     ("source pipeline accepts concrete constrained signature as monomorphic", testSourceAcceptsConcreteConstrainedSignature),
     ("source pipeline accepts additional concrete constrained signatures", testSourceAcceptsAdditionalConcreteConstrainedSignatures),
     ("source pipeline accepts concrete tuple constrained signature argument", testSourceAcceptsConcreteTupleConstrainedSignatureArgument),
+    ("source pipeline rejects concrete constrained signature without impl fact", testSourceRejectsConcreteConstrainedSignatureWithoutImplFact),
     ("source pipeline rejects unknown constrained signature constraint", testSourceRejectsUnknownConstrainedSignatureConstraint),
     ("source pipeline rejects wrong-arity constrained signature constraint", testSourceRejectsWrongArityConstrainedSignatureConstraint),
     ("source pipeline rejects type-application constrained signature argument", testSourceRejectsTypeApplicationConstrainedSignatureArgument),
@@ -318,6 +321,14 @@ testSourceAcceptsCapabilityDeclarations :: IO ()
 testSourceAcceptsCapabilityDeclarations =
   assertSourceOk "class Eq { }.\nimpl Eq(Int) { }.\nx :: Int.\nx = 1.\nx."
 
+testSourceRejectsDuplicateClassDeclarations :: IO ()
+testSourceRejectsDuplicateClassDeclarations =
+  assertSourceSingleErrorContains "class Eq { }.\nclass Eq { }.\nx = 1." "E1004"
+
+testSourceRejectsDuplicateConcreteImplDeclarations :: IO ()
+testSourceRejectsDuplicateConcreteImplDeclarations =
+  assertSourceSingleErrorContains "class Eq { }.\nimpl Eq(Int) { }.\nimpl Eq(Int) { }.\nx = 1." "E1005"
+
 testSourceRejectsSignatureSeparatedByCapabilityDeclaration :: IO ()
 testSourceRejectsSignatureSeparatedByCapabilityDeclaration =
   assertSourceErrorContains "x :: Int.\nclass Eq { }.\nx = 1." "E1002"
@@ -382,7 +393,7 @@ testSourceAcceptsWidthSpecificIntegerSignatures = do
   assertSourceOk "x :: UInt64.\nx = 1."
   assertSourceOk "x :: UInt64.\nx = 18446744073709551615."
   assertSourceOk "xs :: [Int32].\nxs = [1, 2, 3]."
-  assertSourceOk "x :: @{Num(UInt16)}: UInt16.\nx = 1."
+  assertSourceOk "class Num { }.\nimpl Num(UInt16) { }.\nx :: @{Num(UInt16)}: UInt16.\nx = 1."
 
 testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals :: IO ()
 testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals = do
@@ -477,20 +488,24 @@ testSourceAcceptsEmptyConstrainedTupleSignature =
 
 testSourceAcceptsConcreteConstrainedSignature :: IO ()
 testSourceAcceptsConcreteConstrainedSignature =
-  assertSourceOk "x :: @{Eq(Int)}: Int.\nx = 1."
+  assertSourceOk "class Eq { }.\nimpl Eq(Int) { }.\nx :: @{Eq(Int)}: Int.\nx = 1."
 
 testSourceAcceptsAdditionalConcreteConstrainedSignatures :: IO ()
 testSourceAcceptsAdditionalConcreteConstrainedSignatures = do
-  assertSourceOk "x :: @{Default(Bool)}: Bool.\nx = True."
-  assertSourceOk "x :: @{Fractional(Int)}: Int.\nx = 1."
-  assertSourceOk "x :: @{Integral(Int)}: Int.\nx = 1."
-  assertSourceOk "x :: @{Num(Int)}: Int.\nx = 1."
-  assertSourceOk "x :: @{Ord(Int)}: Int.\nx = 1."
-  assertSourceOk "x :: @{Showable([[Bool]])}: [[Bool]].\nx = [[True], [False]]."
+  assertSourceOk "class Default { }.\nimpl Default(Bool) { }.\nx :: @{Default(Bool)}: Bool.\nx = True."
+  assertSourceOk "class Fractional { }.\nimpl Fractional(Int) { }.\nx :: @{Fractional(Int)}: Int.\nx = 1."
+  assertSourceOk "class Integral { }.\nimpl Integral(Int) { }.\nx :: @{Integral(Int)}: Int.\nx = 1."
+  assertSourceOk "class Num { }.\nimpl Num(Int) { }.\nx :: @{Num(Int)}: Int.\nx = 1."
+  assertSourceOk "class Ord { }.\nimpl Ord(Int) { }.\nx :: @{Ord(Int)}: Int.\nx = 1."
+  assertSourceOk "class Showable { }.\nimpl Showable([[Bool]]) { }.\nx :: @{Showable([[Bool]])}: [[Bool]].\nx = [[True], [False]]."
 
 testSourceAcceptsConcreteTupleConstrainedSignatureArgument :: IO ()
 testSourceAcceptsConcreteTupleConstrainedSignatureArgument =
-  assertSourceOk "pair :: @{Eq((Int, Bool))}: (Int, Bool).\npair = (1, True)."
+  assertSourceOk "class Eq { }.\nimpl Eq((Int, Bool)) { }.\npair :: @{Eq((Int, Bool))}: (Int, Bool).\npair = (1, True)."
+
+testSourceRejectsConcreteConstrainedSignatureWithoutImplFact :: IO ()
+testSourceRejectsConcreteConstrainedSignatureWithoutImplFact =
+  assertSourceSingleErrorContains "class Eq { }.\nx :: @{Eq(Int)}: Int.\nx = 1." "E2009"
 
 testSourceRejectsUnknownConstrainedSignatureConstraint :: IO ()
 testSourceRejectsUnknownConstrainedSignatureConstraint =

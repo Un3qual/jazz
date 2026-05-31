@@ -176,8 +176,8 @@ canonicalizeStatement statement =
       SData spanValue typeName constructors
     SClass spanValue capabilityName ->
       SClass spanValue capabilityName
-    SImpl spanValue capabilityName ->
-      SImpl spanValue capabilityName
+    SImpl spanValue capabilityName arguments ->
+      SImpl spanValue capabilityName arguments
     SModule spanValue modulePath ->
       SModule spanValue modulePath
     SImport spanValue modulePath alias importedSymbols ->
@@ -226,6 +226,8 @@ data InferState = InferState
     -- Type variables originating from generic numeric operators must resolve
     -- to a concrete numeric family before they can be applied.
     inferNumericVars :: Map Int NumericConstraint,
+    inferClassFacts :: Set Text,
+    inferConcreteImplFacts :: Set Text,
     inferErrorsRev :: [Diagnostic],
     inferErrorCount :: Int
   }
@@ -237,6 +239,8 @@ initialInferState =
       inferSubst = Map.empty,
       inferStrictEqualityVars = Set.empty,
       inferNumericVars = Map.empty,
+      inferClassFacts = Set.empty,
+      inferConcreteImplFacts = Set.empty,
       inferErrorsRev = [],
       inferErrorCount = 0
     }
@@ -798,7 +802,7 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
       inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
     (bindingSeedsByStatement, seededState) =
-      allocateBindingSeeds indexedStatements initialState
+      allocateBindingSeeds indexedStatements (seedScopeCapabilityFacts indexedStatements initialState)
 
     go env lastExprType pendingSignatureType state remainingStatements =
       case remainingStatements of
@@ -1118,7 +1122,7 @@ signaturePayloadToExpressionType signaturePayload state =
     ConstrainedSignature [] signatureType ->
       (constraintSignatureTypeToExpressionType signatureType, state)
     ConstrainedSignature constraints signatureType
-      | supportedConcreteConstraints constraints ->
+      | supportedConcreteConstraints state constraints ->
           (constraintSignatureTypeToExpressionType signatureType, state)
       | supportedVariableConstraints constraints signatureType ->
           variableConstraintSignatureTypeToExpressionType signatureType state
@@ -1195,11 +1199,27 @@ allocateSignatureTypeVariables variableNames state =
       let (variableType, nextState) = freshTypeVar stateAcc
        in (Map.insert variableName variableType signatureVariables, nextState)
 
-supportedConcreteConstraints :: [SignatureConstraint] -> Bool
-supportedConcreteConstraints constraints =
+seedScopeCapabilityFacts :: [(Int, Statement)] -> InferState -> InferState
+seedScopeCapabilityFacts indexedStatements initialState =
+  foldl' seed initialState indexedStatements
+  where
+    seed state (_, statement) =
+      case statement of
+        SClass _ capabilityName ->
+          state {inferClassFacts = Set.insert (identifierText capabilityName) (inferClassFacts state)}
+        SImpl _ capabilityName arguments ->
+          case concreteImplFactKey capabilityName arguments of
+            Just implFactKey ->
+              state {inferConcreteImplFacts = Set.insert implFactKey (inferConcreteImplFacts state)}
+            Nothing ->
+              state
+        _ -> state
+
+supportedConcreteConstraints :: InferState -> [SignatureConstraint] -> Bool
+supportedConcreteConstraints state constraints =
   not (null constraints)
     && isNothing (duplicateConstraintName constraints)
-    && all supportedConcreteConstraint constraints
+    && all (supportedConcreteConstraint state) constraints
 
 -- | Variable constrained signatures are accepted only when constraints and
 -- body mention exactly the same supported unary variables.
@@ -1217,12 +1237,15 @@ supportedVariableConstraints constraints signatureType =
     constraintVariableNames =
       Set.unions (map constraintVariableNamesInSupportedConstraint constraints)
 
-supportedConcreteConstraint :: SignatureConstraint -> Bool
-supportedConcreteConstraint (SignatureConstraint constraintName arguments) =
+supportedConcreteConstraint :: InferState -> SignatureConstraint -> Bool
+supportedConcreteConstraint state (SignatureConstraint constraintName arguments) =
   case arguments of
     [argument] ->
-      supportedConstraintName (identifierText constraintName)
+      Set.member (identifierText constraintName) (inferClassFacts state)
         && concreteConstraintArgument argument
+        && Set.member
+          (constraintImplFactKey constraintName argument)
+          (inferConcreteImplFacts state)
     _ -> False
 
 supportedVariableConstraint :: SignatureConstraint -> Bool
@@ -1258,6 +1281,18 @@ concreteConstraintArgument signatureType =
       all concreteConstraintArgument elementTypes
     ConstraintTypeFunction {} ->
       False
+
+concreteImplFactKey :: Identifier -> [ConstraintSignatureType] -> Maybe Text
+concreteImplFactKey capabilityName arguments =
+  case arguments of
+    [argument]
+      | concreteConstraintArgument argument ->
+          Just (constraintImplFactKey capabilityName argument)
+    _ -> Nothing
+
+constraintImplFactKey :: Identifier -> ConstraintSignatureType -> Text
+constraintImplFactKey constraintName argument =
+  identifierText constraintName <> "(" <> renderConstraintSignatureType argument <> ")"
 
 constraintSignatureTypeVariableNames :: ConstraintSignatureType -> Set Text
 constraintSignatureTypeVariableNames signatureType =

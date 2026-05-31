@@ -1,15 +1,17 @@
 ---
 id: JN-CLASS-IMPL-ENV-VALIDATION-001
-status: ready
+status: completed
 priority: P2
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-05-31
-plan_section: "Future jazz-next batch seed: class/impl environment validation"
+plan_section: "Completed jazz-next batch: class/impl environment validation"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
   - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
   - jazz-next/src/JazzNext/Compiler/Analyzer.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
@@ -151,24 +153,26 @@ Closure evidence:
   `docs/execution/queue.md` record the completed active parser boundary while
   keeping abstraction semantics future work.
 
-## Future jazz-next batch seed: class/impl environment validation
+## Completed jazz-next batch: class/impl environment validation
 
-This section is queued as `JN-CLASS-IMPL-ENV-VALIDATION-001`. It records the
-first acceptable semantics slice for future active-path abstraction work.
+This executor-safe active-path implementation batch is complete. It adds the
+first class/impl semantics slice without adding method dispatch or runtime
+evidence values.
 
 Batch scope:
 
 - Keep `class` and `impl` as the only active abstraction keywords.
 - Never accept `trait` as compatibility syntax; parser rejection remains the
   correct behavior.
-- Collect class declarations and concrete `impl` declarations into
-  analyzer/type environments after parser/lowering.
-- Reject duplicate class declarations and duplicate `(class, concrete type)`
-  impls in the visible module graph.
-- Validate constrained signatures against known class/impl facts when the
-  active monomorphic type subset can prove the concrete type.
-- Preserve existing annotation-only constrained signatures until this batch
-  explicitly owns the class/impl environment checks.
+- Preserve concrete `impl` target types through parser/lowering.
+- Collect class declarations and concrete `impl` declarations into analyzer
+  and type environments.
+- Reject duplicate class declarations with `E1004` and duplicate
+  `(class, concrete type)` impls with `E1005`.
+- Validate concrete constrained signatures against known class/impl facts when
+  the active monomorphic type subset can prove the concrete type.
+- Keep variable constrained signatures monomorphic and annotation-only until a
+  future solver/defaulting contract exists.
 
 Out of scope:
 
@@ -181,17 +185,25 @@ Out of scope:
 - inferred class constraints,
 - broad numeric/defaulting solver work.
 
-Likely active-path target files:
+Closure evidence:
 
-- `jazz-next/src/JazzNext/Compiler/AST.hs`
-- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
-- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
-- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
-- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
-- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
-- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`,
+  `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`,
+  `jazz-next/src/JazzNext/Compiler/AST.hs`, and
+  `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` preserve concrete `impl`
+  header arguments such as `impl Eq(Int) { }.` in the lowered AST.
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs` rejects duplicate class
+  declarations and duplicate visible concrete impl facts.
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` seeds class/impl facts for
+  a scope and requires matching facts before accepting concrete constrained
+  signatures such as `x :: @{Eq(Int)}: Int`.
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`,
+  `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`,
+  and `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+  cover parser/lowering payloads, duplicate environment diagnostics,
+  constrained-signature validation, and runtime inertness.
 
-Likely focused verification:
+Batch verification:
 
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs

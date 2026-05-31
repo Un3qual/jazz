@@ -679,6 +679,7 @@ testParsesImplCapabilityDeclaration =
     ( Right
         ( SEBlock
             [ SSImpl (SourceSpan 1 1) "Eq"
+                [SurfaceConstrainedTypeName "Int"]
             ]
         )
     )
@@ -694,7 +695,7 @@ testLowersCapabilityDeclarations =
           "lowered capability declarations"
           ( EBlock
               [ SClass (SourceSpan 1 1) "Eq",
-                SImpl (SourceSpan 2 1) "Eq"
+                SImpl (SourceSpan 2 1) "Eq" [ConstraintTypeName "Int"]
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
@@ -708,7 +709,7 @@ testParsesCapabilityDeclarationsInModuleBody =
         ( SEBlock
             [ SSModule (SourceSpan 1 1) ["App", "Core"],
               SSClass (SourceSpan 2 1) "Eq",
-              SSImpl (SourceSpan 3 1) "Eq"
+              SSImpl (SourceSpan 3 1) "Eq" [SurfaceConstrainedTypeName "Int"]
             ]
         )
     )

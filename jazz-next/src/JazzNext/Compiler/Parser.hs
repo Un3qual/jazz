@@ -263,7 +263,7 @@ abstractionSyntaxDiagnosticText abstractionToken =
 
 parseCapabilityDeclaration :: Text -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseCapabilityDeclaration declarationKind declarationToken tokensAfterKeyword = do
-  (capabilityName, headerRemaining) <-
+  (capabilityName, headerArguments, headerRemaining) <-
     parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword
   afterBody <- consumeCapabilityDeclarationBody declarationKind declarationToken headerRemaining
   remaining <- consumeDot afterBody
@@ -271,11 +271,11 @@ parseCapabilityDeclaration declarationKind declarationToken tokensAfterKeyword =
     "class" ->
       Right (SSClass (tokenSpan declarationToken) capabilityName, remaining)
     "impl" ->
-      Right (SSImpl (tokenSpan declarationToken) capabilityName, remaining)
+      Right (SSImpl (tokenSpan declarationToken) capabilityName headerArguments, remaining)
     _ ->
       rejectReservedAbstractionSyntax declarationToken
 
-parseCapabilityHeaderName :: Text -> Token -> [Token] -> Either Diagnostic (Identifier, [Token])
+parseCapabilityHeaderName :: Text -> Token -> [Token] -> Either Diagnostic (Identifier, [SurfaceConstrainedSignatureType], [Token])
 parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
   case tokensAfterKeyword of
     Token {tokenKind = TIdentifier candidateName, tokenSpan = nameSpan} : rest
@@ -332,14 +332,14 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
     parseCapabilityHeaderTail capabilityName tokens =
       case tokens of
         Token {tokenKind = TLParen} : rest -> do
-          afterHeaderParameters <- consumeParenthesizedCapabilityHeader rest
-          requireCapabilityBodyStart capabilityName afterHeaderParameters
-        _ -> requireCapabilityBodyStart capabilityName tokens
+          (headerArguments, afterHeaderParameters) <- parseParenthesizedCapabilityHeader rest
+          requireCapabilityBodyStart capabilityName headerArguments afterHeaderParameters
+        _ -> requireCapabilityBodyStart capabilityName [] tokens
 
-    requireCapabilityBodyStart capabilityName tokens =
+    requireCapabilityBodyStart capabilityName headerArguments tokens =
       case tokens of
         Token {tokenKind = TLBrace} : _ ->
-          Right (capabilityName, tokens)
+          Right (capabilityName, headerArguments, tokens)
         Token {tokenKind = TDot} : _ ->
           Left
             ( parseDiagnostic
@@ -370,16 +370,35 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
                 )
             )
 
-    consumeParenthesizedCapabilityHeader tokens =
-      go 1 tokens
+    parseParenthesizedCapabilityHeader tokens = do
+      (argumentTokens, remaining) <- collectParenthesizedCapabilityHeader tokens
+      headerArguments <-
+        if null argumentTokens
+          then Right []
+          else
+            case splitTopLevelCommaTokens argumentTokens >>= traverse parseConstrainedSignatureType of
+              Just parsedArguments -> Right parsedArguments
+              Nothing ->
+                Left
+                  ( parseDiagnostic
+                      ( "unsupported "
+                          <> declarationKind
+                          <> " declaration header arguments at "
+                          <> renderSourceSpan (tokenSpan declarationToken)
+                      )
+                  )
+      Right (headerArguments, remaining)
+
+    collectParenthesizedCapabilityHeader tokens =
+      go 1 [] tokens
       where
-        go depth remaining =
+        go depth acc remaining =
           case remaining of
-            Token {tokenKind = TLParen} : rest ->
-              go (depth + 1) rest
-            Token {tokenKind = TRParen} : rest
-              | depth == 1 -> Right rest
-              | otherwise -> go (depth - 1) rest
+            token@Token {tokenKind = TLParen} : rest ->
+              go (depth + 1) (token : acc) rest
+            token@Token {tokenKind = TRParen} : rest
+              | depth == 1 -> Right (reverse acc, rest)
+              | otherwise -> go (depth - 1) (token : acc) rest
             Token {tokenKind = TLBrace, tokenSpan = braceSpan} : _ ->
               Left
                 ( parseDiagnostic
@@ -389,8 +408,8 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
                         <> renderSourceSpan braceSpan
                     )
                 )
-            _ : rest ->
-              go depth rest
+            token : rest ->
+              go depth (token : acc) rest
             [] ->
               Left
                 ( parseDiagnostic
