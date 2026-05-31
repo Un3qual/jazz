@@ -40,6 +40,7 @@ data Pattern
   | PList [Pattern]
   | PConsList Pattern Pattern
   | PTuple [Pattern]
+  | PAs Identifier Pattern
   deriving (Eq, Show)
 
 -- | One lowered pattern-match arm.

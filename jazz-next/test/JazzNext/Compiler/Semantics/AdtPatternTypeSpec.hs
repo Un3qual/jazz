@@ -107,6 +107,12 @@ tests =
     ( "source pipeline types tuple pattern binders as element types",
       testSourcePipelineTypesTuplePatternBinders
     ),
+    ( "source pipeline accepts as-pattern binders with the scrutinee type",
+      testSourcePipelineAcceptsAsPatternBinders
+    ),
+    ( "source pipeline rejects duplicate as-pattern binders",
+      testSourcePipelineRejectsDuplicateAsPatternBinders
+    ),
     ( "source pipeline rejects tuple patterns for incompatible scrutinees",
       testSourcePipelineRejectsTuplePatternScrutineeMismatch
     ),
@@ -290,6 +296,23 @@ testSourcePipelineTypesListPatternBinders = do
   assertSingleDiagnosticContains
     "list pattern binder type error text"
     "cannot apply operator '+' to operands of type Bool and Int"
+    (compileErrors result)
+
+testSourcePipelineAcceptsAsPatternBinders :: IO ()
+testSourcePipelineAcceptsAsPatternBinders = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 41. x = case value { | whole @ Just item -> case whole { | Just nested -> item + nested | Nothing -> 0 } | Nothing -> 0 }."
+  assertCompiles "as-pattern binder types" result
+
+testSourcePipelineRejectsDuplicateAsPatternBinders :: IO ()
+testSourcePipelineRejectsDuplicateAsPatternBinders = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | item @ Just item -> item | Nothing -> 0 }."
+  assertSingleDiagnosticCode
+    "duplicate as-pattern binder code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "duplicate as-pattern binder text"
+    "duplicate case pattern binder 'item'"
     (compileErrors result)
 
 testSourcePipelineRejectsListPatternScrutineeMismatch :: IO ()

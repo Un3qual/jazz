@@ -714,6 +714,9 @@ matchPattern scrutineeValue pattern =
           | length elements == length patterns ->
               matchPatternList elements patterns
         _ -> Nothing
+    PAs name pattern -> do
+      patternBindings <- matchPattern scrutineeValue pattern
+      Just (Map.insert (identifierText name) (Right scrutineeValue) patternBindings)
 
 matchPatternList :: [RuntimeValue] -> [Pattern] -> Maybe RuntimeEnv
 matchPatternList values patterns =
@@ -1180,3 +1183,5 @@ patternBoundNames pattern =
       Set.union (patternBoundNames headPattern) (patternBoundNames tailPattern)
     PTuple patterns ->
       Set.unions (map patternBoundNames patterns)
+    PAs name pattern ->
+      Set.insert (identifierText name) (patternBoundNames pattern)

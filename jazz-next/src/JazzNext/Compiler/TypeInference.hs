@@ -2252,6 +2252,8 @@ extendBoundWithPattern pattern bound =
       extendBoundWithPattern tailPattern (extendBoundWithPattern headPattern bound)
     PTuple patterns ->
       foldl' (flip extendBoundWithPattern) bound patterns
+    PAs name pattern ->
+      extendBoundWithPattern pattern (Set.insert (identifierText name) bound)
 
 inferPatternCaseType ::
   BuiltinResolutionMode ->
@@ -2364,6 +2366,13 @@ patternDuplicateBinderNames pattern =
           collectNested seen duplicatesAcc [headPattern, tailPattern]
         PTuple nestedPatterns ->
           collectNested seen duplicatesAcc nestedPatterns
+        PAs name nestedPattern ->
+          let nameText = identifierText name
+              (seenAfterName, duplicatesAfterName) =
+                if Set.member nameText seen
+                  then (seen, Set.insert nameText duplicatesAcc)
+                  else (Set.insert nameText seen, duplicatesAcc)
+           in collect nestedPattern seenAfterName duplicatesAfterName
 
     collectNested seen duplicatesAcc =
       foldl'
@@ -2406,6 +2415,22 @@ inferPatternType env scrutineeType pattern state =
       inferConsListPatternType env scrutineeType headPattern tailPattern state
     PTuple patterns ->
       inferTuplePatternType env scrutineeType patterns state
+    PAs name pattern ->
+      let (typing, stateAfterPattern) =
+            inferPatternType env scrutineeType pattern state
+       in
+        if patternSkipsBranchType typing
+          then (typing, stateAfterPattern)
+          else
+            ( typing
+                { patternBindings =
+                    Map.insert
+                      (identifierText name)
+                      (PlainTypeBinding (resolveType stateAfterPattern scrutineeType))
+                      (patternBindings typing)
+                },
+              stateAfterPattern
+            )
 
 inferConstructorPatternType ::
   TypeEnv ->

@@ -126,6 +126,8 @@ lowerSurfacePattern surfacePattern =
       PConsList (lowerSurfacePattern headPattern) (lowerSurfacePattern tailPattern)
     SPTuple patterns ->
       PTuple (map lowerSurfacePattern patterns)
+    SPAs name pattern ->
+      PAs name (lowerSurfacePattern pattern)
 
 lowerSurfaceCaseArm :: SurfaceCaseArm -> CaseArm
 lowerSurfaceCaseArm (SurfaceCaseArm patternExpr bodyExpr) =

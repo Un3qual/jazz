@@ -868,6 +868,10 @@ extendBindingsWithPattern pattern bindings =
       extendBindingsWithPattern tailPattern (extendBindingsWithPattern headPattern bindings)
     PTuple patterns ->
       foldl' (flip extendBindingsWithPattern) bindings patterns
+    PAs name pattern ->
+      extendBindingsWithPattern
+        pattern
+        (Map.insert (identifierText name) patternVisibleBinding bindings)
 
 patternVisibleBinding :: VisibleBinding
 patternVisibleBinding =

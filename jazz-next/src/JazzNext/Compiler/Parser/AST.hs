@@ -42,6 +42,7 @@ data SurfacePattern
   | SPList [SurfacePattern]
   | SPConsList SurfacePattern SurfacePattern
   | SPTuple [SurfacePattern]
+  | SPAs Identifier SurfacePattern
   deriving (Eq, Show)
 
 -- | One parser-surface pattern-match arm.

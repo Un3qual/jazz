@@ -1537,7 +1537,7 @@ parseCasePattern tokens =
           | isConstructorIdentifierText name ->
               parseConstructorPattern (mkIdentifier name) rest
           | otherwise ->
-              Right (SPVariable (mkIdentifier name), rest)
+              parseAsPatternOrVariable name rest
     [] ->
       Left (parseDiagnostic "expected case pattern before end of input")
     token : _ ->
@@ -1605,7 +1605,7 @@ parseConstructorArgumentPattern tokens =
           | isConstructorIdentifierText name ->
               Right (SPConstructor (mkIdentifier name) [], rest)
           | otherwise ->
-              Right (SPVariable (mkIdentifier name), rest)
+              parseAsPatternOrVariable name rest
     Token {tokenKind = TLBracket} : rest ->
       parseListPattern rest
     token@Token {tokenKind = TLParen} : rest ->
@@ -1622,6 +1622,15 @@ parseConstructorArgumentPattern tokens =
                 <> "'"
             )
         )
+
+parseAsPatternOrVariable :: Text -> [Token] -> Either Diagnostic (SurfacePattern, [Token])
+parseAsPatternOrVariable name tokensAfterName =
+  case tokensAfterName of
+    Token {tokenKind = TAt} : tokensAfterAt -> do
+      (patternExpr, remaining) <- parseCasePattern tokensAfterAt
+      Right (SPAs (mkIdentifier name) patternExpr, remaining)
+    _ ->
+      Right (SPVariable (mkIdentifier name), tokensAfterName)
 
 patternArgumentBoundary :: [Token] -> Bool
 patternArgumentBoundary tokens =
@@ -1778,6 +1787,8 @@ parseLambdaParameter tokens =
           parsePatternLambdaParameter tokens
       | isConstructorIdentifierText parameterName ->
           parsePatternLambdaParameter tokens
+      | startsAsPatternTail rest ->
+          parsePatternLambdaParameter tokens
       | otherwise ->
           Right (SurfaceLambdaIdentifier (mkIdentifier parameterName), rest)
     [] ->
@@ -1797,6 +1808,12 @@ parsePatternLambdaParameter :: [Token] -> Either Diagnostic (SurfaceLambdaParame
 parsePatternLambdaParameter tokens = do
   (patternValue, rest) <- parseCasePattern tokens
   Right (SurfaceLambdaPattern patternValue, rest)
+
+startsAsPatternTail :: [Token] -> Bool
+startsAsPatternTail tokens =
+  case tokens of
+    Token {tokenKind = TAt} : _ -> True
+    _ -> False
 
 collectUntilDot :: [Token] -> Either Diagnostic ([Token], [Token])
 collectUntilDot = go []

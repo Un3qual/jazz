@@ -445,3 +445,5 @@ extendBoundWithPattern pattern bound =
       extendBoundWithPattern tailPattern (extendBoundWithPattern headPattern bound)
     PTuple patterns ->
       foldl' (flip extendBoundWithPattern) bound patterns
+    PAs name pattern ->
+      extendBoundWithPattern pattern (Set.insert (identifierText name) bound)
