@@ -184,7 +184,6 @@ Likely active-path target files:
 - `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
 - `jazz-next/src/JazzNext/Compiler/AST.hs`
 - `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
-- `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`
 - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - `jazz-next/src/JazzNext/Compiler/Runtime.hs`
 - `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs`

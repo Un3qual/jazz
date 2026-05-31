@@ -89,10 +89,11 @@ Public target-named conversions:
 - `toUInt8`, `toUInt16`, `toUInt32`, `toUInt64`
 - `toFloat16`, `toFloat32`, `toFloat64`
 
-Optional aliases:
+Optional aliases (catalog-boundary conditional):
 
-- `toInt` may alias `toInt64`.
-- `toFloat` may alias `toFloat64`.
+- `toInt` may alias `toInt64` only if the prelude/catalog boundary records it
+  as an alias rather than a distinct numeric semantic.
+- `toFloat` may alias `toFloat64` under the same condition.
 
 Rules:
 
