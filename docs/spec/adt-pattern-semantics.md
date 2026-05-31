@@ -21,9 +21,10 @@ monomorphic constructor/list/tuple/lambda-pattern subset implemented in
 `jazz-next`.
 
 Future ADT work is blocked on a separate generic constructor type-scheme
-contract. That contract must define named type parameters, fresh per-use
-constructor schemes, instantiation/defaulting behavior, diagnostics, target
-paths, and focused verification before implementation resumes.
+implementation row. The first approved future slice is limited to named ADT
+type parameters and fresh per-use constructor scheme instantiation. It does not
+include ordinary binding generalization, class/defaulting solver behavior,
+explicit type application, or runtime dispatch.
 
 ## Current Active-Path Status
 
@@ -76,6 +77,20 @@ some = Just 1.
 none = Nothing.
 ```
 
+Future generic shape:
+
+```jz
+data Maybe a = Nothing | Just a.
+data Pair a b = Pair a b.
+```
+
+In a future generic `data` declaration, lowercase identifiers after the type
+constructor introduce type parameters scoped to that declaration. Constructor
+payload identifiers that appear in a generic declaration must refer to those
+parameters. Constructors receive declaration-owned schemes and instantiate
+freshly at each constructor value, application, and pattern use; ordinary
+bindings remain monomorphic in that first slice.
+
 ## Staged First Slice
 
 1. The first executable ADT slice in `jazz-next` is limited to plain sum types
@@ -108,5 +123,6 @@ none = Nothing.
 4. Tuple-constructor sugar or pattern features beyond the committed
    constructor/list/tuple subset such as guards, or-patterns, as-patterns, and
    pattern synonyms.
-5. Generic ADT constructor type schemes until the future active-path contract
-   is approved.
+5. Generalized user binding polymorphism, class/defaulting solver behavior,
+   explicit type application, or runtime dispatch as part of the first generic
+   ADT constructor scheme slice.

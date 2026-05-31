@@ -63,6 +63,7 @@ deliverable: "The active parser rejects non-canonical trait declaration-shaped f
 - [x] Canonical abstraction keyword is `class`/`impl`.
 - [x] Canonical collection combinator order is function-first (`map f xs`, `filter p xs`).
 - [x] Function/module surface continues parser-first style (`name = expr.`, `module A::B { ... }`, `import A::B`).
+- [x] On `2026-05-31`, locked `trait` as permanently rejected in active `jazz-next`; future abstraction work starts from canonical `class`/`impl` only.
 
 ## Completed jazz-next batch: class/impl parser boundary
 
@@ -143,6 +144,56 @@ Closure evidence:
 - `docs/spec/authoritative-syntax.md`, `docs/jazz-language-state.md`, and
   `docs/execution/queue.md` record the completed active parser boundary while
   keeping abstraction semantics future work.
+
+## Future jazz-next batch seed: class/impl environment validation
+
+This seed is not a queue entry yet. It records the first acceptable semantics
+slice for future active-path abstraction work.
+
+Batch scope:
+
+- Keep `class` and `impl` as the only active abstraction keywords.
+- Never accept `trait` as compatibility syntax; parser rejection remains the
+  correct behavior.
+- Collect class declarations and concrete `impl` declarations into
+  analyzer/type environments after parser/lowering.
+- Reject duplicate class declarations and duplicate `(class, concrete type)`
+  impls in the visible module graph.
+- Validate constrained signatures against known class/impl facts when the
+  active monomorphic type subset can prove the concrete type.
+- Preserve existing annotation-only constrained signatures until this batch
+  explicitly owns the class/impl environment checks.
+
+Out of scope:
+
+- method lookup or dispatch,
+- dictionary passing or runtime evidence values,
+- default methods,
+- superclass constraints,
+- overlapping impls,
+- orphan-impl policy beyond duplicate visible facts,
+- inferred class constraints,
+- broad numeric/defaulting solver work.
+
+Likely active-path target files:
+
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+
+Likely focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
 
 ## Historical Verification Evidence
 

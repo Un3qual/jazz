@@ -76,12 +76,59 @@ Execution note:
 - [x] Specify primitive operation contracts for width mixing: Haskell-like same concrete type per numeric operator expression, with explicit conversion required for mixed concrete widths.
 - [x] Name exact future implementation target paths in `jazz-next/` and focused verification commands, without changing compiler behavior in this docs batch.
 - [x] Keep user-defined operators as a follow-up stage after this numeric-width/defaulting contract lands.
+- [x] On `2026-05-31`, selected explicit numeric conversions as the next primitive-surface expansion before broader runtime arithmetic widening.
 
 First implementation target (landed 2026-05-29):
 
 - Added parser/core/type ownership for width-specific signature type names and cross-platform aliases before broadening runtime arithmetic behavior.
 - Target paths: `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, and `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`.
 - Verification: `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`; `bash jazz-next/scripts/test-warning-config.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
+
+Future implementation target (not queued yet): explicit numeric conversions.
+
+- Public conversion names are explicit by target type: `toInt8`, `toInt16`,
+  `toInt32`, `toInt64`, `toUInt8`, `toUInt16`, `toUInt32`, `toUInt64`,
+  `toFloat16`, `toFloat32`, and `toFloat64`. `toInt` and `toFloat` may exist
+  as aliases for `toInt64` and `toFloat64` only if the prelude/catalog boundary
+  records them as aliases rather than separate numeric semantics.
+- No implicit widening, narrowing, signedness conversion, or int/float mixing
+  is introduced.
+- Compile-time prevention is preferred. Literal conversions must reject
+  statically when the literal is out of target range, when a fractional literal
+  targets an integral type without an exact integral value, or when a conversion
+  source is non-numeric.
+- Dynamic conversion failures use deterministic fatal runtime diagnostics only
+  when the value cannot be known statically.
+- Integer-to-integer conversions are exact and range-checked.
+- Float-to-integer conversions require a finite integral value in range.
+- Integer-to-float and float-to-float conversions use deterministic IEEE-style
+  target rounding; overflow to a non-finite target is a diagnostic, not silent
+  infinity.
+- Conversion functions are ordinary prelude-owned public APIs backed by
+  catalog/kernel bridge names, not parser magic.
+
+Likely active-path target files:
+
+- `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`
+- `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`
+- `jazz-next/src/JazzNext/Compiler/PreludeContract.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`
+
+Likely focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
 
 ## Verification Evidence (Current Ambiguity)
 

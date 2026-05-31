@@ -56,6 +56,16 @@ planned.
 - Catalog ownership metadata (`PreludeTarget` vs future intrinsic-only entries)
   is declared in `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`.
 
+Future explicit numeric conversions:
+
+- Conversion APIs such as `toInt8`, `toUInt64`, and `toFloat64` are
+  prelude-owned public names backed by catalog/kernel bridge symbols.
+- Direct no-prelude flows may use only the corresponding `__kernel_*` bridge
+  names once those bridges exist.
+- Adding conversion APIs must update the builtin catalog, bundled prelude
+  generation/mirror, prelude contract validation, primitive type/runtime
+  semantics, and no-prelude/prelude visibility tests together.
+
 ## Decision Cross-References
 
 This boundary contract is constrained by previously locked language decisions:

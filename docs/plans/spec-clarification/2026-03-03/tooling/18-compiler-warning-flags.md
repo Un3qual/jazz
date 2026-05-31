@@ -7,7 +7,7 @@ kind: coordination
 autonomous_ready: no
 depends_on:
   - JN-WARNING-UNUSED-BINDING-LET-001
-last_verified: 2026-05-23
+last_verified: 2026-05-31
 plan_section: "Phase 8 / Coordination: deprecated-syntax W0004 contract decision"
 target_paths:
   - docs/spec/tooling/compiler-warning-flags.md
@@ -16,7 +16,7 @@ target_paths:
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Decide whether `deprecated-syntax` has an accepted active-path parser/analyzer surface that can emit W0004; if yes, publish the exact warning payload, target paths, verification, and next implementation row, otherwise keep the W0004 emitter blocked with concrete evidence."
+deliverable: "Record that `deprecated-syntax` remains reserved-only because active `jazz-next` has no accepted deprecated syntax surface; non-canonical `trait` declarations are never accepted and therefore must not emit W0004."
 ---
 
 # Compiler Warning Flags (Same-Scope Rebinding) Implementation Plan
@@ -48,8 +48,9 @@ Execution note:
 - [x] Reserved warning metadata coverage landed for `shadowing-outer-scope`, `unused-binding`, and `deprecated-syntax`; `shadowing-outer-scope` is now the second active emitter.
 - [x] Analyzer warning plumbing implemented for opt-in `shadowing-outer-scope`.
 - [x] Analyzer warning plumbing implemented for opt-in `unused-binding` on ordinary block `let` bindings.
-- [ ] Decide the concrete `deprecated-syntax` / `W0004` warning contract before any emitter implementation row is added.
+- [x] Decide the concrete `deprecated-syntax` / `W0004` warning contract before any emitter implementation row is added.
 - [x] On `2026-05-23`, deferred the W0004 policy choice because no accepted active-path syntax is both implemented and deprecated enough to warn on; kept the remaining emitter blocked while tuple runtime ownership proceeds.
+- [x] On `2026-05-31`, locked the reserved-only W0004 policy: `trait` is never accepted as compatibility syntax, so it is a parser error rather than a deprecated-syntax warning source.
 
 ## Decision Lock (Inherited from Item 13)
 
@@ -504,12 +505,13 @@ bash scripts/check-docs.sh
 
 ### Coordination: deprecated-syntax W0004 contract decision
 
-Status: blocked as of `2026-05-23`. The active `jazz-next` parser now
+Status: blocked as of `2026-05-31`. The active `jazz-next` parser now
 reserves some future syntax with deterministic errors, and the warning catalog
 reserves `deprecated-syntax` / `W0004`, but there is still no accepted
 active-path parser or analyzer surface that is both implemented and deprecated
-enough to emit this warning. Keep this decision out of `Ready Now` until the
-deprecated-syntax policy is chosen.
+enough to emit this warning. The deprecated-syntax policy is now locked to
+reserved-only until a future accepted syntax surface is intentionally
+deprecated.
 
 This is a flow-restoring coordination batch for the reserved
 `deprecated-syntax` / `W0004` warning category. It does not implement warning
@@ -517,6 +519,15 @@ emission. Its purpose is to decide whether there is an accepted active-path
 syntax surface that can emit W0004 without inventing class/impl semantics,
 parser warning plumbing, or a broader deprecation policy inside an
 implementation batch.
+
+Policy lock:
+
+- `trait ... { ... }` declarations are never accepted in active `jazz-next`.
+- Parser-rejected syntax must remain an error, not a warning.
+- `deprecated-syntax` / `W0004` must not emit for `trait`.
+- Future W0004 work requires a different accepted active-path syntax surface
+  that is already implemented, then explicitly deprecated with a warning
+  payload, target paths, and focused verification.
 
 Batch scope:
 
