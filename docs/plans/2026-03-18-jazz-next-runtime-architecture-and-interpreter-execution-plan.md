@@ -52,9 +52,9 @@ supersedes:
 - [x] On `2026-05-22`, verified the execution queue has no `Ready Now` implementation entries and kept `JN-MODULE-REBASE-PLAN-001` blocked on a concrete remaining stdlib phase-5 closure contract.
 - [x] On `2026-05-22`, added bundled-prelude reproducibility evidence: `BundledPrelude` now owns the checked-in prelude path and `BuiltinCatalogSpec` fails if that file drifts from catalog-generated bridge/alias source.
 - [x] On `2026-05-22`, retired the internal compile placeholder artifact: successful compile driver results now contain only diagnostics, and loader/warning-flow/type/runtime coverage asserts compile success through warnings/errors only.
-- [x] On `2026-05-31`, added module-graph no-prelude/prelude ownership harness coverage proving `compileModuleGraphWithPrelude Nothing` and `runModuleGraphWithPrelude Nothing` reject public aliases across imports while preserving `__kernel_*`, bundled, and explicit-prelude helper paths.
 - [x] On `2026-05-30`, closed the type-signature/type-grammar rebase metadata around the implemented structured monomorphic subset and left broader type schemes/defaulting blocked under the dedicated type plan.
 - [x] On `2026-05-30`, aligned runtime/product docs around the active interpreter-backed compile/run path: successful compile is diagnostic-only, successful `--run` prints interpreter output, and future product deltas are blocked on concrete behavior contracts.
+- [x] On `2026-05-31`, added module-graph no-prelude/prelude ownership harness coverage proving `compileModuleGraphWithPrelude Nothing` and `runModuleGraphWithPrelude Nothing` reject public aliases across imports while preserving `__kernel_*`, bundled, and explicit-prelude helper paths.
 - [x] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next` for the active structured monomorphic subset.
 - [x] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
 - [x] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.

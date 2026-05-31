@@ -176,12 +176,8 @@ testCompileModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles = do
     ["E1001: unbound variable 'map'", "E1001: unbound variable 'hd'"]
     (map renderDiagnostic (compileErrors result))
   where
-    sourceMap =
-      Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Data.\nprojected.\n}"),
-          ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3]].\nprojected = map hd values.\n}")
-        ]
-    lookupSource path = pure (Map.lookup path sourceMap)
+    sourceMap = moduleGraphProjectedSources "map hd values"
+    lookupSource = lookupSourceIn sourceMap
 
 testRunModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles :: IO ()
 testRunModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles = do
@@ -200,12 +196,8 @@ testRunModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles = do
   assertEqual "runtime errors stay empty on compile failure" [] (runRuntimeErrors result)
   assertEqual "runtime output is suppressed on compile failure" Nothing (runOutput result)
   where
-    sourceMap =
-      Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Data.\nprojected.\n}"),
-          ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3]].\nprojected = map hd values.\n}")
-        ]
-    lookupSource path = pure (Map.lookup path sourceMap)
+    sourceMap = moduleGraphProjectedSources "map hd values"
+    lookupSource = lookupSourceIn sourceMap
 
 testCompileModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles :: IO ()
 testCompileModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles = do
@@ -219,12 +211,8 @@ testCompileModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles = do
   assertEqual "warnings" [] (compileWarnings result)
   assertEqual "compile errors" [] (compileErrors result)
   where
-    sourceMap =
-      Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Data.\nprojected.\n}"),
-          ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3]].\nprojected = __kernel_map __kernel_hd values.\n}")
-        ]
-    lookupSource path = pure (Map.lookup path sourceMap)
+    sourceMap = moduleGraphProjectedSources "__kernel_map __kernel_hd values"
+    lookupSource = lookupSourceIn sourceMap
 
 testRunModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles :: IO ()
 testRunModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles = do
@@ -235,16 +223,13 @@ testRunModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles = do
       resolverConfig
       ["App", "Main"]
       lookupSource
+  assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[1, 3]") (runOutput result)
   where
-    sourceMap =
-      Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Data.\nprojected.\n}"),
-          ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3]].\nprojected = __kernel_map __kernel_hd values.\n}")
-        ]
-    lookupSource path = pure (Map.lookup path sourceMap)
+    sourceMap = moduleGraphProjectedSources "__kernel_map __kernel_hd values"
+    lookupSource = lookupSourceIn sourceMap
 
 testRunModuleGraphExplicitPreludeExposesPublicHelpersAcrossFiles :: IO ()
 testRunModuleGraphExplicitPreludeExposesPublicHelpersAcrossFiles = do
@@ -255,16 +240,13 @@ testRunModuleGraphExplicitPreludeExposesPublicHelpersAcrossFiles = do
       resolverConfig
       ["App", "Main"]
       lookupSource
+  assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[1, 3]") (runOutput result)
   where
-    sourceMap =
-      Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Data.\nprojected.\n}"),
-          ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3]].\nprojected = map hd values.\n}")
-        ]
-    lookupSource path = pure (Map.lookup path sourceMap)
+    sourceMap = moduleGraphProjectedSources "map hd values"
+    lookupSource = lookupSourceIn sourceMap
 
 testRunModuleGraphIgnoresDependencyExpressions :: IO ()
 testRunModuleGraphIgnoresDependencyExpressions = do
@@ -1007,6 +989,16 @@ testMemoizedLookupReuse = do
           | otherwise -> Just "broken = ."
         "src/Lib/Util.jz" -> Just "module Lib::Util {\nutil = 1.\n}"
         _ -> Nothing
+
+moduleGraphProjectedSources :: Text -> Map.Map FilePath Text
+moduleGraphProjectedSources projectedExpr =
+  Map.fromList
+    [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Data.\nprojected.\n}"),
+      ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3]].\nprojected = " <> projectedExpr <> ".\n}")
+    ]
+
+lookupSourceIn :: Map.Map FilePath Text -> FilePath -> IO (Maybe Text)
+lookupSourceIn sourceMap path = pure (Map.lookup path sourceMap)
 
 resolverConfig :: ModuleResolutionConfig
 resolverConfig =
