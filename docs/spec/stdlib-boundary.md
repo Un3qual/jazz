@@ -2,7 +2,7 @@
 
 Status: active (closure verified for the current `jazz-next` runtime subset; bundled/explicit prelude paths expose public aliases while no-prelude paths remain kernel-bridge-only)
 Locked decisions (initial `jazz-next` contract): 2026-03-04
-Updated: 2026-05-22
+Updated: 2026-05-31
 Primary plan: `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`
 
 ## Purpose
@@ -31,7 +31,9 @@ planned.
    load the bundled prelude by default. Explicit no-prelude entry points
    (`compileSourceWithPrelude Nothing`, `runSourceWithPrelude Nothing`,
    `compileModuleGraphWithPrelude Nothing`, `runModuleGraphWithPrelude Nothing`,
-   `--no-prelude`, and low-level AST/runtime helpers) are kernel-only.
+   `--no-prelude`, and low-level AST/runtime helpers) are kernel-only. The
+   no-prelude module graph harness covers both compile and run paths across
+   imported modules.
 
 ## Kernel Catalog (Current `jazz-next` Runtime Subset)
 
@@ -107,6 +109,10 @@ Required invariants:
 4. This ownership-boundary migration is closed for the current runtime subset.
    Future stdlib growth should extend the prelude/catalog intentionally under
    new queue items rather than reopening direct public builtin fallback.
+5. Active coverage lives in `PreludeLoadingSpec.hs`, `BuiltinCatalogSpec.hs`,
+   and `LoaderSpec.hs`: source helpers cover no-prelude alias rejection,
+   catalog coverage locks bridge/alias generation, and module graph coverage
+   locks bundled, explicit, and no-prelude behavior across imports.
 
 ## Non-Goals (Current Phase)
 
