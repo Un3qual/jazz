@@ -61,6 +61,7 @@ tests =
     ("ignores hash line comments between statements", testIgnoresHashLineComments),
     ("tracks tab-aligned expression spans", testTabAlignedExpressionSpan),
     ("parses nested scope expression", testParseNestedScopeExpression),
+    ("parses block argument expression with stable inner spans", testParseBlockArgumentExpression),
     ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
     ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram),
     ("lowers numeric width signature names into analyzer AST", testLowerNumericWidthSignatureProgram),
@@ -70,6 +71,7 @@ tests =
     ("lowers constrained signature payload into analyzer AST", testLowerConstrainedSignatureProgram),
     ("lowers constrained tuple signature payload into analyzer AST", testLowerConstrainedTupleSignatureProgram),
     ("rejects missing statement terminator", testRejectsMissingDotTerminator),
+    ("rejects unterminated block expression", testRejectsUnterminatedBlockExpression),
     ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot),
     ("rejects signature missing terminator before class declaration", testRejectsMissingSignatureDotBeforeClass),
     ("parses integer literals beyond host Int", testParsesLargeIntegerLiteral),
@@ -363,6 +365,28 @@ testParseNestedScopeExpression =
     )
     (parseSurfaceProgram "x = 1.\n{ x. }.")
 
+testParseBlockArgumentExpression :: IO ()
+testParseBlockArgumentExpression =
+  assertEqual
+    "block argument AST"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "result"
+                (SourceSpan 1 1)
+                ( SEApply
+                    (SEVar "f")
+                    ( SEBlock
+                        [ SSLet "x" (SourceSpan 2 3) (SELit (SLInt 1)),
+                          SSExpr (SourceSpan 3 3) (SEVar "x")
+                        ]
+                    )
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "result = f {\n  x = 1.\n  x.\n}.")
+
 testLowerSurfaceProgram :: IO ()
 testLowerSurfaceProgram =
   assertRight
@@ -538,6 +562,13 @@ testRejectsMissingDotTerminator =
     "missing dot error"
     "expected '.'"
     (parseSurfaceProgram "x = 1 y = 2.")
+
+testRejectsUnterminatedBlockExpression :: IO ()
+testRejectsUnterminatedBlockExpression =
+  assertLeftDiagnosticContains
+    "unterminated block expression"
+    "expected '}'"
+    (parseSurfaceProgram "x = { y = 1. y.")
 
 testRejectsMissingSignatureDot :: IO ()
 testRejectsMissingSignatureDot =

@@ -46,6 +46,11 @@ tests =
     ("run module graph produces runtime output from entry module", testRunModuleGraphSuccess),
     ("compile module graph default helper loads bundled prelude", testCompileModuleGraphDefaultLoadsBundledPrelude),
     ("run module graph default helper executes bundled prelude aliases across files", testRunModuleGraphDefaultLoadsBundledPrelude),
+    ("compile module graph without prelude rejects public aliases across files", testCompileModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles),
+    ("run module graph without prelude rejects public aliases across files", testRunModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles),
+    ("compile module graph without prelude keeps kernel bridge aliases across files", testCompileModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles),
+    ("run module graph without prelude executes kernel bridge aliases across files", testRunModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles),
+    ("run module graph explicit prelude exposes public helpers across files", testRunModuleGraphExplicitPreludeExposesPublicHelpersAcrossFiles),
     ("run module graph ignores dependency expression statements", testRunModuleGraphIgnoresDependencyExpressions),
     ("compile module graph validates dependency expression statements", testCompileModuleGraphValidatesDependencyExpressions),
     ("run module graph validates dependency expression statements before runtime", testRunModuleGraphValidatesDependencyExpressionsBeforeRuntime),
@@ -155,6 +160,93 @@ testRunModuleGraphDefaultLoadsBundledPrelude = do
           ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3], [4, 5]].\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles :: IO ()
+testCompileModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  assertEqual
+    "public aliases are unavailable across module graph without prelude"
+    ["E1001: unbound variable 'map'", "E1001: unbound variable 'hd'"]
+    (map renderDiagnostic (compileErrors result))
+  where
+    sourceMap = moduleGraphProjectedSources "map hd values"
+    lookupSource = lookupSourceIn sourceMap
+
+testRunModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles :: IO ()
+testRunModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual
+    "run-mode public aliases are unavailable across module graph without prelude"
+    ["E1001: unbound variable 'map'", "E1001: unbound variable 'hd'"]
+    (map renderDiagnostic (runCompileErrors result))
+  assertEqual "runtime errors stay empty on compile failure" [] (runRuntimeErrors result)
+  assertEqual "runtime output is suppressed on compile failure" Nothing (runOutput result)
+  where
+    sourceMap = moduleGraphProjectedSources "map hd values"
+    lookupSource = lookupSourceIn sourceMap
+
+testCompileModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles :: IO ()
+testCompileModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  assertEqual "compile errors" [] (compileErrors result)
+  where
+    sourceMap = moduleGraphProjectedSources "__kernel_map __kernel_hd values"
+    lookupSource = lookupSourceIn sourceMap
+
+testRunModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles :: IO ()
+testRunModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[1, 3]") (runOutput result)
+  where
+    sourceMap = moduleGraphProjectedSources "__kernel_map __kernel_hd values"
+    lookupSource = lookupSourceIn sourceMap
+
+testRunModuleGraphExplicitPreludeExposesPublicHelpersAcrossFiles :: IO ()
+testRunModuleGraphExplicitPreludeExposesPublicHelpersAcrossFiles = do
+  result <-
+    runModuleGraphWithResolvedPrelude
+      defaultWarningSettings
+      (PreludeExplicit "__kernel_map = __kernel_map.\n__kernel_hd = __kernel_hd.\nmap = __kernel_map.\nhd = __kernel_hd.")
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[1, 3]") (runOutput result)
+  where
+    sourceMap = moduleGraphProjectedSources "map hd values"
+    lookupSource = lookupSourceIn sourceMap
 
 testRunModuleGraphIgnoresDependencyExpressions :: IO ()
 testRunModuleGraphIgnoresDependencyExpressions = do
@@ -897,6 +989,16 @@ testMemoizedLookupReuse = do
           | otherwise -> Just "broken = ."
         "src/Lib/Util.jz" -> Just "module Lib::Util {\nutil = 1.\n}"
         _ -> Nothing
+
+moduleGraphProjectedSources :: Text -> Map.Map FilePath Text
+moduleGraphProjectedSources projectedExpr =
+  Map.fromList
+    [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Data.\nprojected.\n}"),
+      ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3]].\nprojected = " <> projectedExpr <> ".\n}")
+    ]
+
+lookupSourceIn :: Map.Map FilePath Text -> FilePath -> IO (Maybe Text)
+lookupSourceIn sourceMap path = pure (Map.lookup path sourceMap)
 
 resolverConfig :: ModuleResolutionConfig
 resolverConfig =

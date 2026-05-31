@@ -1,12 +1,12 @@
 ---
 id: JN-MODULE-NO-PRELUDE-GRAPH-HARNESS-001
-status: ready
+status: done
 priority: P1
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-05-30
+last_verified: 2026-05-31
 plan_section: "Batch 1: Module graph no-prelude/prelude ownership harness"
 target_paths:
   - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
@@ -40,17 +40,17 @@ metadata behavior.
 
 ## Batch 1: Module graph no-prelude/prelude ownership harness
 
-Next executor-safe batch:
+Completed on `2026-05-31`:
 
-- Add module-graph tests for `compileModuleGraphWithPrelude Nothing` and
+- Added module-graph tests for `compileModuleGraphWithPrelude Nothing` and
   `runModuleGraphWithPrelude Nothing` proving public aliases such as `map` and
   `hd` are rejected across imported modules without a prelude.
-- Add paired module-graph tests proving `__kernel_*` bridge names remain
+- Added paired module-graph tests proving `__kernel_*` bridge names remain
   available in the same explicit no-prelude path.
-- Preserve existing bundled and explicit prelude coverage that exposes public
-  helpers across module imports.
-- Keep changes focused to active harness files unless the tests expose a real
-  driver/catalog mismatch.
+- Preserved bundled and explicit prelude coverage that exposes public helpers
+  across module imports.
+- Kept changes focused to `LoaderSpec.hs`; the new harness passed against the
+  existing driver/catalog behavior, so no compiler source change was required.
 
 Verification:
 

@@ -54,10 +54,11 @@ supersedes:
 - [x] On `2026-05-22`, retired the internal compile placeholder artifact: successful compile driver results now contain only diagnostics, and loader/warning-flow/type/runtime coverage asserts compile success through warnings/errors only.
 - [x] On `2026-05-30`, closed the type-signature/type-grammar rebase metadata around the implemented structured monomorphic subset and left broader type schemes/defaulting blocked under the dedicated type plan.
 - [x] On `2026-05-30`, aligned runtime/product docs around the active interpreter-backed compile/run path: successful compile is diagnostic-only, successful `--run` prints interpreter output, and future product deltas are blocked on concrete behavior contracts.
+- [x] On `2026-05-31`, added module-graph no-prelude/prelude ownership harness coverage proving `compileModuleGraphWithPrelude Nothing` and `runModuleGraphWithPrelude Nothing` reject public aliases across imports while preserving `__kernel_*`, bundled, and explicit-prelude helper paths.
 - [x] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next` for the active structured monomorphic subset.
 - [x] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
 - [x] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.
-- [ ] Milestone 5 complete: module/import and stdlib execution semantics are closed on the active path.
+- [x] Milestone 5 complete: module/import and stdlib execution semantics are closed on the active path.
 - [x] Milestone 6 complete: CLI/docs treat interpreter-backed execution as the canonical product path.
 
 ## Active Baseline (2026-05-30)
@@ -173,8 +174,8 @@ Primary files:
 ### Milestone 5: Close module/import and stdlib execution semantics
 
 - [x] Rebase the module-loader plan onto the current `ModuleResolver.hs` and `Driver.hs` path instead of legacy loader files.
-- [ ] Finish stdlib phase-5 kernel reduction and keep module execution/prelude ownership on the same runtime contract.
-- [ ] Extend loader/runtime tests so multi-file execution and builtin/prelude ownership are verified together.
+- [x] Finish stdlib phase-5 kernel reduction and keep module execution/prelude ownership on the same runtime contract.
+- [x] Extend loader/runtime tests so multi-file execution and builtin/prelude ownership are verified together.
 
 #### Coordination: Module/import active-path execution contract
 
@@ -349,6 +350,29 @@ Batch 6 verification:
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
 bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+#### Batch 7: Module graph no-prelude/prelude ownership harness
+
+This batch landed on `2026-05-31`. The current module graph prelude boundary is now covered directly: explicit no-prelude graph callers reject public aliases such as `map` and `hd` across imported modules, the same graph path still accepts `__kernel_*` bridge names, and bundled/explicit prelude paths expose public helpers across imports without adding new stdlib APIs.
+
+- [x] Add `compileModuleGraphWithPrelude Nothing` coverage for imported-module public alias rejection.
+- [x] Add `runModuleGraphWithPrelude Nothing` coverage for the same rejection before runtime output.
+- [x] Add paired compile/run coverage proving `__kernel_map` and `__kernel_hd` remain available across imported modules without a prelude.
+- [x] Add explicit-prelude module graph coverage proving public helper aliases remain visible across imported modules.
+
+Batch 7 files:
+
+- `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`
+
+Batch 7 verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```

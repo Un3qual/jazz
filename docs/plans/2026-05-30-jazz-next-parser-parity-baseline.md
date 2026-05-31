@@ -1,12 +1,12 @@
 ---
 id: JN-PARSER-PARITY-BASELINE-001
-status: ready
+status: done
 priority: P2
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-05-30
+last_verified: 2026-05-31
 plan_section: "Batch 1: Handwritten parser parity baseline"
 target_paths:
   - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
@@ -38,15 +38,18 @@ replace the handwritten parser, add a CST, or accept new syntax.
 
 ## Batch 1: Handwritten parser parity baseline
 
-Next executor-safe batch:
+Completed on `2026-05-31`:
 
-- Add focused parser parity assertions for current core expression, module,
+- Added focused parser parity assertions for current core expression, module,
   operator/fixity, and section behavior.
-- Prefer AST shape, source-span, and deterministic diagnostic checks over broad
-  golden dumps.
-- Keep the parity baseline in existing active `jazz-next` parser suites.
-- Leave parser implementation changes out of scope unless an existing behavior
-  is not testable without a small harness helper.
+- Locked block-argument AST/spans and block diagnostic behavior in
+  `ParserFoundationSpec.hs`; module/import indented spans and trailing path
+  separator diagnostics in `ModuleImportParserSpec.hs`; same-precedence
+  arithmetic associativity in `OperatorFixitySpec.hs`; and section application
+  precedence plus left-section lowering in `OperatorSectionSpec.hs`.
+- Kept the parity baseline in existing active `jazz-next` parser suites with no
+  parser implementation changes, parser-technology migration, CST work, or
+  broadened accepted syntax.
 
 Verification:
 

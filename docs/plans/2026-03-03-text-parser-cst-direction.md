@@ -49,7 +49,7 @@ Adopt an incremental migration path toward **Megaparsec** for parser growth. Do 
 
 ### Migration Shape
 
-1. Freeze current behavior with parser parity tests (AST shape + span/error position expectations).
+1. Done `2026-05-31`: freeze current behavior with parser parity tests (AST shape + span/error position expectations) in `jazz-next/test/JazzNext/Compiler/Parser/{ParserFoundationSpec.hs,ModuleImportParserSpec.hs,OperatorFixitySpec.hs,OperatorSectionSpec.hs}`.
 2. Keep handwritten lexer initially.
 3. Introduce a Megaparsec parser over the existing token stream.
 4. Preserve external parser API shape during migration.
@@ -79,5 +79,5 @@ Adopt an incremental migration path toward **Megaparsec** for parser growth. Do 
 
 - Keep `jazz-next/` as the only active implementation target.
 - Continue shipping feature work on current pipeline, now using `Text` internally.
-- Plan a staged parser migration to Megaparsec once parity tests are explicit.
+- Keep any staged parser migration to Megaparsec behind a concrete implementation batch that starts from the explicit handwritten-parser parity baseline.
 - Revisit CST only when tooling and recovery requirements justify the additional layer.

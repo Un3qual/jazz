@@ -39,6 +39,7 @@ tests :: [NamedTest]
 tests =
   [ ("parses module declaration statement", testParsesModuleDeclaration),
     ("parses canonical brace-bodied module declaration boundary", testParsesCanonicalModuleDeclarationBoundary),
+    ("parses module imports with stable indented spans", testParsesModuleImportsWithStableIndentedSpans),
     ("parses import statement bare dot", testParsesImportBare),
     ("parses import statement with alias", testParsesImportAlias),
     ("parses qualified alias lookup expression", testParsesQualifiedAliasLookup),
@@ -70,6 +71,7 @@ tests =
     ("rejects module declaration nested inside block expression", testRejectsModuleDeclarationNestedInsideBlock),
     ("rejects module statement with missing path", testRejectsModuleMissingPath),
     ("rejects module statement with trailing separator using separator span", testRejectsModuleTrailingSeparatorSpan),
+    ("rejects import statement with trailing separator using separator span", testRejectsImportTrailingSeparatorSpan),
     ("rejects import statement with empty symbol list", testRejectsImportEmptySymbolList),
     ("rejects import statement with empty symbol list using rparen span", testRejectsImportEmptySymbolListSpan),
     ("rejects import statement with duplicate symbols", testRejectsImportDuplicateSymbols),
@@ -104,6 +106,21 @@ testParsesCanonicalModuleDeclarationBoundary =
         )
     )
     (parseSurfaceProgram "module App::Main {\nimport Lib::Math as Math.\nresult = Math::answer.\n}")
+
+testParsesModuleImportsWithStableIndentedSpans :: IO ()
+testParsesModuleImportsWithStableIndentedSpans =
+  assertEqual
+    "module import indented spans"
+    ( Right
+        ( SEBlock
+            [ SSModule (SourceSpan 1 1) ["App", "Main"],
+              SSImport (SourceSpan 3 3) ["Lib", "Math"] (Just "Math") Nothing,
+              SSImport (SourceSpan 4 3) ["Std", "List"] Nothing (Just ["map"]),
+              SSLet "result" (SourceSpan 5 3) (SEQualifiedVar "Math" "answer")
+            ]
+        )
+    )
+    (parseSurfaceProgram "module App::Main {\n# keep comment line out of spans\n  import Lib::Math as Math.\n  import Std::List (map).\n  result = Math::answer.\n}")
 
 testParsesImportBare :: IO ()
 testParsesImportBare =
@@ -439,6 +456,13 @@ testRejectsModuleTrailingSeparatorSpan =
     "module trailing separator span"
     "1:9"
     (parseSurfaceProgram "module A::.")
+
+testRejectsImportTrailingSeparatorSpan :: IO ()
+testRejectsImportTrailingSeparatorSpan =
+  assertLeftDiagnosticContains
+    "import trailing separator span"
+    "1:9"
+    (parseSurfaceProgram "import A::.")
 
 testRejectsImportEmptySymbolList :: IO ()
 testRejectsImportEmptySymbolList =
