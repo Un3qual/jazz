@@ -100,7 +100,11 @@ tests =
     ("rejects class method body syntax", testRejectsClassMethodBodySyntax),
     ("rejects duplicate class method signatures", testRejectsDuplicateClassMethodSignatures),
     ("rejects non-signature class body items", testRejectsNonSignatureClassBodyItem),
-    ("rejects non-empty impl capability bodies", testRejectsNonEmptyImplCapabilityBody),
+    ("parses impl method binding metadata", testParsesImplMethodBindingMetadata),
+    ("lowers impl method binding metadata", testLowersImplMethodBindingMetadata),
+    ("rejects variable-target impl method bindings", testRejectsVariableTargetImplMethodBindings),
+    ("rejects duplicate impl method bindings", testRejectsDuplicateImplMethodBindings),
+    ("rejects non-binding impl body items", testRejectsNonBindingImplBodyItem),
     ("rejects malformed class capability headers", testRejectsMalformedClassCapabilityHeader),
     ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax),
     ("rejects lowercase trait abstraction declarations", testRejectsLowercaseTraitAbstractionSyntax),
@@ -761,6 +765,7 @@ testParsesImplCapabilityDeclaration =
         ( SEBlock
             [ SSImpl (SourceSpan 1 1) "Eq"
                 [SurfaceConstrainedTypeName "Int"]
+                []
             ]
         )
     )
@@ -776,7 +781,7 @@ testLowersCapabilityDeclarations =
           "lowered capability declarations"
           ( EBlock
               [ SClass (SourceSpan 1 1) "Eq" [],
-                SImpl (SourceSpan 2 1) "Eq" [ConstraintTypeName "Int"]
+                SImpl (SourceSpan 2 1) "Eq" [ConstraintTypeName "Int"] []
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
@@ -790,7 +795,7 @@ testParsesCapabilityDeclarationsInModuleBody =
         ( SEBlock
             [ SSModule (SourceSpan 1 1) ["App", "Core"],
               SSClass (SourceSpan 2 1) "Eq" [],
-              SSImpl (SourceSpan 3 1) "Eq" [SurfaceConstrainedTypeName "Int"]
+              SSImpl (SourceSpan 3 1) "Eq" [SurfaceConstrainedTypeName "Int"] []
             ]
         )
     )
@@ -865,12 +870,50 @@ testRejectsNonSignatureClassBodyItem =
     "signature-only method declaration"
     (parseSurfaceProgram "class Eq { 1. }.")
 
-testRejectsNonEmptyImplCapabilityBody :: IO ()
-testRejectsNonEmptyImplCapabilityBody =
+testParsesImplMethodBindingMetadata :: IO ()
+testParsesImplMethodBindingMetadata =
+  assertRight
+    "surface impl method binding metadata parse"
+    (parseSurfaceProgram "impl Eq(Int) {\nequals = \\(left, right) -> left == right.\n}.")
+    ( \surfaceProgram -> do
+        let rendered = Text.pack (show surfaceProgram)
+        assertContains "surface impl method metadata" "SurfaceImplMethod" rendered
+        assertContains "surface impl method name" "identifierText = \"equals\"" rendered
+        assertContains "surface impl method expression" "SEBinary \"==\"" rendered
+    )
+
+testLowersImplMethodBindingMetadata :: IO ()
+testLowersImplMethodBindingMetadata =
+  assertRight
+    "surface impl method binding metadata parse"
+    (parseSurfaceProgram "impl Eq(Int) {\nequals = \\(left, right) -> left == right.\n}.")
+    ( \surfaceProgram -> do
+        let rendered = Text.pack (show (lowerSurfaceExpr surfaceProgram))
+        assertContains "lowered impl method metadata" "ImplMethod" rendered
+        assertContains "lowered impl method name" "identifierText = \"equals\"" rendered
+        assertContains "lowered impl method expression" "EBinary \"==\"" rendered
+    )
+
+testRejectsVariableTargetImplMethodBindings :: IO ()
+testRejectsVariableTargetImplMethodBindings =
   assertLeftDiagnosticContains
-    "non-empty impl capability body"
-    "deferred method syntax"
-    (parseSurfaceProgram "impl Eq(Int) { equals = \\value -> value. }.")
+    "variable-target impl method binding"
+    "concrete impl target"
+    (parseSurfaceProgram "impl Eq(a) { equals = 1. }.")
+
+testRejectsDuplicateImplMethodBindings :: IO ()
+testRejectsDuplicateImplMethodBindings =
+  assertLeftDiagnosticContains
+    "duplicate impl method binding"
+    "duplicate method binding 'equals'"
+    (parseSurfaceProgram "impl Eq(Int) { equals = 1. equals = 2. }.")
+
+testRejectsNonBindingImplBodyItem :: IO ()
+testRejectsNonBindingImplBodyItem =
+  assertLeftDiagnosticContains
+    "non-binding impl body item"
+    "ordinary method binding"
+    (parseSurfaceProgram "impl Eq(Int) { equals :: Int. }.")
 
 testRejectsMalformedClassCapabilityHeader :: IO ()
 testRejectsMalformedClassCapabilityHeader =

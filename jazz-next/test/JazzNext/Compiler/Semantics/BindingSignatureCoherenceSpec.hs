@@ -59,6 +59,10 @@ tests =
     ("source pipeline accepts class method signature metadata", testSourceAcceptsClassMethodSignatureMetadata),
     ("source pipeline rejects duplicate class method signatures", testSourceRejectsDuplicateClassMethodSignatures),
     ("analyzer rejects duplicate class method metadata", testAnalyzerRejectsDuplicateClassMethodMetadata),
+    ("source pipeline accepts impl method binding metadata", testSourceAcceptsImplMethodBindingMetadata),
+    ("source pipeline rejects variable-target impl method bindings", testSourceRejectsVariableTargetImplMethodBindings),
+    ("source pipeline rejects duplicate impl method bindings", testSourceRejectsDuplicateImplMethodBindings),
+    ("source pipeline rejects non-binding impl body items", testSourceRejectsNonBindingImplBodyItem),
     ("source pipeline rejects duplicate class declarations", testSourceRejectsDuplicateClassDeclarations),
     ("source pipeline rejects duplicate concrete impl declarations", testSourceRejectsDuplicateConcreteImplDeclarations),
     ("source pipeline rejects duplicate ADT impl declarations", testSourceRejectsDuplicateAdtImplDeclarations),
@@ -380,6 +384,22 @@ testAnalyzerRejectsDuplicateClassMethodMetadata = do
           SExpr (SourceSpan 4 1) (ELit (LInt 1))
         ]
 
+testSourceAcceptsImplMethodBindingMetadata :: IO ()
+testSourceAcceptsImplMethodBindingMetadata =
+  assertSourceOkWithoutPrelude "class Eq {\nequals :: Self -> Self -> Bool.\n}.\nimpl Eq(Int) {\nequals = missingImplRuntime.\n}.\nx :: Int.\nx = 1.\nx."
+
+testSourceRejectsVariableTargetImplMethodBindings :: IO ()
+testSourceRejectsVariableTargetImplMethodBindings =
+  assertSourceSingleErrorContainsWithoutPrelude "class Eq { }.\nimpl Eq(a) { equals = 1. }.\nx = 1." "concrete impl target"
+
+testSourceRejectsDuplicateImplMethodBindings :: IO ()
+testSourceRejectsDuplicateImplMethodBindings =
+  assertSourceSingleErrorContainsWithoutPrelude "class Eq { }.\nimpl Eq(Int) { equals = 1. equals = 2. }.\nx = 1." "duplicate method binding 'equals'"
+
+testSourceRejectsNonBindingImplBodyItem :: IO ()
+testSourceRejectsNonBindingImplBodyItem =
+  assertSourceSingleErrorContainsWithoutPrelude "class Eq { }.\nimpl Eq(Int) { equals :: Int. }.\nx = 1." "ordinary method binding"
+
 testSourceRejectsDuplicateClassDeclarations :: IO ()
 testSourceRejectsDuplicateClassDeclarations =
   assertSourceSingleErrorContainsWithoutPrelude "class Eq { }.\nclass Eq { }.\nx = 1." "E1004"
@@ -410,7 +430,7 @@ testSourceKeepsNestedCapabilityFactsScoped = do
             spanValue
             ( EBlock
                 [ SClass spanValue "Eq" [],
-                  SImpl spanValue "Eq" [eqInt],
+                  SImpl spanValue "Eq" [eqInt] [],
                   SExpr spanValue (ELit (LInt 0))
                 ]
             ),

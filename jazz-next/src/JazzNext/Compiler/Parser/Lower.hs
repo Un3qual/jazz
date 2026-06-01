@@ -12,6 +12,7 @@ import JazzNext.Compiler.AST
     DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
+    ImplMethod (..),
     Literal (..),
     NumericType (..),
     Pattern (..),
@@ -28,6 +29,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfaceNumericType (..),
@@ -152,8 +154,12 @@ lowerSurfaceStatement surfaceStatement =
       SData spanValue typeName typeParameters (map lowerSurfaceDataConstructor constructors)
     SSClass spanValue capabilityName methods ->
       SClass spanValue capabilityName (map lowerSurfaceClassMethodSignature methods)
-    SSImpl spanValue capabilityName arguments ->
-      SImpl spanValue capabilityName (map lowerSurfaceConstrainedSignatureType arguments)
+    SSImpl spanValue capabilityName arguments methods ->
+      SImpl
+        spanValue
+        capabilityName
+        (map lowerSurfaceConstrainedSignatureType arguments)
+        (map lowerSurfaceImplMethod methods)
     SSModule spanValue modulePath ->
       SModule spanValue modulePath
     SSImport spanValue modulePath alias importedSymbols ->
@@ -164,6 +170,10 @@ lowerSurfaceStatement surfaceStatement =
 lowerSurfaceClassMethodSignature :: SurfaceClassMethodSignature -> ClassMethodSignature
 lowerSurfaceClassMethodSignature (SurfaceClassMethodSignature methodName spanValue signaturePayload) =
   ClassMethodSignature methodName spanValue (lowerSurfaceSignaturePayload signaturePayload)
+
+lowerSurfaceImplMethod :: SurfaceImplMethod -> ImplMethod
+lowerSurfaceImplMethod (SurfaceImplMethod methodName spanValue methodExpr) =
+  ImplMethod methodName spanValue (lowerSurfaceExpr methodExpr)
 
 lowerSurfaceSignaturePayload :: SurfaceSignaturePayload -> SignaturePayload
 lowerSurfaceSignaturePayload surfaceSignaturePayload =

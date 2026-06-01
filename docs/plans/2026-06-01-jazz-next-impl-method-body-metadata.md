@@ -1,13 +1,14 @@
 ---
 id: JN-ABSTRACTION-IMPL-METHOD-BODY-METADATA-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on:
   - JN-CLASS-METHOD-SIGNATURE-METADATA-001
 last_verified: 2026-06-01
+completed_on: 2026-06-01
 plan_section: "Batch 1: Impl method body metadata without dispatch"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
@@ -15,6 +16,7 @@ target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
   - jazz-next/src/JazzNext/Compiler/AST.hs
   - jazz-next/src/JazzNext/Compiler/Analyzer.hs
+  - jazz-next/src/JazzNext/Compiler/Desugar.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/src/JazzNext/Compiler/Runtime.hs
   - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
@@ -33,13 +35,16 @@ deliverable: "Accept method binding statements inside concrete impl bodies as in
 
 This child plan narrows `Follow-up: abstraction semantics beyond method
 metadata` in the authoritative-syntax plan. The landed class method metadata
-batch accepts signature-only method declarations inside `class` bodies and keeps
-`impl` bodies rejected until method implementation syntax has its own contract.
+batch accepts signature-only method declarations inside `class` bodies. This
+child plan owns the first inert concrete `impl` method body metadata contract.
 
 The executor-safe next batch owns the parser/core metadata shape for concrete
 `impl` method bodies only. It deliberately does not make methods callable.
 
 ## Batch 1: Impl Method Body Metadata Without Dispatch
+
+Completed on `2026-06-01` as
+`JN-ABSTRACTION-IMPL-METHOD-BODY-METADATA-001`.
 
 Scope:
 
@@ -48,6 +53,7 @@ Scope:
 - Preserve method names and method expressions through surface AST, core AST,
   lowering, and shared statement walkers.
 - Reject duplicate method names within the same `impl` body deterministically.
+- Reject method-bearing `impl` bodies whose header target is not concrete.
 - Reject body entries that are not ordinary method bindings.
 - Preserve existing class method signature metadata and permanent `trait`
   rejection.
@@ -69,6 +75,7 @@ Batch target paths:
 - `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
 - `jazz-next/src/JazzNext/Compiler/AST.hs`
 - `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/Desugar.hs`
 - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - `jazz-next/src/JazzNext/Compiler/Runtime.hs`
 - `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`

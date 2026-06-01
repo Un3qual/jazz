@@ -29,6 +29,7 @@ import JazzNext.Compiler.AST
     DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
+    ImplMethod (..),
     Literal (..),
     NumericType (..),
     Pattern (..),
@@ -188,14 +189,18 @@ canonicalizeStatement statement =
       SData spanValue typeName typeParameters constructors
     SClass spanValue capabilityName methods ->
       SClass spanValue capabilityName methods
-    SImpl spanValue capabilityName arguments ->
-      SImpl spanValue capabilityName arguments
+    SImpl spanValue capabilityName arguments methods ->
+      SImpl spanValue capabilityName arguments (map canonicalizeImplMethod methods)
     SModule spanValue modulePath ->
       SModule spanValue modulePath
     SImport spanValue modulePath alias importedSymbols ->
       SImport spanValue modulePath alias importedSymbols
     SExpr spanValue expr ->
       SExpr spanValue (canonicalizeExpr expr)
+
+canonicalizeImplMethod :: ImplMethod -> ImplMethod
+canonicalizeImplMethod (ImplMethod methodName spanValue methodExpr) =
+  ImplMethod methodName spanValue (canonicalizeExpr methodExpr)
 
 -- | Internal type language used by the current inferencer.
 data ExpressionType
@@ -1106,7 +1111,7 @@ seedFacts facts (_, statement) =
   case statement of
     SClass _ capabilityName _ ->
       facts {scopeClassFacts = Set.insert (identifierText capabilityName) (scopeClassFacts facts)}
-    SImpl _ capabilityName arguments ->
+    SImpl _ capabilityName arguments _ ->
       case concreteImplFactKey capabilityName arguments of
         Just implFactKey ->
           facts {scopeConcreteImplFacts = Set.insert implFactKey (scopeConcreteImplFacts facts)}

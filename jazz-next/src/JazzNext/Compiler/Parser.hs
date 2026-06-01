@@ -39,6 +39,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfaceNumericType (..),
@@ -151,7 +152,7 @@ parseStatement context knownAliases tokens =
     abstractionToken@(Token {tokenKind = TIdentifier name}) : rest
       | isDeclarationContext context,
         looksLikeSupportedCapabilityDeclaration name rest ->
-          fmap singleStatement (parseCapabilityDeclaration name abstractionToken rest)
+          fmap singleStatement (parseCapabilityDeclaration knownAliases name abstractionToken rest)
       | isDeclarationContext context,
         looksLikeReservedAbstractionDeclaration name rest ->
           rejectReservedAbstractionSyntax abstractionToken
@@ -280,19 +281,70 @@ abstractionSyntaxDiagnosticText abstractionToken =
             <> location
             <> ": executable class/impl abstraction semantics are deferred in jazz-next"
 
-parseCapabilityDeclaration :: Text -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
-parseCapabilityDeclaration declarationKind declarationToken tokensAfterKeyword = do
+data CapabilityDeclarationBody
+  = CapabilityClassBody [SurfaceClassMethodSignature]
+  | CapabilityImplBody [SurfaceImplMethod]
+
+parseCapabilityDeclaration ::
+  Set Text ->
+  Text ->
+  Token ->
+  [Token] ->
+  Either Diagnostic (SurfaceStatement, [Token])
+parseCapabilityDeclaration knownAliases declarationKind declarationToken tokensAfterKeyword = do
   (capabilityName, headerArguments, headerRemaining) <-
     parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword
-  (methodSignatures, afterBody) <- parseCapabilityDeclarationBody declarationKind declarationToken headerRemaining
+  (capabilityBody, afterBody) <- parseCapabilityDeclarationBody knownAliases declarationKind declarationToken headerRemaining
   remaining <- consumeDot afterBody
   case declarationKind of
     "class" ->
-      Right (SSClass (tokenSpan declarationToken) capabilityName methodSignatures, remaining)
+      case capabilityBody of
+        CapabilityClassBody methodSignatures ->
+          Right (SSClass (tokenSpan declarationToken) capabilityName methodSignatures, remaining)
+        CapabilityImplBody {} ->
+          rejectReservedAbstractionSyntax declarationToken
     "impl" ->
-      Right (SSImpl (tokenSpan declarationToken) capabilityName headerArguments, remaining)
+      case capabilityBody of
+        CapabilityImplBody methods ->
+          if null methods || surfaceConcreteImplArguments headerArguments
+            then Right (SSImpl (tokenSpan declarationToken) capabilityName headerArguments methods, remaining)
+            else
+              Left
+                ( parseDiagnostic
+                    ( "impl method bindings require a concrete impl target at "
+                        <> renderSourceSpan (tokenSpan declarationToken)
+                    )
+                )
+        CapabilityClassBody {} ->
+          rejectReservedAbstractionSyntax declarationToken
     _ ->
       rejectReservedAbstractionSyntax declarationToken
+
+surfaceConcreteImplArguments :: [SurfaceConstrainedSignatureType] -> Bool
+surfaceConcreteImplArguments arguments =
+  case arguments of
+    [argument] -> surfaceConcreteConstraintArgument argument
+    _ -> False
+
+surfaceConcreteConstraintArgument :: SurfaceConstrainedSignatureType -> Bool
+surfaceConcreteConstraintArgument signatureType =
+  case signatureType of
+    SurfaceConstrainedTypeName name ->
+      not (surfaceIdentifierLooksLikeTypeVariable name)
+    SurfaceConstrainedTypeApplication name arguments ->
+      not (surfaceIdentifierLooksLikeTypeVariable name) && all surfaceConcreteConstraintArgument arguments
+    SurfaceConstrainedTypeList innerType ->
+      surfaceConcreteConstraintArgument innerType
+    SurfaceConstrainedTypeTuple elementTypes ->
+      all surfaceConcreteConstraintArgument elementTypes
+    SurfaceConstrainedTypeFunction {} ->
+      False
+
+surfaceIdentifierLooksLikeTypeVariable :: Identifier -> Bool
+surfaceIdentifierLooksLikeTypeVariable name =
+  case Text.uncons (identifierText name) of
+    Just (c, _) -> isLower c
+    Nothing -> False
 
 parseCapabilityHeaderName :: Text -> Token -> [Token] -> Either Diagnostic (Identifier, [SurfaceConstrainedSignatureType], [Token])
 parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
@@ -439,15 +491,24 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
                     )
                 )
 
-parseCapabilityDeclarationBody :: Text -> Token -> [Token] -> Either Diagnostic ([SurfaceClassMethodSignature], [Token])
-parseCapabilityDeclarationBody declarationKind declarationToken tokens =
+parseCapabilityDeclarationBody ::
+  Set Text ->
+  Text ->
+  Token ->
+  [Token] ->
+  Either Diagnostic (CapabilityDeclarationBody, [Token])
+parseCapabilityDeclarationBody knownAliases declarationKind declarationToken tokens =
   case tokens of
     Token {tokenKind = TLBrace} : rest ->
       case declarationKind of
-        "class" -> consumeClassBody Set.empty [] rest
-        _ -> do
-          afterBody <- consumeEmptyBody rest
-          Right ([], afterBody)
+        "class" -> do
+          (methodSignatures, afterBody) <- consumeClassBody Set.empty [] rest
+          Right (CapabilityClassBody methodSignatures, afterBody)
+        "impl" -> do
+          (methods, afterBody) <- consumeImplBody Set.empty [] rest
+          Right (CapabilityImplBody methods, afterBody)
+        _ ->
+          rejectReservedAbstractionSyntax declarationToken
     [] ->
       Left
         ( parseDiagnostic
@@ -525,7 +586,7 @@ parseCapabilityDeclarationBody declarationKind declarationToken tokens =
                 )
             )
 
-    consumeEmptyBody remainingTokens =
+    consumeImplBody seenMethodNames reversedMethods remainingTokens =
       case remainingTokens of
         [] ->
           Left
@@ -538,17 +599,52 @@ parseCapabilityDeclarationBody declarationKind declarationToken tokens =
             )
         token : rest ->
           case tokenKind token of
-            TRBrace -> Right rest
+            TRBrace -> Right (reverse reversedMethods, rest)
             _ ->
-              Left
-                ( parseDiagnostic
-                    ( "unsupported "
-                        <> declarationKind
-                        <> " declaration body at "
-                        <> renderSourceSpan (tokenSpan token)
-                        <> ": deferred method syntax/semantics are not implemented in jazz-next; keep class/impl bodies empty"
+              case remainingTokens of
+                methodToken@Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} :
+                  Token {tokenKind = TEquals} :
+                  afterEquals
+                  | Set.member methodName seenMethodNames ->
+                      Left
+                        ( parseDiagnostic
+                            ( "duplicate method binding '"
+                                <> methodName
+                                <> "' in impl declaration at "
+                                <> renderSourceSpan methodSpan
+                            )
+                        )
+                  | otherwise -> do
+                      (methodExpr, afterExpr) <- parseExpr knownAliases afterEquals
+                      afterMethod <- consumeDot afterExpr
+                      let method =
+                            SurfaceImplMethod
+                              (mkIdentifier methodName)
+                              (tokenSpan methodToken)
+                              methodExpr
+                      consumeImplBody
+                        (Set.insert methodName seenMethodNames)
+                        (method : reversedMethods)
+                        afterMethod
+                methodToken@Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} : Token {tokenKind = TColonColon} : _ ->
+                  Left
+                    ( parseDiagnostic
+                        ( "expected ordinary method binding for '"
+                            <> methodName
+                            <> "' in impl declaration body at "
+                            <> renderSourceSpan methodSpan
+                        )
                     )
-                )
+                _ ->
+                  Left
+                    ( parseDiagnostic
+                        ( "expected ordinary method binding or '}' in impl declaration body at "
+                            <> renderSourceSpan (tokenSpan token)
+                            <> ", found '"
+                            <> tokenLexeme token
+                            <> "'"
+                        )
+                    )
 
 registerImportAliases :: Set Text -> [SurfaceStatement] -> Set Text
 registerImportAliases =

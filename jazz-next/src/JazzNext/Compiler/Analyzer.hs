@@ -23,8 +23,10 @@ import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
+    ConstraintSignatureType (..),
     DataConstructor (..),
     Expr (..),
+    ImplMethod (..),
     Literal (..),
     Pattern (..),
     Statement (..)
@@ -368,7 +370,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
               warningsRev,
               appendErrors errorsWithPending (classErrors ++ methodErrors)
             )
-        SImpl implSpan capabilityName arguments ->
+        SImpl implSpan capabilityName arguments methods ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
               (nextImplDeclarations, implErrors) =
                 case concreteImplFactKey capabilityName arguments of
@@ -382,13 +384,14 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
                         )
                       Nothing ->
                         (Map.insert implFactKey implSpan implDeclarations, [])
+              methodErrors = duplicateImplMethodErrors capabilityName arguments methods
            in
             ( scopeBindings,
               classDeclarations,
               nextImplDeclarations,
               Nothing,
               warningsRev,
-              appendErrors errorsWithPending implErrors
+              appendErrors errorsWithPending (implErrors ++ methodErrors)
             )
         SData spanValue _ _ constructors ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
@@ -609,6 +612,33 @@ mkDuplicateClassMethodError className methodName methodSpan previousSpan =
       setDiagnosticPrimarySpan
         methodSpan
         (mkDiagnostic "E1006" ("duplicate method signature '" <> methodName <> "' in class '" <> className <> "'"))
+
+duplicateImplMethodErrors :: Identifier -> [ConstraintSignatureType] -> [ImplMethod] -> [Diagnostic]
+duplicateImplMethodErrors capabilityName arguments methods =
+  reverse errorsRev
+  where
+    implLabel =
+      case concreteImplFactKey capabilityName arguments of
+        Just implFactKey -> implFactKey
+        Nothing -> identifierText capabilityName
+    (_, errorsRev) = foldl' step (Map.empty, []) methods
+    step (seenMethods, acc) (ImplMethod methodName methodSpan _) =
+      let methodNameText = identifierText methodName
+       in case Map.lookup methodNameText seenMethods of
+            Just previousSpan ->
+              ( seenMethods,
+                mkDuplicateImplMethodError implLabel methodNameText methodSpan previousSpan : acc
+              )
+            Nothing ->
+              (Map.insert methodNameText methodSpan seenMethods, acc)
+
+mkDuplicateImplMethodError :: Text -> Text -> SourceSpan -> SourceSpan -> Diagnostic
+mkDuplicateImplMethodError implLabel methodName methodSpan previousSpan =
+  setDiagnosticSubject (implLabel <> "." <> methodName) $
+    setDiagnosticRelatedSpan previousSpan $
+      setDiagnosticPrimarySpan
+        methodSpan
+        (mkDiagnostic "E1007" ("duplicate method binding '" <> methodName <> "' in impl '" <> implLabel <> "'"))
 
 mkDuplicateImplDeclarationError :: Text -> SourceSpan -> SourceSpan -> Diagnostic
 mkDuplicateImplDeclarationError implFactKey implSpan previousSpan =

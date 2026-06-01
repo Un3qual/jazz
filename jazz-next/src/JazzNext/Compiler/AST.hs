@@ -9,6 +9,7 @@ module JazzNext.Compiler.AST
     DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
+    ImplMethod (..),
     Literal (..),
     NumericType (..),
     Pattern (..),
@@ -157,6 +158,9 @@ data SignatureToken
 data ClassMethodSignature = ClassMethodSignature Identifier SourceSpan SignaturePayload
   deriving (Eq, Show)
 
+data ImplMethod = ImplMethod Identifier SourceSpan Expr
+  deriving (Eq, Show)
+
 -- | Dot-terminated statements that can appear either at the top level or
 -- inside block expressions.
 data Statement
@@ -164,7 +168,7 @@ data Statement
   | SSignature Identifier SourceSpan SignaturePayload
   | SData SourceSpan Identifier [Identifier] [DataConstructor]
   | SClass SourceSpan Identifier [ClassMethodSignature]
-  | SImpl SourceSpan Identifier [ConstraintSignatureType]
+  | SImpl SourceSpan Identifier [ConstraintSignatureType] [ImplMethod]
   | SModule SourceSpan [Text]
   | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SExpr SourceSpan Expr

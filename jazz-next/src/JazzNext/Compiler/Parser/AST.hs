@@ -9,6 +9,7 @@ module JazzNext.Compiler.Parser.AST
     SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfaceNumericType (..),
@@ -168,13 +169,16 @@ data SurfaceSignatureToken
 data SurfaceClassMethodSignature = SurfaceClassMethodSignature Identifier SourceSpan SurfaceSignaturePayload
   deriving (Eq, Show)
 
+data SurfaceImplMethod = SurfaceImplMethod Identifier SourceSpan SurfaceExpr
+  deriving (Eq, Show)
+
 -- | Statement forms preserved from the parsed surface program.
 data SurfaceStatement
   = SSLet Identifier SourceSpan SurfaceExpr
   | SSSignature Identifier SourceSpan SurfaceSignaturePayload
   | SSData SourceSpan Identifier [Identifier] [SurfaceDataConstructor]
   | SSClass SourceSpan Identifier [SurfaceClassMethodSignature]
-  | SSImpl SourceSpan Identifier [SurfaceConstrainedSignatureType]
+  | SSImpl SourceSpan Identifier [SurfaceConstrainedSignatureType] [SurfaceImplMethod]
   | SSModule SourceSpan [Text]
   | SSImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SSExpr SourceSpan SurfaceExpr

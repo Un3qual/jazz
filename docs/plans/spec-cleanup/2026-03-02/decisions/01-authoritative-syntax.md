@@ -7,12 +7,12 @@ kind: impl
 autonomous_ready: no
 depends_on: []
 last_verified: 2026-06-01
-plan_section: "Follow-up: abstraction semantics beyond impl method metadata reseed"
+plan_section: "Follow-up: abstraction semantics beyond landed method metadata"
 target_paths: []
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Class/impl abstraction semantics beyond the queued inert impl method body metadata slice remain blocked until dispatch, dictionary, and runtime contracts define target paths and focused verification."
+deliverable: "Class/impl abstraction semantics beyond landed inert class/impl method metadata remain blocked until dispatch, dictionary, and runtime contracts define target paths and focused verification."
 ---
 
 # Jazz Spec-Cleanup #1: Authoritative Syntax Implementation Plan
@@ -62,6 +62,7 @@ deliverable: "Class/impl abstraction semantics beyond the queued inert impl meth
 - [x] On `2026-05-31`, locked `trait` as permanently rejected in active `jazz-next`; future abstraction work starts from canonical `class`/`impl` only.
 - [x] On `2026-06-01`, locked the active-path parser boundary that rejects non-empty `class`/`impl` bodies until method metadata and dispatch have a concrete contract.
 - [x] On `2026-06-01`, landed signature-only class method metadata in active `jazz-next` while keeping method implementations, dispatch, dictionaries, and runtime evidence blocked.
+- [x] On `2026-06-01`, landed inert concrete `impl` method binding metadata in active `jazz-next` while keeping dispatch, dictionaries, runtime evidence, and solver behavior blocked.
 
 ## Completed jazz-next batch: class/impl parser boundary
 
@@ -304,19 +305,71 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
-## Follow-up: abstraction semantics beyond impl method metadata reseed
+## Completed implementation batch: impl method body metadata
 
-On `2026-06-01`, queue curation split one concrete child plan out of this
-follow-up:
+This active-path abstraction slice follows the landed class method metadata
+batch. It is intentionally limited to inert method binding metadata for
+concrete `impl` declarations; it does not add method lookup, dispatch,
+dictionaries, runtime evidence values, or solver behavior.
+
+Completed on `2026-06-01` as
+`JN-ABSTRACTION-IMPL-METHOD-BODY-METADATA-001`.
+
+Executor-safe scope:
+
+- Accept ordinary binding-shaped method entries inside concrete `impl` bodies,
+  for example `eq = \(left, right) -> left == right.`.
+- Preserve impl method names and expressions through the surface AST, core AST,
+  lowering, desugaring, type canonicalization, analyzer traversal, and inert
+  runtime traversal.
+- Reject duplicate method names within the same impl deterministically.
+- Reject method-bearing impl bodies whose header target is not concrete.
+- Reject impl body entries that are not ordinary method bindings.
+- Preserve class method signature metadata and permanent `trait` rejection.
+
+Out of scope:
+
+- method lookup or dispatch,
+- dictionary passing or runtime evidence values,
+- default methods,
+- superclass semantics,
+- inferred class constraints,
+- broad typeclass/defaulting solver behavior.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/Desugar.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/IfExpressionParserSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Follow-up: abstraction semantics beyond landed method metadata
+
+On `2026-06-01`, queue execution completed the concrete child plan split out
+of this follow-up:
 
 - `docs/plans/2026-06-01-jazz-next-impl-method-body-metadata.md`
 
-That child is limited to inert concrete `impl` method body metadata and keeps
-method dispatch, dictionaries, runtime evidence values, solver behavior,
-default methods, and superclasses out of scope. Further abstraction work stays
-blocked until separate contracts define method lookup and dispatch behavior,
-dictionary or evidence representation, runtime behavior, and focused
-active-path target files/tests.
+That child is limited to inert concrete `impl` method body metadata. Further
+abstraction work stays blocked until separate contracts define method lookup
+and dispatch behavior, dictionary or evidence representation, runtime behavior,
+solver/defaulting behavior, and focused active-path target files/tests.
 
 ## Historical Verification Evidence
 
