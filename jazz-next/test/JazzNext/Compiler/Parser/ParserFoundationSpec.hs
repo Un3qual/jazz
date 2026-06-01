@@ -92,6 +92,7 @@ tests =
     ("parses abstraction keywords as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames),
     ("parses trait as an ordinary import alias", testParsesTraitAsImportAlias),
     ("rejects class capability declarations without parameters", testRejectsClassCapabilityDeclarationWithoutParameters),
+    ("rejects class capability declarations with multiple parameters", testRejectsClassCapabilityDeclarationWithMultipleParameters),
     ("parses explicit-parameter class capability declarations into surface AST", testParsesParameterizedClassCapabilityDeclaration),
     ("parses impl capability declarations into surface AST", testParsesImplCapabilityDeclaration),
     ("lowers class and impl capability declarations as inert AST nodes", testLowersCapabilityDeclarations),
@@ -103,6 +104,7 @@ tests =
     ("parses impl method binding metadata", testParsesImplMethodBindingMetadata),
     ("lowers impl method binding metadata", testLowersImplMethodBindingMetadata),
     ("rejects variable-target impl method bindings", testRejectsVariableTargetImplMethodBindings),
+    ("rejects variable-target impl declarations with empty bodies", testRejectsVariableTargetEmptyImplDeclarations),
     ("rejects duplicate impl method bindings", testRejectsDuplicateImplMethodBindings),
     ("rejects non-binding impl body items", testRejectsNonBindingImplBodyItem),
     ("rejects duplicate class parameters", testRejectsDuplicateClassParameters),
@@ -742,6 +744,13 @@ testRejectsClassCapabilityDeclarationWithoutParameters =
     "explicit parameter list"
     (parseSurfaceProgram "class Eq { }.")
 
+testRejectsClassCapabilityDeclarationWithMultipleParameters :: IO ()
+testRejectsClassCapabilityDeclarationWithMultipleParameters =
+  assertLeftDiagnosticContains
+    "class capability declaration with multiple parameters"
+    "exactly one parameter"
+    (parseSurfaceProgram "class Eq(a, b) { }.")
+
 testParsesParameterizedClassCapabilityDeclaration :: IO ()
 testParsesParameterizedClassCapabilityDeclaration =
   assertEqual
@@ -873,7 +882,7 @@ testParsesImplMethodBindingMetadata :: IO ()
 testParsesImplMethodBindingMetadata =
   assertRight
     "surface impl method binding metadata parse"
-    (parseSurfaceProgram "impl Eq(Int) {\nequals = \\(left, right) -> left == right.\n}.")
+    (parseSurfaceProgram "impl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.")
     ( \surfaceProgram -> do
         let rendered = Text.pack (show surfaceProgram)
         assertContains "surface impl method metadata" "SurfaceImplMethod" rendered
@@ -885,7 +894,7 @@ testLowersImplMethodBindingMetadata :: IO ()
 testLowersImplMethodBindingMetadata =
   assertRight
     "surface impl method binding metadata parse"
-    (parseSurfaceProgram "impl Eq(Int) {\nequals = \\(left, right) -> left == right.\n}.")
+    (parseSurfaceProgram "impl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.")
     ( \surfaceProgram -> do
         let rendered = Text.pack (show (lowerSurfaceExpr surfaceProgram))
         assertContains "lowered impl method metadata" "ImplMethod" rendered
@@ -899,6 +908,13 @@ testRejectsVariableTargetImplMethodBindings =
     "variable-target impl method binding"
     "concrete impl target"
     (parseSurfaceProgram "impl Eq(a) { equals = 1. }.")
+
+testRejectsVariableTargetEmptyImplDeclarations :: IO ()
+testRejectsVariableTargetEmptyImplDeclarations =
+  assertLeftDiagnosticContains
+    "variable-target empty impl declaration"
+    "concrete impl target"
+    (parseSurfaceProgram "impl Eq(a) { }.")
 
 testRejectsDuplicateImplMethodBindings :: IO ()
 testRejectsDuplicateImplMethodBindings =

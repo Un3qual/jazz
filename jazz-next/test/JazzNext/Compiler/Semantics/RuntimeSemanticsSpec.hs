@@ -27,7 +27,8 @@ import JazzNext.Compiler.Driver
     runSource
   )
 import JazzNext.Compiler.Runtime
-  ( evaluateRuntimeExpr
+  ( RuntimeValue (..),
+    evaluateRuntimeExpr
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -107,6 +108,8 @@ tests =
     ("structural tuple equality evaluates at runtime", testStructuralTupleEqualityRuntimeSuccess),
     ("structural ADT equality evaluates at runtime", testStructuralAdtEqualityRuntimeSuccess),
     ("runtime fallback rejects structural equality over functions", testRuntimeFallbackRejectsFunctionStructuralEquality),
+    ("runtime fallback returns false for different-length structural equality over functions", testRuntimeFallbackReturnsFalseForDifferentLengthFunctionStructuralEquality),
+    ("runtime fallback returns false for different saturated ADT constructors with function payloads", testRuntimeFallbackReturnsFalseForDifferentSaturatedAdtConstructors),
     ("Float16 conversion rounds to target precision", testFloat16ConversionRoundsRuntimeValue),
     ("dynamic integer conversion range failure reports deterministic diagnostic", testDynamicIntegerConversionRangeRuntimeError),
     ("runtime fallback rejects non-numeric conversion values", testRuntimeFallbackRejectsNonNumericConversionValue),
@@ -757,6 +760,33 @@ testRuntimeFallbackRejectsFunctionStructuralEquality = do
   let identity = ELambda "x" (EVar "x")
       result = evaluateRuntimeExpr (runtimeExpr (EBinary "==" (EList [identity]) (EList [identity])))
   assertRuntimeErrorContains "runtime fallback function structural equality" "E3007" result
+
+testRuntimeFallbackReturnsFalseForDifferentLengthFunctionStructuralEquality :: IO ()
+testRuntimeFallbackReturnsFalseForDifferentLengthFunctionStructuralEquality = do
+  let identity = ELambda "x" (EVar "x")
+      result = evaluateRuntimeExpr (runtimeExpr (EBinary "==" (EList [identity]) (EList [identity, identity])))
+  assertEqual "different-length function structural equality" (Right (Just (VBool False))) result
+
+testRuntimeFallbackReturnsFalseForDifferentSaturatedAdtConstructors :: IO ()
+testRuntimeFallbackReturnsFalseForDifferentSaturatedAdtConstructors = do
+  let result = evaluateRuntimeExpr differentSaturatedAdtConstructorEqualityExpr
+  assertEqual "different saturated ADT constructor equality" (Right (Just (VBool False))) result
+  where
+    identity = ELambda "x" (EVar "x")
+
+    differentSaturatedAdtConstructorEqualityExpr =
+      EBlock
+        [ SData
+            (SourceSpan 1 1)
+            "Maybe"
+            []
+            [ DataConstructor "Nothing" [],
+              DataConstructor "Just" [DataConstructorArgumentName "value"]
+            ],
+          SExpr
+            (SourceSpan 2 1)
+            (EBinary "==" (EApply (EVar "Just") identity) (EVar "Nothing"))
+        ]
 
 testFloat16ConversionRoundsRuntimeValue :: IO ()
 testFloat16ConversionRoundsRuntimeValue = do

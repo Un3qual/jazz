@@ -72,7 +72,7 @@ Scope:
   }.
 
   impl Eq(Int) {
-    equals = \(left, right) -> left == right.
+    equals = \(left) -> \(right) -> left == right.
   }.
 
   result = Eq::equals 1 1.

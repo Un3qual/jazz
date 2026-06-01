@@ -61,6 +61,7 @@ tests =
     ("analyzer rejects duplicate class method metadata", testAnalyzerRejectsDuplicateClassMethodMetadata),
     ("source pipeline accepts impl method binding metadata", testSourceAcceptsImplMethodBindingMetadata),
     ("source pipeline rejects variable-target impl method bindings", testSourceRejectsVariableTargetImplMethodBindings),
+    ("source pipeline rejects variable-target empty impl declarations", testSourceRejectsVariableTargetEmptyImplDeclarations),
     ("source pipeline rejects duplicate impl method bindings", testSourceRejectsDuplicateImplMethodBindings),
     ("source pipeline rejects non-binding impl body items", testSourceRejectsNonBindingImplBodyItem),
     ("source pipeline rejects duplicate class declarations", testSourceRejectsDuplicateClassDeclarations),
@@ -392,6 +393,10 @@ testSourceAcceptsImplMethodBindingMetadata =
 testSourceRejectsVariableTargetImplMethodBindings :: IO ()
 testSourceRejectsVariableTargetImplMethodBindings =
   assertSourceSingleErrorContainsWithoutPrelude "class Eq(a) { }.\nimpl Eq(a) { equals = 1. }.\nx = 1." "concrete impl target"
+
+testSourceRejectsVariableTargetEmptyImplDeclarations :: IO ()
+testSourceRejectsVariableTargetEmptyImplDeclarations =
+  assertSourceSingleErrorContainsWithoutPrelude "class Eq(a) { }.\nimpl Eq(a) { }.\nx = 1." "concrete impl target"
 
 testSourceRejectsDuplicateImplMethodBindings :: IO ()
 testSourceRejectsDuplicateImplMethodBindings =

@@ -6,6 +6,9 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
+    NumericType (..),
+    SignaturePayload (..),
+    SignatureType (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -58,6 +61,7 @@ tests =
     ("source pipeline accepts equality section application", testSourcePipelineAcceptsEqualitySection),
     ("source pipeline accepts deferred left equality section once constrained", testSourcePipelineAcceptsDeferredLeftEqualitySection),
     ("source pipeline accepts deferred right equality section once constrained", testSourcePipelineAcceptsDeferredRightEqualitySection),
+    ("source pipeline accepts deferred direct equality once constrained", testSourcePipelineAcceptsDeferredDirectEquality),
     ("source pipeline accepts structural list equality", testSourcePipelineAcceptsStructuralListEquality),
     ("source pipeline accepts structural tuple equality", testSourcePipelineAcceptsStructuralTupleEquality),
     ("source pipeline accepts structural ADT equality", testSourcePipelineAcceptsStructuralAdtEquality),
@@ -101,6 +105,7 @@ tests =
     ("source pipeline rejects out-of-range float-target literal conversions", testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions),
     ("source pipeline rejects source-exact float-target literal overflow", testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow),
     ("source pipeline rejects source-exact negative float-target literal overflow", testSourcePipelineRejectsSourceExactNegativeFloatTargetLiteralOverflow),
+    ("core pipeline rejects targeted Float64 fractional literal overflow", testCorePipelineRejectsTargetedFloat64FractionalLiteralOverflow),
     ("source pipeline rejects dollar-applied fractional literal conversions", testSourcePipelineRejectsDollarAppliedFractionalLiteralConversions),
     ("source pipeline rejects typed prelude alias literal overflow", testSourcePipelineRejectsTypedPreludeAliasLiteralOverflow),
     ("source pipeline ignores conversion literal checks for shadowed names", testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames),
@@ -339,6 +344,11 @@ testSourcePipelineRejectsDeferredEqualitySectionUnresolvedListConstraint =
     "deferred equality section must still reject unresolved list equality"
     "E2006"
 
+testSourcePipelineAcceptsDeferredDirectEquality :: IO ()
+testSourcePipelineAcceptsDeferredDirectEquality =
+  assertCompilesWithBundledPrelude
+    "value = hd [].\nsame = value == value.\nsum = value + 1.\nsum."
+
 testSourcePipelineRejectsUnsupportedSectionOperator :: IO ()
 testSourcePipelineRejectsUnsupportedSectionOperator =
   assertCompileError
@@ -548,6 +558,14 @@ testSourcePipelineRejectsSourceExactNegativeFloatTargetLiteralOverflow = do
     "E2006"
     (compileErrors result)
 
+testCorePipelineRejectsTargetedFloat64FractionalLiteralOverflow :: IO ()
+testCorePipelineRejectsTargetedFloat64FractionalLiteralOverflow = do
+  result <- compileExpr defaultWarningSettings targetedFloat64OverflowProgram
+  assertSingleDiagnosticContains
+    "targeted Float64 fractional literal overflow"
+    "E2006"
+    (compileErrors result)
+
 testSourcePipelineRejectsDollarAppliedFractionalLiteralConversions :: IO ()
 testSourcePipelineRejectsDollarAppliedFractionalLiteralConversions = do
   assertCompileErrorWithBundledPrelude
@@ -646,6 +664,26 @@ sourceExactNegativeFloatTargetOverflowProgram =
         (EVar "__kernel_toFloat16")
         (ELit (LFloat (-65504.0) (mkFractionalLiteralSource (-65504) 1 18)))
     )
+
+targetedFloat64OverflowProgram :: Expr
+targetedFloat64OverflowProgram =
+  EBlock
+    [ SSignature
+        "x"
+        (SourceSpan 1 1)
+        (SignatureType (TypeNumeric NumericFloat64)),
+      SLet
+        "x"
+        (SourceSpan 2 1)
+        (ELit (LFloat literalValue literalSource))
+    ]
+  where
+    literalValue = 1 / 0 :: Double
+    literalSource =
+      mkFractionalLiteralSource
+        ((floor (1.7976931348623157e308 :: Double) :: Integer) + 1)
+        0
+        1
 
 intEqualityProgram :: Expr
 intEqualityProgram =

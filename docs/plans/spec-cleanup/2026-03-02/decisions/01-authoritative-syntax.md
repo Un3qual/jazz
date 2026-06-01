@@ -319,7 +319,7 @@ Completed on `2026-06-01` as
 Executor-safe scope:
 
 - Accept ordinary binding-shaped method entries inside concrete `impl` bodies,
-  for example `eq = \(left, right) -> left == right.`.
+  for example `eq = \(left) -> \(right) -> left == right.`.
 - Preserve impl method names and expressions through the surface AST, core AST,
   lowering, desugaring, type canonicalization, analyzer traversal, and inert
   runtime traversal.

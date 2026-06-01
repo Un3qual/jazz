@@ -664,14 +664,18 @@ applyStrictEqualityBinaryRule operatorSymbol leftType rightType state =
     Just unifiedState ->
       let resolvedType = resolveType unifiedState leftType
        in
-        if supportsRuntimeEqualityType unifiedState resolvedType
-          then (Just TBoolType, unifiedState)
-          else
-            ( Nothing,
-              addTypeError
-                unifiedState
-                (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedType)
-            )
+        case resolvedType of
+          TVarType typeVar ->
+            (Just TBoolType, addStrictEqualityTypeVarConstraint typeVar unifiedState)
+          _
+            | supportsRuntimeEqualityType unifiedState resolvedType ->
+                (Just TBoolType, unifiedState)
+            | otherwise ->
+                ( Nothing,
+                  addTypeError
+                    unifiedState
+                    (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedType)
+                )
     Nothing ->
       ( Nothing,
         addTypeError
@@ -1241,9 +1245,8 @@ targetedFractionalLiteralDiagnostic ::
   Maybe Diagnostic
 targetedFractionalLiteralDiagnostic bindingName maybePendingSignature valueExpr maybeInferredType =
   case (targetedFractionalLiteralType bindingName maybePendingSignature valueExpr maybeInferredType, valueExpr) of
-    (Just targetType, ELit (LFloat literalValue literalSource))
-      | targetType == NumericFloat16 || targetType == NumericFloat32 ->
-          targetedFloatLiteralDiagnostic targetType literalValue literalSource
+    (Just targetType, ELit (LFloat literalValue literalSource)) ->
+      targetedFloatLiteralDiagnostic targetType literalValue literalSource
     _ -> Nothing
 
 targetedFractionalLiteralType ::
@@ -1645,13 +1648,14 @@ numericTypeIsIntegral numericType =
 
 numericTypeSupportsRuntimeArithmetic :: NumericType -> Bool
 numericTypeSupportsRuntimeArithmetic numericType =
-  numericTypeIsIntegral numericType
-    || numericType == NumericFloat16
-    || numericType == NumericFloat32
-    || numericType == NumericFloat64
+  numericTypeSupportsRuntimeNumericOperator numericType
 
 numericTypeSupportsRuntimeComparison :: NumericType -> Bool
 numericTypeSupportsRuntimeComparison numericType =
+  numericTypeSupportsRuntimeNumericOperator numericType
+
+numericTypeSupportsRuntimeNumericOperator :: NumericType -> Bool
+numericTypeSupportsRuntimeNumericOperator numericType =
   numericTypeIsIntegral numericType
     || numericType == NumericFloat16
     || numericType == NumericFloat32

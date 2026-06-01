@@ -313,12 +313,12 @@ parseCapabilityDeclaration knownAliases declarationKind declarationToken tokensA
       remaining <- consumeDot afterBody
       case capabilityBody of
         CapabilityImplBody methods ->
-          if null methods || surfaceConcreteImplArguments headerArguments
+          if surfaceConcreteImplArguments headerArguments
             then Right (SSImpl (tokenSpan declarationToken) capabilityName headerArguments methods, remaining)
             else
               Left
                 ( parseDiagnostic
-                    ( "impl method bindings require a concrete impl target at "
+                    ( "impl declarations require a concrete impl target at "
                         <> renderSourceSpan (tokenSpan declarationToken)
                     )
                 )
@@ -383,7 +383,15 @@ validateClassHeaderParameters declarationToken maybeHeaderArguments =
                 )
             )
         Nothing ->
-          Right classParameters
+          case classParameters of
+            [_] -> Right classParameters
+            _ ->
+              Left
+                ( parseDiagnostic
+                    ( "class declarations currently support exactly one parameter at "
+                        <> renderSourceSpan (tokenSpan declarationToken)
+                    )
+                )
   where
     classParameterFromHeaderArgument argument =
       case argument of
@@ -661,54 +669,51 @@ parseCapabilityDeclarationBody knownAliases declarationKind declarationToken tok
                     <> renderSourceSpan (tokenSpan declarationToken)
                 )
             )
-        token : rest ->
-          case tokenKind token of
-            TRBrace -> Right (reverse reversedMethods, rest)
-            _ ->
-              case remainingTokens of
-                methodToken@Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} :
-                  Token {tokenKind = TEquals} :
-                  afterEquals
-                  | Set.member methodName seenMethodNames ->
-                      Left
-                        ( parseDiagnostic
-                            ( "duplicate method binding '"
-                                <> methodName
-                                <> "' in impl declaration at "
-                                <> renderSourceSpan methodSpan
-                            )
-                        )
-                  | otherwise -> do
-                      (methodExpr, afterExpr) <- parseExpr knownAliases afterEquals
-                      afterMethod <- consumeDot afterExpr
-                      let method =
-                            SurfaceImplMethod
-                              (mkIdentifier methodName)
-                              (tokenSpan methodToken)
-                              methodExpr
-                      consumeImplBody
-                        (Set.insert methodName seenMethodNames)
-                        (method : reversedMethods)
-                        afterMethod
-                methodToken@Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} : Token {tokenKind = TColonColon} : _ ->
-                  Left
-                    ( parseDiagnostic
-                        ( "expected ordinary method binding for '"
-                            <> methodName
-                            <> "' in impl declaration body at "
-                            <> renderSourceSpan methodSpan
-                        )
-                    )
-                _ ->
-                  Left
-                    ( parseDiagnostic
-                        ( "expected ordinary method binding or '}' in impl declaration body at "
-                            <> renderSourceSpan (tokenSpan token)
-                            <> ", found '"
-                            <> tokenLexeme token
-                            <> "'"
-                        )
-                    )
+        Token {tokenKind = TRBrace} : rest ->
+          Right (reverse reversedMethods, rest)
+        methodToken@Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} :
+          Token {tokenKind = TEquals} :
+          afterEquals
+            | Set.member methodName seenMethodNames ->
+                Left
+                  ( parseDiagnostic
+                      ( "duplicate method binding '"
+                          <> methodName
+                          <> "' in impl declaration at "
+                          <> renderSourceSpan methodSpan
+                      )
+                  )
+            | otherwise -> do
+                (methodExpr, afterExpr) <- parseExpr knownAliases afterEquals
+                afterMethod <- consumeDot afterExpr
+                let method =
+                      SurfaceImplMethod
+                        (mkIdentifier methodName)
+                        (tokenSpan methodToken)
+                        methodExpr
+                consumeImplBody
+                  (Set.insert methodName seenMethodNames)
+                  (method : reversedMethods)
+                  afterMethod
+        methodToken@Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} : Token {tokenKind = TColonColon} : _ ->
+          Left
+            ( parseDiagnostic
+                ( "expected ordinary method binding for '"
+                    <> methodName
+                    <> "' in impl declaration body at "
+                    <> renderSourceSpan methodSpan
+                )
+            )
+        token : _ ->
+          Left
+            ( parseDiagnostic
+                ( "expected ordinary method binding or '}' in impl declaration body at "
+                    <> renderSourceSpan (tokenSpan token)
+                    <> ", found '"
+                    <> tokenLexeme token
+                    <> "'"
+                )
+            )
 
 registerImportAliases :: Set Text -> [SurfaceStatement] -> Set Text
 registerImportAliases =

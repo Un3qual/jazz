@@ -49,7 +49,7 @@ Completed on `2026-06-01` as
 Scope:
 
 - Accept ordinary binding-shaped method entries inside concrete `impl` bodies,
-  for example `eq = \(left, right) -> left == right.`.
+  for example `eq = \(left) -> \(right) -> left == right.`.
 - Preserve method names and method expressions through surface AST, core AST,
   lowering, and shared statement walkers.
 - Reject duplicate method names within the same `impl` body deterministically.

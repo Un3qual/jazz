@@ -1291,17 +1291,13 @@ runtimeStructuralEquality leftValue rightValue =
           structuralElementEquality leftArgs rightArgs
       | constructorIsSaturated leftArity leftArgs,
         constructorIsSaturated rightArity rightArgs ->
-          if all runtimeValueSupportsStructuralEquality (leftArgs <> rightArgs)
-            then Just False
-            else Nothing
+          Just False
     _ -> Nothing
 
 structuralElementEquality :: [RuntimeValue] -> [RuntimeValue] -> Maybe Bool
 structuralElementEquality leftElements rightElements
   | length leftElements /= length rightElements =
-      if all runtimeValueSupportsStructuralEquality (leftElements <> rightElements)
-        then Just False
-        else Nothing
+      Just False
   | otherwise =
       fmap and
         (traverse (uncurry runtimeStructuralEquality) (zip leftElements rightElements))
