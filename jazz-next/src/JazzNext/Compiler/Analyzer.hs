@@ -22,6 +22,7 @@ import Data.Set (Set)
 import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    ClassMethodSignature (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -347,7 +348,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
               warningsRev,
               errorsWithPending
             )
-        SClass classSpan capabilityName ->
+        SClass classSpan capabilityName methods ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
               classNameText = identifierText capabilityName
               (nextClassDeclarations, classErrors) =
@@ -358,13 +359,14 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
                     )
                   Nothing ->
                     (Map.insert classNameText classSpan classDeclarations, [])
+              methodErrors = duplicateClassMethodErrors classNameText methods
            in
             ( scopeBindings,
               nextClassDeclarations,
               implDeclarations,
               Nothing,
               warningsRev,
-              appendErrors errorsWithPending classErrors
+              appendErrors errorsWithPending (classErrors ++ methodErrors)
             )
         SImpl implSpan capabilityName arguments ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
@@ -584,6 +586,29 @@ mkDuplicateClassDeclarationError className classSpan previousSpan =
       setDiagnosticPrimarySpan
         classSpan
         (mkDiagnostic "E1004" ("duplicate class declaration '" <> className <> "'"))
+
+duplicateClassMethodErrors :: Text -> [ClassMethodSignature] -> [Diagnostic]
+duplicateClassMethodErrors className methods =
+  reverse errorsRev
+  where
+    (_, errorsRev) = foldl' step (Map.empty, []) methods
+    step (seenMethods, acc) (ClassMethodSignature methodName methodSpan _) =
+      let methodNameText = identifierText methodName
+       in case Map.lookup methodNameText seenMethods of
+            Just previousSpan ->
+              ( seenMethods,
+                mkDuplicateClassMethodError className methodNameText methodSpan previousSpan : acc
+              )
+            Nothing ->
+              (Map.insert methodNameText methodSpan seenMethods, acc)
+
+mkDuplicateClassMethodError :: Text -> Text -> SourceSpan -> SourceSpan -> Diagnostic
+mkDuplicateClassMethodError className methodName methodSpan previousSpan =
+  setDiagnosticSubject (className <> "." <> methodName) $
+    setDiagnosticRelatedSpan previousSpan $
+      setDiagnosticPrimarySpan
+        methodSpan
+        (mkDiagnostic "E1006" ("duplicate method signature '" <> methodName <> "' in class '" <> className <> "'"))
 
 mkDuplicateImplDeclarationError :: Text -> SourceSpan -> SourceSpan -> Diagnostic
 mkDuplicateImplDeclarationError implFactKey implSpan previousSpan =

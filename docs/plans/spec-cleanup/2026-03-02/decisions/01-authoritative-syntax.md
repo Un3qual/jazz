@@ -1,28 +1,18 @@
 ---
-id: JN-CLASS-METHOD-SIGNATURE-METADATA-001
-status: ready
+id: JN-ABSTRACTION-SEMANTICS-PLAN-001
+status: blocked
 priority: P2
-size: M
+size: L
 kind: impl
-autonomous_ready: yes
-depends_on:
-  - JN-CAPABILITY-BODY-BOUNDARY-001
+autonomous_ready: no
+depends_on: []
 last_verified: 2026-06-01
-plan_section: "Next implementation batch: class method signature metadata"
-target_paths:
-  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
-  - jazz-next/src/JazzNext/Compiler/Parser.hs
-  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
-  - jazz-next/src/JazzNext/Compiler/AST.hs
-  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
-  - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+plan_section: "Follow-up: abstraction semantics beyond method metadata"
+target_paths: []
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Accept and preserve signature-only method declarations inside `class` bodies, reject duplicate method names and any method body/default syntax, keep `impl` bodies rejected, and leave dispatch/dictionaries out of scope."
+deliverable: "Class/impl abstraction semantics beyond landed signature-only class method metadata remain blocked until method implementation, dispatch, dictionary, and runtime contracts define target paths and focused verification."
 ---
 
 # Jazz Spec-Cleanup #1: Authoritative Syntax Implementation Plan
@@ -71,6 +61,7 @@ deliverable: "Accept and preserve signature-only method declarations inside `cla
 - [x] Function/module surface continues parser-first style (`name = expr.`, `module A::B { ... }`, `import A::B`).
 - [x] On `2026-05-31`, locked `trait` as permanently rejected in active `jazz-next`; future abstraction work starts from canonical `class`/`impl` only.
 - [x] On `2026-06-01`, locked the active-path parser boundary that rejects non-empty `class`/`impl` bodies until method metadata and dispatch have a concrete contract.
+- [x] On `2026-06-01`, landed signature-only class method metadata in active `jazz-next` while keeping method implementations, dispatch, dictionaries, and runtime evidence blocked.
 
 ## Completed jazz-next batch: class/impl parser boundary
 
@@ -263,12 +254,14 @@ Closure evidence:
   parsing/lowering, module-body declarations, trait rejection, and ordinary
   identifier uses.
 
-## Next implementation batch: class method signature metadata
+## Completed implementation batch: class method signature metadata
 
 This active-path abstraction slice follows the landed empty class/impl fact
 environment and non-empty body-boundary batches. It is intentionally limited to
 signature-only method metadata for `class` declarations; it does not add method
 implementations, lookup, dispatch, dictionaries, or runtime evidence values.
+
+Completed on `2026-06-01` as `JN-CLASS-METHOD-SIGNATURE-METADATA-001`.
 
 Executor-safe scope:
 
@@ -310,6 +303,14 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
+
+## Follow-up: abstraction semantics beyond method metadata
+
+No executor-safe class/impl implementation batch remains in this plan after the
+signature-only method metadata slice. Further abstraction work stays blocked
+until a separate contract defines method implementation syntax, method lookup
+and dispatch behavior, dictionary or evidence representation, runtime behavior,
+and focused active-path target files/tests.
 
 ## Historical Verification Evidence
 

@@ -186,8 +186,8 @@ canonicalizeStatement statement =
       SSignature name spanValue signaturePayload
     SData spanValue typeName typeParameters constructors ->
       SData spanValue typeName typeParameters constructors
-    SClass spanValue capabilityName ->
-      SClass spanValue capabilityName
+    SClass spanValue capabilityName methods ->
+      SClass spanValue capabilityName methods
     SImpl spanValue capabilityName arguments ->
       SImpl spanValue capabilityName arguments
     SModule spanValue modulePath ->
@@ -1088,7 +1088,7 @@ seedStatementCapabilityFact state statement =
 seedFacts :: ScopeCapabilityFacts -> (Int, Statement) -> ScopeCapabilityFacts
 seedFacts facts (_, statement) =
   case statement of
-    SClass _ capabilityName ->
+    SClass _ capabilityName _ ->
       facts {scopeClassFacts = Set.insert (identifierText capabilityName) (scopeClassFacts facts)}
     SImpl _ capabilityName arguments ->
       case concreteImplFactKey capabilityName arguments of

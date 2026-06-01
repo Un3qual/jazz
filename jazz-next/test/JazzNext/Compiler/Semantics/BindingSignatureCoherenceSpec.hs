@@ -4,7 +4,8 @@ module Main (main) where
 
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( ConstraintSignatureType (..),
+  ( ClassMethodSignature (..),
+    ConstraintSignatureType (..),
     Expr (..),
     Literal (..),
     SignatureConstraint (..),
@@ -55,6 +56,9 @@ tests =
     ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion),
     ("source pipeline accepts adjacent signature and binding", testSourceAcceptsSignatureAdjacency),
     ("source pipeline accepts inert class and impl declarations", testSourceAcceptsCapabilityDeclarations),
+    ("source pipeline accepts class method signature metadata", testSourceAcceptsClassMethodSignatureMetadata),
+    ("source pipeline rejects duplicate class method signatures", testSourceRejectsDuplicateClassMethodSignatures),
+    ("analyzer rejects duplicate class method metadata", testAnalyzerRejectsDuplicateClassMethodMetadata),
     ("source pipeline rejects duplicate class declarations", testSourceRejectsDuplicateClassDeclarations),
     ("source pipeline rejects duplicate concrete impl declarations", testSourceRejectsDuplicateConcreteImplDeclarations),
     ("source pipeline rejects duplicate ADT impl declarations", testSourceRejectsDuplicateAdtImplDeclarations),
@@ -342,6 +346,40 @@ testSourceAcceptsCapabilityDeclarations :: IO ()
 testSourceAcceptsCapabilityDeclarations =
   assertSourceOkWithoutPrelude "class Eq { }.\nimpl Eq(Int) { }.\nx :: Int.\nx = 1.\nx."
 
+testSourceAcceptsClassMethodSignatureMetadata :: IO ()
+testSourceAcceptsClassMethodSignatureMetadata =
+  assertSourceOkWithoutPrelude "class Eq {\nequals :: Self -> Self -> Bool.\nnotEquals :: Self -> Self -> Bool.\n}.\nimpl Eq(Int) { }.\nx :: Int.\nx = 1.\nx."
+
+testSourceRejectsDuplicateClassMethodSignatures :: IO ()
+testSourceRejectsDuplicateClassMethodSignatures =
+  assertSourceSingleErrorContainsWithoutPrelude "class Eq { equals :: Int. equals :: Bool. }.\nx = 1." "duplicate method signature 'equals'"
+
+testAnalyzerRejectsDuplicateClassMethodMetadata :: IO ()
+testAnalyzerRejectsDuplicateClassMethodMetadata = do
+  result <- compileExpr defaultWarningSettings program
+  assertSingleDiagnosticContains
+    "duplicate class method metadata code"
+    "E1006"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "duplicate class method metadata summary"
+    "duplicate method signature 'equals'"
+    (compileErrors result)
+  where
+    classSpan = SourceSpan 1 1
+    firstMethodSpan = SourceSpan 2 1
+    secondMethodSpan = SourceSpan 3 1
+    program =
+      EBlock
+        [ SClass
+            classSpan
+            "Eq"
+            [ ClassMethodSignature "equals" firstMethodSpan (SignatureType TypeInt),
+              ClassMethodSignature "equals" secondMethodSpan (SignatureType TypeBool)
+            ],
+          SExpr (SourceSpan 4 1) (ELit (LInt 1))
+        ]
+
 testSourceRejectsDuplicateClassDeclarations :: IO ()
 testSourceRejectsDuplicateClassDeclarations =
   assertSourceSingleErrorContainsWithoutPrelude "class Eq { }.\nclass Eq { }.\nx = 1." "E1004"
@@ -371,7 +409,7 @@ testSourceKeepsNestedCapabilityFactsScoped = do
             "seed"
             spanValue
             ( EBlock
-                [ SClass spanValue "Eq",
+                [ SClass spanValue "Eq" [],
                   SImpl spanValue "Eq" [eqInt],
                   SExpr spanValue (ELit (LInt 0))
                 ]

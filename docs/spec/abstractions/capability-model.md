@@ -39,11 +39,12 @@ The normative numeric width/defaulting contract lives in `docs/spec/runtime/prim
 
 ## Active Implementation
 
-`jazz-next` parses and lowers empty class/impl declarations as declaration
-nodes. Analyzer/type/runtime statement walkers handle those nodes without adding
-method lookup, dispatch, defaulting, or runtime values. Non-empty class/impl
-bodies reject at parse time with diagnostics that name deferred method
-syntax/semantics.
+`jazz-next` parses and lowers class declarations with signature-only method
+metadata and empty impl declarations as declaration nodes. Analyzer/type/runtime
+statement walkers handle those nodes without adding method lookup, dispatch,
+defaulting, or runtime values. Duplicate class method signatures reject
+deterministically, and class method body/default syntax plus non-empty impl
+bodies reject at parse time.
 
 The current environment-validation slice rejects duplicate class declarations
 and duplicate concrete impl facts, and validates concrete constrained signatures
@@ -61,7 +62,7 @@ where scoped, plus width-specific numeric signature names:
 - floating widths (`Float16`, `Float32`, and `Float64`) have `Eq`, `Ord`,
   `Num`, `Fractional`, `Default`, and `Showable` facts.
 
-Later batches must define method syntax, constraint solving beyond the current
-concrete fact checks, method dispatch, overlap/orphan policy, cross-module
-visibility, and runtime behavior before enabling executable class/impl
-semantics.
+Later batches must define method implementation syntax, constraint solving
+beyond the current concrete fact checks, method dispatch, overlap/orphan policy,
+cross-module visibility, and runtime behavior before enabling executable
+class/impl semantics.

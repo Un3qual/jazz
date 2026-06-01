@@ -34,6 +34,7 @@ import JazzNext.Compiler.Identifier
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
+    SurfaceClassMethodSignature (..),
     SurfaceConstrainedSignatureType (..),
     SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
@@ -283,11 +284,11 @@ parseCapabilityDeclaration :: Text -> Token -> [Token] -> Either Diagnostic (Sur
 parseCapabilityDeclaration declarationKind declarationToken tokensAfterKeyword = do
   (capabilityName, headerArguments, headerRemaining) <-
     parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword
-  afterBody <- consumeCapabilityDeclarationBody declarationKind declarationToken headerRemaining
+  (methodSignatures, afterBody) <- parseCapabilityDeclarationBody declarationKind declarationToken headerRemaining
   remaining <- consumeDot afterBody
   case declarationKind of
     "class" ->
-      Right (SSClass (tokenSpan declarationToken) capabilityName, remaining)
+      Right (SSClass (tokenSpan declarationToken) capabilityName methodSignatures, remaining)
     "impl" ->
       Right (SSImpl (tokenSpan declarationToken) capabilityName headerArguments, remaining)
     _ ->
@@ -438,10 +439,15 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
                     )
                 )
 
-consumeCapabilityDeclarationBody :: Text -> Token -> [Token] -> Either Diagnostic [Token]
-consumeCapabilityDeclarationBody declarationKind declarationToken tokens =
+parseCapabilityDeclarationBody :: Text -> Token -> [Token] -> Either Diagnostic ([SurfaceClassMethodSignature], [Token])
+parseCapabilityDeclarationBody declarationKind declarationToken tokens =
   case tokens of
-    Token {tokenKind = TLBrace} : rest -> consumeEmptyBody rest
+    Token {tokenKind = TLBrace} : rest ->
+      case declarationKind of
+        "class" -> consumeClassBody Set.empty [] rest
+        _ -> do
+          afterBody <- consumeEmptyBody rest
+          Right ([], afterBody)
     [] ->
       Left
         ( parseDiagnostic
@@ -462,6 +468,63 @@ consumeCapabilityDeclarationBody declarationKind declarationToken tokens =
             )
         )
   where
+    consumeClassBody seenMethodNames reversedMethods remainingTokens =
+      case remainingTokens of
+        [] ->
+          Left
+            ( parseDiagnostic
+                ( "expected '}' before end of input in "
+                    <> declarationKind
+                    <> " declaration at "
+                    <> renderSourceSpan (tokenSpan declarationToken)
+                )
+            )
+        Token {tokenKind = TRBrace} : rest ->
+          Right (reverse reversedMethods, rest)
+        methodToken@Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} : Token {tokenKind = TColonColon} : rest
+          | Set.member methodName seenMethodNames ->
+              Left
+                ( parseDiagnostic
+                    ( "duplicate method signature '"
+                        <> methodName
+                        <> "' in class declaration at "
+                        <> renderSourceSpan methodSpan
+                    )
+                )
+          | otherwise -> do
+              (signatureTokens, afterSignature) <- collectUntilDot rest
+              let methodSignature =
+                    SurfaceClassMethodSignature
+                      (mkIdentifier methodName)
+                      (tokenSpan methodToken)
+                      (parseSignaturePayload signatureTokens)
+              consumeClassBody
+                (Set.insert methodName seenMethodNames)
+                (methodSignature : reversedMethods)
+                afterSignature
+        Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} : Token {tokenKind = TEquals} : _ ->
+          Left
+            ( parseDiagnostic
+                ( "unsupported class method body/default syntax for '"
+                    <> methodName
+                    <> "' at "
+                    <> renderSourceSpan methodSpan
+                    <> ": only signature-only method declarations are implemented in jazz-next"
+                )
+            )
+        token : _ ->
+          Left
+            ( parseDiagnostic
+                ( "expected signature-only method declaration or '}' in "
+                    <> declarationKind
+                    <> " declaration body at "
+                    <> renderSourceSpan (tokenSpan token)
+                    <> ", found '"
+                    <> tokenLexeme token
+                    <> "'"
+                )
+            )
+
     consumeEmptyBody remainingTokens =
       case remainingTokens of
         [] ->

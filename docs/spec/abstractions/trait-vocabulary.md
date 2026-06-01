@@ -27,10 +27,12 @@ The canonical declaration keyword is `class`. Implementations use `impl`.
 
 ## Implementation Status
 
-`jazz-next` parses and lowers canonical empty `class` and `impl` declarations,
-validates duplicate class declarations and duplicate concrete impl facts, and
-uses visible concrete class/impl facts for constrained-signature validation.
-Non-empty class/impl bodies reject at parse time until method syntax and
+`jazz-next` parses and lowers canonical `class` declarations with
+signature-only method metadata and empty `impl` declarations, validates
+duplicate class declarations, duplicate class method signatures, and duplicate
+concrete impl facts, and uses visible concrete class/impl facts for
+constrained-signature validation. Class method body/default syntax and
+non-empty impl bodies reject at parse time until method implementation and
 dispatch have a concrete contract. The default bundled prelude now declares the
 canonical class vocabulary listed above and includes the first inert default
 concrete impl facts for `Int`, `Float`, and `Bool` capability constraints.

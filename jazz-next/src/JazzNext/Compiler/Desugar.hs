@@ -55,8 +55,8 @@ desugarStatement statement =
       SLet name spanValue (desugarExpr valueExpr)
     SSignature name spanValue signatureText ->
       SSignature name spanValue signatureText
-    SClass spanValue capabilityName ->
-      SClass spanValue capabilityName
+    SClass spanValue capabilityName methods ->
+      SClass spanValue capabilityName methods
     SImpl spanValue capabilityName arguments ->
       SImpl spanValue capabilityName arguments
     SModule spanValue modulePath ->

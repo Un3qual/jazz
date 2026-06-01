@@ -5,12 +5,14 @@ module Main (main) where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( ConstraintSignatureType (..),
+  ( ClassMethodSignature (..),
+    ConstraintSignatureType (..),
     Expr (..),
     Literal (..),
     NumericType (..),
     SignatureConstraint (..),
     SignaturePayload (..),
+    SignatureToken (..),
     SignatureType (..),
     Statement (..)
   )
@@ -21,12 +23,14 @@ import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
 import JazzNext.Compiler.Parser.AST
-  ( SurfaceConstrainedSignatureType (..),
+  ( SurfaceClassMethodSignature (..),
+    SurfaceConstrainedSignatureType (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfaceNumericType (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
+    SurfaceSignatureToken (..),
     SurfaceSignatureType (..),
     SurfaceStatement (..)
   )
@@ -92,7 +96,10 @@ tests =
     ("parses impl capability declarations into surface AST", testParsesImplCapabilityDeclaration),
     ("lowers class and impl capability declarations as inert AST nodes", testLowersCapabilityDeclarations),
     ("parses class and impl capability declarations inside module bodies", testParsesCapabilityDeclarationsInModuleBody),
-    ("rejects non-empty class capability bodies", testRejectsNonEmptyClassCapabilityBody),
+    ("parses class method signature metadata", testParsesClassMethodSignatureMetadata),
+    ("rejects class method body syntax", testRejectsClassMethodBodySyntax),
+    ("rejects duplicate class method signatures", testRejectsDuplicateClassMethodSignatures),
+    ("rejects non-signature class body items", testRejectsNonSignatureClassBodyItem),
     ("rejects non-empty impl capability bodies", testRejectsNonEmptyImplCapabilityBody),
     ("rejects malformed class capability headers", testRejectsMalformedClassCapabilityHeader),
     ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax),
@@ -728,7 +735,7 @@ testParsesClassCapabilityDeclaration =
     "class capability declaration"
     ( Right
         ( SEBlock
-            [ SSClass (SourceSpan 1 1) "Eq"
+            [ SSClass (SourceSpan 1 1) "Eq" []
             ]
         )
     )
@@ -740,7 +747,7 @@ testParsesParameterizedClassCapabilityDeclaration =
     "parameterized class capability declaration"
     ( Right
         ( SEBlock
-            [ SSClass (SourceSpan 1 1) "Eq"
+            [ SSClass (SourceSpan 1 1) "Eq" []
             ]
         )
     )
@@ -768,7 +775,7 @@ testLowersCapabilityDeclarations =
         assertEqual
           "lowered capability declarations"
           ( EBlock
-              [ SClass (SourceSpan 1 1) "Eq",
+              [ SClass (SourceSpan 1 1) "Eq" [],
                 SImpl (SourceSpan 2 1) "Eq" [ConstraintTypeName "Int"]
               ]
           )
@@ -782,19 +789,81 @@ testParsesCapabilityDeclarationsInModuleBody =
     ( Right
         ( SEBlock
             [ SSModule (SourceSpan 1 1) ["App", "Core"],
-              SSClass (SourceSpan 2 1) "Eq",
+              SSClass (SourceSpan 2 1) "Eq" [],
               SSImpl (SourceSpan 3 1) "Eq" [SurfaceConstrainedTypeName "Int"]
             ]
         )
     )
     (parseSurfaceProgram "module App::Core {\nclass Eq { }.\nimpl Eq(Int) { }.\n}")
 
-testRejectsNonEmptyClassCapabilityBody :: IO ()
-testRejectsNonEmptyClassCapabilityBody =
+testParsesClassMethodSignatureMetadata :: IO ()
+testParsesClassMethodSignatureMetadata =
+  assertRight
+    "surface class method signature parse"
+    (parseSurfaceProgram "class Eq {\nequals :: Self -> Self -> Bool.\nnotEquals :: Self -> Self -> Bool.\n}.")
+    ( \surfaceProgram -> do
+        let surfacePayload =
+              SurfaceUnsupportedSignature
+                [ SurfaceSignatureNameToken "Self",
+                  SurfaceSignatureArrowToken,
+                  SurfaceSignatureNameToken "Self",
+                  SurfaceSignatureArrowToken,
+                  SurfaceSignatureNameToken "Bool"
+                ]
+            corePayload =
+              UnsupportedSignature
+                [ SignatureNameToken "Self",
+                  SignatureArrowToken,
+                  SignatureNameToken "Self",
+                  SignatureArrowToken,
+                  SignatureNameToken "Bool"
+                ]
+        assertEqual
+          "surface class method metadata"
+          ( SEBlock
+              [ SSClass
+                  (SourceSpan 1 1)
+                  "Eq"
+                  [ SurfaceClassMethodSignature "equals" (SourceSpan 2 1) surfacePayload,
+                    SurfaceClassMethodSignature "notEquals" (SourceSpan 3 1) surfacePayload
+                  ]
+              ]
+          )
+          surfaceProgram
+        assertEqual
+          "lowered class method metadata"
+          ( EBlock
+              [ SClass
+                  (SourceSpan 1 1)
+                  "Eq"
+                  [ ClassMethodSignature "equals" (SourceSpan 2 1) corePayload,
+                    ClassMethodSignature "notEquals" (SourceSpan 3 1) corePayload
+                  ]
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
+
+testRejectsClassMethodBodySyntax :: IO ()
+testRejectsClassMethodBodySyntax =
   assertLeftDiagnosticContains
-    "non-empty class capability body"
-    "deferred method syntax"
-    (parseSurfaceProgram "class Eq { equals :: Int -> Int. }.")
+    "class method body syntax"
+    "method body/default syntax"
+    (parseSurfaceProgram "class Eq { equals = \\value -> value. }.")
+
+testRejectsDuplicateClassMethodSignatures :: IO ()
+testRejectsDuplicateClassMethodSignatures =
+  assertLeftDiagnosticContains
+    "duplicate class method signature"
+    "duplicate method signature 'equals'"
+    (parseSurfaceProgram "class Eq { equals :: Int. equals :: Bool. }.")
+
+testRejectsNonSignatureClassBodyItem :: IO ()
+testRejectsNonSignatureClassBodyItem =
+  assertLeftDiagnosticContains
+    "non-signature class body item"
+    "signature-only method declaration"
+    (parseSurfaceProgram "class Eq { 1. }.")
 
 testRejectsNonEmptyImplCapabilityBody :: IO ()
 testRejectsNonEmptyImplCapabilityBody =
