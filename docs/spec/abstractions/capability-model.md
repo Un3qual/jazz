@@ -37,10 +37,31 @@ The normative numeric width/defaulting contract lives in `docs/spec/runtime/prim
 - Width-specific source names remain explicit.
 - Numeric operators follow the Haskell-like same-type rule; mixed concrete widths require explicit conversions.
 
-## Staging
+## Active Implementation
 
-The first implementation batch has landed as parser/AST ownership plus downstream inert traversal. `jazz-next` parses and lowers class/impl declarations as inert declaration nodes, and analyzer/type/runtime statement walkers skip those nodes without adding bindings, constraints, method lookup, dispatch, defaulting, or runtime values.
+`jazz-next` parses and lowers empty class/impl declarations as declaration
+nodes. Analyzer/type/runtime statement walkers handle those nodes without adding
+method lookup, dispatch, defaulting, or runtime values. Non-empty class/impl
+bodies reject at parse time with diagnostics that name deferred method
+syntax/semantics.
 
-That batch includes source-pipeline coverage proving programs that contain class/impl declarations do not hit non-exhaustive statement handling during compile or run.
+The current environment-validation slice rejects duplicate class declarations
+and duplicate concrete impl facts, and validates concrete constrained signatures
+against visible class declarations plus matching concrete impl facts.
 
-Later batches must define class environments, impl lookup, constraint solving, method dispatch, overlap/orphan policy, cross-module visibility, and diagnostics before enabling executable class/impl semantics.
+The default bundled prelude now provides the canonical vocabulary class
+declarations (`Eq`, `Ord`, `Num`, `Integral`, `Fractional`, `Showable`, and
+`Default`) followed by inert concrete impl facts before kernel bridge bindings.
+The current fact matrix covers the default aliases `Int`, `Float`, and `Bool`
+where scoped, plus width-specific numeric signature names:
+
+- signed and unsigned integer widths (`Int8`, `Int16`, `Int32`, `Int64`,
+  `UInt8`, `UInt16`, `UInt32`, and `UInt64`) have `Eq`, `Ord`, `Num`,
+  `Integral`, `Default`, and `Showable` facts.
+- floating widths (`Float16`, `Float32`, and `Float64`) have `Eq`, `Ord`,
+  `Num`, `Fractional`, `Default`, and `Showable` facts.
+
+Later batches must define method syntax, constraint solving beyond the current
+concrete fact checks, method dispatch, overlap/orphan policy, cross-module
+visibility, and runtime behavior before enabling executable class/impl
+semantics.

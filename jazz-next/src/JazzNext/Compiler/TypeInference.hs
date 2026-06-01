@@ -64,6 +64,11 @@ import JazzNext.Compiler.Diagnostics
     setDiagnosticRelatedSpan,
     setDiagnosticSubject
   )
+import JazzNext.Compiler.FractionalLiteral
+  ( FractionalLiteralSource,
+    fractionalLiteralExceedsMagnitude,
+    fractionalLiteralIntegralValue
+  )
 import JazzNext.Compiler.Identifier
   ( Identifier,
     identifierText
@@ -217,6 +222,7 @@ data IntegerLiteralRange = IntegerLiteralRange Integer Integer
 
 data NumericConstraint
   = AnyNumericConstraint
+  | RuntimeArithmeticNumericConstraint
   | IntegralNumericConstraint
   | IntegralLiteralNumericConstraint IntegerLiteralRange
   deriving (Eq, Show)
@@ -432,6 +438,7 @@ literalExpressionType :: Literal -> ExpressionType
 literalExpressionType literal =
   case literal of
     LInt value -> TIntegerLiteralType (singletonIntegerLiteralRange value)
+    LFloat _ _ -> TFloatType
     LBool _ -> TBoolType
 
 inferListType ::
@@ -565,7 +572,7 @@ applyNumericBinaryRule operatorSymbol resultRule leftType rightType state =
   case unifyTypes leftType rightType state of
     Just stateAfterUnify ->
       let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
-       in case constrainRuntimeNumericOperatorType resolvedOperandType stateAfterUnify of
+       in case constrainNumericOperatorType (numericRuleConstraint resultRule) resolvedOperandType stateAfterUnify of
             Just stateAfterNumericConstraint ->
               (Just (numericRuleResultType resultRule resolvedOperandType), stateAfterNumericConstraint)
             Nothing ->
@@ -576,8 +583,9 @@ applyNumericBinaryRule operatorSymbol resultRule leftType rightType state =
       ( Nothing,
         addTypeError
           errState
-          ( mkBinaryTypeError
+          ( mkNumericBinaryTypeError
               operatorSymbol
+              resultRule
               (resolveType errState leftType)
               (resolveType errState rightType)
           )
@@ -588,6 +596,12 @@ numericRuleResultType resultRule operandType =
   case resultRule of
     NumericSameTypeResult -> operandType
     NumericBoolResult -> TBoolType
+
+numericRuleConstraint :: NumericRuleResult -> NumericConstraint
+numericRuleConstraint resultRule =
+  case resultRule of
+    NumericSameTypeResult -> RuntimeArithmeticNumericConstraint
+    NumericBoolResult -> IntegralNumericConstraint
 
 numericBinaryOperandType ::
   Text ->
@@ -684,7 +698,7 @@ applyNumericSectionLeftRule ::
   (Maybe ExpressionType, InferState)
 applyNumericSectionLeftRule operatorSymbol resultRule leftType state =
   let resolvedLeftType = resolveType state leftType
-   in case constrainRuntimeNumericOperatorType resolvedLeftType state of
+   in case constrainNumericOperatorType (numericRuleConstraint resultRule) resolvedLeftType state of
         Just stateAfterNumericConstraint ->
           let (rightType, stateAfterSectionType) =
                 numericSectionCounterpartType resolvedLeftType stateAfterNumericConstraint
@@ -700,7 +714,7 @@ applyNumericSectionLeftRule operatorSymbol resultRule leftType state =
           ( Nothing,
             addTypeError
               state
-              (mkNumericSectionOperandTypeError operatorSymbol (resolveType state leftType))
+              (mkNumericSectionOperandTypeError operatorSymbol resultRule (resolveType state leftType))
           )
 
 applyStrictEqualitySectionLeftRule ::
@@ -752,7 +766,7 @@ applyNumericSectionRightRule ::
   (Maybe ExpressionType, InferState)
 applyNumericSectionRightRule operatorSymbol resultRule rightType state =
   let resolvedRightType = resolveType state rightType
-   in case constrainRuntimeNumericOperatorType resolvedRightType state of
+   in case constrainNumericOperatorType (numericRuleConstraint resultRule) resolvedRightType state of
         Just stateAfterNumericConstraint ->
           let (leftType, stateAfterSectionType) =
                 numericSectionCounterpartType resolvedRightType stateAfterNumericConstraint
@@ -768,7 +782,7 @@ applyNumericSectionRightRule operatorSymbol resultRule rightType state =
           ( Nothing,
             addTypeError
               state
-              (mkNumericSectionOperandTypeError operatorSymbol (resolveType state rightType))
+              (mkNumericSectionOperandTypeError operatorSymbol resultRule (resolveType state rightType))
           )
 
 applyStrictEqualitySectionRightRule ::
@@ -810,7 +824,7 @@ numericSectionCounterpartType sectionOperandType state =
 inferScopeType :: BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType builtinMode initialEnv initialState statements =
   let (scopeType, finalState) =
-        go initialEnv Nothing Nothing stateAfterBindingSeeds indexedStatements
+        go initialEnv Nothing Nothing initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
    in (scopeType, restoreCapabilityFacts initialState finalState)
   where
     indexedStatements = zip [0 ..] statements
@@ -824,25 +838,31 @@ inferScopeType builtinMode initialEnv initialState statements =
     (bindingSeedsByStatement, seededState) =
       allocateBindingSeeds indexedStatements initialState
     stateAfterBindingSeeds = seededState
-    moduleBaselineFacts = capabilityFactsFromState initialState
+    initialModuleBaselineFacts = capabilityFactsFromState initialState
 
-    go env lastExprType pendingSignatureType state remainingStatements =
+    go env lastExprType pendingSignatureType moduleBaselineFacts state remainingStatements =
       case remainingStatements of
         [] -> (lastExprType, state)
         (statementIndex, statement) : rest ->
           case statement of
             SModule _ modulePath ->
-              go env lastExprType pendingSignatureType (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
+              go env lastExprType pendingSignatureType moduleBaselineFacts (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
             SImport _ modulePath maybeAlias maybeSymbolNames ->
-              go env lastExprType pendingSignatureType (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
+              go env lastExprType pendingSignatureType moduleBaselineFacts (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
             SClass {} ->
-              go env lastExprType Nothing (seedStatementCapabilityFact state statement) rest
+              let nextState = seedStatementCapabilityFact state statement
+                  nextModuleBaselineFacts =
+                    updateRootModuleBaselineFacts moduleBaselineFacts state nextState
+               in go env lastExprType Nothing nextModuleBaselineFacts nextState rest
             SImpl {} ->
-              go env lastExprType Nothing (seedStatementCapabilityFact state statement) rest
+              let nextState = seedStatementCapabilityFact state statement
+                  nextModuleBaselineFacts =
+                    updateRootModuleBaselineFacts moduleBaselineFacts state nextState
+               in go env lastExprType Nothing nextModuleBaselineFacts nextState rest
             SData _ typeName typeParameters constructors ->
               let (nextEnv, nextState) =
                     registerDataConstructors typeName typeParameters constructors env state
-               in go nextEnv lastExprType Nothing nextState rest
+               in go nextEnv lastExprType Nothing moduleBaselineFacts nextState rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
                     case signaturePayloadToExpressionType signaturePayload signatureState of
@@ -857,7 +877,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                             (mkInvalidSignatureTypeError signatureState (identifierText name) signatureSpan signaturePayload)
                         )
                   signatureState = state
-               in go env lastExprType nextPendingSignature nextState rest
+               in go env lastExprType nextPendingSignature moduleBaselineFacts nextState rest
             SLet name bindingSpan valueExpr ->
               let nameText = identifierText name
                   envWithRecursiveBindings =
@@ -936,23 +956,24 @@ inferScopeType builtinMode initialEnv initialState statements =
                     case nextBindingForValue nameText env valueExpr nextBindingType pendingSignatureType of
                       Just binding -> Map.insert nameText binding env
                       Nothing -> env
-               in go nextEnv lastExprType Nothing stateAfterSignatureCheck rest
+               in go nextEnv lastExprType Nothing moduleBaselineFacts stateAfterSignatureCheck rest
             SExpr exprSpan expr ->
               let (exprType, rawStateAfterExpr) = inferExprType builtinMode env state expr
                   stateAfterExpr =
                     annotateNewErrorsWithPrimarySpan exprSpan state rawStateAfterExpr
-               in go env exprType Nothing stateAfterExpr rest
+               in go env exprType Nothing moduleBaselineFacts stateAfterExpr rest
 
     nextBindingForValue :: Text -> TypeEnv -> Expr -> Maybe ExpressionType -> Maybe PendingSignatureType -> Maybe TypeBinding
     nextBindingForValue bindingNameText currentEnv valueExpr maybeInferredType maybePendingSignature =
-      case (maybePendingSignature, valueExpr) of
-        (Nothing, EVar builtinName) ->
+      case valueExpr of
+        EVar builtinName ->
           let referencedName = identifierText builtinName
            in case Map.lookup referencedName currentEnv of
                 Just (BuiltinAliasTypeBinding builtinSymbol) ->
                   Just (BuiltinAliasTypeBinding builtinSymbol)
                 Just constructorBinding@ConstructorTypeBinding {}
-                  | isSyntheticAliasConstructorBinding bindingNameText referencedName ->
+                  | isNothing maybePendingSignature,
+                    isSyntheticAliasConstructorBinding bindingNameText referencedName ->
                       Just constructorBinding
                 Just _ ->
                   PlainTypeBinding <$> maybeInferredType
@@ -1021,6 +1042,12 @@ mergeCapabilityFacts leftFacts rightFacts =
           (scopeConcreteImplFacts leftFacts)
           (scopeConcreteImplFacts rightFacts)
     }
+
+updateRootModuleBaselineFacts :: ScopeCapabilityFacts -> InferState -> InferState -> ScopeCapabilityFacts
+updateRootModuleBaselineFacts moduleBaselineFacts previousState nextState =
+  case inferCurrentModulePath previousState of
+    Nothing -> capabilityFactsFromState nextState
+    Just _ -> moduleBaselineFacts
 
 flushCurrentModuleCapabilityFacts :: InferState -> InferState
 flushCurrentModuleCapabilityFacts state =
@@ -1559,7 +1586,40 @@ numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr =
                   Just (mkNumericConversionLiteralTypeError (identifierText functionName) literalValue targetType bounds)
             _ -> Nothing
         Nothing -> Nothing
+    (EVar functionName, ELit (LFloat literalValue literalSource)) ->
+      case numericConversionTargetFromCallable builtinMode env functionName of
+        Just targetType ->
+          numericConversionFloatLiteralDiagnostic
+            (identifierText functionName)
+            targetType
+            literalValue
+            literalSource
+        Nothing -> Nothing
     _ -> Nothing
+
+numericConversionFloatLiteralDiagnostic :: Text -> NumericType -> Double -> FractionalLiteralSource -> Maybe Diagnostic
+numericConversionFloatLiteralDiagnostic conversionName targetType literalValue literalSource =
+  case numericTypeIntegerBounds targetType of
+    Just bounds@(lowerBound, upperBound) ->
+      case fractionalLiteralIntegralValue literalSource of
+        Just integralValue
+          | finiteFloat literalValue,
+            integralValue >= lowerBound,
+            integralValue <= upperBound ->
+              Nothing
+        _ ->
+          Just (mkNumericConversionFractionalLiteralTypeError conversionName literalValue targetType bounds)
+    Nothing ->
+      case numericTypeFloatMax targetType of
+        Just maxMagnitude
+          | not (finiteFloat literalValue)
+              || abs literalValue > maxMagnitude
+              || fractionalLiteralExceedsMagnitude literalSource maxMagnitude ->
+              Just (mkNumericConversionFloatLiteralOverflowError conversionName literalValue targetType maxMagnitude)
+        _ -> Nothing
+
+finiteFloat :: Double -> Bool
+finiteFloat value = not (isNaN value) && not (isInfinite value)
 
 numericConversionTargetFromCallable :: BuiltinResolutionMode -> TypeEnv -> Identifier -> Maybe NumericType
 numericConversionTargetFromCallable builtinMode env functionName =
@@ -1803,7 +1863,7 @@ instantiateOperatorType operatorSymbol state =
     Just (NumericRule resultRule) ->
       let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
           stateAfterNumericConstraint =
-            addNumericTypeVarConstraint typeVar IntegralNumericConstraint stateAfterOperandType
+            addNumericTypeVarConstraint typeVar (numericRuleConstraint resultRule) stateAfterOperandType
        in
         Just
           ( TFunctionType
@@ -2081,6 +2141,8 @@ combineNumericConstraints leftConstraint rightConstraint =
       IntegralLiteralNumericConstraint literalRange
     (IntegralNumericConstraint, _) -> IntegralNumericConstraint
     (_, IntegralNumericConstraint) -> IntegralNumericConstraint
+    (RuntimeArithmeticNumericConstraint, _) -> RuntimeArithmeticNumericConstraint
+    (_, RuntimeArithmeticNumericConstraint) -> RuntimeArithmeticNumericConstraint
     _ -> AnyNumericConstraint
 
 applyNumericConstraintToReplacement :: NumericConstraint -> ExpressionType -> Maybe ExpressionType
@@ -2094,13 +2156,13 @@ applyNumericConstraintToReplacement numericConstraint replacementType =
       | otherwise ->
           Nothing
 
-constrainRuntimeNumericOperatorType :: ExpressionType -> InferState -> Maybe InferState
-constrainRuntimeNumericOperatorType expressionType state =
+constrainNumericOperatorType :: NumericConstraint -> ExpressionType -> InferState -> Maybe InferState
+constrainNumericOperatorType numericConstraint expressionType state =
   case resolveType state expressionType of
     TVarType typeVar ->
-      Just (addNumericTypeVarConstraint typeVar IntegralNumericConstraint state)
+      Just (addNumericTypeVarConstraint typeVar numericConstraint state)
     resolvedType
-      | typeSatisfiesNumericConstraint IntegralNumericConstraint resolvedType ->
+      | typeSatisfiesNumericConstraint numericConstraint resolvedType ->
           Just state
       | otherwise ->
           Nothing
@@ -2114,6 +2176,15 @@ typeSatisfiesNumericConstraint numericConstraint expressionType =
         TIntegerLiteralType {} -> True
         TFloatType -> True
         TNumericType {} -> True
+        TVarType {} -> True
+        _ -> False
+    RuntimeArithmeticNumericConstraint ->
+      case expressionType of
+        TIntType -> True
+        TIntegerLiteralType {} -> True
+        TFloatType -> True
+        TNumericType numericType ->
+          numericTypeIsIntegral numericType || numericType == NumericFloat64
         TVarType {} -> True
         _ -> False
     IntegralNumericConstraint ->
@@ -2143,6 +2214,34 @@ mkBinaryTypeError operatorSymbol leftType rightType =
         <> " and "
         <> renderType rightType
     )
+
+mkNumericBinaryTypeError :: Text -> NumericRuleResult -> ExpressionType -> ExpressionType -> Diagnostic
+mkNumericBinaryTypeError operatorSymbol resultRule leftType rightType =
+  case resultRule of
+    NumericSameTypeResult
+      | any isDeferredFloatArithmeticType [leftType, rightType] ->
+          mkDeferredFloatArithmeticTypeError operatorSymbol leftType rightType
+    _ -> mkBinaryTypeError operatorSymbol leftType rightType
+
+mkDeferredFloatArithmeticTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
+mkDeferredFloatArithmeticTypeError operatorSymbol leftType rightType =
+  mkDiagnostic
+    "E2003"
+    ( "cannot apply operator '"
+        <> operatorSymbol
+        <> "' to operands of type "
+        <> renderType leftType
+        <> " and "
+        <> renderType rightType
+        <> ": Float16/Float32 arithmetic is deferred; convert operands to Float64 or use supported Float64 arithmetic"
+    )
+
+isDeferredFloatArithmeticType :: ExpressionType -> Bool
+isDeferredFloatArithmeticType expressionType =
+  case expressionType of
+    TNumericType NumericFloat16 -> True
+    TNumericType NumericFloat32 -> True
+    _ -> False
 
 mkStrictEqualityTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
 mkStrictEqualityTypeError operatorSymbol leftType rightType =
@@ -2217,6 +2316,36 @@ mkNumericConversionLiteralTypeError conversionName literalValue targetType (lowe
         <> Text.pack (show upperBound)
     )
 
+mkNumericConversionFractionalLiteralTypeError :: Text -> Double -> NumericType -> (Integer, Integer) -> Diagnostic
+mkNumericConversionFractionalLiteralTypeError conversionName literalValue targetType (lowerBound, upperBound) =
+  mkDiagnostic
+    "E2006"
+    ( "numeric conversion '"
+        <> conversionName
+        <> "' cannot convert fractional literal "
+        <> Text.pack (show literalValue)
+        <> " to integral target "
+        <> renderNumericTypeName targetType
+        <> "; expected a finite integral value in range "
+        <> Text.pack (show lowerBound)
+        <> ".."
+        <> Text.pack (show upperBound)
+    )
+
+mkNumericConversionFloatLiteralOverflowError :: Text -> Double -> NumericType -> Double -> Diagnostic
+mkNumericConversionFloatLiteralOverflowError conversionName literalValue targetType maxMagnitude =
+  mkDiagnostic
+    "E2006"
+    ( "numeric conversion '"
+        <> conversionName
+        <> "' cannot convert fractional literal "
+        <> Text.pack (show literalValue)
+        <> " outside finite "
+        <> renderNumericTypeName targetType
+        <> " magnitude "
+        <> Text.pack (show maxMagnitude)
+    )
+
 mkBindingTypeMismatchError :: Text -> ExpressionType -> SourceSpan -> ExpressionType -> Diagnostic
 mkBindingTypeMismatchError bindingName expectedType bindingSpan actualType =
   setDiagnosticPrimarySpan
@@ -2249,15 +2378,27 @@ mkUnsupportedSectionOperatorError :: Text -> Diagnostic
 mkUnsupportedSectionOperatorError operatorSymbol =
   mkDiagnostic "E2008" ("unsupported operator section '" <> operatorSymbol <> "'")
 
-mkNumericSectionOperandTypeError :: Text -> ExpressionType -> Diagnostic
-mkNumericSectionOperandTypeError operatorSymbol operandType =
-  mkDiagnostic
-    "E2003"
-    ( "operator section '"
-        <> operatorSymbol
-        <> "' requires a numeric operand, found "
-        <> renderType operandType
-    )
+mkNumericSectionOperandTypeError :: Text -> NumericRuleResult -> ExpressionType -> Diagnostic
+mkNumericSectionOperandTypeError operatorSymbol resultRule operandType =
+  case resultRule of
+    NumericSameTypeResult
+      | isDeferredFloatArithmeticType operandType ->
+          mkDiagnostic
+            "E2003"
+            ( "operator section '"
+                <> operatorSymbol
+                <> "' requires a supported numeric operand, found "
+                <> renderType operandType
+                <> ": Float16/Float32 arithmetic is deferred; convert operands to Float64 or use supported Float64 arithmetic"
+            )
+    _ ->
+      mkDiagnostic
+        "E2003"
+        ( "operator section '"
+            <> operatorSymbol
+            <> "' requires a numeric operand, found "
+            <> renderType operandType
+        )
 
 mkUnsupportedOperatorValueError :: Text -> Diagnostic
 mkUnsupportedOperatorValueError operatorSymbol =

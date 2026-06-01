@@ -31,6 +31,11 @@ import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     mkDiagnostic
   )
+import JazzNext.Compiler.FractionalLiteral
+  ( FractionalLiteralSource,
+    fractionalLiteralExceedsMagnitude,
+    fractionalLiteralIntegralValue
+  )
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
     BuiltinSymbol (..),
@@ -58,7 +63,7 @@ import JazzNext.Compiler.RecursiveBindings
 -- builtins/operators.
 data RuntimeValue
   = VInt Integer
-  | VFloat Double
+  | VFloat Double (Maybe FractionalLiteralSource)
   | VBool Bool
   | VList [RuntimeValue]
   | VTuple [RuntimeValue]
@@ -73,7 +78,7 @@ instance Eq RuntimeValue where
   leftValue == rightValue =
     case (leftValue, rightValue) of
       (VInt leftInt, VInt rightInt) -> leftInt == rightInt
-      (VFloat leftFloat, VFloat rightFloat) -> leftFloat == rightFloat
+      (VFloat leftFloat _, VFloat rightFloat _) -> leftFloat == rightFloat
       (VBool leftBool, VBool rightBool) -> leftBool == rightBool
       (VList leftElements, VList rightElements) -> leftElements == rightElements
       (VTuple leftElements, VTuple rightElements) -> leftElements == rightElements
@@ -98,7 +103,7 @@ instance Show RuntimeValue where
   show value =
     case value of
       VInt intValue -> "VInt " <> show intValue
-      VFloat floatValue -> "VFloat " <> show floatValue
+      VFloat floatValue _ -> "VFloat " <> show floatValue
       VBool boolValue -> "VBool " <> show boolValue
       VList elements -> "VList " <> show elements
       VTuple elements -> "VTuple " <> show elements
@@ -130,7 +135,7 @@ renderRuntimeValue :: RuntimeValue -> Text
 renderRuntimeValue value =
   case value of
     VInt intValue -> Text.pack (show intValue)
-    VFloat floatValue -> Text.pack (show floatValue)
+    VFloat floatValue _ -> Text.pack (show floatValue)
     VBool boolValue ->
       if boolValue
         then "True"
@@ -632,6 +637,7 @@ literalRuntimeValue :: Literal -> RuntimeValue
 literalRuntimeValue literal =
   case literal of
     LInt value -> VInt value
+    LFloat value literalSource -> VFloat value (Just literalSource)
     LBool value -> VBool value
 
 evalPatternCase ::
@@ -890,8 +896,8 @@ evalNumericConversion builtinFunction targetType value =
   case value of
     VInt integerValue ->
       convertIntegerToNumericTarget builtinFunction targetType integerValue
-    VFloat floatValue ->
-      convertFloatToNumericTarget builtinFunction targetType floatValue
+    VFloat floatValue literalSource ->
+      convertFloatToNumericTarget builtinFunction targetType floatValue literalSource
     other ->
       Left
         ( runtimeDiagnostic
@@ -913,8 +919,8 @@ convertIntegerToNumericTarget builtinFunction targetType integerValue =
     Nothing ->
       convertIntegerToFloatTarget builtinFunction targetType integerValue
 
-convertFloatToNumericTarget :: BuiltinSymbol -> NumericType -> Double -> Either Diagnostic RuntimeValue
-convertFloatToNumericTarget builtinFunction targetType floatValue
+convertFloatToNumericTarget :: BuiltinSymbol -> NumericType -> Double -> Maybe FractionalLiteralSource -> Either Diagnostic RuntimeValue
+convertFloatToNumericTarget builtinFunction targetType floatValue literalSource
   | isNaN floatValue || isInfinite floatValue =
       Left
         ( runtimeDiagnostic
@@ -927,29 +933,58 @@ convertFloatToNumericTarget builtinFunction targetType floatValue
   | otherwise =
       case numericTypeIntegerBounds targetType of
         Just bounds ->
-          -- `round` is half-to-even, but the equality check below rejects every
-          -- non-integral value instead of observing a rounding mode.
-          let roundedInteger = round floatValue :: Integer
-           in
-            if fromInteger roundedInteger == floatValue && integerValueWithinBounds roundedInteger bounds
-              then Right (VInt roundedInteger)
-              else Left (numericConversionFloatToIntegralDiagnostic builtinFunction targetType floatValue bounds)
+          convertFloatToIntegerTarget builtinFunction targetType floatValue literalSource bounds
         Nothing ->
-          convertFiniteFloatToFloatTarget builtinFunction targetType floatValue
+          convertFiniteFloatToFloatTarget builtinFunction targetType floatValue literalSource
+
+convertFloatToIntegerTarget ::
+  BuiltinSymbol ->
+  NumericType ->
+  Double ->
+  Maybe FractionalLiteralSource ->
+  (Integer, Integer) ->
+  Either Diagnostic RuntimeValue
+convertFloatToIntegerTarget builtinFunction targetType floatValue literalSource bounds =
+  case literalSource of
+    Just source ->
+      case fractionalLiteralIntegralValue source of
+        Just integralValue
+          | integerValueWithinBounds integralValue bounds ->
+              Right (VInt integralValue)
+        _ ->
+          Left (numericConversionFloatToIntegralDiagnostic builtinFunction targetType floatValue bounds)
+    Nothing ->
+      -- `round` is half-to-even, but the equality check below rejects every
+      -- non-integral value instead of observing a rounding mode.
+      let roundedInteger = round floatValue :: Integer
+       in
+        if fromInteger roundedInteger == floatValue && integerValueWithinBounds roundedInteger bounds
+          then Right (VInt roundedInteger)
+          else Left (numericConversionFloatToIntegralDiagnostic builtinFunction targetType floatValue bounds)
 
 convertIntegerToFloatTarget :: BuiltinSymbol -> NumericType -> Integer -> Either Diagnostic RuntimeValue
 convertIntegerToFloatTarget builtinFunction targetType integerValue =
-  let floatValue = fromInteger integerValue :: Double
-   in
-    if isInfinite floatValue || exceedsFloatTarget targetType floatValue
-      then Left (numericConversionFloatOverflowDiagnostic builtinFunction targetType)
-      else Right (VFloat (roundFloatTarget targetType floatValue))
-
-convertFiniteFloatToFloatTarget :: BuiltinSymbol -> NumericType -> Double -> Either Diagnostic RuntimeValue
-convertFiniteFloatToFloatTarget builtinFunction targetType floatValue =
-  if exceedsFloatTarget targetType floatValue
+  if integerExceedsFloatTarget targetType integerValue
     then Left (numericConversionFloatOverflowDiagnostic builtinFunction targetType)
-    else Right (VFloat (roundFloatTarget targetType floatValue))
+    else
+      let floatValue = fromInteger integerValue :: Double
+       in
+        if isInfinite floatValue || exceedsFloatTarget targetType floatValue
+          then Left (numericConversionFloatOverflowDiagnostic builtinFunction targetType)
+          else Right (VFloat (roundFloatTarget targetType floatValue) Nothing)
+
+integerExceedsFloatTarget :: NumericType -> Integer -> Bool
+integerExceedsFloatTarget targetType integerValue =
+  case numericTypeFloatMax targetType of
+    Just maxMagnitude ->
+      abs integerValue > (floor maxMagnitude :: Integer)
+    Nothing -> False
+
+convertFiniteFloatToFloatTarget :: BuiltinSymbol -> NumericType -> Double -> Maybe FractionalLiteralSource -> Either Diagnostic RuntimeValue
+convertFiniteFloatToFloatTarget builtinFunction targetType floatValue literalSource =
+  if exceedsFloatTarget targetType floatValue || sourceExceedsFloatTarget targetType literalSource
+    then Left (numericConversionFloatOverflowDiagnostic builtinFunction targetType)
+    else Right (VFloat (roundFloatTarget targetType floatValue) Nothing)
 
 roundFloatTarget :: NumericType -> Double -> Double
 roundFloatTarget targetType value =
@@ -984,6 +1019,13 @@ exceedsFloatTarget targetType value =
   case numericTypeFloatMax targetType of
     Just maxMagnitude -> abs value > maxMagnitude
     Nothing -> False
+
+sourceExceedsFloatTarget :: NumericType -> Maybe FractionalLiteralSource -> Bool
+sourceExceedsFloatTarget targetType literalSource =
+  case (numericTypeFloatMax targetType, literalSource) of
+    (Just maxMagnitude, Just source) ->
+      fractionalLiteralExceedsMagnitude source maxMagnitude
+    _ -> False
 
 integerValueWithinBounds :: Integer -> (Integer, Integer) -> Bool
 integerValueWithinBounds value (lowerBound, upperBound) =
@@ -1090,6 +1132,14 @@ evalBinary builtinMode operatorSymbol leftValue rightValue =
       Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
     ("/", VInt leftInt, VInt rightInt) ->
       Right (VInt (leftInt `div` rightInt))
+    ("+", VFloat leftFloat _, VFloat rightFloat _) -> evalFloatBinary "+" (leftFloat + rightFloat)
+    ("-", VFloat leftFloat _, VFloat rightFloat _) -> evalFloatBinary "-" (leftFloat - rightFloat)
+    ("*", VFloat leftFloat _, VFloat rightFloat _) -> evalFloatBinary "*" (leftFloat * rightFloat)
+    ("/", VFloat _ _, VFloat rightFloat _)
+      | floatIsZero rightFloat ->
+          Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
+    ("/", VFloat leftFloat _, VFloat rightFloat _) ->
+      evalFloatBinary "/" (leftFloat / rightFloat)
     ("<", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt < rightInt))
     ("<=", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt <= rightInt))
     (">", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt > rightInt))
@@ -1112,6 +1162,22 @@ evalBinary builtinMode operatorSymbol leftValue rightValue =
                 <> renderRuntimeType rightValue
             )
         )
+
+floatIsZero :: Double -> Bool
+floatIsZero value =
+  -- Jazz's finite runtime primitive subset treats both signed zeroes as
+  -- division by zero rather than producing infinities.
+  value == 0
+
+evalFloatBinary :: Text -> Double -> Either Diagnostic RuntimeValue
+evalFloatBinary operatorSymbol result
+  | isNaN result || isInfinite result =
+      Left
+        ( runtimeDiagnostic
+            "E3025"
+            ("runtime primitive '" <> operatorSymbol <> "' failed: non-finite Float result")
+        )
+  | otherwise = Right (VFloat result Nothing)
 
 -- | Runtime-specific wrapper for mkDiagnostic.
 -- This alias exists solely to improve readability and make it clear that

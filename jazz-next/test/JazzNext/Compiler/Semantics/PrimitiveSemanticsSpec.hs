@@ -11,6 +11,9 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)
   )
+import JazzNext.Compiler.FractionalLiteral
+  ( mkFractionalLiteralSource
+  )
 import JazzNext.Compiler.BundledPrelude
   ( bundledPreludeSource
   )
@@ -70,12 +73,26 @@ tests =
     ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral),
     ("source pipeline accepts target-named integer conversions", testSourcePipelineAcceptsTargetNamedIntegerConversions),
     ("source pipeline accepts target-named float conversions", testSourcePipelineAcceptsTargetNamedFloatConversions),
+    ("source pipeline accepts Float64 fractional literal defaults", testSourcePipelineAcceptsFloat64FractionalLiteralDefaults),
+    ("source pipeline accepts same-width Float64 arithmetic", testSourcePipelineAcceptsSameWidthFloat64Arithmetic),
+    ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
+    ("source pipeline rejects Float64 comparisons until runtime support lands", testSourcePipelineRejectsFloat64Comparisons),
+    ("source pipeline rejects Float64 comparison operator values", testSourcePipelineRejectsFloat64ComparisonOperatorValues),
+    ("source pipeline rejects Float64 comparison sections", testSourcePipelineRejectsFloat64ComparisonSections),
+    ("source pipeline rejects implicit integer and fractional literal mixing", testSourcePipelineRejectsImplicitIntegerFractionalMixing),
+    ("source pipeline rejects mixed-width float arithmetic", testSourcePipelineRejectsMixedWidthFloatArithmetic),
+    ("source pipeline explains deferred Float16 and Float32 arithmetic", testSourcePipelineExplainsDeferredFloat16Float32Arithmetic),
     ("source pipeline rejects out-of-range literal conversions", testSourcePipelineRejectsOutOfRangeLiteralConversions),
+    ("source pipeline rejects non-integral fractional literal conversions", testSourcePipelineRejectsNonIntegralFractionalLiteralConversions),
+    ("source pipeline rejects rounded non-integral fractional literal conversions", testSourcePipelineRejectsRoundedNonIntegralFractionalLiteralConversions),
+    ("source pipeline accepts integral-boundary fractional literal conversions", testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions),
     ("source pipeline rejects out-of-range float-target literal conversions", testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions),
+    ("source pipeline rejects source-exact float-target literal overflow", testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow),
+    ("source pipeline rejects source-exact negative float-target literal overflow", testSourcePipelineRejectsSourceExactNegativeFloatTargetLiteralOverflow),
+    ("source pipeline rejects dollar-applied fractional literal conversions", testSourcePipelineRejectsDollarAppliedFractionalLiteralConversions),
+    ("source pipeline rejects typed prelude alias literal overflow", testSourcePipelineRejectsTypedPreludeAliasLiteralOverflow),
     ("source pipeline ignores conversion literal checks for shadowed names", testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames),
     ("source pipeline freshens prelude conversion aliases", testSourcePipelineFreshensPreludeConversionAliases),
-    ("source pipeline rejects float conversion operands in numeric operators", testSourcePipelineRejectsFloatConversionOperandsInNumericOperators),
-    ("source pipeline rejects float conversion operands through operator values", testSourcePipelineRejectsFloatConversionOperandsThroughOperatorValues),
     ("source pipeline keeps locally shadowed kernel aliases ordinary", testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary),
     ("source pipeline rejects non-numeric conversion source", testSourcePipelineRejectsNonNumericConversionSource)
   ]
@@ -296,6 +313,62 @@ testSourcePipelineAcceptsTargetNamedFloatConversions :: IO ()
 testSourcePipelineAcceptsTargetNamedFloatConversions =
   assertCompilesWithBundledPrelude "x :: Float64.\nx = toFloat64 1."
 
+testSourcePipelineAcceptsFloat64FractionalLiteralDefaults :: IO ()
+testSourcePipelineAcceptsFloat64FractionalLiteralDefaults =
+  assertCompiles "x = 1.5."
+
+testSourcePipelineAcceptsSameWidthFloat64Arithmetic :: IO ()
+testSourcePipelineAcceptsSameWidthFloat64Arithmetic =
+  assertCompilesWithBundledPrelude
+    "x :: Float64.\nx = ((1.5 + 2.25) - toFloat64 1) * (6.0 / 2.0)."
+
+testSourcePipelineAcceptsSameWidthFloat64OperatorValues :: IO ()
+testSourcePipelineAcceptsSameWidthFloat64OperatorValues =
+  assertCompilesWithBundledPrelude
+    "x :: Float64.\nx = (+) (toFloat64 1) (toFloat64 2)."
+
+testSourcePipelineRejectsFloat64Comparisons :: IO ()
+testSourcePipelineRejectsFloat64Comparisons =
+  assertCompileError
+    "x = 1.5 < 2.0."
+    "Float64 comparison"
+    "E2003"
+
+testSourcePipelineRejectsFloat64ComparisonOperatorValues :: IO ()
+testSourcePipelineRejectsFloat64ComparisonOperatorValues =
+  assertCompileErrorWithBundledPrelude
+    "x = (<) (toFloat64 1) (toFloat64 2)."
+    "Float64 comparison operator value"
+    "E2006"
+
+testSourcePipelineRejectsFloat64ComparisonSections :: IO ()
+testSourcePipelineRejectsFloat64ComparisonSections =
+  assertCompileError
+    "x = (1.5 <) 2.0."
+    "Float64 comparison section"
+    "E2003"
+
+testSourcePipelineRejectsImplicitIntegerFractionalMixing :: IO ()
+testSourcePipelineRejectsImplicitIntegerFractionalMixing =
+  assertCompileError
+    "x = 1 + 1.5."
+    "mixed integer/fractional operator"
+    "E2003"
+
+testSourcePipelineRejectsMixedWidthFloatArithmetic :: IO ()
+testSourcePipelineRejectsMixedWidthFloatArithmetic =
+  assertCompileErrorWithBundledPrelude
+    "left :: Float16.\nleft = toFloat16 1.\nx :: Float64.\nx = left + 2.0."
+    "mixed-width float arithmetic"
+    "E2003"
+
+testSourcePipelineExplainsDeferredFloat16Float32Arithmetic :: IO ()
+testSourcePipelineExplainsDeferredFloat16Float32Arithmetic =
+  assertCompileErrorWithBundledPrelude
+    "left :: Float16.\nleft = toFloat16 1.\nright :: Float16.\nright = toFloat16 2.\nx = left + right."
+    "Float16 arithmetic deferred"
+    "Float16/Float32 arithmetic is deferred"
+
 testSourcePipelineRejectsOutOfRangeLiteralConversions :: IO ()
 testSourcePipelineRejectsOutOfRangeLiteralConversions =
   assertCompileErrorWithBundledPrelude
@@ -303,11 +376,64 @@ testSourcePipelineRejectsOutOfRangeLiteralConversions =
     "out-of-range literal conversion"
     "E2006"
 
+testSourcePipelineRejectsNonIntegralFractionalLiteralConversions :: IO ()
+testSourcePipelineRejectsNonIntegralFractionalLiteralConversions =
+  assertCompileErrorWithBundledPrelude
+    "x = toInt8 1.5."
+    "non-integral fractional literal conversion"
+    "E2006"
+
+testSourcePipelineRejectsRoundedNonIntegralFractionalLiteralConversions :: IO ()
+testSourcePipelineRejectsRoundedNonIntegralFractionalLiteralConversions =
+  assertCompileErrorWithBundledPrelude
+    "x = toInt8 0.99999999999999999."
+    "rounded non-integral fractional literal conversion"
+    "E2006"
+
+testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions :: IO ()
+testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions =
+  assertCompilesWithBundledPrelude
+    "x = toInt64 9223372036854775807.0.\ny = toUInt64 18446744073709551615.0."
+
 testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions :: IO ()
 testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions =
   assertCompileErrorWithBundledPrelude
     "x = toFloat16 70000."
     "out-of-range float-target literal conversion"
+    "E2006"
+
+testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow :: IO ()
+testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow =
+  assertCompileErrorWithBundledPrelude
+    "x = toFloat16 65504.000000000000000001."
+    "source-exact float-target literal overflow"
+    "E2006"
+
+testSourcePipelineRejectsSourceExactNegativeFloatTargetLiteralOverflow :: IO ()
+testSourcePipelineRejectsSourceExactNegativeFloatTargetLiteralOverflow = do
+  result <- compileExpr defaultWarningSettings sourceExactNegativeFloatTargetOverflowProgram
+  assertSingleDiagnosticContains
+    "source-exact negative float-target literal overflow"
+    "E2006"
+    (compileErrors result)
+
+testSourcePipelineRejectsDollarAppliedFractionalLiteralConversions :: IO ()
+testSourcePipelineRejectsDollarAppliedFractionalLiteralConversions = do
+  assertCompileErrorWithBundledPrelude
+    "x = toInt8 $ 1.5."
+    "dollar-applied non-integral fractional literal conversion"
+    "E2006"
+  assertCompileErrorWithBundledPrelude
+    "x = toFloat16 $ 65504.000000000000000001."
+    "dollar-applied source-exact float-target literal overflow"
+    "E2006"
+
+testSourcePipelineRejectsTypedPreludeAliasLiteralOverflow :: IO ()
+testSourcePipelineRejectsTypedPreludeAliasLiteralOverflow =
+  assertCompileErrorWithPrelude
+    "toFloat16 :: Float -> Float16.\ntoFloat16 = __kernel_toFloat16."
+    "x = toFloat16 65504.000000000000000001."
+    "typed prelude alias source-exact literal overflow"
     "E2006"
 
 testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames :: IO ()
@@ -318,20 +444,6 @@ testSourcePipelineFreshensPreludeConversionAliases :: IO ()
 testSourcePipelineFreshensPreludeConversionAliases =
   assertCompilesWithBundledPrelude
     "a :: Int16.\na = toInt16 1.\nb :: UInt8.\nb = toUInt8 a.\nc :: UInt16.\nc = toUInt16 2.\nd :: UInt8.\nd = toUInt8 c."
-
-testSourcePipelineRejectsFloatConversionOperandsInNumericOperators :: IO ()
-testSourcePipelineRejectsFloatConversionOperandsInNumericOperators =
-  assertCompileErrorWithBundledPrelude
-    "x = toFloat64 1 + toFloat64 2."
-    "float conversion numeric operator"
-    "E2003"
-
-testSourcePipelineRejectsFloatConversionOperandsThroughOperatorValues :: IO ()
-testSourcePipelineRejectsFloatConversionOperandsThroughOperatorValues =
-  assertCompileErrorWithBundledPrelude
-    "x = (+) (toFloat64 1) (toFloat64 2)."
-    "float conversion operator value"
-    "E2006"
 
 testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary :: IO ()
 testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary =
@@ -371,6 +483,14 @@ assertCompileErrorWithBundledPrelude source failureLabel errorCode = do
     (Text.pack errorCode)
     (compileErrors result)
 
+assertCompileErrorWithPrelude :: String -> String -> String -> String -> IO ()
+assertCompileErrorWithPrelude preludeSource source failureLabel errorCode = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just (Text.pack preludeSource)) (Text.pack source)
+  assertSingleDiagnosticContains
+    (Text.pack failureLabel)
+    (Text.pack errorCode)
+    (compileErrors result)
+
 mkProgram :: Expr -> Expr
 mkProgram expr =
   EBlock
@@ -386,6 +506,14 @@ arithmeticProgram =
         "+"
         (EBinary "*" (ELit (LInt 7)) (ELit (LInt 6)))
         (EBinary "/" (ELit (LInt 8)) (ELit (LInt 2)))
+    )
+
+sourceExactNegativeFloatTargetOverflowProgram :: Expr
+sourceExactNegativeFloatTargetOverflowProgram =
+  mkProgram
+    ( EApply
+        (EVar "__kernel_toFloat16")
+        (ELit (LFloat (-65504.0) (mkFractionalLiteralSource (-65504) 1 18)))
     )
 
 intEqualityProgram :: Expr

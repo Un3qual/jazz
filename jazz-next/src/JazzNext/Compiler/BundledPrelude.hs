@@ -25,10 +25,20 @@ bundledPreludePath = "jazz-next/stdlib/Prelude.jz"
 bundledPreludeSource :: Text
 bundledPreludeSource =
   Text.unlines $
-    map renderKernelBridge allBuiltinSymbols
+    map renderCapabilityClass canonicalCapabilityClassNames
+      <> [""]
+      <> map renderDefaultCapabilityImpl defaultCapabilityImplFacts
+      <> [""]
+      <> map renderKernelBridge allBuiltinSymbols
       <> [""]
       <> map renderPublicAlias allBuiltinSymbols
   where
+    renderCapabilityClass name =
+      "class " <> name <> " { }."
+
+    renderDefaultCapabilityImpl (className, targetType) =
+      "impl " <> className <> "(" <> targetType <> ") { }."
+
     -- Kernel bridge bindings must precede public aliases so alias definitions
     -- can reference already-declared names in the checked-in mirror.
     renderKernelBridge symbol =
@@ -37,6 +47,90 @@ bundledPreludeSource =
 
     renderPublicAlias symbol =
       builtinSymbolName symbol <> " = " <> builtinSymbolKernelName symbol <> "."
+
+canonicalCapabilityClassNames :: [Text]
+canonicalCapabilityClassNames =
+  [ "Eq",
+    "Ord",
+    "Num",
+    "Integral",
+    "Fractional",
+    "Showable",
+    "Default"
+  ]
+
+defaultCapabilityImplFacts :: [(Text, Text)]
+defaultCapabilityImplFacts =
+  defaultAliasCapabilityImplFacts
+    <> concatMap integralNumericCapabilityImplFacts signedIntegerWidthTypes
+    <> concatMap integralNumericCapabilityImplFacts unsignedIntegerWidthTypes
+    <> concatMap floatingNumericCapabilityImplFacts floatingWidthTypes
+
+defaultAliasCapabilityImplFacts :: [(Text, Text)]
+defaultAliasCapabilityImplFacts =
+  [ ("Eq", "Int"),
+    ("Eq", "Float"),
+    ("Eq", "Bool"),
+    ("Ord", "Int"),
+    ("Ord", "Float"),
+    ("Num", "Int"),
+    ("Num", "Float"),
+    ("Integral", "Int"),
+    ("Fractional", "Float"),
+    ("Default", "Int"),
+    ("Default", "Float"),
+    ("Default", "Bool"),
+    ("Showable", "Int"),
+    ("Showable", "Float"),
+    ("Showable", "Bool")
+  ]
+
+integralNumericCapabilityImplFacts :: Text -> [(Text, Text)]
+integralNumericCapabilityImplFacts targetType =
+  map
+    (\className -> (className, targetType))
+    [ "Eq",
+      "Ord",
+      "Num",
+      "Integral",
+      "Default",
+      "Showable"
+    ]
+
+floatingNumericCapabilityImplFacts :: Text -> [(Text, Text)]
+floatingNumericCapabilityImplFacts targetType =
+  map
+    (\className -> (className, targetType))
+    [ "Eq",
+      "Ord",
+      "Num",
+      "Fractional",
+      "Default",
+      "Showable"
+    ]
+
+signedIntegerWidthTypes :: [Text]
+signedIntegerWidthTypes =
+  [ "Int8",
+    "Int16",
+    "Int32",
+    "Int64"
+  ]
+
+unsignedIntegerWidthTypes :: [Text]
+unsignedIntegerWidthTypes =
+  [ "UInt8",
+    "UInt16",
+    "UInt32",
+    "UInt64"
+  ]
+
+floatingWidthTypes :: [Text]
+floatingWidthTypes =
+  [ "Float16",
+    "Float32",
+    "Float64"
+  ]
 
 -- | IO wrapper kept for API symmetry with file-backed prelude loading paths.
 loadBundledPreludeSource :: IO Text

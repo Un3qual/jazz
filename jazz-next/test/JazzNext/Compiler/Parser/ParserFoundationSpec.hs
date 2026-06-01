@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ConstraintSignatureType (..),
     Expr (..),
@@ -34,6 +35,7 @@ import JazzNext.Compiler.Parser.Lower
   )
 import JazzNext.TestHarness
   ( NamedTest,
+    assertContains,
     assertEqual,
     assertLeftDiagnosticContains,
     assertRight,
@@ -52,6 +54,11 @@ tests =
     ("parses tuple literal into structured nodes", testParseTupleLiteral),
     ("parses tuple signature into structured nodes", testParseTupleSignature),
     ("parses numeric width signature names into structured nodes", testParseNumericWidthSignatureTypes),
+    ("parses fractional literal without treating decimal dot as statement terminator", testParseFractionalLiteral),
+    ("rejects non-finite fractional literals", testRejectsNonFiniteFractionalLiteral),
+    ("rejects source-exact Float64 fractional literal overflow", testRejectsSourceExactFloat64FractionalLiteralOverflow),
+    ("rejects fractional literal case patterns", testRejectsFractionalLiteralCasePatterns),
+    ("rejects fractional literal lambda patterns", testRejectsFractionalLiteralLambdaPatterns),
     ("parses chained function signature right associatively", testParseChainedFunctionSignature),
     ("parses parenthesized function override into structured nodes", testParseParenthesizedFunctionOverrideSignature),
     ("parses list of parenthesized function types", testParseFunctionListSignature),
@@ -65,6 +72,7 @@ tests =
     ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
     ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram),
     ("lowers numeric width signature names into analyzer AST", testLowerNumericWidthSignatureProgram),
+    ("lowers fractional literal into analyzer AST", testLowerFractionalLiteralProgram),
     ("lowers structured signature payload into analyzer AST", testLowerStructuredSignatureProgram),
     ("lowers right-associated function signature into analyzer AST", testLowerRightAssociativeFunctionSignatureProgram),
     ("lowers list of function signature into analyzer AST", testLowerFunctionListSignatureProgram),
@@ -84,6 +92,8 @@ tests =
     ("parses impl capability declarations into surface AST", testParsesImplCapabilityDeclaration),
     ("lowers class and impl capability declarations as inert AST nodes", testLowersCapabilityDeclarations),
     ("parses class and impl capability declarations inside module bodies", testParsesCapabilityDeclarationsInModuleBody),
+    ("rejects non-empty class capability bodies", testRejectsNonEmptyClassCapabilityBody),
+    ("rejects non-empty impl capability bodies", testRejectsNonEmptyImplCapabilityBody),
     ("rejects malformed class capability headers", testRejectsMalformedClassCapabilityHeader),
     ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax),
     ("rejects lowercase trait abstraction declarations", testRejectsLowercaseTraitAbstractionSyntax),
@@ -209,6 +219,58 @@ testParseNumericWidthSignatureTypes = do
         )
     )
     (parseSurfaceProgram "f :: Float -> Float64.\nf = (+).")
+
+testParseFractionalLiteral :: IO ()
+testParseFractionalLiteral =
+  assertRight
+    "fractional literal parse"
+    (parseSurfaceProgram "x = 1.5.\ny = 2.")
+    ( \surfaceProgram ->
+        assertContains
+          "surface fractional literal"
+          "SLFloat 1.5"
+          (Text.pack (show surfaceProgram))
+    )
+
+testRejectsNonFiniteFractionalLiteral :: IO ()
+testRejectsNonFiniteFractionalLiteral =
+  assertLeftDiagnosticContains
+    "non-finite fractional literal"
+    "invalid fractional literal"
+    (parseSurfaceProgram (Text.pack ("x = " <> replicate 400 '9' <> ".0.")))
+
+testRejectsSourceExactFloat64FractionalLiteralOverflow :: IO ()
+testRejectsSourceExactFloat64FractionalLiteralOverflow =
+  assertLeftDiagnosticContains
+    "source-exact Float64 fractional literal overflow"
+    "invalid fractional literal"
+    (parseSurfaceProgram (Text.pack ("x = " <> show (float64MaxFiniteInteger + 1) <> ".0.")))
+
+testRejectsFractionalLiteralCasePatterns :: IO ()
+testRejectsFractionalLiteralCasePatterns =
+  assertLeftDiagnosticContains
+    "fractional literal case pattern"
+    "fractional literal patterns"
+    (parseSurfaceProgram "x = case 1 { | 1.5 -> True | _ -> False }.")
+
+testRejectsFractionalLiteralLambdaPatterns :: IO ()
+testRejectsFractionalLiteralLambdaPatterns =
+  assertLeftDiagnosticContains
+    "fractional literal lambda pattern"
+    "fractional literal patterns"
+    (parseSurfaceProgram "f = \\(1.5) -> True.")
+
+float64MaxFiniteInteger :: Integer
+float64MaxFiniteInteger =
+  ceiling (float64MaxFinite :: Double)
+
+float64MaxFinite :: Double
+float64MaxFinite =
+  encodeFloat
+    (floatRadix sample ^ floatDigits sample - 1)
+    (snd (floatRange sample) - floatDigits sample)
+  where
+    sample = 0 :: Double
 
 testParseChainedFunctionSignature :: IO ()
 testParseChainedFunctionSignature =
@@ -444,6 +506,18 @@ testLowerNumericWidthSignatureProgram =
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
+    )
+
+testLowerFractionalLiteralProgram :: IO ()
+testLowerFractionalLiteralProgram =
+  assertRight
+    "surface parse"
+    (parseSurfaceProgram "1.5.")
+    ( \surfaceProgram ->
+        assertContains
+          "lowered fractional literal"
+          "LFloat 1.5"
+          (Text.pack (show (lowerSurfaceExpr surfaceProgram)))
     )
 
 testLowerStructuredSignatureProgram :: IO ()
@@ -714,6 +788,20 @@ testParsesCapabilityDeclarationsInModuleBody =
         )
     )
     (parseSurfaceProgram "module App::Core {\nclass Eq { }.\nimpl Eq(Int) { }.\n}")
+
+testRejectsNonEmptyClassCapabilityBody :: IO ()
+testRejectsNonEmptyClassCapabilityBody =
+  assertLeftDiagnosticContains
+    "non-empty class capability body"
+    "deferred method syntax"
+    (parseSurfaceProgram "class Eq { equals :: Int -> Int. }.")
+
+testRejectsNonEmptyImplCapabilityBody :: IO ()
+testRejectsNonEmptyImplCapabilityBody =
+  assertLeftDiagnosticContains
+    "non-empty impl capability body"
+    "deferred method syntax"
+    (parseSurfaceProgram "impl Eq(Int) { equals = \\value -> value. }.")
 
 testRejectsMalformedClassCapabilityHeader :: IO ()
 testRejectsMalformedClassCapabilityHeader =

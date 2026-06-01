@@ -23,6 +23,9 @@ import Data.Text (Text)
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan
   )
+import JazzNext.Compiler.FractionalLiteral
+  ( FractionalLiteralSource
+  )
 import JazzNext.Compiler.Identifier
   ( Identifier
   )
@@ -30,6 +33,7 @@ import JazzNext.Compiler.Identifier
 -- | Literals as they appear in parsed source before lowering.
 data SurfaceLiteral
   = SLInt Integer
+  | SLFloat Double FractionalLiteralSource
   | SLBool Bool
   deriving (Eq, Show)
 

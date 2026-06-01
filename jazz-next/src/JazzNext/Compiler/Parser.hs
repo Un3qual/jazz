@@ -14,6 +14,7 @@ import Data.Char
   )
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Read as TextRead
 import qualified Data.Set as Set
 import Data.Set (Set)
 import JazzNext.Compiler.Diagnostics
@@ -21,6 +22,10 @@ import JazzNext.Compiler.Diagnostics
     SourceSpan (..),
     mkDiagnostic,
     renderSourceSpan
+  )
+import JazzNext.Compiler.FractionalLiteral
+  ( fractionalLiteralExceedsMagnitude,
+    mkFractionalLiteralSource
   )
 import JazzNext.Compiler.Identifier
   ( Identifier,
@@ -201,6 +206,18 @@ parseStatement context knownAliases tokens =
     _ -> fmap singleStatement (parseExprStatement knownAliases tokens)
   where
     singleStatement (statement, remaining) = ([statement], remaining)
+
+beginsStatement :: [Token] -> Bool
+beginsStatement tokens =
+  case tokens of
+    Token {tokenKind = TModule} : _ -> True
+    Token {tokenKind = TImport} : _ -> True
+    Token {tokenKind = TData} : _ -> True
+    Token {tokenKind = TIdentifier name} : rest
+      | looksLikeReservedAbstractionDeclaration name rest -> True
+    Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
+    Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
+    _ -> False
 
 isDeclarationContext :: StatementContext -> Bool
 isDeclarationContext context =
@@ -424,7 +441,7 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
 consumeCapabilityDeclarationBody :: Text -> Token -> [Token] -> Either Diagnostic [Token]
 consumeCapabilityDeclarationBody declarationKind declarationToken tokens =
   case tokens of
-    Token {tokenKind = TLBrace} : rest -> go 1 rest
+    Token {tokenKind = TLBrace} : rest -> consumeEmptyBody rest
     [] ->
       Left
         ( parseDiagnostic
@@ -445,7 +462,7 @@ consumeCapabilityDeclarationBody declarationKind declarationToken tokens =
             )
         )
   where
-    go depth remainingTokens =
+    consumeEmptyBody remainingTokens =
       case remainingTokens of
         [] ->
           Left
@@ -458,13 +475,17 @@ consumeCapabilityDeclarationBody declarationKind declarationToken tokens =
             )
         token : rest ->
           case tokenKind token of
-            TLBrace ->
-              go (depth + 1) rest
-            TRBrace
-              | depth == 1 -> Right rest
-              | otherwise -> go (depth - 1) rest
+            TRBrace -> Right rest
             _ ->
-              go depth rest
+              Left
+                ( parseDiagnostic
+                    ( "unsupported "
+                        <> declarationKind
+                        <> " declaration body at "
+                        <> renderSourceSpan (tokenSpan token)
+                        <> ": deferred method syntax/semantics are not implemented in jazz-next; keep class/impl bodies empty"
+                    )
+                )
 
 registerImportAliases :: Set Text -> [SurfaceStatement] -> Set Text
 registerImportAliases =
@@ -1305,7 +1326,7 @@ parsePrimaryExprUntil knownAliases stop tokens =
     [] -> Left (parseDiagnostic "expected expression before end of input")
     token : rest ->
       case tokenKind token of
-        TInt value -> Right (SELit (SLInt value), rest)
+        TInt value -> parseNumericLiteral token value rest
         TIdentifier name ->
           case name of
             "True" -> Right (SELit (SLBool True), rest)
@@ -1348,6 +1369,61 @@ parsePrimaryExprUntil knownAliases stop tokens =
                     <> "; expected expression"
                 )
             )
+
+parseNumericLiteral :: Token -> Integer -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseNumericLiteral wholeToken wholeValue tokensAfterWhole = do
+  (literal, remaining) <- parseNumericSurfaceLiteral wholeToken wholeValue tokensAfterWhole
+  Right (SELit literal, remaining)
+
+parseNumericSurfaceLiteral :: Token -> Integer -> [Token] -> Either Diagnostic (SurfaceLiteral, [Token])
+parseNumericSurfaceLiteral wholeToken wholeValue tokensAfterWhole =
+  case tokensAfterWhole of
+    dotToken@Token {tokenKind = TDot} : fractionalToken@Token {tokenKind = TInt fractionalValue} : rest
+      | isImmediatelyAfter wholeToken dotToken,
+        isImmediatelyAfter dotToken fractionalToken -> do
+          let literalText = tokenLexeme wholeToken <> "." <> tokenLexeme fractionalToken
+              literalSource =
+                mkFractionalLiteralSource
+                  wholeValue
+                  fractionalValue
+                  (Text.length (tokenLexeme fractionalToken))
+          floatValue <- parseFloatLiteral (tokenSpan wholeToken) literalText
+          if fractionalLiteralExceedsMagnitude literalSource float64MaxFinite
+            then Left (invalidFloatLiteralDiagnostic (tokenSpan wholeToken) literalText)
+            else Right ()
+          Right (SLFloat floatValue literalSource, rest)
+    _ ->
+      Right (SLInt wholeValue, tokensAfterWhole)
+
+parseFloatLiteral :: SourceSpan -> Text -> Either Diagnostic Double
+parseFloatLiteral literalSpan literalText =
+  case TextRead.double literalText of
+    Right (value, trailing)
+      | Text.null trailing,
+        finiteFloat value ->
+          Right value
+    _ ->
+      Left (invalidFloatLiteralDiagnostic literalSpan literalText)
+
+finiteFloat :: Double -> Bool
+finiteFloat value = not (isNaN value) && not (isInfinite value)
+
+float64MaxFinite :: Double
+float64MaxFinite =
+  encodeFloat
+    (floatRadix sample ^ floatDigits sample - 1)
+    (snd (floatRange sample) - floatDigits sample)
+  where
+    sample = 0 :: Double
+
+invalidFloatLiteralDiagnostic :: SourceSpan -> Text -> Diagnostic
+invalidFloatLiteralDiagnostic literalSpan literalText =
+  parseDiagnostic
+    ( "invalid fractional literal '"
+        <> literalText
+        <> "' at "
+        <> renderSourceSpan literalSpan
+    )
 
 -- | Parenthesized forms cover ordinary grouping, operator values like `(+)`,
 -- and left/right operator sections.
@@ -1502,15 +1578,21 @@ parseCaseExpr knownAliases caseToken tokensAfterCase =
     braceLooksLikeScrutineeBlock :: [Token] -> Bool
     braceLooksLikeScrutineeBlock tokens =
       case tokens of
-        Token {tokenKind = TLBrace} : rest -> go rest
+        Token {tokenKind = TLBrace} : rest ->
+          beginsStatement rest || go Nothing rest
         _ -> False
       where
-        go allTokens =
+        go previousToken allTokens =
           case allTokens of
             [] -> False
+            dotToken@Token {tokenKind = TDot} : nextToken@Token {tokenKind = TInt _} : rest
+              | Just wholeToken@Token {tokenKind = TInt _} <- previousToken,
+                isImmediatelyAfter wholeToken dotToken,
+                isImmediatelyAfter dotToken nextToken ->
+                  go (Just nextToken) rest
             Token {tokenKind = TDot} : _ -> True
             Token {tokenKind = TRBrace} : _ -> False
-            _ : remaining -> go remaining
+            token : remaining -> go (Just token) remaining
 
 parseCaseArms :: Set Text -> [Token] -> Either Diagnostic ([SurfaceCaseArm], [Token])
 parseCaseArms knownAliases tokensAfterLeftBrace =
@@ -1596,8 +1678,8 @@ parseCaseArm knownAliases tokens = do
 parseCasePattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseCasePattern tokens =
   case tokens of
-    Token {tokenKind = TInt value} : rest ->
-      Right (SPLiteral (SLInt value), rest)
+    token@Token {tokenKind = TInt value} : rest ->
+      parseIntegralPatternLiteral token value rest
     Token {tokenKind = TLBracket} : rest ->
       parseListPattern rest
     token@Token {tokenKind = TLParen} : rest ->
@@ -1665,8 +1747,8 @@ parseConstructorPattern constructorName tokensAfterName =
 parseConstructorArgumentPattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseConstructorArgumentPattern tokens =
   case tokens of
-    Token {tokenKind = TInt value} : rest ->
-      Right (SPLiteral (SLInt value), rest)
+    token@Token {tokenKind = TInt value} : rest ->
+      parseIntegralPatternLiteral token value rest
     Token {tokenKind = TIdentifier name} : rest ->
       case name of
         "True" ->
@@ -1696,6 +1778,21 @@ parseConstructorArgumentPattern tokens =
                 <> "'"
             )
         )
+
+parseIntegralPatternLiteral :: Token -> Integer -> [Token] -> Either Diagnostic (SurfacePattern, [Token])
+parseIntegralPatternLiteral wholeToken wholeValue tokensAfterWhole =
+  case tokensAfterWhole of
+    dotToken@Token {tokenKind = TDot} : fractionalToken@Token {tokenKind = TInt _} : _
+      | isImmediatelyAfter wholeToken dotToken,
+        isImmediatelyAfter dotToken fractionalToken ->
+          Left
+            ( parseDiagnostic
+                ( "fractional literal patterns are not supported at "
+                    <> renderSourceSpan (tokenSpan wholeToken)
+                )
+            )
+    _ ->
+      Right (SPLiteral (SLInt wholeValue), tokensAfterWhole)
 
 parseAsPatternOrVariable ::
   ([Token] -> Either Diagnostic (SurfacePattern, [Token])) ->
@@ -1928,18 +2025,6 @@ collectUntilDot = go []
                     )
                 )
           | otherwise -> go (token : acc) rest
-
-    beginsStatement :: [Token] -> Bool
-    beginsStatement tokens =
-      case tokens of
-        Token {tokenKind = TModule} : _ -> True
-        Token {tokenKind = TImport} : _ -> True
-        Token {tokenKind = TData} : _ -> True
-        Token {tokenKind = TIdentifier name} : rest
-          | looksLikeReservedAbstractionDeclaration name rest -> True
-        Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
-        Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
-        _ -> False
 
 parseSignaturePayload :: [Token] -> SurfaceSignaturePayload
 parseSignaturePayload signatureTokens =

@@ -45,6 +45,7 @@ tests =
   [ ("compile module graph succeeds for resolvable entry module", testCompileModuleGraphSuccess),
     ("run module graph produces runtime output from entry module", testRunModuleGraphSuccess),
     ("compile module graph default helper loads bundled prelude", testCompileModuleGraphDefaultLoadsBundledPrelude),
+    ("compile module graph default helper exposes bundled capability facts in modules", testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules),
     ("run module graph default helper executes bundled prelude aliases across files", testRunModuleGraphDefaultLoadsBundledPrelude),
     ("compile module graph without prelude rejects public aliases across files", testCompileModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles),
     ("run module graph without prelude rejects public aliases across files", testRunModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles),
@@ -142,6 +143,23 @@ testCompileModuleGraphDefaultLoadsBundledPrelude = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Data.\nmap hd values.\n}"),
           ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3], [4, 5]].\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules :: IO ()
+testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules = do
+  result <-
+    compileModuleGraph
+      defaultWarningSettings
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "warnings" [] (compileWarnings result)
+  assertEqual "compile errors" [] (compileErrors result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nx :: @{Eq(Int)}: Int.\nx = 1.\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

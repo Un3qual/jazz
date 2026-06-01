@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import qualified Data.Text as Text
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     compileSource,
@@ -43,8 +44,12 @@ tests =
     ("prelude bridge rejects canonical alias in bridge declaration", testPreludeBridgeRejectsCanonicalAlias),
     ("prelude bridge rebinding reports current and previous bridge spans", testPreludeBridgeRebindingDiagnostic),
     ("prelude bridge allows canonical alias after kernel self-bridge", testPreludeBridgeAllowsCanonicalAliasAfterBridge),
+    ("bundled default prelude exposes capability classes and default impl facts", testBundledPreludeExposesCapabilityClassesAndDefaultImplFacts),
+    ("bundled default prelude exposes width-specific numeric impl facts", testBundledPreludeExposesWidthSpecificNumericImplFacts),
     ("prelude exposes numeric conversion aliases", testPreludeExposesNumericConversionAliases),
     ("compile without prelude rejects numeric conversion aliases", testCompileWithoutPreludeRejectsNumericConversionAliases),
+    ("compile without prelude rejects bundled capability facts", testCompileWithoutPreludeRejectsBundledCapabilityFacts),
+    ("explicit prelude does not inherit bundled impl facts", testExplicitPreludeDoesNotInheritBundledImplFacts),
     ("compile without prelude keeps numeric conversion kernel bridges available", testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable),
     ("compile without prelude rejects public prelude aliases", testCompileWithoutPreludeRejectsPreludeAliases),
     ("compile without prelude keeps kernel bridge names available", testCompileWithoutPreludeKeepsKernelBridgeNamesAvailable),
@@ -155,6 +160,79 @@ testPreludeBridgeAllowsCanonicalAliasAfterBridge = do
     []
     (compileErrors result)
 
+testBundledPreludeExposesCapabilityClassesAndDefaultImplFacts :: IO ()
+testBundledPreludeExposesCapabilityClassesAndDefaultImplFacts = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      ( Text.unlines
+          [ "eqInt :: @{Eq(Int)}: Int.",
+            "eqInt = 1.",
+            "eqFloat :: @{Eq(Float)}: Float.",
+            "eqFloat = toFloat64 1.",
+            "eqBool :: @{Eq(Bool)}: Bool.",
+            "eqBool = True.",
+            "ordInt :: @{Ord(Int)}: Int.",
+            "ordInt = 1.",
+            "ordFloat :: @{Ord(Float)}: Float.",
+            "ordFloat = toFloat64 1.",
+            "numInt :: @{Num(Int)}: Int.",
+            "numInt = 1.",
+            "numFloat :: @{Num(Float)}: Float.",
+            "numFloat = toFloat64 1.",
+            "integralInt :: @{Integral(Int)}: Int.",
+            "integralInt = 1.",
+            "fractionalFloat :: @{Fractional(Float)}: Float.",
+            "fractionalFloat = toFloat64 1.",
+            "defaultInt :: @{Default(Int)}: Int.",
+            "defaultInt = 1.",
+            "defaultFloat :: @{Default(Float)}: Float.",
+            "defaultFloat = toFloat64 1.",
+            "defaultBool :: @{Default(Bool)}: Bool.",
+            "defaultBool = False.",
+            "showableInt :: @{Showable(Int)}: Int.",
+            "showableInt = 1.",
+            "showableFloat :: @{Showable(Float)}: Float.",
+            "showableFloat = toFloat64 1.",
+            "showableBool :: @{Showable(Bool)}: Bool.",
+            "showableBool = True."
+          ]
+      )
+  assertEqual "bundled prelude default capability facts" [] (compileErrors result)
+
+testBundledPreludeExposesWidthSpecificNumericImplFacts :: IO ()
+testBundledPreludeExposesWidthSpecificNumericImplFacts = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      (Text.unlines (concatMap widthSpecificNumericImplFactCases widthSpecificNumericImplTargets))
+  assertEqual "bundled prelude width-specific numeric capability facts" [] (compileErrors result)
+  where
+    widthSpecificNumericImplTargets =
+      [ ("Int8", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("Int16", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("Int32", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("Int64", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("UInt8", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("UInt16", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("UInt32", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("UInt64", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("Float16", "toFloat16 1", ["Eq", "Ord", "Num", "Fractional", "Default", "Showable"]),
+        ("Float32", "toFloat32 1", ["Eq", "Ord", "Num", "Fractional", "Default", "Showable"]),
+        ("Float64", "toFloat64 1", ["Eq", "Ord", "Num", "Fractional", "Default", "Showable"])
+      ]
+
+    widthSpecificNumericImplFactCases (targetType, expression, classNames) =
+      concatMap (widthSpecificNumericImplFactCase targetType expression) classNames
+
+    widthSpecificNumericImplFactCase targetType expression className =
+      let bindingName =
+            Text.toLower (className <> targetType)
+       in
+        [ bindingName <> " :: @{" <> className <> "(" <> targetType <> ")}: " <> targetType <> ".",
+          bindingName <> " = " <> expression <> "."
+        ]
+
 testPreludeExposesNumericConversionAliases :: IO ()
 testPreludeExposesNumericConversionAliases = do
   result <- compileSource defaultWarningSettings "x :: UInt8.\nx = toUInt8 1."
@@ -167,6 +245,32 @@ testCompileWithoutPreludeRejectsNumericConversionAliases = do
     "public numeric conversion aliases are unavailable without prelude"
     ["E1001: unbound variable 'toUInt8'"]
     (map renderDiagnostic (compileErrors result))
+
+testCompileWithoutPreludeRejectsBundledCapabilityFacts :: IO ()
+testCompileWithoutPreludeRejectsBundledCapabilityFacts = do
+  result <- compileSourceWithPrelude defaultWarningSettings Nothing "x :: @{Eq(Int)}: Int.\nx = 1."
+  assertSingleErrorContains
+    "no-prelude compile has no bundled capability facts"
+    "missing class declaration 'Eq'"
+    (compileErrors result)
+  widthResult <- compileSourceWithPrelude defaultWarningSettings Nothing "x :: @{Num(UInt16)}: UInt16.\nx = 1."
+  assertSingleErrorContains
+    "no-prelude compile has no bundled width-specific capability facts"
+    "missing class declaration 'Num'"
+    (compileErrors widthResult)
+
+testExplicitPreludeDoesNotInheritBundledImplFacts :: IO ()
+testExplicitPreludeDoesNotInheritBundledImplFacts = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "class Eq { }.") "x :: @{Eq(Int)}: Int.\nx = 1."
+  assertSingleErrorContains
+    "explicit prelude uses only supplied impl facts"
+    "missing impl fact 'Eq(Int)'"
+    (compileErrors result)
+  widthResult <- compileSourceWithPrelude defaultWarningSettings (Just "class Num { }.") "x :: @{Num(UInt16)}: UInt16.\nx = 1."
+  assertSingleErrorContains
+    "explicit prelude uses only supplied width-specific impl facts"
+    "missing impl fact 'Num(UInt16)'"
+    (compileErrors widthResult)
 
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable :: IO ()
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable = do

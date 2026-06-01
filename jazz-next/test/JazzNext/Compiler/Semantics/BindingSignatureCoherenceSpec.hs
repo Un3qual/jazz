@@ -76,8 +76,10 @@ tests =
     ("source pipeline rejects out-of-range width-specific section literals", testSourceRejectsOutOfRangeWidthSpecificSectionLiterals),
     ("source pipeline accepts same-width integral operator signatures", testSourceAcceptsSameWidthIntegralOperatorSignatures),
     ("source pipeline rejects mixed-width numeric operator signatures", testSourceRejectsMixedWidthNumericOperatorSignatures),
-    ("source pipeline rejects float numeric operator signatures", testSourceRejectsFloatNumericOperatorSignatures),
+    ("source pipeline accepts same-width float numeric operator signatures", testSourceAcceptsSameWidthFloatNumericOperatorSignatures),
     ("source pipeline keeps float signatures distinct from integer literals", testSourceRejectsFloatSignatureForIntegerLiteral),
+    ("source pipeline accepts Float and Float64 fractional literal signatures", testSourceAcceptsFloatFractionalLiteralSignatures),
+    ("source pipeline rejects non-Float64 fractional literal targets", testSourceRejectsNonFloat64FractionalLiteralTargets),
     ("source pipeline rejects tuple signature mismatch", testSourceRejectsTupleSignatureMismatch),
     ("source pipeline rejects tuple signature arity mismatch", testSourceRejectsTupleSignatureArityMismatch),
     ("source pipeline accepts simple function signature", testSourceAcceptsSimpleFunctionSignature),
@@ -89,6 +91,8 @@ tests =
     ("source pipeline accepts empty constrained signature as monomorphic", testSourceAcceptsEmptyConstrainedSignature),
     ("source pipeline accepts empty constrained tuple signature as monomorphic", testSourceAcceptsEmptyConstrainedTupleSignature),
     ("source pipeline accepts concrete constrained signature as monomorphic", testSourceAcceptsConcreteConstrainedSignature),
+    ("source pipeline accepts bundled concrete constrained signature facts", testSourceAcceptsBundledConcreteConstrainedSignatureFacts),
+    ("source pipeline accepts bundled width-specific numeric constrained signature facts", testSourceAcceptsBundledWidthSpecificNumericConstrainedSignatureFacts),
     ("source pipeline accepts additional concrete constrained signatures", testSourceAcceptsAdditionalConcreteConstrainedSignatures),
     ("source pipeline accepts concrete tuple constrained signature argument", testSourceAcceptsConcreteTupleConstrainedSignatureArgument),
     ("source pipeline accepts ADT application constrained signature argument", testSourceAcceptsAdtApplicationConstrainedSignatureArgument),
@@ -304,6 +308,11 @@ assertSourceOk src = do
   result <- compileSource defaultWarningSettings src
   assertEqual "compile errors" [] (compileErrors result)
 
+assertSourceOkWithoutPrelude :: Text.Text -> IO ()
+assertSourceOkWithoutPrelude src = do
+  result <- compileSourceWithPrelude defaultWarningSettings Nothing src
+  assertEqual "compile errors" [] (compileErrors result)
+
 assertSourceErrorContains :: Text.Text -> Text.Text -> IO ()
 assertSourceErrorContains src needle = do
   result <- compileSource defaultWarningSettings src
@@ -312,6 +321,11 @@ assertSourceErrorContains src needle = do
 assertSourceSingleErrorContains :: Text.Text -> Text.Text -> IO ()
 assertSourceSingleErrorContains src needle = do
   result <- compileSource defaultWarningSettings src
+  assertSingleDiagnosticContains "source error" needle (compileErrors result)
+
+assertSourceSingleErrorContainsWithoutPrelude :: Text.Text -> Text.Text -> IO ()
+assertSourceSingleErrorContainsWithoutPrelude src needle = do
+  result <- compileSourceWithPrelude defaultWarningSettings Nothing src
   assertSingleDiagnosticContains "source error" needle (compileErrors result)
 
 assertSourceSingleErrorCodeAndPrimarySpan :: Text.Text -> Text.Text -> SourceSpan -> IO ()
@@ -326,20 +340,20 @@ testSourceAcceptsSignatureAdjacency =
 
 testSourceAcceptsCapabilityDeclarations :: IO ()
 testSourceAcceptsCapabilityDeclarations =
-  assertSourceOk "class Eq { }.\nimpl Eq(Int) { }.\nx :: Int.\nx = 1.\nx."
+  assertSourceOkWithoutPrelude "class Eq { }.\nimpl Eq(Int) { }.\nx :: Int.\nx = 1.\nx."
 
 testSourceRejectsDuplicateClassDeclarations :: IO ()
 testSourceRejectsDuplicateClassDeclarations =
-  assertSourceSingleErrorContains "class Eq { }.\nclass Eq { }.\nx = 1." "E1004"
+  assertSourceSingleErrorContainsWithoutPrelude "class Eq { }.\nclass Eq { }.\nx = 1." "E1004"
 
 testSourceRejectsDuplicateConcreteImplDeclarations :: IO ()
 testSourceRejectsDuplicateConcreteImplDeclarations =
-  assertSourceSingleErrorContains "class Eq { }.\nimpl Eq(Int) { }.\nimpl Eq(Int) { }.\nx = 1." "E1005"
+  assertSourceSingleErrorContainsWithoutPrelude "class Eq { }.\nimpl Eq(Int) { }.\nimpl Eq(Int) { }.\nx = 1." "E1005"
 
 testSourceRejectsDuplicateAdtImplDeclarations :: IO ()
 testSourceRejectsDuplicateAdtImplDeclarations = do
-  assertSourceSingleErrorContains "data Color = Red.\nclass Eq { }.\nimpl Eq(Color) { }.\nimpl Eq(Color) { }.\nx = 1." "E1005"
-  assertSourceSingleErrorContains "data Box a = Box a.\nclass Eq { }.\nimpl Eq(Box(Int)) { }.\nimpl Eq(Box(Int)) { }.\nx = 1." "E1005"
+  assertSourceSingleErrorContainsWithoutPrelude "data Color = Red.\nclass Eq { }.\nimpl Eq(Color) { }.\nimpl Eq(Color) { }.\nx = 1." "E1005"
+  assertSourceSingleErrorContainsWithoutPrelude "data Box a = Box a.\nclass Eq { }.\nimpl Eq(Box(Int)) { }.\nimpl Eq(Box(Int)) { }.\nx = 1." "E1005"
 
 testSourceKeepsNestedCapabilityFactsScoped :: IO ()
 testSourceKeepsNestedCapabilityFactsScoped = do
@@ -430,7 +444,7 @@ testSourceAcceptsWidthSpecificIntegerSignatures = do
   assertSourceOk "x :: UInt64.\nx = 1."
   assertSourceOk "x :: UInt64.\nx = 18446744073709551615."
   assertSourceOk "xs :: [Int32].\nxs = [1, 2, 3]."
-  assertSourceOk "class Num { }.\nimpl Num(UInt16) { }.\nx :: @{Num(UInt16)}: UInt16.\nx = 1."
+  assertSourceOkWithoutPrelude "class Num { }.\nimpl Num(UInt16) { }.\nx :: @{Num(UInt16)}: UInt16.\nx = 1."
 
 testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals :: IO ()
 testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals = do
@@ -467,13 +481,25 @@ testSourceRejectsMixedWidthNumericOperatorSignatures :: IO ()
 testSourceRejectsMixedWidthNumericOperatorSignatures =
   assertSourceSingleErrorContains "add :: Int8 -> UInt8 -> Int8.\nadd = (+)." "E2005"
 
-testSourceRejectsFloatNumericOperatorSignatures :: IO ()
-testSourceRejectsFloatNumericOperatorSignatures =
-  assertSourceSingleErrorContains "fadd :: Float -> Float64 -> Float64.\nfadd = (+)." "E2005"
+testSourceAcceptsSameWidthFloatNumericOperatorSignatures :: IO ()
+testSourceAcceptsSameWidthFloatNumericOperatorSignatures = do
+  assertSourceOk "fadd :: Float -> Float -> Float.\nfadd = (+)."
+  assertSourceOk "fadd64 :: Float64 -> Float64 -> Float64.\nfadd64 = (+)."
 
 testSourceRejectsFloatSignatureForIntegerLiteral :: IO ()
 testSourceRejectsFloatSignatureForIntegerLiteral =
   assertSourceSingleErrorContains "x :: Float64.\nx = 1." "E2005"
+
+testSourceAcceptsFloatFractionalLiteralSignatures :: IO ()
+testSourceAcceptsFloatFractionalLiteralSignatures = do
+  assertSourceOk "x :: Float.\nx = 1.5."
+  assertSourceOk "x :: Float64.\nx = 1.5."
+  assertSourceOk "xs :: [Float64].\nxs = [1.5, 2.25]."
+
+testSourceRejectsNonFloat64FractionalLiteralTargets :: IO ()
+testSourceRejectsNonFloat64FractionalLiteralTargets = do
+  assertSourceSingleErrorContains "x :: Float32.\nx = 1.5." "E2005"
+  assertSourceSingleErrorContains "x :: Int.\nx = 1.5." "E2005"
 
 testSourceRejectsTupleSignatureMismatch :: IO ()
 testSourceRejectsTupleSignatureMismatch = do
@@ -525,32 +551,43 @@ testSourceAcceptsEmptyConstrainedTupleSignature =
 
 testSourceAcceptsConcreteConstrainedSignature :: IO ()
 testSourceAcceptsConcreteConstrainedSignature =
-  assertSourceOk "class Eq { }.\nimpl Eq(Int) { }.\nx :: @{Eq(Int)}: Int.\nx = 1."
+  assertSourceOkWithoutPrelude "class Eq { }.\nimpl Eq(Int) { }.\nx :: @{Eq(Int)}: Int.\nx = 1."
+
+testSourceAcceptsBundledConcreteConstrainedSignatureFacts :: IO ()
+testSourceAcceptsBundledConcreteConstrainedSignatureFacts =
+  assertSourceOk "x :: @{Eq(Int)}: Int.\nx = 1."
+
+testSourceAcceptsBundledWidthSpecificNumericConstrainedSignatureFacts :: IO ()
+testSourceAcceptsBundledWidthSpecificNumericConstrainedSignatureFacts = do
+  assertSourceOk "x :: @{Num(UInt16)}: UInt16.\nx = 1."
+  assertSourceOk "x :: @{Integral(Int32)}: Int32.\nx = 1."
+  assertSourceOk "x :: @{Fractional(Float32)}: Float32.\nx = toFloat32 1."
+  assertSourceOk "x :: @{Showable(Float64)}: Float64.\nx = toFloat64 1."
 
 testSourceAcceptsAdditionalConcreteConstrainedSignatures :: IO ()
 testSourceAcceptsAdditionalConcreteConstrainedSignatures = do
-  assertSourceOk "class Default { }.\nimpl Default(Bool) { }.\nx :: @{Default(Bool)}: Bool.\nx = True."
-  assertSourceOk "class Fractional { }.\nimpl Fractional(Int) { }.\nx :: @{Fractional(Int)}: Int.\nx = 1."
-  assertSourceOk "class Integral { }.\nimpl Integral(Int) { }.\nx :: @{Integral(Int)}: Int.\nx = 1."
-  assertSourceOk "class Num { }.\nimpl Num(Int) { }.\nx :: @{Num(Int)}: Int.\nx = 1."
-  assertSourceOk "class Ord { }.\nimpl Ord(Int) { }.\nx :: @{Ord(Int)}: Int.\nx = 1."
-  assertSourceOk "class Showable { }.\nimpl Showable([[Bool]]) { }.\nx :: @{Showable([[Bool]])}: [[Bool]].\nx = [[True], [False]]."
+  assertSourceOkWithoutPrelude "class Default { }.\nimpl Default(Bool) { }.\nx :: @{Default(Bool)}: Bool.\nx = True."
+  assertSourceOkWithoutPrelude "class Fractional { }.\nimpl Fractional(Int) { }.\nx :: @{Fractional(Int)}: Int.\nx = 1."
+  assertSourceOkWithoutPrelude "class Integral { }.\nimpl Integral(Int) { }.\nx :: @{Integral(Int)}: Int.\nx = 1."
+  assertSourceOkWithoutPrelude "class Num { }.\nimpl Num(Int) { }.\nx :: @{Num(Int)}: Int.\nx = 1."
+  assertSourceOkWithoutPrelude "class Ord { }.\nimpl Ord(Int) { }.\nx :: @{Ord(Int)}: Int.\nx = 1."
+  assertSourceOkWithoutPrelude "class Showable { }.\nimpl Showable([[Bool]]) { }.\nx :: @{Showable([[Bool]])}: [[Bool]].\nx = [[True], [False]]."
 
 testSourceAcceptsConcreteTupleConstrainedSignatureArgument :: IO ()
 testSourceAcceptsConcreteTupleConstrainedSignatureArgument =
-  assertSourceOk "class Eq { }.\nimpl Eq((Int, Bool)) { }.\npair :: @{Eq((Int, Bool))}: (Int, Bool).\npair = (1, True)."
+  assertSourceOkWithoutPrelude "class Eq { }.\nimpl Eq((Int, Bool)) { }.\npair :: @{Eq((Int, Bool))}: (Int, Bool).\npair = (1, True)."
 
 testSourceAcceptsAdtApplicationConstrainedSignatureArgument :: IO ()
 testSourceAcceptsAdtApplicationConstrainedSignatureArgument =
-  assertSourceOk "data Box a = Box a.\nclass Eq { }.\nimpl Eq(Box(Int)) { }.\nx :: @{Eq(Box(Int))}: Int.\nx = 1."
+  assertSourceOkWithoutPrelude "data Box a = Box a.\nclass Eq { }.\nimpl Eq(Box(Int)) { }.\nx :: @{Eq(Box(Int))}: Int.\nx = 1."
 
 testSourceRejectsForwardCapabilityFactsForConstrainedSignature :: IO ()
 testSourceRejectsForwardCapabilityFactsForConstrainedSignature =
-  assertSourceSingleErrorContains "x :: @{Eq(Int)}: Int.\nx = 1.\nclass Eq { }.\nimpl Eq(Int) { }." "missing class declaration 'Eq'"
+  assertSourceSingleErrorContainsWithoutPrelude "x :: @{Eq(Int)}: Int.\nx = 1.\nclass Eq { }.\nimpl Eq(Int) { }." "missing class declaration 'Eq'"
 
 testSourceRejectsConcreteConstrainedSignatureWithoutImplFact :: IO ()
 testSourceRejectsConcreteConstrainedSignatureWithoutImplFact =
-  assertSourceSingleErrorContains "class Eq { }.\nx :: @{Eq(Int)}: Int.\nx = 1." "missing impl fact 'Eq(Int)'"
+  assertSourceSingleErrorContainsWithoutPrelude "class Eq { }.\nx :: @{Eq(Int)}: Int.\nx = 1." "missing impl fact 'Eq(Int)'"
 
 testSourceRejectsUnknownConstrainedSignatureConstraint :: IO ()
 testSourceRejectsUnknownConstrainedSignatureConstraint =

@@ -1,6 +1,6 @@
 # Primitive Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, and runtime arithmetic widening remains out of scope)
+Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, default Float64 fractional literal values parse/evaluate, and same concrete `Float`/`Float64` arithmetic now type-checks and evaluates)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md`
 
@@ -70,12 +70,13 @@ Invalid examples:
 - Ambiguous integer literals default to `Int64`.
 - `Float` is the cross-platform default fractional type and maps to `Float64`.
 - Ambiguous fractional literals default to `Float64`.
-- Context can choose a narrower explicit type for a literal, for example an `Int32` annotation can make `2` an `Int32`.
+- Context can choose a narrower explicit type for an integer literal, for example an `Int32` annotation can make `2` an `Int32`.
 - Numeric operators require one concrete numeric type per operation, matching the Haskell-like `(+) :: Num a => a -> a -> a` shape.
 - Mixed concrete widths, such as `Int32 + Int64`, are type errors unless one side is converted explicitly.
-- `jazz-next` now parses, lowers, and type-checks width-specific numeric signature names plus `Int`/`Float` aliases before any runtime arithmetic widening.
+- `jazz-next` parses, lowers, and type-checks width-specific numeric signature names plus `Int`/`Float` aliases, and the active runtime operator subset evaluates same concrete `Float`/`Float64` arithmetic.
 - Integer literals can satisfy an explicit integral-width signature annotation; ambiguous integer literals still default through `Int`.
-- `Float`/`Float64` signature names are accepted for type/operator ownership, and explicit integer-to-float conversion can produce runtime float values; fractional literal syntax and runtime floating arithmetic remain out of scope for this slice.
+- Decimal fractional literals such as `1.5` parse and lower to the default `Float`/`Float64` literal slice, can satisfy explicit `Float` or `Float64` signatures, and evaluate/render as runtime Float64 values.
+- Fractional literals do not target `Float16` or `Float32` directly, integer/fractional operator mixing remains a type error, `Float16`/`Float32` arithmetic remains out of scope for this slice, and floating comparison/equality remains rejected until matching runtime support lands.
 
 ### Explicit Conversion Contract
 
@@ -106,8 +107,8 @@ Rules:
 4. Literal conversions are checked at compile time when possible:
    - direct integer literals must fit the target integral range,
    - direct integer literals for unsigned targets must be non-negative,
-   - fractional literals targeting integral types must be exactly integral and
-     in range,
+   - fractional literals targeting integral types must be exactly integral in
+     their source decimal spelling and in range,
    - finite floating targets reject literal overflow instead of producing
      silent infinities.
 5. Dynamic integer narrowing, sign changes, float-to-integer conversion, and
@@ -117,6 +118,8 @@ Rules:
 7. Float-to-integer conversions require finite integral values in range.
 8. Integer-to-float and float-to-float conversions use deterministic
    target-format rounding; target overflow is a diagnostic.
+9. Float division treats either signed zero as division by zero and emits the
+   same fatal diagnostic rather than producing infinities.
 
 ## List Primitive Behavior
 

@@ -32,6 +32,9 @@ tests =
     ( "source pipeline accepts literal and wildcard case patterns",
       testSourcePipelineAcceptsLiteralAndWildcardPatterns
     ),
+    ( "source pipeline rejects fractional literal case patterns",
+      testSourcePipelineRejectsFractionalLiteralPatterns
+    ),
     ( "source pipeline accepts data constructor values",
       testSourcePipelineAcceptsDataConstructorValues
     ),
@@ -160,6 +163,14 @@ testSourcePipelineAcceptsLiteralAndWildcardPatterns :: IO ()
 testSourcePipelineAcceptsLiteralAndWildcardPatterns = do
   result <- compileSource defaultWarningSettings "x = case 1 { | 0 -> False | _ -> True }."
   assertCompiles "literal wildcard result" result
+
+testSourcePipelineRejectsFractionalLiteralPatterns :: IO ()
+testSourcePipelineRejectsFractionalLiteralPatterns = do
+  result <- compileSource defaultWarningSettings "x = case 1 { | 1.5 -> True | _ -> False }."
+  assertSingleDiagnosticContains
+    "fractional literal pattern result"
+    "fractional literal patterns"
+    (compileErrors result)
 
 testSourcePipelineAcceptsDataConstructorValues :: IO ()
 testSourcePipelineAcceptsDataConstructorValues = do
