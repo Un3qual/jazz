@@ -8,6 +8,7 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ConstraintSignatureType (..),
+    DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -22,6 +23,7 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceConstrainedSignatureType (..),
+    SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceLambdaParameter (..),
@@ -143,12 +145,12 @@ lowerSurfaceStatement surfaceStatement =
       SLet name spanValue (lowerSurfaceExpr valueExpr)
     SSSignature name spanValue signaturePayload ->
       SSignature name spanValue (lowerSurfaceSignaturePayload signaturePayload)
-    SSData spanValue typeName constructors ->
-      SData spanValue typeName (map lowerSurfaceDataConstructor constructors)
+    SSData spanValue typeName typeParameters constructors ->
+      SData spanValue typeName typeParameters (map lowerSurfaceDataConstructor constructors)
     SSClass spanValue capabilityName ->
       SClass spanValue capabilityName
-    SSImpl spanValue capabilityName ->
-      SImpl spanValue capabilityName
+    SSImpl spanValue capabilityName arguments ->
+      SImpl spanValue capabilityName (map lowerSurfaceConstrainedSignatureType arguments)
     SSModule spanValue modulePath ->
       SModule spanValue modulePath
     SSImport spanValue modulePath alias importedSymbols ->
@@ -242,5 +244,13 @@ lowerSurfaceSignatureToken surfaceSignatureToken =
     SurfaceSignatureOtherToken lexeme -> SignatureOtherToken lexeme
 
 lowerSurfaceDataConstructor :: SurfaceDataConstructor -> DataConstructor
-lowerSurfaceDataConstructor (SurfaceDataConstructor constructorName constructorArity) =
-  DataConstructor constructorName constructorArity
+lowerSurfaceDataConstructor (SurfaceDataConstructor constructorName constructorArguments) =
+  DataConstructor constructorName (map lowerSurfaceDataConstructorArgument constructorArguments)
+
+lowerSurfaceDataConstructorArgument :: SurfaceDataConstructorArgument -> DataConstructorArgument
+lowerSurfaceDataConstructorArgument surfaceArgument =
+  case surfaceArgument of
+    SurfaceDataConstructorArgumentName argumentName ->
+      DataConstructorArgumentName argumentName
+    SurfaceDataConstructorArgumentOpaque ->
+      DataConstructorArgumentOpaque

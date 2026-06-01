@@ -68,6 +68,21 @@ tests =
     ( "source pipeline rejects constructor arm result mismatches",
       testSourcePipelineRejectsConstructorBranchMismatch
     ),
+    ( "source pipeline instantiates generic constructor applications independently",
+      testSourcePipelineInstantiatesGenericConstructorApplicationsIndependently
+    ),
+    ( "source pipeline enforces named generic constructor payload types",
+      testSourcePipelineEnforcesNamedGenericConstructorPayloadTypes
+    ),
+    ( "source pipeline rejects unknown generic constructor payload type names",
+      testSourcePipelineRejectsUnknownGenericConstructorPayloadTypeNames
+    ),
+    ( "source pipeline links repeated generic constructor payload parameters",
+      testSourcePipelineLinksRepeatedGenericConstructorPayloadParameters
+    ),
+    ( "source pipeline instantiates generic constructor values independently",
+      testSourcePipelineInstantiatesGenericConstructorValuesIndependently
+    ),
     ( "source pipeline treats constructor payloads as monomorphic",
       testSourcePipelineTreatsConstructorPayloadsAsMonomorphic
     ),
@@ -268,6 +283,54 @@ testSourcePipelineRejectsConstructorBranchMismatch = do
     "constructor branch mismatch text"
     "case arms must have matching types"
     (compileErrors result)
+
+testSourcePipelineInstantiatesGenericConstructorApplicationsIndependently :: IO ()
+testSourcePipelineInstantiatesGenericConstructorApplicationsIndependently = do
+  result <- compileSource defaultWarningSettings "data Box a = Box a. first = Box 1. second = Box True."
+  assertCompiles "generic constructor applications" result
+
+testSourcePipelineEnforcesNamedGenericConstructorPayloadTypes :: IO ()
+testSourcePipelineEnforcesNamedGenericConstructorPayloadTypes = do
+  acceptedResult <- compileSource defaultWarningSettings "data Box a = Box Int. good = Box 1."
+  assertCompiles "named generic constructor payload type" acceptedResult
+  rejectedResult <- compileSource defaultWarningSettings "data Box a = Box Int. bad = Box True."
+  assertSingleDiagnosticCode
+    "named generic constructor payload mismatch code"
+    "E2006"
+    (compileErrors rejectedResult)
+  assertSingleDiagnosticContains
+    "named generic constructor payload mismatch text"
+    "cannot apply function of type Int -> Box"
+    (compileErrors rejectedResult)
+
+testSourcePipelineRejectsUnknownGenericConstructorPayloadTypeNames :: IO ()
+testSourcePipelineRejectsUnknownGenericConstructorPayloadTypeNames = do
+  result <- compileSource defaultWarningSettings "data Box a = Box Foo. value = Box 1."
+  assertSingleDiagnosticCode
+    "unknown generic constructor payload code"
+    "E2013"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "unknown generic constructor payload text"
+    "unknown constructor payload type 'Foo'"
+    (compileErrors result)
+
+testSourcePipelineLinksRepeatedGenericConstructorPayloadParameters :: IO ()
+testSourcePipelineLinksRepeatedGenericConstructorPayloadParameters = do
+  result <- compileSource defaultWarningSettings "data Pair a = Pair a a. bad = Pair 1 True."
+  assertSingleDiagnosticCode
+    "generic constructor repeated parameter code"
+    "E2006"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "generic constructor repeated parameter text"
+    "cannot apply function of type Int -> Pair"
+    (compileErrors result)
+
+testSourcePipelineInstantiatesGenericConstructorValuesIndependently :: IO ()
+testSourcePipelineInstantiatesGenericConstructorValuesIndependently = do
+  result <- compileSource defaultWarningSettings "data Box a = Box a. makeInt = if True Box else Box. makeBool = if False Box else Box. first = makeInt 1. second = makeBool True."
+  assertCompiles "generic constructor values" result
 
 testSourcePipelineTreatsConstructorPayloadsAsMonomorphic :: IO ()
 testSourcePipelineTreatsConstructorPayloadsAsMonomorphic = do

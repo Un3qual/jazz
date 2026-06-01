@@ -70,6 +70,7 @@ tests =
     ("run module graph keeps alias-hidden dependency export from shadowing prelude", testRunModuleGraphAliasImportHiddenExportUsesPrelude),
     ("run module graph keeps alias-hidden data constructor from shadowing prelude", testRunModuleGraphAliasHiddenDataConstructorUsesPrelude),
     ("run module graph resolves qualified alias data constructor lookup", testRunModuleGraphQualifiedAliasDataConstructorLookup),
+    ("compile module graph preserves alias-qualified generic constructor schemes", testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes),
     ("run module graph keeps local data constructor from hidden import rewrite", testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite),
     ("run module graph keeps hidden qualified export pattern constructors available", testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge),
     ("run module graph keeps alias-qualified dependency export visible with prelude", testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude),
@@ -77,6 +78,8 @@ tests =
     ("compile module graph hides transitive alias-only exports from unqualified replay", testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport),
     ("run module graph keeps alias-hidden prelude binding isolated from visible importer", testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter),
     ("run module graph keeps visible sibling import isolated from alias-hidden replay", testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenReplay),
+    ("compile module graph keeps sibling capability facts isolated", testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated),
+    ("compile module graph exposes capability facts through visible imports", testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports),
     ("run module graph keeps hidden qualified export dependencies available", testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge),
     ("run module graph resolves qualified alias lookup", testRunModuleGraphQualifiedAliasLookup),
     ("run module graph resolves qualified alias lookup through dependency export", testRunModuleGraphQualifiedAliasLookupUsesDependencyExport),
@@ -673,6 +676,24 @@ testRunModuleGraphQualifiedAliasDataConstructorLookup = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
+testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes :: IO ()
+testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (compileErrors result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Box as Box.\nfirst = Box::Box 1.\nsecond = Box::Box True.\nsecond."),
+          ("src/Lib/Box.jz", "data Box a = Box a.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
 testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite :: IO ()
 testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite = do
   result <-
@@ -821,6 +842,49 @@ testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenReplay = do
           ("src/App/UsesMath.jz", "import Lib::Math.\nmathValue = subtract."),
           ("src/App/UsesPrelude.jz", "import Lib::Math as Math.\npreludeValue = subtract."),
           ("src/Lib/Math.jz", "subtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated :: IO ()
+testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [err] ->
+      assertContains
+        "sibling capability fact isolation error"
+        "missing class declaration 'Eq'"
+        (renderDiagnostic err)
+    _ -> failTest "expected exactly one sibling capability fact isolation error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Facts.\nimport Lib::UsesEq.\nuses."),
+          ("src/Lib/Facts.jz", "class Eq { }.\nimpl Eq(Int) { }.\nfacts = 0."),
+          ("src/Lib/UsesEq.jz", "uses :: @{Eq(Int)}: Int.\nuses = 1.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports :: IO ()
+testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (compileErrors result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Facts.\nuse :: @{Eq(Int)}: Int.\nuse = 1."),
+          ("src/Lib/Facts.jz", "class Eq { }.\nimpl Eq(Int) { }.\nfacts = 0.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

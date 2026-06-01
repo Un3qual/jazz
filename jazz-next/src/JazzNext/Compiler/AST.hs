@@ -5,6 +5,7 @@
 module JazzNext.Compiler.AST
   ( CaseArm (..),
     ConstraintSignatureType (..),
+    DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -47,8 +48,16 @@ data Pattern
 data CaseArm = CaseArm Pattern Expr
   deriving (Eq, Show)
 
+-- | Core constructor payload metadata lowered from parser-owned `data`
+-- declarations. Opaque payloads preserve current arity-only behavior for
+-- grouped forms until constructor type schemes own those surfaces.
+data DataConstructorArgument
+  = DataConstructorArgumentName Identifier
+  | DataConstructorArgumentOpaque
+  deriving (Eq, Show)
+
 -- | Core constructor metadata lowered from parser-owned `data` declarations.
-data DataConstructor = DataConstructor Identifier Int
+data DataConstructor = DataConstructor Identifier [DataConstructorArgument]
   deriving (Eq, Show)
 
 -- | Core expressions after surface syntax has been lowered into the stable
@@ -145,9 +154,9 @@ data SignatureToken
 data Statement
   = SLet Identifier SourceSpan Expr
   | SSignature Identifier SourceSpan SignaturePayload
-  | SData SourceSpan Identifier [DataConstructor]
+  | SData SourceSpan Identifier [Identifier] [DataConstructor]
   | SClass SourceSpan Identifier
-  | SImpl SourceSpan Identifier
+  | SImpl SourceSpan Identifier [ConstraintSignatureType]
   | SModule SourceSpan [Text]
   | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SExpr SourceSpan Expr

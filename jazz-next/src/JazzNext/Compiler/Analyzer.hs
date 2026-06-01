@@ -33,6 +33,9 @@ import JazzNext.Compiler.BuiltinCatalog
     builtinNamesInMode,
     isBuiltinSymbolNameInMode
   )
+import JazzNext.Compiler.CapabilityFacts
+  ( concreteImplFactKey
+  )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan (..),
@@ -295,15 +298,15 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
     -- Internal accumulators are built in reverse for O(1) append.
     -- `pendingSignature` tracks exactly one immediately-preceding signature that
     -- must be consumed by the next binding.
-    (_, finalPendingSignature, finalWarningsRev, finalErrorsRev) =
-      foldl' step (Map.empty, Nothing, [], []) indexedStatements
+    (_, _, _, finalPendingSignature, finalWarningsRev, finalErrorsRev) =
+      foldl' step (Map.empty, Map.empty, Map.empty, Nothing, [], []) indexedStatements
     errorsWithFinalPending = flushPendingSignature finalPendingSignature finalErrorsRev
 
     step ::
-      (Map Text VisibleBinding, Maybe PendingSignature, [WarningRecord], [Diagnostic]) ->
+      (Map Text VisibleBinding, Map Text SourceSpan, Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Diagnostic]) ->
       (Int, Statement) ->
-      (Map Text VisibleBinding, Maybe PendingSignature, [WarningRecord], [Diagnostic])
-    step (scopeBindings, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
+      (Map Text VisibleBinding, Map Text SourceSpan, Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Diagnostic])
+    step (scopeBindings, classDeclarations, implDeclarations, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
       case statement of
         SExpr exprSpan expr ->
           -- Any signature followed by a non-binding is invalid by contract.
@@ -318,6 +321,8 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
                   expr
            in
             ( scopeBindings,
+              classDeclarations,
+              implDeclarations,
               Nothing,
               appendWarnings warningsRev exprWarnings,
               appendErrors errorsWithPending exprErrors
@@ -326,6 +331,8 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
            in
             ( scopeBindings,
+              Map.empty,
+              Map.empty,
               Nothing,
               warningsRev,
               errorsWithPending
@@ -334,27 +341,54 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
            in
             ( scopeBindings,
+              classDeclarations,
+              implDeclarations,
               Nothing,
               warningsRev,
               errorsWithPending
             )
-        SClass {} ->
+        SClass classSpan capabilityName ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
+              classNameText = identifierText capabilityName
+              (nextClassDeclarations, classErrors) =
+                case Map.lookup classNameText classDeclarations of
+                  Just previousSpan ->
+                    ( classDeclarations,
+                      [mkDuplicateClassDeclarationError classNameText classSpan previousSpan]
+                    )
+                  Nothing ->
+                    (Map.insert classNameText classSpan classDeclarations, [])
            in
             ( scopeBindings,
+              nextClassDeclarations,
+              implDeclarations,
               Nothing,
               warningsRev,
-              errorsWithPending
+              appendErrors errorsWithPending classErrors
             )
-        SImpl {} ->
+        SImpl implSpan capabilityName arguments ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
+              (nextImplDeclarations, implErrors) =
+                case concreteImplFactKey capabilityName arguments of
+                  Nothing ->
+                    (implDeclarations, [])
+                  Just implFactKey ->
+                    case Map.lookup implFactKey implDeclarations of
+                      Just previousSpan ->
+                        ( implDeclarations,
+                          [mkDuplicateImplDeclarationError implFactKey implSpan previousSpan]
+                        )
+                      Nothing ->
+                        (Map.insert implFactKey implSpan implDeclarations, [])
            in
             ( scopeBindings,
+              classDeclarations,
+              nextImplDeclarations,
               Nothing,
               warningsRev,
-              errorsWithPending
+              appendErrors errorsWithPending implErrors
             )
-        SData spanValue _ constructors ->
+        SData spanValue _ _ constructors ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
               constructorWarnings =
                 collectDataConstructorRebindingWarnings
@@ -371,6 +405,8 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
                 spanValue
                 constructors
                 scopeBindings,
+              classDeclarations,
+              implDeclarations,
               Nothing,
               appendWarnings warningsRev constructorWarnings,
               errorsWithPending
@@ -381,6 +417,8 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
            in
             ( scopeBindings,
+              classDeclarations,
+              implDeclarations,
               Just (PendingSignature (identifierText signatureName) signatureSpan),
               warningsRev,
               errorsWithPending
@@ -444,6 +482,8 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
                 Map.findWithDefault [] statementIndex unusedBindingWarningsByStatement
            in
             ( nextScope,
+              classDeclarations,
+              implDeclarations,
               Nothing,
               appendWarnings warningsWithShadowing unusedWarnings,
               errorsWithValue
@@ -536,6 +576,22 @@ mkMismatchedSignatureError signatureName signatureSpan bindingName bindingSpan =
             )
         )
     )
+
+mkDuplicateClassDeclarationError :: Text -> SourceSpan -> SourceSpan -> Diagnostic
+mkDuplicateClassDeclarationError className classSpan previousSpan =
+  setDiagnosticSubject className $
+    setDiagnosticRelatedSpan previousSpan $
+      setDiagnosticPrimarySpan
+        classSpan
+        (mkDiagnostic "E1004" ("duplicate class declaration '" <> className <> "'"))
+
+mkDuplicateImplDeclarationError :: Text -> SourceSpan -> SourceSpan -> Diagnostic
+mkDuplicateImplDeclarationError implFactKey implSpan previousSpan =
+  setDiagnosticSubject implFactKey $
+    setDiagnosticRelatedSpan previousSpan $
+      setDiagnosticPrimarySpan
+        implSpan
+        (mkDiagnostic "E1005" ("duplicate impl declaration for '" <> implFactKey <> "'"))
 
 topLevelContext :: AnalysisContext
 topLevelContext =
@@ -752,7 +808,7 @@ collectUnusedBindingUseState hiddenStatementIndices indexedStatements =
                     usedWithStatementReferences,
                     rebindingStatementIndices'
                   )
-              SData _ _ constructors ->
+              SData _ _ _ constructors ->
                 ( foldl' removeConstructor activeBindings constructors,
                   foldl' registerConstructor activeRebindingNames constructors,
                   usedWithStatementReferences,

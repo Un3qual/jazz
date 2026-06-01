@@ -209,7 +209,7 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
               go env Nothing rest
             SImpl {} ->
               go env Nothing rest
-            SData _ _ constructors ->
+            SData _ _ _ constructors ->
               go (insertDataConstructors constructors env) Nothing rest
             SLet name _ _ -> do
               value <- bindingCellAt statementIndex
@@ -432,7 +432,7 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
             (identifierText bindingName)
             (bindingCellAt statementIndex)
             (envBefore statementIndex)
-        Just (SData _ _ constructors) ->
+        Just (SData _ _ _ constructors) ->
           insertDataConstructors constructors (envBefore statementIndex)
         Just _ ->
           envBefore statementIndex
@@ -461,10 +461,10 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
     insertDataConstructors constructors env =
       foldl' insertConstructor env constructors
       where
-        insertConstructor envAcc (DataConstructor constructorName constructorArity) =
+        insertConstructor envAcc (DataConstructor constructorName constructorArguments) =
           Map.insert
             (identifierText constructorName)
-            (Right (VConstructor constructorName constructorArity []))
+            (Right (VConstructor constructorName (length constructorArguments) []))
             envAcc
 
 -- Match the type checker: self-seed recursion when any branch exposes a

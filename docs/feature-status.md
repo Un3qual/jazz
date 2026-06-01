@@ -2,7 +2,7 @@
 
 This is the canonical status matrix for top-level language claims. The top-level [README](../README.md) is a short summary, while this file is the source of truth for implemented-vs-planned status.
 
-Last verified against commit: `8cf403b`
+Last verified against commit: `a99fdc5`
 
 ## Status Rubric
 
@@ -15,7 +15,7 @@ Last verified against commit: `8cf403b`
 
 | Top-level claim                    | Status                               | Evidence                                                                                                                                                             |
 | ---------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ADTs                               | `Partially Implemented`              | `jazz-next` now parses/lowers canonical `data` declarations, registers constructor values for analyzer/type/runtime paths, and typechecks/executes declared constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, and as-patterns (`jazz-next/src/JazzNext/Compiler/{Parser.hs,AST.hs,Parser/Lower.hs,Analyzer.hs,TypeInference.hs,Runtime.hs}`; `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs`; `jazz-next/test/JazzNext/Compiler/Semantics/{AdtPatternTypeSpec.hs,AdtPatternRuntimeSpec.hs}`). |
+| ADTs                               | `Partially Implemented`              | `jazz-next` now parses/lowers canonical and generic-parameter `data` declarations, preserves declaration type parameters and bare constructor payload metadata, instantiates direct generic constructor values/applications freshly per use while keeping ordinary constructor aliases monomorphic, registers constructor values for analyzer/type/runtime paths, and typechecks/executes declared constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, and as-patterns (`jazz-next/src/JazzNext/Compiler/{Parser.hs,AST.hs,Parser/AST.hs,Parser/Lower.hs,Analyzer.hs,TypeInference.hs,Runtime.hs}`; `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs`; `jazz-next/test/JazzNext/Compiler/Semantics/{AdtPatternTypeSpec.hs,AdtPatternRuntimeSpec.hs,BindingSignatureCoherenceSpec.hs}`). |
 | Easy to understand syntax          | `Planned / Aspirational`             | This is a project-positioning claim in `README.md`, not an implementation-verified compiler behavior.                                                                |
 | Performant / LLVM backend          | `Planned / Aspirational`             | `README.md` says LLVM generation is future work; `docs/jazz-language-state.md` lists backend target as unsettled and LLVM out of active scope.                       |
 | Interpreter-backed CLI execution   | `Implemented Today`                  | `jazz-next` compile paths are diagnostic-only on success while CLI `--run`, `runSource`, and `runModuleGraph` execute through the interpreter-backed runtime pipeline (`jazz-next/src/JazzNext/Compiler/{Driver.hs,Runtime.hs}`, `jazz-next/src/JazzNext/CLI/Main.hs`, `jazz-next/test/JazzNext/{CLI/CLISpec.hs,Compiler/Modules/LoaderSpec.hs}`). |

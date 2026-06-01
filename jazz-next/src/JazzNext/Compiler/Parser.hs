@@ -30,6 +30,7 @@ import JazzNext.Compiler.Identifier
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceConstrainedSignatureType (..),
+    SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
     SurfaceLambdaParameter (..),
@@ -263,7 +264,7 @@ abstractionSyntaxDiagnosticText abstractionToken =
 
 parseCapabilityDeclaration :: Text -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseCapabilityDeclaration declarationKind declarationToken tokensAfterKeyword = do
-  (capabilityName, headerRemaining) <-
+  (capabilityName, headerArguments, headerRemaining) <-
     parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword
   afterBody <- consumeCapabilityDeclarationBody declarationKind declarationToken headerRemaining
   remaining <- consumeDot afterBody
@@ -271,11 +272,11 @@ parseCapabilityDeclaration declarationKind declarationToken tokensAfterKeyword =
     "class" ->
       Right (SSClass (tokenSpan declarationToken) capabilityName, remaining)
     "impl" ->
-      Right (SSImpl (tokenSpan declarationToken) capabilityName, remaining)
+      Right (SSImpl (tokenSpan declarationToken) capabilityName headerArguments, remaining)
     _ ->
       rejectReservedAbstractionSyntax declarationToken
 
-parseCapabilityHeaderName :: Text -> Token -> [Token] -> Either Diagnostic (Identifier, [Token])
+parseCapabilityHeaderName :: Text -> Token -> [Token] -> Either Diagnostic (Identifier, [SurfaceConstrainedSignatureType], [Token])
 parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
   case tokensAfterKeyword of
     Token {tokenKind = TIdentifier candidateName, tokenSpan = nameSpan} : rest
@@ -332,14 +333,14 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
     parseCapabilityHeaderTail capabilityName tokens =
       case tokens of
         Token {tokenKind = TLParen} : rest -> do
-          afterHeaderParameters <- consumeParenthesizedCapabilityHeader rest
-          requireCapabilityBodyStart capabilityName afterHeaderParameters
-        _ -> requireCapabilityBodyStart capabilityName tokens
+          (headerArguments, afterHeaderParameters) <- parseParenthesizedCapabilityHeader rest
+          requireCapabilityBodyStart capabilityName headerArguments afterHeaderParameters
+        _ -> requireCapabilityBodyStart capabilityName [] tokens
 
-    requireCapabilityBodyStart capabilityName tokens =
+    requireCapabilityBodyStart capabilityName headerArguments tokens =
       case tokens of
         Token {tokenKind = TLBrace} : _ ->
-          Right (capabilityName, tokens)
+          Right (capabilityName, headerArguments, tokens)
         Token {tokenKind = TDot} : _ ->
           Left
             ( parseDiagnostic
@@ -370,16 +371,35 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
                 )
             )
 
-    consumeParenthesizedCapabilityHeader tokens =
-      go 1 tokens
+    parseParenthesizedCapabilityHeader tokens = do
+      (argumentTokens, remaining) <- collectParenthesizedCapabilityHeader tokens
+      headerArguments <-
+        if null argumentTokens
+          then Right []
+          else
+            case splitTopLevelCommaTokens argumentTokens >>= traverse parseConstrainedSignatureType of
+              Just parsedArguments -> Right parsedArguments
+              Nothing ->
+                Left
+                  ( parseDiagnostic
+                      ( "unsupported "
+                          <> declarationKind
+                          <> " declaration header arguments at "
+                          <> renderSourceSpan (tokenSpan declarationToken)
+                      )
+                  )
+      Right (headerArguments, remaining)
+
+    collectParenthesizedCapabilityHeader tokens =
+      go 1 [] tokens
       where
-        go depth remaining =
+        go depth acc remaining =
           case remaining of
-            Token {tokenKind = TLParen} : rest ->
-              go (depth + 1) rest
-            Token {tokenKind = TRParen} : rest
-              | depth == 1 -> Right rest
-              | otherwise -> go (depth - 1) rest
+            token@Token {tokenKind = TLParen} : rest ->
+              go (depth + 1) (token : acc) rest
+            token@Token {tokenKind = TRParen} : rest
+              | depth == 1 -> Right (reverse acc, rest)
+              | otherwise -> go (depth - 1) (token : acc) rest
             Token {tokenKind = TLBrace, tokenSpan = braceSpan} : _ ->
               Left
                 ( parseDiagnostic
@@ -389,8 +409,8 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
                         <> renderSourceSpan braceSpan
                     )
                 )
-            _ : rest ->
-              go depth rest
+            token : rest ->
+              go depth (token : acc) rest
             [] ->
               Left
                 ( parseDiagnostic
@@ -721,14 +741,15 @@ parseImportTail importToken modulePath tokensAfterModulePath =
 parseDataStatement :: Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseDataStatement dataToken tokensAfterDataKeyword = do
   (typeName, afterTypeName) <- parseDataTypeName tokensAfterDataKeyword
+  (typeParameters, afterTypeParameters) <- parseDataTypeParameters afterTypeName
   afterEquals <-
     consumeEquals
-      afterTypeName
+      afterTypeParameters
       ( "expected '=' before end of input after data type name at "
           <> renderSourceSpan (tokenSpan dataToken)
       )
-  (constructors, remaining) <- parseDataConstructors afterEquals
-  pure (SSData (tokenSpan dataToken) typeName constructors, remaining)
+  (constructors, remaining) <- parseDataConstructors typeName typeParameters afterEquals
+  pure (SSData (tokenSpan dataToken) typeName typeParameters constructors, remaining)
 
 parseDataTypeName :: [Token] -> Either Diagnostic (Identifier, [Token])
 parseDataTypeName tokens =
@@ -759,20 +780,55 @@ parseDataTypeName tokens =
             )
         )
 
-parseDataConstructors :: [Token] -> Either Diagnostic ([SurfaceDataConstructor], [Token])
-parseDataConstructors tokensAfterEquals = do
-  (firstConstructor, afterFirstConstructor) <- parseDataConstructor tokensAfterEquals
+parseDataTypeParameters :: [Token] -> Either Diagnostic ([Identifier], [Token])
+parseDataTypeParameters tokens = go Set.empty [] tokens
+  where
+    go seenParameters revParameters allTokens =
+      case allTokens of
+        Token {tokenKind = TEquals} : _ ->
+          Right (reverse revParameters, allTokens)
+        Token {tokenKind = TIdentifier parameterName, tokenSpan = parameterSpan} : rest
+          | isTypeParameterIdentifierText parameterName ->
+              if Set.member parameterName seenParameters
+                then
+                  Left
+                    ( parseDiagnostic
+                        ("duplicate type parameter '" <> parameterName <> "' in data declaration")
+                    )
+                else
+                  go
+                    (Set.insert parameterName seenParameters)
+                    (mkIdentifier parameterName : revParameters)
+                    rest
+          | otherwise ->
+              Left
+                ( parseDiagnostic
+                    ( "expected lowercase type parameter or '=' at "
+                        <> renderSourceSpan parameterSpan
+                        <> ", found '"
+                        <> parameterName
+                        <> "'"
+                    )
+                )
+        _ ->
+          Right (reverse revParameters, allTokens)
+
+parseDataConstructors :: Identifier -> [Identifier] -> [Token] -> Either Diagnostic ([SurfaceDataConstructor], [Token])
+parseDataConstructors typeName typeParameters tokensAfterEquals = do
+  (firstConstructor, afterFirstConstructor) <- parseDataConstructor typeName typeParameterNames tokensAfterEquals
   go
     (Set.singleton (surfaceDataConstructorName firstConstructor))
     [firstConstructor]
     afterFirstConstructor
   where
+    typeParameterNames = Set.fromList (map identifierText typeParameters)
+
     go seenConstructors revConstructors allTokens =
       case allTokens of
         Token {tokenKind = TDot} : rest ->
           Right (reverse revConstructors, rest)
         Token {tokenKind = TOperator "|"} : rest -> do
-          (nextConstructor, afterNextConstructor) <- parseDataConstructor rest
+          (nextConstructor, afterNextConstructor) <- parseDataConstructor typeName typeParameterNames rest
           let constructorName = surfaceDataConstructorName nextConstructor
           if Set.member constructorName seenConstructors
             then
@@ -802,14 +858,14 @@ parseDataConstructors tokensAfterEquals = do
     surfaceDataConstructorName (SurfaceDataConstructor constructorName _) =
       identifierText constructorName
 
-parseDataConstructor :: [Token] -> Either Diagnostic (SurfaceDataConstructor, [Token])
-parseDataConstructor tokens =
+parseDataConstructor :: Identifier -> Set Text -> [Token] -> Either Diagnostic (SurfaceDataConstructor, [Token])
+parseDataConstructor typeName typeParameterNames tokens =
   case tokens of
     Token {tokenKind = TIdentifier constructorName, tokenSpan = constructorSpan} : rest
       | isConstructorIdentifierText constructorName -> do
-          (constructorArity, remaining) <- parseDataConstructorArity 0 rest
+          (constructorArguments, remaining) <- parseDataConstructorArguments typeName typeParameterNames [] rest
           Right
-            ( SurfaceDataConstructor (mkIdentifier constructorName) constructorArity,
+            ( SurfaceDataConstructor (mkIdentifier constructorName) constructorArguments,
               remaining
             )
       | otherwise ->
@@ -835,28 +891,46 @@ parseDataConstructor tokens =
             )
         )
 
-parseDataConstructorArity :: Int -> [Token] -> Either Diagnostic (Int, [Token])
-parseDataConstructorArity arity allTokens =
+parseDataConstructorArguments ::
+  Identifier ->
+  Set Text ->
+  [SurfaceDataConstructorArgument] ->
+  [Token] ->
+  Either Diagnostic ([SurfaceDataConstructorArgument], [Token])
+parseDataConstructorArguments typeName typeParameterNames revArguments allTokens =
   case allTokens of
     Token {tokenKind = TOperator "|"} : _ ->
-      Right (arity, allTokens)
+      Right (reverse revArguments, allTokens)
     Token {tokenKind = TDot} : _ ->
-      Right (arity, allTokens)
+      Right (reverse revArguments, allTokens)
     [] ->
-      Right (arity, allTokens)
+      Right (reverse revArguments, allTokens)
     _ -> do
-      remaining <- parseDataConstructorArgument allTokens
-      parseDataConstructorArity (arity + 1) remaining
+      (constructorArgument, remaining) <- parseDataConstructorArgument typeName typeParameterNames allTokens
+      parseDataConstructorArguments typeName typeParameterNames (constructorArgument : revArguments) remaining
 
-parseDataConstructorArgument :: [Token] -> Either Diagnostic [Token]
-parseDataConstructorArgument tokens =
+parseDataConstructorArgument :: Identifier -> Set Text -> [Token] -> Either Diagnostic (SurfaceDataConstructorArgument, [Token])
+parseDataConstructorArgument typeName typeParameterNames tokens =
   case tokens of
-    Token {tokenKind = TIdentifier _} : rest ->
-      Right rest
+    Token {tokenKind = TIdentifier argumentName} : rest
+      | not (Set.null typeParameterNames)
+          && isTypeParameterIdentifierText argumentName
+          && Set.notMember argumentName typeParameterNames ->
+          Left
+            ( parseDiagnostic
+                ( "constructor payload type parameter '"
+                    <> argumentName
+                    <> "' is not declared in data type '"
+                    <> identifierText typeName
+                    <> "'"
+                )
+            )
+      | otherwise ->
+          Right (SurfaceDataConstructorArgumentName (mkIdentifier argumentName), rest)
     Token {tokenKind = TLParen} : rest ->
-      consumeBalancedDataConstructorGroup 1 0 rest
+      fmap ((,) SurfaceDataConstructorArgumentOpaque) (consumeBalancedDataConstructorGroup 1 0 rest)
     Token {tokenKind = TLBracket} : rest ->
-      consumeBalancedDataConstructorGroup 0 1 rest
+      fmap ((,) SurfaceDataConstructorArgumentOpaque) (consumeBalancedDataConstructorGroup 0 1 rest)
     [] ->
       Left (parseDiagnostic "expected constructor argument before end of input in data declaration")
     token : _ ->
@@ -1697,6 +1771,12 @@ isConstructorIdentifierText :: Text -> Bool
 isConstructorIdentifierText name =
   case Text.uncons name of
     Just (firstChar, _) -> isUpper firstChar
+    Nothing -> False
+
+isTypeParameterIdentifierText :: Text -> Bool
+isTypeParameterIdentifierText name =
+  case Text.uncons name of
+    Just (firstChar, _) -> isLower firstChar
     Nothing -> False
 
 parseLambdaExpr :: Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])

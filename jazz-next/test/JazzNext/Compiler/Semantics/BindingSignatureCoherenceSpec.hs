@@ -4,8 +4,10 @@ module Main (main) where
 
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( Expr (..),
+  ( ConstraintSignatureType (..),
+    Expr (..),
     Literal (..),
+    SignatureConstraint (..),
     SignaturePayload (..),
     SignatureType (..),
     Statement (..)
@@ -53,6 +55,10 @@ tests =
     ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion),
     ("source pipeline accepts adjacent signature and binding", testSourceAcceptsSignatureAdjacency),
     ("source pipeline accepts inert class and impl declarations", testSourceAcceptsCapabilityDeclarations),
+    ("source pipeline rejects duplicate class declarations", testSourceRejectsDuplicateClassDeclarations),
+    ("source pipeline rejects duplicate concrete impl declarations", testSourceRejectsDuplicateConcreteImplDeclarations),
+    ("source pipeline rejects duplicate ADT impl declarations", testSourceRejectsDuplicateAdtImplDeclarations),
+    ("compiler keeps nested capability facts scoped", testSourceKeepsNestedCapabilityFactsScoped),
     ("source pipeline treats capability declarations as signature separators", testSourceRejectsSignatureSeparatedByCapabilityDeclaration),
     ("source pipeline rejects separated signature", testSourceRejectsSeparatedSignature),
     ("source pipeline rejects signature name mismatch", testSourceRejectsSignatureNameMismatch),
@@ -85,6 +91,9 @@ tests =
     ("source pipeline accepts concrete constrained signature as monomorphic", testSourceAcceptsConcreteConstrainedSignature),
     ("source pipeline accepts additional concrete constrained signatures", testSourceAcceptsAdditionalConcreteConstrainedSignatures),
     ("source pipeline accepts concrete tuple constrained signature argument", testSourceAcceptsConcreteTupleConstrainedSignatureArgument),
+    ("source pipeline accepts ADT application constrained signature argument", testSourceAcceptsAdtApplicationConstrainedSignatureArgument),
+    ("source pipeline rejects forward capability facts for constrained signature", testSourceRejectsForwardCapabilityFactsForConstrainedSignature),
+    ("source pipeline rejects concrete constrained signature without impl fact", testSourceRejectsConcreteConstrainedSignatureWithoutImplFact),
     ("source pipeline rejects unknown constrained signature constraint", testSourceRejectsUnknownConstrainedSignatureConstraint),
     ("source pipeline rejects wrong-arity constrained signature constraint", testSourceRejectsWrongArityConstrainedSignatureConstraint),
     ("source pipeline rejects type-application constrained signature argument", testSourceRejectsTypeApplicationConstrainedSignatureArgument),
@@ -98,6 +107,7 @@ tests =
     ("source pipeline rejects unsupported variable constrained signature contract", testSourceRejectsUnsupportedVariableConstrainedSignatureContract),
     ("source pipeline rejects unused variable constraint with bidirectional contract", testSourceRejectsUnusedVariableConstraintWithBidirectionalContract),
     ("source pipeline does not shift inference variables after rejected variable type application", testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState),
+    ("source pipeline keeps generic constructor aliases monomorphic", testSourceKeepsGenericConstructorAliasesMonomorphic),
     ("source pipeline rejects constrained signature surface with E2009", testSourceRejectsConstrainedSignatureSurface),
     ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError),
     ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
@@ -318,6 +328,44 @@ testSourceAcceptsCapabilityDeclarations :: IO ()
 testSourceAcceptsCapabilityDeclarations =
   assertSourceOk "class Eq { }.\nimpl Eq(Int) { }.\nx :: Int.\nx = 1.\nx."
 
+testSourceRejectsDuplicateClassDeclarations :: IO ()
+testSourceRejectsDuplicateClassDeclarations =
+  assertSourceSingleErrorContains "class Eq { }.\nclass Eq { }.\nx = 1." "E1004"
+
+testSourceRejectsDuplicateConcreteImplDeclarations :: IO ()
+testSourceRejectsDuplicateConcreteImplDeclarations =
+  assertSourceSingleErrorContains "class Eq { }.\nimpl Eq(Int) { }.\nimpl Eq(Int) { }.\nx = 1." "E1005"
+
+testSourceRejectsDuplicateAdtImplDeclarations :: IO ()
+testSourceRejectsDuplicateAdtImplDeclarations = do
+  assertSourceSingleErrorContains "data Color = Red.\nclass Eq { }.\nimpl Eq(Color) { }.\nimpl Eq(Color) { }.\nx = 1." "E1005"
+  assertSourceSingleErrorContains "data Box a = Box a.\nclass Eq { }.\nimpl Eq(Box(Int)) { }.\nimpl Eq(Box(Int)) { }.\nx = 1." "E1005"
+
+testSourceKeepsNestedCapabilityFactsScoped :: IO ()
+testSourceKeepsNestedCapabilityFactsScoped = do
+  result <- compileExpr defaultWarningSettings program
+  assertSingleDiagnosticContains
+    "nested capability fact isolation"
+    "missing class declaration 'Eq'"
+    (compileErrors result)
+  where
+    spanValue = SourceSpan 1 1
+    eqInt = ConstraintTypeName "Int"
+    program =
+      EBlock
+        [ SLet
+            "seed"
+            spanValue
+            ( EBlock
+                [ SClass spanValue "Eq",
+                  SImpl spanValue "Eq" [eqInt],
+                  SExpr spanValue (ELit (LInt 0))
+                ]
+            ),
+          SSignature "x" spanValue (ConstrainedSignature [SignatureConstraint "Eq" [eqInt]] eqInt),
+          SLet "x" spanValue (ELit (LInt 1))
+        ]
+
 testSourceRejectsSignatureSeparatedByCapabilityDeclaration :: IO ()
 testSourceRejectsSignatureSeparatedByCapabilityDeclaration =
   assertSourceErrorContains "x :: Int.\nclass Eq { }.\nx = 1." "E1002"
@@ -382,7 +430,7 @@ testSourceAcceptsWidthSpecificIntegerSignatures = do
   assertSourceOk "x :: UInt64.\nx = 1."
   assertSourceOk "x :: UInt64.\nx = 18446744073709551615."
   assertSourceOk "xs :: [Int32].\nxs = [1, 2, 3]."
-  assertSourceOk "x :: @{Num(UInt16)}: UInt16.\nx = 1."
+  assertSourceOk "class Num { }.\nimpl Num(UInt16) { }.\nx :: @{Num(UInt16)}: UInt16.\nx = 1."
 
 testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals :: IO ()
 testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals = do
@@ -477,20 +525,32 @@ testSourceAcceptsEmptyConstrainedTupleSignature =
 
 testSourceAcceptsConcreteConstrainedSignature :: IO ()
 testSourceAcceptsConcreteConstrainedSignature =
-  assertSourceOk "x :: @{Eq(Int)}: Int.\nx = 1."
+  assertSourceOk "class Eq { }.\nimpl Eq(Int) { }.\nx :: @{Eq(Int)}: Int.\nx = 1."
 
 testSourceAcceptsAdditionalConcreteConstrainedSignatures :: IO ()
 testSourceAcceptsAdditionalConcreteConstrainedSignatures = do
-  assertSourceOk "x :: @{Default(Bool)}: Bool.\nx = True."
-  assertSourceOk "x :: @{Fractional(Int)}: Int.\nx = 1."
-  assertSourceOk "x :: @{Integral(Int)}: Int.\nx = 1."
-  assertSourceOk "x :: @{Num(Int)}: Int.\nx = 1."
-  assertSourceOk "x :: @{Ord(Int)}: Int.\nx = 1."
-  assertSourceOk "x :: @{Showable([[Bool]])}: [[Bool]].\nx = [[True], [False]]."
+  assertSourceOk "class Default { }.\nimpl Default(Bool) { }.\nx :: @{Default(Bool)}: Bool.\nx = True."
+  assertSourceOk "class Fractional { }.\nimpl Fractional(Int) { }.\nx :: @{Fractional(Int)}: Int.\nx = 1."
+  assertSourceOk "class Integral { }.\nimpl Integral(Int) { }.\nx :: @{Integral(Int)}: Int.\nx = 1."
+  assertSourceOk "class Num { }.\nimpl Num(Int) { }.\nx :: @{Num(Int)}: Int.\nx = 1."
+  assertSourceOk "class Ord { }.\nimpl Ord(Int) { }.\nx :: @{Ord(Int)}: Int.\nx = 1."
+  assertSourceOk "class Showable { }.\nimpl Showable([[Bool]]) { }.\nx :: @{Showable([[Bool]])}: [[Bool]].\nx = [[True], [False]]."
 
 testSourceAcceptsConcreteTupleConstrainedSignatureArgument :: IO ()
 testSourceAcceptsConcreteTupleConstrainedSignatureArgument =
-  assertSourceOk "pair :: @{Eq((Int, Bool))}: (Int, Bool).\npair = (1, True)."
+  assertSourceOk "class Eq { }.\nimpl Eq((Int, Bool)) { }.\npair :: @{Eq((Int, Bool))}: (Int, Bool).\npair = (1, True)."
+
+testSourceAcceptsAdtApplicationConstrainedSignatureArgument :: IO ()
+testSourceAcceptsAdtApplicationConstrainedSignatureArgument =
+  assertSourceOk "data Box a = Box a.\nclass Eq { }.\nimpl Eq(Box(Int)) { }.\nx :: @{Eq(Box(Int))}: Int.\nx = 1."
+
+testSourceRejectsForwardCapabilityFactsForConstrainedSignature :: IO ()
+testSourceRejectsForwardCapabilityFactsForConstrainedSignature =
+  assertSourceSingleErrorContains "x :: @{Eq(Int)}: Int.\nx = 1.\nclass Eq { }.\nimpl Eq(Int) { }." "missing class declaration 'Eq'"
+
+testSourceRejectsConcreteConstrainedSignatureWithoutImplFact :: IO ()
+testSourceRejectsConcreteConstrainedSignatureWithoutImplFact =
+  assertSourceSingleErrorContains "class Eq { }.\nx :: @{Eq(Int)}: Int.\nx = 1." "missing impl fact 'Eq(Int)'"
 
 testSourceRejectsUnknownConstrainedSignatureConstraint :: IO ()
 testSourceRejectsUnknownConstrainedSignatureConstraint =
@@ -598,6 +658,18 @@ testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState = do
     "later diagnostic keeps deterministic type variable id"
     "cannot apply function of type [t3] to argument of type Int"
     (Text.unlines (map renderDiagnostic (compileErrors result)))
+
+testSourceKeepsGenericConstructorAliasesMonomorphic :: IO ()
+testSourceKeepsGenericConstructorAliasesMonomorphic = do
+  result <- compileSource defaultWarningSettings "data Box a = Box a. make = Box. first = make 1. second = make True."
+  assertSingleDiagnosticCode
+    "generic constructor alias monomorphic code"
+    "E2006"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "generic constructor alias monomorphic text"
+    "cannot apply function of type Int -> Box"
+    (compileErrors result)
 
 testSourceRejectsConstrainedSignatureSurface :: IO ()
 testSourceRejectsConstrainedSignatureSurface = do
