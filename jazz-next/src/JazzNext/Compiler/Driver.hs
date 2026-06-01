@@ -38,6 +38,7 @@ import Data.IORef
   )
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    ConstraintSignatureType (..),
     DataConstructor (..),
     DataConstructorArgument (..),
     Expr (..),
@@ -1358,10 +1359,11 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
           [ SImpl
               spanValue
               capabilityName
-              arguments
+              (rewriteModuleExportImplArguments modulePath dataTypeNames arguments)
               (rewriteModuleExportImplMethods modulePath hiddenImportExports methods)
           ]
         _ -> [statement]
+    dataTypeNames = collectDataTypeNames expr
 
     hiddenValidationIdentifier name =
       mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
@@ -1391,15 +1393,74 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
                   spanValue
                   (rewriteModuleExportReferences modulePath hiddenImportExports valueExpr)
               ]
+        SSignature signatureName spanValue signatureValue
+          | Set.member (identifierText signatureName) hiddenImportExports,
+            Set.member (identifierText signatureName) neededModuleExports ->
+              [ SSignature
+                  (hiddenValidationIdentifier signatureName)
+                  spanValue
+                  signatureValue
+              ]
         SImpl spanValue capabilityName arguments methods ->
           [ SImpl
               spanValue
               capabilityName
-              arguments
+              (rewriteModuleExportImplArguments modulePath dataTypeNames arguments)
               (rewriteModuleExportImplMethods modulePath hiddenImportExports methods)
           ]
         _ | isHiddenImportExportStatement hiddenImportExports statement -> []
         _ -> [statement]
+    dataTypeNames = collectDataTypeNames expr
+
+    hiddenValidationIdentifier name =
+      mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
+
+collectDataTypeNames :: Expr -> Set Text
+collectDataTypeNames expr =
+  case expr of
+    EBlock statements ->
+      Set.fromList
+        [ identifierText typeName
+          | SData _ typeName _ _ <- statements
+        ]
+    _ -> Set.empty
+
+rewriteModuleExportImplArguments ::
+  [Text] ->
+  Set Text ->
+  [ConstraintSignatureType] ->
+  [ConstraintSignatureType]
+rewriteModuleExportImplArguments modulePath dataTypeNames arguments =
+  map (rewriteModuleExportImplArgument modulePath dataTypeNames) arguments
+
+rewriteModuleExportImplArgument ::
+  [Text] ->
+  Set Text ->
+  ConstraintSignatureType ->
+  ConstraintSignatureType
+rewriteModuleExportImplArgument modulePath dataTypeNames signatureType =
+  case signatureType of
+    ConstraintTypeName name ->
+      ConstraintTypeName (rewriteModuleExportImplTypeName modulePath dataTypeNames name)
+    ConstraintTypeApplication name arguments ->
+      ConstraintTypeApplication
+        (rewriteModuleExportImplTypeName modulePath dataTypeNames name)
+        (map (rewriteModuleExportImplArgument modulePath dataTypeNames) arguments)
+    ConstraintTypeList innerType ->
+      ConstraintTypeList (rewriteModuleExportImplArgument modulePath dataTypeNames innerType)
+    ConstraintTypeTuple elementTypes ->
+      ConstraintTypeTuple (map (rewriteModuleExportImplArgument modulePath dataTypeNames) elementTypes)
+    ConstraintTypeFunction argumentType resultType ->
+      ConstraintTypeFunction
+        (rewriteModuleExportImplArgument modulePath dataTypeNames argumentType)
+        (rewriteModuleExportImplArgument modulePath dataTypeNames resultType)
+
+rewriteModuleExportImplTypeName :: [Text] -> Set Text -> Identifier -> Identifier
+rewriteModuleExportImplTypeName modulePath dataTypeNames typeName =
+  let typeNameText = identifierText typeName
+   in if Set.member typeNameText dataTypeNames
+        then mkIdentifier (moduleExportQualifiedName modulePath typeNameText)
+        else typeName
 
 rewriteModuleExportImplMethods :: [Text] -> Set Text -> [ImplMethod] -> [ImplMethod]
 rewriteModuleExportImplMethods modulePath hiddenImportExports methods =

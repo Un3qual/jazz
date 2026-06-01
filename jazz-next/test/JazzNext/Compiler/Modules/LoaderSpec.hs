@@ -9,6 +9,7 @@ import Data.IORef
     writeIORef
   )
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( renderDiagnostic
   )
@@ -75,7 +76,9 @@ tests =
     ("compile module graph keeps alias-qualified ADT equality distinct from local ADT", testCompileModuleGraphKeepsAliasQualifiedAdtEqualityDistinct),
     ("compile module graph resolves alias-qualified impl method references", testCompileModuleGraphResolvesAliasQualifiedImplMethodReferences),
     ("compile module graph rewrites hidden impl method references", testCompileModuleGraphRewritesHiddenImplMethodReferences),
+    ("compile module graph keeps replayed ADT impl facts distinct", testCompileModuleGraphKeepsReplayedAdtImplFactsDistinct),
     ("run module graph keeps local data constructor from hidden import rewrite", testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite),
+    ("run module graph preserves alias-qualified float literal targets", testRunModuleGraphPreservesAliasQualifiedFloatLiteralTargets),
     ("run module graph keeps hidden qualified export pattern constructors available", testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge),
     ("run module graph keeps alias-qualified dependency export visible with prelude", testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude),
     ("run module graph keeps transitive alias-hidden dependency export from shadowing prelude", testRunModuleGraphTransitiveAliasHiddenExportUsesPrelude),
@@ -773,6 +776,34 @@ testCompileModuleGraphRewritesHiddenImplMethodReferences = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
+testCompileModuleGraphKeepsReplayedAdtImplFactsDistinct :: IO ()
+testCompileModuleGraphKeepsReplayedAdtImplFactsDistinct = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [err] ->
+      assertContains
+        "replayed ADT impl fact isolation"
+        "missing impl fact 'Eq(Box(Int))'"
+        (renderDiagnostic err)
+    errors ->
+      failTest
+        ( "expected exactly one missing local ADT impl fact, got "
+            <> Text.pack (show (map renderDiagnostic errors))
+        )
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Box.\ndata Box a = Box a.\nclass Eq(a) { }.\nuse :: @{Eq(Box(Int))}: Int.\nuse = 1."),
+          ("src/Lib/Box.jz", "data Box a = Box a.\nclass Eq(a) { }.\nimpl Eq(Box(Int)) { }.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
 testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite :: IO ()
 testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite = do
   result <-
@@ -791,6 +822,26 @@ testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite = do
         [ ("src/App/Main.jz", "import App::UsesMaybe.\nimport Lib::Maybe (Just).\ndata Pair = Just left right.\nJust 1 2."),
           ("src/App/UsesMaybe.jz", "import Lib::Maybe as Maybe.\nuse = 0."),
           ("src/Lib/Maybe.jz", "data Maybe = Just value.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphPreservesAliasQualifiedFloatLiteralTargets :: IO ()
+testRunModuleGraphPreservesAliasQualifiedFloatLiteralTargets = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(2048.0, 1.0)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Floats as Floats.\n(Floats::x16, Floats::x32)."),
+          ("src/Lib/Floats.jz", "x16 :: Float16.\nx16 = 2049.0.\nx32 :: Float32.\nx32 = 1.00000001.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
