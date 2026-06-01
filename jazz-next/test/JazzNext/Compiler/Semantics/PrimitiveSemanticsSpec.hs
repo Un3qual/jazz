@@ -81,6 +81,7 @@ tests =
     ("source pipeline accepts target-named integer conversions", testSourcePipelineAcceptsTargetNamedIntegerConversions),
     ("source pipeline accepts target-named float conversions", testSourcePipelineAcceptsTargetNamedFloatConversions),
     ("source pipeline accepts Float64 fractional literal defaults", testSourcePipelineAcceptsFloat64FractionalLiteralDefaults),
+    ("source pipeline accepts explicitly targeted Float16 and Float32 fractional literals", testSourcePipelineAcceptsTargetedFloat16Float32FractionalLiterals),
     ("source pipeline accepts same-width Float64 arithmetic", testSourcePipelineAcceptsSameWidthFloat64Arithmetic),
     ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
     ("source pipeline accepts same-width Float16 and Float32 arithmetic", testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic),
@@ -374,7 +375,12 @@ testSourcePipelineAcceptsTargetNamedFloatConversions =
 
 testSourcePipelineAcceptsFloat64FractionalLiteralDefaults :: IO ()
 testSourcePipelineAcceptsFloat64FractionalLiteralDefaults =
-  assertCompiles "x = 1.5."
+  assertCompiles "x = 1.5.\ny :: Float64.\ny = x."
+
+testSourcePipelineAcceptsTargetedFloat16Float32FractionalLiterals :: IO ()
+testSourcePipelineAcceptsTargetedFloat16Float32FractionalLiterals =
+  assertCompiles
+    "x16 :: Float16.\nx16 = 1.5.\ny16 :: Float16.\ny16 = x16.\nx32 :: Float32.\nx32 = 2.25.\ny32 :: Float32.\ny32 = x32."
 
 testSourcePipelineAcceptsSameWidthFloat64Arithmetic :: IO ()
 testSourcePipelineAcceptsSameWidthFloat64Arithmetic =
@@ -465,6 +471,14 @@ testSourcePipelineRejectsMixedWidthAndImplicitFloat16Float32Arithmetic = do
     "left :: Float16.\nleft = toFloat16 1.\nright :: Float32.\nright = toFloat32 2.\nx = left + right."
     "mixed Float16/Float32 arithmetic"
     "E2003"
+  assertCompileError
+    "left :: Float16.\nleft = 1.5.\nright :: Float32.\nright = 2.25.\nx = left + right."
+    "mixed targeted Float16/Float32 arithmetic"
+    "E2003"
+  assertCompileError
+    "left :: Float16.\nleft = 1.5.\nx = left + 1.25."
+    "implicit fractional literal-to-Float16 arithmetic"
+    "E2003"
   assertCompileErrorWithBundledPrelude
     "left :: Float16.\nleft = toFloat16 1.\nx = left + 1."
     "implicit integer-to-Float16 arithmetic"
@@ -501,17 +515,29 @@ testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions =
     "x = toInt64 9223372036854775807.0.\ny = toUInt64 18446744073709551615.0."
 
 testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions :: IO ()
-testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions =
+testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions = do
   assertCompileErrorWithBundledPrelude
     "x = toFloat16 70000."
     "out-of-range float-target literal conversion"
     "E2006"
+  assertCompileError
+    "x :: Float16.\nx = 70000.0."
+    "out-of-range Float16 literal target"
+    "E2006"
+  assertCompileError
+    "x :: Float32.\nx = 1000000000000000000000000000000000000000.0."
+    "out-of-range Float32 literal target"
+    "E2006"
 
 testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow :: IO ()
-testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow =
+testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow = do
   assertCompileErrorWithBundledPrelude
     "x = toFloat16 65504.000000000000000001."
     "source-exact float-target literal overflow"
+    "E2006"
+  assertCompileError
+    "x :: Float16.\nx = 65504.000000000000000001."
+    "source-exact Float16 literal target overflow"
     "E2006"
 
 testSourcePipelineRejectsSourceExactNegativeFloatTargetLiteralOverflow :: IO ()

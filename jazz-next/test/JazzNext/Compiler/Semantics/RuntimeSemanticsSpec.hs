@@ -97,9 +97,12 @@ tests =
     ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
     ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
     ("Float16 and Float32 arithmetic evaluates at runtime", testFloat16Float32ArithmeticRuntimeSuccess),
+    ("targeted Float16 and Float32 fractional literals evaluate through arithmetic", testTargetedFloat16Float32FractionalLiteralArithmeticRuntimeSuccess),
+    ("targeted Float16 and Float32 fractional literals round at runtime", testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue),
     ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError),
     ("Float64 comparison and equality evaluate at runtime", testFloat64ComparisonEqualityRuntimeSuccess),
     ("Float16 and Float32 comparison and equality evaluate at runtime", testFloat16Float32ComparisonEqualityRuntimeSuccess),
+    ("targeted Float16 and Float32 fractional literals evaluate through comparison and equality", testTargetedFloat16Float32FractionalLiteralComparisonEqualityRuntimeSuccess),
     ("structural list equality evaluates at runtime", testStructuralListEqualityRuntimeSuccess),
     ("structural tuple equality evaluates at runtime", testStructuralTupleEqualityRuntimeSuccess),
     ("structural ADT equality evaluates at runtime", testStructuralAdtEqualityRuntimeSuccess),
@@ -670,6 +673,20 @@ testFloat16Float32ArithmeticRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(4.0, 4.0)") (runOutput result)
 
+testTargetedFloat16Float32FractionalLiteralArithmeticRuntimeSuccess :: IO ()
+testTargetedFloat16Float32FractionalLiteralArithmeticRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "a16 :: Float16.\na16 = 1.5.\nb16 :: Float16.\nb16 = 2.25.\na32 :: Float32.\na32 = 1.5.\nb32 :: Float32.\nb32 = 2.25.\n(a16 + b16 - a16, a32 * b32 / b32)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(2.25, 1.5)") (runOutput result)
+
+testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue :: IO ()
+testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue = do
+  result <- runSource defaultWarningSettings "x16 :: Float16.\nx16 = 2049.0.\nx32 :: Float32.\nx32 = 1.00000001.\ny16 :: @{}: Float16.\ny16 = 2049.0.\ny32 :: @{}: Float32.\ny32 = 1.00000001.\n(x16, x32, y16, y32)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(2048.0, 1.0, 2048.0, 1.0)") (runOutput result)
+
 testFloat64ArithmeticOverflowRuntimeError :: IO ()
 testFloat64ArithmeticOverflowRuntimeError = do
   let hugeInteger = "1" <> replicate 200 '0'
@@ -703,6 +720,13 @@ testFloat64ComparisonEqualityRuntimeSuccess = do
 testFloat16Float32ComparisonEqualityRuntimeSuccess :: IO ()
 testFloat16Float32ComparisonEqualityRuntimeSuccess = do
   result <- runSource defaultWarningSettings "a16 = toFloat16 1.\nb16 = toFloat16 2.\na32 = toFloat32 1.\nb32 = toFloat32 2.\nlt16 = a16 < b16.\nle16 = a16 <= a16.\ngt16 = b16 > a16.\nge16 = b16 >= b16.\neq16 = a16 == a16.\nne16 = a16 != b16.\nlt32 = a32 < b32.\nle32 = a32 <= a32.\ngt32 = b32 > a32.\nge32 = b32 >= b32.\neq32 = a32 == a32.\nne32 = a32 != b32.\n[lt16, le16, gt16, ge16, eq16, ne16, lt32, le32, gt32, ge32, eq32, ne32]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, True, True, True, True, True, True, True, True, True, True]") (runOutput result)
+
+testTargetedFloat16Float32FractionalLiteralComparisonEqualityRuntimeSuccess :: IO ()
+testTargetedFloat16Float32FractionalLiteralComparisonEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "a16 :: Float16.\na16 = 1.5.\nb16 :: Float16.\nb16 = 2.25.\na32 :: Float32.\na32 = 1.5.\nb32 :: Float32.\nb32 = 2.25.\n[a16 < b16, a16 <= a16, b16 > a16, b16 >= b16, a16 == a16, a16 != b16, a32 < b32, a32 <= a32, b32 > a32, b32 >= b32, a32 == a32, a32 != b32]."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True, True, True, True, True, True, True, True, True, True, True]") (runOutput result)

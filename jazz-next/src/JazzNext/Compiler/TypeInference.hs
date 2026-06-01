@@ -910,9 +910,19 @@ inferScopeType builtinMode initialEnv initialState statements =
                               (PlainTypeBinding (pendingSignatureDeclaredType pendingSignature))
                               envWithBindingSeed
                       _ -> envWithBindingSeed
-                  (valueType, rawStateAfterValue) = inferExprType builtinMode envWithPendingSignature state valueExpr
+                  (rawValueType, rawStateAfterValue) = inferExprType builtinMode envWithPendingSignature state valueExpr
+                  valueType =
+                    targetedFractionalLiteralBindingType
+                      nameText
+                      pendingSignatureType
+                      valueExpr
+                      rawValueType
+                  stateAfterTargetedLiteralCheck =
+                    case targetedFractionalLiteralDiagnostic nameText pendingSignatureType valueExpr rawValueType of
+                      Just diagnostic -> addTypeError rawStateAfterValue diagnostic
+                      Nothing -> rawStateAfterValue
                   stateAfterValue =
-                    annotateNewErrorsWithPrimarySpan bindingSpan state rawStateAfterValue
+                    annotateNewErrorsWithPrimarySpan bindingSpan state stateAfterTargetedLiteralCheck
                   stateAfterBindingSeedCheck =
                     case (Map.lookup statementIndex bindingSeedsByStatement, valueType) of
                       (Just bindingSeed, Just inferredType) ->
@@ -1206,6 +1216,51 @@ data PendingSignatureType = PendingSignatureType
     pendingSignatureSpan :: SourceSpan,
     pendingSignatureDeclaredType :: ExpressionType
   }
+
+targetedFractionalLiteralBindingType ::
+  Text ->
+  Maybe PendingSignatureType ->
+  Expr ->
+  Maybe ExpressionType ->
+  Maybe ExpressionType
+targetedFractionalLiteralBindingType bindingName maybePendingSignature valueExpr maybeInferredType =
+  case targetedFractionalLiteralType bindingName maybePendingSignature valueExpr maybeInferredType of
+    Just targetType -> Just (TNumericType targetType)
+    Nothing -> maybeInferredType
+
+targetedFractionalLiteralDiagnostic ::
+  Text ->
+  Maybe PendingSignatureType ->
+  Expr ->
+  Maybe ExpressionType ->
+  Maybe Diagnostic
+targetedFractionalLiteralDiagnostic bindingName maybePendingSignature valueExpr maybeInferredType =
+  case (targetedFractionalLiteralType bindingName maybePendingSignature valueExpr maybeInferredType, valueExpr) of
+    (Just targetType, ELit (LFloat literalValue literalSource))
+      | targetType == NumericFloat16 || targetType == NumericFloat32 ->
+          targetedFloatLiteralDiagnostic targetType literalValue literalSource
+    _ -> Nothing
+
+targetedFractionalLiteralType ::
+  Text ->
+  Maybe PendingSignatureType ->
+  Expr ->
+  Maybe ExpressionType ->
+  Maybe NumericType
+targetedFractionalLiteralType bindingName maybePendingSignature valueExpr maybeInferredType =
+  case (maybePendingSignature, valueExpr, maybeInferredType) of
+    (Just pendingSignature, ELit (LFloat {}), Just TFloatType)
+      | pendingSignatureName pendingSignature == bindingName ->
+          concreteFloatNumericType (pendingSignatureDeclaredType pendingSignature)
+    _ -> Nothing
+
+concreteFloatNumericType :: ExpressionType -> Maybe NumericType
+concreteFloatNumericType expressionType =
+  case expressionType of
+    TNumericType NumericFloat16 -> Just NumericFloat16
+    TNumericType NumericFloat32 -> Just NumericFloat32
+    TNumericType NumericFloat64 -> Just NumericFloat64
+    _ -> Nothing
 
 registerDataConstructors :: Identifier -> [Identifier] -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
 registerDataConstructors typeName typeParameters constructors env initialState =
@@ -1649,6 +1704,16 @@ numericConversionFloatLiteralDiagnostic conversionName targetType literalValue l
               || fractionalLiteralExceedsMagnitude literalSource maxMagnitude ->
               Just (mkNumericConversionFloatLiteralOverflowError conversionName literalValue targetType maxMagnitude)
         _ -> Nothing
+
+targetedFloatLiteralDiagnostic :: NumericType -> Double -> FractionalLiteralSource -> Maybe Diagnostic
+targetedFloatLiteralDiagnostic targetType literalValue literalSource =
+  case numericTypeFloatMax targetType of
+    Just maxMagnitude
+      | not (finiteFloat literalValue)
+          || abs literalValue > maxMagnitude
+          || fractionalLiteralExceedsMagnitude literalSource maxMagnitude ->
+          Just (mkTargetedFractionalLiteralOverflowError literalValue targetType maxMagnitude)
+    _ -> Nothing
 
 finiteFloat :: Double -> Bool
 finiteFloat value = not (isNaN value) && not (isInfinite value)
@@ -2360,6 +2425,18 @@ mkNumericConversionFloatLiteralOverflowError conversionName literalValue targetT
         <> "' cannot convert fractional literal "
         <> Text.pack (show literalValue)
         <> " outside finite "
+        <> renderNumericTypeName targetType
+        <> " magnitude "
+        <> Text.pack (show maxMagnitude)
+    )
+
+mkTargetedFractionalLiteralOverflowError :: Double -> NumericType -> Double -> Diagnostic
+mkTargetedFractionalLiteralOverflowError literalValue targetType maxMagnitude =
+  mkDiagnostic
+    "E2006"
+    ( "fractional literal "
+        <> Text.pack (show literalValue)
+        <> " cannot target finite "
         <> renderNumericTypeName targetType
         <> " magnitude "
         <> Text.pack (show maxMagnitude)

@@ -7,12 +7,12 @@ kind: impl
 autonomous_ready: no
 depends_on: []
 last_verified: 2026-06-01
-plan_section: "Follow-up: Primitive deltas after child-plan reseed"
+plan_section: "Follow-up: Primitive deltas after literal-targeting landing"
 target_paths: []
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Primitive deltas outside landed numeric and structural equality batches remain blocked until separate concrete contracts define target paths and focused verification."
+deliverable: "Primitive deltas outside landed explicit Float16/Float32 literal targeting and landed numeric/structural equality batches remain blocked until separate concrete contracts define target paths and focused verification."
 ---
 
 # Primitive Semantics Contract Implementation Plan
@@ -70,6 +70,8 @@ Execution note:
 - [x] Structural tuple/list equality for equality-supported element types landed in `jazz-next`.
 - [x] Same concrete `Float16`/`Float32` arithmetic plus comparison/equality landed in `jazz-next`.
 - [x] Structural ADT equality for declared constructors with equality-supported payload types landed in `jazz-next`.
+- [x] Explicit `Float16`/`Float32` fractional literal targeting for directly
+      annotated bindings landed in `jazz-next`.
 
 First implementation target (landed 2026-05-29):
 
@@ -465,7 +467,7 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
-## Follow-up: Primitive deltas after child-plan reseed
+## Follow-up: Primitive deltas after literal-targeting landing
 
 On `2026-06-01`, queue curation split three concrete child plans out of this
 umbrella follow-up, and all three child plans landed:
@@ -474,11 +476,18 @@ umbrella follow-up, and all three child plans landed:
 - `docs/plans/2026-06-01-jazz-next-float16-float32-same-width-comparison-equality.md`
 - `docs/plans/2026-06-01-jazz-next-structural-adt-equality.md`
 
+On `2026-06-01`, queue curation split the explicit literal-targeting child plan
+out of this umbrella follow-up, and the child plan landed:
+
+- `docs/plans/2026-06-01-jazz-next-float16-float32-literal-targeting.md`
+
+That child is limited to direct fractional literal bindings with explicit
+`Float16`/`Float32` signatures through type context, including finite-target
+source-exact checks and runtime rounding aligned with explicit conversions.
 Remaining primitive surface work stays blocked until separate contracts define
 exact syntax or behavior, target paths, and focused verification for literal
-suffixes, Float16/Float32 literal targeting, implicit integer-to-float
-promotion, implicit mixed-width behavior, function/operator/section equality,
-or broader numeric solver behavior.
+suffixes, implicit integer-to-float promotion, implicit mixed-width behavior,
+function/operator/section equality, or broader numeric solver behavior.
 
 ## Verification Evidence (Current Ambiguity)
 

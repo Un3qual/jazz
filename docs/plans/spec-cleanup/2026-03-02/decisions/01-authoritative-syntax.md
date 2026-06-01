@@ -7,12 +7,12 @@ kind: impl
 autonomous_ready: no
 depends_on: []
 last_verified: 2026-06-01
-plan_section: "Follow-up: abstraction semantics beyond method metadata"
+plan_section: "Follow-up: abstraction semantics beyond impl method metadata reseed"
 target_paths: []
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Class/impl abstraction semantics beyond landed signature-only class method metadata remain blocked until method implementation, dispatch, dictionary, and runtime contracts define target paths and focused verification."
+deliverable: "Class/impl abstraction semantics beyond the queued inert impl method body metadata slice remain blocked until dispatch, dictionary, and runtime contracts define target paths and focused verification."
 ---
 
 # Jazz Spec-Cleanup #1: Authoritative Syntax Implementation Plan
@@ -304,13 +304,19 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
-## Follow-up: abstraction semantics beyond method metadata
+## Follow-up: abstraction semantics beyond impl method metadata reseed
 
-No executor-safe class/impl implementation batch remains in this plan after the
-signature-only method metadata slice. Further abstraction work stays blocked
-until a separate contract defines method implementation syntax, method lookup
-and dispatch behavior, dictionary or evidence representation, runtime behavior,
-and focused active-path target files/tests.
+On `2026-06-01`, queue curation split one concrete child plan out of this
+follow-up:
+
+- `docs/plans/2026-06-01-jazz-next-impl-method-body-metadata.md`
+
+That child is limited to inert concrete `impl` method body metadata and keeps
+method dispatch, dictionaries, runtime evidence values, solver behavior,
+default methods, and superclasses out of scope. Further abstraction work stays
+blocked until separate contracts define method lookup and dispatch behavior,
+dictionary or evidence representation, runtime behavior, and focused
+active-path target files/tests.
 
 ## Historical Verification Evidence
 

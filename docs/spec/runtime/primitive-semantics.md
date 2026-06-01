@@ -1,6 +1,6 @@
 # Primitive Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, default Float64 fractional literal values parse/evaluate, same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic plus comparison/equality type-check and evaluate, and structural list/tuple/ADT equality type-checks and evaluates when every nested element or declared constructor payload type is equality-supported)
+Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, default Float64 fractional literal values parse/evaluate, explicitly annotated `Float16`/`Float32` fractional literal bindings are accepted, same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic plus comparison/equality type-check and evaluate, and structural list/tuple/ADT equality type-checks and evaluates when every nested element or declared constructor payload type is equality-supported)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md`
 
@@ -85,8 +85,8 @@ Box f == Box f
 - Mixed concrete widths, such as `Int32 + Int64`, are type errors unless one side is converted explicitly.
 - `jazz-next` parses, lowers, and type-checks width-specific numeric signature names plus `Int`/`Float` aliases, and the active runtime operator subset evaluates same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic, same concrete `Float`/`Float16`/`Float32`/`Float64` comparison and equality/inequality, plus structural list/tuple/ADT equality when nested element or declared constructor payload types are equality-supported.
 - Integer literals can satisfy an explicit integral-width signature annotation; ambiguous integer literals still default through `Int`.
-- Decimal fractional literals such as `1.5` parse and lower to the default `Float`/`Float64` literal slice, can satisfy explicit `Float` or `Float64` signatures, and evaluate/render as runtime Float64 values.
-- Fractional literals do not target `Float16` or `Float32` directly, integer/fractional operator mixing remains a type error, and same concrete `Float16`/`Float32` arithmetic, comparison, and equality are accepted only after explicit conversion.
+- Decimal fractional literals such as `1.5` parse and lower to the default `Float`/`Float64` literal slice, can satisfy explicit `Float` or `Float64` signatures, can target direct binding signatures for `Float16` and `Float32`, and evaluate/render through the active floating runtime value path with the same finite-target bounds checks and rounding used by explicit float conversions.
+- Fractional literal suffix syntax is not supported, integer/fractional operator mixing remains a type error, and same concrete `Float16`/`Float32` arithmetic, comparison, and equality require operands to resolve to the same concrete width through explicit annotation or explicit conversion.
 
 ### Explicit Conversion Contract
 

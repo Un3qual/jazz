@@ -82,8 +82,8 @@ tests =
     ("source pipeline rejects mixed-width numeric operator signatures", testSourceRejectsMixedWidthNumericOperatorSignatures),
     ("source pipeline accepts same-width float numeric operator signatures", testSourceAcceptsSameWidthFloatNumericOperatorSignatures),
     ("source pipeline keeps float signatures distinct from integer literals", testSourceRejectsFloatSignatureForIntegerLiteral),
-    ("source pipeline accepts Float and Float64 fractional literal signatures", testSourceAcceptsFloatFractionalLiteralSignatures),
-    ("source pipeline rejects non-Float64 fractional literal targets", testSourceRejectsNonFloat64FractionalLiteralTargets),
+    ("source pipeline accepts float fractional literal signatures", testSourceAcceptsFloatFractionalLiteralSignatures),
+    ("source pipeline rejects integral fractional literal targets", testSourceRejectsIntegralFractionalLiteralTargets),
     ("source pipeline rejects tuple signature mismatch", testSourceRejectsTupleSignatureMismatch),
     ("source pipeline rejects tuple signature arity mismatch", testSourceRejectsTupleSignatureArityMismatch),
     ("source pipeline accepts simple function signature", testSourceAcceptsSimpleFunctionSignature),
@@ -531,12 +531,13 @@ testSourceRejectsFloatSignatureForIntegerLiteral =
 testSourceAcceptsFloatFractionalLiteralSignatures :: IO ()
 testSourceAcceptsFloatFractionalLiteralSignatures = do
   assertSourceOk "x :: Float.\nx = 1.5."
+  assertSourceOk "x :: Float16.\nx = 1.5."
+  assertSourceOk "x :: Float32.\nx = 1.5."
   assertSourceOk "x :: Float64.\nx = 1.5."
   assertSourceOk "xs :: [Float64].\nxs = [1.5, 2.25]."
 
-testSourceRejectsNonFloat64FractionalLiteralTargets :: IO ()
-testSourceRejectsNonFloat64FractionalLiteralTargets = do
-  assertSourceSingleErrorContains "x :: Float32.\nx = 1.5." "E2005"
+testSourceRejectsIntegralFractionalLiteralTargets :: IO ()
+testSourceRejectsIntegralFractionalLiteralTargets = do
   assertSourceSingleErrorContains "x :: Int.\nx = 1.5." "E2005"
 
 testSourceRejectsTupleSignatureMismatch :: IO ()
