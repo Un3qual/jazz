@@ -33,7 +33,11 @@ import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
     assertSingleDiagnosticContains,
+    failTest,
     runTestSuite
+  )
+import System.Timeout
+  ( timeout
   )
 
 main :: IO ()
@@ -65,6 +69,7 @@ tests =
     ("source pipeline accepts structural list equality", testSourcePipelineAcceptsStructuralListEquality),
     ("source pipeline accepts structural tuple equality", testSourcePipelineAcceptsStructuralTupleEquality),
     ("source pipeline accepts structural ADT equality", testSourcePipelineAcceptsStructuralAdtEquality),
+    ("source pipeline accepts self-referential structural ADT equality", testSourcePipelineAcceptsSelfReferentialStructuralAdtEquality),
     ("source pipeline accepts structural equality sections", testSourcePipelineAcceptsStructuralEqualitySections),
     ("source pipeline rejects structural equality with function elements", testSourcePipelineRejectsStructuralFunctionEquality),
     ("source pipeline rejects structural ADT equality with function payloads", testSourcePipelineRejectsStructuralAdtFunctionEquality),
@@ -88,7 +93,7 @@ tests =
     ("source pipeline accepts explicitly targeted Float16 and Float32 fractional literals", testSourcePipelineAcceptsTargetedFloat16Float32FractionalLiterals),
     ("source pipeline accepts same-width Float64 arithmetic", testSourcePipelineAcceptsSameWidthFloat64Arithmetic),
     ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
-    ("source pipeline accepts same-width Float16 and Float32 arithmetic", testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic),
+    ("source pipeline accepts same-width Float32 arithmetic and rejects Float16 arithmetic", testSourcePipelineAcceptsSameWidthFloat32ArithmeticAndRejectsFloat16Arithmetic),
     ("source pipeline accepts same-width Float64 comparison and equality", testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality),
     ("source pipeline accepts same-width Float16 and Float32 comparison and equality", testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality),
     ("source pipeline accepts same-width Float64 comparison/equality operator values", testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues),
@@ -251,6 +256,21 @@ testSourcePipelineAcceptsStructuralAdtEquality = do
   assertCompiles
     "data Box a = Box a.\nleft = Box [1, 2].\nright = Box [1, 2].\nsame = left == right."
 
+testSourcePipelineAcceptsSelfReferentialStructuralAdtEquality :: IO ()
+testSourcePipelineAcceptsSelfReferentialStructuralAdtEquality = do
+  maybeResult <-
+    timeout
+      2000000
+      ( compileSource
+          defaultWarningSettings
+          "data IntList = Nil | Cons value rest.\nleft = Cons 1 Nil.\nright = Cons 1 Nil.\nsame = left == right."
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected self-referential ADT equality support check to terminate, but compilation timed out"
+    Just result ->
+      assertEqual "compile errors" [] (compileErrors result)
+
 testSourcePipelineAcceptsStructuralEqualitySections :: IO ()
 testSourcePipelineAcceptsStructuralEqualitySections =
   assertCompiles
@@ -402,10 +422,14 @@ testSourcePipelineAcceptsSameWidthFloat64OperatorValues =
   assertCompilesWithBundledPrelude
     "x :: Float64.\nx = (+) (toFloat64 1) (toFloat64 2)."
 
-testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic :: IO ()
-testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic =
+testSourcePipelineAcceptsSameWidthFloat32ArithmeticAndRejectsFloat16Arithmetic :: IO ()
+testSourcePipelineAcceptsSameWidthFloat32ArithmeticAndRejectsFloat16Arithmetic = do
   assertCompilesWithBundledPrelude
-    "a16 :: Float16.\na16 = toFloat16 1.\nb16 :: Float16.\nb16 = toFloat16 2.\nc16 :: Float16.\nc16 = toFloat16 6.\nd16 :: Float16.\nd16 = toFloat16 3.\nx16 :: Float16.\nx16 = ((a16 + b16) * (c16 / d16)) - b16.\na32 :: Float32.\na32 = toFloat32 1.\nb32 :: Float32.\nb32 = toFloat32 2.\nc32 :: Float32.\nc32 = toFloat32 6.\nd32 :: Float32.\nd32 = toFloat32 3.\nx32 :: Float32.\nx32 = ((a32 + b32) * (c32 / d32)) - b32."
+    "a32 :: Float32.\na32 = toFloat32 1.\nb32 :: Float32.\nb32 = toFloat32 2.\nc32 :: Float32.\nc32 = toFloat32 6.\nd32 :: Float32.\nd32 = toFloat32 3.\nx32 :: Float32.\nx32 = ((a32 + b32) * (c32 / d32)) - b32."
+  assertCompileErrorWithBundledPrelude
+    "a16 :: Float16.\na16 = toFloat16 65504.\nb16 :: Float16.\nb16 = toFloat16 1.\nx16 = a16 + b16."
+    "Float16 arithmetic requires width-preserving runtime support"
+    "E2003"
 
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality :: IO ()
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality =

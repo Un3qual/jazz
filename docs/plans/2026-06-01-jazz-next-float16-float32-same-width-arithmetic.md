@@ -8,7 +8,7 @@ autonomous_ready: no
 depends_on: []
 last_verified: 2026-06-01
 completed_on: 2026-06-01
-plan_section: "Batch 1: Float16/Float32 same-width arithmetic"
+plan_section: "Batch 1: Float32 same-width arithmetic and Float16 runtime-width gate"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/src/JazzNext/Compiler/Runtime.hs
@@ -19,10 +19,10 @@ verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Accept `+`, `-`, `*`, and `/` for same concrete `Float16` and `Float32` operands via explicit-conversion-produced values, returning the same concrete type while preserving all mixed-width and implicit-promotion rejections."
+deliverable: "Accept `+`, `-`, `*`, and `/` for same concrete `Float32` operands via explicit-conversion-produced values while rejecting `Float16` arithmetic until runtime float values carry or apply the target width; preserve all mixed-width and implicit-promotion rejections."
 ---
 
-# Jazz Next Float16/Float32 Same-Width Arithmetic
+# Jazz Next Float32 Same-Width Arithmetic And Float16 Gate
 
 ## Source Verification
 
@@ -37,17 +37,17 @@ This batch does not define literal suffix syntax, `Float16` or `Float32`
 literal targeting, implicit integer-to-float promotion, implicit mixed-width
 arithmetic, dictionaries, or runtime dispatch.
 
-## Batch 1: Float16/Float32 same-width arithmetic
+## Batch 1: Float32 same-width arithmetic and Float16 runtime-width gate
 
 Completed on `2026-06-01`.
 
 Executor-safe scope:
 
 - Accept `+`, `-`, `*`, and `/` when both operands resolve to the same concrete
-  `Float16` type.
-- Accept `+`, `-`, `*`, and `/` when both operands resolve to the same concrete
   `Float32` type.
-- Return the same concrete floating type for accepted operations.
+- Reject `+`, `-`, `*`, and `/` when operands resolve to `Float16` until the
+  runtime carries or reapplies the target width for arithmetic results.
+- Return the same concrete floating type for accepted `Float32` operations.
 - Evaluate accepted operations through the active runtime floating-value path.
 - Preserve existing integer arithmetic and same-concrete `Float`/`Float64`
   arithmetic behavior.

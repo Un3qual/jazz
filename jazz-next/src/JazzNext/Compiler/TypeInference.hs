@@ -1648,14 +1648,12 @@ numericTypeIsIntegral numericType =
 
 numericTypeSupportsRuntimeArithmetic :: NumericType -> Bool
 numericTypeSupportsRuntimeArithmetic numericType =
-  numericTypeSupportsRuntimeNumericOperator numericType
+  numericTypeIsIntegral numericType
+    || numericType == NumericFloat32
+    || numericType == NumericFloat64
 
 numericTypeSupportsRuntimeComparison :: NumericType -> Bool
 numericTypeSupportsRuntimeComparison numericType =
-  numericTypeSupportsRuntimeNumericOperator numericType
-
-numericTypeSupportsRuntimeNumericOperator :: NumericType -> Bool
-numericTypeSupportsRuntimeNumericOperator numericType =
   numericTypeIsIntegral numericType
     || numericType == NumericFloat16
     || numericType == NumericFloat32
@@ -2246,10 +2244,10 @@ combineNumericConstraints leftConstraint rightConstraint =
       IntegralLiteralNumericConstraint literalRange
     (IntegralNumericConstraint, _) -> IntegralNumericConstraint
     (_, IntegralNumericConstraint) -> IntegralNumericConstraint
-    (RuntimeComparisonNumericConstraint, _) -> RuntimeComparisonNumericConstraint
-    (_, RuntimeComparisonNumericConstraint) -> RuntimeComparisonNumericConstraint
     (RuntimeArithmeticNumericConstraint, _) -> RuntimeArithmeticNumericConstraint
     (_, RuntimeArithmeticNumericConstraint) -> RuntimeArithmeticNumericConstraint
+    (RuntimeComparisonNumericConstraint, _) -> RuntimeComparisonNumericConstraint
+    (_, RuntimeComparisonNumericConstraint) -> RuntimeComparisonNumericConstraint
     _ -> AnyNumericConstraint
 
 applyNumericConstraintToReplacement :: NumericConstraint -> ExpressionType -> Maybe ExpressionType
@@ -3161,6 +3159,10 @@ mkDuplicatePatternBinderError binderName =
 
 supportsRuntimeEqualityType :: InferState -> ExpressionType -> Bool
 supportsRuntimeEqualityType state expressionType =
+  supportsRuntimeEqualityTypeWith Set.empty state expressionType
+
+supportsRuntimeEqualityTypeWith :: Set Text -> InferState -> ExpressionType -> Bool
+supportsRuntimeEqualityTypeWith seenDataTypes state expressionType =
   -- Keep compile-time acceptance aligned with the currently implemented
   -- runtime equality evaluator to avoid compile/runtime contract drift.
   case resolveType state expressionType of
@@ -3169,32 +3171,47 @@ supportsRuntimeEqualityType state expressionType =
     TFloatType -> True
     TNumericType numericType -> numericTypeSupportsRuntimeComparison numericType
     TBoolType -> True
-    TListType elementType -> supportsRuntimeEqualityType state elementType
-    TTupleType elementTypes -> all (supportsRuntimeEqualityType state) elementTypes
+    TListType elementType -> supportsRuntimeEqualityTypeWith seenDataTypes state elementType
+    TTupleType elementTypes -> all (supportsRuntimeEqualityTypeWith seenDataTypes state) elementTypes
     TDataType typeName typeArguments ->
-      dataTypeSupportsRuntimeEquality state typeName typeArguments
+      dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments
     _ -> False
 
 dataTypeSupportsRuntimeEquality :: InferState -> Identifier -> [ExpressionType] -> Bool
 dataTypeSupportsRuntimeEquality state typeName typeArguments =
-  case Map.lookup (identifierText typeName) (inferDataTypes state) of
-    Just (DataTypeBinding typeParameters constructors)
-      | length typeParameters == length typeArguments ->
-          let typeParameterBindings =
-                Map.fromList
-                  (zip (map identifierText typeParameters) (map (resolveType state) typeArguments))
-           in all
-                (all (constructorArgumentSupportsRuntimeEquality typeParameterBindings))
-                constructors
-    _ -> False
+  dataTypeSupportsRuntimeEqualityWith Set.empty state typeName typeArguments
+
+dataTypeSupportsRuntimeEqualityWith :: Set Text -> InferState -> Identifier -> [ExpressionType] -> Bool
+dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
+  let resolvedTypeArguments = map (resolveType state) typeArguments
+      dataTypeKey =
+        identifierText typeName
+          <> "<"
+          <> Text.intercalate ", " (map renderType resolvedTypeArguments)
+          <> ">"
+   in if Set.member dataTypeKey seenDataTypes
+        then True
+        else dataTypeSupportsRuntimeEqualityUnseen (Set.insert dataTypeKey seenDataTypes) resolvedTypeArguments
   where
-    constructorArgumentSupportsRuntimeEquality typeParameterBindings argumentType =
+    dataTypeSupportsRuntimeEqualityUnseen nextSeenDataTypes resolvedTypeArguments =
+      case Map.lookup (identifierText typeName) (inferDataTypes state) of
+        Just (DataTypeBinding typeParameters constructors)
+          | length typeParameters == length resolvedTypeArguments ->
+              let typeParameterBindings =
+                    Map.fromList
+                      (zip (map identifierText typeParameters) resolvedTypeArguments)
+               in all
+                    (all (constructorArgumentSupportsRuntimeEquality nextSeenDataTypes typeParameterBindings))
+                    constructors
+        _ -> False
+
+    constructorArgumentSupportsRuntimeEquality nextSeenDataTypes typeParameterBindings argumentType =
       case argumentType of
         ConstructorArgumentMonomorphic expressionType ->
-          supportsRuntimeEqualityType state expressionType
+          supportsRuntimeEqualityTypeWith nextSeenDataTypes state expressionType
         ConstructorArgumentParameter parameterName ->
           case Map.lookup parameterName typeParameterBindings of
-            Just expressionType -> supportsRuntimeEqualityType state expressionType
+            Just expressionType -> supportsRuntimeEqualityTypeWith nextSeenDataTypes state expressionType
             Nothing -> False
         ConstructorArgumentFresh -> False
 
