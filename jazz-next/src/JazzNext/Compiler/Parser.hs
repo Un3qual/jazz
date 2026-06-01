@@ -24,7 +24,8 @@ import JazzNext.Compiler.Diagnostics
     renderSourceSpan
   )
 import JazzNext.Compiler.FractionalLiteral
-  ( mkFractionalLiteralSource
+  ( fractionalLiteralExceedsMagnitude,
+    mkFractionalLiteralSource
   )
 import JazzNext.Compiler.Identifier
   ( Identifier,
@@ -1375,6 +1376,9 @@ parseNumericSurfaceLiteral wholeToken wholeValue tokensAfterWhole =
                   fractionalValue
                   (Text.length (tokenLexeme fractionalToken))
           floatValue <- parseFloatLiteral (tokenSpan wholeToken) literalText
+          if fractionalLiteralExceedsMagnitude literalSource float64MaxFinite
+            then Left (invalidFloatLiteralDiagnostic (tokenSpan wholeToken) literalText)
+            else Right ()
           Right (SLFloat floatValue literalSource, rest)
     _ ->
       Right (SLInt wholeValue, tokensAfterWhole)
@@ -1387,17 +1391,27 @@ parseFloatLiteral literalSpan literalText =
         finiteFloat value ->
           Right value
     _ ->
-      Left
-        ( parseDiagnostic
-            ( "invalid fractional literal '"
-                <> literalText
-                <> "' at "
-                <> renderSourceSpan literalSpan
-            )
-        )
+      Left (invalidFloatLiteralDiagnostic literalSpan literalText)
 
 finiteFloat :: Double -> Bool
 finiteFloat value = not (isNaN value) && not (isInfinite value)
+
+float64MaxFinite :: Double
+float64MaxFinite =
+  encodeFloat
+    (floatRadix sample ^ floatDigits sample - 1)
+    (snd (floatRange sample) - floatDigits sample)
+  where
+    sample = 0 :: Double
+
+invalidFloatLiteralDiagnostic :: SourceSpan -> Text -> Diagnostic
+invalidFloatLiteralDiagnostic literalSpan literalText =
+  parseDiagnostic
+    ( "invalid fractional literal '"
+        <> literalText
+        <> "' at "
+        <> renderSourceSpan literalSpan
+    )
 
 -- | Parenthesized forms cover ordinary grouping, operator values like `(+)`,
 -- and left/right operator sections.

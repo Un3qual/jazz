@@ -17,7 +17,11 @@ data FractionalLiteralSource = FractionalLiteralSource Integer Integer Integer
 
 mkFractionalLiteralSource :: Integer -> Integer -> Int -> FractionalLiteralSource
 mkFractionalLiteralSource wholePart fractionalPart fractionalDigitCount =
-  FractionalLiteralSource wholePart fractionalPart (10 ^ fractionalDigitCount)
+  FractionalLiteralSource wholePart signedFractionalPart (10 ^ fractionalDigitCount)
+  where
+    signedFractionalPart
+      | wholePart < 0 = negate (abs fractionalPart)
+      | otherwise = abs fractionalPart
 
 fractionalLiteralHasNonZeroFractionalDigits :: FractionalLiteralSource -> Bool
 fractionalLiteralHasNonZeroFractionalDigits (FractionalLiteralSource _ fractionalPart _) =

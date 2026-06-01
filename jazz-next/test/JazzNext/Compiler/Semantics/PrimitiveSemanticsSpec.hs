@@ -513,7 +513,7 @@ sourceExactNegativeFloatTargetOverflowProgram =
   mkProgram
     ( EApply
         (EVar "__kernel_toFloat16")
-        (ELit (LFloat (-65504.0) (mkFractionalLiteralSource (-65504) (-1) 18)))
+        (ELit (LFloat (-65504.0) (mkFractionalLiteralSource (-65504) 1 18)))
     )
 
 intEqualityProgram :: Expr

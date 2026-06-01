@@ -56,6 +56,7 @@ tests =
     ("parses numeric width signature names into structured nodes", testParseNumericWidthSignatureTypes),
     ("parses fractional literal without treating decimal dot as statement terminator", testParseFractionalLiteral),
     ("rejects non-finite fractional literals", testRejectsNonFiniteFractionalLiteral),
+    ("rejects source-exact Float64 fractional literal overflow", testRejectsSourceExactFloat64FractionalLiteralOverflow),
     ("rejects fractional literal case patterns", testRejectsFractionalLiteralCasePatterns),
     ("rejects fractional literal lambda patterns", testRejectsFractionalLiteralLambdaPatterns),
     ("parses chained function signature right associatively", testParseChainedFunctionSignature),
@@ -238,6 +239,13 @@ testRejectsNonFiniteFractionalLiteral =
     "invalid fractional literal"
     (parseSurfaceProgram (Text.pack ("x = " <> replicate 400 '9' <> ".0.")))
 
+testRejectsSourceExactFloat64FractionalLiteralOverflow :: IO ()
+testRejectsSourceExactFloat64FractionalLiteralOverflow =
+  assertLeftDiagnosticContains
+    "source-exact Float64 fractional literal overflow"
+    "invalid fractional literal"
+    (parseSurfaceProgram (Text.pack ("x = " <> show (float64MaxFiniteInteger + 1) <> ".0.")))
+
 testRejectsFractionalLiteralCasePatterns :: IO ()
 testRejectsFractionalLiteralCasePatterns =
   assertLeftDiagnosticContains
@@ -251,6 +259,18 @@ testRejectsFractionalLiteralLambdaPatterns =
     "fractional literal lambda pattern"
     "fractional literal patterns"
     (parseSurfaceProgram "f = \\(1.5) -> True.")
+
+float64MaxFiniteInteger :: Integer
+float64MaxFiniteInteger =
+  ceiling (float64MaxFinite :: Double)
+
+float64MaxFinite :: Double
+float64MaxFinite =
+  encodeFloat
+    (floatRadix sample ^ floatDigits sample - 1)
+    (snd (floatRange sample) - floatDigits sample)
+  where
+    sample = 0 :: Double
 
 testParseChainedFunctionSignature :: IO ()
 testParseChainedFunctionSignature =

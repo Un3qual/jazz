@@ -91,6 +91,7 @@ tests =
     ("runtime fallback rejects kernel filter predicate returning non-Bool", testRuntimeFallbackRejectsFilterPredicateNonBool),
     ("print! returns evaluated argument value", testPrintBuiltinReturnsArgument),
     ("target-named integer conversion evaluates at runtime", testIntegerConversionRuntimeSuccess),
+    ("target-named integer conversion preserves source-exact integral Float literal", testIntegerConversionSourceExactIntegralFloatRuntimeSuccess),
     ("target-named float conversion evaluates at runtime", testFloatConversionRuntimeSuccess),
     ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
     ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
@@ -609,6 +610,13 @@ testIntegerConversionRuntimeSuccess = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "255") (runOutput result)
+
+testIntegerConversionSourceExactIntegralFloatRuntimeSuccess :: IO ()
+testIntegerConversionSourceExactIntegralFloatRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "toInt64 9223372036854775807.0."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "9223372036854775807") (runOutput result)
 
 testFloatConversionRuntimeSuccess :: IO ()
 testFloatConversionRuntimeSuccess = do
