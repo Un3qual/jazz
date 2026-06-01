@@ -1552,9 +1552,21 @@ parseCaseExpr knownAliases caseToken tokensAfterCase =
     braceLooksLikeScrutineeBlock :: [Token] -> Bool
     braceLooksLikeScrutineeBlock tokens =
       case tokens of
-        Token {tokenKind = TLBrace} : rest -> go Nothing rest
+        Token {tokenKind = TLBrace} : rest ->
+          startsStatementLikeBlock rest || go Nothing rest
         _ -> False
       where
+        startsStatementLikeBlock allTokens =
+          case allTokens of
+            Token {tokenKind = TModule} : _ -> True
+            Token {tokenKind = TImport} : _ -> True
+            Token {tokenKind = TData} : _ -> True
+            Token {tokenKind = TIdentifier name} : rest
+              | looksLikeReservedAbstractionDeclaration name rest -> True
+            Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
+            Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
+            _ -> False
+
         go previousToken allTokens =
           case allTokens of
             [] -> False

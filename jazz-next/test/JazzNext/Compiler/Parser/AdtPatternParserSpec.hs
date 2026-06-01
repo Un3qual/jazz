@@ -68,6 +68,7 @@ tests =
     ("keeps underscore boolean application after pipe operator inside body", testKeepsUnderscoreBooleanApplicationAfterPipeOperator),
     ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument),
     ("reports missing case body for block-valued scrutinee", testReportsMissingCaseBodyForBlockScrutinee),
+    ("reports block parse error for unterminated fractional block scrutinee", testReportsBlockErrorForUnterminatedFractionalBlockScrutinee),
     ("reports missing arm arrow for block-valued scrutinee", testReportsMissingArmArrowForBlockScrutinee),
     ("reports invalid case scrutinee syntax before body diagnostics", testReportsInvalidCaseScrutineeSyntax),
     ("rejects case expression without leading pipe", testRejectsCaseExpressionWithoutPipe),
@@ -757,6 +758,13 @@ testReportsMissingCaseBodyForBlockScrutinee =
     "block scrutinee missing case body"
     "expected '{' before end of input after 'case'"
     (parseSurfaceProgram "x = case f { y = 1. y. }.")
+
+testReportsBlockErrorForUnterminatedFractionalBlockScrutinee :: IO ()
+testReportsBlockErrorForUnterminatedFractionalBlockScrutinee =
+  assertLeftDiagnosticContains
+    "unterminated fractional block scrutinee parse error"
+    "expected '.'"
+    (parseSurfaceProgram "x = case f { y = 1.5 }.")
 
 testReportsMissingArmArrowForBlockScrutinee :: IO ()
 testReportsMissingArmArrowForBlockScrutinee =
