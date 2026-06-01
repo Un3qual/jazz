@@ -372,6 +372,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
             )
         SImpl implSpan capabilityName arguments methods ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
+              visible = currentVisibleBindings scopeBindings
               (nextImplDeclarations, implErrors) =
                 case concreteImplFactKey capabilityName arguments of
                   Nothing ->
@@ -385,13 +386,15 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
                       Nothing ->
                         (Map.insert implFactKey implSpan implDeclarations, [])
               methodErrors = duplicateImplMethodErrors capabilityName arguments methods
+              (methodWarnings, methodBodyErrors) =
+                collectImplMethodDiagnostics builtinMode settings visible methods
            in
             ( scopeBindings,
               classDeclarations,
               nextImplDeclarations,
               Nothing,
-              warningsRev,
-              appendErrors errorsWithPending (implErrors ++ methodErrors)
+              appendWarnings warningsRev methodWarnings,
+              appendErrors errorsWithPending (implErrors ++ methodErrors ++ methodBodyErrors)
             )
         SData spanValue _ _ constructors ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
@@ -640,6 +643,25 @@ mkDuplicateImplMethodError implLabel methodName methodSpan previousSpan =
         methodSpan
         (mkDiagnostic "E1007" ("duplicate method binding '" <> methodName <> "' in impl '" <> implLabel <> "'"))
 
+collectImplMethodDiagnostics ::
+  BuiltinResolutionMode ->
+  WarningSettings ->
+  Map Text VisibleBinding ->
+  [ImplMethod] ->
+  ([WarningRecord], [Diagnostic])
+collectImplMethodDiagnostics builtinMode settings visibleBindings methods =
+  foldl' step ([], []) methods
+  where
+    step (warningsAcc, errorsAcc) (ImplMethod methodName methodSpan methodExpr) =
+      let (methodWarnings, methodErrors) =
+            collectExprDiagnostics
+              builtinMode
+              settings
+              visibleBindings
+              (contextForImplMethod methodName methodSpan)
+              methodExpr
+       in (warningsAcc ++ methodWarnings, errorsAcc ++ methodErrors)
+
 mkDuplicateImplDeclarationError :: Text -> SourceSpan -> SourceSpan -> Diagnostic
 mkDuplicateImplDeclarationError implFactKey implSpan previousSpan =
   setDiagnosticSubject implFactKey $
@@ -670,6 +692,16 @@ contextForBinding bindingName bindingSpan =
       contextPrimarySpan = Just bindingSpan,
       contextSubject = Just (identifierText bindingName),
       contextLambdaSpan = Just bindingSpan
+    }
+
+contextForImplMethod :: Identifier -> SourceSpan -> AnalysisContext
+contextForImplMethod methodName methodSpan =
+  AnalysisContext
+    { contextLabel = "impl method '" <> identifierText methodName <> "'",
+      contextAllowsImpureCalls = identifierPurity methodName == Impure,
+      contextPrimarySpan = Just methodSpan,
+      contextSubject = Just (identifierText methodName),
+      contextLambdaSpan = Just methodSpan
     }
 
 contextForExpressionStatement :: SourceSpan -> AnalysisContext -> AnalysisContext
@@ -884,6 +916,11 @@ collectUnusedBindingUseState hiddenStatementIndices indexedStatements =
             (freeVarsExprWithBound Set.empty valueExpr)
         SExpr _ expr ->
           freeVarsExprWithBound Set.empty expr
+        SImpl _ _ _ methods ->
+          Set.unions
+            [ freeVarsExprWithBound Set.empty methodExpr
+              | ImplMethod _ _ methodExpr <- methods
+            ]
         _ -> Set.empty
 
     markReferencedBinding activeBindings usedStatementIndices referenceName =

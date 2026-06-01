@@ -59,7 +59,7 @@ tests =
     ("source pipeline accepts class method signature metadata", testSourceAcceptsClassMethodSignatureMetadata),
     ("source pipeline rejects duplicate class method signatures", testSourceRejectsDuplicateClassMethodSignatures),
     ("analyzer rejects duplicate class method metadata", testAnalyzerRejectsDuplicateClassMethodMetadata),
-    ("source pipeline accepts impl method binding metadata", testSourceAcceptsImplMethodBindingMetadata),
+    ("source pipeline analyzes impl method binding metadata", testSourceAnalyzesImplMethodBindingMetadata),
     ("source pipeline rejects variable-target impl method bindings", testSourceRejectsVariableTargetImplMethodBindings),
     ("source pipeline rejects variable-target empty impl declarations", testSourceRejectsVariableTargetEmptyImplDeclarations),
     ("source pipeline rejects duplicate impl method bindings", testSourceRejectsDuplicateImplMethodBindings),
@@ -386,9 +386,10 @@ testAnalyzerRejectsDuplicateClassMethodMetadata = do
           SExpr (SourceSpan 4 1) (ELit (LInt 1))
         ]
 
-testSourceAcceptsImplMethodBindingMetadata :: IO ()
-testSourceAcceptsImplMethodBindingMetadata =
-  assertSourceOkWithoutPrelude "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl Eq(Int) {\nequals = missingImplRuntime.\n}.\nx :: Int.\nx = 1.\nx."
+testSourceAnalyzesImplMethodBindingMetadata :: IO ()
+testSourceAnalyzesImplMethodBindingMetadata = do
+  assertSourceOkWithoutPrelude "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\nhelper :: Int.\nhelper = 1.\nimpl Eq(Int) {\nequals = helper.\n}.\nx :: Int.\nx = 1.\nx."
+  assertSourceSingleErrorContainsWithoutPrelude "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl Eq(Int) {\nequals = missingImplRuntime.\n}.\nx :: Int.\nx = 1.\nx." "unbound variable 'missingImplRuntime'"
 
 testSourceRejectsVariableTargetImplMethodBindings :: IO ()
 testSourceRejectsVariableTargetImplMethodBindings =

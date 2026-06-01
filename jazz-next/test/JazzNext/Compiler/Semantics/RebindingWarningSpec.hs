@@ -6,6 +6,7 @@ import JazzNext.Compiler.AST
   ( DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
+    ImplMethod (..),
     Literal (..),
     Statement (..)
   )
@@ -60,6 +61,7 @@ tests =
     ("disabled unused-binding emits nothing", testDisabledUnusedBindingEmitsNoWarnings),
     ("enabled unused-binding emits ordinary-let warning", testUnusedBindingEmitsWarning),
     ("used ordinary let emits no unused-binding warning", testUsedOrdinaryLetEmitsNoWarning),
+    ("impl method body reference counts as binding use", testImplMethodBodyReferenceCountsAsUse),
     ("pre-declaration references do not count as unused-binding use", testPreDeclarationReferenceDoesNotCountAsUse),
     ("same-name rebinding does not count later use for earlier binding", testSameNameRebindingKeepsEarlierBindingUnused),
     ("self-referential right hand side does not count as unused-binding use", testSelfReferentialRhsStillUnused),
@@ -199,6 +201,12 @@ testUsedOrdinaryLetEmitsNoWarning :: IO ()
 testUsedOrdinaryLetEmitsNoWarning = do
   settings <- unusedBindingEnabledSettings
   warnings <- analyzeRebindingWarnings settings usedOrdinaryLetProgram
+  assertEqual "warning count" 0 (length warnings)
+
+testImplMethodBodyReferenceCountsAsUse :: IO ()
+testImplMethodBodyReferenceCountsAsUse = do
+  settings <- unusedBindingEnabledSettings
+  warnings <- analyzeRebindingWarnings settings implMethodUsesBindingProgram
   assertEqual "warning count" 0 (length warnings)
 
 testPreDeclarationReferenceDoesNotCountAsUse :: IO ()
@@ -396,6 +404,17 @@ usedOrdinaryLetProgram =
     [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
       SLet "y" (SourceSpan 2 1) (EVar "x"),
       SExpr (SourceSpan 3 1) (EVar "y")
+    ]
+
+implMethodUsesBindingProgram :: Expr
+implMethodUsesBindingProgram =
+  EBlock
+    [ SLet "helper" (SourceSpan 1 1) (ELit (LInt 1)),
+      SImpl
+        (SourceSpan 2 1)
+        "Eq"
+        []
+        [ImplMethod "equals" (SourceSpan 2 10) (EVar "helper")]
     ]
 
 preDeclarationReferenceProgram :: Expr
