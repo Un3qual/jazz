@@ -93,6 +93,7 @@ tests =
     ("target-named integer conversion evaluates at runtime", testIntegerConversionRuntimeSuccess),
     ("target-named float conversion evaluates at runtime", testFloatConversionRuntimeSuccess),
     ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
+    ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
     ("Float16 conversion rounds to target precision", testFloat16ConversionRoundsRuntimeValue),
     ("dynamic integer conversion range failure reports deterministic diagnostic", testDynamicIntegerConversionRangeRuntimeError),
     ("runtime fallback rejects non-numeric conversion values", testRuntimeFallbackRejectsNonNumericConversionValue),
@@ -621,6 +622,13 @@ testFractionalLiteralRuntimeSuccess = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "1.25") (runOutput result)
+
+testFloat64ArithmeticRuntimeSuccess :: IO ()
+testFloat64ArithmeticRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "((7.5 - 1.5) * 2.0) / 3.0 + 0.25."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "4.25") (runOutput result)
 
 testFloat16ConversionRoundsRuntimeValue :: IO ()
 testFloat16ConversionRoundsRuntimeValue = do

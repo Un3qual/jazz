@@ -71,14 +71,15 @@ tests =
     ("source pipeline accepts target-named integer conversions", testSourcePipelineAcceptsTargetNamedIntegerConversions),
     ("source pipeline accepts target-named float conversions", testSourcePipelineAcceptsTargetNamedFloatConversions),
     ("source pipeline accepts Float64 fractional literal defaults", testSourcePipelineAcceptsFloat64FractionalLiteralDefaults),
+    ("source pipeline accepts same-width Float64 arithmetic", testSourcePipelineAcceptsSameWidthFloat64Arithmetic),
+    ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
     ("source pipeline rejects implicit integer and fractional literal mixing", testSourcePipelineRejectsImplicitIntegerFractionalMixing),
+    ("source pipeline rejects mixed-width float arithmetic", testSourcePipelineRejectsMixedWidthFloatArithmetic),
     ("source pipeline rejects out-of-range literal conversions", testSourcePipelineRejectsOutOfRangeLiteralConversions),
     ("source pipeline rejects non-integral fractional literal conversions", testSourcePipelineRejectsNonIntegralFractionalLiteralConversions),
     ("source pipeline rejects out-of-range float-target literal conversions", testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions),
     ("source pipeline ignores conversion literal checks for shadowed names", testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames),
     ("source pipeline freshens prelude conversion aliases", testSourcePipelineFreshensPreludeConversionAliases),
-    ("source pipeline rejects float conversion operands in numeric operators", testSourcePipelineRejectsFloatConversionOperandsInNumericOperators),
-    ("source pipeline rejects float conversion operands through operator values", testSourcePipelineRejectsFloatConversionOperandsThroughOperatorValues),
     ("source pipeline keeps locally shadowed kernel aliases ordinary", testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary),
     ("source pipeline rejects non-numeric conversion source", testSourcePipelineRejectsNonNumericConversionSource)
   ]
@@ -303,11 +304,28 @@ testSourcePipelineAcceptsFloat64FractionalLiteralDefaults :: IO ()
 testSourcePipelineAcceptsFloat64FractionalLiteralDefaults =
   assertCompiles "x = 1.5."
 
+testSourcePipelineAcceptsSameWidthFloat64Arithmetic :: IO ()
+testSourcePipelineAcceptsSameWidthFloat64Arithmetic =
+  assertCompilesWithBundledPrelude
+    "x :: Float64.\nx = ((1.5 + 2.25) - toFloat64 1) * (6.0 / 2.0)."
+
+testSourcePipelineAcceptsSameWidthFloat64OperatorValues :: IO ()
+testSourcePipelineAcceptsSameWidthFloat64OperatorValues =
+  assertCompilesWithBundledPrelude
+    "x :: Float64.\nx = (+) (toFloat64 1) (toFloat64 2)."
+
 testSourcePipelineRejectsImplicitIntegerFractionalMixing :: IO ()
 testSourcePipelineRejectsImplicitIntegerFractionalMixing =
   assertCompileError
     "x = 1 + 1.5."
     "mixed integer/fractional operator"
+    "E2003"
+
+testSourcePipelineRejectsMixedWidthFloatArithmetic :: IO ()
+testSourcePipelineRejectsMixedWidthFloatArithmetic =
+  assertCompileErrorWithBundledPrelude
+    "left :: Float16.\nleft = toFloat16 1.\nx :: Float64.\nx = left + 2.0."
+    "mixed-width float arithmetic"
     "E2003"
 
 testSourcePipelineRejectsOutOfRangeLiteralConversions :: IO ()
@@ -339,20 +357,6 @@ testSourcePipelineFreshensPreludeConversionAliases :: IO ()
 testSourcePipelineFreshensPreludeConversionAliases =
   assertCompilesWithBundledPrelude
     "a :: Int16.\na = toInt16 1.\nb :: UInt8.\nb = toUInt8 a.\nc :: UInt16.\nc = toUInt16 2.\nd :: UInt8.\nd = toUInt8 c."
-
-testSourcePipelineRejectsFloatConversionOperandsInNumericOperators :: IO ()
-testSourcePipelineRejectsFloatConversionOperandsInNumericOperators =
-  assertCompileErrorWithBundledPrelude
-    "x = toFloat64 1 + toFloat64 2."
-    "float conversion numeric operator"
-    "E2003"
-
-testSourcePipelineRejectsFloatConversionOperandsThroughOperatorValues :: IO ()
-testSourcePipelineRejectsFloatConversionOperandsThroughOperatorValues =
-  assertCompileErrorWithBundledPrelude
-    "x = (+) (toFloat64 1) (toFloat64 2)."
-    "float conversion operator value"
-    "E2006"
 
 testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary :: IO ()
 testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary =

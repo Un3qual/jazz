@@ -1,6 +1,6 @@
 # Primitive Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, default Float64 fractional literal values parse/evaluate, and runtime arithmetic widening remains out of scope)
+Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, default Float64 fractional literal values parse/evaluate, and same concrete `Float`/`Float64` arithmetic now type-checks and evaluates)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md`
 
@@ -73,10 +73,10 @@ Invalid examples:
 - Context can choose a narrower explicit type for an integer literal, for example an `Int32` annotation can make `2` an `Int32`.
 - Numeric operators require one concrete numeric type per operation, matching the Haskell-like `(+) :: Num a => a -> a -> a` shape.
 - Mixed concrete widths, such as `Int32 + Int64`, are type errors unless one side is converted explicitly.
-- `jazz-next` now parses, lowers, and type-checks width-specific numeric signature names plus `Int`/`Float` aliases before any runtime arithmetic widening.
+- `jazz-next` parses, lowers, and type-checks width-specific numeric signature names plus `Int`/`Float` aliases, and the active runtime operator subset evaluates same concrete `Float`/`Float64` arithmetic.
 - Integer literals can satisfy an explicit integral-width signature annotation; ambiguous integer literals still default through `Int`.
 - Decimal fractional literals such as `1.5` parse and lower to the default `Float`/`Float64` literal slice, can satisfy explicit `Float` or `Float64` signatures, and evaluate/render as runtime Float64 values.
-- Fractional literals do not target `Float16` or `Float32` directly, integer/fractional operator mixing remains a type error, and runtime floating arithmetic remains out of scope for this slice.
+- Fractional literals do not target `Float16` or `Float32` directly, integer/fractional operator mixing remains a type error, and `Float16`/`Float32` arithmetic remains out of scope for this slice.
 
 ### Explicit Conversion Contract
 

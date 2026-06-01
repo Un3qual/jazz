@@ -1091,6 +1091,13 @@ evalBinary builtinMode operatorSymbol leftValue rightValue =
       Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
     ("/", VInt leftInt, VInt rightInt) ->
       Right (VInt (leftInt `div` rightInt))
+    ("+", VFloat leftFloat, VFloat rightFloat) -> Right (VFloat (leftFloat + rightFloat))
+    ("-", VFloat leftFloat, VFloat rightFloat) -> Right (VFloat (leftFloat - rightFloat))
+    ("*", VFloat leftFloat, VFloat rightFloat) -> Right (VFloat (leftFloat * rightFloat))
+    ("/", VFloat _, VFloat 0) ->
+      Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
+    ("/", VFloat leftFloat, VFloat rightFloat) ->
+      Right (VFloat (leftFloat / rightFloat))
     ("<", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt < rightInt))
     ("<=", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt <= rightInt))
     (">", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt > rightInt))

@@ -217,6 +217,7 @@ data IntegerLiteralRange = IntegerLiteralRange Integer Integer
 
 data NumericConstraint
   = AnyNumericConstraint
+  | RuntimeArithmeticNumericConstraint
   | IntegralNumericConstraint
   | IntegralLiteralNumericConstraint IntegerLiteralRange
   deriving (Eq, Show)
@@ -1832,7 +1833,7 @@ instantiateOperatorType operatorSymbol state =
     Just (NumericRule resultRule) ->
       let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
           stateAfterNumericConstraint =
-            addNumericTypeVarConstraint typeVar IntegralNumericConstraint stateAfterOperandType
+            addNumericTypeVarConstraint typeVar RuntimeArithmeticNumericConstraint stateAfterOperandType
        in
         Just
           ( TFunctionType
@@ -2110,6 +2111,8 @@ combineNumericConstraints leftConstraint rightConstraint =
       IntegralLiteralNumericConstraint literalRange
     (IntegralNumericConstraint, _) -> IntegralNumericConstraint
     (_, IntegralNumericConstraint) -> IntegralNumericConstraint
+    (RuntimeArithmeticNumericConstraint, _) -> RuntimeArithmeticNumericConstraint
+    (_, RuntimeArithmeticNumericConstraint) -> RuntimeArithmeticNumericConstraint
     _ -> AnyNumericConstraint
 
 applyNumericConstraintToReplacement :: NumericConstraint -> ExpressionType -> Maybe ExpressionType
@@ -2127,9 +2130,9 @@ constrainRuntimeNumericOperatorType :: ExpressionType -> InferState -> Maybe Inf
 constrainRuntimeNumericOperatorType expressionType state =
   case resolveType state expressionType of
     TVarType typeVar ->
-      Just (addNumericTypeVarConstraint typeVar IntegralNumericConstraint state)
+      Just (addNumericTypeVarConstraint typeVar RuntimeArithmeticNumericConstraint state)
     resolvedType
-      | typeSatisfiesNumericConstraint IntegralNumericConstraint resolvedType ->
+      | typeSatisfiesNumericConstraint RuntimeArithmeticNumericConstraint resolvedType ->
           Just state
       | otherwise ->
           Nothing
@@ -2143,6 +2146,15 @@ typeSatisfiesNumericConstraint numericConstraint expressionType =
         TIntegerLiteralType {} -> True
         TFloatType -> True
         TNumericType {} -> True
+        TVarType {} -> True
+        _ -> False
+    RuntimeArithmeticNumericConstraint ->
+      case expressionType of
+        TIntType -> True
+        TIntegerLiteralType {} -> True
+        TFloatType -> True
+        TNumericType numericType ->
+          numericTypeIsIntegral numericType || numericType == NumericFloat64
         TVarType {} -> True
         _ -> False
     IntegralNumericConstraint ->

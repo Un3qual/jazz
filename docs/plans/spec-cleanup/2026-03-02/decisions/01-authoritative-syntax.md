@@ -1,30 +1,22 @@
 ---
-id: JN-CLASS-IMPL-ENV-VALIDATION-001
-status: completed
+id: JN-CAPABILITY-BODY-BOUNDARY-001
+status: ready
 priority: P2
-size: M
+size: S
 kind: impl
 autonomous_ready: yes
-depends_on: []
+depends_on:
+  - JN-CLASS-IMPL-ENV-VALIDATION-001
 last_verified: 2026-05-31
-plan_section: "Completed jazz-next batch: class/impl environment validation"
+plan_section: "Ready implementation batch: class/impl non-empty body rejection"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/AST.hs
   - jazz-next/src/JazzNext/Compiler/Parser.hs
-  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
-  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
-  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
-  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Collect canonical class/impl declarations into analyzer/type environments, reject duplicate class and duplicate concrete impl facts, and validate known concrete constrained signatures without adding dispatch/runtime semantics."
+deliverable: "Reject any non-whitespace tokens inside active `class` or `impl` declaration bodies with a deterministic parser diagnostic instead of silently discarding deferred method syntax."
 ---
 
 # Jazz Spec-Cleanup #1: Authoritative Syntax Implementation Plan
@@ -72,6 +64,7 @@ deliverable: "Collect canonical class/impl declarations into analyzer/type envir
 - [x] Canonical collection combinator order is function-first (`map f xs`, `filter p xs`).
 - [x] Function/module surface continues parser-first style (`name = expr.`, `module A::B { ... }`, `import A::B`).
 - [x] On `2026-05-31`, locked `trait` as permanently rejected in active `jazz-next`; future abstraction work starts from canonical `class`/`impl` only.
+- [ ] Next active-path parser boundary: reject non-empty `class`/`impl` bodies until method metadata and dispatch have a concrete contract.
 
 ## Completed jazz-next batch: class/impl parser boundary
 
@@ -209,6 +202,47 @@ Batch verification:
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Ready implementation batch: class/impl non-empty body rejection
+
+This active-path parser boundary is the next narrow class/impl batch after
+environment validation. Empty `class` and `impl` declarations remain accepted as
+inert capability facts. Non-empty bodies must not be silently discarded while
+method metadata, method implementation syntax, and runtime dispatch are still
+deferred.
+
+Executor-safe scope:
+
+- Preserve existing accepted empty bodies such as `class Eq { }.` and
+  `impl Eq(Int) { }.`.
+- Reject any token between the braces of an active `class` or `impl`
+  declaration with a deterministic parser diagnostic that names deferred
+  method syntax/semantics.
+- Keep `trait` permanently rejected as non-canonical abstraction syntax.
+- Preserve ordinary bindings and signatures named `class`, `impl`, or `trait`.
+- Do not change analyzer, type-inference, prelude, or runtime behavior for
+  already-lowered empty class/impl declarations.
+
+Out of scope:
+
+- parsing or preserving method signatures,
+- parsing method implementation bodies,
+- method lookup or dispatch,
+- dictionaries, default methods, superclasses, inferred constraints, or runtime
+  evidence values.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```

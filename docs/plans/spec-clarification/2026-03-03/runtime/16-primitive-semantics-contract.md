@@ -1,34 +1,28 @@
 ---
-id: JN-FRACTIONAL-LITERAL-FLOAT64-001
-status: done
-priority: P2
+id: JN-FLOAT64-SAME-WIDTH-ARITHMETIC-001
+status: completed
+priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
+  - JN-FRACTIONAL-LITERAL-FLOAT64-001
   - JN-NUMERIC-WIDTH-SIGNATURE-TYPES-001
   - JN-NUMERIC-CONVERSIONS-API-001
-last_verified: 2026-05-31
-plan_section: "Completed implementation batch: Float64 fractional literals"
+last_verified: 2026-06-01
+completed_on: 2026-06-01
+plan_section: "Completed implementation batch: Float64 same-width arithmetic"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
-  - jazz-next/src/JazzNext/Compiler/Parser.hs
-  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
-  - jazz-next/src/JazzNext/Compiler/AST.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/src/JazzNext/Compiler/Runtime.hs
-  - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Parsed and evaluated decimal fractional literals as the default Float64 literal slice, with Float and Float64 signature acceptance and no implicit narrowing, widening, or mixed-width conversion."
+deliverable: "Permit `+`, `-`, `*`, and `/` for same concrete `Float`/`Float64` operands in type inference and runtime while preserving explicit-conversion-only mixed-width behavior."
 ---
 
 # Primitive Semantics Contract Implementation Plan
@@ -81,6 +75,7 @@ Execution note:
 - [x] On `2026-05-31`, selected explicit numeric conversions as the next primitive-surface expansion before broader runtime arithmetic widening.
 - [x] On `2026-05-31`, landed explicit target-named numeric conversions through the active `jazz-next` prelude/catalog/runtime boundary.
 - [x] On `2026-05-31`, landed the default Float64 fractional literal slice in `jazz-next`.
+- [x] Same concrete `Float`/`Float64` arithmetic for `+`, `-`, `*`, and `/` landed in `jazz-next`.
 
 First implementation target (landed 2026-05-29):
 
@@ -182,6 +177,50 @@ Focused verification:
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Completed implementation batch: Float64 same-width arithmetic
+
+This active-path batch is the next primitive-surface slice after default
+Float64 fractional literals. It widened only same concrete `Float`/`Float64`
+arithmetic and kept mixed-width behavior explicit.
+
+Completed on `2026-06-01` as `JN-FLOAT64-SAME-WIDTH-ARITHMETIC-001`.
+
+Executor-safe scope:
+
+- Accepted `+`, `-`, `*`, and `/` when both operands resolve to the same concrete
+  `Float`/`Float64` type.
+- Returned the same `Float`/`Float64` type for accepted floating arithmetic.
+- Evaluated accepted operations through `VFloat` in the active runtime.
+- Preserved the existing integer arithmetic and integer division behavior.
+- Preserved compile-time rejection for mixed `Int`/`Float`, `Float16`/`Float64`,
+  `Float32`/`Float64`, and unrelated non-numeric operands.
+- Preserved explicit-conversion-only behavior for all cross-width operations.
+
+Out of scope:
+
+- floating comparison or equality operators,
+- literal suffix syntax,
+- Float16 or Float32 literal targeting,
+- implicit integer-to-float promotion,
+- implicit mixed-width arithmetic widening,
+- typeclass solver, dictionary passing, or runtime dispatch.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+
+Focused verification:
+
+```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
 bash scripts/check-execution-queue.sh
