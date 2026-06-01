@@ -207,6 +207,18 @@ parseStatement context knownAliases tokens =
   where
     singleStatement (statement, remaining) = ([statement], remaining)
 
+beginsStatement :: [Token] -> Bool
+beginsStatement tokens =
+  case tokens of
+    Token {tokenKind = TModule} : _ -> True
+    Token {tokenKind = TImport} : _ -> True
+    Token {tokenKind = TData} : _ -> True
+    Token {tokenKind = TIdentifier name} : rest
+      | looksLikeReservedAbstractionDeclaration name rest -> True
+    Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
+    Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
+    _ -> False
+
 isDeclarationContext :: StatementContext -> Bool
 isDeclarationContext context =
   case context of
@@ -1567,20 +1579,9 @@ parseCaseExpr knownAliases caseToken tokensAfterCase =
     braceLooksLikeScrutineeBlock tokens =
       case tokens of
         Token {tokenKind = TLBrace} : rest ->
-          startsStatementLikeBlock rest || go Nothing rest
+          beginsStatement rest || go Nothing rest
         _ -> False
       where
-        startsStatementLikeBlock allTokens =
-          case allTokens of
-            Token {tokenKind = TModule} : _ -> True
-            Token {tokenKind = TImport} : _ -> True
-            Token {tokenKind = TData} : _ -> True
-            Token {tokenKind = TIdentifier name} : rest
-              | looksLikeReservedAbstractionDeclaration name rest -> True
-            Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
-            Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
-            _ -> False
-
         go previousToken allTokens =
           case allTokens of
             [] -> False
@@ -2024,18 +2025,6 @@ collectUntilDot = go []
                     )
                 )
           | otherwise -> go (token : acc) rest
-
-    beginsStatement :: [Token] -> Bool
-    beginsStatement tokens =
-      case tokens of
-        Token {tokenKind = TModule} : _ -> True
-        Token {tokenKind = TImport} : _ -> True
-        Token {tokenKind = TData} : _ -> True
-        Token {tokenKind = TIdentifier name} : rest
-          | looksLikeReservedAbstractionDeclaration name rest -> True
-        Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
-        Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
-        _ -> False
 
 parseSignaturePayload :: [Token] -> SurfaceSignaturePayload
 parseSignaturePayload signatureTokens =
