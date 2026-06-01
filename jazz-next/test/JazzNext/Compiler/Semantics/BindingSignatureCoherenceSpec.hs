@@ -91,6 +91,8 @@ tests =
     ("source pipeline accepts concrete constrained signature as monomorphic", testSourceAcceptsConcreteConstrainedSignature),
     ("source pipeline accepts additional concrete constrained signatures", testSourceAcceptsAdditionalConcreteConstrainedSignatures),
     ("source pipeline accepts concrete tuple constrained signature argument", testSourceAcceptsConcreteTupleConstrainedSignatureArgument),
+    ("source pipeline accepts ADT application constrained signature argument", testSourceAcceptsAdtApplicationConstrainedSignatureArgument),
+    ("source pipeline rejects forward capability facts for constrained signature", testSourceRejectsForwardCapabilityFactsForConstrainedSignature),
     ("source pipeline rejects concrete constrained signature without impl fact", testSourceRejectsConcreteConstrainedSignatureWithoutImplFact),
     ("source pipeline rejects unknown constrained signature constraint", testSourceRejectsUnknownConstrainedSignatureConstraint),
     ("source pipeline rejects wrong-arity constrained signature constraint", testSourceRejectsWrongArityConstrainedSignatureConstraint),
@@ -537,6 +539,14 @@ testSourceAcceptsAdditionalConcreteConstrainedSignatures = do
 testSourceAcceptsConcreteTupleConstrainedSignatureArgument :: IO ()
 testSourceAcceptsConcreteTupleConstrainedSignatureArgument =
   assertSourceOk "class Eq { }.\nimpl Eq((Int, Bool)) { }.\npair :: @{Eq((Int, Bool))}: (Int, Bool).\npair = (1, True)."
+
+testSourceAcceptsAdtApplicationConstrainedSignatureArgument :: IO ()
+testSourceAcceptsAdtApplicationConstrainedSignatureArgument =
+  assertSourceOk "data Box a = Box a.\nclass Eq { }.\nimpl Eq(Box(Int)) { }.\nx :: @{Eq(Box(Int))}: Int.\nx = 1."
+
+testSourceRejectsForwardCapabilityFactsForConstrainedSignature :: IO ()
+testSourceRejectsForwardCapabilityFactsForConstrainedSignature =
+  assertSourceSingleErrorContains "x :: @{Eq(Int)}: Int.\nx = 1.\nclass Eq { }.\nimpl Eq(Int) { }." "missing class declaration 'Eq'"
 
 testSourceRejectsConcreteConstrainedSignatureWithoutImplFact :: IO ()
 testSourceRejectsConcreteConstrainedSignatureWithoutImplFact =

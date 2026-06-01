@@ -241,6 +241,8 @@ data InferState = InferState
     inferNumericVars :: Map Int NumericConstraint,
     inferClassFacts :: Set Text,
     inferConcreteImplFacts :: Set Text,
+    inferCurrentModulePath :: Maybe [Text],
+    inferModuleCapabilityFacts :: Map [Text] ScopeCapabilityFacts,
     inferErrorsRev :: [Diagnostic],
     inferErrorCount :: Int
   }
@@ -254,6 +256,8 @@ initialInferState =
       inferNumericVars = Map.empty,
       inferClassFacts = Set.empty,
       inferConcreteImplFacts = Set.empty,
+      inferCurrentModulePath = Nothing,
+      inferModuleCapabilityFacts = Map.empty,
       inferErrorsRev = [],
       inferErrorCount = 0
     }
@@ -817,21 +821,20 @@ inferScopeType builtinMode initialEnv initialState statements =
     selfRecursiveFunctionStatements =
       inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
-    capabilityFactsByStatement =
-      scopeCapabilityFactsByStatement indexedStatements initialState
     (bindingSeedsByStatement, seededState) =
       allocateBindingSeeds indexedStatements initialState
     stateAfterBindingSeeds = seededState
+    moduleBaselineFacts = capabilityFactsFromState initialState
 
     go env lastExprType pendingSignatureType state remainingStatements =
       case remainingStatements of
         [] -> (lastExprType, state)
         (statementIndex, statement) : rest ->
           case statement of
-            SModule {} ->
-              go env lastExprType pendingSignatureType (restoreCapabilityFacts initialState state) rest
-            SImport {} ->
-              go env lastExprType pendingSignatureType state rest
+            SModule _ modulePath ->
+              go env lastExprType pendingSignatureType (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
+            SImport _ modulePath maybeAlias maybeSymbolNames ->
+              go env lastExprType pendingSignatureType (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
             SClass {} ->
               go env lastExprType Nothing (seedStatementCapabilityFact state statement) rest
             SImpl {} ->
@@ -853,10 +856,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                             (restoreCapabilityFacts state stateAfterSignature)
                             (mkInvalidSignatureTypeError signatureState (identifierText name) signatureSpan signaturePayload)
                         )
-                  signatureState =
-                    applyCapabilityFacts
-                      (Map.findWithDefault (capabilityFactsFromState state) statementIndex capabilityFactsByStatement)
-                      state
+                  signatureState = state
                in go env lastExprType nextPendingSignature nextState rest
             SLet name bindingSpan valueExpr ->
               let nameText = identifierText name
@@ -984,6 +984,13 @@ data ScopeCapabilityFacts = ScopeCapabilityFacts
     scopeConcreteImplFacts :: Set Text
   }
 
+emptyScopeCapabilityFacts :: ScopeCapabilityFacts
+emptyScopeCapabilityFacts =
+  ScopeCapabilityFacts
+    { scopeClassFacts = Set.empty,
+      scopeConcreteImplFacts = Set.empty
+    }
+
 capabilityFactsFromState :: InferState -> ScopeCapabilityFacts
 capabilityFactsFromState state =
   ScopeCapabilityFacts
@@ -1005,33 +1012,46 @@ restoreCapabilityFacts previousState nextState =
       inferConcreteImplFacts = inferConcreteImplFacts previousState
     }
 
-scopeCapabilityFactsByStatement :: [(Int, Statement)] -> InferState -> Map Int ScopeCapabilityFacts
-scopeCapabilityFactsByStatement indexedStatements initialState =
-  Map.unions (map factsForSegment (scopeCapabilitySegments indexedStatements))
-  where
-    initialFacts = capabilityFactsFromState initialState
+mergeCapabilityFacts :: ScopeCapabilityFacts -> ScopeCapabilityFacts -> ScopeCapabilityFacts
+mergeCapabilityFacts leftFacts rightFacts =
+  ScopeCapabilityFacts
+    { scopeClassFacts = Set.union (scopeClassFacts leftFacts) (scopeClassFacts rightFacts),
+      scopeConcreteImplFacts =
+        Set.union
+          (scopeConcreteImplFacts leftFacts)
+          (scopeConcreteImplFacts rightFacts)
+    }
 
-    factsForSegment segment =
-      let segmentFacts = foldl' seedFacts initialFacts segment
-       in Map.fromList [(statementIndex, segmentFacts) | (statementIndex, _) <- segment]
+flushCurrentModuleCapabilityFacts :: InferState -> InferState
+flushCurrentModuleCapabilityFacts state =
+  case inferCurrentModulePath state of
+    Just modulePath ->
+      state
+        { inferModuleCapabilityFacts =
+            Map.insert
+              modulePath
+              (capabilityFactsFromState state)
+              (inferModuleCapabilityFacts state)
+        }
+    Nothing -> state
 
-scopeCapabilitySegments :: [(Int, Statement)] -> [[(Int, Statement)]]
-scopeCapabilitySegments indexedStatements =
-  filter (not . null) (reverse (map reverse rawSegments))
-  where
-    rawSegments =
-      foldl' appendStatement [[]] indexedStatements
+enterModuleCapabilityScope :: ScopeCapabilityFacts -> [Text] -> InferState -> InferState
+enterModuleCapabilityScope baselineFacts modulePath state =
+  (applyCapabilityFacts baselineFacts (flushCurrentModuleCapabilityFacts state))
+    { inferCurrentModulePath = Just modulePath
+    }
 
-    appendStatement segments statement@(_, SModule {}) =
-      case segments of
-        currentSegment : completedSegments ->
-          [statement] : currentSegment : completedSegments
-        [] -> [[statement]]
-    appendStatement segments statement =
-      case segments of
-        currentSegment : completedSegments ->
-          (statement : currentSegment) : completedSegments
-        [] -> [[statement]]
+importModuleCapabilityFacts :: [Text] -> Maybe Text -> Maybe [Text] -> InferState -> InferState
+importModuleCapabilityFacts modulePath maybeAlias _maybeSymbolNames state =
+  case maybeAlias of
+    Just _ -> state
+    Nothing ->
+      applyCapabilityFacts
+        ( mergeCapabilityFacts
+            (capabilityFactsFromState state)
+            (Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state))
+        )
+        state
 
 seedStatementCapabilityFact :: InferState -> Statement -> InferState
 seedStatementCapabilityFact state statement =
