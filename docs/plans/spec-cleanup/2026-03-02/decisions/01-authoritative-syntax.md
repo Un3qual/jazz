@@ -7,12 +7,12 @@ kind: impl
 autonomous_ready: no
 depends_on: []
 last_verified: 2026-06-01
-plan_section: "Follow-up: abstraction semantics beyond landed method metadata"
+plan_section: "Follow-up: abstraction semantics beyond explicit class parameter metadata"
 target_paths: []
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Class/impl abstraction semantics beyond landed inert class/impl method metadata remain blocked until dispatch, dictionary, and runtime contracts define target paths and focused verification."
+deliverable: "Class/impl abstraction semantics beyond queued explicit class parameter metadata remain blocked until dispatch, dictionary, and runtime contracts define target paths and focused verification."
 ---
 
 # Jazz Spec-Cleanup #1: Authoritative Syntax Implementation Plan
@@ -63,6 +63,7 @@ deliverable: "Class/impl abstraction semantics beyond landed inert class/impl me
 - [x] On `2026-06-01`, locked the active-path parser boundary that rejects non-empty `class`/`impl` bodies until method metadata and dispatch have a concrete contract.
 - [x] On `2026-06-01`, landed signature-only class method metadata in active `jazz-next` while keeping method implementations, dispatch, dictionaries, and runtime evidence blocked.
 - [x] On `2026-06-01`, landed inert concrete `impl` method binding metadata in active `jazz-next` while keeping dispatch, dictionaries, runtime evidence, and solver behavior blocked.
+- [x] On `2026-06-01`, selected explicit class parameters (`class Eq(a)`) instead of reserved `Self` as the canonical abstraction model and queued the metadata ownership prerequisite before dispatch.
 
 ## Completed jazz-next batch: class/impl parser boundary
 
@@ -359,17 +360,31 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
-## Follow-up: abstraction semantics beyond landed method metadata
+## Queued implementation batch: explicit class parameter metadata
+
+On `2026-06-01`, design discussion selected explicit class parameters rather
+than a reserved `Self` placeholder as the canonical abstraction model. The
+executor-safe child plan is:
+
+- `docs/plans/2026-06-01-jazz-next-explicit-class-parameters.md`
+
+That child is limited to preserving lowercase class parameter metadata through
+the active `jazz-next` AST and bundled prelude. It must not add method dispatch,
+dictionaries, runtime evidence values, `Self`, default methods, superclasses,
+or solver behavior.
+
+## Follow-up: abstraction semantics beyond explicit class parameter metadata
 
 On `2026-06-01`, queue execution completed the concrete child plan split out
 of this follow-up:
 
 - `docs/plans/2026-06-01-jazz-next-impl-method-body-metadata.md`
 
-That child is limited to inert concrete `impl` method body metadata. Further
-abstraction work stays blocked until separate contracts define method lookup
-and dispatch behavior, dictionary or evidence representation, runtime behavior,
-solver/defaulting behavior, and focused active-path target files/tests.
+The next child plan queues explicit class parameter metadata. Further
+abstraction work stays blocked until that prerequisite lands and separate
+contracts define qualified method dispatch behavior, dictionary or evidence
+representation, runtime behavior, solver/defaulting behavior, and focused
+active-path target files/tests.
 
 ## Historical Verification Evidence
 
