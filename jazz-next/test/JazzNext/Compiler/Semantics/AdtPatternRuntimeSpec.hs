@@ -42,6 +42,7 @@ tests =
     ("runtime binds as-patterns after inner matches", testRuntimeBindsAsPatternAfterInnerMatch),
     ("runtime falls back when as-pattern inner pattern does not match", testRuntimeFallsBackWhenAsPatternInnerDoesNotMatch),
     ("runtime supports as-pattern lambda parameters", testRuntimeSupportsAsPatternLambdaParameters),
+    ("runtime compares constructor values inside pattern arms", testRuntimeComparesConstructorValuesInsidePatternArms),
     ("runtime reports a deterministic error when no case arm matches", testRuntimeReportsNoMatchingArm)
   ]
 
@@ -129,6 +130,11 @@ testRuntimeSupportsAsPatternLambdaParameters :: IO ()
 testRuntimeSupportsAsPatternLambdaParameters = do
   result <- runSource defaultWarningSettings "f = \\(whole @ [head | tail]) -> head + hd tail. f [1, 2]."
   assertSuccessfulRuntime "as-pattern lambda parameter" (Just "3") result
+
+testRuntimeComparesConstructorValuesInsidePatternArms :: IO ()
+testRuntimeComparesConstructorValuesInsidePatternArms = do
+  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a. value = Just 41. case value { | whole @ Just item -> whole == Just item | Nothing -> False }."
+  assertSuccessfulRuntime "constructor equality in pattern arm" (Just "True") result
 
 testRuntimeReportsNoMatchingArm :: IO ()
 testRuntimeReportsNoMatchingArm = do

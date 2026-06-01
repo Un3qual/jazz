@@ -1153,11 +1153,13 @@ evalBinary builtinMode operatorSymbol leftValue rightValue =
     ("==", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool == rightBool))
     ("==", VList {}, VList {}) -> evalStructuralEquality "==" leftValue rightValue
     ("==", VTuple {}, VTuple {}) -> evalStructuralEquality "==" leftValue rightValue
+    ("==", VConstructor {}, VConstructor {}) -> evalStructuralEquality "==" leftValue rightValue
     ("!=", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt /= rightInt))
     ("!=", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat /= rightFloat))
     ("!=", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool /= rightBool))
     ("!=", VList {}, VList {}) -> evalStructuralEquality "!=" leftValue rightValue
     ("!=", VTuple {}, VTuple {}) -> evalStructuralEquality "!=" leftValue rightValue
+    ("!=", VConstructor {}, VConstructor {}) -> evalStructuralEquality "!=" leftValue rightValue
     ("$", functionValue, argumentValue) ->
       applyRuntimeFunction builtinMode functionValue argumentValue
     _ ->
@@ -1223,6 +1225,17 @@ runtimeStructuralEquality leftValue rightValue =
       structuralElementEquality leftElements rightElements
     (VTuple leftElements, VTuple rightElements) ->
       structuralElementEquality leftElements rightElements
+    (VConstructor leftName leftArity leftArgs, VConstructor rightName rightArity rightArgs)
+      | constructorIsSaturated leftArity leftArgs,
+        constructorIsSaturated rightArity rightArgs,
+        leftName == rightName,
+        leftArity == rightArity ->
+          structuralElementEquality leftArgs rightArgs
+      | constructorIsSaturated leftArity leftArgs,
+        constructorIsSaturated rightArity rightArgs ->
+          if all runtimeValueSupportsStructuralEquality (leftArgs <> rightArgs)
+            then Just False
+            else Nothing
     _ -> Nothing
 
 structuralElementEquality :: [RuntimeValue] -> [RuntimeValue] -> Maybe Bool

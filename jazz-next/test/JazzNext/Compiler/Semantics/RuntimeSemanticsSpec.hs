@@ -102,6 +102,7 @@ tests =
     ("Float16 and Float32 comparison and equality evaluate at runtime", testFloat16Float32ComparisonEqualityRuntimeSuccess),
     ("structural list equality evaluates at runtime", testStructuralListEqualityRuntimeSuccess),
     ("structural tuple equality evaluates at runtime", testStructuralTupleEqualityRuntimeSuccess),
+    ("structural ADT equality evaluates at runtime", testStructuralAdtEqualityRuntimeSuccess),
     ("runtime fallback rejects structural equality over functions", testRuntimeFallbackRejectsFunctionStructuralEquality),
     ("Float16 conversion rounds to target precision", testFloat16ConversionRoundsRuntimeValue),
     ("dynamic integer conversion range failure reports deterministic diagnostic", testDynamicIntegerConversionRangeRuntimeError),
@@ -719,6 +720,13 @@ testStructuralTupleEqualityRuntimeSuccess = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True]") (runOutput result)
+
+testStructuralAdtEqualityRuntimeSuccess :: IO ()
+testStructuralAdtEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a.\nsame = Just 1 == Just 1.\ndifferentPayload = Just 1 != Just 2.\ndifferentCtor = Just 1 == Nothing.\nnested = Just [True] == Just [True].\n[same, differentPayload, differentCtor, nested]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, False, True]") (runOutput result)
 
 testRuntimeFallbackRejectsFunctionStructuralEquality :: IO ()
 testRuntimeFallbackRejectsFunctionStructuralEquality = do

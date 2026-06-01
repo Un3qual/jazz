@@ -236,6 +236,9 @@ data TypeBinding
 
 type TypeEnv = Map Text TypeBinding
 
+data DataTypeBinding = DataTypeBinding [Identifier] [[ConstructorArgumentType]]
+  deriving (Eq, Show)
+
 -- | Mutable inference state threaded explicitly through the checker.
 data InferState = InferState
   { inferNextTypeVar :: Int,
@@ -246,6 +249,7 @@ data InferState = InferState
     -- Type variables originating from generic numeric operators must resolve
     -- to a concrete numeric family before they can be applied.
     inferNumericVars :: Map Int NumericConstraint,
+    inferDataTypes :: Map Text DataTypeBinding,
     inferClassFacts :: Set Text,
     inferConcreteImplFacts :: Set Text,
     inferCurrentModulePath :: Maybe [Text],
@@ -261,6 +265,7 @@ initialInferState =
       inferSubst = Map.empty,
       inferStrictEqualityVars = Set.empty,
       inferNumericVars = Map.empty,
+      inferDataTypes = Map.empty,
       inferClassFacts = Set.empty,
       inferConcreteImplFacts = Set.empty,
       inferCurrentModulePath = Nothing,
@@ -654,7 +659,7 @@ applyStrictEqualityBinaryRule operatorSymbol leftType rightType state =
     Just unifiedState ->
       let resolvedType = resolveType unifiedState leftType
        in
-        if supportsRuntimeEqualityType resolvedType
+        if supportsRuntimeEqualityType unifiedState resolvedType
           then (Just TBoolType, unifiedState)
           else
             ( Nothing,
@@ -732,7 +737,7 @@ applyStrictEqualitySectionLeftRule operatorSymbol leftType state =
           addStrictEqualityTypeVarConstraint typeVar state
         )
       _
-        | supportsRuntimeEqualityType resolvedLeftType ->
+        | supportsRuntimeEqualityType state resolvedLeftType ->
             (Just (TFunctionType resolvedLeftType TBoolType), state)
         | otherwise ->
             ( Nothing,
@@ -800,7 +805,7 @@ applyStrictEqualitySectionRightRule operatorSymbol rightType state =
           addStrictEqualityTypeVarConstraint typeVar state
         )
       _
-        | supportsRuntimeEqualityType resolvedRightType ->
+        | supportsRuntimeEqualityType state resolvedRightType ->
             (Just (TFunctionType resolvedRightType TBoolType), state)
         | otherwise ->
             ( Nothing,
@@ -1204,9 +1209,20 @@ data PendingSignatureType = PendingSignatureType
 
 registerDataConstructors :: Identifier -> [Identifier] -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
 registerDataConstructors typeName typeParameters constructors env initialState =
-  foldl' register (env, initialState) constructors
+  let (nextEnv, nextState, constructorPayloadsRev) =
+        foldl' register (env, initialState, []) constructors
+   in
+    ( nextEnv,
+      nextState
+        { inferDataTypes =
+            Map.insert
+              (identifierText typeName)
+              (DataTypeBinding typeParameters (reverse constructorPayloadsRev))
+              (inferDataTypes nextState)
+        }
+    )
   where
-    register (envAcc, stateAcc) (DataConstructor constructorName constructorArguments) =
+    register (envAcc, stateAcc, constructorPayloadsAcc) (DataConstructor constructorName constructorArguments) =
       let (argumentTypes, nextState) =
             constructorArgumentTypes typeParameters constructorArguments stateAcc
        in
@@ -1214,7 +1230,8 @@ registerDataConstructors typeName typeParameters constructors env initialState =
             (identifierText constructorName)
             (ConstructorTypeBinding typeName typeParameters argumentTypes)
             envAcc,
-          nextState
+          nextState,
+          argumentTypes : constructorPayloadsAcc
         )
 
 constructorArgumentTypes :: [Identifier] -> [DataConstructorArgument] -> InferState -> ([ConstructorArgumentType], InferState)
@@ -2064,7 +2081,7 @@ bindTypeVar typeVar replacementType state
   | replacementType == TVarType typeVar = Just state
   | occursInType typeVar replacementType = Nothing
   -- Preserve compile/runtime contract when deferred section vars later unify.
-  | typeVarIsStrictEqualityConstrained && not (supportsDeferredEqualityOperandType replacementType) =
+  | typeVarIsStrictEqualityConstrained && not (supportsDeferredEqualityOperandType state replacementType) =
       Nothing
   | otherwise =
       case constrainedReplacementType of
@@ -2263,7 +2280,7 @@ mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
     "E2004"
     ( "strict equality operator '"
         <> operatorSymbol
-        <> "' is only supported for Bool, integral numeric, Float/Float16/Float32/Float64, and lists and tuples containing equality-supported elements, found "
+        <> "' is only supported for Bool, integral numeric, Float/Float16/Float32/Float64, lists and tuples containing equality-supported elements, and ADTs containing equality-supported constructor payloads, found "
         <> renderType foundType
     )
 
@@ -3044,22 +3061,47 @@ mkDuplicatePatternBinderError binderName =
     "E2011"
     ("duplicate case pattern binder '" <> binderName <> "'")
 
-supportsRuntimeEqualityType :: ExpressionType -> Bool
-supportsRuntimeEqualityType expressionType =
+supportsRuntimeEqualityType :: InferState -> ExpressionType -> Bool
+supportsRuntimeEqualityType state expressionType =
   -- Keep compile-time acceptance aligned with the currently implemented
   -- runtime equality evaluator to avoid compile/runtime contract drift.
-  case expressionType of
+  case resolveType state expressionType of
     TIntType -> True
     TIntegerLiteralType {} -> True
     TFloatType -> True
     TNumericType numericType -> numericTypeSupportsRuntimeComparison numericType
     TBoolType -> True
-    TListType elementType -> supportsRuntimeEqualityType elementType
-    TTupleType elementTypes -> all supportsRuntimeEqualityType elementTypes
+    TListType elementType -> supportsRuntimeEqualityType state elementType
+    TTupleType elementTypes -> all (supportsRuntimeEqualityType state) elementTypes
+    TDataType typeName typeArguments ->
+      dataTypeSupportsRuntimeEquality state typeName typeArguments
     _ -> False
 
-supportsDeferredEqualityOperandType :: ExpressionType -> Bool
-supportsDeferredEqualityOperandType expressionType =
-  case expressionType of
+dataTypeSupportsRuntimeEquality :: InferState -> Identifier -> [ExpressionType] -> Bool
+dataTypeSupportsRuntimeEquality state typeName typeArguments =
+  case Map.lookup (identifierText typeName) (inferDataTypes state) of
+    Just (DataTypeBinding typeParameters constructors)
+      | length typeParameters == length typeArguments ->
+          let typeParameterBindings =
+                Map.fromList
+                  (zip (map identifierText typeParameters) (map (resolveType state) typeArguments))
+           in all
+                (all (constructorArgumentSupportsRuntimeEquality typeParameterBindings))
+                constructors
+    _ -> False
+  where
+    constructorArgumentSupportsRuntimeEquality typeParameterBindings argumentType =
+      case argumentType of
+        ConstructorArgumentMonomorphic expressionType ->
+          supportsRuntimeEqualityType state expressionType
+        ConstructorArgumentParameter parameterName ->
+          case Map.lookup parameterName typeParameterBindings of
+            Just expressionType -> supportsRuntimeEqualityType state expressionType
+            Nothing -> False
+        ConstructorArgumentFresh -> False
+
+supportsDeferredEqualityOperandType :: InferState -> ExpressionType -> Bool
+supportsDeferredEqualityOperandType state expressionType =
+  case resolveType state expressionType of
     TVarType _ -> True
-    _ -> supportsRuntimeEqualityType expressionType
+    _ -> supportsRuntimeEqualityType state expressionType

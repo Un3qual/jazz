@@ -12,7 +12,7 @@ target_paths: []
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Primitive deltas outside landed Float16/Float32 same-width arithmetic/comparison/equality and the queued structural ADT equality child plan remain blocked until separate concrete contracts define target paths and focused verification."
+deliverable: "Primitive deltas outside landed numeric and structural equality batches remain blocked until separate concrete contracts define target paths and focused verification."
 ---
 
 # Primitive Semantics Contract Implementation Plan
@@ -69,6 +69,7 @@ Execution note:
 - [x] Same concrete `Float`/`Float64` comparison and equality for `==`, `!=`, `<`, `<=`, `>`, and `>=` landed in `jazz-next`.
 - [x] Structural tuple/list equality for equality-supported element types landed in `jazz-next`.
 - [x] Same concrete `Float16`/`Float32` arithmetic plus comparison/equality landed in `jazz-next`.
+- [x] Structural ADT equality for declared constructors with equality-supported payload types landed in `jazz-next`.
 
 First implementation target (landed 2026-05-29):
 
@@ -292,7 +293,6 @@ Executor-safe scope:
 
 Out of scope:
 
-- structural equality for user-defined ADT constructors,
 - structural equality for functions, builtins, operator values, sections, or
   partial constructors,
 - implicit numeric conversion or mixed-width equality,
@@ -311,6 +311,55 @@ Focused verification:
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Completed implementation batch: structural ADT equality
+
+This active-path primitive slice extends strict type-directed equality to
+declared ADT constructor values when every declared constructor payload type is
+already in the supported equality subset. It remains non-coercive and does not
+introduce typeclass dispatch.
+
+Completed on `2026-06-01` as
+`JN-PRIMITIVE-STRUCTURAL-ADT-EQUALITY-001`.
+
+Executor-safe scope:
+
+- Accept `==` and `!=` for operands that resolve to the same declared ADT type
+  when every constructor payload type recursively supports runtime equality.
+- Compare saturated constructor tags first, then payloads structurally through
+  the existing equality-supported primitive, list, tuple, and ADT cases.
+- Return `False` for different constructors of the same ADT when both sides are
+  otherwise equality-supported.
+- Preserve compile-time rejection for different ADT types, function payloads,
+  partial constructors, unresolved payload families, and unsupported runtime
+  equality families.
+- Evaluate accepted ADT equality through the explicit runtime structural helper
+  rather than the broad `RuntimeValue` `Eq` instance.
+
+Out of scope:
+
+- structural equality for functions, builtins, operator values, sections, or
+  partial constructors,
+- implicit numeric conversion or mixed-width equality,
+- typeclass solver, dictionary passing, or runtime dispatch.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
@@ -397,7 +446,7 @@ Out of scope:
 - Float16 or Float32 literal targeting,
 - implicit integer-to-float promotion,
 - implicit mixed-width comparison widening,
-- structural ADT equality,
+- structural ADT equality (landed separately as the batch above),
 - typeclass solver, dictionary passing, or runtime dispatch.
 
 Target paths:
@@ -419,18 +468,14 @@ bash scripts/check-docs.sh
 ## Follow-up: Primitive deltas after child-plan reseed
 
 On `2026-06-01`, queue curation split three concrete child plans out of this
-umbrella follow-up, and the same-width arithmetic plus comparison/equality
-child plans landed:
+umbrella follow-up, and all three child plans landed:
 
 - `docs/plans/2026-06-01-jazz-next-float16-float32-same-width-arithmetic.md`
 - `docs/plans/2026-06-01-jazz-next-float16-float32-same-width-comparison-equality.md`
 - `docs/plans/2026-06-01-jazz-next-structural-adt-equality.md`
 
-The remaining structural ADT equality child plan is executor-safe because it
-inherits strict type-directed equality, active `jazz-next` target paths, and
-focused verification from the landed structural tuple/list batch. Remaining
-primitive surface work stays blocked until separate contracts define exact
-syntax or behavior, target paths, and focused verification for literal
+Remaining primitive surface work stays blocked until separate contracts define
+exact syntax or behavior, target paths, and focused verification for literal
 suffixes, Float16/Float32 literal targeting, implicit integer-to-float
 promotion, implicit mixed-width behavior, function/operator/section equality,
 or broader numeric solver behavior.

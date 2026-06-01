@@ -1,12 +1,13 @@
 ---
 id: JN-PRIMITIVE-STRUCTURAL-ADT-EQUALITY-001
-status: ready
+status: done
 priority: P2
 size: M
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
 last_verified: 2026-06-01
+completed_on: 2026-06-01
 plan_section: "Batch 1: Structural ADT equality for declared constructors"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
@@ -40,6 +41,9 @@ implicit numeric conversion, mixed-width equality, dictionaries, or runtime
 dispatch.
 
 ## Batch 1: Structural ADT equality for declared constructors
+
+Completed on `2026-06-01` as
+`JN-PRIMITIVE-STRUCTURAL-ADT-EQUALITY-001`.
 
 Executor-safe scope:
 

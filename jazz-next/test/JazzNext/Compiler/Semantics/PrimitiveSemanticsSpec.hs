@@ -60,8 +60,12 @@ tests =
     ("source pipeline accepts deferred right equality section once constrained", testSourcePipelineAcceptsDeferredRightEqualitySection),
     ("source pipeline accepts structural list equality", testSourcePipelineAcceptsStructuralListEquality),
     ("source pipeline accepts structural tuple equality", testSourcePipelineAcceptsStructuralTupleEquality),
+    ("source pipeline accepts structural ADT equality", testSourcePipelineAcceptsStructuralAdtEquality),
     ("source pipeline accepts structural equality sections", testSourcePipelineAcceptsStructuralEqualitySections),
     ("source pipeline rejects structural equality with function elements", testSourcePipelineRejectsStructuralFunctionEquality),
+    ("source pipeline rejects structural ADT equality with function payloads", testSourcePipelineRejectsStructuralAdtFunctionEquality),
+    ("source pipeline rejects structural ADT equality for partial constructors", testSourcePipelineRejectsStructuralAdtPartialConstructorEquality),
+    ("source pipeline rejects structural ADT equality across different types", testSourcePipelineRejectsStructuralAdtTypeMismatch),
     ("source pipeline preserves numeric width through left integer literal arithmetic", testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral),
     ("source pipeline preserves numeric width through left integer literal section", testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteralSection),
     ("source pipeline preserves numeric width through right integer literal section", testSourcePipelinePreservesNumericWidthWithRightIntegerLiteralSection),
@@ -234,6 +238,13 @@ testSourcePipelineAcceptsStructuralTupleEquality =
   assertCompiles
     "same = (1, True) == (1, True).\nnested = (1, (True, 2)) != (1, (True, 3))."
 
+testSourcePipelineAcceptsStructuralAdtEquality :: IO ()
+testSourcePipelineAcceptsStructuralAdtEquality = do
+  assertCompiles
+    "data Maybe = Nothing | Just value.\nleft = Just 1.\nright = Just 1.\nsame = left == right.\ndifferent = left != Nothing.\neqOp = (==).\nsameViaOp = eqOp left right.\nsameViaLeftSection = (left ==) right.\nsameViaRightSection = (== right) left."
+  assertCompiles
+    "data Box a = Box a.\nleft = Box [1, 2].\nright = Box [1, 2].\nsame = left == right."
+
 testSourcePipelineAcceptsStructuralEqualitySections :: IO ()
 testSourcePipelineAcceptsStructuralEqualitySections =
   assertCompiles
@@ -250,6 +261,32 @@ testSourcePipelineRejectsStructuralFunctionEquality = do
     "function-valued structural equality summary"
     "lists and tuples containing equality-supported elements"
     (compileErrors result)
+
+testSourcePipelineRejectsStructuralAdtFunctionEquality :: IO ()
+testSourcePipelineRejectsStructuralAdtFunctionEquality = do
+  result <- compileSource defaultWarningSettings "data Box a = Box a.\nf = \\(x) -> x.\nleft = Box f.\nright = Box f.\nx = left == right."
+  assertSingleDiagnosticContains
+    "function-valued ADT equality code"
+    "E2004"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "function-valued ADT equality summary"
+    "ADTs containing equality-supported constructor payloads"
+    (compileErrors result)
+
+testSourcePipelineRejectsStructuralAdtPartialConstructorEquality :: IO ()
+testSourcePipelineRejectsStructuralAdtPartialConstructorEquality =
+  assertCompileError
+    "data Box a = Box a.\nx = Box == Box."
+    "partial constructor equality"
+    "E2004"
+
+testSourcePipelineRejectsStructuralAdtTypeMismatch :: IO ()
+testSourcePipelineRejectsStructuralAdtTypeMismatch =
+  assertCompileError
+    "data Lefty = Lefty.\ndata Righty = Righty.\nx = Lefty == Righty."
+    "different ADT type equality"
+    "E2004"
 
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral :: IO ()
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral =

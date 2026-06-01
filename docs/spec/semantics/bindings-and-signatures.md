@@ -1,6 +1,6 @@
 # Bindings and Signatures Semantics
 
-Status: active (`jazz-next` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints validated against class/impl facts, monomorphic variable constrained signatures, deterministic unsupported-variable diagnostics, unsupported constrained-signature primary spans, and structural list/tuple equality over equality-supported element types are implemented)
+Status: active (`jazz-next` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints validated against class/impl facts, monomorphic variable constrained signatures, deterministic unsupported-variable diagnostics, unsupported constrained-signature primary spans, and structural list/tuple/ADT equality over equality-supported element and constructor payload types are implemented)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
 
@@ -36,7 +36,7 @@ Adjacent numeric-width work:
 - `Float` maps to `Float64`.
 - Explicit width names (`Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float16`, `Float32`, and `Float64`) are ordinary monomorphic signature types before broader polymorphic/defaulting work.
 - Integer literals can satisfy explicit integral-width annotations.
-- Decimal fractional literals can satisfy explicit `Float` and `Float64` signatures, but not `Float16`/`Float32` signatures; same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic, comparison, and equality are supported; structural list/tuple equality is supported only when every nested element type is equality-supported.
+- Decimal fractional literals can satisfy explicit `Float` and `Float64` signatures, but not `Float16`/`Float32` signatures; same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic, comparison, and equality are supported; structural list/tuple equality is supported only when every nested element type is equality-supported, and structural ADT equality is supported only when every declared constructor payload type is equality-supported.
 
 ## Canonical Contract
 

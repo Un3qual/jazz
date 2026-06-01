@@ -1,6 +1,6 @@
 # ADT Semantics
 
-Status: active (canonical and generic-parameter `data` declarations, generic constructor value/application schemes, constructor over-application diagnostics, constructor/list/tuple/as-pattern typing and runtime matching, and tuple literal values/signature types are implemented in `jazz-next`)
+Status: active (canonical and generic-parameter `data` declarations, generic constructor value/application schemes, constructor over-application diagnostics, structural ADT equality for equality-supported constructor payloads, constructor/list/tuple/as-pattern typing and runtime matching, and tuple literal values/signature types are implemented in `jazz-next`)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -61,6 +61,11 @@ subset.
 12. As-patterns delegate to the inner pattern first, bind the whole scrutinee
     value on success, give the as-binder the scrutinee type, and reject
     duplicate binders with deterministic `E2011` diagnostics.
+13. `==` and `!=` compare same declared ADT type values structurally when every
+    constructor payload type in the declaration is equality-supported; runtime
+    comparison uses saturated constructor tags and payloads, and rejects
+    function payloads, partial constructors, unresolved payload families, and
+    unsupported equality families.
 
 ## ADT Contract
 
@@ -75,6 +80,11 @@ subset.
    invalid paths emit deterministic `E3023` diagnostics.
 7. Pattern matching over constructor values is defined by
    `docs/spec/pattern-matching-semantics.md`.
+8. Structural equality over constructor values is strict and type-directed:
+   operands must resolve to the same declared ADT type, all declared
+   constructor payloads must be equality-supported, different constructors of
+   the same ADT compare unequal, and matching constructors compare payloads
+   recursively.
 
 Canonical shape example:
 
