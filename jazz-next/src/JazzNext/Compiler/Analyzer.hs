@@ -650,9 +650,9 @@ collectImplMethodDiagnostics ::
   [ImplMethod] ->
   ([WarningRecord], [Diagnostic])
 collectImplMethodDiagnostics builtinMode settings visibleBindings methods =
-  foldl' step ([], []) methods
+  foldr step ([], []) methods
   where
-    step (warningsAcc, errorsAcc) (ImplMethod methodName methodSpan methodExpr) =
+    step (ImplMethod methodName methodSpan methodExpr) (warningsAcc, errorsAcc) =
       let (methodWarnings, methodErrors) =
             collectExprDiagnostics
               builtinMode
@@ -660,7 +660,7 @@ collectImplMethodDiagnostics builtinMode settings visibleBindings methods =
               visibleBindings
               (contextForImplMethod methodName methodSpan)
               methodExpr
-       in (warningsAcc ++ methodWarnings, errorsAcc ++ methodErrors)
+       in (methodWarnings ++ warningsAcc, methodErrors ++ errorsAcc)
 
 mkDuplicateImplDeclarationError :: Text -> SourceSpan -> SourceSpan -> Diagnostic
 mkDuplicateImplDeclarationError implFactKey implSpan previousSpan =

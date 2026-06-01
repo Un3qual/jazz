@@ -41,6 +41,7 @@ import JazzNext.Compiler.AST
     DataConstructor (..),
     DataConstructorArgument (..),
     Expr (..),
+    ImplMethod (..),
     Pattern (..),
     Statement (..)
   )
@@ -885,6 +886,14 @@ rewriteStatementReferences importTargets boundNames statement =
       SLet bindingName spanValue (rewriteExprReferences importTargets boundNames valueExpr)
     SExpr spanValue exprValue ->
       SExpr spanValue (rewriteExprReferences importTargets boundNames exprValue)
+    SImpl spanValue capabilityName arguments methods ->
+      SImpl
+        spanValue
+        capabilityName
+        arguments
+        [ ImplMethod methodName methodSpan (rewriteExprReferences importTargets boundNames methodExpr)
+          | ImplMethod methodName methodSpan methodExpr <- methods
+        ]
     _ -> statement
 
 rewriteExprReferences :: Map Text [Text] -> Set Text -> Expr -> Expr
@@ -1034,6 +1043,11 @@ collectUnqualifiedReferences expr =
             [ case statement of
                 SLet _ _ valueExpr -> collectUnqualifiedReferences valueExpr
                 SExpr _ exprValue -> collectUnqualifiedReferences exprValue
+                SImpl _ _ _ methods ->
+                  Set.unions
+                    [ collectUnqualifiedReferences methodExpr
+                      | ImplMethod _ _ methodExpr <- methods
+                    ]
                 _ -> Set.empty
               | statement <- statements
             ]
@@ -1263,10 +1277,14 @@ collectAliasQualifiedReferencesFromStatement statement =
       collectAliasQualifiedReferencePairs valueExpr
     SExpr _ expr ->
       collectAliasQualifiedReferencePairs expr
+    SImpl _ _ _ methods ->
+      Set.unions
+        [ collectAliasQualifiedReferencePairs methodExpr
+          | ImplMethod _ _ methodExpr <- methods
+        ]
     SSignature {} -> Set.empty
     SData {} -> Set.empty
     SClass {} -> Set.empty
-    SImpl {} -> Set.empty
     SModule {} -> Set.empty
     SImport {} -> Set.empty
 

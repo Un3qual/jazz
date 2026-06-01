@@ -12,7 +12,8 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
+    renderDiagnostic
   )
 import JazzNext.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource
@@ -31,6 +32,7 @@ import JazzNext.Compiler.WarningConfig
   )
 import JazzNext.TestHarness
   ( NamedTest,
+    assertContains,
     assertEqual,
     assertSingleDiagnosticContains,
     failTest,
@@ -73,6 +75,7 @@ tests =
     ("source pipeline accepts structural equality sections", testSourcePipelineAcceptsStructuralEqualitySections),
     ("source pipeline rejects structural equality with function elements", testSourcePipelineRejectsStructuralFunctionEquality),
     ("source pipeline rejects structural ADT equality with function payloads", testSourcePipelineRejectsStructuralAdtFunctionEquality),
+    ("source pipeline rejects duplicate ADT declarations before structural equality", testSourcePipelineRejectsDuplicateAdtDeclarationBeforeStructuralEquality),
     ("source pipeline rejects structural ADT equality for partial constructors", testSourcePipelineRejectsStructuralAdtPartialConstructorEquality),
     ("source pipeline rejects structural ADT equality across different types", testSourcePipelineRejectsStructuralAdtTypeMismatch),
     ("source pipeline preserves numeric width through left integer literal arithmetic", testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral),
@@ -100,6 +103,7 @@ tests =
     ("source pipeline accepts same-width Float64 comparison/equality sections", testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualitySections),
     ("source pipeline rejects mixed-width float comparison and equality", testSourcePipelineRejectsMixedWidthFloatComparisonEquality),
     ("source pipeline rejects implicit Float16 and Float32 comparison and equality", testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality),
+    ("source pipeline rejects implicit integer and Float64 comparison and equality", testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality),
     ("source pipeline rejects implicit integer and fractional literal mixing", testSourcePipelineRejectsImplicitIntegerFractionalMixing),
     ("source pipeline rejects mixed-width float arithmetic", testSourcePipelineRejectsMixedWidthFloatArithmetic),
     ("source pipeline rejects mixed-width and implicit Float16/Float32 arithmetic", testSourcePipelineRejectsMixedWidthAndImplicitFloat16Float32Arithmetic),
@@ -300,6 +304,17 @@ testSourcePipelineRejectsStructuralAdtFunctionEquality = do
     "ADTs containing equality-supported constructor payloads"
     (compileErrors result)
 
+testSourcePipelineRejectsDuplicateAdtDeclarationBeforeStructuralEquality :: IO ()
+testSourcePipelineRejectsDuplicateAdtDeclarationBeforeStructuralEquality = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "data Box a = Box a.\ndata Box a = Empty.\nf = Box (\\(x) -> x).\ng = Box (\\(x) -> x).\nok = f == g."
+  assertContains
+    "duplicate ADT declaration before equality metadata overwrite"
+    "E2014"
+    (Text.unlines (map renderDiagnostic (compileErrors result)))
+
 testSourcePipelineRejectsStructuralAdtPartialConstructorEquality :: IO ()
 testSourcePipelineRejectsStructuralAdtPartialConstructorEquality =
   assertCompileError
@@ -485,6 +500,17 @@ testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality = do
   assertCompileErrorWithBundledPrelude
     "left :: Float32.\nleft = toFloat32 1.\nx = left == 1."
     "implicit integer-to-Float32 equality"
+    "E2004"
+
+testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality :: IO ()
+testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality = do
+  assertCompileErrorWithBundledPrelude
+    "left = toFloat64 1.\nx = left < 2."
+    "implicit integer-to-Float64 comparison"
+    "E2003"
+  assertCompileErrorWithBundledPrelude
+    "left = toFloat64 1.\nx = left == 1."
+    "implicit integer-to-Float64 equality"
     "E2004"
 
 testSourcePipelineRejectsImplicitIntegerFractionalMixing :: IO ()

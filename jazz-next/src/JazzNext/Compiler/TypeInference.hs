@@ -874,9 +874,9 @@ inferScopeType builtinMode initialEnv initialState statements =
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                in go env lastExprType Nothing nextModuleBaselineFacts nextState rest
-            SData _ typeName typeParameters constructors ->
+            SData spanValue typeName typeParameters constructors ->
               let (nextEnv, nextState) =
-                    registerDataConstructors typeName typeParameters constructors env state
+                    registerDataConstructors spanValue typeName typeParameters constructors env state
                in go nextEnv lastExprType Nothing moduleBaselineFacts nextState rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
@@ -1270,21 +1270,31 @@ concreteFloatNumericType expressionType =
     TNumericType NumericFloat64 -> Just NumericFloat64
     _ -> Nothing
 
-registerDataConstructors :: Identifier -> [Identifier] -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
-registerDataConstructors typeName typeParameters constructors env initialState =
-  let (nextEnv, nextState, constructorPayloadsRev) =
-        foldl' register (env, initialState, []) constructors
-   in
-    ( nextEnv,
-      nextState
-        { inferDataTypes =
-            Map.insert
-              (identifierText typeName)
-              (DataTypeBinding typeParameters (reverse constructorPayloadsRev))
-              (inferDataTypes nextState)
-        }
-    )
+registerDataConstructors :: SourceSpan -> Identifier -> [Identifier] -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
+registerDataConstructors spanValue typeName typeParameters constructors env initialState =
+  case Map.lookup typeNameText (inferDataTypes initialState) of
+    Just _ ->
+      ( env,
+        addTypeError
+          initialState
+          (mkDuplicateDataTypeDeclarationError typeNameText spanValue)
+      )
+    Nothing ->
+      let (nextEnv, nextState, constructorPayloadsRev) =
+            foldl' register (env, initialState, []) constructors
+       in
+        ( nextEnv,
+          nextState
+            { inferDataTypes =
+                Map.insert
+                  typeNameText
+                  (DataTypeBinding typeParameters (reverse constructorPayloadsRev))
+                  (inferDataTypes nextState)
+            }
+        )
   where
+    typeNameText = identifierText typeName
+
     register (envAcc, stateAcc, constructorPayloadsAcc) (DataConstructor constructorName constructorArguments) =
       let (argumentTypes, nextState) =
             constructorArgumentTypes typeParameters constructorArguments stateAcc
@@ -2353,6 +2363,14 @@ mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
         <> "' is only supported for Bool, integral numeric, Float/Float16/Float32/Float64, lists and tuples containing equality-supported elements, and ADTs containing equality-supported constructor payloads, found "
         <> renderType foundType
     )
+
+mkDuplicateDataTypeDeclarationError :: Text -> SourceSpan -> Diagnostic
+mkDuplicateDataTypeDeclarationError typeName spanValue =
+  setDiagnosticSubject typeName $
+    setDiagnosticPrimarySpan spanValue $
+      mkDiagnostic
+        "E2014"
+        ("duplicate data type declaration '" <> typeName <> "'")
 
 mkSignatureTypeMismatchError ::
   Text ->
