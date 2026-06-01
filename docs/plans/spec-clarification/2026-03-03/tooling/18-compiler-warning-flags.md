@@ -7,7 +7,7 @@ kind: coordination
 autonomous_ready: no
 depends_on:
   - JN-WARNING-UNUSED-BINDING-LET-001
-last_verified: 2026-05-31
+last_verified: 2026-06-01
 plan_section: "Phase 8 / Coordination: deprecated-syntax W0004 contract decision"
 target_paths:
   - docs/spec/tooling/compiler-warning-flags.md
@@ -505,7 +505,7 @@ bash scripts/check-docs.sh
 
 ### Coordination: deprecated-syntax W0004 contract decision
 
-Status: blocked as of `2026-05-31`. The active `jazz-next` parser now
+Status: blocked as of `2026-06-01`. The active `jazz-next` parser now
 reserves some future syntax with deterministic errors, and the warning catalog
 reserves `deprecated-syntax` / `W0004`, but there is still no accepted
 active-path parser or analyzer surface that is both implemented and deprecated
@@ -528,6 +528,9 @@ Policy lock:
 - Future W0004 work requires a different accepted active-path syntax surface
   that is already implemented, then explicitly deprecated with a warning
   payload, target paths, and focused verification.
+- Re-verified on `2026-06-01` after the structural equality and class method
+  metadata batches: no executable W0004 emitter batch can be promoted without
+  first selecting a non-`trait` accepted syntax surface to deprecate.
 
 Batch scope:
 
