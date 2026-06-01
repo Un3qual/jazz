@@ -187,8 +187,8 @@ canonicalizeStatement statement =
       SSignature name spanValue signaturePayload
     SData spanValue typeName typeParameters constructors ->
       SData spanValue typeName typeParameters constructors
-    SClass spanValue capabilityName methods ->
-      SClass spanValue capabilityName methods
+    SClass spanValue capabilityName parameters methods ->
+      SClass spanValue capabilityName parameters methods
     SImpl spanValue capabilityName arguments methods ->
       SImpl spanValue capabilityName arguments (map canonicalizeImplMethod methods)
     SModule spanValue modulePath ->
@@ -255,7 +255,7 @@ data InferState = InferState
     -- to a concrete numeric family before they can be applied.
     inferNumericVars :: Map Int NumericConstraint,
     inferDataTypes :: Map Text DataTypeBinding,
-    inferClassFacts :: Set Text,
+    inferClassFacts :: Map Text Int,
     inferConcreteImplFacts :: Set Text,
     inferCurrentModulePath :: Maybe [Text],
     inferModuleCapabilityFacts :: Map [Text] ScopeCapabilityFacts,
@@ -271,7 +271,7 @@ initialInferState =
       inferStrictEqualityVars = Set.empty,
       inferNumericVars = Map.empty,
       inferDataTypes = Map.empty,
-      inferClassFacts = Set.empty,
+      inferClassFacts = Map.empty,
       inferConcreteImplFacts = Set.empty,
       inferCurrentModulePath = Nothing,
       inferModuleCapabilityFacts = Map.empty,
@@ -1022,14 +1022,14 @@ allocateBindingSeeds indexedStatements initialState =
         _ -> (bindingSeeds, state)
 
 data ScopeCapabilityFacts = ScopeCapabilityFacts
-  { scopeClassFacts :: Set Text,
+  { scopeClassFacts :: Map Text Int,
     scopeConcreteImplFacts :: Set Text
   }
 
 emptyScopeCapabilityFacts :: ScopeCapabilityFacts
 emptyScopeCapabilityFacts =
   ScopeCapabilityFacts
-    { scopeClassFacts = Set.empty,
+    { scopeClassFacts = Map.empty,
       scopeConcreteImplFacts = Set.empty
     }
 
@@ -1057,7 +1057,7 @@ restoreCapabilityFacts previousState nextState =
 mergeCapabilityFacts :: ScopeCapabilityFacts -> ScopeCapabilityFacts -> ScopeCapabilityFacts
 mergeCapabilityFacts leftFacts rightFacts =
   ScopeCapabilityFacts
-    { scopeClassFacts = Set.union (scopeClassFacts leftFacts) (scopeClassFacts rightFacts),
+    { scopeClassFacts = Map.union (scopeClassFacts leftFacts) (scopeClassFacts rightFacts),
       scopeConcreteImplFacts =
         Set.union
           (scopeConcreteImplFacts leftFacts)
@@ -1109,8 +1109,8 @@ seedStatementCapabilityFact state statement =
 seedFacts :: ScopeCapabilityFacts -> (Int, Statement) -> ScopeCapabilityFacts
 seedFacts facts (_, statement) =
   case statement of
-    SClass _ capabilityName _ ->
-      facts {scopeClassFacts = Set.insert (identifierText capabilityName) (scopeClassFacts facts)}
+    SClass _ capabilityName parameters _ ->
+      facts {scopeClassFacts = Map.insert (identifierText capabilityName) (length parameters) (scopeClassFacts facts)}
     SImpl _ capabilityName arguments _ ->
       case concreteImplFactKey capabilityName arguments of
         Just implFactKey ->
@@ -1544,10 +1544,9 @@ supportedVariableConstraints constraints signatureType =
 
 supportedConcreteConstraint :: InferState -> SignatureConstraint -> Bool
 supportedConcreteConstraint state (SignatureConstraint constraintName arguments) =
-  case arguments of
-    [argument] ->
-      Set.member (identifierText constraintName) (inferClassFacts state)
-        && concreteConstraintArgument argument
+  case (Map.lookup (identifierText constraintName) (inferClassFacts state), arguments) of
+    (Just 1, [argument]) ->
+      concreteConstraintArgument argument
         && Set.member
           (constraintImplFactKey constraintName argument)
           (inferConcreteImplFacts state)
@@ -2598,8 +2597,18 @@ concreteConstraintFailureSummary state constraints
   | otherwise = firstJust (map constraintFailureSummary constraints)
   where
     constraintFailureSummary (SignatureConstraint constraintName arguments)
-      | Set.notMember (identifierText constraintName) (inferClassFacts state) =
-          Just ("missing class declaration '" <> identifierText constraintName <> "'")
+      | Nothing <- maybeClassArity =
+          Just ("missing class declaration '" <> constraintNameText <> "'")
+      | Just expectedArity <- maybeClassArity,
+        expectedArity /= length arguments =
+          Just
+            ( "constraint '"
+                <> constraintNameText
+                <> "' expects "
+                <> Text.pack (show expectedArity)
+                <> " argument(s), got "
+                <> Text.pack (show (length arguments))
+            )
       | [argument] <- arguments,
         concreteConstraintArgument argument,
         let implFactKey = constraintImplFactKey constraintName argument,
@@ -2607,6 +2616,9 @@ concreteConstraintFailureSummary state constraints
           Just ("missing impl fact '" <> implFactKey <> "'")
       | otherwise =
           Nothing
+      where
+        constraintNameText = identifierText constraintName
+        maybeClassArity = Map.lookup constraintNameText (inferClassFacts state)
 
     firstJust results =
       case results of

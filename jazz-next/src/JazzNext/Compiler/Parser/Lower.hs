@@ -152,8 +152,8 @@ lowerSurfaceStatement surfaceStatement =
       SSignature name spanValue (lowerSurfaceSignaturePayload signaturePayload)
     SSData spanValue typeName typeParameters constructors ->
       SData spanValue typeName typeParameters (map lowerSurfaceDataConstructor constructors)
-    SSClass spanValue capabilityName methods ->
-      SClass spanValue capabilityName (map lowerSurfaceClassMethodSignature methods)
+    SSClass spanValue capabilityName parameters methods ->
+      SClass spanValue capabilityName parameters (map lowerSurfaceClassMethodSignature methods)
     SSImpl spanValue capabilityName arguments methods ->
       SImpl
         spanValue

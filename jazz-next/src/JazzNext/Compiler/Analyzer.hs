@@ -350,7 +350,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
               warningsRev,
               errorsWithPending
             )
-        SClass classSpan capabilityName methods ->
+        SClass classSpan capabilityName _parameters methods ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
               classNameText = identifierText capabilityName
               (nextClassDeclarations, classErrors) =

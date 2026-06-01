@@ -292,18 +292,25 @@ parseCapabilityDeclaration ::
   [Token] ->
   Either Diagnostic (SurfaceStatement, [Token])
 parseCapabilityDeclaration knownAliases declarationKind declarationToken tokensAfterKeyword = do
-  (capabilityName, headerArguments, headerRemaining) <-
+  (capabilityName, maybeHeaderArguments, headerRemaining) <-
     parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword
-  (capabilityBody, afterBody) <- parseCapabilityDeclarationBody knownAliases declarationKind declarationToken headerRemaining
-  remaining <- consumeDot afterBody
+  let headerArguments =
+        case maybeHeaderArguments of
+          Just arguments -> arguments
+          Nothing -> []
   case declarationKind of
-    "class" ->
+    "class" -> do
+      classParameters <- validateClassHeaderParameters declarationToken maybeHeaderArguments
+      (capabilityBody, afterBody) <- parseCapabilityDeclarationBody knownAliases declarationKind declarationToken headerRemaining
+      remaining <- consumeDot afterBody
       case capabilityBody of
         CapabilityClassBody methodSignatures ->
-          Right (SSClass (tokenSpan declarationToken) capabilityName methodSignatures, remaining)
+          Right (SSClass (tokenSpan declarationToken) capabilityName classParameters methodSignatures, remaining)
         CapabilityImplBody {} ->
           rejectReservedAbstractionSyntax declarationToken
-    "impl" ->
+    "impl" -> do
+      (capabilityBody, afterBody) <- parseCapabilityDeclarationBody knownAliases declarationKind declarationToken headerRemaining
+      remaining <- consumeDot afterBody
       case capabilityBody of
         CapabilityImplBody methods ->
           if null methods || surfaceConcreteImplArguments headerArguments
@@ -346,7 +353,64 @@ surfaceIdentifierLooksLikeTypeVariable name =
     Just (c, _) -> isLower c
     Nothing -> False
 
-parseCapabilityHeaderName :: Text -> Token -> [Token] -> Either Diagnostic (Identifier, [SurfaceConstrainedSignatureType], [Token])
+validateClassHeaderParameters :: Token -> Maybe [SurfaceConstrainedSignatureType] -> Either Diagnostic [Identifier]
+validateClassHeaderParameters declarationToken maybeHeaderArguments =
+  case maybeHeaderArguments of
+    Nothing ->
+      Left
+        ( parseDiagnostic
+            ( "class declarations require an explicit parameter list at "
+                <> renderSourceSpan (tokenSpan declarationToken)
+            )
+        )
+    Just [] ->
+      Left
+        ( parseDiagnostic
+            ( "class declarations require at least one explicit lowercase parameter at "
+                <> renderSourceSpan (tokenSpan declarationToken)
+            )
+        )
+    Just headerArguments -> do
+      classParameters <- traverse classParameterFromHeaderArgument headerArguments
+      case duplicateClassParameterName classParameters of
+        Just duplicateName ->
+          Left
+            ( parseDiagnostic
+                ( "duplicate class parameter '"
+                    <> duplicateName
+                    <> "' at "
+                    <> renderSourceSpan (tokenSpan declarationToken)
+                )
+            )
+        Nothing ->
+          Right classParameters
+  where
+    classParameterFromHeaderArgument argument =
+      case argument of
+        SurfaceConstrainedTypeName parameterName
+          | surfaceIdentifierLooksLikeTypeVariable parameterName ->
+              Right parameterName
+        _ ->
+          Left
+            ( parseDiagnostic
+                ( "class parameters must be lowercase type variables at "
+                    <> renderSourceSpan (tokenSpan declarationToken)
+                )
+            )
+
+    duplicateClassParameterName classParameters =
+      go Set.empty classParameters
+
+    go seen remaining =
+      case remaining of
+        [] -> Nothing
+        parameter : rest ->
+          let parameterText = identifierText parameter
+           in if Set.member parameterText seen
+                then Just parameterText
+                else go (Set.insert parameterText seen) rest
+
+parseCapabilityHeaderName :: Text -> Token -> [Token] -> Either Diagnostic (Identifier, Maybe [SurfaceConstrainedSignatureType], [Token])
 parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
   case tokensAfterKeyword of
     Token {tokenKind = TIdentifier candidateName, tokenSpan = nameSpan} : rest
@@ -404,8 +468,8 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
       case tokens of
         Token {tokenKind = TLParen} : rest -> do
           (headerArguments, afterHeaderParameters) <- parseParenthesizedCapabilityHeader rest
-          requireCapabilityBodyStart capabilityName headerArguments afterHeaderParameters
-        _ -> requireCapabilityBodyStart capabilityName [] tokens
+          requireCapabilityBodyStart capabilityName (Just headerArguments) afterHeaderParameters
+        _ -> requireCapabilityBodyStart capabilityName Nothing tokens
 
     requireCapabilityBodyStart capabilityName headerArguments tokens =
       case tokens of

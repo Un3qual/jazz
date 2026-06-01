@@ -167,7 +167,7 @@ data Statement
   = SLet Identifier SourceSpan Expr
   | SSignature Identifier SourceSpan SignaturePayload
   | SData SourceSpan Identifier [Identifier] [DataConstructor]
-  | SClass SourceSpan Identifier [ClassMethodSignature]
+  | SClass SourceSpan Identifier [Identifier] [ClassMethodSignature]
   | SImpl SourceSpan Identifier [ConstraintSignatureType] [ImplMethod]
   | SModule SourceSpan [Text]
   | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])

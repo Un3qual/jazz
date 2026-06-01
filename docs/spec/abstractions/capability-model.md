@@ -44,26 +44,25 @@ The normative numeric width/defaulting contract lives in `docs/spec/runtime/prim
 
 ## Active Implementation
 
-`jazz-next` parses and lowers class declarations with signature-only method
-metadata and concrete impl declarations with inert method binding metadata as
-declaration nodes. Analyzer/type/runtime statement walkers handle those nodes
-without adding method lookup, dispatch, defaulting, or runtime values.
-Duplicate class method signatures and duplicate impl method bindings reject
-deterministically. Class method body/default syntax, non-binding impl body
-items, and method-bearing non-concrete impl bodies reject at parse time.
-
-The next queued implementation batch locks explicit class parameter metadata in
-the active AST and bundled prelude. Until that lands, method dispatch remains
-blocked even though the canonical design uses `class Eq(a)` rather than
-reserved `Self`.
+`jazz-next` parses and lowers class declarations with explicit lowercase
+parameter metadata plus signature-only method metadata, and concrete impl
+declarations with inert method binding metadata as declaration nodes.
+Analyzer/type/runtime statement walkers handle those nodes without adding
+method lookup, dispatch, defaulting, or runtime values. Duplicate class method
+signatures and duplicate impl method bindings reject deterministically. Missing,
+duplicate, or non-variable class parameters reject at parse time. Class method
+body/default syntax, non-binding impl body items, and method-bearing
+non-concrete impl bodies reject at parse time.
 
 The current environment-validation slice rejects duplicate class declarations
 and duplicate concrete impl facts, and validates concrete constrained signatures
-against visible class declarations plus matching concrete impl facts.
+against visible class declarations plus matching concrete impl facts using the
+declared class arity.
 
 The default bundled prelude now provides the canonical vocabulary class
-declarations (`Eq`, `Ord`, `Num`, `Integral`, `Fractional`, `Showable`, and
-`Default`) followed by inert concrete impl facts before kernel bridge bindings.
+declarations (`Eq(a)`, `Ord(a)`, `Num(a)`, `Integral(a)`, `Fractional(a)`,
+`Showable(a)`, and `Default(a)`) followed by inert concrete impl facts before
+kernel bridge bindings.
 The current fact matrix covers the default aliases `Int`, `Float`, and `Bool`
 where scoped, plus width-specific numeric signature names:
 

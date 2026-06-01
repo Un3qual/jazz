@@ -91,8 +91,8 @@ tests =
     ("parses abstraction keywords as ordinary binding names", testParsesAbstractionKeywordsAsBindingNames),
     ("parses abstraction keywords as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames),
     ("parses trait as an ordinary import alias", testParsesTraitAsImportAlias),
-    ("parses class capability declarations into surface AST", testParsesClassCapabilityDeclaration),
-    ("parses parameterized class capability declarations into surface AST", testParsesParameterizedClassCapabilityDeclaration),
+    ("rejects class capability declarations without parameters", testRejectsClassCapabilityDeclarationWithoutParameters),
+    ("parses explicit-parameter class capability declarations into surface AST", testParsesParameterizedClassCapabilityDeclaration),
     ("parses impl capability declarations into surface AST", testParsesImplCapabilityDeclaration),
     ("lowers class and impl capability declarations as inert AST nodes", testLowersCapabilityDeclarations),
     ("parses class and impl capability declarations inside module bodies", testParsesCapabilityDeclarationsInModuleBody),
@@ -105,6 +105,8 @@ tests =
     ("rejects variable-target impl method bindings", testRejectsVariableTargetImplMethodBindings),
     ("rejects duplicate impl method bindings", testRejectsDuplicateImplMethodBindings),
     ("rejects non-binding impl body items", testRejectsNonBindingImplBodyItem),
+    ("rejects duplicate class parameters", testRejectsDuplicateClassParameters),
+    ("rejects concrete class parameters", testRejectsConcreteClassParameters),
     ("rejects malformed class capability headers", testRejectsMalformedClassCapabilityHeader),
     ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax),
     ("rejects lowercase trait abstraction declarations", testRejectsLowercaseTraitAbstractionSyntax),
@@ -733,16 +735,11 @@ testParsesTraitAsImportAlias =
     )
     (parseSurfaceProgram "import Lib::Math as trait.\ntrait::subtract.")
 
-testParsesClassCapabilityDeclaration :: IO ()
-testParsesClassCapabilityDeclaration =
-  assertEqual
-    "class capability declaration"
-    ( Right
-        ( SEBlock
-            [ SSClass (SourceSpan 1 1) "Eq" []
-            ]
-        )
-    )
+testRejectsClassCapabilityDeclarationWithoutParameters :: IO ()
+testRejectsClassCapabilityDeclarationWithoutParameters =
+  assertLeftDiagnosticContains
+    "class capability declaration without parameters"
+    "explicit parameter list"
     (parseSurfaceProgram "class Eq { }.")
 
 testParsesParameterizedClassCapabilityDeclaration :: IO ()
@@ -751,7 +748,7 @@ testParsesParameterizedClassCapabilityDeclaration =
     "parameterized class capability declaration"
     ( Right
         ( SEBlock
-            [ SSClass (SourceSpan 1 1) "Eq" []
+            [ SSClass (SourceSpan 1 1) "Eq" ["a"] []
             ]
         )
     )
@@ -775,12 +772,12 @@ testLowersCapabilityDeclarations :: IO ()
 testLowersCapabilityDeclarations =
   assertRight
     "surface parse"
-    (parseSurfaceProgram "class Eq { }.\nimpl Eq(Int) { }.")
+    (parseSurfaceProgram "class Eq(a) { }.\nimpl Eq(Int) { }.")
     ( \surfaceProgram ->
         assertEqual
           "lowered capability declarations"
           ( EBlock
-              [ SClass (SourceSpan 1 1) "Eq" [],
+              [ SClass (SourceSpan 1 1) "Eq" ["a"] [],
                 SImpl (SourceSpan 2 1) "Eq" [ConstraintTypeName "Int"] []
               ]
           )
@@ -794,32 +791,32 @@ testParsesCapabilityDeclarationsInModuleBody =
     ( Right
         ( SEBlock
             [ SSModule (SourceSpan 1 1) ["App", "Core"],
-              SSClass (SourceSpan 2 1) "Eq" [],
+              SSClass (SourceSpan 2 1) "Eq" ["a"] [],
               SSImpl (SourceSpan 3 1) "Eq" [SurfaceConstrainedTypeName "Int"] []
             ]
         )
     )
-    (parseSurfaceProgram "module App::Core {\nclass Eq { }.\nimpl Eq(Int) { }.\n}")
+    (parseSurfaceProgram "module App::Core {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\n}")
 
 testParsesClassMethodSignatureMetadata :: IO ()
 testParsesClassMethodSignatureMetadata =
   assertRight
     "surface class method signature parse"
-    (parseSurfaceProgram "class Eq {\nequals :: Self -> Self -> Bool.\nnotEquals :: Self -> Self -> Bool.\n}.")
+    (parseSurfaceProgram "class Eq(a) {\nequals :: a -> a -> Bool.\nnotEquals :: a -> a -> Bool.\n}.")
     ( \surfaceProgram -> do
         let surfacePayload =
               SurfaceUnsupportedSignature
-                [ SurfaceSignatureNameToken "Self",
+                [ SurfaceSignatureNameToken "a",
                   SurfaceSignatureArrowToken,
-                  SurfaceSignatureNameToken "Self",
+                  SurfaceSignatureNameToken "a",
                   SurfaceSignatureArrowToken,
                   SurfaceSignatureNameToken "Bool"
                 ]
             corePayload =
               UnsupportedSignature
-                [ SignatureNameToken "Self",
+                [ SignatureNameToken "a",
                   SignatureArrowToken,
-                  SignatureNameToken "Self",
+                  SignatureNameToken "a",
                   SignatureArrowToken,
                   SignatureNameToken "Bool"
                 ]
@@ -829,6 +826,7 @@ testParsesClassMethodSignatureMetadata =
               [ SSClass
                   (SourceSpan 1 1)
                   "Eq"
+                  ["a"]
                   [ SurfaceClassMethodSignature "equals" (SourceSpan 2 1) surfacePayload,
                     SurfaceClassMethodSignature "notEquals" (SourceSpan 3 1) surfacePayload
                   ]
@@ -841,6 +839,7 @@ testParsesClassMethodSignatureMetadata =
               [ SClass
                   (SourceSpan 1 1)
                   "Eq"
+                  ["a"]
                   [ ClassMethodSignature "equals" (SourceSpan 2 1) corePayload,
                     ClassMethodSignature "notEquals" (SourceSpan 3 1) corePayload
                   ]
@@ -854,21 +853,21 @@ testRejectsClassMethodBodySyntax =
   assertLeftDiagnosticContains
     "class method body syntax"
     "method body/default syntax"
-    (parseSurfaceProgram "class Eq { equals = \\value -> value. }.")
+    (parseSurfaceProgram "class Eq(a) { equals = \\value -> value. }.")
 
 testRejectsDuplicateClassMethodSignatures :: IO ()
 testRejectsDuplicateClassMethodSignatures =
   assertLeftDiagnosticContains
     "duplicate class method signature"
     "duplicate method signature 'equals'"
-    (parseSurfaceProgram "class Eq { equals :: Int. equals :: Bool. }.")
+    (parseSurfaceProgram "class Eq(a) { equals :: Int. equals :: Bool. }.")
 
 testRejectsNonSignatureClassBodyItem :: IO ()
 testRejectsNonSignatureClassBodyItem =
   assertLeftDiagnosticContains
     "non-signature class body item"
     "signature-only method declaration"
-    (parseSurfaceProgram "class Eq { 1. }.")
+    (parseSurfaceProgram "class Eq(a) { 1. }.")
 
 testParsesImplMethodBindingMetadata :: IO ()
 testParsesImplMethodBindingMetadata =
@@ -914,6 +913,20 @@ testRejectsNonBindingImplBodyItem =
     "non-binding impl body item"
     "ordinary method binding"
     (parseSurfaceProgram "impl Eq(Int) { equals :: Int. }.")
+
+testRejectsDuplicateClassParameters :: IO ()
+testRejectsDuplicateClassParameters =
+  assertLeftDiagnosticContains
+    "duplicate class parameter"
+    "duplicate class parameter 'a'"
+    (parseSurfaceProgram "class Eq(a, a) { }.")
+
+testRejectsConcreteClassParameters :: IO ()
+testRejectsConcreteClassParameters =
+  assertLeftDiagnosticContains
+    "concrete class parameter"
+    "class parameters must be lowercase type variables"
+    (parseSurfaceProgram "class Eq(Int) { }.")
 
 testRejectsMalformedClassCapabilityHeader :: IO ()
 testRejectsMalformedClassCapabilityHeader =

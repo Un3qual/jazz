@@ -883,7 +883,7 @@ testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated = do
     sourceMap =
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Facts.\nimport Lib::UsesEq.\nuses."),
-          ("src/Lib/Facts.jz", "class Eq { }.\nimpl Eq(Int) { }.\nfacts = 0."),
+          ("src/Lib/Facts.jz", "class Eq(a) { }.\nimpl Eq(Int) { }.\nfacts = 0."),
           ("src/Lib/UsesEq.jz", "uses :: @{Eq(Int)}: Int.\nuses = 1.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -902,7 +902,7 @@ testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports = do
     sourceMap =
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Facts.\nuse :: @{Eq(Int)}: Int.\nuse = 1."),
-          ("src/Lib/Facts.jz", "class Eq { }.\nimpl Eq(Int) { }.\nfacts = 0.")
+          ("src/Lib/Facts.jz", "class Eq(a) { }.\nimpl Eq(Int) { }.\nfacts = 0.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

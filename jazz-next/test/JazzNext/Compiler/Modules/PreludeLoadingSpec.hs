@@ -261,12 +261,12 @@ testCompileWithoutPreludeRejectsBundledCapabilityFacts = do
 
 testExplicitPreludeDoesNotInheritBundledImplFacts :: IO ()
 testExplicitPreludeDoesNotInheritBundledImplFacts = do
-  result <- compileSourceWithPrelude defaultWarningSettings (Just "class Eq { }.") "x :: @{Eq(Int)}: Int.\nx = 1."
+  result <- compileSourceWithPrelude defaultWarningSettings (Just "class Eq(a) { }.") "x :: @{Eq(Int)}: Int.\nx = 1."
   assertSingleErrorContains
     "explicit prelude uses only supplied impl facts"
     "missing impl fact 'Eq(Int)'"
     (compileErrors result)
-  widthResult <- compileSourceWithPrelude defaultWarningSettings (Just "class Num { }.") "x :: @{Num(UInt16)}: UInt16.\nx = 1."
+  widthResult <- compileSourceWithPrelude defaultWarningSettings (Just "class Num(a) { }.") "x :: @{Num(UInt16)}: UInt16.\nx = 1."
   assertSingleErrorContains
     "explicit prelude uses only supplied width-specific impl facts"
     "missing impl fact 'Num(UInt16)'"

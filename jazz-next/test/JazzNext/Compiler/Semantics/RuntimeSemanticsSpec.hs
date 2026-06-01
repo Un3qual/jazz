@@ -793,14 +793,14 @@ testDeclarationOnlyScopeHasNoOutput = do
 
 testCapabilityDeclarationOnlyScopeHasNoOutput :: IO ()
 testCapabilityDeclarationOnlyScopeHasNoOutput = do
-  result <- runSource defaultWarningSettings "class RuntimeOnly { }.\nimpl RuntimeOnly(Int) { }."
+  result <- runSource defaultWarningSettings "class RuntimeOnly(a) { }.\nimpl RuntimeOnly(Int) { }."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "declaration-only capability scope produces no output" Nothing (runOutput result)
 
 testCapabilityDeclarationsRuntimeInert :: IO ()
 testCapabilityDeclarationsRuntimeInert = do
-  result <- runSource defaultWarningSettings "class RuntimeOnly { }.\nimpl RuntimeOnly(Int) { }.\nx = 1.\nx."
+  result <- runSource defaultWarningSettings "class RuntimeOnly(a) { }.\nimpl RuntimeOnly(Int) { }.\nx = 1.\nx."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "capability declarations do not affect runtime output" (Just "1") (runOutput result)

@@ -34,7 +34,7 @@ bundledPreludeSource =
       <> map renderPublicAlias allBuiltinSymbols
   where
     renderCapabilityClass name =
-      "class " <> name <> " { }."
+      "class " <> name <> "(a) { }."
 
     renderDefaultCapabilityImpl (className, targetType) =
       "impl " <> className <> "(" <> targetType <> ") { }."

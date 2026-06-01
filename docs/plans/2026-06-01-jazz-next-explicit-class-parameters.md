@@ -1,13 +1,14 @@
 ---
 id: JN-ABSTRACTION-EXPLICIT-CLASS-PARAMETERS-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on:
   - JN-ABSTRACTION-IMPL-METHOD-BODY-METADATA-001
 last_verified: 2026-06-01
+completed_on: 2026-06-01
 plan_section: "Batch 1: Explicit class parameter metadata"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
@@ -15,6 +16,7 @@ target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
   - jazz-next/src/JazzNext/Compiler/AST.hs
   - jazz-next/src/JazzNext/Compiler/Analyzer.hs
+  - jazz-next/src/JazzNext/Compiler/Desugar.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/src/JazzNext/Compiler/BundledPrelude.hs
   - jazz-next/stdlib/Prelude.jz
@@ -22,11 +24,15 @@ target_paths:
   - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
 deliverable: "Make explicit class parameters the canonical active `jazz-next` abstraction metadata shape by preserving lowercase class parameter names through parser/core AST and fact seeding, rejecting missing, duplicate, or non-variable class parameters, migrating bundled-prelude class declarations to `class Eq(a)`-style headers, and keeping method dispatch, dictionaries, runtime evidence, `Self`, and solver behavior out of scope."
@@ -52,7 +58,7 @@ method metadata landed. The design decision is explicit:
 - canonical class declarations use explicit lowercase type parameters,
   for example `class Eq(a) { equals :: a -> a -> Bool. }`;
 - `Self` is not a reserved type name and must not be introduced by this batch;
-- qualified method dispatch remains future work until class parameter metadata
+- qualified method dispatch remains future work after class parameter metadata
   is represented in the active AST and bundled-prelude class declarations.
 
 ## Batch 1: Explicit Class Parameter Metadata
@@ -105,23 +111,23 @@ Batch target paths:
 
 Suggested task order:
 
-- [ ] Update parser/core AST constructors so `SSClass` and `SClass` carry a
+- [x] Update parser/core AST constructors so `SSClass` and `SClass` carry a
   `[Identifier]` parameter list before method metadata.
-- [ ] Update parser lowering and every `SClass` pattern match in the target
+- [x] Update parser lowering and every `SClass` pattern match in the target
   files to preserve class parameters.
-- [ ] Change `parseCapabilityDeclaration` so `class` headers lower only
+- [x] Change `parseCapabilityDeclaration` so `class` headers lower only
   lowercase `SurfaceConstrainedTypeName` arguments into class parameters.
-- [ ] Add parser coverage proving `class Eq(a) { }.` preserves `a`, missing
+- [x] Add parser coverage proving `class Eq(a) { }.` preserves `a`, missing
   parameter lists reject, duplicate parameters reject, and concrete class
   parameters reject.
-- [ ] Update analyzer/type-inference class fact seeding so visible class facts
+- [x] Update analyzer/type-inference class fact seeding so visible class facts
   retain arity metadata while preserving the existing duplicate-class
   diagnostic shape.
-- [ ] Update bundled-prelude generation and checked-in `Prelude.jz` so
+- [x] Update bundled-prelude generation and checked-in `Prelude.jz` so
   canonical classes use explicit unary parameters.
-- [ ] Add source-pipeline/prelude coverage proving `@{Eq(Int)}: Int` still
+- [x] Add source-pipeline/prelude coverage proving `@{Eq(Int)}: Int` still
   validates against visible `class Eq(a) { }.` plus concrete `impl Eq(Int) { }.`.
-- [ ] Run the focused verification commands listed in frontmatter.
+- [x] Run the focused verification commands listed in frontmatter.
 
 Focused verification:
 
@@ -130,6 +136,8 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
