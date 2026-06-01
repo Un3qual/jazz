@@ -11,7 +11,6 @@ module JazzNext.Compiler.TypeInference
     inferExpressionDefault
   ) where
 
-import Data.Char (isLower)
 import Data.List (foldl')
 import Data.Maybe (isNothing)
 import qualified Data.Map.Strict as Map
@@ -48,6 +47,13 @@ import JazzNext.Compiler.BuiltinCatalog
     lookupBuiltinSymbolInMode,
     numericTypeFloatMax,
     numericTypeIntegerBounds
+  )
+import JazzNext.Compiler.CapabilityFacts
+  ( concreteConstraintArgument,
+    concreteImplFactKey,
+    constraintImplFactKey,
+    identifierLooksLikeTypeVariable,
+    renderConstraintSignatureType
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic (..),
@@ -798,7 +804,10 @@ numericSectionCounterpartType sectionOperandType state =
 -- | Scope/type-signature handling for block expressions. This mirrors the
 -- statement-order rules enforced by the analyzer while threading inferred types.
 inferScopeType :: BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
-inferScopeType builtinMode initialEnv initialState statements = go initialEnv Nothing Nothing seededState indexedStatements
+inferScopeType builtinMode initialEnv initialState statements =
+  let (scopeType, finalState) =
+        go initialEnv Nothing Nothing stateAfterBindingSeeds indexedStatements
+   in (scopeType, restoreCapabilityFacts initialState finalState)
   where
     indexedStatements = zip [0 ..] statements
     recursiveGroupsByStatement =
@@ -808,8 +817,11 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
     selfRecursiveFunctionStatements =
       inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
+    capabilityFactsByStatement =
+      scopeCapabilityFactsByStatement indexedStatements initialState
     (bindingSeedsByStatement, seededState) =
-      allocateBindingSeeds indexedStatements (seedScopeCapabilityFacts indexedStatements initialState)
+      allocateBindingSeeds indexedStatements initialState
+    stateAfterBindingSeeds = seededState
 
     go env lastExprType pendingSignatureType state remainingStatements =
       case remainingStatements of
@@ -817,28 +829,34 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
         (statementIndex, statement) : rest ->
           case statement of
             SModule {} ->
-              go env lastExprType pendingSignatureType state rest
+              go env lastExprType pendingSignatureType (restoreCapabilityFacts initialState state) rest
             SImport {} ->
               go env lastExprType pendingSignatureType state rest
             SClass {} ->
-              go env lastExprType Nothing state rest
+              go env lastExprType Nothing (seedStatementCapabilityFact state statement) rest
             SImpl {} ->
-              go env lastExprType Nothing state rest
+              go env lastExprType Nothing (seedStatementCapabilityFact state statement) rest
             SData _ typeName typeParameters constructors ->
               let (nextEnv, nextState) =
                     registerDataConstructors typeName typeParameters constructors env state
                in go nextEnv lastExprType Nothing nextState rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
-                    case signaturePayloadToExpressionType signaturePayload state of
+                    case signaturePayloadToExpressionType signaturePayload signatureState of
                       (Just signatureType, stateAfterSignature) ->
-                        (Just (PendingSignatureType (identifierText name) signatureSpan signatureType), stateAfterSignature)
+                        ( Just (PendingSignatureType (identifierText name) signatureSpan signatureType),
+                          restoreCapabilityFacts state stateAfterSignature
+                        )
                       (Nothing, stateAfterSignature) ->
                         ( Nothing,
                           addTypeError
-                            stateAfterSignature
-                            (mkInvalidSignatureTypeError (identifierText name) signatureSpan signaturePayload)
+                            (restoreCapabilityFacts state stateAfterSignature)
+                            (mkInvalidSignatureTypeError signatureState (identifierText name) signatureSpan signaturePayload)
                         )
+                  signatureState =
+                    applyCapabilityFacts
+                      (Map.findWithDefault (capabilityFactsFromState state) statementIndex capabilityFactsByStatement)
+                      state
                in go env lastExprType nextPendingSignature nextState rest
             SLet name bindingSpan valueExpr ->
               let nameText = identifierText name
@@ -915,7 +933,7 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                           (defaultLiteralTypes . resolveType stateAfterSignatureCheck)
                           (Map.lookup statementIndex bindingSeedsByStatement)
                   nextEnv =
-                    case nextBindingForValue env valueExpr nextBindingType pendingSignatureType of
+                    case nextBindingForValue nameText env valueExpr nextBindingType pendingSignatureType of
                       Just binding -> Map.insert nameText binding env
                       Nothing -> env
                in go nextEnv lastExprType Nothing stateAfterSignatureCheck rest
@@ -925,14 +943,17 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                     annotateNewErrorsWithPrimarySpan exprSpan state rawStateAfterExpr
                in go env exprType Nothing stateAfterExpr rest
 
-    nextBindingForValue :: TypeEnv -> Expr -> Maybe ExpressionType -> Maybe PendingSignatureType -> Maybe TypeBinding
-    nextBindingForValue currentEnv valueExpr maybeInferredType maybePendingSignature =
+    nextBindingForValue :: Text -> TypeEnv -> Expr -> Maybe ExpressionType -> Maybe PendingSignatureType -> Maybe TypeBinding
+    nextBindingForValue bindingNameText currentEnv valueExpr maybeInferredType maybePendingSignature =
       case (maybePendingSignature, valueExpr) of
         (Nothing, EVar builtinName) ->
           let referencedName = identifierText builtinName
            in case Map.lookup referencedName currentEnv of
                 Just (BuiltinAliasTypeBinding builtinSymbol) ->
                   Just (BuiltinAliasTypeBinding builtinSymbol)
+                Just constructorBinding@ConstructorTypeBinding {}
+                  | isSyntheticAliasConstructorBinding bindingNameText referencedName ->
+                      Just constructorBinding
                 Just _ ->
                   PlainTypeBinding <$> maybeInferredType
                 Nothing ->
@@ -940,6 +961,9 @@ inferScopeType builtinMode initialEnv initialState statements = go initialEnv No
                     Just builtinSymbol -> Just (BuiltinAliasTypeBinding builtinSymbol)
                     Nothing -> PlainTypeBinding <$> maybeInferredType
         _ -> PlainTypeBinding <$> maybeInferredType
+
+    isSyntheticAliasConstructorBinding bindingNameText referencedName =
+      Text.isInfixOf "::" bindingNameText && Text.isPrefixOf "__module::" referencedName
 
 allocateBindingSeeds ::
   [(Int, Statement)] ->
@@ -954,6 +978,78 @@ allocateBindingSeeds indexedStatements initialState =
           let (bindingSeed, nextState) = freshTypeVar state
            in (Map.insert statementIndex bindingSeed bindingSeeds, nextState)
         _ -> (bindingSeeds, state)
+
+data ScopeCapabilityFacts = ScopeCapabilityFacts
+  { scopeClassFacts :: Set Text,
+    scopeConcreteImplFacts :: Set Text
+  }
+
+capabilityFactsFromState :: InferState -> ScopeCapabilityFacts
+capabilityFactsFromState state =
+  ScopeCapabilityFacts
+    { scopeClassFacts = inferClassFacts state,
+      scopeConcreteImplFacts = inferConcreteImplFacts state
+    }
+
+applyCapabilityFacts :: ScopeCapabilityFacts -> InferState -> InferState
+applyCapabilityFacts facts state =
+  state
+    { inferClassFacts = scopeClassFacts facts,
+      inferConcreteImplFacts = scopeConcreteImplFacts facts
+    }
+
+restoreCapabilityFacts :: InferState -> InferState -> InferState
+restoreCapabilityFacts previousState nextState =
+  nextState
+    { inferClassFacts = inferClassFacts previousState,
+      inferConcreteImplFacts = inferConcreteImplFacts previousState
+    }
+
+scopeCapabilityFactsByStatement :: [(Int, Statement)] -> InferState -> Map Int ScopeCapabilityFacts
+scopeCapabilityFactsByStatement indexedStatements initialState =
+  Map.unions (map factsForSegment (scopeCapabilitySegments indexedStatements))
+  where
+    initialFacts = capabilityFactsFromState initialState
+
+    factsForSegment segment =
+      let segmentFacts = foldl' seedFacts initialFacts segment
+       in Map.fromList [(statementIndex, segmentFacts) | (statementIndex, _) <- segment]
+
+scopeCapabilitySegments :: [(Int, Statement)] -> [[(Int, Statement)]]
+scopeCapabilitySegments indexedStatements =
+  filter (not . null) (reverse (map reverse rawSegments))
+  where
+    rawSegments =
+      foldl' appendStatement [[]] indexedStatements
+
+    appendStatement segments statement@(_, SModule {}) =
+      case segments of
+        currentSegment : completedSegments ->
+          [statement] : currentSegment : completedSegments
+        [] -> [[statement]]
+    appendStatement segments statement =
+      case segments of
+        currentSegment : completedSegments ->
+          (statement : currentSegment) : completedSegments
+        [] -> [[statement]]
+
+seedStatementCapabilityFact :: InferState -> Statement -> InferState
+seedStatementCapabilityFact state statement =
+  let facts = seedFacts (capabilityFactsFromState state) (0, statement)
+   in applyCapabilityFacts facts state
+
+seedFacts :: ScopeCapabilityFacts -> (Int, Statement) -> ScopeCapabilityFacts
+seedFacts facts (_, statement) =
+  case statement of
+    SClass _ capabilityName ->
+      facts {scopeClassFacts = Set.insert (identifierText capabilityName) (scopeClassFacts facts)}
+    SImpl _ capabilityName arguments ->
+      case concreteImplFactKey capabilityName arguments of
+        Just implFactKey ->
+          facts {scopeConcreteImplFacts = Set.insert implFactKey (scopeConcreteImplFacts facts)}
+        Nothing ->
+          facts
+    _ -> facts
 
 -- Seed self-recursion before branch typing so mixed wrappers like
 -- `if True \(x) -> f x else 0` do not skip recursive calls just because only
@@ -1079,16 +1175,27 @@ constructorArgumentTypes typeParameters constructorArguments state
       let (argumentTypes, nextState) = freshTypeVars (length constructorArguments) state
        in (map ConstructorArgumentMonomorphic argumentTypes, nextState)
   | otherwise =
-      (map genericConstructorArgumentType constructorArguments, state)
+      foldl' collectArgument ([], state) constructorArguments
   where
     typeParameterNames = Set.fromList (map identifierText typeParameters)
 
-    genericConstructorArgumentType constructorArgument =
+    collectArgument (argumentTypes, stateAcc) constructorArgument =
       case constructorArgument of
         DataConstructorArgumentName argumentName
           | Set.member (identifierText argumentName) typeParameterNames ->
-              ConstructorArgumentParameter (identifierText argumentName)
-        _ -> ConstructorArgumentFresh
+              (argumentTypes ++ [ConstructorArgumentParameter (identifierText argumentName)], stateAcc)
+          | Just payloadType <- namedConstructorPayloadType argumentName ->
+              (argumentTypes ++ [ConstructorArgumentMonomorphic payloadType], stateAcc)
+          | otherwise ->
+              ( argumentTypes ++ [ConstructorArgumentFresh],
+                addTypeError stateAcc (mkUnknownConstructorPayloadTypeError argumentName)
+              )
+        DataConstructorArgumentOpaque ->
+          (argumentTypes ++ [ConstructorArgumentFresh], stateAcc)
+
+namedConstructorPayloadType :: Identifier -> Maybe ExpressionType
+namedConstructorPayloadType =
+  constraintSignatureTypeToExpressionType . ConstraintTypeName
 
 -- | Instantiate local bindings and constructors at use sites. Constructors are
 -- rendered as curried functions ending in their declared data type.
@@ -1167,7 +1274,10 @@ instantiateConstructorArguments typeParameterBindings argumentTypes initialState
               (parameterType : argumentTypesRev, stateAcc)
             Nothing ->
               let (freshArgumentType, nextState) = freshTypeVar stateAcc
-               in (freshArgumentType : argumentTypesRev, nextState)
+               in
+                ( freshArgumentType : argumentTypesRev,
+                  addTypeError nextState (mkMissingConstructorTypeParameterBindingError parameterName)
+                )
         ConstructorArgumentFresh ->
           let (freshArgumentType, nextState) = freshTypeVar stateAcc
            in (freshArgumentType : argumentTypesRev, nextState)
@@ -1285,22 +1395,6 @@ allocateSignatureTypeVariables variableNames state =
       let (variableType, nextState) = freshTypeVar stateAcc
        in (Map.insert variableName variableType signatureVariables, nextState)
 
-seedScopeCapabilityFacts :: [(Int, Statement)] -> InferState -> InferState
-seedScopeCapabilityFacts indexedStatements initialState =
-  foldl' seed initialState indexedStatements
-  where
-    seed state (_, statement) =
-      case statement of
-        SClass _ capabilityName ->
-          state {inferClassFacts = Set.insert (identifierText capabilityName) (inferClassFacts state)}
-        SImpl _ capabilityName arguments ->
-          case concreteImplFactKey capabilityName arguments of
-            Just implFactKey ->
-              state {inferConcreteImplFacts = Set.insert implFactKey (inferConcreteImplFacts state)}
-            Nothing ->
-              state
-        _ -> state
-
 supportedConcreteConstraints :: InferState -> [SignatureConstraint] -> Bool
 supportedConcreteConstraints state constraints =
   not (null constraints)
@@ -1354,32 +1448,6 @@ supportedConstraintName :: Text -> Bool
 supportedConstraintName constraintName =
   Set.member constraintName supportedConstraintNames
 
-concreteConstraintArgument :: ConstraintSignatureType -> Bool
-concreteConstraintArgument signatureType =
-  case signatureType of
-    ConstraintTypeName name ->
-      identifierText name `Set.member` concreteConstraintTypeNames
-    ConstraintTypeApplication {} ->
-      False
-    ConstraintTypeList innerType ->
-      concreteConstraintArgument innerType
-    ConstraintTypeTuple elementTypes ->
-      all concreteConstraintArgument elementTypes
-    ConstraintTypeFunction {} ->
-      False
-
-concreteImplFactKey :: Identifier -> [ConstraintSignatureType] -> Maybe Text
-concreteImplFactKey capabilityName arguments =
-  case arguments of
-    [argument]
-      | concreteConstraintArgument argument ->
-          Just (constraintImplFactKey capabilityName argument)
-    _ -> Nothing
-
-constraintImplFactKey :: Identifier -> ConstraintSignatureType -> Text
-constraintImplFactKey constraintName argument =
-  identifierText constraintName <> "(" <> renderConstraintSignatureType argument <> ")"
-
 constraintSignatureTypeVariableNames :: ConstraintSignatureType -> Set Text
 constraintSignatureTypeVariableNames signatureType =
   case signatureType of
@@ -1415,21 +1483,6 @@ constraintSignatureTypeSupportsVariableBody signatureType =
 supportedConstraintNames :: Set Text
 supportedConstraintNames =
   Set.fromList ["Default", "Eq", "Fractional", "Integral", "Num", "Ord", "Showable"]
-
-numericTypes :: [NumericType]
-numericTypes =
-  [ NumericInt8,
-    NumericInt16,
-    NumericInt32,
-    NumericInt64,
-    NumericUInt8,
-    NumericUInt16,
-    NumericUInt32,
-    NumericUInt64,
-    NumericFloat16,
-    NumericFloat32,
-    NumericFloat64
-  ]
 
 numericTypeNameToExpressionType :: Text -> Maybe ExpressionType
 numericTypeNameToExpressionType typeName =
@@ -1604,13 +1657,6 @@ renderNumericTypeName numericType =
     NumericFloat32 -> "Float32"
     NumericFloat64 -> "Float64"
 
-concreteConstraintTypeNames :: Set Text
-concreteConstraintTypeNames =
-  Set.fromList
-    ( ["Bool", "Int", "Float"]
-        ++ map renderNumericTypeName numericTypes
-    )
-
 renderSignaturePayload :: SignaturePayload -> Text
 renderSignaturePayload signaturePayload =
   case signaturePayload of
@@ -1634,39 +1680,6 @@ renderSignatureConstraint (SignatureConstraint constraintName arguments) =
     <> if null arguments
       then ""
       else "(" <> Text.intercalate ", " (map renderConstraintSignatureType arguments) <> ")"
-
-renderConstraintSignatureType :: ConstraintSignatureType -> Text
-renderConstraintSignatureType signatureType =
-  case signatureType of
-    ConstraintTypeName name ->
-      identifierText name
-    ConstraintTypeApplication name arguments ->
-      identifierText name
-        <> "("
-        <> Text.intercalate ", " (map renderConstraintSignatureType arguments)
-        <> ")"
-    ConstraintTypeList innerType ->
-      "[" <> renderConstraintListElementType innerType <> "]"
-    ConstraintTypeTuple elementTypes ->
-      "(" <> Text.intercalate ", " (map renderConstraintSignatureType elementTypes) <> ")"
-    ConstraintTypeFunction argumentType resultType ->
-      renderConstraintFunctionArgumentType argumentType <> " -> " <> renderConstraintSignatureType resultType
-
-renderConstraintFunctionArgumentType :: ConstraintSignatureType -> Text
-renderConstraintFunctionArgumentType signatureType =
-  case signatureType of
-    ConstraintTypeFunction {} ->
-      "(" <> renderConstraintSignatureType signatureType <> ")"
-    _ ->
-      renderConstraintSignatureType signatureType
-
-renderConstraintListElementType :: ConstraintSignatureType -> Text
-renderConstraintListElementType signatureType =
-  case signatureType of
-    ConstraintTypeFunction {} ->
-      "(" <> renderConstraintSignatureType signatureType <> ")"
-    _ ->
-      renderConstraintSignatureType signatureType
 
 renderSignatureType :: SignatureType -> Text
 renderSignatureType signatureType =
@@ -2230,6 +2243,18 @@ mkUnsupportedOperatorValueError :: Text -> Diagnostic
 mkUnsupportedOperatorValueError operatorSymbol =
   mkDiagnostic "E2010" ("unsupported operator value '" <> operatorSymbol <> "'")
 
+mkUnknownConstructorPayloadTypeError :: Identifier -> Diagnostic
+mkUnknownConstructorPayloadTypeError payloadTypeName =
+  mkDiagnostic
+    "E2013"
+    ("unknown constructor payload type '" <> identifierText payloadTypeName <> "' in generic data declaration")
+
+mkMissingConstructorTypeParameterBindingError :: Text -> Diagnostic
+mkMissingConstructorTypeParameterBindingError parameterName =
+  mkDiagnostic
+    "E2013"
+    ("internal constructor scheme error: missing binding for type parameter '" <> parameterName <> "'")
+
 mkPatternTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkPatternTypeMismatchError scrutineeType patternType =
   mkDiagnostic
@@ -2272,18 +2297,18 @@ mkPatternBranchTypeMismatchError leftType rightType =
         <> renderType rightType
     )
 
-mkInvalidSignatureTypeError :: Text -> SourceSpan -> SignaturePayload -> Diagnostic
-mkInvalidSignatureTypeError symbol signatureSpan signaturePayload =
+mkInvalidSignatureTypeError :: InferState -> Text -> SourceSpan -> SignaturePayload -> Diagnostic
+mkInvalidSignatureTypeError state symbol signatureSpan signaturePayload =
   setDiagnosticSubject symbol $
     setDiagnosticPrimarySpan
       signatureSpan
       ( mkDiagnostic
           "E2009"
-          (invalidSignatureSummary symbol signaturePayload)
+          (invalidSignatureSummary state symbol signaturePayload)
       )
 
-invalidSignatureSummary :: Text -> SignaturePayload -> Text
-invalidSignatureSummary symbol signaturePayload =
+invalidSignatureSummary :: InferState -> Text -> SignaturePayload -> Text
+invalidSignatureSummary state symbol signaturePayload =
   case signaturePayload of
     ConstrainedSignature constraints _
       | Just duplicateName <- duplicateConstraintName constraints ->
@@ -2301,12 +2326,43 @@ invalidSignatureSummary symbol signaturePayload =
             <> "': type-variable constrained signatures require every constrained variable to appear in the signature body and every body variable to appear in a supported unary constraint before inference can accept '"
             <> renderSignaturePayload signaturePayload
             <> "'"
+    ConstrainedSignature constraints _
+      | Just reason <- concreteConstraintFailureSummary state constraints ->
+          "invalid or unsupported signature for '"
+            <> symbol
+            <> "': "
+            <> reason
+            <> " in '"
+            <> renderSignaturePayload signaturePayload
+            <> "'"
     _ ->
       "invalid or unsupported signature for '"
         <> symbol
         <> "': '"
         <> renderSignaturePayload signaturePayload
         <> "'"
+
+concreteConstraintFailureSummary :: InferState -> [SignatureConstraint] -> Maybe Text
+concreteConstraintFailureSummary state constraints
+  | null constraints = Nothing
+  | otherwise = firstJust (map constraintFailureSummary constraints)
+  where
+    constraintFailureSummary (SignatureConstraint constraintName arguments)
+      | Set.notMember (identifierText constraintName) (inferClassFacts state) =
+          Just ("missing class declaration '" <> identifierText constraintName <> "'")
+      | [argument] <- arguments,
+        concreteConstraintArgument argument,
+        let implFactKey = constraintImplFactKey constraintName argument,
+        Set.notMember implFactKey (inferConcreteImplFacts state) =
+          Just ("missing impl fact '" <> implFactKey <> "'")
+      | otherwise =
+          Nothing
+
+    firstJust results =
+      case results of
+        [] -> Nothing
+        Just result : _ -> Just result
+        Nothing : rest -> firstJust rest
 
 constrainedSignatureHasTypeVariable :: [SignatureConstraint] -> ConstraintSignatureType -> Bool
 constrainedSignatureHasTypeVariable constraints signatureType =
@@ -2330,12 +2386,6 @@ constraintTypeHasTypeVariable signatureType =
       any constraintTypeHasTypeVariable elementTypes
     ConstraintTypeFunction argumentType resultType ->
       constraintTypeHasTypeVariable argumentType || constraintTypeHasTypeVariable resultType
-
-identifierLooksLikeTypeVariable :: Identifier -> Bool
-identifierLooksLikeTypeVariable name =
-  case Text.uncons (identifierText name) of
-    Just (firstChar, _) -> isLower firstChar
-    Nothing -> False
 
 duplicateConstraintName :: [SignatureConstraint] -> Maybe Text
 duplicateConstraintName constraints =

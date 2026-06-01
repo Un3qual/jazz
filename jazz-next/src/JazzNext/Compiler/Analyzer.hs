@@ -20,10 +20,8 @@ import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
-import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
-    ConstraintSignatureType (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -34,6 +32,9 @@ import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
     builtinNamesInMode,
     isBuiltinSymbolNameInMode
+  )
+import JazzNext.Compiler.CapabilityFacts
+  ( concreteImplFactKey
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
@@ -330,8 +331,8 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
            in
             ( scopeBindings,
-              classDeclarations,
-              implDeclarations,
+              Map.empty,
+              Map.empty,
               Nothing,
               warningsRev,
               errorsWithPending
@@ -591,61 +592,6 @@ mkDuplicateImplDeclarationError implFactKey implSpan previousSpan =
       setDiagnosticPrimarySpan
         implSpan
         (mkDiagnostic "E1005" ("duplicate impl declaration for '" <> implFactKey <> "'"))
-
-concreteImplFactKey :: Identifier -> [ConstraintSignatureType] -> Maybe Text
-concreteImplFactKey capabilityName arguments =
-  case arguments of
-    [argument]
-      | concreteCapabilityArgument argument ->
-          Just (identifierText capabilityName <> "(" <> renderConstraintArgument argument <> ")")
-    _ -> Nothing
-
-concreteCapabilityArgument :: ConstraintSignatureType -> Bool
-concreteCapabilityArgument signatureType =
-  case signatureType of
-    ConstraintTypeName name ->
-      Set.member (identifierText name) concreteCapabilityTypeNames
-    ConstraintTypeApplication {} ->
-      False
-    ConstraintTypeList innerType ->
-      concreteCapabilityArgument innerType
-    ConstraintTypeTuple elementTypes ->
-      all concreteCapabilityArgument elementTypes
-    ConstraintTypeFunction {} ->
-      False
-
-concreteCapabilityTypeNames :: Set Text
-concreteCapabilityTypeNames =
-  Set.fromList
-    [ "Bool",
-      "Float",
-      "Float16",
-      "Float32",
-      "Float64",
-      "Int",
-      "Int8",
-      "Int16",
-      "Int32",
-      "Int64",
-      "UInt8",
-      "UInt16",
-      "UInt32",
-      "UInt64"
-    ]
-
-renderConstraintArgument :: ConstraintSignatureType -> Text
-renderConstraintArgument signatureType =
-  case signatureType of
-    ConstraintTypeName name ->
-      identifierText name
-    ConstraintTypeApplication name arguments ->
-      identifierText name <> "(" <> Text.intercalate ", " (map renderConstraintArgument arguments) <> ")"
-    ConstraintTypeList innerType ->
-      "[" <> renderConstraintArgument innerType <> "]"
-    ConstraintTypeTuple elementTypes ->
-      "(" <> Text.intercalate ", " (map renderConstraintArgument elementTypes) <> ")"
-    ConstraintTypeFunction argumentType resultType ->
-      renderConstraintArgument argumentType <> " -> " <> renderConstraintArgument resultType
 
 topLevelContext :: AnalysisContext
 topLevelContext =

@@ -4,8 +4,10 @@ module Main (main) where
 
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( Expr (..),
+  ( ConstraintSignatureType (..),
+    Expr (..),
     Literal (..),
+    SignatureConstraint (..),
     SignaturePayload (..),
     SignatureType (..),
     Statement (..)
@@ -55,6 +57,8 @@ tests =
     ("source pipeline accepts inert class and impl declarations", testSourceAcceptsCapabilityDeclarations),
     ("source pipeline rejects duplicate class declarations", testSourceRejectsDuplicateClassDeclarations),
     ("source pipeline rejects duplicate concrete impl declarations", testSourceRejectsDuplicateConcreteImplDeclarations),
+    ("source pipeline rejects duplicate ADT impl declarations", testSourceRejectsDuplicateAdtImplDeclarations),
+    ("compiler keeps nested capability facts scoped", testSourceKeepsNestedCapabilityFactsScoped),
     ("source pipeline treats capability declarations as signature separators", testSourceRejectsSignatureSeparatedByCapabilityDeclaration),
     ("source pipeline rejects separated signature", testSourceRejectsSeparatedSignature),
     ("source pipeline rejects signature name mismatch", testSourceRejectsSignatureNameMismatch),
@@ -330,6 +334,36 @@ testSourceRejectsDuplicateConcreteImplDeclarations :: IO ()
 testSourceRejectsDuplicateConcreteImplDeclarations =
   assertSourceSingleErrorContains "class Eq { }.\nimpl Eq(Int) { }.\nimpl Eq(Int) { }.\nx = 1." "E1005"
 
+testSourceRejectsDuplicateAdtImplDeclarations :: IO ()
+testSourceRejectsDuplicateAdtImplDeclarations = do
+  assertSourceSingleErrorContains "data Color = Red.\nclass Eq { }.\nimpl Eq(Color) { }.\nimpl Eq(Color) { }.\nx = 1." "E1005"
+  assertSourceSingleErrorContains "data Box a = Box a.\nclass Eq { }.\nimpl Eq(Box(Int)) { }.\nimpl Eq(Box(Int)) { }.\nx = 1." "E1005"
+
+testSourceKeepsNestedCapabilityFactsScoped :: IO ()
+testSourceKeepsNestedCapabilityFactsScoped = do
+  result <- compileExpr defaultWarningSettings program
+  assertSingleDiagnosticContains
+    "nested capability fact isolation"
+    "missing class declaration 'Eq'"
+    (compileErrors result)
+  where
+    spanValue = SourceSpan 1 1
+    eqInt = ConstraintTypeName "Int"
+    program =
+      EBlock
+        [ SLet
+            "seed"
+            spanValue
+            ( EBlock
+                [ SClass spanValue "Eq",
+                  SImpl spanValue "Eq" [eqInt],
+                  SExpr spanValue (ELit (LInt 0))
+                ]
+            ),
+          SSignature "x" spanValue (ConstrainedSignature [SignatureConstraint "Eq" [eqInt]] eqInt),
+          SLet "x" spanValue (ELit (LInt 1))
+        ]
+
 testSourceRejectsSignatureSeparatedByCapabilityDeclaration :: IO ()
 testSourceRejectsSignatureSeparatedByCapabilityDeclaration =
   assertSourceErrorContains "x :: Int.\nclass Eq { }.\nx = 1." "E1002"
@@ -506,7 +540,7 @@ testSourceAcceptsConcreteTupleConstrainedSignatureArgument =
 
 testSourceRejectsConcreteConstrainedSignatureWithoutImplFact :: IO ()
 testSourceRejectsConcreteConstrainedSignatureWithoutImplFact =
-  assertSourceSingleErrorContains "class Eq { }.\nx :: @{Eq(Int)}: Int.\nx = 1." "E2009"
+  assertSourceSingleErrorContains "class Eq { }.\nx :: @{Eq(Int)}: Int.\nx = 1." "missing impl fact 'Eq(Int)'"
 
 testSourceRejectsUnknownConstrainedSignatureConstraint :: IO ()
 testSourceRejectsUnknownConstrainedSignatureConstraint =

@@ -1286,12 +1286,17 @@ stripModuleDeclarations :: [Text] -> Set Text -> Set Text -> Expr -> Expr
 stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr =
   case expr of
     EBlock statements ->
-      EBlock (concatMap keepModuleValidationStatement statements)
+      EBlock (ensureModuleValidationBoundary (concatMap keepModuleValidationStatement statements))
     _ -> expr
   where
+    ensureModuleValidationBoundary statements =
+      case statements of
+        SModule {} : _ -> statements
+        _ -> SModule (SourceSpan 1 1) modulePath : statements
+
     keepModuleValidationStatement statement =
       case statement of
-        SModule _ _ -> []
+        SModule {} -> [statement]
         SLet bindingName spanValue valueExpr
           | Set.member (identifierText bindingName) hiddenImportExports ->
               if Set.member (identifierText bindingName) neededModuleExports

@@ -2,7 +2,7 @@
 
 This is the canonical status matrix for top-level language claims. The top-level [README](../README.md) is a short summary, while this file is the source of truth for implemented-vs-planned status.
 
-Last verified against commit: `8cf403b`
+Last verified against commit: `a99fdc5`
 
 ## Status Rubric
 
