@@ -96,6 +96,7 @@ tests =
     ("dynamic integer-to-Float64 overflow checks source magnitude", testDynamicIntegerToFloat64OverflowRuntimeError),
     ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
     ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
+    ("Float16 and Float32 arithmetic evaluates at runtime", testFloat16Float32ArithmeticRuntimeSuccess),
     ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError),
     ("Float64 comparison and equality evaluate at runtime", testFloat64ComparisonEqualityRuntimeSuccess),
     ("structural list equality evaluates at runtime", testStructuralListEqualityRuntimeSuccess),
@@ -659,6 +660,13 @@ testFloat64ArithmeticRuntimeSuccess = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "4.25") (runOutput result)
+
+testFloat16Float32ArithmeticRuntimeSuccess :: IO ()
+testFloat16Float32ArithmeticRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "a16 = toFloat16 1.\nb16 = toFloat16 2.\nc16 = toFloat16 6.\nd16 = toFloat16 3.\na32 = toFloat32 1.\nb32 = toFloat32 2.\nc32 = toFloat32 6.\nd32 = toFloat32 3.\n(((a16 + b16) * (c16 / d16)) - b16, ((a32 + b32) * (c32 / d32)) - b32)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(4.0, 4.0)") (runOutput result)
 
 testFloat64ArithmeticOverflowRuntimeError :: IO ()
 testFloat64ArithmeticOverflowRuntimeError = do

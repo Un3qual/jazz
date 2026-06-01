@@ -7,12 +7,12 @@ kind: impl
 autonomous_ready: no
 depends_on: []
 last_verified: 2026-06-01
-plan_section: "Follow-up: Primitive deltas after structural equality"
+plan_section: "Follow-up: Primitive deltas after child-plan reseed"
 target_paths: []
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Primitive deltas beyond landed same concrete `Float`/`Float64` arithmetic and comparison/equality plus structural tuple/list equality remain blocked until separate concrete contracts define target paths and focused verification."
+deliverable: "Primitive deltas outside landed Float16/Float32 same-width arithmetic and the queued Float16/Float32 comparison/equality plus structural ADT equality child plans remain blocked until separate concrete contracts define target paths and focused verification."
 ---
 
 # Primitive Semantics Contract Implementation Plan
@@ -314,15 +314,76 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
-## Follow-up: Primitive deltas after structural equality
+## Completed implementation batch: Float16/Float32 same-width arithmetic
 
-No executor-safe primitive implementation batch remains in this plan after the
-structural tuple/list equality slice. Remaining primitive surface work stays
-blocked until separate contracts define exact syntax or behavior, target paths,
-and focused verification for literal suffixes, Float16/Float32 literal
-targeting, implicit integer-to-float promotion, implicit mixed-width behavior,
-structural ADT equality, function/operator/section equality, or broader numeric
-solver behavior.
+This active-path batch extends the same-concrete arithmetic contract beyond
+`Float`/`Float64` to values produced by explicit `Float16` and `Float32`
+conversions. It keeps literal targeting and width mixing explicit.
+
+Completed on `2026-06-01` as
+`JN-FLOAT16-FLOAT32-SAME-WIDTH-ARITHMETIC-001`.
+
+Executor-safe scope:
+
+- Accepted `+`, `-`, `*`, and `/` when both operands resolve to the same
+  concrete `Float16` type.
+- Accepted `+`, `-`, `*`, and `/` when both operands resolve to the same
+  concrete `Float32` type.
+- Returned the same concrete floating type for accepted operations.
+- Evaluated accepted operations through the existing active runtime
+  floating-value path.
+- Preserved existing integer arithmetic and same-concrete `Float`/`Float64`
+  arithmetic behavior.
+- Preserved compile-time rejection for mixed `Int`/floating operands,
+  `Float16`/`Float32`, `Float16`/`Float64`, `Float32`/`Float64`, unrelated
+  non-numeric operands, and implicit-promotion cases.
+- Preserved deferral of same-width `Float16`/`Float32` comparison/equality for
+  the queued follow-up batch.
+
+Out of scope:
+
+- literal suffix syntax,
+- Float16 or Float32 literal targeting,
+- implicit integer-to-float promotion,
+- implicit mixed-width arithmetic widening,
+- Float16/Float32 comparison or equality,
+- typeclass solver, dictionary passing, or runtime dispatch.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Follow-up: Primitive deltas after child-plan reseed
+
+On `2026-06-01`, queue curation split three concrete child plans out of this
+umbrella follow-up, and the same-width arithmetic child plan landed:
+
+- `docs/plans/2026-06-01-jazz-next-float16-float32-same-width-arithmetic.md`
+- `docs/plans/2026-06-01-jazz-next-float16-float32-same-width-comparison-equality.md`
+- `docs/plans/2026-06-01-jazz-next-structural-adt-equality.md`
+
+The remaining comparison/equality and structural ADT equality child plans are
+executor-safe because they inherit locked same-concrete numeric behavior,
+strict type-directed equality, explicit-conversion-only width mixing, active
+`jazz-next` target paths, and focused verification from the landed Float64,
+Float16/Float32 arithmetic, and structural tuple/list batches. Remaining
+primitive surface work stays blocked until separate contracts define exact
+syntax or behavior, target paths, and focused verification for literal
+suffixes, Float16/Float32 literal targeting, implicit integer-to-float
+promotion, implicit mixed-width behavior, function/operator/section equality,
+or broader numeric solver behavior.
 
 ## Verification Evidence (Current Ambiguity)
 

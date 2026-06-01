@@ -223,6 +223,7 @@ data IntegerLiteralRange = IntegerLiteralRange Integer Integer
 data NumericConstraint
   = AnyNumericConstraint
   | RuntimeArithmeticNumericConstraint
+  | RuntimeComparisonNumericConstraint
   | IntegralNumericConstraint
   | IntegralLiteralNumericConstraint IntegerLiteralRange
   deriving (Eq, Show)
@@ -601,7 +602,7 @@ numericRuleConstraint :: NumericRuleResult -> NumericConstraint
 numericRuleConstraint resultRule =
   case resultRule of
     NumericSameTypeResult -> RuntimeArithmeticNumericConstraint
-    NumericBoolResult -> RuntimeArithmeticNumericConstraint
+    NumericBoolResult -> RuntimeComparisonNumericConstraint
 
 numericBinaryOperandType ::
   Text ->
@@ -1566,6 +1567,13 @@ numericTypeIsIntegral numericType =
     NumericFloat32 -> False
     NumericFloat64 -> False
 
+numericTypeSupportsRuntimeArithmetic :: NumericType -> Bool
+numericTypeSupportsRuntimeArithmetic numericType =
+  numericTypeIsIntegral numericType
+    || numericType == NumericFloat16
+    || numericType == NumericFloat32
+    || numericType == NumericFloat64
+
 integerLiteralRangeFitsNumericType :: IntegerLiteralRange -> NumericType -> Bool
 integerLiteralRangeFitsNumericType literalRange numericType =
   case numericTypeIntegerBounds numericType of
@@ -2141,6 +2149,8 @@ combineNumericConstraints leftConstraint rightConstraint =
       IntegralLiteralNumericConstraint literalRange
     (IntegralNumericConstraint, _) -> IntegralNumericConstraint
     (_, IntegralNumericConstraint) -> IntegralNumericConstraint
+    (RuntimeComparisonNumericConstraint, _) -> RuntimeComparisonNumericConstraint
+    (_, RuntimeComparisonNumericConstraint) -> RuntimeComparisonNumericConstraint
     (RuntimeArithmeticNumericConstraint, _) -> RuntimeArithmeticNumericConstraint
     (_, RuntimeArithmeticNumericConstraint) -> RuntimeArithmeticNumericConstraint
     _ -> AnyNumericConstraint
@@ -2184,6 +2194,15 @@ typeSatisfiesNumericConstraint numericConstraint expressionType =
         TIntegerLiteralType {} -> True
         TFloatType -> True
         TNumericType numericType ->
+          numericTypeSupportsRuntimeArithmetic numericType
+        TVarType {} -> True
+        _ -> False
+    RuntimeComparisonNumericConstraint ->
+      case expressionType of
+        TIntType -> True
+        TIntegerLiteralType {} -> True
+        TFloatType -> True
+        TNumericType numericType ->
           numericTypeIsIntegral numericType || numericType == NumericFloat64
         TVarType {} -> True
         _ -> False
@@ -2216,32 +2235,8 @@ mkBinaryTypeError operatorSymbol leftType rightType =
     )
 
 mkNumericBinaryTypeError :: Text -> NumericRuleResult -> ExpressionType -> ExpressionType -> Diagnostic
-mkNumericBinaryTypeError operatorSymbol resultRule leftType rightType =
-  case resultRule of
-    NumericSameTypeResult
-      | any isDeferredFloatArithmeticType [leftType, rightType] ->
-          mkDeferredFloatArithmeticTypeError operatorSymbol leftType rightType
-    _ -> mkBinaryTypeError operatorSymbol leftType rightType
-
-mkDeferredFloatArithmeticTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
-mkDeferredFloatArithmeticTypeError operatorSymbol leftType rightType =
-  mkDiagnostic
-    "E2003"
-    ( "cannot apply operator '"
-        <> operatorSymbol
-        <> "' to operands of type "
-        <> renderType leftType
-        <> " and "
-        <> renderType rightType
-        <> ": Float16/Float32 arithmetic is deferred; convert operands to Float64 or use supported Float64 arithmetic"
-    )
-
-isDeferredFloatArithmeticType :: ExpressionType -> Bool
-isDeferredFloatArithmeticType expressionType =
-  case expressionType of
-    TNumericType NumericFloat16 -> True
-    TNumericType NumericFloat32 -> True
-    _ -> False
+mkNumericBinaryTypeError operatorSymbol _ leftType rightType =
+  mkBinaryTypeError operatorSymbol leftType rightType
 
 mkStrictEqualityTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
 mkStrictEqualityTypeError operatorSymbol leftType rightType =
@@ -2379,26 +2374,14 @@ mkUnsupportedSectionOperatorError operatorSymbol =
   mkDiagnostic "E2008" ("unsupported operator section '" <> operatorSymbol <> "'")
 
 mkNumericSectionOperandTypeError :: Text -> NumericRuleResult -> ExpressionType -> Diagnostic
-mkNumericSectionOperandTypeError operatorSymbol resultRule operandType =
-  case resultRule of
-    NumericSameTypeResult
-      | isDeferredFloatArithmeticType operandType ->
-          mkDiagnostic
-            "E2003"
-            ( "operator section '"
-                <> operatorSymbol
-                <> "' requires a supported numeric operand, found "
-                <> renderType operandType
-                <> ": Float16/Float32 arithmetic is deferred; convert operands to Float64 or use supported Float64 arithmetic"
-            )
-    _ ->
-      mkDiagnostic
-        "E2003"
-        ( "operator section '"
-            <> operatorSymbol
-            <> "' requires a numeric operand, found "
-            <> renderType operandType
-        )
+mkNumericSectionOperandTypeError operatorSymbol _ operandType =
+  mkDiagnostic
+    "E2003"
+    ( "operator section '"
+        <> operatorSymbol
+        <> "' requires a numeric operand, found "
+        <> renderType operandType
+    )
 
 mkUnsupportedOperatorValueError :: Text -> Diagnostic
 mkUnsupportedOperatorValueError operatorSymbol =

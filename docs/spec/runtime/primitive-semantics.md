@@ -79,10 +79,10 @@ f = \(x) -> x.
 - Context can choose a narrower explicit type for an integer literal, for example an `Int32` annotation can make `2` an `Int32`.
 - Numeric operators require one concrete numeric type per operation, matching the Haskell-like `(+) :: Num a => a -> a -> a` shape.
 - Mixed concrete widths, such as `Int32 + Int64`, are type errors unless one side is converted explicitly.
-- `jazz-next` parses, lowers, and type-checks width-specific numeric signature names plus `Int`/`Float` aliases, and the active runtime operator subset evaluates same concrete `Float`/`Float64` arithmetic, comparison, equality/inequality, plus structural list/tuple equality when nested element types are equality-supported.
+- `jazz-next` parses, lowers, and type-checks width-specific numeric signature names plus `Int`/`Float` aliases, and the active runtime operator subset evaluates same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic, same concrete `Float`/`Float64` comparison and equality/inequality, plus structural list/tuple equality when nested element types are equality-supported.
 - Integer literals can satisfy an explicit integral-width signature annotation; ambiguous integer literals still default through `Int`.
 - Decimal fractional literals such as `1.5` parse and lower to the default `Float`/`Float64` literal slice, can satisfy explicit `Float` or `Float64` signatures, and evaluate/render as runtime Float64 values.
-- Fractional literals do not target `Float16` or `Float32` directly, integer/fractional operator mixing remains a type error, and `Float16`/`Float32` arithmetic and comparison/equality remain out of scope for this slice.
+- Fractional literals do not target `Float16` or `Float32` directly, integer/fractional operator mixing remains a type error, same concrete `Float16`/`Float32` arithmetic is accepted only after explicit conversion, and `Float16`/`Float32` comparison/equality remains out of scope for this slice.
 
 ### Explicit Conversion Contract
 

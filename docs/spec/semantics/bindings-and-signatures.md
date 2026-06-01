@@ -36,7 +36,7 @@ Adjacent numeric-width work:
 - `Float` maps to `Float64`.
 - Explicit width names (`Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float16`, `Float32`, and `Float64`) are ordinary monomorphic signature types before broader polymorphic/defaulting work.
 - Integer literals can satisfy explicit integral-width annotations.
-- Decimal fractional literals can satisfy explicit `Float` and `Float64` signatures, but not `Float16`/`Float32` signatures; same concrete `Float`/`Float64` arithmetic, comparison, and equality are supported; structural list/tuple equality is supported only when every nested element type is equality-supported; `Float16`/`Float32` arithmetic and comparison/equality remain out of scope for this slice.
+- Decimal fractional literals can satisfy explicit `Float` and `Float64` signatures, but not `Float16`/`Float32` signatures; same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic is supported; same concrete `Float`/`Float64` comparison and equality are supported; structural list/tuple equality is supported only when every nested element type is equality-supported; `Float16`/`Float32` comparison/equality remains out of scope for this slice.
 
 ## Canonical Contract
 
