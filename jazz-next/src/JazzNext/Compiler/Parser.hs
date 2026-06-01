@@ -23,6 +23,9 @@ import JazzNext.Compiler.Diagnostics
     mkDiagnostic,
     renderSourceSpan
   )
+import JazzNext.Compiler.FractionalLiteral
+  ( mkFractionalLiteralSource
+  )
 import JazzNext.Compiler.Identifier
   ( Identifier,
     identifierText,
@@ -1362,13 +1365,17 @@ parseNumericLiteral wholeToken wholeValue tokensAfterWhole = do
 parseNumericSurfaceLiteral :: Token -> Integer -> [Token] -> Either Diagnostic (SurfaceLiteral, [Token])
 parseNumericSurfaceLiteral wholeToken wholeValue tokensAfterWhole =
   case tokensAfterWhole of
-    dotToken@Token {tokenKind = TDot} : fractionalToken@Token {tokenKind = TInt _} : rest
+    dotToken@Token {tokenKind = TDot} : fractionalToken@Token {tokenKind = TInt fractionalValue} : rest
       | isImmediatelyAfter wholeToken dotToken,
         isImmediatelyAfter dotToken fractionalToken -> do
           let literalText = tokenLexeme wholeToken <> "." <> tokenLexeme fractionalToken
-              hasNonZeroFractionalDigits = Text.any (/= '0') (tokenLexeme fractionalToken)
+              literalSource =
+                mkFractionalLiteralSource
+                  wholeValue
+                  fractionalValue
+                  (Text.length (tokenLexeme fractionalToken))
           floatValue <- parseFloatLiteral (tokenSpan wholeToken) literalText
-          Right (SLFloat floatValue hasNonZeroFractionalDigits, rest)
+          Right (SLFloat floatValue literalSource, rest)
     _ ->
       Right (SLInt wholeValue, tokensAfterWhole)
 
@@ -1376,7 +1383,9 @@ parseFloatLiteral :: SourceSpan -> Text -> Either Diagnostic Double
 parseFloatLiteral literalSpan literalText =
   case TextRead.double literalText of
     Right (value, trailing)
-      | Text.null trailing -> Right value
+      | Text.null trailing,
+        finiteFloat value ->
+          Right value
     _ ->
       Left
         ( parseDiagnostic
@@ -1386,6 +1395,9 @@ parseFloatLiteral literalSpan literalText =
                 <> renderSourceSpan literalSpan
             )
         )
+
+finiteFloat :: Double -> Bool
+finiteFloat value = not (isNaN value) && not (isInfinite value)
 
 -- | Parenthesized forms cover ordinary grouping, operator values like `(+)`,
 -- and left/right operator sections.

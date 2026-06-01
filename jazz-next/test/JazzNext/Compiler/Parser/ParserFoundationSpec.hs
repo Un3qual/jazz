@@ -55,6 +55,7 @@ tests =
     ("parses tuple signature into structured nodes", testParseTupleSignature),
     ("parses numeric width signature names into structured nodes", testParseNumericWidthSignatureTypes),
     ("parses fractional literal without treating decimal dot as statement terminator", testParseFractionalLiteral),
+    ("rejects non-finite fractional literals", testRejectsNonFiniteFractionalLiteral),
     ("parses chained function signature right associatively", testParseChainedFunctionSignature),
     ("parses parenthesized function override into structured nodes", testParseParenthesizedFunctionOverrideSignature),
     ("parses list of parenthesized function types", testParseFunctionListSignature),
@@ -227,6 +228,13 @@ testParseFractionalLiteral =
           "SLFloat 1.5"
           (Text.pack (show surfaceProgram))
     )
+
+testRejectsNonFiniteFractionalLiteral :: IO ()
+testRejectsNonFiniteFractionalLiteral =
+  assertLeftDiagnosticContains
+    "non-finite fractional literal"
+    "invalid fractional literal"
+    (parseSurfaceProgram (Text.pack ("x = " <> replicate 400 '9' <> ".0.")))
 
 testParseChainedFunctionSignature :: IO ()
 testParseChainedFunctionSignature =

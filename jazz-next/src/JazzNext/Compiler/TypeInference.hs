@@ -64,6 +64,11 @@ import JazzNext.Compiler.Diagnostics
     setDiagnosticRelatedSpan,
     setDiagnosticSubject
   )
+import JazzNext.Compiler.FractionalLiteral
+  ( FractionalLiteralSource,
+    fractionalLiteralExceedsMagnitude,
+    fractionalLiteralIntegralValue
+  )
 import JazzNext.Compiler.Identifier
   ( Identifier,
     identifierText
@@ -1580,34 +1585,35 @@ numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr =
                   Just (mkNumericConversionLiteralTypeError (identifierText functionName) literalValue targetType bounds)
             _ -> Nothing
         Nothing -> Nothing
-    (EVar functionName, ELit (LFloat literalValue hasNonZeroFractionalDigits)) ->
+    (EVar functionName, ELit (LFloat literalValue literalSource)) ->
       case numericConversionTargetFromCallable builtinMode env functionName of
         Just targetType ->
           numericConversionFloatLiteralDiagnostic
             (identifierText functionName)
             targetType
             literalValue
-            hasNonZeroFractionalDigits
+            literalSource
         Nothing -> Nothing
     _ -> Nothing
 
-numericConversionFloatLiteralDiagnostic :: Text -> NumericType -> Double -> Bool -> Maybe Diagnostic
-numericConversionFloatLiteralDiagnostic conversionName targetType literalValue hasNonZeroFractionalDigits =
+numericConversionFloatLiteralDiagnostic :: Text -> NumericType -> Double -> FractionalLiteralSource -> Maybe Diagnostic
+numericConversionFloatLiteralDiagnostic conversionName targetType literalValue literalSource =
   case numericTypeIntegerBounds targetType of
     Just bounds@(lowerBound, upperBound) ->
-      if hasNonZeroFractionalDigits || not (finiteFloat literalValue)
-        then Just (mkNumericConversionFractionalLiteralTypeError conversionName literalValue targetType bounds)
-        else
-          let roundedValue = round literalValue :: Integer
-           in if fromInteger roundedValue == literalValue
-                && roundedValue >= lowerBound
-                && roundedValue <= upperBound
-                then Nothing
-                else Just (mkNumericConversionFractionalLiteralTypeError conversionName literalValue targetType bounds)
+      case fractionalLiteralIntegralValue literalSource of
+        Just integralValue
+          | finiteFloat literalValue,
+            integralValue >= lowerBound,
+            integralValue <= upperBound ->
+              Nothing
+        _ ->
+          Just (mkNumericConversionFractionalLiteralTypeError conversionName literalValue targetType bounds)
     Nothing ->
       case numericTypeFloatMax targetType of
         Just maxMagnitude
-          | not (finiteFloat literalValue) || abs literalValue > maxMagnitude ->
+          | not (finiteFloat literalValue)
+              || abs literalValue > maxMagnitude
+              || fractionalLiteralExceedsMagnitude literalSource maxMagnitude ->
               Just (mkNumericConversionFloatLiteralOverflowError conversionName literalValue targetType maxMagnitude)
         _ -> Nothing
 

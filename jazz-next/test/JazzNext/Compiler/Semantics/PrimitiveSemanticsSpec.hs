@@ -82,7 +82,9 @@ tests =
     ("source pipeline rejects out-of-range literal conversions", testSourcePipelineRejectsOutOfRangeLiteralConversions),
     ("source pipeline rejects non-integral fractional literal conversions", testSourcePipelineRejectsNonIntegralFractionalLiteralConversions),
     ("source pipeline rejects rounded non-integral fractional literal conversions", testSourcePipelineRejectsRoundedNonIntegralFractionalLiteralConversions),
+    ("source pipeline accepts integral-boundary fractional literal conversions", testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions),
     ("source pipeline rejects out-of-range float-target literal conversions", testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions),
+    ("source pipeline rejects source-exact float-target literal overflow", testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow),
     ("source pipeline ignores conversion literal checks for shadowed names", testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames),
     ("source pipeline freshens prelude conversion aliases", testSourcePipelineFreshensPreludeConversionAliases),
     ("source pipeline keeps locally shadowed kernel aliases ordinary", testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary),
@@ -382,11 +384,23 @@ testSourcePipelineRejectsRoundedNonIntegralFractionalLiteralConversions =
     "rounded non-integral fractional literal conversion"
     "E2006"
 
+testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions :: IO ()
+testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions =
+  assertCompilesWithBundledPrelude
+    "x = toInt64 9223372036854775807.0.\ny = toUInt64 18446744073709551615.0."
+
 testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions :: IO ()
 testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions =
   assertCompileErrorWithBundledPrelude
     "x = toFloat16 70000."
     "out-of-range float-target literal conversion"
+    "E2006"
+
+testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow :: IO ()
+testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow =
+  assertCompileErrorWithBundledPrelude
+    "x = toFloat16 65504.000000000000000001."
+    "source-exact float-target literal overflow"
     "E2006"
 
 testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames :: IO ()

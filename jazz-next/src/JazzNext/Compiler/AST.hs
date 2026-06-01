@@ -22,6 +22,9 @@ import Data.Text (Text)
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan
   )
+import JazzNext.Compiler.FractionalLiteral
+  ( FractionalLiteralSource
+  )
 import JazzNext.Compiler.Identifier
   ( Identifier
   )
@@ -29,7 +32,7 @@ import JazzNext.Compiler.Identifier
 -- | Literals currently supported by the lowered core language.
 data Literal
   = LInt Integer
-  | LFloat Double Bool
+  | LFloat Double FractionalLiteralSource
   | LBool Bool
   deriving (Eq, Show)
 
