@@ -37,10 +37,22 @@ The normative numeric width/defaulting contract lives in `docs/spec/runtime/prim
 - Width-specific source names remain explicit.
 - Numeric operators follow the Haskell-like same-type rule; mixed concrete widths require explicit conversions.
 
-## Staging
+## Active Implementation
 
-The first implementation batch has landed as parser/AST ownership plus downstream inert traversal. `jazz-next` parses and lowers class/impl declarations as inert declaration nodes, and analyzer/type/runtime statement walkers skip those nodes without adding bindings, constraints, method lookup, dispatch, defaulting, or runtime values.
+`jazz-next` parses and lowers class/impl declarations as declaration nodes.
+Analyzer/type/runtime statement walkers handle those nodes without adding method
+lookup, dispatch, defaulting, or runtime values.
 
-That batch includes source-pipeline coverage proving programs that contain class/impl declarations do not hit non-exhaustive statement handling during compile or run.
+The current environment-validation slice rejects duplicate class declarations
+and duplicate concrete impl facts, and validates concrete constrained signatures
+against visible class declarations plus matching concrete impl facts.
 
-Later batches must define class environments, impl lookup, constraint solving, method dispatch, overlap/orphan policy, cross-module visibility, and diagnostics before enabling executable class/impl semantics.
+The default bundled prelude now provides the canonical vocabulary class
+declarations (`Eq`, `Ord`, `Num`, `Integral`, `Fractional`, `Showable`, and
+`Default`) before kernel bridge bindings. It does not provide default concrete
+impl facts yet; those remain a separate implementation batch.
+
+Later batches must define default impl facts, constraint solving beyond the
+current concrete fact checks, method dispatch, overlap/orphan policy,
+cross-module visibility, and runtime behavior before enabling executable
+class/impl semantics.

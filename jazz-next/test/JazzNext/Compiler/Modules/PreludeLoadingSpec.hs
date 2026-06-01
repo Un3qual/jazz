@@ -43,6 +43,7 @@ tests =
     ("prelude bridge rejects canonical alias in bridge declaration", testPreludeBridgeRejectsCanonicalAlias),
     ("prelude bridge rebinding reports current and previous bridge spans", testPreludeBridgeRebindingDiagnostic),
     ("prelude bridge allows canonical alias after kernel self-bridge", testPreludeBridgeAllowsCanonicalAliasAfterBridge),
+    ("bundled default prelude exposes capability classes without impl facts", testBundledPreludeExposesCapabilityClassesWithoutImplFacts),
     ("prelude exposes numeric conversion aliases", testPreludeExposesNumericConversionAliases),
     ("compile without prelude rejects numeric conversion aliases", testCompileWithoutPreludeRejectsNumericConversionAliases),
     ("compile without prelude keeps numeric conversion kernel bridges available", testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable),
@@ -153,6 +154,14 @@ testPreludeBridgeAllowsCanonicalAliasAfterBridge = do
   assertEqual
     "bridge validation accepts canonical alias after kernel self-bridge"
     []
+    (compileErrors result)
+
+testBundledPreludeExposesCapabilityClassesWithoutImplFacts :: IO ()
+testBundledPreludeExposesCapabilityClassesWithoutImplFacts = do
+  result <- compileSource defaultWarningSettings "x :: @{Eq(Int)}: Int.\nx = 1."
+  assertSingleErrorContains
+    "bundled prelude exposes Eq class but not Eq(Int) impl fact"
+    "missing impl fact 'Eq(Int)'"
     (compileErrors result)
 
 testPreludeExposesNumericConversionAliases :: IO ()

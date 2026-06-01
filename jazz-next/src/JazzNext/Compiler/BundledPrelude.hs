@@ -25,10 +25,15 @@ bundledPreludePath = "jazz-next/stdlib/Prelude.jz"
 bundledPreludeSource :: Text
 bundledPreludeSource =
   Text.unlines $
-    map renderKernelBridge allBuiltinSymbols
+    map renderCapabilityClass canonicalCapabilityClassNames
+      <> [""]
+      <> map renderKernelBridge allBuiltinSymbols
       <> [""]
       <> map renderPublicAlias allBuiltinSymbols
   where
+    renderCapabilityClass name =
+      "class " <> name <> " { }."
+
     -- Kernel bridge bindings must precede public aliases so alias definitions
     -- can reference already-declared names in the checked-in mirror.
     renderKernelBridge symbol =
@@ -37,6 +42,17 @@ bundledPreludeSource =
 
     renderPublicAlias symbol =
       builtinSymbolName symbol <> " = " <> builtinSymbolKernelName symbol <> "."
+
+canonicalCapabilityClassNames :: [Text]
+canonicalCapabilityClassNames =
+  [ "Eq",
+    "Ord",
+    "Num",
+    "Integral",
+    "Fractional",
+    "Showable",
+    "Default"
+  ]
 
 -- | IO wrapper kept for API symmetry with file-backed prelude loading paths.
 loadBundledPreludeSource :: IO Text

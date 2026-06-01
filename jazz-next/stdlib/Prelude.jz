@@ -1,3 +1,11 @@
+class Eq { }.
+class Ord { }.
+class Num { }.
+class Integral { }.
+class Fractional { }.
+class Showable { }.
+class Default { }.
+
 __kernel_map = __kernel_map.
 __kernel_filter = __kernel_filter.
 __kernel_hd = __kernel_hd.
