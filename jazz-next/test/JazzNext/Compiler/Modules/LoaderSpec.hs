@@ -72,6 +72,7 @@ tests =
     ("run module graph keeps alias-hidden data constructor from shadowing prelude", testRunModuleGraphAliasHiddenDataConstructorUsesPrelude),
     ("run module graph resolves qualified alias data constructor lookup", testRunModuleGraphQualifiedAliasDataConstructorLookup),
     ("compile module graph preserves alias-qualified generic constructor schemes", testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes),
+    ("compile module graph keeps alias-qualified ADT equality distinct from local ADT", testCompileModuleGraphKeepsAliasQualifiedAdtEqualityDistinct),
     ("run module graph keeps local data constructor from hidden import rewrite", testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite),
     ("run module graph keeps hidden qualified export pattern constructors available", testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge),
     ("run module graph keeps alias-qualified dependency export visible with prelude", testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude),
@@ -708,6 +709,30 @@ testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes = do
     sourceMap =
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Box as Box.\nfirst = Box::Box 1.\nsecond = Box::Box True.\nsecond."),
+          ("src/Lib/Box.jz", "data Box a = Box a.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphKeepsAliasQualifiedAdtEqualityDistinct :: IO ()
+testCompileModuleGraphKeepsAliasQualifiedAdtEqualityDistinct = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [err] ->
+      assertContains
+        "alias-qualified ADT equality mismatch"
+        "E2004"
+        (renderDiagnostic err)
+    _ -> failTest "expected exactly one alias-qualified ADT equality mismatch"
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Box as L.\ndata Box a = Box a.\nleft = L::Box 1.\nright = Box 1.\nsame = left == right."),
           ("src/Lib/Box.jz", "data Box a = Box a.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

@@ -30,7 +30,8 @@ deliverable: "Accept explicitly annotated Float16 and Float32 fractional literal
 This child plan narrows the primitive umbrella plan section
 `Follow-up: Primitive deltas after child-plan reseed`. The umbrella lists
 `Float16/Float32 literal targeting` as remaining primitive work after the
-numeric conversion and same-width arithmetic/comparison/equality batches landed.
+numeric conversion, arithmetic-gate, and same-width comparison/equality batches
+landed.
 
 The executor-safe next batch is limited to explicit type-context targeting for
 fractional literals. It does not add suffix syntax or implicit promotion.
@@ -47,8 +48,9 @@ Scope:
 - Preserve compile-time rejection for integer-to-float promotion and mixed
   concrete-width arithmetic/comparison/equality.
 - Add runtime coverage proving explicitly targeted `Float16` and `Float32`
-  literal values participate in already landed same-width arithmetic and
-  comparison/equality.
+  literal values participate in already landed same-width comparison/equality
+  while same-width `Float16`/`Float32` arithmetic remains gated until
+  width-preserving runtime arithmetic exists.
 - Apply the same finite-target source-exact bounds and runtime rounding used by
   explicit `toFloat16` and `toFloat32` conversions.
 

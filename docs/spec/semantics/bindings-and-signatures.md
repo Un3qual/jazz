@@ -36,7 +36,7 @@ Adjacent numeric-width work:
 - `Float` maps to `Float64`.
 - Explicit width names (`Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float16`, `Float32`, and `Float64`) are ordinary monomorphic signature types before broader polymorphic/defaulting work.
 - Integer literals can satisfy explicit integral-width annotations.
-- Decimal fractional literals can satisfy explicit `Float`, `Float16`, `Float32`, and `Float64` binding signatures when the literal is the direct binding value; same concrete `Float`/`Float32`/`Float64` arithmetic is supported, `Float16` arithmetic is gated until runtime values preserve the target width, and same concrete `Float`/`Float16`/`Float32`/`Float64` comparison/equality is supported; structural list/tuple equality is supported only when every nested element type is equality-supported, and structural ADT equality is supported only when every declared constructor payload type is equality-supported.
+- Decimal fractional literals can satisfy explicit `Float`, `Float16`, `Float32`, and `Float64` binding signatures when the literal is the direct binding value; same concrete `Float`/`Float64` arithmetic is supported, `Float16`/`Float32` arithmetic is gated until runtime values preserve the target width, and same concrete `Float`/`Float16`/`Float32`/`Float64` comparison/equality is supported; structural list/tuple equality is supported only when every nested element type is equality-supported, and structural ADT equality is supported only when every declared constructor payload type is equality-supported.
 
 ## Canonical Contract
 

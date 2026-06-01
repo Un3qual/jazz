@@ -97,8 +97,8 @@ tests =
     ("dynamic integer-to-Float64 overflow checks source magnitude", testDynamicIntegerToFloat64OverflowRuntimeError),
     ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
     ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
-    ("Float32 arithmetic evaluates at runtime", testFloat32ArithmeticRuntimeSuccess),
-    ("targeted Float32 fractional literals evaluate through arithmetic", testTargetedFloat32FractionalLiteralArithmeticRuntimeSuccess),
+    ("Float32 arithmetic is gated before runtime", testFloat32ArithmeticRuntimeGate),
+    ("targeted Float32 fractional literal arithmetic is gated before runtime", testTargetedFloat32FractionalLiteralArithmeticRuntimeGate),
     ("targeted Float16 and Float32 fractional literals round at runtime", testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue),
     ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError),
     ("Float64 comparison and equality evaluate at runtime", testFloat64ComparisonEqualityRuntimeSuccess),
@@ -669,19 +669,19 @@ testFloat64ArithmeticRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "4.25") (runOutput result)
 
-testFloat32ArithmeticRuntimeSuccess :: IO ()
-testFloat32ArithmeticRuntimeSuccess = do
-  result <- runSource defaultWarningSettings "a32 = toFloat32 1.\nb32 = toFloat32 2.\nc32 = toFloat32 6.\nd32 = toFloat32 3.\n((a32 + b32) * (c32 / d32)) - b32."
-  assertEqual "compile errors" [] (runCompileErrors result)
+testFloat32ArithmeticRuntimeGate :: IO ()
+testFloat32ArithmeticRuntimeGate = do
+  result <- runSource defaultWarningSettings "a32 = toFloat32 1.\nb32 = toFloat32 2.\na32 + b32."
+  assertSingleDiagnosticContains "Float32 arithmetic gate" "E2003" (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
-  assertEqual "runtime output" (Just "4.0") (runOutput result)
+  assertEqual "runtime output" Nothing (runOutput result)
 
-testTargetedFloat32FractionalLiteralArithmeticRuntimeSuccess :: IO ()
-testTargetedFloat32FractionalLiteralArithmeticRuntimeSuccess = do
+testTargetedFloat32FractionalLiteralArithmeticRuntimeGate :: IO ()
+testTargetedFloat32FractionalLiteralArithmeticRuntimeGate = do
   result <- runSource defaultWarningSettings "a32 :: Float32.\na32 = 1.5.\nb32 :: Float32.\nb32 = 2.25.\na32 * b32 / b32."
-  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains "targeted Float32 arithmetic gate" "E2003" (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
-  assertEqual "runtime output" (Just "1.5") (runOutput result)
+  assertEqual "runtime output" Nothing (runOutput result)
 
 testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue :: IO ()
 testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue = do

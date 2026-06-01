@@ -68,7 +68,7 @@ Execution note:
 - [x] Same concrete `Float`/`Float64` arithmetic for `+`, `-`, `*`, and `/` landed in `jazz-next`.
 - [x] Same concrete `Float`/`Float64` comparison and equality for `==`, `!=`, `<`, `<=`, `>`, and `>=` landed in `jazz-next`.
 - [x] Structural tuple/list equality for equality-supported element types landed in `jazz-next`.
-- [x] Same concrete `Float32` arithmetic plus `Float16`/`Float32` comparison/equality landed in `jazz-next`; `Float16` arithmetic is intentionally gated until runtime float values carry or apply the target width.
+- [x] Same concrete `Float16`/`Float32` comparison/equality landed in `jazz-next`; same concrete `Float16`/`Float32` arithmetic is intentionally gated until runtime float values carry or apply the target width.
 - [x] Structural ADT equality for declared constructors with equality-supported payload types landed in `jazz-next`.
 - [x] Explicit `Float16`/`Float32` fractional literal targeting for directly
       annotated bindings landed in `jazz-next`.
@@ -366,25 +366,20 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
-## Completed implementation batch: Float32 same-width arithmetic and Float16 gate
+## Completed implementation batch: Float16/Float32 runtime-width arithmetic gate
 
-This active-path batch extends the same-concrete arithmetic contract beyond
-`Float`/`Float64` to values produced by explicit `Float32` conversions. It
-keeps `Float16` arithmetic gated until runtime float values carry or reapply
-the target width, and keeps literal targeting and width mixing explicit.
+This active-path batch keeps same concrete `Float16` and `Float32` arithmetic
+gated until runtime float values carry or reapply the target width after
+arithmetic results. It preserves same concrete `Float`/`Float64` arithmetic and
+keeps literal targeting and width mixing explicit.
 
 Completed on `2026-06-01` as
 `JN-FLOAT16-FLOAT32-SAME-WIDTH-ARITHMETIC-001`.
 
 Executor-safe scope:
 
-- Accepted `+`, `-`, `*`, and `/` when both operands resolve to the same
-  concrete `Float32` type.
-- Rejected `+`, `-`, `*`, and `/` when operands resolve to `Float16` until
-  runtime arithmetic can preserve the target width.
-- Returned the same concrete floating type for accepted `Float32` operations.
-- Evaluated accepted operations through the existing active runtime
-  floating-value path.
+- Rejected `+`, `-`, `*`, and `/` when operands resolve to `Float16` or
+  `Float32` until runtime arithmetic can preserve the target width.
 - Preserved existing integer arithmetic and same-concrete `Float`/`Float64`
   arithmetic behavior.
 - Preserved compile-time rejection for mixed `Int`/floating operands,

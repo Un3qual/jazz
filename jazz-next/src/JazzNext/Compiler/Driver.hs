@@ -39,6 +39,7 @@ import Data.IORef
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     DataConstructor (..),
+    DataConstructorArgument (..),
     Expr (..),
     Pattern (..),
     Statement (..)
@@ -1379,21 +1380,32 @@ rewriteDataStatementForReplay ::
   [DataConstructor] ->
   [Statement]
 rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName typeParameters constructors =
-  [ SData spanValue typeName typeParameters replayConstructors
+  [ SData spanValue replayTypeName typeParameters replayConstructors
     | not (null replayConstructors)
   ]
   where
+    replayTypeName =
+      mkIdentifier (moduleExportQualifiedName modulePath (identifierText typeName))
+
     replayConstructors =
       [ replayConstructor
-        | constructor@(DataConstructor constructorName constructorArguments) <- constructors,
+        | DataConstructor constructorName constructorArguments <- constructors,
           let constructorText = identifierText constructorName,
           let hiddenConstructor = Set.member constructorText hiddenImportExports,
           not hiddenConstructor || Set.member constructorText neededModuleExports,
+          let replayConstructorArguments = map replayConstructorArgument constructorArguments,
           let replayConstructor =
                 if hiddenConstructor
-                  then DataConstructor (mkIdentifier (moduleExportQualifiedName modulePath constructorText)) constructorArguments
-                  else constructor
+                  then DataConstructor (mkIdentifier (moduleExportQualifiedName modulePath constructorText)) replayConstructorArguments
+                  else DataConstructor constructorName replayConstructorArguments
       ]
+
+    replayConstructorArgument constructorArgument =
+      case constructorArgument of
+        DataConstructorArgumentName argumentName
+          | identifierText argumentName == identifierText typeName ->
+              DataConstructorArgumentName replayTypeName
+        _ -> constructorArgument
 
 isHiddenImportExportStatement :: Set Text -> Statement -> Bool
 isHiddenImportExportStatement hiddenImportExports statement =

@@ -1649,7 +1649,6 @@ numericTypeIsIntegral numericType =
 numericTypeSupportsRuntimeArithmetic :: NumericType -> Bool
 numericTypeSupportsRuntimeArithmetic numericType =
   numericTypeIsIntegral numericType
-    || numericType == NumericFloat32
     || numericType == NumericFloat64
 
 numericTypeSupportsRuntimeComparison :: NumericType -> Bool
