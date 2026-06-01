@@ -1,17 +1,14 @@
 ---
-id: JN-FLOAT64-SAME-WIDTH-ARITHMETIC-001
-status: completed
+id: JN-FLOAT64-SAME-WIDTH-COMPARISON-EQUALITY-001
+status: ready
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
-  - JN-FRACTIONAL-LITERAL-FLOAT64-001
-  - JN-NUMERIC-WIDTH-SIGNATURE-TYPES-001
-  - JN-NUMERIC-CONVERSIONS-API-001
+  - JN-FLOAT64-SAME-WIDTH-ARITHMETIC-001
 last_verified: 2026-06-01
-completed_on: 2026-06-01
-plan_section: "Completed implementation batch: Float64 same-width arithmetic"
+plan_section: "Next implementation batch: Float64 same-width comparison/equality"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/src/JazzNext/Compiler/Runtime.hs
@@ -22,7 +19,7 @@ verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Permit `+`, `-`, `*`, and `/` for same concrete `Float`/`Float64` operands in type inference and runtime while preserving explicit-conversion-only mixed-width behavior."
+deliverable: "Accept `==`, `!=`, `<`, `<=`, `>`, and `>=` for same concrete `Float`/`Float64` operands in type inference and runtime, while preserving strict type-directed equality and explicit-conversion-only cross-width behavior."
 ---
 
 # Primitive Semantics Contract Implementation Plan
@@ -209,6 +206,49 @@ Out of scope:
 - Float16 or Float32 literal targeting,
 - implicit integer-to-float promotion,
 - implicit mixed-width arithmetic widening,
+- typeclass solver, dictionary passing, or runtime dispatch.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Next implementation batch: Float64 same-width comparison/equality
+
+This active-path batch is the next concrete primitive-surface slice after
+Float64 same-width arithmetic. It keeps equality strict and type-directed while
+allowing the existing comparison/equality operator family to work for same
+concrete floating operands.
+
+Executor-safe scope:
+
+- Accept `==`, `!=`, `<`, `<=`, `>`, and `>=` when both operands resolve to the
+  same concrete `Float`/`Float64` type.
+- Return `Bool` for accepted floating comparison and equality operators.
+- Evaluate accepted operations through the active `VFloat` runtime path.
+- Preserve the existing integer comparison/equality behavior.
+- Preserve compile-time rejection for mixed `Int`/`Float`, `Float16`/`Float64`,
+  `Float32`/`Float64`, and unrelated non-comparable operands.
+- Preserve explicit-conversion-only behavior for all cross-width operations.
+
+Out of scope:
+
+- literal suffix syntax,
+- Float16 or Float32 literal targeting,
+- implicit integer-to-float promotion,
+- implicit mixed-width arithmetic or comparison widening,
+- structural tuple/list equality,
 - typeclass solver, dictionary passing, or runtime dispatch.
 
 Target paths:

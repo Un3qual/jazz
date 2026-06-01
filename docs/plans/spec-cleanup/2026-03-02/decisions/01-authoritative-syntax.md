@@ -1,23 +1,28 @@
 ---
-id: JN-CAPABILITY-BODY-BOUNDARY-001
-status: completed
+id: JN-CLASS-METHOD-SIGNATURE-METADATA-001
+status: ready
 priority: P2
-size: S
+size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
-  - JN-CLASS-IMPL-ENV-VALIDATION-001
+  - JN-CAPABILITY-BODY-BOUNDARY-001
 last_verified: 2026-06-01
-completed_on: 2026-06-01
-plan_section: "Completed implementation batch: class/impl non-empty body rejection"
+plan_section: "Next implementation batch: class method signature metadata"
 target_paths:
+  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
   - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
+  - jazz-next/src/JazzNext/Compiler/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
   - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Reject any non-whitespace tokens inside active `class` or `impl` declaration bodies with a deterministic parser diagnostic instead of silently discarding deferred method syntax."
+deliverable: "Accept and preserve signature-only method declarations inside `class` bodies, reject duplicate method names and any method body/default syntax, keep `impl` bodies rejected, and leave dispatch/dictionaries out of scope."
 ---
 
 # Jazz Spec-Cleanup #1: Authoritative Syntax Implementation Plan
@@ -257,6 +262,54 @@ Closure evidence:
   non-empty `class` and `impl` body rejection while preserving empty body
   parsing/lowering, module-body declarations, trait rejection, and ordinary
   identifier uses.
+
+## Next implementation batch: class method signature metadata
+
+This active-path abstraction slice follows the landed empty class/impl fact
+environment and non-empty body-boundary batches. It is intentionally limited to
+signature-only method metadata for `class` declarations; it does not add method
+implementations, lookup, dispatch, dictionaries, or runtime evidence values.
+
+Executor-safe scope:
+
+- Accept method signature declarations inside active `class` bodies using the
+  existing signature statement syntax, for example `eq :: Self -> Self -> Bool.`.
+- Preserve class method names and structured signature payloads through the
+  surface AST, core AST, and lowering.
+- Reject duplicate method names within the same class deterministically.
+- Reject any class body item that is not a signature-only method declaration.
+- Keep `impl` bodies rejected until method implementation and dispatch syntax
+  have a separate contract.
+- Keep `trait` permanently rejected as non-canonical abstraction syntax.
+
+Out of scope:
+
+- method implementation bodies,
+- default methods,
+- method lookup or dispatch,
+- dictionary passing or runtime evidence values,
+- superclasses,
+- inferred class constraints,
+- broad typeclass/defaulting solver behavior.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
 
 ## Historical Verification Evidence
 
