@@ -6,6 +6,22 @@ class Fractional { }.
 class Showable { }.
 class Default { }.
 
+impl Eq(Int) { }.
+impl Eq(Float) { }.
+impl Eq(Bool) { }.
+impl Ord(Int) { }.
+impl Ord(Float) { }.
+impl Num(Int) { }.
+impl Num(Float) { }.
+impl Integral(Int) { }.
+impl Fractional(Float) { }.
+impl Default(Int) { }.
+impl Default(Float) { }.
+impl Default(Bool) { }.
+impl Showable(Int) { }.
+impl Showable(Float) { }.
+impl Showable(Bool) { }.
+
 __kernel_map = __kernel_map.
 __kernel_filter = __kernel_filter.
 __kernel_hd = __kernel_hd.

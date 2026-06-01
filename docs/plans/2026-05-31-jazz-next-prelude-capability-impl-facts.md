@@ -1,6 +1,6 @@
 ---
 id: JN-CAPABILITY-PRELUDE-DEFAULT-IMPLS-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
@@ -26,13 +26,15 @@ deliverable: "Add the first default prelude `impl` fact matrix for `Int`, `Float
 
 ## Batch 1: Bundled prelude default concrete impl facts
 
-This executor-safe batch depends on the bundled prelude class-fact batch. It
-adds the first concrete capability facts that the already landed class/impl
+Completed on `2026-05-31`.
+
+This executor-safe batch depended on the bundled prelude class-fact batch. It
+added the first concrete capability facts that the already landed class/impl
 environment validation can consume from the default prelude. The batch is fact
 visibility only: impl declarations remain inert and do not provide method
 lookup, dictionaries, runtime evidence values, or executable class semantics.
 
-Implementation scope:
+Implementation delivered:
 
 - Generate the default concrete `impl` fact matrix after the canonical class
   declarations and before kernel bridge bindings in

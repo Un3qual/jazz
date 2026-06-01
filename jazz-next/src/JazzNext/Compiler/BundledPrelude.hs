@@ -27,12 +27,17 @@ bundledPreludeSource =
   Text.unlines $
     map renderCapabilityClass canonicalCapabilityClassNames
       <> [""]
+      <> map renderDefaultCapabilityImpl defaultCapabilityImplFacts
+      <> [""]
       <> map renderKernelBridge allBuiltinSymbols
       <> [""]
       <> map renderPublicAlias allBuiltinSymbols
   where
     renderCapabilityClass name =
       "class " <> name <> " { }."
+
+    renderDefaultCapabilityImpl (className, targetType) =
+      "impl " <> className <> "(" <> targetType <> ") { }."
 
     -- Kernel bridge bindings must precede public aliases so alias definitions
     -- can reference already-declared names in the checked-in mirror.
@@ -52,6 +57,25 @@ canonicalCapabilityClassNames =
     "Fractional",
     "Showable",
     "Default"
+  ]
+
+defaultCapabilityImplFacts :: [(Text, Text)]
+defaultCapabilityImplFacts =
+  [ ("Eq", "Int"),
+    ("Eq", "Float"),
+    ("Eq", "Bool"),
+    ("Ord", "Int"),
+    ("Ord", "Float"),
+    ("Num", "Int"),
+    ("Num", "Float"),
+    ("Integral", "Int"),
+    ("Fractional", "Float"),
+    ("Default", "Int"),
+    ("Default", "Float"),
+    ("Default", "Bool"),
+    ("Showable", "Int"),
+    ("Showable", "Float"),
+    ("Showable", "Bool")
   ]
 
 -- | IO wrapper kept for API symmetry with file-backed prelude loading paths.

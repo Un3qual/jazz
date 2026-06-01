@@ -49,10 +49,13 @@ against visible class declarations plus matching concrete impl facts.
 
 The default bundled prelude now provides the canonical vocabulary class
 declarations (`Eq`, `Ord`, `Num`, `Integral`, `Fractional`, `Showable`, and
-`Default`) before kernel bridge bindings. It does not provide default concrete
-impl facts yet; those remain a separate implementation batch.
+`Default`) followed by the first default concrete impl facts before kernel
+bridge bindings. The current fact matrix covers `Eq(Int)`, `Eq(Float)`,
+`Eq(Bool)`, `Ord(Int)`, `Ord(Float)`, `Num(Int)`, `Num(Float)`,
+`Integral(Int)`, `Fractional(Float)`, `Default(Int)`, `Default(Float)`,
+`Default(Bool)`, `Showable(Int)`, `Showable(Float)`, and `Showable(Bool)`.
 
-Later batches must define default impl facts, constraint solving beyond the
-current concrete fact checks, method dispatch, overlap/orphan policy,
+Later batches must define any broader default impl facts, constraint solving
+beyond the current concrete fact checks, method dispatch, overlap/orphan policy,
 cross-module visibility, and runtime behavior before enabling executable
 class/impl semantics.

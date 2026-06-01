@@ -31,7 +31,8 @@ The canonical declaration keyword is `class`. Implementations use `impl`.
 validates duplicate class declarations and duplicate concrete impl facts, and
 uses visible concrete class/impl facts for constrained-signature validation. The
 default bundled prelude now declares the canonical class vocabulary listed
-above, but it intentionally does not include default concrete impl facts yet.
+above and includes the first inert default concrete impl facts for `Int`,
+`Float`, and `Bool` capability constraints.
 
 Those declarations still add no method lookup, dispatch, defaulting, or runtime
 values. `jazz-next` rejects non-canonical `trait` declarations. Ordinary

@@ -58,6 +58,11 @@ planned.
   - `toInt8`, `toInt16`, `toInt32`, `toInt64`
   - `toUInt8`, `toUInt16`, `toUInt32`, `toUInt64`
   - `toFloat16`, `toFloat32`, `toFloat64`
+- Current bundled capability declarations include canonical `Eq`, `Ord`, `Num`,
+  `Integral`, `Fractional`, `Showable`, and `Default` classes plus inert
+  default concrete impl facts for `Int`, `Float`, and `Bool` capability
+  constraints. Explicit-prelude and no-prelude entry points do not inherit those
+  bundled capability facts.
 - Catalog ownership metadata (`PreludeTarget` vs future intrinsic-only entries)
   is declared in `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`.
 
