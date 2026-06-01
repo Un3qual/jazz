@@ -429,9 +429,10 @@ Based on the full repo, these areas still require implementation convergence eve
   parser/core declaration ownership, duplicate class/impl fact validation,
   concrete constrained-signature fact checks, and bundled-prelude canonical
   class plus inert default and width-specific numeric concrete impl facts;
-  method bodies, dispatch, dictionaries, default methods, superclass semantics,
-  inferred constraints, defaulting, cross-module coherence, and runtime evidence
-  remain future work.
+  non-empty class/impl bodies now reject at parse time until method syntax has a
+  concrete contract, and method dispatch, dictionaries, default methods,
+  superclass semantics, inferred constraints, defaulting, cross-module
+  coherence, and runtime evidence remain future work.
 - Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding`, `shadowing-outer-scope`, and ordinary block `unused-binding` emitters (reserved metadata for `deprecated-syntax` / `W0004` is covered, but this category does not emit diagnostics yet and its concrete warning policy is deferred):
   - `docs/spec/tooling/compiler-warning-flags.md`
 - CLI source selection is active in `jazz-next`: standalone compile and `--run`
@@ -462,7 +463,7 @@ If you need a practical baseline for continuing Jazz, use this order:
    - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, concrete tuple types, right-associative function types, explicit parenthesized function-type overrides, empty `@{}:` constrained wrappers, concrete unary constrained signatures, and known unary variable constrained signatures under the monomorphic annotation-only contract)
    - `if ... else ...` surface expressions (canonicalized to `case` internally)
    - canonical `data` declarations, including lowercase generic declaration parameters preserved in active metadata, with constructor values/applications plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, bracketed-list, cons-like list, tuple, and as-patterns; analyzer/type/runtime execution covers literal, wildcard, variable, declared constructor patterns, exact-length bracketed-list patterns, cons-like list head/tail patterns, fixed-arity tuple patterns, and as-patterns
-   - active top-level/module-body `class` and `impl` abstraction declarations that lower into core declaration nodes, reject duplicate class declarations and duplicate concrete impl facts, and let concrete constrained signatures validate against visible class/impl facts; non-canonical `trait` declarations reject with diagnostics pointing future abstraction syntax back to `class`/`impl`, while `class`/`impl`/`trait` remain available as ordinary binding, signature, and qualified-alias identifiers; the bundled default prelude now declares the canonical `Eq`, `Ord`, `Num`, `Integral`, `Fractional`, `Showable`, and `Default` classes plus inert concrete impl facts over scoped `Int`/`Float`/`Bool` defaults and width-specific numeric signature names, but method bodies, dispatch, dictionaries, defaulting, and runtime evidence remain future work
+   - active top-level/module-body empty `class` and `impl` abstraction declarations that lower into core declaration nodes, reject duplicate class declarations and duplicate concrete impl facts, and let concrete constrained signatures validate against visible class/impl facts; non-empty class/impl bodies reject with diagnostics naming deferred method syntax/semantics; non-canonical `trait` declarations reject with diagnostics pointing future abstraction syntax back to `class`/`impl`, while `class`/`impl`/`trait` remain available as ordinary binding, signature, and qualified-alias identifiers; the bundled default prelude now declares the canonical `Eq`, `Ord`, `Num`, `Integral`, `Fractional`, `Showable`, and `Default` classes plus inert concrete impl facts over scoped `Int`/`Float`/`Bool` defaults and width-specific numeric signature names, but method dispatch, dictionaries, defaulting, and runtime evidence remain future work
    - opt-in compiler warnings for same-scope rebinding (`W0001`),
      outer-scope shadowing (`W0002`), and ordinary block unused bindings
      (`W0003`), with warning-as-error promotion while preserving default

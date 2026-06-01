@@ -88,6 +88,8 @@ tests =
     ("parses impl capability declarations into surface AST", testParsesImplCapabilityDeclaration),
     ("lowers class and impl capability declarations as inert AST nodes", testLowersCapabilityDeclarations),
     ("parses class and impl capability declarations inside module bodies", testParsesCapabilityDeclarationsInModuleBody),
+    ("rejects non-empty class capability bodies", testRejectsNonEmptyClassCapabilityBody),
+    ("rejects non-empty impl capability bodies", testRejectsNonEmptyImplCapabilityBody),
     ("rejects malformed class capability headers", testRejectsMalformedClassCapabilityHeader),
     ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax),
     ("rejects lowercase trait abstraction declarations", testRejectsLowercaseTraitAbstractionSyntax),
@@ -742,6 +744,20 @@ testParsesCapabilityDeclarationsInModuleBody =
         )
     )
     (parseSurfaceProgram "module App::Core {\nclass Eq { }.\nimpl Eq(Int) { }.\n}")
+
+testRejectsNonEmptyClassCapabilityBody :: IO ()
+testRejectsNonEmptyClassCapabilityBody =
+  assertLeftDiagnosticContains
+    "non-empty class capability body"
+    "deferred method syntax"
+    (parseSurfaceProgram "class Eq { equals :: Int -> Int. }.")
+
+testRejectsNonEmptyImplCapabilityBody :: IO ()
+testRejectsNonEmptyImplCapabilityBody =
+  assertLeftDiagnosticContains
+    "non-empty impl capability body"
+    "deferred method syntax"
+    (parseSurfaceProgram "impl Eq(Int) { equals = \\value -> value. }.")
 
 testRejectsMalformedClassCapabilityHeader :: IO ()
 testRejectsMalformedClassCapabilityHeader =

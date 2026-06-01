@@ -425,7 +425,7 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
 consumeCapabilityDeclarationBody :: Text -> Token -> [Token] -> Either Diagnostic [Token]
 consumeCapabilityDeclarationBody declarationKind declarationToken tokens =
   case tokens of
-    Token {tokenKind = TLBrace} : rest -> go 1 rest
+    Token {tokenKind = TLBrace} : rest -> consumeEmptyBody rest
     [] ->
       Left
         ( parseDiagnostic
@@ -446,7 +446,7 @@ consumeCapabilityDeclarationBody declarationKind declarationToken tokens =
             )
         )
   where
-    go depth remainingTokens =
+    consumeEmptyBody remainingTokens =
       case remainingTokens of
         [] ->
           Left
@@ -459,13 +459,17 @@ consumeCapabilityDeclarationBody declarationKind declarationToken tokens =
             )
         token : rest ->
           case tokenKind token of
-            TLBrace ->
-              go (depth + 1) rest
-            TRBrace
-              | depth == 1 -> Right rest
-              | otherwise -> go (depth - 1) rest
+            TRBrace -> Right rest
             _ ->
-              go depth rest
+              Left
+                ( parseDiagnostic
+                    ( "unsupported "
+                        <> declarationKind
+                        <> " declaration body at "
+                        <> renderSourceSpan (tokenSpan token)
+                        <> ": deferred method syntax/semantics are not implemented in jazz-next; keep class/impl bodies empty"
+                    )
+                )
 
 registerImportAliases :: Set Text -> [SurfaceStatement] -> Set Text
 registerImportAliases =
