@@ -93,6 +93,7 @@ tests =
     ("target-named integer conversion evaluates at runtime", testIntegerConversionRuntimeSuccess),
     ("target-named integer conversion preserves source-exact integral Float literal", testIntegerConversionSourceExactIntegralFloatRuntimeSuccess),
     ("target-named float conversion evaluates at runtime", testFloatConversionRuntimeSuccess),
+    ("dynamic integer-to-Float64 overflow checks source magnitude", testDynamicIntegerToFloat64OverflowRuntimeError),
     ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
     ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
     ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError),
@@ -624,6 +625,22 @@ testFloatConversionRuntimeSuccess = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "1.0") (runOutput result)
+
+testDynamicIntegerToFloat64OverflowRuntimeError :: IO ()
+testDynamicIntegerToFloat64OverflowRuntimeError = do
+  let justAboveFloat64MaxInteger = show ((floor (1.7976931348623157e308 :: Double) :: Integer) + 1)
+      source = Text.pack ("x = " <> justAboveFloat64MaxInteger <> ".\ntoFloat64 x.")
+  result <- runSource defaultWarningSettings source
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "dynamic integer-to-Float64 overflow runtime code"
+    "E3024"
+    (runRuntimeErrors result)
+  assertSingleDiagnosticContains
+    "dynamic integer-to-Float64 overflow runtime text"
+    "finite Float64"
+    (runRuntimeErrors result)
+  assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
 testFractionalLiteralRuntimeSuccess :: IO ()
 testFractionalLiteralRuntimeSuccess = do

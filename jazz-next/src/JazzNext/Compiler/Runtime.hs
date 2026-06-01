@@ -964,11 +964,21 @@ convertFloatToIntegerTarget builtinFunction targetType floatValue literalSource 
 
 convertIntegerToFloatTarget :: BuiltinSymbol -> NumericType -> Integer -> Either Diagnostic RuntimeValue
 convertIntegerToFloatTarget builtinFunction targetType integerValue =
-  let floatValue = fromInteger integerValue :: Double
-   in
-    if isInfinite floatValue || exceedsFloatTarget targetType floatValue
-      then Left (numericConversionFloatOverflowDiagnostic builtinFunction targetType)
-      else Right (VFloat (roundFloatTarget targetType floatValue) Nothing)
+  if integerExceedsFloatTarget targetType integerValue
+    then Left (numericConversionFloatOverflowDiagnostic builtinFunction targetType)
+    else
+      let floatValue = fromInteger integerValue :: Double
+       in
+        if isInfinite floatValue || exceedsFloatTarget targetType floatValue
+          then Left (numericConversionFloatOverflowDiagnostic builtinFunction targetType)
+          else Right (VFloat (roundFloatTarget targetType floatValue) Nothing)
+
+integerExceedsFloatTarget :: NumericType -> Integer -> Bool
+integerExceedsFloatTarget targetType integerValue =
+  case numericTypeFloatMax targetType of
+    Just maxMagnitude ->
+      abs integerValue > (floor maxMagnitude :: Integer)
+    Nothing -> False
 
 convertFiniteFloatToFloatTarget :: BuiltinSymbol -> NumericType -> Double -> Maybe FractionalLiteralSource -> Either Diagnostic RuntimeValue
 convertFiniteFloatToFloatTarget builtinFunction targetType floatValue literalSource =
