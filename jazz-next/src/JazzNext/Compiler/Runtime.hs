@@ -316,7 +316,7 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
       case targetType of
         NumericFloat16 -> BuiltinToFloat16
         NumericFloat32 -> BuiltinToFloat32
-        _ -> BuiltinToFloat64
+        NumericFloat64 -> BuiltinToFloat64
 
     -- Alias bridges can legitimately point across a recursive SCC, but pure
     -- alias loops need a deterministic diagnostic instead of infinite forcing.
@@ -1301,12 +1301,6 @@ structuralElementEquality leftElements rightElements
   | otherwise =
       fmap and
         (traverse (uncurry runtimeStructuralEquality) (zip leftElements rightElements))
-
-runtimeValueSupportsStructuralEquality :: RuntimeValue -> Bool
-runtimeValueSupportsStructuralEquality value =
-  case runtimeStructuralEquality value value of
-    Just _ -> True
-    Nothing -> False
 
 -- | Runtime-specific wrapper for mkDiagnostic.
 -- This alias exists solely to improve readability and make it clear that
