@@ -632,7 +632,7 @@ literalRuntimeValue :: Literal -> RuntimeValue
 literalRuntimeValue literal =
   case literal of
     LInt value -> VInt value
-    LFloat value -> VFloat value
+    LFloat value _ -> VFloat value
     LBool value -> VBool value
 
 evalPatternCase ::
@@ -1094,8 +1094,9 @@ evalBinary builtinMode operatorSymbol leftValue rightValue =
     ("+", VFloat leftFloat, VFloat rightFloat) -> Right (VFloat (leftFloat + rightFloat))
     ("-", VFloat leftFloat, VFloat rightFloat) -> Right (VFloat (leftFloat - rightFloat))
     ("*", VFloat leftFloat, VFloat rightFloat) -> Right (VFloat (leftFloat * rightFloat))
-    ("/", VFloat _, VFloat 0) ->
-      Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
+    ("/", VFloat _, VFloat rightFloat)
+      | floatIsZero rightFloat ->
+          Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
     ("/", VFloat leftFloat, VFloat rightFloat) ->
       Right (VFloat (leftFloat / rightFloat))
     ("<", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt < rightInt))
@@ -1120,6 +1121,12 @@ evalBinary builtinMode operatorSymbol leftValue rightValue =
                 <> renderRuntimeType rightValue
             )
         )
+
+floatIsZero :: Double -> Bool
+floatIsZero value =
+  -- Jazz's finite runtime primitive subset treats both signed zeroes as
+  -- division by zero rather than producing infinities.
+  value == 0
 
 -- | Runtime-specific wrapper for mkDiagnostic.
 -- This alias exists solely to improve readability and make it clear that

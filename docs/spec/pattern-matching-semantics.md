@@ -68,7 +68,8 @@ Current parser/core invariants:
 1. Arms are tested from top to bottom.
 2. The first matching arm wins.
 3. Literal patterns match when the scrutinee value equals the literal and the
-   literal belongs to the supported simple subset (`Int` or `Bool`).
+   literal belongs to the supported simple subset (`Int`, `Float`/`Float64`, or
+   `Bool`).
 4. `_` matches any value and binds no name.
 5. A variable pattern matches any value and binds the scrutinee to that name
    only within the selected arm body.

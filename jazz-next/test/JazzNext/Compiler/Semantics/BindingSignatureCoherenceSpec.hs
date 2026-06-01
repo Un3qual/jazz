@@ -76,7 +76,7 @@ tests =
     ("source pipeline rejects out-of-range width-specific section literals", testSourceRejectsOutOfRangeWidthSpecificSectionLiterals),
     ("source pipeline accepts same-width integral operator signatures", testSourceAcceptsSameWidthIntegralOperatorSignatures),
     ("source pipeline rejects mixed-width numeric operator signatures", testSourceRejectsMixedWidthNumericOperatorSignatures),
-    ("source pipeline rejects float numeric operator signatures", testSourceRejectsFloatNumericOperatorSignatures),
+    ("source pipeline accepts same-width float numeric operator signatures", testSourceAcceptsSameWidthFloatNumericOperatorSignatures),
     ("source pipeline keeps float signatures distinct from integer literals", testSourceRejectsFloatSignatureForIntegerLiteral),
     ("source pipeline accepts Float and Float64 fractional literal signatures", testSourceAcceptsFloatFractionalLiteralSignatures),
     ("source pipeline rejects non-Float64 fractional literal targets", testSourceRejectsNonFloat64FractionalLiteralTargets),
@@ -481,9 +481,10 @@ testSourceRejectsMixedWidthNumericOperatorSignatures :: IO ()
 testSourceRejectsMixedWidthNumericOperatorSignatures =
   assertSourceSingleErrorContains "add :: Int8 -> UInt8 -> Int8.\nadd = (+)." "E2005"
 
-testSourceRejectsFloatNumericOperatorSignatures :: IO ()
-testSourceRejectsFloatNumericOperatorSignatures =
-  assertSourceSingleErrorContains "fadd :: Float -> Float64 -> Float64.\nfadd = (+)." "E2005"
+testSourceAcceptsSameWidthFloatNumericOperatorSignatures :: IO ()
+testSourceAcceptsSameWidthFloatNumericOperatorSignatures = do
+  assertSourceOk "fadd :: Float -> Float -> Float.\nfadd = (+)."
+  assertSourceOk "fadd64 :: Float64 -> Float64 -> Float64.\nfadd64 = (+)."
 
 testSourceRejectsFloatSignatureForIntegerLiteral :: IO ()
 testSourceRejectsFloatSignatureForIntegerLiteral =

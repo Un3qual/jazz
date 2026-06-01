@@ -112,7 +112,7 @@ lowerSurfaceLiteral :: SurfaceLiteral -> Literal
 lowerSurfaceLiteral literal =
   case literal of
     SLInt value -> LInt value
-    SLFloat value -> LFloat value
+    SLFloat value hasNonZeroFractionalDigits -> LFloat value hasNonZeroFractionalDigits
     SLBool value -> LBool value
 
 lowerSurfacePattern :: SurfacePattern -> Pattern

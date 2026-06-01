@@ -73,10 +73,15 @@ tests =
     ("source pipeline accepts Float64 fractional literal defaults", testSourcePipelineAcceptsFloat64FractionalLiteralDefaults),
     ("source pipeline accepts same-width Float64 arithmetic", testSourcePipelineAcceptsSameWidthFloat64Arithmetic),
     ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
+    ("source pipeline rejects Float64 comparisons until runtime support lands", testSourcePipelineRejectsFloat64Comparisons),
+    ("source pipeline rejects Float64 comparison operator values", testSourcePipelineRejectsFloat64ComparisonOperatorValues),
+    ("source pipeline rejects Float64 comparison sections", testSourcePipelineRejectsFloat64ComparisonSections),
     ("source pipeline rejects implicit integer and fractional literal mixing", testSourcePipelineRejectsImplicitIntegerFractionalMixing),
     ("source pipeline rejects mixed-width float arithmetic", testSourcePipelineRejectsMixedWidthFloatArithmetic),
+    ("source pipeline explains deferred Float16 and Float32 arithmetic", testSourcePipelineExplainsDeferredFloat16Float32Arithmetic),
     ("source pipeline rejects out-of-range literal conversions", testSourcePipelineRejectsOutOfRangeLiteralConversions),
     ("source pipeline rejects non-integral fractional literal conversions", testSourcePipelineRejectsNonIntegralFractionalLiteralConversions),
+    ("source pipeline rejects rounded non-integral fractional literal conversions", testSourcePipelineRejectsRoundedNonIntegralFractionalLiteralConversions),
     ("source pipeline rejects out-of-range float-target literal conversions", testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions),
     ("source pipeline ignores conversion literal checks for shadowed names", testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames),
     ("source pipeline freshens prelude conversion aliases", testSourcePipelineFreshensPreludeConversionAliases),
@@ -314,6 +319,27 @@ testSourcePipelineAcceptsSameWidthFloat64OperatorValues =
   assertCompilesWithBundledPrelude
     "x :: Float64.\nx = (+) (toFloat64 1) (toFloat64 2)."
 
+testSourcePipelineRejectsFloat64Comparisons :: IO ()
+testSourcePipelineRejectsFloat64Comparisons =
+  assertCompileError
+    "x = 1.5 < 2.0."
+    "Float64 comparison"
+    "E2003"
+
+testSourcePipelineRejectsFloat64ComparisonOperatorValues :: IO ()
+testSourcePipelineRejectsFloat64ComparisonOperatorValues =
+  assertCompileErrorWithBundledPrelude
+    "x = (<) (toFloat64 1) (toFloat64 2)."
+    "Float64 comparison operator value"
+    "E2006"
+
+testSourcePipelineRejectsFloat64ComparisonSections :: IO ()
+testSourcePipelineRejectsFloat64ComparisonSections =
+  assertCompileError
+    "x = (1.5 <) 2.0."
+    "Float64 comparison section"
+    "E2003"
+
 testSourcePipelineRejectsImplicitIntegerFractionalMixing :: IO ()
 testSourcePipelineRejectsImplicitIntegerFractionalMixing =
   assertCompileError
@@ -328,6 +354,13 @@ testSourcePipelineRejectsMixedWidthFloatArithmetic =
     "mixed-width float arithmetic"
     "E2003"
 
+testSourcePipelineExplainsDeferredFloat16Float32Arithmetic :: IO ()
+testSourcePipelineExplainsDeferredFloat16Float32Arithmetic =
+  assertCompileErrorWithBundledPrelude
+    "left :: Float16.\nleft = toFloat16 1.\nright :: Float16.\nright = toFloat16 2.\nx = left + right."
+    "Float16 arithmetic deferred"
+    "Float16/Float32 arithmetic is deferred"
+
 testSourcePipelineRejectsOutOfRangeLiteralConversions :: IO ()
 testSourcePipelineRejectsOutOfRangeLiteralConversions =
   assertCompileErrorWithBundledPrelude
@@ -340,6 +373,13 @@ testSourcePipelineRejectsNonIntegralFractionalLiteralConversions =
   assertCompileErrorWithBundledPrelude
     "x = toInt8 1.5."
     "non-integral fractional literal conversion"
+    "E2006"
+
+testSourcePipelineRejectsRoundedNonIntegralFractionalLiteralConversions :: IO ()
+testSourcePipelineRejectsRoundedNonIntegralFractionalLiteralConversions =
+  assertCompileErrorWithBundledPrelude
+    "x = toInt8 0.99999999999999999."
+    "rounded non-integral fractional literal conversion"
     "E2006"
 
 testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions :: IO ()

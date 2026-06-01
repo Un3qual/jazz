@@ -30,7 +30,7 @@ import JazzNext.Compiler.Identifier
 -- | Literals as they appear in parsed source before lowering.
 data SurfaceLiteral
   = SLInt Integer
-  | SLFloat Double
+  | SLFloat Double Bool
   | SLBool Bool
   deriving (Eq, Show)
 

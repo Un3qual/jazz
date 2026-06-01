@@ -1355,16 +1355,22 @@ parsePrimaryExprUntil knownAliases stop tokens =
             )
 
 parseNumericLiteral :: Token -> Integer -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseNumericLiteral wholeToken wholeValue tokensAfterWhole =
+parseNumericLiteral wholeToken wholeValue tokensAfterWhole = do
+  (literal, remaining) <- parseNumericSurfaceLiteral wholeToken wholeValue tokensAfterWhole
+  Right (SELit literal, remaining)
+
+parseNumericSurfaceLiteral :: Token -> Integer -> [Token] -> Either Diagnostic (SurfaceLiteral, [Token])
+parseNumericSurfaceLiteral wholeToken wholeValue tokensAfterWhole =
   case tokensAfterWhole of
     dotToken@Token {tokenKind = TDot} : fractionalToken@Token {tokenKind = TInt _} : rest
       | isImmediatelyAfter wholeToken dotToken,
         isImmediatelyAfter dotToken fractionalToken -> do
           let literalText = tokenLexeme wholeToken <> "." <> tokenLexeme fractionalToken
+              hasNonZeroFractionalDigits = Text.any (/= '0') (tokenLexeme fractionalToken)
           floatValue <- parseFloatLiteral (tokenSpan wholeToken) literalText
-          Right (SELit (SLFloat floatValue), rest)
+          Right (SLFloat floatValue hasNonZeroFractionalDigits, rest)
     _ ->
-      Right (SELit (SLInt wholeValue), tokensAfterWhole)
+      Right (SLInt wholeValue, tokensAfterWhole)
 
 parseFloatLiteral :: SourceSpan -> Text -> Either Diagnostic Double
 parseFloatLiteral literalSpan literalText =
@@ -1628,8 +1634,9 @@ parseCaseArm knownAliases tokens = do
 parseCasePattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseCasePattern tokens =
   case tokens of
-    Token {tokenKind = TInt value} : rest ->
-      Right (SPLiteral (SLInt value), rest)
+    token@Token {tokenKind = TInt value} : rest -> do
+      (literal, remaining) <- parseNumericSurfaceLiteral token value rest
+      Right (SPLiteral literal, remaining)
     Token {tokenKind = TLBracket} : rest ->
       parseListPattern rest
     token@Token {tokenKind = TLParen} : rest ->
@@ -1697,8 +1704,9 @@ parseConstructorPattern constructorName tokensAfterName =
 parseConstructorArgumentPattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseConstructorArgumentPattern tokens =
   case tokens of
-    Token {tokenKind = TInt value} : rest ->
-      Right (SPLiteral (SLInt value), rest)
+    token@Token {tokenKind = TInt value} : rest -> do
+      (literal, remaining) <- parseNumericSurfaceLiteral token value rest
+      Right (SPLiteral literal, remaining)
     Token {tokenKind = TIdentifier name} : rest ->
       case name of
         "True" ->
