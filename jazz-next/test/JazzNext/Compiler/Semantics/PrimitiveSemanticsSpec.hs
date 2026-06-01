@@ -81,10 +81,11 @@ tests =
     ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
     ("source pipeline accepts same-width Float16 and Float32 arithmetic", testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic),
     ("source pipeline accepts same-width Float64 comparison and equality", testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality),
+    ("source pipeline accepts same-width Float16 and Float32 comparison and equality", testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality),
     ("source pipeline accepts same-width Float64 comparison/equality operator values", testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues),
     ("source pipeline accepts same-width Float64 comparison/equality sections", testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualitySections),
-    ("source pipeline rejects mixed-width Float64 comparison and equality", testSourcePipelineRejectsMixedWidthFloat64ComparisonEquality),
-    ("source pipeline keeps Float16 and Float32 comparison/equality out of arithmetic batch", testSourcePipelineKeepsFloat16Float32ComparisonEqualityOutOfArithmeticBatch),
+    ("source pipeline rejects mixed-width float comparison and equality", testSourcePipelineRejectsMixedWidthFloatComparisonEquality),
+    ("source pipeline rejects implicit Float16 and Float32 comparison and equality", testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality),
     ("source pipeline rejects implicit integer and fractional literal mixing", testSourcePipelineRejectsImplicitIntegerFractionalMixing),
     ("source pipeline rejects mixed-width float arithmetic", testSourcePipelineRejectsMixedWidthFloatArithmetic),
     ("source pipeline rejects mixed-width and implicit Float16/Float32 arithmetic", testSourcePipelineRejectsMixedWidthAndImplicitFloat16Float32Arithmetic),
@@ -358,6 +359,11 @@ testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality =
   assertCompiles
     "lt = 1.5 < 2.0.\nle = 2.0 <= 2.0.\ngt = 3.0 > 2.0.\nge = 3.0 >= 3.0.\neq = 2.0 == 2.0.\nne = 2.0 != 3.0."
 
+testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality :: IO ()
+testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality =
+  assertCompilesWithBundledPrelude
+    "a16 :: Float16.\na16 = toFloat16 1.\nb16 :: Float16.\nb16 = toFloat16 2.\nlt16 = a16 < b16.\nle16 = a16 <= a16.\ngt16 = b16 > a16.\nge16 = b16 >= b16.\neq16 = a16 == a16.\nne16 = a16 != b16.\na32 :: Float32.\na32 = toFloat32 1.\nb32 :: Float32.\nb32 = toFloat32 2.\nlt32 = a32 < b32.\nle32 = a32 <= a32.\ngt32 = b32 > a32.\nge32 = b32 >= b32.\neq32 = a32 == a32.\nne32 = a32 != b32."
+
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues :: IO ()
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues =
   assertCompiles
@@ -368,26 +374,38 @@ testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualitySections =
   assertCompiles
     "lt = (1.5 <) 2.0.\nle = (2.0 <=) 2.0.\ngt = (> 2.0) 3.0.\nge = (>= 3.0) 3.0.\neq = (2.0 ==) 2.0.\nne = (!= 3.0) 2.0."
 
-testSourcePipelineRejectsMixedWidthFloat64ComparisonEquality :: IO ()
-testSourcePipelineRejectsMixedWidthFloat64ComparisonEquality = do
+testSourcePipelineRejectsMixedWidthFloatComparisonEquality :: IO ()
+testSourcePipelineRejectsMixedWidthFloatComparisonEquality = do
   assertCompileError
     "x = 1 == 1.5."
     "mixed Int/Float64 equality"
     "E2004"
   assertCompileErrorWithBundledPrelude
+    "left :: Float16.\nleft = toFloat16 1.\nright :: Float32.\nright = toFloat32 1.\nx = left == right."
+    "mixed Float16/Float32 equality"
+    "E2004"
+  assertCompileErrorWithBundledPrelude
+    "left :: Float16.\nleft = toFloat16 1.\nright :: Float32.\nright = toFloat32 2.\nx = left < right."
+    "mixed Float16/Float32 comparison"
+    "E2003"
+  assertCompileErrorWithBundledPrelude
     "left :: Float16.\nleft = toFloat16 1.\nright :: Float64.\nright = toFloat64 1.\nx = left < right."
     "mixed Float16/Float64 comparison"
     "E2003"
-
-testSourcePipelineKeepsFloat16Float32ComparisonEqualityOutOfArithmeticBatch :: IO ()
-testSourcePipelineKeepsFloat16Float32ComparisonEqualityOutOfArithmeticBatch = do
   assertCompileErrorWithBundledPrelude
-    "left :: Float16.\nleft = toFloat16 1.\nright :: Float16.\nright = toFloat16 2.\nx = left < right."
-    "Float16 comparison remains deferred"
+    "left :: Float32.\nleft = toFloat32 1.\nright :: Float64.\nright = toFloat64 1.\nx = left == right."
+    "mixed Float32/Float64 equality"
+    "E2004"
+
+testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality :: IO ()
+testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality = do
+  assertCompileErrorWithBundledPrelude
+    "left :: Float16.\nleft = toFloat16 1.\nx = left < 1."
+    "implicit integer-to-Float16 comparison"
     "E2003"
   assertCompileErrorWithBundledPrelude
-    "left :: Float32.\nleft = toFloat32 1.\nright :: Float32.\nright = toFloat32 1.\nx = left == right."
-    "Float32 equality remains deferred"
+    "left :: Float32.\nleft = toFloat32 1.\nx = left == 1."
+    "implicit integer-to-Float32 equality"
     "E2004"
 
 testSourcePipelineRejectsImplicitIntegerFractionalMixing :: IO ()

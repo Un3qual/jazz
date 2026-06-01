@@ -1,12 +1,13 @@
 ---
 id: JN-FLOAT16-FLOAT32-SAME-WIDTH-COMPARISON-EQUALITY-001
-status: ready
+status: done
 priority: P2
 size: M
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
 last_verified: 2026-06-01
+completed_on: 2026-06-01
 plan_section: "Batch 1: Float16/Float32 same-width comparison and equality"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs

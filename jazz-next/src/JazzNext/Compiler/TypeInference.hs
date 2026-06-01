@@ -1574,6 +1574,13 @@ numericTypeSupportsRuntimeArithmetic numericType =
     || numericType == NumericFloat32
     || numericType == NumericFloat64
 
+numericTypeSupportsRuntimeComparison :: NumericType -> Bool
+numericTypeSupportsRuntimeComparison numericType =
+  numericTypeIsIntegral numericType
+    || numericType == NumericFloat16
+    || numericType == NumericFloat32
+    || numericType == NumericFloat64
+
 integerLiteralRangeFitsNumericType :: IntegerLiteralRange -> NumericType -> Bool
 integerLiteralRangeFitsNumericType literalRange numericType =
   case numericTypeIntegerBounds numericType of
@@ -2203,7 +2210,7 @@ typeSatisfiesNumericConstraint numericConstraint expressionType =
         TIntegerLiteralType {} -> True
         TFloatType -> True
         TNumericType numericType ->
-          numericTypeIsIntegral numericType || numericType == NumericFloat64
+          numericTypeSupportsRuntimeComparison numericType
         TVarType {} -> True
         _ -> False
     IntegralNumericConstraint ->
@@ -2256,7 +2263,7 @@ mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
     "E2004"
     ( "strict equality operator '"
         <> operatorSymbol
-        <> "' is only supported for Bool, integral numeric, Float/Float64, and lists and tuples containing equality-supported elements, found "
+        <> "' is only supported for Bool, integral numeric, Float/Float16/Float32/Float64, and lists and tuples containing equality-supported elements, found "
         <> renderType foundType
     )
 
@@ -3045,7 +3052,7 @@ supportsRuntimeEqualityType expressionType =
     TIntType -> True
     TIntegerLiteralType {} -> True
     TFloatType -> True
-    TNumericType numericType -> numericTypeIsIntegral numericType || numericType == NumericFloat64
+    TNumericType numericType -> numericTypeSupportsRuntimeComparison numericType
     TBoolType -> True
     TListType elementType -> supportsRuntimeEqualityType elementType
     TTupleType elementTypes -> all supportsRuntimeEqualityType elementTypes

@@ -99,6 +99,7 @@ tests =
     ("Float16 and Float32 arithmetic evaluates at runtime", testFloat16Float32ArithmeticRuntimeSuccess),
     ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError),
     ("Float64 comparison and equality evaluate at runtime", testFloat64ComparisonEqualityRuntimeSuccess),
+    ("Float16 and Float32 comparison and equality evaluate at runtime", testFloat16Float32ComparisonEqualityRuntimeSuccess),
     ("structural list equality evaluates at runtime", testStructuralListEqualityRuntimeSuccess),
     ("structural tuple equality evaluates at runtime", testStructuralTupleEqualityRuntimeSuccess),
     ("runtime fallback rejects structural equality over functions", testRuntimeFallbackRejectsFunctionStructuralEquality),
@@ -697,6 +698,13 @@ testFloat64ComparisonEqualityRuntimeSuccess = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True, True, True, True, True]") (runOutput result)
+
+testFloat16Float32ComparisonEqualityRuntimeSuccess :: IO ()
+testFloat16Float32ComparisonEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "a16 = toFloat16 1.\nb16 = toFloat16 2.\na32 = toFloat32 1.\nb32 = toFloat32 2.\nlt16 = a16 < b16.\nle16 = a16 <= a16.\ngt16 = b16 > a16.\nge16 = b16 >= b16.\neq16 = a16 == a16.\nne16 = a16 != b16.\nlt32 = a32 < b32.\nle32 = a32 <= a32.\ngt32 = b32 > a32.\nge32 = b32 >= b32.\neq32 = a32 == a32.\nne32 = a32 != b32.\n[lt16, le16, gt16, ge16, eq16, ne16, lt32, le32, gt32, ge32, eq32, ne32]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, True, True, True, True, True, True, True, True, True, True]") (runOutput result)
 
 testStructuralListEqualityRuntimeSuccess :: IO ()
 testStructuralListEqualityRuntimeSuccess = do
