@@ -97,6 +97,7 @@ tests =
     ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
     ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
     ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError),
+    ("Float64 comparison and equality evaluate at runtime", testFloat64ComparisonEqualityRuntimeSuccess),
     ("Float16 conversion rounds to target precision", testFloat16ConversionRoundsRuntimeValue),
     ("dynamic integer conversion range failure reports deterministic diagnostic", testDynamicIntegerConversionRangeRuntimeError),
     ("runtime fallback rejects non-numeric conversion values", testRuntimeFallbackRejectsNonNumericConversionValue),
@@ -678,6 +679,13 @@ testFloat64ArithmeticOverflowRuntimeError = do
     "non-finite Float result"
     (runRuntimeErrors result)
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testFloat64ComparisonEqualityRuntimeSuccess :: IO ()
+testFloat64ComparisonEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "lt = 1.5 < 2.0.\nle = 2.0 <= 2.0.\ngt = 3.0 > 2.0.\nge = 3.0 >= 3.0.\neq = 2.0 == 2.0.\nne = 2.0 != 3.0.\n[lt, le, gt, ge, eq, ne]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, True, True, True, True]") (runOutput result)
 
 testFloat16ConversionRoundsRuntimeValue :: IO ()
 testFloat16ConversionRoundsRuntimeValue = do

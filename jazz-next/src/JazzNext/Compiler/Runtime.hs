@@ -1144,9 +1144,15 @@ evalBinary builtinMode operatorSymbol leftValue rightValue =
     ("<=", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt <= rightInt))
     (">", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt > rightInt))
     (">=", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt >= rightInt))
+    ("<", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat < rightFloat))
+    ("<=", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat <= rightFloat))
+    (">", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat > rightFloat))
+    (">=", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat >= rightFloat))
     ("==", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt == rightInt))
+    ("==", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat == rightFloat))
     ("==", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool == rightBool))
     ("!=", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt /= rightInt))
+    ("!=", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat /= rightFloat))
     ("!=", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool /= rightBool))
     ("$", functionValue, argumentValue) ->
       applyRuntimeFunction builtinMode functionValue argumentValue

@@ -601,7 +601,7 @@ numericRuleConstraint :: NumericRuleResult -> NumericConstraint
 numericRuleConstraint resultRule =
   case resultRule of
     NumericSameTypeResult -> RuntimeArithmeticNumericConstraint
-    NumericBoolResult -> IntegralNumericConstraint
+    NumericBoolResult -> RuntimeArithmeticNumericConstraint
 
 numericBinaryOperandType ::
   Text ->
@@ -2261,7 +2261,7 @@ mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
     "E2004"
     ( "strict equality operator '"
         <> operatorSymbol
-        <> "' is only supported for Bool and integral numeric types, found "
+        <> "' is only supported for Bool, integral numeric, and Float/Float64 types, found "
         <> renderType foundType
     )
 
@@ -3061,7 +3061,8 @@ supportsRuntimeEqualityType expressionType =
   case expressionType of
     TIntType -> True
     TIntegerLiteralType {} -> True
-    TNumericType numericType -> numericTypeIsIntegral numericType
+    TFloatType -> True
+    TNumericType numericType -> numericTypeIsIntegral numericType || numericType == NumericFloat64
     TBoolType -> True
     _ -> False
 

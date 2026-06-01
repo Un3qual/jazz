@@ -1,25 +1,18 @@
 ---
-id: JN-FLOAT64-SAME-WIDTH-COMPARISON-EQUALITY-001
-status: ready
-priority: P1
-size: M
+id: JN-PRIMITIVE-SURFACE-EXPANSION-PLAN-001
+status: blocked
+priority: P2
+size: L
 kind: impl
-autonomous_ready: yes
-depends_on:
-  - JN-FLOAT64-SAME-WIDTH-ARITHMETIC-001
+autonomous_ready: no
+depends_on: []
 last_verified: 2026-06-01
-plan_section: "Next implementation batch: Float64 same-width comparison/equality"
-target_paths:
-  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
-  - jazz-next/src/JazzNext/Compiler/Runtime.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+plan_section: "Follow-up: Numeric width and defaulting rollout"
+target_paths: []
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Accept `==`, `!=`, `<`, `<=`, `>`, and `>=` for same concrete `Float`/`Float64` operands in type inference and runtime, while preserving strict type-directed equality and explicit-conversion-only cross-width behavior."
+deliverable: "Primitive deltas beyond landed same concrete `Float`/`Float64` arithmetic and comparison/equality remain blocked until separate concrete contracts define target paths and focused verification."
 ---
 
 # Primitive Semantics Contract Implementation Plan
@@ -73,6 +66,7 @@ Execution note:
 - [x] On `2026-05-31`, landed explicit target-named numeric conversions through the active `jazz-next` prelude/catalog/runtime boundary.
 - [x] On `2026-05-31`, landed the default Float64 fractional literal slice in `jazz-next`.
 - [x] Same concrete `Float`/`Float64` arithmetic for `+`, `-`, `*`, and `/` landed in `jazz-next`.
+- [x] Same concrete `Float`/`Float64` comparison and equality for `==`, `!=`, `<`, `<=`, `>`, and `>=` landed in `jazz-next`.
 
 First implementation target (landed 2026-05-29):
 
@@ -224,12 +218,14 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
-## Next implementation batch: Float64 same-width comparison/equality
+## Completed implementation batch: Float64 same-width comparison/equality
 
 This active-path batch is the next concrete primitive-surface slice after
 Float64 same-width arithmetic. It keeps equality strict and type-directed while
 allowing the existing comparison/equality operator family to work for same
 concrete floating operands.
+
+Completed on `2026-06-01` as `JN-FLOAT64-SAME-WIDTH-COMPARISON-EQUALITY-001`.
 
 Executor-safe scope:
 

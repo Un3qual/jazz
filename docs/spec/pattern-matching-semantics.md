@@ -69,8 +69,8 @@ Current parser/core invariants:
 2. The first matching arm wins.
 3. Literal patterns match when the scrutinee value equals the literal and the
    literal belongs to the supported simple subset (`Int` or `Bool`). Fractional
-   literal patterns remain rejected until floating equality semantics are
-   specified and implemented.
+   literal patterns remain rejected until a dedicated pattern-matching batch
+   wires the implemented floating equality semantics into this subsystem.
 4. `_` matches any value and binds no name.
 5. A variable pattern matches any value and binds the scrutinee to that name
    only within the selected arm body.

@@ -76,9 +76,10 @@ tests =
     ("source pipeline accepts Float64 fractional literal defaults", testSourcePipelineAcceptsFloat64FractionalLiteralDefaults),
     ("source pipeline accepts same-width Float64 arithmetic", testSourcePipelineAcceptsSameWidthFloat64Arithmetic),
     ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
-    ("source pipeline rejects Float64 comparisons until runtime support lands", testSourcePipelineRejectsFloat64Comparisons),
-    ("source pipeline rejects Float64 comparison operator values", testSourcePipelineRejectsFloat64ComparisonOperatorValues),
-    ("source pipeline rejects Float64 comparison sections", testSourcePipelineRejectsFloat64ComparisonSections),
+    ("source pipeline accepts same-width Float64 comparison and equality", testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality),
+    ("source pipeline accepts same-width Float64 comparison/equality operator values", testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues),
+    ("source pipeline accepts same-width Float64 comparison/equality sections", testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualitySections),
+    ("source pipeline rejects mixed-width Float64 comparison and equality", testSourcePipelineRejectsMixedWidthFloat64ComparisonEquality),
     ("source pipeline rejects implicit integer and fractional literal mixing", testSourcePipelineRejectsImplicitIntegerFractionalMixing),
     ("source pipeline rejects mixed-width float arithmetic", testSourcePipelineRejectsMixedWidthFloatArithmetic),
     ("source pipeline explains deferred Float16 and Float32 arithmetic", testSourcePipelineExplainsDeferredFloat16Float32Arithmetic),
@@ -276,7 +277,7 @@ testSourcePipelineRejectsListEquality = do
     (compileErrors result)
   assertSingleDiagnosticContains
     "list equality unsupported summary"
-    "Bool and integral numeric types"
+    "Bool, integral numeric, and Float/Float64 types"
     (compileErrors result)
 
 testSourcePipelineRejectsUnsupportedSectionOperator :: IO ()
@@ -327,25 +328,30 @@ testSourcePipelineAcceptsSameWidthFloat64OperatorValues =
   assertCompilesWithBundledPrelude
     "x :: Float64.\nx = (+) (toFloat64 1) (toFloat64 2)."
 
-testSourcePipelineRejectsFloat64Comparisons :: IO ()
-testSourcePipelineRejectsFloat64Comparisons =
-  assertCompileError
-    "x = 1.5 < 2.0."
-    "Float64 comparison"
-    "E2003"
+testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality :: IO ()
+testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality =
+  assertCompiles
+    "lt = 1.5 < 2.0.\nle = 2.0 <= 2.0.\ngt = 3.0 > 2.0.\nge = 3.0 >= 3.0.\neq = 2.0 == 2.0.\nne = 2.0 != 3.0."
 
-testSourcePipelineRejectsFloat64ComparisonOperatorValues :: IO ()
-testSourcePipelineRejectsFloat64ComparisonOperatorValues =
+testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues :: IO ()
+testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues =
+  assertCompiles
+    "lt = (<) 1.5 2.0.\nle = (<=) 2.0 2.0.\ngt = (>) 3.0 2.0.\nge = (>=) 3.0 3.0.\neq = (==) 2.0 2.0.\nne = (!=) 2.0 3.0."
+
+testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualitySections :: IO ()
+testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualitySections =
+  assertCompiles
+    "lt = (1.5 <) 2.0.\nle = (2.0 <=) 2.0.\ngt = (> 2.0) 3.0.\nge = (>= 3.0) 3.0.\neq = (2.0 ==) 2.0.\nne = (!= 3.0) 2.0."
+
+testSourcePipelineRejectsMixedWidthFloat64ComparisonEquality :: IO ()
+testSourcePipelineRejectsMixedWidthFloat64ComparisonEquality = do
+  assertCompileError
+    "x = 1 == 1.5."
+    "mixed Int/Float64 equality"
+    "E2004"
   assertCompileErrorWithBundledPrelude
-    "x = (<) (toFloat64 1) (toFloat64 2)."
-    "Float64 comparison operator value"
-    "E2006"
-
-testSourcePipelineRejectsFloat64ComparisonSections :: IO ()
-testSourcePipelineRejectsFloat64ComparisonSections =
-  assertCompileError
-    "x = (1.5 <) 2.0."
-    "Float64 comparison section"
+    "left :: Float16.\nleft = toFloat16 1.\nright :: Float64.\nright = toFloat64 1.\nx = left < right."
+    "mixed Float16/Float64 comparison"
     "E2003"
 
 testSourcePipelineRejectsImplicitIntegerFractionalMixing :: IO ()
