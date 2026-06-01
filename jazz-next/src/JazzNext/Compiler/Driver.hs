@@ -1354,7 +1354,13 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
             typeParameters
             constructors
         SClass {} -> [statement]
-        SImpl {} -> [statement]
+        SImpl spanValue capabilityName arguments methods ->
+          [ SImpl
+              spanValue
+              capabilityName
+              arguments
+              (rewriteModuleExportImplMethods modulePath hiddenImportExports methods)
+          ]
         _ -> [statement]
 
     hiddenValidationIdentifier name =
@@ -1385,8 +1391,21 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
                   spanValue
                   (rewriteModuleExportReferences modulePath hiddenImportExports valueExpr)
               ]
+        SImpl spanValue capabilityName arguments methods ->
+          [ SImpl
+              spanValue
+              capabilityName
+              arguments
+              (rewriteModuleExportImplMethods modulePath hiddenImportExports methods)
+          ]
         _ | isHiddenImportExportStatement hiddenImportExports statement -> []
         _ -> [statement]
+
+rewriteModuleExportImplMethods :: [Text] -> Set Text -> [ImplMethod] -> [ImplMethod]
+rewriteModuleExportImplMethods modulePath hiddenImportExports methods =
+  [ ImplMethod methodName methodSpan (rewriteModuleExportReferences modulePath hiddenImportExports methodExpr)
+    | ImplMethod methodName methodSpan methodExpr <- methods
+  ]
 
 rewriteDataStatementForReplay ::
   [Text] ->

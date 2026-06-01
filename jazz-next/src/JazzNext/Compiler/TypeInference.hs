@@ -2339,8 +2339,32 @@ mkBinaryTypeError operatorSymbol leftType rightType =
     )
 
 mkNumericBinaryTypeError :: Text -> NumericRuleResult -> ExpressionType -> ExpressionType -> Diagnostic
-mkNumericBinaryTypeError operatorSymbol _ leftType rightType =
-  mkBinaryTypeError operatorSymbol leftType rightType
+mkNumericBinaryTypeError operatorSymbol resultRule leftType rightType =
+  case resultRule of
+    NumericSameTypeResult
+      | any isNarrowFloatType [leftType, rightType] ->
+          mkNarrowFloatArithmeticTypeError
+            ( "cannot apply operator '"
+                <> operatorSymbol
+                <> "' to operands of type "
+                <> renderType leftType
+                <> " and "
+                <> renderType rightType
+            )
+    _ -> mkBinaryTypeError operatorSymbol leftType rightType
+
+mkNarrowFloatArithmeticTypeError :: Text -> Diagnostic
+mkNarrowFloatArithmeticTypeError prefix =
+  mkDiagnostic
+    "E2003"
+    (prefix <> ": Float16/Float32 arithmetic is not yet supported; convert operands to Float64")
+
+isNarrowFloatType :: ExpressionType -> Bool
+isNarrowFloatType expressionType =
+  case expressionType of
+    TNumericType NumericFloat16 -> True
+    TNumericType NumericFloat32 -> True
+    _ -> False
 
 mkStrictEqualityTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
 mkStrictEqualityTypeError operatorSymbol leftType rightType =
@@ -2498,14 +2522,24 @@ mkUnsupportedSectionOperatorError operatorSymbol =
   mkDiagnostic "E2008" ("unsupported operator section '" <> operatorSymbol <> "'")
 
 mkNumericSectionOperandTypeError :: Text -> NumericRuleResult -> ExpressionType -> Diagnostic
-mkNumericSectionOperandTypeError operatorSymbol _ operandType =
-  mkDiagnostic
-    "E2003"
-    ( "operator section '"
-        <> operatorSymbol
-        <> "' requires a numeric operand, found "
-        <> renderType operandType
-    )
+mkNumericSectionOperandTypeError operatorSymbol resultRule operandType =
+  case resultRule of
+    NumericSameTypeResult
+      | isNarrowFloatType operandType ->
+          mkNarrowFloatArithmeticTypeError
+            ( "operator section '"
+                <> operatorSymbol
+                <> "' cannot use operand of type "
+                <> renderType operandType
+            )
+    _ ->
+      mkDiagnostic
+        "E2003"
+        ( "operator section '"
+            <> operatorSymbol
+            <> "' requires a numeric operand, found "
+            <> renderType operandType
+        )
 
 mkUnsupportedOperatorValueError :: Text -> Diagnostic
 mkUnsupportedOperatorValueError operatorSymbol =

@@ -97,6 +97,7 @@ tests =
     ("source pipeline accepts same-width Float64 arithmetic", testSourcePipelineAcceptsSameWidthFloat64Arithmetic),
     ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
     ("source pipeline rejects same-width Float16 and Float32 arithmetic", testSourcePipelineRejectsSameWidthFloat16Float32Arithmetic),
+    ("source pipeline reports narrow-float arithmetic guidance", testSourcePipelineReportsNarrowFloatArithmeticGuidance),
     ("source pipeline accepts same-width Float64 comparison and equality", testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality),
     ("source pipeline accepts same-width Float16 and Float32 comparison and equality", testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality),
     ("source pipeline accepts same-width Float64 comparison/equality operator values", testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues),
@@ -447,6 +448,25 @@ testSourcePipelineRejectsSameWidthFloat16Float32Arithmetic = do
     "a32 :: Float32.\na32 = toFloat32 1.\nb32 :: Float32.\nb32 = toFloat32 2.\nx32 :: Float32.\nx32 = a32 + b32."
     "Float32 arithmetic requires width-preserving runtime support"
     "E2003"
+
+testSourcePipelineReportsNarrowFloatArithmeticGuidance :: IO ()
+testSourcePipelineReportsNarrowFloatArithmeticGuidance = do
+  result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      (Just bundledPreludeSource)
+      "a16 :: Float16.\na16 = toFloat16 65504.\nb16 :: Float16.\nb16 = toFloat16 1.\nx16 = a16 + b16."
+  case compileErrors result of
+    [err] -> do
+      let rendered = renderDiagnostic err
+      assertContains "narrow arithmetic error code" "E2003" rendered
+      assertContains "narrow arithmetic support note" "Float16/Float32 arithmetic is not yet supported" rendered
+      assertContains "narrow arithmetic conversion guidance" "convert operands to Float64" rendered
+    errors ->
+      failTest
+        ( "expected one narrow-float arithmetic diagnostic, got "
+            <> Text.pack (show errors)
+        )
 
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality :: IO ()
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality =

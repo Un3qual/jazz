@@ -74,6 +74,7 @@ tests =
     ("compile module graph preserves alias-qualified generic constructor schemes", testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes),
     ("compile module graph keeps alias-qualified ADT equality distinct from local ADT", testCompileModuleGraphKeepsAliasQualifiedAdtEqualityDistinct),
     ("compile module graph resolves alias-qualified impl method references", testCompileModuleGraphResolvesAliasQualifiedImplMethodReferences),
+    ("compile module graph rewrites hidden impl method references", testCompileModuleGraphRewritesHiddenImplMethodReferences),
     ("run module graph keeps local data constructor from hidden import rewrite", testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite),
     ("run module graph keeps hidden qualified export pattern constructors available", testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge),
     ("run module graph keeps alias-qualified dependency export visible with prelude", testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude),
@@ -752,6 +753,23 @@ testCompileModuleGraphResolvesAliasQualifiedImplMethodReferences = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Math as Math.\nclass Sample(a) {\nmethod :: Int.\n}.\nimpl Sample(Int) {\nmethod = Math::one.\n}.\nx = 1."),
           ("src/Lib/Math.jz", "one = 1.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphRewritesHiddenImplMethodReferences :: IO ()
+testCompileModuleGraphRewritesHiddenImplMethodReferences = do
+  result <-
+    compileModuleGraph
+      defaultWarningSettings
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (compileErrors result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Thing as Thing.\nx = 0."),
+          ("src/Lib/Thing.jz", "helper = 1.\nclass Sample(a) {\nmethod :: Int.\n}.\nimpl Sample(Int) {\nmethod = helper.\n}.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
