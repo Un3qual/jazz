@@ -965,14 +965,15 @@ inferScopeType builtinMode initialEnv initialState statements =
 
     nextBindingForValue :: Text -> TypeEnv -> Expr -> Maybe ExpressionType -> Maybe PendingSignatureType -> Maybe TypeBinding
     nextBindingForValue bindingNameText currentEnv valueExpr maybeInferredType maybePendingSignature =
-      case (maybePendingSignature, valueExpr) of
-        (Nothing, EVar builtinName) ->
+      case valueExpr of
+        EVar builtinName ->
           let referencedName = identifierText builtinName
            in case Map.lookup referencedName currentEnv of
                 Just (BuiltinAliasTypeBinding builtinSymbol) ->
                   Just (BuiltinAliasTypeBinding builtinSymbol)
                 Just constructorBinding@ConstructorTypeBinding {}
-                  | isSyntheticAliasConstructorBinding bindingNameText referencedName ->
+                  | isNothing maybePendingSignature,
+                    isSyntheticAliasConstructorBinding bindingNameText referencedName ->
                       Just constructorBinding
                 Just _ ->
                   PlainTypeBinding <$> maybeInferredType

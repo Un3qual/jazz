@@ -11,6 +11,9 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)
   )
+import JazzNext.Compiler.FractionalLiteral
+  ( mkFractionalLiteralSource
+  )
 import JazzNext.Compiler.BundledPrelude
   ( bundledPreludeSource
   )
@@ -85,6 +88,9 @@ tests =
     ("source pipeline accepts integral-boundary fractional literal conversions", testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions),
     ("source pipeline rejects out-of-range float-target literal conversions", testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions),
     ("source pipeline rejects source-exact float-target literal overflow", testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow),
+    ("source pipeline rejects source-exact negative float-target literal overflow", testSourcePipelineRejectsSourceExactNegativeFloatTargetLiteralOverflow),
+    ("source pipeline rejects dollar-applied fractional literal conversions", testSourcePipelineRejectsDollarAppliedFractionalLiteralConversions),
+    ("source pipeline rejects typed prelude alias literal overflow", testSourcePipelineRejectsTypedPreludeAliasLiteralOverflow),
     ("source pipeline ignores conversion literal checks for shadowed names", testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames),
     ("source pipeline freshens prelude conversion aliases", testSourcePipelineFreshensPreludeConversionAliases),
     ("source pipeline keeps locally shadowed kernel aliases ordinary", testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary),
@@ -403,6 +409,33 @@ testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow =
     "source-exact float-target literal overflow"
     "E2006"
 
+testSourcePipelineRejectsSourceExactNegativeFloatTargetLiteralOverflow :: IO ()
+testSourcePipelineRejectsSourceExactNegativeFloatTargetLiteralOverflow = do
+  result <- compileExpr defaultWarningSettings sourceExactNegativeFloatTargetOverflowProgram
+  assertSingleDiagnosticContains
+    "source-exact negative float-target literal overflow"
+    "E2006"
+    (compileErrors result)
+
+testSourcePipelineRejectsDollarAppliedFractionalLiteralConversions :: IO ()
+testSourcePipelineRejectsDollarAppliedFractionalLiteralConversions = do
+  assertCompileErrorWithBundledPrelude
+    "x = toInt8 $ 1.5."
+    "dollar-applied non-integral fractional literal conversion"
+    "E2006"
+  assertCompileErrorWithBundledPrelude
+    "x = toFloat16 $ 65504.000000000000000001."
+    "dollar-applied source-exact float-target literal overflow"
+    "E2006"
+
+testSourcePipelineRejectsTypedPreludeAliasLiteralOverflow :: IO ()
+testSourcePipelineRejectsTypedPreludeAliasLiteralOverflow =
+  assertCompileErrorWithPrelude
+    "toFloat16 :: Float -> Float16.\ntoFloat16 = __kernel_toFloat16."
+    "x = toFloat16 65504.000000000000000001."
+    "typed prelude alias source-exact literal overflow"
+    "E2006"
+
 testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames :: IO ()
 testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames =
   assertCompiles "toUInt8 = \\(x) -> x.\nx = toUInt8 256."
@@ -450,6 +483,14 @@ assertCompileErrorWithBundledPrelude source failureLabel errorCode = do
     (Text.pack errorCode)
     (compileErrors result)
 
+assertCompileErrorWithPrelude :: String -> String -> String -> String -> IO ()
+assertCompileErrorWithPrelude preludeSource source failureLabel errorCode = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just (Text.pack preludeSource)) (Text.pack source)
+  assertSingleDiagnosticContains
+    (Text.pack failureLabel)
+    (Text.pack errorCode)
+    (compileErrors result)
+
 mkProgram :: Expr -> Expr
 mkProgram expr =
   EBlock
@@ -465,6 +506,14 @@ arithmeticProgram =
         "+"
         (EBinary "*" (ELit (LInt 7)) (ELit (LInt 6)))
         (EBinary "/" (ELit (LInt 8)) (ELit (LInt 2)))
+    )
+
+sourceExactNegativeFloatTargetOverflowProgram :: Expr
+sourceExactNegativeFloatTargetOverflowProgram =
+  mkProgram
+    ( EApply
+        (EVar "__kernel_toFloat16")
+        (ELit (LFloat (-65504.0) (mkFractionalLiteralSource (-65504) (-1) 18)))
     )
 
 intEqualityProgram :: Expr

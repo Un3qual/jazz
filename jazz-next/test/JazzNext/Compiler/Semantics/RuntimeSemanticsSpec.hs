@@ -94,6 +94,7 @@ tests =
     ("target-named float conversion evaluates at runtime", testFloatConversionRuntimeSuccess),
     ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
     ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
+    ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError),
     ("Float16 conversion rounds to target precision", testFloat16ConversionRoundsRuntimeValue),
     ("dynamic integer conversion range failure reports deterministic diagnostic", testDynamicIntegerConversionRangeRuntimeError),
     ("runtime fallback rejects non-numeric conversion values", testRuntimeFallbackRejectsNonNumericConversionValue),
@@ -629,6 +630,29 @@ testFloat64ArithmeticRuntimeSuccess = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "4.25") (runOutput result)
+
+testFloat64ArithmeticOverflowRuntimeError :: IO ()
+testFloat64ArithmeticOverflowRuntimeError = do
+  let hugeInteger = "1" <> replicate 200 '0'
+      source =
+        Text.pack
+          ( "left = toFloat64 "
+              <> hugeInteger
+              <> ".\nright = toFloat64 "
+              <> hugeInteger
+              <> ".\nleft * right."
+          )
+  result <- runSource defaultWarningSettings source
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "Float64 arithmetic overflow runtime code"
+    "E3025"
+    (runRuntimeErrors result)
+  assertSingleDiagnosticContains
+    "Float64 arithmetic overflow runtime text"
+    "non-finite Float result"
+    (runRuntimeErrors result)
+  assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
 testFloat16ConversionRoundsRuntimeValue :: IO ()
 testFloat16ConversionRoundsRuntimeValue = do

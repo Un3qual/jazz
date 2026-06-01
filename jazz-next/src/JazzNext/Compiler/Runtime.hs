@@ -1091,14 +1091,14 @@ evalBinary builtinMode operatorSymbol leftValue rightValue =
       Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
     ("/", VInt leftInt, VInt rightInt) ->
       Right (VInt (leftInt `div` rightInt))
-    ("+", VFloat leftFloat, VFloat rightFloat) -> Right (VFloat (leftFloat + rightFloat))
-    ("-", VFloat leftFloat, VFloat rightFloat) -> Right (VFloat (leftFloat - rightFloat))
-    ("*", VFloat leftFloat, VFloat rightFloat) -> Right (VFloat (leftFloat * rightFloat))
+    ("+", VFloat leftFloat, VFloat rightFloat) -> evalFloatBinary "+" (leftFloat + rightFloat)
+    ("-", VFloat leftFloat, VFloat rightFloat) -> evalFloatBinary "-" (leftFloat - rightFloat)
+    ("*", VFloat leftFloat, VFloat rightFloat) -> evalFloatBinary "*" (leftFloat * rightFloat)
     ("/", VFloat _, VFloat rightFloat)
       | floatIsZero rightFloat ->
           Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
     ("/", VFloat leftFloat, VFloat rightFloat) ->
-      Right (VFloat (leftFloat / rightFloat))
+      evalFloatBinary "/" (leftFloat / rightFloat)
     ("<", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt < rightInt))
     ("<=", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt <= rightInt))
     (">", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt > rightInt))
@@ -1127,6 +1127,16 @@ floatIsZero value =
   -- Jazz's finite runtime primitive subset treats both signed zeroes as
   -- division by zero rather than producing infinities.
   value == 0
+
+evalFloatBinary :: Text -> Double -> Either Diagnostic RuntimeValue
+evalFloatBinary operatorSymbol result
+  | isNaN result || isInfinite result =
+      Left
+        ( runtimeDiagnostic
+            "E3025"
+            ("runtime primitive '" <> operatorSymbol <> "' failed: non-finite Float result")
+        )
+  | otherwise = Right (VFloat result)
 
 -- | Runtime-specific wrapper for mkDiagnostic.
 -- This alias exists solely to improve readability and make it clear that

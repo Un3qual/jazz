@@ -30,7 +30,7 @@ fractionalLiteralIntegralValue source@(FractionalLiteralSource wholePart _ _)
 
 fractionalLiteralExceedsMagnitude :: FractionalLiteralSource -> Double -> Bool
 fractionalLiteralExceedsMagnitude source maxMagnitude =
-  fractionalLiteralToRational source > toRational maxMagnitude
+  abs (fractionalLiteralToRational source) > toRational maxMagnitude
 
 fractionalLiteralToRational :: FractionalLiteralSource -> Rational
 fractionalLiteralToRational (FractionalLiteralSource wholePart fractionalPart fractionalScale) =

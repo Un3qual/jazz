@@ -1552,15 +1552,20 @@ parseCaseExpr knownAliases caseToken tokensAfterCase =
     braceLooksLikeScrutineeBlock :: [Token] -> Bool
     braceLooksLikeScrutineeBlock tokens =
       case tokens of
-        Token {tokenKind = TLBrace} : rest -> go rest
+        Token {tokenKind = TLBrace} : rest -> go Nothing rest
         _ -> False
       where
-        go allTokens =
+        go previousToken allTokens =
           case allTokens of
             [] -> False
+            dotToken@Token {tokenKind = TDot} : nextToken@Token {tokenKind = TInt _} : rest
+              | Just wholeToken@Token {tokenKind = TInt _} <- previousToken,
+                isImmediatelyAfter wholeToken dotToken,
+                isImmediatelyAfter dotToken nextToken ->
+                  go (Just nextToken) rest
             Token {tokenKind = TDot} : _ -> True
             Token {tokenKind = TRBrace} : _ -> False
-            _ : remaining -> go remaining
+            token : remaining -> go (Just token) remaining
 
 parseCaseArms :: Set Text -> [Token] -> Either Diagnostic ([SurfaceCaseArm], [Token])
 parseCaseArms knownAliases tokensAfterLeftBrace =
@@ -1646,9 +1651,8 @@ parseCaseArm knownAliases tokens = do
 parseCasePattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseCasePattern tokens =
   case tokens of
-    token@Token {tokenKind = TInt value} : rest -> do
-      (literal, remaining) <- parseNumericSurfaceLiteral token value rest
-      Right (SPLiteral literal, remaining)
+    token@Token {tokenKind = TInt value} : rest ->
+      parseIntegralPatternLiteral token value rest
     Token {tokenKind = TLBracket} : rest ->
       parseListPattern rest
     token@Token {tokenKind = TLParen} : rest ->
@@ -1716,9 +1720,8 @@ parseConstructorPattern constructorName tokensAfterName =
 parseConstructorArgumentPattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseConstructorArgumentPattern tokens =
   case tokens of
-    token@Token {tokenKind = TInt value} : rest -> do
-      (literal, remaining) <- parseNumericSurfaceLiteral token value rest
-      Right (SPLiteral literal, remaining)
+    token@Token {tokenKind = TInt value} : rest ->
+      parseIntegralPatternLiteral token value rest
     Token {tokenKind = TIdentifier name} : rest ->
       case name of
         "True" ->
@@ -1748,6 +1751,21 @@ parseConstructorArgumentPattern tokens =
                 <> "'"
             )
         )
+
+parseIntegralPatternLiteral :: Token -> Integer -> [Token] -> Either Diagnostic (SurfacePattern, [Token])
+parseIntegralPatternLiteral wholeToken wholeValue tokensAfterWhole =
+  case tokensAfterWhole of
+    dotToken@Token {tokenKind = TDot} : fractionalToken@Token {tokenKind = TInt _} : _
+      | isImmediatelyAfter wholeToken dotToken,
+        isImmediatelyAfter dotToken fractionalToken ->
+          Left
+            ( parseDiagnostic
+                ( "fractional literal patterns are not supported at "
+                    <> renderSourceSpan (tokenSpan wholeToken)
+                )
+            )
+    _ ->
+      Right (SPLiteral (SLInt wholeValue), tokensAfterWhole)
 
 parseAsPatternOrVariable ::
   ([Token] -> Either Diagnostic (SurfacePattern, [Token])) ->

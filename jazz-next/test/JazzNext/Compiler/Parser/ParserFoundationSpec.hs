@@ -56,6 +56,8 @@ tests =
     ("parses numeric width signature names into structured nodes", testParseNumericWidthSignatureTypes),
     ("parses fractional literal without treating decimal dot as statement terminator", testParseFractionalLiteral),
     ("rejects non-finite fractional literals", testRejectsNonFiniteFractionalLiteral),
+    ("rejects fractional literal case patterns", testRejectsFractionalLiteralCasePatterns),
+    ("rejects fractional literal lambda patterns", testRejectsFractionalLiteralLambdaPatterns),
     ("parses chained function signature right associatively", testParseChainedFunctionSignature),
     ("parses parenthesized function override into structured nodes", testParseParenthesizedFunctionOverrideSignature),
     ("parses list of parenthesized function types", testParseFunctionListSignature),
@@ -235,6 +237,20 @@ testRejectsNonFiniteFractionalLiteral =
     "non-finite fractional literal"
     "invalid fractional literal"
     (parseSurfaceProgram (Text.pack ("x = " <> replicate 400 '9' <> ".0.")))
+
+testRejectsFractionalLiteralCasePatterns :: IO ()
+testRejectsFractionalLiteralCasePatterns =
+  assertLeftDiagnosticContains
+    "fractional literal case pattern"
+    "fractional literal patterns"
+    (parseSurfaceProgram "x = case 1 { | 1.5 -> True | _ -> False }.")
+
+testRejectsFractionalLiteralLambdaPatterns :: IO ()
+testRejectsFractionalLiteralLambdaPatterns =
+  assertLeftDiagnosticContains
+    "fractional literal lambda pattern"
+    "fractional literal patterns"
+    (parseSurfaceProgram "f = \\(1.5) -> True.")
 
 testParseChainedFunctionSignature :: IO ()
 testParseChainedFunctionSignature =
