@@ -92,6 +92,7 @@ tests =
     ("print! returns evaluated argument value", testPrintBuiltinReturnsArgument),
     ("target-named integer conversion evaluates at runtime", testIntegerConversionRuntimeSuccess),
     ("target-named float conversion evaluates at runtime", testFloatConversionRuntimeSuccess),
+    ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
     ("Float16 conversion rounds to target precision", testFloat16ConversionRoundsRuntimeValue),
     ("dynamic integer conversion range failure reports deterministic diagnostic", testDynamicIntegerConversionRangeRuntimeError),
     ("runtime fallback rejects non-numeric conversion values", testRuntimeFallbackRejectsNonNumericConversionValue),
@@ -614,6 +615,13 @@ testFloatConversionRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "1.0") (runOutput result)
 
+testFractionalLiteralRuntimeSuccess :: IO ()
+testFractionalLiteralRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "1.25."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1.25") (runOutput result)
+
 testFloat16ConversionRoundsRuntimeValue :: IO ()
 testFloat16ConversionRoundsRuntimeValue = do
   result <- runSource defaultWarningSettings "toFloat16 2049."
@@ -649,14 +657,14 @@ testDeclarationOnlyScopeHasNoOutput = do
 
 testCapabilityDeclarationOnlyScopeHasNoOutput :: IO ()
 testCapabilityDeclarationOnlyScopeHasNoOutput = do
-  result <- runSource defaultWarningSettings "class Eq { }.\nimpl Eq(Int) { }."
+  result <- runSource defaultWarningSettings "class RuntimeOnly { }.\nimpl RuntimeOnly(Int) { }."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "declaration-only capability scope produces no output" Nothing (runOutput result)
 
 testCapabilityDeclarationsRuntimeInert :: IO ()
 testCapabilityDeclarationsRuntimeInert = do
-  result <- runSource defaultWarningSettings "class Eq { }.\nimpl Eq(Int) { }.\nx = 1.\nx."
+  result <- runSource defaultWarningSettings "class RuntimeOnly { }.\nimpl RuntimeOnly(Int) { }.\nx = 1.\nx."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "capability declarations do not affect runtime output" (Just "1") (runOutput result)

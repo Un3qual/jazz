@@ -70,7 +70,10 @@ tests =
     ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral),
     ("source pipeline accepts target-named integer conversions", testSourcePipelineAcceptsTargetNamedIntegerConversions),
     ("source pipeline accepts target-named float conversions", testSourcePipelineAcceptsTargetNamedFloatConversions),
+    ("source pipeline accepts Float64 fractional literal defaults", testSourcePipelineAcceptsFloat64FractionalLiteralDefaults),
+    ("source pipeline rejects implicit integer and fractional literal mixing", testSourcePipelineRejectsImplicitIntegerFractionalMixing),
     ("source pipeline rejects out-of-range literal conversions", testSourcePipelineRejectsOutOfRangeLiteralConversions),
+    ("source pipeline rejects non-integral fractional literal conversions", testSourcePipelineRejectsNonIntegralFractionalLiteralConversions),
     ("source pipeline rejects out-of-range float-target literal conversions", testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions),
     ("source pipeline ignores conversion literal checks for shadowed names", testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames),
     ("source pipeline freshens prelude conversion aliases", testSourcePipelineFreshensPreludeConversionAliases),
@@ -296,11 +299,29 @@ testSourcePipelineAcceptsTargetNamedFloatConversions :: IO ()
 testSourcePipelineAcceptsTargetNamedFloatConversions =
   assertCompilesWithBundledPrelude "x :: Float64.\nx = toFloat64 1."
 
+testSourcePipelineAcceptsFloat64FractionalLiteralDefaults :: IO ()
+testSourcePipelineAcceptsFloat64FractionalLiteralDefaults =
+  assertCompiles "x = 1.5."
+
+testSourcePipelineRejectsImplicitIntegerFractionalMixing :: IO ()
+testSourcePipelineRejectsImplicitIntegerFractionalMixing =
+  assertCompileError
+    "x = 1 + 1.5."
+    "mixed integer/fractional operator"
+    "E2003"
+
 testSourcePipelineRejectsOutOfRangeLiteralConversions :: IO ()
 testSourcePipelineRejectsOutOfRangeLiteralConversions =
   assertCompileErrorWithBundledPrelude
     "x = toUInt8 256."
     "out-of-range literal conversion"
+    "E2006"
+
+testSourcePipelineRejectsNonIntegralFractionalLiteralConversions :: IO ()
+testSourcePipelineRejectsNonIntegralFractionalLiteralConversions =
+  assertCompileErrorWithBundledPrelude
+    "x = toInt8 1.5."
+    "non-integral fractional literal conversion"
     "E2006"
 
 testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions :: IO ()

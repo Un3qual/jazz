@@ -632,6 +632,7 @@ literalRuntimeValue :: Literal -> RuntimeValue
 literalRuntimeValue literal =
   case literal of
     LInt value -> VInt value
+    LFloat value -> VFloat value
     LBool value -> VBool value
 
 evalPatternCase ::

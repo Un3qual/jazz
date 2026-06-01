@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ConstraintSignatureType (..),
     Expr (..),
@@ -34,6 +35,7 @@ import JazzNext.Compiler.Parser.Lower
   )
 import JazzNext.TestHarness
   ( NamedTest,
+    assertContains,
     assertEqual,
     assertLeftDiagnosticContains,
     assertRight,
@@ -52,6 +54,7 @@ tests =
     ("parses tuple literal into structured nodes", testParseTupleLiteral),
     ("parses tuple signature into structured nodes", testParseTupleSignature),
     ("parses numeric width signature names into structured nodes", testParseNumericWidthSignatureTypes),
+    ("parses fractional literal without treating decimal dot as statement terminator", testParseFractionalLiteral),
     ("parses chained function signature right associatively", testParseChainedFunctionSignature),
     ("parses parenthesized function override into structured nodes", testParseParenthesizedFunctionOverrideSignature),
     ("parses list of parenthesized function types", testParseFunctionListSignature),
@@ -65,6 +68,7 @@ tests =
     ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
     ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram),
     ("lowers numeric width signature names into analyzer AST", testLowerNumericWidthSignatureProgram),
+    ("lowers fractional literal into analyzer AST", testLowerFractionalLiteralProgram),
     ("lowers structured signature payload into analyzer AST", testLowerStructuredSignatureProgram),
     ("lowers right-associated function signature into analyzer AST", testLowerRightAssociativeFunctionSignatureProgram),
     ("lowers list of function signature into analyzer AST", testLowerFunctionListSignatureProgram),
@@ -209,6 +213,18 @@ testParseNumericWidthSignatureTypes = do
         )
     )
     (parseSurfaceProgram "f :: Float -> Float64.\nf = (+).")
+
+testParseFractionalLiteral :: IO ()
+testParseFractionalLiteral =
+  assertRight
+    "fractional literal parse"
+    (parseSurfaceProgram "x = 1.5.\ny = 2.")
+    ( \surfaceProgram ->
+        assertContains
+          "surface fractional literal"
+          "SLFloat 1.5"
+          (Text.pack (show surfaceProgram))
+    )
 
 testParseChainedFunctionSignature :: IO ()
 testParseChainedFunctionSignature =
@@ -444,6 +460,18 @@ testLowerNumericWidthSignatureProgram =
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
+    )
+
+testLowerFractionalLiteralProgram :: IO ()
+testLowerFractionalLiteralProgram =
+  assertRight
+    "surface parse"
+    (parseSurfaceProgram "1.5.")
+    ( \surfaceProgram ->
+        assertContains
+          "lowered fractional literal"
+          "LFloat 1.5"
+          (Text.pack (show (lowerSurfaceExpr surfaceProgram)))
     )
 
 testLowerStructuredSignatureProgram :: IO ()

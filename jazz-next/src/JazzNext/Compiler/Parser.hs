@@ -14,6 +14,7 @@ import Data.Char
   )
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Read as TextRead
 import qualified Data.Set as Set
 import Data.Set (Set)
 import JazzNext.Compiler.Diagnostics
@@ -1305,7 +1306,7 @@ parsePrimaryExprUntil knownAliases stop tokens =
     [] -> Left (parseDiagnostic "expected expression before end of input")
     token : rest ->
       case tokenKind token of
-        TInt value -> Right (SELit (SLInt value), rest)
+        TInt value -> parseNumericLiteral token value rest
         TIdentifier name ->
           case name of
             "True" -> Right (SELit (SLBool True), rest)
@@ -1348,6 +1349,33 @@ parsePrimaryExprUntil knownAliases stop tokens =
                     <> "; expected expression"
                 )
             )
+
+parseNumericLiteral :: Token -> Integer -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseNumericLiteral wholeToken wholeValue tokensAfterWhole =
+  case tokensAfterWhole of
+    dotToken@Token {tokenKind = TDot} : fractionalToken@Token {tokenKind = TInt _} : rest
+      | isImmediatelyAfter wholeToken dotToken,
+        isImmediatelyAfter dotToken fractionalToken -> do
+          let literalText = tokenLexeme wholeToken <> "." <> tokenLexeme fractionalToken
+          floatValue <- parseFloatLiteral (tokenSpan wholeToken) literalText
+          Right (SELit (SLFloat floatValue), rest)
+    _ ->
+      Right (SELit (SLInt wholeValue), tokensAfterWhole)
+
+parseFloatLiteral :: SourceSpan -> Text -> Either Diagnostic Double
+parseFloatLiteral literalSpan literalText =
+  case TextRead.double literalText of
+    Right (value, trailing)
+      | Text.null trailing -> Right value
+    _ ->
+      Left
+        ( parseDiagnostic
+            ( "invalid fractional literal '"
+                <> literalText
+                <> "' at "
+                <> renderSourceSpan literalSpan
+            )
+        )
 
 -- | Parenthesized forms cover ordinary grouping, operator values like `(+)`,
 -- and left/right operator sections.

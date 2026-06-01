@@ -78,6 +78,8 @@ tests =
     ("source pipeline rejects mixed-width numeric operator signatures", testSourceRejectsMixedWidthNumericOperatorSignatures),
     ("source pipeline rejects float numeric operator signatures", testSourceRejectsFloatNumericOperatorSignatures),
     ("source pipeline keeps float signatures distinct from integer literals", testSourceRejectsFloatSignatureForIntegerLiteral),
+    ("source pipeline accepts Float and Float64 fractional literal signatures", testSourceAcceptsFloatFractionalLiteralSignatures),
+    ("source pipeline rejects non-Float64 fractional literal targets", testSourceRejectsNonFloat64FractionalLiteralTargets),
     ("source pipeline rejects tuple signature mismatch", testSourceRejectsTupleSignatureMismatch),
     ("source pipeline rejects tuple signature arity mismatch", testSourceRejectsTupleSignatureArityMismatch),
     ("source pipeline accepts simple function signature", testSourceAcceptsSimpleFunctionSignature),
@@ -486,6 +488,17 @@ testSourceRejectsFloatNumericOperatorSignatures =
 testSourceRejectsFloatSignatureForIntegerLiteral :: IO ()
 testSourceRejectsFloatSignatureForIntegerLiteral =
   assertSourceSingleErrorContains "x :: Float64.\nx = 1." "E2005"
+
+testSourceAcceptsFloatFractionalLiteralSignatures :: IO ()
+testSourceAcceptsFloatFractionalLiteralSignatures = do
+  assertSourceOk "x :: Float.\nx = 1.5."
+  assertSourceOk "x :: Float64.\nx = 1.5."
+  assertSourceOk "xs :: [Float64].\nxs = [1.5, 2.25]."
+
+testSourceRejectsNonFloat64FractionalLiteralTargets :: IO ()
+testSourceRejectsNonFloat64FractionalLiteralTargets = do
+  assertSourceSingleErrorContains "x :: Float32.\nx = 1.5." "E2005"
+  assertSourceSingleErrorContains "x :: Int.\nx = 1.5." "E2005"
 
 testSourceRejectsTupleSignatureMismatch :: IO ()
 testSourceRejectsTupleSignatureMismatch = do

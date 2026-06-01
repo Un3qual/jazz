@@ -35,7 +35,8 @@ Adjacent numeric-width work:
 - `Int` remains accepted as the default integer signature spelling and maps to `Int64`.
 - `Float` maps to `Float64`.
 - Explicit width names (`Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float16`, `Float32`, and `Float64`) are ordinary monomorphic signature types before broader polymorphic/defaulting work.
-- Integer literals can satisfy explicit integral-width annotations; fractional literal syntax and runtime floating arithmetic remain out of scope for this slice.
+- Integer literals can satisfy explicit integral-width annotations.
+- Decimal fractional literals can satisfy explicit `Float` and `Float64` signatures, but not `Float16`/`Float32` signatures; runtime floating arithmetic remains out of scope for this slice.
 
 ## Canonical Contract
 

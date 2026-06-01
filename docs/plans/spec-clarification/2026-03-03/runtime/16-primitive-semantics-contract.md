@@ -1,6 +1,6 @@
 ---
 id: JN-FRACTIONAL-LITERAL-FLOAT64-001
-status: ready
+status: done
 priority: P2
 size: M
 kind: impl
@@ -9,7 +9,7 @@ depends_on:
   - JN-NUMERIC-WIDTH-SIGNATURE-TYPES-001
   - JN-NUMERIC-CONVERSIONS-API-001
 last_verified: 2026-05-31
-plan_section: "Ready implementation batch: Float64 fractional literals"
+plan_section: "Completed implementation batch: Float64 fractional literals"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
   - jazz-next/src/JazzNext/Compiler/Parser.hs
@@ -28,7 +28,7 @@ verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Parse and evaluate decimal fractional literals as the default Float64 literal slice, with Float and Float64 signature acceptance and no implicit narrowing, widening, or mixed-width conversion."
+deliverable: "Parsed and evaluated decimal fractional literals as the default Float64 literal slice, with Float and Float64 signature acceptance and no implicit narrowing, widening, or mixed-width conversion."
 ---
 
 # Primitive Semantics Contract Implementation Plan
@@ -80,6 +80,7 @@ Execution note:
 - [x] Keep user-defined operators as a follow-up stage after this numeric-width/defaulting contract lands.
 - [x] On `2026-05-31`, selected explicit numeric conversions as the next primitive-surface expansion before broader runtime arithmetic widening.
 - [x] On `2026-05-31`, landed explicit target-named numeric conversions through the active `jazz-next` prelude/catalog/runtime boundary.
+- [x] On `2026-05-31`, landed the default Float64 fractional literal slice in `jazz-next`.
 
 First implementation target (landed 2026-05-29):
 
@@ -135,14 +136,14 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
-## Ready implementation batch: Float64 fractional literals
+## Completed implementation batch: Float64 fractional literals
 
-This executor-safe active-path batch is the first fractional literal slice after
+This active-path batch landed as the first fractional literal slice after
 width-specific signature names and explicit numeric conversions. It implements
-the already selected `Float64` default without adding implicit conversions or a
-broader numeric solver.
+the already selected `Float64` default without adding implicit conversions,
+runtime floating arithmetic, or a broader numeric solver.
 
-Batch scope:
+Delivered scope:
 
 - Parse decimal fractional literals such as `1.5` in expression positions.
 - Lower fractional literals into the core AST without changing integer literal
@@ -151,6 +152,8 @@ Batch scope:
 - Accept fractional literals under explicit `Float` and `Float64` signatures.
 - Evaluate and render Float64 fractional literal values through the active
   runtime path.
+- Reject non-integral fractional literals converted directly to integral
+  targets at compile time.
 - Preserve mixed concrete width rejection and explicit-conversion-only behavior.
 
 Out of scope:
@@ -161,7 +164,7 @@ Out of scope:
 - mixed-width arithmetic widening,
 - runtime dispatch, dictionaries, or a typeclass solver.
 
-Batch target paths:
+Delivered target paths:
 
 - `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
 - `jazz-next/src/JazzNext/Compiler/Parser.hs`
@@ -174,7 +177,7 @@ Batch target paths:
 - `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
 - `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
 
-Batch verification:
+Focused verification:
 
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs

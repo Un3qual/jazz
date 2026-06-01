@@ -112,6 +112,7 @@ lowerSurfaceLiteral :: SurfaceLiteral -> Literal
 lowerSurfaceLiteral literal =
   case literal of
     SLInt value -> LInt value
+    SLFloat value -> LFloat value
     SLBool value -> LBool value
 
 lowerSurfacePattern :: SurfacePattern -> Pattern

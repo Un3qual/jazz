@@ -29,6 +29,7 @@ import JazzNext.Compiler.Identifier
 -- | Literals currently supported by the lowered core language.
 data Literal
   = LInt Integer
+  | LFloat Double
   | LBool Bool
   deriving (Eq, Show)
 

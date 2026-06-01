@@ -432,6 +432,7 @@ literalExpressionType :: Literal -> ExpressionType
 literalExpressionType literal =
   case literal of
     LInt value -> TIntegerLiteralType (singletonIntegerLiteralRange value)
+    LFloat _ -> TFloatType
     LBool _ -> TBoolType
 
 inferListType ::
@@ -1559,7 +1560,35 @@ numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr =
                   Just (mkNumericConversionLiteralTypeError (identifierText functionName) literalValue targetType bounds)
             _ -> Nothing
         Nothing -> Nothing
+    (EVar functionName, ELit (LFloat literalValue)) ->
+      case numericConversionTargetFromCallable builtinMode env functionName of
+        Just targetType ->
+          numericConversionFloatLiteralDiagnostic (identifierText functionName) targetType literalValue
+        Nothing -> Nothing
     _ -> Nothing
+
+numericConversionFloatLiteralDiagnostic :: Text -> NumericType -> Double -> Maybe Diagnostic
+numericConversionFloatLiteralDiagnostic conversionName targetType literalValue =
+  case numericTypeIntegerBounds targetType of
+    Just bounds@(lowerBound, upperBound) ->
+      if not (finiteFloat literalValue)
+        then Just (mkNumericConversionFractionalLiteralTypeError conversionName literalValue targetType bounds)
+        else
+          let roundedValue = round literalValue :: Integer
+           in if fromInteger roundedValue == literalValue
+                && roundedValue >= lowerBound
+                && roundedValue <= upperBound
+                then Nothing
+                else Just (mkNumericConversionFractionalLiteralTypeError conversionName literalValue targetType bounds)
+    Nothing ->
+      case numericTypeFloatMax targetType of
+        Just maxMagnitude
+          | not (finiteFloat literalValue) || abs literalValue > maxMagnitude ->
+              Just (mkNumericConversionFloatLiteralOverflowError conversionName literalValue targetType maxMagnitude)
+        _ -> Nothing
+
+finiteFloat :: Double -> Bool
+finiteFloat value = not (isNaN value) && not (isInfinite value)
 
 numericConversionTargetFromCallable :: BuiltinResolutionMode -> TypeEnv -> Identifier -> Maybe NumericType
 numericConversionTargetFromCallable builtinMode env functionName =
@@ -2215,6 +2244,36 @@ mkNumericConversionLiteralTypeError conversionName literalValue targetType (lowe
         <> Text.pack (show lowerBound)
         <> ".."
         <> Text.pack (show upperBound)
+    )
+
+mkNumericConversionFractionalLiteralTypeError :: Text -> Double -> NumericType -> (Integer, Integer) -> Diagnostic
+mkNumericConversionFractionalLiteralTypeError conversionName literalValue targetType (lowerBound, upperBound) =
+  mkDiagnostic
+    "E2006"
+    ( "numeric conversion '"
+        <> conversionName
+        <> "' cannot convert fractional literal "
+        <> Text.pack (show literalValue)
+        <> " to integral target "
+        <> renderNumericTypeName targetType
+        <> "; expected a finite integral value in range "
+        <> Text.pack (show lowerBound)
+        <> ".."
+        <> Text.pack (show upperBound)
+    )
+
+mkNumericConversionFloatLiteralOverflowError :: Text -> Double -> NumericType -> Double -> Diagnostic
+mkNumericConversionFloatLiteralOverflowError conversionName literalValue targetType maxMagnitude =
+  mkDiagnostic
+    "E2006"
+    ( "numeric conversion '"
+        <> conversionName
+        <> "' cannot convert fractional literal "
+        <> Text.pack (show literalValue)
+        <> " outside finite "
+        <> renderNumericTypeName targetType
+        <> " magnitude "
+        <> Text.pack (show maxMagnitude)
     )
 
 mkBindingTypeMismatchError :: Text -> ExpressionType -> SourceSpan -> ExpressionType -> Diagnostic
