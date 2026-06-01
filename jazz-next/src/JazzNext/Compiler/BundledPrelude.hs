@@ -61,6 +61,13 @@ canonicalCapabilityClassNames =
 
 defaultCapabilityImplFacts :: [(Text, Text)]
 defaultCapabilityImplFacts =
+  defaultAliasCapabilityImplFacts
+    <> concatMap integralNumericCapabilityImplFacts signedIntegerWidthTypes
+    <> concatMap integralNumericCapabilityImplFacts unsignedIntegerWidthTypes
+    <> concatMap floatingNumericCapabilityImplFacts floatingWidthTypes
+
+defaultAliasCapabilityImplFacts :: [(Text, Text)]
+defaultAliasCapabilityImplFacts =
   [ ("Eq", "Int"),
     ("Eq", "Float"),
     ("Eq", "Bool"),
@@ -76,6 +83,53 @@ defaultCapabilityImplFacts =
     ("Showable", "Int"),
     ("Showable", "Float"),
     ("Showable", "Bool")
+  ]
+
+integralNumericCapabilityImplFacts :: Text -> [(Text, Text)]
+integralNumericCapabilityImplFacts targetType =
+  map
+    (\className -> (className, targetType))
+    [ "Eq",
+      "Ord",
+      "Num",
+      "Integral",
+      "Default",
+      "Showable"
+    ]
+
+floatingNumericCapabilityImplFacts :: Text -> [(Text, Text)]
+floatingNumericCapabilityImplFacts targetType =
+  map
+    (\className -> (className, targetType))
+    [ "Eq",
+      "Ord",
+      "Num",
+      "Fractional",
+      "Default",
+      "Showable"
+    ]
+
+signedIntegerWidthTypes :: [Text]
+signedIntegerWidthTypes =
+  [ "Int8",
+    "Int16",
+    "Int32",
+    "Int64"
+  ]
+
+unsignedIntegerWidthTypes :: [Text]
+unsignedIntegerWidthTypes =
+  [ "UInt8",
+    "UInt16",
+    "UInt32",
+    "UInt64"
+  ]
+
+floatingWidthTypes :: [Text]
+floatingWidthTypes =
+  [ "Float16",
+    "Float32",
+    "Float64"
   ]
 
 -- | IO wrapper kept for API symmetry with file-backed prelude loading paths.

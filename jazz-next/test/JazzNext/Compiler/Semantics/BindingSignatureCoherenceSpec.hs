@@ -90,6 +90,7 @@ tests =
     ("source pipeline accepts empty constrained tuple signature as monomorphic", testSourceAcceptsEmptyConstrainedTupleSignature),
     ("source pipeline accepts concrete constrained signature as monomorphic", testSourceAcceptsConcreteConstrainedSignature),
     ("source pipeline accepts bundled concrete constrained signature facts", testSourceAcceptsBundledConcreteConstrainedSignatureFacts),
+    ("source pipeline accepts bundled width-specific numeric constrained signature facts", testSourceAcceptsBundledWidthSpecificNumericConstrainedSignatureFacts),
     ("source pipeline accepts additional concrete constrained signatures", testSourceAcceptsAdditionalConcreteConstrainedSignatures),
     ("source pipeline accepts concrete tuple constrained signature argument", testSourceAcceptsConcreteTupleConstrainedSignatureArgument),
     ("source pipeline accepts ADT application constrained signature argument", testSourceAcceptsAdtApplicationConstrainedSignatureArgument),
@@ -541,6 +542,13 @@ testSourceAcceptsConcreteConstrainedSignature =
 testSourceAcceptsBundledConcreteConstrainedSignatureFacts :: IO ()
 testSourceAcceptsBundledConcreteConstrainedSignatureFacts =
   assertSourceOk "x :: @{Eq(Int)}: Int.\nx = 1."
+
+testSourceAcceptsBundledWidthSpecificNumericConstrainedSignatureFacts :: IO ()
+testSourceAcceptsBundledWidthSpecificNumericConstrainedSignatureFacts = do
+  assertSourceOk "x :: @{Num(UInt16)}: UInt16.\nx = 1."
+  assertSourceOk "x :: @{Integral(Int32)}: Int32.\nx = 1."
+  assertSourceOk "x :: @{Fractional(Float32)}: Float32.\nx = toFloat32 1."
+  assertSourceOk "x :: @{Showable(Float64)}: Float64.\nx = toFloat64 1."
 
 testSourceAcceptsAdditionalConcreteConstrainedSignatures :: IO ()
 testSourceAcceptsAdditionalConcreteConstrainedSignatures = do

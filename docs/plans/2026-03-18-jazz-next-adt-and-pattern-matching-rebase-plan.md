@@ -1,39 +1,22 @@
 ---
-id: JN-ADT-GENERIC-DATA-PARAMS-001
-status: completed
+id: JN-ADT-GENERIC-CONSTRUCTOR-PATTERN-TYPES-001
+status: done
 priority: P1
-size: S
+size: M
 kind: impl
 autonomous_ready: yes
-depends_on: []
+depends_on:
+  - JN-ADT-GENERIC-CONSTRUCTOR-SCHEMES-001
 last_verified: 2026-05-31
-plan_section: "Completed implementation batch: generic data declaration parameters"
+plan_section: "Completed implementation batch: generic constructor pattern typing"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
-  - jazz-next/src/JazzNext/Compiler/Parser.hs
-  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
-  - jazz-next/src/JazzNext/Compiler/AST.hs
-  - jazz-next/src/JazzNext/Compiler/Desugar.hs
-  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
-  - jazz-next/src/JazzNext/Compiler/ModuleResolver.hs
-  - jazz-next/src/JazzNext/Compiler/Driver.hs
-  - jazz-next/src/JazzNext/Compiler/RecursiveBindings.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
-  - jazz-next/src/JazzNext/Compiler/Runtime.hs
-  - jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Accept lowercase type parameters on `data` declarations, preserve them through surface/core AST lowering, and reject duplicate parameters or undeclared lowercase constructor payload names without adding constructor schemes yet."
+deliverable: "Instantiate generic constructor schemes in constructor patterns so pattern payload binders refine per branch without adding ordinary binding generalization or runtime dispatch."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/semantics/11-adt-and-pattern-matching-positioning.md
 ---
@@ -99,11 +82,12 @@ supersedes:
 
 ## Future Contract Seed: Generic ADT Constructor Schemes
 
-This seed is split into queue-ready child implementation rows. The first batch
-is parser/core ownership for generic data declaration parameters; constructor
-value/application schemes follow after that parser batch lands. Pattern
-instantiation remains a later dependent batch and must not pull in ordinary
-binding polymorphism or a class/defaulting solver.
+This seed is split into queue-ready child implementation rows. Parser/core
+ownership for generic data declaration parameters and constructor
+value/application schemes have landed, and constructor-pattern typing now uses
+the same declaration-owned scheme instantiation path. Ordinary binding
+polymorphism, runtime dispatch, and class/defaulting solver behavior remain
+outside this seed.
 
 ## Completed implementation batch: generic data declaration parameters
 
@@ -188,7 +172,7 @@ Type contract:
   type application syntax, higher-rank polymorphism, or runtime dispatch is in
   scope.
 
-Diagnostics to define before queue promotion:
+Diagnostics owned by the generic ADT child batches:
 
 - duplicate type parameter names,
 - generic payload names not declared as type parameters,
@@ -214,6 +198,46 @@ Likely focused verification:
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Completed implementation batch: generic constructor pattern typing
+
+This active-path batch closed on `2026-05-31` after verification showed the
+current constructor-pattern type path already reuses
+`instantiateConstructorBinding`, the declaration-owned constructor scheme
+instantiation helper landed by `JN-ADT-GENERIC-CONSTRUCTOR-SCHEMES-001`.
+
+Completed scope:
+
+- Reuse declaration-owned constructor schemes already derived for generic
+  `data` declarations.
+- Instantiate a fresh constructor scheme for each constructor pattern use.
+- Bind pattern payload variables at the instantiated payload types for the
+  selected branch body.
+- Reject arity mismatches and incompatible payload refinements through the
+  existing constructor-pattern `E2011` path.
+- Preserve expression-position constructor schemes and monomorphic user binding
+  behavior.
+
+Still out of scope:
+
+- ordinary binding generalization,
+- inferred class constraints or defaulting,
+- explicit type application,
+- runtime dispatch or dictionary passing,
+- new pattern forms.
+
+Batch target paths:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs`
+
+Batch verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```

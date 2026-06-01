@@ -45,6 +45,7 @@ tests =
     ("prelude bridge rebinding reports current and previous bridge spans", testPreludeBridgeRebindingDiagnostic),
     ("prelude bridge allows canonical alias after kernel self-bridge", testPreludeBridgeAllowsCanonicalAliasAfterBridge),
     ("bundled default prelude exposes capability classes and default impl facts", testBundledPreludeExposesCapabilityClassesAndDefaultImplFacts),
+    ("bundled default prelude exposes width-specific numeric impl facts", testBundledPreludeExposesWidthSpecificNumericImplFacts),
     ("prelude exposes numeric conversion aliases", testPreludeExposesNumericConversionAliases),
     ("compile without prelude rejects numeric conversion aliases", testCompileWithoutPreludeRejectsNumericConversionAliases),
     ("compile without prelude rejects bundled capability facts", testCompileWithoutPreludeRejectsBundledCapabilityFacts),
@@ -199,6 +200,39 @@ testBundledPreludeExposesCapabilityClassesAndDefaultImplFacts = do
       )
   assertEqual "bundled prelude default capability facts" [] (compileErrors result)
 
+testBundledPreludeExposesWidthSpecificNumericImplFacts :: IO ()
+testBundledPreludeExposesWidthSpecificNumericImplFacts = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      (Text.unlines (concatMap widthSpecificNumericImplFactCases widthSpecificNumericImplTargets))
+  assertEqual "bundled prelude width-specific numeric capability facts" [] (compileErrors result)
+  where
+    widthSpecificNumericImplTargets =
+      [ ("Int8", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("Int16", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("Int32", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("Int64", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("UInt8", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("UInt16", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("UInt32", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("UInt64", "1", ["Eq", "Ord", "Num", "Integral", "Default", "Showable"]),
+        ("Float16", "toFloat16 1", ["Eq", "Ord", "Num", "Fractional", "Default", "Showable"]),
+        ("Float32", "toFloat32 1", ["Eq", "Ord", "Num", "Fractional", "Default", "Showable"]),
+        ("Float64", "toFloat64 1", ["Eq", "Ord", "Num", "Fractional", "Default", "Showable"])
+      ]
+
+    widthSpecificNumericImplFactCases (targetType, expression, classNames) =
+      concatMap (widthSpecificNumericImplFactCase targetType expression) classNames
+
+    widthSpecificNumericImplFactCase targetType expression className =
+      let bindingName =
+            Text.toLower (className <> targetType)
+       in
+        [ bindingName <> " :: @{" <> className <> "(" <> targetType <> ")}: " <> targetType <> ".",
+          bindingName <> " = " <> expression <> "."
+        ]
+
 testPreludeExposesNumericConversionAliases :: IO ()
 testPreludeExposesNumericConversionAliases = do
   result <- compileSource defaultWarningSettings "x :: UInt8.\nx = toUInt8 1."
@@ -219,6 +253,11 @@ testCompileWithoutPreludeRejectsBundledCapabilityFacts = do
     "no-prelude compile has no bundled capability facts"
     "missing class declaration 'Eq'"
     (compileErrors result)
+  widthResult <- compileSourceWithPrelude defaultWarningSettings Nothing "x :: @{Num(UInt16)}: UInt16.\nx = 1."
+  assertSingleErrorContains
+    "no-prelude compile has no bundled width-specific capability facts"
+    "missing class declaration 'Num'"
+    (compileErrors widthResult)
 
 testExplicitPreludeDoesNotInheritBundledImplFacts :: IO ()
 testExplicitPreludeDoesNotInheritBundledImplFacts = do
@@ -227,6 +266,11 @@ testExplicitPreludeDoesNotInheritBundledImplFacts = do
     "explicit prelude uses only supplied impl facts"
     "missing impl fact 'Eq(Int)'"
     (compileErrors result)
+  widthResult <- compileSourceWithPrelude defaultWarningSettings (Just "class Num { }.") "x :: @{Num(UInt16)}: UInt16.\nx = 1."
+  assertSingleErrorContains
+    "explicit prelude uses only supplied width-specific impl facts"
+    "missing impl fact 'Num(UInt16)'"
+    (compileErrors widthResult)
 
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable :: IO ()
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable = do

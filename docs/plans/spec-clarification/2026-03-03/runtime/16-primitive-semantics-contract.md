@@ -1,32 +1,34 @@
 ---
-id: JN-NUMERIC-CONVERSIONS-API-001
-status: done
-priority: P1
+id: JN-FRACTIONAL-LITERAL-FLOAT64-001
+status: ready
+priority: P2
 size: M
 kind: impl
 autonomous_ready: yes
-depends_on: []
+depends_on:
+  - JN-NUMERIC-WIDTH-SIGNATURE-TYPES-001
+  - JN-NUMERIC-CONVERSIONS-API-001
 last_verified: 2026-05-31
-plan_section: "Completed implementation target: explicit numeric conversions"
+plan_section: "Ready implementation batch: Float64 fractional literals"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs
-  - jazz-next/src/JazzNext/Compiler/BundledPrelude.hs
-  - jazz-next/src/JazzNext/Compiler/PreludeContract.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
+  - jazz-next/src/JazzNext/Compiler/AST.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/src/JazzNext/Compiler/Runtime.hs
-  - jazz-next/stdlib/Prelude.jz
-  - jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Add target-named numeric conversion functions through the active prelude/catalog/runtime boundary with compile-time literal rejection where possible and deterministic runtime diagnostics only for dynamic failures."
+deliverable: "Parse and evaluate decimal fractional literals as the default Float64 literal slice, with Float and Float64 signature acceptance and no implicit narrowing, widening, or mixed-width conversion."
 ---
 
 # Primitive Semantics Contract Implementation Plan
@@ -129,6 +131,56 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Ready implementation batch: Float64 fractional literals
+
+This executor-safe active-path batch is the first fractional literal slice after
+width-specific signature names and explicit numeric conversions. It implements
+the already selected `Float64` default without adding implicit conversions or a
+broader numeric solver.
+
+Batch scope:
+
+- Parse decimal fractional literals such as `1.5` in expression positions.
+- Lower fractional literals into the core AST without changing integer literal
+  behavior.
+- Infer ambiguous fractional literals as `Float`/`Float64`.
+- Accept fractional literals under explicit `Float` and `Float64` signatures.
+- Evaluate and render Float64 fractional literal values through the active
+  runtime path.
+- Preserve mixed concrete width rejection and explicit-conversion-only behavior.
+
+Out of scope:
+
+- literal suffix syntax,
+- Float16 or Float32 literal targeting,
+- implicit integer-to-float promotion,
+- mixed-width arithmetic widening,
+- runtime dispatch, dictionaries, or a typeclass solver.
+
+Batch target paths:
+
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+
+Batch verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```

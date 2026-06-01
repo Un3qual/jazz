@@ -49,13 +49,16 @@ against visible class declarations plus matching concrete impl facts.
 
 The default bundled prelude now provides the canonical vocabulary class
 declarations (`Eq`, `Ord`, `Num`, `Integral`, `Fractional`, `Showable`, and
-`Default`) followed by the first default concrete impl facts before kernel
-bridge bindings. The current fact matrix covers `Eq(Int)`, `Eq(Float)`,
-`Eq(Bool)`, `Ord(Int)`, `Ord(Float)`, `Num(Int)`, `Num(Float)`,
-`Integral(Int)`, `Fractional(Float)`, `Default(Int)`, `Default(Float)`,
-`Default(Bool)`, `Showable(Int)`, `Showable(Float)`, and `Showable(Bool)`.
+`Default`) followed by inert concrete impl facts before kernel bridge bindings.
+The current fact matrix covers the default aliases `Int`, `Float`, and `Bool`
+where scoped, plus width-specific numeric signature names:
 
-Later batches must define any broader default impl facts, constraint solving
-beyond the current concrete fact checks, method dispatch, overlap/orphan policy,
-cross-module visibility, and runtime behavior before enabling executable
-class/impl semantics.
+- signed and unsigned integer widths (`Int8`, `Int16`, `Int32`, `Int64`,
+  `UInt8`, `UInt16`, `UInt32`, and `UInt64`) have `Eq`, `Ord`, `Num`,
+  `Integral`, `Default`, and `Showable` facts.
+- floating widths (`Float16`, `Float32`, and `Float64`) have `Eq`, `Ord`,
+  `Num`, `Fractional`, `Default`, and `Showable` facts.
+
+Later batches must define constraint solving beyond the current concrete fact
+checks, method dispatch, overlap/orphan policy, cross-module visibility, and
+runtime behavior before enabling executable class/impl semantics.

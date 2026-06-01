@@ -1,25 +1,28 @@
 ---
-id: JN-CAPABILITY-PRELUDE-DEFAULT-IMPLS-001
+id: JN-CAPABILITY-NUMERIC-WIDTH-IMPLS-001
 status: done
 priority: P1
-size: M
+size: S
 kind: impl
 autonomous_ready: yes
 depends_on:
-  - JN-CAPABILITY-PRELUDE-CLASSES-001
+  - JN-CAPABILITY-PRELUDE-DEFAULT-IMPLS-001
+  - JN-NUMERIC-WIDTH-SIGNATURE-TYPES-001
 last_verified: 2026-05-31
-plan_section: "Batch 1: Bundled prelude default concrete impl facts"
+plan_section: "Batch 2: Bundled prelude width-specific numeric impl facts"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/BundledPrelude.hs
   - jazz-next/stdlib/Prelude.jz
   - jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Add the first default prelude `impl` fact matrix for `Int`, `Float`, and `Bool` capability constraints so concrete constrained signatures can validate against bundled facts without method dispatch or runtime evidence."
+deliverable: "Extend inert bundled-prelude capability impl facts from Int and Float aliases to the concrete width-specific numeric signature names, preserving explicit-prelude and no-prelude isolation."
 ---
 
 # Jazz Next Bundled Prelude Capability Impl Facts
@@ -78,6 +81,59 @@ Focused verification:
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Batch 2: Bundled prelude width-specific numeric impl facts
+
+Completed on `2026-05-31`.
+
+This active-path batch extended the inert fact matrix after the default alias
+batch. It depended on `JN-CAPABILITY-PRELUDE-DEFAULT-IMPLS-001` and
+`JN-NUMERIC-WIDTH-SIGNATURE-TYPES-001`.
+
+Implementation delivered:
+
+- Add bundled-prelude concrete `impl` facts for signed width-specific integers
+  `Int8`, `Int16`, `Int32`, and `Int64`.
+- Add bundled-prelude concrete `impl` facts for unsigned width-specific
+  integers `UInt8`, `UInt16`, `UInt32`, and `UInt64`.
+- Add bundled-prelude concrete `impl` facts for floating width-specific types
+  `Float16`, `Float32`, and `Float64`.
+- Preserve the existing `Int`, `Float`, and `Bool` default facts.
+- Keep explicit-prelude and no-prelude entry points isolated from bundled facts
+  unless the supplied prelude source declares the facts itself.
+
+Width-specific fact matrix:
+
+- Signed and unsigned integer widths: `Eq`, `Ord`, `Num`, `Integral`,
+  `Default`, and `Showable`.
+- Floating widths: `Eq`, `Ord`, `Num`, `Fractional`, `Default`, and
+  `Showable`.
+
+Still out of scope:
+
+- list, tuple, ADT, or user-defined concrete impl facts,
+- method declarations or method bodies inside `class` or `impl`,
+- method dispatch, dictionaries, runtime evidence, or superclass semantics,
+- inferred constraints, polymorphic generalization, or numeric operator
+  defaulting.
+
+Batch target paths:
+
+- `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`
+- `jazz-next/stdlib/Prelude.jz`
+- `jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs`
+
+Batch verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
