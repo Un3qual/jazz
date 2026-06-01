@@ -98,6 +98,9 @@ tests =
     ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
     ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError),
     ("Float64 comparison and equality evaluate at runtime", testFloat64ComparisonEqualityRuntimeSuccess),
+    ("structural list equality evaluates at runtime", testStructuralListEqualityRuntimeSuccess),
+    ("structural tuple equality evaluates at runtime", testStructuralTupleEqualityRuntimeSuccess),
+    ("runtime fallback rejects structural equality over functions", testRuntimeFallbackRejectsFunctionStructuralEquality),
     ("Float16 conversion rounds to target precision", testFloat16ConversionRoundsRuntimeValue),
     ("dynamic integer conversion range failure reports deterministic diagnostic", testDynamicIntegerConversionRangeRuntimeError),
     ("runtime fallback rejects non-numeric conversion values", testRuntimeFallbackRejectsNonNumericConversionValue),
@@ -686,6 +689,26 @@ testFloat64ComparisonEqualityRuntimeSuccess = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True, True, True, True, True]") (runOutput result)
+
+testStructuralListEqualityRuntimeSuccess :: IO ()
+testStructuralListEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "same = [1, 2] == [1, 2].\ndifferent = [1, 2] != [1, 3].\nshorter = [1] == [1, 2].\nnested = [[True], [False]] == [[True], [False]].\n[same, different, shorter, nested]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, False, True]") (runOutput result)
+
+testStructuralTupleEqualityRuntimeSuccess :: IO ()
+testStructuralTupleEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "same = (1, True) == (1, True).\ndifferent = (1, (True, 2)) != (1, (True, 3)).\n[same, different]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True]") (runOutput result)
+
+testRuntimeFallbackRejectsFunctionStructuralEquality :: IO ()
+testRuntimeFallbackRejectsFunctionStructuralEquality = do
+  let identity = ELambda "x" (EVar "x")
+      result = evaluateRuntimeExpr (runtimeExpr (EBinary "==" (EList [identity]) (EList [identity])))
+  assertRuntimeErrorContains "runtime fallback function structural equality" "E3007" result
 
 testFloat16ConversionRoundsRuntimeValue :: IO ()
 testFloat16ConversionRoundsRuntimeValue = do

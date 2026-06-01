@@ -58,14 +58,17 @@ tests =
     ("source pipeline accepts equality section application", testSourcePipelineAcceptsEqualitySection),
     ("source pipeline accepts deferred left equality section once constrained", testSourcePipelineAcceptsDeferredLeftEqualitySection),
     ("source pipeline accepts deferred right equality section once constrained", testSourcePipelineAcceptsDeferredRightEqualitySection),
+    ("source pipeline accepts structural list equality", testSourcePipelineAcceptsStructuralListEquality),
+    ("source pipeline accepts structural tuple equality", testSourcePipelineAcceptsStructuralTupleEquality),
+    ("source pipeline accepts structural equality sections", testSourcePipelineAcceptsStructuralEqualitySections),
+    ("source pipeline rejects structural equality with function elements", testSourcePipelineRejectsStructuralFunctionEquality),
     ("source pipeline preserves numeric width through left integer literal arithmetic", testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral),
     ("source pipeline preserves numeric width through left integer literal section", testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteralSection),
     ("source pipeline preserves numeric width through right integer literal section", testSourcePipelinePreservesNumericWidthWithRightIntegerLiteralSection),
     ("source pipeline rejects left arithmetic section with non-numeric operand", testSourcePipelineRejectsLeftArithmeticSectionTypeMismatch),
     ("source pipeline rejects right arithmetic section with non-numeric operand", testSourcePipelineRejectsRightArithmeticSectionTypeMismatch),
     ("source pipeline rejects equality section mismatched application", testSourcePipelineRejectsEqualitySectionTypeMismatch),
-    ("source pipeline rejects deferred equality section constrained to list", testSourcePipelineRejectsDeferredEqualitySectionListConstraint),
-    ("source pipeline rejects list equality until runtime support exists", testSourcePipelineRejectsListEquality),
+    ("source pipeline rejects deferred equality section constrained to unresolved list", testSourcePipelineRejectsDeferredEqualitySectionUnresolvedListConstraint),
     ("source pipeline rejects unsupported section operator", testSourcePipelineRejectsUnsupportedSectionOperator),
     ("source pipeline accepts bare operator value", testSourcePipelineAcceptsBareOperatorValue),
     ("source pipeline accepts bare operator value application", testSourcePipelineAcceptsBareOperatorValueApplication),
@@ -218,6 +221,33 @@ testSourcePipelineAcceptsDeferredRightEqualitySection :: IO ()
 testSourcePipelineAcceptsDeferredRightEqualitySection =
   assertCompilesWithBundledPrelude "x = (== hd []) 1."
 
+testSourcePipelineAcceptsStructuralListEquality :: IO ()
+testSourcePipelineAcceptsStructuralListEquality =
+  assertCompiles
+    "same = [1, 2] == [1, 2].\nnested = [[True], [False]] != [[True], [True]]."
+
+testSourcePipelineAcceptsStructuralTupleEquality :: IO ()
+testSourcePipelineAcceptsStructuralTupleEquality =
+  assertCompiles
+    "same = (1, True) == (1, True).\nnested = (1, (True, 2)) != (1, (True, 3))."
+
+testSourcePipelineAcceptsStructuralEqualitySections :: IO ()
+testSourcePipelineAcceptsStructuralEqualitySections =
+  assertCompiles
+    "listEq = (== [1, 2]) [1, 2].\ntupleNe = ((1, True) !=) (1, False)."
+
+testSourcePipelineRejectsStructuralFunctionEquality :: IO ()
+testSourcePipelineRejectsStructuralFunctionEquality = do
+  result <- compileSource defaultWarningSettings "f = \\(x) -> x.\nx = [f] == [f]."
+  assertSingleDiagnosticContains
+    "function-valued structural equality code"
+    "E2004"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "function-valued structural equality summary"
+    "lists and tuples containing equality-supported elements"
+    (compileErrors result)
+
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral :: IO ()
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral =
   assertCompiles "y :: UInt8.\ny = 2.\nx = 1 + y.\nz :: UInt8.\nz = x."
@@ -261,24 +291,12 @@ testSourcePipelineRejectsEqualitySectionTypeMismatch =
     "equality section operand mismatch"
     "E2006"
 
-testSourcePipelineRejectsDeferredEqualitySectionListConstraint :: IO ()
-testSourcePipelineRejectsDeferredEqualitySectionListConstraint =
+testSourcePipelineRejectsDeferredEqualitySectionUnresolvedListConstraint :: IO ()
+testSourcePipelineRejectsDeferredEqualitySectionUnresolvedListConstraint =
   assertCompileErrorWithBundledPrelude
     "x = (hd [] ==) []."
-    "deferred equality section must still reject unsupported concrete operand family"
+    "deferred equality section must still reject unresolved list equality"
     "E2006"
-
-testSourcePipelineRejectsListEquality :: IO ()
-testSourcePipelineRejectsListEquality = do
-  result <- compileSource defaultWarningSettings "x = [1] == [1]."
-  assertSingleDiagnosticContains
-    "list equality unsupported code"
-    "E2004"
-    (compileErrors result)
-  assertSingleDiagnosticContains
-    "list equality unsupported summary"
-    "Bool, integral numeric, and Float/Float64 types"
-    (compileErrors result)
 
 testSourcePipelineRejectsUnsupportedSectionOperator :: IO ()
 testSourcePipelineRejectsUnsupportedSectionOperator =

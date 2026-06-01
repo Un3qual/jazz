@@ -1,6 +1,6 @@
 # Primitive Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, default Float64 fractional literal values parse/evaluate, and same concrete `Float`/`Float64` arithmetic plus comparison/equality now type-check and evaluate)
+Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, default Float64 fractional literal values parse/evaluate, same concrete `Float`/`Float64` arithmetic plus comparison/equality type-check and evaluate, and structural list/tuple equality type-checks and evaluates when every nested element type is equality-supported)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md`
 
@@ -26,7 +26,7 @@ Define backend-independent language semantics for primitive operations and value
 | `-` | `Num a => a -> a -> a` | Numeric subtraction in selected numeric domain. | Compile-time type error on mismatched/non-numeric operands. |
 | `*` | `Num a => a -> a -> a` | Numeric multiplication in selected numeric domain. | Compile-time type error on mismatched/non-numeric operands. |
 | `/` | `Num a => a -> a -> a` | Numeric division in selected numeric domain. | Compile-time type error on mismatched/non-numeric operands. |
-| `==`, `!=` | `Eq a => a -> a -> Bool` | Strict, type-directed equality/inequality with no coercion for supported runtime equality families. | Compile-time type error when operand types do not match or the family has no equality runtime support. |
+| `==`, `!=` | `Eq a => a -> a -> Bool` | Strict, type-directed equality/inequality with no coercion for supported runtime equality families, including recursively equality-supported lists and tuples. | Compile-time type error when operand types do not match or the family has no equality runtime support. |
 | `<`, `<=`, `>`, `>=` | `Ord a => a -> a -> Bool` | Numeric ordering for supported same-concrete numeric operands. | Compile-time type error on mismatched/non-comparable operands. |
 | `map` | `(a -> b) -> [a] -> [b]` | Applies function to each element in order. | Compile-time type error when function/input list types mismatch. |
 | `filter` | `(a -> Bool) -> [a] -> [a]` | Keeps list elements whose predicate evaluates to `True`. | Compile-time type error when predicate/list types mismatch; fatal runtime diagnostic if predicate result is non-`Bool`. |
@@ -38,7 +38,7 @@ Define backend-independent language semantics for primitive operations and value
 
 1. Equality is strict and type-directed.
 2. There is no backend coercive equality in canonical language behavior.
-3. Equality only compares operands of the same supported type family: `Bool`, integral numeric types, and same concrete `Float`/`Float64`.
+3. Equality only compares operands of the same supported type family: `Bool`, integral numeric types, same concrete `Float`/`Float64`, and list/tuple structures whose nested element types are themselves equality-supported.
 
 Valid examples:
 
@@ -47,13 +47,16 @@ Valid examples:
 True == False
 1.5 == 1.5
 2.0 != 3.0
+[1, 2] == [1, 2]
+(1, True) != (1, False)
 ```
 
 Invalid examples:
 
 ```jz
 1 == True
-"1" == 1
+f = \(x) -> x.
+[f] == [f]
 ```
 
 ## Numeric Behavior and Defaulting
@@ -76,7 +79,7 @@ Invalid examples:
 - Context can choose a narrower explicit type for an integer literal, for example an `Int32` annotation can make `2` an `Int32`.
 - Numeric operators require one concrete numeric type per operation, matching the Haskell-like `(+) :: Num a => a -> a -> a` shape.
 - Mixed concrete widths, such as `Int32 + Int64`, are type errors unless one side is converted explicitly.
-- `jazz-next` parses, lowers, and type-checks width-specific numeric signature names plus `Int`/`Float` aliases, and the active runtime operator subset evaluates same concrete `Float`/`Float64` arithmetic, comparison, and equality/inequality.
+- `jazz-next` parses, lowers, and type-checks width-specific numeric signature names plus `Int`/`Float` aliases, and the active runtime operator subset evaluates same concrete `Float`/`Float64` arithmetic, comparison, equality/inequality, plus structural list/tuple equality when nested element types are equality-supported.
 - Integer literals can satisfy an explicit integral-width signature annotation; ambiguous integer literals still default through `Int`.
 - Decimal fractional literals such as `1.5` parse and lower to the default `Float`/`Float64` literal slice, can satisfy explicit `Float` or `Float64` signatures, and evaluate/render as runtime Float64 values.
 - Fractional literals do not target `Float16` or `Float32` directly, integer/fractional operator mixing remains a type error, and `Float16`/`Float32` arithmetic and comparison/equality remain out of scope for this slice.

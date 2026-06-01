@@ -7,12 +7,12 @@ kind: impl
 autonomous_ready: no
 depends_on: []
 last_verified: 2026-06-01
-plan_section: "Follow-up: Numeric width and defaulting rollout"
+plan_section: "Follow-up: Primitive deltas after structural equality"
 target_paths: []
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Primitive deltas beyond landed same concrete `Float`/`Float64` arithmetic and comparison/equality remain blocked until separate concrete contracts define target paths and focused verification."
+deliverable: "Primitive deltas beyond landed same concrete `Float`/`Float64` arithmetic and comparison/equality plus structural tuple/list equality remain blocked until separate concrete contracts define target paths and focused verification."
 ---
 
 # Primitive Semantics Contract Implementation Plan
@@ -67,6 +67,7 @@ Execution note:
 - [x] On `2026-05-31`, landed the default Float64 fractional literal slice in `jazz-next`.
 - [x] Same concrete `Float`/`Float64` arithmetic for `+`, `-`, `*`, and `/` landed in `jazz-next`.
 - [x] Same concrete `Float`/`Float64` comparison and equality for `==`, `!=`, `<`, `<=`, `>`, and `>=` landed in `jazz-next`.
+- [x] Structural tuple/list equality for equality-supported element types landed in `jazz-next`.
 
 First implementation target (landed 2026-05-29):
 
@@ -263,6 +264,66 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
+## Completed implementation batch: structural tuple/list equality
+
+This active-path primitive slice extends strict type-directed equality to
+structural list and tuple values when every nested element type is already in
+the supported equality subset. It remains non-coercive and does not introduce
+general typeclass dispatch.
+
+Completed on `2026-06-01` as `JN-PRIMITIVE-STRUCTURAL-EQUALITY-001`.
+
+Executor-safe scope:
+
+- Accept `==` and `!=` for same-type lists whose element type recursively
+  supports runtime equality.
+- Accept `==` and `!=` for same-shape tuples whose element types recursively
+  support runtime equality.
+- Preserve equality operator values and left/right sections for concrete
+  equality-supported list and tuple operands.
+- Evaluate list and tuple equality through an explicit runtime structural
+  helper rather than the broad `RuntimeValue` `Eq` instance.
+- Return `False` for unequal list lengths or unequal tuple/list elements when
+  both sides are otherwise equality-supported.
+- Preserve compile-time rejection for function-valued list/tuple elements,
+  unresolved element types such as bare `[] == []`, mismatched operand types,
+  and unsupported runtime equality families.
+
+Out of scope:
+
+- structural equality for user-defined ADT constructors,
+- structural equality for functions, builtins, operator values, sections, or
+  partial constructors,
+- implicit numeric conversion or mixed-width equality,
+- Float16/Float32 arithmetic, comparison, or equality,
+- typeclass solver, dictionary passing, or runtime dispatch.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Follow-up: Primitive deltas after structural equality
+
+No executor-safe primitive implementation batch remains in this plan after the
+structural tuple/list equality slice. Remaining primitive surface work stays
+blocked until separate contracts define exact syntax or behavior, target paths,
+and focused verification for literal suffixes, Float16/Float32 literal
+targeting, implicit integer-to-float promotion, implicit mixed-width behavior,
+structural ADT equality, function/operator/section equality, or broader numeric
+solver behavior.
+
 ## Verification Evidence (Current Ambiguity)
 
 - `jazz-hs/src/Types.hs`: builtin traits and builtin function signatures define only a subset of primitive behavior.
@@ -285,8 +346,10 @@ Out of scope:
 ## Decision Gates
 
 - [x] Gate A: Equality contract.
-  - [x] Option A1 (selected): strict type-directed equality only.
-  - [ ] Option A2: structural equality for compatible value families.
+  - [x] Option A1 (selected): strict type-directed equality only, now including
+        list/tuple structures whose nested element types are equality-supported.
+  - [ ] Option A2: open-ended structural equality for all compatible value
+        families.
   - [ ] Option A3: retain JS-like coercive behavior (not recommended for interpreter-first direction).
 - [x] Gate B: Numeric behavior.
   - [x] Option B1 (selected): integer/float operations remain trait-driven with explicit defaulting rules.

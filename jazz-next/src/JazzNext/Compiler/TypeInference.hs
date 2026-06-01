@@ -2261,7 +2261,7 @@ mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
     "E2004"
     ( "strict equality operator '"
         <> operatorSymbol
-        <> "' is only supported for Bool, integral numeric, and Float/Float64 types, found "
+        <> "' is only supported for Bool, integral numeric, Float/Float64, and lists and tuples containing equality-supported elements, found "
         <> renderType foundType
     )
 
@@ -3064,6 +3064,8 @@ supportsRuntimeEqualityType expressionType =
     TFloatType -> True
     TNumericType numericType -> numericTypeIsIntegral numericType || numericType == NumericFloat64
     TBoolType -> True
+    TListType elementType -> supportsRuntimeEqualityType elementType
+    TTupleType elementTypes -> all supportsRuntimeEqualityType elementTypes
     _ -> False
 
 supportsDeferredEqualityOperandType :: ExpressionType -> Bool

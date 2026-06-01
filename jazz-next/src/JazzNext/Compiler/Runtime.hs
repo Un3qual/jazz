@@ -1151,9 +1151,13 @@ evalBinary builtinMode operatorSymbol leftValue rightValue =
     ("==", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt == rightInt))
     ("==", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat == rightFloat))
     ("==", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool == rightBool))
+    ("==", VList {}, VList {}) -> evalStructuralEquality "==" leftValue rightValue
+    ("==", VTuple {}, VTuple {}) -> evalStructuralEquality "==" leftValue rightValue
     ("!=", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt /= rightInt))
     ("!=", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat /= rightFloat))
     ("!=", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool /= rightBool))
+    ("!=", VList {}, VList {}) -> evalStructuralEquality "!=" leftValue rightValue
+    ("!=", VTuple {}, VTuple {}) -> evalStructuralEquality "!=" leftValue rightValue
     ("$", functionValue, argumentValue) ->
       applyRuntimeFunction builtinMode functionValue argumentValue
     _ ->
@@ -1184,6 +1188,58 @@ evalFloatBinary operatorSymbol result
             ("runtime primitive '" <> operatorSymbol <> "' failed: non-finite Float result")
         )
   | otherwise = Right (VFloat result Nothing)
+
+evalStructuralEquality :: Text -> RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
+evalStructuralEquality operatorSymbol leftValue rightValue =
+  case runtimeStructuralEquality leftValue rightValue of
+    Just equalityResult ->
+      Right
+        ( VBool
+            ( if operatorSymbol == "!="
+                then not equalityResult
+                else equalityResult
+            )
+        )
+    Nothing ->
+      Left
+        ( runtimeDiagnostic
+            "E3007"
+            ( "runtime primitive '"
+                <> operatorSymbol
+                <> "' cannot be applied to "
+                <> renderRuntimeType leftValue
+                <> " and "
+                <> renderRuntimeType rightValue
+            )
+        )
+
+runtimeStructuralEquality :: RuntimeValue -> RuntimeValue -> Maybe Bool
+runtimeStructuralEquality leftValue rightValue =
+  case (leftValue, rightValue) of
+    (VInt leftInt, VInt rightInt) -> Just (leftInt == rightInt)
+    (VFloat leftFloat _, VFloat rightFloat _) -> Just (leftFloat == rightFloat)
+    (VBool leftBool, VBool rightBool) -> Just (leftBool == rightBool)
+    (VList leftElements, VList rightElements) ->
+      structuralElementEquality leftElements rightElements
+    (VTuple leftElements, VTuple rightElements) ->
+      structuralElementEquality leftElements rightElements
+    _ -> Nothing
+
+structuralElementEquality :: [RuntimeValue] -> [RuntimeValue] -> Maybe Bool
+structuralElementEquality leftElements rightElements
+  | length leftElements /= length rightElements =
+      if all runtimeValueSupportsStructuralEquality (leftElements <> rightElements)
+        then Just False
+        else Nothing
+  | otherwise =
+      fmap and
+        (traverse (uncurry runtimeStructuralEquality) (zip leftElements rightElements))
+
+runtimeValueSupportsStructuralEquality :: RuntimeValue -> Bool
+runtimeValueSupportsStructuralEquality value =
+  case runtimeStructuralEquality value value of
+    Just _ -> True
+    Nothing -> False
 
 -- | Runtime-specific wrapper for mkDiagnostic.
 -- This alias exists solely to improve readability and make it clear that
