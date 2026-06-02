@@ -100,6 +100,7 @@ tests =
     ("print! returns evaluated argument value", testPrintBuiltinReturnsArgument),
     ("target-named integer conversion evaluates at runtime", testIntegerConversionRuntimeSuccess),
     ("target-named integer conversion preserves source-exact integral Float literal", testIntegerConversionSourceExactIntegralFloatRuntimeSuccess),
+    ("width-specific integer arithmetic checks preserved result bounds", testWidthSpecificIntegerArithmeticBoundsRuntimeError),
     ("target-named float conversion evaluates at runtime", testFloatConversionRuntimeSuccess),
     ("dynamic integer-to-Float64 overflow checks source magnitude", testDynamicIntegerToFloat64OverflowRuntimeError),
     ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
@@ -118,6 +119,7 @@ tests =
     ("structural ADT equality evaluates at runtime", testStructuralAdtEqualityRuntimeSuccess),
     ("runtime fallback rejects direct callable equality", testRuntimeFallbackRejectsDirectCallableEquality),
     ("runtime fallback rejects direct callable inequality", testRuntimeFallbackRejectsDirectCallableInequality),
+    ("runtime fallback rejects mixed targeted integer equality", testRuntimeFallbackRejectsMixedTargetedIntegerEquality),
     ("runtime fallback rejects structural equality over functions", testRuntimeFallbackRejectsFunctionStructuralEquality),
     ("runtime fallback returns false for different-length structural equality over functions", testRuntimeFallbackReturnsFalseForDifferentLengthFunctionStructuralEquality),
     ("runtime fallback returns false for different saturated ADT constructors with function payloads", testRuntimeFallbackReturnsFalseForDifferentSaturatedAdtConstructors),
@@ -130,10 +132,12 @@ tests =
     ("qualified method dispatch executes selected impl body", testQualifiedMethodDispatchExecutesImplBody),
     ("let-bound qualified method dispatch executes selected impl body", testLetBoundQualifiedMethodDispatchExecutesImplBody),
     ("qualified method dispatch selects runtime body by argument types", testQualifiedMethodDispatchSelectsRuntimeBodyByArgumentTypes),
+    ("qualified method dispatch executes same-impl qualified method call", testQualifiedMethodDispatchExecutesSameImplQualifiedMethodCall),
     ("qualified method dispatch selects width-specific integer body", testQualifiedMethodDispatchSelectsWidthSpecificIntegerBody),
     ("qualified method dispatch selects width-specific integer body for direct literals", testQualifiedMethodDispatchSelectsWidthSpecificIntegerBodyForDirectLiterals),
     ("qualified method dispatch treats Float as Float64 alias at runtime", testQualifiedMethodDispatchTreatsFloatAsFloat64Alias),
     ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
+    ("qualified zero-argument method dispatch returns value", testQualifiedZeroArgumentMethodDispatchReturnsValue),
     ("qualified method dispatch rejects full-arity runtime ambiguity", testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity),
     ("qualified method dispatch executes local ADT impl body", testQualifiedMethodDispatchExecutesLocalAdtImplBody),
     ("method-bearing capability declarations are inert at runtime", testMethodBearingCapabilityDeclarationsRuntimeInert),
@@ -653,6 +657,20 @@ testIntegerConversionSourceExactIntegralFloatRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "9223372036854775807") (runOutput result)
 
+testWidthSpecificIntegerArithmeticBoundsRuntimeError :: IO ()
+testWidthSpecificIntegerArithmeticBoundsRuntimeError = do
+  result <- runSource defaultWarningSettings "value = toUInt8 255.\nvalue + 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "UInt8 arithmetic overflow runtime code"
+    "E3025"
+    (runRuntimeErrors result)
+  assertSingleDiagnosticContains
+    "UInt8 arithmetic overflow runtime text"
+    "outside UInt8 range"
+    (runRuntimeErrors result)
+  assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
 testFloatConversionRuntimeSuccess :: IO ()
 testFloatConversionRuntimeSuccess = do
   result <- runSource defaultWarningSettings "toFloat64 1."
@@ -825,6 +843,13 @@ testRuntimeFallbackRejectsDirectCallableInequality = do
     "runtime right section inequality"
     (EBinary "!=" rightSectionValue rightSectionValue)
 
+testRuntimeFallbackRejectsMixedTargetedIntegerEquality :: IO ()
+testRuntimeFallbackRejectsMixedTargetedIntegerEquality =
+  assertRuntimeErrorContains
+    "runtime fallback mixed targeted integer equality"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "==" (targetedInt "__kernel_toInt8") (targetedInt "__kernel_toUInt8"))))
+
 testRuntimeFallbackRejectsFunctionStructuralEquality :: IO ()
 testRuntimeFallbackRejectsFunctionStructuralEquality = do
   let identity = ELambda "x" (EVar "x")
@@ -926,6 +951,19 @@ testQualifiedMethodDispatchSelectsRuntimeBodyByArgumentTypes = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(False, True)") (runOutput result)
 
+testQualifiedMethodDispatchExecutesSameImplQualifiedMethodCall :: IO ()
+testQualifiedMethodDispatchExecutesSameImplQualifiedMethodCall = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\nnotEquals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\nnotEquals = \\(left) -> \\(right) -> RuntimeEq::equals left right != True.\n}.\n"
+          <> "RuntimeEq::notEquals 1 2."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
 testQualifiedMethodDispatchSelectsWidthSpecificIntegerBody :: IO ()
 testQualifiedMethodDispatchSelectsWidthSpecificIntegerBody = do
   result <-
@@ -963,10 +1001,9 @@ testQualifiedMethodDispatchTreatsFloatAsFloat64Alias = do
     runSource
       defaultWarningSettings
       ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Float) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
-          <> "impl RuntimeEq(Float16) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
-          <> "left :: Float16.\nleft = toFloat16 1.\n"
-          <> "right :: Float16.\nright = toFloat16 1.\n"
+          <> "impl RuntimeEq(Float) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "left :: Float64.\nleft = toFloat64 1.\n"
+          <> "right :: Float64.\nright = toFloat64 1.\n"
           <> "RuntimeEq::equals left right."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -983,6 +1020,19 @@ testQualifiedMethodDispatchTreatsIntAsInt64Alias = do
           <> "left :: Int64.\nleft = 1.\n"
           <> "right :: Int64.\nright = 2.\n"
           <> "RuntimeEq::equals left right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedZeroArgumentMethodDispatchReturnsValue :: IO ()
+testQualifiedZeroArgumentMethodDispatchReturnsValue = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nenabled :: Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nenabled = True.\n}.\n"
+          <> "RuntimeFlag::enabled."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1079,6 +1129,9 @@ rightSectionValue =
   ESectionRight "+" (ELit (LInt 1))
 
 targetedFloat conversionName =
+  EApply (EVar conversionName) (ELit (LInt 1))
+
+targetedInt conversionName =
   EApply (EVar conversionName) (ELit (LInt 1))
 
 untypedFloatOne :: Expr

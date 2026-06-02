@@ -122,14 +122,34 @@ numericSignatureTypeName numericType =
 
 unsupportedSignatureTokensToConstraintType :: [SignatureToken] -> Maybe ConstraintSignatureType
 unsupportedSignatureTokensToConstraintType tokens =
-  case break (== SignatureArrowToken) tokens of
-    (_, []) ->
+  case splitTopLevelArrow tokens of
+    Nothing ->
       unsupportedSignatureAtomToConstraintType tokens
-    (argumentTokens, SignatureArrowToken : resultTokens) ->
+    Just (argumentTokens, resultTokens) ->
       ConstraintTypeFunction
         <$> unsupportedSignatureAtomToConstraintType argumentTokens
         <*> unsupportedSignatureTokensToConstraintType resultTokens
-    _ -> Nothing
+
+splitTopLevelArrow :: [SignatureToken] -> Maybe ([SignatureToken], [SignatureToken])
+splitTopLevelArrow =
+  go 0 0 []
+  where
+    go _ _ _ [] = Nothing
+    go parenDepth bracketDepth argumentTokens (token : rest) =
+      case token of
+        SignatureArrowToken
+          | parenDepth == 0 && bracketDepth == 0 ->
+              Just (reverse argumentTokens, rest)
+        SignatureLParenToken ->
+          go (parenDepth + 1) bracketDepth (token : argumentTokens) rest
+        SignatureRParenToken ->
+          go (parenDepth - 1) bracketDepth (token : argumentTokens) rest
+        SignatureLBracketToken ->
+          go parenDepth (bracketDepth + 1) (token : argumentTokens) rest
+        SignatureRBracketToken ->
+          go parenDepth (bracketDepth - 1) (token : argumentTokens) rest
+        _ ->
+          go parenDepth bracketDepth (token : argumentTokens) rest
 
 unsupportedSignatureAtomToConstraintType :: [SignatureToken] -> Maybe ConstraintSignatureType
 unsupportedSignatureAtomToConstraintType tokens =

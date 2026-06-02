@@ -194,7 +194,7 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
           purityErrors =
             case functionExpr of
               EVar calleeName
-                | shouldRejectImpureCall builtinMode visibleBindings context calleeName ->
+                | shouldRejectImpureCall builtinMode visibleBindings visibleClassNames context calleeName ->
                     [ mkImpureCallInPureContextError
                         context
                         calleeName
@@ -743,17 +743,21 @@ contextForExpressionStatement statementSpan context =
 shouldRejectImpureCall ::
   BuiltinResolutionMode ->
   Map Text VisibleBinding ->
+  Set Text ->
   AnalysisContext ->
   Identifier ->
   Bool
-shouldRejectImpureCall builtinMode visibleBindings context calleeName =
+shouldRejectImpureCall builtinMode visibleBindings visibleClassNames context calleeName =
   not (contextAllowsImpureCalls context)
     && isKnownImpureCallee
   where
     calleeNameText = identifierText calleeName
     isKnownImpureCallee =
       identifierPurity calleeName == Impure
-        && (Map.member calleeNameText visibleBindings || isBuiltinSymbolNameInMode builtinMode calleeNameText)
+        && ( Map.member calleeNameText visibleBindings
+               || isBuiltinSymbolNameInMode builtinMode calleeNameText
+               || qualifiedMethodClassIsVisible visibleClassNames calleeNameText
+           )
 
 mkImpureCallInPureContextError ::
   AnalysisContext ->

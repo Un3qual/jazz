@@ -640,15 +640,21 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
       case arguments of
         [implTarget]
           | concreteConstraintArgument implTarget ->
-              foldl' (insertMethod implTarget) env methods
+              methodEnv
+          where
+            methodEnv = foldl' insertCandidate env methodCandidates
+            methodCandidates =
+              map
+                ( \(ImplMethod methodName _ methodExpr) ->
+                    ( qualifiedMethodKey capabilityName methodName,
+                      RuntimeMethodCandidate implTarget (evalValue builtinMode methodEnv methodExpr)
+                    )
+                )
+                methods
+            insertCandidate envAcc (methodKey, methodCandidate) =
+              Map.adjust (addMethodCandidate methodCandidate) methodKey envAcc
         _ -> env
       where
-        methodEnv = env
-        insertMethod implTarget envAcc (ImplMethod methodName _ methodExpr) =
-          let methodKey = qualifiedMethodKey capabilityName methodName
-              methodCandidate = RuntimeMethodCandidate implTarget (evalValue builtinMode methodEnv methodExpr)
-           in Map.adjust (addMethodCandidate methodCandidate) methodKey envAcc
-
         addMethodCandidate methodCandidate methodCell =
           case methodCell of
             Right (VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs) ->
@@ -758,7 +764,7 @@ evalValue builtinMode env expr =
     ELit literal -> Right (literalRuntimeValue literal)
     EVar name ->
       case Map.lookup nameText env of
-        Just value -> value
+        Just value -> value >>= forceQualifiedMethodValue builtinMode
         Nothing ->
           case lookupBuiltinSymbolInMode builtinMode nameText of
             Just builtinFunction -> Right (VBuiltin builtinFunction [])
@@ -815,6 +821,20 @@ evalValue builtinMode env expr =
           Left
             (runtimeDiagnostic "E3006" "block expression has no terminal expression result at runtime")
         Right (Just value) -> Right value
+
+forceQualifiedMethodValue :: BuiltinResolutionMode -> RuntimeValue -> Either Diagnostic RuntimeValue
+forceQualifiedMethodValue builtinMode runtimeValue =
+  case runtimeValue of
+    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs ->
+      applyQualifiedMethod
+        builtinMode
+        methodKey
+        classParameter
+        methodSignature
+        candidates
+        capturedArgs
+    _ ->
+      Right runtimeValue
 
 literalRuntimeValue :: Literal -> RuntimeValue
 literalRuntimeValue literal =
@@ -1538,15 +1558,15 @@ evalBinary builtinMode operatorSymbol leftValue rightValue
   | otherwise =
   case (operatorSymbol, leftValue, rightValue) of
     ("+", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
-      Right (VInt (leftInt + rightInt) (integerBinaryMetadata leftMetadata rightMetadata))
+      evalIntegerArithmetic "+" leftMetadata rightMetadata (leftInt + rightInt)
     ("-", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
-      Right (VInt (leftInt - rightInt) (integerBinaryMetadata leftMetadata rightMetadata))
+      evalIntegerArithmetic "-" leftMetadata rightMetadata (leftInt - rightInt)
     ("*", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
-      Right (VInt (leftInt * rightInt) (integerBinaryMetadata leftMetadata rightMetadata))
+      evalIntegerArithmetic "*" leftMetadata rightMetadata (leftInt * rightInt)
     ("/", VInt _ _, VInt 0 _) ->
       Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
     ("/", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
-      Right (VInt (leftInt `div` rightInt) (integerBinaryMetadata leftMetadata rightMetadata))
+      evalIntegerArithmetic "/" leftMetadata rightMetadata (leftInt `div` rightInt)
     ("+", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
       evalFloatArithmetic "+" leftMetadata rightMetadata (leftFloat + rightFloat)
     ("-", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
@@ -1566,13 +1586,15 @@ evalBinary builtinMode operatorSymbol leftValue rightValue
     ("<=", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat <= rightFloat))
     (">", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat > rightFloat))
     (">=", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat >= rightFloat))
-    ("==", VInt leftInt _, VInt rightInt _) -> Right (VBool (leftInt == rightInt))
+    ("==", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+      evalIntegerEquality "==" leftInt leftMetadata rightInt rightMetadata
     ("==", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat == rightFloat))
     ("==", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool == rightBool))
     ("==", VList {}, VList {}) -> evalStructuralEquality "==" leftValue rightValue
     ("==", VTuple {}, VTuple {}) -> evalStructuralEquality "==" leftValue rightValue
     ("==", VConstructor {}, VConstructor {}) -> evalStructuralEquality "==" leftValue rightValue
-    ("!=", VInt leftInt _, VInt rightInt _) -> Right (VBool (leftInt /= rightInt))
+    ("!=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+      evalIntegerEquality "!=" leftInt leftMetadata rightInt rightMetadata
     ("!=", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat /= rightFloat))
     ("!=", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool /= rightBool))
     ("!=", VList {}, VList {}) -> evalStructuralEquality "!=" leftValue rightValue
@@ -1609,14 +1631,74 @@ runtimeCallableEqualityDiagnostic operatorSymbol leftValue rightValue =
         <> renderRuntimeType rightValue
     )
 
-integerBinaryMetadata :: RuntimeIntMetadata -> RuntimeIntMetadata -> RuntimeIntMetadata
-integerBinaryMetadata leftMetadata rightMetadata =
+evalIntegerArithmetic ::
+  Text ->
+  RuntimeIntMetadata ->
+  RuntimeIntMetadata ->
+  Integer ->
+  Either Diagnostic RuntimeValue
+evalIntegerArithmetic operatorSymbol leftMetadata rightMetadata result = do
+  targetType <- selectIntegerBinaryTarget operatorSymbol leftMetadata rightMetadata
+  evalIntegerBinary operatorSymbol targetType result
+
+selectIntegerBinaryTarget :: Text -> RuntimeIntMetadata -> RuntimeIntMetadata -> Either Diagnostic (Maybe NumericType)
+selectIntegerBinaryTarget operatorSymbol leftMetadata rightMetadata =
   case (runtimeIntTargetType leftMetadata, runtimeIntTargetType rightMetadata) of
     (Just leftTarget, Just rightTarget)
-      | leftTarget == rightTarget -> targetedIntMetadata leftTarget
-    (Just leftTarget, Nothing) -> targetedIntMetadata leftTarget
-    (Nothing, Just rightTarget) -> targetedIntMetadata rightTarget
-    _ -> untypedIntMetadata
+      | leftTarget == rightTarget -> Right (Just leftTarget)
+      | otherwise -> Left (mixedIntegerArithmeticDiagnostic operatorSymbol (Just leftTarget) (Just rightTarget))
+    (Just leftTarget, Nothing) -> Right (Just leftTarget)
+    (Nothing, Just rightTarget) -> Right (Just rightTarget)
+    _ -> Right Nothing
+
+evalIntegerBinary :: Text -> Maybe NumericType -> Integer -> Either Diagnostic RuntimeValue
+evalIntegerBinary operatorSymbol maybeTarget result =
+  case maybeTarget of
+    Just targetType ->
+      case numericTypeIntegerBounds targetType of
+        Just bounds
+          | integerValueWithinBounds result bounds ->
+              Right (VInt result (targetedIntMetadata targetType))
+          | otherwise ->
+              Left (runtimeIntegerArithmeticOverflowDiagnostic operatorSymbol targetType result bounds)
+        Nothing ->
+          Right (VInt result (targetedIntMetadata targetType))
+    Nothing ->
+      Right (VInt result untypedIntMetadata)
+
+mixedIntegerArithmeticDiagnostic :: Text -> Maybe NumericType -> Maybe NumericType -> Diagnostic
+mixedIntegerArithmeticDiagnostic operatorSymbol leftTarget rightTarget =
+  runtimeDiagnostic
+    "E3007"
+    ( "runtime primitive '"
+        <> operatorSymbol
+        <> "' cannot mix "
+        <> renderIntegerOperandTarget leftTarget
+        <> " and "
+        <> renderIntegerOperandTarget rightTarget
+    )
+
+renderIntegerOperandTarget :: Maybe NumericType -> Text
+renderIntegerOperandTarget maybeTarget =
+  case maybeTarget of
+    Just targetType -> renderNumericTypeName targetType
+    Nothing -> "Int"
+
+runtimeIntegerArithmeticOverflowDiagnostic :: Text -> NumericType -> Integer -> (Integer, Integer) -> Diagnostic
+runtimeIntegerArithmeticOverflowDiagnostic operatorSymbol targetType result (lowerBound, upperBound) =
+  runtimeDiagnostic
+    "E3025"
+    ( "runtime primitive '"
+        <> operatorSymbol
+        <> "' failed: integer value "
+        <> Text.pack (show result)
+        <> " outside "
+        <> renderNumericTypeName targetType
+        <> " range "
+        <> Text.pack (show lowerBound)
+        <> ".."
+        <> Text.pack (show upperBound)
+    )
 
 floatIsZero :: Double -> Bool
 floatIsZero value =
@@ -1716,7 +1798,8 @@ evalStructuralEquality operatorSymbol leftValue rightValue =
 runtimeStructuralEquality :: RuntimeValue -> RuntimeValue -> Maybe Bool
 runtimeStructuralEquality leftValue rightValue =
   case (leftValue, rightValue) of
-    (VInt leftInt _, VInt rightInt _) -> Just (leftInt == rightInt)
+    (VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+      runtimeIntegerStructuralEquality leftInt leftMetadata rightInt rightMetadata
     (VFloat leftFloat _, VFloat rightFloat _) -> Just (leftFloat == rightFloat)
     (VBool leftBool, VBool rightBool) -> Just (leftBool == rightBool)
     (VList leftElements, VList rightElements) ->
@@ -1744,6 +1827,48 @@ structuralElementEquality leftElements rightElements
   | otherwise =
       fmap and
         (traverse (uncurry runtimeStructuralEquality) (zip leftElements rightElements))
+
+evalIntegerEquality :: Text -> Integer -> RuntimeIntMetadata -> Integer -> RuntimeIntMetadata -> Either Diagnostic RuntimeValue
+evalIntegerEquality operatorSymbol leftInt leftMetadata rightInt rightMetadata =
+  case runtimeIntegerMetadataCompatible leftInt leftMetadata rightInt rightMetadata of
+    True ->
+      Right
+        ( VBool
+            ( if operatorSymbol == "!="
+                then leftInt /= rightInt
+                else leftInt == rightInt
+            )
+        )
+    False ->
+      Left
+        ( runtimeDiagnostic
+            "E3007"
+            ( "runtime primitive '"
+                <> operatorSymbol
+                <> "' cannot compare "
+                <> renderIntegerOperandTarget (runtimeIntTargetType leftMetadata)
+                <> " and "
+                <> renderIntegerOperandTarget (runtimeIntTargetType rightMetadata)
+            )
+        )
+
+runtimeIntegerStructuralEquality :: Integer -> RuntimeIntMetadata -> Integer -> RuntimeIntMetadata -> Maybe Bool
+runtimeIntegerStructuralEquality leftInt leftMetadata rightInt rightMetadata =
+  if runtimeIntegerMetadataCompatible leftInt leftMetadata rightInt rightMetadata
+    then Just (leftInt == rightInt)
+    else Nothing
+
+runtimeIntegerMetadataCompatible :: Integer -> RuntimeIntMetadata -> Integer -> RuntimeIntMetadata -> Bool
+runtimeIntegerMetadataCompatible leftInt leftMetadata rightInt rightMetadata =
+  case (runtimeIntTargetType leftMetadata, runtimeIntTargetType rightMetadata) of
+    (Just leftTarget, Just rightTarget) ->
+      leftTarget == rightTarget
+    (Just leftTarget, Nothing) ->
+      integerValueMatchesTarget leftTarget rightInt
+    (Nothing, Just rightTarget) ->
+      integerValueMatchesTarget rightTarget leftInt
+    (Nothing, Nothing) ->
+      True
 
 -- | Runtime-specific wrapper for mkDiagnostic.
 -- This alias exists solely to improve readability and make it clear that

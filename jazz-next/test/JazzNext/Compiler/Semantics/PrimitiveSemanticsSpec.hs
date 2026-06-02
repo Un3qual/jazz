@@ -101,6 +101,7 @@ tests =
     ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
     ("source pipeline accepts same-width Float16 and Float32 arithmetic", testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic),
     ("source pipeline accepts targeted Float16 and Float32 arithmetic", testSourcePipelineAcceptsTargetedFloat16Float32Arithmetic),
+    ("source pipeline accepts Float16 and Float32 arithmetic boundary values", testSourcePipelineAcceptsFloat16Float32ArithmeticBoundaryValues),
     ("source pipeline accepts same-width Float64 comparison and equality", testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality),
     ("source pipeline accepts same-width Float16 and Float32 comparison and equality", testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality),
     ("source pipeline accepts same-width Float64 comparison/equality operator values", testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues),
@@ -477,6 +478,11 @@ testSourcePipelineAcceptsTargetedFloat16Float32Arithmetic :: IO ()
 testSourcePipelineAcceptsTargetedFloat16Float32Arithmetic =
   assertCompiles
     "a16 :: Float16.\na16 = 8.0.\nb16 :: Float16.\nb16 = 2.0.\nadd16 :: Float16.\nadd16 = a16 + b16.\nsub16 :: Float16.\nsub16 = a16 - b16.\nmul16 :: Float16.\nmul16 = a16 * b16.\ndiv16 :: Float16.\ndiv16 = a16 / b16.\na32 :: Float32.\na32 = 8.0.\nb32 :: Float32.\nb32 = 2.0.\nadd32 :: Float32.\nadd32 = a32 + b32.\nsub32 :: Float32.\nsub32 = a32 - b32.\nmul32 :: Float32.\nmul32 = a32 * b32.\ndiv32 :: Float32.\ndiv32 = a32 / b32."
+
+testSourcePipelineAcceptsFloat16Float32ArithmeticBoundaryValues :: IO ()
+testSourcePipelineAcceptsFloat16Float32ArithmeticBoundaryValues =
+  assertCompilesWithBundledPrelude
+    "max16 :: Float16.\nmax16 = toFloat16 65504.\nzero16 :: Float16.\nzero16 = toFloat16 0.\nstaysMax16 :: Float16.\nstaysMax16 = max16 + zero16.\nminSub16 :: Float16.\nminSub16 = toFloat16 0.000000059604644775390625.\nscaled16 :: Float16.\nscaled16 = minSub16 * toFloat16 2.\nedge32 :: Float32.\nedge32 = toFloat32 65504.\nzero32 :: Float32.\nzero32 = toFloat32 0.\nstaysEdge32 :: Float32.\nstaysEdge32 = edge32 + zero32."
 
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality :: IO ()
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality =

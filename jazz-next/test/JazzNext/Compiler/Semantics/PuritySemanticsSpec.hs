@@ -42,6 +42,7 @@ tests :: [NamedTest]
 tests =
   [ ("pure binding cannot call impure builtin", testPureBindingCannotCallImpureBuiltin),
     ("pure binding cannot call impure builtin through dollar application", testPureBindingCannotCallImpureBuiltinThroughDollarApplication),
+    ("pure binding cannot call impure qualified method", testPureBindingCannotCallImpureQualifiedMethod),
     ("impure binding can call impure builtin", testImpureBindingCanCallImpureBuiltin),
     ("pure binding cannot call impure callee", testPureBindingCannotCallImpureCallee),
     ("impure binding can call impure callee", testImpureBindingCanCallImpureCallee),
@@ -66,6 +67,17 @@ testPureBindingCannotCallImpureBuiltinThroughDollarApplication = do
   result <- compileSource defaultWarningSettings "x = print! $ 1.\nx."
   assertSingleErrorContains
     "pure binding calling impure builtin through dollar application"
+    "E1010"
+    (compileErrors result)
+
+testPureBindingCannotCallImpureQualifiedMethod :: IO ()
+testPureBindingCannotCallImpureQualifiedMethod = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "class Effect(a) {\nrun! :: a -> a.\n}.\nimpl Effect(Int) {\nrun! = \\(value) -> value.\n}.\nx = Effect::run! 1.\nx."
+  assertSingleErrorContains
+    "pure binding calling impure qualified method"
     "E1010"
     (compileErrors result)
 

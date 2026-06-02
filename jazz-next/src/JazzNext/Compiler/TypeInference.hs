@@ -961,11 +961,11 @@ inferScopeType builtinMode initialEnv initialState statements =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                in go env lastExprType Nothing nextModuleBaselineFacts nextState rest
             SImpl _ capabilityName arguments methods ->
-              let stateAfterMethodChecks =
-                    checkImplMethodBodies builtinMode env state capabilityName arguments methods
-                  nextState = seedStatementCapabilityFact stateAfterMethodChecks statement
+              let seededState = seedStatementCapabilityFact state statement
+                  nextState =
+                    checkImplMethodBodies builtinMode env seededState capabilityName arguments methods
                   nextModuleBaselineFacts =
-                    updateRootModuleBaselineFacts moduleBaselineFacts stateAfterMethodChecks nextState
+                    updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                in go env lastExprType Nothing nextModuleBaselineFacts nextState rest
             SData spanValue typeName typeParameters constructors ->
               let (nextEnv, nextState) =
@@ -1228,8 +1228,15 @@ mergeCapabilityFacts leftFacts rightFacts =
         Set.union
           (scopeConcreteImplFacts leftFacts)
           (scopeConcreteImplFacts rightFacts),
-      scopeClassMethodSignatures = scopeClassMethodSignatures leftFacts,
-      scopeConcreteImplMethods = scopeConcreteImplMethods leftFacts
+      scopeClassMethodSignatures =
+        Map.union
+          (scopeClassMethodSignatures leftFacts)
+          (scopeClassMethodSignatures rightFacts),
+      scopeConcreteImplMethods =
+        Map.unionWith
+          (++)
+          (scopeConcreteImplMethods leftFacts)
+          (scopeConcreteImplMethods rightFacts)
     }
 
 updateRootModuleBaselineFacts :: ScopeCapabilityFacts -> InferState -> InferState -> ScopeCapabilityFacts

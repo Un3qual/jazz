@@ -67,6 +67,8 @@ tests =
     ("source pipeline rejects non-binding impl body items", testSourceRejectsNonBindingImplBodyItem),
     ("source pipeline accepts single-target qualified method dispatch", testSourceAcceptsSingleTargetQualifiedMethodDispatch),
     ("source pipeline selects qualified method body by argument types", testSourceSelectsQualifiedMethodBodyByArgumentTypes),
+    ("source pipeline accepts same-impl qualified method body references", testSourceAcceptsSameImplQualifiedMethodBodyReferences),
+    ("source pipeline accepts higher-order qualified method signature", testSourceAcceptsHigherOrderQualifiedMethodSignature),
     ("source pipeline applies substituted qualified method signature", testSourceRejectsQualifiedMethodSignatureMismatch),
     ("source pipeline rejects qualified method dispatch with no typed candidate", testSourceRejectsQualifiedMethodDispatchWithNoTypedCandidate),
     ("source pipeline rejects qualified impl method body mismatch", testSourceRejectsQualifiedImplMethodBodyMismatch),
@@ -78,7 +80,7 @@ tests =
     ("source pipeline rejects duplicate concrete impl declarations", testSourceRejectsDuplicateConcreteImplDeclarations),
     ("source pipeline rejects duplicate ADT impl declarations", testSourceRejectsDuplicateAdtImplDeclarations),
     ("compiler keeps nested capability facts scoped", testSourceKeepsNestedCapabilityFactsScoped),
-    ("compiler keeps imported qualified method bodies scoped", testCompilerKeepsImportedQualifiedMethodBodiesScoped),
+    ("compiler exposes imported qualified method bodies", testCompilerExposesImportedQualifiedMethodBodies),
     ("source pipeline treats capability declarations as signature separators", testSourceRejectsSignatureSeparatedByCapabilityDeclaration),
     ("source pipeline rejects separated signature", testSourceRejectsSeparatedSignature),
     ("source pipeline rejects signature name mismatch", testSourceRejectsSignatureNameMismatch),
@@ -426,7 +428,23 @@ testSourceSelectsQualifiedMethodBodyByArgumentTypes :: IO ()
 testSourceSelectsQualifiedMethodBodyByArgumentTypes =
   assertSourceOkWithoutPrelude
     ( qualifiedEqSource
-        <> "impl Eq(Bool) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\nresult :: Bool.\nresult = Eq::equals 1 1.\nresult."
+        <> "impl Eq(Bool) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\nresult :: Bool.\nresult = Eq::equals True False.\nresult."
+    )
+
+testSourceAcceptsSameImplQualifiedMethodBodyReferences :: IO ()
+testSourceAcceptsSameImplQualifiedMethodBodyReferences =
+  assertSourceOkWithoutPrelude
+    ( "class Eq(a) {\nequals :: a -> a -> Bool.\nnotEquals :: a -> a -> Bool.\n}.\n"
+        <> "impl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\nnotEquals = \\(left) -> \\(right) -> Eq::equals left right != True.\n}.\n"
+        <> "result :: Bool.\nresult = Eq::notEquals 1 2.\nresult."
+    )
+
+testSourceAcceptsHigherOrderQualifiedMethodSignature :: IO ()
+testSourceAcceptsHigherOrderQualifiedMethodSignature =
+  assertSourceOkWithoutPrelude
+    ( "class Apply(a) {\napply :: (Int -> Int) -> Int.\n}.\n"
+        <> "impl Apply(Int) {\napply = \\(f) -> f 1.\n}.\n"
+        <> "result :: Int.\nresult = Apply::apply (+ 1).\nresult."
     )
 
 testSourceRejectsQualifiedMethodSignatureMismatch :: IO ()
@@ -525,13 +543,10 @@ testSourceKeepsNestedCapabilityFactsScoped = do
           SLet "x" spanValue (ELit (LInt 1))
         ]
 
-testCompilerKeepsImportedQualifiedMethodBodiesScoped :: IO ()
-testCompilerKeepsImportedQualifiedMethodBodiesScoped = do
+testCompilerExposesImportedQualifiedMethodBodies :: IO ()
+testCompilerExposesImportedQualifiedMethodBodies = do
   result <- compileExpr defaultWarningSettings importedQualifiedMethodFactsProgram
-  assertSingleDiagnosticContains
-    "imported qualified method facts stay hidden"
-    "missing class method 'RemoteEq::equals'"
-    (compileErrors result)
+  assertEqual "imported qualified method compile errors" [] (compileErrors result)
 
 importedQualifiedMethodFactsProgram :: Expr
 importedQualifiedMethodFactsProgram =
