@@ -6,13 +6,13 @@ size: L
 kind: impl
 autonomous_ready: no
 depends_on: []
-last_verified: 2026-06-01
+last_verified: 2026-06-02
 plan_section: "Follow-up: Primitive deltas after literal-targeting landing"
 target_paths: []
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Primitive deltas outside landed explicit Float16/Float32 literal targeting and landed numeric/structural equality batches remain blocked until separate concrete contracts define target paths and focused verification."
+deliverable: "Primitive deltas outside landed Float16/Float32 width-preserving arithmetic, landed numeric/structural equality batches, and queued callable-equality rejection remain blocked until separate concrete contracts define target paths and focused verification."
 ---
 
 # Primitive Semantics Contract Implementation Plan
@@ -68,7 +68,7 @@ Execution note:
 - [x] Same concrete `Float`/`Float64` arithmetic for `+`, `-`, `*`, and `/` landed in `jazz-next`.
 - [x] Same concrete `Float`/`Float64` comparison and equality for `==`, `!=`, `<`, `<=`, `>`, and `>=` landed in `jazz-next`.
 - [x] Structural tuple/list equality for equality-supported element types landed in `jazz-next`.
-- [x] Same concrete `Float16`/`Float32` comparison/equality landed in `jazz-next`; same concrete `Float16`/`Float32` arithmetic is intentionally gated until runtime float values carry or apply the target width.
+- [x] Same concrete `Float16`/`Float32` comparison/equality and width-preserving arithmetic landed in `jazz-next`.
 - [x] Structural ADT equality for declared constructors with equality-supported payload types landed in `jazz-next`.
 - [x] Explicit `Float16`/`Float32` fractional literal targeting for directly
       annotated bindings landed in `jazz-next`.
@@ -463,7 +463,80 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
+## Completed implementation batch: Float16/Float32 width-preserving arithmetic
+
+This active-path batch accepts same concrete `Float16` and `Float32`
+arithmetic after runtime float values carry target-width metadata and reapply
+the selected target width to arithmetic results. It keeps literal targeting and
+width mixing explicit.
+
+Completed on `2026-06-02` as
+`JN-FLOAT16-FLOAT32-WIDTH-PRESERVING-ARITHMETIC-001`.
+
+Executor-safe scope:
+
+- Accepted `+`, `-`, `*`, and `/` when both operands resolve to the same
+  concrete `Float16` type.
+- Accepted `+`, `-`, `*`, and `/` when both operands resolve to the same
+  concrete `Float32` type.
+- Reapplied finite-target rounding after each accepted narrow-float arithmetic
+  operation and emitted deterministic overflow diagnostics when the result
+  cannot be represented as finite `Float16` or `Float32`.
+- Preserved existing integer and same-concrete `Float`/`Float64` arithmetic.
+- Preserved compile-time rejection for mixed `Int`/floating operands,
+  `Float16`/`Float32`, `Float16`/`Float64`, `Float32`/`Float64`, unrelated
+  non-numeric operands, and implicit-promotion cases.
+- Rejected direct runtime fallback arithmetic between targeted narrow floats
+  and untyped `Float` values with `E3007`.
+
+Out of scope:
+
+- literal suffix syntax,
+- targeting `Float8`,
+- implicit integer-to-float promotion,
+- implicit mixed-width arithmetic widening,
+- mixed-width comparison widening,
+- typeclass solver, dictionary passing, or runtime dispatch.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
 ## Follow-up: Primitive deltas after literal-targeting landing
+
+On `2026-06-02`, queue curation split the width-preserving arithmetic child
+plan out of this umbrella follow-up, and the child plan landed:
+
+- `docs/plans/2026-06-02-jazz-next-float16-float32-width-preserving-arithmetic.md`
+
+That child accepted same concrete `Float16`/`Float32` arithmetic by preserving
+the selected target width in runtime arithmetic results and reusing the
+existing finite-target rounding and overflow diagnostics. It kept literal
+suffixes, implicit integer-to-float promotion, implicit mixed-width behavior,
+function/operator/section equality, and broader numeric solver work out of
+scope.
+
+On `2026-06-02`, queue curation split one concrete child plan out of callable
+primitive equality follow-up and moved it to `Ready Now`:
+
+- `docs/plans/2026-06-02-jazz-next-function-equality-rejection.md`
+
+That child is limited to rejecting callable equality and inequality for
+function, operator-section, and builtin callable values, while preserving
+deterministic runtime rejection in direct helper coverage. It does not add
+callable identity semantics.
 
 On `2026-06-01`, queue curation split three concrete child plans out of this
 umbrella follow-up, and all three child plans landed:
@@ -483,7 +556,7 @@ source-exact checks and runtime rounding aligned with explicit conversions.
 Remaining primitive surface work stays blocked until separate contracts define
 exact syntax or behavior, target paths, and focused verification for literal
 suffixes, implicit integer-to-float promotion, implicit mixed-width behavior,
-function/operator/section equality, or broader numeric solver behavior.
+or broader numeric solver behavior.
 
 ## Verification Evidence (Current Ambiguity)
 

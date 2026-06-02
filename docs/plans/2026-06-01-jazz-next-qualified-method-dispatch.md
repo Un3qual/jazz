@@ -1,13 +1,14 @@
 ---
 id: JN-ABSTRACTION-QUALIFIED-METHOD-DISPATCH-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on:
   - JN-ABSTRACTION-EXPLICIT-CLASS-PARAMETERS-001
-last_verified: 2026-06-01
+last_verified: 2026-06-02
+completed_on: 2026-06-02
 plan_section: "Batch 1: Single-target qualified method dispatch"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Analyzer.hs
@@ -124,27 +125,39 @@ Batch target paths:
 
 Suggested task order:
 
-- [ ] Add parser coverage proving `Eq::equals` still lowers to the existing
+- [x] Add parser coverage proving `Eq::equals` still lowers to the existing
   class-qualified identifier shape without adding a new AST node.
-- [ ] Add shared method-key helpers in `CapabilityFacts.hs` if useful for
+- [x] Add shared method-key helpers in `CapabilityFacts.hs` if useful for
   rendering and comparing `Class::method` keys.
-- [ ] Update analyzer scope traversal so `EVar "Class::method"` is not reported
+- [x] Update analyzer scope traversal so `EVar "Class::method"` is not reported
   as unbound when the visible class declares that method and exactly one visible
   concrete impl body defines it.
-- [ ] Update type inference to collect visible class method signatures and
+- [x] Update type inference to collect visible class method signatures and
   method-bearing concrete impl bodies, substitute the class parameter with the
   concrete impl target, and infer the qualified method value from the resulting
   concrete method signature.
-- [ ] Add deterministic type diagnostics for missing class method metadata,
+- [x] Add deterministic type diagnostics for missing class method metadata,
   missing method-bearing impl bodies, and ambiguous method-bearing impl bodies.
-- [ ] Update runtime scope traversal so `EVar "Class::method"` evaluates to the
+- [x] Update runtime scope traversal so `EVar "Class::method"` evaluates to the
   selected concrete impl method body as an ordinary callable value.
-- [ ] Add source-pipeline coverage for successful direct `Eq::equals 1 1`,
+- [x] Add source-pipeline coverage for successful direct `Eq::equals 1 1`,
   type mismatch through the substituted method signature, missing impl method
   body rejection, and ambiguous method-bearing impl body rejection.
-- [ ] Add runtime coverage proving the selected impl method body executes and
+- [x] Add runtime coverage proving the selected impl method body executes and
   remains inert unless referenced through `Class::method`.
-- [ ] Run the focused verification commands listed in frontmatter.
+- [x] Run the focused verification commands listed in frontmatter.
+
+Completion (`2026-06-02`): this batch landed with focused parser, source
+pipeline, and runtime coverage. The implementation keeps method lookup
+explicit to `Class::method`, requires prior visible class method metadata for
+method-bearing impl bodies, validates concrete impl method bodies against the
+substituted class method signature, rejects missing metadata, missing impl
+method bodies, impl-before-class method metadata, and ambiguous method bodies
+deterministically, and evaluates the selected concrete impl body as an ordinary
+callable runtime value. Unqualified overloads, typed overload selection across
+multiple concrete impls, dictionaries, default methods, superclasses, inferred
+constraints, bundled-prelude method bodies, module export/import method
+behavior, and broader runtime evidence remain out of scope.
 
 Focused verification:
 
@@ -158,8 +171,11 @@ bash scripts/check-docs.sh
 
 ## Follow-up: Typed overload dispatch
 
-After this single-target qualified dispatch slice lands, a separate child plan
-should own typed overload dispatch across multiple visible concrete impl method
-bodies. That later batch needs an explicit selection rule, diagnostics for
-unresolved or ambiguous argument types, and focused module/prelude behavior
-before it returns to `Ready Now`.
+On `2026-06-02`, queue curation split typed overload dispatch across multiple
+visible concrete impl method bodies into a dedicated child plan:
+
+- `docs/plans/2026-06-02-jazz-next-typed-qualified-method-dispatch.md`
+
+That child owns the explicit selection rule and diagnostics for unresolved or
+ambiguous argument types. Module/prelude method behavior remains separate
+unless a child plan names exact target paths and focused verification.

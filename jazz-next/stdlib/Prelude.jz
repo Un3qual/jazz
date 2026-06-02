@@ -1,4 +1,6 @@
-class Eq(a) { }.
+class Eq(a) {
+equals :: a -> a -> Bool.
+}.
 class Ord(a) { }.
 class Num(a) { }.
 class Integral(a) { }.
@@ -6,7 +8,9 @@ class Fractional(a) { }.
 class Showable(a) { }.
 class Default(a) { }.
 
-impl Eq(Int) { }.
+impl Eq(Int) {
+equals = \(left) -> \(right) -> left == right.
+}.
 impl Eq(Float) { }.
 impl Eq(Bool) { }.
 impl Ord(Int) { }.

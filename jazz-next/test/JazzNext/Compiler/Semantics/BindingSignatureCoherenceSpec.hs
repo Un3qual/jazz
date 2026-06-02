@@ -7,6 +7,7 @@ import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
     ConstraintSignatureType (..),
     Expr (..),
+    ImplMethod (..),
     Literal (..),
     SignatureConstraint (..),
     SignaturePayload (..),
@@ -64,10 +65,20 @@ tests =
     ("source pipeline rejects variable-target empty impl declarations", testSourceRejectsVariableTargetEmptyImplDeclarations),
     ("source pipeline rejects duplicate impl method bindings", testSourceRejectsDuplicateImplMethodBindings),
     ("source pipeline rejects non-binding impl body items", testSourceRejectsNonBindingImplBodyItem),
+    ("source pipeline accepts single-target qualified method dispatch", testSourceAcceptsSingleTargetQualifiedMethodDispatch),
+    ("source pipeline selects qualified method body by argument types", testSourceSelectsQualifiedMethodBodyByArgumentTypes),
+    ("source pipeline applies substituted qualified method signature", testSourceRejectsQualifiedMethodSignatureMismatch),
+    ("source pipeline rejects qualified method dispatch with no typed candidate", testSourceRejectsQualifiedMethodDispatchWithNoTypedCandidate),
+    ("source pipeline rejects qualified impl method body mismatch", testSourceRejectsQualifiedImplMethodBodyMismatch),
+    ("source pipeline rejects impl method before class method metadata", testSourceRejectsImplMethodBeforeClassMethodMetadata),
+    ("source pipeline rejects qualified dispatch without class method metadata", testSourceRejectsQualifiedMethodMissingClassMethod),
+    ("source pipeline rejects qualified dispatch without impl method body", testSourceRejectsQualifiedMethodMissingImplBody),
+    ("source pipeline rejects ambiguous qualified method bodies", testSourceRejectsAmbiguousQualifiedMethodBodies),
     ("source pipeline rejects duplicate class declarations", testSourceRejectsDuplicateClassDeclarations),
     ("source pipeline rejects duplicate concrete impl declarations", testSourceRejectsDuplicateConcreteImplDeclarations),
     ("source pipeline rejects duplicate ADT impl declarations", testSourceRejectsDuplicateAdtImplDeclarations),
     ("compiler keeps nested capability facts scoped", testSourceKeepsNestedCapabilityFactsScoped),
+    ("compiler keeps imported qualified method bodies scoped", testCompilerKeepsImportedQualifiedMethodBodiesScoped),
     ("source pipeline treats capability declarations as signature separators", testSourceRejectsSignatureSeparatedByCapabilityDeclaration),
     ("source pipeline rejects separated signature", testSourceRejectsSeparatedSignature),
     ("source pipeline rejects signature name mismatch", testSourceRejectsSignatureNameMismatch),
@@ -388,7 +399,7 @@ testAnalyzerRejectsDuplicateClassMethodMetadata = do
 
 testSourceAnalyzesImplMethodBindingMetadata :: IO ()
 testSourceAnalyzesImplMethodBindingMetadata = do
-  assertSourceOkWithoutPrelude "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\nhelper :: Int.\nhelper = 1.\nimpl Eq(Int) {\nequals = helper.\n}.\nx :: Int.\nx = 1.\nx."
+  assertSourceOkWithoutPrelude "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\nx :: Int.\nx = 1.\nx."
   assertSourceSingleErrorContainsWithoutPrelude "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl Eq(Int) {\nequals = missingImplRuntime.\n}.\nx :: Int.\nx = 1.\nx." "unbound variable 'missingImplRuntime'"
 
 testSourceRejectsVariableTargetImplMethodBindings :: IO ()
@@ -406,6 +417,75 @@ testSourceRejectsDuplicateImplMethodBindings =
 testSourceRejectsNonBindingImplBodyItem :: IO ()
 testSourceRejectsNonBindingImplBodyItem =
   assertSourceSingleErrorContainsWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { equals :: Int. }.\nx = 1." "ordinary method binding"
+
+testSourceAcceptsSingleTargetQualifiedMethodDispatch :: IO ()
+testSourceAcceptsSingleTargetQualifiedMethodDispatch =
+  assertSourceOkWithoutPrelude (qualifiedEqSource <> "result :: Bool.\nresult = Eq::equals 1 1.\nresult.")
+
+testSourceSelectsQualifiedMethodBodyByArgumentTypes :: IO ()
+testSourceSelectsQualifiedMethodBodyByArgumentTypes =
+  assertSourceOkWithoutPrelude
+    ( qualifiedEqSource
+        <> "impl Eq(Bool) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\nresult :: Bool.\nresult = Eq::equals 1 1.\nresult."
+    )
+
+testSourceRejectsQualifiedMethodSignatureMismatch :: IO ()
+testSourceRejectsQualifiedMethodSignatureMismatch =
+  assertSourceSingleErrorContainsWithoutPrelude
+    (qualifiedEqSource <> "result = Eq::equals 1 True.\nresult.")
+    "cannot apply function of type Int -> Bool to argument of type Bool"
+
+testSourceRejectsQualifiedMethodDispatchWithNoTypedCandidate :: IO ()
+testSourceRejectsQualifiedMethodDispatchWithNoTypedCandidate =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( qualifiedEqSource
+        <> "impl Eq(Bool) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\nresult = Eq::equals 1 False.\nresult."
+    )
+    "no matching qualified method body 'Eq::equals' for argument types Int, Bool"
+
+testSourceRejectsQualifiedImplMethodBodyMismatch :: IO ()
+testSourceRejectsQualifiedImplMethodBodyMismatch =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl Eq(Int) {\nequals = 1.\n}.\nresult = Eq::equals 1 1.\nresult."
+    "impl method 'Eq::equals' declared as Int -> Int -> Bool but inferred as Int"
+
+testSourceRejectsImplMethodBeforeClassMethodMetadata :: IO ()
+testSourceRejectsImplMethodBeforeClassMethodMetadata = do
+  result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      "impl Eq(Int) {\nequals = 1.\n}.\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\nresult = Eq::equals 1 1.\nresult."
+  assertSingleDiagnosticContains
+    "impl-before-class method metadata"
+    "class method metadata for 'Eq::equals' must be declared before impl method body"
+    (compileErrors result)
+  assertSingleDiagnosticPrimarySpan
+    "impl-before-class method metadata span"
+    (SourceSpan 2 1)
+    (compileErrors result)
+
+testSourceRejectsQualifiedMethodMissingClassMethod :: IO ()
+testSourceRejectsQualifiedMethodMissingClassMethod =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) { }.\nimpl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\nresult = Eq::equals 1 1.\nresult."
+    "class method metadata for 'Eq::equals' must be declared before impl method body"
+
+testSourceRejectsQualifiedMethodMissingImplBody :: IO ()
+testSourceRejectsQualifiedMethodMissingImplBody =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl Eq(Int) { }.\nresult = Eq::equals 1 1.\nresult."
+    "missing impl method body 'Eq::equals'"
+
+testSourceRejectsAmbiguousQualifiedMethodBodies :: IO ()
+testSourceRejectsAmbiguousQualifiedMethodBodies =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Classify(a) {\nclassify :: Int -> Bool.\n}.\nimpl Classify(Int) {\nclassify = \\(value) -> value == 1.\n}.\nimpl Classify(Bool) {\nclassify = \\(value) -> value == 2.\n}.\nresult = Classify::classify 1.\nresult."
+    "ambiguous qualified method body 'Classify::classify' for argument types Int"
+
+qualifiedEqSource :: Text.Text
+qualifiedEqSource =
+  "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
 
 testSourceRejectsDuplicateClassDeclarations :: IO ()
 testSourceRejectsDuplicateClassDeclarations =
@@ -444,6 +524,53 @@ testSourceKeepsNestedCapabilityFactsScoped = do
           SSignature "x" spanValue (ConstrainedSignature [SignatureConstraint "Eq" [eqInt]] eqInt),
           SLet "x" spanValue (ELit (LInt 1))
         ]
+
+testCompilerKeepsImportedQualifiedMethodBodiesScoped :: IO ()
+testCompilerKeepsImportedQualifiedMethodBodiesScoped = do
+  result <- compileExpr defaultWarningSettings importedQualifiedMethodFactsProgram
+  assertSingleDiagnosticContains
+    "imported qualified method facts stay hidden"
+    "missing class method 'RemoteEq::equals'"
+    (compileErrors result)
+
+importedQualifiedMethodFactsProgram :: Expr
+importedQualifiedMethodFactsProgram =
+  EBlock
+    [ SModule (SourceSpan 1 1) ["Lib"],
+      SClass
+        (SourceSpan 2 1)
+        "RemoteEq"
+        ["a"]
+        [ ClassMethodSignature
+            "equals"
+            (SourceSpan 3 1)
+            ( ConstrainedSignature
+                []
+                ( ConstraintTypeFunction
+                    (ConstraintTypeName "a")
+                    (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool"))
+                )
+            )
+        ],
+      SImpl
+        (SourceSpan 4 1)
+        "RemoteEq"
+        [ConstraintTypeName "Int"]
+        [ ImplMethod
+            "equals"
+            (SourceSpan 5 1)
+            (ELambda "left" (ELambda "right" (EBinary "==" (EVar "left") (EVar "right"))))
+        ],
+      SModule (SourceSpan 6 1) ["App"],
+      SImport (SourceSpan 7 1) ["Lib"] Nothing Nothing,
+      SClass (SourceSpan 8 1) "RemoteEq" ["a"] [],
+      SExpr
+        (SourceSpan 9 1)
+        ( EApply
+            (EApply (EVar "RemoteEq::equals") (ELit (LInt 1)))
+            (ELit (LInt 1))
+        )
+    ]
 
 testSourceRejectsSignatureSeparatedByCapabilityDeclaration :: IO ()
 testSourceRejectsSignatureSeparatedByCapabilityDeclaration =

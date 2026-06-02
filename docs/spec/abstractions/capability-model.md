@@ -46,18 +46,28 @@ The normative numeric width/defaulting contract lives in `docs/spec/runtime/prim
 
 `jazz-next` parses and lowers class declarations with explicit lowercase
 parameter metadata plus signature-only method metadata, and concrete impl
-declarations with inert method binding metadata as declaration nodes.
-Analyzer/type/runtime statement walkers handle those nodes without adding
-method lookup, dispatch, defaulting, or runtime values. Duplicate class method
-signatures and duplicate impl method bindings reject deterministically. Missing,
-duplicate, or non-variable class parameters reject at parse time. Class method
-body/default syntax, non-binding impl body items, and method-bearing
-non-concrete impl bodies reject at parse time.
+declarations with method binding metadata as declaration nodes. Duplicate class
+method signatures and duplicate impl method bindings reject deterministically.
+Missing, duplicate, or non-variable class parameters reject at parse time.
+Class method body/default syntax, non-binding impl body items, and
+method-bearing non-concrete impl bodies reject at parse time.
 
 The current environment-validation slice rejects duplicate class declarations
 and duplicate concrete impl facts, and validates concrete constrained signatures
 against visible class declarations plus matching concrete impl facts using the
 declared class arity.
+
+The first executable method slice supports explicit `Class::method` references
+only when a prior visible class method signature and exactly one visible
+concrete impl method body exist. Type inference substitutes the class parameter
+with the concrete impl target and validates each concrete impl method body
+against that substituted method type before the method fact becomes visible.
+Missing class method metadata, missing impl method bodies, impl-before-class
+method metadata, and ambiguous multiple visible concrete method bodies reject
+deterministically. Runtime evaluates the selected concrete impl method body as
+an ordinary callable value only when referenced through the explicit
+`Class::method` key; class/impl declarations themselves remain non-value
+declarations.
 
 The default bundled prelude now provides the canonical vocabulary class
 declarations (`Eq(a)`, `Ord(a)`, `Num(a)`, `Integral(a)`, `Fractional(a)`,
@@ -72,7 +82,8 @@ where scoped, plus width-specific numeric signature names:
 - floating widths (`Float16`, `Float32`, and `Float64`) have `Eq`, `Ord`,
   `Num`, `Fractional`, `Default`, and `Showable` facts.
 
-Later batches must define qualified method dispatch, constraint solving beyond
-the current concrete fact checks, overlap/orphan policy, cross-module
-visibility, and runtime behavior before enabling broader executable class/impl
-semantics.
+Later batches must define typed overload selection across multiple concrete
+impl method bodies, constraint solving beyond the current concrete fact checks,
+overlap/orphan policy, cross-module method visibility, bundled-prelude method
+bodies, dictionaries, default methods, superclasses, and runtime evidence
+before enabling broader executable class/impl semantics.

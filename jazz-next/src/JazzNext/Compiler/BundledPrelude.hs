@@ -34,10 +34,28 @@ bundledPreludeSource =
       <> map renderPublicAlias allBuiltinSymbols
   where
     renderCapabilityClass name =
-      "class " <> name <> "(a) { }."
+      case name of
+        "Eq" ->
+          Text.intercalate
+            "\n"
+            [ "class Eq(a) {",
+              "equals :: a -> a -> Bool.",
+              "}."
+            ]
+        _ ->
+          "class " <> name <> "(a) { }."
 
     renderDefaultCapabilityImpl (className, targetType) =
-      "impl " <> className <> "(" <> targetType <> ") { }."
+      case (className, targetType) of
+        ("Eq", "Int") ->
+          Text.intercalate
+            "\n"
+            [ "impl Eq(Int) {",
+              "equals = \\(left) -> \\(right) -> left == right.",
+              "}."
+            ]
+        _ ->
+          "impl " <> className <> "(" <> targetType <> ") { }."
 
     -- Kernel bridge bindings must precede public aliases so alias definitions
     -- can reference already-declared names in the checked-in mirror.

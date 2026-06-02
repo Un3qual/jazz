@@ -37,7 +37,8 @@ import JazzNext.Compiler.BuiltinCatalog
     isBuiltinSymbolNameInMode
   )
 import JazzNext.Compiler.CapabilityFacts
-  ( concreteImplFactKey
+  ( concreteImplFactKey,
+    splitQualifiedMethodKey
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
@@ -122,9 +123,9 @@ analyzeProgramWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices
   let (warnings, errors) =
         case expr of
           EBlock statements ->
-            collectScopeDiagnostics builtinMode hiddenStatementIndices settings Map.empty topLevelContext statements
+            collectScopeDiagnostics builtinMode hiddenStatementIndices settings Map.empty Set.empty topLevelContext statements
           _ ->
-            collectExprDiagnostics builtinMode settings Map.empty topLevelContext expr
+            collectExprDiagnostics builtinMode settings Map.empty Set.empty topLevelContext expr
    in
     pure
       AnalysisResult
@@ -144,10 +145,11 @@ collectExprDiagnostics ::
   BuiltinResolutionMode ->
   WarningSettings ->
   Map Text VisibleBinding ->
+  Set Text ->
   AnalysisContext ->
   Expr ->
   ([WarningRecord], [Diagnostic])
-collectExprDiagnostics builtinMode settings visibleBindings context expr =
+collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context expr =
   case expr of
     ELit _ -> ([], [])
     EVar name ->
@@ -155,6 +157,7 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
         Just _ -> ([], [])
         Nothing
           | isBuiltinSymbolNameInMode builtinMode nameText -> ([], [])
+          | qualifiedMethodClassIsVisible visibleClassNames nameText -> ([], [])
           | otherwise -> ([], [mkUnboundVariableError nameText])
       where
         nameText = identifierText name
@@ -174,20 +177,20 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
                   primarySpan
                   visibleBindings
           (bodyWarnings, bodyErrors) =
-            collectExprDiagnostics builtinMode settings lambdaBindings context bodyExpr
+            collectExprDiagnostics builtinMode settings lambdaBindings visibleClassNames context bodyExpr
        in (shadowingWarnings ++ bodyWarnings, bodyErrors)
       where
         parameterNameText = identifierText parameterName
     EOperatorValue _ -> ([], [])
     EList elements ->
-      collectExprListDiagnostics builtinMode settings visibleBindings context elements
+      collectExprListDiagnostics builtinMode settings visibleBindings visibleClassNames context elements
     ETuple elements ->
-      collectExprListDiagnostics builtinMode settings visibleBindings context elements
+      collectExprListDiagnostics builtinMode settings visibleBindings visibleClassNames context elements
     EApply functionExpr argumentExpr ->
       let (functionWarnings, functionErrors) =
-            collectExprDiagnostics builtinMode settings visibleBindings context functionExpr
+            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context functionExpr
           (argumentWarnings, argumentErrors) =
-            collectExprDiagnostics builtinMode settings visibleBindings context argumentExpr
+            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context argumentExpr
           purityErrors =
             case functionExpr of
               EVar calleeName
@@ -203,21 +206,21 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
           functionErrors ++ argumentErrors ++ purityErrors
         )
     EIf conditionExpr thenExpr elseExpr ->
-      collectExprDiagnostics builtinMode settings visibleBindings context (ECase conditionExpr thenExpr elseExpr)
+      collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr ->
       let (conditionWarnings, conditionErrors) =
-            collectExprDiagnostics builtinMode settings visibleBindings context conditionExpr
+            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context conditionExpr
           (thenWarnings, thenErrors) =
-            collectExprDiagnostics builtinMode settings visibleBindings context thenExpr
+            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context thenExpr
           (elseWarnings, elseErrors) =
-            collectExprDiagnostics builtinMode settings visibleBindings context elseExpr
+            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context elseExpr
        in
         ( conditionWarnings ++ thenWarnings ++ elseWarnings,
           conditionErrors ++ thenErrors ++ elseErrors
         )
     EPatternCase scrutineeExpr caseArms ->
       let (scrutineeWarnings, scrutineeErrors) =
-            collectExprDiagnostics builtinMode settings visibleBindings context scrutineeExpr
+            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context scrutineeExpr
           armResults =
             map
               ( \(CaseArm pattern bodyExpr) ->
@@ -225,6 +228,7 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
                     builtinMode
                     settings
                     (extendBindingsWithPattern pattern visibleBindings)
+                    visibleClassNames
                     context
                     bodyExpr
               )
@@ -235,25 +239,26 @@ collectExprDiagnostics builtinMode settings visibleBindings context expr =
         )
     EBinary _ leftExpr rightExpr ->
       let (leftWarnings, leftErrors) =
-            collectExprDiagnostics builtinMode settings visibleBindings context leftExpr
+            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context leftExpr
           (rightWarnings, rightErrors) =
-            collectExprDiagnostics builtinMode settings visibleBindings context rightExpr
+            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context rightExpr
        in
         (leftWarnings ++ rightWarnings, leftErrors ++ rightErrors)
     ESectionLeft leftExpr _ ->
-      collectExprDiagnostics builtinMode settings visibleBindings context leftExpr
+      collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context leftExpr
     ESectionRight _ rightExpr ->
-      collectExprDiagnostics builtinMode settings visibleBindings context rightExpr
-    EBlock statements -> collectScopeDiagnostics builtinMode Set.empty settings visibleBindings context statements
+      collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context rightExpr
+    EBlock statements -> collectScopeDiagnostics builtinMode Set.empty settings visibleBindings visibleClassNames context statements
 
 collectExprListDiagnostics ::
   BuiltinResolutionMode ->
   WarningSettings ->
   Map Text VisibleBinding ->
+  Set Text ->
   AnalysisContext ->
   [Expr] ->
   ([WarningRecord], [Diagnostic])
-collectExprListDiagnostics builtinMode settings visibleBindings context elements =
+collectExprListDiagnostics builtinMode settings visibleBindings visibleClassNames context elements =
   let (warningsRev, errorsRev) =
         foldl'
           step
@@ -263,7 +268,7 @@ collectExprListDiagnostics builtinMode settings visibleBindings context elements
   where
     step (warningsRev, errorsRev) element =
       let (elementWarnings, elementErrors) =
-            collectExprDiagnostics builtinMode settings visibleBindings context element
+            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context element
        in
         (elementWarnings : warningsRev, elementErrors : errorsRev)
 
@@ -274,10 +279,11 @@ collectScopeDiagnostics ::
   Set Int ->
   WarningSettings ->
   Map Text VisibleBinding ->
+  Set Text ->
   AnalysisContext ->
   [Statement] ->
   ([WarningRecord], [Diagnostic])
-collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope context statements =
+collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope outerClassNames context statements =
   (reverse finalWarningsRev, reverse errorsWithFinalPending)
   where
     indexedStatements = zip [0 ..] statements
@@ -320,6 +326,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
                   builtinMode
                   settings
                   visible
+                  (currentVisibleClassNames classDeclarations)
                   (contextForExpressionStatement exprSpan context)
                   expr
            in
@@ -387,7 +394,12 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
                         (Map.insert implFactKey implSpan implDeclarations, [])
               methodErrors = duplicateImplMethodErrors capabilityName arguments methods
               (methodWarnings, methodBodyErrors) =
-                collectImplMethodDiagnostics builtinMode settings visible methods
+                collectImplMethodDiagnostics
+                  builtinMode
+                  settings
+                  visible
+                  (currentVisibleClassNames classDeclarations)
+                  methods
            in
             ( scopeBindings,
               classDeclarations,
@@ -480,7 +492,13 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
                   (currentVisibleBindings nextScope)
               bindingContext = contextForBinding bindingName
               (valueWarnings, valueErrors) =
-                collectExprDiagnostics builtinMode settings visible (bindingContext bindingSpan) valueExpr
+                collectExprDiagnostics
+                  builtinMode
+                  settings
+                  visible
+                  (currentVisibleClassNames classDeclarations)
+                  (bindingContext bindingSpan)
+                  valueExpr
               warningsWithValue = appendWarnings warningsRev valueWarnings
               errorsWithValue =
                 appendErrors (appendErrors errorsRev errorsFromSignature) valueErrors
@@ -500,6 +518,10 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope c
     currentVisibleBindings :: Map Text VisibleBinding -> Map Text VisibleBinding
     -- Local scope is left-biased so inner declarations shadow outer bindings.
     currentVisibleBindings scopeBindings = scopeBindings `Map.union` outerScope
+
+    currentVisibleClassNames :: Map Text SourceSpan -> Set Text
+    currentVisibleClassNames classDeclarations =
+      Map.keysSet classDeclarations `Set.union` outerClassNames
 
     withRecursivePeerBindings ::
       Int ->
@@ -549,6 +571,12 @@ mkUnboundVariableError :: Text -> Diagnostic
 mkUnboundVariableError variableName =
   setDiagnosticSubject variableName $
     mkDiagnostic "E1001" ("unbound variable '" <> variableName <> "'")
+
+qualifiedMethodClassIsVisible :: Set Text -> Text -> Bool
+qualifiedMethodClassIsVisible visibleClassNames nameText =
+  case splitQualifiedMethodKey nameText of
+    Just (capabilityName, _) -> Set.member capabilityName visibleClassNames
+    Nothing -> False
 
 mkMissingBindingForSignatureError :: PendingSignature -> Diagnostic
 mkMissingBindingForSignatureError pendingSignature =
@@ -647,9 +675,10 @@ collectImplMethodDiagnostics ::
   BuiltinResolutionMode ->
   WarningSettings ->
   Map Text VisibleBinding ->
+  Set Text ->
   [ImplMethod] ->
   ([WarningRecord], [Diagnostic])
-collectImplMethodDiagnostics builtinMode settings visibleBindings methods =
+collectImplMethodDiagnostics builtinMode settings visibleBindings visibleClassNames methods =
   foldr step ([], []) methods
   where
     step (ImplMethod methodName methodSpan methodExpr) (warningsAcc, errorsAcc) =
@@ -658,6 +687,7 @@ collectImplMethodDiagnostics builtinMode settings visibleBindings methods =
               builtinMode
               settings
               visibleBindings
+              visibleClassNames
               (contextForImplMethod methodName methodSpan)
               methodExpr
        in (methodWarnings ++ warningsAcc, methodErrors ++ errorsAcc)
