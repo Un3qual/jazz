@@ -27,7 +27,8 @@ import JazzNext.Compiler.Driver
     runSource
   )
 import JazzNext.Compiler.Runtime
-  ( evaluateRuntimeExpr
+  ( RuntimeValue (..),
+    evaluateRuntimeExpr
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -96,7 +97,19 @@ tests =
     ("dynamic integer-to-Float64 overflow checks source magnitude", testDynamicIntegerToFloat64OverflowRuntimeError),
     ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
     ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
+    ("Float32 arithmetic is gated before runtime", testFloat32ArithmeticRuntimeGate),
+    ("targeted Float32 fractional literal arithmetic is gated before runtime", testTargetedFloat32FractionalLiteralArithmeticRuntimeGate),
+    ("targeted Float16 and Float32 fractional literals round at runtime", testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue),
     ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError),
+    ("Float64 comparison and equality evaluate at runtime", testFloat64ComparisonEqualityRuntimeSuccess),
+    ("Float16 and Float32 comparison and equality evaluate at runtime", testFloat16Float32ComparisonEqualityRuntimeSuccess),
+    ("targeted Float16 and Float32 fractional literals evaluate through comparison and equality", testTargetedFloat16Float32FractionalLiteralComparisonEqualityRuntimeSuccess),
+    ("structural list equality evaluates at runtime", testStructuralListEqualityRuntimeSuccess),
+    ("structural tuple equality evaluates at runtime", testStructuralTupleEqualityRuntimeSuccess),
+    ("structural ADT equality evaluates at runtime", testStructuralAdtEqualityRuntimeSuccess),
+    ("runtime fallback rejects structural equality over functions", testRuntimeFallbackRejectsFunctionStructuralEquality),
+    ("runtime fallback returns false for different-length structural equality over functions", testRuntimeFallbackReturnsFalseForDifferentLengthFunctionStructuralEquality),
+    ("runtime fallback returns false for different saturated ADT constructors with function payloads", testRuntimeFallbackReturnsFalseForDifferentSaturatedAdtConstructors),
     ("Float16 conversion rounds to target precision", testFloat16ConversionRoundsRuntimeValue),
     ("dynamic integer conversion range failure reports deterministic diagnostic", testDynamicIntegerConversionRangeRuntimeError),
     ("runtime fallback rejects non-numeric conversion values", testRuntimeFallbackRejectsNonNumericConversionValue),
@@ -656,6 +669,27 @@ testFloat64ArithmeticRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "4.25") (runOutput result)
 
+testFloat32ArithmeticRuntimeGate :: IO ()
+testFloat32ArithmeticRuntimeGate = do
+  result <- runSource defaultWarningSettings "a32 = toFloat32 1.\nb32 = toFloat32 2.\na32 + b32."
+  assertSingleDiagnosticContains "Float32 arithmetic gate" "E2003" (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" Nothing (runOutput result)
+
+testTargetedFloat32FractionalLiteralArithmeticRuntimeGate :: IO ()
+testTargetedFloat32FractionalLiteralArithmeticRuntimeGate = do
+  result <- runSource defaultWarningSettings "a32 :: Float32.\na32 = 1.5.\nb32 :: Float32.\nb32 = 2.25.\na32 * b32 / b32."
+  assertSingleDiagnosticContains "targeted Float32 arithmetic gate" "E2003" (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" Nothing (runOutput result)
+
+testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue :: IO ()
+testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue = do
+  result <- runSource defaultWarningSettings "x16 :: Float16.\nx16 = 2049.0.\nx32 :: Float32.\nx32 = 1.00000001.\ny16 :: @{}: Float16.\ny16 = 2049.0.\ny32 :: @{}: Float32.\ny32 = 1.00000001.\n(x16, x32, y16, y32)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(2048.0, 1.0, 2048.0, 1.0)") (runOutput result)
+
 testFloat64ArithmeticOverflowRuntimeError :: IO ()
 testFloat64ArithmeticOverflowRuntimeError = do
   let hugeInteger = "1" <> replicate 200 '0'
@@ -678,6 +712,81 @@ testFloat64ArithmeticOverflowRuntimeError = do
     "non-finite Float result"
     (runRuntimeErrors result)
   assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testFloat64ComparisonEqualityRuntimeSuccess :: IO ()
+testFloat64ComparisonEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "lt = 1.5 < 2.0.\nle = 2.0 <= 2.0.\ngt = 3.0 > 2.0.\nge = 3.0 >= 3.0.\neq = 2.0 == 2.0.\nne = 2.0 != 3.0.\n[lt, le, gt, ge, eq, ne]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, True, True, True, True]") (runOutput result)
+
+testFloat16Float32ComparisonEqualityRuntimeSuccess :: IO ()
+testFloat16Float32ComparisonEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "a16 = toFloat16 1.\nb16 = toFloat16 2.\na32 = toFloat32 1.\nb32 = toFloat32 2.\nlt16 = a16 < b16.\nle16 = a16 <= a16.\ngt16 = b16 > a16.\nge16 = b16 >= b16.\neq16 = a16 == a16.\nne16 = a16 != b16.\nlt32 = a32 < b32.\nle32 = a32 <= a32.\ngt32 = b32 > a32.\nge32 = b32 >= b32.\neq32 = a32 == a32.\nne32 = a32 != b32.\n[lt16, le16, gt16, ge16, eq16, ne16, lt32, le32, gt32, ge32, eq32, ne32]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, True, True, True, True, True, True, True, True, True, True]") (runOutput result)
+
+testTargetedFloat16Float32FractionalLiteralComparisonEqualityRuntimeSuccess :: IO ()
+testTargetedFloat16Float32FractionalLiteralComparisonEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "a16 :: Float16.\na16 = 1.5.\nb16 :: Float16.\nb16 = 2.25.\na32 :: Float32.\na32 = 1.5.\nb32 :: Float32.\nb32 = 2.25.\n[a16 < b16, a16 <= a16, b16 > a16, b16 >= b16, a16 == a16, a16 != b16, a32 < b32, a32 <= a32, b32 > a32, b32 >= b32, a32 == a32, a32 != b32]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, True, True, True, True, True, True, True, True, True, True]") (runOutput result)
+
+testStructuralListEqualityRuntimeSuccess :: IO ()
+testStructuralListEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "same = [1, 2] == [1, 2].\ndifferent = [1, 2] != [1, 3].\nshorter = [1] == [1, 2].\nnested = [[True], [False]] == [[True], [False]].\n[same, different, shorter, nested]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, False, True]") (runOutput result)
+
+testStructuralTupleEqualityRuntimeSuccess :: IO ()
+testStructuralTupleEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "same = (1, True) == (1, True).\ndifferent = (1, (True, 2)) != (1, (True, 3)).\n[same, different]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True]") (runOutput result)
+
+testStructuralAdtEqualityRuntimeSuccess :: IO ()
+testStructuralAdtEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a.\nsame = Just 1 == Just 1.\ndifferentPayload = Just 1 != Just 2.\ndifferentCtor = Just 1 == Nothing.\nnested = Just [True] == Just [True].\n[same, differentPayload, differentCtor, nested]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, False, True]") (runOutput result)
+
+testRuntimeFallbackRejectsFunctionStructuralEquality :: IO ()
+testRuntimeFallbackRejectsFunctionStructuralEquality = do
+  let identity = ELambda "x" (EVar "x")
+      result = evaluateRuntimeExpr (runtimeExpr (EBinary "==" (EList [identity]) (EList [identity])))
+  assertRuntimeErrorContains "runtime fallback function structural equality" "E3007" result
+
+testRuntimeFallbackReturnsFalseForDifferentLengthFunctionStructuralEquality :: IO ()
+testRuntimeFallbackReturnsFalseForDifferentLengthFunctionStructuralEquality = do
+  let identity = ELambda "x" (EVar "x")
+      result = evaluateRuntimeExpr (runtimeExpr (EBinary "==" (EList [identity]) (EList [identity, identity])))
+  assertEqual "different-length function structural equality" (Right (Just (VBool False))) result
+
+testRuntimeFallbackReturnsFalseForDifferentSaturatedAdtConstructors :: IO ()
+testRuntimeFallbackReturnsFalseForDifferentSaturatedAdtConstructors = do
+  let result = evaluateRuntimeExpr differentSaturatedAdtConstructorEqualityExpr
+  assertEqual "different saturated ADT constructor equality" (Right (Just (VBool False))) result
+  where
+    identity = ELambda "x" (EVar "x")
+
+    differentSaturatedAdtConstructorEqualityExpr =
+      EBlock
+        [ SData
+            (SourceSpan 1 1)
+            "Maybe"
+            []
+            [ DataConstructor "Nothing" [],
+              DataConstructor "Just" [DataConstructorArgumentName "value"]
+            ],
+          SExpr
+            (SourceSpan 2 1)
+            (EBinary "==" (EApply (EVar "Just") identity) (EVar "Nothing"))
+        ]
 
 testFloat16ConversionRoundsRuntimeValue :: IO ()
 testFloat16ConversionRoundsRuntimeValue = do
@@ -714,14 +823,14 @@ testDeclarationOnlyScopeHasNoOutput = do
 
 testCapabilityDeclarationOnlyScopeHasNoOutput :: IO ()
 testCapabilityDeclarationOnlyScopeHasNoOutput = do
-  result <- runSource defaultWarningSettings "class RuntimeOnly { }.\nimpl RuntimeOnly(Int) { }."
+  result <- runSource defaultWarningSettings "class RuntimeOnly(a) { }.\nimpl RuntimeOnly(Int) { }."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "declaration-only capability scope produces no output" Nothing (runOutput result)
 
 testCapabilityDeclarationsRuntimeInert :: IO ()
 testCapabilityDeclarationsRuntimeInert = do
-  result <- runSource defaultWarningSettings "class RuntimeOnly { }.\nimpl RuntimeOnly(Int) { }.\nx = 1.\nx."
+  result <- runSource defaultWarningSettings "class RuntimeOnly(a) { }.\nimpl RuntimeOnly(Int) { }.\nx = 1.\nx."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "capability declarations do not affect runtime output" (Just "1") (runOutput result)

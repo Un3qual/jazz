@@ -4,10 +4,12 @@
 -- into the smaller core AST used by later phases.
 module JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
+    SurfaceClassMethodSignature (..),
     SurfaceConstrainedSignatureType (..),
     SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfaceNumericType (..),
@@ -164,13 +166,19 @@ data SurfaceSignatureToken
   | SurfaceSignatureOtherToken Text
   deriving (Eq, Show)
 
+data SurfaceClassMethodSignature = SurfaceClassMethodSignature Identifier SourceSpan SurfaceSignaturePayload
+  deriving (Eq, Show)
+
+data SurfaceImplMethod = SurfaceImplMethod Identifier SourceSpan SurfaceExpr
+  deriving (Eq, Show)
+
 -- | Statement forms preserved from the parsed surface program.
 data SurfaceStatement
   = SSLet Identifier SourceSpan SurfaceExpr
   | SSSignature Identifier SourceSpan SurfaceSignaturePayload
   | SSData SourceSpan Identifier [Identifier] [SurfaceDataConstructor]
-  | SSClass SourceSpan Identifier
-  | SSImpl SourceSpan Identifier [SurfaceConstrainedSignatureType]
+  | SSClass SourceSpan Identifier [Identifier] [SurfaceClassMethodSignature]
+  | SSImpl SourceSpan Identifier [SurfaceConstrainedSignatureType] [SurfaceImplMethod]
   | SSModule SourceSpan [Text]
   | SSImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SSExpr SourceSpan SurfaceExpr

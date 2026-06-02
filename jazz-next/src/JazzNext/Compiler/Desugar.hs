@@ -6,6 +6,7 @@ module JazzNext.Compiler.Desugar
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     Expr (..),
+    ImplMethod (..),
     Statement (..)
   )
 
@@ -55,10 +56,10 @@ desugarStatement statement =
       SLet name spanValue (desugarExpr valueExpr)
     SSignature name spanValue signatureText ->
       SSignature name spanValue signatureText
-    SClass spanValue capabilityName ->
-      SClass spanValue capabilityName
-    SImpl spanValue capabilityName arguments ->
-      SImpl spanValue capabilityName arguments
+    SClass spanValue capabilityName parameters methods ->
+      SClass spanValue capabilityName parameters methods
+    SImpl spanValue capabilityName arguments methods ->
+      SImpl spanValue capabilityName arguments (map desugarImplMethod methods)
     SModule spanValue modulePath ->
       SModule spanValue modulePath
     SImport spanValue modulePath alias importedSymbols ->
@@ -71,3 +72,7 @@ desugarCaseArm (CaseArm patternExpr bodyExpr) =
   -- Patterns are already canonical core nodes; only arm bodies can contain
   -- desugarable control-flow expressions.
   CaseArm patternExpr (desugarExpr bodyExpr)
+
+desugarImplMethod :: ImplMethod -> ImplMethod
+desugarImplMethod (ImplMethod methodName spanValue methodExpr) =
+  ImplMethod methodName spanValue (desugarExpr methodExpr)

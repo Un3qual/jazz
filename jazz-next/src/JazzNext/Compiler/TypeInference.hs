@@ -29,6 +29,7 @@ import JazzNext.Compiler.AST
     DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
+    ImplMethod (..),
     Literal (..),
     NumericType (..),
     Pattern (..),
@@ -186,16 +187,20 @@ canonicalizeStatement statement =
       SSignature name spanValue signaturePayload
     SData spanValue typeName typeParameters constructors ->
       SData spanValue typeName typeParameters constructors
-    SClass spanValue capabilityName ->
-      SClass spanValue capabilityName
-    SImpl spanValue capabilityName arguments ->
-      SImpl spanValue capabilityName arguments
+    SClass spanValue capabilityName parameters methods ->
+      SClass spanValue capabilityName parameters methods
+    SImpl spanValue capabilityName arguments methods ->
+      SImpl spanValue capabilityName arguments (map canonicalizeImplMethod methods)
     SModule spanValue modulePath ->
       SModule spanValue modulePath
     SImport spanValue modulePath alias importedSymbols ->
       SImport spanValue modulePath alias importedSymbols
     SExpr spanValue expr ->
       SExpr spanValue (canonicalizeExpr expr)
+
+canonicalizeImplMethod :: ImplMethod -> ImplMethod
+canonicalizeImplMethod (ImplMethod methodName spanValue methodExpr) =
+  ImplMethod methodName spanValue (canonicalizeExpr methodExpr)
 
 -- | Internal type language used by the current inferencer.
 data ExpressionType
@@ -223,6 +228,7 @@ data IntegerLiteralRange = IntegerLiteralRange Integer Integer
 data NumericConstraint
   = AnyNumericConstraint
   | RuntimeArithmeticNumericConstraint
+  | RuntimeComparisonNumericConstraint
   | IntegralNumericConstraint
   | IntegralLiteralNumericConstraint IntegerLiteralRange
   deriving (Eq, Show)
@@ -235,6 +241,9 @@ data TypeBinding
 
 type TypeEnv = Map Text TypeBinding
 
+data DataTypeBinding = DataTypeBinding [Identifier] [[ConstructorArgumentType]]
+  deriving (Eq, Show)
+
 -- | Mutable inference state threaded explicitly through the checker.
 data InferState = InferState
   { inferNextTypeVar :: Int,
@@ -245,7 +254,8 @@ data InferState = InferState
     -- Type variables originating from generic numeric operators must resolve
     -- to a concrete numeric family before they can be applied.
     inferNumericVars :: Map Int NumericConstraint,
-    inferClassFacts :: Set Text,
+    inferDataTypes :: Map Text DataTypeBinding,
+    inferClassFacts :: Map Text Int,
     inferConcreteImplFacts :: Set Text,
     inferCurrentModulePath :: Maybe [Text],
     inferModuleCapabilityFacts :: Map [Text] ScopeCapabilityFacts,
@@ -260,7 +270,8 @@ initialInferState =
       inferSubst = Map.empty,
       inferStrictEqualityVars = Set.empty,
       inferNumericVars = Map.empty,
-      inferClassFacts = Set.empty,
+      inferDataTypes = Map.empty,
+      inferClassFacts = Map.empty,
       inferConcreteImplFacts = Set.empty,
       inferCurrentModulePath = Nothing,
       inferModuleCapabilityFacts = Map.empty,
@@ -601,7 +612,7 @@ numericRuleConstraint :: NumericRuleResult -> NumericConstraint
 numericRuleConstraint resultRule =
   case resultRule of
     NumericSameTypeResult -> RuntimeArithmeticNumericConstraint
-    NumericBoolResult -> IntegralNumericConstraint
+    NumericBoolResult -> RuntimeComparisonNumericConstraint
 
 numericBinaryOperandType ::
   Text ->
@@ -653,14 +664,18 @@ applyStrictEqualityBinaryRule operatorSymbol leftType rightType state =
     Just unifiedState ->
       let resolvedType = resolveType unifiedState leftType
        in
-        if supportsRuntimeEqualityType resolvedType
-          then (Just TBoolType, unifiedState)
-          else
-            ( Nothing,
-              addTypeError
-                unifiedState
-                (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedType)
-            )
+        case resolvedType of
+          TVarType typeVar ->
+            (Just TBoolType, addStrictEqualityTypeVarConstraint typeVar unifiedState)
+          _
+            | supportsRuntimeEqualityType unifiedState resolvedType ->
+                (Just TBoolType, unifiedState)
+            | otherwise ->
+                ( Nothing,
+                  addTypeError
+                    unifiedState
+                    (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedType)
+                )
     Nothing ->
       ( Nothing,
         addTypeError
@@ -731,7 +746,7 @@ applyStrictEqualitySectionLeftRule operatorSymbol leftType state =
           addStrictEqualityTypeVarConstraint typeVar state
         )
       _
-        | supportsRuntimeEqualityType resolvedLeftType ->
+        | supportsRuntimeEqualityType state resolvedLeftType ->
             (Just (TFunctionType resolvedLeftType TBoolType), state)
         | otherwise ->
             ( Nothing,
@@ -799,7 +814,7 @@ applyStrictEqualitySectionRightRule operatorSymbol rightType state =
           addStrictEqualityTypeVarConstraint typeVar state
         )
       _
-        | supportsRuntimeEqualityType resolvedRightType ->
+        | supportsRuntimeEqualityType state resolvedRightType ->
             (Just (TFunctionType resolvedRightType TBoolType), state)
         | otherwise ->
             ( Nothing,
@@ -859,9 +874,9 @@ inferScopeType builtinMode initialEnv initialState statements =
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                in go env lastExprType Nothing nextModuleBaselineFacts nextState rest
-            SData _ typeName typeParameters constructors ->
+            SData spanValue typeName typeParameters constructors ->
               let (nextEnv, nextState) =
-                    registerDataConstructors typeName typeParameters constructors env state
+                    registerDataConstructors spanValue typeName typeParameters constructors env state
                in go nextEnv lastExprType Nothing moduleBaselineFacts nextState rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
@@ -904,9 +919,19 @@ inferScopeType builtinMode initialEnv initialState statements =
                               (PlainTypeBinding (pendingSignatureDeclaredType pendingSignature))
                               envWithBindingSeed
                       _ -> envWithBindingSeed
-                  (valueType, rawStateAfterValue) = inferExprType builtinMode envWithPendingSignature state valueExpr
+                  (rawValueType, rawStateAfterValue) = inferExprType builtinMode envWithPendingSignature state valueExpr
+                  valueType =
+                    targetedFractionalLiteralBindingType
+                      nameText
+                      pendingSignatureType
+                      valueExpr
+                      rawValueType
+                  stateAfterTargetedLiteralCheck =
+                    case targetedFractionalLiteralDiagnostic nameText pendingSignatureType valueExpr rawValueType of
+                      Just diagnostic -> addTypeError rawStateAfterValue diagnostic
+                      Nothing -> rawStateAfterValue
                   stateAfterValue =
-                    annotateNewErrorsWithPrimarySpan bindingSpan state rawStateAfterValue
+                    annotateNewErrorsWithPrimarySpan bindingSpan state stateAfterTargetedLiteralCheck
                   stateAfterBindingSeedCheck =
                     case (Map.lookup statementIndex bindingSeedsByStatement, valueType) of
                       (Just bindingSeed, Just inferredType) ->
@@ -1001,14 +1026,14 @@ allocateBindingSeeds indexedStatements initialState =
         _ -> (bindingSeeds, state)
 
 data ScopeCapabilityFacts = ScopeCapabilityFacts
-  { scopeClassFacts :: Set Text,
+  { scopeClassFacts :: Map Text Int,
     scopeConcreteImplFacts :: Set Text
   }
 
 emptyScopeCapabilityFacts :: ScopeCapabilityFacts
 emptyScopeCapabilityFacts =
   ScopeCapabilityFacts
-    { scopeClassFacts = Set.empty,
+    { scopeClassFacts = Map.empty,
       scopeConcreteImplFacts = Set.empty
     }
 
@@ -1036,7 +1061,7 @@ restoreCapabilityFacts previousState nextState =
 mergeCapabilityFacts :: ScopeCapabilityFacts -> ScopeCapabilityFacts -> ScopeCapabilityFacts
 mergeCapabilityFacts leftFacts rightFacts =
   ScopeCapabilityFacts
-    { scopeClassFacts = Set.union (scopeClassFacts leftFacts) (scopeClassFacts rightFacts),
+    { scopeClassFacts = Map.union (scopeClassFacts leftFacts) (scopeClassFacts rightFacts),
       scopeConcreteImplFacts =
         Set.union
           (scopeConcreteImplFacts leftFacts)
@@ -1088,9 +1113,9 @@ seedStatementCapabilityFact state statement =
 seedFacts :: ScopeCapabilityFacts -> (Int, Statement) -> ScopeCapabilityFacts
 seedFacts facts (_, statement) =
   case statement of
-    SClass _ capabilityName ->
-      facts {scopeClassFacts = Set.insert (identifierText capabilityName) (scopeClassFacts facts)}
-    SImpl _ capabilityName arguments ->
+    SClass _ capabilityName parameters _ ->
+      facts {scopeClassFacts = Map.insert (identifierText capabilityName) (length parameters) (scopeClassFacts facts)}
+    SImpl _ capabilityName arguments _ ->
       case concreteImplFactKey capabilityName arguments of
         Just implFactKey ->
           facts {scopeConcreteImplFacts = Set.insert implFactKey (scopeConcreteImplFacts facts)}
@@ -1201,11 +1226,76 @@ data PendingSignatureType = PendingSignatureType
     pendingSignatureDeclaredType :: ExpressionType
   }
 
-registerDataConstructors :: Identifier -> [Identifier] -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
-registerDataConstructors typeName typeParameters constructors env initialState =
-  foldl' register (env, initialState) constructors
+targetedFractionalLiteralBindingType ::
+  Text ->
+  Maybe PendingSignatureType ->
+  Expr ->
+  Maybe ExpressionType ->
+  Maybe ExpressionType
+targetedFractionalLiteralBindingType bindingName maybePendingSignature valueExpr maybeInferredType =
+  case targetedFractionalLiteralType bindingName maybePendingSignature valueExpr maybeInferredType of
+    Just targetType -> Just (TNumericType targetType)
+    Nothing -> maybeInferredType
+
+targetedFractionalLiteralDiagnostic ::
+  Text ->
+  Maybe PendingSignatureType ->
+  Expr ->
+  Maybe ExpressionType ->
+  Maybe Diagnostic
+targetedFractionalLiteralDiagnostic bindingName maybePendingSignature valueExpr maybeInferredType =
+  case (targetedFractionalLiteralType bindingName maybePendingSignature valueExpr maybeInferredType, valueExpr) of
+    (Just targetType, ELit (LFloat literalValue literalSource)) ->
+      targetedFloatLiteralDiagnostic targetType literalValue literalSource
+    _ -> Nothing
+
+targetedFractionalLiteralType ::
+  Text ->
+  Maybe PendingSignatureType ->
+  Expr ->
+  Maybe ExpressionType ->
+  Maybe NumericType
+targetedFractionalLiteralType bindingName maybePendingSignature valueExpr maybeInferredType =
+  case (maybePendingSignature, valueExpr, maybeInferredType) of
+    (Just pendingSignature, ELit (LFloat {}), Just TFloatType)
+      | pendingSignatureName pendingSignature == bindingName ->
+          concreteFloatNumericType (pendingSignatureDeclaredType pendingSignature)
+    _ -> Nothing
+
+concreteFloatNumericType :: ExpressionType -> Maybe NumericType
+concreteFloatNumericType expressionType =
+  case expressionType of
+    TNumericType NumericFloat16 -> Just NumericFloat16
+    TNumericType NumericFloat32 -> Just NumericFloat32
+    TNumericType NumericFloat64 -> Just NumericFloat64
+    _ -> Nothing
+
+registerDataConstructors :: SourceSpan -> Identifier -> [Identifier] -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
+registerDataConstructors spanValue typeName typeParameters constructors env initialState =
+  case Map.lookup typeNameText (inferDataTypes initialState) of
+    Just _ ->
+      ( env,
+        addTypeError
+          initialState
+          (mkDuplicateDataTypeDeclarationError typeNameText spanValue)
+      )
+    Nothing ->
+      let (nextEnv, nextState, constructorPayloadsRev) =
+            foldl' register (env, initialState, []) constructors
+       in
+        ( nextEnv,
+          nextState
+            { inferDataTypes =
+                Map.insert
+                  typeNameText
+                  (DataTypeBinding typeParameters (reverse constructorPayloadsRev))
+                  (inferDataTypes nextState)
+            }
+        )
   where
-    register (envAcc, stateAcc) (DataConstructor constructorName constructorArguments) =
+    typeNameText = identifierText typeName
+
+    register (envAcc, stateAcc, constructorPayloadsAcc) (DataConstructor constructorName constructorArguments) =
       let (argumentTypes, nextState) =
             constructorArgumentTypes typeParameters constructorArguments stateAcc
        in
@@ -1213,7 +1303,8 @@ registerDataConstructors typeName typeParameters constructors env initialState =
             (identifierText constructorName)
             (ConstructorTypeBinding typeName typeParameters argumentTypes)
             envAcc,
-          nextState
+          nextState,
+          argumentTypes : constructorPayloadsAcc
         )
 
 constructorArgumentTypes :: [Identifier] -> [DataConstructorArgument] -> InferState -> ([ConstructorArgumentType], InferState)
@@ -1466,10 +1557,9 @@ supportedVariableConstraints constraints signatureType =
 
 supportedConcreteConstraint :: InferState -> SignatureConstraint -> Bool
 supportedConcreteConstraint state (SignatureConstraint constraintName arguments) =
-  case arguments of
-    [argument] ->
-      Set.member (identifierText constraintName) (inferClassFacts state)
-        && concreteConstraintArgument argument
+  case (Map.lookup (identifierText constraintName) (inferClassFacts state), arguments) of
+    (Just 1, [argument]) ->
+      concreteConstraintArgument argument
         && Set.member
           (constraintImplFactKey constraintName argument)
           (inferConcreteImplFacts state)
@@ -1566,6 +1656,18 @@ numericTypeIsIntegral numericType =
     NumericFloat32 -> False
     NumericFloat64 -> False
 
+numericTypeSupportsRuntimeArithmetic :: NumericType -> Bool
+numericTypeSupportsRuntimeArithmetic numericType =
+  numericTypeIsIntegral numericType
+    || numericType == NumericFloat64
+
+numericTypeSupportsRuntimeComparison :: NumericType -> Bool
+numericTypeSupportsRuntimeComparison numericType =
+  numericTypeIsIntegral numericType
+    || numericType == NumericFloat16
+    || numericType == NumericFloat32
+    || numericType == NumericFloat64
+
 integerLiteralRangeFitsNumericType :: IntegerLiteralRange -> NumericType -> Bool
 integerLiteralRangeFitsNumericType literalRange numericType =
   case numericTypeIntegerBounds numericType of
@@ -1617,6 +1719,16 @@ numericConversionFloatLiteralDiagnostic conversionName targetType literalValue l
               || fractionalLiteralExceedsMagnitude literalSource maxMagnitude ->
               Just (mkNumericConversionFloatLiteralOverflowError conversionName literalValue targetType maxMagnitude)
         _ -> Nothing
+
+targetedFloatLiteralDiagnostic :: NumericType -> Double -> FractionalLiteralSource -> Maybe Diagnostic
+targetedFloatLiteralDiagnostic targetType literalValue literalSource =
+  case numericTypeFloatMax targetType of
+    Just maxMagnitude
+      | not (finiteFloat literalValue)
+          || abs literalValue > maxMagnitude
+          || fractionalLiteralExceedsMagnitude literalSource maxMagnitude ->
+          Just (mkTargetedFractionalLiteralOverflowError literalValue targetType maxMagnitude)
+    _ -> Nothing
 
 finiteFloat :: Double -> Bool
 finiteFloat value = not (isNaN value) && not (isInfinite value)
@@ -2049,7 +2161,7 @@ bindTypeVar typeVar replacementType state
   | replacementType == TVarType typeVar = Just state
   | occursInType typeVar replacementType = Nothing
   -- Preserve compile/runtime contract when deferred section vars later unify.
-  | typeVarIsStrictEqualityConstrained && not (supportsDeferredEqualityOperandType replacementType) =
+  | typeVarIsStrictEqualityConstrained && not (supportsDeferredEqualityOperandType state replacementType) =
       Nothing
   | otherwise =
       case constrainedReplacementType of
@@ -2143,6 +2255,8 @@ combineNumericConstraints leftConstraint rightConstraint =
     (_, IntegralNumericConstraint) -> IntegralNumericConstraint
     (RuntimeArithmeticNumericConstraint, _) -> RuntimeArithmeticNumericConstraint
     (_, RuntimeArithmeticNumericConstraint) -> RuntimeArithmeticNumericConstraint
+    (RuntimeComparisonNumericConstraint, _) -> RuntimeComparisonNumericConstraint
+    (_, RuntimeComparisonNumericConstraint) -> RuntimeComparisonNumericConstraint
     _ -> AnyNumericConstraint
 
 applyNumericConstraintToReplacement :: NumericConstraint -> ExpressionType -> Maybe ExpressionType
@@ -2184,7 +2298,16 @@ typeSatisfiesNumericConstraint numericConstraint expressionType =
         TIntegerLiteralType {} -> True
         TFloatType -> True
         TNumericType numericType ->
-          numericTypeIsIntegral numericType || numericType == NumericFloat64
+          numericTypeSupportsRuntimeArithmetic numericType
+        TVarType {} -> True
+        _ -> False
+    RuntimeComparisonNumericConstraint ->
+      case expressionType of
+        TIntType -> True
+        TIntegerLiteralType {} -> True
+        TFloatType -> True
+        TNumericType numericType ->
+          numericTypeSupportsRuntimeComparison numericType
         TVarType {} -> True
         _ -> False
     IntegralNumericConstraint ->
@@ -2219,25 +2342,25 @@ mkNumericBinaryTypeError :: Text -> NumericRuleResult -> ExpressionType -> Expre
 mkNumericBinaryTypeError operatorSymbol resultRule leftType rightType =
   case resultRule of
     NumericSameTypeResult
-      | any isDeferredFloatArithmeticType [leftType, rightType] ->
-          mkDeferredFloatArithmeticTypeError operatorSymbol leftType rightType
+      | any isNarrowFloatType [leftType, rightType] ->
+          mkNarrowFloatArithmeticTypeError
+            ( "cannot apply operator '"
+                <> operatorSymbol
+                <> "' to operands of type "
+                <> renderType leftType
+                <> " and "
+                <> renderType rightType
+            )
     _ -> mkBinaryTypeError operatorSymbol leftType rightType
 
-mkDeferredFloatArithmeticTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
-mkDeferredFloatArithmeticTypeError operatorSymbol leftType rightType =
+mkNarrowFloatArithmeticTypeError :: Text -> Diagnostic
+mkNarrowFloatArithmeticTypeError prefix =
   mkDiagnostic
     "E2003"
-    ( "cannot apply operator '"
-        <> operatorSymbol
-        <> "' to operands of type "
-        <> renderType leftType
-        <> " and "
-        <> renderType rightType
-        <> ": Float16/Float32 arithmetic is deferred; convert operands to Float64 or use supported Float64 arithmetic"
-    )
+    (prefix <> ": Float16/Float32 arithmetic is not yet supported; convert operands to Float64")
 
-isDeferredFloatArithmeticType :: ExpressionType -> Bool
-isDeferredFloatArithmeticType expressionType =
+isNarrowFloatType :: ExpressionType -> Bool
+isNarrowFloatType expressionType =
   case expressionType of
     TNumericType NumericFloat16 -> True
     TNumericType NumericFloat32 -> True
@@ -2261,9 +2384,17 @@ mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
     "E2004"
     ( "strict equality operator '"
         <> operatorSymbol
-        <> "' is only supported for Bool and integral numeric types, found "
+        <> "' is only supported for Bool, integral numeric, Float/Float16/Float32/Float64, lists and tuples containing equality-supported elements, and ADTs containing equality-supported constructor payloads, found "
         <> renderType foundType
     )
+
+mkDuplicateDataTypeDeclarationError :: Text -> SourceSpan -> Diagnostic
+mkDuplicateDataTypeDeclarationError typeName spanValue =
+  setDiagnosticSubject typeName $
+    setDiagnosticPrimarySpan spanValue $
+      mkDiagnostic
+        "E2014"
+        ("duplicate data type declaration '" <> typeName <> "'")
 
 mkSignatureTypeMismatchError ::
   Text ->
@@ -2346,6 +2477,18 @@ mkNumericConversionFloatLiteralOverflowError conversionName literalValue targetT
         <> Text.pack (show maxMagnitude)
     )
 
+mkTargetedFractionalLiteralOverflowError :: Double -> NumericType -> Double -> Diagnostic
+mkTargetedFractionalLiteralOverflowError literalValue targetType maxMagnitude =
+  mkDiagnostic
+    "E2006"
+    ( "fractional literal "
+        <> Text.pack (show literalValue)
+        <> " cannot target finite "
+        <> renderNumericTypeName targetType
+        <> " magnitude "
+        <> Text.pack (show maxMagnitude)
+    )
+
 mkBindingTypeMismatchError :: Text -> ExpressionType -> SourceSpan -> ExpressionType -> Diagnostic
 mkBindingTypeMismatchError bindingName expectedType bindingSpan actualType =
   setDiagnosticPrimarySpan
@@ -2382,14 +2525,12 @@ mkNumericSectionOperandTypeError :: Text -> NumericRuleResult -> ExpressionType 
 mkNumericSectionOperandTypeError operatorSymbol resultRule operandType =
   case resultRule of
     NumericSameTypeResult
-      | isDeferredFloatArithmeticType operandType ->
-          mkDiagnostic
-            "E2003"
+      | isNarrowFloatType operandType ->
+          mkNarrowFloatArithmeticTypeError
             ( "operator section '"
                 <> operatorSymbol
-                <> "' requires a supported numeric operand, found "
+                <> "' cannot use operand of type "
                 <> renderType operandType
-                <> ": Float16/Float32 arithmetic is deferred; convert operands to Float64 or use supported Float64 arithmetic"
             )
     _ ->
       mkDiagnostic
@@ -2509,8 +2650,18 @@ concreteConstraintFailureSummary state constraints
   | otherwise = firstJust (map constraintFailureSummary constraints)
   where
     constraintFailureSummary (SignatureConstraint constraintName arguments)
-      | Set.notMember (identifierText constraintName) (inferClassFacts state) =
-          Just ("missing class declaration '" <> identifierText constraintName <> "'")
+      | Nothing <- maybeClassArity =
+          Just ("missing class declaration '" <> constraintNameText <> "'")
+      | Just expectedArity <- maybeClassArity,
+        expectedArity /= length arguments =
+          Just
+            ( "constraint '"
+                <> constraintNameText
+                <> "' expects "
+                <> Text.pack (show expectedArity)
+                <> " argument(s), got "
+                <> Text.pack (show (length arguments))
+            )
       | [argument] <- arguments,
         concreteConstraintArgument argument,
         let implFactKey = constraintImplFactKey constraintName argument,
@@ -2518,6 +2669,9 @@ concreteConstraintFailureSummary state constraints
           Just ("missing impl fact '" <> implFactKey <> "'")
       | otherwise =
           Nothing
+      where
+        constraintNameText = identifierText constraintName
+        maybeClassArity = Map.lookup constraintNameText (inferClassFacts state)
 
     firstJust results =
       case results of
@@ -3054,19 +3208,66 @@ mkDuplicatePatternBinderError binderName =
     "E2011"
     ("duplicate case pattern binder '" <> binderName <> "'")
 
-supportsRuntimeEqualityType :: ExpressionType -> Bool
-supportsRuntimeEqualityType expressionType =
+supportsRuntimeEqualityType :: InferState -> ExpressionType -> Bool
+supportsRuntimeEqualityType state expressionType =
+  supportsRuntimeEqualityTypeWith Set.empty state expressionType
+
+supportsRuntimeEqualityTypeWith :: Set Text -> InferState -> ExpressionType -> Bool
+supportsRuntimeEqualityTypeWith seenDataTypes state expressionType =
   -- Keep compile-time acceptance aligned with the currently implemented
   -- runtime equality evaluator to avoid compile/runtime contract drift.
-  case expressionType of
+  case resolveType state expressionType of
     TIntType -> True
     TIntegerLiteralType {} -> True
-    TNumericType numericType -> numericTypeIsIntegral numericType
+    TFloatType -> True
+    TNumericType numericType -> numericTypeSupportsRuntimeComparison numericType
     TBoolType -> True
+    TListType elementType -> supportsRuntimeEqualityTypeWith seenDataTypes state elementType
+    TTupleType elementTypes -> all (supportsRuntimeEqualityTypeWith seenDataTypes state) elementTypes
+    TDataType typeName typeArguments ->
+      dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments
     _ -> False
 
-supportsDeferredEqualityOperandType :: ExpressionType -> Bool
-supportsDeferredEqualityOperandType expressionType =
-  case expressionType of
+dataTypeSupportsRuntimeEquality :: InferState -> Identifier -> [ExpressionType] -> Bool
+dataTypeSupportsRuntimeEquality state typeName typeArguments =
+  dataTypeSupportsRuntimeEqualityWith Set.empty state typeName typeArguments
+
+dataTypeSupportsRuntimeEqualityWith :: Set Text -> InferState -> Identifier -> [ExpressionType] -> Bool
+dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
+  let resolvedTypeArguments = map (resolveType state) typeArguments
+      dataTypeKey =
+        identifierText typeName
+          <> "<"
+          <> Text.intercalate ", " (map renderType resolvedTypeArguments)
+          <> ">"
+   in if Set.member dataTypeKey seenDataTypes
+        then True
+        else dataTypeSupportsRuntimeEqualityUnseen (Set.insert dataTypeKey seenDataTypes) resolvedTypeArguments
+  where
+    dataTypeSupportsRuntimeEqualityUnseen nextSeenDataTypes resolvedTypeArguments =
+      case Map.lookup (identifierText typeName) (inferDataTypes state) of
+        Just (DataTypeBinding typeParameters constructors)
+          | length typeParameters == length resolvedTypeArguments ->
+              let typeParameterBindings =
+                    Map.fromList
+                      (zip (map identifierText typeParameters) resolvedTypeArguments)
+               in all
+                    (all (constructorArgumentSupportsRuntimeEquality nextSeenDataTypes typeParameterBindings))
+                    constructors
+        _ -> False
+
+    constructorArgumentSupportsRuntimeEquality nextSeenDataTypes typeParameterBindings argumentType =
+      case argumentType of
+        ConstructorArgumentMonomorphic expressionType ->
+          supportsRuntimeEqualityTypeWith nextSeenDataTypes state expressionType
+        ConstructorArgumentParameter parameterName ->
+          case Map.lookup parameterName typeParameterBindings of
+            Just expressionType -> supportsRuntimeEqualityTypeWith nextSeenDataTypes state expressionType
+            Nothing -> False
+        ConstructorArgumentFresh -> False
+
+supportsDeferredEqualityOperandType :: InferState -> ExpressionType -> Bool
+supportsDeferredEqualityOperandType state expressionType =
+  case resolveType state expressionType of
     TVarType _ -> True
-    _ -> supportsRuntimeEqualityType expressionType
+    _ -> supportsRuntimeEqualityType state expressionType

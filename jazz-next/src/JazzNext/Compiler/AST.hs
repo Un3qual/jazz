@@ -4,10 +4,12 @@
 -- small interpreter/runtime slice in `jazz-next`.
 module JazzNext.Compiler.AST
   ( CaseArm (..),
+    ClassMethodSignature (..),
     ConstraintSignatureType (..),
     DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
+    ImplMethod (..),
     Literal (..),
     NumericType (..),
     Pattern (..),
@@ -153,14 +155,20 @@ data SignatureToken
   | SignatureOtherToken Text
   deriving (Eq, Show)
 
+data ClassMethodSignature = ClassMethodSignature Identifier SourceSpan SignaturePayload
+  deriving (Eq, Show)
+
+data ImplMethod = ImplMethod Identifier SourceSpan Expr
+  deriving (Eq, Show)
+
 -- | Dot-terminated statements that can appear either at the top level or
 -- inside block expressions.
 data Statement
   = SLet Identifier SourceSpan Expr
   | SSignature Identifier SourceSpan SignaturePayload
   | SData SourceSpan Identifier [Identifier] [DataConstructor]
-  | SClass SourceSpan Identifier
-  | SImpl SourceSpan Identifier [ConstraintSignatureType]
+  | SClass SourceSpan Identifier [Identifier] [ClassMethodSignature]
+  | SImpl SourceSpan Identifier [ConstraintSignatureType] [ImplMethod]
   | SModule SourceSpan [Text]
   | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SExpr SourceSpan Expr

@@ -114,6 +114,10 @@ import Lib::Maybe as Maybe.
 main = Maybe::Just 1.
 ```
 
+Alias-qualified data constructor values preserve their source module's internal
+ADT identity during replay. A value built by `Alias::Box` does not type-unify
+with a local `Box` declaration solely because the constructor/type names match.
+
 ## Namespaces and Shadowing
 
 Unqualified value lookup and qualified alias lookup are separate namespaces.

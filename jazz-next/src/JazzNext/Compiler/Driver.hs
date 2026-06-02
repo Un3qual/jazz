@@ -38,8 +38,11 @@ import Data.IORef
   )
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    ConstraintSignatureType (..),
     DataConstructor (..),
+    DataConstructorArgument (..),
     Expr (..),
+    ImplMethod (..),
     Pattern (..),
     Statement (..)
   )
@@ -884,6 +887,14 @@ rewriteStatementReferences importTargets boundNames statement =
       SLet bindingName spanValue (rewriteExprReferences importTargets boundNames valueExpr)
     SExpr spanValue exprValue ->
       SExpr spanValue (rewriteExprReferences importTargets boundNames exprValue)
+    SImpl spanValue capabilityName arguments methods ->
+      SImpl
+        spanValue
+        capabilityName
+        arguments
+        [ ImplMethod methodName methodSpan (rewriteExprReferences importTargets boundNames methodExpr)
+          | ImplMethod methodName methodSpan methodExpr <- methods
+        ]
     _ -> statement
 
 rewriteExprReferences :: Map Text [Text] -> Set Text -> Expr -> Expr
@@ -1033,6 +1044,11 @@ collectUnqualifiedReferences expr =
             [ case statement of
                 SLet _ _ valueExpr -> collectUnqualifiedReferences valueExpr
                 SExpr _ exprValue -> collectUnqualifiedReferences exprValue
+                SImpl _ _ _ methods ->
+                  Set.unions
+                    [ collectUnqualifiedReferences methodExpr
+                      | ImplMethod _ _ methodExpr <- methods
+                    ]
                 _ -> Set.empty
               | statement <- statements
             ]
@@ -1262,10 +1278,14 @@ collectAliasQualifiedReferencesFromStatement statement =
       collectAliasQualifiedReferencePairs valueExpr
     SExpr _ expr ->
       collectAliasQualifiedReferencePairs expr
+    SImpl _ _ _ methods ->
+      Set.unions
+        [ collectAliasQualifiedReferencePairs methodExpr
+          | ImplMethod _ _ methodExpr <- methods
+        ]
     SSignature {} -> Set.empty
     SData {} -> Set.empty
     SClass {} -> Set.empty
-    SImpl {} -> Set.empty
     SModule {} -> Set.empty
     SImport {} -> Set.empty
 
@@ -1335,8 +1355,15 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
             typeParameters
             constructors
         SClass {} -> [statement]
-        SImpl {} -> [statement]
+        SImpl spanValue capabilityName arguments methods ->
+          [ SImpl
+              spanValue
+              capabilityName
+              (rewriteModuleExportImplArguments modulePath dataTypeNames arguments)
+              (rewriteModuleExportImplMethods modulePath hiddenImportExports methods)
+          ]
         _ -> [statement]
+    dataTypeNames = collectDataTypeNames expr
 
     hiddenValidationIdentifier name =
       mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
@@ -1366,8 +1393,80 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
                   spanValue
                   (rewriteModuleExportReferences modulePath hiddenImportExports valueExpr)
               ]
+        SSignature signatureName spanValue signatureValue
+          | Set.member (identifierText signatureName) hiddenImportExports,
+            Set.member (identifierText signatureName) neededModuleExports ->
+              [ SSignature
+                  (hiddenValidationIdentifier signatureName)
+                  spanValue
+                  signatureValue
+              ]
+        SImpl spanValue capabilityName arguments methods ->
+          [ SImpl
+              spanValue
+              capabilityName
+              (rewriteModuleExportImplArguments modulePath dataTypeNames arguments)
+              (rewriteModuleExportImplMethods modulePath hiddenImportExports methods)
+          ]
         _ | isHiddenImportExportStatement hiddenImportExports statement -> []
         _ -> [statement]
+    dataTypeNames = collectDataTypeNames expr
+
+    hiddenValidationIdentifier name =
+      mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
+
+collectDataTypeNames :: Expr -> Set Text
+collectDataTypeNames expr =
+  case expr of
+    EBlock statements ->
+      Set.fromList
+        [ identifierText typeName
+          | SData _ typeName _ _ <- statements
+        ]
+    _ -> Set.empty
+
+rewriteModuleExportImplArguments ::
+  [Text] ->
+  Set Text ->
+  [ConstraintSignatureType] ->
+  [ConstraintSignatureType]
+rewriteModuleExportImplArguments modulePath dataTypeNames arguments =
+  map (rewriteModuleExportImplArgument modulePath dataTypeNames) arguments
+
+rewriteModuleExportImplArgument ::
+  [Text] ->
+  Set Text ->
+  ConstraintSignatureType ->
+  ConstraintSignatureType
+rewriteModuleExportImplArgument modulePath dataTypeNames signatureType =
+  case signatureType of
+    ConstraintTypeName name ->
+      ConstraintTypeName (rewriteModuleExportImplTypeName modulePath dataTypeNames name)
+    ConstraintTypeApplication name arguments ->
+      ConstraintTypeApplication
+        (rewriteModuleExportImplTypeName modulePath dataTypeNames name)
+        (map (rewriteModuleExportImplArgument modulePath dataTypeNames) arguments)
+    ConstraintTypeList innerType ->
+      ConstraintTypeList (rewriteModuleExportImplArgument modulePath dataTypeNames innerType)
+    ConstraintTypeTuple elementTypes ->
+      ConstraintTypeTuple (map (rewriteModuleExportImplArgument modulePath dataTypeNames) elementTypes)
+    ConstraintTypeFunction argumentType resultType ->
+      ConstraintTypeFunction
+        (rewriteModuleExportImplArgument modulePath dataTypeNames argumentType)
+        (rewriteModuleExportImplArgument modulePath dataTypeNames resultType)
+
+rewriteModuleExportImplTypeName :: [Text] -> Set Text -> Identifier -> Identifier
+rewriteModuleExportImplTypeName modulePath dataTypeNames typeName =
+  let typeNameText = identifierText typeName
+   in if Set.member typeNameText dataTypeNames
+        then mkIdentifier (moduleExportQualifiedName modulePath typeNameText)
+        else typeName
+
+rewriteModuleExportImplMethods :: [Text] -> Set Text -> [ImplMethod] -> [ImplMethod]
+rewriteModuleExportImplMethods modulePath hiddenImportExports methods =
+  [ ImplMethod methodName methodSpan (rewriteModuleExportReferences modulePath hiddenImportExports methodExpr)
+    | ImplMethod methodName methodSpan methodExpr <- methods
+  ]
 
 rewriteDataStatementForReplay ::
   [Text] ->
@@ -1379,21 +1478,32 @@ rewriteDataStatementForReplay ::
   [DataConstructor] ->
   [Statement]
 rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName typeParameters constructors =
-  [ SData spanValue typeName typeParameters replayConstructors
+  [ SData spanValue replayTypeName typeParameters replayConstructors
     | not (null replayConstructors)
   ]
   where
+    replayTypeName =
+      mkIdentifier (moduleExportQualifiedName modulePath (identifierText typeName))
+
     replayConstructors =
       [ replayConstructor
-        | constructor@(DataConstructor constructorName constructorArguments) <- constructors,
+        | DataConstructor constructorName constructorArguments <- constructors,
           let constructorText = identifierText constructorName,
           let hiddenConstructor = Set.member constructorText hiddenImportExports,
           not hiddenConstructor || Set.member constructorText neededModuleExports,
+          let replayConstructorArguments = map replayConstructorArgument constructorArguments,
           let replayConstructor =
                 if hiddenConstructor
-                  then DataConstructor (mkIdentifier (moduleExportQualifiedName modulePath constructorText)) constructorArguments
-                  else constructor
+                  then DataConstructor (mkIdentifier (moduleExportQualifiedName modulePath constructorText)) replayConstructorArguments
+                  else DataConstructor constructorName replayConstructorArguments
       ]
+
+    replayConstructorArgument constructorArgument =
+      case constructorArgument of
+        DataConstructorArgumentName argumentName
+          | identifierText argumentName == identifierText typeName ->
+              DataConstructorArgumentName replayTypeName
+        _ -> constructorArgument
 
 isHiddenImportExportStatement :: Set Text -> Statement -> Bool
 isHiddenImportExportStatement hiddenImportExports statement =

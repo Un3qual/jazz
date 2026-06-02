@@ -19,6 +19,11 @@ class Eq(a) {
 }
 ```
 
+Class parameters are explicit lowercase type variables. `Self` is not a
+reserved class-body type; if `Self` appears in a future program, it must be an
+ordinary explicitly declared parameter name rather than a compiler-invented
+receiver placeholder.
+
 Impl declarations use `impl`:
 
 ```jz
@@ -39,19 +44,25 @@ The normative numeric width/defaulting contract lives in `docs/spec/runtime/prim
 
 ## Active Implementation
 
-`jazz-next` parses and lowers empty class/impl declarations as declaration
-nodes. Analyzer/type/runtime statement walkers handle those nodes without adding
-method lookup, dispatch, defaulting, or runtime values. Non-empty class/impl
-bodies reject at parse time with diagnostics that name deferred method
-syntax/semantics.
+`jazz-next` parses and lowers class declarations with explicit lowercase
+parameter metadata plus signature-only method metadata, and concrete impl
+declarations with inert method binding metadata as declaration nodes.
+Analyzer/type/runtime statement walkers handle those nodes without adding
+method lookup, dispatch, defaulting, or runtime values. Duplicate class method
+signatures and duplicate impl method bindings reject deterministically. Missing,
+duplicate, or non-variable class parameters reject at parse time. Class method
+body/default syntax, non-binding impl body items, and method-bearing
+non-concrete impl bodies reject at parse time.
 
 The current environment-validation slice rejects duplicate class declarations
 and duplicate concrete impl facts, and validates concrete constrained signatures
-against visible class declarations plus matching concrete impl facts.
+against visible class declarations plus matching concrete impl facts using the
+declared class arity.
 
 The default bundled prelude now provides the canonical vocabulary class
-declarations (`Eq`, `Ord`, `Num`, `Integral`, `Fractional`, `Showable`, and
-`Default`) followed by inert concrete impl facts before kernel bridge bindings.
+declarations (`Eq(a)`, `Ord(a)`, `Num(a)`, `Integral(a)`, `Fractional(a)`,
+`Showable(a)`, and `Default(a)`) followed by inert concrete impl facts before
+kernel bridge bindings.
 The current fact matrix covers the default aliases `Int`, `Float`, and `Bool`
 where scoped, plus width-specific numeric signature names:
 
@@ -61,7 +72,7 @@ where scoped, plus width-specific numeric signature names:
 - floating widths (`Float16`, `Float32`, and `Float64`) have `Eq`, `Ord`,
   `Num`, `Fractional`, `Default`, and `Showable` facts.
 
-Later batches must define method syntax, constraint solving beyond the current
-concrete fact checks, method dispatch, overlap/orphan policy, cross-module
-visibility, and runtime behavior before enabling executable class/impl
+Later batches must define qualified method dispatch, constraint solving beyond
+the current concrete fact checks, overlap/orphan policy, cross-module
+visibility, and runtime behavior before enabling broader executable class/impl
 semantics.

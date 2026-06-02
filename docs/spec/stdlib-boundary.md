@@ -2,7 +2,7 @@
 
 Status: active (closure verified for the current `jazz-next` runtime subset; bundled/explicit prelude paths expose public aliases while no-prelude paths remain kernel-bridge-only)
 Locked decisions (initial `jazz-next` contract): 2026-03-04
-Updated: 2026-05-31
+Updated: 2026-06-01
 Primary plan: `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`
 
 ## Purpose
@@ -116,7 +116,8 @@ Required invariants:
    rejected in no-prelude mode and require a real prelude source.
 4. This ownership-boundary migration is closed for the current runtime subset.
    Future stdlib growth should extend the prelude/catalog intentionally under
-   new queue items rather than reopening direct public builtin fallback.
+   new queue items with concrete API/runtime contracts rather than reopening
+   direct public builtin fallback.
 5. Active coverage lives in `PreludeLoadingSpec.hs`, `BuiltinCatalogSpec.hs`,
    and `LoaderSpec.hs`: source helpers cover no-prelude alias rejection,
    catalog coverage locks bridge/alias generation, and module graph coverage

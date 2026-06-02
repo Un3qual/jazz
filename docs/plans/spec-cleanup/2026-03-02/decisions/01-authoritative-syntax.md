@@ -1,23 +1,18 @@
 ---
-id: JN-CAPABILITY-BODY-BOUNDARY-001
-status: completed
+id: JN-ABSTRACTION-SEMANTICS-PLAN-001
+status: blocked
 priority: P2
-size: S
+size: L
 kind: impl
-autonomous_ready: yes
-depends_on:
-  - JN-CLASS-IMPL-ENV-VALIDATION-001
+autonomous_ready: no
+depends_on: []
 last_verified: 2026-06-01
-completed_on: 2026-06-01
-plan_section: "Completed implementation batch: class/impl non-empty body rejection"
-target_paths:
-  - jazz-next/src/JazzNext/Compiler/Parser.hs
-  - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+plan_section: "Follow-up: abstraction semantics beyond explicit class parameter metadata"
+target_paths: []
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Reject any non-whitespace tokens inside active `class` or `impl` declaration bodies with a deterministic parser diagnostic instead of silently discarding deferred method syntax."
+deliverable: "Class/impl abstraction semantics beyond queued explicit class parameter metadata remain blocked until dispatch, dictionary, and runtime contracts define target paths and focused verification."
 ---
 
 # Jazz Spec-Cleanup #1: Authoritative Syntax Implementation Plan
@@ -66,6 +61,9 @@ deliverable: "Reject any non-whitespace tokens inside active `class` or `impl` d
 - [x] Function/module surface continues parser-first style (`name = expr.`, `module A::B { ... }`, `import A::B`).
 - [x] On `2026-05-31`, locked `trait` as permanently rejected in active `jazz-next`; future abstraction work starts from canonical `class`/`impl` only.
 - [x] On `2026-06-01`, locked the active-path parser boundary that rejects non-empty `class`/`impl` bodies until method metadata and dispatch have a concrete contract.
+- [x] On `2026-06-01`, landed signature-only class method metadata in active `jazz-next` while keeping method implementations, dispatch, dictionaries, and runtime evidence blocked.
+- [x] On `2026-06-01`, landed inert concrete `impl` method binding metadata in active `jazz-next` while keeping dispatch, dictionaries, runtime evidence, and solver behavior blocked.
+- [x] On `2026-06-01`, selected explicit class parameters (`class Eq(a)`) instead of reserved `Self` as the canonical abstraction model and queued the metadata ownership prerequisite before dispatch.
 
 ## Completed jazz-next batch: class/impl parser boundary
 
@@ -257,6 +255,136 @@ Closure evidence:
   non-empty `class` and `impl` body rejection while preserving empty body
   parsing/lowering, module-body declarations, trait rejection, and ordinary
   identifier uses.
+
+## Completed implementation batch: class method signature metadata
+
+This active-path abstraction slice follows the landed empty class/impl fact
+environment and non-empty body-boundary batches. It is intentionally limited to
+signature-only method metadata for `class` declarations; it does not add method
+implementations, lookup, dispatch, dictionaries, or runtime evidence values.
+
+Completed on `2026-06-01` as `JN-CLASS-METHOD-SIGNATURE-METADATA-001`.
+
+Executor-safe scope:
+
+- Accept method signature declarations inside active `class` bodies using the
+  existing signature statement syntax, for example `eq :: Self -> Self -> Bool.`.
+- Preserve class method names and structured signature payloads through the
+  surface AST, core AST, and lowering.
+- Reject duplicate method names within the same class deterministically.
+- Reject any class body item that is not a signature-only method declaration.
+- Keep `impl` bodies rejected until method implementation and dispatch syntax
+  have a separate contract.
+- Keep `trait` permanently rejected as non-canonical abstraction syntax.
+
+Out of scope:
+
+- method implementation bodies,
+- default methods,
+- method lookup or dispatch,
+- dictionary passing or runtime evidence values,
+- superclasses,
+- inferred class constraints,
+- broad typeclass/defaulting solver behavior.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Completed implementation batch: impl method body metadata
+
+This active-path abstraction slice follows the landed class method metadata
+batch. It is intentionally limited to inert method binding metadata for
+concrete `impl` declarations; it does not add method lookup, dispatch,
+dictionaries, runtime evidence values, or solver behavior.
+
+Completed on `2026-06-01` as
+`JN-ABSTRACTION-IMPL-METHOD-BODY-METADATA-001`.
+
+Executor-safe scope:
+
+- Accept ordinary binding-shaped method entries inside concrete `impl` bodies,
+  for example `eq = \(left) -> \(right) -> left == right.`.
+- Preserve impl method names and expressions through the surface AST, core AST,
+  lowering, desugaring, type canonicalization, analyzer traversal, and inert
+  runtime traversal.
+- Reject duplicate method names within the same impl deterministically.
+- Reject method-bearing impl bodies whose header target is not concrete.
+- Reject impl body entries that are not ordinary method bindings.
+- Preserve class method signature metadata and permanent `trait` rejection.
+
+Out of scope:
+
+- method lookup or dispatch,
+- dictionary passing or runtime evidence values,
+- default methods,
+- superclass semantics,
+- inferred class constraints,
+- broad typeclass/defaulting solver behavior.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/Desugar.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/IfExpressionParserSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Queued implementation batch: explicit class parameter metadata
+
+On `2026-06-01`, design discussion selected explicit class parameters rather
+than a reserved `Self` placeholder as the canonical abstraction model. The
+executor-safe child plan is:
+
+- `docs/plans/2026-06-01-jazz-next-explicit-class-parameters.md`
+
+That child is limited to preserving lowercase class parameter metadata through
+the active `jazz-next` AST and bundled prelude. It must not add method dispatch,
+dictionaries, runtime evidence values, `Self`, default methods, superclasses,
+or solver behavior.
+
+## Follow-up: abstraction semantics beyond explicit class parameter metadata
+
+On `2026-06-01`, queue execution completed the concrete child plan split out
+of this follow-up:
+
+- `docs/plans/2026-06-01-jazz-next-impl-method-body-metadata.md`
+
+The next child plan queues explicit class parameter metadata. Further
+abstraction work stays blocked until that prerequisite lands and separate
+contracts define qualified method dispatch behavior, dictionary or evidence
+representation, runtime behavior, solver/defaulting behavior, and focused
+active-path target files/tests.
 
 ## Historical Verification Evidence
 

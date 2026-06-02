@@ -6,10 +6,14 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
+    NumericType (..),
+    SignaturePayload (..),
+    SignatureType (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
+    renderDiagnostic
   )
 import JazzNext.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource
@@ -28,9 +32,14 @@ import JazzNext.Compiler.WarningConfig
   )
 import JazzNext.TestHarness
   ( NamedTest,
+    assertContains,
     assertEqual,
     assertSingleDiagnosticContains,
+    failTest,
     runTestSuite
+  )
+import System.Timeout
+  ( timeout
   )
 
 main :: IO ()
@@ -58,14 +67,24 @@ tests =
     ("source pipeline accepts equality section application", testSourcePipelineAcceptsEqualitySection),
     ("source pipeline accepts deferred left equality section once constrained", testSourcePipelineAcceptsDeferredLeftEqualitySection),
     ("source pipeline accepts deferred right equality section once constrained", testSourcePipelineAcceptsDeferredRightEqualitySection),
+    ("source pipeline accepts deferred direct equality once constrained", testSourcePipelineAcceptsDeferredDirectEquality),
+    ("source pipeline accepts structural list equality", testSourcePipelineAcceptsStructuralListEquality),
+    ("source pipeline accepts structural tuple equality", testSourcePipelineAcceptsStructuralTupleEquality),
+    ("source pipeline accepts structural ADT equality", testSourcePipelineAcceptsStructuralAdtEquality),
+    ("source pipeline accepts self-referential structural ADT equality", testSourcePipelineAcceptsSelfReferentialStructuralAdtEquality),
+    ("source pipeline accepts structural equality sections", testSourcePipelineAcceptsStructuralEqualitySections),
+    ("source pipeline rejects structural equality with function elements", testSourcePipelineRejectsStructuralFunctionEquality),
+    ("source pipeline rejects structural ADT equality with function payloads", testSourcePipelineRejectsStructuralAdtFunctionEquality),
+    ("source pipeline rejects duplicate ADT declarations before structural equality", testSourcePipelineRejectsDuplicateAdtDeclarationBeforeStructuralEquality),
+    ("source pipeline rejects structural ADT equality for partial constructors", testSourcePipelineRejectsStructuralAdtPartialConstructorEquality),
+    ("source pipeline rejects structural ADT equality across different types", testSourcePipelineRejectsStructuralAdtTypeMismatch),
     ("source pipeline preserves numeric width through left integer literal arithmetic", testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral),
     ("source pipeline preserves numeric width through left integer literal section", testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteralSection),
     ("source pipeline preserves numeric width through right integer literal section", testSourcePipelinePreservesNumericWidthWithRightIntegerLiteralSection),
     ("source pipeline rejects left arithmetic section with non-numeric operand", testSourcePipelineRejectsLeftArithmeticSectionTypeMismatch),
     ("source pipeline rejects right arithmetic section with non-numeric operand", testSourcePipelineRejectsRightArithmeticSectionTypeMismatch),
     ("source pipeline rejects equality section mismatched application", testSourcePipelineRejectsEqualitySectionTypeMismatch),
-    ("source pipeline rejects deferred equality section constrained to list", testSourcePipelineRejectsDeferredEqualitySectionListConstraint),
-    ("source pipeline rejects list equality until runtime support exists", testSourcePipelineRejectsListEquality),
+    ("source pipeline rejects deferred equality section constrained to unresolved list", testSourcePipelineRejectsDeferredEqualitySectionUnresolvedListConstraint),
     ("source pipeline rejects unsupported section operator", testSourcePipelineRejectsUnsupportedSectionOperator),
     ("source pipeline accepts bare operator value", testSourcePipelineAcceptsBareOperatorValue),
     ("source pipeline accepts bare operator value application", testSourcePipelineAcceptsBareOperatorValueApplication),
@@ -74,14 +93,21 @@ tests =
     ("source pipeline accepts target-named integer conversions", testSourcePipelineAcceptsTargetNamedIntegerConversions),
     ("source pipeline accepts target-named float conversions", testSourcePipelineAcceptsTargetNamedFloatConversions),
     ("source pipeline accepts Float64 fractional literal defaults", testSourcePipelineAcceptsFloat64FractionalLiteralDefaults),
+    ("source pipeline accepts explicitly targeted Float16 and Float32 fractional literals", testSourcePipelineAcceptsTargetedFloat16Float32FractionalLiterals),
     ("source pipeline accepts same-width Float64 arithmetic", testSourcePipelineAcceptsSameWidthFloat64Arithmetic),
     ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
-    ("source pipeline rejects Float64 comparisons until runtime support lands", testSourcePipelineRejectsFloat64Comparisons),
-    ("source pipeline rejects Float64 comparison operator values", testSourcePipelineRejectsFloat64ComparisonOperatorValues),
-    ("source pipeline rejects Float64 comparison sections", testSourcePipelineRejectsFloat64ComparisonSections),
+    ("source pipeline rejects same-width Float16 and Float32 arithmetic", testSourcePipelineRejectsSameWidthFloat16Float32Arithmetic),
+    ("source pipeline reports narrow-float arithmetic guidance", testSourcePipelineReportsNarrowFloatArithmeticGuidance),
+    ("source pipeline accepts same-width Float64 comparison and equality", testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality),
+    ("source pipeline accepts same-width Float16 and Float32 comparison and equality", testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality),
+    ("source pipeline accepts same-width Float64 comparison/equality operator values", testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues),
+    ("source pipeline accepts same-width Float64 comparison/equality sections", testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualitySections),
+    ("source pipeline rejects mixed-width float comparison and equality", testSourcePipelineRejectsMixedWidthFloatComparisonEquality),
+    ("source pipeline rejects implicit Float16 and Float32 comparison and equality", testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality),
+    ("source pipeline rejects implicit integer and Float64 comparison and equality", testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality),
     ("source pipeline rejects implicit integer and fractional literal mixing", testSourcePipelineRejectsImplicitIntegerFractionalMixing),
     ("source pipeline rejects mixed-width float arithmetic", testSourcePipelineRejectsMixedWidthFloatArithmetic),
-    ("source pipeline explains deferred Float16 and Float32 arithmetic", testSourcePipelineExplainsDeferredFloat16Float32Arithmetic),
+    ("source pipeline rejects mixed-width and implicit Float16/Float32 arithmetic", testSourcePipelineRejectsMixedWidthAndImplicitFloat16Float32Arithmetic),
     ("source pipeline rejects out-of-range literal conversions", testSourcePipelineRejectsOutOfRangeLiteralConversions),
     ("source pipeline rejects non-integral fractional literal conversions", testSourcePipelineRejectsNonIntegralFractionalLiteralConversions),
     ("source pipeline rejects rounded non-integral fractional literal conversions", testSourcePipelineRejectsRoundedNonIntegralFractionalLiteralConversions),
@@ -89,6 +115,7 @@ tests =
     ("source pipeline rejects out-of-range float-target literal conversions", testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions),
     ("source pipeline rejects source-exact float-target literal overflow", testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow),
     ("source pipeline rejects source-exact negative float-target literal overflow", testSourcePipelineRejectsSourceExactNegativeFloatTargetLiteralOverflow),
+    ("core pipeline rejects targeted Float64 fractional literal overflow", testCorePipelineRejectsTargetedFloat64FractionalLiteralOverflow),
     ("source pipeline rejects dollar-applied fractional literal conversions", testSourcePipelineRejectsDollarAppliedFractionalLiteralConversions),
     ("source pipeline rejects typed prelude alias literal overflow", testSourcePipelineRejectsTypedPreludeAliasLiteralOverflow),
     ("source pipeline ignores conversion literal checks for shadowed names", testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames),
@@ -217,6 +244,92 @@ testSourcePipelineAcceptsDeferredRightEqualitySection :: IO ()
 testSourcePipelineAcceptsDeferredRightEqualitySection =
   assertCompilesWithBundledPrelude "x = (== hd []) 1."
 
+testSourcePipelineAcceptsStructuralListEquality :: IO ()
+testSourcePipelineAcceptsStructuralListEquality =
+  assertCompiles
+    "same = [1, 2] == [1, 2].\nnested = [[True], [False]] != [[True], [True]]."
+
+testSourcePipelineAcceptsStructuralTupleEquality :: IO ()
+testSourcePipelineAcceptsStructuralTupleEquality =
+  assertCompiles
+    "same = (1, True) == (1, True).\nnested = (1, (True, 2)) != (1, (True, 3))."
+
+testSourcePipelineAcceptsStructuralAdtEquality :: IO ()
+testSourcePipelineAcceptsStructuralAdtEquality = do
+  assertCompiles
+    "data Maybe = Nothing | Just value.\nleft = Just 1.\nright = Just 1.\nsame = left == right.\ndifferent = left != Nothing.\neqOp = (==).\nsameViaOp = eqOp left right.\nsameViaLeftSection = (left ==) right.\nsameViaRightSection = (== right) left."
+  assertCompiles
+    "data Box a = Box a.\nleft = Box [1, 2].\nright = Box [1, 2].\nsame = left == right."
+
+testSourcePipelineAcceptsSelfReferentialStructuralAdtEquality :: IO ()
+testSourcePipelineAcceptsSelfReferentialStructuralAdtEquality = do
+  maybeResult <-
+    timeout
+      2000000
+      ( compileSource
+          defaultWarningSettings
+          "data IntList = Nil | Cons value rest.\nleft = Cons 1 Nil.\nright = Cons 1 Nil.\nsame = left == right."
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected self-referential ADT equality support check to terminate, but compilation timed out"
+    Just result ->
+      assertEqual "compile errors" [] (compileErrors result)
+
+testSourcePipelineAcceptsStructuralEqualitySections :: IO ()
+testSourcePipelineAcceptsStructuralEqualitySections =
+  assertCompiles
+    "listEq = (== [1, 2]) [1, 2].\ntupleNe = ((1, True) !=) (1, False)."
+
+testSourcePipelineRejectsStructuralFunctionEquality :: IO ()
+testSourcePipelineRejectsStructuralFunctionEquality = do
+  result <- compileSource defaultWarningSettings "f = \\(x) -> x.\nx = [f] == [f]."
+  assertSingleDiagnosticContains
+    "function-valued structural equality code"
+    "E2004"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "function-valued structural equality summary"
+    "lists and tuples containing equality-supported elements"
+    (compileErrors result)
+
+testSourcePipelineRejectsStructuralAdtFunctionEquality :: IO ()
+testSourcePipelineRejectsStructuralAdtFunctionEquality = do
+  result <- compileSource defaultWarningSettings "data Box a = Box a.\nf = \\(x) -> x.\nleft = Box f.\nright = Box f.\nx = left == right."
+  assertSingleDiagnosticContains
+    "function-valued ADT equality code"
+    "E2004"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "function-valued ADT equality summary"
+    "ADTs containing equality-supported constructor payloads"
+    (compileErrors result)
+
+testSourcePipelineRejectsDuplicateAdtDeclarationBeforeStructuralEquality :: IO ()
+testSourcePipelineRejectsDuplicateAdtDeclarationBeforeStructuralEquality = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "data Box a = Box a.\ndata Box a = Empty.\nf = Box (\\(x) -> x).\ng = Box (\\(x) -> x).\nok = f == g."
+  assertContains
+    "duplicate ADT declaration before equality metadata overwrite"
+    "E2014"
+    (Text.unlines (map renderDiagnostic (compileErrors result)))
+
+testSourcePipelineRejectsStructuralAdtPartialConstructorEquality :: IO ()
+testSourcePipelineRejectsStructuralAdtPartialConstructorEquality =
+  assertCompileError
+    "data Box a = Box a.\nx = Box == Box."
+    "partial constructor equality"
+    "E2004"
+
+testSourcePipelineRejectsStructuralAdtTypeMismatch :: IO ()
+testSourcePipelineRejectsStructuralAdtTypeMismatch =
+  assertCompileError
+    "data Lefty = Lefty.\ndata Righty = Righty.\nx = Lefty == Righty."
+    "different ADT type equality"
+    "E2004"
+
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral :: IO ()
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral =
   assertCompiles "y :: UInt8.\ny = 2.\nx = 1 + y.\nz :: UInt8.\nz = x."
@@ -260,24 +373,17 @@ testSourcePipelineRejectsEqualitySectionTypeMismatch =
     "equality section operand mismatch"
     "E2006"
 
-testSourcePipelineRejectsDeferredEqualitySectionListConstraint :: IO ()
-testSourcePipelineRejectsDeferredEqualitySectionListConstraint =
+testSourcePipelineRejectsDeferredEqualitySectionUnresolvedListConstraint :: IO ()
+testSourcePipelineRejectsDeferredEqualitySectionUnresolvedListConstraint =
   assertCompileErrorWithBundledPrelude
     "x = (hd [] ==) []."
-    "deferred equality section must still reject unsupported concrete operand family"
+    "deferred equality section must still reject unresolved list equality"
     "E2006"
 
-testSourcePipelineRejectsListEquality :: IO ()
-testSourcePipelineRejectsListEquality = do
-  result <- compileSource defaultWarningSettings "x = [1] == [1]."
-  assertSingleDiagnosticContains
-    "list equality unsupported code"
-    "E2004"
-    (compileErrors result)
-  assertSingleDiagnosticContains
-    "list equality unsupported summary"
-    "Bool and integral numeric types"
-    (compileErrors result)
+testSourcePipelineAcceptsDeferredDirectEquality :: IO ()
+testSourcePipelineAcceptsDeferredDirectEquality =
+  assertCompilesWithBundledPrelude
+    "value = hd [].\nsame = value == value.\nsum = value + 1.\nsum."
 
 testSourcePipelineRejectsUnsupportedSectionOperator :: IO ()
 testSourcePipelineRejectsUnsupportedSectionOperator =
@@ -315,7 +421,12 @@ testSourcePipelineAcceptsTargetNamedFloatConversions =
 
 testSourcePipelineAcceptsFloat64FractionalLiteralDefaults :: IO ()
 testSourcePipelineAcceptsFloat64FractionalLiteralDefaults =
-  assertCompiles "x = 1.5."
+  assertCompiles "x = 1.5.\ny :: Float64.\ny = x."
+
+testSourcePipelineAcceptsTargetedFloat16Float32FractionalLiterals :: IO ()
+testSourcePipelineAcceptsTargetedFloat16Float32FractionalLiterals =
+  assertCompiles
+    "x16 :: Float16.\nx16 = 1.5.\ny16 :: Float16.\ny16 = x16.\nx32 :: Float32.\nx32 = 2.25.\ny32 :: Float32.\ny32 = x32."
 
 testSourcePipelineAcceptsSameWidthFloat64Arithmetic :: IO ()
 testSourcePipelineAcceptsSameWidthFloat64Arithmetic =
@@ -327,26 +438,100 @@ testSourcePipelineAcceptsSameWidthFloat64OperatorValues =
   assertCompilesWithBundledPrelude
     "x :: Float64.\nx = (+) (toFloat64 1) (toFloat64 2)."
 
-testSourcePipelineRejectsFloat64Comparisons :: IO ()
-testSourcePipelineRejectsFloat64Comparisons =
-  assertCompileError
-    "x = 1.5 < 2.0."
-    "Float64 comparison"
-    "E2003"
-
-testSourcePipelineRejectsFloat64ComparisonOperatorValues :: IO ()
-testSourcePipelineRejectsFloat64ComparisonOperatorValues =
+testSourcePipelineRejectsSameWidthFloat16Float32Arithmetic :: IO ()
+testSourcePipelineRejectsSameWidthFloat16Float32Arithmetic = do
   assertCompileErrorWithBundledPrelude
-    "x = (<) (toFloat64 1) (toFloat64 2)."
-    "Float64 comparison operator value"
-    "E2006"
-
-testSourcePipelineRejectsFloat64ComparisonSections :: IO ()
-testSourcePipelineRejectsFloat64ComparisonSections =
-  assertCompileError
-    "x = (1.5 <) 2.0."
-    "Float64 comparison section"
+    "a16 :: Float16.\na16 = toFloat16 65504.\nb16 :: Float16.\nb16 = toFloat16 1.\nx16 = a16 + b16."
+    "Float16 arithmetic requires width-preserving runtime support"
     "E2003"
+  assertCompileErrorWithBundledPrelude
+    "a32 :: Float32.\na32 = toFloat32 1.\nb32 :: Float32.\nb32 = toFloat32 2.\nx32 :: Float32.\nx32 = a32 + b32."
+    "Float32 arithmetic requires width-preserving runtime support"
+    "E2003"
+
+testSourcePipelineReportsNarrowFloatArithmeticGuidance :: IO ()
+testSourcePipelineReportsNarrowFloatArithmeticGuidance = do
+  result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      (Just bundledPreludeSource)
+      "a16 :: Float16.\na16 = toFloat16 65504.\nb16 :: Float16.\nb16 = toFloat16 1.\nx16 = a16 + b16."
+  case compileErrors result of
+    [err] -> do
+      let rendered = renderDiagnostic err
+      assertContains "narrow arithmetic error code" "E2003" rendered
+      assertContains "narrow arithmetic support note" "Float16/Float32 arithmetic is not yet supported" rendered
+      assertContains "narrow arithmetic conversion guidance" "convert operands to Float64" rendered
+    errors ->
+      failTest
+        ( "expected one narrow-float arithmetic diagnostic, got "
+            <> Text.pack (show errors)
+        )
+
+testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality :: IO ()
+testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality =
+  assertCompiles
+    "lt = 1.5 < 2.0.\nle = 2.0 <= 2.0.\ngt = 3.0 > 2.0.\nge = 3.0 >= 3.0.\neq = 2.0 == 2.0.\nne = 2.0 != 3.0."
+
+testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality :: IO ()
+testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality =
+  assertCompilesWithBundledPrelude
+    "a16 :: Float16.\na16 = toFloat16 1.\nb16 :: Float16.\nb16 = toFloat16 2.\nlt16 = a16 < b16.\nle16 = a16 <= a16.\ngt16 = b16 > a16.\nge16 = b16 >= b16.\neq16 = a16 == a16.\nne16 = a16 != b16.\na32 :: Float32.\na32 = toFloat32 1.\nb32 :: Float32.\nb32 = toFloat32 2.\nlt32 = a32 < b32.\nle32 = a32 <= a32.\ngt32 = b32 > a32.\nge32 = b32 >= b32.\neq32 = a32 == a32.\nne32 = a32 != b32."
+
+testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues :: IO ()
+testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues =
+  assertCompiles
+    "lt = (<) 1.5 2.0.\nle = (<=) 2.0 2.0.\ngt = (>) 3.0 2.0.\nge = (>=) 3.0 3.0.\neq = (==) 2.0 2.0.\nne = (!=) 2.0 3.0."
+
+testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualitySections :: IO ()
+testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualitySections =
+  assertCompiles
+    "lt = (1.5 <) 2.0.\nle = (2.0 <=) 2.0.\ngt = (> 2.0) 3.0.\nge = (>= 3.0) 3.0.\neq = (2.0 ==) 2.0.\nne = (!= 3.0) 2.0."
+
+testSourcePipelineRejectsMixedWidthFloatComparisonEquality :: IO ()
+testSourcePipelineRejectsMixedWidthFloatComparisonEquality = do
+  assertCompileError
+    "x = 1 == 1.5."
+    "mixed Int/Float64 equality"
+    "E2004"
+  assertCompileErrorWithBundledPrelude
+    "left :: Float16.\nleft = toFloat16 1.\nright :: Float32.\nright = toFloat32 1.\nx = left == right."
+    "mixed Float16/Float32 equality"
+    "E2004"
+  assertCompileErrorWithBundledPrelude
+    "left :: Float16.\nleft = toFloat16 1.\nright :: Float32.\nright = toFloat32 2.\nx = left < right."
+    "mixed Float16/Float32 comparison"
+    "E2003"
+  assertCompileErrorWithBundledPrelude
+    "left :: Float16.\nleft = toFloat16 1.\nright :: Float64.\nright = toFloat64 1.\nx = left < right."
+    "mixed Float16/Float64 comparison"
+    "E2003"
+  assertCompileErrorWithBundledPrelude
+    "left :: Float32.\nleft = toFloat32 1.\nright :: Float64.\nright = toFloat64 1.\nx = left == right."
+    "mixed Float32/Float64 equality"
+    "E2004"
+
+testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality :: IO ()
+testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality = do
+  assertCompileErrorWithBundledPrelude
+    "left :: Float16.\nleft = toFloat16 1.\nx = left < 1."
+    "implicit integer-to-Float16 comparison"
+    "E2003"
+  assertCompileErrorWithBundledPrelude
+    "left :: Float32.\nleft = toFloat32 1.\nx = left == 1."
+    "implicit integer-to-Float32 equality"
+    "E2004"
+
+testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality :: IO ()
+testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality = do
+  assertCompileErrorWithBundledPrelude
+    "left = toFloat64 1.\nx = left < 2."
+    "implicit integer-to-Float64 comparison"
+    "E2003"
+  assertCompileErrorWithBundledPrelude
+    "left = toFloat64 1.\nx = left == 1."
+    "implicit integer-to-Float64 equality"
+    "E2004"
 
 testSourcePipelineRejectsImplicitIntegerFractionalMixing :: IO ()
 testSourcePipelineRejectsImplicitIntegerFractionalMixing =
@@ -362,12 +547,28 @@ testSourcePipelineRejectsMixedWidthFloatArithmetic =
     "mixed-width float arithmetic"
     "E2003"
 
-testSourcePipelineExplainsDeferredFloat16Float32Arithmetic :: IO ()
-testSourcePipelineExplainsDeferredFloat16Float32Arithmetic =
+testSourcePipelineRejectsMixedWidthAndImplicitFloat16Float32Arithmetic :: IO ()
+testSourcePipelineRejectsMixedWidthAndImplicitFloat16Float32Arithmetic = do
   assertCompileErrorWithBundledPrelude
-    "left :: Float16.\nleft = toFloat16 1.\nright :: Float16.\nright = toFloat16 2.\nx = left + right."
-    "Float16 arithmetic deferred"
-    "Float16/Float32 arithmetic is deferred"
+    "left :: Float16.\nleft = toFloat16 1.\nright :: Float32.\nright = toFloat32 2.\nx = left + right."
+    "mixed Float16/Float32 arithmetic"
+    "E2003"
+  assertCompileError
+    "left :: Float16.\nleft = 1.5.\nright :: Float32.\nright = 2.25.\nx = left + right."
+    "mixed targeted Float16/Float32 arithmetic"
+    "E2003"
+  assertCompileError
+    "left :: Float16.\nleft = 1.5.\nx = left + 1.25."
+    "implicit fractional literal-to-Float16 arithmetic"
+    "E2003"
+  assertCompileErrorWithBundledPrelude
+    "left :: Float16.\nleft = toFloat16 1.\nx = left + 1."
+    "implicit integer-to-Float16 arithmetic"
+    "E2003"
+  assertCompileErrorWithBundledPrelude
+    "left :: Float32.\nleft = toFloat32 1.\nx = left + 1."
+    "implicit integer-to-Float32 arithmetic"
+    "E2003"
 
 testSourcePipelineRejectsOutOfRangeLiteralConversions :: IO ()
 testSourcePipelineRejectsOutOfRangeLiteralConversions =
@@ -396,17 +597,29 @@ testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions =
     "x = toInt64 9223372036854775807.0.\ny = toUInt64 18446744073709551615.0."
 
 testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions :: IO ()
-testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions =
+testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions = do
   assertCompileErrorWithBundledPrelude
     "x = toFloat16 70000."
     "out-of-range float-target literal conversion"
     "E2006"
+  assertCompileError
+    "x :: Float16.\nx = 70000.0."
+    "out-of-range Float16 literal target"
+    "E2006"
+  assertCompileError
+    "x :: Float32.\nx = 1000000000000000000000000000000000000000.0."
+    "out-of-range Float32 literal target"
+    "E2006"
 
 testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow :: IO ()
-testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow =
+testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow = do
   assertCompileErrorWithBundledPrelude
     "x = toFloat16 65504.000000000000000001."
     "source-exact float-target literal overflow"
+    "E2006"
+  assertCompileError
+    "x :: Float16.\nx = 65504.000000000000000001."
+    "source-exact Float16 literal target overflow"
     "E2006"
 
 testSourcePipelineRejectsSourceExactNegativeFloatTargetLiteralOverflow :: IO ()
@@ -414,6 +627,14 @@ testSourcePipelineRejectsSourceExactNegativeFloatTargetLiteralOverflow = do
   result <- compileExpr defaultWarningSettings sourceExactNegativeFloatTargetOverflowProgram
   assertSingleDiagnosticContains
     "source-exact negative float-target literal overflow"
+    "E2006"
+    (compileErrors result)
+
+testCorePipelineRejectsTargetedFloat64FractionalLiteralOverflow :: IO ()
+testCorePipelineRejectsTargetedFloat64FractionalLiteralOverflow = do
+  result <- compileExpr defaultWarningSettings targetedFloat64OverflowProgram
+  assertSingleDiagnosticContains
+    "targeted Float64 fractional literal overflow"
     "E2006"
     (compileErrors result)
 
@@ -515,6 +736,26 @@ sourceExactNegativeFloatTargetOverflowProgram =
         (EVar "__kernel_toFloat16")
         (ELit (LFloat (-65504.0) (mkFractionalLiteralSource (-65504) 1 18)))
     )
+
+targetedFloat64OverflowProgram :: Expr
+targetedFloat64OverflowProgram =
+  EBlock
+    [ SSignature
+        "x"
+        (SourceSpan 1 1)
+        (SignatureType (TypeNumeric NumericFloat64)),
+      SLet
+        "x"
+        (SourceSpan 2 1)
+        (ELit (LFloat literalValue literalSource))
+    ]
+  where
+    literalValue = 1 / 0 :: Double
+    literalSource =
+      mkFractionalLiteralSource
+        ((floor (1.7976931348623157e308 :: Double) :: Integer) + 1)
+        0
+        1
 
 intEqualityProgram :: Expr
 intEqualityProgram =

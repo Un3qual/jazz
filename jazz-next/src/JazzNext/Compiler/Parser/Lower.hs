@@ -7,10 +7,12 @@ module JazzNext.Compiler.Parser.Lower
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    ClassMethodSignature (..),
     ConstraintSignatureType (..),
     DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
+    ImplMethod (..),
     Literal (..),
     NumericType (..),
     Pattern (..),
@@ -22,10 +24,12 @@ import JazzNext.Compiler.AST
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
+    SurfaceClassMethodSignature (..),
     SurfaceConstrainedSignatureType (..),
     SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfaceNumericType (..),
@@ -148,16 +152,28 @@ lowerSurfaceStatement surfaceStatement =
       SSignature name spanValue (lowerSurfaceSignaturePayload signaturePayload)
     SSData spanValue typeName typeParameters constructors ->
       SData spanValue typeName typeParameters (map lowerSurfaceDataConstructor constructors)
-    SSClass spanValue capabilityName ->
-      SClass spanValue capabilityName
-    SSImpl spanValue capabilityName arguments ->
-      SImpl spanValue capabilityName (map lowerSurfaceConstrainedSignatureType arguments)
+    SSClass spanValue capabilityName parameters methods ->
+      SClass spanValue capabilityName parameters (map lowerSurfaceClassMethodSignature methods)
+    SSImpl spanValue capabilityName arguments methods ->
+      SImpl
+        spanValue
+        capabilityName
+        (map lowerSurfaceConstrainedSignatureType arguments)
+        (map lowerSurfaceImplMethod methods)
     SSModule spanValue modulePath ->
       SModule spanValue modulePath
     SSImport spanValue modulePath alias importedSymbols ->
       SImport spanValue modulePath alias importedSymbols
     SSExpr spanValue expr ->
       SExpr spanValue (lowerSurfaceExpr expr)
+
+lowerSurfaceClassMethodSignature :: SurfaceClassMethodSignature -> ClassMethodSignature
+lowerSurfaceClassMethodSignature (SurfaceClassMethodSignature methodName spanValue signaturePayload) =
+  ClassMethodSignature methodName spanValue (lowerSurfaceSignaturePayload signaturePayload)
+
+lowerSurfaceImplMethod :: SurfaceImplMethod -> ImplMethod
+lowerSurfaceImplMethod (SurfaceImplMethod methodName spanValue methodExpr) =
+  ImplMethod methodName spanValue (lowerSurfaceExpr methodExpr)
 
 lowerSurfaceSignaturePayload :: SurfaceSignaturePayload -> SignaturePayload
 lowerSurfaceSignaturePayload surfaceSignaturePayload =

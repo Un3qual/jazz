@@ -1,10 +1,10 @@
-class Eq { }.
-class Ord { }.
-class Num { }.
-class Integral { }.
-class Fractional { }.
-class Showable { }.
-class Default { }.
+class Eq(a) { }.
+class Ord(a) { }.
+class Num(a) { }.
+class Integral(a) { }.
+class Fractional(a) { }.
+class Showable(a) { }.
+class Default(a) { }.
 
 impl Eq(Int) { }.
 impl Eq(Float) { }.

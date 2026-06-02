@@ -20,11 +20,14 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    ConstraintSignatureType (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
     NumericType (..),
     Pattern (..),
+    SignaturePayload (..),
+    SignatureType (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -255,10 +258,65 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
               Left (runtimeDiagnostic "E3021" "runtime recursive binding has no concrete value")
           | otherwise ->
               do
-                evaluatedValue <- evalValue builtinMode visibleEnv valueExpr
+                evaluatedValue <- evalBindingValue statementIndex bindingName visibleEnv valueExpr
                 Right (attachSelfRecursiveBinding statementIndex bindingName evaluatedValue)
       where
         visibleEnv = bindingEnv statementIndex bindingName
+
+    evalBindingValue :: Int -> Identifier -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
+    evalBindingValue statementIndex bindingName env valueExpr =
+      case targetedFractionalLiteralBinding statementIndex bindingName valueExpr of
+        Just (targetType, literalValue, literalSource) ->
+          convertFiniteFloatToFloatTarget
+            (floatConversionBuiltinForTarget targetType)
+            targetType
+            literalValue
+            (Just literalSource)
+        Nothing ->
+          evalValue builtinMode env valueExpr
+
+    targetedFractionalLiteralBinding :: Int -> Identifier -> Expr -> Maybe (NumericType, Double, FractionalLiteralSource)
+    targetedFractionalLiteralBinding statementIndex bindingName valueExpr =
+      case valueExpr of
+        ELit (LFloat literalValue literalSource) ->
+          case previousSignatureFloatTarget statementIndex bindingName of
+            Just targetType -> Just (targetType, literalValue, literalSource)
+            Nothing -> Nothing
+        _ -> Nothing
+
+    previousSignatureFloatTarget :: Int -> Identifier -> Maybe NumericType
+    previousSignatureFloatTarget statementIndex bindingName =
+      case Map.lookup (statementIndex - 1) statementsByIndex of
+        Just (SSignature signatureName _ signaturePayload)
+          | identifierText signatureName == identifierText bindingName ->
+              signatureFloatTarget signaturePayload
+        _ -> Nothing
+
+    signatureFloatTarget :: SignaturePayload -> Maybe NumericType
+    signatureFloatTarget signaturePayload =
+      case signaturePayload of
+        SignatureType (TypeNumeric NumericFloat16) -> Just NumericFloat16
+        SignatureType (TypeNumeric NumericFloat32) -> Just NumericFloat32
+        ConstrainedSignature _ signatureType ->
+          constraintSignatureFloatTarget signatureType
+        _ -> Nothing
+
+    constraintSignatureFloatTarget :: ConstraintSignatureType -> Maybe NumericType
+    constraintSignatureFloatTarget signatureType =
+      case signatureType of
+        ConstraintTypeName typeName ->
+          case identifierText typeName of
+            "Float16" -> Just NumericFloat16
+            "Float32" -> Just NumericFloat32
+            _ -> Nothing
+        _ -> Nothing
+
+    floatConversionBuiltinForTarget :: NumericType -> BuiltinSymbol
+    floatConversionBuiltinForTarget targetType =
+      case targetType of
+        NumericFloat16 -> BuiltinToFloat16
+        NumericFloat32 -> BuiltinToFloat32
+        NumericFloat64 -> BuiltinToFloat64
 
     -- Alias bridges can legitimately point across a recursive SCC, but pure
     -- alias loops need a deterministic diagnostic instead of infinite forcing.
@@ -1144,10 +1202,22 @@ evalBinary builtinMode operatorSymbol leftValue rightValue =
     ("<=", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt <= rightInt))
     (">", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt > rightInt))
     (">=", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt >= rightInt))
+    ("<", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat < rightFloat))
+    ("<=", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat <= rightFloat))
+    (">", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat > rightFloat))
+    (">=", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat >= rightFloat))
     ("==", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt == rightInt))
+    ("==", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat == rightFloat))
     ("==", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool == rightBool))
+    ("==", VList {}, VList {}) -> evalStructuralEquality "==" leftValue rightValue
+    ("==", VTuple {}, VTuple {}) -> evalStructuralEquality "==" leftValue rightValue
+    ("==", VConstructor {}, VConstructor {}) -> evalStructuralEquality "==" leftValue rightValue
     ("!=", VInt leftInt, VInt rightInt) -> Right (VBool (leftInt /= rightInt))
+    ("!=", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat /= rightFloat))
     ("!=", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool /= rightBool))
+    ("!=", VList {}, VList {}) -> evalStructuralEquality "!=" leftValue rightValue
+    ("!=", VTuple {}, VTuple {}) -> evalStructuralEquality "!=" leftValue rightValue
+    ("!=", VConstructor {}, VConstructor {}) -> evalStructuralEquality "!=" leftValue rightValue
     ("$", functionValue, argumentValue) ->
       applyRuntimeFunction builtinMode functionValue argumentValue
     _ ->
@@ -1178,6 +1248,59 @@ evalFloatBinary operatorSymbol result
             ("runtime primitive '" <> operatorSymbol <> "' failed: non-finite Float result")
         )
   | otherwise = Right (VFloat result Nothing)
+
+evalStructuralEquality :: Text -> RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
+evalStructuralEquality operatorSymbol leftValue rightValue =
+  case runtimeStructuralEquality leftValue rightValue of
+    Just equalityResult ->
+      Right
+        ( VBool
+            ( if operatorSymbol == "!="
+                then not equalityResult
+                else equalityResult
+            )
+        )
+    Nothing ->
+      Left
+        ( runtimeDiagnostic
+            "E3007"
+            ( "runtime primitive '"
+                <> operatorSymbol
+                <> "' cannot be applied to "
+                <> renderRuntimeType leftValue
+                <> " and "
+                <> renderRuntimeType rightValue
+            )
+        )
+
+runtimeStructuralEquality :: RuntimeValue -> RuntimeValue -> Maybe Bool
+runtimeStructuralEquality leftValue rightValue =
+  case (leftValue, rightValue) of
+    (VInt leftInt, VInt rightInt) -> Just (leftInt == rightInt)
+    (VFloat leftFloat _, VFloat rightFloat _) -> Just (leftFloat == rightFloat)
+    (VBool leftBool, VBool rightBool) -> Just (leftBool == rightBool)
+    (VList leftElements, VList rightElements) ->
+      structuralElementEquality leftElements rightElements
+    (VTuple leftElements, VTuple rightElements) ->
+      structuralElementEquality leftElements rightElements
+    (VConstructor leftName leftArity leftArgs, VConstructor rightName rightArity rightArgs)
+      | constructorIsSaturated leftArity leftArgs,
+        constructorIsSaturated rightArity rightArgs,
+        leftName == rightName,
+        leftArity == rightArity ->
+          structuralElementEquality leftArgs rightArgs
+      | constructorIsSaturated leftArity leftArgs,
+        constructorIsSaturated rightArity rightArgs ->
+          Just False
+    _ -> Nothing
+
+structuralElementEquality :: [RuntimeValue] -> [RuntimeValue] -> Maybe Bool
+structuralElementEquality leftElements rightElements
+  | length leftElements /= length rightElements =
+      Just False
+  | otherwise =
+      fmap and
+        (traverse (uncurry runtimeStructuralEquality) (zip leftElements rightElements))
 
 -- | Runtime-specific wrapper for mkDiagnostic.
 -- This alias exists solely to improve readability and make it clear that

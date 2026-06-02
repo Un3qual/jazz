@@ -6,7 +6,7 @@ size: S
 kind: docs
 autonomous_ready: no
 depends_on: []
-last_verified: 2026-05-30
+last_verified: 2026-06-01
 plan_section: "Future runtime product delta contract"
 target_paths:
   - docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md
@@ -55,6 +55,7 @@ supersedes:
 - [x] On `2026-05-30`, closed the type-signature/type-grammar rebase metadata around the implemented structured monomorphic subset and left broader type schemes/defaulting blocked under the dedicated type plan.
 - [x] On `2026-05-30`, aligned runtime/product docs around the active interpreter-backed compile/run path: successful compile is diagnostic-only, successful `--run` prints interpreter output, and future product deltas are blocked on concrete behavior contracts.
 - [x] On `2026-05-31`, added module-graph no-prelude/prelude ownership harness coverage proving `compileModuleGraphWithPrelude Nothing` and `runModuleGraphWithPrelude Nothing` reject public aliases across imports while preserving `__kernel_*`, bundled, and explicit-prelude helper paths.
+- [x] On `2026-06-01`, rechecked the queue-empty module/std-lib and runtime product blockers: Milestone 5 and Milestone 6 remain closed for the active subset, and future stdlib/catalog growth or runtime product behavior still needs a concrete API/runtime contract with target paths and focused verification before returning to `Ready Now`.
 - [x] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next` for the active structured monomorphic subset.
 - [x] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
 - [x] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.

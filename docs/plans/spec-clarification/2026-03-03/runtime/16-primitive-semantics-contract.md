@@ -1,28 +1,18 @@
 ---
-id: JN-FLOAT64-SAME-WIDTH-ARITHMETIC-001
-status: completed
-priority: P1
-size: M
+id: JN-PRIMITIVE-SURFACE-EXPANSION-PLAN-001
+status: blocked
+priority: P2
+size: L
 kind: impl
-autonomous_ready: yes
-depends_on:
-  - JN-FRACTIONAL-LITERAL-FLOAT64-001
-  - JN-NUMERIC-WIDTH-SIGNATURE-TYPES-001
-  - JN-NUMERIC-CONVERSIONS-API-001
+autonomous_ready: no
+depends_on: []
 last_verified: 2026-06-01
-completed_on: 2026-06-01
-plan_section: "Completed implementation batch: Float64 same-width arithmetic"
-target_paths:
-  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
-  - jazz-next/src/JazzNext/Compiler/Runtime.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+plan_section: "Follow-up: Primitive deltas after literal-targeting landing"
+target_paths: []
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Permit `+`, `-`, `*`, and `/` for same concrete `Float`/`Float64` operands in type inference and runtime while preserving explicit-conversion-only mixed-width behavior."
+deliverable: "Primitive deltas outside landed explicit Float16/Float32 literal targeting and landed numeric/structural equality batches remain blocked until separate concrete contracts define target paths and focused verification."
 ---
 
 # Primitive Semantics Contract Implementation Plan
@@ -76,6 +66,12 @@ Execution note:
 - [x] On `2026-05-31`, landed explicit target-named numeric conversions through the active `jazz-next` prelude/catalog/runtime boundary.
 - [x] On `2026-05-31`, landed the default Float64 fractional literal slice in `jazz-next`.
 - [x] Same concrete `Float`/`Float64` arithmetic for `+`, `-`, `*`, and `/` landed in `jazz-next`.
+- [x] Same concrete `Float`/`Float64` comparison and equality for `==`, `!=`, `<`, `<=`, `>`, and `>=` landed in `jazz-next`.
+- [x] Structural tuple/list equality for equality-supported element types landed in `jazz-next`.
+- [x] Same concrete `Float16`/`Float32` comparison/equality landed in `jazz-next`; same concrete `Float16`/`Float32` arithmetic is intentionally gated until runtime float values carry or apply the target width.
+- [x] Structural ADT equality for declared constructors with equality-supported payload types landed in `jazz-next`.
+- [x] Explicit `Float16`/`Float32` fractional literal targeting for directly
+      annotated bindings landed in `jazz-next`.
 
 First implementation target (landed 2026-05-29):
 
@@ -227,6 +223,268 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
+## Completed implementation batch: Float64 same-width comparison/equality
+
+This active-path batch is the next concrete primitive-surface slice after
+Float64 same-width arithmetic. It keeps equality strict and type-directed while
+allowing the existing comparison/equality operator family to work for same
+concrete floating operands.
+
+Completed on `2026-06-01` as `JN-FLOAT64-SAME-WIDTH-COMPARISON-EQUALITY-001`.
+
+Executor-safe scope:
+
+- Accept `==`, `!=`, `<`, `<=`, `>`, and `>=` when both operands resolve to the
+  same concrete `Float`/`Float64` type.
+- Return `Bool` for accepted floating comparison and equality operators.
+- Evaluate accepted operations through the active `VFloat` runtime path.
+- Preserve the existing integer comparison/equality behavior.
+- Preserve compile-time rejection for mixed `Int`/`Float`, `Float16`/`Float64`,
+  `Float32`/`Float64`, and unrelated non-comparable operands.
+- Preserve explicit-conversion-only behavior for all cross-width operations.
+
+Out of scope:
+
+- literal suffix syntax,
+- Float16 or Float32 literal targeting,
+- implicit integer-to-float promotion,
+- implicit mixed-width arithmetic or comparison widening,
+- structural tuple/list equality,
+- typeclass solver, dictionary passing, or runtime dispatch.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Completed implementation batch: structural tuple/list equality
+
+This active-path primitive slice extends strict type-directed equality to
+structural list and tuple values when every nested element type is already in
+the supported equality subset. It remains non-coercive and does not introduce
+general typeclass dispatch.
+
+Completed on `2026-06-01` as `JN-PRIMITIVE-STRUCTURAL-EQUALITY-001`.
+
+Executor-safe scope:
+
+- Accept `==` and `!=` for same-type lists whose element type recursively
+  supports runtime equality.
+- Accept `==` and `!=` for same-shape tuples whose element types recursively
+  support runtime equality.
+- Preserve equality operator values and left/right sections for concrete
+  equality-supported list and tuple operands.
+- Evaluate list and tuple equality through an explicit runtime structural
+  helper rather than the broad `RuntimeValue` `Eq` instance.
+- Return `False` for unequal list lengths or unequal tuple/list elements when
+  both sides are otherwise equality-supported.
+- Preserve compile-time rejection for function-valued list/tuple elements,
+  unresolved element types such as bare `[] == []`, mismatched operand types,
+  and unsupported runtime equality families.
+
+Out of scope:
+
+- structural equality for functions, builtins, operator values, sections, or
+  partial constructors,
+- implicit numeric conversion or mixed-width equality,
+- Float16/Float32 arithmetic, comparison, or equality,
+- typeclass solver, dictionary passing, or runtime dispatch.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Completed implementation batch: structural ADT equality
+
+This active-path primitive slice extends strict type-directed equality to
+declared ADT constructor values when every declared constructor payload type is
+already in the supported equality subset. It remains non-coercive and does not
+introduce typeclass dispatch.
+
+Completed on `2026-06-01` as
+`JN-PRIMITIVE-STRUCTURAL-ADT-EQUALITY-001`.
+
+Executor-safe scope:
+
+- Accept `==` and `!=` for operands that resolve to the same declared ADT type
+  when every constructor payload type recursively supports runtime equality.
+- Compare saturated constructor tags first, then payloads structurally through
+  the existing equality-supported primitive, list, tuple, and ADT cases.
+- Return `False` for different constructors of the same ADT when both sides are
+  otherwise equality-supported.
+- Preserve compile-time rejection for different ADT types, function payloads,
+  partial constructors, unresolved payload families, and unsupported runtime
+  equality families.
+- Evaluate accepted ADT equality through the explicit runtime structural helper
+  rather than the broad `RuntimeValue` `Eq` instance.
+
+Out of scope:
+
+- structural equality for functions, builtins, operator values, sections, or
+  partial constructors,
+- implicit numeric conversion or mixed-width equality,
+- typeclass solver, dictionary passing, or runtime dispatch.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Completed implementation batch: Float16/Float32 runtime-width arithmetic gate
+
+This active-path batch keeps same concrete `Float16` and `Float32` arithmetic
+gated until runtime float values carry or reapply the target width after
+arithmetic results. It preserves same concrete `Float`/`Float64` arithmetic and
+keeps literal targeting and width mixing explicit.
+
+Completed on `2026-06-01` as
+`JN-FLOAT16-FLOAT32-SAME-WIDTH-ARITHMETIC-001`.
+
+Executor-safe scope:
+
+- Rejected `+`, `-`, `*`, and `/` when operands resolve to `Float16` or
+  `Float32` until runtime arithmetic can preserve the target width.
+- Preserved existing integer arithmetic and same-concrete `Float`/`Float64`
+  arithmetic behavior.
+- Preserved compile-time rejection for mixed `Int`/floating operands,
+  `Float16`/`Float32`, `Float16`/`Float64`, `Float32`/`Float64`, unrelated
+  non-numeric operands, and implicit-promotion cases.
+- Preserved same-width `Float16`/`Float32` comparison/equality deferral until
+  the follow-up batch, which is now landed below.
+
+Out of scope:
+
+- literal suffix syntax,
+- Float16 or Float32 literal targeting,
+- implicit integer-to-float promotion,
+- implicit mixed-width arithmetic widening,
+- Float16/Float32 comparison or equality in this arithmetic-only batch,
+- typeclass solver, dictionary passing, or runtime dispatch.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Completed implementation batch: Float16/Float32 same-width comparison/equality
+
+This active-path batch extends strict same-concrete comparison/equality beyond
+`Float`/`Float64` to values produced by explicit `Float16` and `Float32`
+conversions. It keeps literal targeting and width mixing explicit.
+
+Completed on `2026-06-01` as
+`JN-FLOAT16-FLOAT32-SAME-WIDTH-COMPARISON-EQUALITY-001`.
+
+Executor-safe scope:
+
+- Accepted `==`, `!=`, `<`, `<=`, `>`, and `>=` when both operands resolve to
+  the same concrete `Float16` type.
+- Accepted `==`, `!=`, `<`, `<=`, `>`, and `>=` when both operands resolve to
+  the same concrete `Float32` type.
+- Returned `Bool` for accepted comparison and equality operators.
+- Evaluated accepted operations through the existing active runtime
+  floating-value path.
+- Preserved existing integer comparison/equality, same-concrete
+  `Float`/`Float64` comparison/equality, and strict non-coercive equality
+  behavior.
+- Preserved compile-time rejection for mixed `Int`/floating operands,
+  `Float16`/`Float32`, `Float16`/`Float64`, `Float32`/`Float64`, unrelated
+  non-comparable operands, and implicit-promotion cases.
+
+Out of scope:
+
+- literal suffix syntax,
+- Float16 or Float32 literal targeting,
+- implicit integer-to-float promotion,
+- implicit mixed-width comparison widening,
+- structural ADT equality (landed separately as the batch above),
+- typeclass solver, dictionary passing, or runtime dispatch.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
+
+## Follow-up: Primitive deltas after literal-targeting landing
+
+On `2026-06-01`, queue curation split three concrete child plans out of this
+umbrella follow-up, and all three child plans landed:
+
+- `docs/plans/2026-06-01-jazz-next-float16-float32-same-width-arithmetic.md`
+- `docs/plans/2026-06-01-jazz-next-float16-float32-same-width-comparison-equality.md`
+- `docs/plans/2026-06-01-jazz-next-structural-adt-equality.md`
+
+On `2026-06-01`, queue curation split the explicit literal-targeting child plan
+out of this umbrella follow-up, and the child plan landed:
+
+- `docs/plans/2026-06-01-jazz-next-float16-float32-literal-targeting.md`
+
+That child is limited to direct fractional literal bindings with explicit
+`Float16`/`Float32` signatures through type context, including finite-target
+source-exact checks and runtime rounding aligned with explicit conversions.
+Remaining primitive surface work stays blocked until separate contracts define
+exact syntax or behavior, target paths, and focused verification for literal
+suffixes, implicit integer-to-float promotion, implicit mixed-width behavior,
+function/operator/section equality, or broader numeric solver behavior.
+
 ## Verification Evidence (Current Ambiguity)
 
 - `jazz-hs/src/Types.hs`: builtin traits and builtin function signatures define only a subset of primitive behavior.
@@ -249,8 +507,10 @@ Out of scope:
 ## Decision Gates
 
 - [x] Gate A: Equality contract.
-  - [x] Option A1 (selected): strict type-directed equality only.
-  - [ ] Option A2: structural equality for compatible value families.
+  - [x] Option A1 (selected): strict type-directed equality only, now including
+        list/tuple structures whose nested element types are equality-supported.
+  - [ ] Option A2: open-ended structural equality for all compatible value
+        families.
   - [ ] Option A3: retain JS-like coercive behavior (not recommended for interpreter-first direction).
 - [x] Gate B: Numeric behavior.
   - [x] Option B1 (selected): integer/float operations remain trait-driven with explicit defaulting rules.
