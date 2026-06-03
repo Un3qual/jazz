@@ -4,10 +4,12 @@
 module JazzNext.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
     concreteImplFactKey,
+    concreteImplFactClassName,
     constraintImplFactKey,
     identifierLooksLikeTypeVariable,
     qualifiedMethodKey,
     splitQualifiedMethodKey,
+    signaturePayloadConstraintType,
     substituteClassMethodSignature,
     constraintFunctionArgumentTypes,
     renderConstraintSignatureType
@@ -41,6 +43,10 @@ constraintImplFactKey :: Identifier -> ConstraintSignatureType -> Text
 constraintImplFactKey constraintName argument =
   identifierText constraintName <> "(" <> renderConstraintSignatureType argument <> ")"
 
+concreteImplFactClassName :: Text -> Text
+concreteImplFactClassName implKey =
+  fst (Text.breakOn "(" implKey)
+
 qualifiedMethodKey :: Identifier -> Identifier -> Text
 qualifiedMethodKey capabilityName methodName =
   identifierText capabilityName <> "::" <> identifierText methodName
@@ -71,10 +77,10 @@ concreteConstraintArgument signatureType =
 substituteClassMethodSignature :: Text -> ConstraintSignatureType -> SignaturePayload -> Maybe ConstraintSignatureType
 substituteClassMethodSignature classParameter implTarget methodSignature =
   substituteConstraintSignatureType classParameter implTarget
-    <$> classMethodPayloadConstraintType methodSignature
+    <$> signaturePayloadConstraintType methodSignature
 
-classMethodPayloadConstraintType :: SignaturePayload -> Maybe ConstraintSignatureType
-classMethodPayloadConstraintType methodSignature =
+signaturePayloadConstraintType :: SignaturePayload -> Maybe ConstraintSignatureType
+signaturePayloadConstraintType methodSignature =
   case methodSignature of
     SignatureType signatureType ->
       Just (signatureTypeToConstraintSignatureType signatureType)

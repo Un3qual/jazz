@@ -57,6 +57,7 @@ import JazzNext.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
     constraintFunctionArgumentTypes,
     qualifiedMethodKey,
+    signaturePayloadConstraintType,
     substituteClassMethodSignature
   )
 import JazzNext.Compiler.Identifier
@@ -90,9 +91,9 @@ data RuntimeValue
   = VInt Integer RuntimeIntMetadata
   | VFloat Double RuntimeFloatMetadata
   | VBool Bool
-  | VList [RuntimeValue]
+  | VList [RuntimeValue] (Maybe ConstraintSignatureType)
   | VTuple [RuntimeValue]
-  | VClosure RuntimeEnv Identifier Expr
+  | VClosure RuntimeEnv Identifier Expr (Maybe ConstraintSignatureType)
   | VBuiltin BuiltinSymbol [RuntimeValue]
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
@@ -106,7 +107,7 @@ instance Eq RuntimeValue where
       (VInt leftInt _, VInt rightInt _) -> leftInt == rightInt
       (VFloat leftFloat _, VFloat rightFloat _) -> leftFloat == rightFloat
       (VBool leftBool, VBool rightBool) -> leftBool == rightBool
-      (VList leftElements, VList rightElements) -> leftElements == rightElements
+      (VList leftElements _, VList rightElements _) -> leftElements == rightElements
       (VTuple leftElements, VTuple rightElements) -> leftElements == rightElements
       ( VConstructor leftTypeName leftTypeParameters leftName leftConstructorArguments leftArgs,
         VConstructor rightTypeName rightTypeParameters rightName rightConstructorArguments rightArgs
@@ -130,10 +131,10 @@ instance Show RuntimeValue where
       VInt intValue _ -> "VInt " <> show intValue
       VFloat floatValue _ -> "VFloat " <> show floatValue
       VBool boolValue -> "VBool " <> show boolValue
-      VList elements -> "VList " <> show elements
+      VList elements maybeTypeHint -> "VList " <> show elements <> " " <> show maybeTypeHint
       VTuple elements -> "VTuple " <> show elements
-      VClosure _ parameterName bodyExpr ->
-        "VClosure <env> " <> show parameterName <> " " <> show bodyExpr
+      VClosure _ parameterName bodyExpr maybeTypeHint ->
+        "VClosure <env> " <> show parameterName <> " " <> show bodyExpr <> " " <> show maybeTypeHint
       VBuiltin builtinSymbol capturedArgs ->
         "VBuiltin " <> show builtinSymbol <> " " <> show capturedArgs
       VOperator operatorSymbol capturedArgs ->
@@ -171,7 +172,7 @@ renderRuntimeValue value =
       if boolValue
         then "True"
         else "False"
-    VList elements ->
+    VList elements _ ->
       "[" <> Text.intercalate ", " (map renderRuntimeValue elements) <> "]"
     VTuple elements ->
       "(" <> Text.intercalate ", " (map renderRuntimeValue elements) <> ")"
@@ -297,8 +298,9 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
       case previousSignatureNumericTarget statementIndex bindingName of
         Just targetType ->
           evalNumericSignatureBinding targetType env valueExpr
-        Nothing ->
-          evalValue builtinMode env valueExpr
+        Nothing -> do
+          runtimeValue <- evalValue builtinMode env valueExpr
+          Right (attachRuntimeTypeHint (previousSignatureRuntimeTypeHint statementIndex bindingName) runtimeValue)
 
     evalNumericSignatureBinding :: NumericType -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
     evalNumericSignatureBinding targetType env valueExpr =
@@ -319,6 +321,14 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
         Just (SSignature signatureName _ signaturePayload)
           | identifierText signatureName == identifierText bindingName ->
               signatureNumericTarget signaturePayload
+        _ -> Nothing
+
+    previousSignatureRuntimeTypeHint :: Int -> Identifier -> Maybe ConstraintSignatureType
+    previousSignatureRuntimeTypeHint statementIndex bindingName =
+      case Map.lookup (statementIndex - 1) statementsByIndex of
+        Just (SSignature signatureName _ signaturePayload)
+          | identifierText signatureName == identifierText bindingName ->
+              signaturePayloadConstraintType signaturePayload
         _ -> Nothing
 
     signatureNumericTarget :: SignaturePayload -> Maybe NumericType
@@ -419,11 +429,12 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
     attachSelfRecursiveBinding statementIndex bindingName runtimeValue
       | Set.member statementIndex selfRecursiveFunctionStatements =
           case runtimeValue of
-            VClosure capturedEnv parameterName bodyExpr ->
+            VClosure capturedEnv parameterName bodyExpr maybeTypeHint ->
               VClosure
                 (Map.insert (identifierText bindingName) (bindingCellAt statementIndex) capturedEnv)
                 parameterName
                 bodyExpr
+                maybeTypeHint
             _ -> runtimeValue
       | otherwise =
           runtimeValue
@@ -783,11 +794,11 @@ evalValue builtinMode env expr =
       where
         nameText = identifierText name
     ELambda parameterName bodyExpr ->
-      Right (VClosure env parameterName bodyExpr)
+      Right (VClosure env parameterName bodyExpr Nothing)
     EOperatorValue operatorSymbol ->
       Right (VOperator operatorSymbol [])
     EList elements ->
-      VList <$> mapM (evalValue builtinMode env) elements
+      (`VList` Nothing) <$> mapM (evalValue builtinMode env) elements
     ETuple elements ->
       VTuple <$> mapM (evalValue builtinMode env) elements
     EApply functionExpr argumentExpr -> do
@@ -848,6 +859,20 @@ literalRuntimeValue literal =
     LInt value -> VInt value untypedIntMetadata
     LFloat value literalSource -> VFloat value (untypedFloatMetadata (Just literalSource))
     LBool value -> VBool value
+
+attachRuntimeTypeHint :: Maybe ConstraintSignatureType -> RuntimeValue -> RuntimeValue
+attachRuntimeTypeHint maybeTypeHint runtimeValue =
+  case maybeTypeHint of
+    Just typeHint ->
+      case runtimeValue of
+        VList elements _ ->
+          VList elements (Just typeHint)
+        VClosure capturedEnv parameterName bodyExpr _ ->
+          VClosure capturedEnv parameterName bodyExpr (Just typeHint)
+        _ ->
+          runtimeValue
+    Nothing ->
+      runtimeValue
 
 untypedIntMetadata :: RuntimeIntMetadata
 untypedIntMetadata =
@@ -943,15 +968,15 @@ matchPattern scrutineeValue pattern =
         _ -> Nothing
     PList patterns ->
       case scrutineeValue of
-        VList elements
+        VList elements _
           | length elements == length patterns ->
               matchPatternList elements patterns
         _ -> Nothing
     PConsList headPattern tailPattern ->
       case scrutineeValue of
-        VList (headValue : tailValues) -> do
+        VList (headValue : tailValues) maybeTypeHint -> do
           headBindings <- matchPattern headValue headPattern
-          tailBindings <- matchPattern (VList tailValues) tailPattern
+          tailBindings <- matchPattern (VList tailValues maybeTypeHint) tailPattern
           Just (tailBindings `Map.union` headBindings)
         _ -> Nothing
     PTuple patterns ->
@@ -982,7 +1007,7 @@ applyRuntimeFunction builtinMode functionValue argumentValue =
       evalBinary builtinMode operatorSymbol leftValue argumentValue
     VSectionRight operatorSymbol rightValue ->
       evalBinary builtinMode operatorSymbol argumentValue rightValue
-    VClosure capturedEnv parameterName bodyExpr ->
+    VClosure capturedEnv parameterName bodyExpr _ ->
       evalValue
         builtinMode
         (Map.insert (identifierText parameterName) (Right argumentValue) capturedEnv)
@@ -1078,7 +1103,10 @@ runtimeValueMatchesConstraint signatureType runtimeValue =
       runtimeValueMatchesDataTypeApplication typeName typeArguments runtimeValue
     ConstraintTypeList elementType ->
       case runtimeValue of
-        VList elements -> all (runtimeValueMatchesConstraint elementType) elements
+        VList elements maybeTypeHint ->
+          case maybeTypeHint of
+            Just typeHint -> typeHint == signatureType
+            Nothing -> all (runtimeValueMatchesConstraint elementType) elements
         _ -> False
     ConstraintTypeTuple elementTypes ->
       case runtimeValue of
@@ -1087,7 +1115,9 @@ runtimeValueMatchesConstraint signatureType runtimeValue =
               and (zipWith runtimeValueMatchesConstraint elementTypes elements)
         _ -> False
     ConstraintTypeFunction {} ->
-      isFunctionValue runtimeValue
+      case runtimeValue of
+        VClosure _ _ _ (Just typeHint) -> typeHint == signatureType
+        _ -> isFunctionValue runtimeValue
 
 runtimeValueMatchesTypeName :: Text -> RuntimeValue -> Bool
 runtimeValueMatchesTypeName typeName runtimeValue =
@@ -1260,9 +1290,9 @@ evalBuiltin builtinMode builtinFunction arguments =
     (_, [value])
       | Just targetType <- builtinSymbolNumericConversionTarget builtinFunction ->
           evalNumericConversion builtinFunction targetType value
-    (BuiltinHd, [VList []]) ->
+    (BuiltinHd, [VList [] _]) ->
       Left (runtimeDiagnostic "E3009" "runtime primitive 'hd' failed: empty list")
-    (BuiltinHd, [VList (headValue : _)]) ->
+    (BuiltinHd, [VList (headValue : _) _]) ->
       Right headValue
     (BuiltinHd, [other]) ->
       Left
@@ -1270,10 +1300,10 @@ evalBuiltin builtinMode builtinFunction arguments =
             "E3011"
             ("runtime primitive 'hd' expects a list argument, found " <> renderRuntimeType other)
         )
-    (BuiltinTl, [VList []]) ->
+    (BuiltinTl, [VList [] _]) ->
       Left (runtimeDiagnostic "E3010" "runtime primitive 'tl' failed: empty list")
-    (BuiltinTl, [VList (_ : tailValues)]) ->
-      Right (VList tailValues)
+    (BuiltinTl, [VList (_ : tailValues) maybeTypeHint]) ->
+      Right (VList tailValues maybeTypeHint)
     (BuiltinTl, [other]) ->
       Left
         ( runtimeDiagnostic
@@ -1289,8 +1319,8 @@ evalBuiltin builtinMode builtinFunction arguments =
             )
       | otherwise ->
           case collection of
-            VList elements ->
-              VList <$> mapM (applyRuntimeFunction builtinMode mapper) elements
+            VList elements _ ->
+              (`VList` Nothing) <$> mapM (applyRuntimeFunction builtinMode mapper) elements
             other ->
               Left
                 ( runtimeDiagnostic
@@ -1306,8 +1336,8 @@ evalBuiltin builtinMode builtinFunction arguments =
             )
       | otherwise ->
           case collection of
-            VList elements ->
-              VList <$> filterElements builtinMode predicate elements
+            VList elements maybeTypeHint ->
+              (`VList` maybeTypeHint) <$> filterElements builtinMode predicate elements
             other ->
               Left
                 ( runtimeDiagnostic
@@ -1790,19 +1820,19 @@ runtimeFloatArithmeticOverflowDiagnostic operatorSymbol targetType =
 
 evalStructuralEquality :: Text -> RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
 evalStructuralEquality operatorSymbol leftValue rightValue =
-  case runtimeStructuralEquality leftValue rightValue of
-    Just equalityResult ->
-      Right
-        ( VBool
-            ( if operatorSymbol == "!="
-                then not equalityResult
-                else equalityResult
+  if runtimeValueContainsFunction leftValue || runtimeValueContainsFunction rightValue
+    then Left (runtimeCallableEqualityDiagnostic operatorSymbol leftValue rightValue)
+    else
+      case runtimeStructuralEquality leftValue rightValue of
+        Just equalityResult ->
+          Right
+            ( VBool
+                ( if operatorSymbol == "!="
+                    then not equalityResult
+                    else equalityResult
+                )
             )
-        )
-    Nothing
-      | runtimeValueContainsFunction leftValue || runtimeValueContainsFunction rightValue ->
-          Left (runtimeCallableEqualityDiagnostic operatorSymbol leftValue rightValue)
-      | otherwise ->
+        Nothing ->
           Left
             ( runtimeDiagnostic
                 "E3007"
@@ -1822,7 +1852,7 @@ runtimeValueContainsFunction value =
   where
     runtimeContainerContainsFunction runtimeValue =
       case runtimeValue of
-        VList elements ->
+        VList elements _ ->
           any runtimeValueContainsFunction elements
         VTuple elements ->
           any runtimeValueContainsFunction elements
@@ -1839,7 +1869,7 @@ runtimeStructuralEquality leftValue rightValue =
     (VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
       runtimeFloatStructuralEquality leftFloat leftMetadata rightFloat rightMetadata
     (VBool leftBool, VBool rightBool) -> Just (leftBool == rightBool)
-    (VList leftElements, VList rightElements) ->
+    (VList leftElements _, VList rightElements _) ->
       structuralElementEquality leftElements rightElements
     (VTuple leftElements, VTuple rightElements) ->
       structuralElementEquality leftElements rightElements

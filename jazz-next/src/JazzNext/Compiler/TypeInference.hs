@@ -53,6 +53,7 @@ import JazzNext.Compiler.BuiltinCatalog
 import JazzNext.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
     concreteImplFactKey,
+    concreteImplFactClassName,
     constraintImplFactKey,
     identifierLooksLikeTypeVariable,
     qualifiedMethodKey,
@@ -1291,7 +1292,7 @@ filterImportedCapabilityFacts maybeSymbolNames facts =
               (scopeClassFacts facts),
           scopeConcreteImplFacts =
             Set.filter
-              (\implKey -> Set.member (concreteImplClassName implKey) visibleSymbols)
+              (\implKey -> Set.member (concreteImplFactClassName implKey) visibleSymbols)
               (scopeConcreteImplFacts facts),
           scopeClassMethodSignatures =
             Map.filterWithKey
@@ -1308,10 +1309,6 @@ filterImportedCapabilityFacts maybeSymbolNames facts =
           case splitQualifiedMethodKey methodKey of
             Just (className, _) -> Set.member className visibleSymbols
             Nothing -> False
-
-concreteImplClassName :: Text -> Text
-concreteImplClassName implKey =
-  fst (Text.breakOn "(" implKey)
 
 seedStatementCapabilityFact :: InferState -> Statement -> InferState
 seedStatementCapabilityFact state statement =

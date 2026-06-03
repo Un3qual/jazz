@@ -82,6 +82,7 @@ data ParsedImport = ParsedImport
 data ParsedModule = ParsedModule
   { parsedModuleImports :: [ParsedImport],
     parsedModuleExports :: Set Text,
+    parsedModuleClassNames :: Set Text,
     parsedModuleReferences :: Set Text,
     parsedModuleQualifiedReferences :: Set (Text, Text)
   }
@@ -96,7 +97,8 @@ data BindingOrigin = BindingOrigin
 data ResolvedState = ResolvedState
   { resolvedSetState :: Set [Text],
     resolvedModulesRevState :: [ResolvedModule],
-    resolvedExportsState :: Map [Text] (Set Text)
+    resolvedExportsState :: Map [Text] (Set Text),
+    resolvedClassExportsState :: Map [Text] (Set Text)
   }
 
 modulePathToRelativeFile :: [Text] -> FilePath
@@ -160,16 +162,17 @@ resolveModuleGraphWithLookup ::
   [Text] ->
   m (Either Diagnostic [ResolvedModule])
 resolveModuleGraphWithLookup config =
-  resolveModuleGraphWithLookupAndVisibleSymbols config Set.empty
+  resolveModuleGraphWithLookupAndVisibleSymbols config Set.empty Set.empty
 
 resolveModuleGraphWithLookupAndVisibleSymbols ::
   Monad m =>
   ModuleResolutionConfig ->
   Set Text ->
+  Set Text ->
   (FilePath -> m (Maybe Text)) ->
   [Text] ->
   m (Either Diagnostic [ResolvedModule])
-resolveModuleGraphWithLookupAndVisibleSymbols config ambientVisibleSymbols loadSource entryModulePath
+resolveModuleGraphWithLookupAndVisibleSymbols config ambientVisibleSymbols ambientVisibleClassNames loadSource entryModulePath
   | null entryModulePath =
       pure (Left (mkMessageDiagnostic "empty entry module path"))
   | otherwise =
@@ -179,7 +182,8 @@ resolveModuleGraphWithLookupAndVisibleSymbols config ambientVisibleSymbols loadS
       ResolvedState
         { resolvedSetState = Set.empty,
           resolvedModulesRevState = [],
-          resolvedExportsState = Map.empty
+          resolvedExportsState = Map.empty,
+          resolvedClassExportsState = Map.empty
         }
 
     visitModule callStack state modulePath
@@ -210,9 +214,12 @@ resolveModuleGraphWithLookupAndVisibleSymbols config ambientVisibleSymbols loadS
                             sourcePath
                             modulePath
                             (parsedModuleImports parsedModule)
+                            (parsedModuleClassNames parsedModule)
                             (parsedModuleReferences parsedModule)
                             (parsedModuleQualifiedReferences parsedModule)
                             ambientVisibleSymbols
+                            ambientVisibleClassNames
+                            (resolvedClassExportsState stateAfterDeps)
                             (resolvedExportsState stateAfterDeps) of
                         Left err -> pure (Left err)
                         Right () ->
@@ -233,7 +240,12 @@ resolveModuleGraphWithLookupAndVisibleSymbols config ambientVisibleSymbols loadS
                                           Map.insert
                                             modulePath
                                             (parsedModuleExports parsedModule)
-                                            (resolvedExportsState stateAfterDeps)
+                                            (resolvedExportsState stateAfterDeps),
+                                        resolvedClassExportsState =
+                                          Map.insert
+                                            modulePath
+                                            (parsedModuleClassNames parsedModule)
+                                            (resolvedClassExportsState stateAfterDeps)
                                       }
                                 )
 
@@ -325,6 +337,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
         ParsedModule
           { parsedModuleImports = collectImports surfaceExpr,
             parsedModuleExports = topLevelBindings,
+            parsedModuleClassNames = collectTopLevelClassNames surfaceExpr,
             parsedModuleReferences = collectReferencedNames surfaceExpr Set.\\ topLevelBindings,
             parsedModuleQualifiedReferences = collectQualifiedReferences surfaceExpr
           }
@@ -360,6 +373,16 @@ collectTopLevelBindings surfaceExpr =
             | SurfaceDataConstructor constructorName _ <- constructors
           ]
         _ -> []
+
+collectTopLevelClassNames :: SurfaceExpr -> Set Text
+collectTopLevelClassNames surfaceExpr =
+  case surfaceExpr of
+    SEBlock statements ->
+      Set.fromList
+        [ identifierText className
+          | SSClass _ className _ _ <- statements
+        ]
+    _ -> Set.empty
 
 -- | Collect unqualified free references used to validate explicit and alias
 -- import visibility before driver replay rewrites names.
@@ -602,14 +625,18 @@ validateImportBindings ::
   [Text] ->
   [ParsedImport] ->
   Set Text ->
+  Set Text ->
   Set (Text, Text) ->
   Set Text ->
+  Set Text ->
+  Map [Text] (Set Text) ->
   Map [Text] (Set Text) ->
   Either Diagnostic ()
-validateImportBindings sourcePath importerPath imports referencedNames qualifiedReferences ambientVisibleSymbols exportsByModule = do
+validateImportBindings sourcePath importerPath imports localClassNames referencedNames qualifiedReferences ambientVisibleSymbols ambientVisibleClassNames classExportsByModule exportsByModule = do
   go Map.empty Map.empty imports
-  validateQualifiedReferences
   visibleSymbols <- collectVisibleImportSymbols imports
+  visibleClassNames <- collectVisibleImportClassNames imports
+  validateQualifiedReferences (Set.unions [localClassNames, visibleClassNames, ambientVisibleClassNames])
   let visibleOrAmbientSymbols = Set.union visibleSymbols ambientVisibleSymbols
   case findHiddenExplicitImportReference visibleOrAmbientSymbols of
     Just (symbolName, importDecl) ->
@@ -668,39 +695,47 @@ validateImportBindings sourcePath importerPath imports referencedNames qualified
                     )
                 )
             Just exportedSymbols ->
+              let exportedClassNames =
+                    Map.findWithDefault Set.empty (parsedImportModulePath importDecl) classExportsByModule
+                  exportedImportSymbols =
+                    Set.union exportedSymbols exportedClassNames
+               in
               foldM
-                (validateImportSymbol importDecl exportedSymbols)
+                (validateImportSymbol importDecl exportedImportSymbols)
                 seenSymbols
                 symbolNames
 
-    validateQualifiedReferences :: Either Diagnostic ()
-    validateQualifiedReferences =
+    validateQualifiedReferences :: Set Text -> Either Diagnostic ()
+    validateQualifiedReferences visibleClassNames =
       foldM
         validateQualifiedReference
         ()
         (Set.toList qualifiedReferences)
-
-    validateQualifiedReference :: () -> (Text, Text) -> Either Diagnostic ()
-    validateQualifiedReference () (aliasName, symbolName) =
-      case findAliasImport aliasName of
-        Nothing ->
-          Left (mkUnknownQualifiedAliasError aliasName symbolName)
-        Just importDecl ->
-          case Map.lookup (parsedImportModulePath importDecl) exportsByModule of
-            Nothing ->
-              Left
-                ( mkDiagnostic
-                    "E4010"
-                    ( "internal resolver error while validating imports for '"
-                        <> renderModulePath importerPath
-                        <> "': missing exports for module '"
-                        <> renderModulePath (parsedImportModulePath importDecl)
-                        <> "'"
-                    )
-                )
-            Just exportedSymbols
-              | Set.member symbolName exportedSymbols -> Right ()
-              | otherwise -> Left (mkMissingQualifiedAliasSymbolError symbolName importDecl aliasName exportedSymbols)
+      where
+        validateQualifiedReference :: () -> (Text, Text) -> Either Diagnostic ()
+        validateQualifiedReference () (aliasName, symbolName)
+          | Set.member aliasName visibleClassNames =
+              Right ()
+          | otherwise =
+              case findAliasImport aliasName of
+                Nothing ->
+                  Left (mkUnknownQualifiedAliasError aliasName symbolName)
+                Just importDecl ->
+                  case Map.lookup (parsedImportModulePath importDecl) exportsByModule of
+                    Nothing ->
+                      Left
+                        ( mkDiagnostic
+                            "E4010"
+                            ( "internal resolver error while validating imports for '"
+                                <> renderModulePath importerPath
+                                <> "': missing exports for module '"
+                                <> renderModulePath (parsedImportModulePath importDecl)
+                                <> "'"
+                            )
+                        )
+                    Just exportedSymbols
+                      | Set.member symbolName exportedSymbols -> Right ()
+                      | otherwise -> Left (mkMissingQualifiedAliasSymbolError symbolName importDecl aliasName exportedSymbols)
 
     findAliasImport :: Text -> Maybe ParsedImport
     findAliasImport aliasName =
@@ -848,6 +883,28 @@ validateImportBindings sourcePath importerPath imports referencedNames qualified
                       case parsedImportSymbols importDecl of
                         Nothing -> exportedSymbols
                         Just symbolNames -> Set.fromList symbolNames
+                )
+            )
+
+    collectVisibleImportClassNames :: [ParsedImport] -> Either Diagnostic (Set Text)
+    collectVisibleImportClassNames =
+      foldM collectVisibleImportClassName Set.empty
+
+    collectVisibleImportClassName :: Set Text -> ParsedImport -> Either Diagnostic (Set Text)
+    collectVisibleImportClassName visibleClassNames importDecl =
+      case Map.lookup (parsedImportModulePath importDecl) classExportsByModule of
+        Nothing ->
+          Right visibleClassNames
+        Just exportedClassNames ->
+          Right
+            ( Set.union
+                visibleClassNames
+                ( case parsedImportAlias importDecl of
+                    Just _ -> Set.empty
+                    Nothing ->
+                      case parsedImportSymbols importDecl of
+                        Nothing -> exportedClassNames
+                        Just symbolNames -> Set.intersection exportedClassNames (Set.fromList symbolNames)
                 )
             )
 

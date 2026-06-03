@@ -221,7 +221,8 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
           }
     Right loweredPrelude -> do
       let ambientVisibleSymbols = loweredPreludeVisibleSymbols loweredPrelude
-      moduleGraphExprResult <- loadLoweredModuleGraph ambientVisibleSymbols resolutionConfig entryModulePath sourceLookup
+          ambientVisibleClassNames = loweredPreludeVisibleClassNames loweredPrelude
+      moduleGraphExprResult <- loadLoweredModuleGraph ambientVisibleSymbols ambientVisibleClassNames resolutionConfig entryModulePath sourceLookup
       case moduleGraphExprResult of
         Left resolutionError ->
           pure
@@ -351,7 +352,8 @@ runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entr
           }
     Right loweredPrelude -> do
       let ambientVisibleSymbols = loweredPreludeVisibleSymbols loweredPrelude
-      moduleGraphExprResult <- loadLoweredModuleGraph ambientVisibleSymbols resolutionConfig entryModulePath sourceLookup
+          ambientVisibleClassNames = loweredPreludeVisibleClassNames loweredPrelude
+      moduleGraphExprResult <- loadLoweredModuleGraph ambientVisibleSymbols ambientVisibleClassNames resolutionConfig entryModulePath sourceLookup
       case moduleGraphExprResult of
         Left resolutionError ->
           pure
@@ -540,6 +542,16 @@ loweredPreludeVisibleSymbols loweredResolvedPrelude =
     collectVisiblePreludeBindings loweredPrelude =
       Set.fromList (collectTopLevelBindingNames loweredPrelude)
 
+loweredPreludeVisibleClassNames :: LoweredResolvedPrelude -> Set Text
+loweredPreludeVisibleClassNames loweredResolvedPrelude =
+  case loweredResolvedPrelude of
+    LoweredPreludeAbsent -> Set.empty
+    LoweredPreludeBundled loweredPrelude -> collectVisiblePreludeClassNames loweredPrelude
+    LoweredPreludeExplicit loweredPrelude -> collectVisiblePreludeClassNames loweredPrelude
+  where
+    collectVisiblePreludeClassNames loweredPrelude =
+      Set.fromList (collectTopLevelClassNames loweredPrelude)
+
 -- | Parse and validate an explicit/bundled prelude before it is merged into the
 -- main program source.
 validateAndLowerPrelude :: Text -> Either Diagnostic Expr
@@ -596,14 +608,15 @@ loadModuleGraphSource resolutionConfig entryModulePath sourceLookup = do
 -- are stripped only from the runtime replay expression.
 loadLoweredModuleGraph ::
   Set Text ->
+  Set Text ->
   ModuleResolutionConfig ->
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
   IO (Either Diagnostic ModuleGraphExpr)
-loadLoweredModuleGraph ambientVisibleSymbols resolutionConfig entryModulePath sourceLookup = do
+loadLoweredModuleGraph ambientVisibleSymbols ambientVisibleClassNames resolutionConfig entryModulePath sourceLookup = do
   memoizedSourceLookup <- memoizeSourceLookup sourceLookup
   resolutionResult <-
-    resolveModuleGraphWithLookupAndVisibleSymbols resolutionConfig ambientVisibleSymbols memoizedSourceLookup entryModulePath
+    resolveModuleGraphWithLookupAndVisibleSymbols resolutionConfig ambientVisibleSymbols ambientVisibleClassNames memoizedSourceLookup entryModulePath
   case resolutionResult of
     Left resolutionError ->
       pure (Left resolutionError)
@@ -759,6 +772,15 @@ collectTopLevelBindingNames expr =
             | DataConstructor constructorName _ <- constructors
           ]
         _ -> []
+
+collectTopLevelClassNames :: Expr -> [Text]
+collectTopLevelClassNames expr =
+  case expr of
+    EBlock statements ->
+      [ identifierText className
+        | SClass _ className _ _ <- statements
+      ]
+    _ -> []
 
 collectHiddenImportExports ::
   Map [Text] [Text] ->

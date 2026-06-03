@@ -287,6 +287,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
   (reverse finalWarningsRev, reverse errorsWithFinalPending)
   where
     indexedStatements = zip [0 ..] statements
+    moduleBaselineClassDeclarations = collectModuleBaselineClassDeclarations indexedStatements
 
     -- Build recursion groups from local binding dependencies so mutually recursive
     -- bindings can reference each other independent of declaration order.
@@ -341,7 +342,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
            in
             ( scopeBindings,
-              Map.empty,
+              moduleBaselineClassDeclarations,
               Map.empty,
               Nothing,
               warningsRev,
@@ -522,6 +523,17 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
     currentVisibleClassNames :: Map Text SourceSpan -> Set Text
     currentVisibleClassNames classDeclarations =
       Map.keysSet classDeclarations `Set.union` outerClassNames
+
+    collectModuleBaselineClassDeclarations :: [(Int, Statement)] -> Map Text SourceSpan
+    collectModuleBaselineClassDeclarations indexedScopeStatements =
+      case [statementIndex | (statementIndex, SModule {}) <- indexedScopeStatements] of
+        [] -> Map.empty
+        firstModuleStatementIndex : _ ->
+          Map.fromList
+            [ (identifierText className, classSpan)
+              | (statementIndex, SClass classSpan className _ _) <- indexedScopeStatements,
+                statementIndex < firstModuleStatementIndex
+            ]
 
     withRecursivePeerBindings ::
       Int ->

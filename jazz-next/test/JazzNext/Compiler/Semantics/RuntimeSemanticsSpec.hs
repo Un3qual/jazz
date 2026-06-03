@@ -129,8 +129,8 @@ tests =
     ("runtime fallback rejects mixed targeted integer comparison", testRuntimeFallbackRejectsMixedTargetedIntegerComparison),
     ("runtime fallback rejects structural equality over functions", testRuntimeFallbackRejectsFunctionStructuralEquality),
     ("runtime fallback rejects structural equality over qualified methods", testRuntimeFallbackRejectsQualifiedMethodStructuralEquality),
-    ("runtime fallback returns false for different-length structural equality over functions", testRuntimeFallbackReturnsFalseForDifferentLengthFunctionStructuralEquality),
-    ("runtime fallback returns false for different saturated ADT constructors with function payloads", testRuntimeFallbackReturnsFalseForDifferentSaturatedAdtConstructors),
+    ("runtime fallback rejects different-length structural equality over functions", testRuntimeFallbackRejectsDifferentLengthFunctionStructuralEquality),
+    ("runtime fallback rejects different saturated ADT constructors with function payloads", testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors),
     ("Float16 conversion rounds to target precision", testFloat16ConversionRoundsRuntimeValue),
     ("dynamic integer conversion range failure reports deterministic diagnostic", testDynamicIntegerConversionRangeRuntimeError),
     ("runtime fallback rejects non-numeric conversion values", testRuntimeFallbackRejectsNonNumericConversionValue),
@@ -146,6 +146,8 @@ tests =
     ("qualified method dispatch preserves non-literal integer signature targets", testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget),
     ("qualified method dispatch treats Float as Float64 alias at runtime", testQualifiedMethodDispatchTreatsFloatAsFloat64Alias),
     ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
+    ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
+    ("qualified method dispatch preserves empty list binding signatures", testQualifiedMethodDispatchPreservesEmptyListBindingSignature),
     ("qualified zero-argument method dispatch returns value", testQualifiedZeroArgumentMethodDispatchReturnsValue),
     ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias),
     ("qualified method dispatch rejects wrapped self alias", testQualifiedMethodDispatchRejectsWrappedSelfAlias),
@@ -928,16 +930,21 @@ testRuntimeFallbackRejectsQualifiedMethodStructuralEquality = do
     "callable values are not equality-supported"
     result
 
-testRuntimeFallbackReturnsFalseForDifferentLengthFunctionStructuralEquality :: IO ()
-testRuntimeFallbackReturnsFalseForDifferentLengthFunctionStructuralEquality = do
+testRuntimeFallbackRejectsDifferentLengthFunctionStructuralEquality :: IO ()
+testRuntimeFallbackRejectsDifferentLengthFunctionStructuralEquality = do
   let identity = ELambda "x" (EVar "x")
-      result = evaluateRuntimeExpr (runtimeExpr (EBinary "==" (EList [identity]) (EList [identity, identity])))
-  assertEqual "different-length function structural equality" (Right (Just (VBool False))) result
+  assertCallableRuntimeEqualityRejected
+    "different-length function structural equality"
+    (EBinary "==" (EList [identity]) (EList [identity, identity]))
 
-testRuntimeFallbackReturnsFalseForDifferentSaturatedAdtConstructors :: IO ()
-testRuntimeFallbackReturnsFalseForDifferentSaturatedAdtConstructors = do
+testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors :: IO ()
+testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors = do
   let result = evaluateRuntimeExpr differentSaturatedAdtConstructorEqualityExpr
-  assertEqual "different saturated ADT constructor equality" (Right (Just (VBool False))) result
+  assertRuntimeErrorContains "different saturated ADT constructor equality code" "E3007" result
+  assertRuntimeErrorContains
+    "different saturated ADT constructor equality callable text"
+    "callable values are not equality-supported"
+    result
   where
     identity = ELambda "x" (EVar "x")
 
@@ -1142,6 +1149,36 @@ testQualifiedMethodDispatchTreatsIntAsInt64Alias = do
           <> "left :: Int.\nleft = 1.\n"
           <> "right :: Int.\nright = 2.\n"
           <> "RuntimeEq::equals left right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesHigherOrderBindingSignature :: IO ()
+testQualifiedMethodDispatchPreservesHigherOrderBindingSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(Bool) {\napply = \\(fn) -> False.\n}.\n"
+          <> "idInt :: Int -> Int.\nidInt = \\(value) -> value.\n"
+          <> "RuntimeApply::apply idInt."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesEmptyListBindingSignature :: IO ()
+testQualifiedMethodDispatchPreservesEmptyListBindingSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(values) -> True.\n}.\n"
+          <> "impl RuntimePick(Bool) {\npick = \\(values) -> False.\n}.\n"
+          <> "values :: [Int].\nvalues = [].\n"
+          <> "RuntimePick::pick values."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
