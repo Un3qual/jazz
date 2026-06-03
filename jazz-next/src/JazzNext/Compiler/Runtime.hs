@@ -294,51 +294,43 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
 
     evalBindingValue :: Int -> Identifier -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
     evalBindingValue statementIndex bindingName env valueExpr =
-      case targetedIntegerLiteralBinding statementIndex bindingName valueExpr of
-        Just (targetType, literalValue) ->
-          convertIntegerToNumericTarget
-            (integerConversionBuiltinForTarget targetType)
-            targetType
-            literalValue
+      case previousSignatureNumericTarget statementIndex bindingName of
+        Just targetType ->
+          evalNumericSignatureBinding targetType env valueExpr
         Nothing ->
-          case targetedFractionalLiteralBinding statementIndex bindingName valueExpr of
-            Just (targetType, literalValue, literalSource) ->
-              convertFiniteFloatToFloatTarget
-                (floatConversionBuiltinForTarget targetType)
-                targetType
-                literalValue
-                (Just literalSource)
-            Nothing ->
-              evalValue builtinMode env valueExpr
+          evalValue builtinMode env valueExpr
 
-    targetedIntegerLiteralBinding :: Int -> Identifier -> Expr -> Maybe (NumericType, Integer)
-    targetedIntegerLiteralBinding statementIndex bindingName valueExpr =
+    evalNumericSignatureBinding :: NumericType -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
+    evalNumericSignatureBinding targetType env valueExpr =
       case valueExpr of
         ELit (LInt literalValue) ->
-          case previousSignatureIntegerTarget statementIndex bindingName of
-            Just targetType -> Just (targetType, literalValue)
-            Nothing -> Nothing
-        _ -> Nothing
+          convertIntegerToNumericTarget conversionBuiltin targetType literalValue
+        ELit (LFloat literalValue literalSource) ->
+          convertFloatToNumericTarget conversionBuiltin targetType literalValue (Just literalSource)
+        _ -> do
+          runtimeValue <- evalValue builtinMode env valueExpr
+          evalNumericConversion conversionBuiltin targetType runtimeValue
+      where
+        conversionBuiltin = numericConversionBuiltinForTarget targetType
 
-    previousSignatureIntegerTarget :: Int -> Identifier -> Maybe NumericType
-    previousSignatureIntegerTarget statementIndex bindingName =
+    previousSignatureNumericTarget :: Int -> Identifier -> Maybe NumericType
+    previousSignatureNumericTarget statementIndex bindingName =
       case Map.lookup (statementIndex - 1) statementsByIndex of
         Just (SSignature signatureName _ signaturePayload)
           | identifierText signatureName == identifierText bindingName ->
-              signatureIntegerTarget signaturePayload
+              signatureNumericTarget signaturePayload
         _ -> Nothing
 
-    signatureIntegerTarget :: SignaturePayload -> Maybe NumericType
-    signatureIntegerTarget signaturePayload =
+    signatureNumericTarget :: SignaturePayload -> Maybe NumericType
+    signatureNumericTarget signaturePayload =
       case signaturePayload of
-        SignatureType (TypeNumeric targetType)
-          | integerNumericType targetType -> Just targetType
+        SignatureType (TypeNumeric targetType) -> Just targetType
         ConstrainedSignature _ signatureType ->
-          constraintSignatureIntegerTarget signatureType
+          constraintSignatureNumericTarget signatureType
         _ -> Nothing
 
-    constraintSignatureIntegerTarget :: ConstraintSignatureType -> Maybe NumericType
-    constraintSignatureIntegerTarget signatureType =
+    constraintSignatureNumericTarget :: ConstraintSignatureType -> Maybe NumericType
+    constraintSignatureNumericTarget signatureType =
       case signatureType of
         ConstraintTypeName typeName ->
           case identifierText typeName of
@@ -350,54 +342,14 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
             "UInt16" -> Just NumericUInt16
             "UInt32" -> Just NumericUInt32
             "UInt64" -> Just NumericUInt64
-            _ -> Nothing
-        _ -> Nothing
-
-    targetedFractionalLiteralBinding :: Int -> Identifier -> Expr -> Maybe (NumericType, Double, FractionalLiteralSource)
-    targetedFractionalLiteralBinding statementIndex bindingName valueExpr =
-      case valueExpr of
-        ELit (LFloat literalValue literalSource) ->
-          case previousSignatureFloatTarget statementIndex bindingName of
-            Just targetType -> Just (targetType, literalValue, literalSource)
-            Nothing -> Nothing
-        _ -> Nothing
-
-    previousSignatureFloatTarget :: Int -> Identifier -> Maybe NumericType
-    previousSignatureFloatTarget statementIndex bindingName =
-      case Map.lookup (statementIndex - 1) statementsByIndex of
-        Just (SSignature signatureName _ signaturePayload)
-          | identifierText signatureName == identifierText bindingName ->
-              signatureFloatTarget signaturePayload
-        _ -> Nothing
-
-    signatureFloatTarget :: SignaturePayload -> Maybe NumericType
-    signatureFloatTarget signaturePayload =
-      case signaturePayload of
-        SignatureType (TypeNumeric NumericFloat16) -> Just NumericFloat16
-        SignatureType (TypeNumeric NumericFloat32) -> Just NumericFloat32
-        ConstrainedSignature _ signatureType ->
-          constraintSignatureFloatTarget signatureType
-        _ -> Nothing
-
-    constraintSignatureFloatTarget :: ConstraintSignatureType -> Maybe NumericType
-    constraintSignatureFloatTarget signatureType =
-      case signatureType of
-        ConstraintTypeName typeName ->
-          case identifierText typeName of
             "Float16" -> Just NumericFloat16
             "Float32" -> Just NumericFloat32
+            "Float64" -> Just NumericFloat64
             _ -> Nothing
         _ -> Nothing
 
-    floatConversionBuiltinForTarget :: NumericType -> BuiltinSymbol
-    floatConversionBuiltinForTarget targetType =
-      case targetType of
-        NumericFloat16 -> BuiltinToFloat16
-        NumericFloat32 -> BuiltinToFloat32
-        NumericFloat64 -> BuiltinToFloat64
-
-    integerConversionBuiltinForTarget :: NumericType -> BuiltinSymbol
-    integerConversionBuiltinForTarget targetType =
+    numericConversionBuiltinForTarget :: NumericType -> BuiltinSymbol
+    numericConversionBuiltinForTarget targetType =
       case targetType of
         NumericInt8 -> BuiltinToInt8
         NumericInt16 -> BuiltinToInt16
@@ -407,6 +359,9 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
         NumericUInt16 -> BuiltinToUInt16
         NumericUInt32 -> BuiltinToUInt32
         NumericUInt64 -> BuiltinToUInt64
+        NumericFloat16 -> BuiltinToFloat16
+        NumericFloat32 -> BuiltinToFloat32
+        NumericFloat64 -> BuiltinToFloat64
 
     -- Alias bridges can legitimately point across a recursive SCC, but pure
     -- alias loops need a deterministic diagnostic instead of infinite forcing.
@@ -646,11 +601,23 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
             methodCandidates =
               map
                 ( \(ImplMethod methodName _ methodExpr) ->
-                    ( qualifiedMethodKey capabilityName methodName,
-                      RuntimeMethodCandidate implTarget (evalValue builtinMode methodEnv methodExpr)
-                    )
+                    let methodKey = qualifiedMethodKey capabilityName methodName
+                     in ( methodKey,
+                          RuntimeMethodCandidate implTarget (methodCandidateCell methodKey methodExpr)
+                        )
                 )
                 methods
+            methodCandidateCell methodKey methodExpr =
+              case methodExpr of
+                EVar aliasName
+                  | identifierText aliasName == methodKey ->
+                      Left
+                        ( runtimeDiagnostic
+                            "E3021"
+                            ("runtime recursive qualified method alias cycle '" <> methodKey <> "' has no concrete value")
+                        )
+                _ ->
+                  evalValue builtinMode methodEnv methodExpr
             insertCandidate envAcc (methodKey, methodCandidate) =
               Map.adjust (addMethodCandidate methodCandidate) methodKey envAcc
         _ -> env
@@ -1508,12 +1475,6 @@ renderNumericTypeName numericType =
     NumericFloat16 -> "Float16"
     NumericFloat32 -> "Float32"
     NumericFloat64 -> "Float64"
-
-integerNumericType :: NumericType -> Bool
-integerNumericType targetType =
-  case numericTypeIntegerBounds targetType of
-    Just _ -> True
-    Nothing -> False
 
 -- | Evaluate filter predicates element-by-element and enforce that each
 -- predicate application returns a Bool.

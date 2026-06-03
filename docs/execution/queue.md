@@ -9,7 +9,7 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
-Current executor status (`2026-06-02`): the three queued active-path
+Current executor status (`2026-06-02`): the five queued active-path
 `jazz-next/` implementation batches have been executed and moved to `Done`.
 `Ready Now` is intentionally empty until the next queue-curation pass selects
 another executor-safe implementation batch. Warning, runtime product, operator,

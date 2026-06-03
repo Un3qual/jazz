@@ -69,6 +69,7 @@ tests =
     ("source pipeline selects qualified method body by argument types", testSourceSelectsQualifiedMethodBodyByArgumentTypes),
     ("source pipeline accepts same-impl qualified method body references", testSourceAcceptsSameImplQualifiedMethodBodyReferences),
     ("source pipeline accepts higher-order qualified method signature", testSourceAcceptsHigherOrderQualifiedMethodSignature),
+    ("source pipeline prefers visible binding over qualified method spine", testSourcePrefersVisibleBindingOverQualifiedMethodSpine),
     ("source pipeline applies substituted qualified method signature", testSourceRejectsQualifiedMethodSignatureMismatch),
     ("source pipeline rejects qualified method dispatch with no typed candidate", testSourceRejectsQualifiedMethodDispatchWithNoTypedCandidate),
     ("source pipeline rejects qualified impl method body mismatch", testSourceRejectsQualifiedImplMethodBodyMismatch),
@@ -446,6 +447,19 @@ testSourceAcceptsHigherOrderQualifiedMethodSignature =
         <> "impl Apply(Int) {\napply = \\(f) -> f 1.\n}.\n"
         <> "result :: Int.\nresult = Apply::apply (+ 1).\nresult."
     )
+
+testSourcePrefersVisibleBindingOverQualifiedMethodSpine :: IO ()
+testSourcePrefersVisibleBindingOverQualifiedMethodSpine = do
+  result <-
+    compileExpr
+      defaultWarningSettings
+      ( EBlock
+          [ SClass (SourceSpan 1 1) "Eq" ["a"] [],
+            SLet "Eq::helper" (SourceSpan 2 1) (ELambda "value" (EVar "value")),
+            SExpr (SourceSpan 3 1) (EApply (EVar "Eq::helper") (ELit (LInt 1)))
+          ]
+      )
+  assertEqual "binding-precedence compile errors" [] (compileErrors result)
 
 testSourceRejectsQualifiedMethodSignatureMismatch :: IO ()
 testSourceRejectsQualifiedMethodSignatureMismatch =

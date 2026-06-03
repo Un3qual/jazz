@@ -135,9 +135,11 @@ tests =
     ("qualified method dispatch executes same-impl qualified method call", testQualifiedMethodDispatchExecutesSameImplQualifiedMethodCall),
     ("qualified method dispatch selects width-specific integer body", testQualifiedMethodDispatchSelectsWidthSpecificIntegerBody),
     ("qualified method dispatch selects width-specific integer body for direct literals", testQualifiedMethodDispatchSelectsWidthSpecificIntegerBodyForDirectLiterals),
+    ("qualified method dispatch preserves non-literal integer signature targets", testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget),
     ("qualified method dispatch treats Float as Float64 alias at runtime", testQualifiedMethodDispatchTreatsFloatAsFloat64Alias),
     ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
     ("qualified zero-argument method dispatch returns value", testQualifiedZeroArgumentMethodDispatchReturnsValue),
+    ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias),
     ("qualified method dispatch rejects full-arity runtime ambiguity", testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity),
     ("qualified method dispatch executes local ADT impl body", testQualifiedMethodDispatchExecutesLocalAdtImplBody),
     ("method-bearing capability declarations are inert at runtime", testMethodBearingCapabilityDeclarationsRuntimeInert),
@@ -995,6 +997,23 @@ testQualifiedMethodDispatchSelectsWidthSpecificIntegerBodyForDirectLiterals = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
+testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget :: IO ()
+testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "id8 :: UInt8 -> UInt8.\nid8 = \\(value) -> value.\n"
+          <> "left :: UInt8.\nleft = id8 1.\n"
+          <> "right :: UInt8.\nright = id8 2.\n"
+          <> "RuntimeEq::equals left right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
 testQualifiedMethodDispatchTreatsFloatAsFloat64Alias :: IO ()
 testQualifiedMethodDispatchTreatsFloatAsFloat64Alias = do
   result <-
@@ -1037,6 +1056,38 @@ testQualifiedZeroArgumentMethodDispatchReturnsValue = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchRejectsDirectSelfAlias :: IO ()
+testQualifiedMethodDispatchRejectsDirectSelfAlias = do
+  maybeResult <-
+    timeout
+      1000000
+      ( try
+          ( runSource
+              defaultWarningSettings
+              ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+                  <> "impl RuntimeEq(Int) {\nequals = RuntimeEq::equals.\n}.\n"
+                  <> "RuntimeEq::equals 1 1."
+              )
+          ) ::
+          IO (Either SomeException RunResult)
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected direct qualified method self alias to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for direct qualified method self alias, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "direct qualified method self alias runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "direct qualified method self alias runtime text"
+        "recursive qualified method alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
 testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity :: IO ()
 testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity =

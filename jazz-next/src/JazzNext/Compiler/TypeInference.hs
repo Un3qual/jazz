@@ -355,9 +355,12 @@ inferExprType builtinMode env state expr =
     ETuple elements -> inferTupleType builtinMode env state elements
     EApply functionExpr argumentExpr ->
       case qualifiedMethodApplicationSpine expr state of
-        Just (methodKey, argumentExprs) ->
-          inferQualifiedMethodApplication builtinMode env state methodKey argumentExprs
+        Just (methodKey, argumentExprs)
+          | Map.notMember methodKey env ->
+              inferQualifiedMethodApplication builtinMode env state methodKey argumentExprs
         Nothing ->
+          inferGenericApplyType builtinMode env state functionExpr argumentExpr
+        _ ->
           inferGenericApplyType builtinMode env state functionExpr argumentExpr
     EIf conditionExpr thenExpr elseExpr ->
       inferExprType builtinMode env state (ECase conditionExpr thenExpr elseExpr)
