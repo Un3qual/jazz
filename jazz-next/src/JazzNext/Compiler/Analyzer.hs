@@ -572,19 +572,16 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
               (currentModulePath, declarationsByPath)
 
     visibleImportedClassNames :: [Text] -> Maybe Text -> Maybe [Text] -> Set Text
-    visibleImportedClassNames modulePath maybeAlias maybeSymbolNames =
-      case maybeAlias of
-        Just _ -> Set.empty
-        Nothing ->
-          case Map.lookup modulePath moduleClassDeclarationsByPath of
-            Nothing -> Set.empty
-            Just importedClassDeclarations ->
-              case maybeSymbolNames of
-                Nothing -> Map.keysSet importedClassDeclarations
-                Just symbolNames ->
-                  Set.intersection
-                    (Map.keysSet importedClassDeclarations)
-                    (Set.fromList symbolNames)
+    visibleImportedClassNames modulePath _maybeAlias maybeSymbolNames =
+      case Map.lookup modulePath moduleClassDeclarationsByPath of
+        Nothing -> Set.empty
+        Just importedClassDeclarations ->
+          case maybeSymbolNames of
+            Nothing -> Map.keysSet importedClassDeclarations
+            Just symbolNames ->
+              Set.intersection
+                (Map.keysSet importedClassDeclarations)
+                (Set.fromList symbolNames)
 
     withRecursivePeerBindings ::
       Int ->

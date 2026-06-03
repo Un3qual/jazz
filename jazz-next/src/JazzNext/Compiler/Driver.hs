@@ -38,12 +38,15 @@ import Data.IORef
   )
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    ClassMethodSignature (..),
     ConstraintSignatureType (..),
     DataConstructor (..),
     DataConstructorArgument (..),
     Expr (..),
     ImplMethod (..),
     Pattern (..),
+    SignatureConstraint (..),
+    SignaturePayload (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -718,6 +721,7 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
           resolvedModules
           loweredModules
           neededModuleExportsByModule
+          neededVisibleImportCapabilityExportsByModule
       neededCapabilityExportsByModule =
         Map.unionWith Set.union
           neededVisibleImportCapabilityExportsByModule
@@ -893,7 +897,7 @@ visibleImportCapabilityExportsForModule capabilityExportsByModule expr =
     EBlock statements ->
       Map.fromListWith Set.union
         [ (modulePath, visibleCapabilityNames modulePath maybeSymbolNames)
-          | SImport _ modulePath Nothing maybeSymbolNames <- statements,
+          | SImport _ modulePath _ maybeSymbolNames <- statements,
             not (Set.null (visibleCapabilityNames modulePath maybeSymbolNames))
         ]
       where
@@ -1205,19 +1209,21 @@ collectNeededLocalCapabilityExports ::
   [ResolvedModule] ->
   [Expr] ->
   Map [Text] (Set Text) ->
+  Map [Text] (Set Text) ->
   Map [Text] (Set Text)
-collectNeededLocalCapabilityExports resolvedModules loweredModules neededModuleExportsByModule =
+collectNeededLocalCapabilityExports resolvedModules loweredModules neededModuleExportsByModule directlyNeededCapabilityExportsByModule =
   Map.fromList
     [ (modulePath, neededCapabilities)
       | (resolvedModule, loweredModule) <- zip resolvedModules loweredModules,
         let modulePath = resolvedModulePath resolvedModule,
         let neededExports = Map.findWithDefault Set.empty modulePath neededModuleExportsByModule,
-        let neededCapabilities = localCapabilityDependenciesForExports loweredModule neededExports,
+        let directlyNeededCapabilities = Map.findWithDefault Set.empty modulePath directlyNeededCapabilityExportsByModule,
+        let neededCapabilities = localCapabilityDependenciesForExports loweredModule neededExports directlyNeededCapabilities,
         not (Set.null neededCapabilities)
     ]
 
-localCapabilityDependenciesForExports :: Expr -> Set Text -> Set Text
-localCapabilityDependenciesForExports expr neededExports =
+localCapabilityDependenciesForExports :: Expr -> Set Text -> Set Text -> Set Text
+localCapabilityDependenciesForExports expr neededExports directlyNeededCapabilities =
   case expr of
     EBlock statements ->
       closeLocalCapabilityDependencies statements localCapabilityNames directDependencies
@@ -1225,11 +1231,67 @@ localCapabilityDependenciesForExports expr neededExports =
         localCapabilityNames = collectTopLevelCapabilityNames expr
         directDependencies =
           Set.unions
-            [ collectLocalCapabilityReferences localCapabilityNames valueExpr
-              | SLet bindingName _ valueExpr <- statements,
-                Set.member (identifierText bindingName) neededExports
+            [ directlyNeededCapabilities,
+              Set.unions
+                [ collectLocalCapabilityReferences localCapabilityNames valueExpr
+                  | SLet bindingName _ valueExpr <- statements,
+                    Set.member (identifierText bindingName) neededExports
+                ],
+              Set.unions
+                [ collectLocalCapabilityReferencesFromSignaturePayload localCapabilityNames signaturePayload
+                  | SSignature signatureName _ signaturePayload <- statements,
+                    Set.member (identifierText signatureName) neededExports
+                ],
+              Set.unions
+                [ collectLocalCapabilityReferencesFromSignaturePayload localCapabilityNames methodSignature
+                  | SClass _ className _ methods <- statements,
+                    Set.member (identifierText className) directlyNeededCapabilities,
+                    ClassMethodSignature _ _ methodSignature <- methods
+                ]
             ]
     _ -> Set.empty
+
+collectLocalCapabilityReferencesFromSignaturePayload :: Set Text -> SignaturePayload -> Set Text
+collectLocalCapabilityReferencesFromSignaturePayload localCapabilityNames signaturePayload =
+  case signaturePayload of
+    ConstrainedSignature constraints signatureType ->
+      Set.union
+        (Set.unions (map (collectLocalCapabilityReferencesFromConstraint localCapabilityNames) constraints))
+        (collectLocalCapabilityReferencesFromConstraintType localCapabilityNames signatureType)
+    _ -> Set.empty
+
+collectLocalCapabilityReferencesFromConstraint :: Set Text -> SignatureConstraint -> Set Text
+collectLocalCapabilityReferencesFromConstraint localCapabilityNames (SignatureConstraint constraintName arguments) =
+  Set.unions
+    ( [ Set.singleton constraintNameText
+        | Set.member constraintNameText localCapabilityNames
+      ]
+        ++ map (collectLocalCapabilityReferencesFromConstraintType localCapabilityNames) arguments
+    )
+  where
+    constraintNameText = identifierText constraintName
+
+collectLocalCapabilityReferencesFromConstraintType :: Set Text -> ConstraintSignatureType -> Set Text
+collectLocalCapabilityReferencesFromConstraintType localCapabilityNames signatureType =
+  case signatureType of
+    ConstraintTypeName typeName ->
+      let typeNameText = identifierText typeName
+       in Set.fromList [typeNameText | Set.member typeNameText localCapabilityNames]
+    ConstraintTypeApplication typeName arguments ->
+      Set.filter
+        (`Set.member` localCapabilityNames)
+        ( Set.insert
+            (identifierText typeName)
+            (Set.unions (map (collectLocalCapabilityReferencesFromConstraintType localCapabilityNames) arguments))
+        )
+    ConstraintTypeList innerType ->
+      collectLocalCapabilityReferencesFromConstraintType localCapabilityNames innerType
+    ConstraintTypeTuple elementTypes ->
+      Set.unions (map (collectLocalCapabilityReferencesFromConstraintType localCapabilityNames) elementTypes)
+    ConstraintTypeFunction argumentType resultType ->
+      Set.union
+        (collectLocalCapabilityReferencesFromConstraintType localCapabilityNames argumentType)
+        (collectLocalCapabilityReferencesFromConstraintType localCapabilityNames resultType)
 
 closeLocalCapabilityDependencies :: [Statement] -> Set Text -> Set Text -> Set Text
 closeLocalCapabilityDependencies statements localCapabilityNames neededCapabilities =

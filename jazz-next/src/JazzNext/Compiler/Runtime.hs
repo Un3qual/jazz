@@ -307,6 +307,7 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
         Nothing -> do
           runtimeValue <- evalValue builtinMode env valueExpr
           attachRuntimeTypeHint (previousSignatureRuntimeTypeHint statementIndex bindingName) runtimeValue
+            >>= attachDefaultBindingIntegerTarget
 
     evalNumericSignatureBinding :: NumericType -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
     evalNumericSignatureBinding targetType env valueExpr =
@@ -604,6 +605,11 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
               methodEnv
           where
             methodEnv = foldl' insertCandidate env methodCandidates
+            methodExprsByKey =
+              Map.fromList
+                [ (qualifiedMethodKey capabilityName methodName, methodExpr)
+                  | ImplMethod methodName _ methodExpr <- methods
+                ]
             methodCandidates =
               map
                 ( \(ImplMethod methodName _ methodExpr) ->
@@ -614,7 +620,7 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
                 )
                 methods
             methodCandidateCell implTarget methodKey methodExpr =
-              case selectedQualifiedMethodAliasTarget methodEnv methodKey methodExpr of
+              case selectedQualifiedMethodAliasTarget methodExprsByKey Set.empty methodEnv methodKey methodExpr of
                 Left diagnostic ->
                   Left diagnostic
                 Right True ->
@@ -651,33 +657,43 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
         _ ->
           Right methodValue
 
-    selectedQualifiedMethodAliasTarget :: RuntimeEnv -> Text -> Expr -> Either Diagnostic Bool
-    selectedQualifiedMethodAliasTarget env methodKey expr =
-      case peelSingleExprBlock expr of
-        EIf conditionExpr thenExpr elseExpr ->
-          selectQualifiedMethodAliasTarget env methodKey conditionExpr thenExpr elseExpr
-        ECase conditionExpr thenExpr elseExpr ->
-          selectQualifiedMethodAliasTarget env methodKey conditionExpr thenExpr elseExpr
-        EPatternCase scrutineeExpr caseArms -> do
-          scrutineeValue <- evalValue builtinMode env scrutineeExpr
-          case selectMatchingCaseArmForAlias env scrutineeValue caseArms of
-            Just (_, armEnv, bodyExpr) ->
-              selectedQualifiedMethodAliasTarget armEnv methodKey bodyExpr
-            Nothing ->
+    selectedQualifiedMethodAliasTarget :: Map Text Expr -> Set Text -> RuntimeEnv -> Text -> Expr -> Either Diagnostic Bool
+    selectedQualifiedMethodAliasTarget methodExprsByKey visitedMethodKeys env methodKey expr
+      | Set.member methodKey visitedMethodKeys =
+          Right True
+      | otherwise =
+          case peelSingleExprBlock expr of
+            EIf conditionExpr thenExpr elseExpr ->
+              selectQualifiedMethodAliasTarget methodExprsByKey nextVisitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
+            ECase conditionExpr thenExpr elseExpr ->
+              selectQualifiedMethodAliasTarget methodExprsByKey nextVisitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
+            EPatternCase scrutineeExpr caseArms -> do
+              scrutineeValue <- evalValue builtinMode env scrutineeExpr
+              case selectMatchingCaseArmForAlias env scrutineeValue caseArms of
+                Just (_, armEnv, bodyExpr) ->
+                  selectedQualifiedMethodAliasTarget methodExprsByKey nextVisitedMethodKeys armEnv methodKey bodyExpr
+                Nothing ->
+                  Right False
+            EVar aliasName ->
+              let aliasNameText = identifierText aliasName
+               in case Map.lookup aliasNameText methodExprsByKey of
+                    Just aliasExpr ->
+                      selectedQualifiedMethodAliasTarget methodExprsByKey nextVisitedMethodKeys env aliasNameText aliasExpr
+                    Nothing ->
+                      Right (aliasNameText == methodKey)
+            _ ->
               Right False
-        EVar aliasName ->
-          Right (identifierText aliasName == methodKey)
-        _ ->
-          Right False
+      where
+        nextVisitedMethodKeys = Set.insert methodKey visitedMethodKeys
 
-    selectQualifiedMethodAliasTarget :: RuntimeEnv -> Text -> Expr -> Expr -> Expr -> Either Diagnostic Bool
-    selectQualifiedMethodAliasTarget env methodKey conditionExpr thenExpr elseExpr = do
+    selectQualifiedMethodAliasTarget :: Map Text Expr -> Set Text -> RuntimeEnv -> Text -> Expr -> Expr -> Expr -> Either Diagnostic Bool
+    selectQualifiedMethodAliasTarget methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr = do
       conditionValue <- evalValue builtinMode env conditionExpr
       case conditionValue of
         VBool True ->
-          selectedQualifiedMethodAliasTarget env methodKey thenExpr
+          selectedQualifiedMethodAliasTarget methodExprsByKey visitedMethodKeys env methodKey thenExpr
         VBool False ->
-          selectedQualifiedMethodAliasTarget env methodKey elseExpr
+          selectedQualifiedMethodAliasTarget methodExprsByKey visitedMethodKeys env methodKey elseExpr
         other ->
           Left
             ( runtimeDiagnostic
@@ -1710,8 +1726,21 @@ runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint =
   case (mapper, maybeCollectionTypeHint) of
     (VBuiltin BuiltinHd [], Just (ConstraintTypeList (ConstraintTypeList elementType))) ->
       Just elementType
+    (VClosure _ parameterName (EVar resultName) Nothing, Just (ConstraintTypeList elementType))
+      | resultName == parameterName ->
+          Just elementType
     _ ->
       Nothing
+
+attachDefaultBindingIntegerTarget :: RuntimeValue -> Either Diagnostic RuntimeValue
+attachDefaultBindingIntegerTarget runtimeValue =
+  case runtimeValue of
+    VInt integerValue metadata
+      | runtimeIntTargetType metadata == Nothing,
+        integerValueMatchesTarget NumericInt64 integerValue ->
+          Right (VInt integerValue (targetedIntMetadata NumericInt64))
+    _ ->
+      Right runtimeValue
 
 isFunctionValue :: RuntimeValue -> Bool
 isFunctionValue value =

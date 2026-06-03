@@ -94,9 +94,12 @@ tests =
     ("compile module graph accepts qualified alias use before import", testCompileModuleGraphQualifiedAliasLookupBeforeImport),
     ("run module graph allows bundled class-qualified method lookup", testRunModuleGraphAllowsBundledClassQualifiedMethodLookup),
     ("run module graph allows imported class-qualified method lookup", testRunModuleGraphAllowsImportedClassQualifiedMethodLookup),
+    ("run module graph allows aliased imported class-qualified method lookup", testRunModuleGraphAllowsAliasedImportedClassQualifiedMethodLookup),
     ("run module graph allows imported pre-module class-qualified method lookup", testRunModuleGraphAllowsImportedPreModuleClassQualifiedMethodLookup),
     ("run module graph keeps hidden impls out of runtime dispatch", testRunModuleGraphKeepsHiddenImplsOutOfRuntimeDispatch),
     ("run module graph retains local capabilities needed by exported bindings", testRunModuleGraphRetainsLocalCapabilitiesNeededByExportedBindings),
+    ("run module graph retains local capabilities needed by imported capability bodies", testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedCapabilityBodies),
+    ("run module graph retains local capabilities needed by imported signatures", testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures),
     ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
     ("run module graph reports cycle diagnostics", testRunModuleGraphCycle),
     ("loader reuses memoized source lookup across resolve and replay", testMemoizedLookupReuse)
@@ -1169,6 +1172,28 @@ testRunModuleGraphAllowsImportedClassQualifiedMethodLookup = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
+testRunModuleGraphAllowsAliasedImportedClassQualifiedMethodLookup :: IO ()
+testRunModuleGraphAllowsAliasedImportedClassQualifiedMethodLookup = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Facts as Facts.\nEq::equals 1 1.\n}"),
+          ( "src/Lib/Facts.jz",
+            "module Lib::Facts {\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
 testRunModuleGraphAllowsImportedPreModuleClassQualifiedMethodLookup :: IO ()
 testRunModuleGraphAllowsImportedPreModuleClassQualifiedMethodLookup = do
   result <-
@@ -1238,6 +1263,54 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByExportedBindings = do
           ),
           ( "src/Lib/Api.jz",
             "module Lib::Api {\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> True.\n}.\nfoo = Choice::pick 1.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedCapabilityBodies :: IO ()
+testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedCapabilityBodies = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Api (Choice).\nChoice::pick 1.\n}"
+          ),
+          ( "src/Lib/Api.jz",
+            "module Lib::Api {\nclass Flag(a) {\nenabled :: Bool.\n}.\nimpl Flag(Int) {\nenabled = True.\n}.\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> Flag::enabled.\n}.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures :: IO ()
+testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Api (foo).\nfoo.\n}"
+          ),
+          ( "src/Lib/Api.jz",
+            "module Lib::Api {\nclass Need(a) {\n}.\nimpl Need(Int) {\n}.\nfoo :: @{Need(Int)}: Int.\nfoo = 1.\n}"
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

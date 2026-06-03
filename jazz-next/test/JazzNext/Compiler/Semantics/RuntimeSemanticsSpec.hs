@@ -153,13 +153,16 @@ tests =
     ("qualified method dispatch preserves selected method signatures", testQualifiedMethodDispatchPreservesSelectedMethodSignature),
     ("qualified method dispatch preserves empty list binding signatures", testQualifiedMethodDispatchPreservesEmptyListBindingSignature),
     ("qualified method dispatch preserves mapped empty list result signatures", testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature),
+    ("qualified method dispatch preserves identity-mapped empty list result signatures", testQualifiedMethodDispatchPreservesIdentityMappedEmptyListResultSignature),
     ("qualified method dispatch preserves mapped hd empty nested list result signatures", testQualifiedMethodDispatchPreservesMappedHdEmptyNestedListResultSignature),
     ("qualified method dispatch preserves hd element signatures", testQualifiedMethodDispatchPreservesHdElementSignature),
     ("qualified method dispatch normalizes hinted list aliases", testQualifiedMethodDispatchNormalizesHintedListAliases),
     ("qualified method dispatch normalizes hinted function aliases", testQualifiedMethodDispatchNormalizesHintedFunctionAliases),
+    ("qualified method dispatch treats defaulted integer bindings as Int64", testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64),
     ("qualified zero-argument method dispatch returns value", testQualifiedZeroArgumentMethodDispatchReturnsValue),
     ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias),
     ("qualified method dispatch rejects wrapped self alias", testQualifiedMethodDispatchRejectsWrappedSelfAlias),
+    ("qualified method dispatch rejects mutual method alias cycle", testQualifiedMethodDispatchRejectsMutualMethodAliasCycle),
     ("qualified method dispatch rejects full-arity runtime ambiguity", testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity),
     ("qualified method dispatch executes local ADT impl body", testQualifiedMethodDispatchExecutesLocalAdtImplBody),
     ("method-bearing capability declarations are inert at runtime", testMethodBearingCapabilityDeclarationsRuntimeInert),
@@ -1273,6 +1276,22 @@ testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "False") (runOutput result)
 
+testQualifiedMethodDispatchPreservesIdentityMappedEmptyListResultSignature :: IO ()
+testQualifiedMethodDispatchPreservesIdentityMappedEmptyListResultSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(values) -> True.\n}.\n"
+          <> "impl RuntimePick(UInt8) {\npick = \\(values) -> False.\n}.\n"
+          <> "values :: [UInt8].\nvalues = [].\n"
+          <> "mapped = map (\\(value) -> value) values.\n"
+          <> "RuntimePick::pick mapped."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
 testQualifiedMethodDispatchPreservesMappedHdEmptyNestedListResultSignature :: IO ()
 testQualifiedMethodDispatchPreservesMappedHdEmptyNestedListResultSignature = do
   result <-
@@ -1331,6 +1350,21 @@ testQualifiedMethodDispatchNormalizesHintedFunctionAliases = do
           <> "impl RuntimeApply(Bool) {\napply = \\(fn) -> False.\n}.\n"
           <> "idInt :: Int -> Int.\nidInt = \\(value) -> value.\n"
           <> "RuntimeApply::apply idInt."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64 :: IO ()
+testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64 = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\n"
+          <> "impl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\n"
+          <> "value = 1.\n"
+          <> "RuntimePick::pick value."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1409,6 +1443,38 @@ testQualifiedMethodDispatchRejectsWrappedSelfAlias = do
         (runRuntimeErrors result)
       assertSingleDiagnosticContains
         "wrapped qualified method self alias runtime text"
+        "recursive qualified method alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testQualifiedMethodDispatchRejectsMutualMethodAliasCycle :: IO ()
+testQualifiedMethodDispatchRejectsMutualMethodAliasCycle = do
+  maybeResult <-
+    timeout
+      1000000
+      ( try
+          ( runSource
+              defaultWarningSettings
+              ( "class RuntimeFlag(a) {\nenabled :: Bool.\nother :: Bool.\n}.\n"
+                  <> "impl RuntimeFlag(Int) {\nenabled = RuntimeFlag::other.\nother = RuntimeFlag::enabled.\n}.\n"
+                  <> "RuntimeFlag::enabled."
+              )
+          ) ::
+          IO (Either SomeException RunResult)
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected mutual qualified method alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for mutual qualified method alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "mutual qualified method alias runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "mutual qualified method alias runtime text"
         "recursive qualified method alias cycle"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)

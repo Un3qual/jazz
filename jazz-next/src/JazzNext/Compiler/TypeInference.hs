@@ -1284,16 +1284,13 @@ enterModuleCapabilityScope baselineFacts modulePath state =
     }
 
 importModuleCapabilityFacts :: [Text] -> Maybe Text -> Maybe [Text] -> InferState -> InferState
-importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state =
-  case maybeAlias of
-    Just _ -> state
-    Nothing ->
-      applyCapabilityFacts
-        ( mergeCapabilityFacts
-            (capabilityFactsFromState state)
-            (filterImportedCapabilityFacts maybeSymbolNames (Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state)))
-        )
-        state
+importModuleCapabilityFacts modulePath _maybeAlias maybeSymbolNames state =
+  applyCapabilityFacts
+    ( mergeCapabilityFacts
+        (capabilityFactsFromState state)
+        (filterImportedCapabilityFacts maybeSymbolNames (Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state)))
+    )
+    state
 
 filterImportedCapabilityFacts :: Maybe [Text] -> ScopeCapabilityFacts -> ScopeCapabilityFacts
 filterImportedCapabilityFacts maybeSymbolNames facts =
