@@ -68,6 +68,7 @@ tests =
     ("source pipeline accepts single-target qualified method dispatch", testSourceAcceptsSingleTargetQualifiedMethodDispatch),
     ("source pipeline selects qualified method body by argument types", testSourceSelectsQualifiedMethodBodyByArgumentTypes),
     ("source pipeline accepts same-impl qualified method body references", testSourceAcceptsSameImplQualifiedMethodBodyReferences),
+    ("source pipeline uses impl signatures while checking method bodies", testSourceUsesImplSignaturesWhileCheckingMethodBodies),
     ("source pipeline accepts higher-order qualified method signature", testSourceAcceptsHigherOrderQualifiedMethodSignature),
     ("source pipeline prefers visible binding over qualified method spine", testSourcePrefersVisibleBindingOverQualifiedMethodSpine),
     ("source pipeline applies substituted qualified method signature", testSourceRejectsQualifiedMethodSignatureMismatch),
@@ -438,6 +439,15 @@ testSourceAcceptsSameImplQualifiedMethodBodyReferences =
     ( "class Eq(a) {\nequals :: a -> a -> Bool.\nnotEquals :: a -> a -> Bool.\n}.\n"
         <> "impl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\nnotEquals = \\(left) -> \\(right) -> Eq::equals left right != True.\n}.\n"
         <> "result :: Bool.\nresult = Eq::notEquals 1 2.\nresult."
+    )
+
+testSourceUsesImplSignaturesWhileCheckingMethodBodies :: IO ()
+testSourceUsesImplSignaturesWhileCheckingMethodBodies =
+  assertSourceOkWithoutPrelude
+    ( "class Check(a) {\ncheck :: a -> Bool.\nnotCheck :: a -> Bool.\n}.\n"
+        <> "impl Check(Int) {\ncheck = \\(value) -> True.\nnotCheck = \\(value) -> Check::check value != True.\n}.\n"
+        <> "impl Check(Bool) {\ncheck = \\(value) -> False.\nnotCheck = \\(value) -> Check::check value != True.\n}.\n"
+        <> "result :: Bool.\nresult = Check::notCheck 1.\nresult."
     )
 
 testSourceAcceptsHigherOrderQualifiedMethodSignature :: IO ()

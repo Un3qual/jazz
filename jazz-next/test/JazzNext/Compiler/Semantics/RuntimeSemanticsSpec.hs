@@ -150,6 +150,7 @@ tests =
     ("qualified method dispatch treats Float as Float64 alias at runtime", testQualifiedMethodDispatchTreatsFloatAsFloat64Alias),
     ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
+    ("qualified method dispatch preserves selected method signatures", testQualifiedMethodDispatchPreservesSelectedMethodSignature),
     ("qualified method dispatch preserves empty list binding signatures", testQualifiedMethodDispatchPreservesEmptyListBindingSignature),
     ("qualified method dispatch preserves mapped empty list result signatures", testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature),
     ("qualified method dispatch preserves mapped hd empty nested list result signatures", testQualifiedMethodDispatchPreservesMappedHdEmptyNestedListResultSignature),
@@ -1219,6 +1220,22 @@ testQualifiedMethodDispatchPreservesHigherOrderBindingSignature = do
           <> "impl RuntimeApply(Bool) {\napply = \\(fn) -> False.\n}.\n"
           <> "idInt :: Int -> Int.\nidInt = \\(value) -> value.\n"
           <> "RuntimeApply::apply idInt."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesSelectedMethodSignature :: IO ()
+testQualifiedMethodDispatchPreservesSelectedMethodSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class Id(a) {\nid :: a -> a.\n}.\n"
+          <> "impl Id(Int) {\nid = \\(value) -> value.\n}.\n"
+          <> "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(Bool) {\napply = \\(fn) -> False.\n}.\n"
+          <> "RuntimeApply::apply Id::id."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)

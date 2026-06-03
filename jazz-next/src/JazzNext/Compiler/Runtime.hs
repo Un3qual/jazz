@@ -609,11 +609,11 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
                 ( \(ImplMethod methodName _ methodExpr) ->
                     let methodKey = qualifiedMethodKey capabilityName methodName
                      in ( methodKey,
-                          RuntimeMethodCandidate implTarget (methodCandidateCell methodKey methodExpr)
+                          RuntimeMethodCandidate implTarget (methodCandidateCell implTarget methodKey methodExpr)
                         )
                 )
                 methods
-            methodCandidateCell methodKey methodExpr =
+            methodCandidateCell implTarget methodKey methodExpr =
               case selectedQualifiedMethodAliasTarget methodEnv methodKey methodExpr of
                 Left diagnostic ->
                   Left diagnostic
@@ -625,6 +625,7 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
                     )
                 Right False ->
                   evalValue builtinMode methodEnv methodExpr
+                    >>= attachRuntimeMethodSignature methodEnv implTarget methodKey
             insertCandidate envAcc (methodKey, methodCandidate) =
               Map.adjust (addMethodCandidate methodCandidate) methodKey envAcc
         _ -> env
@@ -634,6 +635,21 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
             Right (VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs) ->
               Right (VQualifiedMethod methodKey classParameter methodSignature (candidates ++ [methodCandidate]) capturedArgs)
             _ -> methodCell
+
+    attachRuntimeMethodSignature ::
+      RuntimeEnv ->
+      ConstraintSignatureType ->
+      Text ->
+      RuntimeValue ->
+      Either Diagnostic RuntimeValue
+    attachRuntimeMethodSignature env implTarget methodKey methodValue =
+      case Map.lookup methodKey env of
+        Just (Right (VQualifiedMethod _ classParameter methodSignature _ _)) ->
+          attachRuntimeTypeHint
+            (substituteClassMethodSignature classParameter implTarget methodSignature)
+            methodValue
+        _ ->
+          Right methodValue
 
     selectedQualifiedMethodAliasTarget :: RuntimeEnv -> Text -> Expr -> Either Diagnostic Bool
     selectedQualifiedMethodAliasTarget env methodKey expr =

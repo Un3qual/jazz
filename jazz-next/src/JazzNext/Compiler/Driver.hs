@@ -713,6 +713,15 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
           resolvedModules
           loweredModules
           initialNeededModuleExportsByModule
+      neededLocalCapabilityExportsByModule =
+        collectNeededLocalCapabilityExports
+          resolvedModules
+          loweredModules
+          neededModuleExportsByModule
+      neededCapabilityExportsByModule =
+        Map.unionWith Set.union
+          neededVisibleImportCapabilityExportsByModule
+          neededLocalCapabilityExportsByModule
       loweredModulesWithVisibleImportReferences =
         map
           (rewriteVisibleImportReferences hiddenImportExportsByModule exportsByModule)
@@ -728,7 +737,7 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
       neededModuleExportsFor resolvedModule =
         Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) neededModuleExportsByModule
       neededModuleCapabilityExportsFor resolvedModule =
-        Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) neededVisibleImportCapabilityExportsByModule
+        Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) neededCapabilityExportsByModule
    in
   ModuleGraphExpr
     { moduleGraphValidationExpr =
@@ -1191,6 +1200,62 @@ closeExportDependencies exportDependencies neededExports =
    in if expandedExports == neededExports
         then neededExports
         else closeExportDependencies exportDependencies expandedExports
+
+collectNeededLocalCapabilityExports ::
+  [ResolvedModule] ->
+  [Expr] ->
+  Map [Text] (Set Text) ->
+  Map [Text] (Set Text)
+collectNeededLocalCapabilityExports resolvedModules loweredModules neededModuleExportsByModule =
+  Map.fromList
+    [ (modulePath, neededCapabilities)
+      | (resolvedModule, loweredModule) <- zip resolvedModules loweredModules,
+        let modulePath = resolvedModulePath resolvedModule,
+        let neededExports = Map.findWithDefault Set.empty modulePath neededModuleExportsByModule,
+        let neededCapabilities = localCapabilityDependenciesForExports loweredModule neededExports,
+        not (Set.null neededCapabilities)
+    ]
+
+localCapabilityDependenciesForExports :: Expr -> Set Text -> Set Text
+localCapabilityDependenciesForExports expr neededExports =
+  case expr of
+    EBlock statements ->
+      closeLocalCapabilityDependencies statements localCapabilityNames directDependencies
+      where
+        localCapabilityNames = collectTopLevelCapabilityNames expr
+        directDependencies =
+          Set.unions
+            [ collectLocalCapabilityReferences localCapabilityNames valueExpr
+              | SLet bindingName _ valueExpr <- statements,
+                Set.member (identifierText bindingName) neededExports
+            ]
+    _ -> Set.empty
+
+closeLocalCapabilityDependencies :: [Statement] -> Set Text -> Set Text -> Set Text
+closeLocalCapabilityDependencies statements localCapabilityNames neededCapabilities =
+  let expandedCapabilities =
+        Set.union
+          neededCapabilities
+          ( Set.unions
+              [ Set.unions
+                  [ collectLocalCapabilityReferences localCapabilityNames methodExpr
+                    | ImplMethod _ _ methodExpr <- methods
+                  ]
+                | SImpl _ capabilityName _ methods <- statements,
+                  Set.member (identifierText capabilityName) neededCapabilities
+              ]
+          )
+   in if expandedCapabilities == neededCapabilities
+        then neededCapabilities
+        else closeLocalCapabilityDependencies statements localCapabilityNames expandedCapabilities
+
+collectLocalCapabilityReferences :: Set Text -> Expr -> Set Text
+collectLocalCapabilityReferences localCapabilityNames expr =
+  Set.fromList
+    [ capabilityName
+      | (capabilityName, _) <- Set.toList (collectAliasQualifiedReferencePairs expr),
+        Set.member capabilityName localCapabilityNames
+    ]
 
 collectNeededAliasExports ::
   Map [Text] [Text] ->

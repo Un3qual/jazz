@@ -96,6 +96,7 @@ tests =
     ("run module graph allows imported class-qualified method lookup", testRunModuleGraphAllowsImportedClassQualifiedMethodLookup),
     ("run module graph allows imported pre-module class-qualified method lookup", testRunModuleGraphAllowsImportedPreModuleClassQualifiedMethodLookup),
     ("run module graph keeps hidden impls out of runtime dispatch", testRunModuleGraphKeepsHiddenImplsOutOfRuntimeDispatch),
+    ("run module graph retains local capabilities needed by exported bindings", testRunModuleGraphRetainsLocalCapabilitiesNeededByExportedBindings),
     ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
     ("run module graph reports cycle diagnostics", testRunModuleGraphCycle),
     ("loader reuses memoized source lookup across resolve and replay", testMemoizedLookupReuse)
@@ -1213,6 +1214,30 @@ testRunModuleGraphKeepsHiddenImplsOutOfRuntimeDispatch = do
           ),
           ( "src/Lib/Hidden.jz",
             "module Lib::Hidden {\nimport Lib::Api (Choice).\nval = 0.\nimpl Choice(UInt8) {\npick = \\(value) -> False.\n}.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRetainsLocalCapabilitiesNeededByExportedBindings :: IO ()
+testRunModuleGraphRetainsLocalCapabilitiesNeededByExportedBindings = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Api (foo).\nfoo.\n}"
+          ),
+          ( "src/Lib/Api.jz",
+            "module Lib::Api {\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> True.\n}.\nfoo = Choice::pick 1.\n}"
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

@@ -1123,51 +1123,62 @@ checkImplMethodBodies builtinMode env state capabilityName arguments methods =
     [implTarget]
       | concreteConstraintArgument implTarget,
         not (implMethodNamesHaveDuplicates methods) ->
-          foldl' checkMethod state methods
-      where
-        checkMethod stateAcc (ImplMethod methodName methodSpan methodExpr) =
-          let methodKey = qualifiedMethodKey capabilityName methodName
-           in case Map.lookup methodKey (inferClassMethodSignatures stateAcc) of
-                Nothing ->
-                  addTypeError
-                    stateAcc
-                    (mkImplMethodMissingClassMethodError methodKey methodSpan)
-                Just classMethodType ->
-                  let (maybeExpectedType, stateAfterExpectedType) =
-                        qualifiedMethodSignatureType
-                          methodKey
-                          classMethodType
-                          (ImplMethodType implTarget)
+          let implMethodEnv stateForBindings =
+                Map.union env (currentImplMethodBindings implTarget stateForBindings)
+              checkMethod stateAcc (ImplMethod methodName methodSpan methodExpr) =
+                let methodKey = qualifiedMethodKey capabilityName methodName
+                 in case Map.lookup methodKey (inferClassMethodSignatures stateAcc) of
+                      Nothing ->
+                        addTypeError
                           stateAcc
-                   in case maybeExpectedType of
-                        Nothing ->
-                          stateAfterExpectedType
-                        Just expectedType ->
-                          let (maybeMethodType, rawStateAfterMethod) =
-                                inferExprType builtinMode env stateAfterExpectedType methodExpr
-                              stateAfterMethod =
-                                annotateNewErrorsWithPrimarySpan methodSpan stateAfterExpectedType rawStateAfterMethod
-                           in case maybeMethodType of
-                                Just methodType ->
-                                  case unifyTypes expectedType methodType stateAfterMethod of
-                                    Just unifiedState -> unifiedState
-                                    Nothing ->
-                                      addTypeError
+                          (mkImplMethodMissingClassMethodError methodKey methodSpan)
+                      Just classMethodType ->
+                        let (maybeExpectedType, stateAfterExpectedType) =
+                              qualifiedMethodSignatureType
+                                methodKey
+                                classMethodType
+                                (ImplMethodType implTarget)
+                                stateAcc
+                         in case maybeExpectedType of
+                              Nothing ->
+                                stateAfterExpectedType
+                              Just expectedType ->
+                                let (maybeMethodType, rawStateAfterMethod) =
+                                      inferExprType builtinMode (implMethodEnv stateAcc) stateAfterExpectedType methodExpr
+                                    stateAfterMethod =
+                                      annotateNewErrorsWithPrimarySpan methodSpan stateAfterExpectedType rawStateAfterMethod
+                                 in case maybeMethodType of
+                                      Just methodType ->
+                                        case unifyTypes expectedType methodType stateAfterMethod of
+                                          Just unifiedState -> unifiedState
+                                          Nothing ->
+                                            addTypeError
+                                              stateAfterMethod
+                                              ( mkImplMethodTypeMismatchError
+                                                  methodKey
+                                                  methodSpan
+                                                  (resolveType stateAfterMethod expectedType)
+                                                  (resolveType stateAfterMethod methodType)
+                                              )
+                                      Nothing ->
                                         stateAfterMethod
-                                        ( mkImplMethodTypeMismatchError
-                                            methodKey
-                                            methodSpan
-                                            (resolveType stateAfterMethod expectedType)
-                                            (resolveType stateAfterMethod methodType)
-                                        )
-                                Nothing ->
-                                  stateAfterMethod
+           in foldl' checkMethod state methods
     _ -> state
   where
     implMethodNamesHaveDuplicates :: [ImplMethod] -> Bool
     implMethodNamesHaveDuplicates implMethods =
       let methodNames = map (\(ImplMethod methodName _ _) -> identifierText methodName) implMethods
        in length methodNames /= Set.size (Set.fromList methodNames)
+
+    currentImplMethodBindings :: ConstraintSignatureType -> InferState -> TypeEnv
+    currentImplMethodBindings implTarget stateForBindings =
+      Map.fromList
+        [ (methodKey, PlainTypeBinding methodType)
+          | ImplMethod methodName _ _ <- methods,
+            let methodKey = qualifiedMethodKey capabilityName methodName,
+            Just (ClassMethodType classParameter methodSignature) <- [Map.lookup methodKey (inferClassMethodSignatures stateForBindings)],
+            Just methodType <- [classMethodPayloadToExpressionType stateForBindings classParameter implTarget methodSignature]
+        ]
 
 allocateBindingSeeds ::
   [(Int, Statement)] ->
