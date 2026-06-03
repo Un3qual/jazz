@@ -288,6 +288,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
   where
     indexedStatements = zip [0 ..] statements
     moduleBaselineClassDeclarations = collectModuleBaselineClassDeclarations indexedStatements
+    moduleClassDeclarationsByPath = collectModuleClassDeclarations indexedStatements
 
     -- Build recursion groups from local binding dependencies so mutually recursive
     -- bindings can reference each other independent of declaration order.
@@ -308,15 +309,15 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
     -- Internal accumulators are built in reverse for O(1) append.
     -- `pendingSignature` tracks exactly one immediately-preceding signature that
     -- must be consumed by the next binding.
-    (_, _, _, finalPendingSignature, finalWarningsRev, finalErrorsRev) =
-      foldl' step (Map.empty, Map.empty, Map.empty, Nothing, [], []) indexedStatements
+    (_, _, _, _, finalPendingSignature, finalWarningsRev, finalErrorsRev) =
+      foldl' step (Map.empty, Map.empty, Set.empty, Map.empty, Nothing, [], []) indexedStatements
     errorsWithFinalPending = flushPendingSignature finalPendingSignature finalErrorsRev
 
     step ::
-      (Map Text VisibleBinding, Map Text SourceSpan, Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Diagnostic]) ->
+      (Map Text VisibleBinding, Map Text SourceSpan, Set Text, Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Diagnostic]) ->
       (Int, Statement) ->
-      (Map Text VisibleBinding, Map Text SourceSpan, Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Diagnostic])
-    step (scopeBindings, classDeclarations, implDeclarations, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
+      (Map Text VisibleBinding, Map Text SourceSpan, Set Text, Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Diagnostic])
+    step (scopeBindings, classDeclarations, importedClassNames, implDeclarations, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
       case statement of
         SExpr exprSpan expr ->
           -- Any signature followed by a non-binding is invalid by contract.
@@ -327,12 +328,13 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
                   builtinMode
                   settings
                   visible
-                  (currentVisibleClassNames classDeclarations)
+                  (currentVisibleClassNames classDeclarations importedClassNames)
                   (contextForExpressionStatement exprSpan context)
                   expr
            in
             ( scopeBindings,
               classDeclarations,
+              importedClassNames,
               implDeclarations,
               Nothing,
               appendWarnings warningsRev exprWarnings,
@@ -343,16 +345,22 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
            in
             ( scopeBindings,
               moduleBaselineClassDeclarations,
+              Set.empty,
               Map.empty,
               Nothing,
               warningsRev,
               errorsWithPending
             )
-        SImport {} ->
+        SImport _ modulePath maybeAlias maybeSymbolNames ->
           let errorsWithPending = flushPendingSignature pendingSignature errorsRev
+              nextImportedClassNames =
+                Set.union
+                  importedClassNames
+                  (visibleImportedClassNames modulePath maybeAlias maybeSymbolNames)
            in
             ( scopeBindings,
               classDeclarations,
+              nextImportedClassNames,
               implDeclarations,
               Nothing,
               warningsRev,
@@ -373,6 +381,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
            in
             ( scopeBindings,
               nextClassDeclarations,
+              importedClassNames,
               implDeclarations,
               Nothing,
               warningsRev,
@@ -399,11 +408,12 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
                   builtinMode
                   settings
                   visible
-                  (currentVisibleClassNames classDeclarations)
+                  (currentVisibleClassNames classDeclarations importedClassNames)
                   methods
            in
             ( scopeBindings,
               classDeclarations,
+              importedClassNames,
               nextImplDeclarations,
               Nothing,
               appendWarnings warningsRev methodWarnings,
@@ -427,6 +437,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
                 constructors
                 scopeBindings,
               classDeclarations,
+              importedClassNames,
               implDeclarations,
               Nothing,
               appendWarnings warningsRev constructorWarnings,
@@ -439,6 +450,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
            in
             ( scopeBindings,
               classDeclarations,
+              importedClassNames,
               implDeclarations,
               Just (PendingSignature (identifierText signatureName) signatureSpan),
               warningsRev,
@@ -497,7 +509,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
                   builtinMode
                   settings
                   visible
-                  (currentVisibleClassNames classDeclarations)
+                  (currentVisibleClassNames classDeclarations importedClassNames)
                   (bindingContext bindingSpan)
                   valueExpr
               warningsWithValue = appendWarnings warningsRev valueWarnings
@@ -510,6 +522,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
            in
             ( nextScope,
               classDeclarations,
+              importedClassNames,
               implDeclarations,
               Nothing,
               appendWarnings warningsWithShadowing unusedWarnings,
@@ -520,9 +533,9 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
     -- Local scope is left-biased so inner declarations shadow outer bindings.
     currentVisibleBindings scopeBindings = scopeBindings `Map.union` outerScope
 
-    currentVisibleClassNames :: Map Text SourceSpan -> Set Text
-    currentVisibleClassNames classDeclarations =
-      Map.keysSet classDeclarations `Set.union` outerClassNames
+    currentVisibleClassNames :: Map Text SourceSpan -> Set Text -> Set Text
+    currentVisibleClassNames classDeclarations importedClassNames =
+      Map.keysSet classDeclarations `Set.union` importedClassNames `Set.union` outerClassNames
 
     collectModuleBaselineClassDeclarations :: [(Int, Statement)] -> Map Text SourceSpan
     collectModuleBaselineClassDeclarations indexedScopeStatements =
@@ -534,6 +547,44 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
               | (statementIndex, SClass classSpan className _ _) <- indexedScopeStatements,
                 statementIndex < firstModuleStatementIndex
             ]
+
+    collectModuleClassDeclarations :: [(Int, Statement)] -> Map [Text] (Map Text SourceSpan)
+    collectModuleClassDeclarations =
+      snd . foldl' collectModuleClassDeclaration (Nothing, Map.empty)
+      where
+        collectModuleClassDeclaration (currentModulePath, declarationsByPath) (_, statement) =
+          case statement of
+            SModule _ modulePath ->
+              (Just modulePath, declarationsByPath)
+            SClass classSpan className _ _ ->
+              case currentModulePath of
+                Just modulePath ->
+                  ( currentModulePath,
+                    Map.insertWith
+                      Map.union
+                      modulePath
+                      (Map.singleton (identifierText className) classSpan)
+                      declarationsByPath
+                  )
+                Nothing ->
+                  (currentModulePath, declarationsByPath)
+            _ ->
+              (currentModulePath, declarationsByPath)
+
+    visibleImportedClassNames :: [Text] -> Maybe Text -> Maybe [Text] -> Set Text
+    visibleImportedClassNames modulePath maybeAlias maybeSymbolNames =
+      case maybeAlias of
+        Just _ -> Set.empty
+        Nothing ->
+          case Map.lookup modulePath moduleClassDeclarationsByPath of
+            Nothing -> Set.empty
+            Just importedClassDeclarations ->
+              case maybeSymbolNames of
+                Nothing -> Map.keysSet importedClassDeclarations
+                Just symbolNames ->
+                  Set.intersection
+                    (Map.keysSet importedClassDeclarations)
+                    (Set.fromList symbolNames)
 
     withRecursivePeerBindings ::
       Int ->
