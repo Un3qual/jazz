@@ -144,10 +144,16 @@ tests =
     ("qualified method dispatch selects width-specific integer body", testQualifiedMethodDispatchSelectsWidthSpecificIntegerBody),
     ("qualified method dispatch selects width-specific integer body for direct literals", testQualifiedMethodDispatchSelectsWidthSpecificIntegerBodyForDirectLiterals),
     ("qualified method dispatch preserves non-literal integer signature targets", testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget),
+    ("qualified method dispatch preserves direct closure result signatures", testQualifiedMethodDispatchPreservesDirectClosureResultSignature),
+    ("qualified method dispatch preserves tuple binding signatures", testQualifiedMethodDispatchPreservesTupleBindingSignature),
+    ("qualified method dispatch preserves section binding signatures", testQualifiedMethodDispatchPreservesSectionBindingSignature),
     ("qualified method dispatch treats Float as Float64 alias at runtime", testQualifiedMethodDispatchTreatsFloatAsFloat64Alias),
     ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
     ("qualified method dispatch preserves empty list binding signatures", testQualifiedMethodDispatchPreservesEmptyListBindingSignature),
+    ("qualified method dispatch preserves mapped empty list result signatures", testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature),
+    ("qualified method dispatch preserves mapped hd empty nested list result signatures", testQualifiedMethodDispatchPreservesMappedHdEmptyNestedListResultSignature),
+    ("qualified method dispatch preserves hd element signatures", testQualifiedMethodDispatchPreservesHdElementSignature),
     ("qualified method dispatch normalizes hinted list aliases", testQualifiedMethodDispatchNormalizesHintedListAliases),
     ("qualified method dispatch normalizes hinted function aliases", testQualifiedMethodDispatchNormalizesHintedFunctionAliases),
     ("qualified zero-argument method dispatch returns value", testQualifiedZeroArgumentMethodDispatchReturnsValue),
@@ -1125,6 +1131,53 @@ testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "False") (runOutput result)
 
+testQualifiedMethodDispatchPreservesDirectClosureResultSignature :: IO ()
+testQualifiedMethodDispatchPreservesDirectClosureResultSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "id8 :: UInt8 -> UInt8.\nid8 = \\(value) -> value.\n"
+          <> "left = id8 1.\n"
+          <> "right = id8 2.\n"
+          <> "RuntimeEq::equals left right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesTupleBindingSignature :: IO ()
+testQualifiedMethodDispatchPreservesTupleBindingSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick((Int, Int)) {\npick = \\(value) -> True.\n}.\n"
+          <> "impl RuntimePick((UInt8, UInt8)) {\npick = \\(value) -> False.\n}.\n"
+          <> "pair :: (UInt8, UInt8).\npair = (1, 2).\n"
+          <> "RuntimePick::pick pair."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesSectionBindingSignature :: IO ()
+testQualifiedMethodDispatchPreservesSectionBindingSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(UInt8) {\napply = \\(fn) -> False.\n}.\n"
+          <> "inc8 :: UInt8 -> UInt8.\ninc8 = (+ 1).\n"
+          <> "RuntimeApply::apply inc8."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
 testQualifiedMethodDispatchTreatsFloatAsFloat64Alias :: IO ()
 testQualifiedMethodDispatchTreatsFloatAsFloat64Alias = do
   result <-
@@ -1185,6 +1238,56 @@ testQualifiedMethodDispatchPreservesEmptyListBindingSignature = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature :: IO ()
+testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(values) -> True.\n}.\n"
+          <> "impl RuntimePick(UInt8) {\npick = \\(values) -> False.\n}.\n"
+          <> "id8 :: UInt8 -> UInt8.\nid8 = \\(value) -> value.\n"
+          <> "values :: [UInt8].\nvalues = [].\n"
+          <> "mapped = map id8 values.\n"
+          <> "RuntimePick::pick mapped."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesMappedHdEmptyNestedListResultSignature :: IO ()
+testQualifiedMethodDispatchPreservesMappedHdEmptyNestedListResultSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(values) -> True.\n}.\n"
+          <> "impl RuntimePick(UInt8) {\npick = \\(values) -> False.\n}.\n"
+          <> "values :: [[UInt8]].\nvalues = [].\n"
+          <> "mapped = map hd values.\n"
+          <> "RuntimePick::pick mapped."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesHdElementSignature :: IO ()
+testQualifiedMethodDispatchPreservesHdElementSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "values :: [UInt8].\nvalues = [1].\n"
+          <> "left = hd values.\n"
+          <> "right = hd values.\n"
+          <> "RuntimeEq::equals left right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
 
 testQualifiedMethodDispatchNormalizesHintedListAliases :: IO ()
 testQualifiedMethodDispatchNormalizesHintedListAliases = do

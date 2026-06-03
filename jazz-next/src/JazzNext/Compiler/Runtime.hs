@@ -10,7 +10,7 @@ module JazzNext.Compiler.Runtime
     renderRuntimeValue
   ) where
 
-import Control.Monad (foldM)
+import Control.Monad (foldM, zipWithM)
 import Data.List (foldl')
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -100,10 +100,13 @@ data RuntimeValue
   | VSectionRight Text RuntimeValue
   | VConstructor Identifier [Identifier] Identifier [DataConstructorArgument] [RuntimeValue]
   | VQualifiedMethod Text Text SignaturePayload [RuntimeMethodCandidate] [RuntimeValue]
+  | VTyped ConstraintSignatureType RuntimeValue
 
 instance Eq RuntimeValue where
   leftValue == rightValue =
     case (leftValue, rightValue) of
+      (VTyped _ leftInner, rightInner) -> leftInner == rightInner
+      (leftInner, VTyped _ rightInner) -> leftInner == rightInner
       (VInt leftInt _, VInt rightInt _) -> leftInt == rightInt
       (VFloat leftFloat _, VFloat rightFloat _) -> leftFloat == rightFloat
       (VBool leftBool, VBool rightBool) -> leftBool == rightBool
@@ -147,6 +150,8 @@ instance Show RuntimeValue where
         "VConstructor " <> show typeName <> " " <> show constructorName <> " " <> show constructorArguments <> " " <> show capturedArgs
       VQualifiedMethod methodKey _ _ candidates capturedArgs ->
         "VQualifiedMethod " <> show methodKey <> " " <> show candidates <> " " <> show capturedArgs
+      VTyped typeHint innerValue ->
+        "VTyped " <> show typeHint <> " " <> show innerValue
 
 instance Show RuntimeMethodCandidate where
   show (RuntimeMethodCandidate implTarget _) =
@@ -187,6 +192,7 @@ renderRuntimeValue value =
       | otherwise ->
           "<function>"
     VQualifiedMethod {} -> "<function>"
+    VTyped _ innerValue -> renderRuntimeValue innerValue
 
 renderConstructorValue :: Identifier -> [RuntimeValue] -> Text
 renderConstructorValue constructorName arguments =
@@ -300,7 +306,7 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
           evalNumericSignatureBinding targetType env valueExpr
         Nothing -> do
           runtimeValue <- evalValue builtinMode env valueExpr
-          Right (attachRuntimeTypeHint (previousSignatureRuntimeTypeHint statementIndex bindingName) runtimeValue)
+          attachRuntimeTypeHint (previousSignatureRuntimeTypeHint statementIndex bindingName) runtimeValue
 
     evalNumericSignatureBinding :: NumericType -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
     evalNumericSignatureBinding targetType env valueExpr =
@@ -361,21 +367,6 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
             "Float64" -> Just NumericFloat64
             _ -> Nothing
         _ -> Nothing
-
-    numericConversionBuiltinForTarget :: NumericType -> BuiltinSymbol
-    numericConversionBuiltinForTarget targetType =
-      case targetType of
-        NumericInt8 -> BuiltinToInt8
-        NumericInt16 -> BuiltinToInt16
-        NumericInt32 -> BuiltinToInt32
-        NumericInt64 -> BuiltinToInt64
-        NumericUInt8 -> BuiltinToUInt8
-        NumericUInt16 -> BuiltinToUInt16
-        NumericUInt32 -> BuiltinToUInt32
-        NumericUInt64 -> BuiltinToUInt64
-        NumericFloat16 -> BuiltinToFloat16
-        NumericFloat32 -> BuiltinToFloat32
-        NumericFloat64 -> BuiltinToFloat64
 
     -- Alias bridges can legitimately point across a recursive SCC, but pure
     -- alias loops need a deterministic diagnostic instead of infinite forcing.
@@ -860,19 +851,55 @@ literalRuntimeValue literal =
     LFloat value literalSource -> VFloat value (untypedFloatMetadata (Just literalSource))
     LBool value -> VBool value
 
-attachRuntimeTypeHint :: Maybe ConstraintSignatureType -> RuntimeValue -> RuntimeValue
+attachRuntimeTypeHint :: Maybe ConstraintSignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
 attachRuntimeTypeHint maybeTypeHint runtimeValue =
   case maybeTypeHint of
     Just typeHint ->
-      case runtimeValue of
-        VList elements _ ->
-          VList elements (Just typeHint)
-        VClosure capturedEnv parameterName bodyExpr _ ->
-          VClosure capturedEnv parameterName bodyExpr (Just typeHint)
-        _ ->
-          runtimeValue
+      applyRuntimeTypeHint typeHint runtimeValue
     Nothing ->
-      runtimeValue
+      Right runtimeValue
+
+applyRuntimeTypeHint :: ConstraintSignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyRuntimeTypeHint typeHint runtimeValue =
+  case runtimeValue of
+    VTyped _ innerValue ->
+      applyRuntimeTypeHint typeHint innerValue
+    _ ->
+      case (typeHint, runtimeValue) of
+        (ConstraintTypeName typeName, _)
+          | Just targetType <- constraintTypeNameNumericTarget typeName ->
+              evalNumericConversion (numericConversionBuiltinForTarget targetType) targetType runtimeValue
+        (ConstraintTypeList elementType, VList elements _) -> do
+          hintedElements <- mapM (applyRuntimeTypeHint elementType) elements
+          Right (VList hintedElements (Just typeHint))
+        (ConstraintTypeTuple elementTypes, VTuple elements)
+          | length elementTypes == length elements ->
+              VTuple <$> zipWithM applyRuntimeTypeHint elementTypes elements
+        (ConstraintTypeFunction {}, VClosure capturedEnv parameterName bodyExpr _) ->
+          Right (VClosure capturedEnv parameterName bodyExpr (Just typeHint))
+        (ConstraintTypeFunction {}, _)
+          | isFunctionValue runtimeValue ->
+              Right (VTyped typeHint runtimeValue)
+        _ ->
+          Right runtimeValue
+
+constraintTypeNameNumericTarget :: Identifier -> Maybe NumericType
+constraintTypeNameNumericTarget typeName =
+  case identifierText typeName of
+    "Int" -> Just NumericInt64
+    "Int8" -> Just NumericInt8
+    "Int16" -> Just NumericInt16
+    "Int32" -> Just NumericInt32
+    "Int64" -> Just NumericInt64
+    "UInt8" -> Just NumericUInt8
+    "UInt16" -> Just NumericUInt16
+    "UInt32" -> Just NumericUInt32
+    "UInt64" -> Just NumericUInt64
+    "Float" -> Just NumericFloat64
+    "Float16" -> Just NumericFloat16
+    "Float32" -> Just NumericFloat32
+    "Float64" -> Just NumericFloat64
+    _ -> Nothing
 
 untypedIntMetadata :: RuntimeIntMetadata
 untypedIntMetadata =
@@ -1003,15 +1030,22 @@ matchPatternList values patterns =
 applyRuntimeFunction :: BuiltinResolutionMode -> RuntimeValue -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyRuntimeFunction builtinMode functionValue argumentValue =
   case functionValue of
+    VTyped typeHint innerFunctionValue -> do
+      resultValue <- applyRuntimeFunction builtinMode innerFunctionValue argumentValue
+      applyRuntimeFunctionResultHint typeHint resultValue
     VSectionLeft operatorSymbol leftValue ->
       evalBinary builtinMode operatorSymbol leftValue argumentValue
     VSectionRight operatorSymbol rightValue ->
       evalBinary builtinMode operatorSymbol argumentValue rightValue
-    VClosure capturedEnv parameterName bodyExpr _ ->
-      evalValue
-        builtinMode
-        (Map.insert (identifierText parameterName) (Right argumentValue) capturedEnv)
-        bodyExpr
+    VClosure capturedEnv parameterName bodyExpr maybeTypeHint -> do
+      resultValue <-
+        evalValue
+          builtinMode
+          (Map.insert (identifierText parameterName) (Right argumentValue) capturedEnv)
+          bodyExpr
+      case maybeTypeHint of
+        Just typeHint -> applyRuntimeFunctionResultHint typeHint resultValue
+        Nothing -> Right resultValue
     VBuiltin builtinFunction capturedArgs ->
       applyBuiltin builtinMode builtinFunction (capturedArgs ++ [argumentValue])
     VOperator operatorSymbol capturedArgs ->
@@ -1032,6 +1066,14 @@ applyRuntimeFunction builtinMode functionValue argumentValue =
             "E3008"
             ("runtime cannot apply non-function value of type " <> renderRuntimeType functionValue)
         )
+
+applyRuntimeFunctionResultHint :: ConstraintSignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyRuntimeFunctionResultHint typeHint runtimeValue =
+  case typeHint of
+    ConstraintTypeFunction _ resultType ->
+      applyRuntimeTypeHint resultType runtimeValue
+    _ ->
+      Right runtimeValue
 
 applyQualifiedMethod ::
   BuiltinResolutionMode ->
@@ -1096,28 +1138,32 @@ runtimeMethodCandidateMatches classParameter methodSignature arguments (RuntimeM
 
 runtimeValueMatchesConstraint :: ConstraintSignatureType -> RuntimeValue -> Bool
 runtimeValueMatchesConstraint signatureType runtimeValue =
-  case signatureType of
-    ConstraintTypeName typeName ->
-      runtimeValueMatchesTypeName (identifierText typeName) runtimeValue
-    ConstraintTypeApplication typeName typeArguments ->
-      runtimeValueMatchesDataTypeApplication typeName typeArguments runtimeValue
-    ConstraintTypeList elementType ->
-      case runtimeValue of
-        VList elements maybeTypeHint ->
-          case maybeTypeHint of
-            Just typeHint -> runtimeConstraintTypesCompatible typeHint signatureType
-            Nothing -> all (runtimeValueMatchesConstraint elementType) elements
-        _ -> False
-    ConstraintTypeTuple elementTypes ->
-      case runtimeValue of
-        VTuple elements
-          | length elementTypes == length elements ->
-              and (zipWith runtimeValueMatchesConstraint elementTypes elements)
-        _ -> False
-    ConstraintTypeFunction {} ->
-      case runtimeValue of
-        VClosure _ _ _ (Just typeHint) -> runtimeConstraintTypesCompatible typeHint signatureType
-        _ -> isFunctionValue runtimeValue
+  case runtimeValue of
+    VTyped typeHint _ ->
+      runtimeConstraintTypesCompatible typeHint signatureType
+    _ ->
+      case signatureType of
+        ConstraintTypeName typeName ->
+          runtimeValueMatchesTypeName (identifierText typeName) runtimeValue
+        ConstraintTypeApplication typeName typeArguments ->
+          runtimeValueMatchesDataTypeApplication typeName typeArguments runtimeValue
+        ConstraintTypeList elementType ->
+          case runtimeValue of
+            VList elements maybeTypeHint ->
+              case maybeTypeHint of
+                Just typeHint -> runtimeConstraintTypesCompatible typeHint signatureType
+                Nothing -> all (runtimeValueMatchesConstraint elementType) elements
+            _ -> False
+        ConstraintTypeTuple elementTypes ->
+          case runtimeValue of
+            VTuple elements
+              | length elementTypes == length elements ->
+                  and (zipWith runtimeValueMatchesConstraint elementTypes elements)
+            _ -> False
+        ConstraintTypeFunction {} ->
+          case runtimeValue of
+            VClosure _ _ _ (Just typeHint) -> runtimeConstraintTypesCompatible typeHint signatureType
+            _ -> isFunctionValue runtimeValue
 
 runtimeConstraintTypesCompatible :: ConstraintSignatureType -> ConstraintSignatureType -> Bool
 runtimeConstraintTypesCompatible leftType rightType =
@@ -1323,8 +1369,12 @@ evalBuiltin builtinMode builtinFunction arguments =
           evalNumericConversion builtinFunction targetType value
     (BuiltinHd, [VList [] _]) ->
       Left (runtimeDiagnostic "E3009" "runtime primitive 'hd' failed: empty list")
-    (BuiltinHd, [VList (headValue : _) _]) ->
-      Right headValue
+    (BuiltinHd, [VList (headValue : _) maybeTypeHint]) ->
+      case maybeTypeHint of
+        Just (ConstraintTypeList elementType) ->
+          applyRuntimeTypeHint elementType headValue
+        _ ->
+          Right headValue
     (BuiltinHd, [other]) ->
       Left
         ( runtimeDiagnostic
@@ -1350,8 +1400,10 @@ evalBuiltin builtinMode builtinFunction arguments =
             )
       | otherwise ->
           case collection of
-            VList elements _ ->
-              (`VList` Nothing) <$> mapM (applyRuntimeFunction builtinMode mapper) elements
+            VList elements maybeCollectionTypeHint -> do
+              mappedElements <- mapM (applyRuntimeFunction builtinMode mapper) elements
+              let maybeMappedTypeHint = ConstraintTypeList <$> runtimeMapResultElementType mapper maybeCollectionTypeHint
+              Right (VList mappedElements maybeMappedTypeHint)
             other ->
               Left
                 ( runtimeDiagnostic
@@ -1403,6 +1455,21 @@ evalNumericConversion builtinFunction targetType value =
                 <> renderRuntimeType other
             )
         )
+
+numericConversionBuiltinForTarget :: NumericType -> BuiltinSymbol
+numericConversionBuiltinForTarget targetType =
+  case targetType of
+    NumericInt8 -> BuiltinToInt8
+    NumericInt16 -> BuiltinToInt16
+    NumericInt32 -> BuiltinToInt32
+    NumericInt64 -> BuiltinToInt64
+    NumericUInt8 -> BuiltinToUInt8
+    NumericUInt16 -> BuiltinToUInt16
+    NumericUInt32 -> BuiltinToUInt32
+    NumericUInt64 -> BuiltinToUInt64
+    NumericFloat16 -> BuiltinToFloat16
+    NumericFloat32 -> BuiltinToFloat32
+    NumericFloat64 -> BuiltinToFloat64
 
 convertIntegerToNumericTarget :: BuiltinSymbol -> NumericType -> Integer -> Either Diagnostic RuntimeValue
 convertIntegerToNumericTarget builtinFunction targetType integerValue =
@@ -1604,9 +1671,36 @@ filterElements builtinMode predicate values = do
                 ("runtime primitive 'filter' predicate must return Bool, found " <> renderRuntimeType other)
             )
 
+runtimeFunctionResultType :: RuntimeValue -> Maybe ConstraintSignatureType
+runtimeFunctionResultType runtimeValue =
+  case runtimeValue of
+    VTyped (ConstraintTypeFunction _ resultType) _ ->
+      Just resultType
+    VClosure _ _ _ (Just (ConstraintTypeFunction _ resultType)) ->
+      Just resultType
+    _ ->
+      Nothing
+
+runtimeMapResultElementType :: RuntimeValue -> Maybe ConstraintSignatureType -> Maybe ConstraintSignatureType
+runtimeMapResultElementType mapper maybeCollectionTypeHint =
+  case runtimeFunctionResultType mapper of
+    Just resultType ->
+      Just resultType
+    Nothing ->
+      runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint
+
+runtimeBuiltinMapResultElementType :: RuntimeValue -> Maybe ConstraintSignatureType -> Maybe ConstraintSignatureType
+runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint =
+  case (mapper, maybeCollectionTypeHint) of
+    (VBuiltin BuiltinHd [], Just (ConstraintTypeList (ConstraintTypeList elementType))) ->
+      Just elementType
+    _ ->
+      Nothing
+
 isFunctionValue :: RuntimeValue -> Bool
 isFunctionValue value =
   case value of
+    VTyped _ innerValue -> isFunctionValue innerValue
     VSectionLeft {} -> True
     VSectionRight {} -> True
     VClosure {} -> True
@@ -2051,6 +2145,7 @@ renderRuntimeType value =
       | constructorIsSaturated constructorArguments capturedArgs -> "Data"
       | otherwise -> "Function"
     VQualifiedMethod {} -> "Function"
+    VTyped _ innerValue -> renderRuntimeType innerValue
 
 constructorIsSaturated :: [DataConstructorArgument] -> [RuntimeValue] -> Bool
 constructorIsSaturated constructorArguments capturedArgs =
