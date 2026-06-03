@@ -1105,7 +1105,7 @@ runtimeValueMatchesConstraint signatureType runtimeValue =
       case runtimeValue of
         VList elements maybeTypeHint ->
           case maybeTypeHint of
-            Just typeHint -> typeHint == signatureType
+            Just typeHint -> runtimeConstraintTypesCompatible typeHint signatureType
             Nothing -> all (runtimeValueMatchesConstraint elementType) elements
         _ -> False
     ConstraintTypeTuple elementTypes ->
@@ -1116,8 +1116,39 @@ runtimeValueMatchesConstraint signatureType runtimeValue =
         _ -> False
     ConstraintTypeFunction {} ->
       case runtimeValue of
-        VClosure _ _ _ (Just typeHint) -> typeHint == signatureType
+        VClosure _ _ _ (Just typeHint) -> runtimeConstraintTypesCompatible typeHint signatureType
         _ -> isFunctionValue runtimeValue
+
+runtimeConstraintTypesCompatible :: ConstraintSignatureType -> ConstraintSignatureType -> Bool
+runtimeConstraintTypesCompatible leftType rightType =
+  case (leftType, rightType) of
+    (ConstraintTypeName leftName, ConstraintTypeName rightName) ->
+      runtimeConstraintNamesCompatible leftName rightName
+    (ConstraintTypeApplication leftName leftArguments, ConstraintTypeApplication rightName rightArguments)
+      | runtimeConstraintNamesCompatible leftName rightName,
+        length leftArguments == length rightArguments ->
+          and (zipWith runtimeConstraintTypesCompatible leftArguments rightArguments)
+    (ConstraintTypeList leftElementType, ConstraintTypeList rightElementType) ->
+      runtimeConstraintTypesCompatible leftElementType rightElementType
+    (ConstraintTypeTuple leftElementTypes, ConstraintTypeTuple rightElementTypes)
+      | length leftElementTypes == length rightElementTypes ->
+          and (zipWith runtimeConstraintTypesCompatible leftElementTypes rightElementTypes)
+    (ConstraintTypeFunction leftArgumentType leftResultType, ConstraintTypeFunction rightArgumentType rightResultType) ->
+      runtimeConstraintTypesCompatible leftArgumentType rightArgumentType
+        && runtimeConstraintTypesCompatible leftResultType rightResultType
+    _ -> False
+
+runtimeConstraintNamesCompatible :: Identifier -> Identifier -> Bool
+runtimeConstraintNamesCompatible leftName rightName =
+  normalizeRuntimeConstraintName (identifierText leftName)
+    == normalizeRuntimeConstraintName (identifierText rightName)
+
+normalizeRuntimeConstraintName :: Text -> Text
+normalizeRuntimeConstraintName typeName =
+  case typeName of
+    "Int" -> "Int64"
+    "Float" -> "Float64"
+    _ -> typeName
 
 runtimeValueMatchesTypeName :: Text -> RuntimeValue -> Bool
 runtimeValueMatchesTypeName typeName runtimeValue =

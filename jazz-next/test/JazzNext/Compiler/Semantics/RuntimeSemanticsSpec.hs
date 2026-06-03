@@ -148,6 +148,8 @@ tests =
     ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
     ("qualified method dispatch preserves empty list binding signatures", testQualifiedMethodDispatchPreservesEmptyListBindingSignature),
+    ("qualified method dispatch normalizes hinted list aliases", testQualifiedMethodDispatchNormalizesHintedListAliases),
+    ("qualified method dispatch normalizes hinted function aliases", testQualifiedMethodDispatchNormalizesHintedFunctionAliases),
     ("qualified zero-argument method dispatch returns value", testQualifiedZeroArgumentMethodDispatchReturnsValue),
     ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias),
     ("qualified method dispatch rejects wrapped self alias", testQualifiedMethodDispatchRejectsWrappedSelfAlias),
@@ -1179,6 +1181,36 @@ testQualifiedMethodDispatchPreservesEmptyListBindingSignature = do
           <> "impl RuntimePick(Bool) {\npick = \\(values) -> False.\n}.\n"
           <> "values :: [Int].\nvalues = [].\n"
           <> "RuntimePick::pick values."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchNormalizesHintedListAliases :: IO ()
+testQualifiedMethodDispatchNormalizesHintedListAliases = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int64) {\npick = \\(values) -> True.\n}.\n"
+          <> "impl RuntimePick(Bool) {\npick = \\(values) -> False.\n}.\n"
+          <> "values :: [Int].\nvalues = [].\n"
+          <> "RuntimePick::pick values."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchNormalizesHintedFunctionAliases :: IO ()
+testQualifiedMethodDispatchNormalizesHintedFunctionAliases = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int64) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(Bool) {\napply = \\(fn) -> False.\n}.\n"
+          <> "idInt :: Int -> Int.\nidInt = \\(value) -> value.\n"
+          <> "RuntimeApply::apply idInt."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)

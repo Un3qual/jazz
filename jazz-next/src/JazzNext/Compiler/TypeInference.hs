@@ -271,6 +271,7 @@ data InferState = InferState
     inferClassMethodSignatures :: Map Text ClassMethodType,
     inferConcreteImplMethods :: Map Text [ImplMethodType],
     inferCurrentModulePath :: Maybe [Text],
+    inferCurrentModuleLocalCapabilityFacts :: ScopeCapabilityFacts,
     inferModuleCapabilityFacts :: Map [Text] ScopeCapabilityFacts,
     inferErrorsRev :: [Diagnostic],
     inferErrorCount :: Int
@@ -289,6 +290,7 @@ initialInferState =
       inferClassMethodSignatures = Map.empty,
       inferConcreteImplMethods = Map.empty,
       inferCurrentModulePath = Nothing,
+      inferCurrentModuleLocalCapabilityFacts = emptyScopeCapabilityFacts,
       inferModuleCapabilityFacts = Map.empty,
       inferErrorsRev = [],
       inferErrorCount = 0
@@ -1221,7 +1223,8 @@ restoreCapabilityFacts previousState nextState =
     { inferClassFacts = inferClassFacts previousState,
       inferConcreteImplFacts = inferConcreteImplFacts previousState,
       inferClassMethodSignatures = inferClassMethodSignatures previousState,
-      inferConcreteImplMethods = inferConcreteImplMethods previousState
+      inferConcreteImplMethods = inferConcreteImplMethods previousState,
+      inferCurrentModuleLocalCapabilityFacts = inferCurrentModuleLocalCapabilityFacts previousState
     }
 
 mergeCapabilityFacts :: ScopeCapabilityFacts -> ScopeCapabilityFacts -> ScopeCapabilityFacts
@@ -1257,7 +1260,7 @@ flushCurrentModuleCapabilityFacts state =
         { inferModuleCapabilityFacts =
             Map.insert
               modulePath
-              (capabilityFactsFromState state)
+              (inferCurrentModuleLocalCapabilityFacts state)
               (inferModuleCapabilityFacts state)
         }
     Nothing -> state
@@ -1265,7 +1268,8 @@ flushCurrentModuleCapabilityFacts state =
 enterModuleCapabilityScope :: ScopeCapabilityFacts -> [Text] -> InferState -> InferState
 enterModuleCapabilityScope baselineFacts modulePath state =
   (applyCapabilityFacts baselineFacts (flushCurrentModuleCapabilityFacts state))
-    { inferCurrentModulePath = Just modulePath
+    { inferCurrentModulePath = Just modulePath,
+      inferCurrentModuleLocalCapabilityFacts = emptyScopeCapabilityFacts
     }
 
 importModuleCapabilityFacts :: [Text] -> Maybe Text -> Maybe [Text] -> InferState -> InferState
@@ -1313,7 +1317,15 @@ filterImportedCapabilityFacts maybeSymbolNames facts =
 seedStatementCapabilityFact :: InferState -> Statement -> InferState
 seedStatementCapabilityFact state statement =
   let facts = seedFacts (capabilityFactsFromState state) (0, statement)
-   in applyCapabilityFacts facts state
+      stateWithVisibleFacts = applyCapabilityFacts facts state
+   in case inferCurrentModulePath state of
+        Just _ ->
+          stateWithVisibleFacts
+            { inferCurrentModuleLocalCapabilityFacts =
+                seedFacts (inferCurrentModuleLocalCapabilityFacts state) (0, statement)
+            }
+        Nothing ->
+          stateWithVisibleFacts
 
 seedFacts :: ScopeCapabilityFacts -> (Int, Statement) -> ScopeCapabilityFacts
 seedFacts facts (_, statement) =
