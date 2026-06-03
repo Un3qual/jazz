@@ -63,6 +63,7 @@ tests =
     ("compile module graph reports module source parse diagnostics", testCompileModuleGraphParseFailure),
     ("compile module graph reports missing import symbols", testCompileModuleGraphMissingImportSymbol),
     ("compile module graph hides dependency bindings excluded by explicit import list", testCompileModuleGraphExplicitImportListHidesUnlistedBindings),
+    ("compile module graph hides capability facts excluded by explicit import list", testCompileModuleGraphExplicitImportListHidesCapabilityFacts),
     ("compile module graph keeps hidden constructor dependencies for validation", testCompileModuleGraphKeepsHiddenConstructorValidationDependencies),
     ("compile module graph allows explicit-import hidden name supplied by prelude", testCompileModuleGraphExplicitImportAllowsPreludeBinding),
     ("compile module graph hides dependency bindings imported only by alias", testCompileModuleGraphAliasImportHidesUnqualifiedBindings),
@@ -513,6 +514,33 @@ testCompileModuleGraphExplicitImportListHidesUnlistedBindings = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Math (add).\nsubtract."),
           ("src/Lib/Math.jz", "add = 1.\nsubtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphExplicitImportListHidesCapabilityFacts :: IO ()
+testCompileModuleGraphExplicitImportListHidesCapabilityFacts = do
+  result <-
+    compileModuleGraph
+      defaultWarningSettings
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [err] ->
+      assertContains
+        "explicit import capability fact isolation"
+        "missing class declaration 'Hidden'"
+        (renderDiagnostic err)
+    errors ->
+      failTest
+        ( "expected exactly one hidden capability fact error, got "
+            <> Text.pack (show (map renderDiagnostic errors))
+        )
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Facts (facts).\nuse :: @{Hidden(Int)}: Int.\nuse = 1."),
+          ("src/Lib/Facts.jz", "facts = 0.\nclass Hidden(a) { }.\nimpl Hidden(Int) { }.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

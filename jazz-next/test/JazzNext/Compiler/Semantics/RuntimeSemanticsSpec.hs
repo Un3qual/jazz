@@ -103,6 +103,8 @@ tests =
     ("print! returns evaluated argument value", testPrintBuiltinReturnsArgument),
     ("target-named integer conversion evaluates at runtime", testIntegerConversionRuntimeSuccess),
     ("target-named integer conversion preserves source-exact integral Float literal", testIntegerConversionSourceExactIntegralFloatRuntimeSuccess),
+    ("Float64 signature preserves source-exact integral conversion", testFloat64SignaturePreservesSourceExactIntegralConversion),
+    ("Float16 signature converts from rounded runtime value", testFloat16SignatureConvertsFromRoundedRuntimeValue),
     ("width-specific integer arithmetic checks preserved result bounds", testWidthSpecificIntegerArithmeticBoundsRuntimeError),
     ("target-named float conversion evaluates at runtime", testFloatConversionRuntimeSuccess),
     ("dynamic integer-to-Float64 overflow checks source magnitude", testDynamicIntegerToFloat64OverflowRuntimeError),
@@ -124,7 +126,9 @@ tests =
     ("runtime fallback rejects direct callable equality", testRuntimeFallbackRejectsDirectCallableEquality),
     ("runtime fallback rejects direct callable inequality", testRuntimeFallbackRejectsDirectCallableInequality),
     ("runtime fallback rejects mixed targeted integer equality", testRuntimeFallbackRejectsMixedTargetedIntegerEquality),
+    ("runtime fallback rejects mixed targeted integer comparison", testRuntimeFallbackRejectsMixedTargetedIntegerComparison),
     ("runtime fallback rejects structural equality over functions", testRuntimeFallbackRejectsFunctionStructuralEquality),
+    ("runtime fallback rejects structural equality over qualified methods", testRuntimeFallbackRejectsQualifiedMethodStructuralEquality),
     ("runtime fallback returns false for different-length structural equality over functions", testRuntimeFallbackReturnsFalseForDifferentLengthFunctionStructuralEquality),
     ("runtime fallback returns false for different saturated ADT constructors with function payloads", testRuntimeFallbackReturnsFalseForDifferentSaturatedAdtConstructors),
     ("Float16 conversion rounds to target precision", testFloat16ConversionRoundsRuntimeValue),
@@ -144,6 +148,7 @@ tests =
     ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
     ("qualified zero-argument method dispatch returns value", testQualifiedZeroArgumentMethodDispatchReturnsValue),
     ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias),
+    ("qualified method dispatch rejects wrapped self alias", testQualifiedMethodDispatchRejectsWrappedSelfAlias),
     ("qualified method dispatch rejects full-arity runtime ambiguity", testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity),
     ("qualified method dispatch executes local ADT impl body", testQualifiedMethodDispatchExecutesLocalAdtImplBody),
     ("method-bearing capability declarations are inert at runtime", testMethodBearingCapabilityDeclarationsRuntimeInert),
@@ -663,6 +668,20 @@ testIntegerConversionSourceExactIntegralFloatRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "9223372036854775807") (runOutput result)
 
+testFloat64SignaturePreservesSourceExactIntegralConversion :: IO ()
+testFloat64SignaturePreservesSourceExactIntegralConversion = do
+  result <- runSource defaultWarningSettings "value :: Float64.\nvalue = 9223372036854775807.0.\ntoInt64 value."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "9223372036854775807") (runOutput result)
+
+testFloat16SignatureConvertsFromRoundedRuntimeValue :: IO ()
+testFloat16SignatureConvertsFromRoundedRuntimeValue = do
+  result <- runSource defaultWarningSettings "value :: Float16.\nvalue = 2049.0.\ntoInt64 value."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "2048") (runOutput result)
+
 testWidthSpecificIntegerArithmeticBoundsRuntimeError :: IO ()
 testWidthSpecificIntegerArithmeticBoundsRuntimeError = do
   result <- runSource defaultWarningSettings "value = toUInt8 255.\nvalue + 1."
@@ -871,11 +890,43 @@ testRuntimeFallbackRejectsMixedTargetedIntegerEquality =
     "E3007"
     (evaluateRuntimeExpr (runtimeExpr (EBinary "==" (targetedInt "__kernel_toInt8") (targetedInt "__kernel_toUInt8"))))
 
+testRuntimeFallbackRejectsMixedTargetedIntegerComparison :: IO ()
+testRuntimeFallbackRejectsMixedTargetedIntegerComparison = do
+  assertRuntimeErrorContains
+    "runtime fallback mixed targeted integer less-than"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "<" (targetedInt "__kernel_toInt8") (targetedInt "__kernel_toUInt8"))))
+  assertRuntimeErrorContains
+    "runtime fallback targeted UInt8 less-or-equal untyped out-of-range Int"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "<=" (targetedInt "__kernel_toUInt8") (ELit (LInt 256)))))
+  assertRuntimeErrorContains
+    "runtime fallback mixed targeted integer greater-than"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary ">" (targetedInt "__kernel_toUInt8") (targetedInt "__kernel_toInt16"))))
+  assertRuntimeErrorContains
+    "runtime fallback mixed targeted integer greater-or-equal"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary ">=" (targetedInt "__kernel_toUInt16") (targetedInt "__kernel_toInt8"))))
+
 testRuntimeFallbackRejectsFunctionStructuralEquality :: IO ()
 testRuntimeFallbackRejectsFunctionStructuralEquality = do
   let identity = ELambda "x" (EVar "x")
       result = evaluateRuntimeExpr (runtimeExpr (EBinary "==" (EList [identity]) (EList [identity])))
   assertRuntimeErrorContains "runtime fallback function structural equality" "E3007" result
+  assertRuntimeErrorContains
+    "runtime fallback function structural equality callable text"
+    "callable values are not equality-supported"
+    result
+
+testRuntimeFallbackRejectsQualifiedMethodStructuralEquality :: IO ()
+testRuntimeFallbackRejectsQualifiedMethodStructuralEquality = do
+  let result = evaluateRuntimeExpr qualifiedMethodStructuralEqualityExpr
+  assertRuntimeErrorContains "runtime fallback qualified method structural equality" "E3007" result
+  assertRuntimeErrorContains
+    "runtime fallback qualified method structural equality callable text"
+    "callable values are not equality-supported"
+    result
 
 testRuntimeFallbackReturnsFalseForDifferentLengthFunctionStructuralEquality :: IO ()
 testRuntimeFallbackReturnsFalseForDifferentLengthFunctionStructuralEquality = do
@@ -903,6 +954,38 @@ testRuntimeFallbackReturnsFalseForDifferentSaturatedAdtConstructors = do
             (SourceSpan 2 1)
             (EBinary "==" (EApply (EVar "Just") identity) (EVar "Nothing"))
         ]
+
+qualifiedMethodStructuralEqualityExpr :: Expr
+qualifiedMethodStructuralEqualityExpr =
+  EBlock
+    [ SClass
+        (SourceSpan 1 1)
+        "RuntimeEq"
+        ["a"]
+        [ ClassMethodSignature
+            "equals"
+            (SourceSpan 2 1)
+            ( ConstrainedSignature
+                []
+                ( ConstraintTypeFunction
+                    (ConstraintTypeName "a")
+                    (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool"))
+                )
+            )
+        ],
+      SImpl
+        (SourceSpan 3 1)
+        "RuntimeEq"
+        [ConstraintTypeName "Int"]
+        [ ImplMethod
+            "equals"
+            (SourceSpan 4 1)
+            (ELambda "left" (ELambda "right" (EBinary "==" (EVar "left") (EVar "right"))))
+        ],
+      SExpr
+        (SourceSpan 5 1)
+        (EBinary "==" (EList [EVar "RuntimeEq::equals"]) (EList [EVar "RuntimeEq::equals"]))
+    ]
 
 testFloat16ConversionRoundsRuntimeValue :: IO ()
 testFloat16ConversionRoundsRuntimeValue = do
@@ -1055,8 +1138,9 @@ testQualifiedMethodDispatchTreatsIntAsInt64Alias = do
       defaultWarningSettings
       ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
           <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
-          <> "left :: Int64.\nleft = 1.\n"
-          <> "right :: Int64.\nright = 2.\n"
+          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "left :: Int.\nleft = 1.\n"
+          <> "right :: Int.\nright = 2.\n"
           <> "RuntimeEq::equals left right."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -1104,6 +1188,38 @@ testQualifiedMethodDispatchRejectsDirectSelfAlias = do
         (runRuntimeErrors result)
       assertSingleDiagnosticContains
         "direct qualified method self alias runtime text"
+        "recursive qualified method alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testQualifiedMethodDispatchRejectsWrappedSelfAlias :: IO ()
+testQualifiedMethodDispatchRejectsWrappedSelfAlias = do
+  maybeResult <-
+    timeout
+      1000000
+      ( try
+          ( runSource
+              defaultWarningSettings
+              ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+                  <> "impl RuntimeEq(Int) {\nequals = if True RuntimeEq::equals else \\(left) -> \\(right) -> left == right.\n}.\n"
+                  <> "RuntimeEq::equals 1 1."
+              )
+          ) ::
+          IO (Either SomeException RunResult)
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected wrapped qualified method self alias to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for wrapped qualified method self alias, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "wrapped qualified method self alias runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "wrapped qualified method self alias runtime text"
         "recursive qualified method alias cycle"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)

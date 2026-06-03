@@ -324,6 +324,8 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
     signatureNumericTarget :: SignaturePayload -> Maybe NumericType
     signatureNumericTarget signaturePayload =
       case signaturePayload of
+        SignatureType TypeInt -> Just NumericInt64
+        SignatureType TypeFloat -> Just NumericFloat64
         SignatureType (TypeNumeric targetType) -> Just targetType
         ConstrainedSignature _ signatureType ->
           constraintSignatureNumericTarget signatureType
@@ -334,6 +336,7 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
       case signatureType of
         ConstraintTypeName typeName ->
           case identifierText typeName of
+            "Int" -> Just NumericInt64
             "Int8" -> Just NumericInt8
             "Int16" -> Just NumericInt16
             "Int32" -> Just NumericInt32
@@ -342,6 +345,7 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
             "UInt16" -> Just NumericUInt16
             "UInt32" -> Just NumericUInt32
             "UInt64" -> Just NumericUInt64
+            "Float" -> Just NumericFloat64
             "Float16" -> Just NumericFloat16
             "Float32" -> Just NumericFloat32
             "Float64" -> Just NumericFloat64
@@ -608,15 +612,16 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
                 )
                 methods
             methodCandidateCell methodKey methodExpr =
-              case methodExpr of
-                EVar aliasName
-                  | identifierText aliasName == methodKey ->
-                      Left
-                        ( runtimeDiagnostic
-                            "E3021"
-                            ("runtime recursive qualified method alias cycle '" <> methodKey <> "' has no concrete value")
-                        )
-                _ ->
+              case selectedQualifiedMethodAliasTarget methodEnv methodKey methodExpr of
+                Left diagnostic ->
+                  Left diagnostic
+                Right True ->
+                  Left
+                    ( runtimeDiagnostic
+                        "E3021"
+                        ("runtime recursive qualified method alias cycle '" <> methodKey <> "' has no concrete value")
+                    )
+                Right False ->
                   evalValue builtinMode methodEnv methodExpr
             insertCandidate envAcc (methodKey, methodCandidate) =
               Map.adjust (addMethodCandidate methodCandidate) methodKey envAcc
@@ -627,6 +632,40 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
             Right (VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs) ->
               Right (VQualifiedMethod methodKey classParameter methodSignature (candidates ++ [methodCandidate]) capturedArgs)
             _ -> methodCell
+
+    selectedQualifiedMethodAliasTarget :: RuntimeEnv -> Text -> Expr -> Either Diagnostic Bool
+    selectedQualifiedMethodAliasTarget env methodKey expr =
+      case peelSingleExprBlock expr of
+        EIf conditionExpr thenExpr elseExpr ->
+          selectQualifiedMethodAliasTarget env methodKey conditionExpr thenExpr elseExpr
+        ECase conditionExpr thenExpr elseExpr ->
+          selectQualifiedMethodAliasTarget env methodKey conditionExpr thenExpr elseExpr
+        EPatternCase scrutineeExpr caseArms -> do
+          scrutineeValue <- evalValue builtinMode env scrutineeExpr
+          case selectMatchingCaseArmForAlias env scrutineeValue caseArms of
+            Just (_, armEnv, bodyExpr) ->
+              selectedQualifiedMethodAliasTarget armEnv methodKey bodyExpr
+            Nothing ->
+              Right False
+        EVar aliasName ->
+          Right (identifierText aliasName == methodKey)
+        _ ->
+          Right False
+
+    selectQualifiedMethodAliasTarget :: RuntimeEnv -> Text -> Expr -> Expr -> Expr -> Either Diagnostic Bool
+    selectQualifiedMethodAliasTarget env methodKey conditionExpr thenExpr elseExpr = do
+      conditionValue <- evalValue builtinMode env conditionExpr
+      case conditionValue of
+        VBool True ->
+          selectedQualifiedMethodAliasTarget env methodKey thenExpr
+        VBool False ->
+          selectedQualifiedMethodAliasTarget env methodKey elseExpr
+        other ->
+          Left
+            ( runtimeDiagnostic
+                "E3003"
+                ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
+            )
 
 -- Match the type checker: self-seed recursion when any branch exposes a
 -- lambda, so wrapped self-recursive closures capture their own binding before
@@ -827,8 +866,15 @@ untypedFloatMetadata literalSource =
 
 targetedFloatMetadata :: NumericType -> RuntimeFloatMetadata
 targetedFloatMetadata targetType =
+  targetedFloatMetadataWithSource targetType Nothing
+
+targetedFloatMetadataWithSource :: NumericType -> Maybe FractionalLiteralSource -> RuntimeFloatMetadata
+targetedFloatMetadataWithSource targetType literalSource =
   RuntimeFloatMetadata
-    { runtimeFloatLiteralSource = Nothing,
+    { runtimeFloatLiteralSource =
+        case targetType of
+          NumericFloat64 -> literalSource
+          _ -> Nothing,
       runtimeFloatTargetType = Just targetType
     }
 
@@ -1372,7 +1418,7 @@ convertFiniteFloatToFloatTarget :: BuiltinSymbol -> NumericType -> Double -> May
 convertFiniteFloatToFloatTarget builtinFunction targetType floatValue literalSource =
   if exceedsFloatTarget targetType floatValue || sourceExceedsFloatTarget targetType literalSource
     then Left (numericConversionFloatOverflowDiagnostic builtinFunction targetType)
-    else Right (VFloat (roundFloatTarget targetType floatValue) (targetedFloatMetadata targetType))
+    else Right (VFloat (roundFloatTarget targetType floatValue) (targetedFloatMetadataWithSource targetType literalSource))
 
 roundFloatTarget :: NumericType -> Double -> Double
 roundFloatTarget targetType value =
@@ -1539,10 +1585,14 @@ evalBinary builtinMode operatorSymbol leftValue rightValue
           Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
     ("/", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
       evalFloatArithmetic "/" leftMetadata rightMetadata (leftFloat / rightFloat)
-    ("<", VInt leftInt _, VInt rightInt _) -> Right (VBool (leftInt < rightInt))
-    ("<=", VInt leftInt _, VInt rightInt _) -> Right (VBool (leftInt <= rightInt))
-    (">", VInt leftInt _, VInt rightInt _) -> Right (VBool (leftInt > rightInt))
-    (">=", VInt leftInt _, VInt rightInt _) -> Right (VBool (leftInt >= rightInt))
+    ("<", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+      evalIntegerPredicate "<" leftInt leftMetadata rightInt rightMetadata (leftInt < rightInt)
+    ("<=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+      evalIntegerPredicate "<=" leftInt leftMetadata rightInt rightMetadata (leftInt <= rightInt)
+    (">", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+      evalIntegerPredicate ">" leftInt leftMetadata rightInt rightMetadata (leftInt > rightInt)
+    (">=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+      evalIntegerPredicate ">=" leftInt leftMetadata rightInt rightMetadata (leftInt >= rightInt)
     ("<", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
       evalFloatPredicate "<" leftMetadata rightMetadata (leftFloat < rightFloat)
     ("<=", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
@@ -1749,18 +1799,37 @@ evalStructuralEquality operatorSymbol leftValue rightValue =
                 else equalityResult
             )
         )
-    Nothing ->
-      Left
-        ( runtimeDiagnostic
-            "E3007"
-            ( "runtime primitive '"
-                <> operatorSymbol
-                <> "' cannot be applied to "
-                <> renderRuntimeType leftValue
-                <> " and "
-                <> renderRuntimeType rightValue
+    Nothing
+      | runtimeValueContainsFunction leftValue || runtimeValueContainsFunction rightValue ->
+          Left (runtimeCallableEqualityDiagnostic operatorSymbol leftValue rightValue)
+      | otherwise ->
+          Left
+            ( runtimeDiagnostic
+                "E3007"
+                ( "runtime primitive '"
+                    <> operatorSymbol
+                    <> "' cannot be applied to "
+                    <> renderRuntimeType leftValue
+                    <> " and "
+                    <> renderRuntimeType rightValue
+                )
             )
-        )
+
+runtimeValueContainsFunction :: RuntimeValue -> Bool
+runtimeValueContainsFunction value =
+  isFunctionValue value
+    || runtimeContainerContainsFunction value
+  where
+    runtimeContainerContainsFunction runtimeValue =
+      case runtimeValue of
+        VList elements ->
+          any runtimeValueContainsFunction elements
+        VTuple elements ->
+          any runtimeValueContainsFunction elements
+        VConstructor _ _ _ _ capturedArgs ->
+          any runtimeValueContainsFunction capturedArgs
+        _ ->
+          False
 
 runtimeStructuralEquality :: RuntimeValue -> RuntimeValue -> Maybe Bool
 runtimeStructuralEquality leftValue rightValue =
@@ -1795,6 +1864,24 @@ structuralElementEquality leftElements rightElements
   | otherwise =
       fmap and
         (traverse (uncurry runtimeStructuralEquality) (zip leftElements rightElements))
+
+evalIntegerPredicate :: Text -> Integer -> RuntimeIntMetadata -> Integer -> RuntimeIntMetadata -> Bool -> Either Diagnostic RuntimeValue
+evalIntegerPredicate operatorSymbol leftInt leftMetadata rightInt rightMetadata predicateResult =
+  case runtimeIntegerMetadataCompatible leftInt leftMetadata rightInt rightMetadata of
+    True ->
+      Right (VBool predicateResult)
+    False ->
+      Left
+        ( runtimeDiagnostic
+            "E3007"
+            ( "runtime primitive '"
+                <> operatorSymbol
+                <> "' cannot compare "
+                <> renderIntegerOperandTarget (runtimeIntTargetType leftMetadata)
+                <> " and "
+                <> renderIntegerOperandTarget (runtimeIntTargetType rightMetadata)
+            )
+        )
 
 evalIntegerEquality :: Text -> Integer -> RuntimeIntMetadata -> Integer -> RuntimeIntMetadata -> Either Diagnostic RuntimeValue
 evalIntegerEquality operatorSymbol leftInt leftMetadata rightInt rightMetadata =

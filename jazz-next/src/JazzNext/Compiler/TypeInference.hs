@@ -1268,16 +1268,50 @@ enterModuleCapabilityScope baselineFacts modulePath state =
     }
 
 importModuleCapabilityFacts :: [Text] -> Maybe Text -> Maybe [Text] -> InferState -> InferState
-importModuleCapabilityFacts modulePath maybeAlias _maybeSymbolNames state =
+importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state =
   case maybeAlias of
     Just _ -> state
     Nothing ->
       applyCapabilityFacts
         ( mergeCapabilityFacts
             (capabilityFactsFromState state)
-            (Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state))
+            (filterImportedCapabilityFacts maybeSymbolNames (Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state)))
         )
         state
+
+filterImportedCapabilityFacts :: Maybe [Text] -> ScopeCapabilityFacts -> ScopeCapabilityFacts
+filterImportedCapabilityFacts maybeSymbolNames facts =
+  case maybeSymbolNames of
+    Nothing -> facts
+    Just symbolNames ->
+      facts
+        { scopeClassFacts =
+            Map.filterWithKey
+              (\className _ -> Set.member className visibleSymbols)
+              (scopeClassFacts facts),
+          scopeConcreteImplFacts =
+            Set.filter
+              (\implKey -> Set.member (concreteImplClassName implKey) visibleSymbols)
+              (scopeConcreteImplFacts facts),
+          scopeClassMethodSignatures =
+            Map.filterWithKey
+              (\methodKey _ -> qualifiedMethodClassIsVisible methodKey)
+              (scopeClassMethodSignatures facts),
+          scopeConcreteImplMethods =
+            Map.filterWithKey
+              (\methodKey _ -> qualifiedMethodClassIsVisible methodKey)
+              (scopeConcreteImplMethods facts)
+        }
+      where
+        visibleSymbols = Set.fromList symbolNames
+        qualifiedMethodClassIsVisible methodKey =
+          case splitQualifiedMethodKey methodKey of
+            Just (className, _) -> Set.member className visibleSymbols
+            Nothing -> False
+
+concreteImplClassName :: Text -> Text
+concreteImplClassName implKey =
+  fst (Text.breakOn "(" implKey)
 
 seedStatementCapabilityFact :: InferState -> Statement -> InferState
 seedStatementCapabilityFact state statement =
