@@ -1543,20 +1543,26 @@ evalBinary builtinMode operatorSymbol leftValue rightValue
     ("<=", VInt leftInt _, VInt rightInt _) -> Right (VBool (leftInt <= rightInt))
     (">", VInt leftInt _, VInt rightInt _) -> Right (VBool (leftInt > rightInt))
     (">=", VInt leftInt _, VInt rightInt _) -> Right (VBool (leftInt >= rightInt))
-    ("<", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat < rightFloat))
-    ("<=", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat <= rightFloat))
-    (">", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat > rightFloat))
-    (">=", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat >= rightFloat))
+    ("<", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+      evalFloatPredicate "<" leftMetadata rightMetadata (leftFloat < rightFloat)
+    ("<=", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+      evalFloatPredicate "<=" leftMetadata rightMetadata (leftFloat <= rightFloat)
+    (">", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+      evalFloatPredicate ">" leftMetadata rightMetadata (leftFloat > rightFloat)
+    (">=", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+      evalFloatPredicate ">=" leftMetadata rightMetadata (leftFloat >= rightFloat)
     ("==", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       evalIntegerEquality "==" leftInt leftMetadata rightInt rightMetadata
-    ("==", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat == rightFloat))
+    ("==", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+      evalFloatPredicate "==" leftMetadata rightMetadata (leftFloat == rightFloat)
     ("==", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool == rightBool))
     ("==", VList {}, VList {}) -> evalStructuralEquality "==" leftValue rightValue
     ("==", VTuple {}, VTuple {}) -> evalStructuralEquality "==" leftValue rightValue
     ("==", VConstructor {}, VConstructor {}) -> evalStructuralEquality "==" leftValue rightValue
     ("!=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       evalIntegerEquality "!=" leftInt leftMetadata rightInt rightMetadata
-    ("!=", VFloat leftFloat _, VFloat rightFloat _) -> Right (VBool (leftFloat /= rightFloat))
+    ("!=", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+      evalFloatPredicate "!=" leftMetadata rightMetadata (leftFloat /= rightFloat)
     ("!=", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool /= rightBool))
     ("!=", VList {}, VList {}) -> evalStructuralEquality "!=" leftValue rightValue
     ("!=", VTuple {}, VTuple {}) -> evalStructuralEquality "!=" leftValue rightValue
@@ -1761,7 +1767,8 @@ runtimeStructuralEquality leftValue rightValue =
   case (leftValue, rightValue) of
     (VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       runtimeIntegerStructuralEquality leftInt leftMetadata rightInt rightMetadata
-    (VFloat leftFloat _, VFloat rightFloat _) -> Just (leftFloat == rightFloat)
+    (VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+      runtimeFloatStructuralEquality leftFloat leftMetadata rightFloat rightMetadata
     (VBool leftBool, VBool rightBool) -> Just (leftBool == rightBool)
     (VList leftElements, VList rightElements) ->
       structuralElementEquality leftElements rightElements
@@ -1813,10 +1820,33 @@ evalIntegerEquality operatorSymbol leftInt leftMetadata rightInt rightMetadata =
             )
         )
 
+evalFloatPredicate :: Text -> RuntimeFloatMetadata -> RuntimeFloatMetadata -> Bool -> Either Diagnostic RuntimeValue
+evalFloatPredicate operatorSymbol leftMetadata rightMetadata predicateResult =
+  if runtimeFloatMetadataCompatible leftMetadata rightMetadata
+    then Right (VBool predicateResult)
+    else
+      Left
+        ( runtimeDiagnostic
+            "E3007"
+            ( "runtime primitive '"
+                <> operatorSymbol
+                <> "' cannot compare "
+                <> renderFloatOperandTarget (runtimeFloatTargetType leftMetadata)
+                <> " and "
+                <> renderFloatOperandTarget (runtimeFloatTargetType rightMetadata)
+            )
+        )
+
 runtimeIntegerStructuralEquality :: Integer -> RuntimeIntMetadata -> Integer -> RuntimeIntMetadata -> Maybe Bool
 runtimeIntegerStructuralEquality leftInt leftMetadata rightInt rightMetadata =
   if runtimeIntegerMetadataCompatible leftInt leftMetadata rightInt rightMetadata
     then Just (leftInt == rightInt)
+    else Nothing
+
+runtimeFloatStructuralEquality :: Double -> RuntimeFloatMetadata -> Double -> RuntimeFloatMetadata -> Maybe Bool
+runtimeFloatStructuralEquality leftFloat leftMetadata rightFloat rightMetadata =
+  if runtimeFloatMetadataCompatible leftMetadata rightMetadata
+    then Just (leftFloat == rightFloat)
     else Nothing
 
 runtimeIntegerMetadataCompatible :: Integer -> RuntimeIntMetadata -> Integer -> RuntimeIntMetadata -> Bool
@@ -1830,6 +1860,20 @@ runtimeIntegerMetadataCompatible leftInt leftMetadata rightInt rightMetadata =
       integerValueMatchesTarget rightTarget leftInt
     (Nothing, Nothing) ->
       True
+
+runtimeFloatMetadataCompatible :: RuntimeFloatMetadata -> RuntimeFloatMetadata -> Bool
+runtimeFloatMetadataCompatible leftMetadata rightMetadata =
+  case (runtimeFloatTargetType leftMetadata, runtimeFloatTargetType rightMetadata) of
+    (Just leftTarget, Just rightTarget) ->
+      leftTarget == rightTarget
+    (Just NumericFloat64, Nothing) ->
+      True
+    (Nothing, Just NumericFloat64) ->
+      True
+    (Nothing, Nothing) ->
+      True
+    _ ->
+      False
 
 -- | Runtime-specific wrapper for mkDiagnostic.
 -- This alias exists solely to improve readability and make it clear that

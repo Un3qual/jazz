@@ -33,6 +33,9 @@ import JazzNext.Compiler.Driver
 import JazzNext.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource
   )
+import JazzNext.Compiler.Identifier
+  ( Identifier
+  )
 import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr
@@ -108,6 +111,7 @@ tests =
     ("Float16 arithmetic preserves target width at runtime", testFloat16ArithmeticPreservesRuntimeWidth),
     ("Float32 arithmetic preserves target width at runtime", testFloat32ArithmeticPreservesRuntimeWidth),
     ("runtime fallback rejects targeted Float16/Float32 mixed with untyped Float arithmetic", testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic),
+    ("runtime fallback rejects mixed targeted float comparison and equality", testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality),
     ("targeted Float16 and Float32 fractional literals round at runtime", testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue),
     ("Float16 arithmetic overflow produces runtime diagnostic", testFloat16ArithmeticOverflowRuntimeError),
     ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError),
@@ -735,6 +739,21 @@ testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic = do
     "E3007"
     (evaluateRuntimeExpr (runtimeExpr (EBinary "+" untypedFloatOne (targetedFloat "__kernel_toFloat32"))))
 
+testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality :: IO ()
+testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality = do
+  assertRuntimeErrorContains
+    "runtime fallback Float16 less-than Float32"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "<" (targetedFloat "__kernel_toFloat16") (targetedFloat "__kernel_toFloat32"))))
+  assertRuntimeErrorContains
+    "runtime fallback Float16 equality Float64"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "==" (targetedFloat "__kernel_toFloat16") (targetedFloat "__kernel_toFloat64"))))
+  assertRuntimeErrorContains
+    "runtime fallback Float32 inequality untyped Float"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "!=" (targetedFloat "__kernel_toFloat32") untypedFloatOne)))
+
 testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue :: IO ()
 testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue = do
   result <- runSource defaultWarningSettings "x16 :: Float16.\nx16 = 2049.0.\nx32 :: Float32.\nx32 = 1.00000001.\ny16 :: @{}: Float16.\ny16 = 2049.0.\ny32 :: @{}: Float32.\ny32 = 1.00000001.\n(x16, x32, y16, y32)."
@@ -1179,9 +1198,11 @@ rightSectionValue :: Expr
 rightSectionValue =
   ESectionRight "+" (ELit (LInt 1))
 
+targetedFloat :: Identifier -> Expr
 targetedFloat conversionName =
   EApply (EVar conversionName) (ELit (LInt 1))
 
+targetedInt :: Identifier -> Expr
 targetedInt conversionName =
   EApply (EVar conversionName) (ELit (LInt 1))
 

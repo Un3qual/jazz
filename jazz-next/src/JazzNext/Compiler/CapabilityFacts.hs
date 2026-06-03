@@ -132,24 +132,28 @@ unsupportedSignatureTokensToConstraintType tokens =
 
 splitTopLevelArrow :: [SignatureToken] -> Maybe ([SignatureToken], [SignatureToken])
 splitTopLevelArrow =
-  go 0 0 []
+  go 0 0 0 []
   where
-    go _ _ _ [] = Nothing
-    go parenDepth bracketDepth argumentTokens (token : rest) =
+    go _ _ _ _ [] = Nothing
+    go parenDepth bracketDepth braceDepth argumentTokens (token : rest) =
       case token of
         SignatureArrowToken
-          | parenDepth == 0 && bracketDepth == 0 ->
+          | parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 ->
               Just (reverse argumentTokens, rest)
         SignatureLParenToken ->
-          go (parenDepth + 1) bracketDepth (token : argumentTokens) rest
+          go (parenDepth + 1) bracketDepth braceDepth (token : argumentTokens) rest
         SignatureRParenToken ->
-          go (parenDepth - 1) bracketDepth (token : argumentTokens) rest
+          go (parenDepth - 1) bracketDepth braceDepth (token : argumentTokens) rest
         SignatureLBracketToken ->
-          go parenDepth (bracketDepth + 1) (token : argumentTokens) rest
+          go parenDepth (bracketDepth + 1) braceDepth (token : argumentTokens) rest
         SignatureRBracketToken ->
-          go parenDepth (bracketDepth - 1) (token : argumentTokens) rest
+          go parenDepth (bracketDepth - 1) braceDepth (token : argumentTokens) rest
+        SignatureLBraceToken ->
+          go parenDepth bracketDepth (braceDepth + 1) (token : argumentTokens) rest
+        SignatureRBraceToken ->
+          go parenDepth bracketDepth (braceDepth - 1) (token : argumentTokens) rest
         _ ->
-          go parenDepth bracketDepth (token : argumentTokens) rest
+          go parenDepth bracketDepth braceDepth (token : argumentTokens) rest
 
 unsupportedSignatureAtomToConstraintType :: [SignatureToken] -> Maybe ConstraintSignatureType
 unsupportedSignatureAtomToConstraintType tokens =
