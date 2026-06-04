@@ -185,6 +185,7 @@ tests =
     ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias),
     ("qualified method dispatch rejects wrapped self alias", testQualifiedMethodDispatchRejectsWrappedSelfAlias),
     ("qualified method dispatch rejects block-local self alias", testQualifiedMethodDispatchRejectsBlockLocalSelfAlias),
+    ("qualified method dispatch follows block-local alias branches with local bindings", testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalBindings),
     ("qualified method dispatch rejects mutual method alias cycle", testQualifiedMethodDispatchRejectsMutualMethodAliasCycle),
     ("qualified method dispatch rejects full-arity runtime ambiguity", testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity),
     ("qualified method dispatch executes local ADT impl body", testQualifiedMethodDispatchExecutesLocalAdtImplBody),
@@ -1797,6 +1798,19 @@ testQualifiedMethodDispatchRejectsBlockLocalSelfAlias = do
         "recursive qualified method alias cycle"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalBindings :: IO ()
+testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalBindings = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nenabled :: Bool.\non :: Bool.\noff :: Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nenabled = { flag = True.\ntarget = if flag RuntimeFlag::on else RuntimeFlag::off.\ntarget.\n}.\non = True.\noff = False.\n}.\n"
+          <> "RuntimeFlag::enabled."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
 
 testQualifiedMethodDispatchRejectsMutualMethodAliasCycle :: IO ()
 testQualifiedMethodDispatchRejectsMutualMethodAliasCycle = do

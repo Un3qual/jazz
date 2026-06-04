@@ -117,9 +117,11 @@ tests =
     ("run module graph prunes unused dependency bindings during runtime replay", testRunModuleGraphPrunesUnusedDependencyBindingsDuringRuntimeReplay),
     ("run module graph keeps inferred runtime hints module scoped", testRunModuleGraphKeepsInferredRuntimeHintsModuleScoped),
     ("run module graph keeps nested inferred runtime hints module scoped", testRunModuleGraphKeepsNestedInferredRuntimeHintsModuleScoped),
+    ("run module graph keeps pre-module inferred runtime hints module scoped", testRunModuleGraphKeepsPreModuleInferredRuntimeHintsModuleScoped),
     ("run module graph retains local capabilities needed by imported signatures", testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures),
     ("run module graph namespaces hidden retained local capabilities", testRunModuleGraphNamespacesHiddenRetainedLocalCapabilities),
     ("run module graph namespaces alias-retained local capabilities", testRunModuleGraphNamespacesAliasRetainedLocalCapabilities),
+    ("run module graph rewrites hidden capability references despite value shadowing", testRunModuleGraphRewritesHiddenCapabilityReferencesDespiteValueShadowing),
     ("driver retains transitive local capabilities needed by imported signatures", testCollectNeededLocalCapabilityExportsClosesThroughRetainedClassMethodSignatures),
     ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
     ("run module graph reports cycle diagnostics", testRunModuleGraphCycle),
@@ -1415,6 +1417,33 @@ testRunModuleGraphKeepsNestedInferredRuntimeHintsModuleScoped = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
+testRunModuleGraphKeepsPreModuleInferredRuntimeHintsModuleScoped :: IO ()
+testRunModuleGraphKeepsPreModuleInferredRuntimeHintsModuleScoped = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(False, True)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::A as A.\nimport Lib::B as B.\n(A::picked, B::picked).\n}"
+          ),
+          ( "src/Lib/A.jz",
+            "class RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\nimpl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\npicked = {\nx = if True 1 else __kernel_toUInt8 2.\nRuntimePick::pick x.\n}."
+          ),
+          ( "src/Lib/B.jz",
+            "class RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\nimpl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\npicked = {\nx = 1.\nRuntimePick::pick x.\n}."
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
 testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures :: IO ()
 testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures = do
   result <-
@@ -1489,6 +1518,30 @@ testRunModuleGraphNamespacesAliasRetainedLocalCapabilities = do
           ),
           ( "src/Lib/B.jz",
             "module Lib::B {\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> False.\n}.\npickedB = Choice::pick 1.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRewritesHiddenCapabilityReferencesDespiteValueShadowing :: IO ()
+testRunModuleGraphRewritesHiddenCapabilityReferencesDespiteValueShadowing = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::A as A.\nA::picked.\n}"
+          ),
+          ( "src/Lib/A.jz",
+            "module Lib::A {\ndata Marker = Choice.\nclass Choice(a) {\nflag :: a -> Bool.\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\nflag = \\(value) -> True.\npick = \\(value) -> Choice::flag value.\n}.\npicked = Choice::pick 1.\n}"
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

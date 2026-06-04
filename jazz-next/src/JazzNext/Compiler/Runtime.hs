@@ -573,11 +573,14 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
         EBlock [SExpr _ innerExpr] -> peelSingleExprBlock innerExpr
         _ -> expr
 
-    terminalBlockLocalAliasExpr :: [Statement] -> Maybe Expr
+    terminalBlockLocalAliasExpr :: [Statement] -> Maybe ([Statement], Expr)
     terminalBlockLocalAliasExpr statements =
       case reverse statements of
         SExpr _ (EVar aliasName) : precedingStatements ->
-          followLocalAlias Set.empty aliasName (localAliasBindings (reverse precedingStatements))
+          let prefixStatements = reverse precedingStatements
+           in fmap
+                (\aliasExpr -> (prefixStatements, aliasExpr))
+                (followLocalAlias Set.empty aliasName (localAliasBindings prefixStatements))
         _ -> Nothing
 
     localAliasBindings :: [Statement] -> Map Text Expr
@@ -605,6 +608,54 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
                     _ -> Just aliasExpr
                 Nothing ->
                   Nothing
+
+    blockLocalAliasEnv :: Maybe [Text] -> RuntimeEnv -> [Statement] -> RuntimeEnv
+    blockLocalAliasEnv blockModulePath blockInitialEnv blockStatements =
+      case blockStatements of
+        [] -> blockInitialEnv
+        _ -> blockEnvAfter (length blockStatements - 1)
+      where
+        indexedBlockStatements = zip [0 ..] blockStatements
+        blockStatementsByIndex = Map.fromList indexedBlockStatements
+        blockBindingCells = map (uncurry blockCellForStatement) indexedBlockStatements
+
+        blockEnvBefore statementIndex
+          | statementIndex <= 0 = blockInitialEnv
+          | otherwise = blockEnvAfter (statementIndex - 1)
+
+        blockEnvAfter statementIndex =
+          case Map.lookup statementIndex blockStatementsByIndex of
+            Just (SLet bindingName _ _) ->
+              Map.insert
+                (identifierText bindingName)
+                (blockBindingCellAt statementIndex)
+                (blockEnvBefore statementIndex)
+            Just (SData _ typeName typeParameters constructors) ->
+              insertDataConstructors typeName typeParameters constructors (blockEnvBefore statementIndex)
+            Just (SClass _ capabilityName parameters methods) ->
+              insertClassMethods capabilityName parameters methods (blockEnvBefore statementIndex)
+            Just (SImpl _ capabilityName arguments methods) ->
+              insertImplMethods blockModulePath capabilityName arguments methods (blockEnvBefore statementIndex)
+            Just _ ->
+              blockEnvBefore statementIndex
+            Nothing ->
+              blockEnvBefore statementIndex
+
+        blockBindingCellAt statementIndex =
+          case drop statementIndex blockBindingCells of
+            cell : _ -> cell
+            [] ->
+              Left
+                (runtimeDiagnostic "E3020" "internal runtime error: missing block binding cell for alias selection")
+
+        blockCellForStatement statementIndex statement =
+          case statement of
+            SLet _ _ valueExpr ->
+              evalValueWithModulePath blockModulePath builtinMode bindingTypeHints (blockEnvBefore statementIndex) valueExpr
+                >>= attachDefaultBindingIntegerTarget
+            _ ->
+              Left
+                (runtimeDiagnostic "E3020" "internal runtime error: expected block binding statement for alias selection")
 
     lookupRecursivePeer :: Identifier -> [Int] -> Maybe Int
     lookupRecursivePeer targetName =
@@ -751,20 +802,26 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
       | otherwise =
           case peelSingleExprBlock expr of
             EIf conditionExpr thenExpr elseExpr ->
-              selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey nextVisitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
+              selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
             ECase conditionExpr thenExpr elseExpr ->
-              selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey nextVisitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
+              selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
             EPatternCase scrutineeExpr caseArms -> do
               scrutineeValue <- evalValueWithModulePath methodModulePath builtinMode bindingTypeHints env scrutineeExpr
               case selectMatchingCaseArmForAlias env scrutineeValue caseArms of
                 Just (_, armEnv, bodyExpr) ->
-                  selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey nextVisitedMethodKeys armEnv methodKey bodyExpr
+                  selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys armEnv methodKey bodyExpr
                 Nothing ->
                   Right False
             EBlock statements ->
               case terminalBlockLocalAliasExpr statements of
-                Just aliasExpr ->
-                  selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey nextVisitedMethodKeys env methodKey aliasExpr
+                Just (prefixStatements, aliasExpr) ->
+                  selectedQualifiedMethodAliasTarget
+                    methodModulePath
+                    methodExprsByKey
+                    visitedMethodKeys
+                    (blockLocalAliasEnv methodModulePath env prefixStatements)
+                    methodKey
+                    aliasExpr
                 Nothing ->
                   Right False
             EVar aliasName ->

@@ -1683,9 +1683,14 @@ stripModuleRuntimeReplayStatements :: [Text] -> Bool -> Set Text -> Set Text -> 
 stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports neededModuleExports neededCapabilityExports directlyNeededCapabilityExports expr =
   case expr of
     EBlock statements ->
-      EBlock (concatMap keepModuleRuntimeReplayStatement statements)
+      EBlock (ensureModuleRuntimeBoundary (concatMap keepModuleRuntimeReplayStatement statements))
     _ -> expr
   where
+    ensureModuleRuntimeBoundary statements =
+      case statements of
+        SModule {} : _ -> statements
+        _ -> SModule (SourceSpan 1 1) modulePath : statements
+
     keepModuleRuntimeReplayStatement statement =
       case statement of
         SModule {} -> [statement]
@@ -1896,10 +1901,11 @@ rewriteHiddenCapabilityReferences modulePath hiddenCapabilities =
         _ -> statement
 
     rewriteCapabilityReferenceIdentifier boundNames name =
-      case splitQualifiedIdentifierText (identifierText name) of
+      let nameText = identifierText name
+       in case splitQualifiedIdentifierText nameText of
         Just (capabilityName, methodName)
           | Set.member capabilityName hiddenCapabilities,
-            Set.notMember capabilityName boundNames ->
+            Set.notMember nameText boundNames ->
               mkIdentifier (qualifiedIdentifierText (moduleExportQualifiedName modulePath capabilityName) methodName)
         _ -> name
 
