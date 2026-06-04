@@ -12,6 +12,7 @@ module JazzNext.Compiler.Driver
     compileModuleGraph,
     compileModuleGraphWithPrelude,
     compileModuleGraphWithResolvedPrelude,
+    collectNeededLocalCapabilityExports,
     RunResult (..),
     runExpr,
     runSource,
@@ -91,7 +92,7 @@ import JazzNext.Compiler.PreludeContract
   ( validatePreludeKernelBridges
   )
 import JazzNext.Compiler.Runtime
-  ( evaluateRuntimeExprWithBuiltins,
+  ( evaluateRuntimeExprWithBuiltinsAndBindingHints,
     renderRuntimeValue
   )
 import JazzNext.Compiler.TypeInference
@@ -150,7 +151,7 @@ compileExprWithBuiltinsAndHiddenStatements ::
   Expr ->
   IO CompileResult
 compileExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr = do
-  (warnings, errors, _) <- analyzeWithWarnings hiddenStatementIndices builtinMode settings expr
+  (warnings, errors, _, _) <- analyzeWithWarnings hiddenStatementIndices builtinMode settings expr
   pure
     CompileResult
       { compileWarnings = warnings,
@@ -254,7 +255,7 @@ runExprWithBuiltinsAndHiddenStatements ::
   Expr ->
   IO RunResult
 runExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr = do
-  (warnings, compileErrors, canonicalExpr) <-
+  (warnings, compileErrors, canonicalExpr, runtimeTypeHints) <-
     analyzeWithWarnings hiddenStatementIndices builtinMode settings expr
   if not (null compileErrors)
     then
@@ -266,7 +267,7 @@ runExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settin
             runOutput = Nothing
           }
     else
-      case evaluateRuntimeExprWithBuiltins builtinMode canonicalExpr of
+      case evaluateRuntimeExprWithBuiltinsAndBindingHints builtinMode runtimeTypeHints canonicalExpr of
         Left runtimeError ->
           pure
             RunResult
@@ -389,7 +390,7 @@ runExprWithValidationAndRuntimeExprs
   settings
   validationExpr
   runtimeExpr = do
-  (warnings, compileErrors, _) <-
+  (warnings, compileErrors, _, _) <-
     analyzeWithWarnings hiddenStatementIndices builtinMode settings validationExpr
   if not (null compileErrors)
     then
@@ -401,7 +402,7 @@ runExprWithValidationAndRuntimeExprs
             runOutput = Nothing
           }
     else do
-      (_, runtimeCompileErrors, canonicalRuntimeExpr) <-
+      (_, runtimeCompileErrors, canonicalRuntimeExpr, runtimeTypeHints) <-
         analyzeWithWarnings hiddenStatementIndices builtinMode settings runtimeExpr
       if not (null runtimeCompileErrors)
         then
@@ -413,7 +414,7 @@ runExprWithValidationAndRuntimeExprs
                 runOutput = Nothing
               }
         else
-          case evaluateRuntimeExprWithBuiltins builtinMode canonicalRuntimeExpr of
+          case evaluateRuntimeExprWithBuiltinsAndBindingHints builtinMode runtimeTypeHints canonicalRuntimeExpr of
             Left runtimeError ->
               pure
                 RunResult
@@ -434,7 +435,7 @@ runExprWithValidationAndRuntimeExprs
 -- | Run inference/canonicalization, collect warnings from `inferredWarnings`,
 -- promote configured warnings into errors, and return the canonicalized
 -- `inferredExpr` for downstream compile/run steps.
-analyzeWithWarnings :: Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr)
+analyzeWithWarnings :: Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr, Map Int ConstraintSignatureType)
 analyzeWithWarnings hiddenStatementIndices builtinMode settings expr = do
   inference <-
     inferExpressionWithBuiltinsAndHiddenStatements
@@ -446,7 +447,7 @@ analyzeWithWarnings hiddenStatementIndices builtinMode settings expr = do
       promotedWarnings = filter (isPromoted settings) warnings
       promotedWarningErrors = map warningToError promotedWarnings
       errors = inferredErrors inference ++ promotedWarningErrors
-  pure (warnings, errors, inferredExpr inference)
+  pure (warnings, errors, inferredExpr inference, inferredRuntimeTypeHints inference)
 
 filterWarningsForPromotion :: WarningSettings -> [WarningRecord] -> [WarningRecord]
 -- Placeholder hook for future category-level filtering.
@@ -1300,11 +1301,19 @@ closeLocalCapabilityDependencies statements localCapabilityNames neededCapabilit
           neededCapabilities
           ( Set.unions
               [ Set.unions
-                  [ collectLocalCapabilityReferences localCapabilityNames methodExpr
-                    | ImplMethod _ _ methodExpr <- methods
+                  [ collectLocalCapabilityReferencesFromSignaturePayload localCapabilityNames methodSignature
+                    | SClass _ capabilityName _ methods <- statements,
+                      Set.member (identifierText capabilityName) neededCapabilities,
+                      ClassMethodSignature _ _ methodSignature <- methods
+                  ],
+                Set.unions
+                  [ Set.unions
+                      [ collectLocalCapabilityReferences localCapabilityNames methodExpr
+                        | ImplMethod _ _ methodExpr <- methods
+                      ]
+                    | SImpl _ capabilityName _ methods <- statements,
+                      Set.member (identifierText capabilityName) neededCapabilities
                   ]
-                | SImpl _ capabilityName _ methods <- statements,
-                  Set.member (identifierText capabilityName) neededCapabilities
               ]
           )
    in if expandedCapabilities == neededCapabilities

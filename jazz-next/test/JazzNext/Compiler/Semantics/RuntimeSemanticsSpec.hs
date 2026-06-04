@@ -159,6 +159,10 @@ tests =
     ("qualified method dispatch normalizes hinted list aliases", testQualifiedMethodDispatchNormalizesHintedListAliases),
     ("qualified method dispatch normalizes hinted function aliases", testQualifiedMethodDispatchNormalizesHintedFunctionAliases),
     ("qualified method dispatch treats defaulted integer bindings as Int64", testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64),
+    ("qualified method dispatch preserves inferred narrow integer bindings", testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding),
+    ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals),
+    ("qualified method dispatch preserves ADT application binding hints", testQualifiedMethodDispatchPreservesAdtApplicationBindingHint),
+    ("qualified method dispatch prefers alias binding over method sentinel at runtime", testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime),
     ("qualified zero-argument method dispatch returns value", testQualifiedZeroArgumentMethodDispatchReturnsValue),
     ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias),
     ("qualified method dispatch rejects wrapped self alias", testQualifiedMethodDispatchRejectsWrappedSelfAlias),
@@ -1369,6 +1373,84 @@ testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64 = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding :: IO ()
+testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\n"
+          <> "impl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\n"
+          <> "value = if True 1 else toUInt8 2.\n"
+          <> "RuntimePick::pick value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals :: IO ()
+testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeApply(a) {\napply :: (a -> Bool) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(UInt8) {\napply = \\(fn) -> False.\n}.\n"
+          <> "eq1 = (1 ==).\n"
+          <> "RuntimeApply::apply eq1."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesAdtApplicationBindingHint :: IO ()
+testQualifiedMethodDispatchPreservesAdtApplicationBindingHint = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "data Box a = Box a.\n"
+          <> "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick(Box(Int)) {\npick = \\(box) -> True.\n}.\n"
+          <> "impl RuntimePick(Box(UInt8)) {\npick = \\(box) -> False.\n}.\n"
+          <> "box = if True (Box 1) else (Box (toUInt8 2)).\n"
+          <> "RuntimePick::pick box."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime :: IO ()
+testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do
+  let result =
+        evaluateRuntimeExpr
+          ( runtimeExpr
+              ( EBlock
+                  [ SLet "Eq::helper" (SourceSpan 1 1) (ELambda "value" (ELit (LBool True))),
+                    SClass
+                      (SourceSpan 2 1)
+                      "Eq"
+                      ["a"]
+                      [ ClassMethodSignature
+                          "helper"
+                          (SourceSpan 3 1)
+                          ( ConstrainedSignature
+                              []
+                              (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool"))
+                          )
+                      ],
+                    SImpl
+                      (SourceSpan 4 1)
+                      "Eq"
+                      [ConstraintTypeName "Int"]
+                      [ImplMethod "helper" (SourceSpan 5 1) (ELambda "value" (ELit (LBool False)))],
+                    SExpr
+                      (SourceSpan 6 1)
+                      (EApply (EVar "Eq::helper") (ELit (LInt 1)))
+                  ]
+              )
+          )
+  assertEqual "alias binding runtime result" (Right (Just (VBool True))) result
 
 testQualifiedZeroArgumentMethodDispatchReturnsValue :: IO ()
 testQualifiedZeroArgumentMethodDispatchReturnsValue = do

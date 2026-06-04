@@ -77,7 +77,8 @@ import JazzNext.Compiler.FractionalLiteral
   )
 import JazzNext.Compiler.Identifier
   ( Identifier,
-    identifierText
+    identifierText,
+    mkIdentifier
   )
 import JazzNext.Compiler.RecursiveBindings
   ( collectBindingNames,
@@ -97,7 +98,8 @@ import JazzNext.Compiler.WarningConfig
 data InferenceResult = InferenceResult
   { inferredExpr :: Expr,
     inferredWarnings :: [WarningRecord],
-    inferredErrors :: [Diagnostic]
+    inferredErrors :: [Diagnostic],
+    inferredRuntimeTypeHints :: Map Int ConstraintSignatureType
   }
   deriving (Eq, Show)
 
@@ -124,12 +126,13 @@ inferExpressionWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndice
       hiddenStatementIndices
       settings
       canonicalExpr
-  let typeErrors = collectExprTypeErrors builtinMode canonicalExpr
+  let (typeErrors, runtimeTypeHints) = collectExprTypeInfo builtinMode canonicalExpr
   pure
     InferenceResult
       { inferredExpr = canonicalExpr,
         inferredWarnings = warnings,
-        inferredErrors = errors ++ typeErrors
+        inferredErrors = errors ++ typeErrors,
+        inferredRuntimeTypeHints = runtimeTypeHints
       }
 
 inferExpressionDefault :: Expr -> IO InferenceResult
@@ -273,6 +276,7 @@ data InferState = InferState
     inferCurrentModulePath :: Maybe [Text],
     inferCurrentModuleLocalCapabilityFacts :: ScopeCapabilityFacts,
     inferModuleCapabilityFacts :: Map [Text] ScopeCapabilityFacts,
+    inferRuntimeTypeHints :: Map Int ConstraintSignatureType,
     inferErrorsRev :: [Diagnostic],
     inferErrorCount :: Int
   }
@@ -292,19 +296,24 @@ initialInferState =
       inferCurrentModulePath = Nothing,
       inferCurrentModuleLocalCapabilityFacts = emptyScopeCapabilityFacts,
       inferModuleCapabilityFacts = Map.empty,
+      inferRuntimeTypeHints = Map.empty,
       inferErrorsRev = [],
       inferErrorCount = 0
     }
 
 collectExprTypeErrors :: BuiltinResolutionMode -> Expr -> [Diagnostic]
 collectExprTypeErrors builtinMode expr =
+  fst (collectExprTypeInfo builtinMode expr)
+
+collectExprTypeInfo :: BuiltinResolutionMode -> Expr -> ([Diagnostic], Map Int ConstraintSignatureType)
+collectExprTypeInfo builtinMode expr =
   let (_, finalState) =
         inferExprType
           builtinMode
           Map.empty
           initialInferState
           expr
-   in reverse (inferErrorsRev finalState)
+   in (reverse (inferErrorsRev finalState), inferRuntimeTypeHints finalState)
 
 -- Core expressions do not retain inner-node source spans yet, so inference
 -- reuses the enclosing statement span as the best available location metadata.
@@ -444,6 +453,37 @@ inferExprType builtinMode env state expr =
                 stateAfterRight
             Nothing -> (Nothing, stateAfterRight)
     EBlock statements -> inferScopeType builtinMode env state statements
+
+inferExprTypeWithExpected ::
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  ExpressionType ->
+  Expr ->
+  (Maybe ExpressionType, InferState)
+inferExprTypeWithExpected builtinMode env state expectedType expr =
+  case (resolveType state expectedType, expr) of
+    (TFunctionType argumentType resultType, ELambda parameterName bodyExpr) ->
+      let extendedEnv =
+            Map.insert
+              (identifierText parameterName)
+              (PlainTypeBinding argumentType)
+              env
+          (bodyType, stateAfterBody) =
+            inferExprTypeWithExpected builtinMode extendedEnv state resultType bodyExpr
+       in
+        case bodyType of
+          Just inferredBodyType ->
+            ( Just
+                ( TFunctionType
+                    (resolveType stateAfterBody argumentType)
+                    inferredBodyType
+                ),
+              stateAfterBody
+            )
+          Nothing -> (Nothing, stateAfterBody)
+    _ ->
+      inferExprType builtinMode env state expr
 
 inferGenericApplyType ::
   BuiltinResolutionMode ->
@@ -1076,11 +1116,28 @@ inferScopeType builtinMode initialEnv initialState statements =
                         fmap
                           (defaultLiteralTypes . resolveType stateAfterSignatureCheck)
                           (Map.lookup statementIndex bindingSeedsByStatement)
+                  runtimeHintType =
+                    case pendingSignatureType of
+                      Just pendingSignature
+                        | pendingSignatureName pendingSignature == nameText ->
+                            Just (pendingSignatureDeclaredType pendingSignature)
+                      _ -> valueType
+                  stateAfterRuntimeHint =
+                    case runtimeHintType >>= runtimeHintFromExpressionType stateAfterSignatureCheck of
+                      Just runtimeHint ->
+                        stateAfterSignatureCheck
+                          { inferRuntimeTypeHints =
+                              Map.insert
+                                statementIndex
+                                runtimeHint
+                                (inferRuntimeTypeHints stateAfterSignatureCheck)
+                          }
+                      Nothing -> stateAfterSignatureCheck
                   nextEnv =
                     case nextBindingForValue nameText env valueExpr nextBindingType pendingSignatureType of
                       Just binding -> Map.insert nameText binding env
                       Nothing -> env
-               in go nextEnv lastExprType Nothing moduleBaselineFacts stateAfterSignatureCheck rest
+               in go nextEnv lastExprType Nothing moduleBaselineFacts stateAfterRuntimeHint rest
             SExpr exprSpan expr ->
               let (exprType, rawStateAfterExpr) = inferExprType builtinMode env state expr
                   stateAfterExpr =
@@ -1144,7 +1201,12 @@ checkImplMethodBodies builtinMode env state capabilityName arguments methods =
                                 stateAfterExpectedType
                               Just expectedType ->
                                 let (maybeMethodType, rawStateAfterMethod) =
-                                      inferExprType builtinMode (implMethodEnv stateAcc) stateAfterExpectedType methodExpr
+                                      inferExprTypeWithExpected
+                                        builtinMode
+                                        (implMethodEnv stateAcc)
+                                        stateAfterExpectedType
+                                        expectedType
+                                        methodExpr
                                     stateAfterMethod =
                                       annotateNewErrorsWithPrimarySpan methodSpan stateAfterExpectedType rawStateAfterMethod
                                  in case maybeMethodType of
@@ -2301,6 +2363,12 @@ mergeIntegerLiteralRanges leftType rightType =
   case (leftType, rightType) of
     (TIntegerLiteralType leftRange, TIntegerLiteralType rightRange) ->
       TIntegerLiteralType (combineIntegerLiteralRanges leftRange rightRange)
+    (TIntegerLiteralType literalRange, numericType@(TNumericType concreteNumericType))
+      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
+    (numericType@(TNumericType concreteNumericType), TIntegerLiteralType literalRange)
+      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
+    (TIntegerLiteralType {}, TIntType) -> TIntType
+    (TIntType, TIntegerLiteralType {}) -> TIntType
     (TListType leftElementType, TListType rightElementType) ->
       TListType (mergeIntegerLiteralRanges leftElementType rightElementType)
     (TTupleType leftElementTypes, TTupleType rightElementTypes)
@@ -2567,6 +2635,37 @@ defaultLiteralTypes expressionType =
     TFunctionType inputType outputType ->
       TFunctionType (defaultLiteralTypes inputType) (defaultLiteralTypes outputType)
     _ -> expressionType
+
+runtimeHintFromExpressionType :: InferState -> ExpressionType -> Maybe ConstraintSignatureType
+runtimeHintFromExpressionType state expressionType =
+  expressionTypeToRuntimeHint (resolveType state expressionType)
+
+expressionTypeToRuntimeHint :: ExpressionType -> Maybe ConstraintSignatureType
+expressionTypeToRuntimeHint expressionType =
+  case expressionType of
+    TIntType -> Just (ConstraintTypeName "Int")
+    TIntegerLiteralType literalRange
+      | integerLiteralRangeFitsNumericType literalRange NumericInt64 ->
+          Just (ConstraintTypeName "Int")
+      | otherwise -> Nothing
+    TFloatType -> Just (ConstraintTypeName "Float")
+    TNumericType numericType -> Just (ConstraintTypeName (mkIdentifier (renderNumericTypeName numericType)))
+    TBoolType -> Just (ConstraintTypeName "Bool")
+    TListType elementType ->
+      ConstraintTypeList <$> expressionTypeToRuntimeHint elementType
+    TTupleType elementTypes ->
+      ConstraintTypeTuple <$> traverse expressionTypeToRuntimeHint elementTypes
+    TDataType typeName typeArguments ->
+      case traverse expressionTypeToRuntimeHint typeArguments of
+        Just [] -> Just (ConstraintTypeName typeName)
+        Just argumentHints ->
+          Just (ConstraintTypeApplication typeName argumentHints)
+        Nothing -> Nothing
+    TFunctionType inputType outputType ->
+      ConstraintTypeFunction
+        <$> expressionTypeToRuntimeHint inputType
+        <*> expressionTypeToRuntimeHint outputType
+    TVarType {} -> Nothing
 
 applySubstitution :: Map Int ExpressionType -> ExpressionType -> ExpressionType
 applySubstitution subst expressionType =

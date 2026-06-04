@@ -5,6 +5,7 @@
 -- by analysis and type inference.
 module JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
+    evaluateRuntimeExprWithBuiltinsAndBindingHints,
     evaluateRuntimeExprWithBuiltins,
     evaluateRuntimeExpr,
     renderRuntimeValue
@@ -164,8 +165,16 @@ evaluateRuntimeExpr = evaluateRuntimeExprWithBuiltins ResolveKernelOnly
 -- caller, returning a terminal scope value when one exists.
 evaluateRuntimeExprWithBuiltins :: BuiltinResolutionMode -> Expr -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExprWithBuiltins builtinMode expr =
+  evaluateRuntimeExprWithBuiltinsAndBindingHints builtinMode Map.empty expr
+
+evaluateRuntimeExprWithBuiltinsAndBindingHints ::
+  BuiltinResolutionMode ->
+  Map Int ConstraintSignatureType ->
+  Expr ->
+  Either Diagnostic (Maybe RuntimeValue)
+evaluateRuntimeExprWithBuiltinsAndBindingHints builtinMode bindingTypeHints expr =
   case expr of
-    EBlock statements -> evalScope builtinMode Map.empty statements
+    EBlock statements -> evalScope builtinMode bindingTypeHints Map.empty statements
     _ -> Just <$> evalValue builtinMode Map.empty expr
 
 renderRuntimeValue :: RuntimeValue -> Text
@@ -221,8 +230,8 @@ type RuntimeEnv = Map Text RuntimeCell
 -- | Evaluate a block scope in order. Declarations clear `lastExprValue`, so
 -- `evalScope` returns `Just` only when the final surviving statement is an
 -- `SExpr`; otherwise the block yields `Nothing`.
-evalScope :: BuiltinResolutionMode -> RuntimeEnv -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
-evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedStatements
+evalScope :: BuiltinResolutionMode -> Map Int ConstraintSignatureType -> RuntimeEnv -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
+evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Nothing indexedStatements
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = Map.fromList indexedStatements
@@ -306,7 +315,7 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
           evalNumericSignatureBinding targetType env valueExpr
         Nothing -> do
           runtimeValue <- evalValue builtinMode env valueExpr
-          attachRuntimeTypeHint (previousSignatureRuntimeTypeHint statementIndex bindingName) runtimeValue
+          attachRuntimeTypeHint (bindingRuntimeTypeHint statementIndex bindingName) runtimeValue
             >>= attachDefaultBindingIntegerTarget
 
     evalNumericSignatureBinding :: NumericType -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
@@ -337,6 +346,12 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
           | identifierText signatureName == identifierText bindingName ->
               signaturePayloadConstraintType signaturePayload
         _ -> Nothing
+
+    bindingRuntimeTypeHint :: Int -> Identifier -> Maybe ConstraintSignatureType
+    bindingRuntimeTypeHint statementIndex bindingName =
+      case previousSignatureRuntimeTypeHint statementIndex bindingName of
+        Just signatureHint -> Just signatureHint
+        Nothing -> Map.lookup statementIndex bindingTypeHints
 
     signatureNumericTarget :: SignaturePayload -> Maybe NumericType
     signatureNumericTarget signaturePayload =
@@ -595,7 +610,9 @@ evalScope builtinMode initialEnv statements = go initialEnv Nothing indexedState
       where
         insertMethod classParameter envAcc (ClassMethodSignature methodName _ methodSignature) =
           let methodKey = qualifiedMethodKey capabilityName methodName
-           in Map.insert methodKey (Right (VQualifiedMethod methodKey classParameter methodSignature [] [])) envAcc
+           in if Map.member methodKey envAcc
+                then envAcc
+                else Map.insert methodKey (Right (VQualifiedMethod methodKey classParameter methodSignature [] [])) envAcc
 
     insertImplMethods :: Identifier -> [ConstraintSignatureType] -> [ImplMethod] -> RuntimeEnv -> RuntimeEnv
     insertImplMethods capabilityName arguments methods env =
@@ -855,7 +872,7 @@ evalValue builtinMode env expr =
       rightValue <- evalValue builtinMode env rightExpr
       Right (VSectionRight operatorSymbol rightValue)
     EBlock statements ->
-      case evalScope builtinMode env statements of
+      case evalScope builtinMode Map.empty env statements of
         Left err -> Left err
         Right Nothing ->
           Left
@@ -912,8 +929,33 @@ applyRuntimeTypeHint typeHint runtimeValue =
         (ConstraintTypeFunction {}, _)
           | isFunctionValue runtimeValue ->
               Right (VTyped typeHint runtimeValue)
+        (ConstraintTypeApplication hintedTypeName hintedArguments, VConstructor typeName typeParameters constructorName constructorArguments capturedArgs)
+          | identifierText hintedTypeName == identifierText typeName,
+            length hintedArguments == length typeParameters -> do
+              let typeParameterHints =
+                    Map.fromList (zip (map identifierText typeParameters) hintedArguments)
+              hintedCapturedArgs <-
+                zipWithM
+                  (applyConstructorArgumentRuntimeHint typeParameterHints)
+                  constructorArguments
+                  capturedArgs
+              Right (VConstructor typeName typeParameters constructorName constructorArguments hintedCapturedArgs)
         _ ->
           Right runtimeValue
+
+applyConstructorArgumentRuntimeHint ::
+  Map Text ConstraintSignatureType ->
+  DataConstructorArgument ->
+  RuntimeValue ->
+  Either Diagnostic RuntimeValue
+applyConstructorArgumentRuntimeHint typeParameterHints constructorArgument runtimeValue =
+  case constructorArgument of
+    DataConstructorArgumentName argumentName ->
+      attachRuntimeTypeHint
+        (Just (Map.findWithDefault (ConstraintTypeName argumentName) (identifierText argumentName) typeParameterHints))
+        runtimeValue
+    DataConstructorArgumentOpaque ->
+      Right runtimeValue
 
 constraintTypeNameNumericTarget :: Identifier -> Maybe NumericType
 constraintTypeNameNumericTarget typeName =
@@ -1739,6 +1781,26 @@ attachDefaultBindingIntegerTarget runtimeValue =
       | runtimeIntTargetType metadata == Nothing,
         integerValueMatchesTarget NumericInt64 integerValue ->
           Right (VInt integerValue (targetedIntMetadata NumericInt64))
+    VList elements maybeTypeHint ->
+      (`VList` maybeTypeHint) <$> traverse attachDefaultBindingIntegerTarget elements
+    VTuple elements ->
+      VTuple <$> traverse attachDefaultBindingIntegerTarget elements
+    VBuiltin builtinSymbol capturedArgs ->
+      VBuiltin builtinSymbol <$> traverse attachDefaultBindingIntegerTarget capturedArgs
+    VOperator operatorSymbol capturedArgs ->
+      VOperator operatorSymbol <$> traverse attachDefaultBindingIntegerTarget capturedArgs
+    VSectionLeft operatorSymbol operand ->
+      VSectionLeft operatorSymbol <$> attachDefaultBindingIntegerTarget operand
+    VSectionRight operatorSymbol operand ->
+      VSectionRight operatorSymbol <$> attachDefaultBindingIntegerTarget operand
+    VConstructor typeName typeParameters constructorName constructorArguments capturedArgs ->
+      VConstructor typeName typeParameters constructorName constructorArguments
+        <$> traverse attachDefaultBindingIntegerTarget capturedArgs
+    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs ->
+      VQualifiedMethod methodKey classParameter methodSignature candidates
+        <$> traverse attachDefaultBindingIntegerTarget capturedArgs
+    VTyped typeHint innerValue ->
+      VTyped typeHint <$> attachDefaultBindingIntegerTarget innerValue
     _ ->
       Right runtimeValue
 

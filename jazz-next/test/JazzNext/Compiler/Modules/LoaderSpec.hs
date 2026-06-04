@@ -3,6 +3,7 @@
 module Main (main) where
 
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.IORef
   ( newIORef,
     readIORef,
@@ -10,13 +11,25 @@ import Data.IORef
   )
 import Data.Text (Text)
 import qualified Data.Text as Text
+import JazzNext.Compiler.AST
+  ( ClassMethodSignature (..),
+    ConstraintSignatureType (..),
+    Expr (..),
+    ImplMethod (..),
+    Literal (..),
+    SignatureConstraint (..),
+    SignaturePayload (..),
+    Statement (..)
+  )
 import JazzNext.Compiler.Diagnostics
-  ( renderDiagnostic
+  ( SourceSpan (..),
+    renderDiagnostic
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     ResolvedPrelude (..),
     RunResult (..),
+    collectNeededLocalCapabilityExports,
     compileModuleGraph,
     compileModuleGraphWithResolvedPrelude,
     compileModuleGraphWithPrelude,
@@ -25,7 +38,8 @@ import JazzNext.Compiler.Driver
     runModuleGraphWithPrelude
   )
 import JazzNext.Compiler.ModuleResolver
-  ( ModuleResolutionConfig (..)
+  ( ModuleResolutionConfig (..),
+    ResolvedModule (..)
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -100,6 +114,7 @@ tests =
     ("run module graph retains local capabilities needed by exported bindings", testRunModuleGraphRetainsLocalCapabilitiesNeededByExportedBindings),
     ("run module graph retains local capabilities needed by imported capability bodies", testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedCapabilityBodies),
     ("run module graph retains local capabilities needed by imported signatures", testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures),
+    ("driver retains transitive local capabilities needed by imported signatures", testCollectNeededLocalCapabilityExportsClosesThroughRetainedClassMethodSignatures),
     ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
     ("run module graph reports cycle diagnostics", testRunModuleGraphCycle),
     ("loader reuses memoized source lookup across resolve and replay", testMemoizedLookupReuse)
@@ -1314,6 +1329,66 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures = do
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
+
+testCollectNeededLocalCapabilityExportsClosesThroughRetainedClassMethodSignatures :: IO ()
+testCollectNeededLocalCapabilityExportsClosesThroughRetainedClassMethodSignatures =
+  assertEqual
+    "needed local capabilities"
+    (Map.singleton modulePath (Set.fromList ["Aux", "Need"]))
+    ( collectNeededLocalCapabilityExports
+        [ResolvedModule modulePath "src/Lib/Api.jz" []]
+        [loweredModule]
+        (Map.singleton modulePath (Set.singleton "foo"))
+        Map.empty
+    )
+  where
+    modulePath = ["Lib", "Api"]
+    spanValue = SourceSpan 1 1
+    loweredModule =
+      EBlock
+        [ SClass
+            spanValue
+            "Aux"
+            ["a"]
+            [ ClassMethodSignature
+                "ok"
+                spanValue
+                ( ConstrainedSignature
+                    []
+                    (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool"))
+                )
+            ],
+          SImpl
+            spanValue
+            "Aux"
+            [ConstraintTypeName "Int"]
+            [ImplMethod "ok" spanValue (ELambda "value" (ELit (LBool True)))],
+          SClass
+            spanValue
+            "Need"
+            ["a"]
+            [ ClassMethodSignature
+                "aux"
+                spanValue
+                ( ConstrainedSignature
+                    [SignatureConstraint "Aux" [ConstraintTypeName "Int"]]
+                    (ConstraintTypeName "Bool")
+                )
+            ],
+          SImpl
+            spanValue
+            "Need"
+            [ConstraintTypeName "Int"]
+            [ImplMethod "aux" spanValue (ELit (LBool True))],
+          SSignature
+            "foo"
+            spanValue
+            ( ConstrainedSignature
+                [SignatureConstraint "Need" [ConstraintTypeName "Int"]]
+                (ConstraintTypeName "Int")
+            ),
+          SLet "foo" spanValue (ELit (LInt 1))
+        ]
 
 testCompileModuleGraphModuleDeclarationMismatch :: IO ()
 testCompileModuleGraphModuleDeclarationMismatch = do
