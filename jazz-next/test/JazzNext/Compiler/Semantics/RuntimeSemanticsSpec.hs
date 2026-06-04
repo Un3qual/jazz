@@ -6,6 +6,7 @@ import Control.Exception
   ( SomeException,
     try
   )
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
@@ -26,9 +27,13 @@ import JazzNext.Compiler.Diagnostics
     SourceSpan (..),
     renderDiagnostic
   )
+import JazzNext.Compiler.BuiltinCatalog
+  ( BuiltinResolutionMode (..)
+  )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
-    runSource
+    runSource,
+    runSourceWithPrelude
   )
 import JazzNext.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource
@@ -38,7 +43,11 @@ import JazzNext.Compiler.Identifier
   )
 import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
-    evaluateRuntimeExpr
+    evaluateRuntimeExpr,
+    evaluateRuntimeExprWithBuiltinsAndBindingHints
+  )
+import JazzNext.Compiler.RuntimeHints
+  ( bindingRuntimeHintKey
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -151,6 +160,9 @@ tests =
     ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
     ("qualified method dispatch preserves selected method signatures", testQualifiedMethodDispatchPreservesSelectedMethodSignature),
+    ("qualified method dispatch applies typed callable argument hints", testQualifiedMethodDispatchAppliesTypedCallableArgumentHint),
+    ("qualified method dispatch applies closure argument signature hints", testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint),
+    ("typed numeric sections preserve captured operand flexibility", testTypedNumericSectionPreservesCapturedOperandFlexibility),
     ("qualified method dispatch preserves empty list binding signatures", testQualifiedMethodDispatchPreservesEmptyListBindingSignature),
     ("qualified method dispatch preserves mapped empty list result signatures", testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature),
     ("qualified method dispatch preserves identity-mapped empty list result signatures", testQualifiedMethodDispatchPreservesIdentityMappedEmptyListResultSignature),
@@ -162,6 +174,9 @@ tests =
     ("qualified method dispatch preserves inferred narrow integer bindings", testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding),
     ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals),
     ("qualified method dispatch preserves ADT application binding hints", testQualifiedMethodDispatchPreservesAdtApplicationBindingHint),
+    ("qualified method dispatch preserves ADT concrete payload hints", testQualifiedMethodDispatchPreservesAdtConcretePayloadHint),
+    ("qualified method dispatch ignores unknown constructor field hint names", testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName),
+    ("qualified method dispatch keeps nested inferred hints scoped", testQualifiedMethodDispatchKeepsNestedInferredHintsScoped),
     ("qualified method dispatch prefers alias binding over method sentinel at runtime", testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime),
     ("qualified zero-argument method dispatch returns value", testQualifiedZeroArgumentMethodDispatchReturnsValue),
     ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias),
@@ -1248,6 +1263,71 @@ testQualifiedMethodDispatchPreservesSelectedMethodSignature = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
+testQualifiedMethodDispatchAppliesTypedCallableArgumentHint :: IO ()
+testQualifiedMethodDispatchAppliesTypedCallableArgumentHint = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (ConstraintTypeFunction (ConstraintTypeName "UInt8") (ConstraintTypeName "Bool")))
+          (runtimeTypedCallableArgumentHintExpr (EVar "RuntimePick::pick"))
+  assertEqual "typed callable argument hint runtime result" (Right (Just (VBool False))) result
+
+testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint :: IO ()
+testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (ConstraintTypeFunction (ConstraintTypeName "UInt8") (ConstraintTypeName "Bool")))
+          ( runtimeTypedCallableArgumentHintExpr
+              (ELambda "value" (EApply (EVar "RuntimePick::pick") (EVar "value")))
+          )
+  assertEqual "closure argument signature hint runtime result" (Right (Just (VBool False))) result
+
+runtimeTypedCallableArgumentHintExpr :: Expr -> Expr
+runtimeTypedCallableArgumentHintExpr callableExpr =
+  EBlock
+    ( runtimePickStatements
+        ++ [ SLet "choose" (SourceSpan 9 1) callableExpr,
+             SExpr (SourceSpan 10 1) (EApply (EVar "choose") (ELit (LInt 1)))
+           ]
+    )
+
+runtimePickStatements :: [Statement]
+runtimePickStatements =
+  [ SClass
+      (SourceSpan 1 1)
+      "RuntimePick"
+      ["a"]
+      [ ClassMethodSignature
+          "pick"
+          (SourceSpan 2 1)
+          (ConstrainedSignature [] (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool")))
+      ],
+    SImpl
+      (SourceSpan 3 1)
+      "RuntimePick"
+      [ConstraintTypeName "Int"]
+      [ImplMethod "pick" (SourceSpan 4 1) (ELambda "value" (ELit (LBool True)))],
+    SImpl
+      (SourceSpan 5 1)
+      "RuntimePick"
+      [ConstraintTypeName "UInt8"]
+      [ImplMethod "pick" (SourceSpan 6 1) (ELambda "value" (ELit (LBool False)))]
+  ]
+
+testTypedNumericSectionPreservesCapturedOperandFlexibility :: IO ()
+testTypedNumericSectionPreservesCapturedOperandFlexibility = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "add8 :: UInt8 -> UInt8.\n"
+          <> "add8 = (+ 1).\n"
+          <> "add8 (toUInt8 2)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
 testQualifiedMethodDispatchPreservesEmptyListBindingSignature :: IO ()
 testQualifiedMethodDispatchPreservesEmptyListBindingSignature = do
   result <-
@@ -1419,6 +1499,100 @@ testQualifiedMethodDispatchPreservesAdtApplicationBindingHint = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesAdtConcretePayloadHint :: IO ()
+testQualifiedMethodDispatchPreservesAdtConcretePayloadHint = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "box" (SourceSpan 6 1)) (ConstraintTypeApplication "Box" [ConstraintTypeName "UInt8"]))
+          ( EBlock
+              [ SData
+                  (SourceSpan 1 1)
+                  "Box"
+                  ["a"]
+                  [DataConstructor "Box" [DataConstructorArgumentName "Float32", DataConstructorArgumentName "a"]],
+                SClass
+                  (SourceSpan 2 1)
+                  "RuntimePick"
+                  ["a"]
+                  [ ClassMethodSignature
+                      "pick"
+                      (SourceSpan 3 1)
+                      (ConstrainedSignature [] (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool")))
+                  ],
+                SImpl
+                  (SourceSpan 4 1)
+                  "RuntimePick"
+                  [ConstraintTypeApplication "Box" [ConstraintTypeName "UInt8"]]
+                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "box" (ELit (LBool False)))],
+                SLet
+                  "box"
+                  (SourceSpan 6 1)
+                  ( EApply
+                      (EApply (EVar "Box") (ELit (LFloat 1.5 (mkFractionalLiteralSource 1 5 1))))
+                      (EApply (EVar "__kernel_toUInt8") (ELit (LInt 2)))
+                  ),
+                SExpr (SourceSpan 7 1) (EApply (EVar "RuntimePick::pick") (EVar "box"))
+              ]
+          )
+  assertEqual "ADT concrete payload hint runtime result" (Right (Just (VBool False))) result
+
+testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName :: IO ()
+testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "box" (SourceSpan 6 1)) (ConstraintTypeApplication "Box" [ConstraintTypeName "UInt8"]))
+          ( EBlock
+              [ SData
+                  (SourceSpan 1 1)
+                  "Box"
+                  ["a"]
+                  [DataConstructor "Box" [DataConstructorArgumentName "value", DataConstructorArgumentName "a"]],
+                SClass
+                  (SourceSpan 2 1)
+                  "RuntimePick"
+                  ["a"]
+                  [ ClassMethodSignature
+                      "pick"
+                      (SourceSpan 3 1)
+                      (ConstrainedSignature [] (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool")))
+                  ],
+                SImpl
+                  (SourceSpan 4 1)
+                  "RuntimePick"
+                  [ConstraintTypeApplication "Box" [ConstraintTypeName "UInt8"]]
+                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "box" (ELit (LBool False)))],
+                SLet
+                  "box"
+                  (SourceSpan 6 1)
+                  ( EApply
+                      (EApply (EVar "Box") (ELit (LInt 1)))
+                      (EApply (EVar "__kernel_toUInt8") (ELit (LInt 2)))
+                  ),
+                SExpr (SourceSpan 7 1) (EApply (EVar "RuntimePick::pick") (EVar "box"))
+              ]
+          )
+  assertEqual "unknown constructor field hint runtime result" (Right (Just (VBool False))) result
+
+testQualifiedMethodDispatchKeepsNestedInferredHintsScoped :: IO ()
+testQualifiedMethodDispatchKeepsNestedInferredHintsScoped = do
+  result <-
+    runSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      ( "dummy = 0.\n"
+          <> "z = 1.\n"
+          <> "x = { y :: UInt8.\ny = 1.\ny. }.\n"
+          <> "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\n"
+          <> "impl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\n"
+          <> "RuntimePick::pick z."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
 
 testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime :: IO ()
 testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do

@@ -95,6 +95,9 @@ import JazzNext.Compiler.Runtime
   ( evaluateRuntimeExprWithBuiltinsAndBindingHints,
     renderRuntimeValue
   )
+import JazzNext.Compiler.RuntimeHints
+  ( BindingRuntimeHintKey
+  )
 import JazzNext.Compiler.TypeInference
   ( InferenceResult (..),
     inferExpressionWithBuiltinsAndHiddenStatements
@@ -435,7 +438,7 @@ runExprWithValidationAndRuntimeExprs
 -- | Run inference/canonicalization, collect warnings from `inferredWarnings`,
 -- promote configured warnings into errors, and return the canonicalized
 -- `inferredExpr` for downstream compile/run steps.
-analyzeWithWarnings :: Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr, Map Int ConstraintSignatureType)
+analyzeWithWarnings :: Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr, Map BindingRuntimeHintKey ConstraintSignatureType)
 analyzeWithWarnings hiddenStatementIndices builtinMode settings expr = do
   inference <-
     inferExpressionWithBuiltinsAndHiddenStatements

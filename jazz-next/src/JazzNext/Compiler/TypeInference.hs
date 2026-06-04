@@ -87,6 +87,10 @@ import JazzNext.Compiler.RecursiveBindings
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings
   )
+import JazzNext.Compiler.RuntimeHints
+  ( BindingRuntimeHintKey,
+    bindingRuntimeHintKey
+  )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
     defaultWarningSettings
@@ -99,7 +103,7 @@ data InferenceResult = InferenceResult
   { inferredExpr :: Expr,
     inferredWarnings :: [WarningRecord],
     inferredErrors :: [Diagnostic],
-    inferredRuntimeTypeHints :: Map Int ConstraintSignatureType
+    inferredRuntimeTypeHints :: Map BindingRuntimeHintKey ConstraintSignatureType
   }
   deriving (Eq, Show)
 
@@ -276,7 +280,7 @@ data InferState = InferState
     inferCurrentModulePath :: Maybe [Text],
     inferCurrentModuleLocalCapabilityFacts :: ScopeCapabilityFacts,
     inferModuleCapabilityFacts :: Map [Text] ScopeCapabilityFacts,
-    inferRuntimeTypeHints :: Map Int ConstraintSignatureType,
+    inferRuntimeTypeHints :: Map BindingRuntimeHintKey ConstraintSignatureType,
     inferErrorsRev :: [Diagnostic],
     inferErrorCount :: Int
   }
@@ -305,7 +309,7 @@ collectExprTypeErrors :: BuiltinResolutionMode -> Expr -> [Diagnostic]
 collectExprTypeErrors builtinMode expr =
   fst (collectExprTypeInfo builtinMode expr)
 
-collectExprTypeInfo :: BuiltinResolutionMode -> Expr -> ([Diagnostic], Map Int ConstraintSignatureType)
+collectExprTypeInfo :: BuiltinResolutionMode -> Expr -> ([Diagnostic], Map BindingRuntimeHintKey ConstraintSignatureType)
 collectExprTypeInfo builtinMode expr =
   let (_, finalState) =
         inferExprType
@@ -1128,7 +1132,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                         stateAfterSignatureCheck
                           { inferRuntimeTypeHints =
                               Map.insert
-                                statementIndex
+                                (bindingRuntimeHintKey name bindingSpan)
                                 runtimeHint
                                 (inferRuntimeTypeHints stateAfterSignatureCheck)
                           }
