@@ -392,6 +392,48 @@ def extract_markdown_heading_index(path: Path) -> tuple[set[str], dict[str, str]
     return headings, anchors
 
 
+def extract_contract_candidate_child(value: str) -> str:
+    code_match = re.search(r"`([^`]+)`", value)
+    if code_match:
+        return normalize_text(code_match.group(1))
+    return normalize_text(value).rstrip(".")
+
+
+def extract_blocker_contract_candidate_children(path: Path) -> dict[str, str]:
+    text = read_text_file(path, "blocker contracts")
+    if text is None:
+        return {}
+
+    candidate_children: dict[str, str] = {}
+    current_heading: str | None = None
+    for line in text.splitlines():
+        heading_match = re.match(r"^(#{1,6})\s+(.+?)\s*#*\s*$", line)
+        if heading_match:
+            level = len(heading_match.group(1))
+            if level == 3:
+                current_heading = normalize_text(heading_match.group(2).strip())
+            elif level < 3:
+                current_heading = None
+            continue
+
+        if current_heading is None:
+            continue
+
+        candidate_match = re.match(
+            r"^\s*-\s*Candidate child:\s*(.+?)\s*$", line, re.IGNORECASE
+        )
+        if not candidate_match:
+            continue
+        if current_heading in candidate_children:
+            fail(f"{path} section {current_heading} has multiple Candidate child entries")
+            continue
+        candidate_child = extract_contract_candidate_child(candidate_match.group(1))
+        if candidate_child:
+            candidate_children[current_heading] = candidate_child
+
+    return candidate_children
+
+
 def extract_done_archive_ids() -> set[str]:
     text = read_text_file(DONE_ARCHIVE_PATH, "done archive")
     if text is None:
@@ -444,6 +486,7 @@ def extract_done_archive_ids() -> set[str]:
         return set()
 
     archive_ids: set[str] = set()
+    seen_archive_ids: dict[str, int] = {}
     for row_index, line in enumerate(table_lines[2:], start=3):
         cells = split_markdown_row(line)
         if len(cells) != len(headers):
@@ -454,6 +497,13 @@ def extract_done_archive_ids() -> set[str]:
             continue
         row_id = normalize_text(cells[id_index])
         if row_id:
+            if row_id in seen_archive_ids:
+                fail(
+                    f"{DONE_ARCHIVE_PATH} section 'Done' row {row_index} "
+                    f"duplicates archived id: {row_id}"
+                )
+                continue
+            seen_archive_ids[row_id] = row_index
             archive_ids.add(row_id)
     return archive_ids
 
@@ -463,32 +513,34 @@ def validate_source_contract_link(
     cell: str,
     blocked_id: str,
     contract_anchors: dict[str, str],
-) -> None:
+) -> str | None:
     link = extract_markdown_link(cell, "source_contract")
     if link is None:
-        return
+        return None
     source_contract_path, fragment = link
     if not source_contract_path.is_file():
         fail(f"{row_context} links to missing source_contract: {source_contract_path}")
-        return
+        return None
     if source_contract_path != BLOCKER_CONTRACTS_PATH.resolve():
         fail(
             f"{row_context} source_contract must point to "
             f"{BLOCKER_CONTRACTS_PATH.relative_to(ROOT)}"
         )
-        return
+        return None
     if not fragment:
         fail(f"{row_context} source_contract is missing a section anchor")
-        return
+        return None
     contract_heading = contract_anchors.get(fragment)
     if contract_heading is None:
         fail(f"{row_context} source_contract anchor not found: #{fragment}")
-        return
+        return None
     if blocked_id and contract_heading != blocked_id:
         fail(
             f"{row_context} source_contract points to {contract_heading}, "
             f"not blocked_id {blocked_id}"
         )
+        return None
+    return contract_heading
 
 
 def validate_target_paths(
@@ -497,9 +549,13 @@ def validate_target_paths(
     require_non_doc: bool,
     require_existing: bool,
 ) -> None:
+    if any(target_path == "-" for target_path in target_paths):
+        fail(f"{row_context} has malformed target_paths sentinel")
+        return
+
     real_non_doc_paths: list[tuple[str, Path]] = []
     for target_path in target_paths:
-        if not target_path or target_path == "-":
+        if not target_path:
             continue
         target_path_obj = normalize_target_path(target_path)
         if target_path_obj.is_absolute() or ".." in target_path_obj.parts:
@@ -726,6 +782,11 @@ contract_headings, contract_anchors = (
     if blocked_rows or curation_rows
     else (set(), {})
 )
+contract_candidate_children = (
+    extract_blocker_contract_candidate_children(BLOCKER_CONTRACTS_PATH)
+    if blocked_rows or curation_rows
+    else {}
+)
 archived_ids = extract_done_archive_ids() if all_ids or curation_rows else set()
 for row_id in sorted(all_ids & archived_ids):
     fail(
@@ -779,12 +840,25 @@ for row in curation_rows:
         if not normalize_text(row.get(key, "")):
             fail(f"{row_context} is missing {key}")
 
-    validate_source_contract_link(
+    contract_heading = validate_source_contract_link(
         row_context,
         normalize_text(row.get("source_contract", "")),
         blocked_id,
         contract_anchors,
     )
+    if contract_heading is not None:
+        contract_candidate_child = contract_candidate_children.get(contract_heading)
+        if not contract_candidate_child:
+            fail(
+                f"{row_context} source_contract section {contract_heading} "
+                "is missing Candidate child"
+            )
+        elif candidate_child_id and contract_candidate_child != candidate_child_id:
+            fail(
+                f"{row_context} candidate_child_id does not match source_contract "
+                f"Candidate child: expected {contract_candidate_child}, "
+                f"got {candidate_child_id}"
+            )
 
     target_paths = split_inline_list(
         row.get("target_paths", ""), ",", normalize_list_item

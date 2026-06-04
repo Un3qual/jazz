@@ -55,7 +55,7 @@ Guidance:
 - `target_paths` for every `Ready Now` row must be repo-relative concrete existing file paths, not `.` placeholders or paths outside the repository.
 - `target_paths` for `kind: impl` must include at least one concrete, already-existing, non-doc file path.
 - Use `-` only as a whole-cell placeholder. Do not mix it with real
-  verification commands.
+  target paths or verification commands.
 - Keep `target_paths` and `verification` in the same order between the queue row and linked plan frontmatter; parity treats those as ordered batch definitions, while `depends_on` stays set-like.
 - `kind: docs` and `kind: coordination` belong in `Ready Now` only when they directly unblock an implementation item or close out a queue with no remaining executable code work.
 
@@ -166,10 +166,13 @@ Use `bash scripts/check-execution-queue.sh` after queue or open-plan metadata ch
 - every `Ready Now` row matches the linked plan frontmatter for the current executable batch.
 - empty `Ready Now` states still have 1-3 `Next Curation Target` candidates.
 - `impl` curation candidates name at least one concrete, already-existing, non-doc file path, even when they also list planned new child files.
+- `target_paths` never mixes the `-` placeholder with real paths.
 - `verification` never mixes the `-` placeholder with real commands.
 - `done-archive.md` exists before archived id checks are applied.
+- archived ids are unique within `done-archive.md`.
 - active queue rows and curation candidates do not reuse ids from `done-archive.md`.
 - `source_contract` anchors point to the matching `blocker-contracts.md` section.
+- a curation row's `candidate_child_id` matches the linked contract section's `Candidate child`.
 - `blocker-contracts.md` headings do not create duplicate markdown anchors.
 
 Run `bash scripts/test-check-execution-queue.sh` after validator changes. The

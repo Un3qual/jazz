@@ -425,6 +425,7 @@ EOF
 ### CASE-CURATION-BLOCKED-001
 
 - Smallest unblocker: promote one child.
+- Candidate child: `CASE-CURATION-CHILD-001`.
 EOF
 }
 
@@ -501,6 +502,45 @@ EOF
 ### CASE-CURATION-ANCHOR-BLOCKED-001
 
 - Smallest unblocker: promote one child.
+EOF
+}
+
+setup_curation_candidate_mismatch_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+## Next Curation Target
+| blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-CURATION-MISMATCH-BLOCKED-001` | `CASE-CURATION-QUEUE-CHILD-001` | `impl` | [blocker-contracts.md](blocker-contracts.md#case-curation-mismatch-blocked-001) | `Promote one concrete child.` | `src/Impl.hs` | `bash verify.sh` | `Create the child plan.` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+| `CASE-CURATION-MISMATCH-BLOCKED-001` | `Curation mismatch blocked` | `Concrete child split` | `Needs one child.` | [Plan](../plans/case-curation-mismatch-blocked.md) | `2026-04-10` |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-curation-mismatch-blocked.md"
+# Curation mismatch blocked fixture
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+# Blocker Unblocker Contracts
+
+## Current Blockers
+
+### CASE-CURATION-MISMATCH-BLOCKED-001
+
+- Smallest unblocker: promote one child.
+- Candidate child: `CASE-CURATION-CONTRACT-CHILD-001`.
 EOF
 }
 
@@ -760,6 +800,58 @@ EOF
 EOF
 }
 
+setup_duplicate_archive_id_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-UNRELATED-READY-001` | `Unrelated ready` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-unrelated-ready.md) | `Task 1` | `src/Impl.hs` | `Keep Ready Now valid while archive is checked.` | `bash verify.sh` | `2026-04-10` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-unrelated-ready.md"
+---
+id: CASE-UNRELATED-READY-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-10
+plan_section: "Task 1"
+target_paths:
+  - src/Impl.hs
+verification:
+  - bash verify.sh
+deliverable: "Keep Ready Now valid while archive is checked."
+supersedes: []
+---
+
+# Unrelated ready fixture
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/execution/done-archive.md"
+# Execution Queue Done Archive
+
+## Done
+
+| id | closure evidence | completed_on |
+| --- | --- | --- |
+| `CASE-DUPLICATE-ARCHIVE-001` | `First closure.` | `2026-04-09` |
+| CASE-DUPLICATE-ARCHIVE-001 | Second closure. | 2026-04-10 |
+EOF
+}
+
 setup_missing_done_archive_case() {
   local repo_root="$1"
 
@@ -883,6 +975,87 @@ supersedes: []
 ---
 
 # Ready missing target fixture
+EOF
+}
+
+setup_ready_mixed_target_sentinel_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-READY-MIXED-TARGET-SENTINEL-001` | `Ready mixed target sentinel` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-ready-mixed-target-sentinel.md) | `Task 1` | `src/Impl.hs`, `-` | `Reject mixed target path sentinels.` | `bash verify.sh` | `2026-04-10` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-ready-mixed-target-sentinel.md"
+---
+id: CASE-READY-MIXED-TARGET-SENTINEL-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-10
+plan_section: "Task 1"
+target_paths:
+  - src/Impl.hs
+  - "-"
+verification:
+  - bash verify.sh
+deliverable: "Reject mixed target path sentinels."
+supersedes: []
+---
+
+# Ready mixed target sentinel fixture
+EOF
+}
+
+setup_curation_mixed_target_sentinel_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+## Next Curation Target
+| blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-CURATION-MIXED-TARGET-BLOCKED-001` | `CASE-CURATION-MIXED-TARGET-CHILD-001` | `impl` | [blocker-contracts.md](blocker-contracts.md#case-curation-mixed-target-blocked-001) | `Promote one concrete child.` | `src/Impl.hs`, `-` | `bash verify.sh` | `Create the child plan.` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+| `CASE-CURATION-MIXED-TARGET-BLOCKED-001` | `Curation mixed target blocked` | `Concrete child split` | `Needs one child.` | [Plan](../plans/case-curation-mixed-target-blocked.md) | `2026-04-10` |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-curation-mixed-target-blocked.md"
+# Curation mixed target blocked fixture
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+# Blocker Unblocker Contracts
+
+## Current Blockers
+
+### CASE-CURATION-MIXED-TARGET-BLOCKED-001
+
+- Smallest unblocker: promote one child.
+- Candidate child: `CASE-CURATION-MIXED-TARGET-CHILD-001`.
 EOF
 }
 
@@ -1494,6 +1667,11 @@ main() {
     fail \
     "Next Curation Target row CASE-CURATION-ANCHOR-CHILD-001 source_contract anchor not found: #case-curation-anchor-blocked-0001"
   run_case \
+    "curation candidate mismatch regression" \
+    setup_curation_candidate_mismatch_case \
+    fail \
+    "Next Curation Target row CASE-CURATION-QUEUE-CHILD-001 candidate_child_id does not match source_contract Candidate child: expected CASE-CURATION-CONTRACT-CHILD-001"
+  run_case \
     "source contract wrong file regression" \
     setup_source_contract_wrong_file_case \
     fail \
@@ -1532,6 +1710,11 @@ main() {
     fail \
     "Ready Now row CASE-PLAIN-ARCHIVED-001 already exists in docs/execution/done-archive.md"
   run_case \
+    "duplicate archive id regression" \
+    setup_duplicate_archive_id_case \
+    fail \
+    "done-archive.md section 'Done' row 4 duplicates archived id: CASE-DUPLICATE-ARCHIVE-001"
+  run_case \
     "missing done archive regression" \
     setup_missing_done_archive_case \
     fail \
@@ -1550,6 +1733,11 @@ main() {
     plain \
     "Ready Now row CASE-READY-MISSING-TARGET-001 is impl but has no concrete non-doc target_paths"
   run_case \
+    "ready mixed target sentinel regression" \
+    setup_ready_mixed_target_sentinel_case \
+    fail \
+    "Ready Now row CASE-READY-MIXED-TARGET-SENTINEL-001 has malformed target_paths sentinel"
+  run_case \
     "symlink target escape regression" \
     setup_symlink_target_escape_case \
     fail \
@@ -1567,6 +1755,11 @@ main() {
     . \
     plain \
     "Next Curation Target row CASE-CURATION-VERIFY-CHILD-001 is missing verification"
+  run_case \
+    "curation mixed target sentinel regression" \
+    setup_curation_mixed_target_sentinel_case \
+    fail \
+    "Next Curation Target row CASE-CURATION-MIXED-TARGET-CHILD-001 has malformed target_paths sentinel"
   run_case \
     "verification order regression" \
     setup_verification_order_case \
