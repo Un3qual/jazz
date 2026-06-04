@@ -43,6 +43,8 @@ reject_pattern() {
 require_file "README.md"
 require_file "docs/feature-status.md"
 require_file "docs/jazz-language-state.md"
+require_file "docs/execution/blocker-contracts.md"
+require_file "docs/execution/done-archive.md"
 
 require_pattern "README.md" "implemented section heading" '^### Implemented Today \(verified\)'
 require_pattern "README.md" "planned section heading" '^### Planned / Aspirational'
@@ -54,6 +56,8 @@ require_pattern "docs/feature-status.md" "partial rubric label" '`Partially Impl
 require_pattern "docs/feature-status.md" "planned rubric label" '`Planned / Aspirational`'
 require_pattern "docs/feature-status.md" "maintenance checklist" '^## Maintenance Checklist'
 require_pattern "docs/feature-status.md" "reviewer checklist item" 'Does README status match docs/feature-status.md\?'
+require_pattern "docs/execution/blocker-contracts.md" "blocker contract template" '^## Promotion Contract Template'
+require_pattern "docs/execution/done-archive.md" "done archive heading" '^# Execution Queue Done Archive'
 
 require_pattern "docs/jazz-language-state.md" "top-level docs contract section" '^## Top-level Docs Contract'
 require_pattern "docs/jazz-language-state.md" "feature status reference" 'docs/feature-status.md'

@@ -8,11 +8,13 @@ autonomous_ready: no
 depends_on: []
 last_verified: 2026-06-02
 plan_section: "Follow-up: abstraction semantics beyond explicit class parameter metadata"
-target_paths: []
+target_paths:
+  - docs/execution/blocker-contracts.md
+  - docs/execution/queue.md
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Class/impl abstraction semantics outside the queued typed qualified dispatch and bundled-prelude Eq(Int) method-body children remain blocked until dictionary, default-method, superclass, solver, module-method, or broader runtime-evidence contracts define target paths and focused verification."
+deliverable: "Use docs/execution/blocker-contracts.md#jn-abstraction-semantics-plan-001 to split the next child; current recommended child is a Bool-only bundled-prelude Eq method body that avoids dictionaries, default methods, superclasses, solver behavior, module-method export/import semantics, and broader runtime evidence."
 ---
 
 # Jazz Spec-Cleanup #1: Authoritative Syntax Implementation Plan
@@ -26,6 +28,14 @@ deliverable: "Class/impl abstraction semantics outside the queued typed qualifie
 **Tech Stack:** Historical execution notes below reference Haskell (`stack`, `hspec`, Megaparsec parser in legacy `jazz-hs`), Markdown docs, and Nix dev shell/flake checks for reproducibility. Active compiler follow-up for this decision now lands in `jazz-next`.
 
 ---
+
+## Active Handoff
+
+This plan is a historical umbrella. Do not mine the progress log below to choose
+new abstraction work. Current blocked-state handoff lives in
+[`docs/execution/blocker-contracts.md`](../../../../execution/blocker-contracts.md#jn-abstraction-semantics-plan-001),
+and the current promotion lane lives in
+[`docs/execution/queue.md`](../../../../execution/queue.md#next-curation-target).
 
 ## Plan Progress Checklist
 

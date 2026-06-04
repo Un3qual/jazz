@@ -34,6 +34,17 @@ EXPECTED_BLOCKED_HEADERS = [
     "last_verified",
 ]
 
+EXPECTED_CURATION_HEADERS = [
+    "blocked_id",
+    "candidate_child_id",
+    "kind",
+    "source_contract",
+    "why_next",
+    "target_paths",
+    "verification",
+    "promotion_check",
+]
+
 FAILURES: list[str] = []
 DOC_SUFFIXES = {".md", ".markdown", ".rst", ".txt"}
 ALLOWED_READY_KINDS = {"impl", "docs", "coordination"}
@@ -293,25 +304,58 @@ def parse_markdown_table(section_name: str) -> tuple[list[str], list[dict[str, s
     return headers, rows
 
 
-def extract_plan_path(cell: str) -> Path | None:
+def extract_markdown_link_path(cell: str, label: str) -> Path | None:
     match = re.fullmatch(r"\[[^\]]+\]\(([^)]+)\)", cell.strip())
     if not match:
-        fail(f"{QUEUE_PATH} plan cell is not a markdown link: {cell}")
+        fail(f"{QUEUE_PATH} {label} cell is not a markdown link: {cell}")
         return None
     link_target = match.group(1).split("#", 1)[0]
     if not link_target:
-        fail(f"{QUEUE_PATH} plan link is missing a file target: {cell}")
+        fail(f"{QUEUE_PATH} {label} link is missing a file target: {cell}")
         return None
-    plan_path = (QUEUE_PATH.parent / link_target).resolve()
+    link_path = (QUEUE_PATH.parent / link_target).resolve()
     try:
-        plan_path.relative_to(ROOT)
+        link_path.relative_to(ROOT)
     except ValueError:
-        fail(f"{QUEUE_PATH} plan link escapes repository root: {cell}")
+        fail(f"{QUEUE_PATH} {label} link escapes repository root: {cell}")
         return None
-    if plan_path.suffix.lower() not in DOC_SUFFIXES:
-        fail(f"{QUEUE_PATH} plan link must point to a text plan file: {cell}")
+    if link_path.suffix.lower() not in DOC_SUFFIXES:
+        fail(f"{QUEUE_PATH} {label} link must point to a text file: {cell}")
         return None
-    return plan_path
+    return link_path
+
+
+def extract_plan_path(cell: str) -> Path | None:
+    return extract_markdown_link_path(cell, "plan")
+
+
+def validate_target_paths(
+    row_context: str, target_paths: list[str], require_non_doc: bool
+) -> None:
+    real_non_doc_paths: list[tuple[str, Path]] = []
+    for target_path in target_paths:
+        if not target_path or target_path == "-":
+            continue
+        target_path_obj = normalize_target_path(target_path)
+        if target_path_obj.is_absolute() or ".." in target_path_obj.parts:
+            fail(f"{row_context} names non-repo-relative target path: {target_path}")
+            continue
+        if target_path_obj == Path("."):
+            continue
+        resolved_target_path = (ROOT / target_path_obj).resolve()
+        try:
+            resolved_repo_relative = resolved_target_path.relative_to(ROOT)
+        except ValueError:
+            fail(f"{row_context} names non-repo-relative target path: {target_path}")
+            continue
+        if not resolved_target_path.is_file():
+            fail(f"{row_context} names missing or non-file target path: {target_path}")
+            continue
+        if not is_doc_target_path(resolved_repo_relative):
+            real_non_doc_paths.append((target_path, target_path_obj))
+
+    if require_non_doc and not real_non_doc_paths:
+        fail(f"{row_context} is impl but has no concrete non-doc target_paths")
 
 
 # parse_block_scalar handles only basic YAML block scalars (">" and "|").
@@ -438,6 +482,7 @@ def parse_frontmatter(path: Path) -> dict[str, object] | None:
 
 
 ready_headers, ready_rows = parse_markdown_table("Ready Now")
+curation_headers, curation_rows = parse_markdown_table("Next Curation Target")
 blocked_headers, blocked_rows = parse_markdown_table("Blocked")
 done_headers, done_rows = parse_markdown_table("Done")
 
@@ -454,6 +499,13 @@ if blocked_headers and blocked_headers != EXPECTED_BLOCKED_HEADERS:
         f"{blocked_headers!r}"
     )
     blocked_rows = []
+
+if curation_headers and curation_headers != EXPECTED_CURATION_HEADERS:
+    fail(
+        f"{QUEUE_PATH} Next Curation Target headers do not match expected columns: "
+        f"{curation_headers!r}"
+    )
+    curation_rows = []
 
 if done_headers and "id" not in [normalize_text(header) for header in done_headers]:
     fail(f"{QUEUE_PATH} Done headers must include an 'id' column: {done_headers!r}")
@@ -479,6 +531,70 @@ for section_name, rows in (
             continue
         seen_ids[row_id] = section_name
         all_ids.add(row_id)
+
+if len(curation_rows) > 3:
+    fail(f"{QUEUE_PATH} Next Curation Target must contain at most 3 candidates")
+
+if not ready_rows and not curation_rows:
+    fail(
+        f"{QUEUE_PATH} Ready Now is empty, so Next Curation Target must contain "
+        "1-3 promotion candidates"
+    )
+
+blocked_ids = {normalize_text(row.get("id", "")) for row in blocked_rows}
+seen_candidate_ids: set[str] = set()
+for row in curation_rows:
+    blocked_id = normalize_text(row.get("blocked_id", ""))
+    candidate_child_id = normalize_text(row.get("candidate_child_id", ""))
+    row_kind = normalize_text(row.get("kind", ""))
+    row_context = f"{QUEUE_PATH} Next Curation Target row {candidate_child_id or blocked_id}"
+
+    if not blocked_id:
+        fail(f"{row_context} is missing blocked_id")
+    elif blocked_id not in blocked_ids:
+        fail(f"{row_context} references blocked_id that is not in Blocked: {blocked_id}")
+
+    if not candidate_child_id:
+        fail(f"{row_context} is missing candidate_child_id")
+    elif candidate_child_id in all_ids:
+        fail(
+            f"{row_context} candidate_child_id already exists in queue sections: "
+            f"{candidate_child_id}"
+        )
+    elif candidate_child_id in seen_candidate_ids:
+        fail(f"{row_context} duplicates candidate_child_id: {candidate_child_id}")
+    else:
+        seen_candidate_ids.add(candidate_child_id)
+
+    if row_kind not in ALLOWED_READY_KINDS:
+        fail(f"{row_context} has unsupported kind: {row.get('kind', '')!r}")
+
+    for key in ("why_next", "promotion_check"):
+        if not normalize_text(row.get(key, "")):
+            fail(f"{row_context} is missing {key}")
+
+    source_contract_path = extract_markdown_link_path(
+        normalize_text(row.get("source_contract", "")), "source_contract"
+    )
+    if source_contract_path and not source_contract_path.is_file():
+        fail(f"{row_context} links to missing source_contract: {source_contract_path}")
+
+    target_paths = split_inline_list(
+        row.get("target_paths", ""), ",", normalize_list_item
+    )
+    if not target_paths or target_paths == ["-"]:
+        fail(f"{row_context} is missing target_paths")
+    else:
+        validate_target_paths(row_context, target_paths, row_kind == "impl")
+
+    if normalize_list_item(row.get("verification", "")) == "-":
+        verification_commands: list[str] = []
+    else:
+        verification_commands = split_inline_list(
+            row.get("verification", ""), ";", normalize_list_item
+        )
+    if not verification_commands:
+        fail(f"{row_context} is missing verification")
 
 for row in ready_rows:
     row_id = normalize_text(row["id"])
@@ -553,52 +669,9 @@ for row in ready_rows:
 
     target_paths = split_inline_list(row["target_paths"], ",", normalize_list_item)
     if row_kind == "impl":
-        real_target_paths: list[tuple[str, Path]] = []
-        for target_path in target_paths:
-            if not target_path or target_path == "-":
-                continue
-            target_path_obj = normalize_target_path(target_path)
-            if target_path_obj.is_absolute() or ".." in target_path_obj.parts:
-                real_target_paths.append((target_path, target_path_obj))
-                continue
-            if target_path_obj == Path("."):
-                continue
-            resolved_target_path = (ROOT / target_path_obj).resolve()
-            try:
-                resolved_repo_relative = resolved_target_path.relative_to(ROOT)
-            except ValueError:
-                real_target_paths.append((target_path, target_path_obj))
-                continue
-            if is_doc_target_path(resolved_repo_relative):
-                continue
-            real_target_paths.append((target_path, target_path_obj))
-        if not real_target_paths:
-            fail(
-                f"{QUEUE_PATH} Ready Now row {row_id} is impl but has no "
-                f"concrete non-doc target_paths"
-            )
-        for target_path, target_path_obj in real_target_paths:
-            if target_path_obj.is_absolute() or ".." in target_path_obj.parts:
-                fail(
-                    f"{QUEUE_PATH} Ready Now row {row_id} names non-repo-relative "
-                    f"target path: {target_path}"
-                )
-                continue
-            resolved_target_path = (ROOT / target_path_obj).resolve()
-            try:
-                resolved_target_path.relative_to(ROOT)
-            except ValueError:
-                fail(
-                    f"{QUEUE_PATH} Ready Now row {row_id} names non-repo-relative "
-                    f"target path: {target_path}"
-                )
-                continue
-            if not resolved_target_path.is_file():
-                fail(
-                    f"{QUEUE_PATH} Ready Now row {row_id} names missing or non-file "
-                    f"target path: "
-                    f"{target_path}"
-                )
+        validate_target_paths(
+            f"{QUEUE_PATH} Ready Now row {row_id}", target_paths, True
+        )
 
     if not plan_path or not plan_path.is_file():
         continue  # Skip frontmatter validation if plan is missing

@@ -8,11 +8,13 @@ autonomous_ready: no
 depends_on: []
 last_verified: 2026-06-02
 plan_section: "Follow-up: Primitive deltas after literal-targeting landing"
-target_paths: []
+target_paths:
+  - docs/execution/blocker-contracts.md
+  - docs/execution/queue.md
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Primitive deltas outside landed Float16/Float32 width-preserving arithmetic, landed numeric/structural equality batches, and queued callable-equality rejection remain blocked until separate concrete contracts define target paths and focused verification."
+deliverable: "Use docs/execution/blocker-contracts.md#jn-primitive-surface-expansion-plan-001 to split the next primitive child; current recommended child is a literal-suffix contract before implicit promotion, implicit mixed-width behavior, or broader numeric solver work."
 ---
 
 # Primitive Semantics Contract Implementation Plan
@@ -30,6 +32,14 @@ Execution note:
 - All net-new implementation and tests for this item must land in `jazz-next/`.
 
 ---
+
+## Active Handoff
+
+This plan is a historical umbrella. Do not scan the completed primitive batches
+below to infer the next numeric task. Current blocked-state handoff lives in
+[`docs/execution/blocker-contracts.md`](../../../../execution/blocker-contracts.md#jn-primitive-surface-expansion-plan-001),
+and the current promotion lane lives in
+[`docs/execution/queue.md`](../../../../execution/queue.md#next-curation-target).
 
 ## Progress
 

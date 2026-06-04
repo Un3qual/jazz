@@ -12,11 +12,12 @@ plan_section: "Phase 8 / Coordination: deprecated-syntax W0004 contract decision
 target_paths:
   - docs/spec/tooling/compiler-warning-flags.md
   - docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md
+  - docs/execution/blocker-contracts.md
   - docs/execution/queue.md
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Record that `deprecated-syntax` remains reserved-only because active `jazz-next` has no accepted deprecated syntax surface; non-canonical `trait` declarations are never accepted and therefore must not emit W0004."
+deliverable: "Use docs/execution/blocker-contracts.md#jn-warning-deprecated-syntax-contract-001 before promoting W0004 work; default state remains reserved-only because active `jazz-next` has no accepted deprecated syntax surface and non-canonical `trait` declarations are never accepted."
 ---
 
 # Compiler Warning Flags (Same-Scope Rebinding) Implementation Plan
@@ -34,6 +35,13 @@ Execution note:
 - All net-new implementation and tests for this item must land in `jazz-next/`.
 
 ---
+
+## Active Handoff
+
+The active warning emitters are already landed for W0001-W0003. Do not promote
+W0004 as implementation work unless a future accepted syntax surface is first
+deprecated. Current blocked-state handoff lives in
+[`docs/execution/blocker-contracts.md`](../../../../execution/blocker-contracts.md#jn-warning-deprecated-syntax-contract-001).
 
 ## Progress
 
