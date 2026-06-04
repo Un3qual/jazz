@@ -927,6 +927,15 @@ applyRuntimeTypeHint typeHint runtimeValue =
         (ConstraintTypeName typeName, _)
           | Just targetType <- constraintTypeNameNumericTarget typeName ->
               evalNumericConversion (numericConversionBuiltinForTarget targetType) targetType runtimeValue
+        (ConstraintTypeName hintedTypeName, VConstructor typeName typeParameters constructorName constructorArguments capturedArgs)
+          | identifierText hintedTypeName == identifierText typeName,
+            constructorIsSaturated constructorArguments capturedArgs -> do
+              hintedCapturedArgs <-
+                zipWithM
+                  (applyConstructorArgumentRuntimeHint Map.empty)
+                  constructorArguments
+                  capturedArgs
+              Right (VConstructor typeName typeParameters constructorName constructorArguments hintedCapturedArgs)
         (ConstraintTypeList elementType, VList elements _) -> do
           hintedElements <- mapM (applyRuntimeTypeHint elementType) elements
           Right (VList hintedElements (Just typeHint))
@@ -1153,7 +1162,7 @@ applyRuntimeFunction builtinMode bindingTypeHints functionValue argumentValue =
           bodyExpr
       case maybeTypeHint of
         Just typeHint -> applyRuntimeFunctionResultHint typeHint resultValue
-        Nothing -> Right resultValue
+        Nothing -> attachDefaultBindingIntegerTarget resultValue
     VBuiltin builtinFunction capturedArgs ->
       applyBuiltin builtinMode bindingTypeHints builtinFunction (capturedArgs ++ [argumentValue])
     VOperator operatorSymbol capturedArgs ->

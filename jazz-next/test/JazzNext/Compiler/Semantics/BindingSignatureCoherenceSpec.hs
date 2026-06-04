@@ -70,6 +70,7 @@ tests =
     ("source pipeline accepts same-impl qualified method body references", testSourceAcceptsSameImplQualifiedMethodBodyReferences),
     ("source pipeline uses impl signatures while checking method bodies", testSourceUsesImplSignaturesWhileCheckingMethodBodies),
     ("source pipeline uses impl signatures to contextualize method body lambdas", testSourceUsesImplSignaturesToContextualizeMethodBodyLambdas),
+    ("source pipeline uses binding signatures to contextualize RHS lambdas", testSourceUsesBindingSignaturesToContextualizeRhsLambdas),
     ("source pipeline accepts higher-order qualified method signature", testSourceAcceptsHigherOrderQualifiedMethodSignature),
     ("source pipeline prefers visible binding over qualified method spine", testSourcePrefersVisibleBindingOverQualifiedMethodSpine),
     ("source pipeline applies substituted qualified method signature", testSourceRejectsQualifiedMethodSignatureMismatch),
@@ -460,6 +461,17 @@ testSourceUsesImplSignaturesToContextualizeMethodBodyLambdas =
         <> "class C(a) {\nm :: a -> Bool.\n}.\n"
         <> "impl C(Int) {\nm = \\(x) -> D::n x.\n}.\n"
         <> "result :: Bool.\nresult = C::m 1.\nresult."
+    )
+
+testSourceUsesBindingSignaturesToContextualizeRhsLambdas :: IO ()
+testSourceUsesBindingSignaturesToContextualizeRhsLambdas =
+  assertSourceOkWithoutPrelude
+    ( "class D(a) {\nn :: a -> Bool.\n}.\n"
+        <> "impl D(Int) {\nn = \\(value) -> True.\n}.\n"
+        <> "impl D(Bool) {\nn = \\(value) -> False.\n}.\n"
+        <> "f :: Int -> Bool.\n"
+        <> "f = \\(x) -> D::n x.\n"
+        <> "result :: Bool.\nresult = f 1.\nresult."
     )
 
 testSourceAcceptsHigherOrderQualifiedMethodSignature :: IO ()

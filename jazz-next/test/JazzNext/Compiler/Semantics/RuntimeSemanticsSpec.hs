@@ -162,6 +162,7 @@ tests =
     ("qualified method dispatch preserves selected method signatures", testQualifiedMethodDispatchPreservesSelectedMethodSignature),
     ("qualified method dispatch applies typed callable argument hints", testQualifiedMethodDispatchAppliesTypedCallableArgumentHint),
     ("qualified method dispatch applies closure argument signature hints", testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint),
+    ("qualified method dispatch preserves defaulted closure result metadata", testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata),
     ("typed numeric sections preserve captured operand flexibility", testTypedNumericSectionPreservesCapturedOperandFlexibility),
     ("qualified method dispatch preserves empty list binding signatures", testQualifiedMethodDispatchPreservesEmptyListBindingSignature),
     ("qualified method dispatch preserves mapped empty list result signatures", testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature),
@@ -175,6 +176,7 @@ tests =
     ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals),
     ("qualified method dispatch preserves ADT application binding hints", testQualifiedMethodDispatchPreservesAdtApplicationBindingHint),
     ("qualified method dispatch preserves ADT concrete payload hints", testQualifiedMethodDispatchPreservesAdtConcretePayloadHint),
+    ("qualified method dispatch preserves monomorphic ADT concrete payload hints", testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint),
     ("qualified method dispatch ignores unknown constructor field hint names", testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName),
     ("qualified method dispatch keeps nested inferred hints scoped", testQualifiedMethodDispatchKeepsNestedInferredHintsScoped),
     ("qualified method dispatch prefers alias binding over method sentinel at runtime", testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime),
@@ -1283,6 +1285,22 @@ testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint = do
           )
   assertEqual "closure argument signature hint runtime result" (Right (Just (VBool False))) result
 
+testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata :: IO ()
+testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\n"
+          <> "impl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\n"
+          <> "f = \\(value) -> 1.\n"
+          <> "result = RuntimePick::pick (f True).\n"
+          <> "result."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
 runtimeTypedCallableArgumentHintExpr :: Expr -> Expr
 runtimeTypedCallableArgumentHintExpr callableExpr =
   EBlock
@@ -1537,6 +1555,35 @@ testQualifiedMethodDispatchPreservesAdtConcretePayloadHint = do
               ]
           )
   assertEqual "ADT concrete payload hint runtime result" (Right (Just (VBool False))) result
+
+testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint :: IO ()
+testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "token" (SourceSpan 6 1)) (ConstraintTypeName "Token"))
+          ( EBlock
+              ( [ SData
+                    (SourceSpan 1 1)
+                    "Token"
+                    []
+                    [DataConstructor "Token" [DataConstructorArgumentName "UInt8"]]
+                ]
+                  ++ runtimePickStatements
+                  ++ [ SLet
+                         "token"
+                         (SourceSpan 6 1)
+                         (EApply (EVar "Token") (ELit (LInt 1))),
+                       SExpr
+                         (SourceSpan 7 1)
+                         ( EPatternCase
+                             (EVar "token")
+                             [CaseArm (PConstructor "Token" [PVariable "value"]) (EApply (EVar "RuntimePick::pick") (EVar "value"))]
+                         )
+                     ]
+              )
+          )
+  assertEqual "monomorphic ADT concrete payload hint runtime result" (Right (Just (VBool False))) result
 
 testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName :: IO ()
 testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName = do

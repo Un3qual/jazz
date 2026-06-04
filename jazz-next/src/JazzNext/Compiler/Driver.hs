@@ -730,13 +730,28 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
         Map.unionWith Set.union
           neededVisibleImportCapabilityExportsByModule
           neededLocalCapabilityExportsByModule
+      (runtimeNeededModuleExportsByModule, runtimeNeededCapabilityExportsByModule) =
+        closeRuntimeReplayNeeds
+          resolvedModules
+          loweredModules
+          neededVisibleImportCapabilityExportsByModule
+          neededModuleExportsByModule
+          neededCapabilityExportsByModule
+      replayBridgeModuleExportsByModule =
+        Map.unionWith Set.union neededModuleExportsByModule runtimeNeededModuleExportsByModule
       loweredModulesWithVisibleImportReferences =
         map
           (rewriteVisibleImportReferences hiddenImportExportsByModule exportsByModule)
           loweredModules
-      loweredModulesWithAliasBindings =
+      loweredModulesWithValidationAliasBindings =
         zipWith3
           (addAliasImportBindings exportsByModule neededModuleExportsByModule hiddenImportExportsByModule)
+          resolvedModules
+          loweredModulesWithVisibleImportReferences
+          aliasReferencesByModule
+      loweredModulesWithRuntimeAliasBindings =
+        zipWith3
+          (addAliasImportBindings exportsByModule replayBridgeModuleExportsByModule hiddenImportExportsByModule)
           resolvedModules
           loweredModulesWithVisibleImportReferences
           aliasReferencesByModule
@@ -744,8 +759,10 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
         Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) hiddenImportExportsByModule
       neededModuleExportsFor resolvedModule =
         Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) neededModuleExportsByModule
+      runtimeNeededModuleExportsFor resolvedModule =
+        Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) runtimeNeededModuleExportsByModule
       neededModuleCapabilityExportsFor resolvedModule =
-        Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) neededCapabilityExportsByModule
+        Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) runtimeNeededCapabilityExportsByModule
    in
   ModuleGraphExpr
     { moduleGraphValidationExpr =
@@ -758,7 +775,7 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
                 loweredModule
           )
           resolvedModules
-          loweredModulesWithAliasBindings,
+          loweredModulesWithValidationAliasBindings,
       moduleGraphRuntimeExpr =
         replayLoweredModules
           ( \resolvedModule loweredModule ->
@@ -766,12 +783,12 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
                 (resolvedModulePath resolvedModule)
                 (resolvedModulePath resolvedModule == entryModulePath)
                 (hiddenImportExportsFor resolvedModule)
-                (neededModuleExportsFor resolvedModule)
+                (runtimeNeededModuleExportsFor resolvedModule)
                 (neededModuleCapabilityExportsFor resolvedModule)
                 loweredModule
           )
           resolvedModules
-          loweredModulesWithAliasBindings
+          loweredModulesWithRuntimeAliasBindings
     }
 
 collectModuleExports :: [ResolvedModule] -> [Expr] -> Map [Text] [Text]
@@ -1208,6 +1225,77 @@ closeExportDependencies exportDependencies neededExports =
    in if expandedExports == neededExports
         then neededExports
         else closeExportDependencies exportDependencies expandedExports
+
+closeRuntimeReplayNeeds ::
+  [ResolvedModule] ->
+  [Expr] ->
+  Map [Text] (Set Text) ->
+  Map [Text] (Set Text) ->
+  Map [Text] (Set Text) ->
+  (Map [Text] (Set Text), Map [Text] (Set Text))
+closeRuntimeReplayNeeds resolvedModules loweredModules directlyNeededCapabilityExportsByModule neededModuleExportsByModule neededCapabilityExportsByModule =
+  let neededImplBodyValueExportsByModule =
+        collectNeededImplMethodValueExports
+          resolvedModules
+          loweredModules
+          neededCapabilityExportsByModule
+      expandedNeededModuleExportsByModule =
+        expandNeededModuleExports
+          resolvedModules
+          loweredModules
+          (Map.unionWith Set.union neededModuleExportsByModule neededImplBodyValueExportsByModule)
+      expandedNeededLocalCapabilityExportsByModule =
+        collectNeededLocalCapabilityExports
+          resolvedModules
+          loweredModules
+          expandedNeededModuleExportsByModule
+          directlyNeededCapabilityExportsByModule
+      expandedNeededCapabilityExportsByModule =
+        Map.unionWith Set.union
+          directlyNeededCapabilityExportsByModule
+          expandedNeededLocalCapabilityExportsByModule
+   in if expandedNeededModuleExportsByModule == neededModuleExportsByModule
+        && expandedNeededCapabilityExportsByModule == neededCapabilityExportsByModule
+        then (expandedNeededModuleExportsByModule, expandedNeededCapabilityExportsByModule)
+        else
+          closeRuntimeReplayNeeds
+            resolvedModules
+            loweredModules
+            directlyNeededCapabilityExportsByModule
+            expandedNeededModuleExportsByModule
+            expandedNeededCapabilityExportsByModule
+
+collectNeededImplMethodValueExports ::
+  [ResolvedModule] ->
+  [Expr] ->
+  Map [Text] (Set Text) ->
+  Map [Text] (Set Text)
+collectNeededImplMethodValueExports resolvedModules loweredModules neededCapabilityExportsByModule =
+  Map.fromList
+    [ (modulePath, neededValueExports)
+      | (resolvedModule, loweredModule) <- zip resolvedModules loweredModules,
+        let modulePath = resolvedModulePath resolvedModule,
+        let neededCapabilities = Map.findWithDefault Set.empty modulePath neededCapabilityExportsByModule,
+        let valueExports = Set.fromList (collectTopLevelBindingNames loweredModule),
+        let neededValueExports = implMethodValueDependencies loweredModule valueExports neededCapabilities,
+        not (Set.null neededValueExports)
+    ]
+
+implMethodValueDependencies :: Expr -> Set Text -> Set Text -> Set Text
+implMethodValueDependencies expr valueExports neededCapabilities =
+  case expr of
+    EBlock statements ->
+      Set.intersection
+        valueExports
+        ( Set.unions
+            [ collectUnqualifiedReferences methodExpr
+              | SImpl _ capabilityName _ methods <- statements,
+                Set.member (identifierText capabilityName) neededCapabilities,
+                ImplMethod _ _ methodExpr <- methods
+            ]
+        )
+    _ ->
+      Set.empty
 
 collectNeededLocalCapabilityExports ::
   [ResolvedModule] ->

@@ -1062,7 +1062,18 @@ inferScopeType builtinMode initialEnv initialState statements =
                               (PlainTypeBinding (pendingSignatureDeclaredType pendingSignature))
                               envWithBindingSeed
                       _ -> envWithBindingSeed
-                  (rawValueType, rawStateAfterValue) = inferExprType builtinMode envWithPendingSignature state valueExpr
+                  maybeExpectedValueType =
+                    case pendingSignatureType of
+                      Just pendingSignature
+                        | pendingSignatureName pendingSignature == nameText ->
+                            Just (pendingSignatureDeclaredType pendingSignature)
+                      _ -> Nothing
+                  (rawValueType, rawStateAfterValue) =
+                    case maybeExpectedValueType of
+                      Just expectedValueType ->
+                        inferExprTypeWithExpected builtinMode envWithPendingSignature state expectedValueType valueExpr
+                      Nothing ->
+                        inferExprType builtinMode envWithPendingSignature state valueExpr
                   valueType =
                     targetedFractionalLiteralBindingType
                       nameText
