@@ -10,11 +10,12 @@ last_verified: 2026-06-01
 plan_section: "Future runtime product delta contract"
 target_paths:
   - docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md
+  - docs/execution/blocker-contracts.md
   - docs/execution/queue.md
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Define a concrete CLI/runtime product delta, target paths, and focused verification before adding behavior beyond the closed interpreter-first compile/run documentation baseline."
+deliverable: "Use docs/execution/blocker-contracts.md#jn-runtime-productize-closure-plan-001 to define one concrete CLI/runtime product delta before adding behavior beyond the closed interpreter-first compile/run documentation baseline."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 ---
@@ -36,6 +37,14 @@ supersedes:
 7. CLI rendering of compile/runtime diagnostics and output.
 
 **Tech stack:** Haskell modules under `jazz-next/src/JazzNext`, `runghc` suites under `jazz-next/test`, repo-root verification via `bash jazz-next/scripts/test-warning-config.sh`.
+
+## Active Handoff
+
+The interpreter-first baseline is closed. Do not reopen runtime architecture from
+the milestone history below. Current blocked-state handoff lives in
+[`docs/execution/blocker-contracts.md`](../execution/blocker-contracts.md#jn-runtime-productize-closure-plan-001);
+new runtime work must first name one concrete CLI/runtime product delta with
+target paths and focused verification.
 
 ## Plan Progress
 

@@ -9,7 +9,8 @@ Start in curated execution mode.
 7. Update the queue and linked plan metadata, run the listed verification, and make one commit at the verified milestone boundary.
 8. Use subagents only if the selected batch has 2+ disjoint implementation tracks.
 9. If a candidate entry is docs-only, stale, or under-specified while linked implementation work remains, narrow or rewrite it to the next concrete implementation batch before executing.
-10. If no executable implementation batch exists, move the blocked implementation item to `Blocked` with a concrete reason and do only the smallest docs or coordination change needed to restore flow.
+10. If `Ready Now` is empty, use only `Next Curation Target` and the linked `docs/execution/blocker-contracts.md` section. Promote exactly one candidate into `Ready Now` with matching plan frontmatter, or replace that candidate with a better bounded candidate.
+11. If no executable implementation batch exists after the curation target is checked, move or keep the item in `Blocked` with a concrete reason and do only the smallest docs or coordination change needed to restore flow.
 
 Do not create a PR unless the queue entry explicitly requires it.
-Do not end the session with a docs-only diff unless step 10 applies.
+Do not end the session with a docs-only diff unless step 10 or step 11 applies.

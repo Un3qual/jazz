@@ -6,7 +6,8 @@ Start in autonomous execution mode.
 4. Execute one meaningful implementation batch. A valid batch is expected to modify at least one non-doc file when implementation-ready work exists. For compiler work, prefer `jazz-next/`.
 5. Queue, plan, status, and spec updates are required follow-through, but they do not count as a successful standalone batch while implementation work exists.
 6. Update the queue and linked plan metadata, run the listed verification, and make one commit at the verified milestone boundary.
-7. If no executable `kind: impl` and `autonomous_ready: yes` entry exists, return to curated behavior: surface the top 2-3 candidate entries with their blockers and the smallest action needed to promote one of them.
+7. If no executable `kind: impl` and `autonomous_ready: yes` entry exists but `Ready Now` has other rows, return to curated behavior for those rows.
+8. If `Ready Now` is empty, do not scan `docs/plans/**`. Use `Next Curation Target` and the linked `docs/execution/blocker-contracts.md` section to surface the exact candidate to promote, including the missing plan/frontmatter action.
 
 Do not create a PR unless the queue entry explicitly requires it.
 Do not end the session with a docs-only diff unless no executable implementation batch exists and the docs change is the smallest unblocker.
