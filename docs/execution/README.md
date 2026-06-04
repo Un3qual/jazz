@@ -56,6 +56,8 @@ Guidance:
 - `target_paths` for `kind: impl` must include at least one concrete, already-existing, non-doc file path.
 - `target_paths` may also include planned new files for the batch, but existing
   non-doc owner paths keep implementation work grounded in the current tree.
+- Use `-` only as a whole-cell placeholder. Do not mix it with real
+  verification commands.
 - Keep `target_paths` and `verification` in the same order between the queue row and linked plan frontmatter; parity treats those as ordered batch definitions, while `depends_on` stays set-like.
 - `kind: docs` and `kind: coordination` belong in `Ready Now` only when they directly unblock an implementation item or close out a queue with no remaining executable code work.
 
@@ -77,7 +79,8 @@ Each candidate captures:
 - `why_next`: one-sentence reason this is the next narrow promotion.
 - `target_paths`: expected files for the child; `impl` candidates must name at
   least one existing non-doc path.
-- `verification`: exact commands.
+- `verification`: exact commands; use `-` only as a whole-cell placeholder,
+  never mixed with real commands.
 - `promotion_check`: the concrete action required before the candidate becomes a
   real `Ready Now` row.
 
@@ -164,5 +167,12 @@ Use `bash scripts/check-execution-queue.sh` after queue or open-plan metadata ch
 - every `Ready Now` row matches the linked plan frontmatter for the current executable batch.
 - empty `Ready Now` states still have 1-3 `Next Curation Target` candidates.
 - `impl` curation candidates name at least one concrete, already-existing, non-doc file path.
+- `verification` never mixes the `-` placeholder with real commands.
+- `done-archive.md` exists before archived id checks are applied.
 - active queue rows and curation candidates do not reuse ids from `done-archive.md`.
 - `source_contract` anchors point to the matching `blocker-contracts.md` section.
+- `blocker-contracts.md` headings do not create duplicate markdown anchors.
+
+Run `bash scripts/test-check-execution-queue.sh` after validator changes. The
+docs status gate also runs this regression harness through
+`bash scripts/check-docs.sh`.

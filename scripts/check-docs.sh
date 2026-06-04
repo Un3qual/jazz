@@ -77,6 +77,13 @@ if [[ -f "scripts/check-execution-queue.sh" ]]; then
 else
   fail "missing required file: scripts/check-execution-queue.sh"
 fi
+if [[ -f "scripts/test-check-execution-queue.sh" ]]; then
+  if ! bash scripts/test-check-execution-queue.sh; then
+    fail "scripts/test-check-execution-queue.sh reported validator regression drift"
+  fi
+else
+  fail "missing required file: scripts/test-check-execution-queue.sh"
+fi
 if command -v prettier >/dev/null 2>&1 && [[ -n "${IN_NIX_SHELL:-}" ]]; then
   markdown_files=(
     "README.md"

@@ -384,7 +384,7 @@ def extract_markdown_heading_index(path: Path) -> tuple[set[str], dict[str, str]
         anchor = markdown_heading_anchor(heading)
         if not anchor:
             continue
-        if anchor in anchors and anchors[anchor] != heading:
+        if anchor in anchors:
             fail(f"{path} has duplicate markdown anchor #{anchor}")
             continue
         anchors[anchor] = heading
@@ -393,8 +393,6 @@ def extract_markdown_heading_index(path: Path) -> tuple[set[str], dict[str, str]
 
 
 def extract_done_archive_ids() -> set[str]:
-    if not DONE_ARCHIVE_PATH.exists():
-        return set()
     text = read_text_file(DONE_ARCHIVE_PATH, "done archive")
     if text is None:
         return set()
@@ -467,6 +465,22 @@ def validate_target_paths(
 
     if require_non_doc and not real_non_doc_paths:
         fail(f"{row_context} is impl but has no concrete non-doc target_paths")
+
+
+def parse_verification_commands(row_context: str, raw_verification: str) -> tuple[list[str], bool]:
+    if normalize_list_item(raw_verification) == "-":
+        return [], False
+
+    verification_commands = split_inline_list(
+        raw_verification, ";", normalize_list_item
+    )
+    verification_sentinel_malformed = any(
+        command == "-" for command in verification_commands
+    )
+    if verification_sentinel_malformed:
+        fail(f"{row_context} has malformed verification sentinel")
+        return [], True
+    return verification_commands, False
 
 
 # parse_block_scalar handles only basic YAML block scalars (">" and "|").
@@ -718,13 +732,11 @@ for row in curation_rows:
     else:
         validate_target_paths(row_context, target_paths, row_kind == "impl")
 
-    if normalize_list_item(row.get("verification", "")) == "-":
-        verification_commands: list[str] = []
-    else:
-        verification_commands = split_inline_list(
-            row.get("verification", ""), ";", normalize_list_item
-        )
-    if not verification_commands:
+    verification_commands, verification_sentinel_malformed = parse_verification_commands(
+        row_context,
+        row.get("verification", ""),
+    )
+    if not verification_commands and not verification_sentinel_malformed:
         fail(f"{row_context} is missing verification")
 
 for row in ready_rows:
@@ -761,20 +773,10 @@ for row in ready_rows:
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing plan_section")
     if not normalize_text(row["deliverable"]):
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing deliverable")
-    if normalize_list_item(row["verification"]) == "-":
-        verification_commands = []
-        verification_sentinel_malformed = False
-    else:
-        verification_commands = split_inline_list(
-            row["verification"], ";", normalize_list_item
-        )
-        verification_sentinel_malformed = any(cmd == "-" for cmd in verification_commands)
-        if verification_sentinel_malformed:
-            fail(
-                f"{QUEUE_PATH} Ready Now row {row_id} has malformed "
-                "verification sentinel"
-            )
-            verification_commands = []
+    verification_commands, verification_sentinel_malformed = parse_verification_commands(
+        f"{QUEUE_PATH} Ready Now row {row_id}",
+        row["verification"],
+    )
     if not verification_commands and not verification_sentinel_malformed:
         fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing verification")
 
