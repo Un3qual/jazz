@@ -114,6 +114,8 @@ tests =
     ("run module graph retains local capabilities needed by exported bindings", testRunModuleGraphRetainsLocalCapabilitiesNeededByExportedBindings),
     ("run module graph retains local capabilities needed by imported capability bodies", testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedCapabilityBodies),
     ("run module graph retains value dependencies needed by imported capability bodies", testRunModuleGraphRetainsValueDependenciesNeededByImportedCapabilityBodies),
+    ("run module graph prunes unused dependency bindings during runtime replay", testRunModuleGraphPrunesUnusedDependencyBindingsDuringRuntimeReplay),
+    ("run module graph keeps inferred runtime hints module scoped", testRunModuleGraphKeepsInferredRuntimeHintsModuleScoped),
     ("run module graph retains local capabilities needed by imported signatures", testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures),
     ("driver retains transitive local capabilities needed by imported signatures", testCollectNeededLocalCapabilityExportsClosesThroughRetainedClassMethodSignatures),
     ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
@@ -1327,6 +1329,57 @@ testRunModuleGraphRetainsValueDependenciesNeededByImportedCapabilityBodies = do
           ),
           ( "src/Lib/Api.jz",
             "module Lib::Api {\nhelper = True.\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> helper.\n}.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphPrunesUnusedDependencyBindingsDuringRuntimeReplay :: IO ()
+testRunModuleGraphPrunesUnusedDependencyBindingsDuringRuntimeReplay = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Util.\nutil.\n}"
+          ),
+          ( "src/Lib/Util.jz",
+            "module Lib::Util {\nutil = 1.\nbomb = 1 / 0.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphKeepsInferredRuntimeHintsModuleScoped :: IO ()
+testRunModuleGraphKeepsInferredRuntimeHintsModuleScoped = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::A as A.\nimport Lib::B as B.\nresult = (A::picked, B::picked).\nresult.\n}"
+          ),
+          ( "src/Lib/A.jz",
+            "module Lib::A {\ndata Box a = Box a.\nclass RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Box(Int)) {\npick = \\(box) -> True.\n}.\nimpl RuntimePick(Box(UInt8)) {\npick = \\(box) -> False.\n}.\nbox = Box 1.\npicked = RuntimePick::pick box.\n}"
+          ),
+          ( "src/Lib/B.jz",
+            "module Lib::B {\ndata Box a = Box a.\nclass RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Box(Int)) {\npick = \\(box) -> True.\n}.\nimpl RuntimePick(Box(UInt8)) {\npick = \\(box) -> False.\n}.\nbox = Box (__kernel_toUInt8 1).\npicked = RuntimePick::pick box.\n}"
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

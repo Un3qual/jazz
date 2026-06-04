@@ -74,7 +74,7 @@ import JazzNext.Compiler.RecursiveBindings
   )
 import JazzNext.Compiler.RuntimeHints
   ( BindingRuntimeHintKey,
-    bindingRuntimeHintKey
+    bindingRuntimeHintKeyInModule
   )
 
 -- | Runtime values produced by the interpreter, including partially applied
@@ -239,6 +239,7 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = Map.fromList indexedStatements
+    modulePathsByStatement = collectModulePathsByStatement indexedStatements
     recursiveGroups =
       inferRecursiveGroupsOrdered
         (Set.union (Map.keysSet initialEnv) (builtinNamesInMode builtinMode))
@@ -358,8 +359,23 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
         Nothing ->
           case Map.lookup statementIndex statementsByIndex of
             Just (SLet _ bindingSpan _) ->
-              Map.lookup (bindingRuntimeHintKey bindingName bindingSpan) bindingTypeHints
+              Map.lookup
+                (bindingRuntimeHintKeyInModule (Map.findWithDefault Nothing statementIndex modulePathsByStatement) bindingName bindingSpan)
+                bindingTypeHints
             _ -> Nothing
+
+    collectModulePathsByStatement :: [(Int, Statement)] -> Map Int (Maybe [Text])
+    collectModulePathsByStatement =
+      snd . foldl' collectModulePath (Nothing, Map.empty)
+      where
+        collectModulePath (currentModulePath, pathsByStatement) (statementIndex, statement) =
+          let nextModulePath =
+                case statement of
+                  SModule _ modulePath -> Just modulePath
+                  _ -> currentModulePath
+           in ( nextModulePath,
+                Map.insert statementIndex nextModulePath pathsByStatement
+              )
 
     signatureNumericTarget :: SignaturePayload -> Maybe NumericType
     signatureNumericTarget signaturePayload =
@@ -544,6 +560,39 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
         EBlock [SExpr _ innerExpr] -> peelSingleExprBlock innerExpr
         _ -> expr
 
+    terminalBlockLocalAliasExpr :: [Statement] -> Maybe Expr
+    terminalBlockLocalAliasExpr statements =
+      case reverse statements of
+        SExpr _ (EVar aliasName) : precedingStatements ->
+          followLocalAlias Set.empty aliasName (localAliasBindings (reverse precedingStatements))
+        _ -> Nothing
+
+    localAliasBindings :: [Statement] -> Map Text Expr
+    localAliasBindings =
+      foldl' collectBinding Map.empty
+      where
+        collectBinding bindings statement =
+          case statement of
+            SLet bindingName _ bindingExpr ->
+              Map.insert (identifierText bindingName) bindingExpr bindings
+            _ -> bindings
+
+    followLocalAlias :: Set Text -> Identifier -> Map Text Expr -> Maybe Expr
+    followLocalAlias visitedNames aliasName localBindings =
+      let aliasNameText = identifierText aliasName
+       in if Set.member aliasNameText visitedNames
+            then Nothing
+            else
+              case Map.lookup aliasNameText localBindings of
+                Just aliasExpr ->
+                  case peelSingleExprBlock aliasExpr of
+                    EVar nextAliasName
+                      | Map.member (identifierText nextAliasName) localBindings ->
+                          followLocalAlias (Set.insert aliasNameText visitedNames) nextAliasName localBindings
+                    _ -> Just aliasExpr
+                Nothing ->
+                  Nothing
+
     lookupRecursivePeer :: Identifier -> [Int] -> Maybe Int
     lookupRecursivePeer targetName =
       foldl' chooseTarget Nothing
@@ -697,6 +746,12 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
               case selectMatchingCaseArmForAlias env scrutineeValue caseArms of
                 Just (_, armEnv, bodyExpr) ->
                   selectedQualifiedMethodAliasTarget methodExprsByKey nextVisitedMethodKeys armEnv methodKey bodyExpr
+                Nothing ->
+                  Right False
+            EBlock statements ->
+              case terminalBlockLocalAliasExpr statements of
+                Just aliasExpr ->
+                  selectedQualifiedMethodAliasTarget methodExprsByKey nextVisitedMethodKeys env methodKey aliasExpr
                 Nothing ->
                   Right False
             EVar aliasName ->

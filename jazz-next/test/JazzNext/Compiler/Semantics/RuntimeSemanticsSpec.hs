@@ -172,6 +172,7 @@ tests =
     ("qualified method dispatch normalizes hinted list aliases", testQualifiedMethodDispatchNormalizesHintedListAliases),
     ("qualified method dispatch normalizes hinted function aliases", testQualifiedMethodDispatchNormalizesHintedFunctionAliases),
     ("qualified method dispatch treats defaulted integer bindings as Int64", testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64),
+    ("defaulted integer binding hints reject values outside Int64 range", testDefaultedIntegerBindingHintRejectsOutsideInt64Range),
     ("qualified method dispatch preserves inferred narrow integer bindings", testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding),
     ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals),
     ("qualified method dispatch preserves ADT application binding hints", testQualifiedMethodDispatchPreservesAdtApplicationBindingHint),
@@ -183,6 +184,7 @@ tests =
     ("qualified zero-argument method dispatch returns value", testQualifiedZeroArgumentMethodDispatchReturnsValue),
     ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias),
     ("qualified method dispatch rejects wrapped self alias", testQualifiedMethodDispatchRejectsWrappedSelfAlias),
+    ("qualified method dispatch rejects block-local self alias", testQualifiedMethodDispatchRejectsBlockLocalSelfAlias),
     ("qualified method dispatch rejects mutual method alias cycle", testQualifiedMethodDispatchRejectsMutualMethodAliasCycle),
     ("qualified method dispatch rejects full-arity runtime ambiguity", testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity),
     ("qualified method dispatch executes local ADT impl body", testQualifiedMethodDispatchExecutesLocalAdtImplBody),
@@ -741,7 +743,7 @@ testFloatConversionRuntimeSuccess = do
 testDynamicIntegerToFloat64OverflowRuntimeError :: IO ()
 testDynamicIntegerToFloat64OverflowRuntimeError = do
   let justAboveFloat64MaxInteger = show ((floor (1.7976931348623157e308 :: Double) :: Integer) + 1)
-      source = Text.pack ("x = " <> justAboveFloat64MaxInteger <> ".\ntoFloat64 x.")
+      source = Text.pack ("id = \\(value) -> value.\ntoFloat64 (id " <> justAboveFloat64MaxInteger <> ").")
   result <- runSource defaultWarningSettings source
   assertEqual "compile errors" [] (runCompileErrors result)
   assertSingleDiagnosticContains
@@ -1641,6 +1643,20 @@ testQualifiedMethodDispatchKeepsNestedInferredHintsScoped = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
+testDefaultedIntegerBindingHintRejectsOutsideInt64Range :: IO ()
+testDefaultedIntegerBindingHintRejectsOutsideInt64Range = do
+  result <- runSource defaultWarningSettings "value = 18446744073709551616.\nvalue."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "defaulted integer runtime code"
+    "E3024"
+    (runRuntimeErrors result)
+  assertSingleDiagnosticContains
+    "defaulted integer runtime text"
+    "outside Int64 range"
+    (runRuntimeErrors result)
+  assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
 testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime :: IO ()
 testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do
   let result =
@@ -1746,6 +1762,38 @@ testQualifiedMethodDispatchRejectsWrappedSelfAlias = do
         (runRuntimeErrors result)
       assertSingleDiagnosticContains
         "wrapped qualified method self alias runtime text"
+        "recursive qualified method alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testQualifiedMethodDispatchRejectsBlockLocalSelfAlias :: IO ()
+testQualifiedMethodDispatchRejectsBlockLocalSelfAlias = do
+  maybeResult <-
+    timeout
+      1000000
+      ( try
+          ( runSource
+              defaultWarningSettings
+              ( "class RuntimeFlag(a) {\nenabled :: Bool.\n}.\n"
+                  <> "impl RuntimeFlag(Int) {\nenabled = { helper = RuntimeFlag::enabled.\nhelper. }.\n}.\n"
+                  <> "RuntimeFlag::enabled."
+              )
+          ) ::
+          IO (Either SomeException RunResult)
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected block-local qualified method self alias to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for block-local qualified method self alias, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "block-local qualified method self alias runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "block-local qualified method self alias runtime text"
         "recursive qualified method alias cycle"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)

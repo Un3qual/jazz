@@ -89,7 +89,7 @@ import JazzNext.Compiler.RecursiveBindings
   )
 import JazzNext.Compiler.RuntimeHints
   ( BindingRuntimeHintKey,
-    bindingRuntimeHintKey
+    bindingRuntimeHintKeyInModule
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -1131,19 +1131,13 @@ inferScopeType builtinMode initialEnv initialState statements =
                         fmap
                           (defaultLiteralTypes . resolveType stateAfterSignatureCheck)
                           (Map.lookup statementIndex bindingSeedsByStatement)
-                  runtimeHintType =
-                    case pendingSignatureType of
-                      Just pendingSignature
-                        | pendingSignatureName pendingSignature == nameText ->
-                            Just (pendingSignatureDeclaredType pendingSignature)
-                      _ -> valueType
                   stateAfterRuntimeHint =
-                    case runtimeHintType >>= runtimeHintFromExpressionType stateAfterSignatureCheck of
+                    case nextBindingType >>= runtimeHintFromExpressionType stateAfterSignatureCheck of
                       Just runtimeHint ->
                         stateAfterSignatureCheck
                           { inferRuntimeTypeHints =
                               Map.insert
-                                (bindingRuntimeHintKey name bindingSpan)
+                                (bindingRuntimeHintKeyInModule (inferCurrentModulePath stateAfterSignatureCheck) name bindingSpan)
                                 runtimeHint
                                 (inferRuntimeTypeHints stateAfterSignatureCheck)
                           }
@@ -2653,7 +2647,7 @@ defaultLiteralTypes expressionType =
 
 runtimeHintFromExpressionType :: InferState -> ExpressionType -> Maybe ConstraintSignatureType
 runtimeHintFromExpressionType state expressionType =
-  expressionTypeToRuntimeHint (resolveType state expressionType)
+  expressionTypeToRuntimeHint (defaultLiteralTypes (resolveType state expressionType))
 
 expressionTypeToRuntimeHint :: ExpressionType -> Maybe ConstraintSignatureType
 expressionTypeToRuntimeHint expressionType =

@@ -626,7 +626,6 @@ importedQualifiedMethodFactsProgram =
         ],
       SModule (SourceSpan 6 1) ["App"],
       SImport (SourceSpan 7 1) ["Lib"] Nothing Nothing,
-      SClass (SourceSpan 8 1) "RemoteEq" ["a"] [],
       SExpr
         (SourceSpan 9 1)
         ( EApply

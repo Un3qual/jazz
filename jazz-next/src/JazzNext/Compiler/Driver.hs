@@ -1685,7 +1685,7 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
   where
     keepModuleRuntimeReplayStatement statement =
       case statement of
-        SModule _ _ -> []
+        SModule {} -> [statement]
         SExpr spanValue exprValue ->
           [ SExpr
               spanValue
@@ -1697,12 +1697,18 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
         SClass _ capabilityName _ _ ->
           [statement | isEntryModule || Set.member (identifierText capabilityName) neededCapabilityExports]
         SLet bindingName spanValue valueExpr
-          | Set.notMember (identifierText bindingName) hiddenImportExports ->
+          | shouldKeepRuntimeBinding bindingName,
+            Set.notMember (identifierText bindingName) hiddenImportExports ->
               [ SLet
                   bindingName
                   spanValue
                   (rewriteModuleExportReferences modulePath hiddenImportExports valueExpr)
               ]
+        SLet {} -> []
+        SSignature signatureName spanValue signatureValue
+          | shouldKeepRuntimeBinding signatureName,
+            Set.notMember (identifierText signatureName) hiddenImportExports ->
+              [ SSignature signatureName spanValue signatureValue ]
         SSignature signatureName spanValue signatureValue
           | Set.member (identifierText signatureName) hiddenImportExports,
             Set.member (identifierText signatureName) neededModuleExports ->
@@ -1711,6 +1717,7 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
                   spanValue
                   signatureValue
               ]
+        SSignature {} -> []
         SImpl spanValue capabilityName arguments methods ->
           [ SImpl
               spanValue
@@ -1723,8 +1730,21 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
         _ -> [statement]
     dataTypeNames = collectDataTypeNames expr
 
+    shouldKeepRuntimeBinding bindingName =
+      isEntryModule || isNeededRuntimeBindingName (identifierText bindingName)
+
+    isNeededRuntimeBindingName bindingNameText =
+      Set.member bindingNameText neededModuleExports
+        || case Text.stripPrefix (moduleExportQualifiedPrefix modulePath) bindingNameText of
+          Just exportedName -> Set.member exportedName neededModuleExports
+          Nothing -> False
+
     hiddenValidationIdentifier name =
       mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
+
+moduleExportQualifiedPrefix :: [Text] -> Text
+moduleExportQualifiedPrefix modulePath =
+  qualifiedIdentifierText "__module" (renderModulePath modulePath <> "::")
 
 collectDataTypeNames :: Expr -> Set Text
 collectDataTypeNames expr =
