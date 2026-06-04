@@ -85,6 +85,7 @@ tests =
     ("source pipeline rejects duplicate ADT impl declarations", testSourceRejectsDuplicateAdtImplDeclarations),
     ("compiler keeps nested capability facts scoped", testSourceKeepsNestedCapabilityFactsScoped),
     ("compiler exposes imported qualified method bodies", testCompilerExposesImportedQualifiedMethodBodies),
+    ("compiler hides alias-only imported capability facts in signatures", testCompilerHidesAliasOnlyImportedCapabilityFactsInSignatures),
     ("source pipeline treats capability declarations as signature separators", testSourceRejectsSignatureSeparatedByCapabilityDeclaration),
     ("source pipeline rejects separated signature", testSourceRejectsSeparatedSignature),
     ("source pipeline rejects signature name mismatch", testSourceRejectsSignatureNameMismatch),
@@ -596,6 +597,14 @@ testCompilerExposesImportedQualifiedMethodBodies = do
   result <- compileExpr defaultWarningSettings importedQualifiedMethodFactsProgram
   assertEqual "imported qualified method compile errors" [] (compileErrors result)
 
+testCompilerHidesAliasOnlyImportedCapabilityFactsInSignatures :: IO ()
+testCompilerHidesAliasOnlyImportedCapabilityFactsInSignatures = do
+  result <- compileExpr defaultWarningSettings aliasOnlyImportedCapabilityFactsProgram
+  assertSingleDiagnosticContains
+    "alias-only capability fact isolation"
+    "missing class declaration 'RemoteEq'"
+    (compileErrors result)
+
 importedQualifiedMethodFactsProgram :: Expr
 importedQualifiedMethodFactsProgram =
   EBlock
@@ -632,6 +641,21 @@ importedQualifiedMethodFactsProgram =
             (EApply (EVar "RemoteEq::equals") (ELit (LInt 1)))
             (ELit (LInt 1))
         )
+    ]
+
+aliasOnlyImportedCapabilityFactsProgram :: Expr
+aliasOnlyImportedCapabilityFactsProgram =
+  EBlock
+    [ SModule (SourceSpan 1 1) ["Lib"],
+      SClass (SourceSpan 2 1) "RemoteEq" ["a"] [],
+      SImpl (SourceSpan 3 1) "RemoteEq" [ConstraintTypeName "Int"] [],
+      SModule (SourceSpan 4 1) ["App"],
+      SImport (SourceSpan 5 1) ["Lib"] (Just "Lib") Nothing,
+      SSignature
+        "x"
+        (SourceSpan 6 1)
+        (ConstrainedSignature [SignatureConstraint "RemoteEq" [ConstraintTypeName "Int"]] (ConstraintTypeName "Int")),
+      SLet "x" (SourceSpan 7 1) (ELit (LInt 1))
     ]
 
 testSourceRejectsSignatureSeparatedByCapabilityDeclaration :: IO ()

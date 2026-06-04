@@ -921,7 +921,7 @@ visibleImportCapabilityExportsForModule capabilityExportsByModule expr =
     EBlock statements ->
       Map.fromListWith Set.union
         [ (modulePath, visibleCapabilityNames modulePath maybeSymbolNames)
-          | SImport _ modulePath _ maybeSymbolNames <- statements,
+          | SImport _ modulePath Nothing maybeSymbolNames <- statements,
             not (Set.null (visibleCapabilityNames modulePath maybeSymbolNames))
         ]
       where

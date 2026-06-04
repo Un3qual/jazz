@@ -1355,43 +1355,46 @@ enterModuleCapabilityScope baselineFacts modulePath state =
     }
 
 importModuleCapabilityFacts :: [Text] -> Maybe Text -> Maybe [Text] -> InferState -> InferState
-importModuleCapabilityFacts modulePath _maybeAlias maybeSymbolNames state =
+importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state =
   applyCapabilityFacts
     ( mergeCapabilityFacts
         (capabilityFactsFromState state)
-        (filterImportedCapabilityFacts maybeSymbolNames (Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state)))
+        (filterImportedCapabilityFacts maybeAlias maybeSymbolNames (Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state)))
     )
     state
 
-filterImportedCapabilityFacts :: Maybe [Text] -> ScopeCapabilityFacts -> ScopeCapabilityFacts
-filterImportedCapabilityFacts maybeSymbolNames facts =
-  case maybeSymbolNames of
-    Nothing -> facts
-    Just symbolNames ->
-      facts
-        { scopeClassFacts =
-            Map.filterWithKey
-              (\className _ -> Set.member className visibleSymbols)
-              (scopeClassFacts facts),
-          scopeConcreteImplFacts =
-            Set.filter
-              (\implKey -> Set.member (concreteImplFactClassName implKey) visibleSymbols)
-              (scopeConcreteImplFacts facts),
-          scopeClassMethodSignatures =
-            Map.filterWithKey
-              (\methodKey _ -> qualifiedMethodClassIsVisible methodKey)
-              (scopeClassMethodSignatures facts),
-          scopeConcreteImplMethods =
-            Map.filterWithKey
-              (\methodKey _ -> qualifiedMethodClassIsVisible methodKey)
-              (scopeConcreteImplMethods facts)
-        }
-      where
-        visibleSymbols = Set.fromList symbolNames
-        qualifiedMethodClassIsVisible methodKey =
-          case splitQualifiedMethodKey methodKey of
-            Just (className, _) -> Set.member className visibleSymbols
-            Nothing -> False
+filterImportedCapabilityFacts :: Maybe Text -> Maybe [Text] -> ScopeCapabilityFacts -> ScopeCapabilityFacts
+filterImportedCapabilityFacts maybeAlias maybeSymbolNames facts =
+  case maybeAlias of
+    Just _ -> emptyScopeCapabilityFacts
+    Nothing ->
+      case maybeSymbolNames of
+        Nothing -> facts
+        Just symbolNames ->
+          facts
+            { scopeClassFacts =
+                Map.filterWithKey
+                  (\className _ -> Set.member className visibleSymbols)
+                  (scopeClassFacts facts),
+              scopeConcreteImplFacts =
+                Set.filter
+                  (\implKey -> Set.member (concreteImplFactClassName implKey) visibleSymbols)
+                  (scopeConcreteImplFacts facts),
+              scopeClassMethodSignatures =
+                Map.filterWithKey
+                  (\methodKey _ -> qualifiedMethodClassIsVisible methodKey)
+                  (scopeClassMethodSignatures facts),
+              scopeConcreteImplMethods =
+                Map.filterWithKey
+                  (\methodKey _ -> qualifiedMethodClassIsVisible methodKey)
+                  (scopeConcreteImplMethods facts)
+            }
+          where
+            visibleSymbols = Set.fromList symbolNames
+            qualifiedMethodClassIsVisible methodKey =
+              case splitQualifiedMethodKey methodKey of
+                Just (className, _) -> Set.member className visibleSymbols
+                Nothing -> False
 
 seedStatementCapabilityFact :: InferState -> Statement -> InferState
 seedStatementCapabilityFact state statement =

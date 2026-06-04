@@ -108,7 +108,7 @@ tests =
     ("compile module graph accepts qualified alias use before import", testCompileModuleGraphQualifiedAliasLookupBeforeImport),
     ("run module graph allows bundled class-qualified method lookup", testRunModuleGraphAllowsBundledClassQualifiedMethodLookup),
     ("run module graph allows imported class-qualified method lookup", testRunModuleGraphAllowsImportedClassQualifiedMethodLookup),
-    ("run module graph allows aliased imported class-qualified method lookup", testRunModuleGraphAllowsAliasedImportedClassQualifiedMethodLookup),
+    ("compile module graph rejects alias-only imported class-qualified method lookup", testCompileModuleGraphRejectsAliasOnlyImportedClassQualifiedMethodLookup),
     ("run module graph allows imported pre-module class-qualified method lookup", testRunModuleGraphAllowsImportedPreModuleClassQualifiedMethodLookup),
     ("run module graph keeps hidden impls out of runtime dispatch", testRunModuleGraphKeepsHiddenImplsOutOfRuntimeDispatch),
     ("run module graph retains local capabilities needed by exported bindings", testRunModuleGraphRetainsLocalCapabilitiesNeededByExportedBindings),
@@ -119,6 +119,7 @@ tests =
     ("run module graph keeps nested inferred runtime hints module scoped", testRunModuleGraphKeepsNestedInferredRuntimeHintsModuleScoped),
     ("run module graph retains local capabilities needed by imported signatures", testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures),
     ("run module graph namespaces hidden retained local capabilities", testRunModuleGraphNamespacesHiddenRetainedLocalCapabilities),
+    ("run module graph namespaces alias-retained local capabilities", testRunModuleGraphNamespacesAliasRetainedLocalCapabilities),
     ("driver retains transitive local capabilities needed by imported signatures", testCollectNeededLocalCapabilityExportsClosesThroughRetainedClassMethodSignatures),
     ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
     ("run module graph reports cycle diagnostics", testRunModuleGraphCycle),
@@ -1192,18 +1193,22 @@ testRunModuleGraphAllowsImportedClassQualifiedMethodLookup = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
-testRunModuleGraphAllowsAliasedImportedClassQualifiedMethodLookup :: IO ()
-testRunModuleGraphAllowsAliasedImportedClassQualifiedMethodLookup = do
+testCompileModuleGraphRejectsAliasOnlyImportedClassQualifiedMethodLookup :: IO ()
+testCompileModuleGraphRejectsAliasOnlyImportedClassQualifiedMethodLookup = do
   result <-
-    runModuleGraphWithPrelude
+    compileModuleGraphWithPrelude
       defaultWarningSettings
       Nothing
       resolverConfig
       ["App", "Main"]
       lookupSource
-  assertEqual "compile errors" [] (runCompileErrors result)
-  assertEqual "runtime errors" [] (runRuntimeErrors result)
-  assertEqual "runtime output" (Just "True") (runOutput result)
+  case compileErrors result of
+    [err] -> do
+      let rendered = renderDiagnostic err
+      assertContains "alias-only class-qualified import code" "E4013" rendered
+      assertContains "hidden capability class name" "Eq" rendered
+      assertContains "method name" "equals" rendered
+    _ -> failTest "expected exactly one alias-only class-qualified import error"
   where
     sourceMap =
       Map.fromList
@@ -1451,6 +1456,33 @@ testRunModuleGraphNamespacesHiddenRetainedLocalCapabilities = do
       Map.fromList
         [ ( "src/App/Main.jz",
             "module App::Main {\nimport Lib::A (pickedA).\nimport Lib::B (pickedB).\n(pickedA, pickedB).\n}"
+          ),
+          ( "src/Lib/A.jz",
+            "module Lib::A {\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> True.\n}.\npickedA = Choice::pick 1.\n}"
+          ),
+          ( "src/Lib/B.jz",
+            "module Lib::B {\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> False.\n}.\npickedB = Choice::pick 1.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphNamespacesAliasRetainedLocalCapabilities :: IO ()
+testRunModuleGraphNamespacesAliasRetainedLocalCapabilities = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::A as A.\nimport Lib::B as B.\n(A::pickedA, B::pickedB).\n}"
           ),
           ( "src/Lib/A.jz",
             "module Lib::A {\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> True.\n}.\npickedA = Choice::pick 1.\n}"

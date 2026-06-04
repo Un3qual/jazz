@@ -899,9 +899,12 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           Right
             ( Set.union
                 visibleClassNames
-                ( case parsedImportSymbols importDecl of
-                    Nothing -> exportedClassNames
-                    Just symbolNames -> Set.intersection exportedClassNames (Set.fromList symbolNames)
+                ( case parsedImportAlias importDecl of
+                    Just _ -> Set.empty
+                    Nothing ->
+                      case parsedImportSymbols importDecl of
+                        Nothing -> exportedClassNames
+                        Just symbolNames -> Set.intersection exportedClassNames (Set.fromList symbolNames)
                 )
             )
 
