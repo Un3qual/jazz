@@ -6,13 +6,13 @@ size: L
 kind: impl
 autonomous_ready: no
 depends_on: []
-last_verified: 2026-06-01
+last_verified: 2026-06-02
 plan_section: "Follow-up: abstraction semantics beyond explicit class parameter metadata"
 target_paths: []
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Class/impl abstraction semantics beyond queued explicit class parameter metadata remain blocked until dispatch, dictionary, and runtime contracts define target paths and focused verification."
+deliverable: "Class/impl abstraction semantics outside the queued typed qualified dispatch and bundled-prelude Eq(Int) method-body children remain blocked until dictionary, default-method, superclass, solver, module-method, or broader runtime-evidence contracts define target paths and focused verification."
 ---
 
 # Jazz Spec-Cleanup #1: Authoritative Syntax Implementation Plan
@@ -380,11 +380,24 @@ of this follow-up:
 
 - `docs/plans/2026-06-01-jazz-next-impl-method-body-metadata.md`
 
-The next child plan queues explicit class parameter metadata. Further
-abstraction work stays blocked until that prerequisite lands and separate
-contracts define qualified method dispatch behavior, dictionary or evidence
-representation, runtime behavior, solver/defaulting behavior, and focused
-active-path target files/tests.
+On `2026-06-01`, queue execution also completed explicit class parameter
+metadata, and on `2026-06-02` it completed the first single-target qualified
+method dispatch child plan:
+
+- `docs/plans/2026-06-01-jazz-next-explicit-class-parameters.md`
+- `docs/plans/2026-06-01-jazz-next-qualified-method-dispatch.md`
+
+On `2026-06-02`, queue curation split two concrete children out of the
+remaining abstraction follow-up and moved them to `Ready Now`:
+
+- `docs/plans/2026-06-02-jazz-next-typed-qualified-method-dispatch.md`
+- `docs/plans/2026-06-02-jazz-next-bundled-prelude-eq-int-method.md`
+
+Further abstraction work outside those children stays blocked until separate
+contracts define dictionary or evidence representation, default methods,
+superclasses, solver/defaulting behavior, broader bundled-prelude method
+families, module export/import method behavior, and focused active-path target
+files/tests.
 
 ## Historical Verification Evidence
 

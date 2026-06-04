@@ -91,6 +91,7 @@ tests =
     ("parses abstraction keywords as ordinary binding names", testParsesAbstractionKeywordsAsBindingNames),
     ("parses abstraction keywords as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames),
     ("parses trait as an ordinary import alias", testParsesTraitAsImportAlias),
+    ("lowers class-qualified method reference as variable", testLowersClassQualifiedMethodReference),
     ("rejects class capability declarations without parameters", testRejectsClassCapabilityDeclarationWithoutParameters),
     ("rejects class capability declarations with multiple parameters", testRejectsClassCapabilityDeclarationWithMultipleParameters),
     ("parses explicit-parameter class capability declarations into surface AST", testParsesParameterizedClassCapabilityDeclaration),
@@ -736,6 +737,28 @@ testParsesTraitAsImportAlias =
         )
     )
     (parseSurfaceProgram "import Lib::Math as trait.\ntrait::subtract.")
+
+testLowersClassQualifiedMethodReference :: IO ()
+testLowersClassQualifiedMethodReference =
+  assertRight
+    "parse + lower class-qualified method reference"
+    (parseSurfaceProgram "result = Eq::equals 1 1.\nresult.")
+    ( \surfaceProgram ->
+        assertEqual
+          "lowered class-qualified method reference"
+          ( EBlock
+              [ SLet
+                  "result"
+                  (SourceSpan 1 1)
+                  ( EApply
+                      (EApply (EVar "Eq::equals") (ELit (LInt 1)))
+                      (ELit (LInt 1))
+                  ),
+                SExpr (SourceSpan 2 1) (EVar "result")
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
 
 testRejectsClassCapabilityDeclarationWithoutParameters :: IO ()
 testRejectsClassCapabilityDeclarationWithoutParameters =

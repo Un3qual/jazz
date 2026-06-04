@@ -78,6 +78,9 @@ tests =
     ("source pipeline rejects duplicate ADT declarations before structural equality", testSourcePipelineRejectsDuplicateAdtDeclarationBeforeStructuralEquality),
     ("source pipeline rejects structural ADT equality for partial constructors", testSourcePipelineRejectsStructuralAdtPartialConstructorEquality),
     ("source pipeline rejects structural ADT equality across different types", testSourcePipelineRejectsStructuralAdtTypeMismatch),
+    ("source pipeline rejects equality over operator-section callable values", testSourcePipelineRejectsOperatorSectionCallableEquality),
+    ("source pipeline rejects equality over bare operator callable values", testSourcePipelineRejectsBareOperatorCallableEquality),
+    ("source pipeline rejects equality over bundled callable values", testSourcePipelineRejectsBundledCallableEquality),
     ("source pipeline preserves numeric width through left integer literal arithmetic", testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral),
     ("source pipeline preserves numeric width through left integer literal section", testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteralSection),
     ("source pipeline preserves numeric width through right integer literal section", testSourcePipelinePreservesNumericWidthWithRightIntegerLiteralSection),
@@ -96,8 +99,9 @@ tests =
     ("source pipeline accepts explicitly targeted Float16 and Float32 fractional literals", testSourcePipelineAcceptsTargetedFloat16Float32FractionalLiterals),
     ("source pipeline accepts same-width Float64 arithmetic", testSourcePipelineAcceptsSameWidthFloat64Arithmetic),
     ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
-    ("source pipeline rejects same-width Float16 and Float32 arithmetic", testSourcePipelineRejectsSameWidthFloat16Float32Arithmetic),
-    ("source pipeline reports narrow-float arithmetic guidance", testSourcePipelineReportsNarrowFloatArithmeticGuidance),
+    ("source pipeline accepts same-width Float16 and Float32 arithmetic", testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic),
+    ("source pipeline accepts targeted Float16 and Float32 arithmetic", testSourcePipelineAcceptsTargetedFloat16Float32Arithmetic),
+    ("source pipeline accepts Float16 and Float32 arithmetic boundary values", testSourcePipelineAcceptsFloat16Float32ArithmeticBoundaryValues),
     ("source pipeline accepts same-width Float64 comparison and equality", testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality),
     ("source pipeline accepts same-width Float16 and Float32 comparison and equality", testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality),
     ("source pipeline accepts same-width Float64 comparison/equality operator values", testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues),
@@ -330,6 +334,33 @@ testSourcePipelineRejectsStructuralAdtTypeMismatch =
     "different ADT type equality"
     "E2004"
 
+testSourcePipelineRejectsOperatorSectionCallableEquality :: IO ()
+testSourcePipelineRejectsOperatorSectionCallableEquality = do
+  assertCallableEqualityRejected
+    "left operator section equality"
+    "left = (1 +).\nright = (1 +).\nsame = left == right."
+  assertCallableEqualityRejected
+    "right operator section inequality"
+    "left = (+ 1).\nright = (+ 1).\ndifferent = left != right."
+
+testSourcePipelineRejectsBareOperatorCallableEquality :: IO ()
+testSourcePipelineRejectsBareOperatorCallableEquality = do
+  assertCallableEqualityRejected
+    "bare arithmetic operator equality"
+    "same = (+) == (+)."
+  assertCallableEqualityRejected
+    "bare equality operator inequality"
+    "different = (==) != (==)."
+
+testSourcePipelineRejectsBundledCallableEquality :: IO ()
+testSourcePipelineRejectsBundledCallableEquality = do
+  assertCallableEqualityRejectedWithBundledPrelude
+    "bundled builtin equality"
+    "same = hd == hd."
+  assertCallableEqualityRejectedWithBundledPrelude
+    "bundled builtin inequality"
+    "different = map != map."
+
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral :: IO ()
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral =
   assertCompiles "y :: UInt8.\ny = 2.\nx = 1 + y.\nz :: UInt8.\nz = x."
@@ -438,35 +469,20 @@ testSourcePipelineAcceptsSameWidthFloat64OperatorValues =
   assertCompilesWithBundledPrelude
     "x :: Float64.\nx = (+) (toFloat64 1) (toFloat64 2)."
 
-testSourcePipelineRejectsSameWidthFloat16Float32Arithmetic :: IO ()
-testSourcePipelineRejectsSameWidthFloat16Float32Arithmetic = do
-  assertCompileErrorWithBundledPrelude
-    "a16 :: Float16.\na16 = toFloat16 65504.\nb16 :: Float16.\nb16 = toFloat16 1.\nx16 = a16 + b16."
-    "Float16 arithmetic requires width-preserving runtime support"
-    "E2003"
-  assertCompileErrorWithBundledPrelude
-    "a32 :: Float32.\na32 = toFloat32 1.\nb32 :: Float32.\nb32 = toFloat32 2.\nx32 :: Float32.\nx32 = a32 + b32."
-    "Float32 arithmetic requires width-preserving runtime support"
-    "E2003"
+testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic :: IO ()
+testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic =
+  assertCompilesWithBundledPrelude
+    "a16 :: Float16.\na16 = toFloat16 8.\nb16 :: Float16.\nb16 = toFloat16 2.\nadd16 :: Float16.\nadd16 = a16 + b16.\nsub16 :: Float16.\nsub16 = a16 - b16.\nmul16 :: Float16.\nmul16 = a16 * b16.\ndiv16 :: Float16.\ndiv16 = a16 / b16.\na32 :: Float32.\na32 = toFloat32 8.\nb32 :: Float32.\nb32 = toFloat32 2.\nadd32 :: Float32.\nadd32 = a32 + b32.\nsub32 :: Float32.\nsub32 = a32 - b32.\nmul32 :: Float32.\nmul32 = a32 * b32.\ndiv32 :: Float32.\ndiv32 = a32 / b32."
 
-testSourcePipelineReportsNarrowFloatArithmeticGuidance :: IO ()
-testSourcePipelineReportsNarrowFloatArithmeticGuidance = do
-  result <-
-    compileSourceWithPrelude
-      defaultWarningSettings
-      (Just bundledPreludeSource)
-      "a16 :: Float16.\na16 = toFloat16 65504.\nb16 :: Float16.\nb16 = toFloat16 1.\nx16 = a16 + b16."
-  case compileErrors result of
-    [err] -> do
-      let rendered = renderDiagnostic err
-      assertContains "narrow arithmetic error code" "E2003" rendered
-      assertContains "narrow arithmetic support note" "Float16/Float32 arithmetic is not yet supported" rendered
-      assertContains "narrow arithmetic conversion guidance" "convert operands to Float64" rendered
-    errors ->
-      failTest
-        ( "expected one narrow-float arithmetic diagnostic, got "
-            <> Text.pack (show errors)
-        )
+testSourcePipelineAcceptsTargetedFloat16Float32Arithmetic :: IO ()
+testSourcePipelineAcceptsTargetedFloat16Float32Arithmetic =
+  assertCompiles
+    "a16 :: Float16.\na16 = 8.0.\nb16 :: Float16.\nb16 = 2.0.\nadd16 :: Float16.\nadd16 = a16 + b16.\nsub16 :: Float16.\nsub16 = a16 - b16.\nmul16 :: Float16.\nmul16 = a16 * b16.\ndiv16 :: Float16.\ndiv16 = a16 / b16.\na32 :: Float32.\na32 = 8.0.\nb32 :: Float32.\nb32 = 2.0.\nadd32 :: Float32.\nadd32 = a32 + b32.\nsub32 :: Float32.\nsub32 = a32 - b32.\nmul32 :: Float32.\nmul32 = a32 * b32.\ndiv32 :: Float32.\ndiv32 = a32 / b32."
+
+testSourcePipelineAcceptsFloat16Float32ArithmeticBoundaryValues :: IO ()
+testSourcePipelineAcceptsFloat16Float32ArithmeticBoundaryValues =
+  assertCompilesWithBundledPrelude
+    "max16 :: Float16.\nmax16 = toFloat16 65504.\nzero16 :: Float16.\nzero16 = toFloat16 0.\nstaysMax16 :: Float16.\nstaysMax16 = max16 + zero16.\nminSub16 :: Float16.\nminSub16 = toFloat16 0.000000059604644775390625.\nscaled16 :: Float16.\nscaled16 = minSub16 * toFloat16 2.\nedge32 :: Float32.\nedge32 = toFloat32 65504.\nzero32 :: Float32.\nzero32 = toFloat32 0.\nstaysEdge32 :: Float32.\nstaysEdge32 = edge32 + zero32."
 
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality :: IO ()
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality =
@@ -710,6 +726,27 @@ assertCompileErrorWithPrelude preludeSource source failureLabel errorCode = do
   assertSingleDiagnosticContains
     (Text.pack failureLabel)
     (Text.pack errorCode)
+    (compileErrors result)
+
+assertCallableEqualityRejected :: String -> Text.Text -> IO ()
+assertCallableEqualityRejected failureLabel source = do
+  result <- compileSource defaultWarningSettings source
+  assertCallableEqualityDiagnostic failureLabel result
+
+assertCallableEqualityRejectedWithBundledPrelude :: String -> Text.Text -> IO ()
+assertCallableEqualityRejectedWithBundledPrelude failureLabel source = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just bundledPreludeSource) source
+  assertCallableEqualityDiagnostic failureLabel result
+
+assertCallableEqualityDiagnostic :: String -> CompileResult -> IO ()
+assertCallableEqualityDiagnostic failureLabel result = do
+  assertSingleDiagnosticContains
+    (Text.pack (failureLabel <> " code"))
+    "E2004"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    (Text.pack (failureLabel <> " callable text"))
+    "callable values are not equality-supported"
     (compileErrors result)
 
 mkProgram :: Expr -> Expr

@@ -25,6 +25,7 @@ import JazzNext.Compiler.Analyzer
   )
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    ClassMethodSignature (..),
     ConstraintSignatureType (..),
     DataConstructorArgument (..),
     DataConstructor (..),
@@ -52,9 +53,13 @@ import JazzNext.Compiler.BuiltinCatalog
 import JazzNext.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
     concreteImplFactKey,
+    concreteImplFactClassName,
     constraintImplFactKey,
     identifierLooksLikeTypeVariable,
-    renderConstraintSignatureType
+    qualifiedMethodKey,
+    renderConstraintSignatureType,
+    splitQualifiedMethodKey,
+    substituteClassMethodSignature
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic (..),
@@ -72,7 +77,8 @@ import JazzNext.Compiler.FractionalLiteral
   )
 import JazzNext.Compiler.Identifier
   ( Identifier,
-    identifierText
+    identifierText,
+    mkIdentifier
   )
 import JazzNext.Compiler.RecursiveBindings
   ( collectBindingNames,
@@ -80,6 +86,10 @@ import JazzNext.Compiler.RecursiveBindings
     freeVarsScopeWithBound,
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings
+  )
+import JazzNext.Compiler.RuntimeHints
+  ( BindingRuntimeHintKey,
+    bindingRuntimeHintKeyInModule
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -92,7 +102,8 @@ import JazzNext.Compiler.WarningConfig
 data InferenceResult = InferenceResult
   { inferredExpr :: Expr,
     inferredWarnings :: [WarningRecord],
-    inferredErrors :: [Diagnostic]
+    inferredErrors :: [Diagnostic],
+    inferredRuntimeTypeHints :: Map BindingRuntimeHintKey ConstraintSignatureType
   }
   deriving (Eq, Show)
 
@@ -119,12 +130,13 @@ inferExpressionWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndice
       hiddenStatementIndices
       settings
       canonicalExpr
-  let typeErrors = collectExprTypeErrors builtinMode canonicalExpr
+  let (typeErrors, runtimeTypeHints) = collectExprTypeInfo builtinMode canonicalExpr
   pure
     InferenceResult
       { inferredExpr = canonicalExpr,
         inferredWarnings = warnings,
-        inferredErrors = errors ++ typeErrors
+        inferredErrors = errors ++ typeErrors,
+        inferredRuntimeTypeHints = runtimeTypeHints
       }
 
 inferExpressionDefault :: Expr -> IO InferenceResult
@@ -244,6 +256,12 @@ type TypeEnv = Map Text TypeBinding
 data DataTypeBinding = DataTypeBinding [Identifier] [[ConstructorArgumentType]]
   deriving (Eq, Show)
 
+data ClassMethodType = ClassMethodType Text SignaturePayload
+  deriving (Eq, Show)
+
+data ImplMethodType = ImplMethodType ConstraintSignatureType
+  deriving (Eq, Show)
+
 -- | Mutable inference state threaded explicitly through the checker.
 data InferState = InferState
   { inferNextTypeVar :: Int,
@@ -257,8 +275,12 @@ data InferState = InferState
     inferDataTypes :: Map Text DataTypeBinding,
     inferClassFacts :: Map Text Int,
     inferConcreteImplFacts :: Set Text,
+    inferClassMethodSignatures :: Map Text ClassMethodType,
+    inferConcreteImplMethods :: Map Text [ImplMethodType],
     inferCurrentModulePath :: Maybe [Text],
+    inferCurrentModuleLocalCapabilityFacts :: ScopeCapabilityFacts,
     inferModuleCapabilityFacts :: Map [Text] ScopeCapabilityFacts,
+    inferRuntimeTypeHints :: Map BindingRuntimeHintKey ConstraintSignatureType,
     inferErrorsRev :: [Diagnostic],
     inferErrorCount :: Int
   }
@@ -273,21 +295,29 @@ initialInferState =
       inferDataTypes = Map.empty,
       inferClassFacts = Map.empty,
       inferConcreteImplFacts = Set.empty,
+      inferClassMethodSignatures = Map.empty,
+      inferConcreteImplMethods = Map.empty,
       inferCurrentModulePath = Nothing,
+      inferCurrentModuleLocalCapabilityFacts = emptyScopeCapabilityFacts,
       inferModuleCapabilityFacts = Map.empty,
+      inferRuntimeTypeHints = Map.empty,
       inferErrorsRev = [],
       inferErrorCount = 0
     }
 
 collectExprTypeErrors :: BuiltinResolutionMode -> Expr -> [Diagnostic]
 collectExprTypeErrors builtinMode expr =
+  fst (collectExprTypeInfo builtinMode expr)
+
+collectExprTypeInfo :: BuiltinResolutionMode -> Expr -> ([Diagnostic], Map BindingRuntimeHintKey ConstraintSignatureType)
+collectExprTypeInfo builtinMode expr =
   let (_, finalState) =
         inferExprType
           builtinMode
           Map.empty
           initialInferState
           expr
-   in reverse (inferErrorsRev finalState)
+   in (reverse (inferErrorsRev finalState), inferRuntimeTypeHints finalState)
 
 -- Core expressions do not retain inner-node source spans yet, so inference
 -- reuses the enclosing statement span as the best available location metadata.
@@ -306,7 +336,10 @@ inferExprType builtinMode env state expr =
         Nothing ->
           case instantiateBuiltinType builtinMode nameText state of
             Just (builtinType, nextState) -> (Just builtinType, nextState)
-            Nothing -> (Nothing, state)
+            Nothing ->
+              case instantiateQualifiedMethodType nameText state of
+                Just qualifiedMethodResult -> qualifiedMethodResult
+                Nothing -> (Nothing, state)
       where
         nameText = identifierText name
     ELambda parameterName bodyExpr ->
@@ -337,34 +370,14 @@ inferExprType builtinMode env state expr =
     EList elements -> inferListType builtinMode env state elements
     ETuple elements -> inferTupleType builtinMode env state elements
     EApply functionExpr argumentExpr ->
-      let (functionType, stateAfterFunction) =
-            inferExprType builtinMode env state functionExpr
-          (argumentType, stateAfterArgument) =
-            inferExprType builtinMode env stateAfterFunction argumentExpr
-          (resultTypeVar, stateWithResultVar) = freshTypeVar stateAfterArgument
-       in case (functionType, argumentType) of
-            (Just inferredFunctionType, Just inferredArgumentType) ->
-              case
-                  unifyTypes
-                    inferredFunctionType
-                    (TFunctionType inferredArgumentType resultTypeVar)
-                    stateWithResultVar of
-                Just unifiedState ->
-                  case numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr of
-                    Just diagnostic ->
-                      (Nothing, addTypeError unifiedState diagnostic)
-                    Nothing ->
-                      (Just (resolveType unifiedState resultTypeVar), unifiedState)
-                Nothing ->
-                  ( Nothing,
-                    addTypeError
-                      stateWithResultVar
-                      ( mkApplyTypeError
-                          (resolveType stateWithResultVar inferredFunctionType)
-                          (resolveType stateWithResultVar inferredArgumentType)
-                      )
-                  )
-            _ -> (Nothing, stateWithResultVar)
+      case qualifiedMethodApplicationSpine expr state of
+        Just (methodKey, argumentExprs)
+          | Map.notMember methodKey env ->
+              inferQualifiedMethodApplication builtinMode env state methodKey argumentExprs
+        Nothing ->
+          inferGenericApplyType builtinMode env state functionExpr argumentExpr
+        _ ->
+          inferGenericApplyType builtinMode env state functionExpr argumentExpr
     EIf conditionExpr thenExpr elseExpr ->
       inferExprType builtinMode env state (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr ->
@@ -444,6 +457,136 @@ inferExprType builtinMode env state expr =
                 stateAfterRight
             Nothing -> (Nothing, stateAfterRight)
     EBlock statements -> inferScopeType builtinMode env state statements
+
+inferExprTypeWithExpected ::
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  ExpressionType ->
+  Expr ->
+  (Maybe ExpressionType, InferState)
+inferExprTypeWithExpected builtinMode env state expectedType expr =
+  case (resolveType state expectedType, expr) of
+    (TFunctionType argumentType resultType, ELambda parameterName bodyExpr) ->
+      let extendedEnv =
+            Map.insert
+              (identifierText parameterName)
+              (PlainTypeBinding argumentType)
+              env
+          (bodyType, stateAfterBody) =
+            inferExprTypeWithExpected builtinMode extendedEnv state resultType bodyExpr
+       in
+        case bodyType of
+          Just inferredBodyType ->
+            ( Just
+                ( TFunctionType
+                    (resolveType stateAfterBody argumentType)
+                    inferredBodyType
+                ),
+              stateAfterBody
+            )
+          Nothing -> (Nothing, stateAfterBody)
+    _ ->
+      inferExprType builtinMode env state expr
+
+inferGenericApplyType ::
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  Expr ->
+  Expr ->
+  (Maybe ExpressionType, InferState)
+inferGenericApplyType builtinMode env state functionExpr argumentExpr =
+  let (functionType, stateAfterFunction) =
+        inferExprType builtinMode env state functionExpr
+      (argumentType, stateAfterArgument) =
+        inferExprType builtinMode env stateAfterFunction argumentExpr
+      (resultTypeVar, stateWithResultVar) = freshTypeVar stateAfterArgument
+   in case (functionType, argumentType) of
+        (Just inferredFunctionType, Just inferredArgumentType) ->
+          case
+              unifyTypes
+                inferredFunctionType
+                (TFunctionType inferredArgumentType resultTypeVar)
+                stateWithResultVar of
+            Just unifiedState ->
+              case numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr of
+                Just diagnostic ->
+                  (Nothing, addTypeError unifiedState diagnostic)
+                Nothing ->
+                  (Just (resolveType unifiedState resultTypeVar), unifiedState)
+            Nothing ->
+              ( Nothing,
+                addTypeError
+                  stateWithResultVar
+                  ( mkApplyTypeError
+                      (resolveType stateWithResultVar inferredFunctionType)
+                      (resolveType stateWithResultVar inferredArgumentType)
+                  )
+              )
+        _ -> (Nothing, stateWithResultVar)
+
+qualifiedMethodApplicationSpine :: Expr -> InferState -> Maybe (Text, [Expr])
+qualifiedMethodApplicationSpine expr state =
+  case applicationSpine expr of
+    Just (methodKey, argumentExprs)
+      | qualifiedMethodClassIsVisible methodKey state ->
+          Just (methodKey, argumentExprs)
+    _ -> Nothing
+
+applicationSpine :: Expr -> Maybe (Text, [Expr])
+applicationSpine expr =
+  go [] expr
+  where
+    go argumentExprs currentExpr =
+      case currentExpr of
+        EApply (EOperatorValue "$") functionExpr ->
+          go argumentExprs functionExpr
+        EApply functionExpr argumentExpr ->
+          go (argumentExpr : argumentExprs) functionExpr
+        EVar name ->
+          Just (identifierText name, argumentExprs)
+        _ ->
+          Nothing
+
+qualifiedMethodClassIsVisible :: Text -> InferState -> Bool
+qualifiedMethodClassIsVisible methodKey state =
+  case splitQualifiedMethodKey methodKey of
+    Just (capabilityName, _) -> Map.member capabilityName (inferClassFacts state)
+    Nothing -> False
+
+inferQualifiedMethodApplication ::
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  Text ->
+  [Expr] ->
+  (Maybe ExpressionType, InferState)
+inferQualifiedMethodApplication builtinMode env state methodKey argumentExprs =
+  let (argumentTypes, stateAfterArguments) =
+        inferQualifiedMethodArguments builtinMode env state argumentExprs
+   in case sequence argumentTypes of
+        Nothing -> (Nothing, stateAfterArguments)
+        Just typedArgumentTypes ->
+          resolveQualifiedMethodApplicationType
+            methodKey
+            stateAfterArguments
+            typedArgumentTypes
+
+inferQualifiedMethodArguments ::
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  [Expr] ->
+  ([Maybe ExpressionType], InferState)
+inferQualifiedMethodArguments builtinMode env state argumentExprs =
+  let (reversedTypes, finalState) = foldl' step ([], state) argumentExprs
+   in (reverse reversedTypes, finalState)
+  where
+    step (typesAcc, stateAcc) argumentExpr =
+      let (argumentType, stateAfterArgument) =
+            inferExprType builtinMode env stateAcc argumentExpr
+       in (argumentType : typesAcc, stateAfterArgument)
 
 literalExpressionType :: Literal -> ExpressionType
 literalExpressionType literal =
@@ -869,8 +1012,10 @@ inferScopeType builtinMode initialEnv initialState statements =
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                in go env lastExprType Nothing nextModuleBaselineFacts nextState rest
-            SImpl {} ->
-              let nextState = seedStatementCapabilityFact state statement
+            SImpl _ capabilityName arguments methods ->
+              let seededState = seedStatementCapabilityFact state statement
+                  nextState =
+                    checkImplMethodBodies builtinMode env seededState capabilityName arguments methods
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                in go env lastExprType Nothing nextModuleBaselineFacts nextState rest
@@ -919,7 +1064,18 @@ inferScopeType builtinMode initialEnv initialState statements =
                               (PlainTypeBinding (pendingSignatureDeclaredType pendingSignature))
                               envWithBindingSeed
                       _ -> envWithBindingSeed
-                  (rawValueType, rawStateAfterValue) = inferExprType builtinMode envWithPendingSignature state valueExpr
+                  maybeExpectedValueType =
+                    case pendingSignatureType of
+                      Just pendingSignature
+                        | pendingSignatureName pendingSignature == nameText ->
+                            Just (pendingSignatureDeclaredType pendingSignature)
+                      _ -> Nothing
+                  (rawValueType, rawStateAfterValue) =
+                    case maybeExpectedValueType of
+                      Just expectedValueType ->
+                        inferExprTypeWithExpected builtinMode envWithPendingSignature state expectedValueType valueExpr
+                      Nothing ->
+                        inferExprType builtinMode envWithPendingSignature state valueExpr
                   valueType =
                     targetedFractionalLiteralBindingType
                       nameText
@@ -977,11 +1133,22 @@ inferScopeType builtinMode initialEnv initialState statements =
                         fmap
                           (defaultLiteralTypes . resolveType stateAfterSignatureCheck)
                           (Map.lookup statementIndex bindingSeedsByStatement)
+                  stateAfterRuntimeHint =
+                    case nextBindingType >>= runtimeHintFromExpressionType stateAfterSignatureCheck of
+                      Just runtimeHint ->
+                        stateAfterSignatureCheck
+                          { inferRuntimeTypeHints =
+                              Map.insert
+                                (bindingRuntimeHintKeyInModule (inferCurrentModulePath stateAfterSignatureCheck) name bindingSpan)
+                                runtimeHint
+                                (inferRuntimeTypeHints stateAfterSignatureCheck)
+                          }
+                      Nothing -> stateAfterSignatureCheck
                   nextEnv =
                     case nextBindingForValue nameText env valueExpr nextBindingType pendingSignatureType of
                       Just binding -> Map.insert nameText binding env
                       Nothing -> env
-               in go nextEnv lastExprType Nothing moduleBaselineFacts stateAfterSignatureCheck rest
+               in go nextEnv lastExprType Nothing moduleBaselineFacts stateAfterRuntimeHint rest
             SExpr exprSpan expr ->
               let (exprType, rawStateAfterExpr) = inferExprType builtinMode env state expr
                   stateAfterExpr =
@@ -1011,6 +1178,81 @@ inferScopeType builtinMode initialEnv initialState statements =
     isSyntheticAliasConstructorBinding bindingNameText referencedName =
       Text.isInfixOf "::" bindingNameText && Text.isPrefixOf "__module::" referencedName
 
+checkImplMethodBodies ::
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  Identifier ->
+  [ConstraintSignatureType] ->
+  [ImplMethod] ->
+  InferState
+checkImplMethodBodies builtinMode env state capabilityName arguments methods =
+  case arguments of
+    [implTarget]
+      | concreteConstraintArgument implTarget,
+        not (implMethodNamesHaveDuplicates methods) ->
+          let implMethodEnv stateForBindings =
+                Map.union env (currentImplMethodBindings implTarget stateForBindings)
+              checkMethod stateAcc (ImplMethod methodName methodSpan methodExpr) =
+                let methodKey = qualifiedMethodKey capabilityName methodName
+                 in case Map.lookup methodKey (inferClassMethodSignatures stateAcc) of
+                      Nothing ->
+                        addTypeError
+                          stateAcc
+                          (mkImplMethodMissingClassMethodError methodKey methodSpan)
+                      Just classMethodType ->
+                        let (maybeExpectedType, stateAfterExpectedType) =
+                              qualifiedMethodSignatureType
+                                methodKey
+                                classMethodType
+                                (ImplMethodType implTarget)
+                                stateAcc
+                         in case maybeExpectedType of
+                              Nothing ->
+                                stateAfterExpectedType
+                              Just expectedType ->
+                                let (maybeMethodType, rawStateAfterMethod) =
+                                      inferExprTypeWithExpected
+                                        builtinMode
+                                        (implMethodEnv stateAcc)
+                                        stateAfterExpectedType
+                                        expectedType
+                                        methodExpr
+                                    stateAfterMethod =
+                                      annotateNewErrorsWithPrimarySpan methodSpan stateAfterExpectedType rawStateAfterMethod
+                                 in case maybeMethodType of
+                                      Just methodType ->
+                                        case unifyTypes expectedType methodType stateAfterMethod of
+                                          Just unifiedState -> unifiedState
+                                          Nothing ->
+                                            addTypeError
+                                              stateAfterMethod
+                                              ( mkImplMethodTypeMismatchError
+                                                  methodKey
+                                                  methodSpan
+                                                  (resolveType stateAfterMethod expectedType)
+                                                  (resolveType stateAfterMethod methodType)
+                                              )
+                                      Nothing ->
+                                        stateAfterMethod
+           in foldl' checkMethod state methods
+    _ -> state
+  where
+    implMethodNamesHaveDuplicates :: [ImplMethod] -> Bool
+    implMethodNamesHaveDuplicates implMethods =
+      let methodNames = map (\(ImplMethod methodName _ _) -> identifierText methodName) implMethods
+       in length methodNames /= Set.size (Set.fromList methodNames)
+
+    currentImplMethodBindings :: ConstraintSignatureType -> InferState -> TypeEnv
+    currentImplMethodBindings implTarget stateForBindings =
+      Map.fromList
+        [ (methodKey, PlainTypeBinding methodType)
+          | ImplMethod methodName _ _ <- methods,
+            let methodKey = qualifiedMethodKey capabilityName methodName,
+            Just (ClassMethodType classParameter methodSignature) <- [Map.lookup methodKey (inferClassMethodSignatures stateForBindings)],
+            Just methodType <- [classMethodPayloadToExpressionType stateForBindings classParameter implTarget methodSignature]
+        ]
+
 allocateBindingSeeds ::
   [(Int, Statement)] ->
   InferState ->
@@ -1027,35 +1269,46 @@ allocateBindingSeeds indexedStatements initialState =
 
 data ScopeCapabilityFacts = ScopeCapabilityFacts
   { scopeClassFacts :: Map Text Int,
-    scopeConcreteImplFacts :: Set Text
+    scopeConcreteImplFacts :: Set Text,
+    scopeClassMethodSignatures :: Map Text ClassMethodType,
+    scopeConcreteImplMethods :: Map Text [ImplMethodType]
   }
 
 emptyScopeCapabilityFacts :: ScopeCapabilityFacts
 emptyScopeCapabilityFacts =
   ScopeCapabilityFacts
     { scopeClassFacts = Map.empty,
-      scopeConcreteImplFacts = Set.empty
+      scopeConcreteImplFacts = Set.empty,
+      scopeClassMethodSignatures = Map.empty,
+      scopeConcreteImplMethods = Map.empty
     }
 
 capabilityFactsFromState :: InferState -> ScopeCapabilityFacts
 capabilityFactsFromState state =
   ScopeCapabilityFacts
     { scopeClassFacts = inferClassFacts state,
-      scopeConcreteImplFacts = inferConcreteImplFacts state
+      scopeConcreteImplFacts = inferConcreteImplFacts state,
+      scopeClassMethodSignatures = inferClassMethodSignatures state,
+      scopeConcreteImplMethods = inferConcreteImplMethods state
     }
 
 applyCapabilityFacts :: ScopeCapabilityFacts -> InferState -> InferState
 applyCapabilityFacts facts state =
   state
     { inferClassFacts = scopeClassFacts facts,
-      inferConcreteImplFacts = scopeConcreteImplFacts facts
+      inferConcreteImplFacts = scopeConcreteImplFacts facts,
+      inferClassMethodSignatures = scopeClassMethodSignatures facts,
+      inferConcreteImplMethods = scopeConcreteImplMethods facts
     }
 
 restoreCapabilityFacts :: InferState -> InferState -> InferState
 restoreCapabilityFacts previousState nextState =
   nextState
     { inferClassFacts = inferClassFacts previousState,
-      inferConcreteImplFacts = inferConcreteImplFacts previousState
+      inferConcreteImplFacts = inferConcreteImplFacts previousState,
+      inferClassMethodSignatures = inferClassMethodSignatures previousState,
+      inferConcreteImplMethods = inferConcreteImplMethods previousState,
+      inferCurrentModuleLocalCapabilityFacts = inferCurrentModuleLocalCapabilityFacts previousState
     }
 
 mergeCapabilityFacts :: ScopeCapabilityFacts -> ScopeCapabilityFacts -> ScopeCapabilityFacts
@@ -1065,7 +1318,16 @@ mergeCapabilityFacts leftFacts rightFacts =
       scopeConcreteImplFacts =
         Set.union
           (scopeConcreteImplFacts leftFacts)
-          (scopeConcreteImplFacts rightFacts)
+          (scopeConcreteImplFacts rightFacts),
+      scopeClassMethodSignatures =
+        Map.union
+          (scopeClassMethodSignatures leftFacts)
+          (scopeClassMethodSignatures rightFacts),
+      scopeConcreteImplMethods =
+        Map.unionWith
+          (++)
+          (scopeConcreteImplMethods leftFacts)
+          (scopeConcreteImplMethods rightFacts)
     }
 
 updateRootModuleBaselineFacts :: ScopeCapabilityFacts -> InferState -> InferState -> ScopeCapabilityFacts
@@ -1082,7 +1344,7 @@ flushCurrentModuleCapabilityFacts state =
         { inferModuleCapabilityFacts =
             Map.insert
               modulePath
-              (capabilityFactsFromState state)
+              (inferCurrentModuleLocalCapabilityFacts state)
               (inferModuleCapabilityFacts state)
         }
     Nothing -> state
@@ -1090,37 +1352,132 @@ flushCurrentModuleCapabilityFacts state =
 enterModuleCapabilityScope :: ScopeCapabilityFacts -> [Text] -> InferState -> InferState
 enterModuleCapabilityScope baselineFacts modulePath state =
   (applyCapabilityFacts baselineFacts (flushCurrentModuleCapabilityFacts state))
-    { inferCurrentModulePath = Just modulePath
+    { inferCurrentModulePath = Just modulePath,
+      inferCurrentModuleLocalCapabilityFacts = emptyScopeCapabilityFacts
     }
 
 importModuleCapabilityFacts :: [Text] -> Maybe Text -> Maybe [Text] -> InferState -> InferState
-importModuleCapabilityFacts modulePath maybeAlias _maybeSymbolNames state =
+importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state =
+  applyCapabilityFacts
+    ( mergeCapabilityFacts
+        (capabilityFactsFromState state)
+        (filterImportedCapabilityFacts maybeAlias maybeSymbolNames (Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state)))
+    )
+    state
+
+filterImportedCapabilityFacts :: Maybe Text -> Maybe [Text] -> ScopeCapabilityFacts -> ScopeCapabilityFacts
+filterImportedCapabilityFacts maybeAlias maybeSymbolNames facts =
   case maybeAlias of
-    Just _ -> state
+    Just _ -> emptyScopeCapabilityFacts
     Nothing ->
-      applyCapabilityFacts
-        ( mergeCapabilityFacts
-            (capabilityFactsFromState state)
-            (Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state))
-        )
-        state
+      case maybeSymbolNames of
+        Nothing -> facts
+        Just symbolNames ->
+          facts
+            { scopeClassFacts =
+                Map.filterWithKey
+                  (\className _ -> Set.member className visibleSymbols)
+                  (scopeClassFacts facts),
+              scopeConcreteImplFacts =
+                Set.filter
+                  (\implKey -> Set.member (concreteImplFactClassName implKey) visibleSymbols)
+                  (scopeConcreteImplFacts facts),
+              scopeClassMethodSignatures =
+                Map.filterWithKey
+                  (\methodKey _ -> qualifiedMethodClassIsVisible methodKey)
+                  (scopeClassMethodSignatures facts),
+              scopeConcreteImplMethods =
+                Map.filterWithKey
+                  (\methodKey _ -> qualifiedMethodClassIsVisible methodKey)
+                  (scopeConcreteImplMethods facts)
+            }
+          where
+            visibleSymbols = Set.fromList symbolNames
+            qualifiedMethodClassIsVisible methodKey =
+              case splitQualifiedMethodKey methodKey of
+                Just (className, _) -> Set.member className visibleSymbols
+                Nothing -> False
 
 seedStatementCapabilityFact :: InferState -> Statement -> InferState
 seedStatementCapabilityFact state statement =
   let facts = seedFacts (capabilityFactsFromState state) (0, statement)
-   in applyCapabilityFacts facts state
+      stateWithVisibleFacts = applyCapabilityFacts facts state
+   in case inferCurrentModulePath state of
+        Just _ ->
+          stateWithVisibleFacts
+            { inferCurrentModuleLocalCapabilityFacts =
+                seedFacts (inferCurrentModuleLocalCapabilityFacts state) (0, statement)
+            }
+        Nothing ->
+          stateWithVisibleFacts
 
 seedFacts :: ScopeCapabilityFacts -> (Int, Statement) -> ScopeCapabilityFacts
 seedFacts facts (_, statement) =
   case statement of
-    SClass _ capabilityName parameters _ ->
-      facts {scopeClassFacts = Map.insert (identifierText capabilityName) (length parameters) (scopeClassFacts facts)}
-    SImpl _ capabilityName arguments _ ->
-      case concreteImplFactKey capabilityName arguments of
-        Just implFactKey ->
-          facts {scopeConcreteImplFacts = Set.insert implFactKey (scopeConcreteImplFacts facts)}
-        Nothing ->
+    SClass _ capabilityName parameters methods ->
+      seedClassMethodFacts
+        capabilityName
+        parameters
+        methods
+        facts {scopeClassFacts = Map.insert (identifierText capabilityName) (length parameters) (scopeClassFacts facts)}
+    SImpl _ capabilityName arguments methods ->
+      seedImplMethodFacts capabilityName arguments methods $
+        case concreteImplFactKey capabilityName arguments of
+          Just implFactKey ->
+            facts {scopeConcreteImplFacts = Set.insert implFactKey (scopeConcreteImplFacts facts)}
+          Nothing ->
+            facts
+    _ -> facts
+
+seedClassMethodFacts ::
+  Identifier ->
+  [Identifier] ->
+  [ClassMethodSignature] ->
+  ScopeCapabilityFacts ->
+  ScopeCapabilityFacts
+seedClassMethodFacts capabilityName parameters methods facts =
+  case parameters of
+    [classParameter] ->
+      facts
+        { scopeClassMethodSignatures =
+            foldl'
+              insertMethodSignature
+              (scopeClassMethodSignatures facts)
+              methods
+        }
+      where
+        classParameterText = identifierText classParameter
+        insertMethodSignature acc (ClassMethodSignature methodName _ methodSignature) =
+          Map.insert
+            (qualifiedMethodKey capabilityName methodName)
+            (ClassMethodType classParameterText methodSignature)
+            acc
+    _ -> facts
+
+seedImplMethodFacts ::
+  Identifier ->
+  [ConstraintSignatureType] ->
+  [ImplMethod] ->
+  ScopeCapabilityFacts ->
+  ScopeCapabilityFacts
+seedImplMethodFacts capabilityName arguments methods facts =
+  case arguments of
+    [implTarget]
+      | concreteConstraintArgument implTarget ->
           facts
+            { scopeConcreteImplMethods =
+                foldl'
+                  insertImplMethod
+                  (scopeConcreteImplMethods facts)
+                  methods
+            }
+      where
+        insertImplMethod acc (ImplMethod methodName _ _) =
+          Map.insertWith
+            (\newMethods existingMethods -> existingMethods ++ newMethods)
+            (qualifiedMethodKey capabilityName methodName)
+            [ImplMethodType implTarget]
+            acc
     _ -> facts
 
 -- Seed self-recursion before branch typing so mixed wrappers like
@@ -1354,6 +1711,213 @@ instantiateTypeBinding binding state =
             nextState
           )
         Nothing -> (Nothing, state)
+
+instantiateQualifiedMethodType :: Text -> InferState -> Maybe (Maybe ExpressionType, InferState)
+instantiateQualifiedMethodType nameText state =
+  case splitQualifiedMethodKey nameText of
+    Just (capabilityName, _)
+      | Map.member capabilityName (inferClassFacts state) ->
+          Just (resolveQualifiedMethodType nameText state)
+    _ -> Nothing
+
+resolveQualifiedMethodType :: Text -> InferState -> (Maybe ExpressionType, InferState)
+resolveQualifiedMethodType methodKey state =
+  case Map.lookup methodKey (inferClassMethodSignatures state) of
+    Nothing
+      | not (null (Map.findWithDefault [] methodKey (inferConcreteImplMethods state))) ->
+          (Nothing, state)
+      | otherwise ->
+          (Nothing, addTypeError state (mkMissingClassMethodError methodKey))
+    Just classMethodType ->
+      case Map.findWithDefault [] methodKey (inferConcreteImplMethods state) of
+        [] ->
+          (Nothing, addTypeError state (mkMissingImplMethodBodyError methodKey))
+        [implMethodType] ->
+          qualifiedMethodSignatureType methodKey classMethodType implMethodType state
+        _ ->
+          (Nothing, addTypeError state (mkAmbiguousQualifiedMethodBodyError methodKey))
+
+resolveQualifiedMethodApplicationType ::
+  Text ->
+  InferState ->
+  [ExpressionType] ->
+  (Maybe ExpressionType, InferState)
+resolveQualifiedMethodApplicationType methodKey state argumentTypes =
+  case Map.lookup methodKey (inferClassMethodSignatures state) of
+    Nothing
+      | not (null (Map.findWithDefault [] methodKey (inferConcreteImplMethods state))) ->
+          (Nothing, state)
+      | otherwise ->
+          (Nothing, addTypeError state (mkMissingClassMethodError methodKey))
+    Just classMethodType ->
+      case Map.findWithDefault [] methodKey (inferConcreteImplMethods state) of
+        [] ->
+          (Nothing, addTypeError state (mkMissingImplMethodBodyError methodKey))
+        [implMethodType] ->
+          applyQualifiedMethodCandidateWithErrors methodKey classMethodType implMethodType state argumentTypes
+        implMethodTypes ->
+          selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes state argumentTypes
+
+selectQualifiedMethodCandidate ::
+  Text ->
+  ClassMethodType ->
+  [ImplMethodType] ->
+  InferState ->
+  [ExpressionType] ->
+  (Maybe ExpressionType, InferState)
+selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes state argumentTypes =
+  case matchingCandidates of
+    [] ->
+      ( Nothing,
+        addTypeError state (mkNoMatchingQualifiedMethodBodyError methodKey (resolvedArgumentTypes state))
+      )
+    [(matchedType, matchedState)] ->
+      (Just matchedType, matchedState)
+    _ ->
+      ( Nothing,
+        addTypeError state (mkAmbiguousQualifiedMethodBodyForArgumentsError methodKey (resolvedArgumentTypes state))
+      )
+  where
+    matchingCandidates =
+      foldr collectMatch [] implMethodTypes
+
+    collectMatch implMethodType matches =
+      case applyQualifiedMethodCandidate methodKey classMethodType implMethodType state argumentTypes of
+        (Just matchedType, matchedState) -> (matchedType, matchedState) : matches
+        (Nothing, _) -> matches
+
+    resolvedArgumentTypes stateForRendering =
+      map (resolveType stateForRendering) argumentTypes
+
+applyQualifiedMethodCandidate ::
+  Text ->
+  ClassMethodType ->
+  ImplMethodType ->
+  InferState ->
+  [ExpressionType] ->
+  (Maybe ExpressionType, InferState)
+applyQualifiedMethodCandidate methodKey classMethodType implMethodType state argumentTypes =
+  case qualifiedMethodSignatureType methodKey classMethodType implMethodType state of
+    (Nothing, nextState) ->
+      (Nothing, nextState)
+    (Just methodType, stateAfterMethodType) ->
+      applyKnownFunctionArguments methodType argumentTypes stateAfterMethodType
+
+applyQualifiedMethodCandidateWithErrors ::
+  Text ->
+  ClassMethodType ->
+  ImplMethodType ->
+  InferState ->
+  [ExpressionType] ->
+  (Maybe ExpressionType, InferState)
+applyQualifiedMethodCandidateWithErrors methodKey classMethodType implMethodType state argumentTypes =
+  case qualifiedMethodSignatureType methodKey classMethodType implMethodType state of
+    (Nothing, nextState) ->
+      (Nothing, nextState)
+    (Just methodType, stateAfterMethodType) ->
+      applyKnownFunctionArgumentsWithErrors methodType argumentTypes stateAfterMethodType
+
+applyKnownFunctionArguments ::
+  ExpressionType ->
+  [ExpressionType] ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+applyKnownFunctionArguments functionType argumentTypes state =
+  foldl' step (Just functionType, state) argumentTypes
+  where
+    step (Nothing, stateAcc) _ =
+      (Nothing, stateAcc)
+    step (Just currentFunctionType, stateAcc) argumentType =
+      let (resultTypeVar, stateWithResultVar) = freshTypeVar stateAcc
+       in case unifyTypes currentFunctionType (TFunctionType argumentType resultTypeVar) stateWithResultVar of
+            Just unifiedState ->
+              (Just (resolveType unifiedState resultTypeVar), unifiedState)
+            Nothing ->
+              (Nothing, stateAcc)
+
+applyKnownFunctionArgumentsWithErrors ::
+  ExpressionType ->
+  [ExpressionType] ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+applyKnownFunctionArgumentsWithErrors functionType argumentTypes state =
+  foldl' step (Just functionType, state) argumentTypes
+  where
+    step (Nothing, stateAcc) _ =
+      (Nothing, stateAcc)
+    step (Just currentFunctionType, stateAcc) argumentType =
+      let (resultTypeVar, stateWithResultVar) = freshTypeVar stateAcc
+       in case unifyTypes currentFunctionType (TFunctionType argumentType resultTypeVar) stateWithResultVar of
+            Just unifiedState ->
+              (Just (resolveType unifiedState resultTypeVar), unifiedState)
+            Nothing ->
+              ( Nothing,
+                addTypeError
+                  stateWithResultVar
+                  ( mkApplyTypeError
+                      (resolveType stateWithResultVar currentFunctionType)
+                      (resolveType stateWithResultVar argumentType)
+                  )
+              )
+
+qualifiedMethodSignatureType ::
+  Text ->
+  ClassMethodType ->
+  ImplMethodType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+qualifiedMethodSignatureType methodKey (ClassMethodType classParameter methodSignature) (ImplMethodType implTarget) state =
+  case classMethodPayloadToExpressionType state classParameter implTarget methodSignature of
+    Just methodType -> (Just methodType, state)
+    Nothing ->
+      (Nothing, addTypeError state (mkInvalidQualifiedMethodSignatureError methodKey methodSignature))
+
+classMethodPayloadToExpressionType ::
+  InferState ->
+  Text ->
+  ConstraintSignatureType ->
+  SignaturePayload ->
+  Maybe ExpressionType
+classMethodPayloadToExpressionType state classParameter implTarget methodSignature =
+  substituteClassMethodSignature classParameter implTarget methodSignature
+    >>= constraintSignatureTypeToExpressionTypeWithState state Map.empty
+
+constraintSignatureTypeToExpressionTypeWithState ::
+  InferState ->
+  Map Text ExpressionType ->
+  ConstraintSignatureType ->
+  Maybe ExpressionType
+constraintSignatureTypeToExpressionTypeWithState state signatureVariables signatureType =
+  case signatureType of
+    ConstraintTypeName name ->
+      case identifierText name of
+        "Int" -> Just TIntType
+        "Float" -> Just TFloatType
+        "Bool" -> Just TBoolType
+        typeName ->
+          case numericTypeNameToExpressionType typeName of
+            Just numericType -> Just numericType
+            Nothing ->
+              case Map.lookup typeName signatureVariables of
+                Just variableType -> Just variableType
+                Nothing
+                  | Map.member typeName (inferDataTypes state) ->
+                      Just (TDataType name [])
+                  | otherwise ->
+                      Nothing
+    ConstraintTypeApplication name arguments
+      | Map.member (identifierText name) (inferDataTypes state) ->
+          TDataType name <$> traverse (constraintSignatureTypeToExpressionTypeWithState state signatureVariables) arguments
+      | otherwise ->
+          Nothing
+    ConstraintTypeList innerType ->
+      TListType <$> constraintSignatureTypeToExpressionTypeWithState state signatureVariables innerType
+    ConstraintTypeTuple elementTypes ->
+      TTupleType <$> traverse (constraintSignatureTypeToExpressionTypeWithState state signatureVariables) elementTypes
+    ConstraintTypeFunction argumentType resultType ->
+      TFunctionType
+        <$> constraintSignatureTypeToExpressionTypeWithState state signatureVariables argumentType
+        <*> constraintSignatureTypeToExpressionTypeWithState state signatureVariables resultType
 
 instantiateConstructorBinding :: TypeBinding -> InferState -> Maybe ([ExpressionType], ExpressionType, InferState)
 instantiateConstructorBinding binding state =
@@ -1659,6 +2223,8 @@ numericTypeIsIntegral numericType =
 numericTypeSupportsRuntimeArithmetic :: NumericType -> Bool
 numericTypeSupportsRuntimeArithmetic numericType =
   numericTypeIsIntegral numericType
+    || numericType == NumericFloat16
+    || numericType == NumericFloat32
     || numericType == NumericFloat64
 
 numericTypeSupportsRuntimeComparison :: NumericType -> Bool
@@ -1811,6 +2377,12 @@ mergeIntegerLiteralRanges leftType rightType =
   case (leftType, rightType) of
     (TIntegerLiteralType leftRange, TIntegerLiteralType rightRange) ->
       TIntegerLiteralType (combineIntegerLiteralRanges leftRange rightRange)
+    (TIntegerLiteralType literalRange, numericType@(TNumericType concreteNumericType))
+      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
+    (numericType@(TNumericType concreteNumericType), TIntegerLiteralType literalRange)
+      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
+    (TIntegerLiteralType {}, TIntType) -> TIntType
+    (TIntType, TIntegerLiteralType {}) -> TIntType
     (TListType leftElementType, TListType rightElementType) ->
       TListType (mergeIntegerLiteralRanges leftElementType rightElementType)
     (TTupleType leftElementTypes, TTupleType rightElementTypes)
@@ -2078,6 +2650,37 @@ defaultLiteralTypes expressionType =
       TFunctionType (defaultLiteralTypes inputType) (defaultLiteralTypes outputType)
     _ -> expressionType
 
+runtimeHintFromExpressionType :: InferState -> ExpressionType -> Maybe ConstraintSignatureType
+runtimeHintFromExpressionType state expressionType =
+  expressionTypeToRuntimeHint (defaultLiteralTypes (resolveType state expressionType))
+
+expressionTypeToRuntimeHint :: ExpressionType -> Maybe ConstraintSignatureType
+expressionTypeToRuntimeHint expressionType =
+  case expressionType of
+    TIntType -> Just (ConstraintTypeName "Int")
+    TIntegerLiteralType literalRange
+      | integerLiteralRangeFitsNumericType literalRange NumericInt64 ->
+          Just (ConstraintTypeName "Int")
+      | otherwise -> Nothing
+    TFloatType -> Just (ConstraintTypeName "Float")
+    TNumericType numericType -> Just (ConstraintTypeName (mkIdentifier (renderNumericTypeName numericType)))
+    TBoolType -> Just (ConstraintTypeName "Bool")
+    TListType elementType ->
+      ConstraintTypeList <$> expressionTypeToRuntimeHint elementType
+    TTupleType elementTypes ->
+      ConstraintTypeTuple <$> traverse expressionTypeToRuntimeHint elementTypes
+    TDataType typeName typeArguments ->
+      case traverse expressionTypeToRuntimeHint typeArguments of
+        Just [] -> Just (ConstraintTypeName typeName)
+        Just argumentHints ->
+          Just (ConstraintTypeApplication typeName argumentHints)
+        Nothing -> Nothing
+    TFunctionType inputType outputType ->
+      ConstraintTypeFunction
+        <$> expressionTypeToRuntimeHint inputType
+        <*> expressionTypeToRuntimeHint outputType
+    TVarType {} -> Nothing
+
 applySubstitution :: Map Int ExpressionType -> ExpressionType -> ExpressionType
 applySubstitution subst expressionType =
   case expressionType of
@@ -2339,32 +2942,8 @@ mkBinaryTypeError operatorSymbol leftType rightType =
     )
 
 mkNumericBinaryTypeError :: Text -> NumericRuleResult -> ExpressionType -> ExpressionType -> Diagnostic
-mkNumericBinaryTypeError operatorSymbol resultRule leftType rightType =
-  case resultRule of
-    NumericSameTypeResult
-      | any isNarrowFloatType [leftType, rightType] ->
-          mkNarrowFloatArithmeticTypeError
-            ( "cannot apply operator '"
-                <> operatorSymbol
-                <> "' to operands of type "
-                <> renderType leftType
-                <> " and "
-                <> renderType rightType
-            )
-    _ -> mkBinaryTypeError operatorSymbol leftType rightType
-
-mkNarrowFloatArithmeticTypeError :: Text -> Diagnostic
-mkNarrowFloatArithmeticTypeError prefix =
-  mkDiagnostic
-    "E2003"
-    (prefix <> ": Float16/Float32 arithmetic is not yet supported; convert operands to Float64")
-
-isNarrowFloatType :: ExpressionType -> Bool
-isNarrowFloatType expressionType =
-  case expressionType of
-    TNumericType NumericFloat16 -> True
-    TNumericType NumericFloat32 -> True
-    _ -> False
+mkNumericBinaryTypeError operatorSymbol _ leftType rightType =
+  mkBinaryTypeError operatorSymbol leftType rightType
 
 mkStrictEqualityTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
 mkStrictEqualityTypeError operatorSymbol leftType rightType =
@@ -2386,7 +2965,23 @@ mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
         <> operatorSymbol
         <> "' is only supported for Bool, integral numeric, Float/Float16/Float32/Float64, lists and tuples containing equality-supported elements, and ADTs containing equality-supported constructor payloads, found "
         <> renderType foundType
+        <> callableEqualityUnsupportedNote foundType
     )
+
+callableEqualityUnsupportedNote :: ExpressionType -> Text
+callableEqualityUnsupportedNote expressionType
+  | typeContainsFunction expressionType =
+      "; callable values are not equality-supported"
+  | otherwise = ""
+
+typeContainsFunction :: ExpressionType -> Bool
+typeContainsFunction expressionType =
+  case expressionType of
+    TFunctionType {} -> True
+    TListType elementType -> typeContainsFunction elementType
+    TTupleType elementTypes -> any typeContainsFunction elementTypes
+    TDataType _ typeArguments -> any typeContainsFunction typeArguments
+    _ -> False
 
 mkDuplicateDataTypeDeclarationError :: Text -> SourceSpan -> Diagnostic
 mkDuplicateDataTypeDeclarationError typeName spanValue =
@@ -2522,28 +3117,93 @@ mkUnsupportedSectionOperatorError operatorSymbol =
   mkDiagnostic "E2008" ("unsupported operator section '" <> operatorSymbol <> "'")
 
 mkNumericSectionOperandTypeError :: Text -> NumericRuleResult -> ExpressionType -> Diagnostic
-mkNumericSectionOperandTypeError operatorSymbol resultRule operandType =
-  case resultRule of
-    NumericSameTypeResult
-      | isNarrowFloatType operandType ->
-          mkNarrowFloatArithmeticTypeError
-            ( "operator section '"
-                <> operatorSymbol
-                <> "' cannot use operand of type "
-                <> renderType operandType
-            )
-    _ ->
-      mkDiagnostic
-        "E2003"
-        ( "operator section '"
-            <> operatorSymbol
-            <> "' requires a numeric operand, found "
-            <> renderType operandType
-        )
+mkNumericSectionOperandTypeError operatorSymbol _ operandType =
+  mkDiagnostic
+    "E2003"
+    ( "operator section '"
+        <> operatorSymbol
+        <> "' requires a numeric operand, found "
+        <> renderType operandType
+    )
 
 mkUnsupportedOperatorValueError :: Text -> Diagnostic
 mkUnsupportedOperatorValueError operatorSymbol =
   mkDiagnostic "E2010" ("unsupported operator value '" <> operatorSymbol <> "'")
+
+mkMissingClassMethodError :: Text -> Diagnostic
+mkMissingClassMethodError methodKey =
+  setDiagnosticSubject methodKey $
+    mkDiagnostic "E2015" ("missing class method '" <> methodKey <> "'")
+
+mkMissingImplMethodBodyError :: Text -> Diagnostic
+mkMissingImplMethodBodyError methodKey =
+  setDiagnosticSubject methodKey $
+    mkDiagnostic "E2015" ("missing impl method body '" <> methodKey <> "'")
+
+mkAmbiguousQualifiedMethodBodyError :: Text -> Diagnostic
+mkAmbiguousQualifiedMethodBodyError methodKey =
+  setDiagnosticSubject methodKey $
+    mkDiagnostic "E2015" ("ambiguous qualified method body '" <> methodKey <> "'")
+
+mkNoMatchingQualifiedMethodBodyError :: Text -> [ExpressionType] -> Diagnostic
+mkNoMatchingQualifiedMethodBodyError methodKey argumentTypes =
+  setDiagnosticSubject methodKey $
+    mkDiagnostic
+      "E2015"
+      ( "no matching qualified method body '"
+          <> methodKey
+          <> "' for argument types "
+          <> renderArgumentTypeList argumentTypes
+      )
+
+mkAmbiguousQualifiedMethodBodyForArgumentsError :: Text -> [ExpressionType] -> Diagnostic
+mkAmbiguousQualifiedMethodBodyForArgumentsError methodKey argumentTypes =
+  setDiagnosticSubject methodKey $
+    mkDiagnostic
+      "E2015"
+      ( "ambiguous qualified method body '"
+          <> methodKey
+          <> "' for argument types "
+          <> renderArgumentTypeList argumentTypes
+      )
+
+renderArgumentTypeList :: [ExpressionType] -> Text
+renderArgumentTypeList argumentTypes =
+  Text.intercalate ", " (map renderType argumentTypes)
+
+mkInvalidQualifiedMethodSignatureError :: Text -> SignaturePayload -> Diagnostic
+mkInvalidQualifiedMethodSignatureError methodKey methodSignature =
+  setDiagnosticSubject methodKey $
+    mkDiagnostic
+      "E2015"
+      ( "invalid or unsupported class method signature for '"
+          <> methodKey
+          <> "': '"
+          <> renderSignaturePayload methodSignature
+          <> "'"
+      )
+
+mkImplMethodMissingClassMethodError :: Text -> SourceSpan -> Diagnostic
+mkImplMethodMissingClassMethodError methodKey methodSpan =
+  setDiagnosticSubject methodKey $
+    setDiagnosticPrimarySpan methodSpan $
+      mkDiagnostic
+        "E2015"
+        ("class method metadata for '" <> methodKey <> "' must be declared before impl method body")
+
+mkImplMethodTypeMismatchError :: Text -> SourceSpan -> ExpressionType -> ExpressionType -> Diagnostic
+mkImplMethodTypeMismatchError methodKey methodSpan declaredType inferredType =
+  setDiagnosticSubject methodKey $
+    setDiagnosticPrimarySpan methodSpan $
+      mkDiagnostic
+        "E2016"
+        ( "impl method '"
+            <> methodKey
+            <> "' declared as "
+            <> renderType declaredType
+            <> " but inferred as "
+            <> renderType inferredType
+        )
 
 mkUnknownConstructorPayloadTypeError :: Identifier -> Diagnostic
 mkUnknownConstructorPayloadTypeError payloadTypeName =

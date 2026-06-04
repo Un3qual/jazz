@@ -8,6 +8,7 @@ import JazzNext.Compiler.Driver
     compileSource,
     RunResult (..),
     compileSourceWithPrelude,
+    runSource,
     runSourceWithPrelude
   )
 import JazzNext.Compiler.Diagnostics
@@ -47,9 +48,12 @@ tests =
     ("bundled default prelude exposes capability classes and default impl facts", testBundledPreludeExposesCapabilityClassesAndDefaultImplFacts),
     ("bundled default prelude exposes width-specific numeric impl facts", testBundledPreludeExposesWidthSpecificNumericImplFacts),
     ("prelude exposes numeric conversion aliases", testPreludeExposesNumericConversionAliases),
+    ("bundled default prelude exposes Eq Int equals method body", testBundledPreludeExposesEqIntEqualsMethodBody),
     ("compile without prelude rejects numeric conversion aliases", testCompileWithoutPreludeRejectsNumericConversionAliases),
+    ("compile without prelude does not inherit bundled Eq Int equals method body", testCompileWithoutPreludeRejectsBundledEqIntEqualsMethodBody),
     ("compile without prelude rejects bundled capability facts", testCompileWithoutPreludeRejectsBundledCapabilityFacts),
     ("explicit prelude does not inherit bundled impl facts", testExplicitPreludeDoesNotInheritBundledImplFacts),
+    ("explicit prelude does not inherit bundled Eq Int equals method body", testExplicitPreludeDoesNotInheritBundledEqIntEqualsMethodBody),
     ("compile without prelude keeps numeric conversion kernel bridges available", testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable),
     ("compile without prelude rejects public prelude aliases", testCompileWithoutPreludeRejectsPreludeAliases),
     ("compile without prelude keeps kernel bridge names available", testCompileWithoutPreludeKeepsKernelBridgeNamesAvailable),
@@ -238,6 +242,13 @@ testPreludeExposesNumericConversionAliases = do
   result <- compileSource defaultWarningSettings "x :: UInt8.\nx = toUInt8 1."
   assertEqual "bundled prelude exposes toUInt8" [] (compileErrors result)
 
+testBundledPreludeExposesEqIntEqualsMethodBody :: IO ()
+testBundledPreludeExposesEqIntEqualsMethodBody = do
+  result <- runSource defaultWarningSettings "Eq::equals 1 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
 testCompileWithoutPreludeRejectsNumericConversionAliases :: IO ()
 testCompileWithoutPreludeRejectsNumericConversionAliases = do
   result <- compileSourceWithPrelude defaultWarningSettings Nothing "x = toUInt8 1."
@@ -245,6 +256,26 @@ testCompileWithoutPreludeRejectsNumericConversionAliases = do
     "public numeric conversion aliases are unavailable without prelude"
     ["E1001: unbound variable 'toUInt8'"]
     (map renderDiagnostic (compileErrors result))
+
+testCompileWithoutPreludeRejectsBundledEqIntEqualsMethodBody :: IO ()
+testCompileWithoutPreludeRejectsBundledEqIntEqualsMethodBody = do
+  result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      ( Text.unlines
+          [ "class Eq(a) {",
+            "equals :: a -> a -> Bool.",
+            "}.",
+            "impl Eq(Int) { }.",
+            "result = Eq::equals 1 1.",
+            "result."
+          ]
+      )
+  assertSingleErrorContains
+    "no-prelude compile has no bundled Eq(Int).equals method body"
+    "missing impl method body 'Eq::equals'"
+    (compileErrors result)
 
 testCompileWithoutPreludeRejectsBundledCapabilityFacts :: IO ()
 testCompileWithoutPreludeRejectsBundledCapabilityFacts = do
@@ -271,6 +302,26 @@ testExplicitPreludeDoesNotInheritBundledImplFacts = do
     "explicit prelude uses only supplied width-specific impl facts"
     "missing impl fact 'Num(UInt16)'"
     (compileErrors widthResult)
+
+testExplicitPreludeDoesNotInheritBundledEqIntEqualsMethodBody :: IO ()
+testExplicitPreludeDoesNotInheritBundledEqIntEqualsMethodBody = do
+  result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      ( Just
+          ( Text.unlines
+              [ "class Eq(a) {",
+                "equals :: a -> a -> Bool.",
+                "}.",
+                "impl Eq(Int) { }."
+              ]
+          )
+      )
+      "result = Eq::equals 1 1.\nresult."
+  assertSingleErrorContains
+    "explicit prelude has no bundled Eq(Int).equals method body"
+    "missing impl method body 'Eq::equals'"
+    (compileErrors result)
 
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable :: IO ()
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable = do

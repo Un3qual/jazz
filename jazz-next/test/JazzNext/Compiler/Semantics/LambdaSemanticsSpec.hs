@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Data.Text (Text)
 import JazzNext.Compiler.Diagnostics
   ( renderDiagnostic
   )
@@ -56,6 +57,8 @@ tests =
     ("mixed wrapped recursive lambda rejects non-function alternate branch", testMixedWrappedRecursiveLambdaTypeMismatch),
     ("block-wrapped recursive lambda rejects mismatched recursive application", testBlockWrappedRecursiveLambdaTypeMismatch),
     ("block-returned lambda alias rejects mismatched recursive application", testBlockReturnedLambdaAliasTypeMismatch),
+    ("lambda equality is rejected at source type checking", testLambdaEqualityRejected),
+    ("lambda inequality is rejected at source type checking", testLambdaInequalityRejected),
     ("non-callable application still reports apply type error", testRejectsNonCallableApplication)
   ]
 
@@ -298,6 +301,16 @@ testBlockReturnedLambdaAliasTypeMismatch = do
     "E2006"
     (compileErrors result)
 
+testLambdaEqualityRejected :: IO ()
+testLambdaEqualityRejected = do
+  result <- compileSource defaultWarningSettings "f = \\(x) -> x.\ng = \\(x) -> x.\nsame = f == g."
+  assertCallableEqualityDiagnostic "lambda equality" result
+
+testLambdaInequalityRejected :: IO ()
+testLambdaInequalityRejected = do
+  result <- compileSource defaultWarningSettings "f = \\(x) -> x.\ng = \\(x) -> x.\ndifferent = f != g."
+  assertCallableEqualityDiagnostic "lambda inequality" result
+
 testRejectsNonCallableApplication :: IO ()
 testRejectsNonCallableApplication = do
   result <- compileSource defaultWarningSettings "x = 1 2."
@@ -313,3 +326,18 @@ testRejectsNonCallableApplication = do
         "apply error text"
         "cannot apply function"
         (renderDiagnostic compileError)
+
+assertCallableEqualityDiagnostic :: Text -> CompileResult -> IO ()
+assertCallableEqualityDiagnostic label result =
+  case compileErrors result of
+    compileError : _ -> do
+      assertContains
+        (label <> " code")
+        "E2004"
+        (renderDiagnostic compileError)
+      assertContains
+        (label <> " callable text")
+        "callable values are not equality-supported"
+        (renderDiagnostic compileError)
+    [] ->
+      failTest ("expected " <> label <> " to fail compilation")

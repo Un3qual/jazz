@@ -12,6 +12,7 @@ module JazzNext.Compiler.Driver
     compileModuleGraph,
     compileModuleGraphWithPrelude,
     compileModuleGraphWithResolvedPrelude,
+    collectNeededLocalCapabilityExports,
     RunResult (..),
     runExpr,
     runSource,
@@ -38,12 +39,16 @@ import Data.IORef
   )
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    ClassMethodSignature (..),
     ConstraintSignatureType (..),
     DataConstructor (..),
     DataConstructorArgument (..),
     Expr (..),
     ImplMethod (..),
     Pattern (..),
+    SignatureConstraint (..),
+    SignaturePayload (..),
+    SignatureToken (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -88,8 +93,11 @@ import JazzNext.Compiler.PreludeContract
   ( validatePreludeKernelBridges
   )
 import JazzNext.Compiler.Runtime
-  ( evaluateRuntimeExprWithBuiltins,
+  ( evaluateRuntimeExprWithBuiltinsAndBindingHints,
     renderRuntimeValue
+  )
+import JazzNext.Compiler.RuntimeHints
+  ( BindingRuntimeHintKey
   )
 import JazzNext.Compiler.TypeInference
   ( InferenceResult (..),
@@ -147,7 +155,7 @@ compileExprWithBuiltinsAndHiddenStatements ::
   Expr ->
   IO CompileResult
 compileExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr = do
-  (warnings, errors, _) <- analyzeWithWarnings hiddenStatementIndices builtinMode settings expr
+  (warnings, errors, _, _) <- analyzeWithWarnings hiddenStatementIndices builtinMode settings expr
   pure
     CompileResult
       { compileWarnings = warnings,
@@ -221,7 +229,8 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
           }
     Right loweredPrelude -> do
       let ambientVisibleSymbols = loweredPreludeVisibleSymbols loweredPrelude
-      moduleGraphExprResult <- loadLoweredModuleGraph ambientVisibleSymbols resolutionConfig entryModulePath sourceLookup
+          ambientVisibleClassNames = loweredPreludeVisibleClassNames loweredPrelude
+      moduleGraphExprResult <- loadLoweredModuleGraph ambientVisibleSymbols ambientVisibleClassNames resolutionConfig entryModulePath sourceLookup
       case moduleGraphExprResult of
         Left resolutionError ->
           pure
@@ -250,7 +259,7 @@ runExprWithBuiltinsAndHiddenStatements ::
   Expr ->
   IO RunResult
 runExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr = do
-  (warnings, compileErrors, canonicalExpr) <-
+  (warnings, compileErrors, canonicalExpr, runtimeTypeHints) <-
     analyzeWithWarnings hiddenStatementIndices builtinMode settings expr
   if not (null compileErrors)
     then
@@ -262,7 +271,7 @@ runExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settin
             runOutput = Nothing
           }
     else
-      case evaluateRuntimeExprWithBuiltins builtinMode canonicalExpr of
+      case evaluateRuntimeExprWithBuiltinsAndBindingHints builtinMode runtimeTypeHints canonicalExpr of
         Left runtimeError ->
           pure
             RunResult
@@ -351,7 +360,8 @@ runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entr
           }
     Right loweredPrelude -> do
       let ambientVisibleSymbols = loweredPreludeVisibleSymbols loweredPrelude
-      moduleGraphExprResult <- loadLoweredModuleGraph ambientVisibleSymbols resolutionConfig entryModulePath sourceLookup
+          ambientVisibleClassNames = loweredPreludeVisibleClassNames loweredPrelude
+      moduleGraphExprResult <- loadLoweredModuleGraph ambientVisibleSymbols ambientVisibleClassNames resolutionConfig entryModulePath sourceLookup
       case moduleGraphExprResult of
         Left resolutionError ->
           pure
@@ -384,7 +394,7 @@ runExprWithValidationAndRuntimeExprs
   settings
   validationExpr
   runtimeExpr = do
-  (warnings, compileErrors, _) <-
+  (warnings, compileErrors, _, _) <-
     analyzeWithWarnings hiddenStatementIndices builtinMode settings validationExpr
   if not (null compileErrors)
     then
@@ -396,7 +406,7 @@ runExprWithValidationAndRuntimeExprs
             runOutput = Nothing
           }
     else do
-      (_, runtimeCompileErrors, canonicalRuntimeExpr) <-
+      (_, runtimeCompileErrors, canonicalRuntimeExpr, runtimeTypeHints) <-
         analyzeWithWarnings hiddenStatementIndices builtinMode settings runtimeExpr
       if not (null runtimeCompileErrors)
         then
@@ -408,7 +418,7 @@ runExprWithValidationAndRuntimeExprs
                 runOutput = Nothing
               }
         else
-          case evaluateRuntimeExprWithBuiltins builtinMode canonicalRuntimeExpr of
+          case evaluateRuntimeExprWithBuiltinsAndBindingHints builtinMode runtimeTypeHints canonicalRuntimeExpr of
             Left runtimeError ->
               pure
                 RunResult
@@ -429,7 +439,7 @@ runExprWithValidationAndRuntimeExprs
 -- | Run inference/canonicalization, collect warnings from `inferredWarnings`,
 -- promote configured warnings into errors, and return the canonicalized
 -- `inferredExpr` for downstream compile/run steps.
-analyzeWithWarnings :: Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr)
+analyzeWithWarnings :: Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr, Map BindingRuntimeHintKey ConstraintSignatureType)
 analyzeWithWarnings hiddenStatementIndices builtinMode settings expr = do
   inference <-
     inferExpressionWithBuiltinsAndHiddenStatements
@@ -441,7 +451,7 @@ analyzeWithWarnings hiddenStatementIndices builtinMode settings expr = do
       promotedWarnings = filter (isPromoted settings) warnings
       promotedWarningErrors = map warningToError promotedWarnings
       errors = inferredErrors inference ++ promotedWarningErrors
-  pure (warnings, errors, inferredExpr inference)
+  pure (warnings, errors, inferredExpr inference, inferredRuntimeTypeHints inference)
 
 filterWarningsForPromotion :: WarningSettings -> [WarningRecord] -> [WarningRecord]
 -- Placeholder hook for future category-level filtering.
@@ -540,6 +550,16 @@ loweredPreludeVisibleSymbols loweredResolvedPrelude =
     collectVisiblePreludeBindings loweredPrelude =
       Set.fromList (collectTopLevelBindingNames loweredPrelude)
 
+loweredPreludeVisibleClassNames :: LoweredResolvedPrelude -> Set Text
+loweredPreludeVisibleClassNames loweredResolvedPrelude =
+  case loweredResolvedPrelude of
+    LoweredPreludeAbsent -> Set.empty
+    LoweredPreludeBundled loweredPrelude -> collectVisiblePreludeClassNames loweredPrelude
+    LoweredPreludeExplicit loweredPrelude -> collectVisiblePreludeClassNames loweredPrelude
+  where
+    collectVisiblePreludeClassNames loweredPrelude =
+      Set.fromList (collectTopLevelClassNames loweredPrelude)
+
 -- | Parse and validate an explicit/bundled prelude before it is merged into the
 -- main program source.
 validateAndLowerPrelude :: Text -> Either Diagnostic Expr
@@ -596,14 +616,15 @@ loadModuleGraphSource resolutionConfig entryModulePath sourceLookup = do
 -- are stripped only from the runtime replay expression.
 loadLoweredModuleGraph ::
   Set Text ->
+  Set Text ->
   ModuleResolutionConfig ->
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
   IO (Either Diagnostic ModuleGraphExpr)
-loadLoweredModuleGraph ambientVisibleSymbols resolutionConfig entryModulePath sourceLookup = do
+loadLoweredModuleGraph ambientVisibleSymbols ambientVisibleClassNames resolutionConfig entryModulePath sourceLookup = do
   memoizedSourceLookup <- memoizeSourceLookup sourceLookup
   resolutionResult <-
-    resolveModuleGraphWithLookupAndVisibleSymbols resolutionConfig ambientVisibleSymbols memoizedSourceLookup entryModulePath
+    resolveModuleGraphWithLookupAndVisibleSymbols resolutionConfig ambientVisibleSymbols ambientVisibleClassNames memoizedSourceLookup entryModulePath
   case resolutionResult of
     Left resolutionError ->
       pure (Left resolutionError)
@@ -677,6 +698,7 @@ buildModuleGraphExpr ::
   ModuleGraphExpr
 buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
   let exportsByModule = collectModuleExports resolvedModules loweredModules
+      capabilityExportsByModule = collectModuleCapabilityExports resolvedModules loweredModules
       aliasReferencesByModule = map collectAliasQualifiedReferences loweredModules
       loweredModulesWithAliasReferences = zip loweredModules aliasReferencesByModule
       neededAliasExportsByModule = collectNeededAliasExports exportsByModule loweredModulesWithAliasReferences
@@ -688,6 +710,10 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
         collectNeededVisibleImportExports
           exportsByModule
           loweredModules
+      neededVisibleImportCapabilityExportsByModule =
+        collectNeededVisibleImportCapabilityExports
+          capabilityExportsByModule
+          loweredModules
       initialNeededModuleExportsByModule =
         Map.unionWith Set.union neededAliasExportsByModule neededVisibleImportExportsByModule
       neededModuleExportsByModule =
@@ -695,13 +721,38 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
           resolvedModules
           loweredModules
           initialNeededModuleExportsByModule
+      neededLocalCapabilityExportsByModule =
+        collectNeededLocalCapabilityExports
+          resolvedModules
+          loweredModules
+          neededModuleExportsByModule
+          neededVisibleImportCapabilityExportsByModule
+      neededCapabilityExportsByModule =
+        Map.unionWith Set.union
+          neededVisibleImportCapabilityExportsByModule
+          neededLocalCapabilityExportsByModule
+      (runtimeNeededModuleExportsByModule, runtimeNeededCapabilityExportsByModule) =
+        closeRuntimeReplayNeeds
+          resolvedModules
+          loweredModules
+          neededVisibleImportCapabilityExportsByModule
+          neededModuleExportsByModule
+          neededCapabilityExportsByModule
+      replayBridgeModuleExportsByModule =
+        Map.unionWith Set.union neededModuleExportsByModule runtimeNeededModuleExportsByModule
       loweredModulesWithVisibleImportReferences =
         map
           (rewriteVisibleImportReferences hiddenImportExportsByModule exportsByModule)
           loweredModules
-      loweredModulesWithAliasBindings =
+      loweredModulesWithValidationAliasBindings =
         zipWith3
           (addAliasImportBindings exportsByModule neededModuleExportsByModule hiddenImportExportsByModule)
+          resolvedModules
+          loweredModulesWithVisibleImportReferences
+          aliasReferencesByModule
+      loweredModulesWithRuntimeAliasBindings =
+        zipWith3
+          (addAliasImportBindings exportsByModule replayBridgeModuleExportsByModule hiddenImportExportsByModule)
           resolvedModules
           loweredModulesWithVisibleImportReferences
           aliasReferencesByModule
@@ -709,6 +760,12 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
         Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) hiddenImportExportsByModule
       neededModuleExportsFor resolvedModule =
         Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) neededModuleExportsByModule
+      runtimeNeededModuleExportsFor resolvedModule =
+        Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) runtimeNeededModuleExportsByModule
+      neededModuleCapabilityExportsFor resolvedModule =
+        Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) runtimeNeededCapabilityExportsByModule
+      directlyNeededModuleCapabilityExportsFor resolvedModule =
+        Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) neededVisibleImportCapabilityExportsByModule
    in
   ModuleGraphExpr
     { moduleGraphValidationExpr =
@@ -721,7 +778,7 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
                 loweredModule
           )
           resolvedModules
-          loweredModulesWithAliasBindings,
+          loweredModulesWithValidationAliasBindings,
       moduleGraphRuntimeExpr =
         replayLoweredModules
           ( \resolvedModule loweredModule ->
@@ -729,11 +786,13 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
                 (resolvedModulePath resolvedModule)
                 (resolvedModulePath resolvedModule == entryModulePath)
                 (hiddenImportExportsFor resolvedModule)
-                (neededModuleExportsFor resolvedModule)
+                (runtimeNeededModuleExportsFor resolvedModule)
+                (neededModuleCapabilityExportsFor resolvedModule)
+                (directlyNeededModuleCapabilityExportsFor resolvedModule)
                 loweredModule
           )
           resolvedModules
-          loweredModulesWithAliasBindings
+          loweredModulesWithRuntimeAliasBindings
     }
 
 collectModuleExports :: [ResolvedModule] -> [Expr] -> Map [Text] [Text]
@@ -759,6 +818,22 @@ collectTopLevelBindingNames expr =
             | DataConstructor constructorName _ <- constructors
           ]
         _ -> []
+
+collectTopLevelClassNames :: Expr -> [Text]
+collectTopLevelClassNames expr =
+  case expr of
+    EBlock statements ->
+      [ identifierText className
+        | SClass _ className _ _ <- statements
+      ]
+    _ -> []
+
+collectModuleCapabilityExports :: [ResolvedModule] -> [Expr] -> Map [Text] (Set Text)
+collectModuleCapabilityExports resolvedModules loweredModules =
+  Map.fromList
+    [ (resolvedModulePath resolvedModule, collectTopLevelCapabilityNames loweredModule)
+      | (resolvedModule, loweredModule) <- zip resolvedModules loweredModules
+    ]
 
 collectHiddenImportExports ::
   Map [Text] [Text] ->
@@ -829,6 +904,50 @@ visibleImportReferencesForModule exportsByModule expr =
                 Nothing -> exportedNames
                 Just symbolNames -> Set.intersection exportedNames (Set.fromList symbolNames)
     _ -> Map.empty
+
+collectNeededVisibleImportCapabilityExports ::
+  Map [Text] (Set Text) ->
+  [Expr] ->
+  Map [Text] (Set Text)
+collectNeededVisibleImportCapabilityExports capabilityExportsByModule loweredModules =
+  Map.unionsWith Set.union
+    (map (visibleImportCapabilityExportsForModule capabilityExportsByModule) loweredModules)
+
+visibleImportCapabilityExportsForModule ::
+  Map [Text] (Set Text) ->
+  Expr ->
+  Map [Text] (Set Text)
+visibleImportCapabilityExportsForModule capabilityExportsByModule expr =
+  case expr of
+    EBlock statements ->
+      Map.fromListWith Set.union
+        [ (modulePath, visibleCapabilityNames modulePath maybeSymbolNames)
+          | SImport _ modulePath Nothing maybeSymbolNames <- statements,
+            not (Set.null (visibleCapabilityNames modulePath maybeSymbolNames))
+        ]
+      where
+        visibleCapabilityNames modulePath maybeSymbolNames =
+          let exportedCapabilityNames = Map.findWithDefault Set.empty modulePath capabilityExportsByModule
+           in case maybeSymbolNames of
+                Nothing -> exportedCapabilityNames
+                Just symbolNames -> Set.intersection exportedCapabilityNames (Set.fromList symbolNames)
+    _ -> Map.empty
+
+collectTopLevelCapabilityNames :: Expr -> Set Text
+collectTopLevelCapabilityNames expr =
+  case expr of
+    EBlock statements ->
+      Set.fromList
+        ( concatMap
+            ( \statement ->
+                case statement of
+                  SClass _ className _ _ -> [identifierText className]
+                  SImpl _ capabilityName _ _ -> [identifierText capabilityName]
+                  _ -> []
+            )
+            statements
+        )
+    _ -> Set.empty
 
 -- | Qualify references that came from imports whose other exports must stay
 -- hidden, preventing dependency names from shadowing prelude/local bindings.
@@ -1111,6 +1230,199 @@ closeExportDependencies exportDependencies neededExports =
         then neededExports
         else closeExportDependencies exportDependencies expandedExports
 
+closeRuntimeReplayNeeds ::
+  [ResolvedModule] ->
+  [Expr] ->
+  Map [Text] (Set Text) ->
+  Map [Text] (Set Text) ->
+  Map [Text] (Set Text) ->
+  (Map [Text] (Set Text), Map [Text] (Set Text))
+closeRuntimeReplayNeeds resolvedModules loweredModules directlyNeededCapabilityExportsByModule neededModuleExportsByModule neededCapabilityExportsByModule =
+  let neededImplBodyValueExportsByModule =
+        collectNeededImplMethodValueExports
+          resolvedModules
+          loweredModules
+          neededCapabilityExportsByModule
+      expandedNeededModuleExportsByModule =
+        expandNeededModuleExports
+          resolvedModules
+          loweredModules
+          (Map.unionWith Set.union neededModuleExportsByModule neededImplBodyValueExportsByModule)
+      expandedNeededLocalCapabilityExportsByModule =
+        collectNeededLocalCapabilityExports
+          resolvedModules
+          loweredModules
+          expandedNeededModuleExportsByModule
+          directlyNeededCapabilityExportsByModule
+      expandedNeededCapabilityExportsByModule =
+        Map.unionWith Set.union
+          directlyNeededCapabilityExportsByModule
+          expandedNeededLocalCapabilityExportsByModule
+   in if expandedNeededModuleExportsByModule == neededModuleExportsByModule
+        && expandedNeededCapabilityExportsByModule == neededCapabilityExportsByModule
+        then (expandedNeededModuleExportsByModule, expandedNeededCapabilityExportsByModule)
+        else
+          closeRuntimeReplayNeeds
+            resolvedModules
+            loweredModules
+            directlyNeededCapabilityExportsByModule
+            expandedNeededModuleExportsByModule
+            expandedNeededCapabilityExportsByModule
+
+collectNeededImplMethodValueExports ::
+  [ResolvedModule] ->
+  [Expr] ->
+  Map [Text] (Set Text) ->
+  Map [Text] (Set Text)
+collectNeededImplMethodValueExports resolvedModules loweredModules neededCapabilityExportsByModule =
+  Map.fromList
+    [ (modulePath, neededValueExports)
+      | (resolvedModule, loweredModule) <- zip resolvedModules loweredModules,
+        let modulePath = resolvedModulePath resolvedModule,
+        let neededCapabilities = Map.findWithDefault Set.empty modulePath neededCapabilityExportsByModule,
+        let valueExports = Set.fromList (collectTopLevelBindingNames loweredModule),
+        let neededValueExports = implMethodValueDependencies loweredModule valueExports neededCapabilities,
+        not (Set.null neededValueExports)
+    ]
+
+implMethodValueDependencies :: Expr -> Set Text -> Set Text -> Set Text
+implMethodValueDependencies expr valueExports neededCapabilities =
+  case expr of
+    EBlock statements ->
+      Set.intersection
+        valueExports
+        ( Set.unions
+            [ collectUnqualifiedReferences methodExpr
+              | SImpl _ capabilityName _ methods <- statements,
+                Set.member (identifierText capabilityName) neededCapabilities,
+                ImplMethod _ _ methodExpr <- methods
+            ]
+        )
+    _ ->
+      Set.empty
+
+collectNeededLocalCapabilityExports ::
+  [ResolvedModule] ->
+  [Expr] ->
+  Map [Text] (Set Text) ->
+  Map [Text] (Set Text) ->
+  Map [Text] (Set Text)
+collectNeededLocalCapabilityExports resolvedModules loweredModules neededModuleExportsByModule directlyNeededCapabilityExportsByModule =
+  Map.fromList
+    [ (modulePath, neededCapabilities)
+      | (resolvedModule, loweredModule) <- zip resolvedModules loweredModules,
+        let modulePath = resolvedModulePath resolvedModule,
+        let neededExports = Map.findWithDefault Set.empty modulePath neededModuleExportsByModule,
+        let directlyNeededCapabilities = Map.findWithDefault Set.empty modulePath directlyNeededCapabilityExportsByModule,
+        let neededCapabilities = localCapabilityDependenciesForExports loweredModule neededExports directlyNeededCapabilities,
+        not (Set.null neededCapabilities)
+    ]
+
+localCapabilityDependenciesForExports :: Expr -> Set Text -> Set Text -> Set Text
+localCapabilityDependenciesForExports expr neededExports directlyNeededCapabilities =
+  case expr of
+    EBlock statements ->
+      closeLocalCapabilityDependencies statements localCapabilityNames directDependencies
+      where
+        localCapabilityNames = collectTopLevelCapabilityNames expr
+        directDependencies =
+          Set.unions
+            [ directlyNeededCapabilities,
+              Set.unions
+                [ collectLocalCapabilityReferences localCapabilityNames valueExpr
+                  | SLet bindingName _ valueExpr <- statements,
+                    Set.member (identifierText bindingName) neededExports
+                ],
+              Set.unions
+                [ collectLocalCapabilityReferencesFromSignaturePayload localCapabilityNames signaturePayload
+                  | SSignature signatureName _ signaturePayload <- statements,
+                    Set.member (identifierText signatureName) neededExports
+                ],
+              Set.unions
+                [ collectLocalCapabilityReferencesFromSignaturePayload localCapabilityNames methodSignature
+                  | SClass _ className _ methods <- statements,
+                    Set.member (identifierText className) directlyNeededCapabilities,
+                    ClassMethodSignature _ _ methodSignature <- methods
+                ]
+            ]
+    _ -> Set.empty
+
+collectLocalCapabilityReferencesFromSignaturePayload :: Set Text -> SignaturePayload -> Set Text
+collectLocalCapabilityReferencesFromSignaturePayload localCapabilityNames signaturePayload =
+  case signaturePayload of
+    ConstrainedSignature constraints signatureType ->
+      Set.union
+        (Set.unions (map (collectLocalCapabilityReferencesFromConstraint localCapabilityNames) constraints))
+        (collectLocalCapabilityReferencesFromConstraintType localCapabilityNames signatureType)
+    _ -> Set.empty
+
+collectLocalCapabilityReferencesFromConstraint :: Set Text -> SignatureConstraint -> Set Text
+collectLocalCapabilityReferencesFromConstraint localCapabilityNames (SignatureConstraint constraintName arguments) =
+  Set.unions
+    ( [ Set.singleton constraintNameText
+        | Set.member constraintNameText localCapabilityNames
+      ]
+        ++ map (collectLocalCapabilityReferencesFromConstraintType localCapabilityNames) arguments
+    )
+  where
+    constraintNameText = identifierText constraintName
+
+collectLocalCapabilityReferencesFromConstraintType :: Set Text -> ConstraintSignatureType -> Set Text
+collectLocalCapabilityReferencesFromConstraintType localCapabilityNames signatureType =
+  case signatureType of
+    ConstraintTypeName typeName ->
+      let typeNameText = identifierText typeName
+       in Set.fromList [typeNameText | Set.member typeNameText localCapabilityNames]
+    ConstraintTypeApplication typeName arguments ->
+      Set.filter
+        (`Set.member` localCapabilityNames)
+        ( Set.insert
+            (identifierText typeName)
+            (Set.unions (map (collectLocalCapabilityReferencesFromConstraintType localCapabilityNames) arguments))
+        )
+    ConstraintTypeList innerType ->
+      collectLocalCapabilityReferencesFromConstraintType localCapabilityNames innerType
+    ConstraintTypeTuple elementTypes ->
+      Set.unions (map (collectLocalCapabilityReferencesFromConstraintType localCapabilityNames) elementTypes)
+    ConstraintTypeFunction argumentType resultType ->
+      Set.union
+        (collectLocalCapabilityReferencesFromConstraintType localCapabilityNames argumentType)
+        (collectLocalCapabilityReferencesFromConstraintType localCapabilityNames resultType)
+
+closeLocalCapabilityDependencies :: [Statement] -> Set Text -> Set Text -> Set Text
+closeLocalCapabilityDependencies statements localCapabilityNames neededCapabilities =
+  let expandedCapabilities =
+        Set.union
+          neededCapabilities
+          ( Set.unions
+              [ Set.unions
+                  [ collectLocalCapabilityReferencesFromSignaturePayload localCapabilityNames methodSignature
+                    | SClass _ capabilityName _ methods <- statements,
+                      Set.member (identifierText capabilityName) neededCapabilities,
+                      ClassMethodSignature _ _ methodSignature <- methods
+                  ],
+                Set.unions
+                  [ Set.unions
+                      [ collectLocalCapabilityReferences localCapabilityNames methodExpr
+                        | ImplMethod _ _ methodExpr <- methods
+                      ]
+                    | SImpl _ capabilityName _ methods <- statements,
+                      Set.member (identifierText capabilityName) neededCapabilities
+                  ]
+              ]
+          )
+   in if expandedCapabilities == neededCapabilities
+        then neededCapabilities
+        else closeLocalCapabilityDependencies statements localCapabilityNames expandedCapabilities
+
+collectLocalCapabilityReferences :: Set Text -> Expr -> Set Text
+collectLocalCapabilityReferences localCapabilityNames expr =
+  Set.fromList
+    [ capabilityName
+      | (capabilityName, _) <- Set.toList (collectAliasQualifiedReferencePairs expr),
+        Set.member capabilityName localCapabilityNames
+    ]
+
 collectNeededAliasExports ::
   Map [Text] [Text] ->
   [(Expr, Map Text (Set Text))] ->
@@ -1343,7 +1655,7 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
               [ SSignature
                   (hiddenValidationIdentifier signatureName)
                   spanValue
-                  signatureValue
+                  (rewriteModuleExportSignaturePayload modulePath dataTypeNames signatureValue)
               ]
         SData spanValue typeName typeParameters constructors ->
           rewriteDataStatementForReplay
@@ -1354,7 +1666,13 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
             typeName
             typeParameters
             constructors
-        SClass {} -> [statement]
+        SClass spanValue capabilityName parameters methods ->
+          [ SClass
+              spanValue
+              capabilityName
+              parameters
+              (rewriteModuleExportClassMethods modulePath dataTypeNames methods)
+          ]
         SImpl spanValue capabilityName arguments methods ->
           [ SImpl
               spanValue
@@ -1368,30 +1686,53 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
     hiddenValidationIdentifier name =
       mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
 
-stripModuleRuntimeReplayStatements :: [Text] -> Bool -> Set Text -> Set Text -> Expr -> Expr
-stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports neededModuleExports expr =
+stripModuleRuntimeReplayStatements :: [Text] -> Bool -> Set Text -> Set Text -> Set Text -> Set Text -> Expr -> Expr
+stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports neededModuleExports neededCapabilityExports directlyNeededCapabilityExports expr =
   case expr of
     EBlock statements ->
-      EBlock (concatMap keepModuleRuntimeReplayStatement statements)
+      EBlock (ensureModuleRuntimeBoundary (concatMap keepModuleRuntimeReplayStatement statements))
     _ -> expr
   where
+    ensureModuleRuntimeBoundary statements =
+      case statements of
+        SModule {} : _ -> statements
+        _ -> SModule (SourceSpan 1 1) modulePath : statements
+
     keepModuleRuntimeReplayStatement statement =
       case statement of
-        SModule _ _ -> []
+        SModule {} -> [statement]
         SExpr spanValue exprValue ->
           [ SExpr
               spanValue
-              (rewriteModuleExportReferences modulePath hiddenImportExports exprValue)
+              (rewriteRuntimeReplayExpr exprValue)
             | isEntryModule
           ]
         SData spanValue typeName typeParameters constructors ->
           rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName typeParameters constructors
+        SClass spanValue capabilityName parameters methods ->
+          [ SClass
+              spanValue
+              (runtimeReplayCapabilityName capabilityName)
+              parameters
+              (rewriteRuntimeReplayClassMethods methods)
+            | isEntryModule || Set.member (identifierText capabilityName) neededCapabilityExports
+          ]
         SLet bindingName spanValue valueExpr
-          | Set.notMember (identifierText bindingName) hiddenImportExports ->
+          | shouldKeepRuntimeBinding bindingName,
+            Set.notMember (identifierText bindingName) hiddenImportExports ->
               [ SLet
                   bindingName
                   spanValue
-                  (rewriteModuleExportReferences modulePath hiddenImportExports valueExpr)
+                  (rewriteRuntimeReplayExpr valueExpr)
+              ]
+        SLet {} -> []
+        SSignature signatureName spanValue signatureValue
+          | shouldKeepRuntimeBinding signatureName,
+            Set.notMember (identifierText signatureName) hiddenImportExports ->
+              [ SSignature
+                  signatureName
+                  spanValue
+                  (rewriteRuntimeReplaySignaturePayload signatureValue)
               ]
         SSignature signatureName spanValue signatureValue
           | Set.member (identifierText signatureName) hiddenImportExports,
@@ -1399,21 +1740,186 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
               [ SSignature
                   (hiddenValidationIdentifier signatureName)
                   spanValue
-                  signatureValue
+                  (rewriteRuntimeReplaySignaturePayload signatureValue)
               ]
+        SSignature {} -> []
         SImpl spanValue capabilityName arguments methods ->
           [ SImpl
               spanValue
-              capabilityName
-              (rewriteModuleExportImplArguments modulePath dataTypeNames arguments)
-              (rewriteModuleExportImplMethods modulePath hiddenImportExports methods)
+              (runtimeReplayCapabilityName capabilityName)
+              (rewriteRuntimeReplayImplArguments arguments)
+              (rewriteRuntimeReplayImplMethods methods)
+            | isEntryModule || Set.member (identifierText capabilityName) neededCapabilityExports
           ]
         _ | isHiddenImportExportStatement hiddenImportExports statement -> []
         _ -> [statement]
     dataTypeNames = collectDataTypeNames expr
+    hiddenRuntimeCapabilities =
+      if isEntryModule
+        then Set.empty
+        else Set.difference neededCapabilityExports directlyNeededCapabilityExports
+
+    shouldKeepRuntimeBinding bindingName =
+      isEntryModule || isNeededRuntimeBindingName (identifierText bindingName)
+
+    isNeededRuntimeBindingName bindingNameText =
+      Set.member bindingNameText neededModuleExports
+        || case Text.stripPrefix (moduleExportQualifiedPrefix modulePath) bindingNameText of
+          Just exportedName -> Set.member exportedName neededModuleExports
+          Nothing -> False
 
     hiddenValidationIdentifier name =
       mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
+
+    runtimeReplayCapabilityName capabilityName =
+      let capabilityNameText = identifierText capabilityName
+       in if Set.member capabilityNameText hiddenRuntimeCapabilities
+            then mkIdentifier (moduleExportQualifiedName modulePath capabilityNameText)
+            else capabilityName
+
+    rewriteRuntimeReplayClassMethods methods =
+      [ ClassMethodSignature methodName methodSpan (rewriteRuntimeReplaySignaturePayload methodSignature)
+        | ClassMethodSignature methodName methodSpan methodSignature <- methods
+      ]
+
+    rewriteRuntimeReplayImplArguments =
+      map rewriteRuntimeReplayConstraintType
+
+    rewriteRuntimeReplayImplMethods methods =
+      [ ImplMethod
+          methodName
+          methodSpan
+          (rewriteRuntimeReplayExpr methodExpr)
+        | ImplMethod methodName methodSpan methodExpr <- methods
+      ]
+
+    rewriteRuntimeReplayExpr =
+      rewriteHiddenCapabilityReferences modulePath hiddenRuntimeCapabilities
+        . rewriteModuleExportReferences modulePath hiddenImportExports
+
+    rewriteRuntimeReplaySignaturePayload signaturePayload =
+      case signaturePayload of
+        ConstrainedSignature constraints signatureType ->
+          ConstrainedSignature
+            (map rewriteRuntimeReplaySignatureConstraint constraints)
+            (rewriteRuntimeReplayConstraintType signatureType)
+        UnsupportedSignature signatureTokens ->
+          UnsupportedSignature (map rewriteRuntimeReplaySignatureToken signatureTokens)
+        _ -> signaturePayload
+
+    rewriteRuntimeReplaySignatureConstraint (SignatureConstraint constraintName arguments) =
+      SignatureConstraint
+        (runtimeReplayCapabilityName constraintName)
+        (map rewriteRuntimeReplayConstraintType arguments)
+
+    rewriteRuntimeReplayConstraintType signatureType =
+      case rewriteModuleExportImplArgument modulePath dataTypeNames signatureType of
+        ConstraintTypeName name ->
+          ConstraintTypeName (runtimeReplayCapabilityName name)
+        ConstraintTypeApplication name arguments ->
+          ConstraintTypeApplication
+            (runtimeReplayCapabilityName name)
+            (map rewriteRuntimeReplayConstraintType arguments)
+        ConstraintTypeList innerType ->
+          ConstraintTypeList (rewriteRuntimeReplayConstraintType innerType)
+        ConstraintTypeTuple elementTypes ->
+          ConstraintTypeTuple (map rewriteRuntimeReplayConstraintType elementTypes)
+        ConstraintTypeFunction argumentType resultType ->
+          ConstraintTypeFunction
+            (rewriteRuntimeReplayConstraintType argumentType)
+            (rewriteRuntimeReplayConstraintType resultType)
+
+    rewriteRuntimeReplaySignatureToken signatureToken =
+      rewriteModuleExportSignatureToken modulePath dataTypeNames signatureToken
+
+moduleExportQualifiedPrefix :: [Text] -> Text
+moduleExportQualifiedPrefix modulePath =
+  qualifiedIdentifierText "__module" (renderModulePath modulePath <> "::")
+
+rewriteHiddenCapabilityReferences :: [Text] -> Set Text -> Expr -> Expr
+rewriteHiddenCapabilityReferences modulePath hiddenCapabilities =
+  rewriteExprCapabilityReferences Set.empty
+  where
+    rewriteExprCapabilityReferences boundNames expression =
+      case expression of
+        ELit _ -> expression
+        EVar name ->
+          EVar (rewriteCapabilityReferenceIdentifier boundNames name)
+        ELambda parameterName bodyExpr ->
+          ELambda
+            parameterName
+            (rewriteExprCapabilityReferences (Set.insert (identifierText parameterName) boundNames) bodyExpr)
+        EOperatorValue _ -> expression
+        EList elements ->
+          EList (map (rewriteExprCapabilityReferences boundNames) elements)
+        ETuple elements ->
+          ETuple (map (rewriteExprCapabilityReferences boundNames) elements)
+        EApply functionExpr argumentExpr ->
+          EApply
+            (rewriteExprCapabilityReferences boundNames functionExpr)
+            (rewriteExprCapabilityReferences boundNames argumentExpr)
+        EIf conditionExpr trueBranch falseBranch ->
+          EIf
+            (rewriteExprCapabilityReferences boundNames conditionExpr)
+            (rewriteExprCapabilityReferences boundNames trueBranch)
+            (rewriteExprCapabilityReferences boundNames falseBranch)
+        ECase conditionExpr trueBranch falseBranch ->
+          ECase
+            (rewriteExprCapabilityReferences boundNames conditionExpr)
+            (rewriteExprCapabilityReferences boundNames trueBranch)
+            (rewriteExprCapabilityReferences boundNames falseBranch)
+        EPatternCase scrutineeExpr caseArms ->
+          EPatternCase
+            (rewriteExprCapabilityReferences boundNames scrutineeExpr)
+            [ CaseArm
+                patternValue
+                (rewriteExprCapabilityReferences (Set.union boundNames (patternBinders patternValue)) bodyExpr)
+              | CaseArm patternValue bodyExpr <- caseArms
+            ]
+        EBinary operatorName leftExpr rightExpr ->
+          EBinary
+            operatorName
+            (rewriteExprCapabilityReferences boundNames leftExpr)
+            (rewriteExprCapabilityReferences boundNames rightExpr)
+        ESectionLeft leftExpr operatorName ->
+          ESectionLeft (rewriteExprCapabilityReferences boundNames leftExpr) operatorName
+        ESectionRight operatorName rightExpr ->
+          ESectionRight operatorName (rewriteExprCapabilityReferences boundNames rightExpr)
+        EBlock nestedStatements ->
+          EBlock (rewriteBlockCapabilityReferences boundNames nestedStatements)
+
+    rewriteBlockCapabilityReferences outerBoundNames statements =
+      map (rewriteStatementCapabilityReferences blockBoundNames) statements
+      where
+        blockBoundNames =
+          Set.union
+            outerBoundNames
+            (Set.fromList (concatMap statementBindingNames statements))
+
+    rewriteStatementCapabilityReferences boundNames statement =
+      case statement of
+        SLet bindingName spanValue valueExpr ->
+          SLet bindingName spanValue (rewriteExprCapabilityReferences boundNames valueExpr)
+        SExpr spanValue exprValue ->
+          SExpr spanValue (rewriteExprCapabilityReferences boundNames exprValue)
+        SImpl spanValue capabilityName arguments methods ->
+          SImpl
+            spanValue
+            capabilityName
+            arguments
+            [ ImplMethod methodName methodSpan (rewriteExprCapabilityReferences boundNames methodExpr)
+              | ImplMethod methodName methodSpan methodExpr <- methods
+            ]
+        _ -> statement
+
+    rewriteCapabilityReferenceIdentifier boundNames name =
+      let nameText = identifierText name
+       in case splitQualifiedIdentifierText nameText of
+        Just (capabilityName, methodName)
+          | Set.member capabilityName hiddenCapabilities,
+            Set.notMember nameText boundNames ->
+              mkIdentifier (qualifiedIdentifierText (moduleExportQualifiedName modulePath capabilityName) methodName)
+        _ -> name
 
 collectDataTypeNames :: Expr -> Set Text
 collectDataTypeNames expr =
@@ -1432,6 +1938,56 @@ rewriteModuleExportImplArguments ::
   [ConstraintSignatureType]
 rewriteModuleExportImplArguments modulePath dataTypeNames arguments =
   map (rewriteModuleExportImplArgument modulePath dataTypeNames) arguments
+
+rewriteModuleExportClassMethods ::
+  [Text] ->
+  Set Text ->
+  [ClassMethodSignature] ->
+  [ClassMethodSignature]
+rewriteModuleExportClassMethods modulePath dataTypeNames methods =
+  [ ClassMethodSignature
+      methodName
+      methodSpan
+      (rewriteModuleExportSignaturePayload modulePath dataTypeNames methodSignature)
+    | ClassMethodSignature methodName methodSpan methodSignature <- methods
+  ]
+
+rewriteModuleExportSignaturePayload ::
+  [Text] ->
+  Set Text ->
+  SignaturePayload ->
+  SignaturePayload
+rewriteModuleExportSignaturePayload modulePath dataTypeNames signaturePayload =
+  case signaturePayload of
+    ConstrainedSignature constraints signatureType ->
+      ConstrainedSignature
+        (map (rewriteModuleExportSignatureConstraint modulePath dataTypeNames) constraints)
+        (rewriteModuleExportImplArgument modulePath dataTypeNames signatureType)
+    UnsupportedSignature signatureTokens ->
+      UnsupportedSignature (map (rewriteModuleExportSignatureToken modulePath dataTypeNames) signatureTokens)
+    _ -> signaturePayload
+
+rewriteModuleExportSignatureConstraint ::
+  [Text] ->
+  Set Text ->
+  SignatureConstraint ->
+  SignatureConstraint
+rewriteModuleExportSignatureConstraint modulePath dataTypeNames (SignatureConstraint constraintName arguments) =
+  SignatureConstraint
+    constraintName
+    (map (rewriteModuleExportImplArgument modulePath dataTypeNames) arguments)
+
+rewriteModuleExportSignatureToken ::
+  [Text] ->
+  Set Text ->
+  SignatureToken ->
+  SignatureToken
+rewriteModuleExportSignatureToken modulePath dataTypeNames signatureToken =
+  case signatureToken of
+    SignatureNameToken name
+      | Set.member name dataTypeNames ->
+          SignatureNameToken (moduleExportQualifiedName modulePath name)
+    _ -> signatureToken
 
 rewriteModuleExportImplArgument ::
   [Text] ->
