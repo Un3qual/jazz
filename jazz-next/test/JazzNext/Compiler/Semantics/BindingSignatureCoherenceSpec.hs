@@ -67,6 +67,7 @@ tests =
     ("source pipeline rejects non-binding impl body items", testSourceRejectsNonBindingImplBodyItem),
     ("source pipeline accepts single-target qualified method dispatch", testSourceAcceptsSingleTargetQualifiedMethodDispatch),
     ("source pipeline selects qualified method body by argument types", testSourceSelectsQualifiedMethodBodyByArgumentTypes),
+    ("source pipeline selects qualified method body through prefix dollar", testSourceSelectsQualifiedMethodBodyThroughPrefixDollar),
     ("source pipeline accepts same-impl qualified method body references", testSourceAcceptsSameImplQualifiedMethodBodyReferences),
     ("source pipeline uses impl signatures while checking method bodies", testSourceUsesImplSignaturesWhileCheckingMethodBodies),
     ("source pipeline uses impl signatures to contextualize method body lambdas", testSourceUsesImplSignaturesToContextualizeMethodBodyLambdas),
@@ -434,6 +435,15 @@ testSourceSelectsQualifiedMethodBodyByArgumentTypes =
   assertSourceOkWithoutPrelude
     ( qualifiedEqSource
         <> "impl Eq(Bool) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\nresult :: Bool.\nresult = Eq::equals True False.\nresult."
+    )
+
+testSourceSelectsQualifiedMethodBodyThroughPrefixDollar :: IO ()
+testSourceSelectsQualifiedMethodBodyThroughPrefixDollar =
+  assertSourceOkWithoutPrelude
+    ( "class Choice(a) {\npick :: a -> Bool.\n}.\n"
+        <> "impl Choice(Int) {\npick = \\(value) -> True.\n}.\n"
+        <> "impl Choice(Bool) {\npick = \\(value) -> False.\n}.\n"
+        <> "result :: Bool.\nresult = ($) Choice::pick True.\nresult."
     )
 
 testSourceAcceptsSameImplQualifiedMethodBodyReferences :: IO ()

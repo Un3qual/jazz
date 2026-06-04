@@ -48,6 +48,7 @@ import JazzNext.Compiler.AST
     Pattern (..),
     SignatureConstraint (..),
     SignaturePayload (..),
+    SignatureToken (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -1654,7 +1655,7 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
               [ SSignature
                   (hiddenValidationIdentifier signatureName)
                   spanValue
-                  signatureValue
+                  (rewriteModuleExportSignaturePayload modulePath dataTypeNames signatureValue)
               ]
         SData spanValue typeName typeParameters constructors ->
           rewriteDataStatementForReplay
@@ -1665,7 +1666,13 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
             typeName
             typeParameters
             constructors
-        SClass {} -> [statement]
+        SClass spanValue capabilityName parameters methods ->
+          [ SClass
+              spanValue
+              capabilityName
+              parameters
+              (rewriteModuleExportClassMethods modulePath dataTypeNames methods)
+          ]
         SImpl spanValue capabilityName arguments methods ->
           [ SImpl
               spanValue
@@ -1796,6 +1803,8 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
           ConstrainedSignature
             (map rewriteRuntimeReplaySignatureConstraint constraints)
             (rewriteRuntimeReplayConstraintType signatureType)
+        UnsupportedSignature signatureTokens ->
+          UnsupportedSignature (map rewriteRuntimeReplaySignatureToken signatureTokens)
         _ -> signaturePayload
 
     rewriteRuntimeReplaySignatureConstraint (SignatureConstraint constraintName arguments) =
@@ -1819,6 +1828,9 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
           ConstraintTypeFunction
             (rewriteRuntimeReplayConstraintType argumentType)
             (rewriteRuntimeReplayConstraintType resultType)
+
+    rewriteRuntimeReplaySignatureToken signatureToken =
+      rewriteModuleExportSignatureToken modulePath dataTypeNames signatureToken
 
 moduleExportQualifiedPrefix :: [Text] -> Text
 moduleExportQualifiedPrefix modulePath =
@@ -1926,6 +1938,56 @@ rewriteModuleExportImplArguments ::
   [ConstraintSignatureType]
 rewriteModuleExportImplArguments modulePath dataTypeNames arguments =
   map (rewriteModuleExportImplArgument modulePath dataTypeNames) arguments
+
+rewriteModuleExportClassMethods ::
+  [Text] ->
+  Set Text ->
+  [ClassMethodSignature] ->
+  [ClassMethodSignature]
+rewriteModuleExportClassMethods modulePath dataTypeNames methods =
+  [ ClassMethodSignature
+      methodName
+      methodSpan
+      (rewriteModuleExportSignaturePayload modulePath dataTypeNames methodSignature)
+    | ClassMethodSignature methodName methodSpan methodSignature <- methods
+  ]
+
+rewriteModuleExportSignaturePayload ::
+  [Text] ->
+  Set Text ->
+  SignaturePayload ->
+  SignaturePayload
+rewriteModuleExportSignaturePayload modulePath dataTypeNames signaturePayload =
+  case signaturePayload of
+    ConstrainedSignature constraints signatureType ->
+      ConstrainedSignature
+        (map (rewriteModuleExportSignatureConstraint modulePath dataTypeNames) constraints)
+        (rewriteModuleExportImplArgument modulePath dataTypeNames signatureType)
+    UnsupportedSignature signatureTokens ->
+      UnsupportedSignature (map (rewriteModuleExportSignatureToken modulePath dataTypeNames) signatureTokens)
+    _ -> signaturePayload
+
+rewriteModuleExportSignatureConstraint ::
+  [Text] ->
+  Set Text ->
+  SignatureConstraint ->
+  SignatureConstraint
+rewriteModuleExportSignatureConstraint modulePath dataTypeNames (SignatureConstraint constraintName arguments) =
+  SignatureConstraint
+    constraintName
+    (map (rewriteModuleExportImplArgument modulePath dataTypeNames) arguments)
+
+rewriteModuleExportSignatureToken ::
+  [Text] ->
+  Set Text ->
+  SignatureToken ->
+  SignatureToken
+rewriteModuleExportSignatureToken modulePath dataTypeNames signatureToken =
+  case signatureToken of
+    SignatureNameToken name
+      | Set.member name dataTypeNames ->
+          SignatureNameToken (moduleExportQualifiedName modulePath name)
+    _ -> signatureToken
 
 rewriteModuleExportImplArgument ::
   [Text] ->

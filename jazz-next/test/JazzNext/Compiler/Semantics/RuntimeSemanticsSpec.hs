@@ -132,6 +132,7 @@ tests =
     ("structural list equality evaluates at runtime", testStructuralListEqualityRuntimeSuccess),
     ("structural tuple equality evaluates at runtime", testStructuralTupleEqualityRuntimeSuccess),
     ("structural ADT equality evaluates at runtime", testStructuralAdtEqualityRuntimeSuccess),
+    ("structural ADT equality sees through runtime type hints", testStructuralAdtEqualitySeesThroughRuntimeTypeHints),
     ("runtime fallback rejects direct callable equality", testRuntimeFallbackRejectsDirectCallableEquality),
     ("runtime fallback rejects direct callable inequality", testRuntimeFallbackRejectsDirectCallableInequality),
     ("runtime fallback rejects mixed targeted integer equality", testRuntimeFallbackRejectsMixedTargetedIntegerEquality),
@@ -176,6 +177,7 @@ tests =
     ("qualified method dispatch preserves inferred narrow integer bindings", testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding),
     ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals),
     ("qualified method dispatch preserves ADT application binding hints", testQualifiedMethodDispatchPreservesAdtApplicationBindingHint),
+    ("qualified method dispatch preserves phantom ADT application binding hints", testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint),
     ("qualified method dispatch preserves ADT concrete payload hints", testQualifiedMethodDispatchPreservesAdtConcretePayloadHint),
     ("qualified method dispatch preserves monomorphic ADT concrete payload hints", testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint),
     ("qualified method dispatch ignores unknown constructor field hint names", testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName),
@@ -897,6 +899,25 @@ testStructuralAdtEqualityRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True, False, True]") (runOutput result)
 
+testStructuralAdtEqualitySeesThroughRuntimeTypeHints :: IO ()
+testStructuralAdtEqualitySeesThroughRuntimeTypeHints = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          ( Map.fromList
+              [ (bindingRuntimeHintKey "left" (SourceSpan 2 1), ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"]),
+                (bindingRuntimeHintKey "right" (SourceSpan 3 1), ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"])
+              ]
+          )
+          ( EBlock
+              [ SData (SourceSpan 1 1) "Tag" ["a"] [DataConstructor "Tag" []],
+                SLet "left" (SourceSpan 2 1) (EVar "Tag"),
+                SLet "right" (SourceSpan 3 1) (EVar "Tag"),
+                SExpr (SourceSpan 4 1) (EBinary "==" (EVar "left") (EVar "right"))
+              ]
+          )
+  assertEqual "typed ADT structural equality runtime result" (Right (Just (VBool True))) result
+
 testRuntimeFallbackRejectsDirectCallableEquality :: IO ()
 testRuntimeFallbackRejectsDirectCallableEquality = do
   assertCallableRuntimeEqualityRejected
@@ -1520,6 +1541,46 @@ testQualifiedMethodDispatchPreservesAdtApplicationBindingHint = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint :: IO ()
+testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "tag" (SourceSpan 6 1)) (ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"]))
+          ( EBlock
+              [ SData
+                  (SourceSpan 1 1)
+                  "Tag"
+                  ["a"]
+                  [DataConstructor "Tag" []],
+                SClass
+                  (SourceSpan 2 1)
+                  "RuntimePick"
+                  ["a"]
+                  [ ClassMethodSignature
+                      "pick"
+                      (SourceSpan 3 1)
+                      (ConstrainedSignature [] (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool")))
+                  ],
+                SImpl
+                  (SourceSpan 4 1)
+                  "RuntimePick"
+                  [ConstraintTypeApplication "Tag" [ConstraintTypeName "Int"]]
+                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "tag" (ELit (LBool True)))],
+                SImpl
+                  (SourceSpan 4 1)
+                  "RuntimePick"
+                  [ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"]]
+                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "tag" (ELit (LBool False)))],
+                SLet
+                  "tag"
+                  (SourceSpan 6 1)
+                  (EVar "Tag"),
+                SExpr (SourceSpan 7 1) (EApply (EVar "RuntimePick::pick") (EVar "tag"))
+              ]
+          )
+  assertEqual "phantom ADT application hint runtime result" (Right (Just (VBool False))) result
 
 testQualifiedMethodDispatchPreservesAdtConcretePayloadHint :: IO ()
 testQualifiedMethodDispatchPreservesAdtConcretePayloadHint = do

@@ -540,6 +540,8 @@ applicationSpine expr =
   where
     go argumentExprs currentExpr =
       case currentExpr of
+        EApply (EOperatorValue "$") functionExpr ->
+          go argumentExprs functionExpr
         EApply functionExpr argumentExpr ->
           go (argumentExpr : argumentExprs) functionExpr
         EVar name ->

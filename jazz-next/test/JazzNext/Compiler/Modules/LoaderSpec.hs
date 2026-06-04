@@ -122,6 +122,7 @@ tests =
     ("run module graph namespaces hidden retained local capabilities", testRunModuleGraphNamespacesHiddenRetainedLocalCapabilities),
     ("run module graph namespaces alias-retained local capabilities", testRunModuleGraphNamespacesAliasRetainedLocalCapabilities),
     ("run module graph rewrites hidden capability references despite value shadowing", testRunModuleGraphRewritesHiddenCapabilityReferencesDespiteValueShadowing),
+    ("run module graph replays data referenced by imported class methods", testRunModuleGraphReplaysDataReferencedByImportedClassMethods),
     ("driver retains transitive local capabilities needed by imported signatures", testCollectNeededLocalCapabilityExportsClosesThroughRetainedClassMethodSignatures),
     ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
     ("run module graph reports cycle diagnostics", testRunModuleGraphCycle),
@@ -1542,6 +1543,30 @@ testRunModuleGraphRewritesHiddenCapabilityReferencesDespiteValueShadowing = do
           ),
           ( "src/Lib/A.jz",
             "module Lib::A {\ndata Marker = Choice.\nclass Choice(a) {\nflag :: a -> Bool.\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\nflag = \\(value) -> True.\npick = \\(value) -> Choice::flag value.\n}.\npicked = Choice::pick 1.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphReplaysDataReferencedByImportedClassMethods :: IO ()
+testRunModuleGraphReplaysDataReferencedByImportedClassMethods = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "Box") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Api (Make).\nMake::make.\n}"
+          ),
+          ( "src/Lib/Api.jz",
+            "module Lib::Api {\ndata Box = Box.\nclass Make(a) {\nmake :: Box.\n}.\nimpl Make(Int) {\nmake = Box.\n}.\n}"
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

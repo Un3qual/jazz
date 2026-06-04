@@ -1087,7 +1087,7 @@ applyRuntimeTypeHint typeHint runtimeValue =
                   (applyConstructorArgumentRuntimeHint typeParameterHints)
                   constructorArguments
                   capturedArgs
-              Right (VConstructor typeName typeParameters constructorName constructorArguments hintedCapturedArgs)
+              Right (VTyped typeHint (VConstructor typeName typeParameters constructorName constructorArguments hintedCapturedArgs))
         _ ->
           Right runtimeValue
 
@@ -1223,7 +1223,7 @@ matchPattern scrutineeValue pattern =
       | otherwise ->
           Nothing
     PConstructor constructorName patterns ->
-      case scrutineeValue of
+      case constructorPatternScrutinee scrutineeValue of
         VConstructor _ _ valueConstructorName constructorArguments capturedArgs
           | valueConstructorName == constructorName,
             constructorIsSaturated constructorArguments capturedArgs,
@@ -1261,6 +1261,12 @@ matchPatternList values patterns =
       case matchPattern value pattern of
         Just patternBindings -> Just (patternBindings `Map.union` bindings)
         Nothing -> Nothing
+
+constructorPatternScrutinee :: RuntimeValue -> RuntimeValue
+constructorPatternScrutinee runtimeValue =
+  case runtimeValue of
+    VTyped _ innerValue -> constructorPatternScrutinee innerValue
+    _ -> runtimeValue
 
 -- | Apply any callable runtime value, including sections, builtin primitives,
 -- and curried operator values.
@@ -2060,6 +2066,8 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
     ("==", VList {}, VList {}) -> evalStructuralEquality "==" leftValue rightValue
     ("==", VTuple {}, VTuple {}) -> evalStructuralEquality "==" leftValue rightValue
     ("==", VConstructor {}, VConstructor {}) -> evalStructuralEquality "==" leftValue rightValue
+    ("==", VTyped {}, _) -> evalStructuralEquality "==" leftValue rightValue
+    ("==", _, VTyped {}) -> evalStructuralEquality "==" leftValue rightValue
     ("!=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       evalIntegerEquality "!=" leftInt leftMetadata rightInt rightMetadata
     ("!=", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
@@ -2068,6 +2076,8 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
     ("!=", VList {}, VList {}) -> evalStructuralEquality "!=" leftValue rightValue
     ("!=", VTuple {}, VTuple {}) -> evalStructuralEquality "!=" leftValue rightValue
     ("!=", VConstructor {}, VConstructor {}) -> evalStructuralEquality "!=" leftValue rightValue
+    ("!=", VTyped {}, _) -> evalStructuralEquality "!=" leftValue rightValue
+    ("!=", _, VTyped {}) -> evalStructuralEquality "!=" leftValue rightValue
     ("$", functionValue, argumentValue) ->
       applyRuntimeFunction builtinMode bindingTypeHints functionValue argumentValue
     _ ->
@@ -2279,12 +2289,23 @@ runtimeValueContainsFunction value =
           any runtimeValueContainsFunction elements
         VConstructor _ _ _ _ capturedArgs ->
           any runtimeValueContainsFunction capturedArgs
+        VTyped _ innerValue ->
+          runtimeValueContainsFunction innerValue
         _ ->
           False
 
 runtimeStructuralEquality :: RuntimeValue -> RuntimeValue -> Maybe Bool
 runtimeStructuralEquality leftValue rightValue =
   case (leftValue, rightValue) of
+    (VTyped leftTypeHint leftInnerValue, VTyped rightTypeHint rightInnerValue)
+      | runtimeConstraintTypesCompatible leftTypeHint rightTypeHint ->
+          runtimeStructuralEquality leftInnerValue rightInnerValue
+      | otherwise ->
+          Just False
+    (VTyped _ leftInnerValue, _) ->
+      runtimeStructuralEquality leftInnerValue rightValue
+    (_, VTyped _ rightInnerValue) ->
+      runtimeStructuralEquality leftValue rightInnerValue
     (VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       runtimeIntegerStructuralEquality leftInt leftMetadata rightInt rightMetadata
     (VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
