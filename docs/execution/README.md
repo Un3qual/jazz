@@ -52,6 +52,7 @@ Each queue entry should capture:
 Guidance:
 
 - `kind: impl` is the default for `Ready Now`.
+- `target_paths` for every `Ready Now` row must be repo-relative concrete paths, not `.` placeholders or paths outside the repository.
 - `target_paths` for `kind: impl` must include at least one concrete, already-existing, non-doc file path.
 - `target_paths` may also include planned new files for the batch, but existing
   non-doc owner paths keep implementation work grounded in the current tree.
@@ -163,5 +164,5 @@ Use `bash scripts/check-execution-queue.sh` after queue or open-plan metadata ch
 - every `Ready Now` row matches the linked plan frontmatter for the current executable batch.
 - empty `Ready Now` states still have 1-3 `Next Curation Target` candidates.
 - `impl` curation candidates name at least one concrete, already-existing, non-doc file path.
-- curation candidates do not reuse ids from `done-archive.md`.
+- active queue rows and curation candidates do not reuse ids from `done-archive.md`.
 - `source_contract` anchors point to the matching `blocker-contracts.md` section.

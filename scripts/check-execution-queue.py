@@ -422,6 +422,7 @@ def validate_source_contract_link(
             f"{row_context} source_contract must point to "
             f"{BLOCKER_CONTRACTS_PATH.relative_to(ROOT)}"
         )
+        return
     if not fragment:
         fail(f"{row_context} source_contract is missing a section anchor")
         return
@@ -649,7 +650,12 @@ contract_headings, contract_anchors = (
     if blocked_rows or curation_rows
     else (set(), {})
 )
-archived_ids = extract_done_archive_ids() if curation_rows else set()
+archived_ids = extract_done_archive_ids() if all_ids or curation_rows else set()
+for row_id in sorted(all_ids & archived_ids):
+    fail(
+        f"{QUEUE_PATH} {seen_ids[row_id]} row {row_id} already exists in "
+        f"{DONE_ARCHIVE_PATH.relative_to(ROOT)}"
+    )
 
 if len(curation_rows) > 3:
     fail(f"{QUEUE_PATH} Next Curation Target must contain at most 3 candidates")
@@ -793,9 +799,13 @@ for row in ready_rows:
             fail(f"{QUEUE_PATH} Ready Now row {row_id} has unresolved dependency id: {dep}")
 
     target_paths = split_inline_list(row["target_paths"], ",", normalize_list_item)
-    if row_kind == "impl":
+    if not target_paths or target_paths == ["-"]:
+        fail(f"{QUEUE_PATH} Ready Now row {row_id} is missing target_paths")
+    else:
         validate_target_paths(
-            f"{QUEUE_PATH} Ready Now row {row_id}", target_paths, True
+            f"{QUEUE_PATH} Ready Now row {row_id}",
+            target_paths,
+            row_kind == "impl",
         )
 
     if not plan_path or not plan_path.is_file():

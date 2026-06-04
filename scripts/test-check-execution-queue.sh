@@ -598,6 +598,175 @@ EOF
 EOF
 }
 
+setup_active_archive_reuse_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-ACTIVE-ARCHIVED-001` | `Archived active reuse` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-active-archive.md) | `Task 1` | `src/Impl.hs` | `Reject active queue ids already archived.` | `bash verify.sh` | `2026-04-10` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-active-archive.md"
+---
+id: CASE-ACTIVE-ARCHIVED-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-10
+plan_section: "Task 1"
+target_paths:
+  - src/Impl.hs
+verification:
+  - bash verify.sh
+deliverable: "Reject active queue ids already archived."
+supersedes: []
+---
+
+# Active archive fixture
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/execution/done-archive.md"
+# Execution Queue Done Archive
+
+## Done
+
+| id | closure evidence | completed_on |
+| --- | --- | --- |
+| `CASE-ACTIVE-ARCHIVED-001` | `Already completed.` | `2026-04-09` |
+EOF
+}
+
+setup_ready_docs_dot_target_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-READY-DOCS-DOT-001` | `Docs dot target` | `P1` | `S` | `docs` | `yes` | `-` | [Plan](../plans/case-ready-docs-dot.md) | `Task 1` | `.` | `Reject non-concrete docs target paths.` | `bash verify.sh` | `2026-04-10` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-ready-docs-dot.md"
+---
+id: CASE-READY-DOCS-DOT-001
+status: ready
+priority: P1
+size: S
+kind: docs
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-10
+plan_section: "Task 1"
+target_paths:
+  - .
+verification:
+  - bash verify.sh
+deliverable: "Reject non-concrete docs target paths."
+supersedes: []
+---
+
+# Ready docs dot target fixture
+EOF
+}
+
+setup_source_contract_wrong_file_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+## Next Curation Target
+| blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-WRONG-CONTRACT-BLOCKED-001` | `CASE-WRONG-CONTRACT-CHILD-001` | `impl` | [wrong-contract.md](../plans/wrong-contract.md#not-a-contract) | `Promote one concrete child.` | `src/Impl.hs` | `bash verify.sh` | `Create the child plan.` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+| `CASE-WRONG-CONTRACT-BLOCKED-001` | `Wrong contract file` | `Concrete child split` | `Needs one child.` | [Plan](../plans/case-wrong-contract-blocked.md) | `2026-04-10` |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-wrong-contract-blocked.md"
+# Wrong contract blocked fixture
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/wrong-contract.md"
+# Wrong Contract File
+
+## Not a Contract
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+# Blocker Unblocker Contracts
+
+## Current Blockers
+
+### CASE-WRONG-CONTRACT-BLOCKED-001
+
+- Smallest unblocker: promote one child.
+EOF
+}
+
+setup_idle_queue_without_curation_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+| `CASE-IDLE-BLOCKED-001` | `Idle blocked` | `Concrete child split` | `Needs one child.` | [Plan](../plans/case-idle-blocked.md) | `2026-04-10` |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-idle-blocked.md"
+# Idle blocked fixture
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+# Blocker Unblocker Contracts
+
+## Current Blockers
+
+### CASE-IDLE-BLOCKED-001
+
+- Smallest unblocker: promote one child.
+EOF
+}
+
 setup_symlink_target_escape_case() {
   local repo_root="$1"
 
@@ -1091,6 +1260,19 @@ main() {
     fail \
     "Next Curation Target row CASE-CURATION-ANCHOR-CHILD-001 source_contract anchor not found: #case-curation-anchor-blocked-0001"
   run_case \
+    "source contract wrong file regression" \
+    setup_source_contract_wrong_file_case \
+    fail \
+    "Next Curation Target row CASE-WRONG-CONTRACT-CHILD-001 source_contract must point to docs/execution/blocker-contracts.md" \
+    . \
+    plain \
+    "source_contract anchor not found"
+  run_case \
+    "idle queue without curation regression" \
+    setup_idle_queue_without_curation_case \
+    fail \
+    "Ready Now is empty, so Next Curation Target must contain 1-3 promotion candidates"
+  run_case \
     "blocked missing contract regression" \
     setup_blocked_missing_contract_case \
     fail \
@@ -1100,6 +1282,16 @@ main() {
     setup_curation_archive_reuse_case \
     fail \
     "Next Curation Target row CASE-ARCHIVED-CHILD-001 candidate_child_id already exists in done archive: CASE-ARCHIVED-CHILD-001"
+  run_case \
+    "active archive id reuse regression" \
+    setup_active_archive_reuse_case \
+    fail \
+    "Ready Now row CASE-ACTIVE-ARCHIVED-001 already exists in docs/execution/done-archive.md"
+  run_case \
+    "ready docs dot target regression" \
+    setup_ready_docs_dot_target_case \
+    fail \
+    "Ready Now row CASE-READY-DOCS-DOT-001 names non-concrete target path: ."
   run_case \
     "symlink target escape regression" \
     setup_symlink_target_escape_case \
