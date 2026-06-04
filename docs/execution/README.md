@@ -52,10 +52,8 @@ Each queue entry should capture:
 Guidance:
 
 - `kind: impl` is the default for `Ready Now`.
-- `target_paths` for every `Ready Now` row must be repo-relative concrete paths, not `.` placeholders or paths outside the repository.
+- `target_paths` for every `Ready Now` row must be repo-relative concrete existing file paths, not `.` placeholders or paths outside the repository.
 - `target_paths` for `kind: impl` must include at least one concrete, already-existing, non-doc file path.
-- `target_paths` may also include planned new files for the batch, but existing
-  non-doc owner paths keep implementation work grounded in the current tree.
 - Use `-` only as a whole-cell placeholder. Do not mix it with real
   verification commands.
 - Keep `target_paths` and `verification` in the same order between the queue row and linked plan frontmatter; parity treats those as ordered batch definitions, while `depends_on` stays set-like.
@@ -78,7 +76,7 @@ Each candidate captures:
 - `source_contract`: link to the exact `blocker-contracts.md` section.
 - `why_next`: one-sentence reason this is the next narrow promotion.
 - `target_paths`: expected files for the child; `impl` candidates must name at
-  least one existing non-doc path.
+  least one existing non-doc path, and may also name planned new child files.
 - `verification`: exact commands; use `-` only as a whole-cell placeholder,
   never mixed with real commands.
 - `promotion_check`: the concrete action required before the candidate becomes a
@@ -163,10 +161,11 @@ Use `bash scripts/check-execution-queue.sh` after queue or open-plan metadata ch
 - every linked plan path exists,
 - `last_verified` is present on non-done items,
 - target paths are repo-relative and concrete, not repository-root placeholders,
+- every `Ready Now` target path resolves to an existing file,
 - every `kind: impl` entry names at least one concrete, already-existing, non-doc file path in `target_paths`,
 - every `Ready Now` row matches the linked plan frontmatter for the current executable batch.
 - empty `Ready Now` states still have 1-3 `Next Curation Target` candidates.
-- `impl` curation candidates name at least one concrete, already-existing, non-doc file path.
+- `impl` curation candidates name at least one concrete, already-existing, non-doc file path, even when they also list planned new child files.
 - `verification` never mixes the `-` placeholder with real commands.
 - `done-archive.md` exists before archived id checks are applied.
 - active queue rows and curation candidates do not reuse ids from `done-archive.md`.

@@ -709,6 +709,57 @@ EOF
 EOF
 }
 
+setup_plain_archive_reuse_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-PLAIN-ARCHIVED-001` | `Plain archived reuse` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-plain-archive.md) | `Task 1` | `src/Impl.hs` | `Reject active queue ids already archived without backticks.` | `bash verify.sh` | `2026-04-10` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-plain-archive.md"
+---
+id: CASE-PLAIN-ARCHIVED-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-10
+plan_section: "Task 1"
+target_paths:
+  - src/Impl.hs
+verification:
+  - bash verify.sh
+deliverable: "Reject active queue ids already archived without backticks."
+supersedes: []
+---
+
+# Plain archive fixture
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/execution/done-archive.md"
+# Execution Queue Done Archive
+
+## Done
+
+| id | closure evidence | completed_on |
+| --- | --- | --- |
+| CASE-PLAIN-ARCHIVED-001 | Already completed. | 2026-04-09 |
+EOF
+}
+
 setup_missing_done_archive_case() {
   local repo_root="$1"
 
@@ -790,6 +841,48 @@ supersedes: []
 ---
 
 # Ready docs dot target fixture
+EOF
+}
+
+setup_ready_missing_target_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-READY-MISSING-TARGET-001` | `Ready missing target` | `P1` | `S` | `impl` | `yes` | `-` | [Plan](../plans/case-ready-missing-target.md) | `Task 1` | `src/Impl.hs`, `test/MissingSpec.hs` | `Reject stale Ready Now impl target paths.` | `bash verify.sh` | `2026-04-10` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-ready-missing-target.md"
+---
+id: CASE-READY-MISSING-TARGET-001
+status: ready
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on: []
+last_verified: 2026-04-10
+plan_section: "Task 1"
+target_paths:
+  - src/Impl.hs
+  - test/MissingSpec.hs
+verification:
+  - bash verify.sh
+deliverable: "Reject stale Ready Now impl target paths."
+supersedes: []
+---
+
+# Ready missing target fixture
 EOF
 }
 
@@ -1434,6 +1527,11 @@ main() {
     fail \
     "Ready Now row CASE-ACTIVE-ARCHIVED-001 already exists in docs/execution/done-archive.md"
   run_case \
+    "plain archive id reuse regression" \
+    setup_plain_archive_reuse_case \
+    fail \
+    "Ready Now row CASE-PLAIN-ARCHIVED-001 already exists in docs/execution/done-archive.md"
+  run_case \
     "missing done archive regression" \
     setup_missing_done_archive_case \
     fail \
@@ -1443,6 +1541,14 @@ main() {
     setup_ready_docs_dot_target_case \
     fail \
     "Ready Now row CASE-READY-DOCS-DOT-001 names non-concrete target path: ."
+  run_case \
+    "ready missing target regression" \
+    setup_ready_missing_target_case \
+    fail \
+    "Ready Now row CASE-READY-MISSING-TARGET-001 names missing or non-file target path: test/MissingSpec.hs" \
+    . \
+    plain \
+    "Ready Now row CASE-READY-MISSING-TARGET-001 is impl but has no concrete non-doc target_paths"
   run_case \
     "symlink target escape regression" \
     setup_symlink_target_escape_case \

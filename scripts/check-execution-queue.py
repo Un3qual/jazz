@@ -396,10 +396,66 @@ def extract_done_archive_ids() -> set[str]:
     text = read_text_file(DONE_ARCHIVE_PATH, "done archive")
     if text is None:
         return set()
-    return {
-        normalize_text(match.group(1))
-        for match in re.finditer(r"^\|\s*`([^`]+)`\s*\|", text, re.MULTILINE)
-    }
+    section_lines = extract_section_lines(text, "Done", DONE_ARCHIVE_PATH)
+    if section_lines is None:
+        return set()
+
+    table_lines: list[str] = []
+    in_table = False
+    for idx, line in enumerate(section_lines):
+        stripped = line.lstrip(" ")
+        if is_markdown_table_line(line):
+            table_lines.append(stripped)
+            in_table = True
+            continue
+        if in_table:
+            if any(is_markdown_table_line(rest) for rest in section_lines[idx + 1 :]):
+                fail(
+                    f"{DONE_ARCHIVE_PATH} section 'Done' has non-table content "
+                    "splitting its markdown table"
+                )
+            break
+
+    if len(table_lines) < 2:
+        fail(f"{DONE_ARCHIVE_PATH} section 'Done' is missing a markdown table")
+        return set()
+
+    headers = [
+        normalize_text(header).lower()
+        for header in split_markdown_row(table_lines[0])
+    ]
+    if "id" not in headers:
+        fail(
+            f"{DONE_ARCHIVE_PATH} Done headers must include an 'id' column: "
+            f"{headers!r}"
+        )
+        return set()
+    id_index = headers.index("id")
+
+    separator_cells = split_markdown_row(table_lines[1])
+    separator_valid = len(separator_cells) == len(headers) and all(
+        is_separator_cell(cell) for cell in separator_cells
+    )
+    if not separator_valid:
+        fail(
+            f"{DONE_ARCHIVE_PATH} section 'Done' has a missing or malformed "
+            f"markdown separator row: {table_lines[1]}"
+        )
+        return set()
+
+    archive_ids: set[str] = set()
+    for row_index, line in enumerate(table_lines[2:], start=3):
+        cells = split_markdown_row(line)
+        if len(cells) != len(headers):
+            fail(
+                f"{DONE_ARCHIVE_PATH} section 'Done' row {row_index} has "
+                f"{len(cells)} cells; expected {len(headers)}: {line}"
+            )
+            continue
+        row_id = normalize_text(cells[id_index])
+        if row_id:
+            archive_ids.add(row_id)
+    return archive_ids
 
 
 def validate_source_contract_link(
@@ -436,7 +492,10 @@ def validate_source_contract_link(
 
 
 def validate_target_paths(
-    row_context: str, target_paths: list[str], require_non_doc: bool
+    row_context: str,
+    target_paths: list[str],
+    require_non_doc: bool,
+    require_existing: bool,
 ) -> None:
     real_non_doc_paths: list[tuple[str, Path]] = []
     for target_path in target_paths:
@@ -457,6 +516,9 @@ def validate_target_paths(
             continue
         if resolved_target_path.exists() and not resolved_target_path.is_file():
             fail(f"{row_context} names non-file target path: {target_path}")
+            continue
+        if require_existing and not resolved_target_path.exists():
+            fail(f"{row_context} names missing or non-file target path: {target_path}")
             continue
         if resolved_target_path.is_file() and not is_doc_target_path(
             resolved_repo_relative
@@ -730,7 +792,12 @@ for row in curation_rows:
     if not target_paths or target_paths == ["-"]:
         fail(f"{row_context} is missing target_paths")
     else:
-        validate_target_paths(row_context, target_paths, row_kind == "impl")
+        validate_target_paths(
+            row_context,
+            target_paths,
+            row_kind == "impl",
+            require_existing=False,
+        )
 
     verification_commands, verification_sentinel_malformed = parse_verification_commands(
         row_context,
@@ -808,6 +875,7 @@ for row in ready_rows:
             f"{QUEUE_PATH} Ready Now row {row_id}",
             target_paths,
             row_kind == "impl",
+            require_existing=True,
         )
 
     if not plan_path or not plan_path.is_file():
