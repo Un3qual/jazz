@@ -53,11 +53,13 @@ qualifiedMethodKey capabilityName methodName =
 
 splitQualifiedMethodKey :: Text -> Maybe (Text, Text)
 splitQualifiedMethodKey nameText =
-  case Text.splitOn "::" nameText of
-    [capabilityName, methodName]
+  case Text.breakOnEnd "::" nameText of
+    (capabilityNameWithSeparator, methodName)
       | not (Text.null capabilityName),
         not (Text.null methodName) ->
           Just (capabilityName, methodName)
+      where
+        capabilityName = Text.dropEnd 2 capabilityNameWithSeparator
     _ -> Nothing
 
 concreteConstraintArgument :: ConstraintSignatureType -> Bool

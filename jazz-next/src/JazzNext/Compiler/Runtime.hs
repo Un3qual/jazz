@@ -98,7 +98,7 @@ data RuntimeValue
   | VBool Bool
   | VList [RuntimeValue] (Maybe ConstraintSignatureType)
   | VTuple [RuntimeValue]
-  | VClosure RuntimeEnv Identifier Expr (Maybe ConstraintSignatureType)
+  | VClosure RuntimeEnv Identifier Expr (Maybe ConstraintSignatureType) (Maybe [Text])
   | VBuiltin BuiltinSymbol [RuntimeValue]
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
@@ -141,8 +141,8 @@ instance Show RuntimeValue where
       VBool boolValue -> "VBool " <> show boolValue
       VList elements maybeTypeHint -> "VList " <> show elements <> " " <> show maybeTypeHint
       VTuple elements -> "VTuple " <> show elements
-      VClosure _ parameterName bodyExpr maybeTypeHint ->
-        "VClosure <env> " <> show parameterName <> " " <> show bodyExpr <> " " <> show maybeTypeHint
+      VClosure _ parameterName bodyExpr maybeTypeHint modulePath ->
+        "VClosure <env> " <> show parameterName <> " " <> show bodyExpr <> " " <> show maybeTypeHint <> " " <> show modulePath
       VBuiltin builtinSymbol capturedArgs ->
         "VBuiltin " <> show builtinSymbol <> " " <> show capturedArgs
       VOperator operatorSymbol capturedArgs ->
@@ -235,11 +235,15 @@ type RuntimeEnv = Map Text RuntimeCell
 -- `evalScope` returns `Just` only when the final surviving statement is an
 -- `SExpr`; otherwise the block yields `Nothing`.
 evalScope :: BuiltinResolutionMode -> Map BindingRuntimeHintKey ConstraintSignatureType -> RuntimeEnv -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
-evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Nothing indexedStatements
+evalScope =
+  evalScopeWithModulePath Nothing
+
+evalScopeWithModulePath :: Maybe [Text] -> BuiltinResolutionMode -> Map BindingRuntimeHintKey ConstraintSignatureType -> RuntimeEnv -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
+evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEnv statements = go initialEnv Nothing indexedStatements
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = Map.fromList indexedStatements
-    modulePathsByStatement = collectModulePathsByStatement indexedStatements
+    modulePathsByStatement = collectModulePathsByStatement currentModulePath indexedStatements
     recursiveGroups =
       inferRecursiveGroupsOrdered
         (Set.union (Map.keysSet initialEnv) (builtinNamesInMode builtinMode))
@@ -266,15 +270,23 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
             SClass _ capabilityName parameters methods ->
               go (insertClassMethods capabilityName parameters methods env) Nothing rest
             SImpl _ capabilityName arguments methods ->
-              go (insertImplMethods capabilityName arguments methods env) Nothing rest
+              go (insertImplMethods (modulePathForStatement statementIndex) capabilityName arguments methods env) Nothing rest
             SData _ typeName typeParameters constructors ->
               go (insertDataConstructors typeName typeParameters constructors env) Nothing rest
             SLet name _ _ -> do
               value <- bindingCellAt statementIndex
               go (Map.insert (identifierText name) (Right value) env) Nothing rest
             SExpr _ expr -> do
-              value <- evalValue builtinMode bindingTypeHints env expr
+              value <- evalValueAt statementIndex env expr
               go env (Just value) rest
+
+    modulePathForStatement :: Int -> Maybe [Text]
+    modulePathForStatement statementIndex =
+      Map.findWithDefault currentModulePath statementIndex modulePathsByStatement
+
+    evalValueAt :: Int -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
+    evalValueAt statementIndex =
+      evalValueWithModulePath (modulePathForStatement statementIndex) builtinMode bindingTypeHints
 
     bindingCellAt :: Int -> RuntimeCell
     bindingCellAt statementIndex =
@@ -317,21 +329,21 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
     evalBindingValue statementIndex bindingName env valueExpr =
       case previousSignatureNumericTarget statementIndex bindingName of
         Just targetType ->
-          evalNumericSignatureBinding targetType env valueExpr
+          evalNumericSignatureBinding statementIndex targetType env valueExpr
         Nothing -> do
-          runtimeValue <- evalValue builtinMode bindingTypeHints env valueExpr
+          runtimeValue <- evalValueAt statementIndex env valueExpr
           attachRuntimeTypeHint (bindingRuntimeTypeHint statementIndex bindingName) runtimeValue
             >>= attachDefaultBindingIntegerTarget
 
-    evalNumericSignatureBinding :: NumericType -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
-    evalNumericSignatureBinding targetType env valueExpr =
+    evalNumericSignatureBinding :: Int -> NumericType -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
+    evalNumericSignatureBinding statementIndex targetType env valueExpr =
       case valueExpr of
         ELit (LInt literalValue) ->
           convertIntegerToNumericTarget conversionBuiltin targetType literalValue
         ELit (LFloat literalValue literalSource) ->
           convertFloatToNumericTarget conversionBuiltin targetType literalValue (Just literalSource)
         _ -> do
-          runtimeValue <- evalValue builtinMode bindingTypeHints env valueExpr
+          runtimeValue <- evalValueAt statementIndex env valueExpr
           evalNumericConversion conversionBuiltin targetType runtimeValue
       where
         conversionBuiltin = numericConversionBuiltinForTarget targetType
@@ -360,13 +372,13 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
           case Map.lookup statementIndex statementsByIndex of
             Just (SLet _ bindingSpan _) ->
               Map.lookup
-                (bindingRuntimeHintKeyInModule (Map.findWithDefault Nothing statementIndex modulePathsByStatement) bindingName bindingSpan)
+                (bindingRuntimeHintKeyInModule (modulePathForStatement statementIndex) bindingName bindingSpan)
                 bindingTypeHints
             _ -> Nothing
 
-    collectModulePathsByStatement :: [(Int, Statement)] -> Map Int (Maybe [Text])
-    collectModulePathsByStatement =
-      snd . foldl' collectModulePath (Nothing, Map.empty)
+    collectModulePathsByStatement :: Maybe [Text] -> [(Int, Statement)] -> Map Int (Maybe [Text])
+    collectModulePathsByStatement initialModulePath =
+      snd . foldl' collectModulePath (initialModulePath, Map.empty)
       where
         collectModulePath (currentModulePath, pathsByStatement) (statementIndex, statement) =
           let nextModulePath =
@@ -460,12 +472,13 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
     attachSelfRecursiveBinding statementIndex bindingName runtimeValue
       | Set.member statementIndex selfRecursiveFunctionStatements =
           case runtimeValue of
-            VClosure capturedEnv parameterName bodyExpr maybeTypeHint ->
+            VClosure capturedEnv parameterName bodyExpr maybeTypeHint closureModulePath ->
               VClosure
                 (Map.insert (identifierText bindingName) (bindingCellAt statementIndex) capturedEnv)
                 parameterName
                 bodyExpr
                 maybeTypeHint
+                closureModulePath
             _ -> runtimeValue
       | otherwise =
           runtimeValue
@@ -502,7 +515,7 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
         ECase conditionExpr thenExpr elseExpr ->
           selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr
         EPatternCase scrutineeExpr caseArms -> do
-          scrutineeValue <- evalValue builtinMode bindingTypeHints env scrutineeExpr
+          scrutineeValue <- evalValueAt statementIndex env scrutineeExpr
           case selectMatchingCaseArmForAlias env scrutineeValue caseArms of
             Just (newLocallyBoundNames, armEnv, bodyExpr) ->
               selectedRecursiveAliasTargetWithBound
@@ -517,7 +530,7 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
 
     selectRecursiveAliasTarget :: Set Text -> Int -> RuntimeEnv -> Expr -> Expr -> Expr -> Either Diagnostic (Maybe Int)
     selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr = do
-      conditionValue <- evalValue builtinMode bindingTypeHints env conditionExpr
+      conditionValue <- evalValueAt statementIndex env conditionExpr
       case conditionValue of
         VBool True ->
           selectedRecursiveAliasTargetWithBound locallyBoundNames statementIndex env thenExpr
@@ -624,7 +637,7 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
         Just (SClass _ capabilityName parameters methods) ->
           insertClassMethods capabilityName parameters methods (envBefore statementIndex)
         Just (SImpl _ capabilityName arguments methods) ->
-          insertImplMethods capabilityName arguments methods (envBefore statementIndex)
+          insertImplMethods (modulePathForStatement statementIndex) capabilityName arguments methods (envBefore statementIndex)
         Just _ ->
           envBefore statementIndex
         Nothing ->
@@ -671,8 +684,8 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
                 then envAcc
                 else Map.insert methodKey (Right (VQualifiedMethod methodKey classParameter methodSignature [] [])) envAcc
 
-    insertImplMethods :: Identifier -> [ConstraintSignatureType] -> [ImplMethod] -> RuntimeEnv -> RuntimeEnv
-    insertImplMethods capabilityName arguments methods env =
+    insertImplMethods :: Maybe [Text] -> Identifier -> [ConstraintSignatureType] -> [ImplMethod] -> RuntimeEnv -> RuntimeEnv
+    insertImplMethods methodModulePath capabilityName arguments methods env =
       case arguments of
         [implTarget]
           | concreteConstraintArgument implTarget ->
@@ -694,7 +707,7 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
                 )
                 methods
             methodCandidateCell implTarget methodKey methodExpr =
-              case selectedQualifiedMethodAliasTarget methodExprsByKey Set.empty methodEnv methodKey methodExpr of
+              case selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey Set.empty methodEnv methodKey methodExpr of
                 Left diagnostic ->
                   Left diagnostic
                 Right True ->
@@ -704,7 +717,7 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
                         ("runtime recursive qualified method alias cycle '" <> methodKey <> "' has no concrete value")
                     )
                 Right False ->
-                  evalValue builtinMode bindingTypeHints methodEnv methodExpr
+                  evalValueWithModulePath methodModulePath builtinMode bindingTypeHints methodEnv methodExpr
                     >>= attachRuntimeMethodSignature methodEnv implTarget methodKey
             insertCandidate envAcc (methodKey, methodCandidate) =
               Map.adjust (addMethodCandidate methodCandidate) methodKey envAcc
@@ -731,34 +744,34 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
         _ ->
           Right methodValue
 
-    selectedQualifiedMethodAliasTarget :: Map Text Expr -> Set Text -> RuntimeEnv -> Text -> Expr -> Either Diagnostic Bool
-    selectedQualifiedMethodAliasTarget methodExprsByKey visitedMethodKeys env methodKey expr
+    selectedQualifiedMethodAliasTarget :: Maybe [Text] -> Map Text Expr -> Set Text -> RuntimeEnv -> Text -> Expr -> Either Diagnostic Bool
+    selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey expr
       | Set.member methodKey visitedMethodKeys =
           Right True
       | otherwise =
           case peelSingleExprBlock expr of
             EIf conditionExpr thenExpr elseExpr ->
-              selectQualifiedMethodAliasTarget methodExprsByKey nextVisitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
+              selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey nextVisitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
             ECase conditionExpr thenExpr elseExpr ->
-              selectQualifiedMethodAliasTarget methodExprsByKey nextVisitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
+              selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey nextVisitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
             EPatternCase scrutineeExpr caseArms -> do
-              scrutineeValue <- evalValue builtinMode bindingTypeHints env scrutineeExpr
+              scrutineeValue <- evalValueWithModulePath methodModulePath builtinMode bindingTypeHints env scrutineeExpr
               case selectMatchingCaseArmForAlias env scrutineeValue caseArms of
                 Just (_, armEnv, bodyExpr) ->
-                  selectedQualifiedMethodAliasTarget methodExprsByKey nextVisitedMethodKeys armEnv methodKey bodyExpr
+                  selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey nextVisitedMethodKeys armEnv methodKey bodyExpr
                 Nothing ->
                   Right False
             EBlock statements ->
               case terminalBlockLocalAliasExpr statements of
                 Just aliasExpr ->
-                  selectedQualifiedMethodAliasTarget methodExprsByKey nextVisitedMethodKeys env methodKey aliasExpr
+                  selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey nextVisitedMethodKeys env methodKey aliasExpr
                 Nothing ->
                   Right False
             EVar aliasName ->
               let aliasNameText = identifierText aliasName
                in case Map.lookup aliasNameText methodExprsByKey of
                     Just aliasExpr ->
-                      selectedQualifiedMethodAliasTarget methodExprsByKey nextVisitedMethodKeys env aliasNameText aliasExpr
+                      selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey nextVisitedMethodKeys env aliasNameText aliasExpr
                     Nothing ->
                       Right (aliasNameText == methodKey)
             _ ->
@@ -766,14 +779,14 @@ evalScope builtinMode bindingTypeHints initialEnv statements = go initialEnv Not
       where
         nextVisitedMethodKeys = Set.insert methodKey visitedMethodKeys
 
-    selectQualifiedMethodAliasTarget :: Map Text Expr -> Set Text -> RuntimeEnv -> Text -> Expr -> Expr -> Expr -> Either Diagnostic Bool
-    selectQualifiedMethodAliasTarget methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr = do
-      conditionValue <- evalValue builtinMode bindingTypeHints env conditionExpr
+    selectQualifiedMethodAliasTarget :: Maybe [Text] -> Map Text Expr -> Set Text -> RuntimeEnv -> Text -> Expr -> Expr -> Expr -> Either Diagnostic Bool
+    selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr = do
+      conditionValue <- evalValueWithModulePath methodModulePath builtinMode bindingTypeHints env conditionExpr
       case conditionValue of
         VBool True ->
-          selectedQualifiedMethodAliasTarget methodExprsByKey visitedMethodKeys env methodKey thenExpr
+          selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey thenExpr
         VBool False ->
-          selectedQualifiedMethodAliasTarget methodExprsByKey visitedMethodKeys env methodKey elseExpr
+          selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey elseExpr
         other ->
           Left
             ( runtimeDiagnostic
@@ -879,7 +892,12 @@ scopeDefinitelyNotFunctionValue statements =
     SExpr _ expr : _ -> exprDefinitelyNotFunctionValue expr
     _ -> False
 
-evalValue builtinMode bindingTypeHints env expr =
+evalValue :: BuiltinResolutionMode -> Map BindingRuntimeHintKey ConstraintSignatureType -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
+evalValue =
+  evalValueWithModulePath Nothing
+
+evalValueWithModulePath :: Maybe [Text] -> BuiltinResolutionMode -> Map BindingRuntimeHintKey ConstraintSignatureType -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
+evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr =
   case expr of
     ELit literal -> Right (literalRuntimeValue literal)
     EVar name ->
@@ -897,24 +915,24 @@ evalValue builtinMode bindingTypeHints env expr =
       where
         nameText = identifierText name
     ELambda parameterName bodyExpr ->
-      Right (VClosure env parameterName bodyExpr Nothing)
+      Right (VClosure env parameterName bodyExpr Nothing currentModulePath)
     EOperatorValue operatorSymbol ->
       Right (VOperator operatorSymbol [])
     EList elements ->
-      (`VList` Nothing) <$> mapM (evalValue builtinMode bindingTypeHints env) elements
+      (`VList` Nothing) <$> mapM (evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env) elements
     ETuple elements ->
-      VTuple <$> mapM (evalValue builtinMode bindingTypeHints env) elements
+      VTuple <$> mapM (evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env) elements
     EApply functionExpr argumentExpr -> do
-      functionValue <- evalValue builtinMode bindingTypeHints env functionExpr
-      argumentValue <- evalValue builtinMode bindingTypeHints env argumentExpr
+      functionValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env functionExpr
+      argumentValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env argumentExpr
       applyRuntimeFunction builtinMode bindingTypeHints functionValue argumentValue
     EIf conditionExpr thenExpr elseExpr ->
-      evalValue builtinMode bindingTypeHints env (ECase conditionExpr thenExpr elseExpr)
+      evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr -> do
-      conditionValue <- evalValue builtinMode bindingTypeHints env conditionExpr
+      conditionValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env conditionExpr
       case conditionValue of
-        VBool True -> evalValue builtinMode bindingTypeHints env thenExpr
-        VBool False -> evalValue builtinMode bindingTypeHints env elseExpr
+        VBool True -> evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env thenExpr
+        VBool False -> evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env elseExpr
         other ->
           Left
             ( runtimeDiagnostic
@@ -922,20 +940,20 @@ evalValue builtinMode bindingTypeHints env expr =
                 ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
             )
     EPatternCase scrutineeExpr caseArms -> do
-      scrutineeValue <- evalValue builtinMode bindingTypeHints env scrutineeExpr
-      evalPatternCase builtinMode bindingTypeHints env scrutineeValue caseArms
+      scrutineeValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env scrutineeExpr
+      evalPatternCase currentModulePath builtinMode bindingTypeHints env scrutineeValue caseArms
     EBinary operatorSymbol leftExpr rightExpr -> do
-      leftValue <- evalValue builtinMode bindingTypeHints env leftExpr
-      rightValue <- evalValue builtinMode bindingTypeHints env rightExpr
+      leftValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env leftExpr
+      rightValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env rightExpr
       evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
     ESectionLeft leftExpr operatorSymbol -> do
-      leftValue <- evalValue builtinMode bindingTypeHints env leftExpr
+      leftValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env leftExpr
       Right (VSectionLeft operatorSymbol leftValue)
     ESectionRight operatorSymbol rightExpr -> do
-      rightValue <- evalValue builtinMode bindingTypeHints env rightExpr
+      rightValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env rightExpr
       Right (VSectionRight operatorSymbol rightValue)
     EBlock statements ->
-      case evalScope builtinMode bindingTypeHints env statements of
+      case evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints env statements of
         Left err -> Left err
         Right Nothing ->
           Left
@@ -997,8 +1015,8 @@ applyRuntimeTypeHint typeHint runtimeValue =
         (ConstraintTypeTuple elementTypes, VTuple elements)
           | length elementTypes == length elements ->
               VTuple <$> zipWithM applyRuntimeTypeHint elementTypes elements
-        (ConstraintTypeFunction {}, VClosure capturedEnv parameterName bodyExpr _) ->
-          Right (VClosure capturedEnv parameterName bodyExpr (Just typeHint))
+        (ConstraintTypeFunction {}, VClosure capturedEnv parameterName bodyExpr _ closureModulePath) ->
+          Right (VClosure capturedEnv parameterName bodyExpr (Just typeHint) closureModulePath)
         (ConstraintTypeFunction {}, _)
           | isFunctionValue runtimeValue ->
               Right (VTyped typeHint runtimeValue)
@@ -1091,16 +1109,17 @@ targetedFloatMetadataWithSource targetType literalSource =
     }
 
 evalPatternCase ::
+  Maybe [Text] ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey ConstraintSignatureType ->
   RuntimeEnv ->
   RuntimeValue ->
   [CaseArm] ->
   Either Diagnostic RuntimeValue
-evalPatternCase builtinMode bindingTypeHints env scrutineeValue caseArms =
+evalPatternCase currentModulePath builtinMode bindingTypeHints env scrutineeValue caseArms =
   case selectMatchingCaseArm env scrutineeValue caseArms of
     Just (armEnv, bodyExpr) ->
-      evalValue builtinMode bindingTypeHints armEnv bodyExpr
+      evalValueWithModulePath currentModulePath builtinMode bindingTypeHints armEnv bodyExpr
     Nothing ->
       Left
         ( runtimeDiagnostic
@@ -1204,13 +1223,14 @@ applyRuntimeFunction builtinMode bindingTypeHints functionValue argumentValue =
       evalBinary builtinMode bindingTypeHints operatorSymbol leftValue argumentValue
     VSectionRight operatorSymbol rightValue ->
       evalBinary builtinMode bindingTypeHints operatorSymbol argumentValue rightValue
-    VClosure capturedEnv parameterName bodyExpr maybeTypeHint -> do
+    VClosure capturedEnv parameterName bodyExpr maybeTypeHint closureModulePath -> do
       hintedArgumentValue <-
         case maybeTypeHint of
           Just typeHint -> applyRuntimeFunctionArgumentHint typeHint argumentValue
           Nothing -> Right argumentValue
       resultValue <-
-        evalValue
+        evalValueWithModulePath
+          closureModulePath
           builtinMode
           bindingTypeHints
           (Map.insert (identifierText parameterName) (Right hintedArgumentValue) capturedEnv)
@@ -1345,7 +1365,7 @@ runtimeValueMatchesConstraint signatureType runtimeValue =
             _ -> False
         ConstraintTypeFunction {} ->
           case runtimeValue of
-            VClosure _ _ _ (Just typeHint) -> runtimeConstraintTypesCompatible typeHint signatureType
+            VClosure _ _ _ (Just typeHint) _ -> runtimeConstraintTypesCompatible typeHint signatureType
             _ -> isFunctionValue runtimeValue
 
 runtimeConstraintTypesCompatible :: ConstraintSignatureType -> ConstraintSignatureType -> Bool
@@ -1859,7 +1879,7 @@ runtimeFunctionResultType runtimeValue =
   case runtimeValue of
     VTyped (ConstraintTypeFunction _ resultType) _ ->
       Just resultType
-    VClosure _ _ _ (Just (ConstraintTypeFunction _ resultType)) ->
+    VClosure _ _ _ (Just (ConstraintTypeFunction _ resultType)) _ ->
       Just resultType
     _ ->
       Nothing
@@ -1877,7 +1897,7 @@ runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint =
   case (mapper, maybeCollectionTypeHint) of
     (VBuiltin BuiltinHd [], Just (ConstraintTypeList (ConstraintTypeList elementType))) ->
       Just elementType
-    (VClosure _ parameterName (EVar resultName) Nothing, Just (ConstraintTypeList elementType))
+    (VClosure _ parameterName (EVar resultName) Nothing _, Just (ConstraintTypeList elementType))
       | resultName == parameterName ->
           Just elementType
     _ ->

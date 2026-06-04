@@ -116,7 +116,9 @@ tests =
     ("run module graph retains value dependencies needed by imported capability bodies", testRunModuleGraphRetainsValueDependenciesNeededByImportedCapabilityBodies),
     ("run module graph prunes unused dependency bindings during runtime replay", testRunModuleGraphPrunesUnusedDependencyBindingsDuringRuntimeReplay),
     ("run module graph keeps inferred runtime hints module scoped", testRunModuleGraphKeepsInferredRuntimeHintsModuleScoped),
+    ("run module graph keeps nested inferred runtime hints module scoped", testRunModuleGraphKeepsNestedInferredRuntimeHintsModuleScoped),
     ("run module graph retains local capabilities needed by imported signatures", testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures),
+    ("run module graph namespaces hidden retained local capabilities", testRunModuleGraphNamespacesHiddenRetainedLocalCapabilities),
     ("driver retains transitive local capabilities needed by imported signatures", testCollectNeededLocalCapabilityExportsClosesThroughRetainedClassMethodSignatures),
     ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
     ("run module graph reports cycle diagnostics", testRunModuleGraphCycle),
@@ -1384,6 +1386,30 @@ testRunModuleGraphKeepsInferredRuntimeHintsModuleScoped = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
+testRunModuleGraphKeepsNestedInferredRuntimeHintsModuleScoped :: IO ()
+testRunModuleGraphKeepsNestedInferredRuntimeHintsModuleScoped = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Pick (picked).\npicked.\n}"
+          ),
+          ( "src/Lib/Pick.jz",
+            "module Lib::Pick {\nclass RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\nimpl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\npicked = {\nx = if True 1 else __kernel_toUInt8 2.\nRuntimePick::pick x.\n}.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
 testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures :: IO ()
 testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures = do
   result <-
@@ -1404,6 +1430,33 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures = do
           ),
           ( "src/Lib/Api.jz",
             "module Lib::Api {\nclass Need(a) {\n}.\nimpl Need(Int) {\n}.\nfoo :: @{Need(Int)}: Int.\nfoo = 1.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphNamespacesHiddenRetainedLocalCapabilities :: IO ()
+testRunModuleGraphNamespacesHiddenRetainedLocalCapabilities = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::A (pickedA).\nimport Lib::B (pickedB).\n(pickedA, pickedB).\n}"
+          ),
+          ( "src/Lib/A.jz",
+            "module Lib::A {\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> True.\n}.\npickedA = Choice::pick 1.\n}"
+          ),
+          ( "src/Lib/B.jz",
+            "module Lib::B {\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> False.\n}.\npickedB = Choice::pick 1.\n}"
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
