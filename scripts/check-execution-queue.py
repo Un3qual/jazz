@@ -7,6 +7,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 QUEUE_PATH = ROOT / "docs/execution/queue.md"
+BLOCKER_CONTRACTS_PATH = ROOT / "docs/execution/blocker-contracts.md"
+DONE_ARCHIVE_PATH = ROOT / "docs/execution/done-archive.md"
 QUEUE_TEXT: str | None = None
 
 EXPECTED_READY_HEADERS = [
@@ -192,18 +194,21 @@ def is_doc_target_path(path: Path) -> bool:
     return any(part == "docs" for part in path.parts) or path.suffix.lower() in DOC_SUFFIXES
 
 
-def extract_section_lines(text: str, section_name: str) -> list[str]:
+def extract_section_lines(
+    text: str, section_name: str, source_path: Path, required: bool = True
+) -> list[str] | None:
     marker = f"## {section_name}"
     lines = text.splitlines()
     section_starts = [
         idx for idx, line in enumerate(lines) if line.strip() == marker
     ]
     if not section_starts:
-        fail(f"{QUEUE_PATH} missing section: {section_name}")
-        return []
+        if required:
+            fail(f"{source_path} missing section: {section_name}")
+        return None
     if len(section_starts) > 1:
-        fail(f"{QUEUE_PATH} section '{section_name}' appears multiple times")
-        return []
+        fail(f"{source_path} section '{section_name}' appears multiple times")
+        return None
 
     collected: list[str] = []
     for line in lines[section_starts[0] + 1 :]:
@@ -255,10 +260,16 @@ def split_markdown_row(line: str) -> list[str]:
     return cells
 
 
-def parse_markdown_table(section_name: str) -> tuple[list[str], list[dict[str, str]]]:
+def parse_markdown_table(
+    section_name: str, required: bool = True
+) -> tuple[list[str], list[dict[str, str]]]:
     if QUEUE_TEXT is None:
         return [], []
-    section_lines = extract_section_lines(QUEUE_TEXT, section_name)
+    section_lines = extract_section_lines(
+        QUEUE_TEXT, section_name, QUEUE_PATH, required
+    )
+    if section_lines is None:
+        return [], []
     table_lines: list[str] = []
     in_table = False
     for idx, line in enumerate(section_lines):
@@ -304,16 +315,19 @@ def parse_markdown_table(section_name: str) -> tuple[list[str], list[dict[str, s
     return headers, rows
 
 
-def extract_markdown_link_path(cell: str, label: str) -> Path | None:
+def extract_markdown_link(cell: str, label: str) -> tuple[Path, str | None] | None:
     match = re.fullmatch(r"\[[^\]]+\]\(([^)]+)\)", cell.strip())
     if not match:
         fail(f"{QUEUE_PATH} {label} cell is not a markdown link: {cell}")
         return None
-    link_target = match.group(1).split("#", 1)[0]
-    if not link_target:
+    link_target = match.group(1)
+    file_target, fragment = (
+        link_target.split("#", 1) if "#" in link_target else (link_target, None)
+    )
+    if not file_target:
         fail(f"{QUEUE_PATH} {label} link is missing a file target: {cell}")
         return None
-    link_path = (QUEUE_PATH.parent / link_target).resolve()
+    link_path = (QUEUE_PATH.parent / file_target).resolve()
     try:
         link_path.relative_to(ROOT)
     except ValueError:
@@ -322,11 +336,104 @@ def extract_markdown_link_path(cell: str, label: str) -> Path | None:
     if link_path.suffix.lower() not in DOC_SUFFIXES:
         fail(f"{QUEUE_PATH} {label} link must point to a text file: {cell}")
         return None
+    return link_path, fragment
+
+
+def extract_markdown_link_path(cell: str, label: str) -> Path | None:
+    link = extract_markdown_link(cell, label)
+    if link is None:
+        return None
+    link_path, _fragment = link
     return link_path
 
 
 def extract_plan_path(cell: str) -> Path | None:
     return extract_markdown_link_path(cell, "plan")
+
+
+def markdown_heading_anchor(heading: str) -> str:
+    heading = re.sub(r"`([^`]*)`", r"\1", heading)
+    heading = normalize_text(heading).lower()
+    heading = re.sub(r"[^a-z0-9 _-]", "", heading)
+    heading = re.sub(r"\s+", "-", heading)
+    return heading.strip("-")
+
+
+def read_text_file(path: Path, label: str) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        fail(f"missing required {label}: {path}")
+    except (OSError, UnicodeDecodeError) as exc:
+        fail(f"{path} could not be read as UTF-8 text: {exc}")
+    return None
+
+
+def extract_markdown_heading_index(path: Path) -> tuple[set[str], dict[str, str]]:
+    text = read_text_file(path, "markdown file")
+    if text is None:
+        return set(), {}
+
+    headings: set[str] = set()
+    anchors: dict[str, str] = {}
+    for line in text.splitlines():
+        match = re.match(r"^(#{1,6})\s+(.+?)\s*#*\s*$", line)
+        if not match:
+            continue
+        heading = normalize_text(match.group(2).strip())
+        anchor = markdown_heading_anchor(heading)
+        if not anchor:
+            continue
+        if anchor in anchors and anchors[anchor] != heading:
+            fail(f"{path} has duplicate markdown anchor #{anchor}")
+            continue
+        anchors[anchor] = heading
+        headings.add(heading)
+    return headings, anchors
+
+
+def extract_done_archive_ids() -> set[str]:
+    if not DONE_ARCHIVE_PATH.exists():
+        return set()
+    text = read_text_file(DONE_ARCHIVE_PATH, "done archive")
+    if text is None:
+        return set()
+    return {
+        normalize_text(match.group(1))
+        for match in re.finditer(r"^\|\s*`([^`]+)`\s*\|", text, re.MULTILINE)
+    }
+
+
+def validate_source_contract_link(
+    row_context: str,
+    cell: str,
+    blocked_id: str,
+    contract_anchors: dict[str, str],
+) -> None:
+    link = extract_markdown_link(cell, "source_contract")
+    if link is None:
+        return
+    source_contract_path, fragment = link
+    if not source_contract_path.is_file():
+        fail(f"{row_context} links to missing source_contract: {source_contract_path}")
+        return
+    if source_contract_path != BLOCKER_CONTRACTS_PATH.resolve():
+        fail(
+            f"{row_context} source_contract must point to "
+            f"{BLOCKER_CONTRACTS_PATH.relative_to(ROOT)}"
+        )
+    if not fragment:
+        fail(f"{row_context} source_contract is missing a section anchor")
+        return
+    contract_heading = contract_anchors.get(fragment)
+    if contract_heading is None:
+        fail(f"{row_context} source_contract anchor not found: #{fragment}")
+        return
+    if blocked_id and contract_heading != blocked_id:
+        fail(
+            f"{row_context} source_contract points to {contract_heading}, "
+            f"not blocked_id {blocked_id}"
+        )
 
 
 def validate_target_paths(
@@ -341,6 +448,7 @@ def validate_target_paths(
             fail(f"{row_context} names non-repo-relative target path: {target_path}")
             continue
         if target_path_obj == Path("."):
+            fail(f"{row_context} names non-concrete target path: {target_path}")
             continue
         resolved_target_path = (ROOT / target_path_obj).resolve()
         try:
@@ -348,10 +456,12 @@ def validate_target_paths(
         except ValueError:
             fail(f"{row_context} names non-repo-relative target path: {target_path}")
             continue
-        if not resolved_target_path.is_file():
-            fail(f"{row_context} names missing or non-file target path: {target_path}")
+        if resolved_target_path.exists() and not resolved_target_path.is_file():
+            fail(f"{row_context} names non-file target path: {target_path}")
             continue
-        if not is_doc_target_path(resolved_repo_relative):
+        if resolved_target_path.is_file() and not is_doc_target_path(
+            resolved_repo_relative
+        ):
             real_non_doc_paths.append((target_path, target_path_obj))
 
     if require_non_doc and not real_non_doc_paths:
@@ -482,7 +592,9 @@ def parse_frontmatter(path: Path) -> dict[str, object] | None:
 
 
 ready_headers, ready_rows = parse_markdown_table("Ready Now")
-curation_headers, curation_rows = parse_markdown_table("Next Curation Target")
+curation_headers, curation_rows = parse_markdown_table(
+    "Next Curation Target", required=False
+)
 blocked_headers, blocked_rows = parse_markdown_table("Blocked")
 done_headers, done_rows = parse_markdown_table("Done")
 
@@ -532,6 +644,13 @@ for section_name, rows in (
         seen_ids[row_id] = section_name
         all_ids.add(row_id)
 
+contract_headings, contract_anchors = (
+    extract_markdown_heading_index(BLOCKER_CONTRACTS_PATH)
+    if blocked_rows or curation_rows
+    else (set(), {})
+)
+archived_ids = extract_done_archive_ids() if curation_rows else set()
+
 if len(curation_rows) > 3:
     fail(f"{QUEUE_PATH} Next Curation Target must contain at most 3 candidates")
 
@@ -561,6 +680,11 @@ for row in curation_rows:
             f"{row_context} candidate_child_id already exists in queue sections: "
             f"{candidate_child_id}"
         )
+    elif candidate_child_id in archived_ids:
+        fail(
+            f"{row_context} candidate_child_id already exists in done archive: "
+            f"{candidate_child_id}"
+        )
     elif candidate_child_id in seen_candidate_ids:
         fail(f"{row_context} duplicates candidate_child_id: {candidate_child_id}")
     else:
@@ -573,11 +697,12 @@ for row in curation_rows:
         if not normalize_text(row.get(key, "")):
             fail(f"{row_context} is missing {key}")
 
-    source_contract_path = extract_markdown_link_path(
-        normalize_text(row.get("source_contract", "")), "source_contract"
+    validate_source_contract_link(
+        row_context,
+        normalize_text(row.get("source_contract", "")),
+        blocked_id,
+        contract_anchors,
     )
-    if source_contract_path and not source_contract_path.is_file():
-        fail(f"{row_context} links to missing source_contract: {source_contract_path}")
 
     target_paths = split_inline_list(
         row.get("target_paths", ""), ",", normalize_list_item
@@ -745,6 +870,11 @@ for row in blocked_rows:
     row_id = normalize_text(row["id"])
     if not row_id:
         continue
+    if row_id not in contract_headings:
+        fail(
+            f"{QUEUE_PATH} Blocked row {row_id} has no matching "
+            "blocker-contracts.md section"
+        )
     blocked_on = normalize_text(row.get("blocked_on", ""))
     if not blocked_on or blocked_on == "-":
         fail(f"{QUEUE_PATH} Blocked row {row_id} is missing blocked_on")

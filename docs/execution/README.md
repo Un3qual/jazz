@@ -53,6 +53,8 @@ Guidance:
 
 - `kind: impl` is the default for `Ready Now`.
 - `target_paths` for `kind: impl` must include at least one concrete, already-existing, non-doc file path.
+- `target_paths` may also include planned new files for the batch, but existing
+  non-doc owner paths keep implementation work grounded in the current tree.
 - Keep `target_paths` and `verification` in the same order between the queue row and linked plan frontmatter; parity treats those as ordered batch definitions, while `depends_on` stays set-like.
 - `kind: docs` and `kind: coordination` belong in `Ready Now` only when they directly unblock an implementation item or close out a queue with no remaining executable code work.
 
@@ -156,7 +158,10 @@ Use `bash scripts/check-execution-queue.sh` after queue or open-plan metadata ch
 - every dependency id resolves,
 - every linked plan path exists,
 - `last_verified` is present on non-done items,
+- target paths are repo-relative and concrete, not repository-root placeholders,
 - every `kind: impl` entry names at least one concrete, already-existing, non-doc file path in `target_paths`,
 - every `Ready Now` row matches the linked plan frontmatter for the current executable batch.
 - empty `Ready Now` states still have 1-3 `Next Curation Target` candidates.
 - `impl` curation candidates name at least one concrete, already-existing, non-doc file path.
+- curation candidates do not reuse ids from `done-archive.md`.
+- `source_contract` anchors point to the matching `blocker-contracts.md` section.
