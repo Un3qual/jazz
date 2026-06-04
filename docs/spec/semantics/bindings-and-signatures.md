@@ -1,6 +1,6 @@
 # Bindings and Signatures Semantics
 
-Status: active (`jazz-next` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints validated against class/impl facts, monomorphic variable constrained signatures, deterministic unsupported-variable diagnostics, unsupported constrained-signature primary spans, and structural list/tuple/ADT equality over equality-supported element and constructor payload types are implemented)
+Status: active (`jazz-next` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints validated against class/impl facts, monomorphic variable constrained signatures, deterministic unsupported-variable diagnostics, unsupported constrained-signature primary spans, and structural list/tuple/ADT equality over equality-supported element and constructor payload types are implemented; the broad type-solver semantics contract is accepted for ordinary binding generalization, per-use instantiation, inferred class constraints, defaulting, and solver-backed constrained signatures, with implementation split into verifier-backed child rows)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
 
@@ -24,11 +24,12 @@ Out of scope:
 Adjacent future generic ADT work:
 
 - Generic ADT constructor schemes are separate from ordinary binding
-  polymorphism. A future `data Maybe a = Nothing | Just a.` slice may give
+  polymorphism. The landed `data Maybe a = Nothing | Just a.` slice gives
   constructors fresh per-use schemes without generalizing user bindings.
-- Ordinary bindings, adjacent signatures, and constrained signatures remain in
-  the active monomorphic/annotation-only subset until a dedicated
-  polymorphism/defaulting/typeclass-solver contract is approved.
+- The dedicated polymorphism/defaulting/typeclass-solver contract is accepted as
+  `JN-TYPE-SOLVER-CONTRACT-001`, but implementation is split into child rows.
+  The first executable child covers ordinary binding type schemes and per-use
+  instantiation only.
 
 Adjacent numeric-width work:
 
@@ -39,6 +40,10 @@ Adjacent numeric-width work:
 - Decimal fractional literals can satisfy explicit `Float`, `Float16`, `Float32`, and `Float64` binding signatures when the literal is the direct binding value; same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic and comparison/equality are supported with width-preserving runtime float results; structural list/tuple equality is supported only when every nested element type is equality-supported, and structural ADT equality is supported only when every declared constructor payload type is equality-supported.
 
 ## Canonical Contract
+
+The numbered items below describe the active implemented baseline unless the
+accepted type-solver contract section explicitly supersedes them in a later
+implementation child.
 
 1. Type signatures are optional when a binding can be inferred.
 2. A type signature, when present, must appear immediately above the binding it annotates.
@@ -53,6 +58,61 @@ Adjacent numeric-width work:
 11. Recursion is allowed, including both self-recursion and mutual recursion, using fixpoint treatment for recursive groups.
 12. Binding references are value snapshots, not live references. Rebinding a name later does not retroactively change previously evaluated values.
 13. Rebinding diagnostics are silent by default in this phase; warning emission is available through compiler warning flags.
+
+## Accepted Type Solver Contract
+
+`JN-TYPE-SOLVER-CONTRACT-001` was accepted on `2026-06-04`. It locks one broad
+solver semantics agreement while requiring implementation to land through
+verifier-backed child rows.
+
+1. Ordinary user bindings generalize after their binding or recursive binding
+   group has been inferred and solved. Generalization quantifies type variables
+   that are not fixed by the surrounding environment, an adjacent concrete
+   monomorphic signature, or unresolved ambiguity.
+2. Recursive groups are solved with shared monomorphic placeholders, then
+   generalized as one unit after the group constraints are solved. This does
+   not introduce polymorphic recursion.
+3. Each use site instantiates a generalized scheme with fresh type variables
+   before unification, so independent uses can refine to different concrete
+   types.
+4. Inferred class constraints are represented in the scheme context. Concrete
+   constraints solve against visible `class` declarations and concrete `impl`
+   facts using the declared class arity. Constraints over generalized variables
+   remain on the scheme until a use site supplies concrete evidence or reaches
+   the final defaulting phase.
+5. Defaulting runs after unification and visible class/impl solving, before
+   ambiguity diagnostics. Existing numeric literal defaults are preserved:
+   ambiguous integer literals default through `Int`/`Int64`, and ambiguous
+   fractional literals default through `Float`/`Float64`. This phase must not
+   reopen primitive implicit integer-to-float promotion or implicit mixed-width
+   behavior.
+6. Variable constrained signatures such as `@{Eq(a)}: a -> a` graduate from the
+   current monomorphic annotation-only behavior to generalized constrained
+   schemes when the solver-backed constrained-signature child lands. Concrete
+   and currently monomorphic constrained signatures are not reworked by the
+   first ordinary-binding schemes child.
+7. Diagnostics must remain deterministic: unsolved constraints name missing
+   class/impl evidence, duplicate constraints report the duplicate in source
+   order, arity errors name expected and actual argument counts, unsupported
+   type applications remain explicit unsupported-type-application errors until
+   that syntax has its own contract, and un-defaulted variables report an
+   ambiguity/defaulting failure with the relevant binding or signature span.
+
+Out of scope for this accepted contract:
+
+- runtime dictionary representation or runtime evidence,
+- abstraction method dispatch,
+- explicit type application,
+- higher-rank polymorphism,
+- generic constructor pattern typing,
+- module/import behavior,
+- effect typing,
+- primitive mixed-width behavior or implicit numeric promotion,
+- reworking the completed parser/type AST rebase,
+- arrow associativity,
+- concrete or monomorphic constrained-signature behavior,
+- generic ADT constructor schemes,
+- any `jazz-hs/` or `jazz2/` work.
 
 ## Decision Matrix: Baseline vs Canonical
 
@@ -186,4 +246,7 @@ bad = \(x) -> x.
 ## Deferred Work
 
 - Complete recursion-group semantics in `jazz-next` (self + mutual recursion) so implementation fully matches locked policy.
-- Define polymorphic/generalized type-variable constrained signatures, type-scheme instantiation/generalization, defaulting, solver obligations, diagnostics, and any runtime dispatch beyond the current monomorphic annotation-only contract under a separate future semantics contract.
+- Implement the accepted type-solver contract through verifier-backed child
+  rows. The first child is ordinary binding type schemes and per-use
+  instantiation; inferred class constraints, broad defaulting, solver-backed
+  constrained signatures, and runtime evidence remain later children.

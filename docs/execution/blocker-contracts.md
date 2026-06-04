@@ -33,81 +33,88 @@ Each blocked item should answer these questions:
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
-- Smallest unblocker: split one bundled-prelude method-body child from the broad
-  abstraction umbrella.
-- Decision needed: none for the next child if it is limited to `Eq(Bool).equals`.
-- Recommended default: mirror the landed `Eq(Int).equals` path for Bool only;
-  do not introduce dictionary values, default methods, superclasses, inferred
-  constraints, solver behavior, or module method export/import semantics.
-- Candidate child: `JN-ABSTRACTION-PRELUDE-EQ-BOOL-METHOD-001`.
-- Target paths: `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`,
-  `jazz-next/stdlib/Prelude.jz`,
-  `jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`,
-  `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`,
-  `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`.
-- Verification:
-  `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`;
-  `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`;
-  `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`;
-  `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
-- Not in scope: unqualified overloads, dictionary passing, runtime evidence
-  values, default methods, superclasses, overlap/orphan policy beyond duplicate
-  visible facts, inferred constraints, or method import/export rules.
+- Smallest unblocker: none is promotion-ready after the bundled
+  `Eq(Int).equals` and `Eq(Bool).equals` children. Keep the umbrella blocked
+  until a separate contract narrows the next abstraction delta.
+- Decision needed: choose the next abstraction contract, such as a bundled
+  method-family expansion, method import/export behavior, runtime evidence, or
+  dictionary/default/superclass semantics.
+- Recommended default: do not promote another abstraction child from this
+  umbrella without concrete syntax, target paths, runtime/type semantics, and
+  focused verification.
+- Candidate child: none currently.
+- Target paths: not set until the next contract is accepted.
+- Verification: `bash scripts/check-execution-queue.sh`;
+  `bash scripts/check-docs.sh`.
+- Not in scope: re-promoting completed bundled `Eq(Int).equals` or
+  `Eq(Bool).equals` work, unqualified overloads, dictionary passing, runtime
+  evidence values, default methods, superclasses, inferred constraints, or
+  method import/export rules.
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
 
-- Smallest unblocker: lock a Stage 2 fixed-tier user-defined operator contract
-  before parser work.
-- Decision needed: exact declaration syntax, allowed symbol characters, and how
-  declarations choose from the frozen precedence tiers.
-- Recommended default: require explicit operator declarations, restrict them to
-  a fixed allowed symbol set, and choose from existing tiers instead of adding
-  custom precedence in the first child.
-- Candidate child: `JN-OPERATORS-STAGE2-FIXED-TIER-CONTRACT-001`.
-- Target paths: `docs/spec/syntax/operators.md`,
-  `docs/plans/spec-clarification/2026-03-03/syntax/15-operator-fixity-and-sections.md`,
-  `docs/execution/queue.md`.
+- Smallest unblocker: none is promotion-ready after the Stage 2 fixed-tier
+  contract and parser-only declaration child. Runtime semantics now need a
+  separate executable contract before returning to `Ready Now`.
+- Decision needed: define how declared operators get executable bindings,
+  whether they are ordinary function values or a distinct declaration form, how
+  module visibility works, and which type/runtime checks close the first
+  execution slice.
+- Recommended default: keep Stage 2 parser metadata complete and block runtime
+  operator semantics until a narrow contract excludes custom precedence,
+  custom associativity, new built-ins, and runtime overload dispatch.
+- Candidate child: none currently.
+- Target paths: not set until the runtime/operator-semantics contract is
+  accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: custom precedence declarations, new builtin operators, runtime
-  overload dispatch, or parser support before the contract lands.
+- Not in scope: re-promoting the completed fixed-tier contract or parser child,
+  custom precedence declarations, new builtin operators, runtime overload
+  dispatch, or parser syntax already covered by
+  `JN-OPERATORS-STAGE2-FIXED-TIER-PARSER-001`.
 
 ### JN-PRIMITIVE-SURFACE-EXPANSION-PLAN-001
 
-- Smallest unblocker: choose the next primitive delta contract, starting with
-  literal suffixes rather than implicit promotion or mixed-width arithmetic.
-- Decision needed: suffix spelling, accepted width families, and whether suffixes
-  are parser syntax or ordinary prelude APIs.
-- Recommended default: specify literal suffix syntax first and keep implicit
-  integer-to-float promotion, implicit mixed-width behavior, and broader numeric
-  solver work blocked.
-- Candidate child: `JN-PRIMITIVE-LITERAL-SUFFIX-CONTRACT-001`.
-- Target paths: `docs/spec/runtime/primitive-semantics.md`,
-  `docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md`,
-  `docs/execution/queue.md`.
+- Smallest unblocker: none is promotion-ready after the literal-suffix contract
+  was accepted and `JN-PRIMITIVE-FRACTIONAL-LITERAL-SUFFIXES-001` was promoted.
+- Decision needed: a separate contract for implicit integer-to-float promotion,
+  implicit mixed-width arithmetic/comparison behavior, or solver/defaulting
+  behavior before any post-suffix primitive child can return to `Ready Now`.
+- Recommended default: do not promote another primitive child from this umbrella
+  until implicit promotion, mixed-width behavior, or broader solver semantics
+  are accepted with concrete target paths and focused verification.
+- Candidate child: none currently.
+- Target paths: not set until the next post-suffix primitive contract is
+  accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: implicit promotions, callable identity semantics, user-defined
-  operator behavior, typeclass solver behavior, or mixed-width arithmetic.
+- Not in scope: re-promoting `JN-PRIMITIVE-LITERAL-SUFFIX-CONTRACT-001`,
+  changing the queued suffix child, callable identity semantics, user-defined
+  operator behavior, implicit promotions, typeclass solver behavior, or
+  mixed-width arithmetic before those contracts are accepted.
 
 ### JN-TYPE-GRAMMAR-CLOSURE-PLAN-001
 
-- Smallest unblocker: write an ordinary-binding generalization and defaulting
-  solver contract.
-- Decision needed: whether the first solver batch must include ordinary binding
-  generalization, inferred class constraints, defaulting, and constrained
-  signatures together.
-- Recommended default: make the solver contract explicit and broad enough to
-  avoid another ADT-only slice, while still splitting implementation into
-  verifier-backed child rows.
-- Candidate child: `JN-TYPE-SOLVER-CONTRACT-001`.
-- Target paths: `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`,
-  `docs/spec/semantics/bindings-and-signatures.md`,
-  `docs/execution/queue.md`.
+- Smallest unblocker: execute the current `Ready Now` implementation child
+  `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001`.
+- Decision needed: none for the broad solver contract. It is accepted as
+  `JN-TYPE-SOLVER-CONTRACT-001`; remaining solver work must split into
+  verifier-backed implementation children.
+- Recommended default: keep the executable child limited to ordinary binding
+  type schemes and per-use instantiation. Do not add inferred class
+  constraints, broad defaulting, solver-backed constrained signatures, runtime
+  dictionaries, explicit type application, or primitive mixed-width behavior in
+  that first implementation child.
+- Candidate child: none currently; the executable child is already in
+  `docs/execution/queue.md#ready-now`.
+- Target paths: see `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001` in
+  `docs/execution/queue.md#ready-now`.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: runtime dictionary representation or abstraction method dispatch
-  unless the solver contract explicitly names them as part of the first batch.
+- Not in scope: re-promoting `JN-TYPE-SOLVER-CONTRACT-001`, runtime dictionary
+  representation, abstraction method dispatch, explicit type application,
+  higher-rank polymorphism, module/import behavior, primitive mixed-width or
+  implicit promotion, or any `jazz-hs`/`jazz2` work.
 
 ### JN-PATTERN-FUTURE-FORMS-PLAN-001
 

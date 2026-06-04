@@ -33,7 +33,10 @@ main = runTestSuite "OperatorFixity" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("multiplication binds tighter than addition", testMultiplicationBeforeAddition),
+  [ ("declared tier 2 operator inherits additive precedence", testDeclaredTier2OperatorPrecedence),
+    ("declared tier 5 operator inherits dollar associativity", testDeclaredTier5OperatorAssociativity),
+    ("declared operator value and sections parse after declaration", testDeclaredOperatorValueAndSections),
+    ("multiplication binds tighter than addition", testMultiplicationBeforeAddition),
     ("equality binds looser than arithmetic", testEqualityAfterArithmetic),
     ("dollar is right associative", testDollarRightAssociative),
     ("subtraction is left associative", testSubtractionLeftAssociative),
@@ -42,6 +45,54 @@ tests =
     ("operator value application participates in infix precedence", testOperatorValueApplicationBeforeInfix),
     ("lowering preserves parsed fixity tree", testLowerFixityTree)
   ]
+
+testDeclaredTier2OperatorPrecedence :: IO ()
+testDeclaredTier2OperatorPrecedence =
+  assertEqual
+    "declared tier 2 fixity tree"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "x"
+                (SourceSpan 2 1)
+                ( SEBinary
+                    "%%"
+                    (SEBinary "+" (SELit (SLInt 1)) (SELit (SLInt 2)))
+                    (SEBinary "*" (SELit (SLInt 3)) (SELit (SLInt 4)))
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "operator %% tier 2.\nx = 1 + 2 %% 3 * 4.")
+
+testDeclaredTier5OperatorAssociativity :: IO ()
+testDeclaredTier5OperatorAssociativity =
+  assertEqual
+    "declared tier 5 associativity"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "x"
+                (SourceSpan 2 1)
+                (SEBinary "~~" (SEVar "f") (SEBinary "~~" (SEVar "g") (SEVar "z")))
+            ]
+        )
+    )
+    (parseSurfaceProgram "operator ~~ tier 5.\nx = f ~~ g ~~ z.")
+
+testDeclaredOperatorValueAndSections :: IO ()
+testDeclaredOperatorValueAndSections =
+  assertEqual
+    "declared operator values and sections"
+    ( Right
+        ( SEBlock
+            [ SSLet "op" (SourceSpan 2 1) (SEOperatorValue "%%"),
+              SSLet "left" (SourceSpan 3 1) (SESectionLeft (SELit (SLInt 10)) "%%"),
+              SSLet "right" (SourceSpan 4 1) (SESectionRight "%%" (SELit (SLInt 10)))
+            ]
+        )
+    )
+    (parseSurfaceProgram "operator %% tier 2.\nop = (%%).\nleft = (10 %%).\nright = (%% 10).")
 
 testMultiplicationBeforeAddition :: IO ()
 testMultiplicationBeforeAddition =

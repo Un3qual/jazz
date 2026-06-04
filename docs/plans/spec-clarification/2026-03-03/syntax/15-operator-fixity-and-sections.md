@@ -1,3 +1,33 @@
+---
+id: JN-OPERATORS-STAGE2-FIXED-TIER-PARSER-001
+status: done
+priority: P1
+size: S
+kind: impl
+autonomous_ready: yes
+depends_on:
+  - JN-OPERATORS-STAGE2-FIXED-TIER-CONTRACT-001
+plan_section: Stage 2 Fixed-Tier Contract Lock (2026-06-04)
+target_paths:
+  - jazz-next/src/JazzNext/Compiler/Parser/Operator.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs
+  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
+deliverable: >
+  Recognize top-level operator <symbol> tier <1-5>. declarations, attach
+  parser/fixity metadata, and add diagnostics/tests for invalid symbols,
+  reserved or built-in operators, invalid tiers, duplicate declarations, nested
+  declarations, and use before declaration; no runtime semantics.
+verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
+  - bash scripts/check-execution-queue.sh
+  - bash scripts/check-docs.sh
+last_verified: 2026-06-04
+---
+
 # Operator Fixity and Sections Policy Implementation Plan
 
 > **For implementers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
@@ -25,7 +55,11 @@ Execution note:
 - [x] Parser/tests aligned with canonical contract
 - [x] Runtime/type/CLI section execution semantics aligned with canonical contract
 - [x] User-defined operator roadmap direction decided (staged)
-- [ ] Queue Stage 2 user-defined operator implementation only after numeric-width/defaulting semantics are specified.
+- [x] Stage 2 fixed-tier user-defined operator contract locked (2026-06-04)
+- [x] Stage 2 parser declaration recognition and diagnostics child queued for
+  `jazz-next`
+- [x] Implement Stage 2 parser declaration recognition and diagnostics only;
+  runtime semantics remain a separate child.
 
 ## Decision Lock (Approved 2026-03-03)
 
@@ -34,6 +68,16 @@ Execution note:
 - [x] Built-in operator set and fixity are frozen for v1.
 - [x] Section representation lock (Gate B): explicit AST node for operator sections.
 - [x] Expansion order lock: numeric width/defaulting lands before user-defined operators.
+- [x] Stage 2 declaration syntax lock: `operator <symbol> tier <1-5>.`
+- [x] Stage 2 tier lock: declarations choose one of the frozen tiers and
+  inherit that tier's existing associativity.
+- [x] Stage 2 symbol lock: user operator symbols are non-empty ASCII operator
+  tokens drawn only from `! % & * + - / < > ? ^ | ~`, excluding built-in
+  operators, reserved grammar tokens, and lexer comment-form tokens.
+- [x] Stage 2 scope lock: declarations are explicit top-level source-unit-local
+  metadata and must appear before use.
+- [x] Stage 2 non-goals lock: no custom precedence, no custom associativity, no
+  runtime overload dispatch, and no new built-in operators.
 
 ## Verification Evidence (Current Drift)
 
@@ -70,6 +114,43 @@ Out of scope:
   - [x] Option C2 (selected): staged support with restricted characters and fixed precedence tiers.
   - [ ] Option C3: full declarations now (highest complexity).
 
+## Stage 2 Fixed-Tier Contract Lock (2026-06-04)
+
+The approved Stage 2 syntax is:
+
+```jz
+operator <symbol> tier <1-5>.
+```
+
+This was chosen because it is the smallest declaration form that is explicit,
+top-level, easy for the parser to recognize, and compatible with the frozen
+operator table. The tier maps directly to the existing table in
+`docs/spec/syntax/operators.md` and inherits that tier's associativity.
+
+Stage 2 declarations are parser/fixity metadata only. They do not define a
+runtime function, add a kernel primitive, add a new built-in operator, or
+introduce overload dispatch. Any executable semantics for declared user
+operators require a later contract and implementation child.
+
+Completed child:
+
+- `id: JN-OPERATORS-STAGE2-FIXED-TIER-PARSER-001`
+- `status: done`
+- `kind: impl`
+- `scope: parser declaration recognition, parser metadata, and diagnostics`
+- `target_paths: jazz-next/src/JazzNext/Compiler/Parser/Operator.hs,
+  jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs,
+  jazz-next/src/JazzNext/Compiler/Parser.hs,
+  jazz-next/src/JazzNext/Compiler/Parser/AST.hs,
+  jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs,
+  jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`
+- `verification: bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`;
+  `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`;
+  `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`
+- `out_of_scope: runtime operator semantics, runtime overload dispatch, new
+  built-in operators, custom precedence, custom associativity, and section
+  behavior changes`
+
 ## Phase 0: Normative Operator Spec
 
 - [x] Write EBNF-like operator grammar and fixity table.
@@ -104,9 +185,9 @@ git commit -m "docs(spec): define canonical operator fixity and section rules"
 - [x] Add explicit invalid-case tests for ambiguous or unsupported operator forms.
 
 Modify:
-- `jazz-next/test/OperatorFixitySpec.hs`
-- `jazz-next/test/OperatorSectionSpec.hs`
-- `jazz-next/test/OperatorInvalidSyntaxSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/OperatorSectionSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`
 
 ### Commit Checkpoint (Phase 1)
 
@@ -163,9 +244,9 @@ git commit -m "docs(spec): close operator fixity clarification and add anti-drif
 
 ```bash
 bash jazz-next/scripts/test-warning-config.sh
-runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/OperatorFixitySpec.hs
-runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/OperatorSectionSpec.hs
-runghc -i./jazz-next/src -i./jazz-next/test jazz-next/test/OperatorInvalidSyntaxSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorSectionSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
 ```
 
 ## Definition of Done

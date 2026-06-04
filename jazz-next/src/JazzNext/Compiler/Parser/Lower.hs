@@ -116,7 +116,8 @@ lowerSurfaceLiteral :: SurfaceLiteral -> Literal
 lowerSurfaceLiteral literal =
   case literal of
     SLInt value -> LInt value
-    SLFloat value literalSource -> LFloat value literalSource
+    SLFloat value literalSource maybeTargetType ->
+      LFloat value literalSource (fmap lowerSurfaceNumericType maybeTargetType)
     SLBool value -> LBool value
 
 lowerSurfacePattern :: SurfacePattern -> Pattern

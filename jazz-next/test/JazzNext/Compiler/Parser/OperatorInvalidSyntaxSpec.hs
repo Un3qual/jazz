@@ -16,26 +16,134 @@ main = runTestSuite "OperatorInvalidSyntax" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("rejects unsupported percent operator", testRejectsPercentOperator),
-    ("rejects unsupported ampersand operator", testRejectsAmpersandOperator),
+  [ ("rejects built-in operator declarations", testRejectsBuiltinOperatorDeclaration),
+    ("rejects identifier operator declarations", testRejectsIdentifierOperatorDeclaration),
+    ("rejects reserved arrow operator declarations", testRejectsReservedArrowOperatorDeclaration),
+    ("rejects reserved comment operator declarations", testRejectsReservedCommentOperatorDeclaration),
+    ("rejects invalid operator declaration tiers", testRejectsInvalidOperatorDeclarationTier),
+    ("rejects duplicate operator declarations", testRejectsDuplicateOperatorDeclaration),
+    ("rejects nested operator declarations", testRejectsNestedOperatorDeclaration),
+    ("rejects custom operator precedence declarations", testRejectsCustomOperatorPrecedenceDeclaration),
+    ("rejects custom operator associativity declarations", testRejectsCustomOperatorAssociativityDeclaration),
+    ("rejects user operator infix use before declaration", testRejectsUserOperatorInfixUseBeforeDeclaration),
+    ("rejects user operator value use before declaration", testRejectsUserOperatorValueUseBeforeDeclaration),
+    ("rejects module declarations after operator declarations", testRejectsModuleAfterOperatorDeclaration),
+    ("rejects undeclared percent operator", testRejectsUndeclaredPercentOperator),
+    ("rejects undeclared ampersand operator", testRejectsUndeclaredAmpersandOperator),
     ("rejects empty parenthesized expression", testRejectsEmptyParenthesizedExpression),
     ("rejects incomplete infix expression", testRejectsIncompleteInfixExpression)
   ]
 
-testRejectsPercentOperator :: IO ()
-testRejectsPercentOperator =
+testRejectsBuiltinOperatorDeclaration :: IO ()
+testRejectsBuiltinOperatorDeclaration =
+  assertLeftDiagnosticCodeAndContains
+    "built-in operator declaration"
+    "E0001"
+    "cannot redeclare built-in operator '+'"
+    (parseSurfaceProgram "operator + tier 2.")
+
+testRejectsIdentifierOperatorDeclaration :: IO ()
+testRejectsIdentifierOperatorDeclaration =
+  assertLeftDiagnosticCodeAndContains
+    "identifier operator declaration"
+    "E0001"
+    "expected operator symbol after 'operator'"
+    (parseSurfaceProgram "operator abc tier 2.")
+
+testRejectsReservedArrowOperatorDeclaration :: IO ()
+testRejectsReservedArrowOperatorDeclaration =
+  assertLeftDiagnosticCodeAndContains
+    "reserved arrow operator declaration"
+    "E0001"
+    "reserved operator symbol '->'"
+    (parseSurfaceProgram "operator -> tier 5.")
+
+testRejectsReservedCommentOperatorDeclaration :: IO ()
+testRejectsReservedCommentOperatorDeclaration =
+  assertLeftDiagnosticCodeAndContains
+    "reserved comment operator declaration"
+    "E0001"
+    "reserved operator symbol '--'"
+    (parseSurfaceProgram "operator -- tier 1.")
+
+testRejectsInvalidOperatorDeclarationTier :: IO ()
+testRejectsInvalidOperatorDeclarationTier =
+  assertLeftDiagnosticCodeAndContains
+    "invalid operator declaration tier"
+    "E0001"
+    "operator tier must be between 1 and 5"
+    (parseSurfaceProgram "operator %% tier 6.")
+
+testRejectsDuplicateOperatorDeclaration :: IO ()
+testRejectsDuplicateOperatorDeclaration =
+  assertLeftDiagnosticCodeAndContains
+    "duplicate operator declaration"
+    "E0001"
+    "duplicate operator declaration '%%'"
+    (parseSurfaceProgram "operator %% tier 2.\noperator %% tier 3.")
+
+testRejectsNestedOperatorDeclaration :: IO ()
+testRejectsNestedOperatorDeclaration =
+  assertLeftDiagnosticCodeAndContains
+    "nested operator declaration"
+    "E0001"
+    "operator declarations must remain top-level"
+    (parseSurfaceProgram "x = { operator %% tier 2. y = 1. }.")
+
+testRejectsCustomOperatorPrecedenceDeclaration :: IO ()
+testRejectsCustomOperatorPrecedenceDeclaration =
+  assertLeftDiagnosticCodeAndContains
+    "custom operator precedence declaration"
+    "E0001"
+    "expected 'tier' in operator declaration"
+    (parseSurfaceProgram "operator %% precedence 2.")
+
+testRejectsCustomOperatorAssociativityDeclaration :: IO ()
+testRejectsCustomOperatorAssociativityDeclaration =
+  assertLeftDiagnosticCodeAndContains
+    "custom operator associativity declaration"
+    "E0001"
+    "expected '.' after operator declaration tier"
+    (parseSurfaceProgram "operator %% tier 2 left.")
+
+testRejectsUserOperatorInfixUseBeforeDeclaration :: IO ()
+testRejectsUserOperatorInfixUseBeforeDeclaration =
+  assertLeftDiagnosticCodeAndContains
+    "user operator infix use before declaration"
+    "E0001"
+    "operator '%%' must be declared before use"
+    (parseSurfaceProgram "x = 1 %% 2.\noperator %% tier 2.")
+
+testRejectsUserOperatorValueUseBeforeDeclaration :: IO ()
+testRejectsUserOperatorValueUseBeforeDeclaration =
+  assertLeftDiagnosticCodeAndContains
+    "user operator value use before declaration"
+    "E0001"
+    "operator '%%' must be declared before use"
+    (parseSurfaceProgram "x = (%%).\noperator %% tier 2.")
+
+testRejectsModuleAfterOperatorDeclaration :: IO ()
+testRejectsModuleAfterOperatorDeclaration =
+  assertLeftDiagnosticCodeAndContains
+    "module after operator declaration"
+    "E0001"
+    "module declaration must be the first top-level form"
+    (parseSurfaceProgram "operator %% tier 2.\nmodule Foo { x = 1. }")
+
+testRejectsUndeclaredPercentOperator :: IO ()
+testRejectsUndeclaredPercentOperator =
   assertLeftDiagnosticCodeAndContains
     "percent operator"
     "E0001"
-    "unexpected character '%'"
+    "operator '%' must be declared before use"
     (parseSurfaceProgram "x = 1 % 2.")
 
-testRejectsAmpersandOperator :: IO ()
-testRejectsAmpersandOperator =
+testRejectsUndeclaredAmpersandOperator :: IO ()
+testRejectsUndeclaredAmpersandOperator =
   assertLeftDiagnosticCodeAndContains
     "ampersand operator"
     "E0001"
-    "unexpected character '&'"
+    "operator '&&' must be declared before use"
     (parseSurfaceProgram "x = a && b.")
 
 testRejectsEmptyParenthesizedExpression :: IO ()

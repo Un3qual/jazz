@@ -124,6 +124,7 @@ tests =
     ("runtime fallback rejects targeted Float16/Float32 mixed with untyped Float arithmetic", testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic),
     ("runtime fallback rejects mixed targeted float comparison and equality", testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality),
     ("targeted Float16 and Float32 fractional literals round at runtime", testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue),
+    ("suffixed Float16 and Float32 fractional literals round at runtime", testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue),
     ("Float16 arithmetic overflow produces runtime diagnostic", testFloat16ArithmeticOverflowRuntimeError),
     ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError),
     ("Float64 comparison and equality evaluate at runtime", testFloat64ComparisonEqualityRuntimeSuccess),
@@ -819,6 +820,13 @@ testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(2048.0, 1.0, 2048.0, 1.0)") (runOutput result)
+
+testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue :: IO ()
+testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue = do
+  result <- runSource defaultWarningSettings "x16 = 2049.0f16.\nx32 = 1.00000001f32.\nx64 = 1.5f64.\n(x16, x32, x64)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(2048.0, 1.0, 1.5)") (runOutput result)
 
 testFloat16ArithmeticOverflowRuntimeError :: IO ()
 testFloat16ArithmeticOverflowRuntimeError = do
@@ -1612,7 +1620,7 @@ testQualifiedMethodDispatchPreservesAdtConcretePayloadHint = do
                   "box"
                   (SourceSpan 6 1)
                   ( EApply
-                      (EApply (EVar "Box") (ELit (LFloat 1.5 (mkFractionalLiteralSource 1 5 1))))
+                      (EApply (EVar "Box") (ELit (LFloat 1.5 (mkFractionalLiteralSource 1 5 1) Nothing)))
                       (EApply (EVar "__kernel_toUInt8") (ELit (LInt 2)))
                   ),
                 SExpr (SourceSpan 7 1) (EApply (EVar "RuntimePick::pick") (EVar "box"))
@@ -2005,7 +2013,7 @@ targetedInt conversionName =
 
 untypedFloatOne :: Expr
 untypedFloatOne =
-  ELit (LFloat 1.0 (mkFractionalLiteralSource 1 0 1))
+  ELit (LFloat 1.0 (mkFractionalLiteralSource 1 0 1) Nothing)
 
 assertCallableRuntimeEqualityRejected :: Text -> Expr -> IO ()
 assertCallableRuntimeEqualityRejected label expr = do

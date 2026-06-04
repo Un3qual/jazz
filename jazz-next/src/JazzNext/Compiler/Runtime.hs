@@ -340,7 +340,7 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
       case valueExpr of
         ELit (LInt literalValue) ->
           convertIntegerToNumericTarget conversionBuiltin targetType literalValue
-        ELit (LFloat literalValue literalSource) ->
+        ELit (LFloat literalValue literalSource _) ->
           convertFloatToNumericTarget conversionBuiltin targetType literalValue (Just literalSource)
         _ -> do
           runtimeValue <- evalValueAt statementIndex env valueExpr
@@ -1036,7 +1036,14 @@ literalRuntimeValue :: Literal -> RuntimeValue
 literalRuntimeValue literal =
   case literal of
     LInt value -> VInt value untypedIntMetadata
-    LFloat value literalSource -> VFloat value (untypedFloatMetadata (Just literalSource))
+    LFloat value literalSource maybeTargetType ->
+      case maybeTargetType of
+        Just targetType ->
+          VFloat
+            (roundFloatTarget targetType value)
+            (targetedFloatMetadataWithSource targetType (Just literalSource))
+        Nothing ->
+          VFloat value (untypedFloatMetadata (Just literalSource))
     LBool value -> VBool value
 
 attachRuntimeTypeHint :: Maybe ConstraintSignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue

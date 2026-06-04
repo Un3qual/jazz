@@ -329,7 +329,7 @@ inferExprType ::
   (Maybe ExpressionType, InferState)
 inferExprType builtinMode env state expr =
   case expr of
-    ELit literal -> (Just (literalExpressionType literal), state)
+    ELit literal -> (Just (literalExpressionType literal), checkLiteralType state literal)
     EVar name ->
       case Map.lookup nameText env of
         Just localType -> instantiateTypeBinding localType state
@@ -592,8 +592,20 @@ literalExpressionType :: Literal -> ExpressionType
 literalExpressionType literal =
   case literal of
     LInt value -> TIntegerLiteralType (singletonIntegerLiteralRange value)
-    LFloat _ _ -> TFloatType
+    LFloat _ _ maybeTargetType ->
+      case maybeTargetType of
+        Just targetType -> TNumericType targetType
+        Nothing -> TFloatType
     LBool _ -> TBoolType
+
+checkLiteralType :: InferState -> Literal -> InferState
+checkLiteralType state literal =
+  case literal of
+    LFloat literalValue literalSource (Just targetType) ->
+      case targetedFloatLiteralDiagnostic targetType literalValue literalSource of
+        Just diagnostic -> addTypeError state diagnostic
+        Nothing -> state
+    _ -> state
 
 inferListType ::
   BuiltinResolutionMode ->
@@ -1602,7 +1614,7 @@ targetedFractionalLiteralDiagnostic ::
   Maybe Diagnostic
 targetedFractionalLiteralDiagnostic bindingName maybePendingSignature valueExpr maybeInferredType =
   case (targetedFractionalLiteralType bindingName maybePendingSignature valueExpr maybeInferredType, valueExpr) of
-    (Just targetType, ELit (LFloat literalValue literalSource)) ->
+    (Just targetType, ELit (LFloat literalValue literalSource Nothing)) ->
       targetedFloatLiteralDiagnostic targetType literalValue literalSource
     _ -> Nothing
 
@@ -1614,7 +1626,7 @@ targetedFractionalLiteralType ::
   Maybe NumericType
 targetedFractionalLiteralType bindingName maybePendingSignature valueExpr maybeInferredType =
   case (maybePendingSignature, valueExpr, maybeInferredType) of
-    (Just pendingSignature, ELit (LFloat {}), Just TFloatType)
+    (Just pendingSignature, ELit (LFloat _ _ Nothing), Just TFloatType)
       | pendingSignatureName pendingSignature == bindingName ->
           concreteFloatNumericType (pendingSignatureDeclaredType pendingSignature)
     _ -> Nothing
@@ -2254,7 +2266,7 @@ numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr =
                   Just (mkNumericConversionLiteralTypeError (identifierText functionName) literalValue targetType bounds)
             _ -> Nothing
         Nothing -> Nothing
-    (EVar functionName, ELit (LFloat literalValue literalSource)) ->
+    (EVar functionName, ELit (LFloat literalValue literalSource _)) ->
       case numericConversionTargetFromCallable builtinMode env functionName of
         Just targetType ->
           numericConversionFloatLiteralDiagnostic

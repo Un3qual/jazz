@@ -59,6 +59,7 @@ tests =
     ("parses tuple signature into structured nodes", testParseTupleSignature),
     ("parses numeric width signature names into structured nodes", testParseNumericWidthSignatureTypes),
     ("parses fractional literal without treating decimal dot as statement terminator", testParseFractionalLiteral),
+    ("parses fractional literal suffixes as concrete float targets", testParseFractionalLiteralSuffixes),
     ("rejects non-finite fractional literals", testRejectsNonFiniteFractionalLiteral),
     ("rejects source-exact Float64 fractional literal overflow", testRejectsSourceExactFloat64FractionalLiteralOverflow),
     ("rejects fractional literal case patterns", testRejectsFractionalLiteralCasePatterns),
@@ -77,6 +78,7 @@ tests =
     ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram),
     ("lowers numeric width signature names into analyzer AST", testLowerNumericWidthSignatureProgram),
     ("lowers fractional literal into analyzer AST", testLowerFractionalLiteralProgram),
+    ("lowers fractional literal suffixes into analyzer AST", testLowerFractionalLiteralSuffixesProgram),
     ("lowers structured signature payload into analyzer AST", testLowerStructuredSignatureProgram),
     ("lowers right-associated function signature into analyzer AST", testLowerRightAssociativeFunctionSignatureProgram),
     ("lowers list of function signature into analyzer AST", testLowerFunctionListSignatureProgram),
@@ -246,6 +248,18 @@ testParseFractionalLiteral =
           "surface fractional literal"
           "SLFloat 1.5"
           (Text.pack (show surfaceProgram))
+    )
+
+testParseFractionalLiteralSuffixes :: IO ()
+testParseFractionalLiteralSuffixes =
+  assertRight
+    "fractional literal suffix parse"
+    (parseSurfaceProgram "x16 = 1.5f16.\nx32 = 2.5f32.\nx64 = 3.5f64.")
+    ( \surfaceProgram -> do
+        let renderedProgram = Text.pack (show surfaceProgram)
+        assertContains "Float16 suffix target" "Just SurfaceNumericFloat16" renderedProgram
+        assertContains "Float32 suffix target" "Just SurfaceNumericFloat32" renderedProgram
+        assertContains "Float64 suffix target" "Just SurfaceNumericFloat64" renderedProgram
     )
 
 testRejectsNonFiniteFractionalLiteral :: IO ()
@@ -534,6 +548,18 @@ testLowerFractionalLiteralProgram =
           "lowered fractional literal"
           "LFloat 1.5"
           (Text.pack (show (lowerSurfaceExpr surfaceProgram)))
+    )
+
+testLowerFractionalLiteralSuffixesProgram :: IO ()
+testLowerFractionalLiteralSuffixesProgram =
+  assertRight
+    "parse + lower suffixed fractional literals"
+    (parseSurfaceProgram "x16 = 1.5f16.\nx32 = 2.5f32.\nx64 = 3.5f64.")
+    ( \surfaceProgram -> do
+        let renderedProgram = Text.pack (show (lowerSurfaceExpr surfaceProgram))
+        assertContains "lowered Float16 suffix target" "Just NumericFloat16" renderedProgram
+        assertContains "lowered Float32 suffix target" "Just NumericFloat32" renderedProgram
+        assertContains "lowered Float64 suffix target" "Just NumericFloat64" renderedProgram
     )
 
 testLowerStructuredSignatureProgram :: IO ()
