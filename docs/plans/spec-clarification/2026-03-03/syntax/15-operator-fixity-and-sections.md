@@ -185,6 +185,7 @@ git commit -m "docs(spec): define canonical operator fixity and section rules"
 - [x] Add explicit invalid-case tests for ambiguous or unsupported operator forms.
 
 Modify:
+
 - `jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`
 - `jazz-next/test/JazzNext/Compiler/Parser/OperatorSectionSpec.hs`
 - `jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`
