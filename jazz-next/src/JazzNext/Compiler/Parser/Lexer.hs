@@ -133,10 +133,7 @@ tokenize = go 1 1
                     Just ('=', after) -> withOperatorToken ">=" 2 line column after
                     _ -> withOperatorRun line column source
                 '+' -> withOperatorRun line column source
-                '-' ->
-                  case Text.uncons rest of
-                    Just ('>', after) -> withSingleToken TArrow "->" 2 line column after
-                    _ -> withOperatorRun line column source
+                '-' -> withOperatorOrArrowRun line column source
                 '*' -> withOperatorRun line column source
                 '/' -> withOperatorRun line column source
                 '|' -> withOperatorRun line column source
@@ -207,6 +204,18 @@ tokenize = go 1 1
       let (symbol, trailing) = Text.span isStage2OperatorSymbolChar source
           width = Text.length symbol
        in withOperatorToken symbol width line column trailing
+
+    withOperatorOrArrowRun ::
+      Int ->
+      Int ->
+      Text ->
+      Either Diagnostic [Token]
+    withOperatorOrArrowRun line column source =
+      let (symbol, trailing) = Text.span isStage2OperatorSymbolChar source
+          width = Text.length symbol
+       in case symbol of
+            "->" -> withSingleToken TArrow symbol width line column trailing
+            _ -> withOperatorToken symbol width line column trailing
 
     isIdentifierStart :: Char -> Bool
     isIdentifierStart char = isAlpha char || char == '_'

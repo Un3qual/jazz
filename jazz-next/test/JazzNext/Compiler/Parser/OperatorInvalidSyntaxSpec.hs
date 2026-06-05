@@ -87,7 +87,7 @@ testRejectsNestedOperatorDeclaration =
   assertLeftDiagnosticCodeAndContains
     "nested operator declaration"
     "E0001"
-    "operator declarations must remain top-level"
+    "operator declarations are only allowed at file scope or directly in module bodies"
     (parseSurfaceProgram "x = { operator %% tier 2. y = 1. }.")
 
 testRejectsCustomOperatorPrecedenceDeclaration :: IO ()

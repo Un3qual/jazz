@@ -92,6 +92,10 @@ tests =
     ("rejects negative literal syntax for now", testRejectsNegativeLiteralSyntax),
     ("parses abstraction keywords as ordinary binding names", testParsesAbstractionKeywordsAsBindingNames),
     ("parses abstraction keywords as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames),
+    ("parses operator keyword as an ordinary binding name", testParsesOperatorKeywordAsBindingName),
+    ("parses operator keyword as an ordinary signature name", testParsesOperatorKeywordAsSignatureName),
+    ("parses operator keyword as a module-body binding name", testParsesOperatorKeywordAsModuleBodyBindingName),
+    ("parses operator keyword as a nested block binding name", testParsesOperatorKeywordAsNestedBlockBindingName),
     ("parses trait as an ordinary import alias", testParsesTraitAsImportAlias),
     ("lowers class-qualified method reference as variable", testLowersClassQualifiedMethodReference),
     ("rejects class capability declarations without parameters", testRejectsClassCapabilityDeclarationWithoutParameters),
@@ -750,6 +754,65 @@ testParsesAbstractionKeywordsAsSignatureNames =
         )
     )
     (parseSurfaceProgram "class :: Int.\nclass = 1.\nimpl :: Bool.\nimpl = True.\ntrait :: Int.\ntrait = 2.")
+
+testParsesOperatorKeywordAsBindingName :: IO ()
+testParsesOperatorKeywordAsBindingName =
+  assertEqual
+    "operator keyword binding name"
+    ( Right
+        ( SEBlock
+            [ SSLet "operator" (SourceSpan 1 1) (SELit (SLInt 1)),
+              SSLet "value" (SourceSpan 2 1) (SEVar "operator")
+            ]
+        )
+    )
+    (parseSurfaceProgram "operator = 1.\nvalue = operator.")
+
+testParsesOperatorKeywordAsSignatureName :: IO ()
+testParsesOperatorKeywordAsSignatureName =
+  assertEqual
+    "operator keyword signature name"
+    ( Right
+        ( SEBlock
+            [ SSSignature "operator" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeInt),
+              SSLet "operator" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    (parseSurfaceProgram "operator :: Int.\noperator = 1.")
+
+testParsesOperatorKeywordAsModuleBodyBindingName :: IO ()
+testParsesOperatorKeywordAsModuleBodyBindingName =
+  assertEqual
+    "operator keyword module-body binding name"
+    ( Right
+        ( SEBlock
+            [ SSModule (SourceSpan 1 1) ["App", "Core"],
+              SSLet "operator" (SourceSpan 2 1) (SELit (SLInt 1)),
+              SSLet "value" (SourceSpan 3 1) (SEVar "operator")
+            ]
+        )
+    )
+    (parseSurfaceProgram "module App::Core {\noperator = 1.\nvalue = operator.\n}")
+
+testParsesOperatorKeywordAsNestedBlockBindingName :: IO ()
+testParsesOperatorKeywordAsNestedBlockBindingName =
+  assertEqual
+    "operator keyword nested block binding name"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "scope"
+                (SourceSpan 1 1)
+                ( SEBlock
+                    [ SSLet "operator" (SourceSpan 2 3) (SELit (SLInt 1)),
+                      SSExpr (SourceSpan 3 3) (SEVar "operator")
+                    ]
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "scope = {\n  operator = 1.\n  operator.\n}.")
 
 testParsesTraitAsImportAlias :: IO ()
 testParsesTraitAsImportAlias =

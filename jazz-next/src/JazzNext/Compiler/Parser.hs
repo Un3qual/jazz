@@ -100,9 +100,10 @@ parseStatementsUntilEnd tokens = go (collectImportAliasesUntilEnd tokens) [] Fal
     go _ _ _ acc [] = Right (reverse acc, [])
     go knownAliases declaredOperators seenPriorTopLevelForm acc allTokens@(token : rest) =
       case tokenKind token of
-        TIdentifier "operator" -> do
-          (operatorInfo, remaining) <- parseOperatorDeclaration TopLevelContext declaredOperators token rest
-          go knownAliases (operatorInfo : declaredOperators) True acc remaining
+        TIdentifier "operator"
+          | looksLikeOperatorDeclaration rest -> do
+              (operatorInfo, remaining) <- parseOperatorDeclaration TopLevelContext declaredOperators token rest
+              go knownAliases (operatorInfo : declaredOperators) True acc remaining
         _ -> do
           (statements, remaining) <- parseStatement TopLevelContext knownAliases declaredOperators allTokens
           case leadingModuleDeclaration statements of
@@ -140,9 +141,10 @@ parseStatementsUntilBrace context inheritedAliases inheritedOperators tokens =
     go knownAliases declaredOperators acc allTokens@(token : rest) =
       case tokenKind token of
         TRBrace -> Right (reverse acc, rest)
-        TIdentifier "operator" -> do
-          (operatorInfo, remaining) <- parseOperatorDeclaration context declaredOperators token rest
-          go knownAliases (operatorInfo : declaredOperators) acc remaining
+        TIdentifier "operator"
+          | looksLikeOperatorDeclaration rest -> do
+              (operatorInfo, remaining) <- parseOperatorDeclaration context declaredOperators token rest
+              go knownAliases (operatorInfo : declaredOperators) acc remaining
         _ -> do
           (statements, remaining) <- parseStatement context knownAliases declaredOperators allTokens
           go (registerImportAliases knownAliases statements) declaredOperators (prependStatements statements acc) remaining
@@ -381,12 +383,29 @@ beginsStatement tokens =
     Token {tokenKind = TModule} : _ -> True
     Token {tokenKind = TImport} : _ -> True
     Token {tokenKind = TData} : _ -> True
-    Token {tokenKind = TIdentifier "operator"} : _ -> True
+    Token {tokenKind = TIdentifier "operator"} : rest
+      | looksLikeOperatorDeclaration rest -> True
     Token {tokenKind = TIdentifier name} : rest
       | looksLikeReservedAbstractionDeclaration name rest -> True
     Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
     Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
     _ -> False
+
+looksLikeOperatorDeclaration :: [Token] -> Bool
+looksLikeOperatorDeclaration tokensAfterKeyword =
+  case tokensAfterKeyword of
+    Token {tokenKind = TOperator {}} : _ -> True
+    Token {tokenKind = TArrow} : _ -> True
+    Token {tokenKind = TIdentifier {}} : rest -> hasOperatorTierBeforeTerminator rest
+    _ -> False
+
+hasOperatorTierBeforeTerminator :: [Token] -> Bool
+hasOperatorTierBeforeTerminator tokens =
+  case tokens of
+    [] -> False
+    Token {tokenKind = TDot} : _ -> False
+    Token {tokenKind = TIdentifier "tier"} : _ -> True
+    _ : rest -> hasOperatorTierBeforeTerminator rest
 
 isDeclarationContext :: StatementContext -> Bool
 isDeclarationContext context =
@@ -1029,7 +1048,7 @@ rejectNestedOperatorDeclaration :: Token -> Either Diagnostic a
 rejectNestedOperatorDeclaration operatorToken =
   Left
     ( parseDiagnostic
-        ( "operator declarations must remain top-level at "
+        ( "operator declarations are only allowed at file scope or directly in module bodies at "
             <> renderSourceSpan (tokenSpan operatorToken)
         )
     )

@@ -35,6 +35,7 @@ tests :: [NamedTest]
 tests =
   [ ("declared tier 2 operator inherits additive precedence", testDeclaredTier2OperatorPrecedence),
     ("declared tier 5 operator inherits dollar associativity", testDeclaredTier5OperatorAssociativity),
+    ("declared arrow-prefixed operator parses as a single user operator", testDeclaredArrowPrefixedOperator),
     ("declared operator value and sections parse after declaration", testDeclaredOperatorValueAndSections),
     ("multiplication binds tighter than addition", testMultiplicationBeforeAddition),
     ("equality binds looser than arithmetic", testEqualityAfterArithmetic),
@@ -79,6 +80,21 @@ testDeclaredTier5OperatorAssociativity =
         )
     )
     (parseSurfaceProgram "operator ~~ tier 5.\nx = f ~~ g ~~ z.")
+
+testDeclaredArrowPrefixedOperator :: IO ()
+testDeclaredArrowPrefixedOperator =
+  assertEqual
+    "declared arrow-prefixed operator"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "x"
+                (SourceSpan 2 1)
+                (SEBinary "->?" (SELit (SLInt 1)) (SELit (SLInt 2)))
+            ]
+        )
+    )
+    (parseSurfaceProgram "operator ->? tier 4.\nx = 1 ->? 2.")
 
 testDeclaredOperatorValueAndSections :: IO ()
 testDeclaredOperatorValueAndSections =
