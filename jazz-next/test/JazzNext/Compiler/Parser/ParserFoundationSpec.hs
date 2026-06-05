@@ -59,6 +59,7 @@ tests =
     ("parses tuple signature into structured nodes", testParseTupleSignature),
     ("parses numeric width signature names into structured nodes", testParseNumericWidthSignatureTypes),
     ("parses fractional literal without treating decimal dot as statement terminator", testParseFractionalLiteral),
+    ("parses fractional literal suffixes as concrete float targets", testParseFractionalLiteralSuffixes),
     ("rejects non-finite fractional literals", testRejectsNonFiniteFractionalLiteral),
     ("rejects source-exact Float64 fractional literal overflow", testRejectsSourceExactFloat64FractionalLiteralOverflow),
     ("rejects fractional literal case patterns", testRejectsFractionalLiteralCasePatterns),
@@ -77,6 +78,7 @@ tests =
     ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram),
     ("lowers numeric width signature names into analyzer AST", testLowerNumericWidthSignatureProgram),
     ("lowers fractional literal into analyzer AST", testLowerFractionalLiteralProgram),
+    ("lowers fractional literal suffixes into analyzer AST", testLowerFractionalLiteralSuffixesProgram),
     ("lowers structured signature payload into analyzer AST", testLowerStructuredSignatureProgram),
     ("lowers right-associated function signature into analyzer AST", testLowerRightAssociativeFunctionSignatureProgram),
     ("lowers list of function signature into analyzer AST", testLowerFunctionListSignatureProgram),
@@ -90,6 +92,10 @@ tests =
     ("rejects negative literal syntax for now", testRejectsNegativeLiteralSyntax),
     ("parses abstraction keywords as ordinary binding names", testParsesAbstractionKeywordsAsBindingNames),
     ("parses abstraction keywords as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames),
+    ("parses operator keyword as an ordinary binding name", testParsesOperatorKeywordAsBindingName),
+    ("parses operator keyword as an ordinary signature name", testParsesOperatorKeywordAsSignatureName),
+    ("parses operator keyword as a module-body binding name", testParsesOperatorKeywordAsModuleBodyBindingName),
+    ("parses operator keyword as a nested block binding name", testParsesOperatorKeywordAsNestedBlockBindingName),
     ("parses trait as an ordinary import alias", testParsesTraitAsImportAlias),
     ("lowers class-qualified method reference as variable", testLowersClassQualifiedMethodReference),
     ("rejects class capability declarations without parameters", testRejectsClassCapabilityDeclarationWithoutParameters),
@@ -246,6 +252,18 @@ testParseFractionalLiteral =
           "surface fractional literal"
           "SLFloat 1.5"
           (Text.pack (show surfaceProgram))
+    )
+
+testParseFractionalLiteralSuffixes :: IO ()
+testParseFractionalLiteralSuffixes =
+  assertRight
+    "fractional literal suffix parse"
+    (parseSurfaceProgram "x16 = 1.5f16.\nx32 = 2.5f32.\nx64 = 3.5f64.")
+    ( \surfaceProgram -> do
+        let renderedProgram = Text.pack (show surfaceProgram)
+        assertContains "Float16 suffix target" "Just SurfaceNumericFloat16" renderedProgram
+        assertContains "Float32 suffix target" "Just SurfaceNumericFloat32" renderedProgram
+        assertContains "Float64 suffix target" "Just SurfaceNumericFloat64" renderedProgram
     )
 
 testRejectsNonFiniteFractionalLiteral :: IO ()
@@ -536,6 +554,18 @@ testLowerFractionalLiteralProgram =
           (Text.pack (show (lowerSurfaceExpr surfaceProgram)))
     )
 
+testLowerFractionalLiteralSuffixesProgram :: IO ()
+testLowerFractionalLiteralSuffixesProgram =
+  assertRight
+    "parse + lower suffixed fractional literals"
+    (parseSurfaceProgram "x16 = 1.5f16.\nx32 = 2.5f32.\nx64 = 3.5f64.")
+    ( \surfaceProgram -> do
+        let renderedProgram = Text.pack (show (lowerSurfaceExpr surfaceProgram))
+        assertContains "lowered Float16 suffix target" "Just NumericFloat16" renderedProgram
+        assertContains "lowered Float32 suffix target" "Just NumericFloat32" renderedProgram
+        assertContains "lowered Float64 suffix target" "Just NumericFloat64" renderedProgram
+    )
+
 testLowerStructuredSignatureProgram :: IO ()
 testLowerStructuredSignatureProgram =
   assertRight
@@ -724,6 +754,65 @@ testParsesAbstractionKeywordsAsSignatureNames =
         )
     )
     (parseSurfaceProgram "class :: Int.\nclass = 1.\nimpl :: Bool.\nimpl = True.\ntrait :: Int.\ntrait = 2.")
+
+testParsesOperatorKeywordAsBindingName :: IO ()
+testParsesOperatorKeywordAsBindingName =
+  assertEqual
+    "operator keyword binding name"
+    ( Right
+        ( SEBlock
+            [ SSLet "operator" (SourceSpan 1 1) (SELit (SLInt 1)),
+              SSLet "value" (SourceSpan 2 1) (SEVar "operator")
+            ]
+        )
+    )
+    (parseSurfaceProgram "operator = 1.\nvalue = operator.")
+
+testParsesOperatorKeywordAsSignatureName :: IO ()
+testParsesOperatorKeywordAsSignatureName =
+  assertEqual
+    "operator keyword signature name"
+    ( Right
+        ( SEBlock
+            [ SSSignature "operator" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeInt),
+              SSLet "operator" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    (parseSurfaceProgram "operator :: Int.\noperator = 1.")
+
+testParsesOperatorKeywordAsModuleBodyBindingName :: IO ()
+testParsesOperatorKeywordAsModuleBodyBindingName =
+  assertEqual
+    "operator keyword module-body binding name"
+    ( Right
+        ( SEBlock
+            [ SSModule (SourceSpan 1 1) ["App", "Core"],
+              SSLet "operator" (SourceSpan 2 1) (SELit (SLInt 1)),
+              SSLet "value" (SourceSpan 3 1) (SEVar "operator")
+            ]
+        )
+    )
+    (parseSurfaceProgram "module App::Core {\noperator = 1.\nvalue = operator.\n}")
+
+testParsesOperatorKeywordAsNestedBlockBindingName :: IO ()
+testParsesOperatorKeywordAsNestedBlockBindingName =
+  assertEqual
+    "operator keyword nested block binding name"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "scope"
+                (SourceSpan 1 1)
+                ( SEBlock
+                    [ SSLet "operator" (SourceSpan 2 3) (SELit (SLInt 1)),
+                      SSExpr (SourceSpan 3 3) (SEVar "operator")
+                    ]
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "scope = {\n  operator = 1.\n  operator.\n}.")
 
 testParsesTraitAsImportAlias :: IO ()
 testParsesTraitAsImportAlias =

@@ -18,7 +18,7 @@ import JazzNext.Compiler.Diagnostics
     mkDiagnostic
   )
 import JazzNext.Compiler.Parser.Operator
-  ( isBuiltinOperatorSymbol
+  ( isStage2OperatorSymbolChar
   )
 
 -- | Token vocabulary understood by the current parser foundation.
@@ -118,28 +118,30 @@ tokenize = go 1 1
                 '=' ->
                   case Text.uncons rest of
                     Just ('=', after) -> withOperatorToken "==" 2 line column after
+                    Just ('>', after) -> withOperatorToken "=>" 2 line column after
                     _ -> withSingleToken TEquals "=" 1 line column rest
                 '!' ->
                   case Text.uncons rest of
                     Just ('=', after) -> withOperatorToken "!=" 2 line column after
-                    _ ->
-                      Left (parseDiagnostic ("unexpected character '!' at " <> renderSpan line column))
+                    _ -> withOperatorRun line column source
                 '<' ->
                   case Text.uncons rest of
                     Just ('=', after) -> withOperatorToken "<=" 2 line column after
-                    _ -> withOperatorToken "<" 1 line column rest
+                    _ -> withOperatorRun line column source
                 '>' ->
                   case Text.uncons rest of
                     Just ('=', after) -> withOperatorToken ">=" 2 line column after
-                    _ -> withOperatorToken ">" 1 line column rest
-                '+' -> withOperatorToken "+" 1 line column rest
-                '-' ->
-                  case Text.uncons rest of
-                    Just ('>', after) -> withSingleToken TArrow "->" 2 line column after
-                    _ -> withOperatorToken "-" 1 line column rest
-                '*' -> withOperatorToken "*" 1 line column rest
-                '/' -> withOperatorToken "/" 1 line column rest
-                '|' -> withOperatorToken "|" 1 line column rest
+                    _ -> withOperatorRun line column source
+                '+' -> withOperatorRun line column source
+                '-' -> withOperatorOrArrowRun line column source
+                '*' -> withOperatorRun line column source
+                '/' -> withOperatorRun line column source
+                '|' -> withOperatorRun line column source
+                '%' -> withOperatorRun line column source
+                '&' -> withOperatorRun line column source
+                '?' -> withOperatorRun line column source
+                '^' -> withOperatorRun line column source
+                '~' -> withOperatorRun line column source
                 '$' -> withOperatorToken "$" 1 line column rest
                 '\\' -> withSingleToken TLambda "\\" 1 line column rest
                 '.' -> withSingleToken TDot "." 1 line column rest
@@ -185,24 +187,35 @@ tokenize = go 1 1
       Text ->
       Either Diagnostic [Token]
     withOperatorToken symbol width line column trailing =
-      if isBuiltinOperatorSymbol symbol
-        then
-          let token =
-                Token
-                  { tokenKind = TOperator symbol,
-                    tokenLexeme = symbol,
-                    tokenSpan = SourceSpan line column
-                  }
-           in (token :) <$> go line (column + width) trailing
-        else
-          Left
-            ( parseDiagnostic
-                ( "unsupported operator '"
-                    <> symbol
-                    <> "' at "
-                    <> renderSpan line column
-                )
-            )
+      let token =
+            Token
+              { tokenKind = TOperator symbol,
+                tokenLexeme = symbol,
+                tokenSpan = SourceSpan line column
+              }
+       in (token :) <$> go line (column + width) trailing
+
+    withOperatorRun ::
+      Int ->
+      Int ->
+      Text ->
+      Either Diagnostic [Token]
+    withOperatorRun line column source =
+      let (symbol, trailing) = Text.span isStage2OperatorSymbolChar source
+          width = Text.length symbol
+       in withOperatorToken symbol width line column trailing
+
+    withOperatorOrArrowRun ::
+      Int ->
+      Int ->
+      Text ->
+      Either Diagnostic [Token]
+    withOperatorOrArrowRun line column source =
+      let (symbol, trailing) = Text.span isStage2OperatorSymbolChar source
+          width = Text.length symbol
+       in case symbol of
+            "->" -> withSingleToken TArrow symbol width line column trailing
+            _ -> withOperatorToken symbol width line column trailing
 
     isIdentifierStart :: Char -> Bool
     isIdentifierStart char = isAlpha char || char == '_'

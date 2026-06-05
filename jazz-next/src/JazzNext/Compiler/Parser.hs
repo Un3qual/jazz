@@ -58,8 +58,14 @@ import JazzNext.Compiler.Parser.Lexer
 import JazzNext.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
-    lookupOperatorInfo
+    declaredOperatorInfoForTier,
+    isBuiltinOperatorSymbol,
+    isReservedOperatorSymbol,
+    isValidUserOperatorSymbol,
+    lookupOperatorInfoIn
   )
+
+type DeclaredOperators = [OperatorInfo]
 
 -- Parses the current minimal surface language into a block-wrapped program.
 -- Most top-level forms are dot-terminated; module declarations instead own a
@@ -89,49 +95,59 @@ parseSurfaceProgram source =
 -- | Parse a complete sequence of statements until the token stream is
 -- exhausted.
 parseStatementsUntilEnd :: [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
-parseStatementsUntilEnd tokens = go (collectImportAliasesUntilEnd tokens) [] tokens
+parseStatementsUntilEnd tokens = go (collectImportAliasesUntilEnd tokens) [] False [] tokens
   where
-    go _ acc [] = Right (reverse acc, [])
-    go knownAliases acc tokens = do
-      (statements, remaining) <- parseStatement TopLevelContext knownAliases tokens
-      case leadingModuleDeclaration statements of
-        Just moduleSpan
-          | not (null acc) ->
-              Left
-                ( parseDiagnostic
-                    ( "module declaration must be the first top-level form at "
-                        <> renderSourceSpan moduleSpan
-                    )
-                )
-          | otherwise ->
-              case remaining of
-                [] -> go (registerImportAliases knownAliases statements) (prependStatements statements acc) remaining
-                token : _ ->
+    go _ _ _ acc [] = Right (reverse acc, [])
+    go knownAliases declaredOperators seenPriorTopLevelForm acc allTokens@(token : rest) =
+      case tokenKind token of
+        TIdentifier "operator"
+          | looksLikeOperatorDeclaration rest -> do
+              (operatorInfo, remaining) <- parseOperatorDeclaration TopLevelContext declaredOperators token rest
+              go knownAliases (operatorInfo : declaredOperators) True acc remaining
+        _ -> do
+          (statements, remaining) <- parseStatement TopLevelContext knownAliases declaredOperators allTokens
+          case leadingModuleDeclaration statements of
+            Just moduleSpan
+              | seenPriorTopLevelForm ->
                   Left
                     ( parseDiagnostic
-                        ( "unexpected token '"
-                            <> tokenLexeme token
-                            <> "' at "
-                            <> renderSourceSpan (tokenSpan token)
-                            <> " after module declaration"
+                        ( "module declaration must be the first top-level form at "
+                            <> renderSourceSpan moduleSpan
                         )
                     )
-        Nothing ->
-          go (registerImportAliases knownAliases statements) (prependStatements statements acc) remaining
+              | otherwise ->
+                  case remaining of
+                    [] -> go (registerImportAliases knownAliases statements) declaredOperators True (prependStatements statements acc) remaining
+                    nextToken : _ ->
+                      Left
+                        ( parseDiagnostic
+                            ( "unexpected token '"
+                                <> tokenLexeme nextToken
+                                <> "' at "
+                                <> renderSourceSpan (tokenSpan nextToken)
+                                <> " after module declaration"
+                            )
+                        )
+            Nothing ->
+              go (registerImportAliases knownAliases statements) declaredOperators True (prependStatements statements acc) remaining
 
 -- | Parse statements inside `{ ... }`, stopping as soon as the closing brace is
 -- encountered so block parsing can hand the remaining tokens back to callers.
-parseStatementsUntilBrace :: StatementContext -> Set Text -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
-parseStatementsUntilBrace context inheritedAliases tokens =
-  go (Set.union inheritedAliases (collectImportAliasesUntilBrace tokens)) [] tokens
+parseStatementsUntilBrace :: StatementContext -> Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
+parseStatementsUntilBrace context inheritedAliases inheritedOperators tokens =
+  go (Set.union inheritedAliases (collectImportAliasesUntilBrace tokens)) inheritedOperators [] tokens
   where
-    go _ _ [] = Left (parseDiagnostic "expected '}' before end of input")
-    go knownAliases acc allTokens@(token : rest) =
+    go _ _ _ [] = Left (parseDiagnostic "expected '}' before end of input")
+    go knownAliases declaredOperators acc allTokens@(token : rest) =
       case tokenKind token of
         TRBrace -> Right (reverse acc, rest)
+        TIdentifier "operator"
+          | looksLikeOperatorDeclaration rest -> do
+              (operatorInfo, remaining) <- parseOperatorDeclaration context declaredOperators token rest
+              go knownAliases (operatorInfo : declaredOperators) acc remaining
         _ -> do
-          (statements, remaining) <- parseStatement context knownAliases allTokens
-          go (registerImportAliases knownAliases statements) (prependStatements statements acc) remaining
+          (statements, remaining) <- parseStatement context knownAliases declaredOperators allTokens
+          go (registerImportAliases knownAliases statements) declaredOperators (prependStatements statements acc) remaining
 
 -- | Statement grammar context. Module and data declarations are intentionally
 -- restricted here instead of in later phases so nested declarations fail with
@@ -144,15 +160,167 @@ data StatementContext
   -- Ordinary expression blocks must not introduce module declarations.
   | NestedBlockContext
 
+parseOperatorDeclaration :: StatementContext -> DeclaredOperators -> Token -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
+parseOperatorDeclaration context declaredOperators operatorToken tokensAfterKeyword =
+  case context of
+    NestedBlockContext ->
+      rejectNestedOperatorDeclaration operatorToken
+    TopLevelContext ->
+      parseTopLevelOperatorDeclaration
+    ModuleBodyContext ->
+      parseTopLevelOperatorDeclaration
+  where
+    parseTopLevelOperatorDeclaration = do
+      (operatorSymbol, afterSymbol) <- parseOperatorDeclarationSymbol tokensAfterKeyword
+      validateDeclaredOperatorSymbol declaredOperators operatorToken operatorSymbol
+      afterTierKeyword <- consumeOperatorTierKeyword operatorToken afterSymbol
+      (operatorInfo, afterTier) <- parseOperatorDeclarationTier operatorToken operatorSymbol afterTierKeyword
+      remaining <- consumeOperatorDeclarationDot afterTier
+      Right (operatorInfo, remaining)
+
+parseOperatorDeclarationSymbol :: [Token] -> Either Diagnostic (Text, [Token])
+parseOperatorDeclarationSymbol tokens =
+  case tokens of
+    Token {tokenKind = TOperator operatorSymbol} : rest ->
+      Right (operatorSymbol, rest)
+    Token {tokenKind = TArrow, tokenLexeme = arrowLexeme} : rest ->
+      Right (arrowLexeme, rest)
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected operator symbol after 'operator' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+    [] ->
+      Left (parseDiagnostic "expected operator symbol after 'operator' before end of input")
+
+validateDeclaredOperatorSymbol :: DeclaredOperators -> Token -> Text -> Either Diagnostic ()
+validateDeclaredOperatorSymbol declaredOperators operatorToken declaredSymbol
+  | isBuiltinOperatorSymbol declaredSymbol =
+      Left
+        ( parseDiagnostic
+            ( "cannot redeclare built-in operator '"
+                <> declaredSymbol
+                <> "' at "
+                <> renderSourceSpan (tokenSpan operatorToken)
+            )
+        )
+  | isReservedOperatorSymbol declaredSymbol =
+      Left
+        ( parseDiagnostic
+            ( "reserved operator symbol '"
+                <> declaredSymbol
+                <> "' at "
+                <> renderSourceSpan (tokenSpan operatorToken)
+            )
+        )
+  | any ((== declaredSymbol) . operatorSymbol) declaredOperators =
+      Left
+        ( parseDiagnostic
+            ( "duplicate operator declaration '"
+                <> declaredSymbol
+                <> "' at "
+                <> renderSourceSpan (tokenSpan operatorToken)
+            )
+        )
+  | isValidUserOperatorSymbol declaredSymbol =
+      Right ()
+  | otherwise =
+      Left
+        ( parseDiagnostic
+            ( "invalid operator symbol '"
+                <> declaredSymbol
+                <> "' at "
+                <> renderSourceSpan (tokenSpan operatorToken)
+            )
+        )
+
+consumeOperatorTierKeyword :: Token -> [Token] -> Either Diagnostic [Token]
+consumeOperatorTierKeyword operatorToken tokens =
+  case tokens of
+    Token {tokenKind = TIdentifier "tier"} : rest ->
+      Right rest
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected 'tier' in operator declaration at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+    [] ->
+      Left
+        ( parseDiagnostic
+            ( "expected 'tier' before end of input in operator declaration at "
+                <> renderSourceSpan (tokenSpan operatorToken)
+            )
+        )
+
+parseOperatorDeclarationTier :: Token -> Text -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
+parseOperatorDeclarationTier operatorToken operatorSymbol tokens =
+  case tokens of
+    Token {tokenKind = TInt tier} : rest ->
+      case declaredOperatorInfoForTier operatorSymbol tier of
+        Just operatorInfo ->
+          Right (operatorInfo, rest)
+        Nothing ->
+          Left
+            ( parseDiagnostic
+                ( "operator tier must be between 1 and 5 at "
+                    <> renderSourceSpan (tokenSpan operatorToken)
+                )
+            )
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected operator tier 1-5 at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+    [] ->
+      Left
+        ( parseDiagnostic
+            ( "expected operator tier 1-5 before end of input in operator declaration at "
+                <> renderSourceSpan (tokenSpan operatorToken)
+            )
+        )
+
+consumeOperatorDeclarationDot :: [Token] -> Either Diagnostic [Token]
+consumeOperatorDeclarationDot tokens =
+  case tokens of
+    Token {tokenKind = TDot} : rest ->
+      Right rest
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected '.' after operator declaration tier at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+    [] ->
+      Left (parseDiagnostic "expected '.' after operator declaration tier before end of input")
+
 -- | Disambiguate statement-level forms before expression parsing so leading
 -- identifiers can become signatures or bindings when followed by `::` or `=`.
-parseStatement :: StatementContext -> Set Text -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
-parseStatement context knownAliases tokens =
+parseStatement :: StatementContext -> Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
+parseStatement context knownAliases declaredOperators tokens =
   case tokens of
     abstractionToken@(Token {tokenKind = TIdentifier name}) : rest
       | isDeclarationContext context,
         looksLikeSupportedCapabilityDeclaration name rest ->
-          fmap singleStatement (parseCapabilityDeclaration knownAliases name abstractionToken rest)
+          fmap singleStatement (parseCapabilityDeclaration knownAliases declaredOperators name abstractionToken rest)
       | isDeclarationContext context,
         looksLikeReservedAbstractionDeclaration name rest ->
           rejectReservedAbstractionSyntax abstractionToken
@@ -189,7 +357,7 @@ parseStatement context knownAliases tokens =
             )
       | TIdentifier name <- tokenKind nameToken,
         shouldParseQualifiedAliasStatement knownAliases name nameToken afterName ->
-          fmap singleStatement (parseExprStatement knownAliases tokens)
+          fmap singleStatement (parseExprStatement knownAliases declaredOperators tokens)
       | TIdentifier name <- tokenKind nameToken ->
           fmap singleStatement (parseSignature (mkIdentifier name) nameToken afterName)
     (nameToken : afterName@(Token {tokenKind = TEquals} : _))
@@ -204,8 +372,8 @@ parseStatement context knownAliases tokens =
                 )
             )
       | TIdentifier name <- tokenKind nameToken ->
-          fmap singleStatement (parseLet knownAliases (mkIdentifier name) nameToken afterName)
-    _ -> fmap singleStatement (parseExprStatement knownAliases tokens)
+          fmap singleStatement (parseLet knownAliases declaredOperators (mkIdentifier name) nameToken afterName)
+    _ -> fmap singleStatement (parseExprStatement knownAliases declaredOperators tokens)
   where
     singleStatement (statement, remaining) = ([statement], remaining)
 
@@ -215,11 +383,29 @@ beginsStatement tokens =
     Token {tokenKind = TModule} : _ -> True
     Token {tokenKind = TImport} : _ -> True
     Token {tokenKind = TData} : _ -> True
+    Token {tokenKind = TIdentifier "operator"} : rest
+      | looksLikeOperatorDeclaration rest -> True
     Token {tokenKind = TIdentifier name} : rest
       | looksLikeReservedAbstractionDeclaration name rest -> True
     Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
     Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
     _ -> False
+
+looksLikeOperatorDeclaration :: [Token] -> Bool
+looksLikeOperatorDeclaration tokensAfterKeyword =
+  case tokensAfterKeyword of
+    Token {tokenKind = TOperator {}} : _ -> True
+    Token {tokenKind = TArrow} : _ -> True
+    Token {tokenKind = TIdentifier {}} : rest -> hasOperatorTierBeforeTerminator rest
+    _ -> False
+
+hasOperatorTierBeforeTerminator :: [Token] -> Bool
+hasOperatorTierBeforeTerminator tokens =
+  case tokens of
+    [] -> False
+    Token {tokenKind = TDot} : _ -> False
+    Token {tokenKind = TIdentifier "tier"} : _ -> True
+    _ : rest -> hasOperatorTierBeforeTerminator rest
 
 isDeclarationContext :: StatementContext -> Bool
 isDeclarationContext context =
@@ -287,11 +473,12 @@ data CapabilityDeclarationBody
 
 parseCapabilityDeclaration ::
   Set Text ->
+  DeclaredOperators ->
   Text ->
   Token ->
   [Token] ->
   Either Diagnostic (SurfaceStatement, [Token])
-parseCapabilityDeclaration knownAliases declarationKind declarationToken tokensAfterKeyword = do
+parseCapabilityDeclaration knownAliases declaredOperators declarationKind declarationToken tokensAfterKeyword = do
   (capabilityName, maybeHeaderArguments, headerRemaining) <-
     parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword
   let headerArguments =
@@ -301,7 +488,7 @@ parseCapabilityDeclaration knownAliases declarationKind declarationToken tokensA
   case declarationKind of
     "class" -> do
       classParameters <- validateClassHeaderParameters declarationToken maybeHeaderArguments
-      (capabilityBody, afterBody) <- parseCapabilityDeclarationBody knownAliases declarationKind declarationToken headerRemaining
+      (capabilityBody, afterBody) <- parseCapabilityDeclarationBody knownAliases declaredOperators declarationKind declarationToken headerRemaining
       remaining <- consumeDot afterBody
       case capabilityBody of
         CapabilityClassBody methodSignatures ->
@@ -309,7 +496,7 @@ parseCapabilityDeclaration knownAliases declarationKind declarationToken tokensA
         CapabilityImplBody {} ->
           rejectReservedAbstractionSyntax declarationToken
     "impl" -> do
-      (capabilityBody, afterBody) <- parseCapabilityDeclarationBody knownAliases declarationKind declarationToken headerRemaining
+      (capabilityBody, afterBody) <- parseCapabilityDeclarationBody knownAliases declaredOperators declarationKind declarationToken headerRemaining
       remaining <- consumeDot afterBody
       case capabilityBody of
         CapabilityImplBody methods ->
@@ -565,11 +752,12 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
 
 parseCapabilityDeclarationBody ::
   Set Text ->
+  DeclaredOperators ->
   Text ->
   Token ->
   [Token] ->
   Either Diagnostic (CapabilityDeclarationBody, [Token])
-parseCapabilityDeclarationBody knownAliases declarationKind declarationToken tokens =
+parseCapabilityDeclarationBody knownAliases declaredOperators declarationKind declarationToken tokens =
   case tokens of
     Token {tokenKind = TLBrace} : rest ->
       case declarationKind of
@@ -614,6 +802,8 @@ parseCapabilityDeclarationBody knownAliases declarationKind declarationToken tok
             )
         Token {tokenKind = TRBrace} : rest ->
           Right (reverse reversedMethods, rest)
+        operatorToken@Token {tokenKind = TIdentifier "operator"} : _ ->
+          rejectNestedOperatorDeclaration operatorToken
         methodToken@Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} : Token {tokenKind = TColonColon} : rest
           | Set.member methodName seenMethodNames ->
               Left
@@ -671,6 +861,8 @@ parseCapabilityDeclarationBody knownAliases declarationKind declarationToken tok
             )
         Token {tokenKind = TRBrace} : rest ->
           Right (reverse reversedMethods, rest)
+        operatorToken@Token {tokenKind = TIdentifier "operator"} : _ ->
+          rejectNestedOperatorDeclaration operatorToken
         methodToken@Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} :
           Token {tokenKind = TEquals} :
           afterEquals
@@ -684,7 +876,7 @@ parseCapabilityDeclarationBody knownAliases declarationKind declarationToken tok
                       )
                   )
             | otherwise -> do
-                (methodExpr, afterExpr) <- parseExpr knownAliases afterEquals
+                (methodExpr, afterExpr) <- parseExpr knownAliases declaredOperators afterEquals
                 afterMethod <- consumeDot afterExpr
                 let method =
                       SurfaceImplMethod
@@ -852,6 +1044,15 @@ rejectNestedDataDeclaration dataToken =
         )
     )
 
+rejectNestedOperatorDeclaration :: Token -> Either Diagnostic a
+rejectNestedOperatorDeclaration operatorToken =
+  Left
+    ( parseDiagnostic
+        ( "operator declarations are only allowed at file scope or directly in module bodies at "
+            <> renderSourceSpan (tokenSpan operatorToken)
+        )
+    )
+
 prependStatements :: [SurfaceStatement] -> [SurfaceStatement] -> [SurfaceStatement]
 prependStatements statements acc = foldl (flip (:)) acc statements
 
@@ -871,7 +1072,7 @@ parseModuleStatement moduleToken tokensAfterModuleKeyword = do
     Token {tokenKind = TLBrace} : tokensAfterLeftBrace -> do
       -- Keep downstream resolver/driver code on the current flat statement
       -- contract by replaying module-body statements after the declaration.
-      (bodyStatements, remaining) <- parseStatementsUntilBrace ModuleBodyContext Set.empty tokensAfterLeftBrace
+      (bodyStatements, remaining) <- parseStatementsUntilBrace ModuleBodyContext Set.empty [] tokensAfterLeftBrace
       pure (SSModule (tokenSpan moduleToken) modulePath : bodyStatements, remaining)
     [] ->
       Left
@@ -1378,11 +1579,11 @@ parseSignature name nameToken tokensAfterName =
             )
         )
 
-parseLet :: Set Text -> Identifier -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
-parseLet knownAliases name nameToken tokensAfterName =
+parseLet :: Set Text -> DeclaredOperators -> Identifier -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseLet knownAliases declaredOperators name nameToken tokensAfterName =
   case tokensAfterName of
     Token {tokenKind = TEquals} : rest -> do
-      (valueExpr, afterExpr) <- parseExpr knownAliases rest
+      (valueExpr, afterExpr) <- parseExpr knownAliases declaredOperators rest
       remaining <- consumeDot afterExpr
       pure (SSLet name (tokenSpan nameToken) valueExpr, remaining)
     _ ->
@@ -1394,79 +1595,95 @@ parseLet knownAliases name nameToken tokensAfterName =
             )
         )
 
-parseExprStatement :: Set Text -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
-parseExprStatement knownAliases tokens = do
+parseExprStatement :: Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseExprStatement knownAliases declaredOperators tokens = do
   case tokens of
     [] -> Left (parseDiagnostic "expected expression before end of input")
     firstToken : _ -> do
-      (expr, afterExpr) <- parseExpr knownAliases tokens
+      (expr, afterExpr) <- parseExpr knownAliases declaredOperators tokens
       remaining <- consumeDot afterExpr
       pure (SSExpr (tokenSpan firstToken) expr, remaining)
 
-parseExpr :: Set Text -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseExpr knownAliases = parseExprWithMinPrecedenceUntil knownAliases neverStop 1
+parseExpr :: Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseExpr knownAliases declaredOperators =
+  parseExprWithMinPrecedenceUntil knownAliases declaredOperators neverStop 1
 
 -- | Entry point for expression parsing that first folds application via
 -- `parseApplicationExpr`, then continues with precedence-climbing for infix
 -- operators.
 parseExprWithMinPrecedence :: Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseExprWithMinPrecedence = parseExprWithMinPrecedenceUntil Set.empty neverStop
+parseExprWithMinPrecedence = parseExprWithMinPrecedenceUntil Set.empty [] neverStop
 
 parseExprWithMinPrecedenceUntil ::
   Set Text ->
+  DeclaredOperators ->
   ([Token] -> Bool) ->
   Int ->
   [Token] ->
   Either Diagnostic (SurfaceExpr, [Token])
-parseExprWithMinPrecedenceUntil knownAliases stop minPrecedence tokens = do
-  (leftExpr, remainingTokens) <- parseApplicationExprUntil knownAliases stop tokens
-  parseInfixTailWithUntil stop (parseExprWithMinPrecedenceUntil knownAliases stop) minPrecedence leftExpr remainingTokens
+parseExprWithMinPrecedenceUntil knownAliases declaredOperators stop minPrecedence tokens = do
+  (leftExpr, remainingTokens) <- parseApplicationExprUntil knownAliases declaredOperators stop tokens
+  parseInfixTailWithUntil
+    declaredOperators
+    stop
+    (parseExprWithMinPrecedenceUntil knownAliases declaredOperators stop)
+    minPrecedence
+    leftExpr
+    remainingTokens
 
 -- Used by `if` parsing to preserve the existing compact `if cond then else`
 -- surface form without introducing a `then` delimiter.
 parseExprWithoutApplication :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseExprWithoutApplication = parseExprWithoutApplicationWithMinPrecedenceUntil Set.empty neverStop 1
+parseExprWithoutApplication = parseExprWithoutApplicationWithMinPrecedenceUntil Set.empty [] neverStop 1
 
 parseExprWithoutApplicationWithMinPrecedence :: Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseExprWithoutApplicationWithMinPrecedence =
-  parseExprWithoutApplicationWithMinPrecedenceUntil Set.empty neverStop
+  parseExprWithoutApplicationWithMinPrecedenceUntil Set.empty [] neverStop
 
 parseExprWithoutApplicationWithMinPrecedenceUntil ::
   Set Text ->
+  DeclaredOperators ->
   ([Token] -> Bool) ->
   Int ->
   [Token] ->
   Either Diagnostic (SurfaceExpr, [Token])
-parseExprWithoutApplicationWithMinPrecedenceUntil knownAliases stop minPrecedence tokens = do
-  (leftExpr, remainingTokens) <- parsePrimaryExprUntil knownAliases stop tokens
-  parseInfixTailWithUntil stop (parseExprWithoutApplicationWithMinPrecedenceUntil knownAliases stop) minPrecedence leftExpr remainingTokens
+parseExprWithoutApplicationWithMinPrecedenceUntil knownAliases declaredOperators stop minPrecedence tokens = do
+  (leftExpr, remainingTokens) <- parsePrimaryExprUntil knownAliases declaredOperators stop tokens
+  parseInfixTailWithUntil
+    declaredOperators
+    stop
+    (parseExprWithoutApplicationWithMinPrecedenceUntil knownAliases declaredOperators stop)
+    minPrecedence
+    leftExpr
+    remainingTokens
 
 parseApplicationExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseApplicationExpr = parseApplicationExprUntil Set.empty neverStop
+parseApplicationExpr = parseApplicationExprUntil Set.empty [] neverStop
 
-parseApplicationExprUntil :: Set Text -> ([Token] -> Bool) -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseApplicationExprUntil knownAliases stop tokens = do
-  (functionExpr, remainingTokens) <- parsePrimaryExprUntil knownAliases stop tokens
-  parseApplicationTailUntil knownAliases stop functionExpr remainingTokens
+parseApplicationExprUntil :: Set Text -> DeclaredOperators -> ([Token] -> Bool) -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseApplicationExprUntil knownAliases declaredOperators stop tokens = do
+  (functionExpr, remainingTokens) <- parsePrimaryExprUntil knownAliases declaredOperators stop tokens
+  parseApplicationTailUntil knownAliases declaredOperators stop functionExpr remainingTokens
 
 -- | Function application binds tighter than infix operators, so adjacent
 -- primary expressions are folded into left-associated applications first.
 parseApplicationTail :: SurfaceExpr -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseApplicationTail = parseApplicationTailUntil Set.empty neverStop
+parseApplicationTail = parseApplicationTailUntil Set.empty [] neverStop
 
 parseApplicationTailUntil ::
   Set Text ->
+  DeclaredOperators ->
   ([Token] -> Bool) ->
   SurfaceExpr ->
   [Token] ->
   Either Diagnostic (SurfaceExpr, [Token])
-parseApplicationTailUntil knownAliases stop functionExpr tokens
+parseApplicationTailUntil knownAliases declaredOperators stop functionExpr tokens
   | stop tokens = Right (functionExpr, tokens)
   | otherwise =
       case startsPrimaryExprTokens tokens of
         True -> do
-          (argumentExpr, remainingAfterArgument) <- parsePrimaryExprUntil knownAliases stop tokens
-          parseApplicationTailUntil knownAliases stop (SEApply functionExpr argumentExpr) remainingAfterArgument
+          (argumentExpr, remainingAfterArgument) <- parsePrimaryExprUntil knownAliases declaredOperators stop tokens
+          parseApplicationTailUntil knownAliases declaredOperators stop (SEApply functionExpr argumentExpr) remainingAfterArgument
         False -> Right (functionExpr, tokens)
 
 neverStop :: [Token] -> Bool
@@ -1488,13 +1705,14 @@ startsPrimaryExprTokens allTokens =
 -- | Shared precedence climber used by both regular expression parsing and the
 -- restricted `if` condition parser.
 parseInfixTailWithUntil ::
+  DeclaredOperators ->
   ([Token] -> Bool) ->
   (Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])) ->
   Int ->
   SurfaceExpr ->
   [Token] ->
   Either Diagnostic (SurfaceExpr, [Token])
-parseInfixTailWithUntil stop parseRhs minPrecedence leftExpr tokens
+parseInfixTailWithUntil declaredOperators stop parseRhs minPrecedence leftExpr tokens
   | stop tokens = Right (leftExpr, tokens)
   | otherwise =
       case tokens of
@@ -1502,13 +1720,13 @@ parseInfixTailWithUntil stop parseRhs minPrecedence leftExpr tokens
           | shouldStopForSectionBoundary tokensAfterOperator ->
               Right (leftExpr, tokens)
           | otherwise ->
-              case lookupOperatorInfo operatorSymbol of
+              case lookupOperatorInfoIn declaredOperators operatorSymbol of
                 Nothing ->
                   Left
                     ( parseDiagnostic
-                        ( "unsupported operator '"
+                        ( "operator '"
                             <> operatorSymbol
-                            <> "' at "
+                            <> "' must be declared before use at "
                             <> renderSourceSpan (tokenSpan operatorToken)
                         )
                     )
@@ -1523,6 +1741,7 @@ parseInfixTailWithUntil stop parseRhs minPrecedence leftExpr tokens
                       (rightExpr, remainingAfterRight) <-
                         parseRhs nextMinPrecedence tokensAfterOperator
                       parseInfixTailWithUntil
+                        declaredOperators
                         stop
                         parseRhs
                         minPrecedence
@@ -1543,13 +1762,13 @@ parseInfixTailWith ::
   SurfaceExpr ->
   [Token] ->
   Either Diagnostic (SurfaceExpr, [Token])
-parseInfixTailWith = parseInfixTailWithUntil neverStop
+parseInfixTailWith = parseInfixTailWithUntil [] neverStop
 
 parsePrimaryExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parsePrimaryExpr = parsePrimaryExprUntil Set.empty neverStop
+parsePrimaryExpr = parsePrimaryExprUntil Set.empty [] neverStop
 
-parsePrimaryExprUntil :: Set Text -> ([Token] -> Bool) -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parsePrimaryExprUntil knownAliases stop tokens =
+parsePrimaryExprUntil :: Set Text -> DeclaredOperators -> ([Token] -> Bool) -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parsePrimaryExprUntil knownAliases declaredOperators stop tokens =
   case tokens of
     [] -> Left (parseDiagnostic "expected expression before end of input")
     token : rest ->
@@ -1579,14 +1798,14 @@ parsePrimaryExprUntil knownAliases stop tokens =
                             )
                         )
                 _ -> Right (SEVar (mkIdentifier name), rest)
-        TIf -> parseIfExprUntil knownAliases stop token rest
-        TCase -> parseCaseExpr knownAliases token rest
-        TLambda -> parseLambdaExprUntil knownAliases stop token rest
-        TLParen -> parseParenExpr knownAliases rest
+        TIf -> parseIfExprUntil knownAliases declaredOperators stop token rest
+        TCase -> parseCaseExpr knownAliases declaredOperators token rest
+        TLambda -> parseLambdaExprUntil knownAliases declaredOperators stop token rest
+        TLParen -> parseParenExpr knownAliases declaredOperators rest
         TLBrace -> do
-          (statements, afterBrace) <- parseStatementsUntilBrace NestedBlockContext knownAliases rest
+          (statements, afterBrace) <- parseStatementsUntilBrace NestedBlockContext knownAliases declaredOperators rest
           Right (SEBlock statements, afterBrace)
-        TLBracket -> parseListExpr knownAliases rest
+        TLBracket -> parseListExpr knownAliases declaredOperators rest
         _ ->
           Left
             ( parseDiagnostic
@@ -1609,6 +1828,8 @@ parseNumericSurfaceLiteral wholeToken wholeValue tokensAfterWhole =
     dotToken@Token {tokenKind = TDot} : fractionalToken@Token {tokenKind = TInt fractionalValue} : rest
       | isImmediatelyAfter wholeToken dotToken,
         isImmediatelyAfter dotToken fractionalToken -> do
+          let (maybeTargetType, remaining) =
+                parseFractionalLiteralSuffix fractionalToken rest
           let literalText = tokenLexeme wholeToken <> "." <> tokenLexeme fractionalToken
               literalSource =
                 mkFractionalLiteralSource
@@ -1619,9 +1840,27 @@ parseNumericSurfaceLiteral wholeToken wholeValue tokensAfterWhole =
           if fractionalLiteralExceedsMagnitude literalSource float64MaxFinite
             then Left (invalidFloatLiteralDiagnostic (tokenSpan wholeToken) literalText)
             else Right ()
-          Right (SLFloat floatValue literalSource, rest)
+          Right (SLFloat floatValue literalSource maybeTargetType, remaining)
     _ ->
       Right (SLInt wholeValue, tokensAfterWhole)
+
+parseFractionalLiteralSuffix :: Token -> [Token] -> (Maybe SurfaceNumericType, [Token])
+parseFractionalLiteralSuffix fractionalToken tokens =
+  case tokens of
+    suffixToken@Token {tokenKind = TIdentifier suffixName} : rest
+      | isImmediatelyAfter fractionalToken suffixToken,
+        Just targetType <- fractionalLiteralSuffixTarget suffixName ->
+          (Just targetType, rest)
+    _ ->
+      (Nothing, tokens)
+
+fractionalLiteralSuffixTarget :: Text -> Maybe SurfaceNumericType
+fractionalLiteralSuffixTarget suffixName =
+  case suffixName of
+    "f16" -> Just SurfaceNumericFloat16
+    "f32" -> Just SurfaceNumericFloat32
+    "f64" -> Just SurfaceNumericFloat64
+    _ -> Nothing
 
 parseFloatLiteral :: SourceSpan -> Text -> Either Diagnostic Double
 parseFloatLiteral literalSpan literalText =
@@ -1653,75 +1892,102 @@ invalidFloatLiteralDiagnostic literalSpan literalText =
         <> renderSourceSpan literalSpan
     )
 
+requireOperatorVisible :: DeclaredOperators -> Token -> Either Diagnostic ()
+requireOperatorVisible declaredOperators operatorToken =
+  case tokenKind operatorToken of
+    TOperator operatorSymbol ->
+      case lookupOperatorInfoIn declaredOperators operatorSymbol of
+        Just _ -> Right ()
+        Nothing ->
+          Left
+            ( parseDiagnostic
+                ( "operator '"
+                    <> operatorSymbol
+                    <> "' must be declared before use at "
+                    <> renderSourceSpan (tokenSpan operatorToken)
+                )
+            )
+    _ ->
+      Left
+        ( parseDiagnostic
+            ( "internal parser error at "
+                <> renderSourceSpan (tokenSpan operatorToken)
+                <> ": expected operator token"
+            )
+        )
+
 -- | Parenthesized forms cover ordinary grouping, operator values like `(+)`,
 -- and left/right operator sections.
-parseParenExpr :: Set Text -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseParenExpr knownAliases tokensAfterLeftParen =
+parseParenExpr :: Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseParenExpr knownAliases declaredOperators tokensAfterLeftParen =
   case tokensAfterLeftParen of
-    Token {tokenKind = TOperator operatorSymbol} : rest ->
+    operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : rest ->
       case rest of
-        Token {tokenKind = TRParen} : remaining ->
+        Token {tokenKind = TRParen} : remaining -> do
+          requireOperatorVisible declaredOperators operatorToken
           Right (SEOperatorValue operatorSymbol, remaining)
         _ -> do
-          (rightExpr, afterRightExpr) <- parseExpr knownAliases rest
+          requireOperatorVisible declaredOperators operatorToken
+          (rightExpr, afterRightExpr) <- parseExpr knownAliases declaredOperators rest
           remaining <- consumeRightParen afterRightExpr
           pure (SESectionRight operatorSymbol rightExpr, remaining)
     _ -> do
-      (innerExpr, afterInnerExpr) <- parseExpr knownAliases tokensAfterLeftParen
+      (innerExpr, afterInnerExpr) <- parseExpr knownAliases declaredOperators tokensAfterLeftParen
       case afterInnerExpr of
         Token {tokenKind = TComma} : rest -> do
-          (tupleElements, afterTupleElements) <- parseTupleElements knownAliases [innerExpr] rest
+          (tupleElements, afterTupleElements) <- parseTupleElements knownAliases declaredOperators [innerExpr] rest
           remaining <- consumeRightParen afterTupleElements
           Right (SETuple tupleElements, remaining)
-        Token {tokenKind = TOperator operatorSymbol} : Token {tokenKind = TRParen} : rest ->
+        operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : Token {tokenKind = TRParen} : rest -> do
+          requireOperatorVisible declaredOperators operatorToken
           Right (SESectionLeft innerExpr operatorSymbol, rest)
         _ -> do
           remaining <- consumeRightParen afterInnerExpr
           Right (innerExpr, remaining)
 
-parseTupleElements :: Set Text -> [SurfaceExpr] -> [Token] -> Either Diagnostic ([SurfaceExpr], [Token])
-parseTupleElements knownAliases reversedElements tokens = do
-  (nextElement, afterNextElement) <- parseExpr knownAliases tokens
+parseTupleElements :: Set Text -> DeclaredOperators -> [SurfaceExpr] -> [Token] -> Either Diagnostic ([SurfaceExpr], [Token])
+parseTupleElements knownAliases declaredOperators reversedElements tokens = do
+  (nextElement, afterNextElement) <- parseExpr knownAliases declaredOperators tokens
   case afterNextElement of
     Token {tokenKind = TComma} : rest ->
-      parseTupleElements knownAliases (nextElement : reversedElements) rest
+      parseTupleElements knownAliases declaredOperators (nextElement : reversedElements) rest
     _ ->
       Right (reverse (nextElement : reversedElements), afterNextElement)
 
-parseListExpr :: Set Text -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseListExpr knownAliases tokensAfterLeftBracket =
+parseListExpr :: Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseListExpr knownAliases declaredOperators tokensAfterLeftBracket =
   case tokensAfterLeftBracket of
     Token {tokenKind = TRBracket} : rest ->
       Right (SEList [], rest)
     _ -> do
-      (elements, afterElements) <- parseListElements knownAliases tokensAfterLeftBracket
+      (elements, afterElements) <- parseListElements knownAliases declaredOperators tokensAfterLeftBracket
       remaining <- consumeRightBracket afterElements
       Right (SEList elements, remaining)
 
-parseListElements :: Set Text -> [Token] -> Either Diagnostic ([SurfaceExpr], [Token])
-parseListElements knownAliases tokens = do
-  (firstElement, remainingAfterFirst) <- parseExpr knownAliases tokens
+parseListElements :: Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic ([SurfaceExpr], [Token])
+parseListElements knownAliases declaredOperators tokens = do
+  (firstElement, remainingAfterFirst) <- parseExpr knownAliases declaredOperators tokens
   go [firstElement] remainingAfterFirst
   where
     go elements allTokens =
       case allTokens of
         Token {tokenKind = TComma} : rest -> do
-          (nextElement, remainingAfterNext) <- parseExpr knownAliases rest
+          (nextElement, remainingAfterNext) <- parseExpr knownAliases declaredOperators rest
           go (nextElement : elements) remainingAfterNext
         _ ->
           Right (reverse elements, allTokens)
 
 -- | Parse the compact `if cond thenExpr else elseExpr` surface form.
 parseIfExpr :: Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseIfExpr = parseIfExprUntil Set.empty neverStop
+parseIfExpr = parseIfExprUntil Set.empty [] neverStop
 
-parseIfExprUntil :: Set Text -> ([Token] -> Bool) -> Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseIfExprUntil knownAliases stop ifToken tokensAfterIf = do
-  (conditionExpr, afterCondition) <- parseExprWithoutApplicationWithMinPrecedenceUntil knownAliases stop 1 tokensAfterIf
-  (thenExpr, afterThenExpr) <- parseExprWithMinPrecedenceUntil knownAliases stop 1 afterCondition
+parseIfExprUntil :: Set Text -> DeclaredOperators -> ([Token] -> Bool) -> Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseIfExprUntil knownAliases declaredOperators stop ifToken tokensAfterIf = do
+  (conditionExpr, afterCondition) <- parseExprWithoutApplicationWithMinPrecedenceUntil knownAliases declaredOperators stop 1 tokensAfterIf
+  (thenExpr, afterThenExpr) <- parseExprWithMinPrecedenceUntil knownAliases declaredOperators stop 1 afterCondition
   case afterThenExpr of
     Token {tokenKind = TElse} : afterElse -> do
-      (elseExpr, remaining) <- parseExprWithMinPrecedenceUntil knownAliases stop 1 afterElse
+      (elseExpr, remaining) <- parseExprWithMinPrecedenceUntil knownAliases declaredOperators stop 1 afterElse
       pure (SEIf conditionExpr thenExpr elseExpr, remaining)
     [] ->
       Left
@@ -1741,8 +2007,8 @@ parseIfExprUntil knownAliases stop ifToken tokensAfterIf = do
             )
         )
 
-parseCaseExpr :: Set Text -> Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseCaseExpr knownAliases caseToken tokensAfterCase =
+parseCaseExpr :: Set Text -> DeclaredOperators -> Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseCaseExpr knownAliases declaredOperators caseToken tokensAfterCase =
     case tryCaseBodyCandidates Nothing [] tokensAfterCase of
       Right parsedCaseExpr ->
         Right parsedCaseExpr
@@ -1751,7 +2017,7 @@ parseCaseExpr knownAliases caseToken tokensAfterCase =
           Just diagnostic ->
             Left diagnostic
           Nothing ->
-            case parseExpr knownAliases tokensAfterCase of
+            case parseExpr knownAliases declaredOperators tokensAfterCase of
               Left scrutineeDiagnostic ->
                 Left scrutineeDiagnostic
               Right _ ->
@@ -1777,7 +2043,7 @@ parseCaseExpr knownAliases caseToken tokensAfterCase =
         candidateTokens@(token@(Token {tokenKind = TLBrace}) : rest) ->
           let scrutineeTokens = reverse revPrefix
            in
-            case parseExpr knownAliases scrutineeTokens of
+            case parseExpr knownAliases declaredOperators scrutineeTokens of
               Right (scrutineeExpr, []) ->
                 case parseCaseBodyTokens candidateTokens of
                   Right (caseArms, remainingAfterCase) ->
@@ -1798,7 +2064,7 @@ parseCaseExpr knownAliases caseToken tokensAfterCase =
     parseCaseBodyTokens :: [Token] -> Either Diagnostic ([SurfaceCaseArm], [Token])
     parseCaseBodyTokens bodyTokens = do
       tokensAfterLeftBrace <- consumeLeftBrace bodyTokens caseBodyMissingMessage
-      parseCaseArms knownAliases tokensAfterLeftBrace
+      parseCaseArms knownAliases declaredOperators tokensAfterLeftBrace
 
     rememberLatestDiagnostic :: Maybe Diagnostic -> Diagnostic -> Maybe Diagnostic
     rememberLatestDiagnostic _ newDiagnostic = Just newDiagnostic
@@ -1822,8 +2088,8 @@ parseCaseExpr knownAliases caseToken tokensAfterCase =
             Token {tokenKind = TRBrace} : _ -> False
             token : remaining -> go (Just token) remaining
 
-parseCaseArms :: Set Text -> [Token] -> Either Diagnostic ([SurfaceCaseArm], [Token])
-parseCaseArms knownAliases tokensAfterLeftBrace =
+parseCaseArms :: Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic ([SurfaceCaseArm], [Token])
+parseCaseArms knownAliases declaredOperators tokensAfterLeftBrace =
   case tokensAfterLeftBrace of
     Token {tokenKind = TRBrace, tokenSpan = rightBraceSpan} : _ ->
       Left
@@ -1833,7 +2099,7 @@ parseCaseArms knownAliases tokensAfterLeftBrace =
             )
         )
     _ -> do
-      (firstArm, afterFirstArm) <- parseCaseArm knownAliases tokensAfterLeftBrace
+      (firstArm, afterFirstArm) <- parseCaseArm knownAliases declaredOperators tokensAfterLeftBrace
       go [firstArm] afterFirstArm
   where
     go revArms allTokens =
@@ -1841,15 +2107,15 @@ parseCaseArms knownAliases tokensAfterLeftBrace =
         Token {tokenKind = TRBrace} : rest ->
           Right (reverse revArms, rest)
         _ -> do
-          (nextArm, afterNextArm) <- parseCaseArm knownAliases allTokens
+          (nextArm, afterNextArm) <- parseCaseArm knownAliases declaredOperators allTokens
           go (nextArm : revArms) afterNextArm
 
-parseCaseArm :: Set Text -> [Token] -> Either Diagnostic (SurfaceCaseArm, [Token])
-parseCaseArm knownAliases tokens = do
+parseCaseArm :: Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic (SurfaceCaseArm, [Token])
+parseCaseArm knownAliases declaredOperators tokens = do
   tokensAfterPipe <- consumeCaseArmPipe tokens
   (casePattern, afterPattern) <- parseCasePattern tokensAfterPipe
   afterArrow <- consumeArrow afterPattern "expected '->' before end of input after case pattern"
-  (bodyExpr, remaining) <- parseExprWithMinPrecedenceUntil knownAliases stopsBeforeCaseArmBoundary 1 afterArrow
+  (bodyExpr, remaining) <- parseExprWithMinPrecedenceUntil knownAliases declaredOperators stopsBeforeCaseArmBoundary 1 afterArrow
   pure (SurfaceCaseArm casePattern bodyExpr, remaining)
   where
     -- Case-arm bodies are expression-shaped, so a `|` operator only starts the
@@ -2105,16 +2371,16 @@ isTypeParameterIdentifierText name =
     Nothing -> False
 
 parseLambdaExpr :: Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseLambdaExpr = parseLambdaExprUntil Set.empty neverStop
+parseLambdaExpr = parseLambdaExprUntil Set.empty [] neverStop
 
-parseLambdaExprUntil :: Set Text -> ([Token] -> Bool) -> Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
-parseLambdaExprUntil knownAliases stop lambdaToken tokensAfterLambda =
+parseLambdaExprUntil :: Set Text -> DeclaredOperators -> ([Token] -> Bool) -> Token -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseLambdaExprUntil knownAliases declaredOperators stop lambdaToken tokensAfterLambda =
   case tokensAfterLambda of
     Token {tokenKind = TLParen} : afterLeftParen -> do
       (parameters, afterParameters) <- parseLambdaParameters afterLeftParen
       case afterParameters of
         Token {tokenKind = TArrow} : afterArrow -> do
-          (bodyExpr, remaining) <- parseExprWithMinPrecedenceUntil knownAliases stop 1 afterArrow
+          (bodyExpr, remaining) <- parseExprWithMinPrecedenceUntil knownAliases declaredOperators stop 1 afterArrow
           pure (SELambda parameters bodyExpr, remaining)
         [] ->
           Left

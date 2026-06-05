@@ -12,7 +12,9 @@ impl Eq(Int) {
 equals = \(left) -> \(right) -> left == right.
 }.
 impl Eq(Float) { }.
-impl Eq(Bool) { }.
+impl Eq(Bool) {
+equals = \(left) -> \(right) -> left == right.
+}.
 impl Ord(Int) { }.
 impl Ord(Float) { }.
 impl Num(Int) { }.

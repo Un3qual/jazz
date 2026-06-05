@@ -6,15 +6,15 @@ size: L
 kind: impl
 autonomous_ready: no
 depends_on: []
-last_verified: 2026-06-02
-plan_section: "Follow-up: Primitive deltas after literal-targeting landing"
+last_verified: 2026-06-04
+plan_section: "Follow-up: Post-suffix primitive deltas"
 target_paths:
   - docs/execution/blocker-contracts.md
   - docs/execution/queue.md
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Use docs/execution/blocker-contracts.md#jn-primitive-surface-expansion-plan-001 to split the next primitive child; current recommended child is a literal-suffix contract before implicit promotion, implicit mixed-width behavior, or broader numeric solver work."
+deliverable: "Keep primitive expansion blocked after the landed fractional literal suffix child until implicit promotion, mixed-width behavior, or broader solver/defaulting semantics have separate accepted contracts with concrete target paths."
 ---
 
 # Primitive Semantics Contract Implementation Plan
@@ -36,10 +36,12 @@ Execution note:
 ## Active Handoff
 
 This plan is a historical umbrella. Do not scan the completed primitive batches
-below to infer the next numeric task. Current blocked-state handoff lives in
+below to infer the next numeric task. The frontmatter currently describes the
+blocked post-suffix primitive umbrella. Post-suffix blocked-state handoff lives
+in
 [`docs/execution/blocker-contracts.md`](../../../../execution/blocker-contracts.md#jn-primitive-surface-expansion-plan-001),
-and the current promotion lane lives in
-[`docs/execution/queue.md`](../../../../execution/queue.md#next-curation-target).
+and any current executable lane lives in
+[`docs/execution/queue.md`](../../../../execution/queue.md#ready-now).
 
 ## Progress
 
@@ -82,6 +84,13 @@ and the current promotion lane lives in
 - [x] Structural ADT equality for declared constructors with equality-supported payload types landed in `jazz-next`.
 - [x] Explicit `Float16`/`Float32` fractional literal targeting for directly
       annotated bindings landed in `jazz-next`.
+- [x] On `2026-06-04`, locked `JN-PRIMITIVE-LITERAL-SUFFIX-CONTRACT-001`:
+      lowercase `f16`/`f32`/`f64` suffixes attach directly to existing decimal
+      fractional literals as parser-owned syntax, accepted only for
+      `Float16`/`Float32`/`Float64`, with finite-target rounding/overflow reuse
+      and no implicit mixed-width behavior.
+- [x] On `2026-06-04`, landed queued child
+      `JN-PRIMITIVE-FRACTIONAL-LITERAL-SUFFIXES-001` in `jazz-next`.
 
 First implementation target (landed 2026-05-29):
 
@@ -524,7 +533,71 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
-## Follow-up: Primitive deltas after literal-targeting landing
+## Follow-up: Post-suffix primitive deltas
+
+The parser-owned fractional literal suffix child has landed. This umbrella is
+blocked again until a separate contract accepts a concrete post-suffix primitive
+delta such as implicit integer-to-float promotion, implicit mixed-width
+arithmetic/comparison behavior, or broader numeric solver/defaulting behavior.
+
+### Completed implementation batch: Fractional literal suffixes
+
+This batch landed on `2026-06-04` as
+`JN-PRIMITIVE-FRACTIONAL-LITERAL-SUFFIXES-001`, after queue coordination
+completed `JN-PRIMITIVE-LITERAL-SUFFIX-CONTRACT-001`.
+
+Delivered scope:
+
+- Accepted lowercase suffixes attached directly to existing decimal fractional
+  literals: `1.5f16`, `1.5f32`, and `1.5f64`.
+- Resolved suffixed literals directly to `Float16`, `Float32`, or `Float64`.
+- Kept suffixes parser-owned and independent of imports or no-prelude mode.
+- Kept `toFloat16`, `toFloat32`, and `toFloat64` as ordinary prelude-owned
+  conversion APIs.
+- Reused the existing finite-target rounding and overflow behavior for
+  `Float16`/`Float32`/`Float64` literal targets.
+- Preserved current mixed-width rejection: same-width suffixed expressions such
+  as `1.5f16 + 2.5f16` can be valid, while `1.5f16 + 2.5`,
+  `1.5f16 + 2.5f32`, and mismatched annotations remain type errors.
+
+Out of scope:
+
+- `Float8`,
+- integer or unsigned suffixes,
+- uppercase suffixes,
+- alias suffix `f`,
+- implicit integer-to-float promotion,
+- implicit mixed-width arithmetic or comparison widening,
+- broader solver/typeclass work,
+- callable identity semantics,
+- user-defined operator behavior,
+- new literal forms beyond existing decimal fractional literals,
+- default or alias changes.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
+- `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
+- `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+```
 
 On `2026-06-02`, queue curation split the width-preserving arithmetic child
 plan out of this umbrella follow-up, and the child plan landed:

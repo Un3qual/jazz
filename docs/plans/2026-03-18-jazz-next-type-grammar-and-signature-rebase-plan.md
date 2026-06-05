@@ -1,25 +1,27 @@
 ---
-id: JN-ADT-GENERIC-CONSTRUCTOR-SCHEMES-001
-status: completed
+id: JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001
+status: ready
 priority: P1
 size: M
 kind: impl
-autonomous_ready: no
+autonomous_ready: yes
 depends_on:
-  - JN-ADT-GENERIC-DATA-PARAMS-001
-last_verified: 2026-05-31
-plan_section: "Completed implementation batch: generic constructor value/application schemes"
+  - JN-TYPE-SOLVER-CONTRACT-001
+last_verified: 2026-06-04
+plan_section: "Ready child: Ordinary binding schemes and instantiation"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
+  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
+  - bash jazz-next/scripts/test-warning-config.sh
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Derive declaration-owned constructor type schemes from generic data declarations and instantiate them freshly for constructor values and applications, while keeping ordinary bindings monomorphic and pattern/runtime dispatch out of scope."
+  - git diff --check
+deliverable: "Implement ordinary binding type schemes and per-use instantiation without solver-backed inferred constraints/runtime dictionaries yet, keeping current monomorphic constrained-signature behavior unless the accepted contract section explicitly says otherwise."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/type-system/07-type-grammar-and-arrow-associativity.md
 ---
@@ -63,14 +65,21 @@ supersedes:
 - [x] On `2026-05-31`, split the future generic ADT constructor-scheme slice from broader ordinary binding polymorphism/defaulting solver work.
 - [x] On `2026-05-31`, the prerequisite generic ADT declaration-parameter parser/core batch landed, so this constructor value/application scheme batch is now dependency-satisfied.
 - [x] On `2026-05-31`, landed generic ADT constructor value/application schemes in `jazz-next`: direct constructor uses instantiate fresh type parameters, repeated payload parameter occurrences are linked within one application, and ordinary constructor aliases remain monomorphic.
+- [x] On `2026-06-04`, accepted `JN-TYPE-SOLVER-CONTRACT-001` as the broad
+      solver semantics agreement covering ordinary binding generalization,
+      per-use instantiation, inferred class constraints, defaulting, and
+      solver-backed constrained signatures while splitting implementation into
+      verifier-backed child rows.
+- [ ] Execute ready child `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001` for
+      ordinary binding type schemes and per-use instantiation only.
 
-## Active Baseline (2026-05-31)
+## Active Baseline (2026-06-04)
 
 - `jazz-next/src/JazzNext/Compiler/Parser.hs` now parses supported monomorphic signature statements into structured parser-owned payloads instead of joined raw text.
 - `jazz-next/src/JazzNext/Compiler/Parser/AST.hs` and `jazz-next/src/JazzNext/Compiler/AST.hs` now carry explicit signature/type nodes for the supported subset plus tokenized fallback for unsupported surfaces.
 - `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` forwards structured signature payloads into the core AST.
 - `jazz-next/src/JazzNext/Compiler/Analyzer.hs` still enforces signature placement/name coherence only; signature semantics remain owned by `TypeInference.hs`.
-- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now consumes structured signature payloads for `Int`, `Bool`, nested concrete list forms, concrete tuple forms, right-associated chained function arrows, explicit parenthesized function-type overrides, empty `@{}:` constrained signatures over that same monomorphic subset, concrete unary non-empty constraints over `Int`, `Bool`, nested concrete lists, and concrete tuple compositions, and known unary constraints over lower-case type variables that appear in the signature body. It also derives generic ADT constructor value/application schemes from declaration-owned `data` type parameters while preserving ordinary user binding monomorphism. Unsupported broader forms continue to report through `E2009`; duplicate non-empty constraints are reported with specific duplicate-constraint text.
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now consumes structured signature payloads for `Int`, `Bool`, nested concrete list forms, concrete tuple forms, right-associated chained function arrows, explicit parenthesized function-type overrides, empty `@{}:` constrained signatures over that same monomorphic subset, concrete unary non-empty constraints over `Int`, `Bool`, nested concrete lists, and concrete tuple compositions, and known unary constraints over lower-case type variables that appear in the signature body. It also derives generic ADT constructor value/application schemes from declaration-owned `data` type parameters while preserving ordinary user binding monomorphism. The accepted type-solver contract below defines the next broader semantics, but only the ordinary-binding scheme and per-use instantiation child is currently executable. Unsupported broader forms continue to report through `E2009`; duplicate non-empty constraints are reported with specific duplicate-constraint text.
 - `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs` explicitly accepts simple list signatures, right-associated chained function signatures, parenthesized list-to-list signatures, parenthesized function-type overrides, empty constrained signatures over monomorphic function types, concrete unary constrained signatures, and monomorphic variable constrained signatures while keeping unsupported broader surfaces, duplicate non-empty constraints, and unconstrained signature variables on deterministic `E2009` with primary spans attached to the signature statement.
 - `docs/plans/2026-03-16-jazz-next-monomorphic-signature-surface.md` already delivered the safe monomorphic subset. This rebase must preserve that subset while moving ownership to the correct compiler layers.
 
@@ -92,7 +101,7 @@ Out of scope:
 ## Future Polymorphism Boundary
 
 The completed generic ADT constructor-scheme slice is intentionally narrower than
-the full type-solver work tracked by this plan.
+the accepted type-solver work tracked by this plan.
 
 Allowed in the generic ADT slice:
 
@@ -102,16 +111,121 @@ Allowed in the generic ADT slice:
 - deterministic diagnostics for malformed generic declarations and
   incompatible constructor instantiations.
 
-Still blocked under this type-grammar plan:
+Accepted under `JN-TYPE-SOLVER-CONTRACT-001` but split into implementation
+children:
 
 - ordinary user binding generalization,
+- per-use instantiation of generalized schemes,
+- inferred class constraints represented and solved against visible class/impl
+  facts,
+- defaulting beyond the already locked numeric literal defaults, using a final
+  solver/defaulting phase that preserves current `Int64` and `Float64` numeric
+  literal defaults,
+- solver-backed constrained signatures for variable-bearing signatures such as
+  `@{Eq(a)}: a -> a`.
+
+Still blocked or out of scope for this ready child:
+
 - generic constructor pattern typing,
-- inferred class constraints,
-- defaulting beyond the already locked numeric literal defaults,
-- typeclass solver-backed constrained signatures,
+- runtime dispatch or dictionary passing,
 - explicit type application syntax,
 - higher-rank polymorphism,
-- runtime dispatch or dictionary passing.
+- module/import behavior,
+- primitive mixed-width or implicit-promotion behavior.
+
+## Accepted coordination contract: Type solver semantics
+
+`JN-TYPE-SOLVER-CONTRACT-001` completed on `2026-06-04`. It locks one broad
+semantics agreement so implementation can proceed in verifier-backed child rows
+instead of another docs-only search.
+
+Locked decisions:
+
+- Ordinary user bindings generalize after their binding or recursive binding
+  group has been inferred and solved. The scheme quantifies type variables that
+  are not fixed by the surrounding environment, an adjacent concrete
+  monomorphic signature, or an unresolved ambiguity. During a recursive group,
+  group members are checked with shared monomorphic placeholders; the completed
+  group generalizes as one unit after constraints are solved. Polymorphic
+  recursion is not introduced.
+- Each use of a generalized scheme instantiates fresh type variables before
+  unification. Independent uses of a binding such as `id` may therefore refine
+  to different concrete types in the same scope, while non-generalized local
+  placeholders remain shared until their group is closed.
+- Inferred class constraints are represented as part of a type scheme context.
+  Concrete constraints are solved against visible `class` declarations and
+  concrete `impl` facts using declared class arity. Constraints over generalized
+  variables remain attached to the published scheme until a later use site
+  supplies enough concrete evidence or reaches defaulting.
+- Defaulting runs after ordinary unification and visible class/impl solving, but
+  before final ambiguity diagnostics. Existing numeric literal defaults remain
+  unchanged: ambiguous integer literals default through `Int`/`Int64`, and
+  ambiguous fractional literals default through `Float`/`Float64`. The solver
+  defaulting phase must not reopen primitive implicit integer-to-float
+  promotion or implicit mixed-width behavior.
+- Variable constrained signatures such as `@{Eq(a)}: a -> a` graduate from the
+  current monomorphic annotation-only behavior to generalized constrained
+  schemes once the solver-backed constrained-signature child lands. Concrete and
+  currently monomorphic constrained-signature behavior is not reworked by the
+  ordinary-binding schemes child.
+- Diagnostics remain deterministic: unsolved constraints name the missing
+  class/impl evidence, duplicate constraints keep source-order duplicate
+  reporting, arity errors name expected and actual argument counts, unsupported
+  type applications remain explicit unsupported-type-application errors until
+  that syntax has its own contract, and un-defaulted type variables report an
+  ambiguity/defaulting failure with the relevant binding or signature span.
+
+Out of scope for this contract:
+
+- runtime dictionary representation or runtime evidence values,
+- abstraction method dispatch,
+- explicit type application,
+- higher-rank polymorphism,
+- generic constructor pattern typing,
+- module/import behavior,
+- effect typing,
+- primitive mixed-width behavior or implicit numeric promotion,
+- reworking the completed parser/type AST rebase,
+- arrow associativity,
+- concrete or monomorphic constrained-signature behavior,
+- generic ADT constructor schemes,
+- any `jazz-hs/` or `jazz2/` work.
+
+## Ready child: Ordinary binding schemes and instantiation
+
+`JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001` is the first implementation child
+after the accepted solver contract. It deliberately stops before inferred class
+constraints, broad defaulting, solver-backed constrained signatures, runtime
+dictionaries, and runtime dispatch.
+
+Executor-safe scope:
+
+- Add ordinary user binding type schemes for eligible non-recursive bindings and
+  completed recursive groups.
+- Instantiate generalized ordinary binding schemes freshly at each use site.
+- Preserve generic ADT constructor scheme behavior that is already implemented.
+- Keep current monomorphic constrained-signature behavior unchanged unless a
+  test needs a narrow interaction guard to prevent accidental solver semantics.
+- Do not add runtime dictionaries, inferred class constraints, broad defaulting,
+  explicit type application, or primitive mixed-width behavior.
+
+Target paths:
+
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
+- `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs`
+
+Focused verification:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
+bash jazz-next/scripts/test-warning-config.sh
+bash scripts/check-execution-queue.sh
+bash scripts/check-docs.sh
+git diff --check
+```
 
 ## Completed implementation batch: generic constructor value/application schemes
 
