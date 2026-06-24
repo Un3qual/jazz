@@ -213,15 +213,15 @@ Each blocked item should answer these questions:
 
 ### JN-BACKEND-TARGET-LEGACY-REBASE-001
 
-- Smallest unblocker: close the legacy backend-target plan as reference-only
-  unless a new active `jazz-next` runtime product delta is selected.
+- Smallest unblocker: none; the legacy backend-target plan is closed as
+  reference-only by `JN-BACKEND-TARGET-LEGACY-CLOSURE-001`.
 - Decision needed: none while the interpreter-first product path remains the
   current baseline.
 - Recommended default: keep this out of `Ready Now`; use
   `JN-RUNTIME-PRODUCTIZE-CLOSURE-PLAN-001` for any real product delta.
-- Candidate child: `JN-BACKEND-TARGET-LEGACY-CLOSURE-001`.
-- Target paths: `docs/plans/spec-clarification/2026-03-02/runtime/12-backend-target-strategy.md`,
-  `docs/execution/queue.md`.
+- Candidate child: none currently.
+- Target paths: not set; future runtime product work should use active
+  `jazz-next` runtime product contracts and target paths.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: backend implementation, codegen policy, or legacy runtime edits.
