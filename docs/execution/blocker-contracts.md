@@ -6,7 +6,10 @@ handoffs. Use it before opening old plan history.
 When `Ready Now` is empty:
 
 1. Read `docs/execution/queue.md`.
-2. Use the ordered `Next Curation Target` candidates in that file.
+2. Use the ordered `Next Curation Target` candidates in that file. If that
+   table is empty and the current executor status explicitly says there is no
+   source-backed next curation target and no named candidate currently, stop
+   after reporting that all source-backed candidates are exhausted.
 3. Open only the matching section below and the named source plan/spec.
 4. Promote exactly one child by creating or updating a child plan with concrete
    frontmatter, then add the matching `Ready Now` row.
@@ -151,20 +154,21 @@ Each blocked item should answer these questions:
 
 ### JN-MODULE-REBASE-PLAN-001
 
-- Smallest unblocker: name a future stdlib/catalog API growth contract or keep
-  module/import execution closed.
-- Decision needed: the exact public helper or module behavior that should grow
-  next.
+- Smallest unblocker: none currently after the stdlib/prelude next API
+  candidate validation; keep module/import execution closed until a concrete
+  future stdlib/catalog API or module behavior is named.
+- Decision needed: the exact public stdlib/catalog API or module behavior that
+  should grow next, plus its runtime/API contract.
 - Recommended default: keep module/import execution closed until a product
   feature needs new stdlib/catalog surface.
-- Candidate child: `JN-STDLIB-PRELUDE-NEXT-API-CONTRACT-001`.
-- Target paths: `docs/spec/stdlib-boundary.md`,
-  `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`,
-  `docs/execution/queue.md`.
+- Candidate child: none currently.
+- Target paths: not set until a concrete API/runtime contract exists.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: reworking `ModuleResolver.hs`, adding new import syntax, or
-  reopening the closed module graph harness without a concrete API.
+- Not in scope: reworking `ModuleResolver.hs`, adding new import syntax,
+  reopening the closed module graph harness, adding new prelude/catalog API
+  without a named contract, adding direct public builtin fallback in no-prelude
+  mode, or adding package/module-root semantics.
 
 ### JN-WARNING-DEPRECATED-SYNTAX-CONTRACT-001
 

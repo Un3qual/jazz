@@ -2,7 +2,7 @@
 
 Status: active (closure verified for the current `jazz-next` runtime subset; bundled/explicit prelude paths expose public aliases while no-prelude paths remain kernel-bridge-only)
 Locked decisions (initial `jazz-next` contract): 2026-03-04
-Updated: 2026-06-01
+Updated: 2026-06-24
 Primary plan: `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`
 
 ## Purpose
@@ -24,9 +24,9 @@ planned.
    driver-default source/module-graph modes:
    - resolution order: `--prelude` flag > `JAZZ_PRELUDE` env > bundled default path.
    - `--no-prelude` disables all prelude loading.
-4. Public names such as `map` and `print!` are available only through bundled
-   or explicit prelude aliases; direct no-prelude flows must reference the
-   `__kernel_*` bridge names.
+4. Public names such as `map`, `print!`, and numeric conversion aliases are
+   available only through bundled or explicit prelude aliases; direct
+   no-prelude flows must reference the `__kernel_*` bridge names.
 5. `compileSource`, `runSource`, `compileModuleGraph`, and `runModuleGraph`
    load the bundled prelude by default. Explicit no-prelude entry points
    (`compileSourceWithPrelude Nothing`, `runSourceWithPrelude Nothing`,
@@ -60,9 +60,11 @@ planned.
   - `toFloat16`, `toFloat32`, `toFloat64`
 - Current bundled capability declarations include canonical `Eq`, `Ord`, `Num`,
   `Integral`, `Fractional`, `Showable`, and `Default` classes plus inert
-  default concrete impl facts for `Int`, `Float`, and `Bool` capability
-  constraints. Explicit-prelude and no-prelude entry points do not inherit those
-  bundled capability facts.
+  concrete impl facts for the default aliases `Int`, `Float`, and `Bool`, and
+  for width-specific numeric signature names `Int8`, `Int16`, `Int32`, `Int64`,
+  `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float16`, `Float32`, and `Float64`.
+  Explicit-prelude and no-prelude entry points do not inherit those bundled
+  capability facts.
 - Catalog ownership metadata (`PreludeTarget` vs future intrinsic-only entries)
   is declared in `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`.
 
@@ -112,12 +114,14 @@ Required invariants:
 2. Explicit no-prelude mode is `kernel-only`: `--no-prelude`, `Nothing`
    prelude driver entry points, and low-level AST/runtime helpers resolve only
    the `__kernel_*` bridge names.
-3. Canonical public aliases (`map`, `filter`, `hd`, `tl`, `print!`) are
-   rejected in no-prelude mode and require a real prelude source.
+3. Canonical public aliases (`map`, `filter`, `hd`, `tl`, `print!`, and the
+   numeric conversion aliases listed above) are rejected in no-prelude mode and
+   require a real prelude source.
 4. This ownership-boundary migration is closed for the current runtime subset.
    Future stdlib growth should extend the prelude/catalog intentionally under
    new queue items with concrete API/runtime contracts rather than reopening
-   direct public builtin fallback.
+   direct public builtin fallback; no future stdlib/catalog API is promoted by
+   the current closure.
 5. Active coverage lives in `PreludeLoadingSpec.hs`, `BuiltinCatalogSpec.hs`,
    and `LoaderSpec.hs`: source helpers cover no-prelude alias rejection,
    catalog coverage locks bridge/alias generation, and module graph coverage

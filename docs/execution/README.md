@@ -21,12 +21,12 @@ Keep using the rest of `docs/` for their existing roles:
 1. Read `queue.md` first.
 2. Treat `Ready Now` as authoritative for dispatch.
 3. Keep `Ready Now` to 2-5 entries and bias it toward executable implementation work.
-4. If `Ready Now` is empty, treat `Next Curation Target` as the only promotion lane.
-5. Keep `Next Curation Target` to 1-3 candidates and refresh it in the same change that empties `Ready Now`.
+4. If `Ready Now` is empty, treat `Next Curation Target` as the only promotion lane unless the queue explicitly says all source-backed candidates are exhausted.
+5. Keep `Next Curation Target` to 1-3 candidates and refresh it in the same change that empties `Ready Now`. Leave it empty only when the current executor status explicitly says there is no source-backed next curation target and no named candidate currently.
 6. Every `Blocked` entry must name its blocker directly and have a matching section in `blocker-contracts.md`.
 7. Remove completed items from `Ready Now` immediately.
 8. Move stable completed-row evidence to `done-archive.md`; do not let `queue.md` become a changelog.
-9. Do not use a repo-wide `docs/plans/**` scan to choose work unless both `Ready Now` and `Next Curation Target` are insufficient.
+9. Do not use a repo-wide `docs/plans/**` scan to choose work. If `Ready Now` and `Next Curation Target` are empty because the queue explicitly exhausts all source-backed candidates, stop after reporting that terminal state.
 10. When a queue entry points at an older historical plan, add a new active-path plan before doing new implementation work.
 11. Treat queue, plan, status, and spec updates as required follow-through for an implementation batch, not as a standalone successful batch while executable implementation work exists.
 12. Keep docs-only or coordination items out of `Ready Now` unless they are the smallest verified action that directly restores implementation flow.
@@ -61,12 +61,17 @@ Guidance:
 
 ## Next Curation Target Contract
 
-`Next Curation Target` is required whenever `Ready Now` is empty. It is a small
+`Next Curation Target` is required whenever `Ready Now` is empty unless the
+queue explicitly records the terminal empty-candidate state. It is a small
 promotion lane, not an execution queue. A future curation pass must either:
 
 - promote one candidate into `Ready Now` with matching child-plan frontmatter, or
 - replace the candidate with a better source-backed candidate and explain why in
   `blocker-contracts.md`.
+
+If validation finds no source-backed next curation target and no named candidate
+currently, leave the table empty, say so in the current executor status, and
+stop. Do not scan broadly or invent a candidate from old plan history.
 
 Each candidate captures:
 
@@ -143,7 +148,7 @@ Stay in curated mode until these are true:
 4. At least the top priority items have explicit dependency and verification fields.
 5. At least one high-priority executable implementation item carries `kind`, `plan_section`, and `target_paths` that name real non-doc paths.
 6. The team can trust `autonomous_ready: yes` as a real signal, not a guess.
-7. Empty `Ready Now` states always have `Next Curation Target` candidates and matching blocker contracts.
+7. Empty `Ready Now` states have `Next Curation Target` candidates and matching blocker contracts unless the queue explicitly records that all source-backed candidates are exhausted.
 8. `bash scripts/check-execution-queue.sh` passes after queue or plan metadata changes.
 
 Switch to the autonomous prompt when:
@@ -164,7 +169,7 @@ Use `bash scripts/check-execution-queue.sh` after queue or open-plan metadata ch
 - every `Ready Now` target path resolves to an existing file,
 - every `kind: impl` entry names at least one concrete, already-existing, non-doc file path in `target_paths`,
 - every `Ready Now` row matches the linked plan frontmatter for the current executable batch.
-- empty `Ready Now` states still have 1-3 `Next Curation Target` candidates.
+- empty `Ready Now` states still have 1-3 `Next Curation Target` candidates, unless explicit terminal-empty status says there is no source-backed next curation target and no named candidate currently.
 - `impl` curation candidates name at least one concrete, already-existing, non-doc file path, even when they also list planned new child files.
 - `target_paths` never mixes the `-` placeholder with real paths.
 - `verification` never mixes the `-` placeholder with real commands.

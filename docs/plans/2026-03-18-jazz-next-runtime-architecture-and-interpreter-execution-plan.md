@@ -63,7 +63,7 @@ concrete CLI/runtime product delta with target paths and focused verification.
 - [x] On `2026-04-26`, added alias-import unqualified visibility validation in `ModuleResolver.hs`, so bindings available only through `import Foo::Bar as B` now report deterministic `E4012` if referenced by bare name.
 - [x] On `2026-04-26`, landed qualified alias lookup using `Alias::symbol`, with parser/lowering support, resolver validation (`E4013`/`E4014`), and driver alias bridge bindings for module replay.
 - [x] On `2026-05-22`, added default `compileModuleGraph` and `runModuleGraph` driver helpers that load the bundled prelude, with multi-file loader coverage for bundled public prelude aliases.
-- [x] On `2026-05-22`, verified the execution queue has no `Ready Now` implementation entries and kept `JN-MODULE-REBASE-PLAN-001` blocked on a concrete remaining stdlib phase-5 closure contract.
+- [x] On `2026-05-22`, verified the execution queue has no `Ready Now` implementation entries and kept `JN-MODULE-REBASE-PLAN-001` blocked on a concrete future stdlib/catalog API or module behavior contract.
 - [x] On `2026-05-22`, added bundled-prelude reproducibility evidence: `BundledPrelude` now owns the checked-in prelude path and `BuiltinCatalogSpec` fails if that file drifts from catalog-generated bridge/alias source.
 - [x] On `2026-05-22`, retired the internal compile placeholder artifact: successful compile driver results now contain only diagnostics, and loader/warning-flow/type/runtime coverage asserts compile success through warnings/errors only.
 - [x] On `2026-05-30`, closed the type-signature/type-grammar rebase metadata around the implemented structured monomorphic subset and left broader type schemes/defaulting blocked under the dedicated type plan.
@@ -120,7 +120,7 @@ concrete CLI/runtime product delta with target paths and focused verification.
 | Active parser/operator/if/primitive work (`14`, `15`, `16`) | These domains are already partially represented in `jazz-next` runtime and tests. | Safe runtime-core expansion without reopening settled syntax decisions. |
 | `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md` | ADT/pattern semantics now have an active-path owner map and milestone plan tied to the current runtime pipeline. | Constructor values, `case`, pattern matching, and related diagnostics in `jazz-next`. |
 | Module-loader rebase (`09`) | Module resolution exists in code, but its normative execution plan is still legacy-targeted. | Deterministic module execution semantics, import diagnostics, and closure of multi-file runtime behavior. |
-| Remaining stdlib closure (`10`) | Prelude/kernel ownership is mostly in place but not fully closed. | Kernel-only hardcoded surface and final builtin/runtime boundary cleanup. |
+| Closed stdlib/prelude subset (`10`) | Prelude/kernel ownership is closed for the active subset. | Future stdlib/catalog growth only after a concrete API/runtime contract names target paths and focused verification. |
 
 ## Milestone Plan
 
@@ -203,7 +203,7 @@ Primary files:
 
 #### Coordination: Module/import active-path execution contract
 
-This coordination batch completed on `2026-04-26`. It selected dependency-module expression isolation as the first active-path implementation slice, then later narrowed and landed explicit symbol-list visibility, alias-import unqualified visibility, and qualified alias lookup. Remaining module/prelude/std-lib execution closure needs a narrower implementation contract.
+This coordination batch completed on `2026-04-26`. It selected dependency-module expression isolation as the first active-path implementation slice, then later narrowed and landed explicit symbol-list visibility, alias-import unqualified visibility, and qualified alias lookup. The active module/prelude/std-lib execution subset is now closed; future growth needs a new concrete API/runtime contract.
 
 - [x] Rebase the module/import execution contract onto the current `ModuleResolver.hs`, `Driver.hs`, and `CLI/Main.hs` ownership boundaries.
 - [x] Identify the next missing executable behavior beyond already-landed resolution, graph replay, CLI entry-module routing, and import-symbol diagnostics: dependency module expression statements were still replayed into entry-module execution.

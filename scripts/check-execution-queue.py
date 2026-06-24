@@ -601,6 +601,29 @@ def parse_verification_commands(row_context: str, raw_verification: str) -> tupl
     return verification_commands, False
 
 
+def has_terminal_empty_curation_status() -> bool:
+    if QUEUE_TEXT is None:
+        return False
+    normalized = normalize_text(QUEUE_TEXT).lower()
+    source_backed_exhausted = any(
+        phrase in normalized
+        for phrase in (
+            "no source-backed next curation target",
+            "no source-backed candidate",
+            "all source-backed candidates are exhausted",
+        )
+    )
+    no_named_candidate = any(
+        phrase in normalized
+        for phrase in (
+            "no named candidate currently",
+            "no next named curation target",
+            "no current named candidate",
+        )
+    )
+    return "ready now is empty" in normalized and source_backed_exhausted and no_named_candidate
+
+
 # parse_block_scalar handles only basic YAML block scalars (">" and "|").
 # The folded parameter selects folded-vs-literal behavior; chomping indicators
 # (-/+) and explicit indentation indicators are not supported by this parser.
@@ -798,10 +821,12 @@ if len(curation_rows) > 3:
     fail(f"{QUEUE_PATH} Next Curation Target must contain at most 3 candidates")
 
 if not ready_rows and not curation_rows:
-    fail(
-        f"{QUEUE_PATH} Ready Now is empty, so Next Curation Target must contain "
-        "1-3 promotion candidates"
-    )
+    terminal_empty_curation = bool(curation_headers) and has_terminal_empty_curation_status()
+    if not terminal_empty_curation:
+        fail(
+            f"{QUEUE_PATH} Ready Now is empty, so Next Curation Target must contain "
+            "1-3 promotion candidates"
+        )
 
 blocked_ids = {normalize_text(row.get("id", "")) for row in blocked_rows}
 seen_candidate_ids: set[str] = set()

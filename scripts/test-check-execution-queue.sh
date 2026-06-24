@@ -1136,6 +1136,85 @@ EOF
 EOF
 }
 
+setup_terminal_empty_curation_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+Current executor status (`2026-04-10`): `Ready Now` is empty because all
+source-backed candidates are exhausted. There is no source-backed next curation
+target and no named candidate currently.
+
+## Next Curation Target
+| blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+| `CASE-TERMINAL-BLOCKED-001` | `Terminal blocked` | `No source-backed candidate` | `All source-backed candidates are exhausted; wait for a named future contract.` | [Plan](../plans/case-terminal-blocked.md) | `2026-04-10` |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-terminal-blocked.md"
+# Terminal blocked fixture
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+# Blocker Unblocker Contracts
+
+## Current Blockers
+
+### CASE-TERMINAL-BLOCKED-001
+
+- Smallest unblocker: none currently after source-backed candidate exhaustion.
+- Candidate child: none currently.
+EOF
+}
+
+setup_empty_curation_without_terminal_status_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+## Next Curation Target
+| blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+| `CASE-EMPTY-CURATION-BLOCKED-001` | `Empty curation blocked` | `Concrete child split` | `Needs one child.` | [Plan](../plans/case-empty-curation-blocked.md) | `2026-04-10` |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-empty-curation-blocked.md"
+# Empty curation blocked fixture
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+# Blocker Unblocker Contracts
+
+## Current Blockers
+
+### CASE-EMPTY-CURATION-BLOCKED-001
+
+- Smallest unblocker: promote one child.
+EOF
+}
+
 setup_symlink_target_escape_case() {
   local repo_root="$1"
 
@@ -1682,6 +1761,12 @@ main() {
   run_case \
     "idle queue without curation regression" \
     setup_idle_queue_without_curation_case \
+    fail \
+    "Ready Now is empty, so Next Curation Target must contain 1-3 promotion candidates"
+  run_case "terminal empty curation regression" setup_terminal_empty_curation_case
+  run_case \
+    "empty curation without terminal status regression" \
+    setup_empty_curation_without_terminal_status_case \
     fail \
     "Ready Now is empty, so Next Curation Target must contain 1-3 promotion candidates"
   run_case \
