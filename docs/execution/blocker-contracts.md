@@ -228,13 +228,13 @@ Each blocked item should answer these questions:
 
 ### JN-RUNTIME-INTERPRETER-LEGACY-REBASE-001
 
-- Smallest unblocker: keep the old interpreter plan as reference-only and route
-  active runtime work through the runtime product blocker.
+- Smallest unblocker: none; the old interpreter plan is closed as
+  reference-only by `JN-RUNTIME-INTERPRETER-LEGACY-CLOSURE-001`.
 - Decision needed: none.
 - Recommended default: do not promote this blocker.
-- Candidate child: `JN-RUNTIME-INTERPRETER-LEGACY-CLOSURE-001`.
-- Target paths: `docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md`,
-  `docs/execution/queue.md`.
+- Candidate child: none currently.
+- Target paths: not set; future runtime product work should use active
+  `jazz-next` runtime product contracts and target paths.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: editing `jazz-hs/`, adding a second runtime path, or changing the
