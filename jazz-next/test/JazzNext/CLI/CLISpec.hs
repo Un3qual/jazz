@@ -49,6 +49,9 @@ tests =
     ("cli compile prints warnings to stderr while keeping stdout empty", testCliWarningOnlyBehavior),
     ("cli run returns non-zero and suppresses stdout when warning promoted", testCliPromotedWarningBehavior),
     ("cli --run prints evaluated runtime output", testCliRunModeSuccess),
+    ("cli --help prints usage without reading inputs", testCliHelpOutput),
+    ("cli -h prints usage without reading inputs", testCliShortHelpOutput),
+    ("cli help flag preempts other args and input reads", testCliHelpPreemptsOtherArgs),
     ("cli compiles positional source file quietly", testCliCompileSourceFileSuccess),
     ("cli --run executes positional source file", testCliRunSourceFileSuccess),
     ("cli positional source file reports missing file", testCliSourceFileMissing),
@@ -215,6 +218,80 @@ testCliRunModeSuccess = do
   where
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing
+
+testCliHelpOutput :: IO ()
+testCliHelpOutput = do
+  sourceRead <- newIORef False
+  configRead <- newIORef False
+  output <-
+    runCliWith
+      ["--help"]
+      envLookup
+      (recordConfigRead configRead)
+      (recordSourceRead sourceRead)
+  didReadSource <- readIORef sourceRead
+  didReadConfig <- readIORef configRead
+  assertHelpOutput "--help" output
+  assertEqual "source is not read" False didReadSource
+  assertEqual "config/prelude files are not read" False didReadConfig
+  where
+    envLookup "JAZZ_WARNING_CONFIG" = pure (Just "config/warnings.txt")
+    envLookup "JAZZ_PRELUDE" = pure (Just "stdlib/Prelude.jz")
+    envLookup _ = pure Nothing
+
+testCliShortHelpOutput :: IO ()
+testCliShortHelpOutput = do
+  sourceRead <- newIORef False
+  configRead <- newIORef False
+  output <-
+    runCliWith
+      ["-h"]
+      envLookup
+      (recordConfigRead configRead)
+      (recordSourceRead sourceRead)
+  didReadSource <- readIORef sourceRead
+  didReadConfig <- readIORef configRead
+  assertHelpOutput "-h" output
+  assertEqual "source is not read" False didReadSource
+  assertEqual "config/prelude files are not read" False didReadConfig
+  where
+    envLookup "JAZZ_WARNING_CONFIG" = pure (Just "config/warnings.txt")
+    envLookup "JAZZ_PRELUDE" = pure (Just "stdlib/Prelude.jz")
+    envLookup _ = pure Nothing
+
+testCliHelpPreemptsOtherArgs :: IO ()
+testCliHelpPreemptsOtherArgs = do
+  sourceRead <- newIORef False
+  configRead <- newIORef False
+  invalidOutput <-
+    runCliWith
+      ["--help", "--bad-arg"]
+      envLookup
+      (recordConfigRead configRead)
+      (recordSourceRead sourceRead)
+  missingSourceOutput <-
+    runCliWith
+      ["--help", "missing.jz"]
+      envLookup
+      (recordConfigRead configRead)
+      (recordSourceRead sourceRead)
+  moduleGraphOutput <-
+    runCliWith
+      ["--help", "--entry-module", "App::Main", "--module-root", "src"]
+      envLookup
+      (recordConfigRead configRead)
+      (recordSourceRead sourceRead)
+  didReadSource <- readIORef sourceRead
+  didReadConfig <- readIORef configRead
+  assertHelpOutput "invalid arg help" invalidOutput
+  assertHelpOutput "missing source help" missingSourceOutput
+  assertHelpOutput "module graph help" moduleGraphOutput
+  assertEqual "source is not read" False didReadSource
+  assertEqual "config/prelude files are not read" False didReadConfig
+  where
+    envLookup "JAZZ_WARNING_CONFIG" = pure (Just "config/warnings.txt")
+    envLookup "JAZZ_PRELUDE" = pure (Just "stdlib/Prelude.jz")
+    envLookup _ = pure Nothing
 
 testCliCompileSourceFileSuccess :: IO ()
 testCliCompileSourceFileSuccess = do
@@ -715,6 +792,27 @@ recordSourceRead :: IORef Bool -> IO Text
 recordSourceRead sourceRead = do
   writeIORef sourceRead True
   pure sampleSource
+
+recordConfigRead :: IORef Bool -> FilePath -> IO (Maybe Text)
+recordConfigRead configRead _ = do
+  writeIORef configRead True
+  pure Nothing
+
+assertHelpOutput :: Text -> CliOutput -> IO ()
+assertHelpOutput label output = do
+  assertEqual (label <> " exit code") 0 (cliExitCode output)
+  assertContains (label <> " usage heading") "Usage: jazz-next" (cliStdout output)
+  assertContains (label <> " run flag") "--run" (cliStdout output)
+  assertContains (label <> " source file") "source.jz" (cliStdout output)
+  assertContains (label <> " entry module") "--entry-module" (cliStdout output)
+  assertContains (label <> " module root") "--module-root" (cliStdout output)
+  assertContains (label <> " prelude flag") "--prelude" (cliStdout output)
+  assertContains (label <> " no prelude flag") "--no-prelude" (cliStdout output)
+  assertContains (label <> " warning config") "--warnings-config" (cliStdout output)
+  assertContains (label <> " warning flag") "-W<category>" (cliStdout output)
+  assertContains (label <> " help flag") "--help" (cliStdout output)
+  assertContains (label <> " short help flag") "-h" (cliStdout output)
+  assertEqual (label <> " stderr") "" (cliStderr output)
 
 testCliReportsSignatureTypeMismatch :: IO ()
 testCliReportsSignatureTypeMismatch = do

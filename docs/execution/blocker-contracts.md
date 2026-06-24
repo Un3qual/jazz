@@ -134,22 +134,20 @@ Each blocked item should answer these questions:
 
 ### JN-RUNTIME-PRODUCTIZE-CLOSURE-PLAN-001
 
-- Smallest unblocker: execute the promoted `Ready Now` implementation child
-  `JN-RUNTIME-CLI-HELP-001`.
-- Decision needed: none for the current child. After it lands, a later curation
-  pass must choose any additional product delta separately.
-- Recommended default: keep the current delta limited to explicit CLI help
-  output. Do not reopen runtime architecture, compile output, run output,
-  packaging, generated artifacts, or backend generation.
-- Candidate child: `JN-RUNTIME-CLI-HELP-001` is already promoted to
-  `Ready Now`; no additional candidate is pending.
-- Target paths: `jazz-next/src/JazzNext/CLI/Main.hs`,
-  `jazz-next/test/JazzNext/CLI/CLISpec.hs`, `jazz-next/README.md`.
+- Smallest unblocker: none is promotion-ready after the CLI help output child
+  landed.
+- Decision needed: choose a later runtime product delta separately if product
+  work continues.
+- Recommended default: keep the compile/run/help baseline closed. Do not reopen
+  runtime architecture, compile output, run output, packaging, generated
+  artifacts, or backend generation.
+- Candidate child: none currently.
+- Target paths: not set until the next product delta is accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: a second backend pipeline, generated artifact output, a bare
-  `help` subcommand, or changes to compile/run semantics beyond help
-  preemption.
+  `help` subcommand, or changes to compile/run/help semantics without a new
+  contract.
 
 ### JN-MODULE-REBASE-PLAN-001
 

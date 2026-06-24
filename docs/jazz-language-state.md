@@ -450,11 +450,11 @@ Based on the full repo, these areas still require implementation convergence eve
   read stdin by default or one positional `.jz` source file when provided; source
   files are rejected with module-graph `--entry-module` mode. The tooling
   contract is tracked in `docs/spec/tooling/cli-source-input.md`.
-- CLI discoverability is the next accepted runtime product delta:
-  `JN-RUNTIME-CLI-HELP-001` is scoped to explicit `--help` / `-h` usage output
-  that exits `0`, writes usage to stdout, preempts source/config/prelude/module
-  reads, avoids a bare `help` subcommand so positional source paths remain
-  intact, and keeps compile/run semantics unchanged.
+- CLI discoverability is active in `jazz-next`: explicit `--help` / `-h` usage
+  output exits `0`, writes usage to stdout, preempts
+  source/config/prelude/module reads, avoids a bare `help` subcommand so
+  positional source paths remain intact, and keeps compile/run semantics
+  unchanged.
 - Tuple literals, concrete tuple signature types, fixed-arity tuple case
   patterns, cons-like list case patterns, and pattern-shaped lambda parameters
   are now active core runtime/type features in `jazz-next`.

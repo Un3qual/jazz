@@ -13,12 +13,15 @@ target_paths:
   - docs/plans/2026-06-24-jazz-next-runtime-cli-product-delta-contract.md
   - docs/plans/2026-06-24-jazz-next-runtime-cli-help-implementation.md
   - docs/jazz-language-state.md
+  - jazz-next/src/JazzNext/CLI/Main.hs
+  - jazz-next/test/JazzNext/CLI/CLISpec.hs
+  - jazz-next/README.md
   - docs/execution/blocker-contracts.md
   - docs/execution/queue.md
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Keep runtime product work blocked on concrete deltas beyond the closed interpreter-first compile/run baseline. The current accepted delta is CLI help output, promoted as JN-RUNTIME-CLI-HELP-001."
+deliverable: "Keep runtime product work blocked on concrete deltas beyond the closed interpreter-first compile/run/help baseline. CLI help output landed as JN-RUNTIME-CLI-HELP-001; any further runtime product work needs a new concrete delta."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 ---
@@ -43,12 +46,10 @@ supersedes:
 
 ## Active Handoff
 
-The interpreter-first baseline is closed. Do not reopen runtime architecture
-from the milestone history below. The current accepted product delta is CLI help
-output only: `JN-RUNTIME-CLI-PRODUCT-DELTA-CONTRACT-001` promotes
-implementation child `JN-RUNTIME-CLI-HELP-001`. Additional runtime product work
-must name a later concrete CLI/runtime product delta with target paths and
-focused verification after that row lands.
+The interpreter-first compile/run/help baseline is closed. Do not reopen
+runtime architecture from the milestone history below. CLI help output landed
+as `JN-RUNTIME-CLI-HELP-001`. Additional runtime product work must name a later
+concrete CLI/runtime product delta with target paths and focused verification.
 
 ## Plan Progress
 
@@ -72,19 +73,25 @@ focused verification after that row lands.
 - [x] On `2026-06-24`, accepted the next runtime product delta as CLI help
       output only in `JN-RUNTIME-CLI-PRODUCT-DELTA-CONTRACT-001` and promoted
       implementation child `JN-RUNTIME-CLI-HELP-001`.
+- [x] On `2026-06-24`, implemented explicit `--help` and `-h` usage output
+      with preflight behavior before argument validation and source/config/
+      prelude/module reads.
 - [x] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next` for the active structured monomorphic subset.
 - [x] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
 - [x] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.
 - [x] Milestone 5 complete: module/import and stdlib execution semantics are closed on the active path.
 - [x] Milestone 6 complete: CLI/docs treat interpreter-backed execution as the canonical product path.
 
-## Active Baseline (2026-05-30)
+## Active Baseline (2026-06-24)
 
 - `JazzNext.Compiler.Driver` already coordinates standalone source, prelude-aware source, and module-graph execution.
 - `JazzNext.Compiler.Runtime` interprets the current core subset: ints, bools, lists, tuples, closures, constructor values/applications, pattern cases, builtin/kernel functions, operator values and sections, `if` via canonical `ECase`, and block scope evaluation.
 - `JazzNext.Compiler.TypeInference` consumes structured parser/core signature payloads for the supported monomorphic subset, including right-associated arrows, parenthesized function-type overrides, concrete tuples/lists, and the active constrained-signature subset; broader type schemes/defaulting remain blocked under the dedicated type plan.
 - `JazzNext.Compiler.ModuleResolver` resolves module graphs, validates import symbol lists/aliases, rejects importer references to exported dependency bindings excluded by explicit import lists, prevents alias-only imports from leaking dependency exports as unqualified names, and validates `Alias::symbol` references. `JazzNext.Compiler.Driver` replays resolved modules through the shared pipeline, injecting internal alias bridge bindings for qualified lookup; dependency modules contribute declarations during replay, while executable expression statements are preserved only for the entry module.
-- Successful compile paths are diagnostic-only and keep stdout empty on success, while successful run paths return interpreter output. The next accepted CLI product delta is explicit help output and must not change compile/run semantics.
+- Successful compile paths are diagnostic-only and keep stdout empty on
+  success, successful run paths return interpreter output, and explicit
+  `--help` / `-h` requests print CLI usage before normal argument/source/config/
+  prelude/module reads.
 
 ## Milestone 1 Closure (2026-04-10)
 
@@ -102,7 +109,7 @@ focused verification after that row lands.
 | Semantic normalization | `jazz-next/src/JazzNext/Compiler/Analyzer.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/src/JazzNext/Compiler/Purity.hs` | Performs binding and warning checks plus a small set of type/runtime-compatibility checks; canonicalizes `if` and `$`. | Replace raw-text signatures and shallow inference with real typed representations and richer error taxonomy. |
 | Runtime execution | `jazz-next/src/JazzNext/Compiler/Runtime.hs`, `jazz-next/src/JazzNext/Compiler/Driver.hs`, runtime/primitive/purity specs | Evaluates the current subset and returns rendered runtime output or fatal diagnostics. | Expand the runtime value model and evaluator in the same file family instead of creating a second execution pipeline. |
 | Module/runtime orchestration | `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`, `jazz-next/src/JazzNext/Compiler/Driver.hs`, loader/module specs | Resolves module graphs, replays sources, strips module declarations, and routes execution back through the same prelude/analyze/run path. | Re-author the module-loader plan around these modules before adding broader module semantics. |
-| CLI product surface | `jazz-next/src/JazzNext/CLI/Main.hs`, `jazz-next/test/JazzNext/CLI/CLISpec.hs` | Supports compile and run modes with explicit/no-prelude control. | Make interpreter-backed execution and deterministic exit/reporting behavior the documented default product surface. |
+| CLI product surface | `jazz-next/src/JazzNext/CLI/Main.hs`, `jazz-next/test/JazzNext/CLI/CLISpec.hs` | Supports compile, run, module graph, explicit/no-prelude, warning config, and help output modes. | Keep future CLI/runtime product changes blocked until a concrete delta is accepted. |
 
 ## Critical Dependency Map
 
