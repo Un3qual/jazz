@@ -95,19 +95,17 @@ Each blocked item should answer these questions:
 
 ### JN-TYPE-GRAMMAR-CLOSURE-PLAN-001
 
-- Smallest unblocker: execute the current `Ready Now` implementation child
-  `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001`.
-- Decision needed: none for the broad solver contract. It is accepted as
-  `JN-TYPE-SOLVER-CONTRACT-001`; remaining solver work must split into
-  verifier-backed implementation children.
-- Recommended default: keep the executable child limited to ordinary binding
-  type schemes and per-use instantiation. Do not add inferred class
-  constraints, broad defaulting, solver-backed constrained signatures, runtime
-  dictionaries, explicit type application, or primitive mixed-width behavior in
-  that first implementation child.
-- Candidate child: none currently; the executable child is already in
-  `docs/execution/queue.md#ready-now`.
-- Target paths: see `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001` in
+- Smallest unblocker: promote the next verifier-backed implementation child
+  from the accepted `JN-TYPE-SOLVER-CONTRACT-001` slices.
+- Decision needed: choose one remaining solver slice narrow enough for a child
+  row. The ordinary binding schemes/per-use instantiation child has landed.
+- Recommended default: keep any next executable child limited to one remaining
+  solver slice. Do not batch inferred class constraints, broad defaulting,
+  solver-backed constrained signatures, runtime dictionaries, explicit type
+  application, or primitive mixed-width behavior together.
+- Candidate child: none currently; the next curation pass must add a concrete
+  row before implementation resumes.
+- Target paths: update once a new child is promoted in
   `docs/execution/queue.md#ready-now`.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.

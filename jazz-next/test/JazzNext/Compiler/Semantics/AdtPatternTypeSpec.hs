@@ -86,6 +86,9 @@ tests =
     ( "source pipeline instantiates generic constructor values independently",
       testSourcePipelineInstantiatesGenericConstructorValuesIndependently
     ),
+    ( "source pipeline instantiates ordinary bindings that return generic constructors",
+      testSourcePipelineInstantiatesOrdinaryBindingsReturningGenericConstructors
+    ),
     ( "source pipeline treats constructor payloads as monomorphic",
       testSourcePipelineTreatsConstructorPayloadsAsMonomorphic
     ),
@@ -342,6 +345,11 @@ testSourcePipelineInstantiatesGenericConstructorValuesIndependently :: IO ()
 testSourcePipelineInstantiatesGenericConstructorValuesIndependently = do
   result <- compileSource defaultWarningSettings "data Box a = Box a. makeInt = if True Box else Box. makeBool = if False Box else Box. first = makeInt 1. second = makeBool True."
   assertCompiles "generic constructor values" result
+
+testSourcePipelineInstantiatesOrdinaryBindingsReturningGenericConstructors :: IO ()
+testSourcePipelineInstantiatesOrdinaryBindingsReturningGenericConstructors = do
+  result <- compileSource defaultWarningSettings "data Box a = Box a. make = \\(x) -> Box x. first = make 1. second = make True."
+  assertCompiles "ordinary binding returning generic constructor" result
 
 testSourcePipelineTreatsConstructorPayloadsAsMonomorphic :: IO ()
 testSourcePipelineTreatsConstructorPayloadsAsMonomorphic = do

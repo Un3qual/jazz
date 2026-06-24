@@ -63,6 +63,9 @@ tests =
     ("source pipeline analyzes impl method binding metadata", testSourceAnalyzesImplMethodBindingMetadata),
     ("source pipeline rejects variable-target impl method bindings", testSourceRejectsVariableTargetImplMethodBindings),
     ("source pipeline rejects variable-target empty impl declarations", testSourceRejectsVariableTargetEmptyImplDeclarations),
+    ("source pipeline instantiates ordinary binding schemes per use", testSourceInstantiatesOrdinaryBindingSchemesPerUse),
+    ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse),
+    ("source pipeline instantiates mutual recursive binding schemes per use", testSourceInstantiatesMutualRecursiveBindingSchemesPerUse),
     ("source pipeline rejects duplicate impl method bindings", testSourceRejectsDuplicateImplMethodBindings),
     ("source pipeline rejects non-binding impl body items", testSourceRejectsNonBindingImplBodyItem),
     ("source pipeline accepts single-target qualified method dispatch", testSourceAcceptsSingleTargetQualifiedMethodDispatch),
@@ -950,6 +953,18 @@ testSourceKeepsVariableConstrainedSignatureMonomorphic = do
     "source variable constrained signature monomorphic text"
     "cannot apply function of type Int -> Int to argument of type Bool"
     (compileErrors result)
+
+testSourceInstantiatesOrdinaryBindingSchemesPerUse :: IO ()
+testSourceInstantiatesOrdinaryBindingSchemesPerUse =
+  assertSourceOk "id = \\(x) -> x.\nintValue = id 1.\nboolValue = id True."
+
+testSourceInstantiatesRecursiveBindingSchemesPerUse :: IO ()
+testSourceInstantiatesRecursiveBindingSchemesPerUse =
+  assertSourceOk "choose = if True \\(x) -> x else choose.\nintValue = choose 1.\nboolValue = choose True."
+
+testSourceInstantiatesMutualRecursiveBindingSchemesPerUse :: IO ()
+testSourceInstantiatesMutualRecursiveBindingSchemesPerUse =
+  assertSourceOk "left = if True \\(x) -> x else right.\nright = if False \\(x) -> x else left.\nintValue = left 1.\nboolValue = right True."
 
 testSourceRejectsUnsupportedVariableConstrainedSignatureContract :: IO ()
 testSourceRejectsUnsupportedVariableConstrainedSignatureContract = do

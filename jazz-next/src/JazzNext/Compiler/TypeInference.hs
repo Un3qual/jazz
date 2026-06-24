@@ -247,8 +247,12 @@ data NumericConstraint
 
 data TypeBinding
   = PlainTypeBinding ExpressionType
+  | SchemeTypeBinding TypeScheme
   | BuiltinAliasTypeBinding BuiltinSymbol
   | ConstructorTypeBinding Identifier [Identifier] [ConstructorArgumentType]
+  deriving (Eq, Show)
+
+data TypeScheme = TypeScheme (Set Int) ExpressionType
   deriving (Eq, Show)
 
 type TypeEnv = Map Text TypeBinding
@@ -1005,6 +1009,8 @@ inferScopeType builtinMode initialEnv initialState statements =
     selfRecursiveFunctionStatements =
       inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
+    signedBindingStatements = collectSignedBindingStatements indexedStatements
+    statementsByIndex = Map.fromList indexedStatements
     (bindingSeedsByStatement, seededState) =
       allocateBindingSeeds indexedStatements initialState
     stateAfterBindingSeeds = seededState
@@ -1156,10 +1162,15 @@ inferScopeType builtinMode initialEnv initialState statements =
                                 (inferRuntimeTypeHints stateAfterSignatureCheck)
                           }
                       Nothing -> stateAfterSignatureCheck
-                  nextEnv =
-                    case nextBindingForValue nameText env valueExpr nextBindingType pendingSignatureType of
+                  nextEnvBeforeRecursiveGroupGeneralization =
+                    case nextBindingForValue statementIndex nameText env valueExpr nextBindingType pendingSignatureType stateAfterRuntimeHint of
                       Just binding -> Map.insert nameText binding env
                       Nothing -> env
+                  nextEnv =
+                    generalizeCompletedRecursiveGroup
+                      statementIndex
+                      nextEnvBeforeRecursiveGroupGeneralization
+                      stateAfterRuntimeHint
                in go nextEnv lastExprType Nothing moduleBaselineFacts stateAfterRuntimeHint rest
             SExpr exprSpan expr ->
               let (exprType, rawStateAfterExpr) = inferExprType builtinMode env state expr
@@ -1167,9 +1178,21 @@ inferScopeType builtinMode initialEnv initialState statements =
                     annotateNewErrorsWithPrimarySpan exprSpan state rawStateAfterExpr
                in go env exprType Nothing moduleBaselineFacts stateAfterExpr rest
 
-    nextBindingForValue :: Text -> TypeEnv -> Expr -> Maybe ExpressionType -> Maybe PendingSignatureType -> Maybe TypeBinding
-    nextBindingForValue bindingNameText currentEnv valueExpr maybeInferredType maybePendingSignature =
-      case valueExpr of
+    nextBindingForValue ::
+      Int ->
+      Text ->
+      TypeEnv ->
+      Expr ->
+      Maybe ExpressionType ->
+      Maybe PendingSignatureType ->
+      InferState ->
+      Maybe TypeBinding
+    nextBindingForValue statementIndex bindingNameText currentEnv valueExpr maybeInferredType maybePendingSignature state =
+      let monomorphicBinding =
+            if Set.member statementIndex (Map.keysSet recursiveGroupsByStatement)
+              then PlainTypeBinding <$> maybeInferredType
+              else ordinaryBindingForValue statementIndex currentEnv valueExpr maybeInferredType maybePendingSignature state
+       in case valueExpr of
         EVar builtinName ->
           let referencedName = identifierText builtinName
            in case Map.lookup referencedName currentEnv of
@@ -1180,15 +1203,75 @@ inferScopeType builtinMode initialEnv initialState statements =
                     isSyntheticAliasConstructorBinding bindingNameText referencedName ->
                       Just constructorBinding
                 Just _ ->
-                  PlainTypeBinding <$> maybeInferredType
+                  monomorphicBinding
                 Nothing ->
                   case lookupBuiltinSymbolInMode builtinMode referencedName of
                     Just builtinSymbol -> Just (BuiltinAliasTypeBinding builtinSymbol)
-                    Nothing -> PlainTypeBinding <$> maybeInferredType
-        _ -> PlainTypeBinding <$> maybeInferredType
+                    Nothing -> monomorphicBinding
+        _ -> monomorphicBinding
 
     isSyntheticAliasConstructorBinding bindingNameText referencedName =
       Text.isInfixOf "::" bindingNameText && Text.isPrefixOf "__module::" referencedName
+
+    ordinaryBindingForValue ::
+      Int ->
+      TypeEnv ->
+      Expr ->
+      Maybe ExpressionType ->
+      Maybe PendingSignatureType ->
+      InferState ->
+      Maybe TypeBinding
+    ordinaryBindingForValue statementIndex currentEnv valueExpr maybeInferredType maybePendingSignature state =
+      case maybeInferredType of
+        Just inferredType
+          | shouldGeneralizeOrdinaryBinding statementIndex currentEnv valueExpr maybePendingSignature ->
+              Just (generalizedOrdinaryBinding currentEnv state inferredType)
+        _ -> PlainTypeBinding <$> maybeInferredType
+
+    shouldGeneralizeOrdinaryBinding ::
+      Int ->
+      TypeEnv ->
+      Expr ->
+      Maybe PendingSignatureType ->
+      Bool
+    shouldGeneralizeOrdinaryBinding statementIndex currentEnv valueExpr maybePendingSignature =
+      isNothing maybePendingSignature
+        && Set.notMember statementIndex signedBindingStatements
+        && not (isDirectConstructorAlias currentEnv valueExpr)
+
+    generalizeCompletedRecursiveGroup :: Int -> TypeEnv -> InferState -> TypeEnv
+    generalizeCompletedRecursiveGroup statementIndex currentEnv state =
+      case Map.lookup statementIndex recursiveGroupsByStatement of
+        Just groupMembers
+          | not (null groupMembers),
+            statementIndex == last groupMembers ->
+              let groupBindingNames =
+                    Set.fromList
+                      [ bindingName
+                        | memberIndex <- groupMembers,
+                          Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement]
+                      ]
+                  envOutsideGroup =
+                    foldl' (flip Map.delete) currentEnv groupBindingNames
+               in foldl'
+                    (generalizeRecursiveGroupMember envOutsideGroup state)
+                    currentEnv
+                    groupMembers
+        _ -> currentEnv
+
+    generalizeRecursiveGroupMember :: TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
+    generalizeRecursiveGroupMember envOutsideGroup state currentEnv memberIndex =
+      case (Map.lookup memberIndex statementsByIndex, Map.lookup memberIndex bindingNamesByStatement) of
+        (Just (SLet _ _ valueExpr), Just bindingNameText)
+          | shouldGeneralizeOrdinaryBinding memberIndex envOutsideGroup valueExpr Nothing ->
+              case Map.lookup bindingNameText currentEnv of
+                Just (PlainTypeBinding expressionType) ->
+                  Map.insert
+                    bindingNameText
+                    (generalizedOrdinaryBinding envOutsideGroup state expressionType)
+                    currentEnv
+                _ -> currentEnv
+        _ -> currentEnv
 
 checkImplMethodBodies ::
   BuiltinResolutionMode ->
@@ -1587,6 +1670,105 @@ recursiveBindingEnv statementIndex env recursiveGroupsByStatement bindingNamesBy
               Map.insert bindingNameText (PlainTypeBinding bindingSeed) envAcc
         _ -> envAcc
 
+collectSignedBindingStatements :: [(Int, Statement)] -> Set Int
+collectSignedBindingStatements statements =
+  case statements of
+    (_, SSignature signatureName _ _) : (bindingIndex, SLet bindingName _ _) : rest
+      | identifierText signatureName == identifierText bindingName ->
+          Set.insert bindingIndex (collectSignedBindingStatements rest)
+    _ : rest -> collectSignedBindingStatements rest
+    [] -> Set.empty
+
+isDirectConstructorAlias :: TypeEnv -> Expr -> Bool
+isDirectConstructorAlias env expr =
+  case expr of
+    EVar referencedName ->
+      case Map.lookup (identifierText referencedName) env of
+        Just ConstructorTypeBinding {} -> True
+        _ -> False
+    _ -> False
+
+generalizedOrdinaryBinding :: TypeEnv -> InferState -> ExpressionType -> TypeBinding
+generalizedOrdinaryBinding env state expressionType =
+  let resolvedType = defaultLiteralTypes (resolveType state expressionType)
+      freeVariables = freeTypeVariables resolvedType
+      environmentVariables = freeTypeVariablesInEnv state env
+      quantifiedVariables = Set.difference freeVariables environmentVariables
+      constrainedVariables =
+        Set.union
+          (inferStrictEqualityVars state)
+          (Map.keysSet (inferNumericVars state))
+   in
+    if Set.null quantifiedVariables
+      || not (Set.null (Set.intersection quantifiedVariables constrainedVariables))
+      then PlainTypeBinding resolvedType
+      else SchemeTypeBinding (TypeScheme quantifiedVariables resolvedType)
+
+freeTypeVariablesInEnv :: InferState -> TypeEnv -> Set Int
+freeTypeVariablesInEnv state =
+  Set.unions . map (freeTypeVariablesInBinding state) . Map.elems
+
+freeTypeVariablesInBinding :: InferState -> TypeBinding -> Set Int
+freeTypeVariablesInBinding state binding =
+  case binding of
+    PlainTypeBinding expressionType ->
+      freeTypeVariables (resolveType state expressionType)
+    SchemeTypeBinding (TypeScheme quantifiedVariables expressionType) ->
+      Set.difference
+        (freeTypeVariables (resolveType state expressionType))
+        quantifiedVariables
+    BuiltinAliasTypeBinding {} -> Set.empty
+    ConstructorTypeBinding _ _ argumentTypes ->
+      Set.unions (map (freeTypeVariablesInConstructorArgument state) argumentTypes)
+
+freeTypeVariablesInConstructorArgument :: InferState -> ConstructorArgumentType -> Set Int
+freeTypeVariablesInConstructorArgument state argumentType =
+  case argumentType of
+    ConstructorArgumentMonomorphic expressionType ->
+      freeTypeVariables (resolveType state expressionType)
+    ConstructorArgumentParameter {} -> Set.empty
+    ConstructorArgumentFresh -> Set.empty
+
+freeTypeVariables :: ExpressionType -> Set Int
+freeTypeVariables expressionType =
+  case expressionType of
+    TIntType -> Set.empty
+    TIntegerLiteralType {} -> Set.empty
+    TFloatType -> Set.empty
+    TNumericType {} -> Set.empty
+    TBoolType -> Set.empty
+    TListType elementType ->
+      freeTypeVariables elementType
+    TTupleType elementTypes ->
+      Set.unions (map freeTypeVariables elementTypes)
+    TDataType _ typeArguments ->
+      Set.unions (map freeTypeVariables typeArguments)
+    TFunctionType inputType outputType ->
+      Set.union (freeTypeVariables inputType) (freeTypeVariables outputType)
+    TVarType typeVar ->
+      Set.singleton typeVar
+
+replaceTypeVariables :: Map Int ExpressionType -> ExpressionType -> ExpressionType
+replaceTypeVariables replacements expressionType =
+  case expressionType of
+    TIntType -> TIntType
+    TIntegerLiteralType literalRange -> TIntegerLiteralType literalRange
+    TFloatType -> TFloatType
+    TNumericType numericType -> TNumericType numericType
+    TBoolType -> TBoolType
+    TListType elementType ->
+      TListType (replaceTypeVariables replacements elementType)
+    TTupleType elementTypes ->
+      TTupleType (map (replaceTypeVariables replacements) elementTypes)
+    TDataType typeName typeArguments ->
+      TDataType typeName (map (replaceTypeVariables replacements) typeArguments)
+    TFunctionType inputType outputType ->
+      TFunctionType
+        (replaceTypeVariables replacements inputType)
+        (replaceTypeVariables replacements outputType)
+    TVarType typeVar ->
+      Map.findWithDefault expressionType typeVar replacements
+
 -- | Pending type signature state mirrors analyzer adjacency rules while
 -- carrying the normalized declaration type for the next binding.
 data PendingSignatureType = PendingSignatureType
@@ -1711,6 +1893,8 @@ instantiateTypeBinding binding state =
   case binding of
     PlainTypeBinding expressionType ->
       (Just (resolveType state expressionType), state)
+    SchemeTypeBinding typeScheme ->
+      instantiateTypeScheme typeScheme state
     BuiltinAliasTypeBinding builtinSymbol ->
       case instantiateBuiltinSymbolType builtinSymbol state of
         Just (expressionType, nextState) -> (Just expressionType, nextState)
@@ -1723,6 +1907,21 @@ instantiateTypeBinding binding state =
             nextState
           )
         Nothing -> (Nothing, state)
+
+instantiateTypeScheme :: TypeScheme -> InferState -> (Maybe ExpressionType, InferState)
+instantiateTypeScheme (TypeScheme quantifiedVariables expressionType) state =
+  let (freshBindings, nextState) =
+        foldl'
+          allocateFreshBinding
+          (Map.empty, state)
+          (Set.toList quantifiedVariables)
+      instantiatedType =
+        replaceTypeVariables freshBindings expressionType
+   in (Just (resolveType nextState instantiatedType), nextState)
+  where
+    allocateFreshBinding (bindings, stateAcc) typeVar =
+      let (freshType, nextState) = freshTypeVar stateAcc
+       in (Map.insert typeVar freshType bindings, nextState)
 
 instantiateQualifiedMethodType :: Text -> InferState -> Maybe (Maybe ExpressionType, InferState)
 instantiateQualifiedMethodType nameText state =
