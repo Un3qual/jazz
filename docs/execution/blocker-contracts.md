@@ -198,13 +198,14 @@ Each blocked item should answer these questions:
 
 ### JN-TRAIT-CLASS-LEGACY-REBASE-001
 
-- Smallest unblocker: close the legacy trait/class plan as reference-only after
-  active `class`/`impl` child plans have superseded it.
-- Decision needed: none; `trait` remains permanently rejected.
+- Smallest unblocker: none; the legacy trait/class cleanup plan is closed as
+  reference-only by `JN-TRAIT-CLASS-LEGACY-CLOSURE-001`.
+- Decision needed: none; active `jazz-next` permanently rejects
+  declaration-shaped `trait` syntax and uses canonical `class`/`impl`.
 - Recommended default: do not create new implementation work from this blocker.
-- Candidate child: `JN-TRAIT-CLASS-LEGACY-CLOSURE-001`.
-- Target paths: `docs/plans/spec-cleanup/2026-03-02/decisions/04-trait-vs-class-keyword.md`,
-  `docs/execution/queue.md`.
+- Candidate child: none currently.
+- Target paths: not set; future abstraction work should use the active
+  abstraction semantics blockers and `jazz-next` target paths.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: editing `jazz-hs/`, accepting `trait`, or adding a compatibility

@@ -26,10 +26,18 @@
 - [x] Item #3 (`!` purity semantics) is now implemented in active `jazz-next` with stub-v1 enforcement and documented contract:
   - `docs/spec/semantics/purity-bang-stub-v1.md`
   - `docs/plans/spec-cleanup/2026-03-02/decisions/03-purity-bang-semantics.md`
+- [x] Item #4 (`trait` vs `class`) is now closed as reference-only for the
+  legacy cleanup path. Active `jazz-next` uses canonical `class`/`impl`
+  declaration syntax and permanently rejects declaration-shaped `trait`
+  syntax with no compatibility alias or deprecation-warning path:
+  - `docs/spec/authoritative-syntax.md`
+  - `docs/plans/2026-06-24-jazz-next-trait-class-legacy-closure.md`
 
-## Locked Decisions (Approved 2026-03-02)
+## Locked Decisions
 
-- [x] Canonical abstraction keyword: `class` (`trait` becomes non-canonical/deprecated alias during migration)
+- [x] Canonical abstraction declaration syntax: `class` / `impl`. The old
+  migration-alias plan is superseded; active `jazz-next` permanently rejects
+  declaration-shaped `trait` syntax.
 - [x] Canonical `map`/`filter` order: function-first (`map f xs`, `filter p xs`)
 - [x] `!` purity semantics: compiler-enforced, delivered first as a stubbed V1 enforcement pass
 
