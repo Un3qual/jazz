@@ -601,10 +601,30 @@ def parse_verification_commands(row_context: str, raw_verification: str) -> tupl
     return verification_commands, False
 
 
-def has_terminal_empty_curation_status() -> bool:
+def extract_current_executor_status_text() -> str:
     if QUEUE_TEXT is None:
-        return False
-    normalized = normalize_text(QUEUE_TEXT).lower()
+        return ""
+    ready_lines = extract_section_lines(
+        QUEUE_TEXT, "Ready Now", QUEUE_PATH, required=False
+    )
+    if ready_lines is None:
+        return ""
+
+    for idx, line in enumerate(ready_lines):
+        if not normalize_text(line).lower().startswith("current executor status"):
+            continue
+        paragraph = [line]
+        for next_line in ready_lines[idx + 1 :]:
+            if not next_line.strip():
+                break
+            paragraph.append(next_line)
+        return normalize_text(" ".join(paragraph))
+
+    return ""
+
+
+def has_terminal_empty_curation_status() -> bool:
+    normalized = extract_current_executor_status_text().lower()
     source_backed_exhausted = any(
         phrase in normalized
         for phrase in (

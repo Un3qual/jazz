@@ -1215,6 +1215,51 @@ EOF
 EOF
 }
 
+setup_empty_curation_static_terminal_prose_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+Current executor status (`2026-04-10`): `Ready Now` is empty after a normal
+closure. Use `Next Curation Target` before promoting new implementation work.
+
+## Next Curation Target
+
+Use this section when `Ready Now` has no executable entry. Leave this table
+empty only when the current executor status explicitly says there is no
+source-backed next curation target and no named candidate currently.
+
+| blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+| `CASE-STATIC-PROSE-BLOCKED-001` | `Static prose blocked` | `Concrete child split` | `Needs one child.` | [Plan](../plans/case-static-prose-blocked.md) | `2026-04-10` |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-static-prose-blocked.md"
+# Static prose blocked fixture
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+# Blocker Unblocker Contracts
+
+## Current Blockers
+
+### CASE-STATIC-PROSE-BLOCKED-001
+
+- Smallest unblocker: promote one child.
+EOF
+}
+
 setup_symlink_target_escape_case() {
   local repo_root="$1"
 
@@ -1767,6 +1812,11 @@ main() {
   run_case \
     "empty curation without terminal status regression" \
     setup_empty_curation_without_terminal_status_case \
+    fail \
+    "Ready Now is empty, so Next Curation Target must contain 1-3 promotion candidates"
+  run_case \
+    "empty curation with static terminal prose regression" \
+    setup_empty_curation_static_terminal_prose_case \
     fail \
     "Ready Now is empty, so Next Curation Target must contain 1-3 promotion candidates"
   run_case \
