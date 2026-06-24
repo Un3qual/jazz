@@ -2143,6 +2143,8 @@ parseCaseArm knownAliases declaredOperators tokens = do
     stopsBeforeCaseGuardBoundary allTokens =
       case allTokens of
         Token {tokenKind = TArrow} : _ -> True
+        Token {tokenKind = TOperator "|"} : rest ->
+          startsDefiniteCaseArmAfterGuardBoundary rest
         Token {tokenKind = TRBrace} : _ -> True
         _ -> False
 
@@ -2164,6 +2166,19 @@ parseCaseArm knownAliases declaredOperators tokens = do
           | startsCasePatternTokens remainingTokens ->
               hasTopLevelArrowBeforeCaseArmBoundary remainingTokens
         _ -> False
+
+    startsDefiniteCaseArmAfterGuardBoundary remainingTokens =
+      case parseCasePattern remainingTokens of
+        Right (casePattern, Token {tokenKind = TArrow} : _) ->
+          guardBoundaryPatternIsDefinite casePattern
+        Right (casePattern, Token {tokenKind = TIf} : afterGuard) ->
+          guardBoundaryPatternIsDefinite casePattern && hasTopLevelGuardArrow afterGuard
+        _ -> False
+
+    guardBoundaryPatternIsDefinite casePattern =
+      case casePattern of
+        SPVariable {} -> False
+        _ -> True
 
     hasTopLevelGuardArrow = go 0 0 0
       where

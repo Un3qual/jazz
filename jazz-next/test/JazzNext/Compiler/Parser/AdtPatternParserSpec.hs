@@ -88,6 +88,7 @@ tests =
     ("rejects malformed list patterns", testRejectsMalformedListPattern),
     ("rejects malformed later list patterns", testRejectsMalformedLaterListPattern),
     ("rejects malformed guard expression", testRejectsMalformedGuardExpression),
+    ("rejects missing guard arrow before constructor arm", testRejectsMissingGuardArrowBeforeConstructorArm),
     ("lowers parsed case nodes into core AST", testLowerCaseExpression)
   ]
 
@@ -1075,6 +1076,13 @@ testRejectsMalformedGuardExpression =
     "malformed guard expression"
     "expected guard expression"
     (parseSurfaceProgram "x = case value { | item if -> item }.")
+
+testRejectsMissingGuardArrowBeforeConstructorArm :: IO ()
+testRejectsMissingGuardArrowBeforeConstructorArm =
+  assertLeftDiagnosticContains
+    "missing guard arrow before constructor arm"
+    "expected '->'"
+    (parseSurfaceProgram "x = case value { | Just item if item > 0 | Nothing -> 0 }.")
 
 testLowerCaseExpression :: IO ()
 testLowerCaseExpression =
