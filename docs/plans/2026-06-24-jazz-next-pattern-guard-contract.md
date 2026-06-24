@@ -1,6 +1,6 @@
 ---
 id: JN-PATTERN-GUARD-CONTRACT-001
-status: ready
+status: done
 priority: P1
 size: S
 kind: coordination
@@ -8,7 +8,8 @@ autonomous_ready: yes
 depends_on:
   - JN-PATTERN-FUTURE-FORMS-PLAN-001
 last_verified: 2026-06-24
-plan_section: "Contract batch: Pattern guards only"
+completed_on: 2026-06-24
+plan_section: "Completed contract batch: Pattern guards only"
 target_paths:
   - docs/spec/pattern-matching-semantics.md
   - docs/spec/adt-pattern-semantics.md
@@ -27,6 +28,12 @@ supersedes:
 > Active-path coordination child for `JN-PATTERN-FUTURE-FORMS-PLAN-001`. This
 > batch locks one future pattern form, guards only, before any parser, type, or
 > runtime implementation work.
+
+Completed on `2026-06-24`. The accepted contract is recorded in
+`docs/spec/pattern-matching-semantics.md`,
+`docs/spec/adt-pattern-semantics.md`, and
+`docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`.
+Implementation is promoted separately as `JN-PATTERN-GUARD-SEMANTICS-001`.
 
 **Goal:** define the first guard contract for `jazz-next` pattern matching while
 keeping the landed literal, wildcard, variable, constructor, list, tuple, and

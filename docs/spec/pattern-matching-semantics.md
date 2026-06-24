@@ -1,6 +1,6 @@
 # Pattern Matching Semantics
 
-Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, and as-patterns parse/lower, typecheck, and execute end-to-end in `jazz-next` `case` arms and lambda parameters)
+Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, and as-patterns parse/lower, typecheck, and execute end-to-end in `jazz-next` `case` arms and lambda parameters; pattern guard semantics are accepted as a queued implementation contract, not active execution yet)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -62,6 +62,8 @@ Current parser/core invariants:
 9. Lambda parameter patterns lower to ordinary unary lambdas whose bodies
    perform an internal single-arm `EPatternCase`, so parameter destructuring
    reuses the same binder, type, and runtime matching contract.
+10. Pattern guards are accepted as an optional case-arm guard contract, but
+    parser/core/type/runtime implementation is queued separately.
 
 ## Matching Contract For The Committed Runtime Subset
 
@@ -104,6 +106,15 @@ sumPairFn = \((left, right)) -> left + right.
 sameValue = case value { | whole @ Just item -> whole | _ -> value }.
 ```
 
+Queued guard contract example:
+
+```jz
+positive = case value {
+  | Just item if item > 0 -> item
+  | _ -> 0
+}.
+```
+
 ## Current Active Execution State
 
 1. Parser, surface AST, and core AST now represent constructor, bracketed-list,
@@ -143,15 +154,71 @@ sameValue = case value { | whole @ Just item -> whole | _ -> value }.
 12. If no arm matches at runtime, evaluation emits deterministic `E3022`
    diagnostics rather than falling through silently.
 
+## Accepted Pattern Guard Contract
+
+Pattern guards are the next accepted future pattern form. They are not a new
+pattern node; they are optional boolean expressions attached to a case arm after
+the pattern and before `->`:
+
+```jz
+case value {
+  | Just item if item > 0 -> item
+  | _ -> 0
+}
+```
+
+Surface rules:
+
+- A guarded arm has the shape `| <pattern> if <guard-expr> -> <body-expr>`.
+- The `if` token is the guard introducer and reuses the existing keyword.
+- Unguarded arms keep the existing `| <pattern> -> <body-expr>` form.
+- At most one guard expression is accepted per arm.
+
+Binder and type rules:
+
+- Pattern matching and pattern typechecking run before the guard expression.
+- Binders introduced by the pattern are visible to the guard expression and the
+  selected arm body.
+- Guard expressions introduce no binders and do not change duplicate-binder
+  checks.
+- The guard expression must typecheck as `Bool` in the pattern-extended arm
+  environment.
+- Guard expressions do not participate in arm result agreement; `E2012` remains
+  body-result ownership.
+
+Runtime rules:
+
+- Arms are tested from top to bottom.
+- Runtime matches the pattern first.
+- If the pattern fails, the guard and body are not evaluated.
+- If the pattern matches, runtime evaluates the guard in the environment
+  containing pattern binders.
+- `True` selects the arm and evaluates the body.
+- `False` falls through to the next arm.
+- If no arm is selected after pattern and guard checks, runtime emits the
+  existing no-match diagnostic `E3022`.
+- Runtime errors from guard evaluation are fatal only for guards that are
+  actually evaluated.
+
+Diagnostics:
+
+- Malformed guard syntax is parser-owned and points at the guard introducer or
+  malformed guard expression.
+- A non-`Bool` guard is a compile-time type diagnostic at the guard expression
+  span, using guard-specific text in the existing boolean-condition diagnostic
+  family.
+- Pattern mismatch, unknown constructor, arity mismatch, duplicate binder, and
+  arm-result mismatch diagnostics keep their existing ownership and codes.
+
 ## Deferred Pattern Forms
 
-Pattern guards, or-patterns, and pattern synonyms remain blocked until separate
-active-path contracts define parser shape, binder scope, type rules, runtime
-matching behavior, diagnostics, target paths, and focused verification.
+Or-patterns and pattern synonyms remain blocked until separate active-path
+contracts define parser shape, binder scope, type rules, runtime matching
+behavior, diagnostics, target paths, and focused verification.
 
 ## Non-Goals
 
-1. Pattern guards, or-patterns, and pattern synonyms.
+1. Or-patterns, pattern synonyms, and multiple guard clauses per arm.
 2. Exhaustiveness analysis beyond deterministic first-match semantics.
 3. Match-compilation optimizations or decision-tree lowering.
 4. Any new parser/type/runtime behavior under `jazz-hs/` or `jazz2/`.
