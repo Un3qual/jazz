@@ -134,19 +134,22 @@ Each blocked item should answer these questions:
 
 ### JN-RUNTIME-PRODUCTIZE-CLOSURE-PLAN-001
 
-- Smallest unblocker: name one concrete CLI/runtime product delta beyond the
-  closed diagnostic-only compile and `--run` baseline.
-- Decision needed: whether the next product delta is examples, packaging,
-  command naming, runtime output formatting, or error presentation.
-- Recommended default: do not reopen runtime architecture; choose a user-visible
-  CLI behavior delta with a focused `CLISpec` owner.
-- Candidate child: `JN-RUNTIME-CLI-PRODUCT-DELTA-CONTRACT-001`.
-- Target paths: `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`,
-  `docs/jazz-language-state.md`, `docs/execution/queue.md`.
+- Smallest unblocker: execute the promoted `Ready Now` implementation child
+  `JN-RUNTIME-CLI-HELP-001`.
+- Decision needed: none for the current child. After it lands, a later curation
+  pass must choose any additional product delta separately.
+- Recommended default: keep the current delta limited to explicit CLI help
+  output. Do not reopen runtime architecture, compile output, run output,
+  packaging, generated artifacts, or backend generation.
+- Candidate child: `JN-RUNTIME-CLI-HELP-001` is already promoted to
+  `Ready Now`; no additional candidate is pending.
+- Target paths: `jazz-next/src/JazzNext/CLI/Main.hs`,
+  `jazz-next/test/JazzNext/CLI/CLISpec.hs`, `jazz-next/README.md`.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: a second backend pipeline, generated artifact output, or
-  changes to compile/run semantics without a named product delta.
+- Not in scope: a second backend pipeline, generated artifact output, a bare
+  `help` subcommand, or changes to compile/run semantics beyond help
+  preemption.
 
 ### JN-MODULE-REBASE-PLAN-001
 
