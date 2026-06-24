@@ -23,6 +23,12 @@
 
 ## Resolution Updates Since Plan Creation
 
+- [x] Item #2 (`map`/`filter` argument order) is now closed for active
+  `jazz-next`: canonical order is function-first (`map f xs`, `filter p xs`),
+  active examples no longer require collection-first compatibility, and no
+  parser alias, runtime adapter, or deprecation-warning path is planned:
+  - `docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md`
+  - `docs/spec/authoritative-syntax.md`
 - [x] Item #3 (`!` purity semantics) is now implemented in active `jazz-next` with stub-v1 enforcement and documented contract:
   - `docs/spec/semantics/purity-bang-stub-v1.md`
   - `docs/plans/spec-cleanup/2026-03-02/decisions/03-purity-bang-semantics.md`

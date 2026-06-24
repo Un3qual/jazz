@@ -242,14 +242,14 @@ Each blocked item should answer these questions:
 
 ### JN-MAP-FILTER-COMPAT-PLAN-001
 
-- Smallest unblocker: decide whether any docs-only migration work remains after
-  function-first `map` and `filter` landed.
-- Decision needed: compatibility policy for old examples, if any still exist.
-- Recommended default: close as docs-only if searches find no active stale
-  examples; do not create compiler work.
-- Candidate child: `JN-MAP-FILTER-COMPAT-CLOSURE-001`.
-- Target paths: `docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md`,
-  `README.md`, `docs/execution/queue.md`.
+- Smallest unblocker: none; active examples/specs/tests no longer require
+  collection-first compatibility, and the legacy cleanup item was closed by
+  `JN-MAP-FILTER-COMPAT-CLOSURE-001`.
+- Decision needed: none.
+- Recommended default: do not promote this blocker.
+- Candidate child: none currently.
+- Target paths: not set; future collection primitive work should use active
+  `jazz-next` primitive, stdlib-boundary, or runtime-product contracts.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: parser changes, compatibility aliases, or runtime behavior

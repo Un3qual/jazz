@@ -286,17 +286,20 @@ Key examples:
 
 Several important inconsistencies exist between the aspirational README and the concrete Haskell implementation.
 
-### `map` Argument Order
+### `map`/`filter` Argument Order
 
-The top-level README documents:
+This mismatch has been resolved in active docs and `jazz-next` behavior. The
+top-level README now documents and demonstrates function-first collection
+combinators:
 
 - `map :: (a -> b) -> [a] -> [b]`
+- `map f xs`
+- `filter p xs`
 
-But its example uses:
-
-- `map myArr \(i) -> ...`
-
-That example is collection-first, while `jazz-hs` implements `map` as function-first. The example and the implementation do not agree.
+Historical collection-first examples such as `map xs f` or `filter xs p` are
+non-canonical archival evidence only. Active `jazz-next` work must not add a
+parser alias, runtime adapter, or deprecated-syntax warning path for those
+forms.
 
 ### Function Definition Style
 
