@@ -9,8 +9,9 @@ This document consolidates what the repository currently says about Jazz across:
 The codebase is now governed by an explicit authority policy:
 
 1. Canonical language rules belong in `docs/spec/*`.
-2. Until a semantic area is fully specified there, `jazz-hs` behavior/tests are the temporary behavioral authority.
-3. `jazz2` is reference-only and non-normative in the current phase.
+2. Active compiler behavior belongs in `jazz-next/` and its linked tests/plans.
+3. `jazz-hs` and `jazz2` are read-only reference implementations unless a user
+   explicitly asks for legacy maintenance.
 
 Policy reference:
 
@@ -27,7 +28,10 @@ Jazz appears intended to be a statically typed, mostly functional language inspi
 - algebraic data types and pattern matching
 - a trait/typeclass-like abstraction system
 
-Today, the only end-to-end implemented subset is much smaller. In practice, `jazz-hs` supports a small expression language that can be parsed, type-checked, optimized a little, and compiled to JavaScript. Many richer features parse but do not work end to end.
+Today, the active end-to-end implementation is the smaller `jazz-next` subset
+tracked by `docs/feature-status.md`, the runtime/semantic specs, and the
+execution queue. The older `jazz-hs` compiler remains useful historical
+evidence, but its parse-only behavior is not an active implementation target.
 
 ## What The Top-Level README Claims
 
@@ -62,11 +66,11 @@ The README examples also imply:
 - lists use `[ ... ]`
 - function application can be space-separated
 
-## What `jazz-hs` Actually Implements
+## What Legacy `jazz-hs` Actually Implements
 
-`jazz-hs` is the main concrete source of truth. Its local [README](../jazz-hs/README.md) is empty, so the real spec lives in parser, AST, type inference, tests, and example programs.
+`jazz-hs` is a legacy reference implementation. Its local [README](../jazz-hs/README.md) is empty, so its behavior is visible through parser, AST, type inference, tests, and example programs, but new compiler work should not target it.
 
-### Active Pipeline
+### Legacy Pipeline
 
 The implemented pipeline in [jazz-hs/src/Lib.hs](../jazz-hs/src/Lib.hs) is:
 
@@ -256,9 +260,11 @@ The JS backend in [jazz-hs/src/CodeGen/Javascript.hs](../jazz-hs/src/CodeGen/Jav
 
 Constant folding in the optimizer only handles integer `+`, `-`, and `*`.
 
-## `jazz-hs` Features That Exist Mostly As Scaffolding
+## Legacy `jazz-hs` Features That Exist Mostly As Scaffolding
 
-A large part of the richer language exists in AST and parser form, but is not fully supported by analysis and code generation.
+A large part of the richer language exists in legacy `jazz-hs` AST and parser
+form, but is not fully supported by analysis and code generation. This is
+historical evidence only; active feature work must use `jazz-next` contracts.
 
 These features appear partially implemented or parse-only:
 

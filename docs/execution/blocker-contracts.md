@@ -257,14 +257,14 @@ Each blocked item should answer these questions:
 
 ### JN-PARSE-ONLY-LEGACY-REBASE-001
 
-- Smallest unblocker: write an active-path feature-resolution matrix only if a
-  parse-only feature still needs implementation in `jazz-next`.
-- Decision needed: which parse-only feature is still product-relevant.
-- Recommended default: keep blocked until a concrete active feature is named.
-- Candidate child: `JN-PARSE-ONLY-ACTIVE-MATRIX-001`.
-- Target paths: `docs/feature-status.md`, `docs/jazz-language-state.md`,
-  `docs/plans/spec-cleanup/2026-03-02/compiler/06-parse-only-features-resolution.md`,
-  `docs/execution/queue.md`.
+- Smallest unblocker: none; the active matrix check found no standalone
+  implementation-ready `jazz-next` parse-only feature, and the legacy cleanup
+  item was closed by `JN-PARSE-ONLY-ACTIVE-MATRIX-001`.
+- Decision needed: none.
+- Recommended default: do not promote this blocker.
+- Candidate child: none currently.
+- Target paths: not set; future parser-only or parser-mostly surfaces should
+  use their owning active blockers and contracts.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: editing `jazz-hs/`, reviving legacy codegen, or broad parser

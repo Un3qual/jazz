@@ -38,6 +38,13 @@
   syntax with no compatibility alias or deprecation-warning path:
   - `docs/spec/authoritative-syntax.md`
   - `docs/plans/2026-06-24-jazz-next-trait-class-legacy-closure.md`
+- [x] Item #6 (parse-only feature cleanup) is now closed as reference-only for
+  the legacy `jazz-hs` path. The active matrix found no standalone
+  implementation-ready `jazz-next` parse-only feature: module/import v1 is
+  covered by its active harness, and parser-only operator declarations stay
+  routed through the operator blocker:
+  - `docs/plans/spec-cleanup/2026-03-02/compiler/06-parse-only-features-resolution.md`
+  - `docs/plans/2026-06-24-jazz-next-parse-only-active-matrix.md`
 
 ## Locked Decisions
 
@@ -46,6 +53,8 @@
   declaration-shaped `trait` syntax.
 - [x] Canonical `map`/`filter` order: function-first (`map f xs`, `filter p xs`)
 - [x] `!` purity semantics: compiler-enforced, delivered first as a stubbed V1 enforcement pass
+- [x] Legacy `jazz-hs` parse-only cleanup is reference-only; active
+  parser-only work must use the owning `jazz-next` blocker/contract.
 
 ## Plan Files
 
