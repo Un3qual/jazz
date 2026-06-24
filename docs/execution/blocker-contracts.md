@@ -272,17 +272,15 @@ Each blocked item should answer these questions:
 
 ### JN-PURITY-EFFECT-TYPING-PLAN-001
 
-- Smallest unblocker: define the next effect-system contract beyond stub-v1
-  bang-suffix enforcement.
-- Decision needed: whether the next step is higher-order purity, effect types,
-  cross-module purity graphs, or runtime enforcement.
-- Recommended default: keep blocked until the solver and module-method contracts
-  are clearer; do not add partial effect typing opportunistically.
-- Candidate child: `JN-PURITY-EFFECT-CONTRACT-001`.
-- Target paths: `docs/spec/semantics/purity-bang-stub-v1.md`,
-  `docs/plans/spec-cleanup/2026-03-02/decisions/03-purity-bang-semantics.md`,
-  `docs/execution/queue.md`.
+- Smallest unblocker: none currently; the active evidence refresh in
+  `JN-PURITY-EFFECT-CONTRACT-001` kept broader effect typing blocked pending
+  remaining solver and module-method/export/runtime-evidence contracts.
+- Decision needed: none until those prerequisite contracts are clearer.
+- Recommended default: do not promote partial effect typing opportunistically.
+- Candidate child: none currently.
+- Target paths: not set until a future effect-system contract is accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: runtime enforcement, inferred effects, or cross-module graph
-  implementation before the contract lands.
+- Not in scope: runtime enforcement, inferred effects, effect types,
+  cross-module purity graphs, or effect typing in signatures before a future
+  contract lands.
