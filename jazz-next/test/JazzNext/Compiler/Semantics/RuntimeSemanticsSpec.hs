@@ -84,6 +84,7 @@ tests =
     ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError),
     ("pattern-case alias-only recursive cycle produces deterministic runtime diagnostic", testPatternCaseAliasOnlyRecursiveCycleRuntimeError),
     ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer),
+    ("pattern-case guard lambda does not classify non-function recursion", testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion),
     ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError),
     ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError),
     ("nested block alias cycle ignores later outer peer name", testNestedBlockAliasCycleIgnoresLaterOuterPeer),
@@ -435,6 +436,26 @@ testPatternCaseBinderDoesNotAliasRecursivePeer = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "0") (runOutput result)
+
+testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion :: IO ()
+testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "x = case 1 { | 0 if (\\(value) -> True) 0 -> 0 | _ -> x }. x.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected pattern-case guard-lambda recursion to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for guard-lambda recursion, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "guard-lambda recursion runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "guard-lambda recursion runtime text"
+        "no concrete value"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
 
 testBlockWrappedAliasOnlyRecursiveCycleRuntimeError :: IO ()
 testBlockWrappedAliasOnlyRecursiveCycleRuntimeError = do

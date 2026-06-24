@@ -909,10 +909,7 @@ exprContainsFunctionBranch expr =
         || exprContainsFunctionBranch elseExpr
     EPatternCase _ caseArms ->
       any
-        ( \(CaseArm _ guardExpr bodyExpr) ->
-            maybe False exprContainsFunctionBranch guardExpr
-              || exprContainsFunctionBranch bodyExpr
-        )
+        (\(CaseArm _ _ bodyExpr) -> exprContainsFunctionBranch bodyExpr)
         caseArms
     EBlock statements ->
       scopeContainsFunctionBranch statements
@@ -951,12 +948,8 @@ scopeContainsFunctionBranch statements =
             || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
         EPatternCase _ caseArms ->
           any
-            ( \(CaseArm _ guardExpr bodyExpr) ->
-                maybe
-                  False
-                  (exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings)
-                  guardExpr
-                  || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings bodyExpr
+            ( \(CaseArm _ _ bodyExpr) ->
+                exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings bodyExpr
             )
             caseArms
         EBlock nestedStatements ->

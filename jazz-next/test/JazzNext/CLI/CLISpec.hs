@@ -11,6 +11,7 @@ import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.CLI.Main
   ( CliOptions (..),
     CliOutput (..),
@@ -801,18 +802,34 @@ recordConfigRead configRead _ = do
 assertHelpOutput :: Text -> CliOutput -> IO ()
 assertHelpOutput label output = do
   assertEqual (label <> " exit code") 0 (cliExitCode output)
-  assertContains (label <> " usage heading") "Usage: jazz-next" (cliStdout output)
-  assertContains (label <> " run flag") "--run" (cliStdout output)
-  assertContains (label <> " source file") "source.jz" (cliStdout output)
-  assertContains (label <> " entry module") "--entry-module" (cliStdout output)
-  assertContains (label <> " module root") "--module-root" (cliStdout output)
-  assertContains (label <> " prelude flag") "--prelude" (cliStdout output)
-  assertContains (label <> " no prelude flag") "--no-prelude" (cliStdout output)
-  assertContains (label <> " warning config") "--warnings-config" (cliStdout output)
-  assertContains (label <> " warning flag") "-W<category>" (cliStdout output)
-  assertContains (label <> " help flag") "--help" (cliStdout output)
-  assertContains (label <> " short help flag") "-h" (cliStdout output)
+  assertEqual (label <> " stdout") expectedHelpOutput (cliStdout output)
   assertEqual (label <> " stderr") "" (cliStderr output)
+
+expectedHelpOutput :: Text
+expectedHelpOutput =
+  Text.unlines
+    [ "Usage: jazz-next [--run] [options] [source.jz]",
+      "       jazz-next [--run] --entry-module Module::Path [--module-root DIR...] [options]",
+      "",
+      "Modes:",
+      "  compile                         Parse/analyze source; success prints no stdout.",
+      "  --run                           Execute source and print the final runtime value.",
+      "",
+      "Source:",
+      "  source.jz                       Read one source file instead of stdin.",
+      "  --entry-module Module::Path      Load a module graph entrypoint.",
+      "  --module-root DIR                Add a module graph search root.",
+      "",
+      "Prelude and warnings:",
+      "  --prelude PATH                   Use an explicit Prelude source.",
+      "  --no-prelude                     Disable the bundled Prelude.",
+      "  --warnings-config PATH           Read warning settings from PATH.",
+      "  -W<category>                     Enable a warning category.",
+      "  -Werror=<category>               Promote a warning category to an error.",
+      "",
+      "Help:",
+      "  --help, -h                       Show this help text."
+    ]
 
 testCliReportsSignatureTypeMismatch :: IO ()
 testCliReportsSignatureTypeMismatch = do

@@ -2138,11 +2138,12 @@ parseCaseArm knownAliases declaredOperators tokens = do
         Token {tokenKind = TOperator "|"} : _ ->
           Left (parseDiagnostic "expected guard expression before next case arm")
         _ ->
-          parseExprWithMinPrecedenceUntil knownAliases declaredOperators stopsBeforeCaseGuardArrow 1 allTokens
+          parseExprWithMinPrecedenceUntil knownAliases declaredOperators stopsBeforeCaseGuardBoundary 1 allTokens
 
-    stopsBeforeCaseGuardArrow allTokens =
+    stopsBeforeCaseGuardBoundary allTokens =
       case allTokens of
         Token {tokenKind = TArrow} : _ -> True
+        Token {tokenKind = TRBrace} : _ -> True
         _ -> False
 
     -- Case-arm bodies are expression-shaped, so a `|` operator only starts the
@@ -2158,11 +2159,43 @@ parseCaseArm knownAliases declaredOperators tokens = do
       case parseCasePattern remainingTokens of
         Right (_, Token {tokenKind = TArrow} : _) -> True
         Right (_, Token {tokenKind = TIf} : afterGuard) ->
-          hasTopLevelArrowBeforeCaseArmBoundary afterGuard
+          hasTopLevelGuardArrow afterGuard
         Left _
           | startsCasePatternTokens remainingTokens ->
               hasTopLevelArrowBeforeCaseArmBoundary remainingTokens
         _ -> False
+
+    hasTopLevelGuardArrow = go 0 0 0
+      where
+        go parenDepth braceDepth bracketDepth allTokens =
+          case allTokens of
+            []
+              -> False
+            Token {tokenKind = TArrow} : _
+              | atTopLevel -> True
+            Token {tokenKind = TRBrace} : _
+              | atTopLevel -> False
+            Token {tokenKind = TLParen} : rest ->
+              go (parenDepth + 1) braceDepth bracketDepth rest
+            Token {tokenKind = TRParen} : rest ->
+              go (decrementIfPositive parenDepth) braceDepth bracketDepth rest
+            Token {tokenKind = TLBrace} : rest ->
+              go parenDepth (braceDepth + 1) bracketDepth rest
+            Token {tokenKind = TRBrace} : rest ->
+              go parenDepth (decrementIfPositive braceDepth) bracketDepth rest
+            Token {tokenKind = TLBracket} : rest ->
+              go parenDepth braceDepth (bracketDepth + 1) rest
+            Token {tokenKind = TRBracket} : rest ->
+              go parenDepth braceDepth (decrementIfPositive bracketDepth) rest
+            _ : rest ->
+              go parenDepth braceDepth bracketDepth rest
+          where
+            atTopLevel =
+              parenDepth == 0 && braceDepth == 0 && bracketDepth == 0
+
+        decrementIfPositive depth
+          | depth > 0 = depth - 1
+          | otherwise = 0
 
     hasTopLevelArrowBeforeCaseArmBoundary = go 0 0 0
       where

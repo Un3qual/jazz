@@ -1058,6 +1058,12 @@ inferScopeType builtinMode initialEnv initialState statements =
                in go env lastExprType nextPendingSignature moduleBaselineFacts nextState rest
             SLet name bindingSpan valueExpr ->
               let nameText = identifierText name
+                  matchingPendingSignature =
+                    case pendingSignatureType of
+                      Just pendingSignature
+                        | pendingSignatureName pendingSignature == nameText ->
+                            Just pendingSignature
+                      _ -> Nothing
                   envWithRecursiveBindings =
                     recursiveBindingEnv
                       statementIndex
@@ -1074,20 +1080,15 @@ inferScopeType builtinMode initialEnv initialState statements =
                         Map.insert nameText (PlainTypeBinding bindingSeed) envWithRecursiveBindings
                       _ -> envWithRecursiveBindings
                   envWithPendingSignature =
-                    case pendingSignatureType of
-                      Just pendingSignature
-                        | pendingSignatureName pendingSignature == nameText ->
-                            Map.insert
-                              nameText
-                              (PlainTypeBinding (pendingSignatureDeclaredType pendingSignature))
-                              envWithBindingSeed
-                      _ -> envWithBindingSeed
+                    case matchingPendingSignature of
+                      Just pendingSignature ->
+                        Map.insert
+                          nameText
+                          (PlainTypeBinding (pendingSignatureDeclaredType pendingSignature))
+                          envWithBindingSeed
+                      Nothing -> envWithBindingSeed
                   maybeExpectedValueType =
-                    case pendingSignatureType of
-                      Just pendingSignature
-                        | pendingSignatureName pendingSignature == nameText ->
-                            Just (pendingSignatureDeclaredType pendingSignature)
-                      _ -> Nothing
+                    pendingSignatureDeclaredType <$> matchingPendingSignature
                   (rawValueType, rawStateAfterValue) =
                     case maybeExpectedValueType of
                       Just expectedValueType ->
@@ -1097,11 +1098,11 @@ inferScopeType builtinMode initialEnv initialState statements =
                   valueType =
                     targetedFractionalLiteralBindingType
                       nameText
-                      pendingSignatureType
+                      matchingPendingSignature
                       valueExpr
                       rawValueType
                   stateAfterTargetedLiteralCheck =
-                    case targetedFractionalLiteralDiagnostic nameText pendingSignatureType valueExpr rawValueType of
+                    case targetedFractionalLiteralDiagnostic nameText matchingPendingSignature valueExpr rawValueType of
                       Just diagnostic -> addTypeError rawStateAfterValue diagnostic
                       Nothing -> rawStateAfterValue
                   stateAfterValue =
@@ -1122,31 +1123,29 @@ inferScopeType builtinMode initialEnv initialState statements =
                               )
                       _ -> stateAfterValue
                   stateAfterSignatureCheck =
-                    case (pendingSignatureType, valueType) of
-                      (Just pendingSignature, Just inferredType)
-                        | pendingSignatureName pendingSignature == nameText ->
-                            case
-                                unifyTypes
-                                  (pendingSignatureDeclaredType pendingSignature)
-                                  inferredType
-                                  stateAfterBindingSeedCheck of
-                              Just unifiedState -> unifiedState
-                              Nothing ->
-                                addTypeError
-                                  stateAfterBindingSeedCheck
-                                  ( mkSignatureTypeMismatchError
-                                      nameText
-                                      (pendingSignatureSpan pendingSignature)
-                                      (resolveType stateAfterBindingSeedCheck (pendingSignatureDeclaredType pendingSignature))
-                                      bindingSpan
-                                      (resolveType stateAfterBindingSeedCheck inferredType)
-                                  )
+                    case (matchingPendingSignature, valueType) of
+                      (Just pendingSignature, Just inferredType) ->
+                        case
+                            unifyTypes
+                              (pendingSignatureDeclaredType pendingSignature)
+                              inferredType
+                              stateAfterBindingSeedCheck of
+                          Just unifiedState -> unifiedState
+                          Nothing ->
+                            addTypeError
+                              stateAfterBindingSeedCheck
+                              ( mkSignatureTypeMismatchError
+                                  nameText
+                                  (pendingSignatureSpan pendingSignature)
+                                  (resolveType stateAfterBindingSeedCheck (pendingSignatureDeclaredType pendingSignature))
+                                  bindingSpan
+                                  (resolveType stateAfterBindingSeedCheck inferredType)
+                              )
                       _ -> stateAfterBindingSeedCheck
                   nextBindingType =
-                    case pendingSignatureType of
-                      Just pendingSignature
-                        | pendingSignatureName pendingSignature == nameText ->
-                            Just (resolveType stateAfterSignatureCheck (pendingSignatureDeclaredType pendingSignature))
+                    case matchingPendingSignature of
+                      Just pendingSignature ->
+                        Just (resolveType stateAfterSignatureCheck (pendingSignatureDeclaredType pendingSignature))
                       _ ->
                         fmap
                           (defaultLiteralTypes . resolveType stateAfterSignatureCheck)
@@ -1163,7 +1162,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                           }
                       Nothing -> stateAfterSignatureCheck
                   nextEnvBeforeRecursiveGroupGeneralization =
-                    case nextBindingForValue statementIndex nameText env valueExpr nextBindingType pendingSignatureType stateAfterRuntimeHint of
+                    case nextBindingForValue statementIndex nameText env valueExpr nextBindingType matchingPendingSignature stateAfterRuntimeHint of
                       Just binding -> Map.insert nameText binding env
                       Nothing -> env
                   nextEnv =
@@ -1590,10 +1589,7 @@ exprContainsFunctionBranch expr =
         || exprContainsFunctionBranch elseExpr
     EPatternCase _ caseArms ->
       any
-        ( \(CaseArm _ guardExpr bodyExpr) ->
-            maybe False exprContainsFunctionBranch guardExpr
-              || exprContainsFunctionBranch bodyExpr
-        )
+        (\(CaseArm _ _ bodyExpr) -> exprContainsFunctionBranch bodyExpr)
         caseArms
     EBlock statements ->
       scopeContainsFunctionBranch statements
@@ -1631,12 +1627,8 @@ scopeContainsFunctionBranch statements =
             || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
         EPatternCase _ caseArms ->
           any
-            ( \(CaseArm _ guardExpr bodyExpr) ->
-                maybe
-                  False
-                  (exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings)
-                  guardExpr
-                  || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings bodyExpr
+            ( \(CaseArm _ _ bodyExpr) ->
+                exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings bodyExpr
             )
             caseArms
         EBlock nestedStatements ->

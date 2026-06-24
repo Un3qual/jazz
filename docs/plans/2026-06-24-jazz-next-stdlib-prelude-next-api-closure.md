@@ -30,7 +30,7 @@ deliverable: "Close the stdlib/prelude next API curation candidate without promo
 
 # Jazz-Next Stdlib/Prelude Next API Closure Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Archival note:** This completed closure record is historical context, not a live execution plan. Do not execute the checklist as a current worker directive.
 
 **Goal:** Close the `JN-STDLIB-PRELUDE-NEXT-API-CONTRACT-001` curation
 candidate as not implementation-ready.

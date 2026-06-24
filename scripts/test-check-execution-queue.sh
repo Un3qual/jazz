@@ -1178,6 +1178,49 @@ EOF
 EOF
 }
 
+setup_terminal_empty_curation_stale_candidate_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+Current executor status (`2026-04-10`): `Ready Now` is empty because all
+source-backed candidates are exhausted. There is no source-backed next curation
+target and no named candidate currently.
+
+## Next Curation Target
+| blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `CASE-TERMINAL-STALE-BLOCKED-001` | `CASE-TERMINAL-STALE-CHILD-001` | `impl` | [blocker-contracts.md](blocker-contracts.md#case-terminal-stale-blocked-001) | `Promote one stale child.` | `src/Impl.hs`, `test/NewSpec.hs` | `bash verify.sh` | `Create the child plan.` |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+| `CASE-TERMINAL-STALE-BLOCKED-001` | `Terminal stale blocked` | `No source-backed candidate` | `Current status claims all source-backed candidates are exhausted.` | [Plan](../plans/case-terminal-stale-blocked.md) | `2026-04-10` |
+
+## Done
+| id | title |
+| --- | --- |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/plans/case-terminal-stale-blocked.md"
+# Terminal stale blocked fixture
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/execution/blocker-contracts.md"
+# Blocker Unblocker Contracts
+
+## Current Blockers
+
+### CASE-TERMINAL-STALE-BLOCKED-001
+
+- Smallest unblocker: promote one stale child.
+- Candidate child: `CASE-TERMINAL-STALE-CHILD-001`.
+EOF
+}
+
 setup_empty_curation_without_terminal_status_case() {
   local repo_root="$1"
 
@@ -1809,6 +1852,11 @@ main() {
     fail \
     "Ready Now is empty, so Next Curation Target must contain 1-3 promotion candidates"
   run_case "terminal empty curation regression" setup_terminal_empty_curation_case
+  run_case \
+    "terminal empty curation stale candidate regression" \
+    setup_terminal_empty_curation_stale_candidate_case \
+    fail \
+    "Ready Now is empty and current executor status claims terminal exhaustion, so Next Curation Target must be empty"
   run_case \
     "empty curation without terminal status regression" \
     setup_empty_curation_without_terminal_status_case \

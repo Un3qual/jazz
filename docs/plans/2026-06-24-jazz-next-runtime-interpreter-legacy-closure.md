@@ -23,7 +23,7 @@ deliverable: "Close the legacy Haskell interpreter implementation plan as refere
 
 # Jazz-Next Runtime Interpreter Legacy Closure Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Archival note:** This completed closure record is historical context, not a live execution plan. Do not execute the checklist as a current worker directive.
 
 **Goal:** Close the old Haskell interpreter implementation plan as historical
 evidence rather than an active executor path.

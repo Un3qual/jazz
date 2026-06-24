@@ -145,7 +145,8 @@ tests =
     ("source pipeline keeps generic constructor aliases monomorphic", testSourceKeepsGenericConstructorAliasesMonomorphic),
     ("source pipeline rejects constrained signature surface with E2009", testSourceRejectsConstrainedSignatureSurface),
     ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError),
-    ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
+    ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream),
+    ("mismatched pending signature does not monomorphize following binding", testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding)
   ]
 
 testSignatureDirectlyAboveBinding :: IO ()
@@ -1033,3 +1034,7 @@ testSourceReportsSignedRecursiveRhsTypeError =
 testSignatureMismatchKeepsDeclaredTypeDownstream :: IO ()
 testSignatureMismatchKeepsDeclaredTypeDownstream =
   assertSourceSingleErrorContains "x :: Int.\nx = True.\ny = x + 1." "E2005"
+
+testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding :: IO ()
+testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding =
+  assertSourceSingleErrorContains "x :: Int.\nid = \\(value) -> value.\nintValue = id 1.\nboolValue = id True." "E1003"

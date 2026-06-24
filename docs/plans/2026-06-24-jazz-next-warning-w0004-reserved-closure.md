@@ -26,7 +26,7 @@ deliverable: "Close the current W0004 decision as reserved-only: no active accep
 
 # Jazz-Next W0004 Reserved-Only Closure Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Archival note:** This completed closure record is historical context, not a live execution plan. Do not execute the checklist as a current worker directive.
 
 **Goal:** Close the current `deprecated-syntax` / `W0004` warning decision
 without adding a warning emitter.

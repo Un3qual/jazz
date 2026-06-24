@@ -47,6 +47,7 @@ tests =
     ("parses variable pattern case arm", testParsesVariablePatternCaseArm),
     ("parses as-pattern case arms", testParsesAsPatternCaseArm),
     ("parses guarded case arms", testParsesGuardedCaseArm),
+    ("parses guarded case arm with pipe expression guard after previous arm", testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm),
     ("keeps as-pattern constructor arguments atomic", testKeepsAsPatternConstructorArgumentsAtomic),
     ("parses as-pattern lambda parameters", testParsesAsPatternLambdaParameter),
     ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms),
@@ -209,6 +210,32 @@ testParsesGuardedCaseArm =
                     PWildcard
                     Nothing
                     (ELit (LInt 0))
+                ]
+            )
+        ]
+
+testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm :: IO ()
+testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm =
+  assertRight
+    "guarded pipe expression after previous arm"
+    (parseSurfaceProgram "x = case value { | 0 -> 0 | item if left | right -> 1 }.")
+    (\surfaceProgram -> assertEqual "guarded pipe expression surface AST" expectedSurfaceProgram surfaceProgram)
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "value")
+                [ SurfaceCaseArm
+                    (SPLiteral (SLInt 0))
+                    Nothing
+                    (SELit (SLInt 0)),
+                  SurfaceCaseArm
+                    (SPVariable "item")
+                    (Just (SEBinary "|" (SEVar "left") (SEVar "right")))
+                    (SELit (SLInt 1))
                 ]
             )
         ]

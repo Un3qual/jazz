@@ -840,6 +840,12 @@ for row_id in sorted(all_ids & archived_ids):
 if len(curation_rows) > 3:
     fail(f"{QUEUE_PATH} Next Curation Target must contain at most 3 candidates")
 
+if not ready_rows and curation_rows and has_terminal_empty_curation_status():
+    fail(
+        f"{QUEUE_PATH} Ready Now is empty and current executor status claims "
+        "terminal exhaustion, so Next Curation Target must be empty"
+    )
+
 if not ready_rows and not curation_rows:
     terminal_empty_curation = bool(curation_headers) and has_terminal_empty_curation_status()
     if not terminal_empty_curation:
