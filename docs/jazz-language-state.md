@@ -444,7 +444,7 @@ Based on the full repo, these areas still require implementation convergence eve
   constraints, defaulting, additional bundled-prelude method bodies, broader
   cross-module method coherence, and generalized runtime evidence remain future
   work. `Self` is not reserved.
-- Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding`, `shadowing-outer-scope`, and ordinary block `unused-binding` emitters (reserved metadata for `deprecated-syntax` / `W0004` is covered, but this category does not emit diagnostics yet and its concrete warning policy is deferred):
+- Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding`, `shadowing-outer-scope`, and ordinary block `unused-binding` emitters (reserved metadata for `deprecated-syntax` / `W0004` is covered, but this category is closed as reserved-only for the current active language surface until a future accepted syntax surface is intentionally deprecated):
   - `docs/spec/tooling/compiler-warning-flags.md`
 - CLI source selection is active in `jazz-next`: standalone compile and `--run`
   read stdin by default or one positional `.jz` source file when provided; source

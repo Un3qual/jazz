@@ -1,6 +1,6 @@
 # Compiler Warning Flags
 
-Status: active (same-scope rebinding, outer-scope shadowing, and ordinary `let` unused-binding warning emission are implemented; `deprecated-syntax` / `W0004` remains reserved-only until a future accepted syntax surface is intentionally deprecated)
+Status: active (same-scope rebinding, outer-scope shadowing, and ordinary `let` unused-binding warning emission are implemented; `deprecated-syntax` / `W0004` is closed as reserved-only for the current active language surface until a future accepted syntax surface is intentionally deprecated)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`
 
@@ -31,14 +31,33 @@ limited to ordinary block `let` declarations in the same lexical block.
 Reserved categories parse through CLI/env/config and keep stable IDs/tokens,
 but they do not emit diagnostics until a future implementation batch adds the
 corresponding analyzer behavior. The concrete `deprecated-syntax` / `W0004`
-warning policy is explicitly deferred until an accepted active-path syntax
-surface is both implemented and deprecated enough to warn on.
+warning policy is closed as reserved-only for the current active language
+surface until an accepted active-path syntax surface is both implemented and
+deprecated enough to warn on.
 
-Policy lock (2026-05-31): non-canonical `trait` declarations are never an
+Policy lock (2026-06-24): non-canonical `trait` declarations are never an
 accepted compatibility surface in active `jazz-next`, so they must not emit
 `W0004`. Syntax rejected by the parser is an error, not a deprecation warning.
 `deprecated-syntax` remains reserved for a future surface that is first
 accepted by the active parser/analyzer and then intentionally deprecated.
+
+## W0004 Reserved-Only Closure
+
+The current `deprecated-syntax` / `W0004` decision is closed as reserved-only:
+
+1. `DeprecatedSyntax` remains stable warning metadata with code `W0004` and
+   token `deprecated-syntax`.
+2. `DeprecatedSyntax` has no analyzer emitter in the active warning catalog.
+3. Warning config parsing may mention `deprecated-syntax`, but enabling it does
+   not create diagnostics without a future analyzer emitter.
+4. `trait` declarations are parser-rejected unsupported syntax, including in
+   module bodies, and must not become a compatibility/deprecation path.
+5. Active `class` / `impl` syntax is implemented behavior, not deprecated
+   accepted syntax.
+
+Any future W0004 implementation requires a new contract that names the accepted
+syntax surface to deprecate, the warning payload, target paths, non-goals, and
+focused verification before adding an analyzer emitter.
 
 ## Default Behavior
 

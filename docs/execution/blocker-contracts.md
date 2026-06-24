@@ -168,16 +168,14 @@ Each blocked item should answer these questions:
 
 ### JN-WARNING-DEPRECATED-SYNTAX-CONTRACT-001
 
-- Smallest unblocker: either choose an accepted active syntax surface to
-  deprecate or keep `W0004` reserved-only.
-- Decision needed: the accepted syntax surface that should warn rather than
-  error.
-- Recommended default: keep `W0004` reserved-only because `trait` is permanently
-  rejected and must not become compatibility syntax.
-- Candidate child: `JN-WARNING-W0004-RESERVED-CLOSURE-001`.
-- Target paths: `docs/spec/tooling/compiler-warning-flags.md`,
-  `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`,
-  `docs/execution/queue.md`.
+- Smallest unblocker: none for the current active language surface; the W0004
+  reserved-only closure landed as `JN-WARNING-W0004-RESERVED-CLOSURE-001`.
+- Decision needed: none until a future accepted active syntax surface is
+  intentionally deprecated.
+- Recommended default: keep `W0004` reserved-only because `trait` is
+  permanently rejected and must not become compatibility syntax.
+- Candidate child: none currently.
+- Target paths: not set until a future accepted-surface contract exists.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: adding analyzer emission, accepting `trait`, or warning on
@@ -185,15 +183,14 @@ Each blocked item should answer these questions:
 
 ### JN-WARNING-REMAINING-EMITTERS-PLAN-001
 
-- Smallest unblocker: same as the W0004 contract above.
-- Decision needed: an accepted active syntax surface that is intentionally
-  deprecated.
-- Recommended default: keep the emitter blocked and document reserved-only
-  status.
-- Candidate child: `JN-WARNING-W0004-RESERVED-CLOSURE-001`.
-- Target paths: `docs/spec/tooling/compiler-warning-flags.md`,
-  `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`,
-  `docs/execution/queue.md`.
+- Smallest unblocker: none for the current active language surface; future
+  W0004 emitter work needs a new accepted-surface contract.
+- Decision needed: choose an accepted active syntax surface that is
+  intentionally deprecated.
+- Recommended default: keep the emitter unpromoted until the syntax surface,
+  warning payload, target paths, and focused verification exist.
+- Candidate child: none currently.
+- Target paths: not set until a future accepted-surface contract exists.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: adding an emitter without a warning surface, or treating parse
