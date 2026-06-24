@@ -68,10 +68,10 @@ desugarStatement statement =
       SExpr spanValue (desugarExpr expr)
 
 desugarCaseArm :: CaseArm -> CaseArm
-desugarCaseArm (CaseArm patternExpr bodyExpr) =
-  -- Patterns are already canonical core nodes; only arm bodies can contain
-  -- desugarable control-flow expressions.
-  CaseArm patternExpr (desugarExpr bodyExpr)
+desugarCaseArm (CaseArm patternExpr guardExpr bodyExpr) =
+  -- Patterns are already canonical core nodes; only guards and arm bodies can
+  -- contain desugarable control-flow expressions.
+  CaseArm patternExpr (fmap desugarExpr guardExpr) (desugarExpr bodyExpr)
 
 desugarImplMethod :: ImplMethod -> ImplMethod
 desugarImplMethod (ImplMethod methodName spanValue methodExpr) =

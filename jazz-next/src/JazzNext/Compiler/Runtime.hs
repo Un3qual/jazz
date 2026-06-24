@@ -516,7 +516,13 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
           selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr
         EPatternCase scrutineeExpr caseArms -> do
           scrutineeValue <- evalValueAt statementIndex env scrutineeExpr
-          case selectMatchingCaseArmForAlias env scrutineeValue caseArms of
+          selectedArm <-
+            selectMatchingCaseArmForAlias
+              (evalValueAt statementIndex)
+              env
+              scrutineeValue
+              caseArms
+          case selectedArm of
             Just (newLocallyBoundNames, armEnv, bodyExpr) ->
               selectedRecursiveAliasTargetWithBound
                 (Set.union locallyBoundNames newLocallyBoundNames)
@@ -544,25 +550,56 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
             )
 
     selectMatchingCaseArmForAlias ::
+      (RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue) ->
       RuntimeEnv ->
       RuntimeValue ->
       [CaseArm] ->
-      Maybe (Set Text, RuntimeEnv, Expr)
-    selectMatchingCaseArmForAlias env scrutineeValue =
-      foldr chooseArm Nothing
+      Either Diagnostic (Maybe (Set Text, RuntimeEnv, Expr))
+    selectMatchingCaseArmForAlias evalGuard env scrutineeValue =
+      go
       where
-        chooseArm caseArm nextMatch =
+        go remainingArms =
+          case remainingArms of
+            [] -> Right Nothing
+            caseArm : rest ->
+              chooseArm caseArm rest
+
+        chooseArm caseArm rest =
           case matchCaseArm env scrutineeValue caseArm of
-            Just (armEnv, bodyExpr) ->
-              Just
-                ( caseArmBoundNames caseArm,
-                  armEnv,
-                  bodyExpr
-                )
-            Nothing -> nextMatch
+            Just (armEnv, guardExpr, bodyExpr) ->
+              case guardExpr of
+                Nothing ->
+                  Right
+                    ( Just
+                        ( caseArmBoundNames caseArm,
+                          armEnv,
+                          bodyExpr
+                        )
+                    )
+                Just conditionExpr -> do
+                  guardValue <- evalGuard armEnv conditionExpr
+                  case guardValue of
+                    VBool True ->
+                      Right
+                        ( Just
+                            ( caseArmBoundNames caseArm,
+                              armEnv,
+                              bodyExpr
+                            )
+                        )
+                    VBool False ->
+                      go rest
+                    other ->
+                      Left
+                        ( runtimeDiagnostic
+                            "E3003"
+                            ("runtime case guard must be Bool, found " <> renderRuntimeType other)
+                        )
+            Nothing ->
+              go rest
 
     caseArmBoundNames :: CaseArm -> Set Text
-    caseArmBoundNames (CaseArm pattern _) =
+    caseArmBoundNames (CaseArm pattern _ _) =
       patternBoundNames pattern
 
     -- Single-expression blocks are semantically transparent here, so peel
@@ -807,7 +844,13 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
               selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
             EPatternCase scrutineeExpr caseArms -> do
               scrutineeValue <- evalValueWithModulePath methodModulePath builtinMode bindingTypeHints env scrutineeExpr
-              case selectMatchingCaseArmForAlias env scrutineeValue caseArms of
+              selectedArm <-
+                selectMatchingCaseArmForAlias
+                  (evalValueWithModulePath methodModulePath builtinMode bindingTypeHints)
+                  env
+                  scrutineeValue
+                  caseArms
+              case selectedArm of
                 Just (_, armEnv, bodyExpr) ->
                   selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys armEnv methodKey bodyExpr
                 Nothing ->
@@ -866,7 +909,10 @@ exprContainsFunctionBranch expr =
         || exprContainsFunctionBranch elseExpr
     EPatternCase _ caseArms ->
       any
-        (\(CaseArm _ bodyExpr) -> exprContainsFunctionBranch bodyExpr)
+        ( \(CaseArm _ guardExpr bodyExpr) ->
+            maybe False exprContainsFunctionBranch guardExpr
+              || exprContainsFunctionBranch bodyExpr
+        )
         caseArms
     EBlock statements ->
       scopeContainsFunctionBranch statements
@@ -905,8 +951,12 @@ scopeContainsFunctionBranch statements =
             || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
         EPatternCase _ caseArms ->
           any
-            (\(CaseArm _ bodyExpr) ->
-               exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings bodyExpr
+            ( \(CaseArm _ guardExpr bodyExpr) ->
+                maybe
+                  False
+                  (exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings)
+                  guardExpr
+                  || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings bodyExpr
             )
             caseArms
         EBlock nestedStatements ->
@@ -1180,8 +1230,9 @@ evalPatternCase ::
   RuntimeValue ->
   [CaseArm] ->
   Either Diagnostic RuntimeValue
-evalPatternCase currentModulePath builtinMode bindingTypeHints env scrutineeValue caseArms =
-  case selectMatchingCaseArm env scrutineeValue caseArms of
+evalPatternCase currentModulePath builtinMode bindingTypeHints env scrutineeValue caseArms = do
+  selectedArm <- selectMatchingCaseArm currentModulePath builtinMode bindingTypeHints env scrutineeValue caseArms
+  case selectedArm of
     Just (armEnv, bodyExpr) ->
       evalValueWithModulePath currentModulePath builtinMode bindingTypeHints armEnv bodyExpr
     Nothing ->
@@ -1192,17 +1243,43 @@ evalPatternCase currentModulePath builtinMode bindingTypeHints env scrutineeValu
         )
 
 selectMatchingCaseArm ::
+  Maybe [Text] ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey ConstraintSignatureType ->
   RuntimeEnv ->
   RuntimeValue ->
   [CaseArm] ->
-  Maybe (RuntimeEnv, Expr)
-selectMatchingCaseArm env scrutineeValue =
-  foldr chooseArm Nothing
+  Either Diagnostic (Maybe (RuntimeEnv, Expr))
+selectMatchingCaseArm currentModulePath builtinMode bindingTypeHints env scrutineeValue =
+  go
   where
-    chooseArm caseArm nextMatch =
+    go remainingArms =
+      case remainingArms of
+        [] -> Right Nothing
+        caseArm : rest ->
+          chooseArm caseArm rest
+
+    chooseArm caseArm rest =
       case matchCaseArm env scrutineeValue caseArm of
-        Just matchedArm -> Just matchedArm
-        Nothing -> nextMatch
+        Just (armEnv, guardExpr, bodyExpr) ->
+          case guardExpr of
+            Nothing ->
+              Right (Just (armEnv, bodyExpr))
+            Just conditionExpr -> do
+              guardValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints armEnv conditionExpr
+              case guardValue of
+                VBool True ->
+                  Right (Just (armEnv, bodyExpr))
+                VBool False ->
+                  go rest
+                other ->
+                  Left
+                    ( runtimeDiagnostic
+                        "E3003"
+                        ("runtime case guard must be Bool, found " <> renderRuntimeType other)
+                    )
+        Nothing ->
+          go rest
 
 -- | Pattern bindings are prepended to the arm environment so they shadow outer
 -- runtime bindings only while evaluating the selected arm body.
@@ -1210,11 +1287,11 @@ matchCaseArm ::
   RuntimeEnv ->
   RuntimeValue ->
   CaseArm ->
-  Maybe (RuntimeEnv, Expr)
-matchCaseArm env scrutineeValue (CaseArm pattern bodyExpr) =
+  Maybe (RuntimeEnv, Maybe Expr, Expr)
+matchCaseArm env scrutineeValue (CaseArm pattern guardExpr bodyExpr) =
   case matchPattern scrutineeValue pattern of
     Just patternBindings ->
-      Just (Map.union patternBindings env, bodyExpr)
+      Just (Map.union patternBindings env, guardExpr, bodyExpr)
     Nothing -> Nothing
 
 matchPattern :: RuntimeValue -> Pattern -> Maybe RuntimeEnv

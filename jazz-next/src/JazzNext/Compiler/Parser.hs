@@ -2114,10 +2114,37 @@ parseCaseArm :: Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic (S
 parseCaseArm knownAliases declaredOperators tokens = do
   tokensAfterPipe <- consumeCaseArmPipe tokens
   (casePattern, afterPattern) <- parseCasePattern tokensAfterPipe
-  afterArrow <- consumeArrow afterPattern "expected '->' before end of input after case pattern"
+  (guardExpr, afterArrow) <- parseOptionalCaseArmGuard afterPattern
   (bodyExpr, remaining) <- parseExprWithMinPrecedenceUntil knownAliases declaredOperators stopsBeforeCaseArmBoundary 1 afterArrow
-  pure (SurfaceCaseArm casePattern bodyExpr, remaining)
+  pure (SurfaceCaseArm casePattern guardExpr bodyExpr, remaining)
   where
+    parseOptionalCaseArmGuard allTokens =
+      case allTokens of
+        Token {tokenKind = TIf} : afterIf -> do
+          (guardExpr, afterGuard) <- parseCaseArmGuard afterIf
+          afterArrow <- consumeArrow afterGuard "expected '->' before end of input after case guard"
+          pure (Just guardExpr, afterArrow)
+        _ -> do
+          afterArrow <- consumeArrow allTokens "expected '->' before end of input after case pattern"
+          pure (Nothing, afterArrow)
+
+    parseCaseArmGuard allTokens =
+      case allTokens of
+        [] -> Left (parseDiagnostic "expected guard expression before end of input after 'if'")
+        Token {tokenKind = TArrow} : _ ->
+          Left (parseDiagnostic "expected guard expression before '->'")
+        Token {tokenKind = TRBrace} : _ ->
+          Left (parseDiagnostic "expected guard expression before '}'")
+        Token {tokenKind = TOperator "|"} : _ ->
+          Left (parseDiagnostic "expected guard expression before next case arm")
+        _ ->
+          parseExprWithMinPrecedenceUntil knownAliases declaredOperators stopsBeforeCaseGuardArrow 1 allTokens
+
+    stopsBeforeCaseGuardArrow allTokens =
+      case allTokens of
+        Token {tokenKind = TArrow} : _ -> True
+        _ -> False
+
     -- Case-arm bodies are expression-shaped, so a `|` operator only starts the
     -- next arm when the following tokens can form a pattern and arrow.
     stopsBeforeCaseArmBoundary allTokens =
@@ -2130,6 +2157,8 @@ parseCaseArm knownAliases declaredOperators tokens = do
     startsDefiniteCaseArm remainingTokens =
       case parseCasePattern remainingTokens of
         Right (_, Token {tokenKind = TArrow} : _) -> True
+        Right (_, Token {tokenKind = TIf} : afterGuard) ->
+          hasTopLevelArrowBeforeCaseArmBoundary afterGuard
         Left _
           | startsCasePatternTokens remainingTokens ->
               hasTopLevelArrowBeforeCaseArmBoundary remainingTokens

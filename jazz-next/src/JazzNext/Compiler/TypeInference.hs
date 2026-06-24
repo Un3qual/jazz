@@ -187,8 +187,8 @@ canonicalizeExpr expr =
     EBlock statements -> EBlock (map canonicalizeStatement statements)
 
 canonicalizeCaseArm :: CaseArm -> CaseArm
-canonicalizeCaseArm (CaseArm patternExpr bodyExpr) =
-  CaseArm patternExpr (canonicalizeExpr bodyExpr)
+canonicalizeCaseArm (CaseArm patternExpr guardExpr bodyExpr) =
+  CaseArm patternExpr (fmap canonicalizeExpr guardExpr) (canonicalizeExpr bodyExpr)
 
 canonicalizeStatement :: Statement -> Statement
 canonicalizeStatement statement =
@@ -1590,7 +1590,10 @@ exprContainsFunctionBranch expr =
         || exprContainsFunctionBranch elseExpr
     EPatternCase _ caseArms ->
       any
-        (\(CaseArm _ bodyExpr) -> exprContainsFunctionBranch bodyExpr)
+        ( \(CaseArm _ guardExpr bodyExpr) ->
+            maybe False exprContainsFunctionBranch guardExpr
+              || exprContainsFunctionBranch bodyExpr
+        )
         caseArms
     EBlock statements ->
       scopeContainsFunctionBranch statements
@@ -1628,8 +1631,12 @@ scopeContainsFunctionBranch statements =
             || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
         EPatternCase _ caseArms ->
           any
-            (\(CaseArm _ bodyExpr) ->
-               exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings bodyExpr
+            ( \(CaseArm _ guardExpr bodyExpr) ->
+                maybe
+                  False
+                  (exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings)
+                  guardExpr
+                  || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings bodyExpr
             )
             caseArms
         EBlock nestedStatements ->
@@ -3590,6 +3597,10 @@ mkIfConditionTypeError :: ExpressionType -> Diagnostic
 mkIfConditionTypeError foundType =
   mkDiagnostic "E2001" ("if condition must have type Bool, found " <> renderType foundType)
 
+mkCaseGuardTypeError :: ExpressionType -> Diagnostic
+mkCaseGuardTypeError foundType =
+  mkDiagnostic "E2001" ("case guard must have type Bool, found " <> renderType foundType)
+
 mkIfBranchTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkIfBranchTypeMismatchError leftType rightType =
   mkDiagnostic
@@ -3658,7 +3669,7 @@ inferPatternCaseType builtinMode env scrutineeType initialState caseArms =
       (Maybe ExpressionType, InferState) ->
       CaseArm ->
       (Maybe ExpressionType, InferState)
-    step (maybeExpectedBodyType, stateAcc) (CaseArm pattern bodyExpr) =
+    step (maybeExpectedBodyType, stateAcc) (CaseArm pattern guardExpr bodyExpr) =
       let (rawPatternTyping, stateAfterPatternCheck) =
             inferPatternType env scrutineeType pattern stateAcc
           (patternTyping, stateAfterPattern) =
@@ -3669,8 +3680,10 @@ inferPatternCaseType builtinMode env scrutineeType initialState caseArms =
           else
             let armEnv =
                   patternBindings patternTyping `Map.union` env
+                stateAfterGuard =
+                  inferCaseGuardType builtinMode armEnv stateAfterPattern guardExpr
                 (maybeBodyType, stateAfterBody) =
-                  inferExprType builtinMode armEnv stateAfterPattern bodyExpr
+                  inferExprType builtinMode armEnv stateAfterGuard bodyExpr
              in
               case (maybeExpectedBodyType, maybeBodyType) of
                 (Nothing, _) ->
@@ -3690,6 +3703,29 @@ inferPatternCaseType builtinMode env scrutineeType initialState caseArms =
                               (resolveType stateAfterBody inferredBodyType)
                           )
                       )
+
+    inferCaseGuardType ::
+      BuiltinResolutionMode ->
+      TypeEnv ->
+      InferState ->
+      Maybe Expr ->
+      InferState
+    inferCaseGuardType builtinMode' armEnv stateAcc guardExpr =
+      case guardExpr of
+        Nothing -> stateAcc
+        Just conditionExpr ->
+          let (maybeGuardType, stateAfterGuard) =
+                inferExprType builtinMode' armEnv stateAcc conditionExpr
+           in case maybeGuardType of
+                Just inferredGuardType ->
+                  case unifyTypes inferredGuardType TBoolType stateAfterGuard of
+                    Just unifiedState -> unifiedState
+                    Nothing ->
+                      addTypeError
+                        stateAfterGuard
+                        (mkCaseGuardTypeError (resolveType stateAfterGuard inferredGuardType))
+                Nothing ->
+                  stateAfterGuard
 
 data PatternTyping = PatternTyping
   { patternBindings :: TypeEnv,

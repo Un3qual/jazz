@@ -46,6 +46,7 @@ tests =
   [ ("parses basic case expression with literal and wildcard arms", testParsesBasicCaseExpression),
     ("parses variable pattern case arm", testParsesVariablePatternCaseArm),
     ("parses as-pattern case arms", testParsesAsPatternCaseArm),
+    ("parses guarded case arms", testParsesGuardedCaseArm),
     ("keeps as-pattern constructor arguments atomic", testKeepsAsPatternConstructorArgumentsAtomic),
     ("parses as-pattern lambda parameters", testParsesAsPatternLambdaParameter),
     ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms),
@@ -85,6 +86,7 @@ tests =
     ("rejects malformed parenthesized list-like patterns without tuple diagnostic", testRejectsMalformedParenthesizedListLikePattern),
     ("rejects malformed list patterns", testRejectsMalformedListPattern),
     ("rejects malformed later list patterns", testRejectsMalformedLaterListPattern),
+    ("rejects malformed guard expression", testRejectsMalformedGuardExpression),
     ("lowers parsed case nodes into core AST", testLowerCaseExpression)
   ]
 
@@ -99,8 +101,8 @@ testParsesBasicCaseExpression =
                 (SourceSpan 1 1)
                 ( SECase
                     (SEVar "n")
-                    [ SurfaceCaseArm (SPLiteral (SLInt 0)) (SELit (SLBool True)),
-                      SurfaceCaseArm SPWildcard (SELit (SLBool False))
+                    [ SurfaceCaseArm (SPLiteral (SLInt 0)) Nothing (SELit (SLBool True)),
+                      SurfaceCaseArm SPWildcard Nothing (SELit (SLBool False))
                     ]
                 )
             ]
@@ -117,7 +119,7 @@ testParsesVariablePatternCaseArm =
             [ SSLet
                 "x"
                 (SourceSpan 1 1)
-                (SECase (SEVar "value") [SurfaceCaseArm (SPVariable "item") (SEVar "item")])
+                (SECase (SEVar "value") [SurfaceCaseArm (SPVariable "item") Nothing (SEVar "item")])
             ]
         )
     )
@@ -142,8 +144,9 @@ testParsesAsPatternCaseArm =
                 (SEVar "value")
                 [ SurfaceCaseArm
                     (SPAs "whole" (SPConstructor "Just" [SPVariable "item"]))
+                    Nothing
                     (SEVar "whole"),
-                  SurfaceCaseArm SPWildcard (SEVar "value")
+                  SurfaceCaseArm SPWildcard Nothing (SEVar "value")
                 ]
             )
         ]
@@ -156,8 +159,56 @@ testParsesAsPatternCaseArm =
                 (EVar "value")
                 [ CaseArm
                     (PAs "whole" (PConstructor "Just" [PVariable "item"]))
+                    Nothing
                     (EVar "whole"),
-                  CaseArm PWildcard (EVar "value")
+                  CaseArm PWildcard Nothing (EVar "value")
+                ]
+            )
+        ]
+
+testParsesGuardedCaseArm :: IO ()
+testParsesGuardedCaseArm =
+  assertRight
+    "guarded case arm parse + lower"
+    (parseSurfaceProgram "x = case value { | Just item if item > 0 -> item | _ -> 0 }.")
+    ( \surfaceProgram -> do
+        assertEqual "guarded case arm surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "guarded case arm lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "value")
+                [ SurfaceCaseArm
+                    (SPConstructor "Just" [SPVariable "item"])
+                    (Just (SEBinary ">" (SEVar "item") (SELit (SLInt 0))))
+                    (SEVar "item"),
+                  SurfaceCaseArm
+                    SPWildcard
+                    Nothing
+                    (SELit (SLInt 0))
+                ]
+            )
+        ]
+    expectedLoweredProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    (PConstructor "Just" [PVariable "item"])
+                    (Just (EBinary ">" (EVar "item") (ELit (LInt 0))))
+                    (EVar "item"),
+                  CaseArm
+                    PWildcard
+                    Nothing
+                    (ELit (LInt 0))
                 ]
             )
         ]
@@ -181,9 +232,11 @@ testKeepsAsPatternConstructorArgumentsAtomic =
                 (SEVar "value")
                 [ SurfaceCaseArm
                     (SPConstructor "Pair" [SPAs "whole" (SPConstructor "Nothing" []), SPVariable "item"])
+                    Nothing
                     (SEVar "item"),
                   SurfaceCaseArm
                     SPWildcard
+                    Nothing
                     (SELit (SLInt 0))
                 ]
             )
@@ -197,9 +250,11 @@ testKeepsAsPatternConstructorArgumentsAtomic =
                 (EVar "value")
                 [ CaseArm
                     (PConstructor "Pair" [PAs "whole" (PConstructor "Nothing" []), PVariable "item"])
+                    Nothing
                     (EVar "item"),
                   CaseArm
                     PWildcard
+                    Nothing
                     (ELit (LInt 0))
                 ]
             )
@@ -242,9 +297,11 @@ testParsesConstructorPatternCaseArms =
                 (SEVar "value")
                 [ SurfaceCaseArm
                     (SPConstructor "Just" [SPVariable "item"])
+                    Nothing
                     (SEVar "item"),
                   SurfaceCaseArm
                     (SPConstructor "Nothing" [])
+                    Nothing
                     (SELit (SLInt 0))
                 ]
             )
@@ -258,9 +315,11 @@ testParsesConstructorPatternCaseArms =
                 (EVar "value")
                 [ CaseArm
                     (PConstructor "Just" [PVariable "item"])
+                    Nothing
                     (EVar "item"),
                   CaseArm
                     (PConstructor "Nothing" [])
+                    Nothing
                     (ELit (LInt 0))
                 ]
             )
@@ -285,9 +344,11 @@ testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns =
                 (SEVar "value")
                 [ SurfaceCaseArm
                     (SPConstructor "Pair" [SPConstructor "Nothing" [], SPVariable "item"])
+                    Nothing
                     (SEVar "item"),
                   SurfaceCaseArm
                     SPWildcard
+                    Nothing
                     (SELit (SLInt 0))
                 ]
             )
@@ -301,9 +362,11 @@ testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns =
                 (EVar "value")
                 [ CaseArm
                     (PConstructor "Pair" [PConstructor "Nothing" [], PVariable "item"])
+                    Nothing
                     (EVar "item"),
                   CaseArm
                     PWildcard
+                    Nothing
                     (ELit (LInt 0))
                 ]
             )
@@ -328,9 +391,11 @@ testParsesNullaryConstructorSubpatterns =
                 (SEVar "value")
                 [ SurfaceCaseArm
                     (SPConstructor "Just" [SPConstructor "Nothing" []])
+                    Nothing
                     (SELit (SLInt 1)),
                   SurfaceCaseArm
                     SPWildcard
+                    Nothing
                     (SELit (SLInt 0))
                 ]
             )
@@ -344,9 +409,11 @@ testParsesNullaryConstructorSubpatterns =
                 (EVar "value")
                 [ CaseArm
                     (PConstructor "Just" [PConstructor "Nothing" []])
+                    Nothing
                     (ELit (LInt 1)),
                   CaseArm
                     PWildcard
+                    Nothing
                     (ELit (LInt 0))
                 ]
             )
@@ -371,9 +438,11 @@ testParsesListPatternCaseArms =
                 (SEVar "values")
                 [ SurfaceCaseArm
                     (SPList [SPVariable "head", SPWildcard])
+                    Nothing
                     (SEVar "head"),
                   SurfaceCaseArm
                     (SPList [])
+                    Nothing
                     (SELit (SLInt 0))
                 ]
             )
@@ -387,9 +456,11 @@ testParsesListPatternCaseArms =
                 (EVar "values")
                 [ CaseArm
                     (PList [PVariable "head", PWildcard])
+                    Nothing
                     (EVar "head"),
                   CaseArm
                     (PList [])
+                    Nothing
                     (ELit (LInt 0))
                 ]
             )
@@ -473,13 +544,14 @@ testParsesNestedCaseExpression =
                 (EVar "n")
                 [ CaseArm
                     (PLiteral (LInt 0))
+                    Nothing
                     ( EPatternCase
                         (EVar "y")
-                        [ CaseArm (PLiteral (LInt 1)) (ELit (LBool True)),
-                          CaseArm PWildcard (ELit (LBool False))
+                        [ CaseArm (PLiteral (LInt 1)) Nothing (ELit (LBool True)),
+                          CaseArm PWildcard Nothing (ELit (LBool False))
                         ]
                     ),
-                  CaseArm PWildcard (ELit (LBool False))
+                  CaseArm PWildcard Nothing (ELit (LBool False))
                 ]
             )
         ]
@@ -500,8 +572,9 @@ testParsesIfExpressionInsideCaseArmBody =
                 (EVar "n")
                 [ CaseArm
                     (PLiteral (LInt 0))
+                    Nothing
                     (EIf (ELit (LBool True)) (ELit (LInt 1)) (ELit (LInt 2))),
-                  CaseArm PWildcard (ELit (LInt 3))
+                  CaseArm PWildcard Nothing (ELit (LInt 3))
                 ]
             )
         ]
@@ -522,8 +595,9 @@ testParsesLambdaExpressionInsideCaseArmBody =
                 (EVar "n")
                 [ CaseArm
                     (PLiteral (LInt 0))
+                    Nothing
                     (ELambda "y" (EVar "y")),
-                  CaseArm PWildcard (ELit (LInt 3))
+                  CaseArm PWildcard Nothing (ELit (LInt 3))
                 ]
             )
         ]
@@ -544,8 +618,9 @@ testParsesPipeOperatorInsideCaseArmBody =
                 (EVar "n")
                 [ CaseArm
                     (PLiteral (LInt 0))
+                    Nothing
                     (EBinary "|" (ELit (LInt 1)) (ELit (LInt 2))),
-                  CaseArm PWildcard (ELit (LInt 3))
+                  CaseArm PWildcard Nothing (ELit (LInt 3))
                 ]
             )
         ]
@@ -566,9 +641,11 @@ testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary =
                 (EVar "value")
                 [ CaseArm
                     (PConstructor "Just" [PVariable "item"])
+                    Nothing
                     (EBinary "|" (ELit (LInt 1)) (ELit (LInt 2))),
                   CaseArm
                     (PConstructor "Nothing" [])
+                    Nothing
                     (ELit (LInt 3))
                 ]
             )
@@ -590,6 +667,7 @@ testKeepsBareListLiteralAfterPipeOperator =
                 (EVar "value")
                 [ CaseArm
                     PWildcard
+                    Nothing
                     (EBinary "|" (ELit (LInt 1)) (EList [ELit (LInt 2)]))
                 ]
             )
@@ -611,6 +689,7 @@ testKeepsBareConstructorValueAfterPipeOperator =
                 (EVar "value")
                 [ CaseArm
                     PWildcard
+                    Nothing
                     (EBinary "|" (ELit (LInt 1)) (EVar "Nothing"))
                 ]
             )
@@ -632,6 +711,7 @@ testKeepsListApplicationAfterPipeOperator =
                 (EVar "values")
                 [ CaseArm
                     PWildcard
+                    Nothing
                     (EBinary "|" (ELit (LInt 1)) (EApply (EList [EVar "head"]) (ELit (LInt 2))))
                 ]
             )
@@ -653,6 +733,7 @@ testKeepsConstructorApplicationAfterPipeOperator =
                 (EVar "value")
                 [ CaseArm
                     PWildcard
+                    Nothing
                     (EBinary "|" (ELit (LInt 1)) (EApply (EApply (EVar "Just") (EVar "a")) (EVar "b")))
                 ]
             )
@@ -674,6 +755,7 @@ testKeepsLambdaApplicationAfterPipeOperator =
                 (EVar "value")
                 [ CaseArm
                     PWildcard
+                    Nothing
                     ( EBinary
                         "|"
                         (ELit (LInt 1))
@@ -699,6 +781,7 @@ testKeepsUnderscoreApplicationAfterPipeOperator =
                 (EVar "value")
                 [ CaseArm
                     (PLiteral (LInt 0))
+                    Nothing
                     (EBinary "|" (ELit (LInt 1)) (EApply (EVar "_") (EVar "y")))
                 ]
             )
@@ -720,6 +803,7 @@ testKeepsUnderscoreBooleanApplicationAfterPipeOperator =
                 (EVar "value")
                 [ CaseArm
                     (PLiteral (LInt 0))
+                    Nothing
                     (EBinary "|" (ELit (LInt 1)) (EApply (EVar "_") (ELit (LBool False))))
                 ]
             )
@@ -746,8 +830,8 @@ testParsesCaseScrutineeWithBlockArgument =
                         ]
                     )
                 )
-                [ CaseArm (PLiteral (LInt 1)) (ELit (LBool True)),
-                  CaseArm PWildcard (ELit (LBool False))
+                [ CaseArm (PLiteral (LInt 1)) Nothing (ELit (LBool True)),
+                  CaseArm PWildcard Nothing (ELit (LBool False))
                 ]
             )
         ]
@@ -862,9 +946,11 @@ testParsesConsLikeListPattern =
                 (SEVar "values")
                 [ SurfaceCaseArm
                     (SPConsList (SPVariable "head") (SPVariable "tail"))
+                    Nothing
                     (SEVar "head"),
                   SurfaceCaseArm
                     SPWildcard
+                    Nothing
                     (SELit (SLInt 0))
                 ]
             )
@@ -878,9 +964,11 @@ testParsesConsLikeListPattern =
                 (EVar "values")
                 [ CaseArm
                     (PConsList (PVariable "head") (PVariable "tail"))
+                    Nothing
                     (EVar "head"),
                   CaseArm
                     PWildcard
+                    Nothing
                     (ELit (LInt 0))
                 ]
             )
@@ -905,9 +993,11 @@ testParsesConsLikeListPatternInsideConstructorPattern =
                 (SEVar "value")
                 [ SurfaceCaseArm
                     (SPConstructor "Just" [SPConsList (SPVariable "head") (SPVariable "tail")])
+                    Nothing
                     (SEVar "head"),
                   SurfaceCaseArm
                     SPWildcard
+                    Nothing
                     (SELit (SLInt 0))
                 ]
             )
@@ -921,9 +1011,11 @@ testParsesConsLikeListPatternInsideConstructorPattern =
                 (EVar "value")
                 [ CaseArm
                     (PConstructor "Just" [PConsList (PVariable "head") (PVariable "tail")])
+                    Nothing
                     (EVar "head"),
                   CaseArm
                     PWildcard
+                    Nothing
                     (ELit (LInt 0))
                 ]
             )
@@ -950,6 +1042,13 @@ testRejectsMalformedLaterListPattern =
     "expected ',' or ']'"
     (parseSurfaceProgram "x = case values { | 0 -> 1 | [head tail] -> head }.")
 
+testRejectsMalformedGuardExpression :: IO ()
+testRejectsMalformedGuardExpression =
+  assertLeftDiagnosticContains
+    "malformed guard expression"
+    "expected guard expression"
+    (parseSurfaceProgram "x = case value { | item if -> item }.")
+
 testLowerCaseExpression :: IO ()
 testLowerCaseExpression =
   assertRight
@@ -964,8 +1063,8 @@ testLowerCaseExpression =
             (SourceSpan 1 1)
             ( EPatternCase
                 (EVar "n")
-                [ CaseArm (PLiteral (LInt 0)) (ELit (LBool True)),
-                  CaseArm PWildcard (ELit (LBool False))
+                [ CaseArm (PLiteral (LInt 0)) Nothing (ELit (LBool True)),
+                  CaseArm PWildcard Nothing (ELit (LBool False))
                 ]
             )
         ]

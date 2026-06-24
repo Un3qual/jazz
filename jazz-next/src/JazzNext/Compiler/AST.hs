@@ -51,7 +51,7 @@ data Pattern
   deriving (Eq, Show)
 
 -- | One lowered pattern-match arm.
-data CaseArm = CaseArm Pattern Expr
+data CaseArm = CaseArm Pattern (Maybe Expr) Expr
   deriving (Eq, Show)
 
 -- | Core constructor payload metadata lowered from parser-owned `data`

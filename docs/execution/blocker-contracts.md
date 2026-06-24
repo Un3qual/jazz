@@ -116,22 +116,21 @@ Each blocked item should answer these questions:
 
 ### JN-PATTERN-FUTURE-FORMS-PLAN-001
 
-- Smallest unblocker: pick exactly one future pattern form and define its binder,
-  type, and runtime contract.
-- Decision needed: whether the next form is guards, or-patterns, or pattern
-  synonyms.
-- Recommended default: start with guards only if they do not change binder
-  introduction; otherwise keep future pattern forms blocked until the solver
-  contract is clearer.
-- Candidate child: `JN-PATTERN-GUARD-CONTRACT-001`.
-- Target paths: `docs/spec/pattern-matching-semantics.md`,
-  `docs/spec/adt-pattern-semantics.md`,
-  `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`,
-  `docs/execution/queue.md`.
+- Smallest unblocker: none is promotion-ready after the guard contract and
+  implementation child landed. A future child must pick exactly one remaining
+  pattern form and define its binder, type, and runtime contract.
+- Decision needed: whether the next form is or-patterns or pattern synonyms,
+  and how its binder compatibility rules work.
+- Recommended default: keep future pattern forms blocked until one remaining
+  form has concrete syntax, binder compatibility, target paths, and focused
+  verification.
+- Candidate child: none currently.
+- Target paths: not set until the next future-pattern contract is accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: adding multiple pattern forms at once, generic solver behavior,
-  or parser/runtime implementation before the contract lands.
+- Not in scope: re-promoting guards, adding multiple pattern forms at once,
+  generic solver behavior, or parser/runtime implementation before a contract
+  lands.
 
 ### JN-RUNTIME-PRODUCTIZE-CLOSURE-PLAN-001
 

@@ -1,6 +1,6 @@
 ---
 id: JN-PATTERN-GUARD-SEMANTICS-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
@@ -8,7 +8,8 @@ autonomous_ready: yes
 depends_on:
   - JN-PATTERN-GUARD-CONTRACT-001
 last_verified: 2026-06-24
-plan_section: "Implementation batch: Pattern guard semantics"
+completed_on: 2026-06-24
+plan_section: "Completed implementation batch: Pattern guard semantics"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
   - jazz-next/src/JazzNext/Compiler/Parser.hs
@@ -56,7 +57,7 @@ queue/docs validation.
 
 ---
 
-## Implementation batch: Pattern guard semantics
+## Completed implementation batch: Pattern guard semantics
 
 Executor-safe scope:
 

@@ -1,6 +1,6 @@
 # Pattern Matching Semantics
 
-Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, and as-patterns parse/lower, typecheck, and execute end-to-end in `jazz-next` `case` arms and lambda parameters; pattern guard semantics are accepted as a queued implementation contract, not active execution yet)
+Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, as-patterns, and single `if` case-arm guards parse/lower, typecheck, and execute end-to-end in `jazz-next` `case` arms; lambda parameters support the non-guard pattern subset)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -21,7 +21,7 @@ Canonical surface form:
 
 ```jz
 case <scrutinee> {
-  | <pattern> -> <expr>
+  | <pattern> [if <guard-expr>] -> <expr>
   | <pattern> -> <expr>
 }
 ```
@@ -29,7 +29,8 @@ case <scrutinee> {
 Current parser/core invariants:
 
 1. A `case` expression has one scrutinee expression and one or more arms.
-2. Every arm begins with `|` and uses `->` between pattern and body.
+2. Every arm begins with `|`, may use at most one `if <guard-expr>` between
+   pattern and body arrow, and uses `->` before the body.
 3. The currently landed surface/core pattern set includes:
    - integer literals
    - boolean literals
@@ -52,8 +53,10 @@ Current parser/core invariants:
    type after the inner pattern succeeds. Runtime matching supports declared
    constructors, exact-length bracketed lists, cons-like lists, fixed-arity
    tuples, and as-patterns.
-5. Arm bodies are full expressions; nested `case`, `if`, lambdas, block-valued
-   scrutinees, and infix/operator expressions remain valid inside arm bodies.
+5. Arm guards and bodies are full expressions; nested `case`, `if`, lambdas,
+   block-valued scrutinees, and infix/operator expressions remain valid inside
+   arm bodies. Guards run under the pattern binder scope but introduce no
+   binders.
 6. Lowering preserves direct `case` expressions as `EPatternCase Expr [CaseArm]`.
 7. The older `ECase Expr Expr Expr` form remains the internal boolean-branch
    representation used after `if` desugaring.
@@ -62,13 +65,15 @@ Current parser/core invariants:
 9. Lambda parameter patterns lower to ordinary unary lambdas whose bodies
    perform an internal single-arm `EPatternCase`, so parameter destructuring
    reuses the same binder, type, and runtime matching contract.
-10. Pattern guards are accepted as an optional case-arm guard contract, but
-    parser/core/type/runtime implementation is queued separately.
+10. Pattern guards are optional case-arm expressions introduced by `if`.
+    They are stored on `CaseArm`, typecheck as `Bool` under pattern binders,
+    and do not participate in arm-result agreement.
 
 ## Matching Contract For The Committed Runtime Subset
 
 1. Arms are tested from top to bottom.
-2. The first matching arm wins.
+2. The first arm whose pattern matches and whose guard is absent or evaluates
+   to `True` wins.
 3. Literal patterns match when the scrutinee value equals the literal and the
    literal belongs to the supported simple subset (`Int` or `Bool`). Fractional
    literal patterns remain rejected until a dedicated pattern-matching batch
@@ -89,8 +94,10 @@ Current parser/core invariants:
 10. An as-pattern `name @ pattern` delegates to the inner pattern first, then
     binds `name` to the whole scrutinee value only when the inner pattern
     succeeds.
-11. Non-selected arm bodies are not evaluated.
-12. A binder introduced by one arm is not visible in sibling arms or outside the
+11. When a pattern matches, an absent guard selects the arm; a `True` guard
+   selects the arm; a `False` guard falls through to later arms.
+12. Guards for failed patterns and non-selected arm bodies are not evaluated.
+13. A binder introduced by one arm is not visible in sibling arms or outside the
    `case` expression.
 
 Examples:
@@ -104,11 +111,6 @@ headPlusNext = case values { | [head | tail] -> head + hd tail | [] -> 0 }.
 sumPair = case pair { | (left, right) -> left + right }.
 sumPairFn = \((left, right)) -> left + right.
 sameValue = case value { | whole @ Just item -> whole | _ -> value }.
-```
-
-Queued guard contract example:
-
-```jz
 positive = case value {
   | Just item if item > 0 -> item
   | _ -> 0
@@ -121,7 +123,7 @@ positive = case value {
    and tuple patterns in `jazz-next`.
 2. Analyzer/type/runtime execution is end-to-end for literal / wildcard /
    variable / constructor / exact-length bracketed-list / cons-like list /
-   fixed-arity tuple / as-patterns.
+   fixed-arity tuple / as-patterns / single guarded case arms.
 3. Pattern-shaped lambda parameters lower to internal single-arm pattern cases
    and reuse the same binder, type, runtime matching, and no-match diagnostic
    behavior.
@@ -151,14 +153,19 @@ positive = case value {
 11. As-pattern binders receive the scrutinee type, inner binders keep the
    existing nested-pattern type rules, and duplicate binders in one pattern
    tree reject with deterministic `E2011` diagnostics.
-12. If no arm matches at runtime, evaluation emits deterministic `E3022`
-   diagnostics rather than falling through silently.
+12. Guard expressions typecheck as `Bool` in the pattern-extended arm
+   environment, pattern binders are visible to guards, and guard types do not
+   affect arm body result agreement.
+13. Runtime evaluates guards only after pattern success; `False` falls through
+   to later arms; failed patterns skip guard evaluation.
+14. If no arm is selected at runtime because all patterns fail or matching
+   guards are `False`, evaluation emits deterministic `E3022` diagnostics
+   rather than falling through silently.
 
-## Accepted Pattern Guard Contract
+## Active Pattern Guard Contract
 
-Pattern guards are the next accepted future pattern form. They are not a new
-pattern node; they are optional boolean expressions attached to a case arm after
-the pattern and before `->`:
+Pattern guards are not a new pattern node; they are optional boolean
+expressions attached to a case arm after the pattern and before `->`:
 
 ```jz
 case value {

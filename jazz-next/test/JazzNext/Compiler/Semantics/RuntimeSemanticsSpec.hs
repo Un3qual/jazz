@@ -511,6 +511,7 @@ patternCaseNoMatchExpr =
     (ELit (LInt 1))
     [ CaseArm
         (PLiteral (LInt 0))
+        Nothing
         (ELit (LInt 2))
     ]
 
@@ -1650,7 +1651,7 @@ testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint = do
                          (SourceSpan 7 1)
                          ( EPatternCase
                              (EVar "token")
-                             [CaseArm (PConstructor "Token" [PVariable "value"]) (EApply (EVar "RuntimePick::pick") (EVar "value"))]
+                             [CaseArm (PConstructor "Token" [PVariable "value"]) Nothing (EApply (EVar "RuntimePick::pick") (EVar "value"))]
                          )
                      ]
               )

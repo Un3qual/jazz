@@ -75,8 +75,11 @@ freeVarsExprWithBound bound expr =
     EPatternCase scrutineeExpr caseArms ->
       Set.unions
         ( freeVarsExprWithBound bound scrutineeExpr :
-          [ freeVarsExprWithBound (extendBoundWithPattern pattern bound) bodyExpr
-          | CaseArm pattern bodyExpr <- caseArms
+          [ Set.union
+              (maybe Set.empty (freeVarsExprWithBound armBound) guardExpr)
+              (freeVarsExprWithBound armBound bodyExpr)
+          | CaseArm pattern guardExpr bodyExpr <- caseArms,
+            let armBound = extendBoundWithPattern pattern bound
           ]
         )
     EBinary _ leftExpr rightExpr ->
@@ -290,12 +293,20 @@ selfAliasLikeReference bindingNameText =
           foldl'
             combineSummaries
             (nonAliasSummary boundNames scopeBindings visitedBindings scrutineeExpr)
-            [ aliasSummary
-                (extendBoundWithPattern pattern boundNames)
-                scopeBindings
-                visitedBindings
-                bodyExpr
-              | CaseArm pattern bodyExpr <- caseArms
+            [ combineSummaries
+                ( maybe
+                    noSummary
+                    (nonAliasSummary armBoundNames scopeBindings visitedBindings)
+                    guardExpr
+                )
+                ( aliasSummary
+                    armBoundNames
+                    scopeBindings
+                    visitedBindings
+                    bodyExpr
+                )
+              | CaseArm pattern guardExpr bodyExpr <- caseArms,
+                let armBoundNames = extendBoundWithPattern pattern boundNames
             ]
         EBlock blockStatements ->
           let localScopeBindings = collectScopeBindingExprs blockStatements
@@ -386,12 +397,20 @@ selfAliasLikeReference bindingNameText =
           foldl'
             combineSummaries
             (nonAliasSummary boundNames scopeBindings visitedBindings scrutineeExpr)
-            [ nonAliasSummary
-                (extendBoundWithPattern pattern boundNames)
-                scopeBindings
-                visitedBindings
-                bodyExpr
-              | CaseArm pattern bodyExpr <- caseArms
+            [ combineSummaries
+                ( maybe
+                    noSummary
+                    (nonAliasSummary armBoundNames scopeBindings visitedBindings)
+                    guardExpr
+                )
+                ( nonAliasSummary
+                    armBoundNames
+                    scopeBindings
+                    visitedBindings
+                    bodyExpr
+                )
+              | CaseArm pattern guardExpr bodyExpr <- caseArms,
+                let armBoundNames = extendBoundWithPattern pattern boundNames
             ]
         EBinary _ leftExpr rightExpr ->
           foldl'
