@@ -71,6 +71,8 @@ tests =
     ("source pipeline instantiates interleaved mutual recursive schemes per use", testSourceInstantiatesInterleavedMutualRecursiveBindingSchemesPerUse),
     ("source pipeline keeps later rebinding over recursive scheme", testSourceKeepsLaterRebindingOverRecursiveScheme),
     ("source pipeline rejects interleaved use constrained by later recursive member", testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember),
+    ("source pipeline types recursive guards against prior rebinding", testSourceTypesRecursiveGuardsAgainstPriorRebinding),
+    ("source pipeline defers partial recursive previews past intervening dependencies", testSourceDefersPartialRecursivePreviewsPastInterveningDependencies),
     ("source pipeline rejects duplicate impl method bindings", testSourceRejectsDuplicateImplMethodBindings),
     ("source pipeline rejects non-binding impl body items", testSourceRejectsNonBindingImplBodyItem),
     ("source pipeline accepts single-target qualified method dispatch", testSourceAcceptsSingleTargetQualifiedMethodDispatch),
@@ -995,6 +997,16 @@ testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember =
   assertSourceSingleErrorContains
     "left = if True \\(x) -> x else right.\nbad = left True.\nright = \\(x) -> left (x + 1)."
     "cannot apply function of type Int -> Int to argument of type Bool"
+
+testSourceTypesRecursiveGuardsAgainstPriorRebinding :: IO ()
+testSourceTypesRecursiveGuardsAgainstPriorRebinding =
+  assertSourceOk "f = \\(x) -> x.\nf = case 0 { | 0 if f True -> \\(y) -> y | _ -> \\(y) -> y }.\nvalue = f 1.\nvalue."
+
+testSourceDefersPartialRecursivePreviewsPastInterveningDependencies :: IO ()
+testSourceDefersPartialRecursivePreviewsPastInterveningDependencies =
+  assertSourceErrorContains
+    "left = if True \\(x) -> x else right.\nearly = left True.\nhelper = \\(x) -> x + 1.\nright = \\(x) -> left (helper x).\nearly."
+    "cannot apply function"
 
 testSourceRejectsUnsupportedVariableConstrainedSignatureContract :: IO ()
 testSourceRejectsUnsupportedVariableConstrainedSignatureContract = do

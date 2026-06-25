@@ -1075,7 +1075,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                       bindingSeedsByStatement
                   envWithBindingSeed =
                     case
-                        ( Set.member statementIndex selfRecursiveFunctionStatements,
+                        ( shouldSeedSelfRecursiveFunction statementIndex nameText envForStatement,
                           Map.lookup statementIndex bindingSeedsByStatement
                         ) of
                       (True, Just bindingSeed) ->
@@ -1280,25 +1280,29 @@ inferScopeType builtinMode initialEnv initialState statements =
               (envAcc, stateAcc)
           | interleavedBindingFeedsLaterGroup statementIndex groupMembers =
               (envAcc, stateAcc)
+          | laterGroupMemberDependsOnInterveningBinding statementIndex groupMembers =
+              (envAcc, stateAcc)
           | null processedMembers =
               (envAcc, stateAcc)
           | otherwise =
-              let previewState =
-                    previewRecursiveGroupState envAcc stateAcc statementIndex groupMembers
-                  groupBindingNames =
-                    Set.fromList
-                      [ bindingName
-                        | memberIndex <- groupMembers,
-                          Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement]
-                      ]
-                  envOutsideGroup =
-                    foldl' (flip Map.delete) envAcc groupBindingNames
-                  nextEnv =
-                    foldl'
-                      (exposeRecursiveGroupMember statementIndex envOutsideGroup previewState)
-                      envAcc
-                      processedMembers
-               in (nextEnv, previewState)
+              case previewRecursiveGroupState envAcc stateAcc statementIndex groupMembers of
+                Nothing ->
+                  (envAcc, stateAcc)
+                Just previewState ->
+                  let groupBindingNames =
+                        Set.fromList
+                          [ bindingName
+                            | memberIndex <- groupMembers,
+                              Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement]
+                          ]
+                      envOutsideGroup =
+                        foldl' (flip Map.delete) envAcc groupBindingNames
+                      nextEnv =
+                        foldl'
+                          (exposeRecursiveGroupMember statementIndex envOutsideGroup previewState)
+                          envAcc
+                          processedMembers
+                   in (nextEnv, previewState)
           where
             processedMembers = filter (< statementIndex) groupMembers
 
@@ -1319,9 +1323,30 @@ inferScopeType builtinMode initialEnv initialState statements =
           Set.member bindingNameText (freeVarsExprWithBound Set.empty valueExpr)
         _ -> False
 
-    previewRecursiveGroupState :: TypeEnv -> InferState -> Int -> [Int] -> InferState
+    laterGroupMemberDependsOnInterveningBinding :: Int -> [Int] -> Bool
+    laterGroupMemberDependsOnInterveningBinding statementIndex groupMembers =
+      any memberDependsOnInterveningBinding (filter (> statementIndex) groupMembers)
+      where
+        memberDependsOnInterveningBinding memberIndex =
+          case Map.lookup memberIndex statementsByIndex of
+            Just (SLet _ _ valueExpr) ->
+              let referencedNames = freeVarsExprWithBound Set.empty valueExpr
+               in any
+                    (interveningBindingIsReferenced referencedNames memberIndex)
+                    (Map.toList bindingNamesByStatement)
+            _ -> False
+
+        interveningBindingIsReferenced referencedNames memberIndex (bindingIndex, bindingNameText) =
+          bindingIndex > statementIndex
+            && bindingIndex < memberIndex
+            && Set.member bindingNameText referencedNames
+
+    previewRecursiveGroupState :: TypeEnv -> InferState -> Int -> [Int] -> Maybe InferState
     previewRecursiveGroupState currentEnv state statementIndex groupMembers =
-      discardPreviewDiagnostics state (foldl' previewMember state (filter (> statementIndex) groupMembers))
+      let previewState = foldl' previewMember state (filter (> statementIndex) groupMembers)
+       in if previewIntroducedDiagnostics state previewState
+            then Nothing
+            else Just (discardPreviewDiagnostics state previewState)
       where
         previewMember stateAcc memberIndex =
           case Map.lookup memberIndex statementsByIndex of
@@ -1336,7 +1361,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                       bindingSeedsByStatement
                   envWithBindingSeed =
                     case
-                        ( Set.member memberIndex selfRecursiveFunctionStatements,
+                        ( shouldSeedSelfRecursiveFunction memberIndex nameText currentEnv,
                           Map.lookup memberIndex bindingSeedsByStatement
                         ) of
                       (True, Just bindingSeed) ->
@@ -1367,6 +1392,14 @@ inferScopeType builtinMode initialEnv initialState statements =
             { inferErrorsRev = inferErrorsRev originalState,
               inferRuntimeTypeHints = inferRuntimeTypeHints originalState
             }
+
+        previewIntroducedDiagnostics originalState previewState =
+          length (inferErrorsRev previewState) /= length (inferErrorsRev originalState)
+
+    shouldSeedSelfRecursiveFunction :: Int -> Text -> TypeEnv -> Bool
+    shouldSeedSelfRecursiveFunction statementIndex bindingNameText visibleEnv =
+      Set.member statementIndex selfRecursiveFunctionStatements
+        && Map.notMember bindingNameText visibleEnv
 
     exposeRecursiveGroupMember :: Int -> TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
     exposeRecursiveGroupMember statementIndex envOutsideGroup state currentEnv memberIndex =
