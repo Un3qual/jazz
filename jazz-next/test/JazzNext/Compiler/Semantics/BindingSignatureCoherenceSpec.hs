@@ -68,6 +68,9 @@ tests =
     ("source pipeline instantiates unconstrained variables beside equality constraints per use", testSourceInstantiatesUnconstrainedEqualityBindingVariablesPerUse),
     ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse),
     ("source pipeline instantiates mutual recursive binding schemes per use", testSourceInstantiatesMutualRecursiveBindingSchemesPerUse),
+    ("source pipeline instantiates interleaved mutual recursive schemes per use", testSourceInstantiatesInterleavedMutualRecursiveBindingSchemesPerUse),
+    ("source pipeline keeps later rebinding over recursive scheme", testSourceKeepsLaterRebindingOverRecursiveScheme),
+    ("source pipeline rejects interleaved use constrained by later recursive member", testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember),
     ("source pipeline rejects duplicate impl method bindings", testSourceRejectsDuplicateImplMethodBindings),
     ("source pipeline rejects non-binding impl body items", testSourceRejectsNonBindingImplBodyItem),
     ("source pipeline accepts single-target qualified method dispatch", testSourceAcceptsSingleTargetQualifiedMethodDispatch),
@@ -976,6 +979,22 @@ testSourceInstantiatesRecursiveBindingSchemesPerUse =
 testSourceInstantiatesMutualRecursiveBindingSchemesPerUse :: IO ()
 testSourceInstantiatesMutualRecursiveBindingSchemesPerUse =
   assertSourceOk "left = if True \\(x) -> x else right.\nright = if False \\(x) -> x else left.\nintValue = left 1.\nboolValue = right True."
+
+testSourceInstantiatesInterleavedMutualRecursiveBindingSchemesPerUse :: IO ()
+testSourceInstantiatesInterleavedMutualRecursiveBindingSchemesPerUse =
+  assertSourceOk "left = if True \\(x) -> x else right.\nintValue = left 1.\nright = if False \\(x) -> x else left.\nboolValue = right True."
+
+testSourceKeepsLaterRebindingOverRecursiveScheme :: IO ()
+testSourceKeepsLaterRebindingOverRecursiveScheme =
+  assertSourceSingleErrorContains
+    "left = if True \\(x) -> x else right.\nright = if False \\(x) -> x else left.\nleft = \\(x) -> x + 1.\nbad = left True."
+    "cannot apply function of type Int -> Int to argument of type Bool"
+
+testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember :: IO ()
+testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember =
+  assertSourceSingleErrorContains
+    "left = if True \\(x) -> x else right.\nbad = left True.\nright = \\(x) -> left (x + 1)."
+    "cannot apply function of type Int -> Int to argument of type Bool"
 
 testSourceRejectsUnsupportedVariableConstrainedSignatureContract :: IO ()
 testSourceRejectsUnsupportedVariableConstrainedSignatureContract = do

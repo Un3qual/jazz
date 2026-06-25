@@ -445,7 +445,7 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
 
     bindingEnv :: Int -> Identifier -> RuntimeEnv
     bindingEnv statementIndex bindingName =
-      case functionSelfReferenceCell statementIndex of
+      case functionSelfReferenceCell statementIndex bindingNameText of
         Just selfCell ->
           Map.insert
             bindingNameText
@@ -462,12 +462,17 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
         bindingNameText = identifierText bindingName
         peerVisibleEnv = recursivePeerEnv statementIndex (envBefore statementIndex)
 
-    functionSelfReferenceCell :: Int -> Maybe RuntimeCell
-    functionSelfReferenceCell statementIndex
-      | Set.member statementIndex selfRecursiveFunctionStatements =
+    functionSelfReferenceCell :: Int -> Text -> Maybe RuntimeCell
+    functionSelfReferenceCell statementIndex bindingNameText
+      | recursiveFunctionNeedsSelf statementIndex bindingNameText =
           Just (Left (runtimeDiagnostic "E3021" "runtime recursive binding has no concrete value"))
       | otherwise =
           Nothing
+
+    recursiveFunctionNeedsSelf :: Int -> Text -> Bool
+    recursiveFunctionNeedsSelf statementIndex bindingNameText =
+      Set.member statementIndex selfRecursiveFunctionStatements
+        && Map.notMember bindingNameText (envBefore statementIndex)
 
     recursiveBindingNeedsSelf :: Int -> Bool
     recursiveBindingNeedsSelf statementIndex =
@@ -484,7 +489,7 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
     -- self-referential scope during evaluation.
     attachSelfRecursiveBinding :: Int -> Identifier -> RuntimeValue -> RuntimeValue
     attachSelfRecursiveBinding statementIndex bindingName runtimeValue
-      | Set.member statementIndex selfRecursiveFunctionStatements =
+      | recursiveFunctionNeedsSelf statementIndex (identifierText bindingName) =
           case runtimeValue of
             VClosure capturedEnv parameterName bodyExpr maybeTypeHint closureModulePath ->
               VClosure

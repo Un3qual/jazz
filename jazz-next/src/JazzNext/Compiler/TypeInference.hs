@@ -1058,6 +1058,8 @@ inferScopeType builtinMode initialEnv initialState statements =
                in go env lastExprType nextPendingSignature moduleBaselineFacts nextState rest
             SLet name bindingSpan valueExpr ->
               let nameText = identifierText name
+                  (envForStatement, stateForStatement) =
+                    exposeVisibleRecursiveGroupSchemes statementIndex env state
                   matchingPendingSignature =
                     case pendingSignatureType of
                       Just pendingSignature
@@ -1067,7 +1069,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                   envWithRecursiveBindings =
                     recursiveBindingEnv
                       statementIndex
-                      env
+                      envForStatement
                       recursiveGroupsByStatement
                       bindingNamesByStatement
                       bindingSeedsByStatement
@@ -1092,9 +1094,9 @@ inferScopeType builtinMode initialEnv initialState statements =
                   (rawValueType, rawStateAfterValue) =
                     case maybeExpectedValueType of
                       Just expectedValueType ->
-                        inferExprTypeWithExpected builtinMode envWithPendingSignature state expectedValueType valueExpr
+                        inferExprTypeWithExpected builtinMode envWithPendingSignature stateForStatement expectedValueType valueExpr
                       Nothing ->
-                        inferExprType builtinMode envWithPendingSignature state valueExpr
+                        inferExprType builtinMode envWithPendingSignature stateForStatement valueExpr
                   valueType =
                     targetedFractionalLiteralBindingType
                       nameText
@@ -1106,7 +1108,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                       Just diagnostic -> addTypeError rawStateAfterValue diagnostic
                       Nothing -> rawStateAfterValue
                   stateAfterValue =
-                    annotateNewErrorsWithPrimarySpan bindingSpan state stateAfterTargetedLiteralCheck
+                    annotateNewErrorsWithPrimarySpan bindingSpan stateForStatement stateAfterTargetedLiteralCheck
                   stateAfterBindingSeedCheck =
                     case (Map.lookup statementIndex bindingSeedsByStatement, valueType) of
                       (Just bindingSeed, Just inferredType) ->
@@ -1162,7 +1164,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                           }
                       Nothing -> stateAfterSignatureCheck
                   nextEnvBeforeRecursiveGroupGeneralization =
-                    case nextBindingForValue statementIndex nameText env valueExpr nextBindingType matchingPendingSignature stateAfterRuntimeHint of
+                    case nextBindingForValue statementIndex nameText envForStatement valueExpr nextBindingType matchingPendingSignature stateAfterRuntimeHint of
                       Just binding -> Map.insert nameText binding env
                       Nothing -> env
                   nextEnv =
@@ -1172,9 +1174,11 @@ inferScopeType builtinMode initialEnv initialState statements =
                       stateAfterRuntimeHint
                in go nextEnv lastExprType Nothing moduleBaselineFacts stateAfterRuntimeHint rest
             SExpr exprSpan expr ->
-              let (exprType, rawStateAfterExpr) = inferExprType builtinMode env state expr
+              let (envForStatement, stateForStatement) =
+                    exposeVisibleRecursiveGroupSchemes statementIndex env state
+                  (exprType, rawStateAfterExpr) = inferExprType builtinMode envForStatement stateForStatement expr
                   stateAfterExpr =
-                    annotateNewErrorsWithPrimarySpan exprSpan state rawStateAfterExpr
+                    annotateNewErrorsWithPrimarySpan exprSpan stateForStatement rawStateAfterExpr
                in go env exprType Nothing moduleBaselineFacts stateAfterExpr rest
 
     nextBindingForValue ::
@@ -1258,16 +1262,143 @@ inferScopeType builtinMode initialEnv initialState statements =
                     groupMembers
         _ -> currentEnv
 
+    exposeVisibleRecursiveGroupSchemes :: Int -> TypeEnv -> InferState -> (TypeEnv, InferState)
+    exposeVisibleRecursiveGroupSchemes statementIndex currentEnv state =
+      foldl' exposeGroup (currentEnv, state) recursiveGroups
+      where
+        recursiveGroups =
+          Set.toList (Set.fromList (Map.elems recursiveGroupsByStatement))
+
+        exposeGroup (envAcc, stateAcc) groupMembers
+          | null groupMembers =
+              (envAcc, stateAcc)
+          | statementIndex `elem` groupMembers =
+              (envAcc, stateAcc)
+          | statementIndex > last groupMembers =
+              (envAcc, stateAcc)
+          | any (`Set.member` signedBindingStatements) groupMembers =
+              (envAcc, stateAcc)
+          | interleavedBindingFeedsLaterGroup statementIndex groupMembers =
+              (envAcc, stateAcc)
+          | null processedMembers =
+              (envAcc, stateAcc)
+          | otherwise =
+              let previewState =
+                    previewRecursiveGroupState envAcc stateAcc statementIndex groupMembers
+                  groupBindingNames =
+                    Set.fromList
+                      [ bindingName
+                        | memberIndex <- groupMembers,
+                          Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement]
+                      ]
+                  envOutsideGroup =
+                    foldl' (flip Map.delete) envAcc groupBindingNames
+                  nextEnv =
+                    foldl'
+                      (exposeRecursiveGroupMember statementIndex envOutsideGroup previewState)
+                      envAcc
+                      processedMembers
+               in (nextEnv, previewState)
+          where
+            processedMembers = filter (< statementIndex) groupMembers
+
+    interleavedBindingFeedsLaterGroup :: Int -> [Int] -> Bool
+    interleavedBindingFeedsLaterGroup statementIndex groupMembers =
+      case Map.lookup statementIndex statementsByIndex of
+        Just (SLet bindingName _ _) ->
+          let bindingNameText = identifierText bindingName
+           in any
+                (laterGroupMemberReferences bindingNameText)
+                (filter (> statementIndex) groupMembers)
+        _ -> False
+
+    laterGroupMemberReferences :: Text -> Int -> Bool
+    laterGroupMemberReferences bindingNameText memberIndex =
+      case Map.lookup memberIndex statementsByIndex of
+        Just (SLet _ _ valueExpr) ->
+          Set.member bindingNameText (freeVarsExprWithBound Set.empty valueExpr)
+        _ -> False
+
+    previewRecursiveGroupState :: TypeEnv -> InferState -> Int -> [Int] -> InferState
+    previewRecursiveGroupState currentEnv state statementIndex groupMembers =
+      discardPreviewDiagnostics state (foldl' previewMember state (filter (> statementIndex) groupMembers))
+      where
+        previewMember stateAcc memberIndex =
+          case Map.lookup memberIndex statementsByIndex of
+            Just (SLet bindingName bindingSpan valueExpr) ->
+              let nameText = identifierText bindingName
+                  envWithRecursiveBindings =
+                    recursiveBindingEnv
+                      memberIndex
+                      currentEnv
+                      recursiveGroupsByStatement
+                      bindingNamesByStatement
+                      bindingSeedsByStatement
+                  envWithBindingSeed =
+                    case
+                        ( Set.member memberIndex selfRecursiveFunctionStatements,
+                          Map.lookup memberIndex bindingSeedsByStatement
+                        ) of
+                      (True, Just bindingSeed) ->
+                        Map.insert nameText (PlainTypeBinding bindingSeed) envWithRecursiveBindings
+                      _ -> envWithRecursiveBindings
+                  (valueType, rawStateAfterValue) =
+                    inferExprType builtinMode envWithBindingSeed stateAcc valueExpr
+                  stateAfterValue =
+                    annotateNewErrorsWithPrimarySpan bindingSpan stateAcc rawStateAfterValue
+               in case (Map.lookup memberIndex bindingSeedsByStatement, valueType) of
+                    (Just bindingSeed, Just inferredType) ->
+                      case unifyTypes bindingSeed inferredType stateAfterValue of
+                        Just unifiedState -> unifiedState
+                        Nothing ->
+                          addTypeError
+                            stateAfterValue
+                            ( mkBindingTypeMismatchError
+                                nameText
+                                (resolveType stateAfterValue bindingSeed)
+                                bindingSpan
+                                (resolveType stateAfterValue inferredType)
+                            )
+                    _ -> stateAfterValue
+            _ -> stateAcc
+
+        discardPreviewDiagnostics originalState previewState =
+          previewState
+            { inferErrorsRev = inferErrorsRev originalState,
+              inferRuntimeTypeHints = inferRuntimeTypeHints originalState
+            }
+
+    exposeRecursiveGroupMember :: Int -> TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
+    exposeRecursiveGroupMember statementIndex envOutsideGroup state currentEnv memberIndex =
+      case Map.lookup memberIndex bindingNamesByStatement of
+        Just bindingNameText
+          | latestBindingIndexBefore statementIndex bindingNameText == Just memberIndex ->
+              generalizeRecursiveGroupMember envOutsideGroup state currentEnv memberIndex
+        _ -> currentEnv
+
+    latestBindingIndexBefore :: Int -> Text -> Maybe Int
+    latestBindingIndexBefore statementIndex bindingNameText =
+      foldl' latest Nothing (Map.toList bindingNamesByStatement)
+      where
+        latest currentLatest (memberIndex, memberName)
+          | memberIndex < statementIndex,
+            memberName == bindingNameText =
+              case currentLatest of
+                Just previousIndex
+                  | previousIndex > memberIndex -> currentLatest
+                _ -> Just memberIndex
+          | otherwise = currentLatest
+
     generalizeRecursiveGroupMember :: TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
     generalizeRecursiveGroupMember envOutsideGroup state currentEnv memberIndex =
       case (Map.lookup memberIndex statementsByIndex, Map.lookup memberIndex bindingNamesByStatement) of
         (Just (SLet _ _ valueExpr), Just bindingNameText)
           | shouldGeneralizeOrdinaryBinding memberIndex envOutsideGroup valueExpr Nothing ->
-              case Map.lookup bindingNameText currentEnv of
-                Just (PlainTypeBinding expressionType) ->
+              case Map.lookup memberIndex bindingSeedsByStatement of
+                Just bindingSeed ->
                   Map.insert
                     bindingNameText
-                    (generalizedOrdinaryBinding envOutsideGroup state expressionType)
+                    (generalizedOrdinaryBinding envOutsideGroup state bindingSeed)
                     currentEnv
                 _ -> currentEnv
         _ -> currentEnv

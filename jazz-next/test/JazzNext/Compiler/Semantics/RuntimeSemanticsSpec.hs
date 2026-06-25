@@ -86,6 +86,7 @@ tests =
     ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer),
     ("pattern-case guard lambda does not classify non-function recursion", testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion),
     ("function-valued pattern guard self-reference produces recursion diagnostic", testFunctionPatternGuardSelfReferenceRuntimeError),
+    ("function-valued pattern guard uses prior rebinding", testFunctionPatternGuardUsesPriorRebinding),
     ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError),
     ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError),
     ("nested block alias cycle ignores later outer peer name", testNestedBlockAliasCycleIgnoresLaterOuterPeer),
@@ -477,6 +478,13 @@ testFunctionPatternGuardSelfReferenceRuntimeError = do
         "no concrete value"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testFunctionPatternGuardUsesPriorRebinding :: IO ()
+testFunctionPatternGuardUsesPriorRebinding = do
+  result <- runSource defaultWarningSettings "f = \\(x) -> 0. f = case 1 { | 1 if f 0 == 0 -> \\(x) -> x | _ -> \\(x) -> x + 1 }. f 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1") (runOutput result)
 
 testBlockWrappedAliasOnlyRecursiveCycleRuntimeError :: IO ()
 testBlockWrappedAliasOnlyRecursiveCycleRuntimeError = do
