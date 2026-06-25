@@ -52,6 +52,7 @@ tests =
     ("keeps higher-precedence pipe in comparison guard RHS", testKeepsHigherPrecedencePipeInComparisonGuardRhs),
     ("keeps literal pipe operand in equality guard RHS", testKeepsLiteralPipeOperandInEqualityGuardRhs),
     ("keeps literal pipe operand in inequality guard RHS", testKeepsLiteralPipeOperandInInequalityGuardRhs),
+    ("keeps literal pipe operand in ordering guard RHS", testKeepsLiteralPipeOperandInOrderingGuardRhs),
     ("keeps as-pattern constructor arguments atomic", testKeepsAsPatternConstructorArgumentsAtomic),
     ("parses as-pattern lambda parameters", testParsesAsPatternLambdaParameter),
     ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms),
@@ -92,7 +93,6 @@ tests =
     ("rejects malformed list patterns", testRejectsMalformedListPattern),
     ("rejects malformed later list patterns", testRejectsMalformedLaterListPattern),
     ("rejects malformed guard expression", testRejectsMalformedGuardExpression),
-    ("rejects missing guard arrow before constructor arm", testRejectsMissingGuardArrowBeforeConstructorArm),
     ("lowers parsed case nodes into core AST", testLowerCaseExpression)
   ]
 
@@ -336,6 +336,38 @@ testKeepsLiteralPipeOperandInInequalityGuardRhs =
                 [ SurfaceCaseArm
                     (SPVariable "item")
                     (Just (SEBinary "!=" (SEVar "item") (SEBinary "|" (SELit (SLInt 0)) (SEVar "Just"))))
+                    (SEVar "item"),
+                  SurfaceCaseArm
+                    SPWildcard
+                    Nothing
+                    (SEVar "m")
+                ]
+            )
+        ]
+
+testKeepsLiteralPipeOperandInOrderingGuardRhs :: IO ()
+testKeepsLiteralPipeOperandInOrderingGuardRhs = do
+  assertOrderingGuard "<" "x = case m { | item if item < 0 | Just -> item | _ -> m }."
+  assertOrderingGuard "<=" "x = case m { | item if item <= 0 | Just -> item | _ -> m }."
+  assertOrderingGuard ">=" "x = case m { | item if item >= 0 | Just -> item | _ -> m }."
+  assertOrderingGuard ">" "x = case m { | item if item > 0 | Just -> item | _ -> m }."
+  where
+    assertOrderingGuard operator source =
+      assertRight
+        ("ordering guard keeps literal pipe operand in RHS for " <> operator)
+        (parseSurfaceProgram source)
+        (\surfaceProgram -> assertEqual "ordering guard literal pipe RHS surface AST" (expectedSurfaceProgram operator) surfaceProgram)
+
+    expectedSurfaceProgram operator =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "m")
+                [ SurfaceCaseArm
+                    (SPVariable "item")
+                    (Just (SEBinary operator (SEVar "item") (SEBinary "|" (SELit (SLInt 0)) (SEVar "Just"))))
                     (SEVar "item"),
                   SurfaceCaseArm
                     SPWildcard
@@ -1180,13 +1212,6 @@ testRejectsMalformedGuardExpression =
     "malformed guard expression"
     "expected guard expression"
     (parseSurfaceProgram "x = case value { | item if -> item }.")
-
-testRejectsMissingGuardArrowBeforeConstructorArm :: IO ()
-testRejectsMissingGuardArrowBeforeConstructorArm =
-  assertLeftDiagnosticContains
-    "missing guard arrow before constructor arm"
-    "expected '->'"
-    (parseSurfaceProgram "x = case value { | Just item if item > 0 | Nothing -> 0 }.")
 
 testLowerCaseExpression :: IO ()
 testLowerCaseExpression =

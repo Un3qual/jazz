@@ -2205,15 +2205,16 @@ parseCaseArm knownAliases declaredOperators tokens = do
 
     samePrecedenceGuardPipeCanBind parentOperator leftExpr =
       case leftExpr of
-        -- Preserve the missing-arm diagnostic for `item > 0 | Nothing -> 0`
-        -- while letting equality guards compare against piped constructors.
+        -- Let lower-precedence parents keep literal-led pipe RHS expressions.
         SELit {} -> parentOperatorAllowsLiteralPipe parentOperator
         _ -> True
 
     parentOperatorAllowsLiteralPipe parentOperator =
       case parentOperator of
-        Just "==" -> True
-        Just "!=" -> True
+        Just operatorSymbol ->
+          case lookupOperatorInfoIn declaredOperators operatorSymbol of
+            Just operatorInfo -> operatorPrecedence operatorInfo < caseGuardPipePrecedence
+            Nothing -> False
         _ -> False
 
     -- If a higher-precedence pipe was stopped inside a lower-precedence RHS,
