@@ -2194,8 +2194,10 @@ parseCaseArm knownAliases declaredOperators tokens = do
         _ -> False
 
     caseGuardPipeStartsBoundary parentOperator minPrecedence leftExpr tokensAfterPipe =
-      startsDefiniteCaseArmAfterGuardBoundary tokensAfterPipe
-        && not (caseGuardPipeCanContinueExpression parentOperator minPrecedence leftExpr)
+      startsDefiniteGuardedCaseArmAfterGuardBoundary tokensAfterPipe
+        || ( startsDefiniteUnguardedCaseArmAfterGuardBoundary tokensAfterPipe
+               && not (caseGuardPipeCanContinueExpression parentOperator minPrecedence leftExpr)
+           )
 
     caseGuardPipeCanContinueExpression parentOperator minPrecedence leftExpr =
       case compare minPrecedence caseGuardPipePrecedence of
@@ -2246,18 +2248,27 @@ parseCaseArm knownAliases declaredOperators tokens = do
       case parseCasePattern remainingTokens of
         Right (_, Token {tokenKind = TArrow} : _) -> True
         Right (_, Token {tokenKind = TIf} : afterGuard) ->
-          hasTopLevelGuardArrow afterGuard
+          guardTokensEndAtArrow afterGuard
         Left _
           | startsCasePatternTokens remainingTokens ->
               hasTopLevelArrowBeforeCaseArmBoundary remainingTokens
         _ -> False
 
-    startsDefiniteCaseArmAfterGuardBoundary remainingTokens =
+    startsDefiniteUnguardedCaseArmAfterGuardBoundary remainingTokens =
       case parseCasePattern remainingTokens of
         Right (casePattern, Token {tokenKind = TArrow} : _) ->
           guardBoundaryPatternIsDefinite casePattern
+        _ -> False
+
+    startsDefiniteGuardedCaseArmAfterGuardBoundary remainingTokens =
+      case parseCasePattern remainingTokens of
         Right (casePattern, Token {tokenKind = TIf} : afterGuard) ->
-          guardBoundaryPatternIsDefinite casePattern && hasTopLevelGuardArrow afterGuard
+          guardBoundaryPatternIsDefinite casePattern && guardTokensEndAtArrow afterGuard
+        _ -> False
+
+    guardTokensEndAtArrow remainingTokens =
+      case parseCaseArmGuard remainingTokens of
+        Right (_, Token {tokenKind = TArrow} : _) -> True
         _ -> False
 
     guardBoundaryPatternIsDefinite casePattern =

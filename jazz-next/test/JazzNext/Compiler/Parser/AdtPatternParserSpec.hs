@@ -53,6 +53,8 @@ tests =
     ("keeps literal pipe operand in equality guard RHS", testKeepsLiteralPipeOperandInEqualityGuardRhs),
     ("keeps literal pipe operand in inequality guard RHS", testKeepsLiteralPipeOperandInInequalityGuardRhs),
     ("keeps literal pipe operand in ordering guard RHS", testKeepsLiteralPipeOperandInOrderingGuardRhs),
+    ("keeps constructor if-expression pipe RHS before arm arrow", testKeepsConstructorIfExpressionPipeRhsBeforeArmArrow),
+    ("rejects missing guard arrow before guarded constructor arm", testRejectsMissingGuardArrowBeforeGuardedConstructorArm),
     ("keeps as-pattern constructor arguments atomic", testKeepsAsPatternConstructorArgumentsAtomic),
     ("parses as-pattern lambda parameters", testParsesAsPatternLambdaParameter),
     ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms),
@@ -376,6 +378,49 @@ testKeepsLiteralPipeOperandInOrderingGuardRhs = do
                 ]
             )
         ]
+
+testKeepsConstructorIfExpressionPipeRhsBeforeArmArrow :: IO ()
+testKeepsConstructorIfExpressionPipeRhsBeforeArmArrow =
+  assertRight
+    "constructor if-expression pipe RHS before arm arrow"
+    (parseSurfaceProgram "x = case m { | item if item == 0 | Just if ok 1 else 2 -> item | _ -> m }.")
+    (\surfaceProgram -> assertEqual "constructor if-expression pipe RHS surface AST" expectedSurfaceProgram surfaceProgram)
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "m")
+                [ SurfaceCaseArm
+                    (SPVariable "item")
+                    ( Just
+                        ( SEBinary
+                            "=="
+                            (SEVar "item")
+                            ( SEBinary
+                                "|"
+                                (SELit (SLInt 0))
+                                (SEApply (SEVar "Just") (SEIf (SEVar "ok") (SELit (SLInt 1)) (SELit (SLInt 2))))
+                            )
+                        )
+                    )
+                    (SEVar "item"),
+                  SurfaceCaseArm
+                    SPWildcard
+                    Nothing
+                    (SEVar "m")
+                ]
+            )
+        ]
+
+testRejectsMissingGuardArrowBeforeGuardedConstructorArm :: IO ()
+testRejectsMissingGuardArrowBeforeGuardedConstructorArm =
+  assertLeftDiagnosticContains
+    "missing guard arrow before guarded constructor arm"
+    "expected '->'"
+    (parseSurfaceProgram "x = case m { | item if item < 0 | Just if ok -> item | _ -> m }.")
 
 testKeepsAsPatternConstructorArgumentsAtomic :: IO ()
 testKeepsAsPatternConstructorArgumentsAtomic =
