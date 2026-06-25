@@ -85,6 +85,7 @@ tests =
     ("pattern-case alias-only recursive cycle produces deterministic runtime diagnostic", testPatternCaseAliasOnlyRecursiveCycleRuntimeError),
     ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer),
     ("pattern-case guard lambda does not classify non-function recursion", testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion),
+    ("function-valued pattern guard self-reference produces recursion diagnostic", testFunctionPatternGuardSelfReferenceRuntimeError),
     ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError),
     ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError),
     ("nested block alias cycle ignores later outer peer name", testNestedBlockAliasCycleIgnoresLaterOuterPeer),
@@ -453,6 +454,26 @@ testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion = do
         (runRuntimeErrors result)
       assertSingleDiagnosticContains
         "guard-lambda recursion runtime text"
+        "no concrete value"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testFunctionPatternGuardSelfReferenceRuntimeError :: IO ()
+testFunctionPatternGuardSelfReferenceRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = case 1 { | 1 if f 0 == 0 -> \\(x) -> x | _ -> \\(x) -> x }. f 1.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected function-valued pattern guard self-reference to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for function-valued pattern guard self-reference, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "function-valued pattern guard self-reference runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "function-valued pattern guard self-reference runtime text"
         "no concrete value"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)

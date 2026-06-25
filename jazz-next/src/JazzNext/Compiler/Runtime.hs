@@ -445,15 +445,29 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
 
     bindingEnv :: Int -> Identifier -> RuntimeEnv
     bindingEnv statementIndex bindingName =
-      case recursiveBindingNeedsSelf statementIndex of
-        True ->
+      case functionSelfReferenceCell statementIndex of
+        Just selfCell ->
           Map.insert
-            (identifierText bindingName)
-            (bindingCellAt statementIndex)
+            bindingNameText
+            selfCell
             peerVisibleEnv
-        False -> peerVisibleEnv
+        Nothing
+          | recursiveBindingNeedsSelf statementIndex ->
+              Map.insert
+                bindingNameText
+                (bindingCellAt statementIndex)
+                peerVisibleEnv
+          | otherwise -> peerVisibleEnv
       where
+        bindingNameText = identifierText bindingName
         peerVisibleEnv = recursivePeerEnv statementIndex (envBefore statementIndex)
+
+    functionSelfReferenceCell :: Int -> Maybe RuntimeCell
+    functionSelfReferenceCell statementIndex
+      | Set.member statementIndex selfRecursiveFunctionStatements =
+          Just (Left (runtimeDiagnostic "E3021" "runtime recursive binding has no concrete value"))
+      | otherwise =
+          Nothing
 
     recursiveBindingNeedsSelf :: Int -> Bool
     recursiveBindingNeedsSelf statementIndex =
