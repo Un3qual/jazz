@@ -50,6 +50,8 @@ tests =
     ("parses guarded case arm with pipe expression guard after previous arm", testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm),
     ("parses guarded case arms with definite pipe RHS guards", testParsesGuardedCaseArmWithDefinitePipeRhsGuards),
     ("keeps higher-precedence pipe in comparison guard RHS", testKeepsHigherPrecedencePipeInComparisonGuardRhs),
+    ("keeps literal pipe operand in equality guard RHS", testKeepsLiteralPipeOperandInEqualityGuardRhs),
+    ("keeps literal pipe operand in inequality guard RHS", testKeepsLiteralPipeOperandInInequalityGuardRhs),
     ("keeps as-pattern constructor arguments atomic", testKeepsAsPatternConstructorArgumentsAtomic),
     ("parses as-pattern lambda parameters", testParsesAsPatternLambdaParameter),
     ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms),
@@ -287,6 +289,58 @@ testKeepsHigherPrecedencePipeInComparisonGuardRhs =
                     (SPVariable "item")
                     (Just (SEBinary "==" (SEVar "left") (SEBinary "|" (SEVar "right") (SELit (SLBool True)))))
                     (SELit (SLInt 1))
+                ]
+            )
+        ]
+
+testKeepsLiteralPipeOperandInEqualityGuardRhs :: IO ()
+testKeepsLiteralPipeOperandInEqualityGuardRhs =
+  assertRight
+    "equality guard keeps literal pipe operand in RHS"
+    (parseSurfaceProgram "x = case m { | item if item == 0 | Just -> item | _ -> m }.")
+    (\surfaceProgram -> assertEqual "equality guard literal pipe RHS surface AST" expectedSurfaceProgram surfaceProgram)
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "m")
+                [ SurfaceCaseArm
+                    (SPVariable "item")
+                    (Just (SEBinary "==" (SEVar "item") (SEBinary "|" (SELit (SLInt 0)) (SEVar "Just"))))
+                    (SEVar "item"),
+                  SurfaceCaseArm
+                    SPWildcard
+                    Nothing
+                    (SEVar "m")
+                ]
+            )
+        ]
+
+testKeepsLiteralPipeOperandInInequalityGuardRhs :: IO ()
+testKeepsLiteralPipeOperandInInequalityGuardRhs =
+  assertRight
+    "inequality guard keeps literal pipe operand in RHS"
+    (parseSurfaceProgram "x = case m { | item if item != 0 | Just -> item | _ -> m }.")
+    (\surfaceProgram -> assertEqual "inequality guard literal pipe RHS surface AST" expectedSurfaceProgram surfaceProgram)
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "m")
+                [ SurfaceCaseArm
+                    (SPVariable "item")
+                    (Just (SEBinary "!=" (SEVar "item") (SEBinary "|" (SELit (SLInt 0)) (SEVar "Just"))))
+                    (SEVar "item"),
+                  SurfaceCaseArm
+                    SPWildcard
+                    Nothing
+                    (SEVar "m")
                 ]
             )
         ]

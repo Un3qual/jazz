@@ -2138,21 +2138,21 @@ parseCaseArm knownAliases declaredOperators tokens = do
         Token {tokenKind = TOperator "|"} : _ ->
           Left (parseDiagnostic "expected guard expression before next case arm")
         _ ->
-          parseCaseGuardExprWithMinPrecedence 1 allTokens
+          parseCaseGuardExprWithMinPrecedence Nothing 1 allTokens
 
-    parseCaseGuardExprWithMinPrecedence minPrecedence guardTokens = do
+    parseCaseGuardExprWithMinPrecedence parentOperator minPrecedence guardTokens = do
       (leftExpr, remainingTokens) <-
         parseApplicationExprUntil knownAliases declaredOperators stopsBeforeCaseGuardTerminator guardTokens
-      parseCaseGuardInfixTail minPrecedence leftExpr remainingTokens
+      parseCaseGuardInfixTail parentOperator minPrecedence leftExpr remainingTokens
 
-    parseCaseGuardInfixTail minPrecedence leftExpr guardTokens
+    parseCaseGuardInfixTail parentOperator minPrecedence leftExpr guardTokens
       | stopsBeforeCaseGuardTerminator guardTokens = Right (leftExpr, guardTokens)
       | otherwise =
           case guardTokens of
             operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : tokensAfterOperator
               | shouldStopForSectionBoundary tokensAfterOperator ->
                   Right (leftExpr, guardTokens)
-              | operatorSymbol == "|" && caseGuardPipeStartsBoundary minPrecedence leftExpr tokensAfterOperator ->
+              | operatorSymbol == "|" && caseGuardPipeStartsBoundary parentOperator minPrecedence leftExpr tokensAfterOperator ->
                   Right (leftExpr, guardTokens)
               | otherwise ->
                   case lookupOperatorInfoIn declaredOperators operatorSymbol of
@@ -2174,8 +2174,9 @@ parseCaseArm knownAliases declaredOperators tokens = do
                                   AssocLeft -> operatorPrecedence operatorInfo + 1
                                   AssocRight -> operatorPrecedence operatorInfo
                           (rightExpr, remainingAfterRight) <-
-                            parseCaseGuardExprWithMinPrecedence nextMinPrecedence tokensAfterOperator
+                            parseCaseGuardExprWithMinPrecedence (Just operatorSymbol) nextMinPrecedence tokensAfterOperator
                           parseCaseGuardInfixTail
+                            parentOperator
                             minPrecedence
                             (SEBinary operatorSymbol leftExpr rightExpr)
                             remainingAfterRight
@@ -2192,22 +2193,28 @@ parseCaseArm knownAliases declaredOperators tokens = do
         Token {tokenKind = TRBrace} : _ -> True
         _ -> False
 
-    caseGuardPipeStartsBoundary minPrecedence leftExpr tokensAfterPipe =
+    caseGuardPipeStartsBoundary parentOperator minPrecedence leftExpr tokensAfterPipe =
       startsDefiniteCaseArmAfterGuardBoundary tokensAfterPipe
-        && not (caseGuardPipeCanContinueExpression minPrecedence leftExpr)
+        && not (caseGuardPipeCanContinueExpression parentOperator minPrecedence leftExpr)
 
-    caseGuardPipeCanContinueExpression minPrecedence leftExpr =
+    caseGuardPipeCanContinueExpression parentOperator minPrecedence leftExpr =
       case compare minPrecedence caseGuardPipePrecedence of
         LT -> not (leftExprHasLowerPrecedenceRoot leftExpr)
-        EQ -> samePrecedenceGuardPipeCanBind leftExpr
+        EQ -> samePrecedenceGuardPipeCanBind parentOperator leftExpr
         GT -> False
 
-    samePrecedenceGuardPipeCanBind leftExpr =
+    samePrecedenceGuardPipeCanBind parentOperator leftExpr =
       case leftExpr of
         -- Preserve the missing-arm diagnostic for `item > 0 | Nothing -> 0`
-        -- while allowing non-literal comparison RHS expressions to keep `|`.
-        SELit {} -> False
+        -- while letting equality guards compare against piped constructors.
+        SELit {} -> parentOperatorAllowsLiteralPipe parentOperator
         _ -> True
+
+    parentOperatorAllowsLiteralPipe parentOperator =
+      case parentOperator of
+        Just "==" -> True
+        Just "!=" -> True
+        _ -> False
 
     -- If a higher-precedence pipe was stopped inside a lower-precedence RHS,
     -- keep treating it as a boundary when control returns to the outer tail.
