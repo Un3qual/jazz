@@ -1327,6 +1327,8 @@ inferScopeType builtinMode initialEnv initialState statements =
     laterGroupMemberDependsOnInterveningBinding statementIndex groupMembers =
       any memberDependsOnInterveningBinding (filter (> statementIndex) groupMembers)
       where
+        groupMemberSet = Set.fromList groupMembers
+
         memberDependsOnInterveningBinding memberIndex =
           case Map.lookup memberIndex statementsByIndex of
             Just (SLet _ _ valueExpr) ->
@@ -1339,6 +1341,7 @@ inferScopeType builtinMode initialEnv initialState statements =
         interveningBindingIsReferenced referencedNames memberIndex (bindingIndex, bindingNameText) =
           bindingIndex > statementIndex
             && bindingIndex < memberIndex
+            && Set.notMember bindingIndex groupMemberSet
             && Set.member bindingNameText referencedNames
 
     previewRecursiveGroupState :: TypeEnv -> InferState -> Int -> [Int] -> Maybe InferState

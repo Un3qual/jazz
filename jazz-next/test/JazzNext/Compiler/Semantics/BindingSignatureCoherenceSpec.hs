@@ -73,6 +73,7 @@ tests =
     ("source pipeline rejects interleaved use constrained by later recursive member", testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember),
     ("source pipeline types recursive guards against prior rebinding", testSourceTypesRecursiveGuardsAgainstPriorRebinding),
     ("source pipeline defers partial recursive previews past intervening dependencies", testSourceDefersPartialRecursivePreviewsPastInterveningDependencies),
+    ("source pipeline previews through intervening recursive group members", testSourcePreviewsThroughInterveningRecursiveGroupMembers),
     ("source pipeline rejects duplicate impl method bindings", testSourceRejectsDuplicateImplMethodBindings),
     ("source pipeline rejects non-binding impl body items", testSourceRejectsNonBindingImplBodyItem),
     ("source pipeline accepts single-target qualified method dispatch", testSourceAcceptsSingleTargetQualifiedMethodDispatch),
@@ -1007,6 +1008,10 @@ testSourceDefersPartialRecursivePreviewsPastInterveningDependencies =
   assertSourceErrorContains
     "left = if True \\(x) -> x else right.\nearly = left True.\nhelper = \\(x) -> x + 1.\nright = \\(x) -> left (helper x).\nearly."
     "cannot apply function"
+
+testSourcePreviewsThroughInterveningRecursiveGroupMembers :: IO ()
+testSourcePreviewsThroughInterveningRecursiveGroupMembers =
+  assertSourceOk "left = if True \\(x) -> x else right.\nearly = left True.\nmiddle = if True \\(x) -> x else left.\nright = if False middle else left.\nlate = left 1.\nlate."
 
 testSourceRejectsUnsupportedVariableConstrainedSignatureContract :: IO ()
 testSourceRejectsUnsupportedVariableConstrainedSignatureContract = do
