@@ -49,6 +49,7 @@ tests =
     ("parses guarded case arms", testParsesGuardedCaseArm),
     ("parses guarded case arm with pipe expression guard after previous arm", testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm),
     ("parses guarded case arms with definite pipe RHS guards", testParsesGuardedCaseArmWithDefinitePipeRhsGuards),
+    ("keeps higher-precedence pipe in comparison guard RHS", testKeepsHigherPrecedencePipeInComparisonGuardRhs),
     ("keeps as-pattern constructor arguments atomic", testKeepsAsPatternConstructorArgumentsAtomic),
     ("parses as-pattern lambda parameters", testParsesAsPatternLambdaParameter),
     ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms),
@@ -264,6 +265,28 @@ testParsesGuardedCaseArmWithDefinitePipeRhsGuards =
                     (SPVariable "other")
                     (Just (SEBinary "|" (SEVar "left") (SEVar "Nothing")))
                     (SELit (SLInt 2))
+                ]
+            )
+        ]
+
+testKeepsHigherPrecedencePipeInComparisonGuardRhs :: IO ()
+testKeepsHigherPrecedencePipeInComparisonGuardRhs =
+  assertRight
+    "comparison guard keeps pipe expression in RHS"
+    (parseSurfaceProgram "x = case value { | item if left == right | True -> 1 }.")
+    (\surfaceProgram -> assertEqual "comparison guard pipe RHS surface AST" expectedSurfaceProgram surfaceProgram)
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "value")
+                [ SurfaceCaseArm
+                    (SPVariable "item")
+                    (Just (SEBinary "==" (SEVar "left") (SEBinary "|" (SEVar "right") (SELit (SLBool True)))))
+                    (SELit (SLInt 1))
                 ]
             )
         ]

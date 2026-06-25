@@ -2197,7 +2197,17 @@ parseCaseArm knownAliases declaredOperators tokens = do
         && not (caseGuardPipeCanContinueExpression minPrecedence leftExpr)
 
     caseGuardPipeCanContinueExpression minPrecedence leftExpr =
-      minPrecedence == 1 && not (leftExprHasLowerPrecedenceRoot leftExpr)
+      case compare minPrecedence caseGuardPipePrecedence of
+        LT -> not (leftExprHasLowerPrecedenceRoot leftExpr)
+        EQ -> samePrecedenceGuardPipeCanBind leftExpr
+        GT -> False
+
+    samePrecedenceGuardPipeCanBind leftExpr =
+      case leftExpr of
+        -- Preserve the missing-arm diagnostic for `item > 0 | Nothing -> 0`
+        -- while allowing non-literal comparison RHS expressions to keep `|`.
+        SELit {} -> False
+        _ -> True
 
     -- If a higher-precedence pipe was stopped inside a lower-precedence RHS,
     -- keep treating it as a boundary when control returns to the outer tail.
