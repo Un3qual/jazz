@@ -48,6 +48,7 @@ tests =
     ("parses as-pattern case arms", testParsesAsPatternCaseArm),
     ("parses guarded case arms", testParsesGuardedCaseArm),
     ("parses guarded case arm with pipe expression guard after previous arm", testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm),
+    ("parses guarded case arms with definite pipe RHS guards", testParsesGuardedCaseArmWithDefinitePipeRhsGuards),
     ("keeps as-pattern constructor arguments atomic", testKeepsAsPatternConstructorArgumentsAtomic),
     ("parses as-pattern lambda parameters", testParsesAsPatternLambdaParameter),
     ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms),
@@ -237,6 +238,32 @@ testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm =
                     (SPVariable "item")
                     (Just (SEBinary "|" (SEVar "left") (SEVar "right")))
                     (SELit (SLInt 1))
+                ]
+            )
+        ]
+
+testParsesGuardedCaseArmWithDefinitePipeRhsGuards :: IO ()
+testParsesGuardedCaseArmWithDefinitePipeRhsGuards =
+  assertRight
+    "guarded pipe expression with literal and constructor-shaped RHS"
+    (parseSurfaceProgram "x = case value { | item if left | True -> 1 | other if left | Nothing -> 2 }.")
+    (\surfaceProgram -> assertEqual "guarded definite pipe RHS surface AST" expectedSurfaceProgram surfaceProgram)
+  where
+    expectedSurfaceProgram =
+      SEBlock
+        [ SSLet
+            "x"
+            (SourceSpan 1 1)
+            ( SECase
+                (SEVar "value")
+                [ SurfaceCaseArm
+                    (SPVariable "item")
+                    (Just (SEBinary "|" (SEVar "left") (SELit (SLBool True))))
+                    (SELit (SLInt 1)),
+                  SurfaceCaseArm
+                    (SPVariable "other")
+                    (Just (SEBinary "|" (SEVar "left") (SEVar "Nothing")))
+                    (SELit (SLInt 2))
                 ]
             )
         ]

@@ -1697,11 +1697,11 @@ generalizedOrdinaryBinding env state expressionType =
         Set.union
           (inferStrictEqualityVars state)
           (Map.keysSet (inferNumericVars state))
+      schemeVariables = Set.difference quantifiedVariables constrainedVariables
    in
-    if Set.null quantifiedVariables
-      || not (Set.null (Set.intersection quantifiedVariables constrainedVariables))
+    if Set.null schemeVariables
       then PlainTypeBinding resolvedType
-      else SchemeTypeBinding (TypeScheme quantifiedVariables resolvedType)
+      else SchemeTypeBinding (TypeScheme schemeVariables resolvedType)
 
 freeTypeVariablesInEnv :: InferState -> TypeEnv -> Set Int
 freeTypeVariablesInEnv state =

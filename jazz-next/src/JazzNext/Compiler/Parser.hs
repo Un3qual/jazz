@@ -2138,15 +2138,82 @@ parseCaseArm knownAliases declaredOperators tokens = do
         Token {tokenKind = TOperator "|"} : _ ->
           Left (parseDiagnostic "expected guard expression before next case arm")
         _ ->
-          parseExprWithMinPrecedenceUntil knownAliases declaredOperators stopsBeforeCaseGuardBoundary 1 allTokens
+          parseCaseGuardExprWithMinPrecedence 1 allTokens
 
-    stopsBeforeCaseGuardBoundary allTokens =
+    parseCaseGuardExprWithMinPrecedence minPrecedence guardTokens = do
+      (leftExpr, remainingTokens) <-
+        parseApplicationExprUntil knownAliases declaredOperators stopsBeforeCaseGuardTerminator guardTokens
+      parseCaseGuardInfixTail minPrecedence leftExpr remainingTokens
+
+    parseCaseGuardInfixTail minPrecedence leftExpr guardTokens
+      | stopsBeforeCaseGuardTerminator guardTokens = Right (leftExpr, guardTokens)
+      | otherwise =
+          case guardTokens of
+            operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : tokensAfterOperator
+              | shouldStopForSectionBoundary tokensAfterOperator ->
+                  Right (leftExpr, guardTokens)
+              | operatorSymbol == "|" && caseGuardPipeStartsBoundary minPrecedence leftExpr tokensAfterOperator ->
+                  Right (leftExpr, guardTokens)
+              | otherwise ->
+                  case lookupOperatorInfoIn declaredOperators operatorSymbol of
+                    Nothing ->
+                      Left
+                        ( parseDiagnostic
+                            ( "operator '"
+                                <> operatorSymbol
+                                <> "' must be declared before use at "
+                                <> renderSourceSpan (tokenSpan operatorToken)
+                            )
+                        )
+                    Just operatorInfo
+                      | operatorPrecedence operatorInfo < minPrecedence ->
+                          Right (leftExpr, guardTokens)
+                      | otherwise -> do
+                          let nextMinPrecedence =
+                                case operatorAssociativity operatorInfo of
+                                  AssocLeft -> operatorPrecedence operatorInfo + 1
+                                  AssocRight -> operatorPrecedence operatorInfo
+                          (rightExpr, remainingAfterRight) <-
+                            parseCaseGuardExprWithMinPrecedence nextMinPrecedence tokensAfterOperator
+                          parseCaseGuardInfixTail
+                            minPrecedence
+                            (SEBinary operatorSymbol leftExpr rightExpr)
+                            remainingAfterRight
+            _ -> Right (leftExpr, guardTokens)
+      where
+        shouldStopForSectionBoundary remainingAfterOperator =
+          case remainingAfterOperator of
+            Token {tokenKind = TRParen} : _ -> True
+            _ -> False
+
+    stopsBeforeCaseGuardTerminator allTokens =
       case allTokens of
         Token {tokenKind = TArrow} : _ -> True
-        Token {tokenKind = TOperator "|"} : rest ->
-          startsDefiniteCaseArmAfterGuardBoundary rest
         Token {tokenKind = TRBrace} : _ -> True
         _ -> False
+
+    caseGuardPipeStartsBoundary minPrecedence leftExpr tokensAfterPipe =
+      startsDefiniteCaseArmAfterGuardBoundary tokensAfterPipe
+        && not (caseGuardPipeCanContinueExpression minPrecedence leftExpr)
+
+    caseGuardPipeCanContinueExpression minPrecedence leftExpr =
+      minPrecedence == 1 && not (leftExprHasLowerPrecedenceRoot leftExpr)
+
+    -- If a higher-precedence pipe was stopped inside a lower-precedence RHS,
+    -- keep treating it as a boundary when control returns to the outer tail.
+    leftExprHasLowerPrecedenceRoot leftExpr =
+      case leftExpr of
+        SEBinary operatorSymbol _ _ ->
+          case lookupOperatorInfoIn declaredOperators operatorSymbol of
+            Just operatorInfo ->
+              operatorPrecedence operatorInfo < caseGuardPipePrecedence
+            Nothing -> False
+        _ -> False
+
+    caseGuardPipePrecedence =
+      case lookupOperatorInfoIn declaredOperators "|" of
+        Just operatorInfo -> operatorPrecedence operatorInfo
+        Nothing -> 0
 
     -- Case-arm bodies are expression-shaped, so a `|` operator only starts the
     -- next arm when the following tokens can form a pattern and arrow.

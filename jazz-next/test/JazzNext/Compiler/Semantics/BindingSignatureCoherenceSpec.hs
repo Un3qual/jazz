@@ -64,6 +64,8 @@ tests =
     ("source pipeline rejects variable-target impl method bindings", testSourceRejectsVariableTargetImplMethodBindings),
     ("source pipeline rejects variable-target empty impl declarations", testSourceRejectsVariableTargetEmptyImplDeclarations),
     ("source pipeline instantiates ordinary binding schemes per use", testSourceInstantiatesOrdinaryBindingSchemesPerUse),
+    ("source pipeline instantiates unconstrained variables beside numeric constraints per use", testSourceInstantiatesUnconstrainedNumericBindingVariablesPerUse),
+    ("source pipeline instantiates unconstrained variables beside equality constraints per use", testSourceInstantiatesUnconstrainedEqualityBindingVariablesPerUse),
     ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse),
     ("source pipeline instantiates mutual recursive binding schemes per use", testSourceInstantiatesMutualRecursiveBindingSchemesPerUse),
     ("source pipeline rejects duplicate impl method bindings", testSourceRejectsDuplicateImplMethodBindings),
@@ -958,6 +960,14 @@ testSourceKeepsVariableConstrainedSignatureMonomorphic = do
 testSourceInstantiatesOrdinaryBindingSchemesPerUse :: IO ()
 testSourceInstantiatesOrdinaryBindingSchemesPerUse =
   assertSourceOk "id = \\(x) -> x.\nintValue = id 1.\nboolValue = id True."
+
+testSourceInstantiatesUnconstrainedNumericBindingVariablesPerUse :: IO ()
+testSourceInstantiatesUnconstrainedNumericBindingVariablesPerUse =
+  assertSourceOk "f = \\(x) -> \\(y) -> (x + x, y).\na = f 1 True.\nb = f 2 3."
+
+testSourceInstantiatesUnconstrainedEqualityBindingVariablesPerUse :: IO ()
+testSourceInstantiatesUnconstrainedEqualityBindingVariablesPerUse =
+  assertSourceOk "f = \\(x) -> \\(y) -> (x == x, y).\na = f 1 True.\nb = f 2 3."
 
 testSourceInstantiatesRecursiveBindingSchemesPerUse :: IO ()
 testSourceInstantiatesRecursiveBindingSchemesPerUse =
