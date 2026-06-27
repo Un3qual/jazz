@@ -49,6 +49,7 @@ tests =
     ("bundled default prelude exposes width-specific numeric impl facts", testBundledPreludeExposesWidthSpecificNumericImplFacts),
     ("prelude exposes numeric conversion aliases", testPreludeExposesNumericConversionAliases),
     ("bundled default prelude exposes Eq Int equals method body", testBundledPreludeExposesEqIntEqualsMethodBody),
+    ("bundled default prelude exposes Eq Float equals method body", testBundledPreludeExposesEqFloatEqualsMethodBody),
     ("bundled default prelude exposes Eq Bool equals method body", testBundledPreludeExposesEqBoolEqualsMethodBody),
     ("compile without prelude rejects numeric conversion aliases", testCompileWithoutPreludeRejectsNumericConversionAliases),
     ("compile without prelude does not inherit bundled Eq equals method bodies", testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies),
@@ -250,6 +251,13 @@ testBundledPreludeExposesEqIntEqualsMethodBody = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
+testBundledPreludeExposesEqFloatEqualsMethodBody :: IO ()
+testBundledPreludeExposesEqFloatEqualsMethodBody = do
+  result <- runSource defaultWarningSettings "(Eq::equals 1.5 1.5, Eq::equals 1.5 2.25)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+
 testBundledPreludeExposesEqBoolEqualsMethodBody :: IO ()
 testBundledPreludeExposesEqBoolEqualsMethodBody = do
   result <- runSource defaultWarningSettings "(Eq::equals True True, Eq::equals True False)."
@@ -301,6 +309,27 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
     "no-prelude compile has no bundled Eq(Bool).equals method body"
     "missing impl method body 'Eq::equals'"
     (compileErrors boolResult)
+  floatResult <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      ( Text.unlines
+          [ "class Eq(a) {",
+            "equals :: a -> a -> Bool.",
+            "}.",
+            "impl Eq(Float) { }.",
+            "left :: Float.",
+            "left = 1.5.",
+            "right :: Float.",
+            "right = 1.5.",
+            "result = Eq::equals left right.",
+            "result."
+          ]
+      )
+  assertSingleErrorContains
+    "no-prelude compile has no bundled Eq(Float).equals method body"
+    "missing impl method body 'Eq::equals'"
+    (compileErrors floatResult)
 
 testCompileWithoutPreludeRejectsBundledCapabilityFacts :: IO ()
 testCompileWithoutPreludeRejectsBundledCapabilityFacts = do
@@ -364,6 +393,31 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
     "explicit prelude has no bundled Eq(Bool).equals method body"
     "missing impl method body 'Eq::equals'"
     (compileErrors boolResult)
+  floatResult <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      ( Just
+          ( Text.unlines
+              [ "class Eq(a) {",
+                "equals :: a -> a -> Bool.",
+                "}.",
+                "impl Eq(Float) { }."
+              ]
+          )
+      )
+      ( Text.unlines
+          [ "left :: Float.",
+            "left = 1.5.",
+            "right :: Float.",
+            "right = 1.5.",
+            "result = Eq::equals left right.",
+            "result."
+          ]
+      )
+  assertSingleErrorContains
+    "explicit prelude has no bundled Eq(Float).equals method body"
+    "missing impl method body 'Eq::equals'"
+    (compileErrors floatResult)
 
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable :: IO ()
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable = do

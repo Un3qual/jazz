@@ -162,6 +162,7 @@ tests =
     ("qualified method dispatch preserves tuple binding signatures", testQualifiedMethodDispatchPreservesTupleBindingSignature),
     ("qualified method dispatch preserves section binding signatures", testQualifiedMethodDispatchPreservesSectionBindingSignature),
     ("qualified method dispatch treats Float as Float64 alias at runtime", testQualifiedMethodDispatchTreatsFloatAsFloat64Alias),
+    ("qualified method dispatch executes Float equality body", testQualifiedMethodDispatchExecutesFloatEqualityBody),
     ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
     ("qualified method dispatch preserves selected method signatures", testQualifiedMethodDispatchPreservesSelectedMethodSignature),
@@ -1300,6 +1301,22 @@ testQualifiedMethodDispatchTreatsFloatAsFloat64Alias = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchExecutesFloatEqualityBody :: IO ()
+testQualifiedMethodDispatchExecutesFloatEqualityBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Float) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+          <> "left :: Float.\nleft = 1.5.\n"
+          <> "same :: Float.\nsame = 1.5.\n"
+          <> "different :: Float.\ndifferent = 2.25.\n"
+          <> "(RuntimeEq::equals left same, RuntimeEq::equals left different)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
 
 testQualifiedMethodDispatchTreatsIntAsInt64Alias :: IO ()
 testQualifiedMethodDispatchTreatsIntAsInt64Alias = do

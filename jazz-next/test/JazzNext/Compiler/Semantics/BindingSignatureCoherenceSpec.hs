@@ -78,6 +78,7 @@ tests =
     ("source pipeline rejects non-binding impl body items", testSourceRejectsNonBindingImplBodyItem),
     ("source pipeline accepts single-target qualified method dispatch", testSourceAcceptsSingleTargetQualifiedMethodDispatch),
     ("source pipeline selects qualified method body by argument types", testSourceSelectsQualifiedMethodBodyByArgumentTypes),
+    ("source pipeline selects qualified Float method body by argument types", testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes),
     ("source pipeline selects qualified method body through prefix dollar", testSourceSelectsQualifiedMethodBodyThroughPrefixDollar),
     ("source pipeline accepts same-impl qualified method body references", testSourceAcceptsSameImplQualifiedMethodBodyReferences),
     ("source pipeline uses impl signatures while checking method bodies", testSourceUsesImplSignaturesWhileCheckingMethodBodies),
@@ -454,6 +455,16 @@ testSourceSelectsQualifiedMethodBodyByArgumentTypes =
   assertSourceOkWithoutPrelude
     ( qualifiedEqSource
         <> "impl Eq(Bool) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\nresult :: Bool.\nresult = Eq::equals True False.\nresult."
+    )
+
+testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes :: IO ()
+testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes =
+  assertSourceOkWithoutPrelude
+    ( "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+        <> "impl Eq(Float) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+        <> "left :: Float.\nleft = 1.5.\n"
+        <> "right :: Float.\nright = 2.25.\n"
+        <> "result :: Bool.\nresult = Eq::equals left right.\nresult."
     )
 
 testSourceSelectsQualifiedMethodBodyThroughPrefixDollar :: IO ()

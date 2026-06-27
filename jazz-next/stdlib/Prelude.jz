@@ -11,7 +11,9 @@ class Default(a) { }.
 impl Eq(Int) {
 equals = \(left) -> \(right) -> left == right.
 }.
-impl Eq(Float) { }.
+impl Eq(Float) {
+equals = \(left) -> \(right) -> left == right.
+}.
 impl Eq(Bool) {
 equals = \(left) -> \(right) -> left == right.
 }.

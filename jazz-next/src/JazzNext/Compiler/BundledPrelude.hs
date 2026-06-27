@@ -54,6 +54,13 @@ bundledPreludeSource =
               "equals = \\(left) -> \\(right) -> left == right.",
               "}."
             ]
+        ("Eq", "Float") ->
+          Text.intercalate
+            "\n"
+            [ "impl Eq(Float) {",
+              "equals = \\(left) -> \\(right) -> left == right.",
+              "}."
+            ]
         ("Eq", "Bool") ->
           Text.intercalate
             "\n"
