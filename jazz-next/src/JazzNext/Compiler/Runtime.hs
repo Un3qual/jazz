@@ -2149,6 +2149,37 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
           Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
     ("/", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
       evalFloatArithmetic "/" leftMetadata rightMetadata (leftFloat / rightFloat)
+    ("+", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "+" rightMetadata (fromInteger leftInt + rightFloat)
+    ("+", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "+" leftMetadata (leftFloat + fromInteger rightInt)
+    ("-", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "-" rightMetadata (fromInteger leftInt - rightFloat)
+    ("-", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "-" leftMetadata (leftFloat - fromInteger rightInt)
+    ("*", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "*" rightMetadata (fromInteger leftInt * rightFloat)
+    ("*", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "*" leftMetadata (leftFloat * fromInteger rightInt)
+    ("/", VInt _ leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata,
+        floatIsZero rightFloat ->
+          Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
+    ("/", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "/" rightMetadata (fromInteger leftInt / rightFloat)
+    ("/", VFloat _ leftMetadata, VInt 0 rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
+          Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
+    ("/", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "/" leftMetadata (leftFloat / fromInteger rightInt)
     ("<", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       evalIntegerPredicate "<" leftInt leftMetadata rightInt rightMetadata (leftInt < rightInt)
     ("<=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
@@ -2327,6 +2358,22 @@ evalFloatBinary operatorSymbol targetType result
   | Just floatTarget <- targetType =
       Right (VFloat (roundFloatTarget floatTarget result) (targetedFloatMetadata floatTarget))
   | otherwise = Right (VFloat result (untypedFloatMetadata Nothing))
+
+runtimeIntFloat64ArithmeticAccepted :: RuntimeIntMetadata -> RuntimeFloatMetadata -> Bool
+runtimeIntFloat64ArithmeticAccepted intMetadata floatMetadata =
+  runtimeIntTargetType intMetadata == Nothing
+    && runtimeFloatMetadataIsFloat64Domain floatMetadata
+
+runtimeFloatMetadataIsFloat64Domain :: RuntimeFloatMetadata -> Bool
+runtimeFloatMetadataIsFloat64Domain floatMetadata =
+  case runtimeFloatTargetType floatMetadata of
+    Just NumericFloat64 -> True
+    Nothing -> True
+    Just _ -> False
+
+evalIntegerLiteralFloat64Arithmetic :: Text -> RuntimeFloatMetadata -> Double -> Either Diagnostic RuntimeValue
+evalIntegerLiteralFloat64Arithmetic operatorSymbol floatMetadata result =
+  evalFloatBinary operatorSymbol (runtimeFloatTargetType floatMetadata) result
 
 mixedFloatArithmeticDiagnostic :: Text -> Maybe NumericType -> Maybe NumericType -> Diagnostic
 mixedFloatArithmeticDiagnostic operatorSymbol leftTarget rightTarget =

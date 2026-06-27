@@ -756,16 +756,22 @@ applyNumericBinaryRule ::
   InferState ->
   (Maybe ExpressionType, InferState)
 applyNumericBinaryRule operatorSymbol resultRule leftType rightType state =
-  case unifyTypes leftType rightType state of
-    Just stateAfterUnify ->
-      let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
-       in case constrainNumericOperatorType (numericRuleConstraint resultRule) resolvedOperandType stateAfterUnify of
-            Just stateAfterNumericConstraint ->
-              (Just (numericRuleResultType resultRule resolvedOperandType), stateAfterNumericConstraint)
-            Nothing ->
-              numericOperandError stateAfterUnify
-    Nothing -> numericOperandError state
+  case integerLiteralFloat64ArithmeticOperand resultRule state leftType rightType of
+    Just (resolvedOperandType, stateAfterFloat64LiteralOperand) ->
+      constrainNumericOperand resolvedOperandType stateAfterFloat64LiteralOperand
+    Nothing ->
+      case unifyTypes leftType rightType state of
+        Just stateAfterUnify ->
+          let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
+           in constrainNumericOperand resolvedOperandType stateAfterUnify
+        Nothing -> numericOperandError state
   where
+    constrainNumericOperand resolvedOperandType operandState =
+      case constrainNumericOperatorType (numericRuleConstraint resultRule) resolvedOperandType operandState of
+        Just stateAfterNumericConstraint ->
+          (Just (numericRuleResultType resultRule resolvedOperandType), stateAfterNumericConstraint)
+        Nothing ->
+          numericOperandError operandState
     numericOperandError errState =
       ( Nothing,
         addTypeError
@@ -789,6 +795,37 @@ numericRuleConstraint resultRule =
   case resultRule of
     NumericSameTypeResult -> RuntimeArithmeticNumericConstraint
     NumericBoolResult -> RuntimeComparisonNumericConstraint
+
+integerLiteralFloat64ArithmeticOperand :: NumericRuleResult -> InferState -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
+integerLiteralFloat64ArithmeticOperand resultRule state leftType rightType =
+  case resultRule of
+    NumericSameTypeResult ->
+      case (resolveType state leftType, resolveType state rightType) of
+        (TIntegerLiteralType literalRange, floatType)
+          | integerLiteralRangeFitsFloat64 literalRange,
+            expressionTypeIsFloat64Domain floatType ->
+              Just (floatType, state)
+        (floatType, TIntegerLiteralType literalRange)
+          | integerLiteralRangeFitsFloat64 literalRange,
+            expressionTypeIsFloat64Domain floatType ->
+              Just (floatType, state)
+        _ -> Nothing
+    NumericBoolResult -> Nothing
+
+expressionTypeIsFloat64Domain :: ExpressionType -> Bool
+expressionTypeIsFloat64Domain expressionType =
+  case expressionType of
+    TFloatType -> True
+    TNumericType NumericFloat64 -> True
+    _ -> False
+
+integerLiteralRangeFitsFloat64 :: IntegerLiteralRange -> Bool
+integerLiteralRangeFitsFloat64 literalRange =
+  case numericTypeFloatIntegerBounds NumericFloat64 of
+    Just (lowerBound, upperBound) ->
+      let (literalMin, literalMax) = integerLiteralRangeBounds literalRange
+       in literalMin >= lowerBound && literalMax <= upperBound
+    Nothing -> False
 
 numericBinaryOperandType ::
   Text ->

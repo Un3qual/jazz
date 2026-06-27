@@ -1,12 +1,13 @@
 ---
 id: JN-PRIMITIVE-FLOAT64-INTEGER-LITERAL-ARITHMETIC-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-06-26
+last_verified: 2026-06-27
+completed_on: 2026-06-27
 plan_section: "Task 1: Float64 integer-literal arithmetic targeting"
 target_paths:
   - docs/spec/runtime/primitive-semantics.md
@@ -120,7 +121,7 @@ bash scripts/check-docs.sh
 
 Implementation steps:
 
-- [ ] **Step 1: Add source-pipeline acceptance coverage**
+- [x] **Step 1: Add source-pipeline acceptance coverage**
 
   In `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`,
   add this test near the existing Float64 arithmetic and mixed-width
@@ -141,7 +142,7 @@ Implementation steps:
   ("source pipeline accepts Float64 integer-literal arithmetic", testSourcePipelineAcceptsFloat64IntegerLiteralArithmetic),
   ```
 
-- [ ] **Step 2: Preserve source-pipeline rejection coverage**
+- [x] **Step 2: Preserve source-pipeline rejection coverage**
 
   Replace the old `testSourcePipelineRejectsImplicitIntegerFractionalMixing`
   case with a typed-integral rejection test, and keep the existing
@@ -192,7 +193,7 @@ Implementation steps:
       "E2003"
   ```
 
-- [ ] **Step 3: Keep the type-inference change local to direct arithmetic**
+- [x] **Step 3: Keep the type-inference change local to direct arithmetic**
 
   In `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, update
   `applyNumericBinaryRule` so it tries the new direct-arithmetic rule before
@@ -275,7 +276,7 @@ Implementation steps:
   Do not change `unifyTypes`, `integerLiteralRangeFitsNumericType`,
   `numericSectionCounterpartType`, or `instantiateOperatorType` in this child.
 
-- [ ] **Step 4: Add runtime evaluation for the matching fallback only**
+- [x] **Step 4: Add runtime evaluation for the matching fallback only**
 
   In `jazz-next/src/JazzNext/Compiler/Runtime.hs`, add direct `VInt`/`VFloat`
   arithmetic cases after the same-family integer and float arithmetic cases.
@@ -336,7 +337,7 @@ Implementation steps:
 
   Do not add `VInt`/`VFloat` comparison or equality cases.
 
-- [ ] **Step 5: Add runtime success and fallback rejection coverage**
+- [x] **Step 5: Add runtime success and fallback rejection coverage**
 
   In `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`,
   add source-level runtime coverage near the existing Float64 arithmetic tests:
@@ -373,7 +374,7 @@ Implementation steps:
 
   Add the success and rejection labels to the top-level suite list.
 
-- [ ] **Step 6: Update the active primitive spec for this narrow exception**
+- [x] **Step 6: Update the active primitive spec for this narrow exception**
 
   In `docs/spec/runtime/primitive-semantics.md`, update the width/defaulting
   contract with this exact narrow exception:
@@ -396,7 +397,7 @@ Implementation steps:
   Float64-domain integer-literal arithmetic targeting rule above.
   ```
 
-- [ ] **Step 7: Run focused verification**
+- [x] **Step 7: Run focused verification**
 
   Run:
 

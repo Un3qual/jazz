@@ -122,9 +122,11 @@ tests =
     ("dynamic integer-to-Float64 overflow checks source magnitude", testDynamicIntegerToFloat64OverflowRuntimeError),
     ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
     ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
+    ("Float64-domain integer literal arithmetic evaluates at runtime", testFloat64DomainIntegerLiteralArithmeticRuntimeSuccess),
     ("Float16 arithmetic preserves target width at runtime", testFloat16ArithmeticPreservesRuntimeWidth),
     ("Float32 arithmetic preserves target width at runtime", testFloat32ArithmeticPreservesRuntimeWidth),
     ("runtime fallback rejects targeted Float16/Float32 mixed with untyped Float arithmetic", testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic),
+    ("runtime fallback rejects integer and float mixed-domain arithmetic", testRuntimeFallbackRejectsIntegerFloatMixedDomainArithmetic),
     ("runtime fallback rejects mixed targeted float comparison and equality", testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality),
     ("targeted Float16 and Float32 fractional literals round at runtime", testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue),
     ("suffixed Float16 and Float32 fractional literals round at runtime", testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue),
@@ -826,6 +828,13 @@ testFloat64ArithmeticRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "4.25") (runOutput result)
 
+testFloat64DomainIntegerLiteralArithmeticRuntimeSuccess :: IO ()
+testFloat64DomainIntegerLiteralArithmeticRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "(1 + 1.5, 1.5 + 2, 5 - 2.5, 2 * 1.5, 1 / 2.0)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(2.5, 3.5, 2.5, 3.0, 0.5)") (runOutput result)
+
 testFloat16ArithmeticPreservesRuntimeWidth :: IO ()
 testFloat16ArithmeticPreservesRuntimeWidth = do
   result <- runSource defaultWarningSettings "left :: Float16.\nleft = 2048.0.\none :: Float16.\none = 1.0.\nthree :: Float16.\nthree = 3.0.\nmulLeft :: Float16.\nmulLeft = 683.0.\nadd16 :: Float16.\nadd16 = left + one.\nsub16 :: Float16.\nsub16 = add16 - one.\nmul16 :: Float16.\nmul16 = mulLeft * three.\ndiv16 :: Float16.\ndiv16 = add16 / one.\n(add16, sub16, mul16, div16)."
@@ -850,6 +859,17 @@ testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic = do
     "runtime fallback untyped Float plus Float32"
     "E3007"
     (evaluateRuntimeExpr (runtimeExpr (EBinary "+" untypedFloatOne (targetedFloat "__kernel_toFloat32"))))
+
+testRuntimeFallbackRejectsIntegerFloatMixedDomainArithmetic :: IO ()
+testRuntimeFallbackRejectsIntegerFloatMixedDomainArithmetic = do
+  assertRuntimeErrorContains
+    "runtime fallback typed Int64 plus Float64"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "+" (targetedInt "__kernel_toInt64") (targetedFloat "__kernel_toFloat64"))))
+  assertRuntimeErrorContains
+    "runtime fallback untyped Int plus Float16"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "+" (ELit (LInt 1)) (targetedFloat "__kernel_toFloat16"))))
 
 testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality :: IO ()
 testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality = do
