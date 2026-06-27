@@ -146,7 +146,14 @@ tests =
     ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface),
     ("source pipeline reports duplicate constrained signature constraints", testSourceRejectsDuplicateConstrainedSignatureConstraints),
     ("source pipeline accepts variable constrained signature as monomorphic", testSourceAcceptsVariableConstrainedSignatureAsMonomorphic),
-    ("source pipeline keeps variable constrained signatures monomorphic", testSourceKeepsVariableConstrainedSignatureMonomorphic),
+    ("source pipeline instantiates variable constrained signatures per use", testSourceInstantiatesVariableConstrainedSignaturePerUse),
+    ("source pipeline honors visible facts for variable constrained signatures", testSourceHonorsVisibleFactsForVariableConstrainedSignatures),
+    ("source pipeline rejects missing use-site facts for variable constrained signatures", testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures),
+    ("source pipeline rejects ambiguous variable constrained signature use", testSourceRejectsAmbiguousVariableConstrainedSignatureUse),
+    ("source pipeline preserves primitive constraints on variable constrained signatures", testSourcePreservesPrimitiveConstraintsOnVariableConstrainedSignatures),
+    ("source pipeline preserves explicit constraints when primitive RHS has no quantified variables", testSourcePreservesExplicitConstraintsWhenPrimitiveRhsHasNoQuantifiedVariables),
+    ("source pipeline resolves deferred constraints in impl method bodies", testSourceResolvesDeferredConstraintsInImplMethodBodies),
+    ("source pipeline discards speculative deferred constraints from recursive previews", testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews),
     ("source pipeline rejects unsupported variable constrained signature contract", testSourceRejectsUnsupportedVariableConstrainedSignatureContract),
     ("source pipeline rejects unused variable constraint with bidirectional contract", testSourceRejectsUnusedVariableConstraintWithBidirectionalContract),
     ("source pipeline does not shift inference variables after rejected variable type application", testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState),
@@ -951,17 +958,95 @@ testSourceAcceptsVariableConstrainedSignatureAsMonomorphic :: IO ()
 testSourceAcceptsVariableConstrainedSignatureAsMonomorphic =
   assertSourceOk "id :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nid 1."
 
-testSourceKeepsVariableConstrainedSignatureMonomorphic :: IO ()
-testSourceKeepsVariableConstrainedSignatureMonomorphic = do
-  result <- compileSource defaultWarningSettings "id :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nx = id 1.\ny = id True."
-  assertSingleDiagnosticCode
-    "source variable constrained signature monomorphic code"
-    "E2006"
-    (compileErrors result)
-  assertSingleDiagnosticContains
-    "source variable constrained signature monomorphic text"
-    "cannot apply function of type Int -> Int to argument of type Bool"
-    (compileErrors result)
+testSourceInstantiatesVariableConstrainedSignaturePerUse :: IO ()
+testSourceInstantiatesVariableConstrainedSignaturePerUse =
+  assertSourceOk "id :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nx = id 1.\ny = id True."
+
+testSourceHonorsVisibleFactsForVariableConstrainedSignatures :: IO ()
+testSourceHonorsVisibleFactsForVariableConstrainedSignatures =
+  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Bool) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nx = id 1.\ny = id True."
+
+testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures :: IO ()
+testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nok = id 1.\nbad = id True."
+    "missing impl fact 'Eq(Bool)'"
+
+testSourceRejectsAmbiguousVariableConstrainedSignatureUse :: IO ()
+testSourceRejectsAmbiguousVariableConstrainedSignatureUse =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nambiguous = id []."
+    "ambiguous/defaulting explicit constraint"
+
+testSourcePreservesPrimitiveConstraintsOnVariableConstrainedSignatures :: IO ()
+testSourcePreservesPrimitiveConstraintsOnVariableConstrainedSignatures =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Showable(a) { }.\nimpl Showable(Bool) { }.\naddSelf :: @{Showable(a)}: a -> a.\naddSelf = \\(x) -> x + x.\nbad = addSelf True."
+    "cannot apply function"
+
+testSourcePreservesExplicitConstraintsWhenPrimitiveRhsHasNoQuantifiedVariables :: IO ()
+testSourcePreservesExplicitConstraintsWhenPrimitiveRhsHasNoQuantifiedVariables =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Showable(a) { }.\naddSelf :: @{Showable(a)}: a -> a.\naddSelf = \\(x) -> x + x.\ngood = addSelf 1."
+    "missing impl fact 'Showable(Int)'"
+
+testSourceResolvesDeferredConstraintsInImplMethodBodies :: IO ()
+testSourceResolvesDeferredConstraintsInImplMethodBodies =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nclass Use(a) { use :: a -> a. }.\nimpl Use(Bool) { use = id. }.\nvalue = 1."
+    "missing impl fact 'Eq(Bool)'"
+
+testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews :: IO ()
+testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews = do
+  result <- compileExpr defaultWarningSettings speculativePreviewDeferredConstraintProgram
+  assertEqual "compile errors" [] (compileErrors result)
+
+speculativePreviewDeferredConstraintProgram :: Expr
+speculativePreviewDeferredConstraintProgram =
+  EBlock
+    [ SModule (SourceSpan 1 1) ["Base"],
+      SClass (SourceSpan 2 1) "Eq" ["a"] [],
+      SImpl (SourceSpan 3 1) "Eq" [ConstraintTypeName "Int"] [],
+      SModule (SourceSpan 4 1) ["Facts"],
+      SImport (SourceSpan 5 1) ["Base"] Nothing Nothing,
+      SImpl (SourceSpan 6 1) "Eq" [ConstraintTypeName "Bool"] [],
+      SModule (SourceSpan 7 1) ["Main"],
+      SImport (SourceSpan 8 1) ["Base"] Nothing Nothing,
+      SSignature
+        "id"
+        (SourceSpan 9 1)
+        ( ConstrainedSignature
+            [SignatureConstraint "Eq" [ConstraintTypeName "a"]]
+            (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "a"))
+        ),
+      SLet "id" (SourceSpan 10 1) (ELambda "x" (EVar "x")),
+      SLet "value" (SourceSpan 11 1) speculativePreviewDeferredConstraintBlock,
+      SExpr (SourceSpan 18 1) (EVar "value")
+    ]
+
+speculativePreviewDeferredConstraintBlock :: Expr
+speculativePreviewDeferredConstraintBlock =
+  EBlock
+    [ SLet
+        "left"
+        (SourceSpan 12 1)
+        ( EIf
+            (ELit (LBool True))
+            (ELambda "x" (EVar "x"))
+            (ELambda "x" (EVar "right"))
+        ),
+      SLet "early" (SourceSpan 13 1) (EApply (EVar "left") (ELit (LBool True))),
+      SImport (SourceSpan 14 1) ["Facts"] Nothing Nothing,
+      SLet
+        "right"
+        (SourceSpan 15 1)
+        ( EIf
+            (ELit (LBool False))
+            (EApply (EVar "left") (ELit (LBool True)))
+            (EApply (EVar "id") (ELit (LBool True)))
+        ),
+      SExpr (SourceSpan 16 1) (EVar "early")
+    ]
 
 testSourceInstantiatesOrdinaryBindingSchemesPerUse :: IO ()
 testSourceInstantiatesOrdinaryBindingSchemesPerUse =

@@ -1,13 +1,14 @@
 ---
 id: JN-TYPE-SOLVER-CONSTRAINED-SIGNATURE-SCHEMES-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
   - JN-TYPE-SOLVER-CONTRACT-001
-last_verified: 2026-06-26
+last_verified: 2026-06-27
+completed_on: 2026-06-27
 plan_section: "Batch 1: Solver-backed constrained signature schemes"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
