@@ -1348,6 +1348,17 @@ matchPattern scrutineeValue pattern =
     PAs name pattern -> do
       patternBindings <- matchPattern scrutineeValue pattern
       Just (Map.insert (identifierText name) (Right scrutineeValue) patternBindings)
+    POr alternatives ->
+      matchFirstAlternative scrutineeValue alternatives
+
+matchFirstAlternative :: RuntimeValue -> [Pattern] -> Maybe RuntimeEnv
+matchFirstAlternative scrutineeValue alternatives =
+  case alternatives of
+    [] -> Nothing
+    alternative : rest ->
+      case matchPattern scrutineeValue alternative of
+        Just patternBindings -> Just patternBindings
+        Nothing -> matchFirstAlternative scrutineeValue rest
 
 matchPatternList :: [RuntimeValue] -> [Pattern] -> Maybe RuntimeEnv
 matchPatternList values patterns =
@@ -2584,3 +2595,15 @@ patternBoundNames pattern =
       Set.unions (map patternBoundNames patterns)
     PAs name pattern ->
       Set.insert (identifierText name) (patternBoundNames pattern)
+    POr alternatives ->
+      commonPatternBoundNames alternatives
+
+commonPatternBoundNames :: [Pattern] -> Set Text
+commonPatternBoundNames alternatives =
+  case alternatives of
+    [] -> Set.empty
+    firstAlternative : rest ->
+      foldl'
+        Set.intersection
+        (patternBoundNames firstAlternative)
+        (map patternBoundNames rest)

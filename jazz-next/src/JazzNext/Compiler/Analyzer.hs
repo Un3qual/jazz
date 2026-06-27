@@ -1132,6 +1132,40 @@ extendBindingsWithPattern pattern bindings =
       extendBindingsWithPattern
         pattern
         (Map.insert (identifierText name) patternVisibleBinding bindings)
+    POr alternatives ->
+      Set.foldl'
+        (\bindingsAcc binderName -> Map.insert binderName patternVisibleBinding bindingsAcc)
+        bindings
+        (commonPatternBinderNames alternatives)
+
+commonPatternBinderNames :: [Pattern] -> Set Text
+commonPatternBinderNames alternatives =
+  case alternatives of
+    [] -> Set.empty
+    firstAlternative : rest ->
+      foldl'
+        Set.intersection
+        (patternBinderNames firstAlternative)
+        (map patternBinderNames rest)
+
+patternBinderNames :: Pattern -> Set Text
+patternBinderNames pattern =
+  case pattern of
+    PVariable name -> Set.singleton (identifierText name)
+    PWildcard -> Set.empty
+    PLiteral {} -> Set.empty
+    PConstructor _ patterns ->
+      Set.unions (map patternBinderNames patterns)
+    PList patterns ->
+      Set.unions (map patternBinderNames patterns)
+    PConsList headPattern tailPattern ->
+      Set.union (patternBinderNames headPattern) (patternBinderNames tailPattern)
+    PTuple patterns ->
+      Set.unions (map patternBinderNames patterns)
+    PAs name nestedPattern ->
+      Set.insert (identifierText name) (patternBinderNames nestedPattern)
+    POr alternatives ->
+      commonPatternBinderNames alternatives
 
 patternVisibleBinding :: VisibleBinding
 patternVisibleBinding =

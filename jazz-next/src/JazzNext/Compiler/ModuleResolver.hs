@@ -487,6 +487,8 @@ collectPatternReferences patternValue =
       Set.unions (map collectPatternReferences nestedPatterns)
     SPAs _ nestedPattern ->
       collectPatternReferences nestedPattern
+    SPOr alternatives ->
+      Set.unions (map collectPatternReferences alternatives)
 
 collectPatternBinders :: SurfacePattern -> Set Text
 collectPatternBinders patternValue =
@@ -504,6 +506,18 @@ collectPatternBinders patternValue =
       Set.unions (map collectPatternBinders nestedPatterns)
     SPAs name nestedPattern ->
       Set.insert (identifierText name) (collectPatternBinders nestedPattern)
+    SPOr alternatives ->
+      commonPatternBinders alternatives
+
+commonPatternBinders :: [SurfacePattern] -> Set Text
+commonPatternBinders alternatives =
+  case alternatives of
+    [] -> Set.empty
+    firstAlternative : rest ->
+      foldl'
+        Set.intersection
+        (collectPatternBinders firstAlternative)
+        (map collectPatternBinders rest)
 
 collectLambdaParameterReferences :: SurfaceLambdaParameter -> Set Text
 collectLambdaParameterReferences parameter =

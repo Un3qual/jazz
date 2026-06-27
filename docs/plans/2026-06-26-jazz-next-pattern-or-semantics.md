@@ -1,12 +1,13 @@
 ---
 id: JN-PATTERN-OR-SEMANTICS-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-06-26
+last_verified: 2026-06-27
+completed_on: 2026-06-27
 plan_section: "Implementation batch: Or-pattern semantics"
 target_paths:
   - docs/spec/pattern-matching-semantics.md
@@ -163,7 +164,7 @@ Runtime rules:
 
 ### Focused implementation steps
 
-- [ ] **Step 1: Write parser/lowering tests**
+- [x] **Step 1: Write parser/lowering tests**
 
   Add parser expectations for the accepted shape:
 
@@ -194,7 +195,7 @@ Runtime rules:
   body expression boundary case and a malformed alternative such as
   `case value { | Just item | -> item }.` reports a parser diagnostic.
 
-- [ ] **Step 2: Add AST and lowering nodes**
+- [x] **Step 2: Add AST and lowering nodes**
 
   Add constructors:
 
@@ -212,7 +213,7 @@ Runtime rules:
   SPOr patterns -> POr (map lowerSurfacePattern patterns)
   ```
 
-- [ ] **Step 3: Parse top-level case-arm alternatives**
+- [x] **Step 3: Parse top-level case-arm alternatives**
 
   Refactor case-arm pattern parsing so `parseCaseArm` calls an or-aware helper
   before guard parsing:
@@ -231,7 +232,7 @@ Runtime rules:
   case value { | Just item -> item |> f | _ -> 0 }.
   ```
 
-- [ ] **Step 4: Thread pattern traversals**
+- [x] **Step 4: Thread pattern traversals**
 
   Update every existing pattern traversal with a `POr` or `SPOr` case:
 
@@ -253,7 +254,7 @@ Runtime rules:
   Use a common-binder helper instead of unioning all binders for guard/body
   scope. Constructor/reference traversals should visit every alternative.
 
-- [ ] **Step 5: Add type tests before implementation**
+- [x] **Step 5: Add type tests before implementation**
 
   Add a positive common-binder source:
 
@@ -289,7 +290,7 @@ Runtime rules:
   case pair { | (item, item) | (left, right) -> item | _ -> 0 }.
   ```
 
-- [ ] **Step 6: Implement type inference**
+- [x] **Step 6: Implement type inference**
 
   Add `inferOrPatternType` from `inferPatternType`:
 
@@ -308,7 +309,7 @@ Runtime rules:
   - return one `PatternTyping` containing only common binders and the updated
     inference state.
 
-- [ ] **Step 7: Add runtime tests before implementation**
+- [x] **Step 7: Add runtime tests before implementation**
 
   Add passing runtime sources:
 
@@ -334,7 +335,7 @@ Runtime rules:
   case 3 { | 1 | 2 -> 10 }.
   ```
 
-- [ ] **Step 8: Implement runtime matching**
+- [x] **Step 8: Implement runtime matching**
 
   Add:
 
@@ -346,7 +347,7 @@ Runtime rules:
   the first `RuntimeEnv` produced by `matchPattern`. It should return `Nothing`
   only when every alternative fails.
 
-- [ ] **Step 9: Update specs and run verification**
+- [x] **Step 9: Update specs and run verification**
 
   Update `docs/spec/pattern-matching-semantics.md` and
   `docs/spec/adt-pattern-semantics.md` after parser/type/runtime tests pass.

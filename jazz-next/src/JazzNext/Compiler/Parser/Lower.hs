@@ -136,6 +136,8 @@ lowerSurfacePattern surfacePattern =
       PTuple (map lowerSurfacePattern patterns)
     SPAs name pattern ->
       PAs name (lowerSurfacePattern pattern)
+    SPOr patterns ->
+      POr (map lowerSurfacePattern patterns)
 
 lowerSurfaceCaseArm :: SurfaceCaseArm -> CaseArm
 lowerSurfaceCaseArm (SurfaceCaseArm patternExpr guardExpr bodyExpr) =

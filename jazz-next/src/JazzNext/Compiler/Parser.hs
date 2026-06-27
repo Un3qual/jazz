@@ -2113,7 +2113,7 @@ parseCaseArms knownAliases declaredOperators tokensAfterLeftBrace =
 parseCaseArm :: Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic (SurfaceCaseArm, [Token])
 parseCaseArm knownAliases declaredOperators tokens = do
   tokensAfterPipe <- consumeCaseArmPipe tokens
-  (casePattern, afterPattern) <- parseCasePattern tokensAfterPipe
+  (casePattern, afterPattern) <- parseCaseArmPattern tokensAfterPipe
   (guardExpr, afterArrow) <- parseOptionalCaseArmGuard afterPattern
   (bodyExpr, remaining) <- parseExprWithMinPrecedenceUntil knownAliases declaredOperators stopsBeforeCaseArmBoundary 1 afterArrow
   pure (SurfaceCaseArm casePattern guardExpr bodyExpr, remaining)
@@ -2249,19 +2249,21 @@ parseCaseArm knownAliases declaredOperators tokens = do
         Right (_, Token {tokenKind = TArrow} : _) -> True
         Right (_, Token {tokenKind = TIf} : afterGuard) ->
           guardTokensEndAtArrow afterGuard
+        Right (_, Token {tokenKind = TOperator "|"} : _) ->
+          startsDefiniteOrPatternCaseArm remainingTokens
         Left _
           | startsCasePatternTokens remainingTokens ->
               hasTopLevelArrowBeforeCaseArmBoundary remainingTokens
         _ -> False
 
     startsDefiniteUnguardedCaseArmAfterGuardBoundary remainingTokens =
-      case parseCasePattern remainingTokens of
+      case parseCaseArmPattern remainingTokens of
         Right (casePattern, Token {tokenKind = TArrow} : _) ->
           guardBoundaryPatternIsDefinite casePattern
         _ -> False
 
     startsDefiniteGuardedCaseArmAfterGuardBoundary remainingTokens =
-      case parseCasePattern remainingTokens of
+      case parseCaseArmPattern remainingTokens of
         Right (casePattern, Token {tokenKind = TIf} : afterGuard) ->
           guardBoundaryPatternIsDefinite casePattern && guardTokensEndAtArrow afterGuard
         _ -> False
@@ -2275,6 +2277,82 @@ parseCaseArm knownAliases declaredOperators tokens = do
       case casePattern of
         SPVariable {} -> False
         _ -> True
+
+    startsDefiniteOrPatternCaseArm remainingTokens =
+      case parseCaseArmPattern remainingTokens of
+        Right (casePattern, Token {tokenKind = TArrow} : _) ->
+          orPatternStartsDefiniteArmBoundary casePattern
+        Right (casePattern, Token {tokenKind = TIf} : afterGuard) ->
+          orPatternStartsDefiniteArmBoundary casePattern && guardTokensEndAtArrow afterGuard
+        _ -> False
+
+    orPatternStartsDefiniteArmBoundary casePattern =
+      case casePattern of
+        SPOr alternatives ->
+          any patternIsWildcard alternatives
+            || all patternIsVariable alternatives
+            || all patternIsLiteral alternatives
+            || alternativesBindSameNames alternatives
+            || ( case alternatives of
+                   firstAlternative : _ -> patternCanStartOrArmBoundary firstAlternative
+                   [] -> False
+               )
+        _ -> False
+
+    patternCanStartOrArmBoundary casePattern =
+      case casePattern of
+        SPConstructor {} -> True
+        SPList {} -> True
+        SPConsList {} -> True
+        SPTuple {} -> True
+        SPAs {} -> True
+        _ -> False
+
+    patternIsWildcard casePattern =
+      case casePattern of
+        SPWildcard -> True
+        _ -> False
+
+    patternIsVariable casePattern =
+      case casePattern of
+        SPVariable {} -> True
+        _ -> False
+
+    patternIsLiteral casePattern =
+      case casePattern of
+        SPLiteral {} -> True
+        _ -> False
+
+    alternativesBindSameNames alternatives =
+      case alternatives of
+        [] -> False
+        firstAlternative : rest ->
+          let expectedNames = patternBinderNames firstAlternative
+           in not (Set.null expectedNames)
+                && all ((== expectedNames) . patternBinderNames) rest
+
+    patternBinderNames casePattern =
+      case casePattern of
+        SPVariable name -> Set.singleton (identifierText name)
+        SPWildcard -> Set.empty
+        SPLiteral {} -> Set.empty
+        SPConstructor _ patterns -> Set.unions (map patternBinderNames patterns)
+        SPList patterns -> Set.unions (map patternBinderNames patterns)
+        SPConsList headPattern tailPattern ->
+          Set.union (patternBinderNames headPattern) (patternBinderNames tailPattern)
+        SPTuple patterns -> Set.unions (map patternBinderNames patterns)
+        SPAs name nestedPattern ->
+          Set.insert (identifierText name) (patternBinderNames nestedPattern)
+        SPOr patterns -> commonPatternBinderNames patterns
+
+    commonPatternBinderNames alternatives =
+      case alternatives of
+        [] -> Set.empty
+        firstAlternative : rest ->
+          foldl
+            Set.intersection
+            (patternBinderNames firstAlternative)
+            (map patternBinderNames rest)
 
     hasTopLevelGuardArrow = go 0 0 0
       where
@@ -2341,6 +2419,22 @@ parseCaseArm knownAliases declaredOperators tokens = do
         decrementIfPositive depth
           | depth > 0 = depth - 1
           | otherwise = 0
+
+parseCaseArmPattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
+parseCaseArmPattern tokens = do
+  (firstPattern, afterFirstPattern) <- parseCasePattern tokens
+  collectAlternatives [firstPattern] afterFirstPattern
+  where
+    collectAlternatives reversedPatterns remainingTokens =
+      case remainingTokens of
+        Token {tokenKind = TOperator "|"} : afterPipe -> do
+          (nextPattern, afterNextPattern) <- parseCasePattern afterPipe
+          collectAlternatives (nextPattern : reversedPatterns) afterNextPattern
+        _ ->
+          let alternatives = reverse reversedPatterns
+           in case alternatives of
+                [singlePattern] -> Right (singlePattern, remainingTokens)
+                _ -> Right (SPOr alternatives, remainingTokens)
 
 parseCasePattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseCasePattern tokens =

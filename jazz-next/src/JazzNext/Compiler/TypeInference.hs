@@ -4010,6 +4010,37 @@ extendBoundWithPattern pattern bound =
       foldl' (flip extendBoundWithPattern) bound patterns
     PAs name pattern ->
       extendBoundWithPattern pattern (Set.insert (identifierText name) bound)
+    POr alternatives ->
+      Set.union bound (commonPatternBinderNames alternatives)
+
+commonPatternBinderNames :: [Pattern] -> Set Text
+commonPatternBinderNames alternatives =
+  case alternatives of
+    [] -> Set.empty
+    firstAlternative : rest ->
+      foldl'
+        Set.intersection
+        (patternBinderNames firstAlternative)
+        (map patternBinderNames rest)
+
+patternBinderNames :: Pattern -> Set Text
+patternBinderNames pattern =
+  case pattern of
+    PVariable name -> Set.singleton (identifierText name)
+    PWildcard -> Set.empty
+    PLiteral {} -> Set.empty
+    PConstructor _ patterns ->
+      Set.unions (map patternBinderNames patterns)
+    PList patterns ->
+      Set.unions (map patternBinderNames patterns)
+    PConsList headPattern tailPattern ->
+      Set.union (patternBinderNames headPattern) (patternBinderNames tailPattern)
+    PTuple patterns ->
+      Set.unions (map patternBinderNames patterns)
+    PAs name nestedPattern ->
+      Set.insert (identifierText name) (patternBinderNames nestedPattern)
+    POr alternatives ->
+      commonPatternBinderNames alternatives
 
 inferPatternCaseType ::
   BuiltinResolutionMode ->
@@ -4154,6 +4185,7 @@ patternDuplicateBinderNames pattern =
                   then (seen, Set.insert nameText duplicatesAcc)
                   else (Set.insert nameText seen, duplicatesAcc)
            in collect nestedPattern seenAfterName duplicatesAfterName
+        POr {} -> (seen, duplicatesAcc)
 
     collectNested seen duplicatesAcc =
       foldl'
@@ -4212,6 +4244,137 @@ inferPatternType env scrutineeType pattern state =
                 },
               stateAfterPattern
             )
+    POr alternatives ->
+      inferOrPatternType env scrutineeType alternatives state
+
+inferOrPatternType ::
+  TypeEnv ->
+  ExpressionType ->
+  [Pattern] ->
+  InferState ->
+  (PatternTyping, InferState)
+inferOrPatternType env scrutineeType alternatives initialState =
+  case alternatives of
+    [] ->
+      ( skipBranchPatternTyping,
+        addTypeError initialState mkEmptyOrPatternError
+      )
+    firstAlternative : rest ->
+      let (firstTyping, stateAfterFirst) =
+            inferOrPatternAlternative firstAlternative initialState
+       in
+        if patternSkipsBranchType firstTyping
+          then (firstTyping, rollbackSkippedPatternState initialState stateAfterFirst)
+          else
+            let expectedBinderNames = Map.keysSet (patternBindings firstTyping)
+             in inferRemainingAlternatives
+                  expectedBinderNames
+                  (patternBindings firstTyping)
+                  stateAfterFirst
+                  rest
+  where
+    inferOrPatternAlternative alternativePattern stateAcc =
+      let (rawTyping, stateAfterPatternCheck) =
+            inferPatternType env scrutineeType alternativePattern stateAcc
+       in rejectDuplicatePatternBinders
+            alternativePattern
+            rawTyping
+            stateAcc
+            stateAfterPatternCheck
+
+    inferRemainingAlternatives expectedBinderNames bindingsAcc stateAcc remainingAlternatives =
+      case remainingAlternatives of
+        [] ->
+          ( emptyPatternTyping
+              {patternBindings = resolvePatternBindings stateAcc bindingsAcc},
+            stateAcc
+          )
+        alternativePattern : restAlternatives ->
+          let (alternativeTyping, stateAfterAlternative) =
+                inferOrPatternAlternative alternativePattern stateAcc
+           in
+            if patternSkipsBranchType alternativeTyping
+              then (alternativeTyping, rollbackSkippedPatternState initialState stateAfterAlternative)
+              else
+                let alternativeBindings = patternBindings alternativeTyping
+                    alternativeBinderNames = Map.keysSet alternativeBindings
+                 in
+                  if alternativeBinderNames /= expectedBinderNames
+                    then
+                      ( skipBranchPatternTyping,
+                        rollbackSkippedPatternState
+                          initialState
+                          ( addTypeError
+                              stateAfterAlternative
+                              (mkOrPatternBinderSetMismatchError expectedBinderNames alternativeBinderNames)
+                          )
+                      )
+                    else
+                      case unifyOrPatternBinders bindingsAcc alternativeBindings stateAfterAlternative of
+                        Left failedState ->
+                          (skipBranchPatternTyping, rollbackSkippedPatternState initialState failedState)
+                        Right (mergedBindings, stateAfterBinders) ->
+                          inferRemainingAlternatives
+                            expectedBinderNames
+                            mergedBindings
+                            stateAfterBinders
+                            restAlternatives
+
+    unifyOrPatternBinders bindingsAcc alternativeBindings stateAcc =
+      foldl'
+        unifyBinder
+        (Right (bindingsAcc, stateAcc))
+        (Set.toList (Map.keysSet bindingsAcc))
+      where
+        unifyBinder maybeAcc binderName =
+          case maybeAcc of
+            Left failedState -> Left failedState
+            Right (mergedBindings, stateForBinder) ->
+              case (Map.lookup binderName mergedBindings, Map.lookup binderName alternativeBindings) of
+                (Just leftBinding, Just rightBinding) ->
+                  let leftType = patternBindingExpressionType leftBinding
+                      rightType = patternBindingExpressionType rightBinding
+                   in case unifyTypes leftType rightType stateForBinder of
+                        Just unifiedState ->
+                          Right
+                            ( Map.insert
+                                binderName
+                                (PlainTypeBinding (resolveType unifiedState leftType))
+                                mergedBindings,
+                              unifiedState
+                            )
+                        Nothing ->
+                          Left
+                            ( addTypeError
+                                stateForBinder
+                                ( mkOrPatternBinderTypeMismatchError
+                                    binderName
+                                    (resolveType stateForBinder leftType)
+                                    (resolveType stateForBinder rightType)
+                                )
+                            )
+                _ ->
+                  Left
+                    ( addTypeError
+                        stateForBinder
+                        (mkOrPatternBinderSetMismatchError (Map.keysSet mergedBindings) (Map.keysSet alternativeBindings))
+                    )
+
+patternBindingExpressionType :: TypeBinding -> ExpressionType
+patternBindingExpressionType binding =
+  case binding of
+    PlainTypeBinding expressionType -> expressionType
+    _ -> error "internal type inference error: non-plain case pattern binding"
+
+resolvePatternBindings :: InferState -> TypeEnv -> TypeEnv
+resolvePatternBindings state bindings =
+  Map.map resolvePatternBinding bindings
+  where
+    resolvePatternBinding binding =
+      case binding of
+        PlainTypeBinding expressionType ->
+          PlainTypeBinding (resolveType state expressionType)
+        _ -> binding
 
 inferConstructorPatternType ::
   TypeEnv ->
@@ -4470,6 +4633,38 @@ mkDuplicatePatternBinderError binderName =
   mkDiagnostic
     "E2011"
     ("duplicate case pattern binder '" <> binderName <> "'")
+
+mkEmptyOrPatternError :: Diagnostic
+mkEmptyOrPatternError =
+  mkDiagnostic
+    "E2011"
+    "or-pattern must contain at least one alternative"
+
+mkOrPatternBinderSetMismatchError :: Set Text -> Set Text -> Diagnostic
+mkOrPatternBinderSetMismatchError expectedNames foundNames =
+  mkDiagnostic
+    "E2011"
+    ( "or-pattern alternatives must bind the same names, expected "
+        <> renderBinderSet expectedNames
+        <> " but found "
+        <> renderBinderSet foundNames
+    )
+
+mkOrPatternBinderTypeMismatchError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
+mkOrPatternBinderTypeMismatchError binderName leftType rightType =
+  mkDiagnostic
+    "E2011"
+    ( "or-pattern binder '"
+        <> binderName
+        <> "' has incompatible types "
+        <> renderType leftType
+        <> " and "
+        <> renderType rightType
+    )
+
+renderBinderSet :: Set Text -> Text
+renderBinderSet names =
+  "{" <> Text.intercalate ", " (Set.toList names) <> "}"
 
 supportsRuntimeEqualityType :: InferState -> ExpressionType -> Bool
 supportsRuntimeEqualityType state expressionType =

@@ -1102,6 +1102,8 @@ rewritePatternReferences importTargets boundNames patternValue =
             (Set.insert (identifierText name) boundNames)
             nestedPattern
         )
+    POr alternatives ->
+      POr (map (rewritePatternReferences importTargets boundNames) alternatives)
 
 patternBinders :: Pattern -> Set Text
 patternBinders patternValue =
@@ -1116,6 +1118,18 @@ patternBinders patternValue =
     PTuple nestedPatterns -> Set.unions (map patternBinders nestedPatterns)
     PAs name nestedPattern ->
       Set.insert (identifierText name) (patternBinders nestedPattern)
+    POr alternatives ->
+      commonPatternBinders alternatives
+
+commonPatternBinders :: [Pattern] -> Set Text
+commonPatternBinders alternatives =
+  case alternatives of
+    [] -> Set.empty
+    firstAlternative : rest ->
+      foldl'
+        Set.intersection
+        (patternBinders firstAlternative)
+        (map patternBinders rest)
 
 collectUnqualifiedReferences :: Expr -> Set Text
 collectUnqualifiedReferences expr =
@@ -1195,6 +1209,7 @@ patternConstructorReferences patternValue =
       Set.union (patternConstructorReferences headPattern) (patternConstructorReferences tailPattern)
     PTuple nestedPatterns -> Set.unions (map patternConstructorReferences nestedPatterns)
     PAs _ nestedPattern -> patternConstructorReferences nestedPattern
+    POr alternatives -> Set.unions (map patternConstructorReferences alternatives)
 
 expandNeededModuleExports ::
   [ResolvedModule] ->

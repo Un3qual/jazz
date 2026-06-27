@@ -95,6 +95,7 @@ tests =
     ("run module graph keeps local data constructor from hidden import rewrite", testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite),
     ("run module graph preserves alias-qualified float literal targets", testRunModuleGraphPreservesAliasQualifiedFloatLiteralTargets),
     ("run module graph keeps hidden qualified export pattern constructors available", testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge),
+    ("run module graph resolves imported constructors in or-pattern alternatives", testRunModuleGraphResolvesImportedConstructorsInOrPatternAlternatives),
     ("run module graph keeps alias-qualified dependency export visible with prelude", testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude),
     ("run module graph keeps transitive alias-hidden dependency export from shadowing prelude", testRunModuleGraphTransitiveAliasHiddenExportUsesPrelude),
     ("compile module graph hides transitive alias-only exports from unqualified replay", testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport),
@@ -922,6 +923,26 @@ testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Maybe as Maybe.\nMaybe::fromDefault."),
           ("src/Lib/Maybe.jz", "data Maybe = Just value | Nothing.\ndefault = Just 7.\nfromDefault = case default { | Just value -> value | Nothing -> 0 }.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphResolvesImportedConstructorsInOrPatternAlternatives :: IO ()
+testRunModuleGraphResolvesImportedConstructorsInOrPatternAlternatives = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "42") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Maybe.\nvalue = Also 41.\ncase value { | Just item | Also item -> item + 1 | Nothing -> 0 }."),
+          ("src/Lib/Maybe.jz", "module Lib::Maybe {\ndata Maybe = Nothing | Just value | Also value.\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

@@ -1,6 +1,6 @@
 # Pattern Matching Semantics
 
-Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, as-patterns, and single `if` case-arm guards parse/lower, typecheck, and execute end-to-end in `jazz-next` `case` arms; lambda parameters support the non-guard pattern subset)
+Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, as-patterns, top-level case-arm or-patterns, and single `if` case-arm guards parse/lower, typecheck, and execute end-to-end in `jazz-next` `case` arms; lambda parameters support the non-guard, non-or pattern subset)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -41,7 +41,8 @@ Current parser/core invariants:
    - cons-like list patterns such as `[head | tail]`
    - tuple patterns such as `(left, right)` or `(1, flag)`
    - as-patterns such as `whole @ Just item`
-4. Constructor/list/tuple/as-patterns are preserved structurally in `EPatternCase`.
+   - top-level case-arm or-patterns such as `Just item | Also item`
+4. Constructor/list/tuple/as/or-patterns are preserved structurally in `EPatternCase`.
    Declared constructor patterns typecheck against ADT scrutinees and bind
    payload variables in arm bodies; bracketed-list patterns typecheck against
    list scrutinees and bind element variables in arm bodies; cons-like list
@@ -50,9 +51,12 @@ Current parser/core invariants:
    tuple patterns typecheck against fixed-arity tuple scrutinees and bind
    element variables in arm bodies; as-patterns typecheck their inner pattern
    against the scrutinee and bind the whole scrutinee value at the scrutinee
-   type after the inner pattern succeeds. Runtime matching supports declared
-   constructors, exact-length bracketed lists, cons-like lists, fixed-arity
-   tuples, and as-patterns.
+   type after the inner pattern succeeds; or-patterns typecheck every
+   alternative against the same scrutinee, require the same binder names in
+   every alternative, and expose only compatible common binders to the arm
+   guard and body. Runtime matching supports declared constructors,
+   exact-length bracketed lists, cons-like lists, fixed-arity tuples,
+   as-patterns, and left-to-right or-pattern alternatives.
 5. Arm guards and bodies are full expressions; nested `case`, `if`, lambdas,
    block-valued scrutinees, and infix/operator expressions remain valid inside
    arm bodies. Guards run under the pattern binder scope but introduce no
@@ -94,10 +98,14 @@ Current parser/core invariants:
 10. An as-pattern `name @ pattern` delegates to the inner pattern first, then
     binds `name` to the whole scrutinee value only when the inner pattern
     succeeds.
-11. When a pattern matches, an absent guard selects the arm; a `True` guard
+11. An or-pattern inside one case arm tries alternatives from left to right.
+    The first successful alternative supplies the arm's pattern bindings. If no
+    alternative matches, the whole pattern fails and matching proceeds to the
+    next arm.
+12. When a pattern matches, an absent guard selects the arm; a `True` guard
    selects the arm; a `False` guard falls through to later arms.
-12. Guards for failed patterns and non-selected arm bodies are not evaluated.
-13. A binder introduced by one arm is not visible in sibling arms or outside the
+13. Guards for failed patterns and non-selected arm bodies are not evaluated.
+14. A binder introduced by one arm is not visible in sibling arms or outside the
    `case` expression.
 
 Examples:
@@ -115,15 +123,20 @@ positive = case value {
   | Just item if item > 0 -> item
   | _ -> 0
 }.
+positiveAlt = case value {
+  | Just item | Also item if item > 0 -> item
+  | Nothing -> 0
+}.
 ```
 
 ## Current Active Execution State
 
 1. Parser, surface AST, and core AST now represent constructor, bracketed-list,
-   and tuple patterns in `jazz-next`.
+   tuple, and top-level case-arm or-patterns in `jazz-next`.
 2. Analyzer/type/runtime execution is end-to-end for literal / wildcard /
    variable / constructor / exact-length bracketed-list / cons-like list /
-   fixed-arity tuple / as-patterns / single guarded case arms.
+   fixed-arity tuple / as-patterns / top-level case-arm or-patterns / single
+   guarded case arms.
 3. Pattern-shaped lambda parameters lower to internal single-arm pattern cases
    and reuse the same binder, type, runtime matching, and no-match diagnostic
    behavior.
@@ -161,6 +174,54 @@ positive = case value {
 14. If no arm is selected at runtime because all patterns fail or matching
    guards are `False`, evaluation emits deterministic `E3022` diagnostics
    rather than falling through silently.
+
+## Active Or-Pattern Contract
+
+Or-patterns are a single case-arm pattern form, not multiple arms:
+
+```jz
+case value {
+  | Just item | Also item if item > 0 -> item
+  | Nothing -> 0
+}
+```
+
+Surface rules:
+
+- The first `|` starts the case arm.
+- Later top-level `|` tokens before the optional guard or `->` separate
+  alternatives in the same arm.
+- Each alternative is one currently accepted non-or case pattern: literal,
+  wildcard, variable, constructor, exact-length list, cons-like list, tuple, or
+  as-pattern.
+- `[head | tail]` remains the cons-like list pattern form, and pipe operators
+  in arm bodies remain expression operators.
+- Or-patterns are not accepted inside constructor/list/tuple/as-pattern
+  subpatterns or lambda parameters.
+
+Binder and type rules:
+
+- Every alternative typechecks against the same scrutinee type.
+- Every alternative must bind exactly the same set of names. Binder-set
+  mismatches reject with deterministic `E2011`.
+- Duplicate binders inside one alternative keep the existing duplicate case
+  pattern binder `E2011`; the same binder name may appear in separate
+  alternatives.
+- For each common binder, the inferred binder types from all alternatives must
+  unify. Incompatible common binder types reject with deterministic `E2011`
+  text naming the binder.
+- Guards and bodies see only the compatible common binders.
+- Arm result agreement stays body-owned through the existing `E2012` path.
+
+Runtime rules:
+
+- Alternatives are tried left-to-right.
+- The first matching alternative supplies bindings for the arm guard and body.
+- If no alternative matches, the pattern fails and runtime continues with the
+  next case arm.
+- A matching alternative with a `False` guard falls through to the next arm.
+- If no arm is selected after pattern and guard checks, runtime emits the
+  existing no-match diagnostic `E3022`.
 
 ## Active Pattern Guard Contract
 
@@ -219,13 +280,15 @@ Diagnostics:
 
 ## Deferred Pattern Forms
 
-Or-patterns and pattern synonyms remain blocked until separate active-path
-contracts define parser shape, binder scope, type rules, runtime matching
-behavior, diagnostics, target paths, and focused verification.
+Pattern synonyms, nested/grouped or-patterns, lambda-parameter or-patterns, and
+multiple guard clauses remain blocked until separate active-path contracts
+define parser shape, binder scope, type rules, runtime matching behavior,
+diagnostics, target paths, and focused verification.
 
 ## Non-Goals
 
-1. Or-patterns, pattern synonyms, and multiple guard clauses per arm.
+1. Pattern synonyms, nested/grouped or-patterns, lambda-parameter or-patterns,
+   and multiple guard clauses per arm.
 2. Exhaustiveness analysis beyond deterministic first-match semantics.
 3. Match-compilation optimizations or decision-tree lowering.
 4. Any new parser/type/runtime behavior under `jazz-hs/` or `jazz2/`.
