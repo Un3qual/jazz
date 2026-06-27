@@ -48,6 +48,7 @@ tests =
     ("bundled default prelude exposes capability classes and default impl facts", testBundledPreludeExposesCapabilityClassesAndDefaultImplFacts),
     ("bundled default prelude exposes width-specific numeric impl facts", testBundledPreludeExposesWidthSpecificNumericImplFacts),
     ("prelude exposes numeric conversion aliases", testPreludeExposesNumericConversionAliases),
+    ("bundled default prelude exposes default numeric conversion aliases", testBundledPreludeExposesDefaultNumericConversionAliases),
     ("bundled default prelude exposes Eq Int equals method body", testBundledPreludeExposesEqIntEqualsMethodBody),
     ("bundled default prelude exposes Eq Float equals method body", testBundledPreludeExposesEqFloatEqualsMethodBody),
     ("bundled default prelude exposes Eq Bool equals method body", testBundledPreludeExposesEqBoolEqualsMethodBody),
@@ -244,6 +245,20 @@ testPreludeExposesNumericConversionAliases = do
   result <- compileSource defaultWarningSettings "x :: UInt8.\nx = toUInt8 1."
   assertEqual "bundled prelude exposes toUInt8" [] (compileErrors result)
 
+testBundledPreludeExposesDefaultNumericConversionAliases :: IO ()
+testBundledPreludeExposesDefaultNumericConversionAliases = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      ( Text.unlines
+          [ "integer :: Int64.",
+            "integer = toInt 9223372036854775807.0.",
+            "floating :: Float64.",
+            "floating = toFloat 1."
+          ]
+      )
+  assertEqual "bundled prelude exposes toInt/toFloat" [] (compileErrors result)
+
 testBundledPreludeExposesEqIntEqualsMethodBody :: IO ()
 testBundledPreludeExposesEqIntEqualsMethodBody = do
   result <- runSource defaultWarningSettings "Eq::equals 1 1."
@@ -267,10 +282,22 @@ testBundledPreludeExposesEqBoolEqualsMethodBody = do
 
 testCompileWithoutPreludeRejectsNumericConversionAliases :: IO ()
 testCompileWithoutPreludeRejectsNumericConversionAliases = do
-  result <- compileSourceWithPrelude defaultWarningSettings Nothing "x = toUInt8 1."
+  result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      ( Text.unlines
+          [ "x = toUInt8 1.",
+            "y = toInt 1.",
+            "z = toFloat 1."
+          ]
+      )
   assertEqual
     "public numeric conversion aliases are unavailable without prelude"
-    ["E1001: unbound variable 'toUInt8'"]
+    [ "E1001: unbound variable 'toUInt8'",
+      "E1001: unbound variable 'toInt'",
+      "E1001: unbound variable 'toFloat'"
+    ]
     (map renderDiagnostic (compileErrors result))
 
 testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies :: IO ()

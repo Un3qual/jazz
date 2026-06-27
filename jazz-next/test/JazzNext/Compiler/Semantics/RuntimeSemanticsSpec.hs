@@ -115,10 +115,12 @@ tests =
     ("print! returns evaluated argument value", testPrintBuiltinReturnsArgument),
     ("target-named integer conversion evaluates at runtime", testIntegerConversionRuntimeSuccess),
     ("target-named integer conversion preserves source-exact integral Float literal", testIntegerConversionSourceExactIntegralFloatRuntimeSuccess),
+    ("default integer conversion alias preserves source-exact integral Float literal", testDefaultIntegerConversionAliasRuntimeSuccess),
     ("Float64 signature preserves source-exact integral conversion", testFloat64SignaturePreservesSourceExactIntegralConversion),
     ("Float16 signature converts from rounded runtime value", testFloat16SignatureConvertsFromRoundedRuntimeValue),
     ("width-specific integer arithmetic checks preserved result bounds", testWidthSpecificIntegerArithmeticBoundsRuntimeError),
     ("target-named float conversion evaluates at runtime", testFloatConversionRuntimeSuccess),
+    ("default float conversion alias evaluates at runtime", testDefaultFloatConversionAliasRuntimeSuccess),
     ("dynamic integer-to-Float64 overflow checks source magnitude", testDynamicIntegerToFloat64OverflowRuntimeError),
     ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
     ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
@@ -763,6 +765,13 @@ testIntegerConversionSourceExactIntegralFloatRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "9223372036854775807") (runOutput result)
 
+testDefaultIntegerConversionAliasRuntimeSuccess :: IO ()
+testDefaultIntegerConversionAliasRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "toInt 9223372036854775807.0."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "9223372036854775807") (runOutput result)
+
 testFloat64SignaturePreservesSourceExactIntegralConversion :: IO ()
 testFloat64SignaturePreservesSourceExactIntegralConversion = do
   result <- runSource defaultWarningSettings "value :: Float64.\nvalue = 9223372036854775807.0.\ntoInt64 value."
@@ -794,6 +803,13 @@ testWidthSpecificIntegerArithmeticBoundsRuntimeError = do
 testFloatConversionRuntimeSuccess :: IO ()
 testFloatConversionRuntimeSuccess = do
   result <- runSource defaultWarningSettings "toFloat64 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1.0") (runOutput result)
+
+testDefaultFloatConversionAliasRuntimeSuccess :: IO ()
+testDefaultFloatConversionAliasRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "toFloat 1."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "1.0") (runOutput result)

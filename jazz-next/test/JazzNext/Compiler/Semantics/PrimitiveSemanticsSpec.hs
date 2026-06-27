@@ -95,6 +95,7 @@ tests =
     ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral),
     ("source pipeline accepts target-named integer conversions", testSourcePipelineAcceptsTargetNamedIntegerConversions),
     ("source pipeline accepts target-named float conversions", testSourcePipelineAcceptsTargetNamedFloatConversions),
+    ("source pipeline accepts default prelude conversion aliases", testSourcePipelineAcceptsDefaultPreludeConversionAliases),
     ("source pipeline accepts Float64 fractional literal defaults", testSourcePipelineAcceptsFloat64FractionalLiteralDefaults),
     ("source pipeline accepts explicitly targeted Float16 and Float32 fractional literals", testSourcePipelineAcceptsTargetedFloat16Float32FractionalLiterals),
     ("source pipeline accepts suffixed Float16/Float32/Float64 fractional literal arithmetic", testSourcePipelineAcceptsSuffixedFractionalLiteralArithmetic),
@@ -672,6 +673,11 @@ testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions :: IO ()
 testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions =
   assertCompilesWithBundledPrelude
     "x = toInt64 9223372036854775807.0.\ny = toUInt64 18446744073709551615.0."
+
+testSourcePipelineAcceptsDefaultPreludeConversionAliases :: IO ()
+testSourcePipelineAcceptsDefaultPreludeConversionAliases =
+  assertCompilesWithBundledPrelude
+    "integer :: Int64.\ninteger = toInt 9223372036854775807.0.\nfloating :: Float64.\nfloating = toFloat 1."
 
 testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions :: IO ()
 testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions = do

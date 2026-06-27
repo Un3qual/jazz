@@ -32,6 +32,7 @@ bundledPreludeSource =
       <> map renderKernelBridge allBuiltinSymbols
       <> [""]
       <> map renderPublicAlias allBuiltinSymbols
+      <> map renderDefaultConversionAlias defaultConversionAliases
   where
     renderCapabilityClass name =
       case name of
@@ -79,6 +80,15 @@ bundledPreludeSource =
 
     renderPublicAlias symbol =
       builtinSymbolName symbol <> " = " <> builtinSymbolKernelName symbol <> "."
+
+    renderDefaultConversionAlias (aliasName, targetName) =
+      aliasName <> " = " <> targetName <> "."
+
+defaultConversionAliases :: [(Text, Text)]
+defaultConversionAliases =
+  [ ("toInt", "toInt64"),
+    ("toFloat", "toFloat64")
+  ]
 
 canonicalCapabilityClassNames :: [Text]
 canonicalCapabilityClassNames =

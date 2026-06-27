@@ -1,12 +1,13 @@
 ---
 id: JN-STDLIB-PRELUDE-DEFAULT-CONVERSION-ALIASES-001
-status: ready
+status: done
 priority: P1
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-06-26
+last_verified: 2026-06-27
+completed_on: 2026-06-27
 plan_section: "Task 1: Default conversion aliases"
 target_paths:
   - docs/spec/stdlib-boundary.md
@@ -103,7 +104,7 @@ Out of scope:
 
 - New numeric semantics, implicit conversions, mixed-width acceptance, parser literal suffixes, import syntax, module roots, package discovery, public no-prelude fallback, Eq method bodies, method-family expansion, solver-backed constrained signatures, dictionaries, default methods, superclasses, or module method export/import behavior.
 
-- [ ] **Step 1: Lock default-prelude visibility in PreludeLoadingSpec**
+- [x] **Step 1: Lock default-prelude visibility in PreludeLoadingSpec**
 
 In `jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`, add a suite entry next to the existing numeric conversion alias test:
 
@@ -131,7 +132,7 @@ testPreludeExposesDefaultNumericConversionAliases = do
 
 Expected before implementation: `E1001` unbound variable diagnostics for `toInt` and `toFloat`.
 
-- [ ] **Step 2: Lock no-prelude isolation in PreludeLoadingSpec**
+- [x] **Step 2: Lock no-prelude isolation in PreludeLoadingSpec**
 
 Extend `testCompileWithoutPreludeRejectsNumericConversionAliases` so it checks both default aliases:
 
@@ -155,7 +156,7 @@ testCompileWithoutPreludeRejectsNumericConversionAliases = do
     (map renderDiagnostic (compileErrors floatResult))
 ```
 
-- [ ] **Step 3: Lock alias-not-builtin behavior in BuiltinCatalogSpec**
+- [x] **Step 3: Lock alias-not-builtin behavior in BuiltinCatalogSpec**
 
 In `jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs`, add a suite entry next to the kernel bridge target test:
 
@@ -176,7 +177,7 @@ testDefaultConversionAliasesStayPreludeBindings = do
 
 Expected behavior: this should pass before and after implementation. It guards the implementation shape while the reproducibility test fails until `BundledPrelude.hs` and `Prelude.jz` are updated together.
 
-- [ ] **Step 4: Add source-pipeline conversion checks in PrimitiveSemanticsSpec**
+- [x] **Step 4: Add source-pipeline conversion checks in PrimitiveSemanticsSpec**
 
 In `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`, add a suite entry beside the existing conversion tests:
 
@@ -203,7 +204,7 @@ testSourcePipelineAcceptsDefaultConversionAliases =
 
 Expected before implementation: unbound-variable compile diagnostics for `toInt` and `toFloat`.
 
-- [ ] **Step 5: Add runtime conversion checks in RuntimeSemanticsSpec**
+- [x] **Step 5: Add runtime conversion checks in RuntimeSemanticsSpec**
 
 In `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`, add a suite entry near the existing numeric conversion runtime tests:
 
@@ -228,7 +229,7 @@ testRuntimeExecutesDefaultConversionAliases = do
 
 Expected before implementation: unbound-variable compile diagnostics for `toInt` and `toFloat`.
 
-- [ ] **Step 6: Emit aliases from BundledPrelude.hs**
+- [x] **Step 6: Emit aliases from BundledPrelude.hs**
 
 In `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`, append default alias generation after the target-named public aliases:
 
@@ -259,7 +260,7 @@ defaultConversionAliases =
 
 Do not add new `BuiltinSymbol` constructors for `toInt` or `toFloat`.
 
-- [ ] **Step 7: Update the checked-in bundled prelude mirror**
+- [x] **Step 7: Update the checked-in bundled prelude mirror**
 
 In `jazz-next/stdlib/Prelude.jz`, add the ordinary aliases after the generated target-named public conversion aliases:
 
@@ -271,7 +272,7 @@ toInt = toInt64.
 toFloat = toFloat64.
 ```
 
-- [ ] **Step 8: Record the boundary decision**
+- [x] **Step 8: Record the boundary decision**
 
 In `docs/spec/stdlib-boundary.md`, update the bundled exports list to include:
 
@@ -289,7 +290,7 @@ Update the explicit numeric conversions paragraph so it says:
   names.
 ```
 
-- [ ] **Step 9: Run focused verification**
+- [x] **Step 9: Run focused verification**
 
 Run:
 
@@ -302,7 +303,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 
 Expected: all four suites pass.
 
-- [ ] **Step 10: Run queue and docs gates**
+- [x] **Step 10: Run queue and docs gates**
 
 Run:
 
