@@ -6,16 +6,22 @@ size: S
 kind: docs
 autonomous_ready: no
 depends_on: []
-last_verified: 2026-06-01
+last_verified: 2026-06-24
 plan_section: "Future runtime product delta contract"
 target_paths:
   - docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md
+  - docs/plans/2026-06-24-jazz-next-runtime-cli-product-delta-contract.md
+  - docs/plans/2026-06-24-jazz-next-runtime-cli-help-implementation.md
+  - docs/jazz-language-state.md
+  - jazz-next/src/JazzNext/CLI/Main.hs
+  - jazz-next/test/JazzNext/CLI/CLISpec.hs
+  - jazz-next/README.md
   - docs/execution/blocker-contracts.md
   - docs/execution/queue.md
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Use docs/execution/blocker-contracts.md#jn-runtime-productize-closure-plan-001 to define one concrete CLI/runtime product delta before adding behavior beyond the closed interpreter-first compile/run documentation baseline."
+deliverable: "Keep runtime product work blocked on concrete deltas beyond the closed interpreter-first compile/run/help baseline. CLI help output landed as JN-RUNTIME-CLI-HELP-001; any further runtime product work needs a new concrete delta."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 ---
@@ -40,11 +46,10 @@ supersedes:
 
 ## Active Handoff
 
-The interpreter-first baseline is closed. Do not reopen runtime architecture from
-the milestone history below. Current blocked-state handoff lives in
-[`docs/execution/blocker-contracts.md`](../execution/blocker-contracts.md#jn-runtime-productize-closure-plan-001);
-new runtime work must first name one concrete CLI/runtime product delta with
-target paths and focused verification.
+The interpreter-first compile/run/help baseline is closed. Do not reopen
+runtime architecture from the milestone history below. CLI help output landed
+as `JN-RUNTIME-CLI-HELP-001`. Additional runtime product work must name a later
+concrete CLI/runtime product delta with target paths and focused verification.
 
 ## Plan Progress
 
@@ -58,26 +63,35 @@ target paths and focused verification.
 - [x] On `2026-04-26`, added alias-import unqualified visibility validation in `ModuleResolver.hs`, so bindings available only through `import Foo::Bar as B` now report deterministic `E4012` if referenced by bare name.
 - [x] On `2026-04-26`, landed qualified alias lookup using `Alias::symbol`, with parser/lowering support, resolver validation (`E4013`/`E4014`), and driver alias bridge bindings for module replay.
 - [x] On `2026-05-22`, added default `compileModuleGraph` and `runModuleGraph` driver helpers that load the bundled prelude, with multi-file loader coverage for bundled public prelude aliases.
-- [x] On `2026-05-22`, verified the execution queue has no `Ready Now` implementation entries and kept `JN-MODULE-REBASE-PLAN-001` blocked on a concrete remaining stdlib phase-5 closure contract.
+- [x] On `2026-05-22`, verified the execution queue has no `Ready Now` implementation entries and kept `JN-MODULE-REBASE-PLAN-001` blocked on a concrete future stdlib/catalog API or module behavior contract.
 - [x] On `2026-05-22`, added bundled-prelude reproducibility evidence: `BundledPrelude` now owns the checked-in prelude path and `BuiltinCatalogSpec` fails if that file drifts from catalog-generated bridge/alias source.
 - [x] On `2026-05-22`, retired the internal compile placeholder artifact: successful compile driver results now contain only diagnostics, and loader/warning-flow/type/runtime coverage asserts compile success through warnings/errors only.
 - [x] On `2026-05-30`, closed the type-signature/type-grammar rebase metadata around the implemented structured monomorphic subset and left broader type schemes/defaulting blocked under the dedicated type plan.
 - [x] On `2026-05-30`, aligned runtime/product docs around the active interpreter-backed compile/run path: successful compile is diagnostic-only, successful `--run` prints interpreter output, and future product deltas are blocked on concrete behavior contracts.
 - [x] On `2026-05-31`, added module-graph no-prelude/prelude ownership harness coverage proving `compileModuleGraphWithPrelude Nothing` and `runModuleGraphWithPrelude Nothing` reject public aliases across imports while preserving `__kernel_*`, bundled, and explicit-prelude helper paths.
 - [x] On `2026-06-01`, rechecked the queue-empty module/std-lib and runtime product blockers: Milestone 5 and Milestone 6 remain closed for the active subset, and future stdlib/catalog growth or runtime product behavior still needs a concrete API/runtime contract with target paths and focused verification before returning to `Ready Now`.
+- [x] On `2026-06-24`, accepted the next runtime product delta as CLI help
+      output only in `JN-RUNTIME-CLI-PRODUCT-DELTA-CONTRACT-001` and promoted
+      implementation child `JN-RUNTIME-CLI-HELP-001`.
+- [x] On `2026-06-24`, implemented explicit `--help` and `-h` usage output
+      with preflight behavior before argument validation and source/config/
+      prelude/module reads.
 - [x] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next` for the active structured monomorphic subset.
 - [x] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
 - [x] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.
 - [x] Milestone 5 complete: module/import and stdlib execution semantics are closed on the active path.
 - [x] Milestone 6 complete: CLI/docs treat interpreter-backed execution as the canonical product path.
 
-## Active Baseline (2026-05-30)
+## Active Baseline (2026-06-24)
 
 - `JazzNext.Compiler.Driver` already coordinates standalone source, prelude-aware source, and module-graph execution.
 - `JazzNext.Compiler.Runtime` interprets the current core subset: ints, bools, lists, tuples, closures, constructor values/applications, pattern cases, builtin/kernel functions, operator values and sections, `if` via canonical `ECase`, and block scope evaluation.
 - `JazzNext.Compiler.TypeInference` consumes structured parser/core signature payloads for the supported monomorphic subset, including right-associated arrows, parenthesized function-type overrides, concrete tuples/lists, and the active constrained-signature subset; broader type schemes/defaulting remain blocked under the dedicated type plan.
 - `JazzNext.Compiler.ModuleResolver` resolves module graphs, validates import symbol lists/aliases, rejects importer references to exported dependency bindings excluded by explicit import lists, prevents alias-only imports from leaking dependency exports as unqualified names, and validates `Alias::symbol` references. `JazzNext.Compiler.Driver` replays resolved modules through the shared pipeline, injecting internal alias bridge bindings for qualified lookup; dependency modules contribute declarations during replay, while executable expression statements are preserved only for the entry module.
-- Successful compile paths are diagnostic-only and keep stdout empty on success, while successful run paths return interpreter output.
+- Successful compile paths are diagnostic-only and keep stdout empty on
+  success, successful run paths return interpreter output, and explicit
+  `--help` / `-h` requests print CLI usage before normal argument/source/config/
+  prelude/module reads.
 
 ## Milestone 1 Closure (2026-04-10)
 
@@ -95,7 +109,7 @@ target paths and focused verification.
 | Semantic normalization | `jazz-next/src/JazzNext/Compiler/Analyzer.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/src/JazzNext/Compiler/Purity.hs` | Performs binding and warning checks plus a small set of type/runtime-compatibility checks; canonicalizes `if` and `$`. | Replace raw-text signatures and shallow inference with real typed representations and richer error taxonomy. |
 | Runtime execution | `jazz-next/src/JazzNext/Compiler/Runtime.hs`, `jazz-next/src/JazzNext/Compiler/Driver.hs`, runtime/primitive/purity specs | Evaluates the current subset and returns rendered runtime output or fatal diagnostics. | Expand the runtime value model and evaluator in the same file family instead of creating a second execution pipeline. |
 | Module/runtime orchestration | `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`, `jazz-next/src/JazzNext/Compiler/Driver.hs`, loader/module specs | Resolves module graphs, replays sources, strips module declarations, and routes execution back through the same prelude/analyze/run path. | Re-author the module-loader plan around these modules before adding broader module semantics. |
-| CLI product surface | `jazz-next/src/JazzNext/CLI/Main.hs`, `jazz-next/test/JazzNext/CLI/CLISpec.hs` | Supports compile and run modes with explicit/no-prelude control. | Make interpreter-backed execution and deterministic exit/reporting behavior the documented default product surface. |
+| CLI product surface | `jazz-next/src/JazzNext/CLI/Main.hs`, `jazz-next/test/JazzNext/CLI/CLISpec.hs` | Supports compile, run, module graph, explicit/no-prelude, warning config, and help output modes. | Keep future CLI/runtime product changes blocked until a concrete delta is accepted. |
 
 ## Critical Dependency Map
 
@@ -106,7 +120,7 @@ target paths and focused verification.
 | Active parser/operator/if/primitive work (`14`, `15`, `16`) | These domains are already partially represented in `jazz-next` runtime and tests. | Safe runtime-core expansion without reopening settled syntax decisions. |
 | `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md` | ADT/pattern semantics now have an active-path owner map and milestone plan tied to the current runtime pipeline. | Constructor values, `case`, pattern matching, and related diagnostics in `jazz-next`. |
 | Module-loader rebase (`09`) | Module resolution exists in code, but its normative execution plan is still legacy-targeted. | Deterministic module execution semantics, import diagnostics, and closure of multi-file runtime behavior. |
-| Remaining stdlib closure (`10`) | Prelude/kernel ownership is mostly in place but not fully closed. | Kernel-only hardcoded surface and final builtin/runtime boundary cleanup. |
+| Closed stdlib/prelude subset (`10`) | Prelude/kernel ownership is closed for the active subset. | Future stdlib/catalog growth only after a concrete API/runtime contract names target paths and focused verification. |
 
 ## Milestone Plan
 
@@ -189,7 +203,7 @@ Primary files:
 
 #### Coordination: Module/import active-path execution contract
 
-This coordination batch completed on `2026-04-26`. It selected dependency-module expression isolation as the first active-path implementation slice, then later narrowed and landed explicit symbol-list visibility, alias-import unqualified visibility, and qualified alias lookup. Remaining module/prelude/std-lib execution closure needs a narrower implementation contract.
+This coordination batch completed on `2026-04-26`. It selected dependency-module expression isolation as the first active-path implementation slice, then later narrowed and landed explicit symbol-list visibility, alias-import unqualified visibility, and qualified alias lookup. The active module/prelude/std-lib execution subset is now closed; future growth needs a new concrete API/runtime contract.
 
 - [x] Rebase the module/import execution contract onto the current `ModuleResolver.hs`, `Driver.hs`, and `CLI/Main.hs` ownership boundaries.
 - [x] Identify the next missing executable behavior beyond already-landed resolution, graph replay, CLI entry-module routing, and import-symbol diagnostics: dependency module expression statements were still replayed into entry-module execution.

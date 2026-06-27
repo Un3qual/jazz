@@ -156,6 +156,7 @@ testLowerDesugarsPatternParametersThroughCase =
                     (EVar generatedName)
                     [ CaseArm
                         (PTuple [PVariable "left", PVariable "right"])
+                        Nothing
                         (EBinary "+" (EVar "left") (EVar "right"))
                     ]
                 )

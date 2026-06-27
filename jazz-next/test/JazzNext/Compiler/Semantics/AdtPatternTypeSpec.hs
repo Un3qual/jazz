@@ -86,6 +86,9 @@ tests =
     ( "source pipeline instantiates generic constructor values independently",
       testSourcePipelineInstantiatesGenericConstructorValuesIndependently
     ),
+    ( "source pipeline instantiates ordinary bindings that return generic constructors",
+      testSourcePipelineInstantiatesOrdinaryBindingsReturningGenericConstructors
+    ),
     ( "source pipeline treats constructor payloads as monomorphic",
       testSourcePipelineTreatsConstructorPayloadsAsMonomorphic
     ),
@@ -127,6 +130,12 @@ tests =
     ),
     ( "source pipeline accepts as-pattern binders with the scrutinee type",
       testSourcePipelineAcceptsAsPatternBinders
+    ),
+    ( "source pipeline accepts pattern guard binders",
+      testSourcePipelineAcceptsPatternGuardBinders
+    ),
+    ( "source pipeline rejects non-Bool pattern guards",
+      testSourcePipelineRejectsNonBoolPatternGuards
     ),
     ( "source pipeline rejects duplicate as-pattern binders",
       testSourcePipelineRejectsDuplicateAsPatternBinders
@@ -343,6 +352,11 @@ testSourcePipelineInstantiatesGenericConstructorValuesIndependently = do
   result <- compileSource defaultWarningSettings "data Box a = Box a. makeInt = if True Box else Box. makeBool = if False Box else Box. first = makeInt 1. second = makeBool True."
   assertCompiles "generic constructor values" result
 
+testSourcePipelineInstantiatesOrdinaryBindingsReturningGenericConstructors :: IO ()
+testSourcePipelineInstantiatesOrdinaryBindingsReturningGenericConstructors = do
+  result <- compileSource defaultWarningSettings "data Box a = Box a. make = \\(x) -> Box x. first = make 1. second = make True."
+  assertCompiles "ordinary binding returning generic constructor" result
+
 testSourcePipelineTreatsConstructorPayloadsAsMonomorphic :: IO ()
 testSourcePipelineTreatsConstructorPayloadsAsMonomorphic = do
   result <- compileSource defaultWarningSettings "data Box = Box value. first = Box 1. second = Box True."
@@ -376,6 +390,19 @@ testSourcePipelineAcceptsAsPatternBinders :: IO ()
 testSourcePipelineAcceptsAsPatternBinders = do
   result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 41. x = case value { | whole @ Just item -> case whole { | Just nested -> item + nested | Nothing -> 0 } | Nothing -> 0 }."
   assertCompiles "as-pattern binder types" result
+
+testSourcePipelineAcceptsPatternGuardBinders :: IO ()
+testSourcePipelineAcceptsPatternGuardBinders = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just item if item > 0 -> item | _ -> 0 }."
+  assertCompiles "pattern guard binder result" result
+
+testSourcePipelineRejectsNonBoolPatternGuards :: IO ()
+testSourcePipelineRejectsNonBoolPatternGuards = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. x = case value { | Just item if item -> item | _ -> 0 }."
+  assertSingleDiagnosticContains
+    "non-Bool pattern guard text"
+    "case guard must have type Bool"
+    (compileErrors result)
 
 testSourcePipelineRejectsDuplicateAsPatternBinders :: IO ()
 testSourcePipelineRejectsDuplicateAsPatternBinders = do

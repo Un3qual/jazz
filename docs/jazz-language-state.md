@@ -9,8 +9,9 @@ This document consolidates what the repository currently says about Jazz across:
 The codebase is now governed by an explicit authority policy:
 
 1. Canonical language rules belong in `docs/spec/*`.
-2. Until a semantic area is fully specified there, `jazz-hs` behavior/tests are the temporary behavioral authority.
-3. `jazz2` is reference-only and non-normative in the current phase.
+2. Active compiler behavior belongs in `jazz-next/` and its linked tests/plans.
+3. `jazz-hs` and `jazz2` are read-only reference implementations unless a user
+   explicitly asks for legacy maintenance.
 
 Policy reference:
 
@@ -27,7 +28,10 @@ Jazz appears intended to be a statically typed, mostly functional language inspi
 - algebraic data types and pattern matching
 - a trait/typeclass-like abstraction system
 
-Today, the only end-to-end implemented subset is much smaller. In practice, `jazz-hs` supports a small expression language that can be parsed, type-checked, optimized a little, and compiled to JavaScript. Many richer features parse but do not work end to end.
+Today, the active end-to-end implementation is the smaller `jazz-next` subset
+tracked by `docs/feature-status.md`, the runtime/semantic specs, and the
+execution queue. The older `jazz-hs` compiler remains useful historical
+evidence, but its parse-only behavior is not an active implementation target.
 
 ## What The Top-Level README Claims
 
@@ -62,11 +66,11 @@ The README examples also imply:
 - lists use `[ ... ]`
 - function application can be space-separated
 
-## What `jazz-hs` Actually Implements
+## What Legacy `jazz-hs` Actually Implements
 
-`jazz-hs` is the main concrete source of truth. Its local [README](../jazz-hs/README.md) is empty, so the real spec lives in parser, AST, type inference, tests, and example programs.
+`jazz-hs` is a legacy reference implementation. Its local [README](../jazz-hs/README.md) is empty, so its behavior is visible through parser, AST, type inference, tests, and example programs, but new compiler work should not target it.
 
-### Active Pipeline
+### Legacy Pipeline
 
 The implemented pipeline in [jazz-hs/src/Lib.hs](../jazz-hs/src/Lib.hs) is:
 
@@ -256,9 +260,11 @@ The JS backend in [jazz-hs/src/CodeGen/Javascript.hs](../jazz-hs/src/CodeGen/Jav
 
 Constant folding in the optimizer only handles integer `+`, `-`, and `*`.
 
-## `jazz-hs` Features That Exist Mostly As Scaffolding
+## Legacy `jazz-hs` Features That Exist Mostly As Scaffolding
 
-A large part of the richer language exists in AST and parser form, but is not fully supported by analysis and code generation.
+A large part of the richer language exists in legacy `jazz-hs` AST and parser
+form, but is not fully supported by analysis and code generation. This is
+historical evidence only; active feature work must use `jazz-next` contracts.
 
 These features appear partially implemented or parse-only:
 
@@ -286,17 +292,20 @@ Key examples:
 
 Several important inconsistencies exist between the aspirational README and the concrete Haskell implementation.
 
-### `map` Argument Order
+### `map`/`filter` Argument Order
 
-The top-level README documents:
+This mismatch has been resolved in active docs and `jazz-next` behavior. The
+top-level README now documents and demonstrates function-first collection
+combinators:
 
 - `map :: (a -> b) -> [a] -> [b]`
+- `map f xs`
+- `filter p xs`
 
-But its example uses:
-
-- `map myArr \(i) -> ...`
-
-That example is collection-first, while `jazz-hs` implements `map` as function-first. The example and the implementation do not agree.
+Historical collection-first examples such as `map xs f` or `filter xs p` are
+non-canonical archival evidence only. Active `jazz-next` work must not add a
+parser alias, runtime adapter, or deprecated-syntax warning path for those
+forms.
 
 ### Function Definition Style
 
@@ -414,7 +423,7 @@ Best interpretation: `jazz2` shows the shape of a potential cleaner redesign, bu
 
 Based on the full repo, these areas still require implementation convergence even when a decision lock now exists:
 
-- Extending parsed signature type grammar beyond the closed structured-signature rebase in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, concrete tuple types, right-associative function types, parenthesized function-type overrides, empty `@{}:` constrained wrappers, class/impl-validated concrete unary constrained signatures, duplicate non-empty constraint diagnostics, monomorphic variable constrained signatures, unsupported-variable constrained-signature diagnostics, and unsupported constrained-signature primary spans are implemented and test-covered; polymorphic/generalized type-variable signatures, type-scheme instantiation/generalization, defaulting, and solver-backed constraints remain blocked behind a future semantics contract):
+- Extending parsed signature type grammar beyond the closed structured-signature rebase in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, concrete tuple types, right-associative function types, parenthesized function-type overrides, empty `@{}:` constrained wrappers, class/impl-validated concrete unary constrained signatures, duplicate non-empty constraint diagnostics, monomorphic variable constrained signatures, unsupported-variable constrained-signature diagnostics, unsupported constrained-signature primary spans, ordinary binding type schemes, and fresh per-use instantiation for eligible ordinary bindings are implemented and test-covered; inferred class constraints, broad defaulting, solver-backed constrained signatures, runtime evidence, explicit type application, and polymorphic/generalized type-variable signatures remain blocked behind future verifier-backed children):
   - `docs/spec/semantics/bindings-and-signatures.md`
   - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Extending staged operator roadmap work in `jazz-next` beyond implemented v1 parser/fixity/sections behavior:
@@ -444,12 +453,17 @@ Based on the full repo, these areas still require implementation convergence eve
   constraints, defaulting, additional bundled-prelude method bodies, broader
   cross-module method coherence, and generalized runtime evidence remain future
   work. `Self` is not reserved.
-- Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding`, `shadowing-outer-scope`, and ordinary block `unused-binding` emitters (reserved metadata for `deprecated-syntax` / `W0004` is covered, but this category does not emit diagnostics yet and its concrete warning policy is deferred):
+- Extending the locked warning-flag tooling contract in `jazz-next` beyond the implemented `same-scope-rebinding`, `shadowing-outer-scope`, and ordinary block `unused-binding` emitters (reserved metadata for `deprecated-syntax` / `W0004` is covered, but this category is closed as reserved-only for the current active language surface until a future accepted syntax surface is intentionally deprecated):
   - `docs/spec/tooling/compiler-warning-flags.md`
 - CLI source selection is active in `jazz-next`: standalone compile and `--run`
   read stdin by default or one positional `.jz` source file when provided; source
   files are rejected with module-graph `--entry-module` mode. The tooling
   contract is tracked in `docs/spec/tooling/cli-source-input.md`.
+- CLI discoverability is active in `jazz-next`: explicit `--help` / `-h` usage
+  output exits `0`, writes usage to stdout, preempts
+  source/config/prelude/module reads, avoids a bare `help` subcommand so
+  positional source paths remain intact, and keeps compile/run semantics
+  unchanged.
 - Tuple literals, concrete tuple signature types, fixed-arity tuple case
   patterns, cons-like list case patterns, and pattern-shaped lambda parameters
   are now active core runtime/type features in `jazz-next`.

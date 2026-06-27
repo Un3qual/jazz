@@ -1,23 +1,27 @@
 ---
 id: JN-WARNING-DEPRECATED-SYNTAX-CONTRACT-001
-status: blocked
+status: done
 priority: P2
 size: S
 kind: coordination
-autonomous_ready: no
+autonomous_ready: yes
 depends_on:
   - JN-WARNING-UNUSED-BINDING-LET-001
-last_verified: 2026-06-01
-plan_section: "Phase 8 / Coordination: deprecated-syntax W0004 contract decision"
+last_verified: 2026-06-24
+completed_on: 2026-06-24
+plan_section: "Phase 8 / Completed coordination: deprecated-syntax W0004 reserved-only closure"
 target_paths:
   - docs/spec/tooling/compiler-warning-flags.md
   - docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md
   - docs/execution/blocker-contracts.md
   - docs/execution/queue.md
 verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Use docs/execution/blocker-contracts.md#jn-warning-deprecated-syntax-contract-001 before promoting W0004 work; default state remains reserved-only because active `jazz-next` has no accepted deprecated syntax surface and non-canonical `trait` declarations are never accepted."
+  - git diff --check
+deliverable: "Closed the current W0004 decision as reserved-only because active `jazz-next` has no accepted deprecated syntax surface, non-canonical `trait` declarations are parser errors, and `DeprecatedSyntax` has no analyzer emitter."
 ---
 
 # Compiler Warning Flags (Same-Scope Rebinding) Implementation Plan
@@ -38,10 +42,11 @@ Execution note:
 
 ## Active Handoff
 
-The active warning emitters are already landed for W0001-W0003. Do not promote
-W0004 as implementation work unless a future accepted syntax surface is first
-deprecated. Current blocked-state handoff lives in
-[`docs/execution/blocker-contracts.md`](../../../../execution/blocker-contracts.md#jn-warning-deprecated-syntax-contract-001).
+The active warning emitters are already landed for W0001-W0003. The current
+W0004 decision is closed as reserved-only: do not promote W0004 as
+implementation work unless a future accepted syntax surface is first
+deprecated through a new contract. Closure evidence is recorded in
+[`docs/plans/2026-06-24-jazz-next-warning-w0004-reserved-closure.md`](../../../2026-06-24-jazz-next-warning-w0004-reserved-closure.md).
 
 ## Progress
 
@@ -59,6 +64,10 @@ deprecated. Current blocked-state handoff lives in
 - [x] Decide the concrete `deprecated-syntax` / `W0004` warning contract before any emitter implementation row is added.
 - [x] On `2026-05-23`, deferred the W0004 policy choice because no accepted active-path syntax is both implemented and deprecated enough to warn on; kept the remaining emitter blocked while tuple runtime ownership proceeds.
 - [x] On `2026-05-31`, locked the reserved-only W0004 policy: `trait` is never accepted as compatibility syntax, so it is a parser error rather than a deprecated-syntax warning source.
+- [x] On `2026-06-24`, closed the current W0004 decision as reserved-only:
+      `DeprecatedSyntax` keeps stable metadata with no analyzer emitter,
+      `trait` stays parser-rejected, and future W0004 work requires a new
+      accepted active syntax surface to deprecate.
 
 ## Decision Lock (Inherited from Item 13)
 
@@ -383,11 +392,11 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 ```
 
-### Remaining deprecated-syntax emitter: blocked
+### Future deprecated-syntax emitter: blocked on new accepted syntax
 
-After the `W0003` ordinary `let` carve-out, the warning catalog still reserves
-`deprecated-syntax` / `W0004`, but it is not an executor-safe implementation
-batch yet.
+After the `W0003` ordinary `let` carve-out and the W0004 reserved-only closure,
+the warning catalog still reserves `deprecated-syntax` / `W0004`, but it is not
+an executor-safe implementation batch.
 
 Before `deprecated-syntax` can move to `Ready Now`, the plan needs a concrete
 active-path contract that names:
@@ -397,8 +406,8 @@ active-path contract that names:
 - the `jazz-next/` implementation and test target paths,
 - the focused verification command set.
 
-Until those details exist, keep the remaining `W0004` warning-emitter work blocked in
-`docs/execution/queue.md` instead of adding a broad implementation row.
+Until those details exist, future `W0004` warning-emitter work must be tracked
+by a new queue row rather than reopening the closed reserved-only decision.
 
 ## Phase 7: Future Warning Emitters
 
@@ -511,15 +520,14 @@ bash scripts/check-docs.sh
 
 ## Phase 8: Deprecated-Syntax Warning Contract
 
-### Coordination: deprecated-syntax W0004 contract decision
+### Completed coordination: deprecated-syntax W0004 reserved-only closure
 
-Status: blocked as of `2026-06-01`. The active `jazz-next` parser now
-reserves some future syntax with deterministic errors, and the warning catalog
-reserves `deprecated-syntax` / `W0004`, but there is still no accepted
-active-path parser or analyzer surface that is both implemented and deprecated
-enough to emit this warning. The deprecated-syntax policy is now locked to
-reserved-only until a future accepted syntax surface is intentionally
-deprecated.
+Status: completed on `2026-06-24`. The active `jazz-next` parser now reserves
+some future syntax with deterministic errors, and the warning catalog reserves
+`deprecated-syntax` / `W0004`, but there is no accepted active-path parser or
+analyzer surface that is both implemented and deprecated enough to emit this
+warning. The deprecated-syntax policy is closed as reserved-only until a future
+accepted syntax surface is intentionally deprecated through a new contract.
 
 This is a flow-restoring coordination batch for the reserved
 `deprecated-syntax` / `W0004` warning category. It does not implement warning
@@ -536,9 +544,10 @@ Policy lock:
 - Future W0004 work requires a different accepted active-path syntax surface
   that is already implemented, then explicitly deprecated with a warning
   payload, target paths, and focused verification.
-- Re-verified on `2026-06-01` after the structural equality and class method
-  metadata batches: no executable W0004 emitter batch can be promoted without
-  first selecting a non-`trait` accepted syntax surface to deprecate.
+- Re-verified on `2026-06-24`: `DeprecatedSyntax` has stable `W0004` /
+  `deprecated-syntax` metadata with no analyzer emitter, warning config parsing
+  does not imply emission, and parser coverage rejects `trait` in root and
+  module-body positions.
 
 Batch scope:
 
@@ -551,9 +560,9 @@ Batch scope:
   scope ownership rules, non-goals, target paths, and focused verification for
   the next implementation batch; then add that implementation batch to
   `docs/execution/queue.md`.
-- If no accepted active-path deprecated surface exists, keep
-  `JN-WARNING-REMAINING-EMITTERS-PLAN-001` blocked and update its reason with
-  the exact evidence.
+- If no accepted active-path deprecated surface exists, close the current
+  W0004 decision as reserved-only and require any later W0004 emitter to start
+  from a new accepted-surface contract.
 - Do not modify `jazz-next/src/**` or `jazz-next/test/**` in this coordination
   batch.
 

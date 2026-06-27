@@ -84,6 +84,9 @@ tests =
     ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError),
     ("pattern-case alias-only recursive cycle produces deterministic runtime diagnostic", testPatternCaseAliasOnlyRecursiveCycleRuntimeError),
     ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer),
+    ("pattern-case guard lambda does not classify non-function recursion", testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion),
+    ("function-valued pattern guard self-reference produces recursion diagnostic", testFunctionPatternGuardSelfReferenceRuntimeError),
+    ("function-valued pattern guard uses prior rebinding", testFunctionPatternGuardUsesPriorRebinding),
     ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError),
     ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError),
     ("nested block alias cycle ignores later outer peer name", testNestedBlockAliasCycleIgnoresLaterOuterPeer),
@@ -436,6 +439,53 @@ testPatternCaseBinderDoesNotAliasRecursivePeer = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "0") (runOutput result)
 
+testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion :: IO ()
+testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "x = case 1 { | 0 if (\\(value) -> True) 0 -> 0 | _ -> x }. x.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected pattern-case guard-lambda recursion to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for guard-lambda recursion, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "guard-lambda recursion runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "guard-lambda recursion runtime text"
+        "no concrete value"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testFunctionPatternGuardSelfReferenceRuntimeError :: IO ()
+testFunctionPatternGuardSelfReferenceRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = case 1 { | 1 if f 0 == 0 -> \\(x) -> x | _ -> \\(x) -> x }. f 1.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected function-valued pattern guard self-reference to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for function-valued pattern guard self-reference, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "function-valued pattern guard self-reference runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "function-valued pattern guard self-reference runtime text"
+        "no concrete value"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testFunctionPatternGuardUsesPriorRebinding :: IO ()
+testFunctionPatternGuardUsesPriorRebinding = do
+  result <- runSource defaultWarningSettings "f = \\(x) -> 0. f = case 1 { | 1 if f 0 == 0 -> \\(x) -> x | _ -> \\(x) -> x + 1 }. f 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1") (runOutput result)
+
 testBlockWrappedAliasOnlyRecursiveCycleRuntimeError :: IO ()
 testBlockWrappedAliasOnlyRecursiveCycleRuntimeError = do
   maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "a = { b. }. b = { a. }. a.") :: IO (Either SomeException RunResult))
@@ -511,6 +561,7 @@ patternCaseNoMatchExpr =
     (ELit (LInt 1))
     [ CaseArm
         (PLiteral (LInt 0))
+        Nothing
         (ELit (LInt 2))
     ]
 
@@ -1650,7 +1701,7 @@ testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint = do
                          (SourceSpan 7 1)
                          ( EPatternCase
                              (EVar "token")
-                             [CaseArm (PConstructor "Token" [PVariable "value"]) (EApply (EVar "RuntimePick::pick") (EVar "value"))]
+                             [CaseArm (PConstructor "Token" [PVariable "value"]) Nothing (EApply (EVar "RuntimePick::pick") (EVar "value"))]
                          )
                      ]
               )

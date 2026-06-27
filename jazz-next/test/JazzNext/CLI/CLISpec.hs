@@ -11,6 +11,7 @@ import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.CLI.Main
   ( CliOptions (..),
     CliOutput (..),
@@ -49,6 +50,9 @@ tests =
     ("cli compile prints warnings to stderr while keeping stdout empty", testCliWarningOnlyBehavior),
     ("cli run returns non-zero and suppresses stdout when warning promoted", testCliPromotedWarningBehavior),
     ("cli --run prints evaluated runtime output", testCliRunModeSuccess),
+    ("cli --help prints usage without reading inputs", testCliHelpOutput),
+    ("cli -h prints usage without reading inputs", testCliShortHelpOutput),
+    ("cli help flag preempts other args and input reads", testCliHelpPreemptsOtherArgs),
     ("cli compiles positional source file quietly", testCliCompileSourceFileSuccess),
     ("cli --run executes positional source file", testCliRunSourceFileSuccess),
     ("cli positional source file reports missing file", testCliSourceFileMissing),
@@ -215,6 +219,80 @@ testCliRunModeSuccess = do
   where
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing
+
+testCliHelpOutput :: IO ()
+testCliHelpOutput = do
+  sourceRead <- newIORef False
+  configRead <- newIORef False
+  output <-
+    runCliWith
+      ["--help"]
+      envLookup
+      (recordConfigRead configRead)
+      (recordSourceRead sourceRead)
+  didReadSource <- readIORef sourceRead
+  didReadConfig <- readIORef configRead
+  assertHelpOutput "--help" output
+  assertEqual "source is not read" False didReadSource
+  assertEqual "config/prelude files are not read" False didReadConfig
+  where
+    envLookup "JAZZ_WARNING_CONFIG" = pure (Just "config/warnings.txt")
+    envLookup "JAZZ_PRELUDE" = pure (Just "stdlib/Prelude.jz")
+    envLookup _ = pure Nothing
+
+testCliShortHelpOutput :: IO ()
+testCliShortHelpOutput = do
+  sourceRead <- newIORef False
+  configRead <- newIORef False
+  output <-
+    runCliWith
+      ["-h"]
+      envLookup
+      (recordConfigRead configRead)
+      (recordSourceRead sourceRead)
+  didReadSource <- readIORef sourceRead
+  didReadConfig <- readIORef configRead
+  assertHelpOutput "-h" output
+  assertEqual "source is not read" False didReadSource
+  assertEqual "config/prelude files are not read" False didReadConfig
+  where
+    envLookup "JAZZ_WARNING_CONFIG" = pure (Just "config/warnings.txt")
+    envLookup "JAZZ_PRELUDE" = pure (Just "stdlib/Prelude.jz")
+    envLookup _ = pure Nothing
+
+testCliHelpPreemptsOtherArgs :: IO ()
+testCliHelpPreemptsOtherArgs = do
+  sourceRead <- newIORef False
+  configRead <- newIORef False
+  invalidOutput <-
+    runCliWith
+      ["--help", "--bad-arg"]
+      envLookup
+      (recordConfigRead configRead)
+      (recordSourceRead sourceRead)
+  missingSourceOutput <-
+    runCliWith
+      ["--help", "missing.jz"]
+      envLookup
+      (recordConfigRead configRead)
+      (recordSourceRead sourceRead)
+  moduleGraphOutput <-
+    runCliWith
+      ["--help", "--entry-module", "App::Main", "--module-root", "src"]
+      envLookup
+      (recordConfigRead configRead)
+      (recordSourceRead sourceRead)
+  didReadSource <- readIORef sourceRead
+  didReadConfig <- readIORef configRead
+  assertHelpOutput "invalid arg help" invalidOutput
+  assertHelpOutput "missing source help" missingSourceOutput
+  assertHelpOutput "module graph help" moduleGraphOutput
+  assertEqual "source is not read" False didReadSource
+  assertEqual "config/prelude files are not read" False didReadConfig
+  where
+    envLookup "JAZZ_WARNING_CONFIG" = pure (Just "config/warnings.txt")
+    envLookup "JAZZ_PRELUDE" = pure (Just "stdlib/Prelude.jz")
+    envLookup _ = pure Nothing
 
 testCliCompileSourceFileSuccess :: IO ()
 testCliCompileSourceFileSuccess = do
@@ -715,6 +793,43 @@ recordSourceRead :: IORef Bool -> IO Text
 recordSourceRead sourceRead = do
   writeIORef sourceRead True
   pure sampleSource
+
+recordConfigRead :: IORef Bool -> FilePath -> IO (Maybe Text)
+recordConfigRead configRead _ = do
+  writeIORef configRead True
+  pure Nothing
+
+assertHelpOutput :: Text -> CliOutput -> IO ()
+assertHelpOutput label output = do
+  assertEqual (label <> " exit code") 0 (cliExitCode output)
+  assertEqual (label <> " stdout") expectedHelpOutput (cliStdout output)
+  assertEqual (label <> " stderr") "" (cliStderr output)
+
+expectedHelpOutput :: Text
+expectedHelpOutput =
+  Text.unlines
+    [ "Usage: jazz-next [--run] [options] [source.jz]",
+      "       jazz-next [--run] --entry-module Module::Path [--module-root DIR...] [options]",
+      "",
+      "Modes:",
+      "  compile                         Parse/analyze source; success prints no stdout.",
+      "  --run                           Execute source and print the final runtime value.",
+      "",
+      "Source:",
+      "  source.jz                       Read one source file instead of stdin.",
+      "  --entry-module Module::Path      Load a module graph entrypoint.",
+      "  --module-root DIR                Add a module graph search root.",
+      "",
+      "Prelude and warnings:",
+      "  --prelude PATH                   Use an explicit Prelude source.",
+      "  --no-prelude                     Disable the bundled Prelude.",
+      "  --warnings-config PATH           Read warning settings from PATH.",
+      "  -W<category>                     Enable a warning category.",
+      "  -Werror=<category>               Promote a warning category to an error.",
+      "",
+      "Help:",
+      "  --help, -h                       Show this help text."
+    ]
 
 testCliReportsSignatureTypeMismatch :: IO ()
 testCliReportsSignatureTypeMismatch = do

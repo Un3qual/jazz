@@ -63,6 +63,17 @@ tests =
     ("source pipeline analyzes impl method binding metadata", testSourceAnalyzesImplMethodBindingMetadata),
     ("source pipeline rejects variable-target impl method bindings", testSourceRejectsVariableTargetImplMethodBindings),
     ("source pipeline rejects variable-target empty impl declarations", testSourceRejectsVariableTargetEmptyImplDeclarations),
+    ("source pipeline instantiates ordinary binding schemes per use", testSourceInstantiatesOrdinaryBindingSchemesPerUse),
+    ("source pipeline instantiates unconstrained variables beside numeric constraints per use", testSourceInstantiatesUnconstrainedNumericBindingVariablesPerUse),
+    ("source pipeline instantiates unconstrained variables beside equality constraints per use", testSourceInstantiatesUnconstrainedEqualityBindingVariablesPerUse),
+    ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse),
+    ("source pipeline instantiates mutual recursive binding schemes per use", testSourceInstantiatesMutualRecursiveBindingSchemesPerUse),
+    ("source pipeline instantiates interleaved mutual recursive schemes per use", testSourceInstantiatesInterleavedMutualRecursiveBindingSchemesPerUse),
+    ("source pipeline keeps later rebinding over recursive scheme", testSourceKeepsLaterRebindingOverRecursiveScheme),
+    ("source pipeline rejects interleaved use constrained by later recursive member", testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember),
+    ("source pipeline types recursive guards against prior rebinding", testSourceTypesRecursiveGuardsAgainstPriorRebinding),
+    ("source pipeline defers partial recursive previews past intervening dependencies", testSourceDefersPartialRecursivePreviewsPastInterveningDependencies),
+    ("source pipeline previews through intervening recursive group members", testSourcePreviewsThroughInterveningRecursiveGroupMembers),
     ("source pipeline rejects duplicate impl method bindings", testSourceRejectsDuplicateImplMethodBindings),
     ("source pipeline rejects non-binding impl body items", testSourceRejectsNonBindingImplBodyItem),
     ("source pipeline accepts single-target qualified method dispatch", testSourceAcceptsSingleTargetQualifiedMethodDispatch),
@@ -142,7 +153,8 @@ tests =
     ("source pipeline keeps generic constructor aliases monomorphic", testSourceKeepsGenericConstructorAliasesMonomorphic),
     ("source pipeline rejects constrained signature surface with E2009", testSourceRejectsConstrainedSignatureSurface),
     ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError),
-    ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
+    ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream),
+    ("mismatched pending signature does not monomorphize following binding", testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding)
   ]
 
 testSignatureDirectlyAboveBinding :: IO ()
@@ -951,6 +963,56 @@ testSourceKeepsVariableConstrainedSignatureMonomorphic = do
     "cannot apply function of type Int -> Int to argument of type Bool"
     (compileErrors result)
 
+testSourceInstantiatesOrdinaryBindingSchemesPerUse :: IO ()
+testSourceInstantiatesOrdinaryBindingSchemesPerUse =
+  assertSourceOk "id = \\(x) -> x.\nintValue = id 1.\nboolValue = id True."
+
+testSourceInstantiatesUnconstrainedNumericBindingVariablesPerUse :: IO ()
+testSourceInstantiatesUnconstrainedNumericBindingVariablesPerUse =
+  assertSourceOk "f = \\(x) -> \\(y) -> (x + x, y).\na = f 1 True.\nb = f 2 3."
+
+testSourceInstantiatesUnconstrainedEqualityBindingVariablesPerUse :: IO ()
+testSourceInstantiatesUnconstrainedEqualityBindingVariablesPerUse =
+  assertSourceOk "f = \\(x) -> \\(y) -> (x == x, y).\na = f 1 True.\nb = f 2 3."
+
+testSourceInstantiatesRecursiveBindingSchemesPerUse :: IO ()
+testSourceInstantiatesRecursiveBindingSchemesPerUse =
+  assertSourceOk "choose = if True \\(x) -> x else choose.\nintValue = choose 1.\nboolValue = choose True."
+
+testSourceInstantiatesMutualRecursiveBindingSchemesPerUse :: IO ()
+testSourceInstantiatesMutualRecursiveBindingSchemesPerUse =
+  assertSourceOk "left = if True \\(x) -> x else right.\nright = if False \\(x) -> x else left.\nintValue = left 1.\nboolValue = right True."
+
+testSourceInstantiatesInterleavedMutualRecursiveBindingSchemesPerUse :: IO ()
+testSourceInstantiatesInterleavedMutualRecursiveBindingSchemesPerUse =
+  assertSourceOk "left = if True \\(x) -> x else right.\nintValue = left 1.\nright = if False \\(x) -> x else left.\nboolValue = right True."
+
+testSourceKeepsLaterRebindingOverRecursiveScheme :: IO ()
+testSourceKeepsLaterRebindingOverRecursiveScheme =
+  assertSourceSingleErrorContains
+    "left = if True \\(x) -> x else right.\nright = if False \\(x) -> x else left.\nleft = \\(x) -> x + 1.\nbad = left True."
+    "cannot apply function of type Int -> Int to argument of type Bool"
+
+testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember :: IO ()
+testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember =
+  assertSourceSingleErrorContains
+    "left = if True \\(x) -> x else right.\nbad = left True.\nright = \\(x) -> left (x + 1)."
+    "cannot apply function of type Int -> Int to argument of type Bool"
+
+testSourceTypesRecursiveGuardsAgainstPriorRebinding :: IO ()
+testSourceTypesRecursiveGuardsAgainstPriorRebinding =
+  assertSourceOk "f = \\(x) -> x.\nf = case 0 { | 0 if f True -> \\(y) -> y | _ -> \\(y) -> y }.\nvalue = f 1.\nvalue."
+
+testSourceDefersPartialRecursivePreviewsPastInterveningDependencies :: IO ()
+testSourceDefersPartialRecursivePreviewsPastInterveningDependencies =
+  assertSourceErrorContains
+    "left = if True \\(x) -> x else right.\nearly = left True.\nhelper = \\(x) -> x + 1.\nright = \\(x) -> left (helper x).\nearly."
+    "cannot apply function"
+
+testSourcePreviewsThroughInterveningRecursiveGroupMembers :: IO ()
+testSourcePreviewsThroughInterveningRecursiveGroupMembers =
+  assertSourceOk "left = if True \\(x) -> x else right.\nearly = left True.\nmiddle = if True \\(x) -> x else left.\nright = if False middle else left.\nlate = left 1.\nlate."
+
 testSourceRejectsUnsupportedVariableConstrainedSignatureContract :: IO ()
 testSourceRejectsUnsupportedVariableConstrainedSignatureContract = do
   result <- compileSource defaultWarningSettings "f :: @{Eq(a)}: a -> b.\nf = \\(x) -> x."
@@ -1018,3 +1080,7 @@ testSourceReportsSignedRecursiveRhsTypeError =
 testSignatureMismatchKeepsDeclaredTypeDownstream :: IO ()
 testSignatureMismatchKeepsDeclaredTypeDownstream =
   assertSourceSingleErrorContains "x :: Int.\nx = True.\ny = x + 1." "E2005"
+
+testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding :: IO ()
+testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding =
+  assertSourceSingleErrorContains "x :: Int.\nid = \\(value) -> value.\nintValue = id 1.\nboolValue = id True." "E1003"

@@ -107,7 +107,7 @@ lowerSurfaceLambda parameters bodyExpr =
             generatedName
             ( EPatternCase
                 (EVar generatedName)
-                [CaseArm (lowerSurfacePattern parameterPattern) loweredBody]
+                [CaseArm (lowerSurfacePattern parameterPattern) Nothing loweredBody]
             )
 
 -- | Lower literal syntax without changing the value domain available to later
@@ -138,9 +138,10 @@ lowerSurfacePattern surfacePattern =
       PAs name (lowerSurfacePattern pattern)
 
 lowerSurfaceCaseArm :: SurfaceCaseArm -> CaseArm
-lowerSurfaceCaseArm (SurfaceCaseArm patternExpr bodyExpr) =
+lowerSurfaceCaseArm (SurfaceCaseArm patternExpr guardExpr bodyExpr) =
   CaseArm
     (lowerSurfacePattern patternExpr)
+    (fmap lowerSurfaceExpr guardExpr)
     (lowerSurfaceExpr bodyExpr)
 
 -- | Lower a parsed statement without changing its span-carrying shape.

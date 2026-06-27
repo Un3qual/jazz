@@ -223,14 +223,29 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
             collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context scrutineeExpr
           armResults =
             map
-              ( \(CaseArm pattern bodyExpr) ->
-                  collectExprDiagnostics
-                    builtinMode
-                    settings
-                    (extendBindingsWithPattern pattern visibleBindings)
-                    visibleClassNames
-                    context
-                    bodyExpr
+              ( \(CaseArm pattern guardExpr bodyExpr) ->
+                  let armBindings = extendBindingsWithPattern pattern visibleBindings
+                      guardResults =
+                        maybe
+                          ([], [])
+                          ( collectExprDiagnostics
+                              builtinMode
+                              settings
+                              armBindings
+                              visibleClassNames
+                              context
+                          )
+                          guardExpr
+                      bodyResults =
+                        collectExprDiagnostics
+                          builtinMode
+                          settings
+                          armBindings
+                          visibleClassNames
+                          context
+                          bodyExpr
+                   in
+                    (fst guardResults ++ fst bodyResults, snd guardResults ++ snd bodyResults)
               )
               caseArms
        in

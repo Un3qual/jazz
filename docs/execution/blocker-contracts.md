@@ -6,7 +6,10 @@ handoffs. Use it before opening old plan history.
 When `Ready Now` is empty:
 
 1. Read `docs/execution/queue.md`.
-2. Use the ordered `Next Curation Target` candidates in that file.
+2. Use the ordered `Next Curation Target` candidates in that file. If that
+   table is empty and the current executor status explicitly says there is no
+   source-backed next curation target and no named candidate currently, stop
+   after reporting that all source-backed candidates are exhausted.
 3. Open only the matching section below and the named source plan/spec.
 4. Promote exactly one child by creating or updating a child plan with concrete
    frontmatter, then add the matching `Ready Now` row.
@@ -95,19 +98,17 @@ Each blocked item should answer these questions:
 
 ### JN-TYPE-GRAMMAR-CLOSURE-PLAN-001
 
-- Smallest unblocker: execute the current `Ready Now` implementation child
-  `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001`.
-- Decision needed: none for the broad solver contract. It is accepted as
-  `JN-TYPE-SOLVER-CONTRACT-001`; remaining solver work must split into
-  verifier-backed implementation children.
-- Recommended default: keep the executable child limited to ordinary binding
-  type schemes and per-use instantiation. Do not add inferred class
-  constraints, broad defaulting, solver-backed constrained signatures, runtime
-  dictionaries, explicit type application, or primitive mixed-width behavior in
-  that first implementation child.
-- Candidate child: none currently; the executable child is already in
-  `docs/execution/queue.md#ready-now`.
-- Target paths: see `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001` in
+- Smallest unblocker: promote the next verifier-backed implementation child
+  from the accepted `JN-TYPE-SOLVER-CONTRACT-001` slices.
+- Decision needed: choose one remaining solver slice narrow enough for a child
+  row. The ordinary binding schemes/per-use instantiation child has landed.
+- Recommended default: keep any next executable child limited to one remaining
+  solver slice. Do not batch inferred class constraints, broad defaulting,
+  solver-backed constrained signatures, runtime dictionaries, explicit type
+  application, or primitive mixed-width behavior together.
+- Candidate child: none currently; the next curation pass must add a concrete
+  row before implementation resumes.
+- Target paths: update once a new child is promoted in
   `docs/execution/queue.md#ready-now`.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
@@ -118,68 +119,67 @@ Each blocked item should answer these questions:
 
 ### JN-PATTERN-FUTURE-FORMS-PLAN-001
 
-- Smallest unblocker: pick exactly one future pattern form and define its binder,
-  type, and runtime contract.
-- Decision needed: whether the next form is guards, or-patterns, or pattern
-  synonyms.
-- Recommended default: start with guards only if they do not change binder
-  introduction; otherwise keep future pattern forms blocked until the solver
-  contract is clearer.
-- Candidate child: `JN-PATTERN-GUARD-CONTRACT-001`.
-- Target paths: `docs/spec/pattern-matching-semantics.md`,
-  `docs/spec/adt-pattern-semantics.md`,
-  `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`,
-  `docs/execution/queue.md`.
+- Smallest unblocker: none is promotion-ready after the guard contract and
+  implementation child landed. A future child must pick exactly one remaining
+  pattern form and define its binder, type, and runtime contract.
+- Decision needed: whether the next form is or-patterns or pattern synonyms,
+  and how its binder compatibility rules work.
+- Recommended default: keep future pattern forms blocked until one remaining
+  form has concrete syntax, binder compatibility, target paths, and focused
+  verification.
+- Candidate child: none currently.
+- Target paths: not set until the next future-pattern contract is accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: adding multiple pattern forms at once, generic solver behavior,
-  or parser/runtime implementation before the contract lands.
+- Not in scope: re-promoting guards, adding multiple pattern forms at once,
+  generic solver behavior, or parser/runtime implementation before a contract
+  lands.
 
 ### JN-RUNTIME-PRODUCTIZE-CLOSURE-PLAN-001
 
-- Smallest unblocker: name one concrete CLI/runtime product delta beyond the
-  closed diagnostic-only compile and `--run` baseline.
-- Decision needed: whether the next product delta is examples, packaging,
-  command naming, runtime output formatting, or error presentation.
-- Recommended default: do not reopen runtime architecture; choose a user-visible
-  CLI behavior delta with a focused `CLISpec` owner.
-- Candidate child: `JN-RUNTIME-CLI-PRODUCT-DELTA-CONTRACT-001`.
-- Target paths: `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`,
-  `docs/jazz-language-state.md`, `docs/execution/queue.md`.
+- Smallest unblocker: none is promotion-ready after the CLI help output child
+  landed.
+- Decision needed: choose a later runtime product delta separately if product
+  work continues.
+- Recommended default: keep the compile/run/help baseline closed. Do not reopen
+  runtime architecture, compile output, run output, packaging, generated
+  artifacts, or backend generation.
+- Candidate child: none currently.
+- Target paths: not set until the next product delta is accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: a second backend pipeline, generated artifact output, or
-  changes to compile/run semantics without a named product delta.
+- Not in scope: a second backend pipeline, generated artifact output, a bare
+  `help` subcommand, or changes to compile/run/help semantics without a new
+  contract.
 
 ### JN-MODULE-REBASE-PLAN-001
 
-- Smallest unblocker: name a future stdlib/catalog API growth contract or keep
-  module/import execution closed.
-- Decision needed: the exact public helper or module behavior that should grow
-  next.
+- Smallest unblocker: none currently after the stdlib/prelude next API
+  candidate validation; keep module/import execution closed until a concrete
+  future stdlib/catalog API or module behavior is named.
+- Decision needed: the exact public stdlib/catalog API or module behavior that
+  should grow next, plus its runtime/API contract.
 - Recommended default: keep module/import execution closed until a product
   feature needs new stdlib/catalog surface.
-- Candidate child: `JN-STDLIB-PRELUDE-NEXT-API-CONTRACT-001`.
-- Target paths: `docs/spec/stdlib-boundary.md`,
-  `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`,
-  `docs/execution/queue.md`.
+- Candidate child: none currently.
+- Target paths: not set until a concrete API/runtime contract exists.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: reworking `ModuleResolver.hs`, adding new import syntax, or
-  reopening the closed module graph harness without a concrete API.
+- Not in scope: reworking `ModuleResolver.hs`, adding new import syntax,
+  reopening the closed module graph harness, adding new prelude/catalog API
+  without a named contract, adding direct public builtin fallback in no-prelude
+  mode, or adding package/module-root semantics.
 
 ### JN-WARNING-DEPRECATED-SYNTAX-CONTRACT-001
 
-- Smallest unblocker: either choose an accepted active syntax surface to
-  deprecate or keep `W0004` reserved-only.
-- Decision needed: the accepted syntax surface that should warn rather than
-  error.
-- Recommended default: keep `W0004` reserved-only because `trait` is permanently
-  rejected and must not become compatibility syntax.
-- Candidate child: `JN-WARNING-W0004-RESERVED-CLOSURE-001`.
-- Target paths: `docs/spec/tooling/compiler-warning-flags.md`,
-  `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`,
-  `docs/execution/queue.md`.
+- Smallest unblocker: none for the current active language surface; the W0004
+  reserved-only closure landed as `JN-WARNING-W0004-RESERVED-CLOSURE-001`.
+- Decision needed: none until a future accepted active syntax surface is
+  intentionally deprecated.
+- Recommended default: keep `W0004` reserved-only because `trait` is
+  permanently rejected and must not become compatibility syntax.
+- Candidate child: none currently.
+- Target paths: not set until a future accepted-surface contract exists.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: adding analyzer emission, accepting `trait`, or warning on
@@ -187,15 +187,14 @@ Each blocked item should answer these questions:
 
 ### JN-WARNING-REMAINING-EMITTERS-PLAN-001
 
-- Smallest unblocker: same as the W0004 contract above.
-- Decision needed: an accepted active syntax surface that is intentionally
-  deprecated.
-- Recommended default: keep the emitter blocked and document reserved-only
-  status.
-- Candidate child: `JN-WARNING-W0004-RESERVED-CLOSURE-001`.
-- Target paths: `docs/spec/tooling/compiler-warning-flags.md`,
-  `docs/plans/spec-clarification/2026-03-03/tooling/18-compiler-warning-flags.md`,
-  `docs/execution/queue.md`.
+- Smallest unblocker: none for the current active language surface; future
+  W0004 emitter work needs a new accepted-surface contract.
+- Decision needed: choose an accepted active syntax surface that is
+  intentionally deprecated.
+- Recommended default: keep the emitter unpromoted until the syntax surface,
+  warning payload, target paths, and focused verification exist.
+- Candidate child: none currently.
+- Target paths: not set until a future accepted-surface contract exists.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: adding an emitter without a warning surface, or treating parse
@@ -203,13 +202,14 @@ Each blocked item should answer these questions:
 
 ### JN-TRAIT-CLASS-LEGACY-REBASE-001
 
-- Smallest unblocker: close the legacy trait/class plan as reference-only after
-  active `class`/`impl` child plans have superseded it.
-- Decision needed: none; `trait` remains permanently rejected.
+- Smallest unblocker: none; the legacy trait/class cleanup plan is closed as
+  reference-only by `JN-TRAIT-CLASS-LEGACY-CLOSURE-001`.
+- Decision needed: none; active `jazz-next` permanently rejects
+  declaration-shaped `trait` syntax and uses canonical `class`/`impl`.
 - Recommended default: do not create new implementation work from this blocker.
-- Candidate child: `JN-TRAIT-CLASS-LEGACY-CLOSURE-001`.
-- Target paths: `docs/plans/spec-cleanup/2026-03-02/decisions/04-trait-vs-class-keyword.md`,
-  `docs/execution/queue.md`.
+- Candidate child: none currently.
+- Target paths: not set; future abstraction work should use the active
+  abstraction semantics blockers and `jazz-next` target paths.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: editing `jazz-hs/`, accepting `trait`, or adding a compatibility
@@ -217,28 +217,28 @@ Each blocked item should answer these questions:
 
 ### JN-BACKEND-TARGET-LEGACY-REBASE-001
 
-- Smallest unblocker: close the legacy backend-target plan as reference-only
-  unless a new active `jazz-next` runtime product delta is selected.
+- Smallest unblocker: none; the legacy backend-target plan is closed as
+  reference-only by `JN-BACKEND-TARGET-LEGACY-CLOSURE-001`.
 - Decision needed: none while the interpreter-first product path remains the
   current baseline.
 - Recommended default: keep this out of `Ready Now`; use
   `JN-RUNTIME-PRODUCTIZE-CLOSURE-PLAN-001` for any real product delta.
-- Candidate child: `JN-BACKEND-TARGET-LEGACY-CLOSURE-001`.
-- Target paths: `docs/plans/spec-clarification/2026-03-02/runtime/12-backend-target-strategy.md`,
-  `docs/execution/queue.md`.
+- Candidate child: none currently.
+- Target paths: not set; future runtime product work should use active
+  `jazz-next` runtime product contracts and target paths.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: backend implementation, codegen policy, or legacy runtime edits.
 
 ### JN-RUNTIME-INTERPRETER-LEGACY-REBASE-001
 
-- Smallest unblocker: keep the old interpreter plan as reference-only and route
-  active runtime work through the runtime product blocker.
+- Smallest unblocker: none; the old interpreter plan is closed as
+  reference-only by `JN-RUNTIME-INTERPRETER-LEGACY-CLOSURE-001`.
 - Decision needed: none.
 - Recommended default: do not promote this blocker.
-- Candidate child: `JN-RUNTIME-INTERPRETER-LEGACY-CLOSURE-001`.
-- Target paths: `docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md`,
-  `docs/execution/queue.md`.
+- Candidate child: none currently.
+- Target paths: not set; future runtime product work should use active
+  `jazz-next` runtime product contracts and target paths.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: editing `jazz-hs/`, adding a second runtime path, or changing the
@@ -246,14 +246,14 @@ Each blocked item should answer these questions:
 
 ### JN-MAP-FILTER-COMPAT-PLAN-001
 
-- Smallest unblocker: decide whether any docs-only migration work remains after
-  function-first `map` and `filter` landed.
-- Decision needed: compatibility policy for old examples, if any still exist.
-- Recommended default: close as docs-only if searches find no active stale
-  examples; do not create compiler work.
-- Candidate child: `JN-MAP-FILTER-COMPAT-CLOSURE-001`.
-- Target paths: `docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md`,
-  `README.md`, `docs/execution/queue.md`.
+- Smallest unblocker: none; active examples/specs/tests no longer require
+  collection-first compatibility, and the legacy cleanup item was closed by
+  `JN-MAP-FILTER-COMPAT-CLOSURE-001`.
+- Decision needed: none.
+- Recommended default: do not promote this blocker.
+- Candidate child: none currently.
+- Target paths: not set; future collection primitive work should use active
+  `jazz-next` primitive, stdlib-boundary, or runtime-product contracts.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: parser changes, compatibility aliases, or runtime behavior
@@ -261,14 +261,14 @@ Each blocked item should answer these questions:
 
 ### JN-PARSE-ONLY-LEGACY-REBASE-001
 
-- Smallest unblocker: write an active-path feature-resolution matrix only if a
-  parse-only feature still needs implementation in `jazz-next`.
-- Decision needed: which parse-only feature is still product-relevant.
-- Recommended default: keep blocked until a concrete active feature is named.
-- Candidate child: `JN-PARSE-ONLY-ACTIVE-MATRIX-001`.
-- Target paths: `docs/feature-status.md`, `docs/jazz-language-state.md`,
-  `docs/plans/spec-cleanup/2026-03-02/compiler/06-parse-only-features-resolution.md`,
-  `docs/execution/queue.md`.
+- Smallest unblocker: none; the active matrix check found no standalone
+  implementation-ready `jazz-next` parse-only feature, and the legacy cleanup
+  item was closed by `JN-PARSE-ONLY-ACTIVE-MATRIX-001`.
+- Decision needed: none.
+- Recommended default: do not promote this blocker.
+- Candidate child: none currently.
+- Target paths: not set; future parser-only or parser-mostly surfaces should
+  use their owning active blockers and contracts.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: editing `jazz-hs/`, reviving legacy codegen, or broad parser
@@ -276,17 +276,15 @@ Each blocked item should answer these questions:
 
 ### JN-PURITY-EFFECT-TYPING-PLAN-001
 
-- Smallest unblocker: define the next effect-system contract beyond stub-v1
-  bang-suffix enforcement.
-- Decision needed: whether the next step is higher-order purity, effect types,
-  cross-module purity graphs, or runtime enforcement.
-- Recommended default: keep blocked until the solver and module-method contracts
-  are clearer; do not add partial effect typing opportunistically.
-- Candidate child: `JN-PURITY-EFFECT-CONTRACT-001`.
-- Target paths: `docs/spec/semantics/purity-bang-stub-v1.md`,
-  `docs/plans/spec-cleanup/2026-03-02/decisions/03-purity-bang-semantics.md`,
-  `docs/execution/queue.md`.
+- Smallest unblocker: none currently; the active evidence refresh in
+  `JN-PURITY-EFFECT-CONTRACT-001` kept broader effect typing blocked pending
+  remaining solver and module-method/export/runtime-evidence contracts.
+- Decision needed: none until those prerequisite contracts are clearer.
+- Recommended default: do not promote partial effect typing opportunistically.
+- Candidate child: none currently.
+- Target paths: not set until a future effect-system contract is accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: runtime enforcement, inferred effects, or cross-module graph
-  implementation before the contract lands.
+- Not in scope: runtime enforcement, inferred effects, effect types,
+  cross-module purity graphs, or effect typing in signatures before a future
+  contract lands.

@@ -43,6 +43,9 @@ tests =
     ("runtime falls back when as-pattern inner pattern does not match", testRuntimeFallsBackWhenAsPatternInnerDoesNotMatch),
     ("runtime supports as-pattern lambda parameters", testRuntimeSupportsAsPatternLambdaParameters),
     ("runtime compares constructor values inside pattern arms", testRuntimeComparesConstructorValuesInsidePatternArms),
+    ("runtime falls through when pattern guard is False", testRuntimeFallsThroughWhenPatternGuardIsFalse),
+    ("runtime skips pattern guard when pattern fails", testRuntimeSkipsPatternGuardWhenPatternFails),
+    ("runtime reports no match when matching pattern guard is False", testRuntimeReportsNoMatchWhenPatternGuardIsFalse),
     ("runtime reports a deterministic error when no case arm matches", testRuntimeReportsNoMatchingArm)
   ]
 
@@ -135,6 +138,30 @@ testRuntimeComparesConstructorValuesInsidePatternArms :: IO ()
 testRuntimeComparesConstructorValuesInsidePatternArms = do
   result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a. value = Just 41. case value { | whole @ Just item -> whole == Just item | Nothing -> False }."
   assertSuccessfulRuntime "constructor equality in pattern arm" (Just "True") result
+
+testRuntimeFallsThroughWhenPatternGuardIsFalse :: IO ()
+testRuntimeFallsThroughWhenPatternGuardIsFalse = do
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Just 1. case value { | Just item if item > 1 -> item | Just item -> item + 1 | Nothing -> 0 }."
+  assertSuccessfulRuntime "pattern guard false fallback" (Just "2") result
+
+testRuntimeSkipsPatternGuardWhenPatternFails :: IO ()
+testRuntimeSkipsPatternGuardWhenPatternFails = do
+  result <- runSource defaultWarningSettings "values = [1, 2]. case values { | [only] if only == hd [] -> only | [head | tail] -> head }."
+  assertSuccessfulRuntime "pattern guard skipped after pattern failure" (Just "1") result
+
+testRuntimeReportsNoMatchWhenPatternGuardIsFalse :: IO ()
+testRuntimeReportsNoMatchWhenPatternGuardIsFalse = do
+  result <- runSource defaultWarningSettings "case 1 { | item if item > 1 -> item }."
+  assertEqual "false-guard no-match compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticCode
+    "false-guard no-match runtime code"
+    "E3022"
+    (runRuntimeErrors result)
+  assertSingleDiagnosticContains
+    "false-guard no-match runtime text"
+    "matched no arms"
+    (runRuntimeErrors result)
+  assertEqual "false-guard no-match runtime output" Nothing (runOutput result)
 
 testRuntimeReportsNoMatchingArm :: IO ()
 testRuntimeReportsNoMatchingArm = do

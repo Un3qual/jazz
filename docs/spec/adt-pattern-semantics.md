@@ -1,6 +1,6 @@
 # ADT Semantics
 
-Status: active (canonical and generic-parameter `data` declarations, generic constructor value/application schemes, constructor over-application diagnostics, structural ADT equality for equality-supported constructor payloads, constructor/list/tuple/as-pattern typing and runtime matching, and tuple literal values/signature types are implemented in `jazz-next`)
+Status: active (canonical and generic-parameter `data` declarations, generic constructor value/application schemes, constructor over-application diagnostics, structural ADT equality for equality-supported constructor payloads, constructor/list/tuple/as-pattern typing and runtime matching, single `if` case-arm guards, tuple literal values/signature types, and ordinary binding schemes are implemented in `jazz-next`)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -22,11 +22,11 @@ constructor/list/tuple/as-pattern/lambda-pattern subset implemented in
 
 Future ADT typing work beyond the landed generic constructor value/application
 scheme slice remains blocked on separate contracts. The generic
-declaration-parameter syntax/metadata slice and the fresh per-use direct
-constructor scheme slice have both landed. Ordinary binding generalization,
-generic constructor pattern typing, class/defaulting solver behavior, explicit
-type application, and runtime dispatch changes remain outside the active
-subset.
+declaration-parameter syntax/metadata slice, fresh per-use direct constructor
+scheme slice, generic constructor pattern typing, and ordinary binding
+generalization have landed. Class/defaulting solver behavior, explicit type
+application, and runtime dispatch changes remain outside the active subset.
+Single `if` case-arm guards have landed as a pattern-matching extension.
 
 ## Current Active-Path Status
 
@@ -41,8 +41,8 @@ subset.
    payload variables in arm bodies, and reject unknown or arity-mismatched
    constructor patterns with deterministic `E2011` diagnostics.
 4. The active parser/core path accepts constructor, bracketed-list,
-   cons-like list, tuple, and `name @ pattern` as-patterns in `case` arms and
-   lowers them into `EPatternCase`.
+   cons-like list, tuple, and `name @ pattern` as-patterns plus single `if`
+   guards in `case` arms and lowers them into `EPatternCase`.
 5. Bracketed-list patterns typecheck against list scrutinees, bind element
    variables in arm bodies, and match exact-length runtime lists.
 6. Constructor patterns match saturated runtime constructor values with the
@@ -66,6 +66,10 @@ subset.
     comparison uses saturated constructor tags and payloads, and rejects
     function payloads, partial constructors, unresolved payload families, and
     unsupported equality families.
+14. Pattern guards are active optional `if` guard expressions on case arms:
+    pattern binders are visible to the guard, the guard must typecheck as
+    `Bool`, failed patterns skip guard evaluation, and `False` falls through to
+    later arms.
 
 ## ADT Contract
 
@@ -108,8 +112,10 @@ parameters reject deterministically. Lowercase constructor payload identifiers
 that appear in a generic declaration must refer to those parameters. Direct
 constructor value/application uses instantiate fresh type parameters, and
 repeated occurrences of the same payload type parameter are linked within a
-single constructor application. Ordinary bindings remain monomorphic: binding a
-generic constructor value to a user name does not generalize that alias.
+single constructor application. Binding a generic constructor value to a user
+name remains a direct constructor alias and does not generalize that alias;
+eligible non-alias ordinary bindings follow the active binding-scheme
+semantics.
 
 ## Staged First Slice
 
@@ -141,8 +147,7 @@ generic constructor value to a user name does not generalize that alias.
 2. Infix constructors or alternate constructor call syntax.
 3. Automatic deriving or trait/class synthesis for user ADTs.
 4. Tuple-constructor sugar or pattern features beyond the committed
-   constructor/list/tuple/as-pattern subset such as guards, or-patterns, and
-   pattern synonyms.
-5. Generalized user binding polymorphism, class/defaulting solver behavior,
-   explicit type application, or runtime dispatch as part of the first generic
-   ADT constructor scheme slice.
+   constructor/list/tuple/as-pattern/guard subset, such as or-patterns,
+   pattern synonyms, and multiple guards per arm.
+5. Class/defaulting solver behavior, explicit type application, or runtime
+   dispatch as part of the first generic ADT constructor scheme slice.

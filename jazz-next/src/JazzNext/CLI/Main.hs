@@ -74,11 +74,41 @@ data CliOutput = CliOutput
   }
   deriving (Eq, Show)
 
+helpUsageText :: Text
+helpUsageText =
+  Text.unlines
+    [ "Usage: jazz-next [--run] [options] [source.jz]",
+      "       jazz-next [--run] --entry-module Module::Path [--module-root DIR...] [options]",
+      "",
+      "Modes:",
+      "  compile                         Parse/analyze source; success prints no stdout.",
+      "  --run                           Execute source and print the final runtime value.",
+      "",
+      "Source:",
+      "  source.jz                       Read one source file instead of stdin.",
+      "  --entry-module Module::Path      Load a module graph entrypoint.",
+      "  --module-root DIR                Add a module graph search root.",
+      "",
+      "Prelude and warnings:",
+      "  --prelude PATH                   Use an explicit Prelude source.",
+      "  --no-prelude                     Disable the bundled Prelude.",
+      "  --warnings-config PATH           Read warning settings from PATH.",
+      "  -W<category>                     Enable a warning category.",
+      "  -Werror=<category>               Promote a warning category to an error.",
+      "",
+      "Help:",
+      "  --help, -h                       Show this help text."
+    ]
+
 -- | Distinguishes required config paths from the optional default probe so
 -- missing files can produce the right CLI behavior.
 data WarningConfigSelection
   = ExplicitWarningConfig FilePath
   | DefaultWarningConfigProbe FilePath
+
+isHelpArg :: String -> Bool
+isHelpArg arg =
+  arg == "--help" || arg == "-h"
 
 -- Parse currently supported warning and prelude-loading flags.
 parseCliOptions :: [String] -> Either Diagnostic CliOptions
@@ -127,6 +157,8 @@ parseCliOptions args = do
     go _ ("--module-root" : []) =
       Left (mkMessageDiagnostic "missing path after --module-root")
     go options (arg : rest)
+      | isHelpArg arg =
+          go options rest
       | "-W" `isPrefixOf` arg =
           go options {cliWarningFlags = Text.pack arg : cliWarningFlags options} rest
       | "-" `isPrefixOf` arg =
@@ -144,55 +176,63 @@ runCliWith ::
   (FilePath -> IO (Maybe Text)) ->
   IO Text ->
   IO CliOutput
-runCliWith args envLookup fileLookup loadSource =
-  case parseCliOptions args of
-    Left parseError ->
+runCliWith args envLookup fileLookup loadSource
+  | any isHelpArg args =
       pure
         CliOutput
-          { cliExitCode = 2,
-            cliStdout = "",
-            cliStderr = "error: " <> renderDiagnostic parseError <> "\n"
+          { cliExitCode = 0,
+            cliStdout = helpUsageText,
+            cliStderr = ""
           }
-    Right options -> do
-      settingsResult <- resolveSettings options envLookup fileLookup
-      case settingsResult of
-        Left configError ->
+  | otherwise =
+      case parseCliOptions args of
+        Left parseError ->
           pure
             CliOutput
               { cliExitCode = 2,
                 cliStdout = "",
-                cliStderr = "error: " <> renderDiagnostic configError <> "\n"
+                cliStderr = "error: " <> renderDiagnostic parseError <> "\n"
               }
-        Right settings -> do
-          preludeSourceResult <- resolvePreludeSource options envLookup fileLookup
-          case preludeSourceResult of
-            Left preludeError ->
+        Right options -> do
+          settingsResult <- resolveSettings options envLookup fileLookup
+          case settingsResult of
+            Left configError ->
               pure
                 CliOutput
                   { cliExitCode = 2,
                     cliStdout = "",
-                    cliStderr = "error: " <> renderDiagnostic preludeError <> "\n"
+                    cliStderr = "error: " <> renderDiagnostic configError <> "\n"
                   }
-            Right preludeSource -> do
-              case cliEntryModule options of
-                Just entryModulePath ->
-                  if cliRunMode options
-                    then runExecuteModuleGraph settings options preludeSource entryModulePath fileLookup
-                    else runCompileModuleGraph settings options preludeSource entryModulePath fileLookup
-                Nothing -> do
-                  sourceResult <- loadCliSource options fileLookup loadSource
-                  case sourceResult of
-                    Left sourceError ->
-                      pure
-                        CliOutput
-                          { cliExitCode = 2,
-                            cliStdout = "",
-                            cliStderr = "error: " <> renderDiagnostic sourceError <> "\n"
-                          }
-                    Right source ->
+            Right settings -> do
+              preludeSourceResult <- resolvePreludeSource options envLookup fileLookup
+              case preludeSourceResult of
+                Left preludeError ->
+                  pure
+                    CliOutput
+                      { cliExitCode = 2,
+                        cliStdout = "",
+                        cliStderr = "error: " <> renderDiagnostic preludeError <> "\n"
+                      }
+                Right preludeSource -> do
+                  case cliEntryModule options of
+                    Just entryModulePath ->
                       if cliRunMode options
-                        then runExecute settings preludeSource source
-                        else runCompile settings preludeSource source
+                        then runExecuteModuleGraph settings options preludeSource entryModulePath fileLookup
+                        else runCompileModuleGraph settings options preludeSource entryModulePath fileLookup
+                    Nothing -> do
+                      sourceResult <- loadCliSource options fileLookup loadSource
+                      case sourceResult of
+                        Left sourceError ->
+                          pure
+                            CliOutput
+                              { cliExitCode = 2,
+                                cliStdout = "",
+                                cliStderr = "error: " <> renderDiagnostic sourceError <> "\n"
+                              }
+                        Right source ->
+                          if cliRunMode options
+                            then runExecute settings preludeSource source
+                            else runCompile settings preludeSource source
 
 main :: IO ()
 main = do

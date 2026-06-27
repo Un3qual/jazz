@@ -53,7 +53,7 @@ data SurfacePattern
   deriving (Eq, Show)
 
 -- | One parser-surface pattern-match arm.
-data SurfaceCaseArm = SurfaceCaseArm SurfacePattern SurfaceExpr
+data SurfaceCaseArm = SurfaceCaseArm SurfacePattern (Maybe SurfaceExpr) SurfaceExpr
   deriving (Eq, Show)
 
 -- | Lambda parameters preserve ordinary identifier parameters separately from

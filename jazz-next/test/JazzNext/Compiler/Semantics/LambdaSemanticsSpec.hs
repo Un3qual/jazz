@@ -37,6 +37,7 @@ tests =
     ("wrapped self-recursive lambda runs", testWrappedSelfRecursiveLambdaRuntime),
     ("wrapped self-recursive lambda can use function-valued variable branch", testWrappedSelfRecursiveLambdaWithFunctionVariableBranchRuntime),
     ("wrapped self-recursive lambda can use section-valued alternate branch", testWrappedSelfRecursiveLambdaWithSectionBranchRuntime),
+    ("pattern-case guarded self-recursive lambda body runs", testPatternCaseGuardedSelfRecursiveLambdaBodyRuntime),
     ("block-wrapped self-recursive lambda runs", testBlockWrappedSelfRecursiveLambdaRuntime),
     ("block-returned lambda alias can recurse at runtime", testBlockReturnedLambdaAliasRuntime),
     ("mutually recursive lambdas run", testMutualRecursiveLambdaRuntime),
@@ -121,6 +122,14 @@ testWrappedSelfRecursiveLambdaWithFunctionVariableBranchRuntime = do
 testWrappedSelfRecursiveLambdaWithSectionBranchRuntime :: IO ()
 testWrappedSelfRecursiveLambdaWithSectionBranchRuntime = do
   result <- runSource defaultWarningSettings "countdown = if True \\(n) -> if n == 0 0 else countdown (n - 1) else (1 +). countdown 2."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "0") (runOutput result)
+
+testPatternCaseGuardedSelfRecursiveLambdaBodyRuntime :: IO ()
+testPatternCaseGuardedSelfRecursiveLambdaBodyRuntime = do
+  result <- runSource defaultWarningSettings "countdown = case 0 { | 0 if True -> \\(n) -> if n == 0 0 else countdown (n - 1) | _ -> \\(n) -> n }. countdown 2."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)

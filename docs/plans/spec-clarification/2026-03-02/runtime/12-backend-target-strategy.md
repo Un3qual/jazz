@@ -1,12 +1,26 @@
-# Spec Clarification Item #12: Backend Target Strategy (Locked: Haskell Interpreter Only)
+# Spec Clarification Item #12: Backend Target Strategy (Legacy Closure)
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to execute this plan phase-by-phase.
+> **Legacy closure note (2026-06-24):** this plan is now reference-only. The
+> original March 2026 strategy work targeted `jazz-hs` runtime, CLI, and build
+> files, but `jazz-hs/` is a read-only legacy reference under the current
+> workspace policy. Active runtime work belongs in `jazz-next/` and is tracked
+> by
+> `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`.
 
-**Goal:** Remove backend ambiguity by committing to one execution strategy now: a Haskell interpreter, with no JavaScript or LLVM backend targets in active scope.
+**Closed decision:** the active product path is the `jazz-next`
+interpreter-backed compile/run/help baseline. No backend implementation, legacy
+runtime edit, generated-artifact policy, or alternative codegen target should
+be promoted from this legacy plan.
 
-**Architecture:** Treat interpreter execution as the only supported runtime path. De-scope JS and LLVM code generation from the near-term roadmap, then align docs/tests/build configuration accordingly.
+**Current authority:** runtime product work is governed by the active
+`jazz-next` runtime architecture plan and the queue blocker
+`JN-RUNTIME-PRODUCTIZE-CLOSURE-PLAN-001`. Any future runtime product delta must
+name concrete `jazz-next` target paths and focused verification before it can
+return to `Ready Now`.
 
-**Tech Stack:** Haskell (`jazz-hs` parser/analyzer/interpreter/tests), Markdown specs/ADRs, Stack, Nix shell validation commands.
+**Historical tech stack:** Haskell (`jazz-hs` parser/analyzer/interpreter/tests),
+Markdown specs/ADRs, Stack, and Nix shell validation commands. These remain
+historical evidence only.
 
 ---
 
@@ -14,34 +28,51 @@
 
 - [x] Contradiction inventory captured (JS pipeline + LLVM aspirations)
 - [x] Strategy lock approved by maintainer (2026-03-02)
-- [ ] ADR + policy docs updated to interpreter-only strategy
-- [ ] Build/test/docs updated to remove JS/LLVM active-target language
-- [ ] Interpreter execution path documented as canonical runtime
+- [x] Legacy backend-target execution path closed as reference-only
+  (2026-06-24)
+- [x] Active runtime product authority moved to the `jazz-next` runtime
+  architecture plan
+- [x] Later legacy `jazz-hs` runtime/CLI/build phases superseded and no longer
+  executor-actionable
 
 ## Decision Lock (Approved 2026-03-02)
 
 - [x] No JavaScript backend in active scope.
 - [x] No LLVM backend in active scope.
 - [x] Backend strategy is Haskell interpreter only for now.
+- [x] Active runtime planning now uses `jazz-next`; this legacy strategy plan is
+  not an implementation source.
 
-## Verification Evidence (Why Clarification Was Needed)
+## Historical Evidence (Why Clarification Was Needed)
 
 - `README.md:10` still references future LLVM IR.
-- `jazz-hs/src/Lib.hs:19` currently imports `CodeGen.Javascript`.
-- `jazz-hs/app/Main.hs:18` currently emits JS output.
+- `jazz-hs/src/Lib.hs:19` historically imported the legacy JavaScript codegen
+  module.
+- `jazz-hs/app/Main.hs:18` historically emitted legacy JavaScript output.
 - `docs/jazz-language-state.md:399` had backend target as unresolved.
 - `jazz-hs/src/CodeGen/Builtins.hs:3` and cabal/stack metadata retain legacy LLVM/QBE traces.
 
 ## Scope Guardrails
 
-In scope:
-- ratify interpreter-only strategy,
-- make docs and planning consistent,
-- define migration steps from codegen pipeline to interpreter pipeline.
+Active closure scope:
+
+- preserve the historical interpreter-only strategy decision,
+- mark the legacy plan reference-only,
+- keep real runtime product work routed through active `jazz-next` plans.
 
 Out of scope (for this item):
-- implementing every interpreter feature immediately,
-- deleting all historical LLVM/QBE files in one pass.
+
+- editing `jazz-hs/` or `jazz2/`,
+- adding backend implementation,
+- reopening alternate backend or codegen policy,
+- changing active compile/run/help semantics.
+
+## Superseded Legacy Execution Phases
+
+The phase plan below is preserved as historical context only. Do not execute
+these phases as active work. Any future runtime product change must start from
+the active `jazz-next` runtime architecture plan and a queue-promoted concrete
+delta.
 
 ## Phase 0: ADR and Policy Freeze
 

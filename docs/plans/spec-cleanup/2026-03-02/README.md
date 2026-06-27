@@ -23,15 +23,38 @@
 
 ## Resolution Updates Since Plan Creation
 
+- [x] Item #2 (`map`/`filter` argument order) is now closed for active
+  `jazz-next`: canonical order is function-first (`map f xs`, `filter p xs`),
+  active examples no longer require collection-first compatibility, and no
+  parser alias, runtime adapter, or deprecation-warning path is planned:
+  - `docs/plans/spec-cleanup/2026-03-02/decisions/02-map-filter-order.md`
+  - `docs/spec/authoritative-syntax.md`
 - [x] Item #3 (`!` purity semantics) is now implemented in active `jazz-next` with stub-v1 enforcement and documented contract:
   - `docs/spec/semantics/purity-bang-stub-v1.md`
   - `docs/plans/spec-cleanup/2026-03-02/decisions/03-purity-bang-semantics.md`
+- [x] Item #4 (`trait` vs `class`) is now closed as reference-only for the
+  legacy cleanup path. Active `jazz-next` uses canonical `class`/`impl`
+  declaration syntax and permanently rejects declaration-shaped `trait`
+  syntax with no compatibility alias or deprecation-warning path:
+  - `docs/spec/authoritative-syntax.md`
+  - `docs/plans/2026-06-24-jazz-next-trait-class-legacy-closure.md`
+- [x] Item #6 (parse-only feature cleanup) is now closed as reference-only for
+  the legacy `jazz-hs` path. The active matrix found no standalone
+  implementation-ready `jazz-next` parse-only feature: module/import v1 is
+  covered by its active harness, and parser-only operator declarations stay
+  routed through the operator blocker:
+  - `docs/plans/spec-cleanup/2026-03-02/compiler/06-parse-only-features-resolution.md`
+  - `docs/plans/2026-06-24-jazz-next-parse-only-active-matrix.md`
 
-## Locked Decisions (Approved 2026-03-02)
+## Locked Decisions
 
-- [x] Canonical abstraction keyword: `class` (`trait` becomes non-canonical/deprecated alias during migration)
+- [x] Canonical abstraction declaration syntax: `class` / `impl`. The old
+  migration-alias plan is superseded; active `jazz-next` permanently rejects
+  declaration-shaped `trait` syntax.
 - [x] Canonical `map`/`filter` order: function-first (`map f xs`, `filter p xs`)
 - [x] `!` purity semantics: compiler-enforced, delivered first as a stubbed V1 enforcement pass
+- [x] Legacy `jazz-hs` parse-only cleanup is reference-only; active
+  parser-only work must use the owning `jazz-next` blocker/contract.
 
 ## Plan Files
 

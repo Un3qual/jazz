@@ -2114,10 +2114,127 @@ parseCaseArm :: Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic (S
 parseCaseArm knownAliases declaredOperators tokens = do
   tokensAfterPipe <- consumeCaseArmPipe tokens
   (casePattern, afterPattern) <- parseCasePattern tokensAfterPipe
-  afterArrow <- consumeArrow afterPattern "expected '->' before end of input after case pattern"
+  (guardExpr, afterArrow) <- parseOptionalCaseArmGuard afterPattern
   (bodyExpr, remaining) <- parseExprWithMinPrecedenceUntil knownAliases declaredOperators stopsBeforeCaseArmBoundary 1 afterArrow
-  pure (SurfaceCaseArm casePattern bodyExpr, remaining)
+  pure (SurfaceCaseArm casePattern guardExpr bodyExpr, remaining)
   where
+    parseOptionalCaseArmGuard allTokens =
+      case allTokens of
+        Token {tokenKind = TIf} : afterIf -> do
+          (guardExpr, afterGuard) <- parseCaseArmGuard afterIf
+          afterArrow <- consumeArrow afterGuard "expected '->' before end of input after case guard"
+          pure (Just guardExpr, afterArrow)
+        _ -> do
+          afterArrow <- consumeArrow allTokens "expected '->' before end of input after case pattern"
+          pure (Nothing, afterArrow)
+
+    parseCaseArmGuard allTokens =
+      case allTokens of
+        [] -> Left (parseDiagnostic "expected guard expression before end of input after 'if'")
+        Token {tokenKind = TArrow} : _ ->
+          Left (parseDiagnostic "expected guard expression before '->'")
+        Token {tokenKind = TRBrace} : _ ->
+          Left (parseDiagnostic "expected guard expression before '}'")
+        Token {tokenKind = TOperator "|"} : _ ->
+          Left (parseDiagnostic "expected guard expression before next case arm")
+        _ ->
+          parseCaseGuardExprWithMinPrecedence Nothing 1 allTokens
+
+    parseCaseGuardExprWithMinPrecedence parentOperator minPrecedence guardTokens = do
+      (leftExpr, remainingTokens) <-
+        parseApplicationExprUntil knownAliases declaredOperators stopsBeforeCaseGuardTerminator guardTokens
+      parseCaseGuardInfixTail parentOperator minPrecedence leftExpr remainingTokens
+
+    parseCaseGuardInfixTail parentOperator minPrecedence leftExpr guardTokens
+      | stopsBeforeCaseGuardTerminator guardTokens = Right (leftExpr, guardTokens)
+      | otherwise =
+          case guardTokens of
+            operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : tokensAfterOperator
+              | shouldStopForSectionBoundary tokensAfterOperator ->
+                  Right (leftExpr, guardTokens)
+              | operatorSymbol == "|" && caseGuardPipeStartsBoundary parentOperator minPrecedence leftExpr tokensAfterOperator ->
+                  Right (leftExpr, guardTokens)
+              | otherwise ->
+                  case lookupOperatorInfoIn declaredOperators operatorSymbol of
+                    Nothing ->
+                      Left
+                        ( parseDiagnostic
+                            ( "operator '"
+                                <> operatorSymbol
+                                <> "' must be declared before use at "
+                                <> renderSourceSpan (tokenSpan operatorToken)
+                            )
+                        )
+                    Just operatorInfo
+                      | operatorPrecedence operatorInfo < minPrecedence ->
+                          Right (leftExpr, guardTokens)
+                      | otherwise -> do
+                          let nextMinPrecedence =
+                                case operatorAssociativity operatorInfo of
+                                  AssocLeft -> operatorPrecedence operatorInfo + 1
+                                  AssocRight -> operatorPrecedence operatorInfo
+                          (rightExpr, remainingAfterRight) <-
+                            parseCaseGuardExprWithMinPrecedence (Just operatorSymbol) nextMinPrecedence tokensAfterOperator
+                          parseCaseGuardInfixTail
+                            parentOperator
+                            minPrecedence
+                            (SEBinary operatorSymbol leftExpr rightExpr)
+                            remainingAfterRight
+            _ -> Right (leftExpr, guardTokens)
+      where
+        shouldStopForSectionBoundary remainingAfterOperator =
+          case remainingAfterOperator of
+            Token {tokenKind = TRParen} : _ -> True
+            _ -> False
+
+    stopsBeforeCaseGuardTerminator allTokens =
+      case allTokens of
+        Token {tokenKind = TArrow} : _ -> True
+        Token {tokenKind = TRBrace} : _ -> True
+        _ -> False
+
+    caseGuardPipeStartsBoundary parentOperator minPrecedence leftExpr tokensAfterPipe =
+      startsDefiniteGuardedCaseArmAfterGuardBoundary tokensAfterPipe
+        || ( startsDefiniteUnguardedCaseArmAfterGuardBoundary tokensAfterPipe
+               && not (caseGuardPipeCanContinueExpression parentOperator minPrecedence leftExpr)
+           )
+
+    caseGuardPipeCanContinueExpression parentOperator minPrecedence leftExpr =
+      case compare minPrecedence caseGuardPipePrecedence of
+        LT -> not (leftExprHasLowerPrecedenceRoot leftExpr)
+        EQ -> samePrecedenceGuardPipeCanBind parentOperator leftExpr
+        GT -> False
+
+    samePrecedenceGuardPipeCanBind parentOperator leftExpr =
+      case leftExpr of
+        -- Let lower-precedence parents keep literal-led pipe RHS expressions.
+        SELit {} -> parentOperatorAllowsLiteralPipe parentOperator
+        _ -> True
+
+    parentOperatorAllowsLiteralPipe parentOperator =
+      case parentOperator of
+        Just operatorSymbol ->
+          case lookupOperatorInfoIn declaredOperators operatorSymbol of
+            Just operatorInfo -> operatorPrecedence operatorInfo < caseGuardPipePrecedence
+            Nothing -> False
+        _ -> False
+
+    -- If a higher-precedence pipe was stopped inside a lower-precedence RHS,
+    -- keep treating it as a boundary when control returns to the outer tail.
+    leftExprHasLowerPrecedenceRoot leftExpr =
+      case leftExpr of
+        SEBinary operatorSymbol _ _ ->
+          case lookupOperatorInfoIn declaredOperators operatorSymbol of
+            Just operatorInfo ->
+              operatorPrecedence operatorInfo < caseGuardPipePrecedence
+            Nothing -> False
+        _ -> False
+
+    caseGuardPipePrecedence =
+      case lookupOperatorInfoIn declaredOperators "|" of
+        Just operatorInfo -> operatorPrecedence operatorInfo
+        Nothing -> 0
+
     -- Case-arm bodies are expression-shaped, so a `|` operator only starts the
     -- next arm when the following tokens can form a pattern and arrow.
     stopsBeforeCaseArmBoundary allTokens =
@@ -2130,10 +2247,66 @@ parseCaseArm knownAliases declaredOperators tokens = do
     startsDefiniteCaseArm remainingTokens =
       case parseCasePattern remainingTokens of
         Right (_, Token {tokenKind = TArrow} : _) -> True
+        Right (_, Token {tokenKind = TIf} : afterGuard) ->
+          guardTokensEndAtArrow afterGuard
         Left _
           | startsCasePatternTokens remainingTokens ->
               hasTopLevelArrowBeforeCaseArmBoundary remainingTokens
         _ -> False
+
+    startsDefiniteUnguardedCaseArmAfterGuardBoundary remainingTokens =
+      case parseCasePattern remainingTokens of
+        Right (casePattern, Token {tokenKind = TArrow} : _) ->
+          guardBoundaryPatternIsDefinite casePattern
+        _ -> False
+
+    startsDefiniteGuardedCaseArmAfterGuardBoundary remainingTokens =
+      case parseCasePattern remainingTokens of
+        Right (casePattern, Token {tokenKind = TIf} : afterGuard) ->
+          guardBoundaryPatternIsDefinite casePattern && guardTokensEndAtArrow afterGuard
+        _ -> False
+
+    guardTokensEndAtArrow remainingTokens =
+      case parseCaseArmGuard remainingTokens of
+        Right (_, Token {tokenKind = TArrow} : _) -> True
+        _ -> False
+
+    guardBoundaryPatternIsDefinite casePattern =
+      case casePattern of
+        SPVariable {} -> False
+        _ -> True
+
+    hasTopLevelGuardArrow = go 0 0 0
+      where
+        go parenDepth braceDepth bracketDepth allTokens =
+          case allTokens of
+            []
+              -> False
+            Token {tokenKind = TArrow} : _
+              | atTopLevel -> True
+            Token {tokenKind = TRBrace} : _
+              | atTopLevel -> False
+            Token {tokenKind = TLParen} : rest ->
+              go (parenDepth + 1) braceDepth bracketDepth rest
+            Token {tokenKind = TRParen} : rest ->
+              go (decrementIfPositive parenDepth) braceDepth bracketDepth rest
+            Token {tokenKind = TLBrace} : rest ->
+              go parenDepth (braceDepth + 1) bracketDepth rest
+            Token {tokenKind = TRBrace} : rest ->
+              go parenDepth (decrementIfPositive braceDepth) bracketDepth rest
+            Token {tokenKind = TLBracket} : rest ->
+              go parenDepth braceDepth (bracketDepth + 1) rest
+            Token {tokenKind = TRBracket} : rest ->
+              go parenDepth braceDepth (decrementIfPositive bracketDepth) rest
+            _ : rest ->
+              go parenDepth braceDepth bracketDepth rest
+          where
+            atTopLevel =
+              parenDepth == 0 && braceDepth == 0 && bracketDepth == 0
+
+        decrementIfPositive depth
+          | depth > 0 = depth - 1
+          | otherwise = 0
 
     hasTopLevelArrowBeforeCaseArmBoundary = go 0 0 0
       where

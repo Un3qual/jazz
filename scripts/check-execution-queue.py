@@ -601,6 +601,49 @@ def parse_verification_commands(row_context: str, raw_verification: str) -> tupl
     return verification_commands, False
 
 
+def extract_current_executor_status_text() -> str:
+    if QUEUE_TEXT is None:
+        return ""
+    ready_lines = extract_section_lines(
+        QUEUE_TEXT, "Ready Now", QUEUE_PATH, required=False
+    )
+    if ready_lines is None:
+        return ""
+
+    for idx, line in enumerate(ready_lines):
+        if not normalize_text(line).lower().startswith("current executor status"):
+            continue
+        paragraph = [line]
+        for next_line in ready_lines[idx + 1 :]:
+            if not next_line.strip():
+                break
+            paragraph.append(next_line)
+        return normalize_text(" ".join(paragraph))
+
+    return ""
+
+
+def has_terminal_empty_curation_status() -> bool:
+    normalized = extract_current_executor_status_text().lower()
+    source_backed_exhausted = any(
+        phrase in normalized
+        for phrase in (
+            "no source-backed next curation target",
+            "no source-backed candidate",
+            "all source-backed candidates are exhausted",
+        )
+    )
+    no_named_candidate = any(
+        phrase in normalized
+        for phrase in (
+            "no named candidate currently",
+            "no next named curation target",
+            "no current named candidate",
+        )
+    )
+    return "ready now is empty" in normalized and source_backed_exhausted and no_named_candidate
+
+
 # parse_block_scalar handles only basic YAML block scalars (">" and "|").
 # The folded parameter selects folded-vs-literal behavior; chomping indicators
 # (-/+) and explicit indentation indicators are not supported by this parser.
@@ -797,11 +840,19 @@ for row_id in sorted(all_ids & archived_ids):
 if len(curation_rows) > 3:
     fail(f"{QUEUE_PATH} Next Curation Target must contain at most 3 candidates")
 
-if not ready_rows and not curation_rows:
+if not ready_rows and curation_rows and has_terminal_empty_curation_status():
     fail(
-        f"{QUEUE_PATH} Ready Now is empty, so Next Curation Target must contain "
-        "1-3 promotion candidates"
+        f"{QUEUE_PATH} Ready Now is empty and current executor status claims "
+        "terminal exhaustion, so Next Curation Target must be empty"
     )
+
+if not ready_rows and not curation_rows:
+    terminal_empty_curation = bool(curation_headers) and has_terminal_empty_curation_status()
+    if not terminal_empty_curation:
+        fail(
+            f"{QUEUE_PATH} Ready Now is empty, so Next Curation Target must contain "
+            "1-3 promotion candidates"
+        )
 
 blocked_ids = {normalize_text(row.get("id", "")) for row in blocked_rows}
 seen_candidate_ids: set[str] = set()

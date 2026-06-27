@@ -1,38 +1,62 @@
-# Haskell Interpreter Implementation Plan
+# Haskell Interpreter Implementation Plan (Legacy Closure)
 
-> **Legacy note (2026-03-18):** this plan is `jazz-hs`-targeted and remains reference-only. New runtime planning and execution work must use `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`.
+> **Legacy closure note (2026-06-24):** this plan is reference-only. The
+> original implementation slices target `jazz-hs` runtime, CLI, and test files,
+> but `jazz-hs/` is a read-only legacy reference under the current workspace
+> policy. New runtime planning and execution work must use
+> `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`.
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+**Closed decision:** active interpreter-backed execution is owned by
+`jazz-next`. This legacy plan must not promote `jazz-hs` implementation work,
+add a second runtime path, or change the active compile/run/help contract.
 
-**Goal:** Implement a working Haskell interpreter as the primary Jazz execution backend, replacing JS codegen as the active runtime path.
+**Current authority:** `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`
+defines the active runtime pipeline, file owners, closed compile/run/help
+baseline, and future-runtime-delta gate.
+
+**Historical goal:** Implement a working Haskell interpreter as the primary
+Jazz execution backend, replacing legacy JS codegen as the active runtime path.
 
 **Architecture:** Deliver interpreter functionality in vertical slices: runtime values -> evaluator core -> builtins/environment -> control/data features -> CLI integration. Keep analyzer checks in place and use tests-first progression.
 
-**Tech Stack:** Haskell (`jazz-hs`), `stack` tests, Nix shell reproducibility, existing AST/parser/analyzer modules.
+**Historical tech stack:** Haskell (`jazz-hs`), `stack` tests, Nix shell
+reproducibility, existing AST/parser/analyzer modules. These remain historical
+evidence only.
 
 ---
 
 ## Progress
 
 - [x] Runtime strategy precondition set (`interpreter-only`) in item #12
-- [ ] Phase 0 baseline and interpreter scope freeze
-- [ ] Phase 1 runtime value model and minimal evaluator loop
-- [ ] Phase 2 function application, lexical scope, and builtins
-- [ ] Phase 3 control/data features (case, data constructors, patterns)
-- [ ] Phase 4 CLI/runtime integration and docs alignment
-- [ ] Phase 5 verification and closure
+- [x] Active runtime architecture replaced this legacy plan with
+  `jazz-next` owners
+- [x] Legacy `jazz-hs` interpreter implementation slices closed as
+  reference-only (2026-06-24)
+- [x] Future runtime work routed through the active runtime product blocker
+  and concrete `jazz-next` deltas
 
 ## Scope Guardrails
 
-In scope:
-- interpreter execution for core language surface,
-- deterministic runtime errors,
-- interpreter-first CLI flow.
+Active closure scope:
+
+- preserve this plan as historical runtime-slice evidence,
+- keep active interpreter-backed execution routed through `jazz-next`,
+- keep future runtime product work blocked until a concrete active delta is
+  accepted.
 
 Out of scope:
-- JS codegen parity work,
-- LLVM backend work,
-- advanced optimization passes.
+
+- editing `jazz-hs/` or `jazz2/`,
+- adding a second runtime path,
+- changing active compile/run/help semantics,
+- promoting legacy runtime implementation phases.
+
+## Superseded Legacy Execution Phases
+
+The phase plan below is preserved as historical context only. Do not execute
+these phases as active work. Any future runtime product change must start from
+the active `jazz-next` runtime architecture plan and a queue-promoted concrete
+delta.
 
 ## Phase 0: Baseline + Scope Freeze
 

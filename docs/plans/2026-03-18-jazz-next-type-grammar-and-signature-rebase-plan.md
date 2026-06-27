@@ -1,14 +1,15 @@
 ---
 id: JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
   - JN-TYPE-SOLVER-CONTRACT-001
-last_verified: 2026-06-04
-plan_section: "Ready child: Ordinary binding schemes and instantiation"
+last_verified: 2026-06-24
+completed_on: 2026-06-24
+plan_section: "Completed implementation child: Ordinary binding schemes and instantiation"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/src/JazzNext/Compiler/Analyzer.hs
@@ -70,17 +71,18 @@ supersedes:
       per-use instantiation, inferred class constraints, defaulting, and
       solver-backed constrained signatures while splitting implementation into
       verifier-backed child rows.
-- [ ] Execute ready child `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001` for
+- [x] On `2026-06-24`, executed ready child
+      `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001` for
       ordinary binding type schemes and per-use instantiation only.
 
-## Active Baseline (2026-06-04)
+## Active Baseline (2026-06-24)
 
 - `jazz-next/src/JazzNext/Compiler/Parser.hs` now parses supported monomorphic signature statements into structured parser-owned payloads instead of joined raw text.
 - `jazz-next/src/JazzNext/Compiler/Parser/AST.hs` and `jazz-next/src/JazzNext/Compiler/AST.hs` now carry explicit signature/type nodes for the supported subset plus tokenized fallback for unsupported surfaces.
 - `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` forwards structured signature payloads into the core AST.
 - `jazz-next/src/JazzNext/Compiler/Analyzer.hs` still enforces signature placement/name coherence only; signature semantics remain owned by `TypeInference.hs`.
-- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now consumes structured signature payloads for `Int`, `Bool`, nested concrete list forms, concrete tuple forms, right-associated chained function arrows, explicit parenthesized function-type overrides, empty `@{}:` constrained signatures over that same monomorphic subset, concrete unary non-empty constraints over `Int`, `Bool`, nested concrete lists, and concrete tuple compositions, and known unary constraints over lower-case type variables that appear in the signature body. It also derives generic ADT constructor value/application schemes from declaration-owned `data` type parameters while preserving ordinary user binding monomorphism. The accepted type-solver contract below defines the next broader semantics, but only the ordinary-binding scheme and per-use instantiation child is currently executable. Unsupported broader forms continue to report through `E2009`; duplicate non-empty constraints are reported with specific duplicate-constraint text.
-- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs` explicitly accepts simple list signatures, right-associated chained function signatures, parenthesized list-to-list signatures, parenthesized function-type overrides, empty constrained signatures over monomorphic function types, concrete unary constrained signatures, and monomorphic variable constrained signatures while keeping unsupported broader surfaces, duplicate non-empty constraints, and unconstrained signature variables on deterministic `E2009` with primary spans attached to the signature statement.
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now consumes structured signature payloads for `Int`, `Bool`, nested concrete list forms, concrete tuple forms, right-associated chained function arrows, explicit parenthesized function-type overrides, empty `@{}:` constrained signatures over that same monomorphic subset, concrete unary non-empty constraints over `Int`, `Bool`, nested concrete lists, and concrete tuple compositions, and known unary constraints over lower-case type variables that appear in the signature body. It also derives generic ADT constructor value/application schemes from declaration-owned `data` type parameters and generalizes eligible ordinary user bindings after non-recursive binding or recursive-group inference, instantiating those generalized schemes freshly at each use. Direct constructor aliases, adjacent signatures, constrained numeric/equality variables, and currently monomorphic constrained signatures remain monomorphic. Unsupported broader forms continue to report through `E2009`; duplicate non-empty constraints are reported with specific duplicate-constraint text.
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs` explicitly accepts simple list signatures, right-associated chained function signatures, parenthesized list-to-list signatures, parenthesized function-type overrides, empty constrained signatures over monomorphic function types, concrete unary constrained signatures, monomorphic variable constrained signatures, and fresh per-use ordinary binding instantiation across non-recursive, self-recursive, and mutual-recursive bindings while keeping unsupported broader surfaces, duplicate non-empty constraints, and unconstrained signature variables on deterministic `E2009` with primary spans attached to the signature statement.
 - `docs/plans/2026-03-16-jazz-next-monomorphic-signature-surface.md` already delivered the safe monomorphic subset. This rebase must preserve that subset while moving ownership to the correct compiler layers.
 
 ## Scope Guardrails
@@ -191,14 +193,14 @@ Out of scope for this contract:
 - generic ADT constructor schemes,
 - any `jazz-hs/` or `jazz2/` work.
 
-## Ready child: Ordinary binding schemes and instantiation
+## Completed implementation child: Ordinary binding schemes and instantiation
 
 `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001` is the first implementation child
-after the accepted solver contract. It deliberately stops before inferred class
+after the accepted solver contract. It deliberately stopped before inferred class
 constraints, broad defaulting, solver-backed constrained signatures, runtime
 dictionaries, and runtime dispatch.
 
-Executor-safe scope:
+Completed scope:
 
 - Add ordinary user binding type schemes for eligible non-recursive bindings and
   completed recursive groups.

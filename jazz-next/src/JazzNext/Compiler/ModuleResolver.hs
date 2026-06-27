@@ -463,13 +463,13 @@ collectBlockReferences boundNames statements =
         SSImport {} -> Set.empty
 
 collectCaseArmReferences :: Set Text -> SurfaceCaseArm -> Set Text
-collectCaseArmReferences boundNames (SurfaceCaseArm patternValue body) =
-  Set.union
-    (collectPatternReferences patternValue)
-    ( collectExprReferences
-        (Set.union boundNames (collectPatternBinders patternValue))
-        body
-    )
+collectCaseArmReferences boundNames (SurfaceCaseArm patternValue guard body) =
+  let armBoundNames = Set.union boundNames (collectPatternBinders patternValue)
+   in Set.unions
+        [ collectPatternReferences patternValue,
+          maybe Set.empty (collectExprReferences armBoundNames) guard,
+          collectExprReferences armBoundNames body
+        ]
 
 collectPatternReferences :: SurfacePattern -> Set Text
 collectPatternReferences patternValue =
@@ -574,8 +574,10 @@ collectQualifiedStatementReferences statement =
     SSImport {} -> Set.empty
 
 collectQualifiedCaseArmReferences :: SurfaceCaseArm -> Set (Text, Text)
-collectQualifiedCaseArmReferences (SurfaceCaseArm _ body) =
-  collectQualifiedReferences body
+collectQualifiedCaseArmReferences (SurfaceCaseArm _ guard body) =
+  Set.union
+    (maybe Set.empty collectQualifiedReferences guard)
+    (collectQualifiedReferences body)
 
 validateModuleDeclarations :: FilePath -> [Text] -> SurfaceExpr -> Either Diagnostic ()
 validateModuleDeclarations sourcePath expectedModulePath surfaceExpr =

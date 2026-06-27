@@ -61,6 +61,15 @@ Expected output:
 42
 ```
 
+Show CLI help:
+
+```bash
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs --help
+```
+
+The help path prints usage to stdout and does not read stdin, source files,
+warning config files, or Prelude files.
+
 ## Run tests
 
 ```bash

@@ -1050,8 +1050,10 @@ rewriteExprReferences importTargets boundNames expression =
         (rewriteExprReferences importTargets boundNames scrutineeExpr)
         [ CaseArm
             (rewritePatternReferences importTargets boundNames patternValue)
-            (rewriteExprReferences importTargets (Set.union boundNames (patternBinders patternValue)) bodyExpr)
-          | CaseArm patternValue bodyExpr <- caseArms
+            (fmap (rewriteExprReferences importTargets armBoundNames) guardExpr)
+            (rewriteExprReferences importTargets armBoundNames bodyExpr)
+          | CaseArm patternValue guardExpr bodyExpr <- caseArms,
+            let armBoundNames = Set.union boundNames (patternBinders patternValue)
         ]
     EBinary operatorName leftExpr rightExpr ->
       EBinary
@@ -1149,8 +1151,14 @@ collectUnqualifiedReferences expr =
           Set.unions
             [ Set.union
                 (patternConstructorReferences patternValue)
-                (Set.difference (collectUnqualifiedReferences bodyExpr) (patternBinders patternValue))
-              | CaseArm patternValue bodyExpr <- caseArms
+                ( Set.difference
+                    ( Set.union
+                        (maybe Set.empty collectUnqualifiedReferences guardExpr)
+                        (collectUnqualifiedReferences bodyExpr)
+                    )
+                    (patternBinders patternValue)
+                )
+              | CaseArm patternValue guardExpr bodyExpr <- caseArms
             ]
         ]
     EBinary _ leftExpr rightExpr ->
@@ -1568,8 +1576,10 @@ collectAliasQualifiedReferencePairs expr =
     EPatternCase scrutineeExpr caseArms ->
       Set.unions
         ( collectAliasQualifiedReferencePairs scrutineeExpr :
-          [ collectAliasQualifiedReferencePairs bodyExpr
-          | CaseArm _ bodyExpr <- caseArms
+          [ Set.union
+              (maybe Set.empty collectAliasQualifiedReferencePairs guardExpr)
+              (collectAliasQualifiedReferencePairs bodyExpr)
+          | CaseArm _ guardExpr bodyExpr <- caseArms
           ]
         )
     EBinary _ leftExpr rightExpr ->
@@ -1873,8 +1883,10 @@ rewriteHiddenCapabilityReferences modulePath hiddenCapabilities =
             (rewriteExprCapabilityReferences boundNames scrutineeExpr)
             [ CaseArm
                 patternValue
-                (rewriteExprCapabilityReferences (Set.union boundNames (patternBinders patternValue)) bodyExpr)
-              | CaseArm patternValue bodyExpr <- caseArms
+                (fmap (rewriteExprCapabilityReferences armBoundNames) guardExpr)
+                (rewriteExprCapabilityReferences armBoundNames bodyExpr)
+              | CaseArm patternValue guardExpr bodyExpr <- caseArms,
+                let armBoundNames = Set.union boundNames (patternBinders patternValue)
             ]
         EBinary operatorName leftExpr rightExpr ->
           EBinary
