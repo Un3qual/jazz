@@ -1,12 +1,13 @@
 ---
 id: JN-PURITY-IMPL-METHOD-DIRECT-CALLS-001
-status: ready
+status: done
 priority: P2
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-06-26
+last_verified: 2026-06-28
+completed_on: 2026-06-28
 plan_section: "Task 1: Impl method direct-call purity"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Analyzer.hs
@@ -86,7 +87,7 @@ Out of scope:
 - Modify: `jazz-next/test/JazzNext/Compiler/Semantics/PuritySemanticsSpec.hs`
 - Inspect or modify: `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
 
-- [ ] **Step 1: Add focused method-body purity tests**
+- [x] **Step 1: Add focused method-body purity tests**
 
 In `jazz-next/test/JazzNext/Compiler/Semantics/PuritySemanticsSpec.hs`, add two
 test registrations next to the existing qualified-method purity coverage:
@@ -123,7 +124,7 @@ testImpureImplMethodCanCallImpureCallee = do
   assertEqual "compile errors" [] (compileErrors result)
 ```
 
-- [ ] **Step 2: Run the focused purity suite**
+- [x] **Step 2: Run the focused purity suite**
 
 Run:
 
@@ -136,7 +137,7 @@ bodies do not yet carry method purity context. If both new tests pass, record
 that `Analyzer.hs` already had the required behavior and keep this child as a
 focused regression-locking change.
 
-- [ ] **Step 3: Ensure impl methods use method-name purity context**
+- [x] **Step 3: Ensure impl methods use method-name purity context**
 
 If Step 2 fails, update `jazz-next/src/JazzNext/Compiler/Analyzer.hs` so
 `collectImplMethodDiagnostics` checks each method body with
@@ -181,7 +182,7 @@ contextForImplMethod methodName methodSpan =
     }
 ```
 
-- [ ] **Step 4: Re-run focused verification**
+- [x] **Step 4: Re-run focused verification**
 
 Run:
 
@@ -192,7 +193,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 Expected: the suite exits `0`, with the new pure-method rejection and impure
 method acceptance covered.
 
-- [ ] **Step 5: Run queue/docs hygiene checks**
+- [x] **Step 5: Run queue/docs hygiene checks**
 
 Run:
 
@@ -209,8 +210,8 @@ instead of broadening scope.
 
 ## Handoff Notes
 
-- This child intentionally does not update `docs/execution/queue.md`; the main
-  coordinator should integrate the Ready Now row centrally.
+- Queue closure is recorded in `docs/execution/queue.md` with Done evidence for
+  the regression-locked impl-method purity rule.
 - The plan is executor-safe because it only exercises direct calls to known
   local callees from already-active local impl method bodies.
 - If the focused tests pass before any analyzer edit, commit the regression

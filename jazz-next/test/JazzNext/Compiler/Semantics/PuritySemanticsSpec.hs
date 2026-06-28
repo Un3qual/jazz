@@ -43,6 +43,8 @@ tests =
   [ ("pure binding cannot call impure builtin", testPureBindingCannotCallImpureBuiltin),
     ("pure binding cannot call impure builtin through dollar application", testPureBindingCannotCallImpureBuiltinThroughDollarApplication),
     ("pure binding cannot call impure qualified method", testPureBindingCannotCallImpureQualifiedMethod),
+    ("pure impl method cannot call impure callee", testPureImplMethodCannotCallImpureCallee),
+    ("impure impl method can call impure callee", testImpureImplMethodCanCallImpureCallee),
     ("impure binding can call impure builtin", testImpureBindingCanCallImpureBuiltin),
     ("pure binding cannot call impure callee", testPureBindingCannotCallImpureCallee),
     ("impure binding can call impure callee", testImpureBindingCanCallImpureCallee),
@@ -80,6 +82,33 @@ testPureBindingCannotCallImpureQualifiedMethod = do
     "pure binding calling impure qualified method"
     "E1010"
     (compileErrors result)
+
+testPureImplMethodCannotCallImpureCallee :: IO ()
+testPureImplMethodCannotCallImpureCallee = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "class Runner(a) {\nrun :: a -> a.\n}.\ninc! = (+ 1).\nimpl Runner(Int) {\nrun = \\(value) -> inc! value.\n}.\nRunner::run 1."
+  assertSingleErrorContains
+    "pure impl method calling impure callee code"
+    "E1010"
+    (compileErrors result)
+  assertSingleErrorContains
+    "pure impl method calling impure callee"
+    "impl method 'run' cannot call impure callee 'inc!'"
+    (compileErrors result)
+  assertSingleDiagnosticSubject
+    "pure impl method diagnostic subject"
+    "run"
+    (compileErrors result)
+
+testImpureImplMethodCanCallImpureCallee :: IO ()
+testImpureImplMethodCanCallImpureCallee = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "class Runner(a) {\nrun! :: a -> a.\n}.\ninc! = (+ 1).\nimpl Runner(Int) {\nrun! = \\(value) -> inc! value.\n}.\nRunner::run! 1."
+  assertEqual "compile errors" [] (compileErrors result)
 
 testImpureBindingCanCallImpureBuiltin :: IO ()
 testImpureBindingCanCallImpureBuiltin = do
