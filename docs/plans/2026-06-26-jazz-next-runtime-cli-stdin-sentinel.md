@@ -1,12 +1,13 @@
 ---
 id: JN-RUNTIME-CLI-STDIN-SENTINEL-001
-status: ready
+status: done
 priority: P2
 size: S
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-06-26
+last_verified: 2026-06-28
+completed_on: 2026-06-28
 plan_section: "Batch 1: Explicit stdin source sentinel"
 target_paths:
   - jazz-next/src/JazzNext/CLI/Main.hs
@@ -74,7 +75,7 @@ git diff --check
 
 - Modify: `jazz-next/test/JazzNext/CLI/CLISpec.hs`
 
-- [ ] **Step 1: Add focused suite entries near the existing source-file tests**
+- [x] **Step 1: Add focused suite entries near the existing source-file tests**
 
 ```haskell
     ("parseCliOptions captures explicit stdin sentinel", testParseExplicitStdinSentinel),
@@ -84,7 +85,7 @@ git diff --check
     ("cli rejects explicit stdin sentinel with entry module before reading source", testCliRejectsExplicitStdinWithEntryModuleBeforeRead),
 ```
 
-- [ ] **Step 2: Add parser tests beside the other `parseCliOptions` tests**
+- [x] **Step 2: Add parser tests beside the other `parseCliOptions` tests**
 
 ```haskell
 testParseExplicitStdinSentinel :: IO ()
@@ -110,7 +111,7 @@ testParseExplicitStdinWithSourcePath = do
       failTest "expected source file plus explicit stdin to fail option parsing"
 ```
 
-- [ ] **Step 3: Add end-to-end CLI tests beside the current positional source-file tests**
+- [x] **Step 3: Add end-to-end CLI tests beside the current positional source-file tests**
 
 ```haskell
 testCliCompileExplicitStdinSuccess :: IO ()
@@ -169,7 +170,7 @@ testCliRejectsExplicitStdinWithEntryModuleBeforeRead = do
     configLookup _ = pure Nothing
 ```
 
-- [ ] **Step 4: Add a small file-lookup recorder near the existing `recordSourceRead` helper**
+- [x] **Step 4: Add a small file-lookup recorder near the existing `recordSourceRead` helper**
 
 ```haskell
 recordLookupPath :: IORef [FilePath] -> (FilePath -> IO (Maybe Text)) -> FilePath -> IO (Maybe Text)
@@ -178,7 +179,7 @@ recordLookupPath paths lookupPath path = do
   lookupPath path
 ```
 
-- [ ] **Step 5: Run the focused suite and confirm RED**
+- [x] **Step 5: Run the focused suite and confirm RED**
 
 Run:
 
@@ -194,7 +195,7 @@ Expected: the suite fails because `-` is still reported as `unknown argument: -`
 
 - Modify: `jazz-next/src/JazzNext/CLI/Main.hs`
 
-- [ ] **Step 1: Let `-` occupy the existing source selector slot before the unknown-flag branch**
+- [x] **Step 1: Let `-` occupy the existing source selector slot before the unknown-flag branch**
 
 In `parseCliOptions`, update the final `go options (arg : rest)` guards to handle the sentinel before the `"-" \`isPrefixOf\` arg` rejection:
 
@@ -218,7 +219,7 @@ In `parseCliOptions`, update the final `go options (arg : rest)` guards to handl
 
 This intentionally keeps `-W...`, `--help`, `-h`, `--run`, `--entry-module`, `--module-root`, `--prelude`, `--no-prelude`, and `--warnings-config` on their existing paths.
 
-- [ ] **Step 2: Route the sentinel to stdin in `loadCliSource`**
+- [x] **Step 2: Route the sentinel to stdin in `loadCliSource`**
 
 Update `loadCliSource` so `Just "-"` reads from the injected stdin loader and never calls `fileLookup "-"`:
 
@@ -237,7 +238,7 @@ loadCliSource options fileLookup loadStdin =
               (mkMessageDiagnostic ("source file could not be read at '" <> Text.pack sourcePath <> "'"))
 ```
 
-- [ ] **Step 3: Run the focused suite and confirm GREEN**
+- [x] **Step 3: Run the focused suite and confirm GREEN**
 
 Run:
 
@@ -254,7 +255,7 @@ Expected: all CLI tests pass.
 - Modify: `docs/spec/tooling/cli-source-input.md`
 - Modify: `jazz-next/README.md`
 
-- [ ] **Step 1: Update the source-selection contract**
+- [x] **Step 1: Update the source-selection contract**
 
 In `docs/spec/tooling/cli-source-input.md`, add one source-selection bullet after the no-positional stdin rule:
 
@@ -266,7 +267,7 @@ In `docs/spec/tooling/cli-source-input.md`, add one source-selection bullet afte
 
 Then renumber the existing file-source, compile, and run bullets.
 
-- [ ] **Step 2: Update the rejection contract**
+- [x] **Step 2: Update the rejection contract**
 
 In `docs/spec/tooling/cli-source-input.md`, add this rejection rule after the multiple-source rule:
 
@@ -277,7 +278,7 @@ In `docs/spec/tooling/cli-source-input.md`, add this rejection rule after the mu
 
 Then renumber the existing entry-module and missing-file rules. Keep the existing entry-module diagnostic unchanged when `-` is combined with `--entry-module`.
 
-- [ ] **Step 3: Add a README stdin example near the first-program run example**
+- [x] **Step 3: Add a README stdin example near the first-program run example**
 
 In `jazz-next/README.md`, add a short explicit-stdin example without changing the existing help output contract:
 
@@ -289,7 +290,7 @@ printf '40 + 2.' | bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/
 ```
 ````
 
-- [ ] **Step 4: Run docs and queue verification**
+- [x] **Step 4: Run docs and queue verification**
 
 Run:
 

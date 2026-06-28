@@ -161,6 +161,10 @@ parseCliOptions args = do
           go options rest
       | "-W" `isPrefixOf` arg =
           go options {cliWarningFlags = Text.pack arg : cliWarningFlags options} rest
+      | arg == "-" && isJust (cliSourcePath options) =
+          Left (mkMessageDiagnostic "multiple source files are not supported")
+      | arg == "-" =
+          go options {cliSourcePath = Just arg} rest
       | "-" `isPrefixOf` arg =
           Left (mkMessageDiagnostic ("unknown argument: " <> Text.pack arg))
       | isJust (cliSourcePath options) =
@@ -294,6 +298,7 @@ loadCliSource ::
 loadCliSource options fileLookup loadStdin =
   case cliSourcePath options of
     Nothing -> Right <$> loadStdin
+    Just "-" -> Right <$> loadStdin
     Just sourcePath -> do
       sourceContents <- fileLookup sourcePath
       pure $

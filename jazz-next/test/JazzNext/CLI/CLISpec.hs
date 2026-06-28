@@ -41,6 +41,8 @@ tests =
     ("parseCliOptions captures run mode", testParseRunMode),
     ("parseCliOptions captures positional source path", testParseSourcePath),
     ("parseCliOptions rejects multiple positional source paths", testParseMultipleSourcePaths),
+    ("parseCliOptions captures explicit stdin sentinel", testParseExplicitStdinSentinel),
+    ("parseCliOptions rejects explicit stdin plus source file", testParseExplicitStdinWithSourcePath),
     ("parseCliOptions rejects source path with entry module", testParseSourcePathWithEntryModule),
     ("parseCliOptions rejects module roots without entry module", testParseModuleRootWithoutEntryModule),
     ("parseCliOptions captures entry module and module roots", testParseModuleGraphOptions),
@@ -55,6 +57,8 @@ tests =
     ("cli help flag preempts other args and input reads", testCliHelpPreemptsOtherArgs),
     ("cli compiles positional source file quietly", testCliCompileSourceFileSuccess),
     ("cli --run executes positional source file", testCliRunSourceFileSuccess),
+    ("cli explicit stdin sentinel compiles stdin quietly", testCliCompileExplicitStdinSuccess),
+    ("cli --run explicit stdin sentinel executes stdin", testCliRunExplicitStdinSuccess),
     ("cli positional source file reports missing file", testCliSourceFileMissing),
     ("cli --run prints evaluated section runtime output", testCliRunModeSectionSuccess),
     ("cli --run prints evaluated list primitive output", testCliRunModeListPrimitiveSuccess),
@@ -84,6 +88,7 @@ tests =
     ("cli explicit env warning config read failures return config error", testCliExplicitEnvConfigPathFailure),
     ("cli defers source read until after arg validation", testCliDefersSourceReadOnArgError),
     ("cli rejects source plus entry module before reading source", testCliRejectsSourcePathWithEntryModuleBeforeRead),
+    ("cli rejects explicit stdin sentinel with entry module before reading source", testCliRejectsExplicitStdinWithEntryModuleBeforeRead),
     ("cli rejects module roots without entry before reading source", testCliRejectsModuleRootWithoutEntryBeforeRead),
     ("cli rejects nested module declaration in source input", testCliRejectsNestedModuleDeclarationInSourceInput),
     ("cli accepts concrete list signature from source input", testCliAcceptsConcreteListSignature),
@@ -130,6 +135,28 @@ testParseMultipleSourcePaths =
       assertContains "multiple source path message" "multiple source files are not supported" (renderDiagnostic err)
     Right _ ->
       failTest "expected multiple source paths to fail option parsing"
+
+testParseExplicitStdinSentinel :: IO ()
+testParseExplicitStdinSentinel = do
+  options <-
+    case parseCliOptions ["--run", "-"] of
+      Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
+      Right parsed -> pure parsed
+  assertEqual "run mode" True (cliRunMode options)
+  assertEqual "stdin sentinel source selector" (Just "-") (cliSourcePath options)
+
+testParseExplicitStdinWithSourcePath :: IO ()
+testParseExplicitStdinWithSourcePath = do
+  case parseCliOptions ["-", "first.jz"] of
+    Left err ->
+      assertContains "stdin plus source path message" "multiple source files are not supported" (renderDiagnostic err)
+    Right _ ->
+      failTest "expected explicit stdin plus source file to fail option parsing"
+  case parseCliOptions ["first.jz", "-"] of
+    Left err ->
+      assertContains "source path plus stdin message" "multiple source files are not supported" (renderDiagnostic err)
+    Right _ ->
+      failTest "expected source file plus explicit stdin to fail option parsing"
 
 testParseSourcePathWithEntryModule :: IO ()
 testParseSourcePathWithEntryModule = do
@@ -322,6 +349,48 @@ testCliRunSourceFileSuccess = do
   where
     envLookup _ = pure Nothing
     fileLookup "first.jz" = pure (Just firstProgramSource)
+    fileLookup _ = pure Nothing
+
+testCliCompileExplicitStdinSuccess :: IO ()
+testCliCompileExplicitStdinSuccess = do
+  lookedUpPaths <- newIORef []
+  sourceRead <- newIORef False
+  output <-
+    runCliWith
+      ["-"]
+      envLookup
+      (recordLookupPath lookedUpPaths fileLookup)
+      (recordSourceReadWith sourceRead firstProgramSource)
+  didRead <- readIORef sourceRead
+  paths <- readIORef lookedUpPaths
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "compile stdout stays empty" "" (cliStdout output)
+  assertEqual "compile stderr stays empty" "" (cliStderr output)
+  assertEqual "stdin source is read" True didRead
+  assertEqual "stdin sentinel is not file-looked-up" False ("-" `elem` paths)
+  where
+    envLookup _ = pure Nothing
+    fileLookup _ = pure Nothing
+
+testCliRunExplicitStdinSuccess :: IO ()
+testCliRunExplicitStdinSuccess = do
+  lookedUpPaths <- newIORef []
+  sourceRead <- newIORef False
+  output <-
+    runCliWith
+      ["--run", "-"]
+      envLookup
+      (recordLookupPath lookedUpPaths fileLookup)
+      (recordSourceReadWith sourceRead firstProgramSource)
+  didRead <- readIORef sourceRead
+  paths <- readIORef lookedUpPaths
+  assertEqual "exit code" 0 (cliExitCode output)
+  assertEqual "runtime stdout" "42\n" (cliStdout output)
+  assertEqual "stderr is empty" "" (cliStderr output)
+  assertEqual "stdin source is read" True didRead
+  assertEqual "stdin sentinel is not file-looked-up" False ("-" `elem` paths)
+  where
+    envLookup _ = pure Nothing
     fileLookup _ = pure Nothing
 
 testCliSourceFileMissing :: IO ()
@@ -746,6 +815,19 @@ testCliRejectsSourcePathWithEntryModuleBeforeRead = do
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing
 
+testCliRejectsExplicitStdinWithEntryModuleBeforeRead :: IO ()
+testCliRejectsExplicitStdinWithEntryModuleBeforeRead = do
+  sourceRead <- newIORef False
+  output <- runCliWith ["--entry-module", "App::Main", "-"] envLookup configLookup (recordSourceRead sourceRead)
+  didRead <- readIORef sourceRead
+  assertEqual "exit code" 2 (cliExitCode output)
+  assertContains "stdin plus entry diagnostic" "cannot combine source file with --entry-module" (cliStderr output)
+  assertEqual "stdout is suppressed" "" (cliStdout output)
+  assertEqual "source should not be read when source selection is invalid" False didRead
+  where
+    envLookup _ = pure Nothing
+    configLookup _ = pure Nothing
+
 testCliRejectsModuleRootWithoutEntryBeforeRead :: IO ()
 testCliRejectsModuleRootWithoutEntryBeforeRead = do
   sourceRead <- newIORef False
@@ -790,9 +872,18 @@ testCliAcceptsSimpleFunctionSignature = do
     configLookup _ = pure Nothing
 
 recordSourceRead :: IORef Bool -> IO Text
-recordSourceRead sourceRead = do
+recordSourceRead sourceRead =
+  recordSourceReadWith sourceRead sampleSource
+
+recordSourceReadWith :: IORef Bool -> Text -> IO Text
+recordSourceReadWith sourceRead source = do
   writeIORef sourceRead True
-  pure sampleSource
+  pure source
+
+recordLookupPath :: IORef [FilePath] -> (FilePath -> IO (Maybe Text)) -> FilePath -> IO (Maybe Text)
+recordLookupPath paths lookupPath path = do
+  writeIORef paths . (path :) =<< readIORef paths
+  lookupPath path
 
 recordConfigRead :: IORef Bool -> FilePath -> IO (Maybe Text)
 recordConfigRead configRead _ = do
