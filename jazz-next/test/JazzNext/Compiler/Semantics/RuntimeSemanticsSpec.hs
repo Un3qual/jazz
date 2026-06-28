@@ -98,6 +98,11 @@ tests =
     ("left operator section applies at runtime", testLeftOperatorSectionRuntimeSuccess),
     ("right operator section applies at runtime", testRightOperatorSectionRuntimeSuccess),
     ("right section differs from ordinary partial application for division", testRightSectionDiffersFromOrdinaryPartialApplication),
+    ("declared user operator infix applies at runtime", testDeclaredUserOperatorInfixRuntimeSuccess),
+    ("declared user operator value applies at runtime", testDeclaredUserOperatorValueRuntimeSuccess),
+    ("declared user left operator section applies at runtime", testDeclaredUserLeftOperatorSectionRuntimeSuccess),
+    ("declared user right operator section preserves argument order", testDeclaredUserRightOperatorSectionRuntimeSuccess),
+    ("recursive declared user operator applies at runtime", testRecursiveDeclaredUserOperatorRuntimeSuccess),
     ("map + hd evaluates over nested list literals", testMapHdNestedListsRuntimeSuccess),
     ("filter keeps only matching list elements", testFilterRuntimeSuccess),
     ("tl returns the tail of a non-empty list", testTlReturnsTailRuntimeValue),
@@ -637,6 +642,44 @@ testRightSectionDiffersFromOrdinaryPartialApplication = do
   assertEqual "partial application compile errors" [] (runCompileErrors partialApplicationResult)
   assertEqual "partial application runtime errors" [] (runRuntimeErrors partialApplicationResult)
   assertEqual "partial application runtime output" (Just "0") (runOutput partialApplicationResult)
+
+testDeclaredUserOperatorInfixRuntimeSuccess :: IO ()
+testDeclaredUserOperatorInfixRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\n1 %% 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testDeclaredUserOperatorValueRuntimeSuccess :: IO ()
+testDeclaredUserOperatorValueRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\n(%%) 1 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testDeclaredUserLeftOperatorSectionRuntimeSuccess :: IO ()
+testDeclaredUserLeftOperatorSectionRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left - right.\n(2 %%) 10."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "-8") (runOutput result)
+
+testDeclaredUserRightOperatorSectionRuntimeSuccess :: IO ()
+testDeclaredUserRightOperatorSectionRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left - right.\n(%% 2) 10."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "8") (runOutput result)
+
+testRecursiveDeclaredUserOperatorRuntimeSuccess :: IO ()
+testRecursiveDeclaredUserOperatorRuntimeSuccess = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> if left == 0 right else (left - 1) %% right.\nx = 2 %% 3.\nx."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
 
 testMapHdNestedListsRuntimeSuccess :: IO ()
 testMapHdNestedListsRuntimeSuccess = do

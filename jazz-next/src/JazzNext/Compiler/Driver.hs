@@ -63,8 +63,10 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.Identifier
   ( Identifier,
     identifierText,
+    isOperatorBindingIdentifierText,
     mkIdentifier,
     mkQualifiedIdentifier,
+    operatorBindingIdentifierText,
     qualifiedIdentifierText,
     splitQualifiedIdentifierText
   )
@@ -88,6 +90,9 @@ import JazzNext.Compiler.Parser.AST
   )
 import JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr
+  )
+import JazzNext.Compiler.Parser.Operator
+  ( isBuiltinOperatorSymbol
   )
 import JazzNext.Compiler.PreludeContract
   ( validatePreludeKernelBridges
@@ -773,6 +778,7 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
           ( \resolvedModule loweredModule ->
               stripModuleDeclarations
                 (resolvedModulePath resolvedModule)
+                (resolvedModulePath resolvedModule == entryModulePath)
                 (hiddenImportExportsFor resolvedModule)
                 (neededModuleExportsFor resolvedModule)
                 loweredModule
@@ -798,9 +804,13 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
 collectModuleExports :: [ResolvedModule] -> [Expr] -> Map [Text] [Text]
 collectModuleExports resolvedModules loweredModules =
   Map.fromList
-    [ (resolvedModulePath resolvedModule, collectTopLevelBindingNames loweredModule)
+    [ (resolvedModulePath resolvedModule, collectModuleExportNames loweredModule)
       | (resolvedModule, loweredModule) <- zip resolvedModules loweredModules
     ]
+
+collectModuleExportNames :: Expr -> [Text]
+collectModuleExportNames loweredModule =
+  filter (not . isOperatorBindingIdentifierText) (collectTopLevelBindingNames loweredModule)
 
 collectTopLevelBindingNames :: Expr -> [Text]
 collectTopLevelBindingNames expr =
@@ -1076,6 +1086,118 @@ rewriteReferenceIdentifier importTargets boundNames name =
               mkIdentifier (moduleExportQualifiedName modulePath nameText)
         _ -> name
 
+collectOperatorBindingNames :: Expr -> Set Text
+collectOperatorBindingNames expr =
+  case expr of
+    EBlock statements ->
+      Set.fromList
+        [ bindingNameText
+          | SLet bindingName _ _ <- statements,
+            let bindingNameText = identifierText bindingName,
+            isOperatorBindingIdentifierText bindingNameText
+        ]
+    _ -> Set.empty
+
+rewriteOperatorBindingReferences :: [Text] -> Set Text -> Expr -> Expr
+rewriteOperatorBindingReferences modulePath replayedOperatorBindings expression =
+  case expression of
+    ELit _ -> expression
+    EVar _ -> expression
+    ELambda parameterName bodyExpr ->
+      ELambda parameterName (rewriteOperatorBindingReferences modulePath replayedOperatorBindings bodyExpr)
+    EOperatorValue operatorName ->
+      case operatorReplayReference operatorName of
+        Just operatorReference -> EVar operatorReference
+        Nothing -> expression
+    EList elements ->
+      EList (map rewriteOperatorReference elements)
+    ETuple elements ->
+      ETuple (map rewriteOperatorReference elements)
+    EApply functionExpr argumentExpr ->
+      EApply
+        (rewriteOperatorReference functionExpr)
+        (rewriteOperatorReference argumentExpr)
+    EIf conditionExpr trueBranch falseBranch ->
+      EIf
+        (rewriteOperatorReference conditionExpr)
+        (rewriteOperatorReference trueBranch)
+        (rewriteOperatorReference falseBranch)
+    ECase conditionExpr trueBranch falseBranch ->
+      ECase
+        (rewriteOperatorReference conditionExpr)
+        (rewriteOperatorReference trueBranch)
+        (rewriteOperatorReference falseBranch)
+    EPatternCase scrutineeExpr caseArms ->
+      EPatternCase
+        (rewriteOperatorReference scrutineeExpr)
+        [ CaseArm
+            patternValue
+            (fmap rewriteOperatorReference guardExpr)
+            (rewriteOperatorReference bodyExpr)
+          | CaseArm patternValue guardExpr bodyExpr <- caseArms
+        ]
+    EBinary operatorName leftExpr rightExpr ->
+      let rewrittenLeft = rewriteOperatorReference leftExpr
+          rewrittenRight = rewriteOperatorReference rightExpr
+       in case operatorReplayReference operatorName of
+            Just operatorReference ->
+              EApply
+                (EApply (EVar operatorReference) rewrittenLeft)
+                rewrittenRight
+            Nothing ->
+              EBinary operatorName rewrittenLeft rewrittenRight
+    ESectionLeft leftExpr operatorName ->
+      let rewrittenLeft = rewriteOperatorReference leftExpr
+       in case operatorReplayReference operatorName of
+            Just operatorReference ->
+              EApply (EVar operatorReference) rewrittenLeft
+            Nothing ->
+              ESectionLeft rewrittenLeft operatorName
+    ESectionRight operatorName rightExpr ->
+      let rewrittenRight = rewriteOperatorReference rightExpr
+       in case operatorReplayReference operatorName of
+            Just operatorReference ->
+              ELambda
+                operatorReplaySectionLeftParameter
+                ( EApply
+                    (EApply (EVar operatorReference) (EVar operatorReplaySectionLeftParameter))
+                    rewrittenRight
+                )
+            Nothing ->
+              ESectionRight operatorName rewrittenRight
+    EBlock statements ->
+      EBlock (map rewriteOperatorReferenceStatement statements)
+  where
+    rewriteOperatorReference =
+      rewriteOperatorBindingReferences modulePath replayedOperatorBindings
+
+    rewriteOperatorReferenceStatement statement =
+      case statement of
+        SLet bindingName spanValue valueExpr ->
+          SLet bindingName spanValue (rewriteOperatorReference valueExpr)
+        SExpr spanValue exprValue ->
+          SExpr spanValue (rewriteOperatorReference exprValue)
+        SImpl spanValue capabilityName arguments methods ->
+          SImpl
+            spanValue
+            capabilityName
+            arguments
+            [ ImplMethod methodName methodSpan (rewriteOperatorReference methodExpr)
+              | ImplMethod methodName methodSpan methodExpr <- methods
+            ]
+        _ -> statement
+
+    operatorReplayReference operatorName
+      | isBuiltinOperatorSymbol operatorName = Nothing
+      | Set.member bindingName replayedOperatorBindings =
+          Just (mkIdentifier (moduleExportQualifiedName modulePath bindingName))
+      | otherwise = Nothing
+      where
+        bindingName = operatorBindingIdentifierText operatorName
+
+    operatorReplaySectionLeftParameter =
+      mkIdentifier "$operator_replay_section_left"
+
 rewritePatternReferences :: Map Text [Text] -> Set Text -> Pattern -> Pattern
 rewritePatternReferences importTargets boundNames patternValue =
   case patternValue of
@@ -1142,7 +1264,7 @@ collectUnqualifiedReferences expr =
             Nothing -> Set.singleton nameText
     ELambda parameterName bodyExpr ->
       Set.delete (identifierText parameterName) (collectUnqualifiedReferences bodyExpr)
-    EOperatorValue _ -> Set.empty
+    EOperatorValue operatorName -> operatorBindingReferences operatorName
     EList elements -> Set.unions (map collectUnqualifiedReferences elements)
     ETuple elements -> Set.unions (map collectUnqualifiedReferences elements)
     EApply functionExpr argumentExpr ->
@@ -1175,10 +1297,20 @@ collectUnqualifiedReferences expr =
               | CaseArm patternValue guardExpr bodyExpr <- caseArms
             ]
         ]
-    EBinary _ leftExpr rightExpr ->
-      Set.union (collectUnqualifiedReferences leftExpr) (collectUnqualifiedReferences rightExpr)
-    ESectionLeft leftExpr _ -> collectUnqualifiedReferences leftExpr
-    ESectionRight _ rightExpr -> collectUnqualifiedReferences rightExpr
+    EBinary operatorName leftExpr rightExpr ->
+      Set.unions
+        [ operatorBindingReferences operatorName,
+          collectUnqualifiedReferences leftExpr,
+          collectUnqualifiedReferences rightExpr
+        ]
+    ESectionLeft leftExpr operatorName ->
+      Set.union
+        (operatorBindingReferences operatorName)
+        (collectUnqualifiedReferences leftExpr)
+    ESectionRight operatorName rightExpr ->
+      Set.union
+        (operatorBindingReferences operatorName)
+        (collectUnqualifiedReferences rightExpr)
     EBlock statements ->
       Set.difference
         ( Set.unions
@@ -1195,6 +1327,11 @@ collectUnqualifiedReferences expr =
             ]
         )
         (Set.fromList (concatMap statementBindingNames statements))
+
+operatorBindingReferences :: Text -> Set Text
+operatorBindingReferences operatorName
+  | isBuiltinOperatorSymbol operatorName = Set.empty
+  | otherwise = Set.singleton (operatorBindingIdentifierText operatorName)
 
 patternConstructorReferences :: Pattern -> Set Text
 patternConstructorReferences patternValue =
@@ -1508,7 +1645,8 @@ addAliasImportBindings exportsByModule neededModuleExportsByModule hiddenImportE
     sourceExportBindingsForStatement statement =
       case statement of
         SLet exportedName spanValue valueExpr
-          | Set.member (identifierText exportedName) sourceExportNames ->
+          | Set.member (identifierText exportedName) sourceExportNames,
+            not (isOperatorBindingIdentifierText (identifierText exportedName)) ->
               [ SLet
                   (mkIdentifier (moduleExportQualifiedName (resolvedModulePath resolvedModule) (identifierText exportedName)))
                   spanValue
@@ -1639,8 +1777,8 @@ replayLoweredModules transformModule resolvedModules loweredModules =
         ]
     )
 
-stripModuleDeclarations :: [Text] -> Set Text -> Set Text -> Expr -> Expr
-stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr =
+stripModuleDeclarations :: [Text] -> Bool -> Set Text -> Set Text -> Expr -> Expr
+stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModuleExports expr =
   case expr of
     EBlock statements ->
       EBlock (ensureModuleValidationBoundary (concatMap keepModuleValidationStatement statements))
@@ -1655,6 +1793,13 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
       case statement of
         SModule {} -> [statement]
         SLet bindingName spanValue valueExpr
+          | shouldQualifyOperatorBinding bindingName ->
+              [ SLet
+                  (operatorReplayIdentifier bindingName)
+                  spanValue
+                  (rewriteValidationReplayExpr valueExpr)
+              ]
+        SLet bindingName spanValue valueExpr
           | Set.member (identifierText bindingName) hiddenImportExports ->
               if Set.member (identifierText bindingName) neededModuleExports
                 then []
@@ -1662,18 +1807,18 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
                   [ SLet
                       (hiddenValidationIdentifier bindingName)
                       spanValue
-                      (rewriteModuleExportReferences modulePath hiddenImportExports valueExpr)
+                      (rewriteValidationReplayExpr valueExpr)
                   ]
         SLet bindingName spanValue valueExpr ->
           [ SLet
               bindingName
               spanValue
-              (rewriteModuleExportReferences modulePath hiddenImportExports valueExpr)
+              (rewriteValidationReplayExpr valueExpr)
           ]
         SExpr spanValue exprValue ->
           [ SExpr
               spanValue
-              (rewriteModuleExportReferences modulePath hiddenImportExports exprValue)
+              (rewriteValidationReplayExpr exprValue)
           ]
         SSignature signatureName spanValue signatureValue
           | Set.member (identifierText signatureName) hiddenImportExports ->
@@ -1703,10 +1848,29 @@ stripModuleDeclarations modulePath hiddenImportExports neededModuleExports expr 
               spanValue
               capabilityName
               (rewriteModuleExportImplArguments modulePath dataTypeNames arguments)
-              (rewriteModuleExportImplMethods modulePath hiddenImportExports methods)
+              (rewriteValidationReplayImplMethods methods)
           ]
         _ -> [statement]
     dataTypeNames = collectDataTypeNames expr
+    replayedOperatorBindings =
+      if isEntryModule
+        then Set.empty
+        else collectOperatorBindingNames expr
+
+    shouldQualifyOperatorBinding bindingName =
+      Set.member (identifierText bindingName) replayedOperatorBindings
+
+    operatorReplayIdentifier name =
+      mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
+
+    rewriteValidationReplayExpr =
+      rewriteOperatorBindingReferences modulePath replayedOperatorBindings
+        . rewriteModuleExportReferences modulePath hiddenImportExports
+
+    rewriteValidationReplayImplMethods methods =
+      [ ImplMethod methodName methodSpan (rewriteValidationReplayExpr methodExpr)
+        | ImplMethod methodName methodSpan methodExpr <- methods
+      ]
 
     hiddenValidationIdentifier name =
       mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
@@ -1742,6 +1906,16 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
               (rewriteRuntimeReplayClassMethods methods)
             | isEntryModule || Set.member (identifierText capabilityName) neededCapabilityExports
           ]
+        SLet bindingName spanValue valueExpr
+          | shouldQualifyOperatorBinding bindingName,
+            shouldKeepRuntimeBinding bindingName ->
+              [ SLet
+                  (operatorReplayIdentifier bindingName)
+                  spanValue
+                  (rewriteRuntimeReplayExpr valueExpr)
+              ]
+        SLet bindingName _ _
+          | shouldQualifyOperatorBinding bindingName -> []
         SLet bindingName spanValue valueExpr
           | shouldKeepRuntimeBinding bindingName,
             Set.notMember (identifierText bindingName) hiddenImportExports ->
@@ -1783,6 +1957,10 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
       if isEntryModule
         then Set.empty
         else Set.difference neededCapabilityExports directlyNeededCapabilityExports
+    replayedOperatorBindings =
+      if isEntryModule
+        then Set.empty
+        else collectOperatorBindingNames expr
 
     shouldKeepRuntimeBinding bindingName =
       isEntryModule || isNeededRuntimeBindingName (identifierText bindingName)
@@ -1792,6 +1970,12 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
         || case Text.stripPrefix (moduleExportQualifiedPrefix modulePath) bindingNameText of
           Just exportedName -> Set.member exportedName neededModuleExports
           Nothing -> False
+
+    shouldQualifyOperatorBinding bindingName =
+      Set.member (identifierText bindingName) replayedOperatorBindings
+
+    operatorReplayIdentifier name =
+      mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
 
     hiddenValidationIdentifier name =
       mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
@@ -1820,6 +2004,7 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
 
     rewriteRuntimeReplayExpr =
       rewriteHiddenCapabilityReferences modulePath hiddenRuntimeCapabilities
+        . rewriteOperatorBindingReferences modulePath replayedOperatorBindings
         . rewriteModuleExportReferences modulePath hiddenImportExports
 
     rewriteRuntimeReplaySignaturePayload signaturePayload =

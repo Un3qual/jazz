@@ -78,7 +78,8 @@ import JazzNext.Compiler.FractionalLiteral
 import JazzNext.Compiler.Identifier
   ( Identifier,
     identifierText,
-    mkIdentifier
+    mkIdentifier,
+    operatorBindingIdentifierText
   )
 import JazzNext.Compiler.RecursiveBindings
   ( collectBindingNames,
@@ -86,6 +87,9 @@ import JazzNext.Compiler.RecursiveBindings
     freeVarsScopeWithBound,
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings
+  )
+import JazzNext.Compiler.Parser.Operator
+  ( isBuiltinOperatorSymbol
   )
 import JazzNext.Compiler.RuntimeHints
   ( BindingRuntimeHintKey,
@@ -372,12 +376,12 @@ inferExprType builtinMode env state expr =
     EOperatorValue operatorSymbol ->
       case instantiateOperatorType operatorSymbol state of
         Just (operatorType, nextState) -> (Just operatorType, nextState)
-        Nothing ->
-          ( Nothing,
-            addTypeError
-              state
-              (mkUnsupportedOperatorValueError operatorSymbol)
-          )
+        Nothing
+          | isBuiltinOperatorSymbol operatorSymbol ->
+              ( Nothing,
+                addTypeError state (mkUnsupportedOperatorValueError operatorSymbol)
+              )
+        Nothing -> instantiateDeclaredOperatorBindingType env operatorSymbol state
     EList elements -> inferListType builtinMode env state elements
     ETuple elements -> inferTupleType builtinMode env state elements
     EApply functionExpr argumentExpr ->
@@ -435,6 +439,47 @@ inferExprType builtinMode env state expr =
                 freshTypeVar stateAfterScrutinee
        in inferPatternCaseType builtinMode env scrutineeType stateWithScrutineeType caseArms
     EBinary operatorSymbol leftExpr rightExpr ->
+      case lookupOperatorRule operatorSymbol of
+        Just _ ->
+          inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr
+        Nothing
+          | isBuiltinOperatorSymbol operatorSymbol ->
+              inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr
+        Nothing ->
+          inferExprType
+            builtinMode
+            env
+            state
+            (EApply (EApply (EOperatorValue operatorSymbol) leftExpr) rightExpr)
+    ESectionLeft leftExpr operatorSymbol ->
+      case lookupOperatorRule operatorSymbol of
+        Just _ ->
+          inferBuiltinSectionLeftOperatorType operatorSymbol leftExpr
+        Nothing
+          | isBuiltinOperatorSymbol operatorSymbol ->
+              inferBuiltinSectionLeftOperatorType operatorSymbol leftExpr
+        Nothing ->
+          inferExprType
+            builtinMode
+            env
+            state
+            (EApply (EOperatorValue operatorSymbol) leftExpr)
+    ESectionRight operatorSymbol rightExpr ->
+      case lookupOperatorRule operatorSymbol of
+        Just _ ->
+          inferBuiltinSectionRightOperatorType operatorSymbol rightExpr
+        Nothing
+          | isBuiltinOperatorSymbol operatorSymbol ->
+              inferBuiltinSectionRightOperatorType operatorSymbol rightExpr
+        Nothing ->
+          inferExprType
+            builtinMode
+            env
+            state
+            (declaredOperatorRightSectionExpr operatorSymbol rightExpr)
+    EBlock statements -> inferScopeType builtinMode env state statements
+  where
+    inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr =
       let (leftType, stateAfterLeft) =
             inferExprType builtinMode env state leftExpr
           (rightType, stateAfterRight) =
@@ -447,7 +492,8 @@ inferExprType builtinMode env state expr =
                 inferredRightType
                 stateAfterRight
             _ -> (Nothing, stateAfterRight)
-    ESectionLeft leftExpr operatorSymbol ->
+
+    inferBuiltinSectionLeftOperatorType operatorSymbol leftExpr =
       let (leftType, stateAfterLeft) =
             inferExprType builtinMode env state leftExpr
        in case leftType of
@@ -457,7 +503,8 @@ inferExprType builtinMode env state expr =
                 inferredLeftType
                 stateAfterLeft
             Nothing -> (Nothing, stateAfterLeft)
-    ESectionRight operatorSymbol rightExpr ->
+
+    inferBuiltinSectionRightOperatorType operatorSymbol rightExpr =
       let (rightType, stateAfterRight) =
             inferExprType builtinMode env state rightExpr
        in case rightType of
@@ -467,7 +514,6 @@ inferExprType builtinMode env state expr =
                 inferredRightType
                 stateAfterRight
             Nothing -> (Nothing, stateAfterRight)
-    EBlock statements -> inferScopeType builtinMode env state statements
 
 inferExprTypeWithExpected ::
   BuiltinResolutionMode ->
@@ -3155,6 +3201,24 @@ instantiateOperatorType operatorSymbol state =
           )
     Nothing -> Nothing
 
+instantiateDeclaredOperatorBindingType :: TypeEnv -> Text -> InferState -> (Maybe ExpressionType, InferState)
+instantiateDeclaredOperatorBindingType env operatorSymbol state =
+  case Map.lookup (operatorBindingIdentifierText operatorSymbol) env of
+    Just binding ->
+      instantiateTypeBinding binding state
+    Nothing ->
+      ( Nothing,
+        addTypeError state (mkMissingOperatorBindingError operatorSymbol)
+      )
+
+declaredOperatorRightSectionExpr :: Text -> Expr -> Expr
+declaredOperatorRightSectionExpr operatorSymbol rightExpr =
+  ELambda
+    leftParameter
+    (EApply (EApply (EOperatorValue operatorSymbol) (EVar leftParameter)) rightExpr)
+  where
+    leftParameter = mkIdentifier "$operator_section_left"
+
 -- | Instantiate builtin symbol types on demand so each use site gets fresh type
 -- variables instead of sharing one global schematic type.
 instantiateBuiltinSymbolType :: BuiltinSymbol -> InferState -> Maybe (ExpressionType, InferState)
@@ -3697,6 +3761,10 @@ mkUnsupportedSectionOperatorError :: Text -> Diagnostic
 mkUnsupportedSectionOperatorError operatorSymbol =
   mkDiagnostic "E2008" ("unsupported operator section '" <> operatorSymbol <> "'")
 
+mkUnsupportedOperatorValueError :: Text -> Diagnostic
+mkUnsupportedOperatorValueError operatorSymbol =
+  mkDiagnostic "E2003" ("builtin operator '" <> operatorSymbol <> "' has no value type rule")
+
 mkNumericSectionOperandTypeError :: Text -> NumericRuleResult -> ExpressionType -> Diagnostic
 mkNumericSectionOperandTypeError operatorSymbol _ operandType =
   mkDiagnostic
@@ -3707,9 +3775,9 @@ mkNumericSectionOperandTypeError operatorSymbol _ operandType =
         <> renderType operandType
     )
 
-mkUnsupportedOperatorValueError :: Text -> Diagnostic
-mkUnsupportedOperatorValueError operatorSymbol =
-  mkDiagnostic "E2010" ("unsupported operator value '" <> operatorSymbol <> "'")
+mkMissingOperatorBindingError :: Text -> Diagnostic
+mkMissingOperatorBindingError operatorSymbol =
+  mkDiagnostic "E2010" ("operator '" <> operatorSymbol <> "' has no executable binding")
 
 mkMissingClassMethodError :: Text -> Diagnostic
 mkMissingClassMethodError methodKey =

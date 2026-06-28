@@ -1,7 +1,7 @@
 # Operators and Sections
 
-Status: active (phase 0 contract lock; Stage 2 fixed-tier contract lock)
-Locked decisions: 2026-03-03; Stage 2 contract locked 2026-06-04
+Status: active (phase 0 contract lock; Stage 2 fixed-tier/executable binding contract lock)
+Locked decisions: 2026-03-03; Stage 2 fixed-tier contract locked 2026-06-04; Stage 2 executable binding contract locked 2026-06-27
 Primary plan: `docs/plans/spec-clarification/2026-03-03/syntax/15-operator-fixity-and-sections.md`
 
 ## Purpose
@@ -96,7 +96,8 @@ Stage 2:
 
 1. Controlled user-defined operator declarations.
 2. Restricted character set and fixed precedence tiers.
-3. No custom precedence, no custom associativity, no runtime overload dispatch,
+3. Same-source executable bindings through ordinary function values.
+4. No custom precedence, no custom associativity, no runtime overload dispatch,
    and no new built-in operators.
 
 Stage 3 (optional, only if needed):
@@ -187,6 +188,52 @@ Stage 2 declarations are source-unit local:
 5. Operator declarations are not allowed inside expressions, blocks, classes,
    impls, lambdas, pattern arms, or any other nested scope.
 
+### Executable Operator Bindings
+
+Operator declarations publish fixity metadata only. A declared user operator
+becomes executable only when the same source unit provides an ordinary binding
+for the parenthesized operator name:
+
+```jz
+operator %% tier 2.
+(%%) = \(left) -> \(right) -> left + right.
+result = 1 %% 2.
+```
+
+The binding form is:
+
+```ebnf
+operator-binding ::= "(" operator-symbol ")" "=" expression "."
+```
+
+Rules:
+
+1. The operator symbol must be a user operator already declared earlier in the
+   same source unit.
+2. Built-in operators cannot be rebound with operator-binding syntax.
+3. Operator bindings are allowed only at file scope or directly in module
+   bodies, matching operator declarations. They are invalid inside expression
+   blocks, classes, impls, lambdas, pattern arms, or other nested scopes.
+4. Operator bindings are not imported, exported, re-exported, or made visible
+   to dependency modules.
+5. The right-hand side is an ordinary Jazz expression. It is type-checked as an
+   ordinary value and must be callable at each operator use site.
+6. A declared user operator used without an executable binding is a compile
+   error: `operator '<symbol>' has no executable binding`.
+
+Executable equivalences:
+
+1. `left %% right` is equivalent to `((%%) left) right`.
+2. `(left %%)` is equivalent to `((%%) left)`.
+3. `(%% right)` is equivalent to `\left -> ((%%) left) right`, so right
+   sections preserve argument order for non-commutative functions.
+4. `(%%)` is the ordinary callable value bound by `(%%) = <expression>.`
+
+Executable operator bindings do not introduce operator type signatures,
+implicit overload resolution, dictionaries, typeclass solver behavior, custom
+precedence, custom associativity, new built-ins, new operator declaration
+syntax, or runtime overload dispatch.
+
 ### Invalid Stage 2 Cases
 
 These forms are invalid:
@@ -210,10 +257,10 @@ operator %% tier 2.
 
 ### Out of Scope for Stage 2
 
-The Stage 2 declaration is parser/fixity metadata. It does not define a runtime
-function, add a kernel primitive, introduce runtime overload dispatch, or add
-new built-in operators. Any executable semantics for declared user operators
-must be specified and implemented by a separate later child.
+Stage 2 executable bindings remain ordinary source-local bindings. They do not
+add kernel primitives, operator imports or exports, runtime overload dispatch,
+operator-specific type signatures, custom precedence, custom associativity, or
+new built-in operators.
 
 ## Compatibility and Drift Prevention
 

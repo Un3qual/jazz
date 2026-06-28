@@ -63,7 +63,12 @@ import JazzNext.Compiler.CapabilityFacts
   )
 import JazzNext.Compiler.Identifier
   ( Identifier,
-    identifierText
+    identifierText,
+    mkIdentifier,
+    operatorBindingIdentifierText
+  )
+import JazzNext.Compiler.Parser.Operator
+  ( isBuiltinOperatorSymbol
   )
 import JazzNext.Compiler.RecursiveBindings
   ( collectBindingNames,
@@ -1035,8 +1040,11 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
         nameText = identifierText name
     ELambda parameterName bodyExpr ->
       Right (VClosure env parameterName bodyExpr Nothing currentModulePath)
-    EOperatorValue operatorSymbol ->
-      Right (VOperator operatorSymbol [])
+    EOperatorValue operatorSymbol
+      | isBuiltinOperatorSymbol operatorSymbol ->
+          Right (VOperator operatorSymbol [])
+      | otherwise ->
+          lookupOperatorBindingRuntimeValue builtinMode bindingTypeHints operatorSymbol env
     EList elements ->
       (`VList` Nothing) <$> mapM (evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env) elements
     ETuple elements ->
@@ -1061,16 +1069,31 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
     EPatternCase scrutineeExpr caseArms -> do
       scrutineeValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env scrutineeExpr
       evalPatternCase currentModulePath builtinMode bindingTypeHints env scrutineeValue caseArms
-    EBinary operatorSymbol leftExpr rightExpr -> do
-      leftValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env leftExpr
-      rightValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env rightExpr
-      evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
+    EBinary operatorSymbol leftExpr rightExpr
+      | isBuiltinOperatorSymbol operatorSymbol -> do
+          leftValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env leftExpr
+          rightValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env rightExpr
+          evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
+      | otherwise -> do
+          operatorValue <- lookupOperatorBindingRuntimeValue builtinMode bindingTypeHints operatorSymbol env
+          leftValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env leftExpr
+          partialValue <- applyRuntimeFunction builtinMode bindingTypeHints operatorValue leftValue
+          rightValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env rightExpr
+          applyRuntimeFunction builtinMode bindingTypeHints partialValue rightValue
     ESectionLeft leftExpr operatorSymbol -> do
       leftValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env leftExpr
-      Right (VSectionLeft operatorSymbol leftValue)
+      if isBuiltinOperatorSymbol operatorSymbol
+        then Right (VSectionLeft operatorSymbol leftValue)
+        else do
+          operatorValue <- lookupOperatorBindingRuntimeValue builtinMode bindingTypeHints operatorSymbol env
+          applyRuntimeFunction builtinMode bindingTypeHints operatorValue leftValue
     ESectionRight operatorSymbol rightExpr -> do
       rightValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env rightExpr
-      Right (VSectionRight operatorSymbol rightValue)
+      if isBuiltinOperatorSymbol operatorSymbol
+        then Right (VSectionRight operatorSymbol rightValue)
+        else do
+          operatorValue <- lookupOperatorBindingRuntimeValue builtinMode bindingTypeHints operatorSymbol env
+          Right (declaredOperatorRightSectionClosure currentModulePath operatorValue rightValue env)
     EBlock statements ->
       case evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints env statements of
         Left err -> Left err
@@ -1093,6 +1116,39 @@ forceQualifiedMethodValue builtinMode bindingTypeHints runtimeValue =
         capturedArgs
     _ ->
       Right runtimeValue
+
+lookupOperatorBindingRuntimeValue ::
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey ConstraintSignatureType ->
+  Text ->
+  RuntimeEnv ->
+  Either Diagnostic RuntimeValue
+lookupOperatorBindingRuntimeValue builtinMode bindingTypeHints operatorSymbol env =
+  case Map.lookup (operatorBindingIdentifierText operatorSymbol) env of
+    Just value ->
+      value >>= forceQualifiedMethodValue builtinMode bindingTypeHints
+    Nothing ->
+      Left
+        ( runtimeDiagnostic
+            "E3027"
+            ("operator '" <> operatorSymbol <> "' has no executable binding")
+        )
+
+declaredOperatorRightSectionClosure :: Maybe [Text] -> RuntimeValue -> RuntimeValue -> RuntimeEnv -> RuntimeValue
+declaredOperatorRightSectionClosure currentModulePath operatorValue rightValue env =
+  VClosure
+    capturedEnv
+    leftParameter
+    (EApply (EApply (EVar functionName) (EVar leftParameter)) (EVar rightParameter))
+    Nothing
+    currentModulePath
+  where
+    functionName = mkIdentifier "$operator_section_function"
+    leftParameter = mkIdentifier "$operator_section_left"
+    rightParameter = mkIdentifier "$operator_section_right"
+    capturedEnv =
+      Map.insert (identifierText functionName) (Right operatorValue) $
+        Map.insert (identifierText rightParameter) (Right rightValue) env
 
 literalRuntimeValue :: Literal -> RuntimeValue
 literalRuntimeValue literal =

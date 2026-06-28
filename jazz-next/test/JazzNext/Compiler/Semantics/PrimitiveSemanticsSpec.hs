@@ -92,6 +92,11 @@ tests =
     ("source pipeline accepts bare operator value", testSourcePipelineAcceptsBareOperatorValue),
     ("source pipeline accepts bare operator value application", testSourcePipelineAcceptsBareOperatorValueApplication),
     ("source pipeline accepts explicit partial application of bare operator value", testSourcePipelineAcceptsExplicitPartialOperatorApplication),
+    ("source pipeline keeps builtin pipe off declared operator binding path", testSourcePipelineKeepsBuiltinPipeOffDeclaredOperatorBindingPath),
+    ("source pipeline accepts declared user operator infix binding", testSourcePipelineAcceptsDeclaredUserOperatorInfixBinding),
+    ("source pipeline accepts declared user operator value application", testSourcePipelineAcceptsDeclaredUserOperatorValueApplication),
+    ("source pipeline rejects declared user operator without binding", testSourcePipelineRejectsDeclaredUserOperatorWithoutBinding),
+    ("source pipeline rejects non-callable declared user operator binding", testSourcePipelineRejectsNonCallableDeclaredUserOperatorBinding),
     ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral),
     ("source pipeline accepts target-named integer conversions", testSourcePipelineAcceptsTargetNamedIntegerConversions),
     ("source pipeline accepts target-named float conversions", testSourcePipelineAcceptsTargetNamedFloatConversions),
@@ -440,6 +445,53 @@ testSourcePipelineAcceptsBareOperatorValueApplication =
 testSourcePipelineAcceptsExplicitPartialOperatorApplication :: IO ()
 testSourcePipelineAcceptsExplicitPartialOperatorApplication =
   assertCompiles "x = ((+) 1) 2."
+
+testSourcePipelineKeepsBuiltinPipeOffDeclaredOperatorBindingPath :: IO ()
+testSourcePipelineKeepsBuiltinPipeOffDeclaredOperatorBindingPath = do
+  result <- compileSource defaultWarningSettings "x = True | False."
+  case compileErrors result of
+    [err] -> do
+      let rendered = renderDiagnostic err
+      assertContains "builtin pipe diagnostic code" "E2003" rendered
+      assertContains "builtin pipe diagnostic text" "cannot apply operator '|'" rendered
+      if "E2010" `Text.isInfixOf` rendered || "has no executable binding" `Text.isInfixOf` rendered
+        then failTest "builtin pipe incorrectly used declared-operator missing-binding path"
+        else pure ()
+    _ -> failTest "expected exactly one builtin pipe type diagnostic"
+
+testSourcePipelineAcceptsDeclaredUserOperatorInfixBinding :: IO ()
+testSourcePipelineAcceptsDeclaredUserOperatorInfixBinding =
+  assertCompiles
+    "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\nx = 1 %% 2."
+
+testSourcePipelineAcceptsDeclaredUserOperatorValueApplication :: IO ()
+testSourcePipelineAcceptsDeclaredUserOperatorValueApplication =
+  assertCompiles
+    "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left == right.\nx = (%%) 1 1."
+
+testSourcePipelineRejectsDeclaredUserOperatorWithoutBinding :: IO ()
+testSourcePipelineRejectsDeclaredUserOperatorWithoutBinding = do
+  result <- compileSource defaultWarningSettings "operator %% tier 2.\nx = 1 %% 2."
+  assertSingleDiagnosticContains
+    "declared user operator missing binding code"
+    "E2010"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "declared user operator missing binding text"
+    "operator '%%' has no executable binding"
+    (compileErrors result)
+
+testSourcePipelineRejectsNonCallableDeclaredUserOperatorBinding :: IO ()
+testSourcePipelineRejectsNonCallableDeclaredUserOperatorBinding = do
+  result <- compileSource defaultWarningSettings "operator %% tier 2.\n(%%) = 1.\nx = 1 %% 2."
+  assertSingleDiagnosticContains
+    "declared user operator non-callable binding code"
+    "E2006"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "declared user operator non-callable binding text"
+    "cannot apply function of type"
+    (compileErrors result)
 
 testSourcePipelineRejectsMixedTypeListLiteral :: IO ()
 testSourcePipelineRejectsMixedTypeListLiteral =

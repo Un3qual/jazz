@@ -1,28 +1,35 @@
 ---
 id: JN-OPERATORS-DECLARED-FUNCTION-BINDINGS-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
   - JN-OPERATORS-STAGE2-FIXED-TIER-PARSER-001
-last_verified: 2026-06-26
+last_verified: 2026-06-28
+completed_on: 2026-06-28
 plan_section: "Batch 1: Declared operator function bindings"
 target_paths:
   - docs/spec/syntax/operators.md
+  - jazz-next/src/JazzNext/Compiler/Driver.hs
   - jazz-next/src/JazzNext/Compiler/Identifier.hs
   - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/RecursiveBindings.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/src/JazzNext/Compiler/Runtime.hs
+  - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
   - jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs
   - jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/RecursiveBindingsSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
 verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RecursiveBindingsSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
@@ -147,7 +154,9 @@ dispatch.
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RecursiveBindingsSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
@@ -163,7 +172,7 @@ git diff --check
 - Modify: `jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`
 
-- [ ] **Step 1: Add accepted binding coverage**
+- [x] **Step 1: Add accepted binding coverage**
 
 Add parser coverage showing that a binding for an already-declared operator is
 accepted and that the declared symbol still participates in the fixed-tier
@@ -205,7 +214,7 @@ suite when this test is added. The expected tree locks that parsing succeeds
 only after the declaration and that `1 %% 2 * 3` keeps tier-2 behavior with `*`
 binding tighter than `%%`.
 
-- [ ] **Step 2: Add invalid binding coverage**
+- [x] **Step 2: Add invalid binding coverage**
 
 Add parser failures for each invalid source:
 
@@ -220,7 +229,7 @@ parseSurfaceProgram "operator %% tier 2.\nx = { (%%) = \\(left) -> \\(right) -> 
 -- expected: operator bindings are only allowed at file scope or directly in module bodies
 ```
 
-- [ ] **Step 3: Verify parser tests fail before implementation**
+- [x] **Step 3: Verify parser tests fail before implementation**
 
 Run:
 
@@ -239,7 +248,7 @@ because statement-level `(op) =` is not parsed yet.
 - Modify: `jazz-next/src/JazzNext/Compiler/Identifier.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser.hs`
 
-- [ ] **Step 1: Add one shared hidden identifier helper**
+- [x] **Step 1: Add one shared hidden identifier helper**
 
 Add exports from `Identifier.hs`:
 
@@ -268,7 +277,7 @@ If `Text.intercalate` or `fromEnum` imports are missing, add them locally in
 `Identifier.hs`. Do not expose the hidden name in docs or user-facing parser
 syntax.
 
-- [ ] **Step 2: Parse statement-level `(op) = expr.`**
+- [x] **Step 2: Parse statement-level `(op) = expr.`**
 
 In `Parser.hs`, add a statement branch before generic expression statements:
 
@@ -296,7 +305,7 @@ core statement form.
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
 
-- [ ] **Step 1: Add focused type tests**
+- [x] **Step 1: Add focused type tests**
 
 Add tests that compile these sources:
 
@@ -330,7 +339,7 @@ operator %% tier 2.
 Expected diagnostic: the existing generic non-function application diagnostic,
 not a runtime-only failure.
 
-- [ ] **Step 2: Resolve non-builtin operator values from the type environment**
+- [x] **Step 2: Resolve non-builtin operator values from the type environment**
 
 In `inferExprType`, keep builtin `EOperatorValue` behavior first. When
 `instantiateOperatorType operatorSymbol` returns `Nothing`, look up
@@ -343,7 +352,7 @@ mkUnboundOperatorBindingError operatorSymbol =
   mkDiagnostic "E2010" ("operator '" <> operatorSymbol <> "' has no executable binding")
 ```
 
-- [ ] **Step 3: Type non-builtin infix and sections by applying the operator value**
+- [x] **Step 3: Type non-builtin infix and sections by applying the operator value**
 
 For `EBinary operatorSymbol leftExpr rightExpr`, preserve the existing builtin
 operator rule path. If `lookupOperatorRule operatorSymbol` returns `Nothing`,
@@ -384,7 +393,7 @@ without adding overload dispatch.
 - Modify: `jazz-next/src/JazzNext/Compiler/Runtime.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
 
-- [ ] **Step 1: Add runtime tests**
+- [x] **Step 1: Add runtime tests**
 
 Add tests for these successful sources:
 
@@ -420,7 +429,7 @@ operator %% tier 2.
 
 Expected output: `8`.
 
-- [ ] **Step 2: Evaluate non-builtin operator values from the runtime env**
+- [x] **Step 2: Evaluate non-builtin operator values from the runtime env**
 
 In `evalValueWithModulePath`, preserve builtin `EOperatorValue` behavior. For
 non-builtin symbols, look up `operatorBindingIdentifierText operatorSymbol` in
@@ -428,7 +437,7 @@ the current runtime environment, force qualified method values the same way
 `EVar` does, and fail with the runtime counterpart only if typechecking was
 bypassed.
 
-- [ ] **Step 3: Apply non-builtin infix and sections through the function path**
+- [x] **Step 3: Apply non-builtin infix and sections through the function path**
 
 For non-builtin `EBinary`, evaluate the hidden binding, apply it to the left
 value, then apply that result to the right value with `applyRuntimeFunction`.
@@ -452,7 +461,7 @@ value, or generated left parameter.
 
 - Modify: `docs/spec/syntax/operators.md`
 
-- [ ] **Step 1: Record the binding contract**
+- [x] **Step 1: Record the binding contract**
 
 Add a Stage 2 executable binding subsection that documents:
 
@@ -463,14 +472,16 @@ Add a Stage 2 executable binding subsection that documents:
 - non-goals for custom precedence, custom associativity, new builtins, overload
   dispatch, operator signatures, dictionaries, and solver expansion.
 
-- [ ] **Step 2: Run focused verification**
+- [x] **Step 2: Run focused verification**
 
 Run:
 
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RecursiveBindingsSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh

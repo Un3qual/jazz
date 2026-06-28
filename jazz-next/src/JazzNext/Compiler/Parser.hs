@@ -30,7 +30,8 @@ import JazzNext.Compiler.FractionalLiteral
 import JazzNext.Compiler.Identifier
   ( Identifier,
     identifierText,
-    mkIdentifier
+    mkIdentifier,
+    mkOperatorBindingIdentifier
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
@@ -312,11 +313,70 @@ consumeOperatorDeclarationDot tokens =
     [] ->
       Left (parseDiagnostic "expected '.' after operator declaration tier before end of input")
 
+parseOperatorBinding :: StatementContext -> Set Text -> DeclaredOperators -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseOperatorBinding context knownAliases declaredOperators operatorToken tokensAfterEquals =
+  case context of
+    NestedBlockContext ->
+      rejectNestedOperatorBinding operatorToken
+    TopLevelContext ->
+      parseVisibleOperatorBinding
+    ModuleBodyContext ->
+      parseVisibleOperatorBinding
+  where
+    parseVisibleOperatorBinding =
+      case tokenKind operatorToken of
+        TOperator bindingSymbol
+          | isBuiltinOperatorSymbol bindingSymbol ->
+              Left
+                ( parseDiagnostic
+                    ( "cannot bind built-in operator '"
+                        <> bindingSymbol
+                        <> "' at "
+                        <> renderSourceSpan (tokenSpan operatorToken)
+                    )
+                )
+          | not (operatorDeclared bindingSymbol) ->
+              Left
+                ( parseDiagnostic
+                    ( "operator '"
+                        <> bindingSymbol
+                        <> "' must be declared before binding at "
+                        <> renderSourceSpan (tokenSpan operatorToken)
+                    )
+                )
+          | otherwise -> do
+              (valueExpr, afterExpr) <- parseExpr knownAliases declaredOperators tokensAfterEquals
+              remaining <- consumeDot afterExpr
+              Right
+                ( SSLet
+                    (mkOperatorBindingIdentifier bindingSymbol)
+                    (tokenSpan operatorToken)
+                    valueExpr,
+                  remaining
+                )
+        _ ->
+          Left
+            ( parseDiagnostic
+                ( "internal parser error at "
+                    <> renderSourceSpan (tokenSpan operatorToken)
+                    <> ": expected operator token in operator binding"
+                )
+            )
+
+    operatorDeclared bindingSymbol =
+      any ((== bindingSymbol) . operatorSymbol) declaredOperators
+
 -- | Disambiguate statement-level forms before expression parsing so leading
 -- identifiers can become signatures or bindings when followed by `::` or `=`.
 parseStatement :: StatementContext -> Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
 parseStatement context knownAliases declaredOperators tokens =
   case tokens of
+    Token {tokenKind = TLParen} :
+      operatorToken@Token {tokenKind = TOperator {}} :
+      Token {tokenKind = TRParen} :
+      Token {tokenKind = TEquals} :
+      afterEquals ->
+        fmap singleStatement (parseOperatorBinding context knownAliases declaredOperators operatorToken afterEquals)
     abstractionToken@(Token {tokenKind = TIdentifier name}) : rest
       | isDeclarationContext context,
         looksLikeSupportedCapabilityDeclaration name rest ->
@@ -385,6 +445,11 @@ beginsStatement tokens =
     Token {tokenKind = TData} : _ -> True
     Token {tokenKind = TIdentifier "operator"} : rest
       | looksLikeOperatorDeclaration rest -> True
+    Token {tokenKind = TLParen} :
+      Token {tokenKind = TOperator {}} :
+      Token {tokenKind = TRParen} :
+      Token {tokenKind = TEquals} :
+      _ -> True
     Token {tokenKind = TIdentifier name} : rest
       | looksLikeReservedAbstractionDeclaration name rest -> True
     Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
@@ -1049,6 +1114,15 @@ rejectNestedOperatorDeclaration operatorToken =
   Left
     ( parseDiagnostic
         ( "operator declarations are only allowed at file scope or directly in module bodies at "
+            <> renderSourceSpan (tokenSpan operatorToken)
+        )
+    )
+
+rejectNestedOperatorBinding :: Token -> Either Diagnostic a
+rejectNestedOperatorBinding operatorToken =
+  Left
+    ( parseDiagnostic
+        ( "operator bindings are only allowed at file scope or directly in module bodies at "
             <> renderSourceSpan (tokenSpan operatorToken)
         )
     )

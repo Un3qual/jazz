@@ -29,7 +29,11 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.Identifier
-  ( identifierText
+  ( identifierText,
+    operatorBindingIdentifierText
+  )
+import JazzNext.Compiler.Parser.Operator
+  ( isBuiltinOperatorSymbol
   )
 
 collectBindingNames :: [(Int, Statement)] -> Map Int Text
@@ -55,7 +59,8 @@ freeVarsExprWithBound bound expr =
       freeVarsExprWithBound
         (Set.insert (identifierText parameterName) bound)
         bodyExpr
-    EOperatorValue _ -> Set.empty
+    EOperatorValue operatorSymbol ->
+      operatorBindingFreeVar bound operatorSymbol
     EList elements ->
       Set.unions (map (freeVarsExprWithBound bound) elements)
     ETuple elements ->
@@ -82,16 +87,30 @@ freeVarsExprWithBound bound expr =
             let armBound = extendBoundWithPattern pattern bound
           ]
         )
-    EBinary _ leftExpr rightExpr ->
+    EBinary operatorSymbol leftExpr rightExpr ->
+      Set.unions
+        [ operatorBindingFreeVar bound operatorSymbol,
+          freeVarsExprWithBound bound leftExpr,
+          freeVarsExprWithBound bound rightExpr
+        ]
+    ESectionLeft leftExpr operatorSymbol ->
       Set.union
+        (operatorBindingFreeVar bound operatorSymbol)
         (freeVarsExprWithBound bound leftExpr)
+    ESectionRight operatorSymbol rightExpr ->
+      Set.union
+        (operatorBindingFreeVar bound operatorSymbol)
         (freeVarsExprWithBound bound rightExpr)
-    ESectionLeft leftExpr _ ->
-      freeVarsExprWithBound bound leftExpr
-    ESectionRight _ rightExpr ->
-      freeVarsExprWithBound bound rightExpr
     EBlock statements ->
       freeVarsScopeWithBound bound statements
+
+operatorBindingFreeVar :: Set Text -> Text -> Set Text
+operatorBindingFreeVar bound operatorSymbol
+  | isBuiltinOperatorSymbol operatorSymbol = Set.empty
+  | Set.member bindingName bound = Set.empty
+  | otherwise = Set.singleton bindingName
+  where
+    bindingName = operatorBindingIdentifierText operatorSymbol
 
 freeVarsScopeWithBound :: Set Text -> [Statement] -> Set Text
 freeVarsScopeWithBound initialBound statements =
