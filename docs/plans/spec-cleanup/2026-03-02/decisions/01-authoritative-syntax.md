@@ -6,7 +6,7 @@ size: L
 kind: impl
 autonomous_ready: no
 depends_on: []
-last_verified: 2026-06-02
+last_verified: 2026-06-29
 plan_section: "Follow-up: abstraction semantics beyond explicit class parameter metadata"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -14,7 +14,7 @@ target_paths:
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Use docs/execution/blocker-contracts.md#jn-abstraction-semantics-plan-001 to split the next child; current promoted child is a narrow bundled-prelude Eq(Float16) method body that avoids dictionaries, default methods, superclasses, solver behavior, module-method export/import semantics, alias-overlap policy, and broader runtime evidence."
+deliverable: "Use docs/execution/blocker-contracts.md#jn-abstraction-semantics-plan-001 to split the next child; the next curation candidate is a narrow bundled-prelude Eq(Float32) method body after Eq(Float16) landed, avoiding dictionaries, default methods, superclasses, solver behavior, module-method export/import semantics, alias-overlap policy, and broader runtime evidence."
 ---
 
 # Jazz Spec-Cleanup #1: Authoritative Syntax Implementation Plan
@@ -402,6 +402,15 @@ remaining abstraction follow-up and moved them to `Ready Now`:
 
 - `docs/plans/2026-06-02-jazz-next-typed-qualified-method-dispatch.md`
 - `docs/plans/2026-06-02-jazz-next-bundled-prelude-eq-int-method.md`
+
+On `2026-06-29`, queue execution completed the bundled-prelude
+`Eq(Float16).equals` method-body child:
+
+- `docs/plans/2026-06-29-jazz-next-bundled-prelude-eq-float16-method.md`
+
+The next source-backed curation candidate is the same narrow method-body
+pattern for `Eq(Float32).equals`; `Eq(Float64)` stays deferred until the
+`Float`/`Float64` alias-overlap policy is explicit.
 
 Further abstraction work outside those children stays blocked until separate
 contracts define dictionary or evidence representation, default methods,

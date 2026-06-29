@@ -37,18 +37,19 @@ Each blocked item should answer these questions:
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
 - Smallest unblocker: promote one more narrow bundled method-family child after
-  the landed `Eq(Int).equals`, `Eq(Bool).equals`, and `Eq(Float).equals`
-  children.
+  the landed `Eq(Int).equals`, `Eq(Bool).equals`, `Eq(Float).equals`, and
+  `Eq(Float16).equals` children.
 - Decision needed: none for this child. Add exactly one bundled-prelude
-  `Eq(Float16).equals` body using the existing same-width Float16 equality
+  `Eq(Float32).equals` body using the existing same-width Float32 equality
   path, while leaving alias-overlap questions such as `Eq(Float64)` for a
   later contract.
-- Recommended default: keep the child limited to `Eq(Float16).equals`; do not
+- Recommended default: keep the child limited to `Eq(Float32).equals`; do not
   add dictionaries, runtime evidence values, default methods, superclasses,
   inferred constraints, module method import/export behavior, or broader
   method families.
-- Candidate child: `JN-ABSTRACTION-BUNDLED-PRELUDE-EQ-FLOAT16-METHOD-001`.
-- Target paths: `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`,
+- Candidate child: `JN-ABSTRACTION-BUNDLED-PRELUDE-EQ-FLOAT32-METHOD-001`.
+- Target paths: `docs/plans/2026-06-29-jazz-next-bundled-prelude-eq-float32-method.md`,
+  `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`,
   `jazz-next/stdlib/Prelude.jz`,
   `jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`,
   `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`,
@@ -57,12 +58,12 @@ Each blocked item should answer these questions:
   `docs/execution/blocker-contracts.md`, `docs/execution/queue.md`,
   `docs/plans/spec-cleanup/2026-03-02/decisions/01-authoritative-syntax.md`.
 - Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`.
-- Not in scope: re-promoting completed bundled `Eq(Int).equals` or
-  `Eq(Bool).equals` work, re-promoting `Eq(Float).equals`, unqualified
-  overloads, dictionary passing, runtime evidence values, default methods,
-  superclasses, inferred constraints, `Eq(Float64)` alias-overlap policy, or
-  method import/export rules.
+  `bash scripts/check-docs.sh`; `git diff --check`.
+- Not in scope: re-promoting completed bundled `Eq(Int).equals`,
+  `Eq(Bool).equals`, `Eq(Float).equals`, or `Eq(Float16).equals` work,
+  unqualified overloads, dictionary passing, runtime evidence values, default
+  methods, superclasses, inferred constraints, `Eq(Float64)` alias-overlap
+  policy, or method import/export rules.
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
 
@@ -135,29 +136,22 @@ Each blocked item should answer these questions:
 
 ### JN-PATTERN-FUTURE-FORMS-PLAN-001
 
-- Smallest unblocker: promote lambda-parameter or-patterns now that
-  top-level case-arm or-patterns and lambda-pattern lowering have both landed.
-- Decision needed: none for this child. Reuse the active `POr` binder/type and
-  left-to-right runtime contract for pattern-shaped lambda parameters, which
-  already lower through internal single-arm `EPatternCase`.
-- Recommended default: keep this child limited to lambda-parameter
-  or-patterns. Pattern synonyms, nested/grouped or-patterns, lambda guards,
-  exhaustiveness analysis, and solver behavior remain blocked.
-- Candidate child: `JN-PATTERN-LAMBDA-OR-PARAMETERS-001`.
-- Target paths: `docs/spec/pattern-matching-semantics.md`,
-  `docs/spec/adt-pattern-semantics.md`,
-  `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`,
-  `jazz-next/src/JazzNext/Compiler/Parser.hs`,
-  `jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs`,
-  `jazz-next/test/JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs`,
-  `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs`,
-  `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs`,
-  `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`.
+- Smallest unblocker: none is promotion-ready after guard-only case-arm
+  semantics, top-level case-arm or-patterns, and lambda-parameter or-patterns
+  landed.
+- Decision needed: define a separate pattern-synonym contract if future pattern
+  forms should continue.
+- Recommended default: keep pattern synonyms blocked until they have a concrete
+  binder/type/runtime contract, syntax, target paths, and focused verification.
+- Candidate child: none currently.
+- Target paths: not set until the next pattern-synonym or future-form contract
+  is accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: re-promoting guards or top-level case-arm or-patterns, adding
-  multiple pattern forms at once, pattern synonyms, nested/grouped or-patterns,
-  lambda guards, generic solver behavior, or any legacy compiler work.
+- Not in scope: re-promoting guards, top-level case-arm or-patterns, or
+  lambda-parameter or-patterns, adding multiple pattern forms at once, pattern
+  synonyms without a concrete contract, nested/grouped or-patterns, lambda
+  guards, generic solver behavior, or any legacy compiler work.
 
 ### JN-RUNTIME-PRODUCTIZE-CLOSURE-PLAN-001
 

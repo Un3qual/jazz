@@ -1,6 +1,6 @@
 ---
 id: JN-PATTERN-LAMBDA-OR-PARAMETERS-001
-status: ready
+status: done
 priority: P1
 size: S
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-PATTERN-OR-SEMANTICS-001
 last_verified: 2026-06-29
+completed_on: 2026-06-29
 plan_section: "Implementation batch: Lambda-parameter or-patterns"
 target_paths:
   - docs/spec/pattern-matching-semantics.md

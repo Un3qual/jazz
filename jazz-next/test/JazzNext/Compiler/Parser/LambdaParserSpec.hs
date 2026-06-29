@@ -64,6 +64,7 @@ tests =
     ("parses boolean literal lambda parameter patterns", testParsesBooleanLiteralLambdaParameterPattern),
     ("parses constructor-like lambda parameter patterns", testParsesConstructorLikeLambdaParameterPattern),
     ("parses or-pattern lambda parameter alternatives", testParsesOrPatternLambdaParameter),
+    ("parses comma after or-pattern lambda parameter alternatives", testParsesCommaAfterOrPatternLambdaParameter),
     ("lowering desugars or-pattern parameters through case nodes", testLowerDesugarsOrPatternParameterThroughCase),
     ("rejects grouped or-pattern lambda parameters", testRejectsGroupedOrPatternLambdaParameter),
     ("rejects lambda parameter or-pattern guards", testRejectsLambdaOrPatternParameterGuard),
@@ -284,6 +285,31 @@ testParsesOrPatternLambdaParameter =
         )
     )
     (parseSurfaceProgram "choose = \\(Just item | Also item) -> item.")
+
+testParsesCommaAfterOrPatternLambdaParameter :: IO ()
+testParsesCommaAfterOrPatternLambdaParameter =
+  assertEqual
+    "comma after or-pattern lambda parameter AST"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "choose"
+                (SourceSpan 1 1)
+                ( SELambda
+                    [ SurfaceLambdaPattern
+                        ( SPOr
+                            [ SPConstructor "Just" [SPVariable "item"],
+                              SPConstructor "Also" [SPVariable "item"]
+                            ]
+                        ),
+                      SurfaceLambdaIdentifier "extra"
+                    ]
+                    (SEVar "item")
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "choose = \\(Just item | Also item, extra) -> item.")
 
 testLowerDesugarsOrPatternParameterThroughCase :: IO ()
 testLowerDesugarsOrPatternParameterThroughCase =

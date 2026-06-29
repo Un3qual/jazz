@@ -1,6 +1,6 @@
 ---
 id: JN-ABSTRACTION-BUNDLED-PRELUDE-EQ-FLOAT16-METHOD-001
-status: ready
+status: done
 priority: P1
 size: S
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-ABSTRACTION-BUNDLED-PRELUDE-EQ-FLOAT-METHOD-001
 last_verified: 2026-06-29
+completed_on: 2026-06-29
 plan_section: "Task 1: Bundled prelude Eq(Float16) method body"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/BundledPrelude.hs
