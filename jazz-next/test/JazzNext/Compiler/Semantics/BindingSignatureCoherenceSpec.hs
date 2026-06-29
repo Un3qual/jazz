@@ -148,6 +148,9 @@ tests =
     ("source pipeline reports duplicate constrained signature constraints", testSourceRejectsDuplicateConstrainedSignatureConstraints),
     ("source pipeline accepts variable constrained signature as monomorphic", testSourceAcceptsVariableConstrainedSignatureAsMonomorphic),
     ("source pipeline instantiates variable constrained signatures per use", testSourceInstantiatesVariableConstrainedSignaturePerUse),
+    ("source pipeline instantiates primitive constrained signatures per use", testSourceInstantiatesPrimitiveConstrainedSignaturePerUse),
+    ("source pipeline instantiates equality constrained signatures per use", testSourceInstantiatesEqualityConstrainedSignaturePerUse),
+    ("source pipeline instantiates recursive constrained signatures per use", testSourceInstantiatesRecursiveConstrainedSignaturePerUse),
     ("source pipeline accepts unconstrained variables beside explicit constraints", testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints),
     ("source pipeline honors visible facts for variable constrained signatures", testSourceHonorsVisibleFactsForVariableConstrainedSignatures),
     ("source pipeline rejects missing use-site facts for variable constrained signatures", testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures),
@@ -973,6 +976,18 @@ testSourceAcceptsVariableConstrainedSignatureAsMonomorphic =
 testSourceInstantiatesVariableConstrainedSignaturePerUse :: IO ()
 testSourceInstantiatesVariableConstrainedSignaturePerUse =
   assertSourceOk "id :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nx = id 1.\ny = id True."
+
+testSourceInstantiatesPrimitiveConstrainedSignaturePerUse :: IO ()
+testSourceInstantiatesPrimitiveConstrainedSignaturePerUse =
+  assertSourceOkWithoutPrelude "class Num(a) { }.\nimpl Num(Int32) { }.\nimpl Num(Int64) { }.\nadd :: @{Num(a)}: a -> a -> a.\nadd = \\(x) -> \\(y) -> x + y.\na32 :: Int32.\na32 = 1.\nb32 :: Int32.\nb32 = 2.\nsmall = add a32 b32.\na64 :: Int64.\na64 = 3.\nb64 :: Int64.\nb64 = 4.\nwide = add a64 b64."
+
+testSourceInstantiatesEqualityConstrainedSignaturePerUse :: IO ()
+testSourceInstantiatesEqualityConstrainedSignaturePerUse =
+  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Bool) { }.\nsame :: @{Eq(a)}: a -> a -> Bool.\nsame = \\(x) -> \\(y) -> x == y.\nintValue = same 1 2.\nboolValue = same True False."
+
+testSourceInstantiatesRecursiveConstrainedSignaturePerUse :: IO ()
+testSourceInstantiatesRecursiveConstrainedSignaturePerUse =
+  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Bool) { }.\nchoose :: @{Eq(a)}: a -> a.\nchoose = if True \\(x) -> x else choose.\nintValue = choose 1.\nboolValue = choose True."
 
 testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints :: IO ()
 testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints =

@@ -169,6 +169,9 @@ tests =
     ( "source pipeline rejects duplicate binders inside one or-pattern alternative",
       testSourcePipelineRejectsDuplicateBindersInsideOrPatternAlternative
     ),
+    ( "core pipeline rejects duplicate binders inside one or-pattern alternative",
+      testCorePipelineRejectsDuplicateBindersInsideOrPatternAlternative
+    ),
     ( "core pipeline rejects duplicate outer binder inside an or-pattern",
       testCorePipelineRejectsDuplicateOuterBinderInsideOrPattern
     ),
@@ -503,6 +506,33 @@ testSourcePipelineRejectsDuplicateBindersInsideOrPatternAlternative = do
     (compileErrors result)
   assertSingleDiagnosticContains
     "duplicate binder inside or-pattern text"
+    "duplicate case pattern binder 'item'"
+    (compileErrors result)
+
+testCorePipelineRejectsDuplicateBindersInsideOrPatternAlternative :: IO ()
+testCorePipelineRejectsDuplicateBindersInsideOrPatternAlternative = do
+  result <-
+    compileExpr
+      defaultWarningSettings
+      ( EPatternCase
+          (ETuple [ELit (LInt 1), ELit (LInt 2)])
+          [ CaseArm
+              ( POr
+                  [ PTuple [PVariable "item", PVariable "item"],
+                    PTuple [PVariable "item", PWildcard]
+                  ]
+              )
+              Nothing
+              (EVar "item"),
+            CaseArm PWildcard Nothing (ELit (LInt 0))
+          ]
+      )
+  assertSingleDiagnosticCode
+    "duplicate binder inside or-pattern alternative code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "duplicate binder inside or-pattern alternative text"
     "duplicate case pattern binder 'item'"
     (compileErrors result)
 

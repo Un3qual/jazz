@@ -104,6 +104,7 @@ tests =
     ("declared user right operator section preserves argument order", testDeclaredUserRightOperatorSectionRuntimeSuccess),
     ("recursive declared user operator applies at runtime", testRecursiveDeclaredUserOperatorRuntimeSuccess),
     ("recursive declared user operator value alias produces deterministic runtime diagnostic", testRecursiveDeclaredUserOperatorValueAliasRuntimeError),
+    ("indirect recursive declared user operator value alias produces deterministic runtime diagnostic", testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError),
     ("map + hd evaluates over nested list literals", testMapHdNestedListsRuntimeSuccess),
     ("filter keeps only matching list elements", testFilterRuntimeSuccess),
     ("tl returns the tail of a non-empty list", testTlReturnsTailRuntimeValue),
@@ -704,6 +705,32 @@ testRecursiveDeclaredUserOperatorValueAliasRuntimeError = do
         (runRuntimeErrors result)
       assertSingleDiagnosticContains
         "declared operator value alias cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError :: IO ()
+testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError = do
+  maybeResult <-
+    timeout
+      1000000
+      ( try
+          (runSource defaultWarningSettings "operator %% tier 2.\n(%%) = alias.\nalias = (%%).\n1 %% 2.")
+          :: IO (Either SomeException RunResult)
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected indirect declared operator value alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for indirect declared operator value alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "indirect declared operator value alias cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "indirect declared operator value alias cycle runtime text"
         "recursive alias cycle"
         (runRuntimeErrors result)
       assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)

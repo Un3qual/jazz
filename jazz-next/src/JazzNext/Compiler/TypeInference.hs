@@ -11,6 +11,7 @@ module JazzNext.Compiler.TypeInference
     inferExpressionDefault
   ) where
 
+import Control.Applicative ((<|>))
 import Data.List (foldl')
 import Data.Maybe (isNothing)
 import qualified Data.Map.Strict as Map
@@ -256,7 +257,12 @@ data TypeBinding
   | ConstructorTypeBinding Identifier [Identifier] [ConstructorArgumentType]
   deriving (Eq, Show)
 
-data TypeScheme = TypeScheme (Set Int) [TypeSchemeConstraint] ExpressionType
+data TypeScheme = TypeScheme (Set Int) [TypeSchemeConstraint] [TypeSchemePrimitiveConstraint] ExpressionType
+  deriving (Eq, Show)
+
+data TypeSchemePrimitiveConstraint
+  = TypeSchemeNumericConstraint NumericConstraint ExpressionType
+  | TypeSchemeStrictEqualityConstraint ExpressionType
   deriving (Eq, Show)
 
 data TypeSchemeConstraint = TypeSchemeConstraint Text ExpressionType
@@ -1109,7 +1115,7 @@ numericSectionCounterpartType sectionOperandType state =
 inferScopeType :: BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType builtinMode initialEnv initialState statements =
   let (scopeType, finalState) =
-        go initialEnv Nothing Nothing initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
+        go initialEnv Nothing Nothing Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
    in (scopeType, restoreCapabilityFacts initialState finalState)
   where
     indexedStatements = zip [0 ..] statements
@@ -1127,31 +1133,31 @@ inferScopeType builtinMode initialEnv initialState statements =
     stateAfterBindingSeeds = seededState
     initialModuleBaselineFacts = capabilityFactsFromState initialState
 
-    go env lastExprType pendingSignatureType moduleBaselineFacts state remainingStatements =
+    go env lastExprType pendingSignatureType pendingSignaturesByStatement moduleBaselineFacts state remainingStatements =
       case remainingStatements of
         [] -> (lastExprType, state)
         (statementIndex, statement) : rest ->
           case statement of
             SModule _ modulePath ->
-              go env lastExprType pendingSignatureType moduleBaselineFacts (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
+              go env lastExprType pendingSignatureType pendingSignaturesByStatement moduleBaselineFacts (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
             SImport _ modulePath maybeAlias maybeSymbolNames ->
-              go env lastExprType pendingSignatureType moduleBaselineFacts (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
+              go env lastExprType pendingSignatureType pendingSignaturesByStatement moduleBaselineFacts (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
             SClass {} ->
               let nextState = seedStatementCapabilityFact state statement
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
-               in go env lastExprType Nothing nextModuleBaselineFacts nextState rest
+               in go env lastExprType Nothing pendingSignaturesByStatement nextModuleBaselineFacts nextState rest
             SImpl _ capabilityName arguments methods ->
               let seededState = seedStatementCapabilityFact state statement
                   nextState =
                     checkImplMethodBodies builtinMode env seededState capabilityName arguments methods
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
-               in go env lastExprType Nothing nextModuleBaselineFacts nextState rest
+               in go env lastExprType Nothing pendingSignaturesByStatement nextModuleBaselineFacts nextState rest
             SData spanValue typeName typeParameters constructors ->
               let (nextEnv, nextState) =
                     registerDataConstructors spanValue typeName typeParameters constructors env state
-               in go nextEnv lastExprType Nothing moduleBaselineFacts nextState rest
+               in go nextEnv lastExprType Nothing pendingSignaturesByStatement moduleBaselineFacts nextState rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
                     case signaturePayloadToSignatureType signaturePayload signatureState of
@@ -1172,7 +1178,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                             (mkInvalidSignatureTypeError signatureState (identifierText name) signatureSpan signaturePayload)
                         )
                   signatureState = state
-               in go env lastExprType nextPendingSignature moduleBaselineFacts nextState rest
+               in go env lastExprType nextPendingSignature pendingSignaturesByStatement moduleBaselineFacts nextState rest
             SLet name bindingSpan valueExpr ->
               let nameText = identifierText name
                   (envForStatement, stateForStatement) =
@@ -1206,14 +1212,20 @@ inferScopeType builtinMode initialEnv initialState statements =
                           (PlainTypeBinding (pendingSignatureDeclaredType pendingSignature))
                           envWithBindingSeed
                       Nothing -> envWithBindingSeed
+                  maybePreservedSchemeAliasBinding =
+                    schemePreservingAliasBinding nameText envWithPendingSignature valueExpr
                   maybeExpectedValueType =
                     pendingSignatureDeclaredType <$> matchingPendingSignature
                   (rawValueType, rawStateAfterValue) =
-                    case maybeExpectedValueType of
-                      Just expectedValueType ->
-                        inferExprTypeWithExpected builtinMode envWithPendingSignature stateForStatement expectedValueType valueExpr
-                      Nothing ->
-                        inferExprType builtinMode envWithPendingSignature stateForStatement valueExpr
+                    case maybePreservedSchemeAliasBinding of
+                      Just (SchemeTypeBinding (TypeScheme _ _ _ schemeType)) ->
+                        (Just schemeType, stateForStatement)
+                      _ ->
+                        case maybeExpectedValueType of
+                          Just expectedValueType ->
+                            inferExprTypeWithExpected builtinMode envWithPendingSignature stateForStatement expectedValueType valueExpr
+                          Nothing ->
+                            inferExprType builtinMode envWithPendingSignature stateForStatement valueExpr
                   valueType =
                     targetedFractionalLiteralBindingType
                       nameText
@@ -1285,16 +1297,22 @@ inferScopeType builtinMode initialEnv initialState statements =
                                 (inferRuntimeTypeHints stateAfterExplicitConstraintCheck)
                           }
                       Nothing -> stateAfterExplicitConstraintCheck
+                  nextPendingSignaturesByStatement =
+                    case matchingPendingSignature of
+                      Just pendingSignature ->
+                        Map.insert statementIndex pendingSignature pendingSignaturesByStatement
+                      Nothing -> pendingSignaturesByStatement
                   nextEnvBeforeRecursiveGroupGeneralization =
-                    case nextBindingForValue statementIndex nameText envForStatement valueExpr nextBindingType matchingPendingSignature stateAfterRuntimeHint of
+                    case maybePreservedSchemeAliasBinding <|> nextBindingForValue statementIndex nameText envForStatement valueExpr nextBindingType matchingPendingSignature stateAfterRuntimeHint of
                       Just binding -> Map.insert nameText binding env
                       Nothing -> env
                   nextEnv =
                     generalizeCompletedRecursiveGroup
+                      nextPendingSignaturesByStatement
                       statementIndex
                       nextEnvBeforeRecursiveGroupGeneralization
                       stateAfterRuntimeHint
-               in go nextEnv lastExprType Nothing moduleBaselineFacts stateAfterRuntimeHint rest
+               in go nextEnv lastExprType Nothing nextPendingSignaturesByStatement moduleBaselineFacts stateAfterRuntimeHint rest
             SExpr exprSpan expr ->
               let (envForStatement, stateForStatement) =
                     exposeVisibleRecursiveGroupSchemes statementIndex env state
@@ -1306,7 +1324,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                       exprSpan
                       stateForStatement
                       stateAfterExpr
-               in go env exprType Nothing moduleBaselineFacts stateAfterExplicitConstraintCheck rest
+               in go env exprType Nothing pendingSignaturesByStatement moduleBaselineFacts stateAfterExplicitConstraintCheck rest
 
     nextBindingForValue ::
       Int ->
@@ -1339,6 +1357,21 @@ inferScopeType builtinMode initialEnv initialState statements =
                     Just builtinSymbol -> Just (BuiltinAliasTypeBinding builtinSymbol)
                     Nothing -> monomorphicBinding
         _ -> monomorphicBinding
+
+    schemePreservingAliasBinding :: Text -> TypeEnv -> Expr -> Maybe TypeBinding
+    schemePreservingAliasBinding bindingNameText currentEnv valueExpr =
+      case valueExpr of
+        EVar referencedName
+          | isSyntheticModuleSchemeBridge bindingNameText (identifierText referencedName) ->
+              case Map.lookup (identifierText referencedName) currentEnv of
+                Just binding@(SchemeTypeBinding _) -> Just binding
+                _ -> Nothing
+        _ -> Nothing
+
+    isSyntheticModuleSchemeBridge :: Text -> Text -> Bool
+    isSyntheticModuleSchemeBridge bindingNameText referencedNameText =
+      Text.isPrefixOf "__module::" bindingNameText
+        || Text.isPrefixOf "__module::" referencedNameText
 
     isSyntheticAliasConstructorBinding bindingNameText referencedName =
       Text.isInfixOf "::" bindingNameText && Text.isPrefixOf "__module::" referencedName
@@ -1382,8 +1415,8 @@ inferScopeType builtinMode initialEnv initialState statements =
         && Set.notMember statementIndex signedBindingStatements
         && not (isDirectConstructorAlias currentEnv valueExpr)
 
-    generalizeCompletedRecursiveGroup :: Int -> TypeEnv -> InferState -> TypeEnv
-    generalizeCompletedRecursiveGroup statementIndex currentEnv state =
+    generalizeCompletedRecursiveGroup :: Map Int PendingSignatureType -> Int -> TypeEnv -> InferState -> TypeEnv
+    generalizeCompletedRecursiveGroup pendingSignatures statementIndex currentEnv state =
       case Map.lookup statementIndex recursiveGroupsByStatement of
         Just groupMembers
           | not (null groupMembers),
@@ -1397,7 +1430,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                   envOutsideGroup =
                     foldl' (flip Map.delete) currentEnv groupBindingNames
                in foldl'
-                    (generalizeRecursiveGroupMember envOutsideGroup state)
+                    (generalizeRecursiveGroupMember pendingSignatures envOutsideGroup state)
                     currentEnv
                     groupMembers
         _ -> currentEnv
@@ -1550,7 +1583,7 @@ inferScopeType builtinMode initialEnv initialState statements =
       case Map.lookup memberIndex bindingNamesByStatement of
         Just bindingNameText
           | latestBindingIndexBefore statementIndex bindingNameText == Just memberIndex ->
-              generalizeRecursiveGroupMember envOutsideGroup state currentEnv memberIndex
+              generalizeRecursiveGroupMember Map.empty envOutsideGroup state currentEnv memberIndex
         _ -> currentEnv
 
     latestBindingIndexBefore :: Int -> Text -> Maybe Int
@@ -1566,9 +1599,16 @@ inferScopeType builtinMode initialEnv initialState statements =
                 _ -> Just memberIndex
           | otherwise = currentLatest
 
-    generalizeRecursiveGroupMember :: TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
-    generalizeRecursiveGroupMember envOutsideGroup state currentEnv memberIndex =
+    generalizeRecursiveGroupMember :: Map Int PendingSignatureType -> TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
+    generalizeRecursiveGroupMember pendingSignatures envOutsideGroup state currentEnv memberIndex =
       case (Map.lookup memberIndex statementsByIndex, Map.lookup memberIndex bindingNamesByStatement) of
+        (Just (SLet _ _ valueExpr), Just bindingNameText)
+          | Just pendingSignature <- Map.lookup memberIndex pendingSignatures,
+            shouldGeneralizeExplicitSignatureBinding envOutsideGroup valueExpr pendingSignature ->
+              Map.insert
+                bindingNameText
+                (generalizedExplicitSignatureBinding envOutsideGroup state pendingSignature)
+                currentEnv
         (Just (SLet _ _ valueExpr), Just bindingNameText)
           | shouldGeneralizeOrdinaryBinding memberIndex envOutsideGroup valueExpr Nothing ->
               case Map.lookup memberIndex bindingSeedsByStatement of
@@ -2011,7 +2051,7 @@ generalizedOrdinaryBinding env state expressionType =
    in
     if Set.null schemeVariables
       then PlainTypeBinding resolvedType
-      else SchemeTypeBinding (TypeScheme schemeVariables [] resolvedType)
+      else SchemeTypeBinding (TypeScheme schemeVariables [] [] resolvedType)
 
 generalizedExplicitSignatureBinding ::
   TypeEnv ->
@@ -2028,11 +2068,34 @@ generalizedExplicitSignatureBinding env state pendingSignature =
           (freeTypeVariablesInTypeSchemeConstraints resolvedConstraints)
       environmentVariables = freeTypeVariablesInEnv state env
       quantifiedVariables = Set.difference freeVariables environmentVariables
-      constrainedVariables = primitiveConstrainedTypeVariables state
-      schemeVariables = Set.difference quantifiedVariables constrainedVariables
-   in if Set.null schemeVariables && null resolvedConstraints
+      schemeVariables = quantifiedVariables
+      primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
+   in if Set.null schemeVariables && null resolvedConstraints && null primitiveConstraints
         then PlainTypeBinding resolvedType
-        else SchemeTypeBinding (TypeScheme schemeVariables resolvedConstraints resolvedType)
+        else SchemeTypeBinding (TypeScheme schemeVariables resolvedConstraints primitiveConstraints resolvedType)
+
+typeSchemePrimitiveConstraints :: InferState -> Set Int -> [TypeSchemePrimitiveConstraint]
+typeSchemePrimitiveConstraints state schemeVariables =
+  numericConstraints ++ equalityConstraints
+  where
+    targetTypeFor typeVar =
+      let targetType = resolveType state (TVarType typeVar)
+          targetVariables = freeTypeVariables targetType
+       in if not (Set.null targetVariables) && targetVariables `Set.isSubsetOf` schemeVariables
+            then Just targetType
+            else Nothing
+
+    numericConstraints =
+      [ TypeSchemeNumericConstraint numericConstraint targetType
+        | (typeVar, numericConstraint) <- Map.toList (inferNumericVars state),
+          Just targetType <- [targetTypeFor typeVar]
+      ]
+
+    equalityConstraints =
+      [ TypeSchemeStrictEqualityConstraint targetType
+        | typeVar <- Set.toList (inferStrictEqualityVars state),
+          Just targetType <- [targetTypeFor typeVar]
+      ]
 
 primitiveConstrainedTypeVariables :: InferState -> Set Int
 primitiveConstrainedTypeVariables state =
@@ -2052,6 +2115,24 @@ freeTypeVariablesInTypeSchemeConstraint :: TypeSchemeConstraint -> Set Int
 freeTypeVariablesInTypeSchemeConstraint (TypeSchemeConstraint _ argumentType) =
   freeTypeVariables argumentType
 
+resolveTypeSchemePrimitiveConstraint :: InferState -> TypeSchemePrimitiveConstraint -> TypeSchemePrimitiveConstraint
+resolveTypeSchemePrimitiveConstraint state primitiveConstraint =
+  case primitiveConstraint of
+    TypeSchemeNumericConstraint numericConstraint argumentType ->
+      TypeSchemeNumericConstraint numericConstraint (resolveType state argumentType)
+    TypeSchemeStrictEqualityConstraint argumentType ->
+      TypeSchemeStrictEqualityConstraint (resolveType state argumentType)
+
+freeTypeVariablesInTypeSchemePrimitiveConstraints :: [TypeSchemePrimitiveConstraint] -> Set Int
+freeTypeVariablesInTypeSchemePrimitiveConstraints primitiveConstraints =
+  Set.unions (map freeTypeVariablesInTypeSchemePrimitiveConstraint primitiveConstraints)
+
+freeTypeVariablesInTypeSchemePrimitiveConstraint :: TypeSchemePrimitiveConstraint -> Set Int
+freeTypeVariablesInTypeSchemePrimitiveConstraint primitiveConstraint =
+  case primitiveConstraint of
+    TypeSchemeNumericConstraint _ argumentType -> freeTypeVariables argumentType
+    TypeSchemeStrictEqualityConstraint argumentType -> freeTypeVariables argumentType
+
 freeTypeVariablesInEnv :: InferState -> TypeEnv -> Set Int
 freeTypeVariablesInEnv state =
   Set.unions . map (freeTypeVariablesInBinding state) . Map.elems
@@ -2061,11 +2142,13 @@ freeTypeVariablesInBinding state binding =
   case binding of
     PlainTypeBinding expressionType ->
       freeTypeVariables (resolveType state expressionType)
-    SchemeTypeBinding (TypeScheme quantifiedVariables explicitConstraints expressionType) ->
+    SchemeTypeBinding (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints expressionType) ->
       Set.difference
-        ( Set.union
-            (freeTypeVariables (resolveType state expressionType))
-            (freeTypeVariablesInTypeSchemeConstraints (map (resolveTypeSchemeConstraint state) explicitConstraints))
+        ( Set.unions
+            [ freeTypeVariables (resolveType state expressionType),
+              freeTypeVariablesInTypeSchemeConstraints (map (resolveTypeSchemeConstraint state) explicitConstraints),
+              freeTypeVariablesInTypeSchemePrimitiveConstraints (map (resolveTypeSchemePrimitiveConstraint state) primitiveConstraints)
+            ]
         )
         quantifiedVariables
     BuiltinAliasTypeBinding {} -> Set.empty
@@ -2261,7 +2344,7 @@ instantiateTypeBinding binding state =
         Nothing -> (Nothing, state)
 
 instantiateTypeScheme :: TypeScheme -> InferState -> (Maybe ExpressionType, InferState)
-instantiateTypeScheme (TypeScheme quantifiedVariables explicitConstraints expressionType) state =
+instantiateTypeScheme (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints expressionType) state =
   let (freshBindings, nextState) =
         foldl'
           allocateFreshBinding
@@ -2271,8 +2354,12 @@ instantiateTypeScheme (TypeScheme quantifiedVariables explicitConstraints expres
         replaceTypeVariables freshBindings expressionType
       instantiatedConstraints =
         map (instantiateTypeSchemeConstraint freshBindings) explicitConstraints
+      instantiatedPrimitiveConstraints =
+        map (instantiateTypeSchemePrimitiveConstraint freshBindings) primitiveConstraints
+      stateWithPrimitiveConstraints =
+        applyTypeSchemePrimitiveConstraints instantiatedPrimitiveConstraints nextState
       stateWithDeferredConstraints =
-        deferExplicitConstraints instantiatedConstraints nextState
+        deferExplicitConstraints instantiatedConstraints stateWithPrimitiveConstraints
    in (Just (resolveType stateWithDeferredConstraints instantiatedType), stateWithDeferredConstraints)
   where
     allocateFreshBinding (bindings, stateAcc) typeVar =
@@ -2282,6 +2369,34 @@ instantiateTypeScheme (TypeScheme quantifiedVariables explicitConstraints expres
 instantiateTypeSchemeConstraint :: Map Int ExpressionType -> TypeSchemeConstraint -> TypeSchemeConstraint
 instantiateTypeSchemeConstraint replacements (TypeSchemeConstraint constraintName argumentType) =
   TypeSchemeConstraint constraintName (replaceTypeVariables replacements argumentType)
+
+instantiateTypeSchemePrimitiveConstraint :: Map Int ExpressionType -> TypeSchemePrimitiveConstraint -> TypeSchemePrimitiveConstraint
+instantiateTypeSchemePrimitiveConstraint replacements primitiveConstraint =
+  case primitiveConstraint of
+    TypeSchemeNumericConstraint numericConstraint argumentType ->
+      TypeSchemeNumericConstraint numericConstraint (replaceTypeVariables replacements argumentType)
+    TypeSchemeStrictEqualityConstraint argumentType ->
+      TypeSchemeStrictEqualityConstraint (replaceTypeVariables replacements argumentType)
+
+applyTypeSchemePrimitiveConstraints :: [TypeSchemePrimitiveConstraint] -> InferState -> InferState
+applyTypeSchemePrimitiveConstraints primitiveConstraints state =
+  foldl' applyPrimitiveConstraint state primitiveConstraints
+  where
+    applyPrimitiveConstraint stateAcc primitiveConstraint =
+      case primitiveConstraint of
+        TypeSchemeNumericConstraint numericConstraint argumentType ->
+          case constrainNumericOperatorType numericConstraint argumentType stateAcc of
+            Just nextState -> nextState
+            Nothing -> stateAcc
+        TypeSchemeStrictEqualityConstraint argumentType ->
+          case resolveType stateAcc argumentType of
+            TVarType typeVar ->
+              addStrictEqualityTypeVarConstraint typeVar stateAcc
+            resolvedType
+              | supportsRuntimeEqualityType stateAcc resolvedType ->
+                  stateAcc
+              | otherwise ->
+                  stateAcc
 
 deferExplicitConstraints :: [TypeSchemeConstraint] -> InferState -> InferState
 deferExplicitConstraints explicitConstraints state
