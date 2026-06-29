@@ -154,17 +154,26 @@ tests =
     ( "source pipeline accepts or-patterns with common binders",
       testSourcePipelineAcceptsOrPatternCommonBinders
     ),
+    ( "source pipeline accepts lambda or-pattern parameters with common binders",
+      testSourcePipelineAcceptsLambdaOrPatternCommonBinders
+    ),
     ( "source pipeline accepts or-pattern guard binders",
       testSourcePipelineAcceptsOrPatternGuardBinders
     ),
     ( "source pipeline rejects or-pattern binder set mismatches",
       testSourcePipelineRejectsOrPatternBinderSetMismatch
     ),
+    ( "source pipeline rejects lambda or-pattern binder set mismatches",
+      testSourcePipelineRejectsLambdaOrPatternBinderSetMismatch
+    ),
     ( "source pipeline does not expose one-sided or-pattern binders to arm bodies",
       testSourcePipelineDoesNotExposeOneSidedOrPatternBindersToArmBodies
     ),
     ( "source pipeline rejects incompatible or-pattern binder types",
       testSourcePipelineRejectsIncompatibleOrPatternBinderTypes
+    ),
+    ( "source pipeline rejects incompatible lambda or-pattern binder types",
+      testSourcePipelineRejectsIncompatibleLambdaOrPatternBinderTypes
     ),
     ( "source pipeline rejects duplicate binders inside one or-pattern alternative",
       testSourcePipelineRejectsDuplicateBindersInsideOrPatternAlternative
@@ -456,6 +465,11 @@ testSourcePipelineAcceptsOrPatternCommonBinders = do
   result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. value = Also 41. x = case value { | Just item | Also item -> item + 1 | Nothing -> 0 }."
   assertCompiles "or-pattern common binder result" result
 
+testSourcePipelineAcceptsLambdaOrPatternCommonBinders :: IO ()
+testSourcePipelineAcceptsLambdaOrPatternCommonBinders = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. choose = \\(Just item | Also item) -> item + 1. x = choose (Also 41)."
+  assertCompiles "lambda or-pattern common binder result" result
+
 testSourcePipelineAcceptsOrPatternGuardBinders :: IO ()
 testSourcePipelineAcceptsOrPatternGuardBinders = do
   result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. value = Just 4. x = case value { | Just item | Also item if item > 0 -> item | Nothing -> 0 }."
@@ -470,6 +484,18 @@ testSourcePipelineRejectsOrPatternBinderSetMismatch = do
     (compileErrors result)
   assertSingleDiagnosticContains
     "or-pattern binder mismatch text"
+    "or-pattern alternatives must bind the same names"
+    (compileErrors result)
+
+testSourcePipelineRejectsLambdaOrPatternBinderSetMismatch :: IO ()
+testSourcePipelineRejectsLambdaOrPatternBinderSetMismatch = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. choose = \\(Just item | Nothing) -> 0. x = choose Nothing."
+  assertSingleDiagnosticCode
+    "lambda or-pattern binder mismatch code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "lambda or-pattern binder mismatch text"
     "or-pattern alternatives must bind the same names"
     (compileErrors result)
 
@@ -494,6 +520,18 @@ testSourcePipelineRejectsIncompatibleOrPatternBinderTypes = do
     (compileErrors result)
   assertSingleDiagnosticContains
     "or-pattern binder type mismatch text"
+    "or-pattern binder 'item' has incompatible types"
+    (compileErrors result)
+
+testSourcePipelineRejectsIncompatibleLambdaOrPatternBinderTypes :: IO ()
+testSourcePipelineRejectsIncompatibleLambdaOrPatternBinderTypes = do
+  result <- compileSource defaultWarningSettings "pair = (True, 0). choose = \\((item, 0) | (True, item)) -> item. x = choose pair."
+  assertSingleDiagnosticCode
+    "lambda or-pattern binder type mismatch code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "lambda or-pattern binder type mismatch text"
     "or-pattern binder 'item' has incompatible types"
     (compileErrors result)
 

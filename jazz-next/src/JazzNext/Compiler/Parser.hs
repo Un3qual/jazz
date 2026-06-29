@@ -2887,6 +2887,8 @@ parseLambdaParameter tokens =
           parsePatternLambdaParameter tokens
       | startsAsPatternTail rest ->
           parsePatternLambdaParameter tokens
+      | startsLambdaOrPatternTail rest ->
+          parsePatternLambdaParameter tokens
       | otherwise ->
           Right (SurfaceLambdaIdentifier (mkIdentifier parameterName), rest)
     [] ->
@@ -2904,13 +2906,19 @@ parseLambdaParameter tokens =
 
 parsePatternLambdaParameter :: [Token] -> Either Diagnostic (SurfaceLambdaParameter, [Token])
 parsePatternLambdaParameter tokens = do
-  (patternValue, rest) <- parseCasePattern tokens
+  (patternValue, rest) <- parseCaseArmPattern tokens
   Right (SurfaceLambdaPattern patternValue, rest)
 
 startsAsPatternTail :: [Token] -> Bool
 startsAsPatternTail tokens =
   case tokens of
     Token {tokenKind = TAt} : _ -> True
+    _ -> False
+
+startsLambdaOrPatternTail :: [Token] -> Bool
+startsLambdaOrPatternTail tokens =
+  case tokens of
+    Token {tokenKind = TOperator "|"} : _ -> True
     _ -> False
 
 collectUntilDot :: [Token] -> Either Diagnostic ([Token], [Token])
