@@ -69,6 +69,13 @@ bundledPreludeSource =
               "equals = \\(left) -> \\(right) -> left == right.",
               "}."
             ]
+        ("Eq", "Float16") ->
+          Text.intercalate
+            "\n"
+            [ "impl Eq(Float16) {",
+              "equals = \\(left) -> \\(right) -> left == right.",
+              "}."
+            ]
         _ ->
           "impl " <> className <> "(" <> targetType <> ") { }."
 

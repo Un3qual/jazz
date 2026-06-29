@@ -174,6 +174,7 @@ tests =
     ("qualified method dispatch preserves section binding signatures", testQualifiedMethodDispatchPreservesSectionBindingSignature),
     ("qualified method dispatch treats Float as Float64 alias at runtime", testQualifiedMethodDispatchTreatsFloatAsFloat64Alias),
     ("qualified method dispatch executes Float equality body", testQualifiedMethodDispatchExecutesFloatEqualityBody),
+    ("qualified method dispatch executes Float16 equality body", testQualifiedMethodDispatchExecutesFloat16EqualityBody),
     ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
     ("qualified method dispatch preserves selected method signatures", testQualifiedMethodDispatchPreservesSelectedMethodSignature),
@@ -1445,6 +1446,22 @@ testQualifiedMethodDispatchExecutesFloatEqualityBody = do
           <> "left :: Float.\nleft = 1.5.\n"
           <> "same :: Float.\nsame = 1.5.\n"
           <> "different :: Float.\ndifferent = 2.25.\n"
+          <> "(RuntimeEq::equals left same, RuntimeEq::equals left different)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+
+testQualifiedMethodDispatchExecutesFloat16EqualityBody :: IO ()
+testQualifiedMethodDispatchExecutesFloat16EqualityBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Float16) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+          <> "left :: Float16.\nleft = 1.5.\n"
+          <> "same :: Float16.\nsame = 1.5.\n"
+          <> "different :: Float16.\ndifferent = 2.25.\n"
           <> "(RuntimeEq::equals left same, RuntimeEq::equals left different)."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
