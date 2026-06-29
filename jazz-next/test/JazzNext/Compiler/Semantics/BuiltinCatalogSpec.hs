@@ -75,6 +75,7 @@ tests =
     ("catalog ownership contract is stable", testCatalogOwnershipContract),
     ("kernel bridge names map to builtin targets", testKernelBridgeTargetName),
     ("kernel bridge prefix stays stable", testKernelBridgePrefix),
+    ("default conversion aliases stay prelude-only", testDefaultConversionAliasesStayPreludeOnly),
     ("bundled prelude file stays reproducible from catalog", testBundledPreludeFileStaysReproducibleFromCatalog),
     ("bundled prelude comparison normalizes line endings", testBundledPreludeComparisonNormalizesLineEndings),
     ("direct compile helper stays kernel-only", testDirectCompileHelperStaysKernelOnly),
@@ -148,6 +149,23 @@ testKernelBridgeTargetName = do
 testKernelBridgePrefix :: IO ()
 testKernelBridgePrefix =
   assertEqual "kernel bridge prefix" "__kernel_" kernelBridgeBindingPrefix
+
+testDefaultConversionAliasesStayPreludeOnly :: IO ()
+testDefaultConversionAliasesStayPreludeOnly = do
+  assertEqual "toInt is not a catalog builtin" Nothing (lookupBuiltinSymbol "toInt")
+  assertEqual "toFloat is not a catalog builtin" Nothing (lookupBuiltinSymbol "toFloat")
+  assertEqual "toInt has no kernel bridge" Nothing (kernelBridgeTargetName "__kernel_toInt")
+  assertEqual "toFloat has no kernel bridge" Nothing (kernelBridgeTargetName "__kernel_toFloat")
+  toIntResult <- compileSourceWithPrelude defaultWarningSettings Nothing "x = __kernel_toInt 1."
+  assertEqual
+    "no-prelude compile rejects __kernel_toInt"
+    ["E1001: unbound variable '__kernel_toInt'"]
+    (map renderDiagnostic (compileErrors toIntResult))
+  toFloatResult <- compileSourceWithPrelude defaultWarningSettings Nothing "x = __kernel_toFloat 1."
+  assertEqual
+    "no-prelude compile rejects __kernel_toFloat"
+    ["E1001: unbound variable '__kernel_toFloat'"]
+    (map renderDiagnostic (compileErrors toFloatResult))
 
 testBundledPreludeFileStaysReproducibleFromCatalog :: IO ()
 testBundledPreludeFileStaysReproducibleFromCatalog = do

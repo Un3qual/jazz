@@ -7,11 +7,18 @@ module JazzNext.Compiler.Identifier
     identifierText,
     identifierPurity,
     mkIdentifier,
+    mkOperatorBindingIdentifier,
     mkQualifiedIdentifier,
+    isOperatorBindingIdentifierText,
+    operatorBindingIdentifierText,
     qualifiedIdentifierText,
     splitQualifiedIdentifierText
   ) where
 
+import Data.Char
+  ( ord,
+    toUpper
+  )
 import Data.String
   ( IsString (..)
   )
@@ -22,6 +29,9 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.Purity
   ( Purity,
     namePurity
+  )
+import Numeric
+  ( showHex
   )
 
 -- | Names annotated with the purity implied by their spelling.
@@ -39,6 +49,29 @@ mkIdentifier name =
     { identifierText = name,
       identifierPurity = namePurity name
     }
+
+-- | Render the compiler-owned binding name that backs an executable user
+-- operator declaration. The prefix is not source-identifiable, and every
+-- operator character is percent-encoded so a trailing @!@ cannot mark the
+-- hidden binding as impure.
+operatorBindingIdentifierText :: Text -> Text
+operatorBindingIdentifierText operatorSymbol =
+  operatorBindingIdentifierPrefix <> Text.concatMap encodeOperatorChar operatorSymbol
+  where
+    encodeOperatorChar char =
+      let hexText = Text.pack (map toUpper (showHex (ord char) ""))
+       in "%" <> Text.justifyRight 2 '0' hexText
+
+operatorBindingIdentifierPrefix :: Text
+operatorBindingIdentifierPrefix = "$operator:"
+
+isOperatorBindingIdentifierText :: Text -> Bool
+isOperatorBindingIdentifierText =
+  Text.isPrefixOf operatorBindingIdentifierPrefix
+
+mkOperatorBindingIdentifier :: Text -> Identifier
+mkOperatorBindingIdentifier =
+  mkIdentifier . operatorBindingIdentifierText
 
 -- | Render the canonical textual form used when module import replay exposes a
 -- qualified binding to later compiler phases.

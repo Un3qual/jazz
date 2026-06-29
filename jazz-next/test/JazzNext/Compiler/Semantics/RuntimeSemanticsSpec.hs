@@ -98,6 +98,13 @@ tests =
     ("left operator section applies at runtime", testLeftOperatorSectionRuntimeSuccess),
     ("right operator section applies at runtime", testRightOperatorSectionRuntimeSuccess),
     ("right section differs from ordinary partial application for division", testRightSectionDiffersFromOrdinaryPartialApplication),
+    ("declared user operator infix applies at runtime", testDeclaredUserOperatorInfixRuntimeSuccess),
+    ("declared user operator value applies at runtime", testDeclaredUserOperatorValueRuntimeSuccess),
+    ("declared user left operator section applies at runtime", testDeclaredUserLeftOperatorSectionRuntimeSuccess),
+    ("declared user right operator section preserves argument order", testDeclaredUserRightOperatorSectionRuntimeSuccess),
+    ("recursive declared user operator applies at runtime", testRecursiveDeclaredUserOperatorRuntimeSuccess),
+    ("recursive declared user operator value alias produces deterministic runtime diagnostic", testRecursiveDeclaredUserOperatorValueAliasRuntimeError),
+    ("indirect recursive declared user operator value alias produces deterministic runtime diagnostic", testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError),
     ("map + hd evaluates over nested list literals", testMapHdNestedListsRuntimeSuccess),
     ("filter keeps only matching list elements", testFilterRuntimeSuccess),
     ("tl returns the tail of a non-empty list", testTlReturnsTailRuntimeValue),
@@ -115,16 +122,20 @@ tests =
     ("print! returns evaluated argument value", testPrintBuiltinReturnsArgument),
     ("target-named integer conversion evaluates at runtime", testIntegerConversionRuntimeSuccess),
     ("target-named integer conversion preserves source-exact integral Float literal", testIntegerConversionSourceExactIntegralFloatRuntimeSuccess),
+    ("default integer conversion alias preserves source-exact integral Float literal", testDefaultIntegerConversionAliasRuntimeSuccess),
     ("Float64 signature preserves source-exact integral conversion", testFloat64SignaturePreservesSourceExactIntegralConversion),
     ("Float16 signature converts from rounded runtime value", testFloat16SignatureConvertsFromRoundedRuntimeValue),
     ("width-specific integer arithmetic checks preserved result bounds", testWidthSpecificIntegerArithmeticBoundsRuntimeError),
     ("target-named float conversion evaluates at runtime", testFloatConversionRuntimeSuccess),
+    ("default float conversion alias evaluates at runtime", testDefaultFloatConversionAliasRuntimeSuccess),
     ("dynamic integer-to-Float64 overflow checks source magnitude", testDynamicIntegerToFloat64OverflowRuntimeError),
     ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
     ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
+    ("Float64-domain integer literal arithmetic evaluates at runtime", testFloat64DomainIntegerLiteralArithmeticRuntimeSuccess),
     ("Float16 arithmetic preserves target width at runtime", testFloat16ArithmeticPreservesRuntimeWidth),
     ("Float32 arithmetic preserves target width at runtime", testFloat32ArithmeticPreservesRuntimeWidth),
     ("runtime fallback rejects targeted Float16/Float32 mixed with untyped Float arithmetic", testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic),
+    ("runtime fallback rejects integer and float mixed-domain arithmetic", testRuntimeFallbackRejectsIntegerFloatMixedDomainArithmetic),
     ("runtime fallback rejects mixed targeted float comparison and equality", testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality),
     ("targeted Float16 and Float32 fractional literals round at runtime", testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue),
     ("suffixed Float16 and Float32 fractional literals round at runtime", testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue),
@@ -162,6 +173,7 @@ tests =
     ("qualified method dispatch preserves tuple binding signatures", testQualifiedMethodDispatchPreservesTupleBindingSignature),
     ("qualified method dispatch preserves section binding signatures", testQualifiedMethodDispatchPreservesSectionBindingSignature),
     ("qualified method dispatch treats Float as Float64 alias at runtime", testQualifiedMethodDispatchTreatsFloatAsFloat64Alias),
+    ("qualified method dispatch executes Float equality body", testQualifiedMethodDispatchExecutesFloatEqualityBody),
     ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
     ("qualified method dispatch preserves selected method signatures", testQualifiedMethodDispatchPreservesSelectedMethodSignature),
@@ -633,6 +645,96 @@ testRightSectionDiffersFromOrdinaryPartialApplication = do
   assertEqual "partial application runtime errors" [] (runRuntimeErrors partialApplicationResult)
   assertEqual "partial application runtime output" (Just "0") (runOutput partialApplicationResult)
 
+testDeclaredUserOperatorInfixRuntimeSuccess :: IO ()
+testDeclaredUserOperatorInfixRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\n1 %% 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testDeclaredUserOperatorValueRuntimeSuccess :: IO ()
+testDeclaredUserOperatorValueRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\n(%%) 1 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testDeclaredUserLeftOperatorSectionRuntimeSuccess :: IO ()
+testDeclaredUserLeftOperatorSectionRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left - right.\n(2 %%) 10."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "-8") (runOutput result)
+
+testDeclaredUserRightOperatorSectionRuntimeSuccess :: IO ()
+testDeclaredUserRightOperatorSectionRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left - right.\n(%% 2) 10."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "8") (runOutput result)
+
+testRecursiveDeclaredUserOperatorRuntimeSuccess :: IO ()
+testRecursiveDeclaredUserOperatorRuntimeSuccess = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> if left == 0 right else (left - 1) %% right.\nx = 2 %% 3.\nx."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testRecursiveDeclaredUserOperatorValueAliasRuntimeError :: IO ()
+testRecursiveDeclaredUserOperatorValueAliasRuntimeError = do
+  maybeResult <-
+    timeout
+      1000000
+      ( try
+          (runSource defaultWarningSettings "operator %% tier 2.\n(%%) = (%%).\n1 %% 2.")
+          :: IO (Either SomeException RunResult)
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected declared operator value alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for declared operator value alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "declared operator value alias cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "declared operator value alias cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError :: IO ()
+testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError = do
+  maybeResult <-
+    timeout
+      1000000
+      ( try
+          (runSource defaultWarningSettings "operator %% tier 2.\n(%%) = alias.\nalias = (%%).\n1 %% 2.")
+          :: IO (Either SomeException RunResult)
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected indirect declared operator value alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for indirect declared operator value alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "indirect declared operator value alias cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "indirect declared operator value alias cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
 testMapHdNestedListsRuntimeSuccess :: IO ()
 testMapHdNestedListsRuntimeSuccess = do
   result <- runSource defaultWarningSettings "map hd [[1, 2], [3], [4, 5]]."
@@ -760,6 +862,13 @@ testIntegerConversionSourceExactIntegralFloatRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "9223372036854775807") (runOutput result)
 
+testDefaultIntegerConversionAliasRuntimeSuccess :: IO ()
+testDefaultIntegerConversionAliasRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "toInt 9223372036854775807.0."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "9223372036854775807") (runOutput result)
+
 testFloat64SignaturePreservesSourceExactIntegralConversion :: IO ()
 testFloat64SignaturePreservesSourceExactIntegralConversion = do
   result <- runSource defaultWarningSettings "value :: Float64.\nvalue = 9223372036854775807.0.\ntoInt64 value."
@@ -795,6 +904,13 @@ testFloatConversionRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "1.0") (runOutput result)
 
+testDefaultFloatConversionAliasRuntimeSuccess :: IO ()
+testDefaultFloatConversionAliasRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "toFloat 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1.0") (runOutput result)
+
 testDynamicIntegerToFloat64OverflowRuntimeError :: IO ()
 testDynamicIntegerToFloat64OverflowRuntimeError = do
   let justAboveFloat64MaxInteger = show ((floor (1.7976931348623157e308 :: Double) :: Integer) + 1)
@@ -825,6 +941,13 @@ testFloat64ArithmeticRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "4.25") (runOutput result)
 
+testFloat64DomainIntegerLiteralArithmeticRuntimeSuccess :: IO ()
+testFloat64DomainIntegerLiteralArithmeticRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "(1 + 1.5, 1.5 + 2, 5 - 2.5, 2 * 1.5, 1 / 2.0)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(2.5, 3.5, 2.5, 3.0, 0.5)") (runOutput result)
+
 testFloat16ArithmeticPreservesRuntimeWidth :: IO ()
 testFloat16ArithmeticPreservesRuntimeWidth = do
   result <- runSource defaultWarningSettings "left :: Float16.\nleft = 2048.0.\none :: Float16.\none = 1.0.\nthree :: Float16.\nthree = 3.0.\nmulLeft :: Float16.\nmulLeft = 683.0.\nadd16 :: Float16.\nadd16 = left + one.\nsub16 :: Float16.\nsub16 = add16 - one.\nmul16 :: Float16.\nmul16 = mulLeft * three.\ndiv16 :: Float16.\ndiv16 = add16 / one.\n(add16, sub16, mul16, div16)."
@@ -849,6 +972,17 @@ testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic = do
     "runtime fallback untyped Float plus Float32"
     "E3007"
     (evaluateRuntimeExpr (runtimeExpr (EBinary "+" untypedFloatOne (targetedFloat "__kernel_toFloat32"))))
+
+testRuntimeFallbackRejectsIntegerFloatMixedDomainArithmetic :: IO ()
+testRuntimeFallbackRejectsIntegerFloatMixedDomainArithmetic = do
+  assertRuntimeErrorContains
+    "runtime fallback typed Int64 plus Float64"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "+" (targetedInt "__kernel_toInt64") (targetedFloat "__kernel_toFloat64"))))
+  assertRuntimeErrorContains
+    "runtime fallback untyped Int plus Float16"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "+" (ELit (LInt 1)) (targetedFloat "__kernel_toFloat16"))))
 
 testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality :: IO ()
 testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality = do
@@ -1300,6 +1434,22 @@ testQualifiedMethodDispatchTreatsFloatAsFloat64Alias = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchExecutesFloatEqualityBody :: IO ()
+testQualifiedMethodDispatchExecutesFloatEqualityBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Float) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+          <> "left :: Float.\nleft = 1.5.\n"
+          <> "same :: Float.\nsame = 1.5.\n"
+          <> "different :: Float.\ndifferent = 2.25.\n"
+          <> "(RuntimeEq::equals left same, RuntimeEq::equals left different)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
 
 testQualifiedMethodDispatchTreatsIntAsInt64Alias :: IO ()
 testQualifiedMethodDispatchTreatsIntAsInt64Alias = do

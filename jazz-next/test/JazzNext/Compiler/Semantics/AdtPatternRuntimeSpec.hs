@@ -43,6 +43,13 @@ tests =
     ("runtime falls back when as-pattern inner pattern does not match", testRuntimeFallsBackWhenAsPatternInnerDoesNotMatch),
     ("runtime supports as-pattern lambda parameters", testRuntimeSupportsAsPatternLambdaParameters),
     ("runtime compares constructor values inside pattern arms", testRuntimeComparesConstructorValuesInsidePatternArms),
+    ("runtime selects the first matching or-pattern alternative", testRuntimeSelectsFirstMatchingOrPatternAlternative),
+    ("runtime uses bindings from the first matching or-pattern alternative", testRuntimeUsesFirstMatchingOrPatternAlternativeBindings),
+    ("runtime falls back when all or-pattern alternatives fail", testRuntimeFallsBackWhenAllOrPatternAlternativesFail),
+    ("runtime selects mixed literal-led later or-pattern arm after guarded fallback", testRuntimeSelectsMixedLiteralLedLaterOrPatternArmAfterGuardedFallback),
+    ("runtime selects variable-led mixed later or-pattern arm after prior body", testRuntimeSelectsVariableLedMixedLaterOrPatternArmAfterPriorBody),
+    ("runtime falls through when or-pattern guard is False", testRuntimeFallsThroughWhenOrPatternGuardIsFalse),
+    ("runtime reports no match when no or-pattern alternative matches", testRuntimeReportsNoMatchWhenNoOrPatternAlternativeMatches),
     ("runtime falls through when pattern guard is False", testRuntimeFallsThroughWhenPatternGuardIsFalse),
     ("runtime skips pattern guard when pattern fails", testRuntimeSkipsPatternGuardWhenPatternFails),
     ("runtime reports no match when matching pattern guard is False", testRuntimeReportsNoMatchWhenPatternGuardIsFalse),
@@ -138,6 +145,50 @@ testRuntimeComparesConstructorValuesInsidePatternArms :: IO ()
 testRuntimeComparesConstructorValuesInsidePatternArms = do
   result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a. value = Just 41. case value { | whole @ Just item -> whole == Just item | Nothing -> False }."
   assertSuccessfulRuntime "constructor equality in pattern arm" (Just "True") result
+
+testRuntimeSelectsFirstMatchingOrPatternAlternative :: IO ()
+testRuntimeSelectsFirstMatchingOrPatternAlternative = do
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. value = Also 41. case value { | Just item | Also item -> item + 1 | Nothing -> 0 }."
+  assertSuccessfulRuntime "or-pattern alternative match" (Just "42") result
+
+testRuntimeUsesFirstMatchingOrPatternAlternativeBindings :: IO ()
+testRuntimeUsesFirstMatchingOrPatternAlternativeBindings = do
+  result <- runSource defaultWarningSettings "pair = (1, 2). case pair { | (item, _) | (_, item) -> item | _ -> 0 }."
+  assertSuccessfulRuntime "or-pattern alternative binding order" (Just "1") result
+
+testRuntimeFallsBackWhenAllOrPatternAlternativesFail :: IO ()
+testRuntimeFallsBackWhenAllOrPatternAlternativesFail = do
+  result <- runSource defaultWarningSettings "case 3 { | 1 | 2 -> 10 | _ -> 20 }."
+  assertSuccessfulRuntime "or-pattern fallback" (Just "20") result
+
+testRuntimeSelectsMixedLiteralLedLaterOrPatternArmAfterGuardedFallback :: IO ()
+testRuntimeSelectsMixedLiteralLedLaterOrPatternArmAfterGuardedFallback = do
+  result <- runSource defaultWarningSettings "case 2 { | _ if False -> 0 | 2 | _ -> 10 }."
+  assertSuccessfulRuntime "mixed literal-led later or-pattern guarded fallback" (Just "10") result
+
+testRuntimeSelectsVariableLedMixedLaterOrPatternArmAfterPriorBody :: IO ()
+testRuntimeSelectsVariableLedMixedLaterOrPatternArmAfterPriorBody = do
+  result <- runSource defaultWarningSettings "case 1 { | 0 -> 0 | item | item @ _ -> item }."
+  assertSuccessfulRuntime "variable-led mixed later or-pattern" (Just "1") result
+
+testRuntimeFallsThroughWhenOrPatternGuardIsFalse :: IO ()
+testRuntimeFallsThroughWhenOrPatternGuardIsFalse = do
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. value = Also 2. case value { | Just item | Also item if item > 3 -> 1 | _ -> 0 }."
+  assertSuccessfulRuntime "or-pattern false guard fallback" (Just "0") result
+
+testRuntimeReportsNoMatchWhenNoOrPatternAlternativeMatches :: IO ()
+testRuntimeReportsNoMatchWhenNoOrPatternAlternativeMatches = do
+  result <- runSource defaultWarningSettings "case 3 { | 1 | 2 -> 10 }."
+  assertEqual "or-pattern no-match compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticCode
+    "or-pattern no-match runtime code"
+    "E3022"
+    (runRuntimeErrors result)
+  assertSingleDiagnosticContains
+    "or-pattern no-match runtime text"
+    "matched no arms"
+    (runRuntimeErrors result)
+  assertEqual "or-pattern no-match runtime output" Nothing (runOutput result)
 
 testRuntimeFallsThroughWhenPatternGuardIsFalse :: IO ()
 testRuntimeFallsThroughWhenPatternGuardIsFalse = do

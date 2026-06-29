@@ -27,6 +27,9 @@ tests =
     ("rejects custom operator associativity declarations", testRejectsCustomOperatorAssociativityDeclaration),
     ("rejects user operator infix use before declaration", testRejectsUserOperatorInfixUseBeforeDeclaration),
     ("rejects user operator value use before declaration", testRejectsUserOperatorValueUseBeforeDeclaration),
+    ("rejects undeclared operator binding", testRejectsUndeclaredOperatorBinding),
+    ("rejects built-in operator binding", testRejectsBuiltinOperatorBinding),
+    ("rejects nested operator binding", testRejectsNestedOperatorBinding),
     ("rejects module declarations after operator declarations", testRejectsModuleAfterOperatorDeclaration),
     ("rejects undeclared percent operator", testRejectsUndeclaredPercentOperator),
     ("rejects undeclared ampersand operator", testRejectsUndeclaredAmpersandOperator),
@@ -121,6 +124,30 @@ testRejectsUserOperatorValueUseBeforeDeclaration =
     "E0001"
     "operator '%%' must be declared before use"
     (parseSurfaceProgram "x = (%%).\noperator %% tier 2.")
+
+testRejectsUndeclaredOperatorBinding :: IO ()
+testRejectsUndeclaredOperatorBinding =
+  assertLeftDiagnosticCodeAndContains
+    "undeclared operator binding"
+    "E0001"
+    "operator '%%' must be declared before binding"
+    (parseSurfaceProgram "(%%) = \\(left) -> \\(right) -> left + right.")
+
+testRejectsBuiltinOperatorBinding :: IO ()
+testRejectsBuiltinOperatorBinding =
+  assertLeftDiagnosticCodeAndContains
+    "built-in operator binding"
+    "E0001"
+    "cannot bind built-in operator '+'"
+    (parseSurfaceProgram "(+) = \\(left) -> \\(right) -> left + right.")
+
+testRejectsNestedOperatorBinding :: IO ()
+testRejectsNestedOperatorBinding =
+  assertLeftDiagnosticCodeAndContains
+    "nested operator binding"
+    "E0001"
+    "operator bindings are only allowed at file scope or directly in module bodies"
+    (parseSurfaceProgram "operator %% tier 2.\nx = { (%%) = \\(left) -> \\(right) -> left + right. 0. }.")
 
 testRejectsModuleAfterOperatorDeclaration :: IO ()
 testRejectsModuleAfterOperatorDeclaration =

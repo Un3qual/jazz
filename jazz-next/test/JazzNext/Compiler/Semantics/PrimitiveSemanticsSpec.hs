@@ -92,13 +92,20 @@ tests =
     ("source pipeline accepts bare operator value", testSourcePipelineAcceptsBareOperatorValue),
     ("source pipeline accepts bare operator value application", testSourcePipelineAcceptsBareOperatorValueApplication),
     ("source pipeline accepts explicit partial application of bare operator value", testSourcePipelineAcceptsExplicitPartialOperatorApplication),
+    ("source pipeline keeps builtin pipe off declared operator binding path", testSourcePipelineKeepsBuiltinPipeOffDeclaredOperatorBindingPath),
+    ("source pipeline accepts declared user operator infix binding", testSourcePipelineAcceptsDeclaredUserOperatorInfixBinding),
+    ("source pipeline accepts declared user operator value application", testSourcePipelineAcceptsDeclaredUserOperatorValueApplication),
+    ("source pipeline rejects declared user operator without binding", testSourcePipelineRejectsDeclaredUserOperatorWithoutBinding),
+    ("source pipeline rejects non-callable declared user operator binding", testSourcePipelineRejectsNonCallableDeclaredUserOperatorBinding),
     ("source pipeline rejects mixed-type list literals", testSourcePipelineRejectsMixedTypeListLiteral),
     ("source pipeline accepts target-named integer conversions", testSourcePipelineAcceptsTargetNamedIntegerConversions),
     ("source pipeline accepts target-named float conversions", testSourcePipelineAcceptsTargetNamedFloatConversions),
+    ("source pipeline accepts default prelude conversion aliases", testSourcePipelineAcceptsDefaultPreludeConversionAliases),
     ("source pipeline accepts Float64 fractional literal defaults", testSourcePipelineAcceptsFloat64FractionalLiteralDefaults),
     ("source pipeline accepts explicitly targeted Float16 and Float32 fractional literals", testSourcePipelineAcceptsTargetedFloat16Float32FractionalLiterals),
     ("source pipeline accepts suffixed Float16/Float32/Float64 fractional literal arithmetic", testSourcePipelineAcceptsSuffixedFractionalLiteralArithmetic),
     ("source pipeline accepts same-width Float64 arithmetic", testSourcePipelineAcceptsSameWidthFloat64Arithmetic),
+    ("source pipeline accepts Float64-domain integer literal arithmetic", testSourcePipelineAcceptsFloat64DomainIntegerLiteralArithmetic),
     ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
     ("source pipeline accepts same-width Float16 and Float32 arithmetic", testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic),
     ("source pipeline accepts targeted Float16 and Float32 arithmetic", testSourcePipelineAcceptsTargetedFloat16Float32Arithmetic),
@@ -111,6 +118,8 @@ tests =
     ("source pipeline rejects implicit Float16 and Float32 comparison and equality", testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality),
     ("source pipeline rejects implicit integer and Float64 comparison and equality", testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality),
     ("source pipeline rejects implicit integer and fractional literal mixing", testSourcePipelineRejectsImplicitIntegerFractionalMixing),
+    ("source pipeline rejects non-literal integer result Float64-domain arithmetic", testSourcePipelineRejectsNonLiteralIntegerResultFloat64DomainArithmetic),
+    ("source pipeline rejects integer literal Float64-domain operator values and sections", testSourcePipelineRejectsIntegerLiteralFloat64DomainOperatorValuesSections),
     ("source pipeline rejects mixed-width float arithmetic", testSourcePipelineRejectsMixedWidthFloatArithmetic),
     ("source pipeline rejects mixed-width and implicit Float16/Float32 arithmetic", testSourcePipelineRejectsMixedWidthAndImplicitFloat16Float32Arithmetic),
     ("source pipeline rejects suffixed fractional literal mixed-width/default arithmetic", testSourcePipelineRejectsSuffixedFractionalLiteralMixedWidthArithmetic),
@@ -438,6 +447,53 @@ testSourcePipelineAcceptsExplicitPartialOperatorApplication :: IO ()
 testSourcePipelineAcceptsExplicitPartialOperatorApplication =
   assertCompiles "x = ((+) 1) 2."
 
+testSourcePipelineKeepsBuiltinPipeOffDeclaredOperatorBindingPath :: IO ()
+testSourcePipelineKeepsBuiltinPipeOffDeclaredOperatorBindingPath = do
+  result <- compileSource defaultWarningSettings "x = True | False."
+  case compileErrors result of
+    [err] -> do
+      let rendered = renderDiagnostic err
+      assertContains "builtin pipe diagnostic code" "E2003" rendered
+      assertContains "builtin pipe diagnostic text" "cannot apply operator '|'" rendered
+      if "E2010" `Text.isInfixOf` rendered || "has no executable binding" `Text.isInfixOf` rendered
+        then failTest "builtin pipe incorrectly used declared-operator missing-binding path"
+        else pure ()
+    _ -> failTest "expected exactly one builtin pipe type diagnostic"
+
+testSourcePipelineAcceptsDeclaredUserOperatorInfixBinding :: IO ()
+testSourcePipelineAcceptsDeclaredUserOperatorInfixBinding =
+  assertCompiles
+    "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\nx = 1 %% 2."
+
+testSourcePipelineAcceptsDeclaredUserOperatorValueApplication :: IO ()
+testSourcePipelineAcceptsDeclaredUserOperatorValueApplication =
+  assertCompiles
+    "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left == right.\nx = (%%) 1 1."
+
+testSourcePipelineRejectsDeclaredUserOperatorWithoutBinding :: IO ()
+testSourcePipelineRejectsDeclaredUserOperatorWithoutBinding = do
+  result <- compileSource defaultWarningSettings "operator %% tier 2.\nx = 1 %% 2."
+  assertSingleDiagnosticContains
+    "declared user operator missing binding code"
+    "E2010"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "declared user operator missing binding text"
+    "operator '%%' has no executable binding"
+    (compileErrors result)
+
+testSourcePipelineRejectsNonCallableDeclaredUserOperatorBinding :: IO ()
+testSourcePipelineRejectsNonCallableDeclaredUserOperatorBinding = do
+  result <- compileSource defaultWarningSettings "operator %% tier 2.\n(%%) = 1.\nx = 1 %% 2."
+  assertSingleDiagnosticContains
+    "declared user operator non-callable binding code"
+    "E2006"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "declared user operator non-callable binding text"
+    "cannot apply function of type"
+    (compileErrors result)
+
 testSourcePipelineRejectsMixedTypeListLiteral :: IO ()
 testSourcePipelineRejectsMixedTypeListLiteral =
   assertCompileError
@@ -471,6 +527,11 @@ testSourcePipelineAcceptsSameWidthFloat64Arithmetic :: IO ()
 testSourcePipelineAcceptsSameWidthFloat64Arithmetic =
   assertCompilesWithBundledPrelude
     "x :: Float64.\nx = ((1.5 + 2.25) - toFloat64 1) * (6.0 / 2.0)."
+
+testSourcePipelineAcceptsFloat64DomainIntegerLiteralArithmetic :: IO ()
+testSourcePipelineAcceptsFloat64DomainIntegerLiteralArithmetic =
+  assertCompilesWithBundledPrelude
+    "defaultLeft :: Float.\ndefaultLeft = 1 + 1.5.\ndefaultRight :: Float.\ndefaultRight = 1.5 + 2.\ndefaultSub :: Float.\ndefaultSub = 5 - 2.5.\ndefaultMul :: Float.\ndefaultMul = 2 * 1.5.\ndefaultDiv :: Float.\ndefaultDiv = 6 / 2.0.\nexplicitLeft :: Float64.\nexplicitLeft = 1 + toFloat64 1.\nexplicitRight :: Float64.\nexplicitRight = toFloat64 1 + 2.\nexplicitSub :: Float64.\nexplicitSub = 5 - toFloat64 2.\nexplicitMul :: Float64.\nexplicitMul = toFloat64 2 * 3.\nexplicitDiv :: Float64.\nexplicitDiv = 6 / toFloat64 2."
 
 testSourcePipelineAcceptsSameWidthFloat64OperatorValues :: IO ()
 testSourcePipelineAcceptsSameWidthFloat64OperatorValues =
@@ -548,6 +609,14 @@ testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality = do
 
 testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality :: IO ()
 testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality = do
+  assertCompileError
+    "x = 1 < 1.5."
+    "integer literal Float64-domain comparison"
+    "E2003"
+  assertCompileError
+    "x = 1 == 1.0."
+    "integer literal Float64-domain equality"
+    "E2004"
   assertCompileErrorWithBundledPrelude
     "left = toFloat64 1.\nx = left < 2."
     "implicit integer-to-Float64 comparison"
@@ -556,13 +625,47 @@ testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality = do
     "left = toFloat64 1.\nx = left == 1."
     "implicit integer-to-Float64 equality"
     "E2004"
+  assertCompileErrorWithBundledPrelude
+    "x = toFloat64 1 == 1."
+    "toFloat64 integer literal equality"
+    "E2004"
 
 testSourcePipelineRejectsImplicitIntegerFractionalMixing :: IO ()
-testSourcePipelineRejectsImplicitIntegerFractionalMixing =
-  assertCompileError
-    "x = 1 + 1.5."
-    "mixed integer/fractional operator"
+testSourcePipelineRejectsImplicitIntegerFractionalMixing = do
+  assertCompileErrorWithBundledPrelude
+    "left :: Int.\nleft = 1.\nx = left + 1.5."
+    "typed Int mixed with Float arithmetic"
     "E2003"
+  assertCompileErrorWithBundledPrelude
+    "left :: Int64.\nleft = toInt64 1.\nx = left + 1.5."
+    "typed Int64 mixed with Float arithmetic"
+    "E2003"
+  assertCompileErrorWithBundledPrelude
+    "left :: Int8.\nleft = toInt8 1.\nx = left + 1.5."
+    "width-specific integer mixed with Float arithmetic"
+    "E2003"
+
+testSourcePipelineRejectsNonLiteralIntegerResultFloat64DomainArithmetic :: IO ()
+testSourcePipelineRejectsNonLiteralIntegerResultFloat64DomainArithmetic =
+  assertCompileError
+    "id = \\(x) -> x.\nx = id 2 + 1.5."
+    "non-literal integer result Float64-domain arithmetic"
+    "E2003"
+
+testSourcePipelineRejectsIntegerLiteralFloat64DomainOperatorValuesSections :: IO ()
+testSourcePipelineRejectsIntegerLiteralFloat64DomainOperatorValuesSections = do
+  assertCompileError
+    "x = (+) 1 1.5."
+    "integer literal Float64-domain operator value"
+    "E2006"
+  assertCompileError
+    "x = (1 +) 1.5."
+    "integer literal Float64-domain left section"
+    "E2006"
+  assertCompileError
+    "x = (+ 1.5) 1."
+    "integer literal Float64-domain right section"
+    "E2006"
 
 testSourcePipelineRejectsMixedWidthFloatArithmetic :: IO ()
 testSourcePipelineRejectsMixedWidthFloatArithmetic =
@@ -630,6 +733,11 @@ testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions :: IO ()
 testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions =
   assertCompilesWithBundledPrelude
     "x = toInt64 9223372036854775807.0.\ny = toUInt64 18446744073709551615.0."
+
+testSourcePipelineAcceptsDefaultPreludeConversionAliases :: IO ()
+testSourcePipelineAcceptsDefaultPreludeConversionAliases =
+  assertCompilesWithBundledPrelude
+    "integer :: Int64.\ninteger = toInt 9223372036854775807.0.\nfloating :: Float64.\nfloating = toFloat 1."
 
 testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions :: IO ()
 testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions = do

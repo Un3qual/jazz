@@ -61,6 +61,12 @@ Expected output:
 42
 ```
 
+Run source from stdin explicitly:
+
+```bash
+printf '40 + 2.' | bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs --run -
+```
+
 Show CLI help:
 
 ```bash

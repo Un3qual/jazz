@@ -63,7 +63,12 @@ import JazzNext.Compiler.CapabilityFacts
   )
 import JazzNext.Compiler.Identifier
   ( Identifier,
-    identifierText
+    identifierText,
+    mkIdentifier,
+    operatorBindingIdentifierText
+  )
+import JazzNext.Compiler.Parser.Operator
+  ( isBuiltinOperatorSymbol
   )
 import JazzNext.Compiler.RecursiveBindings
   ( collectBindingNames,
@@ -513,6 +518,17 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
                 Just groupMembers ->
                   lookupRecursivePeer targetName groupMembers
                 Nothing -> Nothing
+        EOperatorValue operatorSymbol
+          | not (isBuiltinOperatorSymbol operatorSymbol) ->
+              let targetName = mkIdentifier (operatorBindingIdentifierText operatorSymbol)
+               in
+                if Set.member (identifierText targetName) locallyBoundNames
+                  then Nothing
+                  else
+                    case Map.lookup statementIndex recursiveGroups of
+                      Just groupMembers ->
+                        lookupRecursivePeer targetName groupMembers
+                      Nothing -> Nothing
         _ -> Nothing
 
     -- Preserve wrapper runtime semantics by evaluating the branch condition
@@ -1035,8 +1051,11 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
         nameText = identifierText name
     ELambda parameterName bodyExpr ->
       Right (VClosure env parameterName bodyExpr Nothing currentModulePath)
-    EOperatorValue operatorSymbol ->
-      Right (VOperator operatorSymbol [])
+    EOperatorValue operatorSymbol
+      | isBuiltinOperatorSymbol operatorSymbol ->
+          Right (VOperator operatorSymbol [])
+      | otherwise ->
+          lookupOperatorBindingRuntimeValue builtinMode bindingTypeHints operatorSymbol env
     EList elements ->
       (`VList` Nothing) <$> mapM (evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env) elements
     ETuple elements ->
@@ -1061,16 +1080,31 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
     EPatternCase scrutineeExpr caseArms -> do
       scrutineeValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env scrutineeExpr
       evalPatternCase currentModulePath builtinMode bindingTypeHints env scrutineeValue caseArms
-    EBinary operatorSymbol leftExpr rightExpr -> do
-      leftValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env leftExpr
-      rightValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env rightExpr
-      evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
+    EBinary operatorSymbol leftExpr rightExpr
+      | isBuiltinOperatorSymbol operatorSymbol -> do
+          leftValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env leftExpr
+          rightValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env rightExpr
+          evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
+      | otherwise -> do
+          operatorValue <- lookupOperatorBindingRuntimeValue builtinMode bindingTypeHints operatorSymbol env
+          leftValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env leftExpr
+          partialValue <- applyRuntimeFunction builtinMode bindingTypeHints operatorValue leftValue
+          rightValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env rightExpr
+          applyRuntimeFunction builtinMode bindingTypeHints partialValue rightValue
     ESectionLeft leftExpr operatorSymbol -> do
       leftValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env leftExpr
-      Right (VSectionLeft operatorSymbol leftValue)
+      if isBuiltinOperatorSymbol operatorSymbol
+        then Right (VSectionLeft operatorSymbol leftValue)
+        else do
+          operatorValue <- lookupOperatorBindingRuntimeValue builtinMode bindingTypeHints operatorSymbol env
+          applyRuntimeFunction builtinMode bindingTypeHints operatorValue leftValue
     ESectionRight operatorSymbol rightExpr -> do
       rightValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env rightExpr
-      Right (VSectionRight operatorSymbol rightValue)
+      if isBuiltinOperatorSymbol operatorSymbol
+        then Right (VSectionRight operatorSymbol rightValue)
+        else do
+          operatorValue <- lookupOperatorBindingRuntimeValue builtinMode bindingTypeHints operatorSymbol env
+          Right (declaredOperatorRightSectionClosure currentModulePath operatorValue rightValue env)
     EBlock statements ->
       case evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints env statements of
         Left err -> Left err
@@ -1093,6 +1127,39 @@ forceQualifiedMethodValue builtinMode bindingTypeHints runtimeValue =
         capturedArgs
     _ ->
       Right runtimeValue
+
+lookupOperatorBindingRuntimeValue ::
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey ConstraintSignatureType ->
+  Text ->
+  RuntimeEnv ->
+  Either Diagnostic RuntimeValue
+lookupOperatorBindingRuntimeValue builtinMode bindingTypeHints operatorSymbol env =
+  case Map.lookup (operatorBindingIdentifierText operatorSymbol) env of
+    Just value ->
+      value >>= forceQualifiedMethodValue builtinMode bindingTypeHints
+    Nothing ->
+      Left
+        ( runtimeDiagnostic
+            "E3027"
+            ("operator '" <> operatorSymbol <> "' has no executable binding")
+        )
+
+declaredOperatorRightSectionClosure :: Maybe [Text] -> RuntimeValue -> RuntimeValue -> RuntimeEnv -> RuntimeValue
+declaredOperatorRightSectionClosure currentModulePath operatorValue rightValue env =
+  VClosure
+    capturedEnv
+    leftParameter
+    (EApply (EApply (EVar functionName) (EVar leftParameter)) (EVar rightParameter))
+    Nothing
+    currentModulePath
+  where
+    functionName = mkIdentifier "$operator_section_function"
+    leftParameter = mkIdentifier "$operator_section_left"
+    rightParameter = mkIdentifier "$operator_section_right"
+    capturedEnv =
+      Map.insert (identifierText functionName) (Right operatorValue) $
+        Map.insert (identifierText rightParameter) (Right rightValue) env
 
 literalRuntimeValue :: Literal -> RuntimeValue
 literalRuntimeValue literal =
@@ -1348,6 +1415,17 @@ matchPattern scrutineeValue pattern =
     PAs name pattern -> do
       patternBindings <- matchPattern scrutineeValue pattern
       Just (Map.insert (identifierText name) (Right scrutineeValue) patternBindings)
+    POr alternatives ->
+      matchFirstAlternative scrutineeValue alternatives
+
+matchFirstAlternative :: RuntimeValue -> [Pattern] -> Maybe RuntimeEnv
+matchFirstAlternative scrutineeValue alternatives =
+  case alternatives of
+    [] -> Nothing
+    alternative : rest ->
+      case matchPattern scrutineeValue alternative of
+        Just patternBindings -> Just patternBindings
+        Nothing -> matchFirstAlternative scrutineeValue rest
 
 matchPatternList :: [RuntimeValue] -> [Pattern] -> Maybe RuntimeEnv
 matchPatternList values patterns =
@@ -2138,6 +2216,37 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
           Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
     ("/", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
       evalFloatArithmetic "/" leftMetadata rightMetadata (leftFloat / rightFloat)
+    ("+", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "+" rightMetadata (fromInteger leftInt + rightFloat)
+    ("+", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "+" leftMetadata (leftFloat + fromInteger rightInt)
+    ("-", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "-" rightMetadata (fromInteger leftInt - rightFloat)
+    ("-", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "-" leftMetadata (leftFloat - fromInteger rightInt)
+    ("*", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "*" rightMetadata (fromInteger leftInt * rightFloat)
+    ("*", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "*" leftMetadata (leftFloat * fromInteger rightInt)
+    ("/", VInt _ leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata,
+        floatIsZero rightFloat ->
+          Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
+    ("/", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "/" rightMetadata (fromInteger leftInt / rightFloat)
+    ("/", VFloat _ leftMetadata, VInt 0 rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
+          Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
+    ("/", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
+          evalIntegerLiteralFloat64Arithmetic "/" leftMetadata (leftFloat / fromInteger rightInt)
     ("<", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       evalIntegerPredicate "<" leftInt leftMetadata rightInt rightMetadata (leftInt < rightInt)
     ("<=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
@@ -2316,6 +2425,22 @@ evalFloatBinary operatorSymbol targetType result
   | Just floatTarget <- targetType =
       Right (VFloat (roundFloatTarget floatTarget result) (targetedFloatMetadata floatTarget))
   | otherwise = Right (VFloat result (untypedFloatMetadata Nothing))
+
+runtimeIntFloat64ArithmeticAccepted :: RuntimeIntMetadata -> RuntimeFloatMetadata -> Bool
+runtimeIntFloat64ArithmeticAccepted intMetadata floatMetadata =
+  runtimeIntTargetType intMetadata == Nothing
+    && runtimeFloatMetadataIsFloat64Domain floatMetadata
+
+runtimeFloatMetadataIsFloat64Domain :: RuntimeFloatMetadata -> Bool
+runtimeFloatMetadataIsFloat64Domain floatMetadata =
+  case runtimeFloatTargetType floatMetadata of
+    Just NumericFloat64 -> True
+    Nothing -> True
+    Just _ -> False
+
+evalIntegerLiteralFloat64Arithmetic :: Text -> RuntimeFloatMetadata -> Double -> Either Diagnostic RuntimeValue
+evalIntegerLiteralFloat64Arithmetic operatorSymbol floatMetadata result =
+  evalFloatBinary operatorSymbol (runtimeFloatTargetType floatMetadata) result
 
 mixedFloatArithmeticDiagnostic :: Text -> Maybe NumericType -> Maybe NumericType -> Diagnostic
 mixedFloatArithmeticDiagnostic operatorSymbol leftTarget rightTarget =
@@ -2584,3 +2709,15 @@ patternBoundNames pattern =
       Set.unions (map patternBoundNames patterns)
     PAs name pattern ->
       Set.insert (identifierText name) (patternBoundNames pattern)
+    POr alternatives ->
+      commonPatternBoundNames alternatives
+
+commonPatternBoundNames :: [Pattern] -> Set Text
+commonPatternBoundNames alternatives =
+  case alternatives of
+    [] -> Set.empty
+    firstAlternative : rest ->
+      foldl'
+        Set.intersection
+        (patternBoundNames firstAlternative)
+        (map patternBoundNames rest)

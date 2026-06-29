@@ -30,7 +30,8 @@ import JazzNext.Compiler.FractionalLiteral
 import JazzNext.Compiler.Identifier
   ( Identifier,
     identifierText,
-    mkIdentifier
+    mkIdentifier,
+    mkOperatorBindingIdentifier
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
@@ -312,11 +313,70 @@ consumeOperatorDeclarationDot tokens =
     [] ->
       Left (parseDiagnostic "expected '.' after operator declaration tier before end of input")
 
+parseOperatorBinding :: StatementContext -> Set Text -> DeclaredOperators -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseOperatorBinding context knownAliases declaredOperators operatorToken tokensAfterEquals =
+  case context of
+    NestedBlockContext ->
+      rejectNestedOperatorBinding operatorToken
+    TopLevelContext ->
+      parseVisibleOperatorBinding
+    ModuleBodyContext ->
+      parseVisibleOperatorBinding
+  where
+    parseVisibleOperatorBinding =
+      case tokenKind operatorToken of
+        TOperator bindingSymbol
+          | isBuiltinOperatorSymbol bindingSymbol ->
+              Left
+                ( parseDiagnostic
+                    ( "cannot bind built-in operator '"
+                        <> bindingSymbol
+                        <> "' at "
+                        <> renderSourceSpan (tokenSpan operatorToken)
+                    )
+                )
+          | not (operatorDeclared bindingSymbol) ->
+              Left
+                ( parseDiagnostic
+                    ( "operator '"
+                        <> bindingSymbol
+                        <> "' must be declared before binding at "
+                        <> renderSourceSpan (tokenSpan operatorToken)
+                    )
+                )
+          | otherwise -> do
+              (valueExpr, afterExpr) <- parseExpr knownAliases declaredOperators tokensAfterEquals
+              remaining <- consumeDot afterExpr
+              Right
+                ( SSLet
+                    (mkOperatorBindingIdentifier bindingSymbol)
+                    (tokenSpan operatorToken)
+                    valueExpr,
+                  remaining
+                )
+        _ ->
+          Left
+            ( parseDiagnostic
+                ( "internal parser error at "
+                    <> renderSourceSpan (tokenSpan operatorToken)
+                    <> ": expected operator token in operator binding"
+                )
+            )
+
+    operatorDeclared bindingSymbol =
+      any ((== bindingSymbol) . operatorSymbol) declaredOperators
+
 -- | Disambiguate statement-level forms before expression parsing so leading
 -- identifiers can become signatures or bindings when followed by `::` or `=`.
 parseStatement :: StatementContext -> Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
 parseStatement context knownAliases declaredOperators tokens =
   case tokens of
+    Token {tokenKind = TLParen} :
+      operatorToken@Token {tokenKind = TOperator {}} :
+      Token {tokenKind = TRParen} :
+      Token {tokenKind = TEquals} :
+      afterEquals ->
+        fmap singleStatement (parseOperatorBinding context knownAliases declaredOperators operatorToken afterEquals)
     abstractionToken@(Token {tokenKind = TIdentifier name}) : rest
       | isDeclarationContext context,
         looksLikeSupportedCapabilityDeclaration name rest ->
@@ -385,6 +445,11 @@ beginsStatement tokens =
     Token {tokenKind = TData} : _ -> True
     Token {tokenKind = TIdentifier "operator"} : rest
       | looksLikeOperatorDeclaration rest -> True
+    Token {tokenKind = TLParen} :
+      Token {tokenKind = TOperator {}} :
+      Token {tokenKind = TRParen} :
+      Token {tokenKind = TEquals} :
+      _ -> True
     Token {tokenKind = TIdentifier name} : rest
       | looksLikeReservedAbstractionDeclaration name rest -> True
     Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
@@ -1049,6 +1114,15 @@ rejectNestedOperatorDeclaration operatorToken =
   Left
     ( parseDiagnostic
         ( "operator declarations are only allowed at file scope or directly in module bodies at "
+            <> renderSourceSpan (tokenSpan operatorToken)
+        )
+    )
+
+rejectNestedOperatorBinding :: Token -> Either Diagnostic a
+rejectNestedOperatorBinding operatorToken =
+  Left
+    ( parseDiagnostic
+        ( "operator bindings are only allowed at file scope or directly in module bodies at "
             <> renderSourceSpan (tokenSpan operatorToken)
         )
     )
@@ -2113,9 +2187,9 @@ parseCaseArms knownAliases declaredOperators tokensAfterLeftBrace =
 parseCaseArm :: Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic (SurfaceCaseArm, [Token])
 parseCaseArm knownAliases declaredOperators tokens = do
   tokensAfterPipe <- consumeCaseArmPipe tokens
-  (casePattern, afterPattern) <- parseCasePattern tokensAfterPipe
+  (casePattern, afterPattern) <- parseCaseArmPattern tokensAfterPipe
   (guardExpr, afterArrow) <- parseOptionalCaseArmGuard afterPattern
-  (bodyExpr, remaining) <- parseExprWithMinPrecedenceUntil knownAliases declaredOperators stopsBeforeCaseArmBoundary 1 afterArrow
+  (bodyExpr, remaining) <- parseCaseArmBodyExprWithMinPrecedence Nothing 1 afterArrow
   pure (SurfaceCaseArm casePattern guardExpr bodyExpr, remaining)
   where
     parseOptionalCaseArmGuard allTokens =
@@ -2144,6 +2218,74 @@ parseCaseArm knownAliases declaredOperators tokens = do
       (leftExpr, remainingTokens) <-
         parseApplicationExprUntil knownAliases declaredOperators stopsBeforeCaseGuardTerminator guardTokens
       parseCaseGuardInfixTail parentOperator minPrecedence leftExpr remainingTokens
+
+    parseCaseArmBodyExprWithMinPrecedence parentOperator minPrecedence bodyTokens = do
+      (leftExpr, remainingTokens) <-
+        parseApplicationExprUntil knownAliases declaredOperators stopsBeforeCaseArmBoundary bodyTokens
+      parseCaseArmBodyInfixTail parentOperator minPrecedence leftExpr remainingTokens
+
+    parseCaseArmBodyInfixTail parentOperator minPrecedence leftExpr bodyTokens
+      | stopsBeforeCaseArmTerminator bodyTokens = Right (leftExpr, bodyTokens)
+      | otherwise =
+          case bodyTokens of
+            operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : tokensAfterOperator
+              | shouldStopForSectionBoundary tokensAfterOperator ->
+                  Right (leftExpr, bodyTokens)
+              | operatorSymbol == "|" && caseArmPipeStartsBoundary parentOperator minPrecedence leftExpr tokensAfterOperator ->
+                  Right (leftExpr, bodyTokens)
+              | otherwise ->
+                  case lookupOperatorInfoIn declaredOperators operatorSymbol of
+                    Nothing ->
+                      Left
+                        ( parseDiagnostic
+                            ( "operator '"
+                                <> operatorSymbol
+                                <> "' must be declared before use at "
+                                <> renderSourceSpan (tokenSpan operatorToken)
+                            )
+                        )
+                    Just operatorInfo
+                      | operatorPrecedence operatorInfo < minPrecedence ->
+                          Right (leftExpr, bodyTokens)
+                      | otherwise -> do
+                          let nextMinPrecedence =
+                                case operatorAssociativity operatorInfo of
+                                  AssocLeft -> operatorPrecedence operatorInfo + 1
+                                  AssocRight -> operatorPrecedence operatorInfo
+                          (rightExpr, remainingAfterRight) <-
+                            parseCaseArmBodyExprWithMinPrecedence (Just operatorSymbol) nextMinPrecedence tokensAfterOperator
+                          parseCaseArmBodyInfixTail
+                            parentOperator
+                            minPrecedence
+                            (SEBinary operatorSymbol leftExpr rightExpr)
+                            remainingAfterRight
+            _ -> Right (leftExpr, bodyTokens)
+      where
+        shouldStopForSectionBoundary remainingAfterOperator =
+          case remainingAfterOperator of
+            Token {tokenKind = TRParen} : _ -> True
+            _ -> False
+
+    stopsBeforeCaseArmTerminator allTokens =
+      case allTokens of
+        Token {tokenKind = TRBrace} : _ -> True
+        _ -> False
+
+    caseArmPipeStartsBoundary parentOperator minPrecedence leftExpr tokensAfterPipe =
+      case parseCasePattern tokensAfterPipe of
+        Right (_, Token {tokenKind = TArrow} : _) -> True
+        Right (_, Token {tokenKind = TIf} : afterGuard) ->
+          guardTokensEndAtArrow afterGuard
+        Right (_, Token {tokenKind = TOperator "|"} : _) ->
+          startsDefiniteOrPatternCaseArm tokensAfterPipe
+            && not
+              ( startsAllLiteralOrPatternCaseArm tokensAfterPipe
+                  && casePipeCanContinueExpression parentOperator minPrecedence leftExpr
+              )
+        Left _
+          | startsCasePatternTokens tokensAfterPipe ->
+              hasTopLevelArrowBeforeCaseArmBoundary tokensAfterPipe
+        _ -> False
 
     parseCaseGuardInfixTail parentOperator minPrecedence leftExpr guardTokens
       | stopsBeforeCaseGuardTerminator guardTokens = Right (leftExpr, guardTokens)
@@ -2196,12 +2338,12 @@ parseCaseArm knownAliases declaredOperators tokens = do
     caseGuardPipeStartsBoundary parentOperator minPrecedence leftExpr tokensAfterPipe =
       startsDefiniteGuardedCaseArmAfterGuardBoundary tokensAfterPipe
         || ( startsDefiniteUnguardedCaseArmAfterGuardBoundary tokensAfterPipe
-               && not (caseGuardPipeCanContinueExpression parentOperator minPrecedence leftExpr)
+               && not (casePipeCanContinueExpression parentOperator minPrecedence leftExpr)
            )
 
-    caseGuardPipeCanContinueExpression parentOperator minPrecedence leftExpr =
+    casePipeCanContinueExpression parentOperator minPrecedence leftExpr =
       case compare minPrecedence caseGuardPipePrecedence of
-        LT -> not (leftExprHasLowerPrecedenceRoot leftExpr)
+        LT -> not (leftExprHasBoundaryPrecedenceRoot leftExpr)
         EQ -> samePrecedenceGuardPipeCanBind parentOperator leftExpr
         GT -> False
 
@@ -2219,14 +2361,14 @@ parseCaseArm knownAliases declaredOperators tokens = do
             Nothing -> False
         _ -> False
 
-    -- If a higher-precedence pipe was stopped inside a lower-precedence RHS,
-    -- keep treating it as a boundary when control returns to the outer tail.
-    leftExprHasLowerPrecedenceRoot leftExpr =
+    -- If a pipe was stopped inside an RHS, keep treating it as a boundary when
+    -- control returns to the outer tail.
+    leftExprHasBoundaryPrecedenceRoot leftExpr =
       case leftExpr of
         SEBinary operatorSymbol _ _ ->
           case lookupOperatorInfoIn declaredOperators operatorSymbol of
             Just operatorInfo ->
-              operatorPrecedence operatorInfo < caseGuardPipePrecedence
+              operatorPrecedence operatorInfo <= caseGuardPipePrecedence
             Nothing -> False
         _ -> False
 
@@ -2249,19 +2391,21 @@ parseCaseArm knownAliases declaredOperators tokens = do
         Right (_, Token {tokenKind = TArrow} : _) -> True
         Right (_, Token {tokenKind = TIf} : afterGuard) ->
           guardTokensEndAtArrow afterGuard
+        Right (_, Token {tokenKind = TOperator "|"} : _) ->
+          startsDefiniteOrPatternCaseArm remainingTokens
         Left _
           | startsCasePatternTokens remainingTokens ->
               hasTopLevelArrowBeforeCaseArmBoundary remainingTokens
         _ -> False
 
     startsDefiniteUnguardedCaseArmAfterGuardBoundary remainingTokens =
-      case parseCasePattern remainingTokens of
+      case parseCaseArmPattern remainingTokens of
         Right (casePattern, Token {tokenKind = TArrow} : _) ->
           guardBoundaryPatternIsDefinite casePattern
         _ -> False
 
     startsDefiniteGuardedCaseArmAfterGuardBoundary remainingTokens =
-      case parseCasePattern remainingTokens of
+      case parseCaseArmPattern remainingTokens of
         Right (casePattern, Token {tokenKind = TIf} : afterGuard) ->
           guardBoundaryPatternIsDefinite casePattern && guardTokensEndAtArrow afterGuard
         _ -> False
@@ -2275,6 +2419,96 @@ parseCaseArm knownAliases declaredOperators tokens = do
       case casePattern of
         SPVariable {} -> False
         _ -> True
+
+    startsDefiniteOrPatternCaseArm remainingTokens =
+      case parseCaseArmPattern remainingTokens of
+        Right (casePattern, Token {tokenKind = TArrow} : _) ->
+          orPatternStartsDefiniteArmBoundary casePattern
+        Right (casePattern, Token {tokenKind = TIf} : afterGuard) ->
+          orPatternStartsDefiniteArmBoundary casePattern && guardTokensEndAtArrow afterGuard
+        _ -> False
+
+    startsAllLiteralOrPatternCaseArm remainingTokens =
+      case parseCaseArmPattern remainingTokens of
+        Right (casePattern, Token {tokenKind = TArrow} : _) ->
+          orPatternIsAllLiteral casePattern
+        Right (casePattern, Token {tokenKind = TIf} : afterGuard) ->
+          orPatternIsAllLiteral casePattern && guardTokensEndAtArrow afterGuard
+        _ -> False
+
+    orPatternStartsDefiniteArmBoundary casePattern =
+      case casePattern of
+        SPOr alternatives ->
+          any patternIsWildcard alternatives
+            || all patternIsVariable alternatives
+            || all patternIsLiteral alternatives
+            || alternativesBindSameNames alternatives
+            || ( case alternatives of
+                   firstAlternative : _ -> patternCanStartOrArmBoundary firstAlternative
+                   [] -> False
+               )
+        _ -> False
+
+    orPatternIsAllLiteral casePattern =
+      case casePattern of
+        SPOr alternatives ->
+          not (null alternatives) && all patternIsLiteral alternatives
+        _ -> False
+
+    patternCanStartOrArmBoundary casePattern =
+      case casePattern of
+        SPConstructor {} -> True
+        SPList {} -> True
+        SPConsList {} -> True
+        SPTuple {} -> True
+        SPAs {} -> True
+        _ -> False
+
+    patternIsWildcard casePattern =
+      case casePattern of
+        SPWildcard -> True
+        _ -> False
+
+    patternIsVariable casePattern =
+      case casePattern of
+        SPVariable {} -> True
+        _ -> False
+
+    patternIsLiteral casePattern =
+      case casePattern of
+        SPLiteral {} -> True
+        _ -> False
+
+    alternativesBindSameNames alternatives =
+      case alternatives of
+        [] -> False
+        firstAlternative : rest ->
+          let expectedNames = patternBinderNames firstAlternative
+           in not (Set.null expectedNames)
+                && all ((== expectedNames) . patternBinderNames) rest
+
+    patternBinderNames casePattern =
+      case casePattern of
+        SPVariable name -> Set.singleton (identifierText name)
+        SPWildcard -> Set.empty
+        SPLiteral {} -> Set.empty
+        SPConstructor _ patterns -> Set.unions (map patternBinderNames patterns)
+        SPList patterns -> Set.unions (map patternBinderNames patterns)
+        SPConsList headPattern tailPattern ->
+          Set.union (patternBinderNames headPattern) (patternBinderNames tailPattern)
+        SPTuple patterns -> Set.unions (map patternBinderNames patterns)
+        SPAs name nestedPattern ->
+          Set.insert (identifierText name) (patternBinderNames nestedPattern)
+        SPOr patterns -> commonPatternBinderNames patterns
+
+    commonPatternBinderNames alternatives =
+      case alternatives of
+        [] -> Set.empty
+        firstAlternative : rest ->
+          foldl
+            Set.intersection
+            (patternBinderNames firstAlternative)
+            (map patternBinderNames rest)
 
     hasTopLevelGuardArrow = go 0 0 0
       where
@@ -2341,6 +2575,22 @@ parseCaseArm knownAliases declaredOperators tokens = do
         decrementIfPositive depth
           | depth > 0 = depth - 1
           | otherwise = 0
+
+parseCaseArmPattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
+parseCaseArmPattern tokens = do
+  (firstPattern, afterFirstPattern) <- parseCasePattern tokens
+  collectAlternatives [firstPattern] afterFirstPattern
+  where
+    collectAlternatives reversedPatterns remainingTokens =
+      case remainingTokens of
+        Token {tokenKind = TOperator "|"} : afterPipe -> do
+          (nextPattern, afterNextPattern) <- parseCasePattern afterPipe
+          collectAlternatives (nextPattern : reversedPatterns) afterNextPattern
+        _ ->
+          let alternatives = reverse reversedPatterns
+           in case alternatives of
+                [singlePattern] -> Right (singlePattern, remainingTokens)
+                _ -> Right (SPOr alternatives, remainingTokens)
 
 parseCasePattern :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseCasePattern tokens =

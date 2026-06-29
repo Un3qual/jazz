@@ -2,7 +2,7 @@
 
 Status: active (closure verified for the current `jazz-next` runtime subset; bundled/explicit prelude paths expose public aliases while no-prelude paths remain kernel-bridge-only)
 Locked decisions (initial `jazz-next` contract): 2026-03-04
-Updated: 2026-06-24
+Updated: 2026-06-27
 Primary plan: `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`
 
 ## Purpose
@@ -58,6 +58,8 @@ planned.
   - `toInt8`, `toInt16`, `toInt32`, `toInt64`
   - `toUInt8`, `toUInt16`, `toUInt32`, `toUInt64`
   - `toFloat16`, `toFloat32`, `toFloat64`
+  - `toInt` as an ordinary source alias for `toInt64`
+  - `toFloat` as an ordinary source alias for `toFloat64`
 - Current bundled capability declarations include canonical `Eq`, `Ord`, `Num`,
   `Integral`, `Fractional`, `Showable`, and `Default` classes plus inert
   concrete impl facts for the default aliases `Int`, `Float`, and `Bool`, and
@@ -72,6 +74,9 @@ Explicit numeric conversions:
 
 - Conversion APIs such as `toInt8`, `toUInt64`, and `toFloat64` are
   prelude-owned public names backed by catalog/kernel bridge symbols.
+- Default conversion aliases `toInt` and `toFloat` are ordinary bundled-prelude
+  source bindings for `toInt64` and `toFloat64`; they do not add builtin catalog
+  entries, target semantics, or `__kernel_toInt`/`__kernel_toFloat` bridges.
 - Direct no-prelude flows may use only the corresponding `__kernel_*` bridge
   names.
 - Conversion API changes must update the builtin catalog, bundled prelude

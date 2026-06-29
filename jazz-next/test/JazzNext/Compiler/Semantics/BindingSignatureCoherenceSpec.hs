@@ -78,6 +78,7 @@ tests =
     ("source pipeline rejects non-binding impl body items", testSourceRejectsNonBindingImplBodyItem),
     ("source pipeline accepts single-target qualified method dispatch", testSourceAcceptsSingleTargetQualifiedMethodDispatch),
     ("source pipeline selects qualified method body by argument types", testSourceSelectsQualifiedMethodBodyByArgumentTypes),
+    ("source pipeline selects qualified Float method body by argument types", testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes),
     ("source pipeline selects qualified method body through prefix dollar", testSourceSelectsQualifiedMethodBodyThroughPrefixDollar),
     ("source pipeline accepts same-impl qualified method body references", testSourceAcceptsSameImplQualifiedMethodBodyReferences),
     ("source pipeline uses impl signatures while checking method bodies", testSourceUsesImplSignaturesWhileCheckingMethodBodies),
@@ -146,7 +147,19 @@ tests =
     ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface),
     ("source pipeline reports duplicate constrained signature constraints", testSourceRejectsDuplicateConstrainedSignatureConstraints),
     ("source pipeline accepts variable constrained signature as monomorphic", testSourceAcceptsVariableConstrainedSignatureAsMonomorphic),
-    ("source pipeline keeps variable constrained signatures monomorphic", testSourceKeepsVariableConstrainedSignatureMonomorphic),
+    ("source pipeline instantiates variable constrained signatures per use", testSourceInstantiatesVariableConstrainedSignaturePerUse),
+    ("source pipeline instantiates primitive constrained signatures per use", testSourceInstantiatesPrimitiveConstrainedSignaturePerUse),
+    ("source pipeline instantiates equality constrained signatures per use", testSourceInstantiatesEqualityConstrainedSignaturePerUse),
+    ("source pipeline instantiates recursive constrained signatures per use", testSourceInstantiatesRecursiveConstrainedSignaturePerUse),
+    ("source pipeline accepts unconstrained variables beside explicit constraints", testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints),
+    ("source pipeline honors visible facts for variable constrained signatures", testSourceHonorsVisibleFactsForVariableConstrainedSignatures),
+    ("source pipeline rejects missing use-site facts for variable constrained signatures", testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures),
+    ("source pipeline rejects ambiguous variable constrained signature use", testSourceRejectsAmbiguousVariableConstrainedSignatureUse),
+    ("source pipeline preserves primitive constraints on variable constrained signatures", testSourcePreservesPrimitiveConstraintsOnVariableConstrainedSignatures),
+    ("source pipeline preserves explicit constraints when primitive RHS has no quantified variables", testSourcePreservesExplicitConstraintsWhenPrimitiveRhsHasNoQuantifiedVariables),
+    ("source pipeline resolves deferred constraints in impl method bodies", testSourceResolvesDeferredConstraintsInImplMethodBodies),
+    ("source pipeline discards failed application argument constraints", testSourceDiscardsFailedApplicationArgumentConstraints),
+    ("source pipeline discards speculative deferred constraints from recursive previews", testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews),
     ("source pipeline rejects unsupported variable constrained signature contract", testSourceRejectsUnsupportedVariableConstrainedSignatureContract),
     ("source pipeline rejects unused variable constraint with bidirectional contract", testSourceRejectsUnusedVariableConstraintWithBidirectionalContract),
     ("source pipeline does not shift inference variables after rejected variable type application", testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState),
@@ -447,6 +460,16 @@ testSourceSelectsQualifiedMethodBodyByArgumentTypes =
   assertSourceOkWithoutPrelude
     ( qualifiedEqSource
         <> "impl Eq(Bool) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\nresult :: Bool.\nresult = Eq::equals True False.\nresult."
+    )
+
+testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes :: IO ()
+testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes =
+  assertSourceOkWithoutPrelude
+    ( "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+        <> "impl Eq(Float) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+        <> "left :: Float.\nleft = 1.5.\n"
+        <> "right :: Float.\nright = 2.25.\n"
+        <> "result :: Bool.\nresult = Eq::equals left right.\nresult."
     )
 
 testSourceSelectsQualifiedMethodBodyThroughPrefixDollar :: IO ()
@@ -920,7 +943,6 @@ testSourceRejectsUnsupportedConstrainedSignatureSpans = do
   assertSignatureSpan "x :: @{Eq(Maybe(Int))}: Int.\nx = 1."
   assertSignatureSpan "x :: @{Eq(Int -> Int)}: Int.\nx = 1."
   assertSignatureSpan "f :: @{Eq(a), Eq(a)}: a -> a.\nf = \\(x) -> x."
-  assertSignatureSpan "f :: @{Eq(a)}: a -> b.\nf = \\(x) -> x."
   assertSignatureSpan "f :: @{Eq(a)}: Int -> Int.\nf = \\(x) -> x."
 
 testSourceRejectsListSignatureMismatch :: IO ()
@@ -951,17 +973,123 @@ testSourceAcceptsVariableConstrainedSignatureAsMonomorphic :: IO ()
 testSourceAcceptsVariableConstrainedSignatureAsMonomorphic =
   assertSourceOk "id :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nid 1."
 
-testSourceKeepsVariableConstrainedSignatureMonomorphic :: IO ()
-testSourceKeepsVariableConstrainedSignatureMonomorphic = do
-  result <- compileSource defaultWarningSettings "id :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nx = id 1.\ny = id True."
-  assertSingleDiagnosticCode
-    "source variable constrained signature monomorphic code"
-    "E2006"
-    (compileErrors result)
+testSourceInstantiatesVariableConstrainedSignaturePerUse :: IO ()
+testSourceInstantiatesVariableConstrainedSignaturePerUse =
+  assertSourceOk "id :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nx = id 1.\ny = id True."
+
+testSourceInstantiatesPrimitiveConstrainedSignaturePerUse :: IO ()
+testSourceInstantiatesPrimitiveConstrainedSignaturePerUse =
+  assertSourceOkWithoutPrelude "class Num(a) { }.\nimpl Num(Int32) { }.\nimpl Num(Int64) { }.\nadd :: @{Num(a)}: a -> a -> a.\nadd = \\(x) -> \\(y) -> x + y.\na32 :: Int32.\na32 = 1.\nb32 :: Int32.\nb32 = 2.\nsmall = add a32 b32.\na64 :: Int64.\na64 = 3.\nb64 :: Int64.\nb64 = 4.\nwide = add a64 b64."
+
+testSourceInstantiatesEqualityConstrainedSignaturePerUse :: IO ()
+testSourceInstantiatesEqualityConstrainedSignaturePerUse =
+  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Bool) { }.\nsame :: @{Eq(a)}: a -> a -> Bool.\nsame = \\(x) -> \\(y) -> x == y.\nintValue = same 1 2.\nboolValue = same True False."
+
+testSourceInstantiatesRecursiveConstrainedSignaturePerUse :: IO ()
+testSourceInstantiatesRecursiveConstrainedSignaturePerUse =
+  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Bool) { }.\nchoose :: @{Eq(a)}: a -> a.\nchoose = if True \\(x) -> x else choose.\nintValue = choose 1.\nboolValue = choose True."
+
+testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints :: IO ()
+testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints =
+  assertSourceOk "choose :: @{Eq(a)}: a -> b -> a.\nchoose = \\(x) -> \\(y) -> x.\nintBool = choose 1 True.\nintInt = choose 2 3."
+
+testSourceHonorsVisibleFactsForVariableConstrainedSignatures :: IO ()
+testSourceHonorsVisibleFactsForVariableConstrainedSignatures =
+  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Bool) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nx = id 1.\ny = id True."
+
+testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures :: IO ()
+testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nok = id 1.\nbad = id True."
+    "missing impl fact 'Eq(Bool)'"
+
+testSourceRejectsAmbiguousVariableConstrainedSignatureUse :: IO ()
+testSourceRejectsAmbiguousVariableConstrainedSignatureUse =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nambiguous = id []."
+    "ambiguous/defaulting explicit constraint"
+
+testSourcePreservesPrimitiveConstraintsOnVariableConstrainedSignatures :: IO ()
+testSourcePreservesPrimitiveConstraintsOnVariableConstrainedSignatures =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Showable(a) { }.\nimpl Showable(Bool) { }.\naddSelf :: @{Showable(a)}: a -> a.\naddSelf = \\(x) -> x + x.\nbad = addSelf True."
+    "cannot apply function"
+
+testSourcePreservesExplicitConstraintsWhenPrimitiveRhsHasNoQuantifiedVariables :: IO ()
+testSourcePreservesExplicitConstraintsWhenPrimitiveRhsHasNoQuantifiedVariables =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Showable(a) { }.\naddSelf :: @{Showable(a)}: a -> a.\naddSelf = \\(x) -> x + x.\ngood = addSelf 1."
+    "missing impl fact 'Showable(Int)'"
+
+testSourceResolvesDeferredConstraintsInImplMethodBodies :: IO ()
+testSourceResolvesDeferredConstraintsInImplMethodBodies =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nclass Use(a) { use :: a -> a. }.\nimpl Use(Bool) { use = id. }.\nvalue = 1."
+    "missing impl fact 'Eq(Bool)'"
+
+testSourceDiscardsFailedApplicationArgumentConstraints :: IO ()
+testSourceDiscardsFailedApplicationArgumentConstraints = do
+  result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      "class Need(a) { }.\nimpl Need(Int) { }.\nuse :: @{Need(a)}: a -> a.\nuse = \\(x) -> x.\nbad = 1 (use True)."
   assertSingleDiagnosticContains
-    "source variable constrained signature monomorphic text"
-    "cannot apply function of type Int -> Int to argument of type Bool"
+    "failed application only reports apply error"
+    "cannot apply function of type Int to argument of type Bool"
     (compileErrors result)
+
+testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews :: IO ()
+testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews = do
+  result <- compileExpr defaultWarningSettings speculativePreviewDeferredConstraintProgram
+  assertEqual "compile errors" [] (compileErrors result)
+
+speculativePreviewDeferredConstraintProgram :: Expr
+speculativePreviewDeferredConstraintProgram =
+  EBlock
+    [ SModule (SourceSpan 1 1) ["Base"],
+      SClass (SourceSpan 2 1) "Eq" ["a"] [],
+      SImpl (SourceSpan 3 1) "Eq" [ConstraintTypeName "Int"] [],
+      SModule (SourceSpan 4 1) ["Facts"],
+      SImport (SourceSpan 5 1) ["Base"] Nothing Nothing,
+      SImpl (SourceSpan 6 1) "Eq" [ConstraintTypeName "Bool"] [],
+      SModule (SourceSpan 7 1) ["Main"],
+      SImport (SourceSpan 8 1) ["Base"] Nothing Nothing,
+      SSignature
+        "id"
+        (SourceSpan 9 1)
+        ( ConstrainedSignature
+            [SignatureConstraint "Eq" [ConstraintTypeName "a"]]
+            (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "a"))
+        ),
+      SLet "id" (SourceSpan 10 1) (ELambda "x" (EVar "x")),
+      SLet "value" (SourceSpan 11 1) speculativePreviewDeferredConstraintBlock,
+      SExpr (SourceSpan 18 1) (EVar "value")
+    ]
+
+speculativePreviewDeferredConstraintBlock :: Expr
+speculativePreviewDeferredConstraintBlock =
+  EBlock
+    [ SLet
+        "left"
+        (SourceSpan 12 1)
+        ( EIf
+            (ELit (LBool True))
+            (ELambda "x" (EVar "x"))
+            (ELambda "x" (EVar "right"))
+        ),
+      SLet "early" (SourceSpan 13 1) (EApply (EVar "left") (ELit (LBool True))),
+      SImport (SourceSpan 14 1) ["Facts"] Nothing Nothing,
+      SLet
+        "right"
+        (SourceSpan 15 1)
+        ( EIf
+            (ELit (LBool False))
+            (EApply (EVar "left") (ELit (LBool True)))
+            (EApply (EVar "id") (ELit (LBool True)))
+        ),
+      SExpr (SourceSpan 16 1) (EVar "early")
+    ]
 
 testSourceInstantiatesOrdinaryBindingSchemesPerUse :: IO ()
 testSourceInstantiatesOrdinaryBindingSchemesPerUse =
@@ -1015,18 +1143,18 @@ testSourcePreviewsThroughInterveningRecursiveGroupMembers =
 
 testSourceRejectsUnsupportedVariableConstrainedSignatureContract :: IO ()
 testSourceRejectsUnsupportedVariableConstrainedSignatureContract = do
-  result <- compileSource defaultWarningSettings "f :: @{Eq(a)}: a -> b.\nf = \\(x) -> x."
+  result <- compileSource defaultWarningSettings "f :: @{Eq(a)}: b -> b.\nf = \\(x) -> x."
   assertSingleDiagnosticCode
     "source unsupported variable constrained signature code"
     "E2009"
     (compileErrors result)
   assertSingleDiagnosticContains
     "source unsupported variable constrained signature contract"
-    "type-variable constrained signatures require every constrained variable to appear in the signature body and every body variable to appear in a supported unary constraint"
+    "type-variable constrained signatures require every constrained variable to appear in the signature body"
     (compileErrors result)
   assertSingleDiagnosticContains
     "source unsupported variable constrained signature payload"
-    "@{Eq(a)}: a -> b"
+    "@{Eq(a)}: b -> b"
     (compileErrors result)
 
 testSourceRejectsUnusedVariableConstraintWithBidirectionalContract :: IO ()
@@ -1038,7 +1166,7 @@ testSourceRejectsUnusedVariableConstraintWithBidirectionalContract = do
     (compileErrors result)
   assertSingleDiagnosticContains
     "source unused variable constraint contract"
-    "type-variable constrained signatures require every constrained variable to appear in the signature body and every body variable to appear in a supported unary constraint"
+    "type-variable constrained signatures require every constrained variable to appear in the signature body"
     (compileErrors result)
 
 testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState :: IO ()
@@ -1063,14 +1191,14 @@ testSourceKeepsGenericConstructorAliasesMonomorphic = do
 
 testSourceRejectsConstrainedSignatureSurface :: IO ()
 testSourceRejectsConstrainedSignatureSurface = do
-  result <- compileSource defaultWarningSettings "f :: @{Eq(a), Ord(b)}: a -> b -> c.\nf = 1."
+  result <- compileSource defaultWarningSettings "f :: @{Eq(a), Ord(b)}: a -> c.\nf = \\(x) -> x."
   assertSingleDiagnosticCode
     "source constrained signature code"
     "E2009"
     (compileErrors result)
   assertSingleDiagnosticContains
     "source constrained signature payload"
-    "@{Eq(a), Ord(b)}: a -> b -> c"
+    "@{Eq(a), Ord(b)}: a -> c"
     (compileErrors result)
 
 testSourceReportsSignedRecursiveRhsTypeError :: IO ()

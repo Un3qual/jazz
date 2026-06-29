@@ -11,6 +11,7 @@ module JazzNext.Compiler.TypeInference
     inferExpressionDefault
   ) where
 
+import Control.Applicative ((<|>))
 import Data.List (foldl')
 import Data.Maybe (isNothing)
 import qualified Data.Map.Strict as Map
@@ -78,7 +79,8 @@ import JazzNext.Compiler.FractionalLiteral
 import JazzNext.Compiler.Identifier
   ( Identifier,
     identifierText,
-    mkIdentifier
+    mkIdentifier,
+    operatorBindingIdentifierText
   )
 import JazzNext.Compiler.RecursiveBindings
   ( collectBindingNames,
@@ -86,6 +88,9 @@ import JazzNext.Compiler.RecursiveBindings
     freeVarsScopeWithBound,
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings
+  )
+import JazzNext.Compiler.Parser.Operator
+  ( isBuiltinOperatorSymbol
   )
 import JazzNext.Compiler.RuntimeHints
   ( BindingRuntimeHintKey,
@@ -252,7 +257,15 @@ data TypeBinding
   | ConstructorTypeBinding Identifier [Identifier] [ConstructorArgumentType]
   deriving (Eq, Show)
 
-data TypeScheme = TypeScheme (Set Int) ExpressionType
+data TypeScheme = TypeScheme (Set Int) [TypeSchemeConstraint] [TypeSchemePrimitiveConstraint] ExpressionType
+  deriving (Eq, Show)
+
+data TypeSchemePrimitiveConstraint
+  = TypeSchemeNumericConstraint NumericConstraint ExpressionType
+  | TypeSchemeStrictEqualityConstraint ExpressionType
+  deriving (Eq, Show)
+
+data TypeSchemeConstraint = TypeSchemeConstraint Text ExpressionType
   deriving (Eq, Show)
 
 type TypeEnv = Map Text TypeBinding
@@ -285,9 +298,12 @@ data InferState = InferState
     inferCurrentModuleLocalCapabilityFacts :: ScopeCapabilityFacts,
     inferModuleCapabilityFacts :: Map [Text] ScopeCapabilityFacts,
     inferRuntimeTypeHints :: Map BindingRuntimeHintKey ConstraintSignatureType,
+    inferDeferredExplicitConstraints :: [DeferredExplicitConstraint],
     inferErrorsRev :: [Diagnostic],
     inferErrorCount :: Int
   }
+
+data DeferredExplicitConstraint = DeferredExplicitConstraint Text ExpressionType ScopeCapabilityFacts
 
 initialInferState :: InferState
 initialInferState =
@@ -305,6 +321,7 @@ initialInferState =
       inferCurrentModuleLocalCapabilityFacts = emptyScopeCapabilityFacts,
       inferModuleCapabilityFacts = Map.empty,
       inferRuntimeTypeHints = Map.empty,
+      inferDeferredExplicitConstraints = [],
       inferErrorsRev = [],
       inferErrorCount = 0
     }
@@ -365,12 +382,12 @@ inferExprType builtinMode env state expr =
     EOperatorValue operatorSymbol ->
       case instantiateOperatorType operatorSymbol state of
         Just (operatorType, nextState) -> (Just operatorType, nextState)
-        Nothing ->
-          ( Nothing,
-            addTypeError
-              state
-              (mkUnsupportedOperatorValueError operatorSymbol)
-          )
+        Nothing
+          | isBuiltinOperatorSymbol operatorSymbol ->
+              ( Nothing,
+                addTypeError state (mkUnsupportedOperatorValueError operatorSymbol)
+              )
+        Nothing -> instantiateDeclaredOperatorBindingType env operatorSymbol state
     EList elements -> inferListType builtinMode env state elements
     ETuple elements -> inferTupleType builtinMode env state elements
     EApply functionExpr argumentExpr ->
@@ -428,6 +445,47 @@ inferExprType builtinMode env state expr =
                 freshTypeVar stateAfterScrutinee
        in inferPatternCaseType builtinMode env scrutineeType stateWithScrutineeType caseArms
     EBinary operatorSymbol leftExpr rightExpr ->
+      case lookupOperatorRule operatorSymbol of
+        Just _ ->
+          inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr
+        Nothing
+          | isBuiltinOperatorSymbol operatorSymbol ->
+              inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr
+        Nothing ->
+          inferExprType
+            builtinMode
+            env
+            state
+            (EApply (EApply (EOperatorValue operatorSymbol) leftExpr) rightExpr)
+    ESectionLeft leftExpr operatorSymbol ->
+      case lookupOperatorRule operatorSymbol of
+        Just _ ->
+          inferBuiltinSectionLeftOperatorType operatorSymbol leftExpr
+        Nothing
+          | isBuiltinOperatorSymbol operatorSymbol ->
+              inferBuiltinSectionLeftOperatorType operatorSymbol leftExpr
+        Nothing ->
+          inferExprType
+            builtinMode
+            env
+            state
+            (EApply (EOperatorValue operatorSymbol) leftExpr)
+    ESectionRight operatorSymbol rightExpr ->
+      case lookupOperatorRule operatorSymbol of
+        Just _ ->
+          inferBuiltinSectionRightOperatorType operatorSymbol rightExpr
+        Nothing
+          | isBuiltinOperatorSymbol operatorSymbol ->
+              inferBuiltinSectionRightOperatorType operatorSymbol rightExpr
+        Nothing ->
+          inferExprType
+            builtinMode
+            env
+            state
+            (declaredOperatorRightSectionExpr operatorSymbol rightExpr)
+    EBlock statements -> inferScopeType builtinMode env state statements
+  where
+    inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr =
       let (leftType, stateAfterLeft) =
             inferExprType builtinMode env state leftExpr
           (rightType, stateAfterRight) =
@@ -436,11 +494,14 @@ inferExprType builtinMode env state expr =
             (Just inferredLeftType, Just inferredRightType) ->
               inferBinaryType
                 operatorSymbol
+                leftExpr
+                rightExpr
                 inferredLeftType
                 inferredRightType
                 stateAfterRight
             _ -> (Nothing, stateAfterRight)
-    ESectionLeft leftExpr operatorSymbol ->
+
+    inferBuiltinSectionLeftOperatorType operatorSymbol leftExpr =
       let (leftType, stateAfterLeft) =
             inferExprType builtinMode env state leftExpr
        in case leftType of
@@ -450,7 +511,8 @@ inferExprType builtinMode env state expr =
                 inferredLeftType
                 stateAfterLeft
             Nothing -> (Nothing, stateAfterLeft)
-    ESectionRight operatorSymbol rightExpr ->
+
+    inferBuiltinSectionRightOperatorType operatorSymbol rightExpr =
       let (rightType, stateAfterRight) =
             inferExprType builtinMode env state rightExpr
        in case rightType of
@@ -460,7 +522,6 @@ inferExprType builtinMode env state expr =
                 inferredRightType
                 stateAfterRight
             Nothing -> (Nothing, stateAfterRight)
-    EBlock statements -> inferScopeType builtinMode env state statements
 
 inferExprTypeWithExpected ::
   BuiltinResolutionMode ->
@@ -522,13 +583,20 @@ inferGenericApplyType builtinMode env state functionExpr argumentExpr =
             Nothing ->
               ( Nothing,
                 addTypeError
-                  stateWithResultVar
+                  (discardFailedFunctionApplicationConstraints state stateAfterFunction stateWithResultVar)
                   ( mkApplyTypeError
                       (resolveType stateWithResultVar inferredFunctionType)
                       (resolveType stateWithResultVar inferredArgumentType)
                   )
               )
         _ -> (Nothing, stateWithResultVar)
+
+discardFailedFunctionApplicationConstraints :: InferState -> InferState -> InferState -> InferState
+discardFailedFunctionApplicationConstraints stateBeforeFunction _ stateAfterApplication =
+  stateAfterApplication
+    { inferDeferredExplicitConstraints =
+        inferDeferredExplicitConstraints stateBeforeFunction
+    }
 
 qualifiedMethodApplicationSpine :: Expr -> InferState -> Maybe (Text, [Expr])
 qualifiedMethodApplicationSpine expr state =
@@ -708,14 +776,16 @@ lookupOperatorRule operatorSymbol =
 
 inferBinaryType ::
   Text ->
+  Expr ->
+  Expr ->
   ExpressionType ->
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-inferBinaryType operatorSymbol leftType rightType state =
+inferBinaryType operatorSymbol leftExpr rightExpr leftType rightType state =
   case lookupOperatorRule operatorSymbol of
     Just (NumericRule resultType) ->
-      applyNumericBinaryRule operatorSymbol resultType leftType rightType state
+      applyNumericBinaryRule operatorSymbol resultType leftExpr rightExpr leftType rightType state
     Just StrictEqualityRule ->
       applyStrictEqualityBinaryRule operatorSymbol leftType rightType state
     Just ApplicationRule ->
@@ -734,21 +804,29 @@ inferBinaryType operatorSymbol leftType rightType state =
 applyNumericBinaryRule ::
   Text ->
   NumericRuleResult ->
+  Expr ->
+  Expr ->
   ExpressionType ->
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-applyNumericBinaryRule operatorSymbol resultRule leftType rightType state =
-  case unifyTypes leftType rightType state of
-    Just stateAfterUnify ->
-      let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
-       in case constrainNumericOperatorType (numericRuleConstraint resultRule) resolvedOperandType stateAfterUnify of
-            Just stateAfterNumericConstraint ->
-              (Just (numericRuleResultType resultRule resolvedOperandType), stateAfterNumericConstraint)
-            Nothing ->
-              numericOperandError stateAfterUnify
-    Nothing -> numericOperandError state
+applyNumericBinaryRule operatorSymbol resultRule leftExpr rightExpr leftType rightType state =
+  case integerLiteralFloat64ArithmeticOperand resultRule state leftExpr rightExpr leftType rightType of
+    Just (resolvedOperandType, stateAfterFloat64LiteralOperand) ->
+      constrainNumericOperand resolvedOperandType stateAfterFloat64LiteralOperand
+    Nothing ->
+      case unifyTypes leftType rightType state of
+        Just stateAfterUnify ->
+          let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
+           in constrainNumericOperand resolvedOperandType stateAfterUnify
+        Nothing -> numericOperandError state
   where
+    constrainNumericOperand resolvedOperandType operandState =
+      case constrainNumericOperatorType (numericRuleConstraint resultRule) resolvedOperandType operandState of
+        Just stateAfterNumericConstraint ->
+          (Just (numericRuleResultType resultRule resolvedOperandType), stateAfterNumericConstraint)
+        Nothing ->
+          numericOperandError operandState
     numericOperandError errState =
       ( Nothing,
         addTypeError
@@ -772,6 +850,45 @@ numericRuleConstraint resultRule =
   case resultRule of
     NumericSameTypeResult -> RuntimeArithmeticNumericConstraint
     NumericBoolResult -> RuntimeComparisonNumericConstraint
+
+integerLiteralFloat64ArithmeticOperand :: NumericRuleResult -> InferState -> Expr -> Expr -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
+integerLiteralFloat64ArithmeticOperand resultRule state leftExpr rightExpr leftType rightType =
+  case resultRule of
+    NumericSameTypeResult ->
+      case (resolveType state leftType, resolveType state rightType) of
+        (TIntegerLiteralType literalRange, floatType)
+          | exprIsIntegerLiteral leftExpr,
+            integerLiteralRangeFitsFloat64 literalRange,
+            expressionTypeIsFloat64Domain floatType ->
+              Just (floatType, state)
+        (floatType, TIntegerLiteralType literalRange)
+          | exprIsIntegerLiteral rightExpr,
+            integerLiteralRangeFitsFloat64 literalRange,
+            expressionTypeIsFloat64Domain floatType ->
+              Just (floatType, state)
+        _ -> Nothing
+    NumericBoolResult -> Nothing
+
+exprIsIntegerLiteral :: Expr -> Bool
+exprIsIntegerLiteral expr =
+  case expr of
+    ELit (LInt _) -> True
+    _ -> False
+
+expressionTypeIsFloat64Domain :: ExpressionType -> Bool
+expressionTypeIsFloat64Domain expressionType =
+  case expressionType of
+    TFloatType -> True
+    TNumericType NumericFloat64 -> True
+    _ -> False
+
+integerLiteralRangeFitsFloat64 :: IntegerLiteralRange -> Bool
+integerLiteralRangeFitsFloat64 literalRange =
+  case numericTypeFloatIntegerBounds NumericFloat64 of
+    Just (lowerBound, upperBound) ->
+      let (literalMin, literalMax) = integerLiteralRangeBounds literalRange
+       in literalMin >= lowerBound && literalMax <= upperBound
+    Nothing -> False
 
 numericBinaryOperandType ::
   Text ->
@@ -998,7 +1115,7 @@ numericSectionCounterpartType sectionOperandType state =
 inferScopeType :: BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType builtinMode initialEnv initialState statements =
   let (scopeType, finalState) =
-        go initialEnv Nothing Nothing initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
+        go initialEnv Nothing Nothing Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
    in (scopeType, restoreCapabilityFacts initialState finalState)
   where
     indexedStatements = zip [0 ..] statements
@@ -1016,36 +1133,42 @@ inferScopeType builtinMode initialEnv initialState statements =
     stateAfterBindingSeeds = seededState
     initialModuleBaselineFacts = capabilityFactsFromState initialState
 
-    go env lastExprType pendingSignatureType moduleBaselineFacts state remainingStatements =
+    go env lastExprType pendingSignatureType pendingSignaturesByStatement moduleBaselineFacts state remainingStatements =
       case remainingStatements of
         [] -> (lastExprType, state)
         (statementIndex, statement) : rest ->
           case statement of
             SModule _ modulePath ->
-              go env lastExprType pendingSignatureType moduleBaselineFacts (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
+              go env lastExprType pendingSignatureType pendingSignaturesByStatement moduleBaselineFacts (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
             SImport _ modulePath maybeAlias maybeSymbolNames ->
-              go env lastExprType pendingSignatureType moduleBaselineFacts (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
+              go env lastExprType pendingSignatureType pendingSignaturesByStatement moduleBaselineFacts (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
             SClass {} ->
               let nextState = seedStatementCapabilityFact state statement
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
-               in go env lastExprType Nothing nextModuleBaselineFacts nextState rest
+               in go env lastExprType Nothing pendingSignaturesByStatement nextModuleBaselineFacts nextState rest
             SImpl _ capabilityName arguments methods ->
               let seededState = seedStatementCapabilityFact state statement
                   nextState =
                     checkImplMethodBodies builtinMode env seededState capabilityName arguments methods
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
-               in go env lastExprType Nothing nextModuleBaselineFacts nextState rest
+               in go env lastExprType Nothing pendingSignaturesByStatement nextModuleBaselineFacts nextState rest
             SData spanValue typeName typeParameters constructors ->
               let (nextEnv, nextState) =
                     registerDataConstructors spanValue typeName typeParameters constructors env state
-               in go nextEnv lastExprType Nothing moduleBaselineFacts nextState rest
+               in go nextEnv lastExprType Nothing pendingSignaturesByStatement moduleBaselineFacts nextState rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
-                    case signaturePayloadToExpressionType signaturePayload signatureState of
+                    case signaturePayloadToSignatureType signaturePayload signatureState of
                       (Just signatureType, stateAfterSignature) ->
-                        ( Just (PendingSignatureType (identifierText name) signatureSpan signatureType),
+                        ( Just
+                            ( PendingSignatureType
+                                (identifierText name)
+                                signatureSpan
+                                (signaturePayloadDeclaredType signatureType)
+                                (signaturePayloadExplicitConstraints signatureType)
+                            ),
                           restoreCapabilityFacts state stateAfterSignature
                         )
                       (Nothing, stateAfterSignature) ->
@@ -1055,7 +1178,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                             (mkInvalidSignatureTypeError signatureState (identifierText name) signatureSpan signaturePayload)
                         )
                   signatureState = state
-               in go env lastExprType nextPendingSignature moduleBaselineFacts nextState rest
+               in go env lastExprType nextPendingSignature pendingSignaturesByStatement moduleBaselineFacts nextState rest
             SLet name bindingSpan valueExpr ->
               let nameText = identifierText name
                   (envForStatement, stateForStatement) =
@@ -1089,14 +1212,20 @@ inferScopeType builtinMode initialEnv initialState statements =
                           (PlainTypeBinding (pendingSignatureDeclaredType pendingSignature))
                           envWithBindingSeed
                       Nothing -> envWithBindingSeed
+                  maybePreservedSchemeAliasBinding =
+                    schemePreservingAliasBinding nameText envWithPendingSignature valueExpr
                   maybeExpectedValueType =
                     pendingSignatureDeclaredType <$> matchingPendingSignature
                   (rawValueType, rawStateAfterValue) =
-                    case maybeExpectedValueType of
-                      Just expectedValueType ->
-                        inferExprTypeWithExpected builtinMode envWithPendingSignature stateForStatement expectedValueType valueExpr
-                      Nothing ->
-                        inferExprType builtinMode envWithPendingSignature stateForStatement valueExpr
+                    case maybePreservedSchemeAliasBinding of
+                      Just (SchemeTypeBinding (TypeScheme _ _ _ schemeType)) ->
+                        (Just schemeType, stateForStatement)
+                      _ ->
+                        case maybeExpectedValueType of
+                          Just expectedValueType ->
+                            inferExprTypeWithExpected builtinMode envWithPendingSignature stateForStatement expectedValueType valueExpr
+                          Nothing ->
+                            inferExprType builtinMode envWithPendingSignature stateForStatement valueExpr
                   valueType =
                     targetedFractionalLiteralBindingType
                       nameText
@@ -1144,42 +1273,58 @@ inferScopeType builtinMode initialEnv initialState statements =
                                   (resolveType stateAfterBindingSeedCheck inferredType)
                               )
                       _ -> stateAfterBindingSeedCheck
+                  stateAfterExplicitConstraintCheck =
+                    finalizeDeferredExplicitConstraintsAt
+                      bindingSpan
+                      stateForStatement
+                      stateAfterSignatureCheck
                   nextBindingType =
                     case matchingPendingSignature of
                       Just pendingSignature ->
-                        Just (resolveType stateAfterSignatureCheck (pendingSignatureDeclaredType pendingSignature))
+                        Just (resolveType stateAfterExplicitConstraintCheck (pendingSignatureDeclaredType pendingSignature))
                       _ ->
                         fmap
-                          (defaultLiteralTypes . resolveType stateAfterSignatureCheck)
+                          (defaultLiteralTypes . resolveType stateAfterExplicitConstraintCheck)
                           (Map.lookup statementIndex bindingSeedsByStatement)
                   stateAfterRuntimeHint =
-                    case nextBindingType >>= runtimeHintFromExpressionType stateAfterSignatureCheck of
+                    case nextBindingType >>= runtimeHintFromExpressionType stateAfterExplicitConstraintCheck of
                       Just runtimeHint ->
-                        stateAfterSignatureCheck
+                        stateAfterExplicitConstraintCheck
                           { inferRuntimeTypeHints =
                               Map.insert
-                                (bindingRuntimeHintKeyInModule (inferCurrentModulePath stateAfterSignatureCheck) name bindingSpan)
+                                (bindingRuntimeHintKeyInModule (inferCurrentModulePath stateAfterExplicitConstraintCheck) name bindingSpan)
                                 runtimeHint
-                                (inferRuntimeTypeHints stateAfterSignatureCheck)
+                                (inferRuntimeTypeHints stateAfterExplicitConstraintCheck)
                           }
-                      Nothing -> stateAfterSignatureCheck
+                      Nothing -> stateAfterExplicitConstraintCheck
+                  nextPendingSignaturesByStatement =
+                    case matchingPendingSignature of
+                      Just pendingSignature ->
+                        Map.insert statementIndex pendingSignature pendingSignaturesByStatement
+                      Nothing -> pendingSignaturesByStatement
                   nextEnvBeforeRecursiveGroupGeneralization =
-                    case nextBindingForValue statementIndex nameText envForStatement valueExpr nextBindingType matchingPendingSignature stateAfterRuntimeHint of
+                    case maybePreservedSchemeAliasBinding <|> nextBindingForValue statementIndex nameText envForStatement valueExpr nextBindingType matchingPendingSignature stateAfterRuntimeHint of
                       Just binding -> Map.insert nameText binding env
                       Nothing -> env
                   nextEnv =
                     generalizeCompletedRecursiveGroup
+                      nextPendingSignaturesByStatement
                       statementIndex
                       nextEnvBeforeRecursiveGroupGeneralization
                       stateAfterRuntimeHint
-               in go nextEnv lastExprType Nothing moduleBaselineFacts stateAfterRuntimeHint rest
+               in go nextEnv lastExprType Nothing nextPendingSignaturesByStatement moduleBaselineFacts stateAfterRuntimeHint rest
             SExpr exprSpan expr ->
               let (envForStatement, stateForStatement) =
                     exposeVisibleRecursiveGroupSchemes statementIndex env state
                   (exprType, rawStateAfterExpr) = inferExprType builtinMode envForStatement stateForStatement expr
                   stateAfterExpr =
                     annotateNewErrorsWithPrimarySpan exprSpan stateForStatement rawStateAfterExpr
-               in go env exprType Nothing moduleBaselineFacts stateAfterExpr rest
+                  stateAfterExplicitConstraintCheck =
+                    finalizeDeferredExplicitConstraintsAt
+                      exprSpan
+                      stateForStatement
+                      stateAfterExpr
+               in go env exprType Nothing pendingSignaturesByStatement moduleBaselineFacts stateAfterExplicitConstraintCheck rest
 
     nextBindingForValue ::
       Int ->
@@ -1213,6 +1358,21 @@ inferScopeType builtinMode initialEnv initialState statements =
                     Nothing -> monomorphicBinding
         _ -> monomorphicBinding
 
+    schemePreservingAliasBinding :: Text -> TypeEnv -> Expr -> Maybe TypeBinding
+    schemePreservingAliasBinding bindingNameText currentEnv valueExpr =
+      case valueExpr of
+        EVar referencedName
+          | isSyntheticModuleSchemeBridge bindingNameText (identifierText referencedName) ->
+              case Map.lookup (identifierText referencedName) currentEnv of
+                Just binding@(SchemeTypeBinding _) -> Just binding
+                _ -> Nothing
+        _ -> Nothing
+
+    isSyntheticModuleSchemeBridge :: Text -> Text -> Bool
+    isSyntheticModuleSchemeBridge bindingNameText referencedNameText =
+      Text.isPrefixOf "__module::" bindingNameText
+        || Text.isPrefixOf "__module::" referencedNameText
+
     isSyntheticAliasConstructorBinding bindingNameText referencedName =
       Text.isInfixOf "::" bindingNameText && Text.isPrefixOf "__module::" referencedName
 
@@ -1226,10 +1386,23 @@ inferScopeType builtinMode initialEnv initialState statements =
       Maybe TypeBinding
     ordinaryBindingForValue statementIndex currentEnv valueExpr maybeInferredType maybePendingSignature state =
       case maybeInferredType of
+        Just _
+          | Just pendingSignature <- maybePendingSignature,
+            shouldGeneralizeExplicitSignatureBinding currentEnv valueExpr pendingSignature ->
+              Just (generalizedExplicitSignatureBinding currentEnv state pendingSignature)
         Just inferredType
           | shouldGeneralizeOrdinaryBinding statementIndex currentEnv valueExpr maybePendingSignature ->
               Just (generalizedOrdinaryBinding currentEnv state inferredType)
         _ -> PlainTypeBinding <$> maybeInferredType
+
+    shouldGeneralizeExplicitSignatureBinding ::
+      TypeEnv ->
+      Expr ->
+      PendingSignatureType ->
+      Bool
+    shouldGeneralizeExplicitSignatureBinding currentEnv valueExpr pendingSignature =
+      not (null (pendingSignatureExplicitConstraints pendingSignature))
+        && not (isDirectConstructorAlias currentEnv valueExpr)
 
     shouldGeneralizeOrdinaryBinding ::
       Int ->
@@ -1242,8 +1415,8 @@ inferScopeType builtinMode initialEnv initialState statements =
         && Set.notMember statementIndex signedBindingStatements
         && not (isDirectConstructorAlias currentEnv valueExpr)
 
-    generalizeCompletedRecursiveGroup :: Int -> TypeEnv -> InferState -> TypeEnv
-    generalizeCompletedRecursiveGroup statementIndex currentEnv state =
+    generalizeCompletedRecursiveGroup :: Map Int PendingSignatureType -> Int -> TypeEnv -> InferState -> TypeEnv
+    generalizeCompletedRecursiveGroup pendingSignatures statementIndex currentEnv state =
       case Map.lookup statementIndex recursiveGroupsByStatement of
         Just groupMembers
           | not (null groupMembers),
@@ -1257,7 +1430,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                   envOutsideGroup =
                     foldl' (flip Map.delete) currentEnv groupBindingNames
                in foldl'
-                    (generalizeRecursiveGroupMember envOutsideGroup state)
+                    (generalizeRecursiveGroupMember pendingSignatures envOutsideGroup state)
                     currentEnv
                     groupMembers
         _ -> currentEnv
@@ -1393,7 +1566,8 @@ inferScopeType builtinMode initialEnv initialState statements =
         discardPreviewDiagnostics originalState previewState =
           previewState
             { inferErrorsRev = inferErrorsRev originalState,
-              inferRuntimeTypeHints = inferRuntimeTypeHints originalState
+              inferRuntimeTypeHints = inferRuntimeTypeHints originalState,
+              inferDeferredExplicitConstraints = inferDeferredExplicitConstraints originalState
             }
 
         previewIntroducedDiagnostics originalState previewState =
@@ -1409,7 +1583,7 @@ inferScopeType builtinMode initialEnv initialState statements =
       case Map.lookup memberIndex bindingNamesByStatement of
         Just bindingNameText
           | latestBindingIndexBefore statementIndex bindingNameText == Just memberIndex ->
-              generalizeRecursiveGroupMember envOutsideGroup state currentEnv memberIndex
+              generalizeRecursiveGroupMember Map.empty envOutsideGroup state currentEnv memberIndex
         _ -> currentEnv
 
     latestBindingIndexBefore :: Int -> Text -> Maybe Int
@@ -1425,9 +1599,16 @@ inferScopeType builtinMode initialEnv initialState statements =
                 _ -> Just memberIndex
           | otherwise = currentLatest
 
-    generalizeRecursiveGroupMember :: TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
-    generalizeRecursiveGroupMember envOutsideGroup state currentEnv memberIndex =
+    generalizeRecursiveGroupMember :: Map Int PendingSignatureType -> TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
+    generalizeRecursiveGroupMember pendingSignatures envOutsideGroup state currentEnv memberIndex =
       case (Map.lookup memberIndex statementsByIndex, Map.lookup memberIndex bindingNamesByStatement) of
+        (Just (SLet _ _ valueExpr), Just bindingNameText)
+          | Just pendingSignature <- Map.lookup memberIndex pendingSignatures,
+            shouldGeneralizeExplicitSignatureBinding envOutsideGroup valueExpr pendingSignature ->
+              Map.insert
+                bindingNameText
+                (generalizedExplicitSignatureBinding envOutsideGroup state pendingSignature)
+                currentEnv
         (Just (SLet _ _ valueExpr), Just bindingNameText)
           | shouldGeneralizeOrdinaryBinding memberIndex envOutsideGroup valueExpr Nothing ->
               case Map.lookup memberIndex bindingSeedsByStatement of
@@ -1481,21 +1662,26 @@ checkImplMethodBodies builtinMode env state capabilityName arguments methods =
                                         methodExpr
                                     stateAfterMethod =
                                       annotateNewErrorsWithPrimarySpan methodSpan stateAfterExpectedType rawStateAfterMethod
-                                 in case maybeMethodType of
-                                      Just methodType ->
-                                        case unifyTypes expectedType methodType stateAfterMethod of
-                                          Just unifiedState -> unifiedState
-                                          Nothing ->
-                                            addTypeError
-                                              stateAfterMethod
-                                              ( mkImplMethodTypeMismatchError
-                                                  methodKey
-                                                  methodSpan
-                                                  (resolveType stateAfterMethod expectedType)
-                                                  (resolveType stateAfterMethod methodType)
-                                              )
-                                      Nothing ->
-                                        stateAfterMethod
+                                    stateAfterMethodCheck =
+                                      case maybeMethodType of
+                                        Just methodType ->
+                                          case unifyTypes expectedType methodType stateAfterMethod of
+                                            Just unifiedState -> unifiedState
+                                            Nothing ->
+                                              addTypeError
+                                                stateAfterMethod
+                                                ( mkImplMethodTypeMismatchError
+                                                    methodKey
+                                                    methodSpan
+                                                    (resolveType stateAfterMethod expectedType)
+                                                    (resolveType stateAfterMethod methodType)
+                                                )
+                                        Nothing ->
+                                          stateAfterMethod
+                                 in finalizeDeferredExplicitConstraintsAt
+                                      methodSpan
+                                      stateAfterExpectedType
+                                      stateAfterMethodCheck
            in foldl' checkMethod state methods
     _ -> state
   where
@@ -1860,15 +2046,92 @@ generalizedOrdinaryBinding env state expressionType =
       freeVariables = freeTypeVariables resolvedType
       environmentVariables = freeTypeVariablesInEnv state env
       quantifiedVariables = Set.difference freeVariables environmentVariables
-      constrainedVariables =
-        Set.union
-          (inferStrictEqualityVars state)
-          (Map.keysSet (inferNumericVars state))
+      constrainedVariables = primitiveConstrainedTypeVariables state
       schemeVariables = Set.difference quantifiedVariables constrainedVariables
    in
     if Set.null schemeVariables
       then PlainTypeBinding resolvedType
-      else SchemeTypeBinding (TypeScheme schemeVariables resolvedType)
+      else SchemeTypeBinding (TypeScheme schemeVariables [] [] resolvedType)
+
+generalizedExplicitSignatureBinding ::
+  TypeEnv ->
+  InferState ->
+  PendingSignatureType ->
+  TypeBinding
+generalizedExplicitSignatureBinding env state pendingSignature =
+  let resolvedType = resolveType state (pendingSignatureDeclaredType pendingSignature)
+      resolvedConstraints =
+        map (resolveTypeSchemeConstraint state) (pendingSignatureExplicitConstraints pendingSignature)
+      freeVariables =
+        Set.union
+          (freeTypeVariables resolvedType)
+          (freeTypeVariablesInTypeSchemeConstraints resolvedConstraints)
+      environmentVariables = freeTypeVariablesInEnv state env
+      quantifiedVariables = Set.difference freeVariables environmentVariables
+      schemeVariables = quantifiedVariables
+      primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
+   in if Set.null schemeVariables && null resolvedConstraints && null primitiveConstraints
+        then PlainTypeBinding resolvedType
+        else SchemeTypeBinding (TypeScheme schemeVariables resolvedConstraints primitiveConstraints resolvedType)
+
+typeSchemePrimitiveConstraints :: InferState -> Set Int -> [TypeSchemePrimitiveConstraint]
+typeSchemePrimitiveConstraints state schemeVariables =
+  numericConstraints ++ equalityConstraints
+  where
+    targetTypeFor typeVar =
+      let targetType = resolveType state (TVarType typeVar)
+          targetVariables = freeTypeVariables targetType
+       in if not (Set.null targetVariables) && targetVariables `Set.isSubsetOf` schemeVariables
+            then Just targetType
+            else Nothing
+
+    numericConstraints =
+      [ TypeSchemeNumericConstraint numericConstraint targetType
+        | (typeVar, numericConstraint) <- Map.toList (inferNumericVars state),
+          Just targetType <- [targetTypeFor typeVar]
+      ]
+
+    equalityConstraints =
+      [ TypeSchemeStrictEqualityConstraint targetType
+        | typeVar <- Set.toList (inferStrictEqualityVars state),
+          Just targetType <- [targetTypeFor typeVar]
+      ]
+
+primitiveConstrainedTypeVariables :: InferState -> Set Int
+primitiveConstrainedTypeVariables state =
+  Set.union
+    (inferStrictEqualityVars state)
+    (Map.keysSet (inferNumericVars state))
+
+resolveTypeSchemeConstraint :: InferState -> TypeSchemeConstraint -> TypeSchemeConstraint
+resolveTypeSchemeConstraint state (TypeSchemeConstraint constraintName argumentType) =
+  TypeSchemeConstraint constraintName (resolveType state argumentType)
+
+freeTypeVariablesInTypeSchemeConstraints :: [TypeSchemeConstraint] -> Set Int
+freeTypeVariablesInTypeSchemeConstraints constraints =
+  Set.unions (map freeTypeVariablesInTypeSchemeConstraint constraints)
+
+freeTypeVariablesInTypeSchemeConstraint :: TypeSchemeConstraint -> Set Int
+freeTypeVariablesInTypeSchemeConstraint (TypeSchemeConstraint _ argumentType) =
+  freeTypeVariables argumentType
+
+resolveTypeSchemePrimitiveConstraint :: InferState -> TypeSchemePrimitiveConstraint -> TypeSchemePrimitiveConstraint
+resolveTypeSchemePrimitiveConstraint state primitiveConstraint =
+  case primitiveConstraint of
+    TypeSchemeNumericConstraint numericConstraint argumentType ->
+      TypeSchemeNumericConstraint numericConstraint (resolveType state argumentType)
+    TypeSchemeStrictEqualityConstraint argumentType ->
+      TypeSchemeStrictEqualityConstraint (resolveType state argumentType)
+
+freeTypeVariablesInTypeSchemePrimitiveConstraints :: [TypeSchemePrimitiveConstraint] -> Set Int
+freeTypeVariablesInTypeSchemePrimitiveConstraints primitiveConstraints =
+  Set.unions (map freeTypeVariablesInTypeSchemePrimitiveConstraint primitiveConstraints)
+
+freeTypeVariablesInTypeSchemePrimitiveConstraint :: TypeSchemePrimitiveConstraint -> Set Int
+freeTypeVariablesInTypeSchemePrimitiveConstraint primitiveConstraint =
+  case primitiveConstraint of
+    TypeSchemeNumericConstraint _ argumentType -> freeTypeVariables argumentType
+    TypeSchemeStrictEqualityConstraint argumentType -> freeTypeVariables argumentType
 
 freeTypeVariablesInEnv :: InferState -> TypeEnv -> Set Int
 freeTypeVariablesInEnv state =
@@ -1879,9 +2142,14 @@ freeTypeVariablesInBinding state binding =
   case binding of
     PlainTypeBinding expressionType ->
       freeTypeVariables (resolveType state expressionType)
-    SchemeTypeBinding (TypeScheme quantifiedVariables expressionType) ->
+    SchemeTypeBinding (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints expressionType) ->
       Set.difference
-        (freeTypeVariables (resolveType state expressionType))
+        ( Set.unions
+            [ freeTypeVariables (resolveType state expressionType),
+              freeTypeVariablesInTypeSchemeConstraints (map (resolveTypeSchemeConstraint state) explicitConstraints),
+              freeTypeVariablesInTypeSchemePrimitiveConstraints (map (resolveTypeSchemePrimitiveConstraint state) primitiveConstraints)
+            ]
+        )
         quantifiedVariables
     BuiltinAliasTypeBinding {} -> Set.empty
     ConstructorTypeBinding _ _ argumentTypes ->
@@ -1940,7 +2208,8 @@ replaceTypeVariables replacements expressionType =
 data PendingSignatureType = PendingSignatureType
   { pendingSignatureName :: Text,
     pendingSignatureSpan :: SourceSpan,
-    pendingSignatureDeclaredType :: ExpressionType
+    pendingSignatureDeclaredType :: ExpressionType,
+    pendingSignatureExplicitConstraints :: [TypeSchemeConstraint]
   }
 
 targetedFractionalLiteralBindingType ::
@@ -2075,7 +2344,7 @@ instantiateTypeBinding binding state =
         Nothing -> (Nothing, state)
 
 instantiateTypeScheme :: TypeScheme -> InferState -> (Maybe ExpressionType, InferState)
-instantiateTypeScheme (TypeScheme quantifiedVariables expressionType) state =
+instantiateTypeScheme (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints expressionType) state =
   let (freshBindings, nextState) =
         foldl'
           allocateFreshBinding
@@ -2083,11 +2352,107 @@ instantiateTypeScheme (TypeScheme quantifiedVariables expressionType) state =
           (Set.toList quantifiedVariables)
       instantiatedType =
         replaceTypeVariables freshBindings expressionType
-   in (Just (resolveType nextState instantiatedType), nextState)
+      instantiatedConstraints =
+        map (instantiateTypeSchemeConstraint freshBindings) explicitConstraints
+      instantiatedPrimitiveConstraints =
+        map (instantiateTypeSchemePrimitiveConstraint freshBindings) primitiveConstraints
+      stateWithPrimitiveConstraints =
+        applyTypeSchemePrimitiveConstraints instantiatedPrimitiveConstraints nextState
+      stateWithDeferredConstraints =
+        deferExplicitConstraints instantiatedConstraints stateWithPrimitiveConstraints
+   in (Just (resolveType stateWithDeferredConstraints instantiatedType), stateWithDeferredConstraints)
   where
     allocateFreshBinding (bindings, stateAcc) typeVar =
       let (freshType, nextState) = freshTypeVar stateAcc
        in (Map.insert typeVar freshType bindings, nextState)
+
+instantiateTypeSchemeConstraint :: Map Int ExpressionType -> TypeSchemeConstraint -> TypeSchemeConstraint
+instantiateTypeSchemeConstraint replacements (TypeSchemeConstraint constraintName argumentType) =
+  TypeSchemeConstraint constraintName (replaceTypeVariables replacements argumentType)
+
+instantiateTypeSchemePrimitiveConstraint :: Map Int ExpressionType -> TypeSchemePrimitiveConstraint -> TypeSchemePrimitiveConstraint
+instantiateTypeSchemePrimitiveConstraint replacements primitiveConstraint =
+  case primitiveConstraint of
+    TypeSchemeNumericConstraint numericConstraint argumentType ->
+      TypeSchemeNumericConstraint numericConstraint (replaceTypeVariables replacements argumentType)
+    TypeSchemeStrictEqualityConstraint argumentType ->
+      TypeSchemeStrictEqualityConstraint (replaceTypeVariables replacements argumentType)
+
+applyTypeSchemePrimitiveConstraints :: [TypeSchemePrimitiveConstraint] -> InferState -> InferState
+applyTypeSchemePrimitiveConstraints primitiveConstraints state =
+  foldl' applyPrimitiveConstraint state primitiveConstraints
+  where
+    applyPrimitiveConstraint stateAcc primitiveConstraint =
+      case primitiveConstraint of
+        TypeSchemeNumericConstraint numericConstraint argumentType ->
+          case constrainNumericOperatorType numericConstraint argumentType stateAcc of
+            Just nextState -> nextState
+            Nothing -> stateAcc
+        TypeSchemeStrictEqualityConstraint argumentType ->
+          case resolveType stateAcc argumentType of
+            TVarType typeVar ->
+              addStrictEqualityTypeVarConstraint typeVar stateAcc
+            resolvedType
+              | supportsRuntimeEqualityType stateAcc resolvedType ->
+                  stateAcc
+              | otherwise ->
+                  stateAcc
+
+deferExplicitConstraints :: [TypeSchemeConstraint] -> InferState -> InferState
+deferExplicitConstraints explicitConstraints state
+  | null explicitConstraints = state
+  | otherwise =
+      state
+        { inferDeferredExplicitConstraints =
+            inferDeferredExplicitConstraints state
+              ++ map (typeSchemeConstraintToDeferredExplicitConstraint (capabilityFactsFromState state)) explicitConstraints
+        }
+
+typeSchemeConstraintToDeferredExplicitConstraint :: ScopeCapabilityFacts -> TypeSchemeConstraint -> DeferredExplicitConstraint
+typeSchemeConstraintToDeferredExplicitConstraint facts (TypeSchemeConstraint constraintName argumentType) =
+  DeferredExplicitConstraint constraintName argumentType facts
+
+finalizeDeferredExplicitConstraintsAt :: SourceSpan -> InferState -> InferState -> InferState
+finalizeDeferredExplicitConstraintsAt spanValue statementStartState state =
+  annotateNewErrorsWithPrimarySpan
+    spanValue
+    state
+    (resolveStatementDeferredExplicitConstraints statementStartState state)
+
+resolveStatementDeferredExplicitConstraints :: InferState -> InferState -> InferState
+resolveStatementDeferredExplicitConstraints statementStartState state =
+  foldl' resolveDeferredExplicitConstraint stateWithoutStatementConstraints statementConstraints
+  where
+    priorConstraints = inferDeferredExplicitConstraints statementStartState
+    currentConstraints = inferDeferredExplicitConstraints state
+    statementConstraints =
+      drop (length priorConstraints) currentConstraints
+    stateWithoutStatementConstraints =
+      state {inferDeferredExplicitConstraints = priorConstraints}
+
+resolveDeferredExplicitConstraint :: InferState -> DeferredExplicitConstraint -> InferState
+resolveDeferredExplicitConstraint state (DeferredExplicitConstraint constraintName argumentType facts) =
+  let resolvedArgumentType =
+        defaultLiteralTypes (resolveType state argumentType)
+   in
+    if not (Set.null (freeTypeVariables resolvedArgumentType))
+      then addTypeError state (mkAmbiguousExplicitConstraintError constraintName resolvedArgumentType)
+      else
+        case Map.lookup constraintName (scopeClassFacts facts) of
+          Nothing ->
+            addTypeError state (mkMissingExplicitConstraintClassError constraintName)
+          Just classArity
+            | classArity /= 1 ->
+                addTypeError state (mkExplicitConstraintArityError constraintName classArity)
+            | otherwise ->
+                case expressionTypeToRuntimeHint resolvedArgumentType of
+                  Just argumentHint ->
+                    let implFactKey = constraintName <> "(" <> renderConstraintSignatureType argumentHint <> ")"
+                     in if Set.member implFactKey (scopeConcreteImplFacts facts)
+                          then state
+                          else addTypeError state (mkMissingExplicitConstraintImplFactError implFactKey)
+                  Nothing ->
+                    addTypeError state (mkAmbiguousExplicitConstraintError constraintName resolvedArgumentType)
 
 instantiateQualifiedMethodType :: Text -> InferState -> Maybe (Maybe ExpressionType, InferState)
 instantiateQualifiedMethodType nameText state =
@@ -2387,20 +2752,25 @@ annotateNewErrorsWithPrimarySpan spanValue previousState nextState =
         Just _ -> diagnostic
         Nothing -> setDiagnosticPrimarySpan spanValue diagnostic
 
+data SignaturePayloadType = SignaturePayloadType
+  { signaturePayloadDeclaredType :: ExpressionType,
+    signaturePayloadExplicitConstraints :: [TypeSchemeConstraint]
+  }
+
 -- | Normalize the currently accepted signature subset. Unsupported surfaces
 -- return `Nothing` so callers can emit the stable signature diagnostic.
-signaturePayloadToExpressionType :: SignaturePayload -> InferState -> (Maybe ExpressionType, InferState)
-signaturePayloadToExpressionType signaturePayload state =
+signaturePayloadToSignatureType :: SignaturePayload -> InferState -> (Maybe SignaturePayloadType, InferState)
+signaturePayloadToSignatureType signaturePayload state =
   case signaturePayload of
     SignatureType signatureType ->
-      (Just (signatureTypeToExpressionType signatureType), state)
+      (Just (SignaturePayloadType (signatureTypeToExpressionType signatureType) []), state)
     ConstrainedSignature [] signatureType ->
-      (constraintSignatureTypeToExpressionType signatureType, state)
+      (fmap (\declaredType -> SignaturePayloadType declaredType []) (constraintSignatureTypeToExpressionType signatureType), state)
     ConstrainedSignature constraints signatureType
       | supportedConcreteConstraints state constraints ->
-          (constraintSignatureTypeToExpressionType signatureType, state)
-      | supportedVariableConstraints constraints signatureType ->
-          variableConstraintSignatureTypeToExpressionType signatureType state
+          (fmap (\declaredType -> SignaturePayloadType declaredType []) (constraintSignatureTypeToExpressionType signatureType), state)
+      | supportedVariableConstraints state constraints signatureType ->
+          variableConstraintSignaturePayloadToExpressionType constraints signatureType state
       | otherwise ->
           (Nothing, state)
     UnsupportedSignature {} ->
@@ -2452,19 +2822,34 @@ constraintSignatureTypeToExpressionTypeWithVariables signatureVariables signatur
         <$> constraintSignatureTypeToExpressionTypeWithVariables signatureVariables argumentType
         <*> constraintSignatureTypeToExpressionTypeWithVariables signatureVariables resultType
 
-variableConstraintSignatureTypeToExpressionType ::
+variableConstraintSignaturePayloadToExpressionType ::
+  [SignatureConstraint] ->
   ConstraintSignatureType ->
   InferState ->
-  (Maybe ExpressionType, InferState)
-variableConstraintSignatureTypeToExpressionType signatureType state =
+  (Maybe SignaturePayloadType, InferState)
+variableConstraintSignaturePayloadToExpressionType constraints signatureType state =
   let variableNames = Set.toAscList (constraintSignatureTypeVariableNames signatureType)
       (signatureVariables, nextState) = allocateSignatureTypeVariables variableNames state
       convertedType =
         constraintSignatureTypeToExpressionTypeWithVariables signatureVariables signatureType
+      convertedConstraints =
+        traverse (variableConstraintToTypeSchemeConstraint signatureVariables) constraints
    in
-    case convertedType of
-      Just expressionType -> (Just expressionType, nextState)
-      Nothing -> (Nothing, state)
+    case (convertedType, convertedConstraints) of
+      (Just expressionType, Just explicitConstraints) ->
+        (Just (SignaturePayloadType expressionType explicitConstraints), nextState)
+      _ -> (Nothing, state)
+
+variableConstraintToTypeSchemeConstraint ::
+  Map Text ExpressionType ->
+  SignatureConstraint ->
+  Maybe TypeSchemeConstraint
+variableConstraintToTypeSchemeConstraint signatureVariables (SignatureConstraint constraintName arguments) =
+  case arguments of
+    [ConstraintTypeName argumentName] ->
+      TypeSchemeConstraint (identifierText constraintName)
+        <$> Map.lookup (identifierText argumentName) signatureVariables
+    _ -> Nothing
 
 allocateSignatureTypeVariables :: [Text] -> InferState -> (Map Text ExpressionType, InferState)
 allocateSignatureTypeVariables variableNames state =
@@ -2480,16 +2865,16 @@ supportedConcreteConstraints state constraints =
     && isNothing (duplicateConstraintName constraints)
     && all (supportedConcreteConstraint state) constraints
 
--- | Variable constrained signatures are accepted only when constraints and
--- body mention exactly the same supported unary variables.
-supportedVariableConstraints :: [SignatureConstraint] -> ConstraintSignatureType -> Bool
-supportedVariableConstraints constraints signatureType =
+-- | Variable constrained signatures are accepted when every constrained
+-- variable appears in the body; extra body variables remain unconstrained.
+supportedVariableConstraints :: InferState -> [SignatureConstraint] -> ConstraintSignatureType -> Bool
+supportedVariableConstraints state constraints signatureType =
   not (null constraints)
     && isNothing (duplicateConstraintName constraints)
-    && all supportedVariableConstraint constraints
+    && all (supportedVariableConstraint state) constraints
     && constraintSignatureTypeSupportsVariableBody signatureType
     && not (Set.null signatureVariableNames)
-    && constraintVariableNames == signatureVariableNames
+    && constraintVariableNames `Set.isSubsetOf` signatureVariableNames
   where
     signatureVariableNames =
       constraintSignatureTypeVariableNames signatureType
@@ -2506,12 +2891,11 @@ supportedConcreteConstraint state (SignatureConstraint constraintName arguments)
           (inferConcreteImplFacts state)
     _ -> False
 
-supportedVariableConstraint :: SignatureConstraint -> Bool
-supportedVariableConstraint (SignatureConstraint constraintName arguments) =
-  case arguments of
-    [ConstraintTypeName argumentName] ->
-      supportedConstraintName (identifierText constraintName)
-        && identifierLooksLikeTypeVariable argumentName
+supportedVariableConstraint :: InferState -> SignatureConstraint -> Bool
+supportedVariableConstraint state (SignatureConstraint constraintName arguments) =
+  case (Map.lookup (identifierText constraintName) (inferClassFacts state), arguments) of
+    (Just 1, [ConstraintTypeName argumentName]) ->
+      identifierLooksLikeTypeVariable argumentName
     _ -> False
 
 constraintVariableNamesInSupportedConstraint :: SignatureConstraint -> Set Text
@@ -2521,10 +2905,6 @@ constraintVariableNamesInSupportedConstraint constraint =
       | identifierLooksLikeTypeVariable argumentName ->
           Set.singleton (identifierText argumentName)
     _ -> Set.empty
-
-supportedConstraintName :: Text -> Bool
-supportedConstraintName constraintName =
-  Set.member constraintName supportedConstraintNames
 
 constraintSignatureTypeVariableNames :: ConstraintSignatureType -> Set Text
 constraintSignatureTypeVariableNames signatureType =
@@ -2557,10 +2937,6 @@ constraintSignatureTypeSupportsVariableBody signatureType =
     ConstraintTypeFunction argumentType resultType ->
       constraintSignatureTypeSupportsVariableBody argumentType
         && constraintSignatureTypeSupportsVariableBody resultType
-
-supportedConstraintNames :: Set Text
-supportedConstraintNames =
-  Set.fromList ["Default", "Eq", "Fractional", "Integral", "Num", "Ord", "Showable"]
 
 numericTypeNameToExpressionType :: Text -> Maybe ExpressionType
 numericTypeNameToExpressionType typeName =
@@ -2950,6 +3326,24 @@ instantiateOperatorType operatorSymbol state =
             stateAfterResultType
           )
     Nothing -> Nothing
+
+instantiateDeclaredOperatorBindingType :: TypeEnv -> Text -> InferState -> (Maybe ExpressionType, InferState)
+instantiateDeclaredOperatorBindingType env operatorSymbol state =
+  case Map.lookup (operatorBindingIdentifierText operatorSymbol) env of
+    Just binding ->
+      instantiateTypeBinding binding state
+    Nothing ->
+      ( Nothing,
+        addTypeError state (mkMissingOperatorBindingError operatorSymbol)
+      )
+
+declaredOperatorRightSectionExpr :: Text -> Expr -> Expr
+declaredOperatorRightSectionExpr operatorSymbol rightExpr =
+  ELambda
+    leftParameter
+    (EApply (EApply (EOperatorValue operatorSymbol) (EVar leftParameter)) rightExpr)
+  where
+    leftParameter = mkIdentifier "$operator_section_left"
 
 -- | Instantiate builtin symbol types on demand so each use site gets fresh type
 -- variables instead of sharing one global schematic type.
@@ -3493,6 +3887,10 @@ mkUnsupportedSectionOperatorError :: Text -> Diagnostic
 mkUnsupportedSectionOperatorError operatorSymbol =
   mkDiagnostic "E2008" ("unsupported operator section '" <> operatorSymbol <> "'")
 
+mkUnsupportedOperatorValueError :: Text -> Diagnostic
+mkUnsupportedOperatorValueError operatorSymbol =
+  mkDiagnostic "E2003" ("builtin operator '" <> operatorSymbol <> "' has no value type rule")
+
 mkNumericSectionOperandTypeError :: Text -> NumericRuleResult -> ExpressionType -> Diagnostic
 mkNumericSectionOperandTypeError operatorSymbol _ operandType =
   mkDiagnostic
@@ -3503,9 +3901,9 @@ mkNumericSectionOperandTypeError operatorSymbol _ operandType =
         <> renderType operandType
     )
 
-mkUnsupportedOperatorValueError :: Text -> Diagnostic
-mkUnsupportedOperatorValueError operatorSymbol =
-  mkDiagnostic "E2010" ("unsupported operator value '" <> operatorSymbol <> "'")
+mkMissingOperatorBindingError :: Text -> Diagnostic
+mkMissingOperatorBindingError operatorSymbol =
+  mkDiagnostic "E2010" ("operator '" <> operatorSymbol <> "' has no executable binding")
 
 mkMissingClassMethodError :: Text -> Diagnostic
 mkMissingClassMethodError methodKey =
@@ -3594,6 +3992,36 @@ mkMissingConstructorTypeParameterBindingError parameterName =
     "E2013"
     ("internal constructor scheme error: missing binding for type parameter '" <> parameterName <> "'")
 
+mkMissingExplicitConstraintClassError :: Text -> Diagnostic
+mkMissingExplicitConstraintClassError constraintName =
+  mkDiagnostic "E2009" ("missing class declaration '" <> constraintName <> "'")
+
+mkExplicitConstraintArityError :: Text -> Int -> Diagnostic
+mkExplicitConstraintArityError constraintName expectedArity =
+  mkDiagnostic
+    "E2009"
+    ( "constraint '"
+        <> constraintName
+        <> "' expects "
+        <> Text.pack (show expectedArity)
+        <> " argument(s), got 1"
+    )
+
+mkMissingExplicitConstraintImplFactError :: Text -> Diagnostic
+mkMissingExplicitConstraintImplFactError implFactKey =
+  mkDiagnostic "E2009" ("missing impl fact '" <> implFactKey <> "'")
+
+mkAmbiguousExplicitConstraintError :: Text -> ExpressionType -> Diagnostic
+mkAmbiguousExplicitConstraintError constraintName argumentType =
+  mkDiagnostic
+    "E2009"
+    ( "ambiguous/defaulting explicit constraint '"
+        <> constraintName
+        <> "("
+        <> renderType argumentType
+        <> ")': explicit constrained signatures do not default unresolved type variables"
+    )
+
 mkPatternTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkPatternTypeMismatchError scrutineeType patternType =
   mkDiagnostic
@@ -3662,7 +4090,7 @@ invalidSignatureSummary state symbol signaturePayload =
       | constrainedSignatureHasTypeVariable constraints signatureType ->
           "invalid or unsupported signature for '"
             <> symbol
-            <> "': type-variable constrained signatures require every constrained variable to appear in the signature body and every body variable to appear in a supported unary constraint before inference can accept '"
+            <> "': type-variable constrained signatures require every constrained variable to appear in the signature body before inference can accept '"
             <> renderSignaturePayload signaturePayload
             <> "'"
     ConstrainedSignature constraints _
@@ -3813,6 +4241,37 @@ extendBoundWithPattern pattern bound =
       foldl' (flip extendBoundWithPattern) bound patterns
     PAs name pattern ->
       extendBoundWithPattern pattern (Set.insert (identifierText name) bound)
+    POr alternatives ->
+      Set.union bound (commonPatternBinderNames alternatives)
+
+commonPatternBinderNames :: [Pattern] -> Set Text
+commonPatternBinderNames alternatives =
+  case alternatives of
+    [] -> Set.empty
+    firstAlternative : rest ->
+      foldl'
+        Set.intersection
+        (patternBinderNames firstAlternative)
+        (map patternBinderNames rest)
+
+patternBinderNames :: Pattern -> Set Text
+patternBinderNames pattern =
+  case pattern of
+    PVariable name -> Set.singleton (identifierText name)
+    PWildcard -> Set.empty
+    PLiteral {} -> Set.empty
+    PConstructor _ patterns ->
+      Set.unions (map patternBinderNames patterns)
+    PList patterns ->
+      Set.unions (map patternBinderNames patterns)
+    PConsList headPattern tailPattern ->
+      Set.union (patternBinderNames headPattern) (patternBinderNames tailPattern)
+    PTuple patterns ->
+      Set.unions (map patternBinderNames patterns)
+    PAs name nestedPattern ->
+      Set.insert (identifierText name) (patternBinderNames nestedPattern)
+    POr alternatives ->
+      commonPatternBinderNames alternatives
 
 inferPatternCaseType ::
   BuiltinResolutionMode ->
@@ -3957,6 +4416,15 @@ patternDuplicateBinderNames pattern =
                   then (seen, Set.insert nameText duplicatesAcc)
                   else (Set.insert nameText seen, duplicatesAcc)
            in collect nestedPattern seenAfterName duplicatesAfterName
+        POr alternatives ->
+          let duplicatesAfterAlternatives =
+                foldl'
+                  ( \duplicatesAcc' alternative ->
+                      Set.union duplicatesAcc' (Set.intersection seen (patternBinderNames alternative))
+                  )
+                  duplicatesAcc
+                  alternatives
+           in (Set.union seen (commonPatternBinderNames alternatives), duplicatesAfterAlternatives)
 
     collectNested seen duplicatesAcc =
       foldl'
@@ -4015,6 +4483,137 @@ inferPatternType env scrutineeType pattern state =
                 },
               stateAfterPattern
             )
+    POr alternatives ->
+      inferOrPatternType env scrutineeType alternatives state
+
+inferOrPatternType ::
+  TypeEnv ->
+  ExpressionType ->
+  [Pattern] ->
+  InferState ->
+  (PatternTyping, InferState)
+inferOrPatternType env scrutineeType alternatives initialState =
+  case alternatives of
+    [] ->
+      ( skipBranchPatternTyping,
+        addTypeError initialState mkEmptyOrPatternError
+      )
+    firstAlternative : rest ->
+      let (firstTyping, stateAfterFirst) =
+            inferOrPatternAlternative firstAlternative initialState
+       in
+        if patternSkipsBranchType firstTyping
+          then (firstTyping, rollbackSkippedPatternState initialState stateAfterFirst)
+          else
+            let expectedBinderNames = Map.keysSet (patternBindings firstTyping)
+             in inferRemainingAlternatives
+                  expectedBinderNames
+                  (patternBindings firstTyping)
+                  stateAfterFirst
+                  rest
+  where
+    inferOrPatternAlternative alternativePattern stateAcc =
+      let (rawTyping, stateAfterPatternCheck) =
+            inferPatternType env scrutineeType alternativePattern stateAcc
+       in rejectDuplicatePatternBinders
+            alternativePattern
+            rawTyping
+            stateAcc
+            stateAfterPatternCheck
+
+    inferRemainingAlternatives expectedBinderNames bindingsAcc stateAcc remainingAlternatives =
+      case remainingAlternatives of
+        [] ->
+          ( emptyPatternTyping
+              {patternBindings = resolvePatternBindings stateAcc bindingsAcc},
+            stateAcc
+          )
+        alternativePattern : restAlternatives ->
+          let (alternativeTyping, stateAfterAlternative) =
+                inferOrPatternAlternative alternativePattern stateAcc
+           in
+            if patternSkipsBranchType alternativeTyping
+              then (alternativeTyping, rollbackSkippedPatternState initialState stateAfterAlternative)
+              else
+                let alternativeBindings = patternBindings alternativeTyping
+                    alternativeBinderNames = Map.keysSet alternativeBindings
+                 in
+                  if alternativeBinderNames /= expectedBinderNames
+                    then
+                      ( skipBranchPatternTyping,
+                        rollbackSkippedPatternState
+                          initialState
+                          ( addTypeError
+                              stateAfterAlternative
+                              (mkOrPatternBinderSetMismatchError expectedBinderNames alternativeBinderNames)
+                          )
+                      )
+                    else
+                      case unifyOrPatternBinders bindingsAcc alternativeBindings stateAfterAlternative of
+                        Left failedState ->
+                          (skipBranchPatternTyping, rollbackSkippedPatternState initialState failedState)
+                        Right (mergedBindings, stateAfterBinders) ->
+                          inferRemainingAlternatives
+                            expectedBinderNames
+                            mergedBindings
+                            stateAfterBinders
+                            restAlternatives
+
+    unifyOrPatternBinders bindingsAcc alternativeBindings stateAcc =
+      foldl'
+        unifyBinder
+        (Right (bindingsAcc, stateAcc))
+        (Set.toList (Map.keysSet bindingsAcc))
+      where
+        unifyBinder maybeAcc binderName =
+          case maybeAcc of
+            Left failedState -> Left failedState
+            Right (mergedBindings, stateForBinder) ->
+              case (Map.lookup binderName mergedBindings, Map.lookup binderName alternativeBindings) of
+                (Just leftBinding, Just rightBinding) ->
+                  let leftType = patternBindingExpressionType leftBinding
+                      rightType = patternBindingExpressionType rightBinding
+                   in case unifyTypes leftType rightType stateForBinder of
+                        Just unifiedState ->
+                          Right
+                            ( Map.insert
+                                binderName
+                                (PlainTypeBinding (resolveType unifiedState leftType))
+                                mergedBindings,
+                              unifiedState
+                            )
+                        Nothing ->
+                          Left
+                            ( addTypeError
+                                stateForBinder
+                                ( mkOrPatternBinderTypeMismatchError
+                                    binderName
+                                    (resolveType stateForBinder leftType)
+                                    (resolveType stateForBinder rightType)
+                                )
+                            )
+                _ ->
+                  Left
+                    ( addTypeError
+                        stateForBinder
+                        (mkOrPatternBinderSetMismatchError (Map.keysSet mergedBindings) (Map.keysSet alternativeBindings))
+                    )
+
+patternBindingExpressionType :: TypeBinding -> ExpressionType
+patternBindingExpressionType binding =
+  case binding of
+    PlainTypeBinding expressionType -> expressionType
+    _ -> error "internal type inference error: non-plain case pattern binding"
+
+resolvePatternBindings :: InferState -> TypeEnv -> TypeEnv
+resolvePatternBindings state bindings =
+  Map.map resolvePatternBinding bindings
+  where
+    resolvePatternBinding binding =
+      case binding of
+        PlainTypeBinding expressionType ->
+          PlainTypeBinding (resolveType state expressionType)
+        _ -> binding
 
 inferConstructorPatternType ::
   TypeEnv ->
@@ -4273,6 +4872,38 @@ mkDuplicatePatternBinderError binderName =
   mkDiagnostic
     "E2011"
     ("duplicate case pattern binder '" <> binderName <> "'")
+
+mkEmptyOrPatternError :: Diagnostic
+mkEmptyOrPatternError =
+  mkDiagnostic
+    "E2011"
+    "or-pattern must contain at least one alternative"
+
+mkOrPatternBinderSetMismatchError :: Set Text -> Set Text -> Diagnostic
+mkOrPatternBinderSetMismatchError expectedNames foundNames =
+  mkDiagnostic
+    "E2011"
+    ( "or-pattern alternatives must bind the same names, expected "
+        <> renderBinderSet expectedNames
+        <> " but found "
+        <> renderBinderSet foundNames
+    )
+
+mkOrPatternBinderTypeMismatchError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
+mkOrPatternBinderTypeMismatchError binderName leftType rightType =
+  mkDiagnostic
+    "E2011"
+    ( "or-pattern binder '"
+        <> binderName
+        <> "' has incompatible types "
+        <> renderType leftType
+        <> " and "
+        <> renderType rightType
+    )
+
+renderBinderSet :: Set Text -> Text
+renderBinderSet names =
+  "{" <> Text.intercalate ", " (Set.toList names) <> "}"
 
 supportsRuntimeEqualityType :: InferState -> ExpressionType -> Bool
 supportsRuntimeEqualityType state expressionType =

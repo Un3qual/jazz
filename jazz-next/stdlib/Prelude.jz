@@ -11,7 +11,9 @@ class Default(a) { }.
 impl Eq(Int) {
 equals = \(left) -> \(right) -> left == right.
 }.
-impl Eq(Float) { }.
+impl Eq(Float) {
+equals = \(left) -> \(right) -> left == right.
+}.
 impl Eq(Bool) {
 equals = \(left) -> \(right) -> left == right.
 }.
@@ -127,3 +129,5 @@ toUInt64 = __kernel_toUInt64.
 toFloat16 = __kernel_toFloat16.
 toFloat32 = __kernel_toFloat32.
 toFloat64 = __kernel_toFloat64.
+toInt = toInt64.
+toFloat = toFloat64.

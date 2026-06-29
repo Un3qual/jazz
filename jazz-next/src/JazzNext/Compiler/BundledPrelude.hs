@@ -32,6 +32,7 @@ bundledPreludeSource =
       <> map renderKernelBridge allBuiltinSymbols
       <> [""]
       <> map renderPublicAlias allBuiltinSymbols
+      <> map renderDefaultConversionAlias defaultConversionAliases
   where
     renderCapabilityClass name =
       case name of
@@ -54,6 +55,13 @@ bundledPreludeSource =
               "equals = \\(left) -> \\(right) -> left == right.",
               "}."
             ]
+        ("Eq", "Float") ->
+          Text.intercalate
+            "\n"
+            [ "impl Eq(Float) {",
+              "equals = \\(left) -> \\(right) -> left == right.",
+              "}."
+            ]
         ("Eq", "Bool") ->
           Text.intercalate
             "\n"
@@ -72,6 +80,15 @@ bundledPreludeSource =
 
     renderPublicAlias symbol =
       builtinSymbolName symbol <> " = " <> builtinSymbolKernelName symbol <> "."
+
+    renderDefaultConversionAlias (aliasName, targetName) =
+      aliasName <> " = " <> targetName <> "."
+
+defaultConversionAliases :: [(Text, Text)]
+defaultConversionAliases =
+  [ ("toInt", "toInt64"),
+    ("toFloat", "toFloat64")
+  ]
 
 canonicalCapabilityClassNames :: [Text]
 canonicalCapabilityClassNames =

@@ -1,6 +1,6 @@
 # ADT Semantics
 
-Status: active (canonical and generic-parameter `data` declarations, generic constructor value/application schemes, constructor over-application diagnostics, structural ADT equality for equality-supported constructor payloads, constructor/list/tuple/as-pattern typing and runtime matching, single `if` case-arm guards, tuple literal values/signature types, and ordinary binding schemes are implemented in `jazz-next`)
+Status: active (canonical and generic-parameter `data` declarations, generic constructor value/application schemes, constructor over-application diagnostics, structural ADT equality for equality-supported constructor payloads, constructor/list/tuple/as-pattern typing and runtime matching, top-level case-arm or-pattern typing and runtime matching, single `if` case-arm guards, tuple literal values/signature types, and ordinary binding schemes are implemented in `jazz-next`)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -18,7 +18,7 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
 
 The active ADT/pattern rebase is closed for the monomorphic
 constructor/list/tuple/as-pattern/lambda-pattern subset implemented in
-`jazz-next`.
+`jazz-next`, with top-level case-arm or-patterns implemented for `case` arms.
 
 Future ADT typing work beyond the landed generic constructor value/application
 scheme slice remains blocked on separate contracts. The generic
@@ -26,7 +26,8 @@ declaration-parameter syntax/metadata slice, fresh per-use direct constructor
 scheme slice, generic constructor pattern typing, and ordinary binding
 generalization have landed. Class/defaulting solver behavior, explicit type
 application, and runtime dispatch changes remain outside the active subset.
-Single `if` case-arm guards have landed as a pattern-matching extension.
+Single `if` case-arm guards and top-level case-arm or-patterns have landed as
+pattern-matching extensions.
 
 ## Current Active-Path Status
 
@@ -41,8 +42,9 @@ Single `if` case-arm guards have landed as a pattern-matching extension.
    payload variables in arm bodies, and reject unknown or arity-mismatched
    constructor patterns with deterministic `E2011` diagnostics.
 4. The active parser/core path accepts constructor, bracketed-list,
-   cons-like list, tuple, and `name @ pattern` as-patterns plus single `if`
-   guards in `case` arms and lowers them into `EPatternCase`.
+   cons-like list, tuple, `name @ pattern` as-patterns, and top-level
+   case-arm or-patterns plus single `if` guards in `case` arms and lowers
+   them into `EPatternCase`.
 5. Bracketed-list patterns typecheck against list scrutinees, bind element
    variables in arm bodies, and match exact-length runtime lists.
 6. Constructor patterns match saturated runtime constructor values with the
@@ -70,6 +72,10 @@ Single `if` case-arm guards have landed as a pattern-matching extension.
     pattern binders are visible to the guard, the guard must typecheck as
     `Bool`, failed patterns skip guard evaluation, and `False` falls through to
     later arms.
+15. Top-level case-arm or-patterns are active: every alternative typechecks
+    against the same scrutinee, alternatives must bind the same names, common
+    binder types must unify, runtime tries alternatives left-to-right, and
+    guards/bodies see only compatible common binders.
 
 ## ADT Contract
 
@@ -147,7 +153,8 @@ semantics.
 2. Infix constructors or alternate constructor call syntax.
 3. Automatic deriving or trait/class synthesis for user ADTs.
 4. Tuple-constructor sugar or pattern features beyond the committed
-   constructor/list/tuple/as-pattern/guard subset, such as or-patterns,
-   pattern synonyms, and multiple guards per arm.
+   constructor/list/tuple/as/or-pattern/guard subset, such as nested/grouped
+   or-patterns, lambda-parameter or-patterns, pattern synonyms, and multiple
+   guards per arm.
 5. Class/defaulting solver behavior, explicit type application, or runtime
    dispatch as part of the first generic ADT constructor scheme slice.

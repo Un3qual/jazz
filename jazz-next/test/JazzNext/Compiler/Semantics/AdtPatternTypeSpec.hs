@@ -7,8 +7,19 @@ import Data.Text
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
+    compileExpr,
     compileSource,
     compileErrors
+  )
+import JazzNext.Compiler.AST
+  ( CaseArm (..),
+    Expr (..),
+    Literal (..),
+    Pattern (..)
+  )
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    diagnosticCode
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -139,6 +150,30 @@ tests =
     ),
     ( "source pipeline rejects duplicate as-pattern binders",
       testSourcePipelineRejectsDuplicateAsPatternBinders
+    ),
+    ( "source pipeline accepts or-patterns with common binders",
+      testSourcePipelineAcceptsOrPatternCommonBinders
+    ),
+    ( "source pipeline accepts or-pattern guard binders",
+      testSourcePipelineAcceptsOrPatternGuardBinders
+    ),
+    ( "source pipeline rejects or-pattern binder set mismatches",
+      testSourcePipelineRejectsOrPatternBinderSetMismatch
+    ),
+    ( "source pipeline does not expose one-sided or-pattern binders to arm bodies",
+      testSourcePipelineDoesNotExposeOneSidedOrPatternBindersToArmBodies
+    ),
+    ( "source pipeline rejects incompatible or-pattern binder types",
+      testSourcePipelineRejectsIncompatibleOrPatternBinderTypes
+    ),
+    ( "source pipeline rejects duplicate binders inside one or-pattern alternative",
+      testSourcePipelineRejectsDuplicateBindersInsideOrPatternAlternative
+    ),
+    ( "core pipeline rejects duplicate binders inside one or-pattern alternative",
+      testCorePipelineRejectsDuplicateBindersInsideOrPatternAlternative
+    ),
+    ( "core pipeline rejects duplicate outer binder inside an or-pattern",
+      testCorePipelineRejectsDuplicateOuterBinderInsideOrPattern
     ),
     ( "source pipeline rejects tuple patterns for incompatible scrutinees",
       testSourcePipelineRejectsTuplePatternScrutineeMismatch
@@ -416,6 +451,121 @@ testSourcePipelineRejectsDuplicateAsPatternBinders = do
     "duplicate case pattern binder 'item'"
     (compileErrors result)
 
+testSourcePipelineAcceptsOrPatternCommonBinders :: IO ()
+testSourcePipelineAcceptsOrPatternCommonBinders = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. value = Also 41. x = case value { | Just item | Also item -> item + 1 | Nothing -> 0 }."
+  assertCompiles "or-pattern common binder result" result
+
+testSourcePipelineAcceptsOrPatternGuardBinders :: IO ()
+testSourcePipelineAcceptsOrPatternGuardBinders = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. value = Just 4. x = case value { | Just item | Also item if item > 0 -> item | Nothing -> 0 }."
+  assertCompiles "or-pattern guard binder result" result
+
+testSourcePipelineRejectsOrPatternBinderSetMismatch :: IO ()
+testSourcePipelineRejectsOrPatternBinderSetMismatch = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Nothing. x = case value { | Just item | Nothing -> 0 | _ -> 1 }."
+  assertSingleDiagnosticCode
+    "or-pattern binder mismatch code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "or-pattern binder mismatch text"
+    "or-pattern alternatives must bind the same names"
+    (compileErrors result)
+
+testSourcePipelineDoesNotExposeOneSidedOrPatternBindersToArmBodies :: IO ()
+testSourcePipelineDoesNotExposeOneSidedOrPatternBindersToArmBodies = do
+  result <- compileSource defaultWarningSettings "data Maybe = Nothing | Just value. value = Nothing. x = case value { | Just item | Nothing -> item | _ -> 0 }."
+  assertContainsDiagnosticCode
+    "one-sided or-pattern binder body scope"
+    "E1001"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "one-sided or-pattern binder body scope text"
+    "unbound variable 'item'"
+    (filter ((== "E1001") . diagnosticCode) (compileErrors result))
+
+testSourcePipelineRejectsIncompatibleOrPatternBinderTypes :: IO ()
+testSourcePipelineRejectsIncompatibleOrPatternBinderTypes = do
+  result <- compileSource defaultWarningSettings "pair = (True, 0). x = case pair { | (item, 0) | (True, item) -> item | _ -> 0 }."
+  assertSingleDiagnosticCode
+    "or-pattern binder type mismatch code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "or-pattern binder type mismatch text"
+    "or-pattern binder 'item' has incompatible types"
+    (compileErrors result)
+
+testSourcePipelineRejectsDuplicateBindersInsideOrPatternAlternative :: IO ()
+testSourcePipelineRejectsDuplicateBindersInsideOrPatternAlternative = do
+  result <- compileSource defaultWarningSettings "pair = (1, 2). x = case pair { | (item, item) | (left, right) -> 0 | _ -> 1 }."
+  assertSingleDiagnosticCode
+    "duplicate binder inside or-pattern code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "duplicate binder inside or-pattern text"
+    "duplicate case pattern binder 'item'"
+    (compileErrors result)
+
+testCorePipelineRejectsDuplicateBindersInsideOrPatternAlternative :: IO ()
+testCorePipelineRejectsDuplicateBindersInsideOrPatternAlternative = do
+  result <-
+    compileExpr
+      defaultWarningSettings
+      ( EPatternCase
+          (ETuple [ELit (LInt 1), ELit (LInt 2)])
+          [ CaseArm
+              ( POr
+                  [ PTuple [PVariable "item", PVariable "item"],
+                    PTuple [PVariable "item", PWildcard]
+                  ]
+              )
+              Nothing
+              (EVar "item"),
+            CaseArm PWildcard Nothing (ELit (LInt 0))
+          ]
+      )
+  assertSingleDiagnosticCode
+    "duplicate binder inside or-pattern alternative code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "duplicate binder inside or-pattern alternative text"
+    "duplicate case pattern binder 'item'"
+    (compileErrors result)
+
+testCorePipelineRejectsDuplicateOuterBinderInsideOrPattern :: IO ()
+testCorePipelineRejectsDuplicateOuterBinderInsideOrPattern = do
+  result <-
+    compileExpr
+      defaultWarningSettings
+      ( EPatternCase
+          (ETuple [ELit (LInt 1), ELit (LInt 2)])
+          [ CaseArm
+              ( PAs
+                  "item"
+                  ( POr
+                      [ PTuple [PVariable "item", PWildcard],
+                        PTuple [PWildcard, PVariable "item"]
+                      ]
+                  )
+              )
+              Nothing
+              (EVar "item"),
+            CaseArm PWildcard Nothing (ELit (LInt 0))
+          ]
+      )
+  assertSingleDiagnosticCode
+    "duplicate outer binder inside or-pattern code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "duplicate outer binder inside or-pattern text"
+    "duplicate case pattern binder 'item'"
+    (compileErrors result)
+
 testSourcePipelineRejectsListPatternScrutineeMismatch :: IO ()
 testSourcePipelineRejectsListPatternScrutineeMismatch = do
   result <- compileSource defaultWarningSettings "value = 1. x = case value { | [head] -> head | _ -> 0 }."
@@ -609,3 +759,10 @@ testSourcePipelineRejectsMismatchedArmResultTypes = do
 assertCompiles :: Text -> CompileResult -> IO ()
 assertCompiles label result = do
   assertEqual (label <> " compile errors") [] (compileErrors result)
+
+assertContainsDiagnosticCode :: Text -> Text -> [Diagnostic] -> IO ()
+assertContainsDiagnosticCode label expectedCode diagnostics =
+  assertEqual
+    label
+    True
+    (any ((== expectedCode) . diagnosticCode) diagnostics)

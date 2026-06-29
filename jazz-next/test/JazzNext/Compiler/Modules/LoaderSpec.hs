@@ -95,14 +95,20 @@ tests =
     ("run module graph keeps local data constructor from hidden import rewrite", testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite),
     ("run module graph preserves alias-qualified float literal targets", testRunModuleGraphPreservesAliasQualifiedFloatLiteralTargets),
     ("run module graph keeps hidden qualified export pattern constructors available", testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge),
+    ("run module graph resolves imported constructors in or-pattern alternatives", testRunModuleGraphResolvesImportedConstructorsInOrPatternAlternatives),
     ("run module graph keeps alias-qualified dependency export visible with prelude", testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude),
     ("run module graph keeps transitive alias-hidden dependency export from shadowing prelude", testRunModuleGraphTransitiveAliasHiddenExportUsesPrelude),
     ("compile module graph hides transitive alias-only exports from unqualified replay", testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport),
     ("run module graph keeps alias-hidden prelude binding isolated from visible importer", testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter),
     ("run module graph keeps visible sibling import isolated from alias-hidden replay", testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenReplay),
+    ("compile module graph preserves constrained schemes through export bridges", testCompileModuleGraphPreservesConstrainedSchemesThroughExportBridges),
     ("compile module graph keeps sibling capability facts isolated", testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated),
     ("compile module graph exposes capability facts through visible imports", testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports),
     ("run module graph keeps hidden qualified export dependencies available", testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge),
+    ("run module graph retains local operator binding needed by exported binding", testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding),
+    ("run module graph retains local operator binding needed by explicit imported export", testRunModuleGraphRetainsLocalOperatorBindingNeededByExplicitImportedExport),
+    ("run module graph does not leak retained operator binding into importer", testRunModuleGraphDoesNotLeakRetainedOperatorBindingIntoImporter),
+    ("run module graph imported right operator section captures right operand", testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand),
     ("run module graph resolves qualified alias lookup", testRunModuleGraphQualifiedAliasLookup),
     ("run module graph resolves qualified alias lookup through dependency export", testRunModuleGraphQualifiedAliasLookupUsesDependencyExport),
     ("compile module graph accepts qualified alias use before import", testCompileModuleGraphQualifiedAliasLookupBeforeImport),
@@ -925,6 +931,26 @@ testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
+testRunModuleGraphResolvesImportedConstructorsInOrPatternAlternatives :: IO ()
+testRunModuleGraphResolvesImportedConstructorsInOrPatternAlternatives = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "42") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Maybe.\nvalue = Also 41.\ncase value { | Just item | Also item -> item + 1 | Nothing -> 0 }."),
+          ("src/Lib/Maybe.jz", "module Lib::Maybe {\ndata Maybe = Nothing | Just value | Also value.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
 testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude :: IO ()
 testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude = do
   result <-
@@ -1035,6 +1061,24 @@ testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenReplay = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
+testCompileModuleGraphPreservesConstrainedSchemesThroughExportBridges :: IO ()
+testCompileModuleGraphPreservesConstrainedSchemesThroughExportBridges = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (compileErrors result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Poly.\nintValue :: Int.\nintValue = id 1.\nboolValue :: Bool.\nboolValue = id True.\nboolValue.\n}"),
+          ("src/Lib/Poly.jz", "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Bool) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
 testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated :: IO ()
 testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated = do
   result <-
@@ -1095,6 +1139,96 @@ testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Math as Math.\nMath::use."),
           ("src/Lib/Math.jz", "subtract = 2.\nuse = subtract.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding :: IO ()
+testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Ops.\nplus.\n}"),
+          ("src/Lib/Ops.jz", "module Lib::Ops {\noperator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\nplus = 1 %% 2.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRetainsLocalOperatorBindingNeededByExplicitImportedExport :: IO ()
+testRunModuleGraphRetainsLocalOperatorBindingNeededByExplicitImportedExport = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Ops (plus).\nplus.\n}"),
+          ("src/Lib/Ops.jz", "module Lib::Ops {\noperator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\nplus = 1 %% 2.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphDoesNotLeakRetainedOperatorBindingIntoImporter :: IO ()
+testRunModuleGraphDoesNotLeakRetainedOperatorBindingIntoImporter = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" Nothing (runOutput result)
+  case runCompileErrors result of
+    [err] -> do
+      let rendered = renderDiagnostic err
+      assertContains "missing binding code" "E2010" rendered
+      assertContains "missing binding operator" "operator '%%' has no executable binding" rendered
+    _ -> failTest "expected exactly one missing operator binding error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Ops (plus).\noperator %% tier 2.\nresult = (10 %% 3) + plus.\nresult.\n}"),
+          ("src/Lib/Ops.jz", "module Lib::Ops {\noperator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\nplus = 1 %% 2.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand :: IO ()
+testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime output is suppressed on right operand failure" Nothing (runOutput result)
+  case runRuntimeErrors result of
+    [err] -> do
+      let rendered = renderDiagnostic err
+      assertContains "right section capture runtime code" "E3001" rendered
+      assertContains "right section capture runtime text" "division by zero" rendered
+    _ -> failTest "expected exactly one imported right section runtime error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Ops (section).\nsection.\n}"),
+          ("src/Lib/Ops.jz", "module Lib::Ops {\noperator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left - right.\nsection = (%% (1 / 0)).\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
