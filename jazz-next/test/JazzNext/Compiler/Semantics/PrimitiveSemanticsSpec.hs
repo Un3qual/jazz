@@ -118,6 +118,7 @@ tests =
     ("source pipeline rejects implicit Float16 and Float32 comparison and equality", testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality),
     ("source pipeline rejects implicit integer and Float64 comparison and equality", testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality),
     ("source pipeline rejects implicit integer and fractional literal mixing", testSourcePipelineRejectsImplicitIntegerFractionalMixing),
+    ("source pipeline rejects non-literal integer result Float64-domain arithmetic", testSourcePipelineRejectsNonLiteralIntegerResultFloat64DomainArithmetic),
     ("source pipeline rejects integer literal Float64-domain operator values and sections", testSourcePipelineRejectsIntegerLiteralFloat64DomainOperatorValuesSections),
     ("source pipeline rejects mixed-width float arithmetic", testSourcePipelineRejectsMixedWidthFloatArithmetic),
     ("source pipeline rejects mixed-width and implicit Float16/Float32 arithmetic", testSourcePipelineRejectsMixedWidthAndImplicitFloat16Float32Arithmetic),
@@ -642,6 +643,13 @@ testSourcePipelineRejectsImplicitIntegerFractionalMixing = do
   assertCompileErrorWithBundledPrelude
     "left :: Int8.\nleft = toInt8 1.\nx = left + 1.5."
     "width-specific integer mixed with Float arithmetic"
+    "E2003"
+
+testSourcePipelineRejectsNonLiteralIntegerResultFloat64DomainArithmetic :: IO ()
+testSourcePipelineRejectsNonLiteralIntegerResultFloat64DomainArithmetic =
+  assertCompileError
+    "id = \\(x) -> x.\nx = id 2 + 1.5."
+    "non-literal integer result Float64-domain arithmetic"
     "E2003"
 
 testSourcePipelineRejectsIntegerLiteralFloat64DomainOperatorValuesSections :: IO ()

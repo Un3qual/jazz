@@ -488,6 +488,8 @@ inferExprType builtinMode env state expr =
             (Just inferredLeftType, Just inferredRightType) ->
               inferBinaryType
                 operatorSymbol
+                leftExpr
+                rightExpr
                 inferredLeftType
                 inferredRightType
                 stateAfterRight
@@ -584,13 +586,10 @@ inferGenericApplyType builtinMode env state functionExpr argumentExpr =
         _ -> (Nothing, stateWithResultVar)
 
 discardFailedFunctionApplicationConstraints :: InferState -> InferState -> InferState -> InferState
-discardFailedFunctionApplicationConstraints stateBeforeFunction stateAfterFunction stateAfterApplication =
+discardFailedFunctionApplicationConstraints stateBeforeFunction _ stateAfterApplication =
   stateAfterApplication
     { inferDeferredExplicitConstraints =
         inferDeferredExplicitConstraints stateBeforeFunction
-          ++ drop
-            (length (inferDeferredExplicitConstraints stateAfterFunction))
-            (inferDeferredExplicitConstraints stateAfterApplication)
     }
 
 qualifiedMethodApplicationSpine :: Expr -> InferState -> Maybe (Text, [Expr])
@@ -771,14 +770,16 @@ lookupOperatorRule operatorSymbol =
 
 inferBinaryType ::
   Text ->
+  Expr ->
+  Expr ->
   ExpressionType ->
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-inferBinaryType operatorSymbol leftType rightType state =
+inferBinaryType operatorSymbol leftExpr rightExpr leftType rightType state =
   case lookupOperatorRule operatorSymbol of
     Just (NumericRule resultType) ->
-      applyNumericBinaryRule operatorSymbol resultType leftType rightType state
+      applyNumericBinaryRule operatorSymbol resultType leftExpr rightExpr leftType rightType state
     Just StrictEqualityRule ->
       applyStrictEqualityBinaryRule operatorSymbol leftType rightType state
     Just ApplicationRule ->
@@ -797,12 +798,14 @@ inferBinaryType operatorSymbol leftType rightType state =
 applyNumericBinaryRule ::
   Text ->
   NumericRuleResult ->
+  Expr ->
+  Expr ->
   ExpressionType ->
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-applyNumericBinaryRule operatorSymbol resultRule leftType rightType state =
-  case integerLiteralFloat64ArithmeticOperand resultRule state leftType rightType of
+applyNumericBinaryRule operatorSymbol resultRule leftExpr rightExpr leftType rightType state =
+  case integerLiteralFloat64ArithmeticOperand resultRule state leftExpr rightExpr leftType rightType of
     Just (resolvedOperandType, stateAfterFloat64LiteralOperand) ->
       constrainNumericOperand resolvedOperandType stateAfterFloat64LiteralOperand
     Nothing ->
@@ -842,21 +845,29 @@ numericRuleConstraint resultRule =
     NumericSameTypeResult -> RuntimeArithmeticNumericConstraint
     NumericBoolResult -> RuntimeComparisonNumericConstraint
 
-integerLiteralFloat64ArithmeticOperand :: NumericRuleResult -> InferState -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
-integerLiteralFloat64ArithmeticOperand resultRule state leftType rightType =
+integerLiteralFloat64ArithmeticOperand :: NumericRuleResult -> InferState -> Expr -> Expr -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
+integerLiteralFloat64ArithmeticOperand resultRule state leftExpr rightExpr leftType rightType =
   case resultRule of
     NumericSameTypeResult ->
       case (resolveType state leftType, resolveType state rightType) of
         (TIntegerLiteralType literalRange, floatType)
-          | integerLiteralRangeFitsFloat64 literalRange,
+          | exprIsIntegerLiteral leftExpr,
+            integerLiteralRangeFitsFloat64 literalRange,
             expressionTypeIsFloat64Domain floatType ->
               Just (floatType, state)
         (floatType, TIntegerLiteralType literalRange)
-          | integerLiteralRangeFitsFloat64 literalRange,
+          | exprIsIntegerLiteral rightExpr,
+            integerLiteralRangeFitsFloat64 literalRange,
             expressionTypeIsFloat64Domain floatType ->
               Just (floatType, state)
         _ -> Nothing
     NumericBoolResult -> Nothing
+
+exprIsIntegerLiteral :: Expr -> Bool
+exprIsIntegerLiteral expr =
+  case expr of
+    ELit (LInt _) -> True
+    _ -> False
 
 expressionTypeIsFloat64Domain :: ExpressionType -> Bool
 expressionTypeIsFloat64Domain expressionType =
@@ -2739,8 +2750,8 @@ supportedConcreteConstraints state constraints =
     && isNothing (duplicateConstraintName constraints)
     && all (supportedConcreteConstraint state) constraints
 
--- | Variable constrained signatures are accepted only when constraints and
--- body mention exactly the same supported unary variables.
+-- | Variable constrained signatures are accepted when every constrained
+-- variable appears in the body; extra body variables remain unconstrained.
 supportedVariableConstraints :: InferState -> [SignatureConstraint] -> ConstraintSignatureType -> Bool
 supportedVariableConstraints state constraints signatureType =
   not (null constraints)
@@ -2748,7 +2759,7 @@ supportedVariableConstraints state constraints signatureType =
     && all (supportedVariableConstraint state) constraints
     && constraintSignatureTypeSupportsVariableBody signatureType
     && not (Set.null signatureVariableNames)
-    && constraintVariableNames == signatureVariableNames
+    && constraintVariableNames `Set.isSubsetOf` signatureVariableNames
   where
     signatureVariableNames =
       constraintSignatureTypeVariableNames signatureType
@@ -3964,7 +3975,7 @@ invalidSignatureSummary state symbol signaturePayload =
       | constrainedSignatureHasTypeVariable constraints signatureType ->
           "invalid or unsupported signature for '"
             <> symbol
-            <> "': type-variable constrained signatures require every constrained variable to appear in the signature body and every body variable to appear in a supported unary constraint before inference can accept '"
+            <> "': type-variable constrained signatures require every constrained variable to appear in the signature body before inference can accept '"
             <> renderSignaturePayload signaturePayload
             <> "'"
     ConstrainedSignature constraints _
@@ -4290,7 +4301,15 @@ patternDuplicateBinderNames pattern =
                   then (seen, Set.insert nameText duplicatesAcc)
                   else (Set.insert nameText seen, duplicatesAcc)
            in collect nestedPattern seenAfterName duplicatesAfterName
-        POr {} -> (seen, duplicatesAcc)
+        POr alternatives ->
+          let duplicatesAfterAlternatives =
+                foldl'
+                  ( \duplicatesAcc' alternative ->
+                      Set.union duplicatesAcc' (Set.intersection seen (patternBinderNames alternative))
+                  )
+                  duplicatesAcc
+                  alternatives
+           in (Set.union seen (commonPatternBinderNames alternatives), duplicatesAfterAlternatives)
 
     collectNested seen duplicatesAcc =
       foldl'

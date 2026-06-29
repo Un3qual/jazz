@@ -1,6 +1,6 @@
 # ADT Semantics
 
-Status: active (canonical and generic-parameter `data` declarations, generic constructor value/application schemes, constructor over-application diagnostics, structural ADT equality for equality-supported constructor payloads, constructor/list/tuple/as/or-pattern typing and runtime matching, single `if` case-arm guards, tuple literal values/signature types, and ordinary binding schemes are implemented in `jazz-next`)
+Status: active (canonical and generic-parameter `data` declarations, generic constructor value/application schemes, constructor over-application diagnostics, structural ADT equality for equality-supported constructor payloads, constructor/list/tuple/as-pattern typing and runtime matching, top-level case-arm or-pattern typing and runtime matching, single `if` case-arm guards, tuple literal values/signature types, and ordinary binding schemes are implemented in `jazz-next`)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 

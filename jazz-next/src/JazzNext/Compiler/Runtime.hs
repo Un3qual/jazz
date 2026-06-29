@@ -518,6 +518,17 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
                 Just groupMembers ->
                   lookupRecursivePeer targetName groupMembers
                 Nothing -> Nothing
+        EOperatorValue operatorSymbol
+          | not (isBuiltinOperatorSymbol operatorSymbol) ->
+              let targetName = mkIdentifier (operatorBindingIdentifierText operatorSymbol)
+               in
+                if Set.member (identifierText targetName) locallyBoundNames
+                  then Nothing
+                  else
+                    case Map.lookup statementIndex recursiveGroups of
+                      Just groupMembers ->
+                        lookupRecursivePeer targetName groupMembers
+                      Nothing -> Nothing
         _ -> Nothing
 
     -- Preserve wrapper runtime semantics by evaluating the branch condition

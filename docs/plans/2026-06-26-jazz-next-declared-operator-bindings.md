@@ -263,19 +263,21 @@ identifiers and never inherits impurity from a trailing operator `!`:
 ```haskell
 operatorBindingIdentifierText :: Text -> Text
 operatorBindingIdentifierText operatorSymbol =
-  "$operator:" <> Text.intercalate "_" (map encodeChar (Text.unpack operatorSymbol))
+  "$operator:" <> Text.concatMap encodeOperatorChar operatorSymbol
   where
-    encodeChar char =
-      Text.pack (show (fromEnum char))
+    encodeOperatorChar char =
+      let hexText = Text.pack (map toUpper (showHex (ord char) ""))
+       in "%" <> Text.justifyRight 2 '0' hexText
 
 mkOperatorBindingIdentifier :: Text -> Identifier
 mkOperatorBindingIdentifier =
   mkIdentifier . operatorBindingIdentifierText
 ```
 
-If `Text.intercalate` or `fromEnum` imports are missing, add them locally in
-`Identifier.hs`. Do not expose the hidden name in docs or user-facing parser
-syntax.
+If `Text.concatMap`, `Text.justifyRight`, `ord`, `showHex`, or `toUpper`
+imports are missing, add them locally in `Identifier.hs`. For example, `(%%)`
+uses the hidden backing name `$operator:%25%25`; do not expose the hidden name
+in user-facing parser syntax.
 
 - [x] **Step 2: Parse statement-level `(op) = expr.`**
 

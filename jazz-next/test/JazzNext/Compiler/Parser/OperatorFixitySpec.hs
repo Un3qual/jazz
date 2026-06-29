@@ -36,6 +36,7 @@ tests :: [NamedTest]
 tests =
   [ ("declared tier 2 operator inherits additive precedence", testDeclaredTier2OperatorPrecedence),
     ("declared operator binding parses as hidden ordinary binding", testDeclaredOperatorBindingParsesAsHiddenBinding),
+    ("declared operator binding parses inside module body", testDeclaredOperatorBindingParsesInsideModuleBody),
     ("declared tier 5 operator inherits dollar associativity", testDeclaredTier5OperatorAssociativity),
     ("declared arrow-prefixed operator parses as a single user operator", testDeclaredArrowPrefixedOperator),
     ("declared operator value and sections parse after declaration", testDeclaredOperatorValueAndSections),
@@ -92,6 +93,28 @@ testDeclaredOperatorBindingParsesAsHiddenBinding =
         )
     )
     (parseSurfaceProgram "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\nresult = 1 %% 2 * 3.")
+
+testDeclaredOperatorBindingParsesInsideModuleBody :: IO ()
+testDeclaredOperatorBindingParsesInsideModuleBody =
+  assertEqual
+    "declared operator binding in module body parse tree"
+    ( Right
+        ( SEBlock
+            [ SSModule (SourceSpan 1 1) ["Demo"],
+              SSLet
+                "$operator:%25%25"
+                (SourceSpan 3 2)
+                ( SELambda
+                    [SurfaceLambdaIdentifier "left"]
+                    ( SELambda
+                        [SurfaceLambdaIdentifier "right"]
+                        (SEBinary "+" (SEVar "left") (SEVar "right"))
+                    )
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "module Demo {\noperator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\n}")
 
 testDeclaredTier5OperatorAssociativity :: IO ()
 testDeclaredTier5OperatorAssociativity =

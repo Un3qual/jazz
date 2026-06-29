@@ -44,8 +44,9 @@ tests =
     ("runtime supports as-pattern lambda parameters", testRuntimeSupportsAsPatternLambdaParameters),
     ("runtime compares constructor values inside pattern arms", testRuntimeComparesConstructorValuesInsidePatternArms),
     ("runtime selects the first matching or-pattern alternative", testRuntimeSelectsFirstMatchingOrPatternAlternative),
+    ("runtime uses bindings from the first matching or-pattern alternative", testRuntimeUsesFirstMatchingOrPatternAlternativeBindings),
     ("runtime falls back when all or-pattern alternatives fail", testRuntimeFallsBackWhenAllOrPatternAlternativesFail),
-    ("runtime selects literal-led later or-pattern arm after guarded fallback", testRuntimeSelectsLiteralLedLaterOrPatternArmAfterGuardedFallback),
+    ("runtime selects mixed literal-led later or-pattern arm after guarded fallback", testRuntimeSelectsMixedLiteralLedLaterOrPatternArmAfterGuardedFallback),
     ("runtime selects variable-led mixed later or-pattern arm after prior body", testRuntimeSelectsVariableLedMixedLaterOrPatternArmAfterPriorBody),
     ("runtime falls through when or-pattern guard is False", testRuntimeFallsThroughWhenOrPatternGuardIsFalse),
     ("runtime reports no match when no or-pattern alternative matches", testRuntimeReportsNoMatchWhenNoOrPatternAlternativeMatches),
@@ -150,15 +151,20 @@ testRuntimeSelectsFirstMatchingOrPatternAlternative = do
   result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. value = Also 41. case value { | Just item | Also item -> item + 1 | Nothing -> 0 }."
   assertSuccessfulRuntime "or-pattern alternative match" (Just "42") result
 
+testRuntimeUsesFirstMatchingOrPatternAlternativeBindings :: IO ()
+testRuntimeUsesFirstMatchingOrPatternAlternativeBindings = do
+  result <- runSource defaultWarningSettings "pair = (1, 2). case pair { | (item, _) | (_, item) -> item | _ -> 0 }."
+  assertSuccessfulRuntime "or-pattern alternative binding order" (Just "1") result
+
 testRuntimeFallsBackWhenAllOrPatternAlternativesFail :: IO ()
 testRuntimeFallsBackWhenAllOrPatternAlternativesFail = do
   result <- runSource defaultWarningSettings "case 3 { | 1 | 2 -> 10 | _ -> 20 }."
   assertSuccessfulRuntime "or-pattern fallback" (Just "20") result
 
-testRuntimeSelectsLiteralLedLaterOrPatternArmAfterGuardedFallback :: IO ()
-testRuntimeSelectsLiteralLedLaterOrPatternArmAfterGuardedFallback = do
-  result <- runSource defaultWarningSettings "case 2 { | _ if False -> 0 | 1 | 2 -> 10 | _ -> 20 }."
-  assertSuccessfulRuntime "literal-led later or-pattern guarded fallback" (Just "10") result
+testRuntimeSelectsMixedLiteralLedLaterOrPatternArmAfterGuardedFallback :: IO ()
+testRuntimeSelectsMixedLiteralLedLaterOrPatternArmAfterGuardedFallback = do
+  result <- runSource defaultWarningSettings "case 2 { | _ if False -> 0 | 2 | _ -> 10 }."
+  assertSuccessfulRuntime "mixed literal-led later or-pattern guarded fallback" (Just "10") result
 
 testRuntimeSelectsVariableLedMixedLaterOrPatternArmAfterPriorBody :: IO ()
 testRuntimeSelectsVariableLedMixedLaterOrPatternArmAfterPriorBody = do

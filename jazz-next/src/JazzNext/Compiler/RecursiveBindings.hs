@@ -294,6 +294,11 @@ selfAliasLikeReference bindingNameText =
                     if nameText == bindingNameText
                       then (True, False)
                       else noSummary
+        EOperatorValue operatorSymbol
+          | not (isBuiltinOperatorSymbol operatorSymbol),
+            operatorBindingIdentifierText operatorSymbol == bindingNameText ->
+              (True, False)
+        EOperatorValue {} -> noSummary
         EIf conditionExpr thenExpr elseExpr ->
           foldl'
             combineSummaries

@@ -48,7 +48,7 @@ tests =
     ("parses as-pattern case arms", testParsesAsPatternCaseArm),
     ("parses guarded case arms", testParsesGuardedCaseArm),
     ("parses case-arm or-patterns and lowers them", testParsesCaseArmOrPatterns),
-    ("parses literal-led later or-pattern arm after wildcard body", testParsesLiteralLedLaterOrPatternArmAfterWildcardBody),
+    ("keeps all-literal pipe body before literal arm boundary", testKeepsAllLiteralPipeBodyBeforeLiteralArmBoundary),
     ("parses wildcard-led later or-pattern arm after body", testParsesWildcardLedLaterOrPatternArmAfterBody),
     ("parses variable-led later or-pattern arm after body", testParsesVariableLedLaterOrPatternArmAfterBody),
     ("parses variable-led mixed later or-pattern arm after body", testParsesVariableLedMixedLaterOrPatternArmAfterBody),
@@ -74,6 +74,7 @@ tests =
     ("parses unparenthesized lambda expression inside case arm body", testParsesLambdaExpressionInsideCaseArmBody),
     ("parses mixed literal-wildcard later or-pattern arm after body", testParsesMixedLiteralWildcardLaterOrPatternArmAfterBody),
     ("keeps pipe operator inside body before constructor arm boundary", testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary),
+    ("keeps pipe operator inside body before literal arm boundary", testKeepsPipeOperatorInsideBodyBeforeLiteralArmBoundary),
     ("keeps bare list literal after pipe operator inside body", testKeepsBareListLiteralAfterPipeOperator),
     ("keeps bare constructor value after pipe operator inside body", testKeepsBareConstructorValueAfterPipeOperator),
     ("keeps list application after pipe operator inside body", testKeepsListApplicationAfterPipeOperator),
@@ -283,14 +284,14 @@ testParsesCaseArmOrPatterns =
             )
         ]
 
-testParsesLiteralLedLaterOrPatternArmAfterWildcardBody :: IO ()
-testParsesLiteralLedLaterOrPatternArmAfterWildcardBody =
+testKeepsAllLiteralPipeBodyBeforeLiteralArmBoundary :: IO ()
+testKeepsAllLiteralPipeBodyBeforeLiteralArmBoundary =
   assertRight
-    "literal-led later or-pattern case arm parse + lower"
+    "all-literal pipe body before literal arm boundary parse + lower"
     (parseSurfaceProgram "x = case n { | _ -> 0 | 1 | 2 -> 1 }.")
     ( \surfaceProgram -> do
-        assertEqual "literal-led later or-pattern surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "literal-led later or-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertEqual "all-literal pipe body surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "all-literal pipe body lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
     expectedSurfaceProgram =
@@ -303,9 +304,9 @@ testParsesLiteralLedLaterOrPatternArmAfterWildcardBody =
                 [ SurfaceCaseArm
                     SPWildcard
                     Nothing
-                    (SELit (SLInt 0)),
+                    (SEBinary "|" (SELit (SLInt 0)) (SELit (SLInt 1))),
                   SurfaceCaseArm
-                    (SPOr [SPLiteral (SLInt 1), SPLiteral (SLInt 2)])
+                    (SPLiteral (SLInt 2))
                     Nothing
                     (SELit (SLInt 1))
                 ]
@@ -321,9 +322,9 @@ testParsesLiteralLedLaterOrPatternArmAfterWildcardBody =
                 [ CaseArm
                     PWildcard
                     Nothing
-                    (ELit (LInt 0)),
+                    (EBinary "|" (ELit (LInt 0)) (ELit (LInt 1))),
                   CaseArm
-                    (POr [PLiteral (LInt 1), PLiteral (LInt 2)])
+                    (PLiteral (LInt 2))
                     Nothing
                     (ELit (LInt 1))
                 ]
@@ -1160,6 +1161,32 @@ testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary =
                     (PConstructor "Nothing" [])
                     Nothing
                     (ELit (LInt 3))
+                ]
+            )
+        ]
+
+testKeepsPipeOperatorInsideBodyBeforeLiteralArmBoundary :: IO ()
+testKeepsPipeOperatorInsideBodyBeforeLiteralArmBoundary =
+  assertRight
+    "pipe operator stays in body before literal arm boundary"
+    (parseSurfaceProgram "x = case value { | _ -> 1 | 2 | 3 -> 4 }.")
+    (\surfaceProgram -> assertEqual "literal arm boundary lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "x"
+            (SourceSpan 1 1)
+            ( EPatternCase
+                (EVar "value")
+                [ CaseArm
+                    PWildcard
+                    Nothing
+                    (EBinary "|" (ELit (LInt 1)) (ELit (LInt 2))),
+                  CaseArm
+                    (PLiteral (LInt 3))
+                    Nothing
+                    (ELit (LInt 4))
                 ]
             )
         ]

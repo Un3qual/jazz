@@ -7,8 +7,15 @@ import Data.Text
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
+    compileExpr,
     compileSource,
     compileErrors
+  )
+import JazzNext.Compiler.AST
+  ( CaseArm (..),
+    Expr (..),
+    Literal (..),
+    Pattern (..)
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
@@ -161,6 +168,9 @@ tests =
     ),
     ( "source pipeline rejects duplicate binders inside one or-pattern alternative",
       testSourcePipelineRejectsDuplicateBindersInsideOrPatternAlternative
+    ),
+    ( "core pipeline rejects duplicate outer binder inside an or-pattern",
+      testCorePipelineRejectsDuplicateOuterBinderInsideOrPattern
     ),
     ( "source pipeline rejects tuple patterns for incompatible scrutinees",
       testSourcePipelineRejectsTuplePatternScrutineeMismatch
@@ -493,6 +503,36 @@ testSourcePipelineRejectsDuplicateBindersInsideOrPatternAlternative = do
     (compileErrors result)
   assertSingleDiagnosticContains
     "duplicate binder inside or-pattern text"
+    "duplicate case pattern binder 'item'"
+    (compileErrors result)
+
+testCorePipelineRejectsDuplicateOuterBinderInsideOrPattern :: IO ()
+testCorePipelineRejectsDuplicateOuterBinderInsideOrPattern = do
+  result <-
+    compileExpr
+      defaultWarningSettings
+      ( EPatternCase
+          (ETuple [ELit (LInt 1), ELit (LInt 2)])
+          [ CaseArm
+              ( PAs
+                  "item"
+                  ( POr
+                      [ PTuple [PVariable "item", PWildcard],
+                        PTuple [PWildcard, PVariable "item"]
+                      ]
+                  )
+              )
+              Nothing
+              (EVar "item"),
+            CaseArm PWildcard Nothing (ELit (LInt 0))
+          ]
+      )
+  assertSingleDiagnosticCode
+    "duplicate outer binder inside or-pattern code"
+    "E2011"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    "duplicate outer binder inside or-pattern text"
     "duplicate case pattern binder 'item'"
     (compileErrors result)
 

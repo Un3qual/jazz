@@ -107,6 +107,7 @@ tests =
     ("run module graph retains local operator binding needed by exported binding", testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding),
     ("run module graph retains local operator binding needed by explicit imported export", testRunModuleGraphRetainsLocalOperatorBindingNeededByExplicitImportedExport),
     ("run module graph does not leak retained operator binding into importer", testRunModuleGraphDoesNotLeakRetainedOperatorBindingIntoImporter),
+    ("run module graph imported right operator section captures right operand", testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand),
     ("run module graph resolves qualified alias lookup", testRunModuleGraphQualifiedAliasLookup),
     ("run module graph resolves qualified alias lookup through dependency export", testRunModuleGraphQualifiedAliasLookupUsesDependencyExport),
     ("compile module graph accepts qualified alias use before import", testCompileModuleGraphQualifiedAliasLookupBeforeImport),
@@ -1184,6 +1185,31 @@ testRunModuleGraphDoesNotLeakRetainedOperatorBindingIntoImporter = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Ops (plus).\noperator %% tier 2.\nresult = (10 %% 3) + plus.\nresult.\n}"),
           ("src/Lib/Ops.jz", "module Lib::Ops {\noperator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\nplus = 1 %% 2.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand :: IO ()
+testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime output is suppressed on right operand failure" Nothing (runOutput result)
+  case runRuntimeErrors result of
+    [err] -> do
+      let rendered = renderDiagnostic err
+      assertContains "right section capture runtime code" "E3001" rendered
+      assertContains "right section capture runtime text" "division by zero" rendered
+    _ -> failTest "expected exactly one imported right section runtime error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Ops (section).\nsection.\n}"),
+          ("src/Lib/Ops.jz", "module Lib::Ops {\noperator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left - right.\nsection = (%% (1 / 0)).\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

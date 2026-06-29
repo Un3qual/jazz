@@ -1157,12 +1157,18 @@ rewriteOperatorBindingReferences modulePath replayedOperatorBindings expression 
       let rewrittenRight = rewriteOperatorReference rightExpr
        in case operatorReplayReference operatorName of
             Just operatorReference ->
-              ELambda
-                operatorReplaySectionLeftParameter
-                ( EApply
-                    (EApply (EVar operatorReference) (EVar operatorReplaySectionLeftParameter))
-                    rewrittenRight
+              EApply
+                ( ELambda
+                    operatorReplaySectionRightParameter
+                    ( ELambda
+                        operatorReplaySectionLeftParameter
+                        ( EApply
+                            (EApply (EVar operatorReference) (EVar operatorReplaySectionLeftParameter))
+                            (EVar operatorReplaySectionRightParameter)
+                        )
+                    )
                 )
+                rewrittenRight
             Nothing ->
               ESectionRight operatorName rewrittenRight
     EBlock statements ->
@@ -1197,6 +1203,9 @@ rewriteOperatorBindingReferences modulePath replayedOperatorBindings expression 
 
     operatorReplaySectionLeftParameter =
       mkIdentifier "$operator_replay_section_left"
+
+    operatorReplaySectionRightParameter =
+      mkIdentifier "$operator_replay_section_right"
 
 rewritePatternReferences :: Map Text [Text] -> Set Text -> Pattern -> Pattern
 rewritePatternReferences importTargets boundNames patternValue =
