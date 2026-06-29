@@ -14,7 +14,7 @@ target_paths:
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Use docs/execution/blocker-contracts.md#jn-abstraction-semantics-plan-001 to split the next child; current recommended child is a Bool-only bundled-prelude Eq method body that avoids dictionaries, default methods, superclasses, solver behavior, module-method export/import semantics, and broader runtime evidence."
+deliverable: "Use docs/execution/blocker-contracts.md#jn-abstraction-semantics-plan-001 to split the next child; current promoted child is a narrow bundled-prelude Eq(Float16) method body that avoids dictionaries, default methods, superclasses, solver behavior, module-method export/import semantics, alias-overlap policy, and broader runtime evidence."
 ---
 
 # Jazz Spec-Cleanup #1: Authoritative Syntax Implementation Plan

@@ -21,7 +21,7 @@ target_paths:
 verification:
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-deliverable: "Keep runtime product work blocked on concrete deltas beyond the closed interpreter-first compile/run/help baseline. CLI help output landed as JN-RUNTIME-CLI-HELP-001; any further runtime product work needs a new concrete delta."
+deliverable: "Keep runtime product work blocked on concrete deltas beyond the closed interpreter-first compile/run/help/stdin-selector baseline. CLI help output landed as JN-RUNTIME-CLI-HELP-001, the explicit stdin source selector landed as JN-RUNTIME-CLI-STDIN-SENTINEL-001, and any further runtime product work needs a new concrete delta."
 supersedes:
   - docs/plans/spec-clarification/2026-03-02/runtime/12a-haskell-interpreter-implementation.md
 ---
@@ -46,10 +46,12 @@ supersedes:
 
 ## Active Handoff
 
-The interpreter-first compile/run/help baseline is closed. Do not reopen
-runtime architecture from the milestone history below. CLI help output landed
-as `JN-RUNTIME-CLI-HELP-001`. Additional runtime product work must name a later
-concrete CLI/runtime product delta with target paths and focused verification.
+The interpreter-first compile/run/help/stdin-selector baseline is closed. Do
+not reopen runtime architecture from the milestone history below. CLI help
+output landed as `JN-RUNTIME-CLI-HELP-001`, and explicit `-` stdin source
+selection landed as `JN-RUNTIME-CLI-STDIN-SENTINEL-001`. Additional runtime
+product work must name a later concrete CLI/runtime product delta with target
+paths and focused verification.
 
 ## Plan Progress
 

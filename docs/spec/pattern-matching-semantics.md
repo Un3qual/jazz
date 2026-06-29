@@ -1,6 +1,6 @@
 # Pattern Matching Semantics
 
-Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, as-patterns, top-level case-arm or-patterns, and single `if` case-arm guards parse/lower, typecheck, and execute end-to-end in `jazz-next` `case` arms; lambda parameters support the non-guard, non-or pattern subset)
+Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, as-patterns, top-level case-arm or-patterns, and single `if` case-arm guards parse/lower, typecheck, and execute end-to-end in `jazz-next` `case` arms; lambda parameters support the non-guard, non-or pattern subset, with lambda-parameter or-patterns promoted as the next child)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -68,7 +68,9 @@ Current parser/core invariants:
    features.
 9. Lambda parameter patterns lower to ordinary unary lambdas whose bodies
    perform an internal single-arm `EPatternCase`, so parameter destructuring
-   reuses the same binder, type, and runtime matching contract.
+   reuses the same binder, type, and runtime matching contract for the active
+   non-or subset. Lambda-parameter or-patterns are the next promoted child to
+   reuse the landed `POr` contract.
 10. Pattern guards are optional case-arm expressions introduced by `if`.
     They are stored on `CaseArm`, typecheck as `Bool` under pattern binders,
     and do not participate in arm-result agreement.

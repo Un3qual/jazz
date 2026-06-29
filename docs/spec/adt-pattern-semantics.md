@@ -18,7 +18,8 @@ so upcoming `jazz-next` parser, type, and runtime work converges on one model.
 
 The active ADT/pattern rebase is closed for the monomorphic
 constructor/list/tuple/as-pattern/lambda-pattern subset implemented in
-`jazz-next`, with top-level case-arm or-patterns implemented for `case` arms.
+`jazz-next`, with top-level case-arm or-patterns implemented for `case` arms
+and lambda-parameter or-patterns promoted as the next narrow child.
 
 Future ADT typing work beyond the landed generic constructor value/application
 scheme slice remains blocked on separate contracts. The generic
@@ -58,8 +59,10 @@ pattern-matching extensions.
 10. Cons-like list patterns such as `[head | tail]` are active `case` patterns:
     the head subpattern matches the first list element, the tail subpattern
     matches the remaining list, and empty lists fall through to later arms.
-11. Pattern-shaped lambda parameters reuse the active pattern-matching contract
-    through internal single-arm pattern cases.
+11. Pattern-shaped lambda parameters reuse the active non-or pattern-matching
+    contract through internal single-arm pattern cases. Lambda-parameter
+    or-patterns are promoted as the next child to reuse the already-landed
+    `POr` binder/type/runtime rules.
 12. As-patterns delegate to the inner pattern first, bind the whole scrutinee
     value on success, give the as-binder the scrutinee type, and reject
     duplicate binders with deterministic `E2011` diagnostics.

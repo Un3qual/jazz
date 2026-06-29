@@ -74,7 +74,7 @@ supersedes:
       binders, evaluate only after pattern success, fall through on `False`,
       and preserve `E3022` when no arm is selected.
 
-## Current State (after pattern guard semantics)
+## Current State (after case-arm or-pattern semantics)
 
 - `jazz-next/src/JazzNext/Compiler/AST.hs` now carries `Pattern`, `CaseArm`, and `EPatternCase`, including `PConstructor`, `PList`, `PTuple`, and `PAs`; it also carries tuple expression and concrete tuple signature nodes for active runtime values. The older `ECase Expr Expr Expr` remains the internal boolean branch form used after `if` desugaring.
 - `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `Parser.hs`, and `Parser/Lexer.hs` now accept canonical top-level `data <TypeName> = <Ctor> | <Ctor> ... .` declarations and generic declarations such as `data Maybe a = Nothing | Just a.` into dedicated statement nodes while continuing to parse `case <expr> { | <pattern> -> <expr> ... }` with literal, wildcard, variable, uppercase-constructor, bracketed-list, cons-like list, tuple, and `name @ pattern` as-patterns. Case arms may also use optional `if <guard-expr>` guards before `->`. Tuple literals such as `(1, True)` and concrete tuple signature types such as `(Int, Bool)` are parsed into structured nodes.
@@ -85,7 +85,7 @@ supersedes:
 - `jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs` now covers constructor patterns, bracketed list patterns, cons-like list patterns, tuple patterns, as-patterns, guarded case arms, malformed guard syntax, malformed list syntax, and constructor-arm `|` boundary handling in addition to the previously landed simple-pattern cases.
 - `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, `BindingSignatureCoherenceSpec.hs`, and `RuntimeSemanticsSpec.hs` now cover tuple literal parsing/lowering, concrete tuple signature acceptance/rejection, and runtime tuple rendering.
 - `jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs` and `AdtPatternRuntimeSpec.hs` now cover the committed typed/runtime pattern subset, including cons-like list, tuple, as-patterns, guard binder visibility, non-`Bool` guard rejection, guard fallthrough, guard skip on pattern failure, and guarded no-match behavior, and run from the default `bash jazz-next/scripts/test-warning-config.sh` path.
-- `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md` now lock the active constructor/list/tuple/as-pattern/lambda-parameter pattern slice plus active guard-only case-arm semantics. Or-patterns and pattern synonyms remain blocked.
+- `docs/spec/adt-pattern-semantics.md` and `docs/spec/pattern-matching-semantics.md` now lock the active constructor/list/tuple/as-pattern/lambda-parameter pattern slice plus active guard-only and top-level case-arm or-pattern semantics. Lambda-parameter or-patterns are promoted as `JN-PATTERN-LAMBDA-OR-PARAMETERS-001`; pattern synonyms remain blocked.
 
 ## Landed contract target: Pattern guards
 
