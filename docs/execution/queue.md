@@ -8,11 +8,11 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `JN-ABSTRACTION-BUNDLED-PRELUDE-EQ-FLOAT32-METHOD-001` | Bundled prelude Eq(Float32) method body | `P1` | `S` | `impl` | `yes` | `JN-ABSTRACTION-BUNDLED-PRELUDE-EQ-FLOAT16-METHOD-001` | [2026-06-29-jazz-next-bundled-prelude-eq-float32-method.md](../plans/2026-06-29-jazz-next-bundled-prelude-eq-float32-method.md) | `Task 1: Bundled prelude Eq(Float32) method body` | `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`, `jazz-next/stdlib/Prelude.jz`, `jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs`, `docs/execution/blocker-contracts.md`, `docs/execution/queue.md`, `docs/plans/spec-cleanup/2026-03-02/decisions/01-authoritative-syntax.md` | Add exactly one default bundled-prelude `Eq(Float32).equals` method body using same-width equality, prove default-prelude dispatch works and no-prelude/explicit-prelude isolation remains, and refresh stale blocker facts. Do not add dictionaries, runtime evidence, default methods, superclasses, inferred constraints, method import/export behavior, `Eq(Float64)`, or broader method families. | `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; `git diff --check` | `2026-06-29` |
 
-Current executor status (`2026-06-29`): `Ready Now` is empty after the
-parallel abstraction and pattern implementation children landed. `Next Curation
-Target` carries one source-backed abstraction candidate; promote it only after
-creating matching child-plan frontmatter and rechecking the blocker contract.
+Current executor status (`2026-06-29`): `Ready Now` contains one promoted
+abstraction implementation child for `Eq(Float32).equals`. Execute that row
+before selecting any further curation target.
 
 ## Next Curation Target
 
@@ -27,7 +27,6 @@ target and no named candidate currently.
 
 | blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `JN-ABSTRACTION-SEMANTICS-PLAN-001` | `JN-ABSTRACTION-BUNDLED-PRELUDE-EQ-FLOAT32-METHOD-001` | `impl` | [JN-ABSTRACTION-SEMANTICS-PLAN-001](blocker-contracts.md#jn-abstraction-semantics-plan-001) | After `Eq(Float16).equals` landed, `Eq(Float32).equals` is the next same-width bundled-prelude method-family child that avoids the `Float`/`Float64` alias-overlap question. | `docs/plans/2026-06-29-jazz-next-bundled-prelude-eq-float32-method.md`, `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`, `jazz-next/stdlib/Prelude.jz`, `jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs`, `docs/execution/blocker-contracts.md`, `docs/execution/queue.md`, `docs/plans/spec-cleanup/2026-03-02/decisions/01-authoritative-syntax.md` | `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; `git diff --check` | Create or update the Float32 child plan with `status: ready`, matching queue fields, and focused verification before moving this candidate into `Ready Now`. |
 
 ## Blocked
 
