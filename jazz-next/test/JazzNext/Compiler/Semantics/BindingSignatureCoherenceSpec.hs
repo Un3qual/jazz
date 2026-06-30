@@ -80,6 +80,7 @@ tests =
     ("source pipeline selects qualified method body by argument types", testSourceSelectsQualifiedMethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float method body by argument types", testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float16 method body by argument types", testSourceSelectsQualifiedFloat16MethodBodyByArgumentTypes),
+    ("source pipeline selects qualified Float32 method body by argument types", testSourceSelectsQualifiedFloat32MethodBodyByArgumentTypes),
     ("source pipeline selects qualified method body through prefix dollar", testSourceSelectsQualifiedMethodBodyThroughPrefixDollar),
     ("source pipeline accepts same-impl qualified method body references", testSourceAcceptsSameImplQualifiedMethodBodyReferences),
     ("source pipeline uses impl signatures while checking method bodies", testSourceUsesImplSignaturesWhileCheckingMethodBodies),
@@ -480,6 +481,16 @@ testSourceSelectsQualifiedFloat16MethodBodyByArgumentTypes =
         <> "impl Eq(Float16) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
         <> "left :: Float16.\nleft = 1.5.\n"
         <> "right :: Float16.\nright = 2.25.\n"
+        <> "result :: Bool.\nresult = Eq::equals left right.\nresult."
+    )
+
+testSourceSelectsQualifiedFloat32MethodBodyByArgumentTypes :: IO ()
+testSourceSelectsQualifiedFloat32MethodBodyByArgumentTypes =
+  assertSourceOkWithoutPrelude
+    ( "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+        <> "impl Eq(Float32) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+        <> "left :: Float32.\nleft = 1.5.\n"
+        <> "right :: Float32.\nright = 2.25.\n"
         <> "result :: Bool.\nresult = Eq::equals left right.\nresult."
     )
 
