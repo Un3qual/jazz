@@ -36,34 +36,27 @@ Each blocked item should answer these questions:
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
-- Smallest unblocker: promote one more narrow bundled method-family child after
-  the landed `Eq(Int).equals`, `Eq(Bool).equals`, `Eq(Float).equals`, and
-  `Eq(Float16).equals` children.
-- Decision needed: none for this child. Add exactly one bundled-prelude
-  `Eq(Float32).equals` body using the existing same-width Float32 equality
-  path, while leaving alias-overlap questions such as `Eq(Float64)` for a
-  later contract.
-- Recommended default: keep the child limited to `Eq(Float32).equals`; do not
-  add dictionaries, runtime evidence values, default methods, superclasses,
-  inferred constraints, module method import/export behavior, or broader
-  method families.
-- Candidate child: `JN-ABSTRACTION-BUNDLED-PRELUDE-EQ-FLOAT32-METHOD-001`.
-- Target paths: `docs/plans/2026-06-29-jazz-next-bundled-prelude-eq-float32-method.md`,
-  `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`,
-  `jazz-next/stdlib/Prelude.jz`,
-  `jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`,
-  `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`,
-  `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`,
-  `jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs`,
-  `docs/execution/blocker-contracts.md`, `docs/execution/queue.md`,
-  `docs/plans/spec-cleanup/2026-03-02/decisions/01-authoritative-syntax.md`.
+- Smallest unblocker: none is promotion-ready after the narrow bundled
+  method-family children for `Eq(Int).equals`, `Eq(Bool).equals`,
+  `Eq(Float).equals`, `Eq(Float16).equals`, and `Eq(Float32).equals` landed.
+- Decision needed: choose a separate abstraction contract before continuing,
+  such as the `Float`/`Float64` alias-overlap policy for `Eq(Float64)`, a new
+  bundled method family, module method import/export behavior, dictionaries,
+  runtime evidence values, default methods, superclasses, or inferred
+  constraints.
+- Recommended default: keep the abstraction umbrella blocked until the next
+  contract names syntax, target paths, focused verification, and explicit
+  non-goals. Do not promote `Eq(Float64)` without an alias-overlap policy.
+- Candidate child: none currently.
+- Target paths: not set until the next abstraction contract is accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`; `git diff --check`.
 - Not in scope: re-promoting completed bundled `Eq(Int).equals`,
-  `Eq(Bool).equals`, `Eq(Float).equals`, or `Eq(Float16).equals` work,
-  unqualified overloads, dictionary passing, runtime evidence values, default
-  methods, superclasses, inferred constraints, `Eq(Float64)` alias-overlap
-  policy, or method import/export rules.
+  `Eq(Bool).equals`, `Eq(Float).equals`, `Eq(Float16).equals`, or
+  `Eq(Float32).equals` work; unqualified overloads, dictionary passing,
+  runtime evidence values, default methods, superclasses, inferred
+  constraints, `Eq(Float64)` alias-overlap policy, or method import/export
+  rules without a separate contract.
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
 
