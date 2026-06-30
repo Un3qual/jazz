@@ -163,10 +163,12 @@ Each blocked item should answer these questions:
 - Smallest unblocker: none is promotion-ready after guard-only case-arm
   semantics, top-level case-arm or-patterns, and lambda-parameter or-patterns
   landed.
-- Decision needed: define a separate pattern-synonym contract if future pattern
-  forms should continue.
-- Recommended default: keep pattern synonyms blocked until they have a concrete
-  binder/type/runtime contract, syntax, target paths, and focused verification.
+- Decision needed: deferred by maintainer on `2026-06-30`; keep pattern
+  synonyms blocked for now. Define a separate pattern-synonym contract only if
+  future pattern forms are explicitly reopened.
+- Recommended default: keep pattern synonyms blocked with no candidate child
+  until a concrete binder/type/runtime contract, syntax, target paths, and
+  focused verification are accepted.
 - Candidate child: none currently.
 - Target paths: not set until the next pattern-synonym or future-form contract
   is accepted.
