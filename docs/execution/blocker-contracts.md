@@ -36,90 +36,121 @@ Each blocked item should answer these questions:
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
-- Smallest unblocker: none is promotion-ready after the narrow bundled
-  method-family children for `Eq(Int).equals`, `Eq(Bool).equals`,
-  `Eq(Float).equals`, `Eq(Float16).equals`, and `Eq(Float32).equals` landed.
-- Decision needed: choose a separate abstraction contract before continuing,
-  such as the `Float`/`Float64` alias-overlap policy for `Eq(Float64)`, a new
-  bundled method family, module method import/export behavior, dictionaries,
-  runtime evidence values, default methods, superclasses, or inferred
-  constraints.
-- Recommended default: keep the abstraction umbrella blocked until the next
-  contract names syntax, target paths, focused verification, and explicit
-  non-goals. Do not promote `Eq(Float64)` without an alias-overlap policy.
-- Candidate child: none currently.
-- Target paths: not set until the next abstraction contract is accepted.
+- Smallest unblocker: promote the accepted bundled-prelude `Eq(Float64).equals`
+  child under the explicit `Float`/`Float64` alias-overlap policy.
+- Decision needed: accepted on `2026-06-30`: default bundled `Eq(Float)` and
+  `Eq(Float64)` method facts may coexist only because `Float` is the public
+  alias for `Float64`; non-alias duplicate visible impl facts continue to
+  reject.
+- Recommended default: promote exactly the `Eq(Float64).equals` child next,
+  then keep the abstraction umbrella blocked for dictionaries, runtime
+  evidence values, default methods, superclasses, inferred constraints, new
+  bundled method families, and method import/export rules.
+- Candidate child: `JN-ABSTRACTION-BUNDLED-PRELUDE-EQ-FLOAT64-METHOD-001`.
+- Target paths: `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`;
+  `jazz-next/stdlib/Prelude.jz`;
+  `jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`;
+  `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`;
+  `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`;
+  `jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs`;
+  `docs/spec/abstractions/capability-model.md`;
+  `docs/plans/2026-06-30-jazz-next-bundled-prelude-eq-float64-method.md`.
 - Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`; `git diff --check`.
+  `bash scripts/check-docs.sh`; `git diff --check`; plus the focused
+  `PreludeLoadingSpec.hs`, `BindingSignatureCoherenceSpec.hs`,
+  `RuntimeSemanticsSpec.hs`, and `BuiltinCatalogSpec.hs` commands named by the
+  child plan.
 - Not in scope: re-promoting completed bundled `Eq(Int).equals`,
   `Eq(Bool).equals`, `Eq(Float).equals`, `Eq(Float16).equals`, or
   `Eq(Float32).equals` work; unqualified overloads, dictionary passing,
   runtime evidence values, default methods, superclasses, inferred
-  constraints, `Eq(Float64)` alias-overlap policy, or method import/export
-  rules without a separate contract.
+  constraints, non-alias overlap/orphan behavior, or method import/export
+  rules.
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
 
-- Smallest unblocker: none is promotion-ready after the Stage 2 fixed-tier
-  parser child and same-source executable declared-operator binding child.
-- Decision needed: choose one remaining post-binding operator contract, such as
-  cross-module operator APIs, operator-specific signatures, custom precedence,
-  custom associativity, new built-ins, or runtime overload dispatch.
+- Smallest unblocker: promote the first accepted post-binding operator child:
+  operator-specific adjacent signatures for same-source `(op) = <expr>.`
+  bindings.
+- Decision needed: accepted on `2026-06-30`: plan operator-specific type
+  signatures, custom precedence, and custom associativity as separate child
+  rows. Execute signatures first, then custom precedence, then custom
+  associativity.
 - Recommended default: keep Stage 2 fixed-tier parsing and same-source
-  `(op) = <expr>.` execution complete, and block remaining operator semantics
-  until a narrow contract names syntax, visibility, type/runtime behavior,
-  diagnostics, target paths, and focused verification.
-- Candidate child: none currently.
-- Target paths: not set until the next post-binding operator contract is
-  accepted.
+  `(op) = <expr>.` execution complete. Promote only the signature child first;
+  do not batch custom precedence or associativity into that child.
+- Candidate child: `JN-OPERATORS-SPECIFIC-TYPE-SIGNATURES-001`.
+- Target paths: `docs/spec/syntax/operators.md`;
+  `jazz-next/src/JazzNext/Compiler/Parser.hs`;
+  `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`;
+  `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`;
+  `jazz-next/src/JazzNext/Compiler/TypeInference.hs`;
+  `jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`;
+  `jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`;
+  `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`;
+  `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`;
+  `docs/plans/2026-06-30-jazz-next-operator-signatures-precedence-associativity.md`.
 - Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`.
+  `bash scripts/check-docs.sh`; plus the focused `OperatorFixitySpec.hs`,
+  `OperatorInvalidSyntaxSpec.hs`, `PrimitiveSemanticsSpec.hs`, and
+  `RuntimeSemanticsSpec.hs` commands named by the child plan.
 - Not in scope: re-promoting the completed fixed-tier contract or parser child,
   re-promoting `JN-OPERATORS-DECLARED-FUNCTION-BINDINGS-001`, custom
-  precedence declarations, new builtin operators, runtime overload dispatch,
-  cross-module operator APIs, or parser syntax already covered by
+  precedence declarations in the signature child, custom associativity in the
+  signature or precedence child, new builtin operators, runtime overload
+  dispatch, cross-module operator APIs, or parser syntax already covered by
   `JN-OPERATORS-STAGE2-FIXED-TIER-PARSER-001`.
 
 ### JN-PRIMITIVE-SURFACE-EXPANSION-PLAN-001
 
-- Smallest unblocker: none is promotion-ready after fractional literal
-  suffixes, default conversion aliases, and the narrow Float64-domain
-  integer-literal arithmetic child landed.
-- Decision needed: a separate contract for typed integer-to-float promotion,
-  implicit mixed-width arithmetic/comparison behavior, or solver/defaulting
-  behavior before any post-Float64-literal primitive child can return to
-  `Ready Now`.
-- Recommended default: do not promote another primitive child from this umbrella
-  until implicit promotion, mixed-width behavior, or broader solver semantics
-  are accepted with concrete target paths and focused verification.
-- Candidate child: none currently.
-- Target paths: not set until the next post-suffix primitive contract is
-  accepted.
+- Smallest unblocker: promote the accepted direct typed integer-to-`Float64`
+  promotion child.
+- Decision needed: accepted on `2026-06-30`: add direct binary typed
+  integer-to-`Float`/`Float64` promotion for arithmetic, comparison, and
+  equality only. Keep `Float16`/`Float32`, mixed concrete float widths,
+  operator values, sections, user-defined operators, and broader
+  solver/defaulting behavior out of scope.
+- Recommended default: promote exactly the direct typed integer-to-`Float64`
+  child, then keep mixed-width float behavior and broader solver/defaulting
+  behavior blocked behind their own contracts.
+- Candidate child: `JN-PRIMITIVE-TYPED-INT-TO-FLOAT64-PROMOTION-001`.
+- Target paths: `docs/spec/runtime/primitive-semantics.md`;
+  `jazz-next/src/JazzNext/Compiler/TypeInference.hs`;
+  `jazz-next/src/JazzNext/Compiler/Runtime.hs`;
+  `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`;
+  `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`;
+  `docs/plans/2026-06-30-jazz-next-typed-int-to-float64-promotion.md`.
 - Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`.
+  `bash scripts/check-docs.sh`; plus the focused `PrimitiveSemanticsSpec.hs`
+  and `RuntimeSemanticsSpec.hs` commands named by the child plan.
 - Not in scope: re-promoting `JN-PRIMITIVE-LITERAL-SUFFIX-CONTRACT-001`,
   changing the completed suffix or Float64 integer-literal children, callable
-  identity semantics, user-defined operator behavior, typed integer-to-float
-  promotion, typeclass solver behavior, or mixed-width arithmetic before those
-  contracts are accepted.
+  identity semantics, user-defined operator behavior, typeclass solver
+  behavior, implicit promotion into `Float16` or `Float32`, mixed-width
+  arithmetic, or operator value/section promotion.
 
 ### JN-TYPE-GRAMMAR-CLOSURE-PLAN-001
 
-- Smallest unblocker: none is promotion-ready after ordinary-binding schemes
-  and solver-backed variable constrained-signature schemes landed.
-- Decision needed: choose one remaining solver slice narrow enough for a child
-  row. The ordinary binding schemes/per-use instantiation and variable
-  constrained-signature scheme children have landed.
-- Recommended default: keep any next executable child limited to one remaining
-  solver slice. Do not batch inferred class constraints, broad defaulting,
-  runtime evidence/dictionaries, explicit type application, or primitive
-  mixed-width behavior together.
-- Candidate child: none currently; the next curation pass must add a concrete
-  row before implementation resumes.
-- Target paths: update once a new child is promoted in
-  `docs/execution/queue.md#ready-now`.
+- Smallest unblocker: use the accepted remaining-solver slice plan and promote
+  the first implementation child, inferred class constraints, when a type
+  solver row is selected.
+- Decision needed: accepted on `2026-06-30`: write the remaining solver plan for
+  inferred class constraints, final defaulting/ambiguity, explicit type
+  application, and runtime evidence/dictionaries, but keep them as separate
+  verifier-backed child rows.
+- Recommended default: promote inferred class constraints first. Do not batch
+  inferred class constraints, broad defaulting, runtime evidence/dictionaries,
+  explicit type application, primitive mixed-width behavior, or typed
+  integer-to-float promotion together.
+- Candidate child: `JN-TYPE-SOLVER-INFERRED-CLASS-CONSTRAINTS-001`.
+- Target paths: `jazz-next/src/JazzNext/Compiler/TypeInference.hs`;
+  `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`;
+  `docs/spec/semantics/bindings-and-signatures.md`;
+  `docs/plans/2026-06-30-jazz-next-type-solver-remaining-slices.md`.
 - Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`.
+  `bash scripts/check-docs.sh`; plus the focused
+  `BindingSignatureCoherenceSpec.hs` command named by the remaining-slices
+  plan.
 - Not in scope: re-promoting `JN-TYPE-SOLVER-CONTRACT-001`, re-promoting
   `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001` or
   `JN-TYPE-SOLVER-CONSTRAINED-SIGNATURE-SCHEMES-001`, runtime dictionary
