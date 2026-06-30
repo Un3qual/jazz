@@ -43,7 +43,7 @@ target and no named candidate currently.
 
 ## Done
 
-Recent completed items may stay here briefly while review is active. Move stable closure evidence to [done-archive.md](done-archive.md) so this file remains a dispatcher.
+Completed items must be moved to [done-archive.md](done-archive.md) during the same closeout pass that marks them done. This table stays empty so `queue.md` remains a dispatcher instead of a changelog.
 
 | id | closure evidence | completed_on |
 | --- | --- | --- |

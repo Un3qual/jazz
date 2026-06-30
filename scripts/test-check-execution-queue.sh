@@ -103,8 +103,17 @@ setup_dependency_order_case() {
 ## Done
 | id | title |
 | --- | --- |
-| `DEP-ALPHA` | `Dependency alpha` |
-| `DEP-BETA` | `Dependency beta` |
+EOF
+
+  cat <<'EOF' > "$repo_root/docs/execution/done-archive.md"
+# Execution Queue Done Archive
+
+## Done
+
+| id | closure evidence | completed_on |
+| --- | --- | --- |
+| `DEP-ALPHA` | Completed dependency alpha. | `2026-04-01` |
+| `DEP-BETA` | Completed dependency beta. | `2026-04-01` |
 EOF
 
   cat <<'EOF' > "$repo_root/docs/plans/case-dependency-order.md"
@@ -130,6 +139,31 @@ supersedes: []
 ---
 
 # Dependency order fixture
+EOF
+}
+
+setup_queue_done_rows_require_archive_case() {
+  local repo_root="$1"
+
+  cat <<'EOF' > "$repo_root/docs/execution/queue.md"
+## Ready Now
+| id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+Current executor status (`2026-06-30`): `Ready Now` is empty. There is no source-backed next curation target and no named candidate currently.
+
+## Next Curation Target
+| blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+
+## Blocked
+| id | title | blocked_on | reason | plan | last_verified |
+| --- | --- | --- | --- | --- | --- |
+
+## Done
+| id | closure evidence | completed_on |
+| --- | --- | --- |
+| `CASE-DONE-IN-QUEUE-001` | Completed row still in dispatcher. | `2026-04-01` |
 EOF
 }
 
@@ -1783,6 +1817,11 @@ run_wrapper_case() {
 
 main() {
   run_case "inline-comment regression" setup_inline_comment_case
+  run_case \
+    "queue done rows require archive regression" \
+    setup_queue_done_rows_require_archive_case \
+    fail \
+    "Done row CASE-DONE-IN-QUEUE-001 must be moved to docs/execution/done-archive.md"
   run_case "dependency-order regression" setup_dependency_order_case
   run_case "plan-link fragment regression" setup_plan_link_fragment_case
   run_case "block-scalar delimiter regression" setup_block_scalar_delimiter_content_case

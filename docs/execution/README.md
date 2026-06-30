@@ -25,7 +25,7 @@ Keep using the rest of `docs/` for their existing roles:
 5. Keep `Next Curation Target` to 1-3 candidates and refresh it in the same change that empties `Ready Now`. Leave it empty only when the current executor status explicitly says there is no source-backed next curation target and no named candidate currently.
 6. Every `Blocked` entry must name its blocker directly and have a matching section in `blocker-contracts.md`.
 7. Remove completed items from `Ready Now` immediately.
-8. Move stable completed-row evidence to `done-archive.md`; do not let `queue.md` become a changelog.
+8. Move completed-row evidence to `done-archive.md` during the same closeout pass that marks the item done; do not let `queue.md` become a changelog.
 9. Do not use a repo-wide `docs/plans/**` scan to choose work. If `Ready Now` and `Next Curation Target` are empty because the queue explicitly exhausts all source-backed candidates, stop after reporting that terminal state.
 10. When a queue entry points at an older historical plan, add a new active-path plan before doing new implementation work.
 11. Treat queue, plan, status, and spec updates as required follow-through for an implementation batch, not as a standalone successful batch while executable implementation work exists.
@@ -176,6 +176,7 @@ Use `bash scripts/check-execution-queue.sh` after queue or open-plan metadata ch
 - `done-archive.md` exists before archived id checks are applied.
 - archived ids are unique within `done-archive.md`.
 - active queue rows and curation candidates do not reuse ids from `done-archive.md`.
+- `queue.md#Done` has no body rows; completed ids live in `done-archive.md`, and active `depends_on` values may reference those archived ids.
 - `source_contract` anchors point to the matching `blocker-contracts.md` section.
 - a curation row's `candidate_child_id` matches the linked contract section's `Candidate child`.
 - `blocker-contracts.md` headings do not create duplicate markdown anchors.
