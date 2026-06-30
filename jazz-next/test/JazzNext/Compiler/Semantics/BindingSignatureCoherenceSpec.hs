@@ -68,6 +68,8 @@ tests =
     ("source pipeline instantiates unconstrained variables beside equality constraints per use", testSourceInstantiatesUnconstrainedEqualityBindingVariablesPerUse),
     ("source pipeline infers equality class constraints for ordinary binding schemes", testSourceInfersEqualityClassConstraintsForOrdinaryBindingSchemes),
     ("source pipeline rejects missing inferred equality facts at use sites", testSourceRejectsMissingInferredEqualityFactAtUseSite),
+    ("source pipeline rejects missing inferred equality facts through operator values", testSourceRejectsMissingInferredEqualityFactThroughOperatorValue),
+    ("source pipeline rejects missing inferred equality facts through sections", testSourceRejectsMissingInferredEqualityFactThroughSection),
     ("source pipeline infers qualified method class constraints for ordinary binding schemes", testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes),
     ("source pipeline rejects callable equality before inferred class obligations", testSourceRejectsCallableEqualityBeforeInferredClassObligations),
     ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse),
@@ -99,6 +101,7 @@ tests =
     ("source pipeline rejects impl method before class method metadata", testSourceRejectsImplMethodBeforeClassMethodMetadata),
     ("source pipeline rejects qualified dispatch without class method metadata", testSourceRejectsQualifiedMethodMissingClassMethod),
     ("source pipeline rejects qualified dispatch without impl method body", testSourceRejectsQualifiedMethodMissingImplBody),
+    ("source pipeline rejects deferred qualified method requirement without impl method body", testSourceRejectsDeferredQualifiedMethodRequirementMissingImplBody),
     ("source pipeline rejects ambiguous qualified method bodies", testSourceRejectsAmbiguousQualifiedMethodBodies),
     ("source pipeline rejects duplicate class declarations", testSourceRejectsDuplicateClassDeclarations),
     ("source pipeline rejects duplicate concrete impl declarations", testSourceRejectsDuplicateConcreteImplDeclarations),
@@ -626,6 +629,12 @@ testSourceRejectsQualifiedMethodMissingImplBody =
     "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl Eq(Int) { }.\nresult = Eq::equals 1 1.\nresult."
     "missing impl method body 'Eq::equals'"
 
+testSourceRejectsDeferredQualifiedMethodRequirementMissingImplBody :: IO ()
+testSourceRejectsDeferredQualifiedMethodRequirementMissingImplBody =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl Eq(Int) { }.\nsame = \\(x) -> Eq::equals x x.\nresult = same 1."
+    "missing impl method body 'Eq::equals'"
+
 testSourceRejectsAmbiguousQualifiedMethodBodies :: IO ()
 testSourceRejectsAmbiguousQualifiedMethodBodies =
   assertSourceSingleErrorContainsWithoutPrelude
@@ -1150,6 +1159,18 @@ testSourceRejectsMissingInferredEqualityFactAtUseSite :: IO ()
 testSourceRejectsMissingInferredEqualityFactAtUseSite =
   assertSourceSingleErrorContainsWithoutPrelude
     "class Eq(a) { }.\nimpl Eq(Int) { }.\nsame = \\(left) -> \\(right) -> left == right.\nintResult = same 1 1.\nbad = same True False."
+    "missing impl fact 'Eq(Bool)'"
+
+testSourceRejectsMissingInferredEqualityFactThroughOperatorValue :: IO ()
+testSourceRejectsMissingInferredEqualityFactThroughOperatorValue =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) { }.\nimpl Eq(Int) { }.\nsame = (==).\nintResult = same 1 1.\nbad = same True False."
+    "missing impl fact 'Eq(Bool)'"
+
+testSourceRejectsMissingInferredEqualityFactThroughSection :: IO ()
+testSourceRejectsMissingInferredEqualityFactThroughSection =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) { }.\nimpl Eq(Int) { }.\nsame = \\(right) -> (== right).\nintResult = same 1 1.\nbad = same True False."
     "missing impl fact 'Eq(Bool)'"
 
 testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes :: IO ()

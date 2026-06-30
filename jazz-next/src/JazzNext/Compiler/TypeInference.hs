@@ -267,7 +267,9 @@ data TypeSchemePrimitiveConstraint
   | TypeSchemeStrictEqualityConstraint ExpressionType
   deriving (Eq, Show)
 
-data TypeSchemeConstraint = TypeSchemeConstraint Text ExpressionType
+data TypeSchemeConstraint
+  = TypeSchemeConstraint Text ExpressionType
+  | TypeSchemeMethodConstraint Text Text ExpressionType
   deriving (Eq, Show)
 
 type TypeEnv = Map Text TypeBinding
@@ -306,7 +308,7 @@ data InferState = InferState
     inferErrorCount :: Int
   }
 
-data DeferredExplicitConstraint = DeferredExplicitConstraint Text ExpressionType ScopeCapabilityFacts
+data DeferredExplicitConstraint = DeferredExplicitConstraint Text (Maybe Text) ExpressionType ScopeCapabilityFacts
 
 initialInferState :: InferState
 initialInferState =
@@ -1059,7 +1061,9 @@ applyStrictEqualitySectionLeftRule operatorSymbol leftType state =
     case resolvedLeftType of
       TVarType typeVar ->
         ( Just (TFunctionType resolvedLeftType TBoolType),
-          addStrictEqualityTypeVarConstraint typeVar state
+          addInferredEqualityClassConstraintIfVisible
+            resolvedLeftType
+            (addStrictEqualityTypeVarConstraint typeVar state)
         )
       _
         | supportsRuntimeEqualityType state resolvedLeftType ->
@@ -1127,7 +1131,9 @@ applyStrictEqualitySectionRightRule operatorSymbol rightType state =
     case resolvedRightType of
       TVarType typeVar ->
         ( Just (TFunctionType resolvedRightType TBoolType),
-          addStrictEqualityTypeVarConstraint typeVar state
+          addInferredEqualityClassConstraintIfVisible
+            resolvedRightType
+            (addStrictEqualityTypeVarConstraint typeVar state)
         )
       _
         | supportsRuntimeEqualityType state resolvedRightType ->
@@ -2157,8 +2163,12 @@ typeSchemeInferredClassConstraints state schemeVariables =
           Just resolvedConstraint <- [constraintForScheme constraint]
       ]
 
-    constraintForScheme (TypeSchemeConstraint constraintName argumentType) =
-      TypeSchemeConstraint constraintName <$> targetTypeFor argumentType
+    constraintForScheme constraint =
+      case constraint of
+        TypeSchemeConstraint constraintName argumentType ->
+          TypeSchemeConstraint constraintName <$> targetTypeFor argumentType
+        TypeSchemeMethodConstraint constraintName methodKey argumentType ->
+          TypeSchemeMethodConstraint constraintName methodKey <$> targetTypeFor argumentType
 
     targetTypeFor argumentType =
       let targetType = resolveType state argumentType
@@ -2176,16 +2186,24 @@ dedupeTypeSchemeConstraints =
       | otherwise = constraint : constraints
 
 resolveTypeSchemeConstraint :: InferState -> TypeSchemeConstraint -> TypeSchemeConstraint
-resolveTypeSchemeConstraint state (TypeSchemeConstraint constraintName argumentType) =
-  TypeSchemeConstraint constraintName (resolveType state argumentType)
+resolveTypeSchemeConstraint state constraint =
+  case constraint of
+    TypeSchemeConstraint constraintName argumentType ->
+      TypeSchemeConstraint constraintName (resolveType state argumentType)
+    TypeSchemeMethodConstraint constraintName methodKey argumentType ->
+      TypeSchemeMethodConstraint constraintName methodKey (resolveType state argumentType)
 
 freeTypeVariablesInTypeSchemeConstraints :: [TypeSchemeConstraint] -> Set Int
 freeTypeVariablesInTypeSchemeConstraints constraints =
   Set.unions (map freeTypeVariablesInTypeSchemeConstraint constraints)
 
 freeTypeVariablesInTypeSchemeConstraint :: TypeSchemeConstraint -> Set Int
-freeTypeVariablesInTypeSchemeConstraint (TypeSchemeConstraint _ argumentType) =
-  freeTypeVariables argumentType
+freeTypeVariablesInTypeSchemeConstraint constraint =
+  case constraint of
+    TypeSchemeConstraint _ argumentType ->
+      freeTypeVariables argumentType
+    TypeSchemeMethodConstraint _ _ argumentType ->
+      freeTypeVariables argumentType
 
 resolveTypeSchemePrimitiveConstraint :: InferState -> TypeSchemePrimitiveConstraint -> TypeSchemePrimitiveConstraint
 resolveTypeSchemePrimitiveConstraint state primitiveConstraint =
@@ -2439,8 +2457,12 @@ instantiateTypeScheme (TypeScheme quantifiedVariables explicitConstraints primit
        in (Map.insert typeVar freshType bindings, nextState)
 
 instantiateTypeSchemeConstraint :: Map Int ExpressionType -> TypeSchemeConstraint -> TypeSchemeConstraint
-instantiateTypeSchemeConstraint replacements (TypeSchemeConstraint constraintName argumentType) =
-  TypeSchemeConstraint constraintName (replaceTypeVariables replacements argumentType)
+instantiateTypeSchemeConstraint replacements constraint =
+  case constraint of
+    TypeSchemeConstraint constraintName argumentType ->
+      TypeSchemeConstraint constraintName (replaceTypeVariables replacements argumentType)
+    TypeSchemeMethodConstraint constraintName methodKey argumentType ->
+      TypeSchemeMethodConstraint constraintName methodKey (replaceTypeVariables replacements argumentType)
 
 instantiateTypeSchemePrimitiveConstraint :: Map Int ExpressionType -> TypeSchemePrimitiveConstraint -> TypeSchemePrimitiveConstraint
 instantiateTypeSchemePrimitiveConstraint replacements primitiveConstraint =
@@ -2481,8 +2503,12 @@ deferExplicitConstraints explicitConstraints state
         }
 
 typeSchemeConstraintToDeferredExplicitConstraint :: ScopeCapabilityFacts -> TypeSchemeConstraint -> DeferredExplicitConstraint
-typeSchemeConstraintToDeferredExplicitConstraint facts (TypeSchemeConstraint constraintName argumentType) =
-  DeferredExplicitConstraint constraintName argumentType facts
+typeSchemeConstraintToDeferredExplicitConstraint facts constraint =
+  case constraint of
+    TypeSchemeConstraint constraintName argumentType ->
+      DeferredExplicitConstraint constraintName Nothing argumentType facts
+    TypeSchemeMethodConstraint constraintName methodKey argumentType ->
+      DeferredExplicitConstraint constraintName (Just methodKey) argumentType facts
 
 finalizeDeferredExplicitConstraintsAt :: SourceSpan -> InferState -> InferState -> InferState
 finalizeDeferredExplicitConstraintsAt spanValue statementStartState state =
@@ -2503,7 +2529,7 @@ resolveStatementDeferredExplicitConstraints statementStartState state =
       state {inferDeferredExplicitConstraints = priorConstraints}
 
 resolveDeferredExplicitConstraint :: InferState -> DeferredExplicitConstraint -> InferState
-resolveDeferredExplicitConstraint state (DeferredExplicitConstraint constraintName argumentType facts) =
+resolveDeferredExplicitConstraint state (DeferredExplicitConstraint constraintName maybeMethodKey argumentType facts) =
   let resolvedArgumentType =
         defaultLiteralTypes (resolveType state argumentType)
    in
@@ -2520,11 +2546,45 @@ resolveDeferredExplicitConstraint state (DeferredExplicitConstraint constraintNa
                 case expressionTypeToRuntimeHint resolvedArgumentType of
                   Just argumentHint ->
                     let implFactKey = constraintName <> "(" <> renderConstraintSignatureType argumentHint <> ")"
-                     in if Set.member implFactKey (scopeConcreteImplFacts facts)
-                          then state
-                          else addTypeError state (mkMissingExplicitConstraintImplFactError implFactKey)
+                     in if Set.notMember implFactKey (scopeConcreteImplFacts facts)
+                          then
+                            if inferredEqualityConstraintCanUseStructuralRuntimeEquality state maybeMethodKey constraintName resolvedArgumentType
+                              then state
+                              else addTypeError state (mkMissingExplicitConstraintImplFactError implFactKey)
+                          else case maybeMethodKey of
+                            Nothing ->
+                              state
+                            Just methodKey
+                              | concreteImplMethodBodyExists methodKey argumentHint facts ->
+                                  state
+                              | otherwise ->
+                                  addTypeError state (mkMissingImplMethodBodyError methodKey)
                   Nothing ->
                     addTypeError state (mkAmbiguousExplicitConstraintError constraintName resolvedArgumentType)
+
+concreteImplMethodBodyExists :: Text -> ConstraintSignatureType -> ScopeCapabilityFacts -> Bool
+concreteImplMethodBodyExists methodKey argumentHint facts =
+  any
+    (\(ImplMethodType implTarget) -> constraintSignatureTypesCompatible implTarget argumentHint)
+    (Map.findWithDefault [] methodKey (scopeConcreteImplMethods facts))
+
+inferredEqualityConstraintCanUseStructuralRuntimeEquality :: InferState -> Maybe Text -> Text -> ExpressionType -> Bool
+inferredEqualityConstraintCanUseStructuralRuntimeEquality state maybeMethodKey constraintName argumentType =
+  maybeMethodKey == Nothing
+    && constraintName == "Eq"
+    && structuralRuntimeEqualityType state argumentType
+
+structuralRuntimeEqualityType :: InferState -> ExpressionType -> Bool
+structuralRuntimeEqualityType state argumentType =
+  case resolveType state argumentType of
+    TListType elementType ->
+      supportsRuntimeEqualityType state elementType
+    TTupleType elementTypes ->
+      all (supportsRuntimeEqualityType state) elementTypes
+    TDataType typeName typeArguments ->
+      dataTypeSupportsRuntimeEquality state typeName typeArguments
+    _ ->
+      False
 
 instantiateQualifiedMethodType :: Text -> InferState -> Maybe (Maybe ExpressionType, InferState)
 instantiateQualifiedMethodType nameText state =
@@ -2607,7 +2667,7 @@ inferQualifiedMethodRequirement methodKey (ClassMethodType classParameter method
                         | not (Set.null (freeTypeVariables resolvedClassTarget)) ->
                             Just
                               ( Just resultType,
-                                addInferredClassConstraint capabilityName resolvedClassTarget stateAfterArguments
+                                addInferredMethodClassConstraint capabilityName methodKey resolvedClassTarget stateAfterArguments
                               )
                       _ ->
                         Nothing
@@ -2708,6 +2768,34 @@ constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressi
       resolveType state signatureExpressionType == resolveType state expressionType
     Nothing ->
       False
+
+constraintSignatureTypesCompatible :: ConstraintSignatureType -> ConstraintSignatureType -> Bool
+constraintSignatureTypesCompatible leftType rightType =
+  case (leftType, rightType) of
+    (ConstraintTypeName leftName, ConstraintTypeName rightName) ->
+      normalizeConstraintSignatureName (identifierText leftName)
+        == normalizeConstraintSignatureName (identifierText rightName)
+    (ConstraintTypeApplication leftName leftArguments, ConstraintTypeApplication rightName rightArguments)
+      | normalizeConstraintSignatureName (identifierText leftName)
+          == normalizeConstraintSignatureName (identifierText rightName),
+        length leftArguments == length rightArguments ->
+          and (zipWith constraintSignatureTypesCompatible leftArguments rightArguments)
+    (ConstraintTypeList leftElementType, ConstraintTypeList rightElementType) ->
+      constraintSignatureTypesCompatible leftElementType rightElementType
+    (ConstraintTypeTuple leftElementTypes, ConstraintTypeTuple rightElementTypes)
+      | length leftElementTypes == length rightElementTypes ->
+          and (zipWith constraintSignatureTypesCompatible leftElementTypes rightElementTypes)
+    (ConstraintTypeFunction leftArgumentType leftResultType, ConstraintTypeFunction rightArgumentType rightResultType) ->
+      constraintSignatureTypesCompatible leftArgumentType rightArgumentType
+        && constraintSignatureTypesCompatible leftResultType rightResultType
+    _ -> False
+
+normalizeConstraintSignatureName :: Text -> Text
+normalizeConstraintSignatureName typeName =
+  case typeName of
+    "Int" -> "Int64"
+    "Float" -> "Float64"
+    _ -> typeName
 
 applyQualifiedMethodCandidate ::
   Text ->
@@ -3503,7 +3591,9 @@ instantiateOperatorType operatorSymbol state =
        in
         Just
           ( TFunctionType operandType (TFunctionType operandType TBoolType),
-            addStrictEqualityTypeVarConstraint typeVar stateAfterOperandType
+            addInferredEqualityClassConstraintIfVisible
+              operandType
+              (addStrictEqualityTypeVarConstraint typeVar stateAfterOperandType)
           )
     Just ApplicationRule ->
       let (argumentType, stateAfterArgumentType) = freshTypeVar state
@@ -3801,6 +3891,19 @@ addInferredClassConstraint constraintName argumentType state =
     { inferInferredClassConstraints =
         TypeSchemeConstraint constraintName argumentType : inferInferredClassConstraints state
     }
+
+addInferredMethodClassConstraint :: Text -> Text -> ExpressionType -> InferState -> InferState
+addInferredMethodClassConstraint constraintName methodKey argumentType state =
+  state
+    { inferInferredClassConstraints =
+        TypeSchemeMethodConstraint constraintName methodKey argumentType : inferInferredClassConstraints state
+    }
+
+addInferredEqualityClassConstraintIfVisible :: ExpressionType -> InferState -> InferState
+addInferredEqualityClassConstraintIfVisible argumentType state =
+  case Map.lookup "Eq" (inferClassFacts state) of
+    Just 1 -> addInferredClassConstraint "Eq" argumentType state
+    _ -> state
 
 addNumericTypeVarConstraint :: Int -> NumericConstraint -> InferState -> InferState
 addNumericTypeVarConstraint typeVar numericConstraint state =

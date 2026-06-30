@@ -139,6 +139,7 @@ tests =
     ("runtime fallback rejects targeted Float16/Float32 mixed with untyped Float arithmetic", testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic),
     ("runtime fallback handles direct integer and Float64 mixed-domain arithmetic", testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic),
     ("runtime fallback rejects mixed targeted float comparison and equality", testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality),
+    ("runtime fallback rejects untyped integer and Float64 comparison/equality", testRuntimeFallbackRejectsUntypedIntegerFloat64ComparisonEquality),
     ("targeted Float16 and Float32 fractional literals round at runtime", testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue),
     ("suffixed Float16 and Float32 fractional literals round at runtime", testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue),
     ("Float16 arithmetic overflow produces runtime diagnostic", testFloat16ArithmeticOverflowRuntimeError),
@@ -176,11 +177,14 @@ tests =
     ("qualified method dispatch preserves tuple binding signatures", testQualifiedMethodDispatchPreservesTupleBindingSignature),
     ("qualified method dispatch preserves section binding signatures", testQualifiedMethodDispatchPreservesSectionBindingSignature),
     ("qualified method dispatch treats Float as Float64 alias at runtime", testQualifiedMethodDispatchTreatsFloatAsFloat64Alias),
+    ("qualified method dispatch prefers Float alias body for typed Float values", testQualifiedMethodDispatchPrefersFloatAliasBody),
     ("qualified method dispatch executes Float equality body", testQualifiedMethodDispatchExecutesFloatEqualityBody),
     ("qualified method dispatch executes Float16 equality body", testQualifiedMethodDispatchExecutesFloat16EqualityBody),
     ("qualified method dispatch executes Float32 equality body", testQualifiedMethodDispatchExecutesFloat32EqualityBody),
     ("qualified method dispatch executes Float64 equality body", testQualifiedMethodDispatchExecutesFloat64EqualityBody),
     ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
+    ("qualified method dispatch prefers Int alias body for typed Int values", testQualifiedMethodDispatchPrefersIntAliasBody),
+    ("qualified method dispatch prefers list alias body for typed list values", testQualifiedMethodDispatchPrefersListAliasBody),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
     ("qualified method dispatch preserves selected method signatures", testQualifiedMethodDispatchPreservesSelectedMethodSignature),
     ("qualified method dispatch applies typed callable argument hints", testQualifiedMethodDispatchAppliesTypedCallableArgumentHint),
@@ -1029,6 +1033,17 @@ testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality = do
     "E3007"
     (evaluateRuntimeExpr (runtimeExpr (EBinary "!=" (targetedFloat "__kernel_toFloat32") untypedFloatOne)))
 
+testRuntimeFallbackRejectsUntypedIntegerFloat64ComparisonEquality :: IO ()
+testRuntimeFallbackRejectsUntypedIntegerFloat64ComparisonEquality = do
+  assertRuntimeErrorContains
+    "runtime fallback untyped Int less-than untyped Float"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "<" (ELit (LInt 1)) untypedFloatOne)))
+  assertRuntimeErrorContains
+    "runtime fallback untyped Int equality Float64"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "==" (ELit (LInt 1)) (targetedFloat "__kernel_toFloat64"))))
+
 testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue :: IO ()
 testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue = do
   result <- runSource defaultWarningSettings "x16 :: Float16.\nx16 = 2049.0.\nx32 :: Float32.\nx32 = 1.00000001.\ny16 :: @{}: Float16.\ny16 = 2049.0.\ny32 :: @{}: Float32.\ny32 = 1.00000001.\n(x16, x32, y16, y32)."
@@ -1097,8 +1112,8 @@ testDirectTypedIntegerFloat64ComparisonEqualityRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True, True, True, True, True]") (runOutput result)
   assertRuntimeErrorContains
-    "runtime fallback integer-to-Float64 comparison overflow"
-    "E3024"
+    "runtime fallback untyped integer-to-Float64 comparison rejected"
+    "E3007"
     (evaluateRuntimeExpr (runtimeExpr (EBinary "==" tooLargeFloat64Integer (targetedFloat "__kernel_toFloat64"))))
 
 testFloat16Float32ComparisonEqualityRuntimeSuccess :: IO ()
@@ -1479,6 +1494,21 @@ testQualifiedMethodDispatchTreatsFloatAsFloat64Alias = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
+testQualifiedMethodDispatchPrefersFloatAliasBody :: IO ()
+testQualifiedMethodDispatchPrefersFloatAliasBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Float) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Float64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "value :: Float.\nvalue = 1.5.\n"
+          <> "RuntimeFlag::flag value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
 testQualifiedMethodDispatchExecutesFloatEqualityBody :: IO ()
 testQualifiedMethodDispatchExecutesFloatEqualityBody = do
   result <-
@@ -1553,6 +1583,36 @@ testQualifiedMethodDispatchTreatsIntAsInt64Alias = do
           <> "left :: Int.\nleft = 1.\n"
           <> "right :: Int.\nright = 2.\n"
           <> "RuntimeEq::equals left right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPrefersIntAliasBody :: IO ()
+testQualifiedMethodDispatchPrefersIntAliasBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "value :: Int.\nvalue = 1.\n"
+          <> "RuntimeFlag::flag value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPrefersListAliasBody :: IO ()
+testQualifiedMethodDispatchPrefersListAliasBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([Int]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([Int64]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "values :: [Int].\nvalues = [1, 2].\n"
+          <> "RuntimeFlag::flag values."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
