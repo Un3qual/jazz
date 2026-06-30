@@ -112,6 +112,7 @@ bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 git diff --check
 ```
+
 ## Batch 2: Final Defaulting And Ambiguity
 
 Child id: `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001`
