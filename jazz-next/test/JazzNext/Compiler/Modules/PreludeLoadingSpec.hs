@@ -53,6 +53,7 @@ tests =
     ("bundled default prelude exposes Eq Float equals method body", testBundledPreludeExposesEqFloatEqualsMethodBody),
     ("bundled default prelude exposes Eq Float16 equals method body", testBundledPreludeExposesEqFloat16EqualsMethodBody),
     ("bundled default prelude exposes Eq Float32 equals method body", testBundledPreludeExposesEqFloat32EqualsMethodBody),
+    ("bundled default prelude exposes Eq Float64 equals method body", testBundledPreludeExposesEqFloat64EqualsMethodBody),
     ("bundled default prelude exposes Eq Bool equals method body", testBundledPreludeExposesEqBoolEqualsMethodBody),
     ("compile without prelude rejects numeric conversion aliases", testCompileWithoutPreludeRejectsNumericConversionAliases),
     ("compile without prelude does not inherit bundled Eq equals method bodies", testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies),
@@ -313,6 +314,25 @@ testBundledPreludeExposesEqFloat32EqualsMethodBody = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(True, False)") (runOutput result)
 
+testBundledPreludeExposesEqFloat64EqualsMethodBody :: IO ()
+testBundledPreludeExposesEqFloat64EqualsMethodBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( Text.unlines
+          [ "left :: Float64.",
+            "left = toFloat64 1.",
+            "same :: Float64.",
+            "same = toFloat64 1.",
+            "different :: Float64.",
+            "different = toFloat64 2.",
+            "(Eq::equals left same, Eq::equals left different)."
+          ]
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+
 testBundledPreludeExposesEqBoolEqualsMethodBody :: IO ()
 testBundledPreludeExposesEqBoolEqualsMethodBody = do
   result <- runSource defaultWarningSettings "(Eq::equals True True, Eq::equals True False)."
@@ -439,6 +459,27 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
     "no-prelude compile has no bundled Eq(Float32).equals method body"
     "missing impl method body 'Eq::equals'"
     (compileErrors float32Result)
+  float64Result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      ( Text.unlines
+          [ "class Eq(a) {",
+            "equals :: a -> a -> Bool.",
+            "}.",
+            "impl Eq(Float64) { }.",
+            "left :: Float64.",
+            "left = 1.5.",
+            "right :: Float64.",
+            "right = 1.5.",
+            "result = Eq::equals left right.",
+            "result."
+          ]
+      )
+  assertSingleErrorContains
+    "no-prelude compile has no bundled Eq(Float64).equals method body"
+    "missing impl method body 'Eq::equals'"
+    (compileErrors float64Result)
 
 testCompileWithoutPreludeRejectsBundledCapabilityFacts :: IO ()
 testCompileWithoutPreludeRejectsBundledCapabilityFacts = do
@@ -577,6 +618,31 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
     "explicit prelude has no bundled Eq(Float32).equals method body"
     "missing impl method body 'Eq::equals'"
     (compileErrors float32Result)
+  float64Result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      ( Just
+          ( Text.unlines
+              [ "class Eq(a) {",
+                "equals :: a -> a -> Bool.",
+                "}.",
+                "impl Eq(Float64) { }."
+              ]
+          )
+      )
+      ( Text.unlines
+          [ "left :: Float64.",
+            "left = 1.5.",
+            "right :: Float64.",
+            "right = 1.5.",
+            "result = Eq::equals left right.",
+            "result."
+          ]
+      )
+  assertSingleErrorContains
+    "explicit prelude has no bundled Eq(Float64).equals method body"
+    "missing impl method body 'Eq::equals'"
+    (compileErrors float64Result)
 
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable :: IO ()
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable = do

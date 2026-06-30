@@ -1,6 +1,6 @@
 # Primitive Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, default Float64 fractional literal values parse/evaluate, explicitly annotated `Float16`/`Float32` fractional literal bindings are accepted, lowercase `f16`/`f32`/`f64` fractional literal suffixes parse and resolve directly to `Float16`/`Float32`/`Float64`, same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic type-checks and evaluates with width-preserving runtime float results, direct binary Float64-domain arithmetic can target exactly one uncommitted integer literal to the peer `Float`/`Float64` type, same concrete `Float`/`Float16`/`Float32`/`Float64` comparison/equality type-check and evaluate, and structural list/tuple/ADT equality type-checks and evaluates when every nested element or declared constructor payload type is equality-supported)
+Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, default Float64 fractional literal values parse/evaluate, explicitly annotated `Float16`/`Float32` fractional literal bindings are accepted, lowercase `f16`/`f32`/`f64` fractional literal suffixes parse and resolve directly to `Float16`/`Float32`/`Float64`, same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic type-checks and evaluates with width-preserving runtime float results, direct binary Float64-domain arithmetic can target exactly one uncommitted integer literal to the peer `Float`/`Float64` type, direct binary arithmetic/comparison/equality can promote exactly one concrete integral operand to the peer `Float`/`Float64` type, same concrete `Float`/`Float16`/`Float32`/`Float64` comparison/equality type-check and evaluate, and structural list/tuple/ADT equality type-checks and evaluates when every nested element or declared constructor payload type is equality-supported)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md`
 
@@ -89,10 +89,14 @@ Box f == Box f
   integer-literal targeting exception: when exactly one operand is an
   uncommitted integer literal that fits the finite `Float64` integer magnitude
   range and the other operand has resolved to default `Float` or explicit
-  `Float64`, the expression type is the peer float type. This exception does
-  not apply to comparisons/equality, typed integral values, `Float16`/`Float32`,
-  mixed concrete float widths, operator values, sections, callable identity, or
-  user-defined operator behavior.
+  `Float64`, the expression type is the peer float type.
+- Direct binary `+`, `-`, `*`, `/`, `<`, `<=`, `>`, `>=`, `==`, and `!=`
+  can promote exactly one concrete integral operand to the peer `Float` or
+  explicit `Float64` operand type. Arithmetic returns the peer float type;
+  comparisons and equality/inequality return `Bool`. This exception does not
+  apply to uncommitted integer literals in comparisons/equality,
+  `Float16`/`Float32`, mixed concrete float widths, operator values, sections,
+  callable identity, or user-defined operator behavior.
 - Decimal fractional literals such as `1.5` parse and lower to the default `Float`/`Float64` literal slice, can satisfy explicit `Float` or `Float64` signatures, can target direct binding signatures for `Float16` and `Float32`, and evaluate/render through the active floating runtime value path with the same finite-target bounds checks and rounding used by explicit float conversions.
 - Fractional literal suffix syntax is parser-owned syntax implemented in
   `jazz-next`, not an ordinary prelude API. It works independently of imports
@@ -111,10 +115,11 @@ Box f == Box f
 - Mixed-width rejection remains unchanged: same-width suffixed expressions such
   as `1.5f16 + 2.5f16` can be valid, while `1.5f16 + 2.5`,
   `1.5f16 + 2.5f32`, and mismatched annotations remain type errors.
-- This suffix contract does not add implicit integer-to-float promotion,
-  implicit mixed-width arithmetic/widening, broader numeric solver/typeclass
-  behavior, callable identity semantics, user-defined operator behavior, or
-  default/alias changes.
+- This suffix contract does not add implicit integer-to-float promotion beyond
+  the direct binary `Float`/`Float64` concrete-integral promotion described
+  above, implicit mixed-width arithmetic/widening, broader numeric
+  solver/typeclass behavior, callable identity semantics, user-defined operator
+  behavior, or default/alias changes.
 
 ### Explicit Conversion Contract
 
@@ -139,7 +144,8 @@ Optional aliases (catalog-boundary conditional):
 Rules:
 
 1. Aside from the narrow direct binary Float64-domain integer-literal
-   arithmetic exception above, there are no implicit numeric conversions.
+   arithmetic exception and direct binary concrete-integral-to-`Float`/`Float64`
+   promotion above, there are no implicit numeric conversions.
 2. Mixed-width operators remain type errors unless the program calls an
    explicit conversion.
 3. Non-numeric conversion sources are compile-time type errors.

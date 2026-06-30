@@ -1,6 +1,6 @@
 ---
 id: JN-PRIMITIVE-TYPED-INT-TO-FLOAT64-PROMOTION-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-PRIMITIVE-FLOAT64-INTEGER-LITERAL-ARITHMETIC-001
 last_verified: 2026-06-30
+completed_on: 2026-06-30
 plan_section: "Task 1: Direct typed integer to Float64 promotion"
 target_paths:
   - docs/spec/runtime/primitive-semantics.md

@@ -1,35 +1,32 @@
 ---
-id: JN-OPERATORS-SPECIFIC-TYPE-SIGNATURES-001
+id: JN-OPERATORS-CUSTOM-PRECEDENCE-001
 status: ready
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
-  - JN-OPERATORS-DECLARED-FUNCTION-BINDINGS-001
+  - JN-OPERATORS-SPECIFIC-TYPE-SIGNATURES-001
 last_verified: 2026-06-30
-plan_section: "Batch 1: Operator-specific type signatures"
+plan_section: "Batch 2: Custom precedence"
 target_paths:
   - docs/spec/syntax/operators.md
   - jazz-next/src/JazzNext/Compiler/Parser.hs
   - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
   - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
-  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs
   - jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - docs/execution/blocker-contracts.md
   - docs/execution/queue.md
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
   - git diff --check
-deliverable: "Add operator-specific adjacent signatures for same-source declared operator bindings, using parenthesized operator names such as `(%%) :: Int -> Int -> Int.`, while keeping cross-module operator APIs, overload dispatch, new built-ins, and custom precedence/associativity for later child rows."
+deliverable: "Add custom numeric precedence declarations for same-source user operators, preserving existing tier declarations and default left associativity while keeping custom associativity, cross-module operator APIs, overload dispatch, and new built-ins out of scope."
 ---
 
 # Jazz-Next Operator Signatures, Precedence, And Associativity Plan

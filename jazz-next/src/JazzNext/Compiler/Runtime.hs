@@ -1523,17 +1523,27 @@ applyQualifiedMethod ::
   [RuntimeValue] ->
   Either Diagnostic RuntimeValue
 applyQualifiedMethod builtinMode bindingTypeHints methodKey classParameter methodSignature candidates arguments =
-  case matchingCandidates of
+  case preferredCandidates of
     [] ->
       Left (runtimeDiagnostic "E3026" ("no matching qualified method body '" <> methodKey <> "'"))
     [RuntimeMethodCandidate _ methodCell] ->
       applyRuntimeMethodCandidate builtinMode bindingTypeHints methodCell arguments
     _
-      | runtimeQualifiedMethodIsFullyApplied classParameter methodSignature arguments matchingCandidates ->
+      | runtimeQualifiedMethodIsFullyApplied classParameter methodSignature arguments preferredCandidates ->
           Left (runtimeDiagnostic "E3026" ("ambiguous qualified method body '" <> methodKey <> "'"))
       | otherwise ->
-          Right (VQualifiedMethod methodKey classParameter methodSignature matchingCandidates arguments)
+          Right (VQualifiedMethod methodKey classParameter methodSignature preferredCandidates arguments)
   where
+    preferredCandidates =
+      case exactMatchingCandidates of
+        [] -> matchingCandidates
+        exactMatches -> exactMatches
+
+    exactMatchingCandidates =
+      filter
+        (runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments)
+        matchingCandidates
+
     matchingCandidates =
       filter
         (runtimeMethodCandidateMatches classParameter methodSignature arguments)
@@ -1565,6 +1575,56 @@ applyRuntimeMethodCandidate ::
 applyRuntimeMethodCandidate builtinMode bindingTypeHints methodCell arguments = do
   methodValue <- methodCell
   foldM (applyRuntimeFunction builtinMode bindingTypeHints) methodValue arguments
+
+runtimeMethodCandidateExactlyMatches :: Text -> SignaturePayload -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
+runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments (RuntimeMethodCandidate implTarget _) =
+  case substituteClassMethodSignature classParameter implTarget methodSignature of
+    Just substitutedSignature ->
+      let (argumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
+       in length arguments <= length argumentTypes
+            && any
+              (runtimeConstraintSignatureTypeContains implTarget)
+              (take (length arguments) argumentTypes)
+            && and (zipWith runtimeValueExactlyMatchesConstraint argumentTypes arguments)
+    Nothing ->
+      False
+
+runtimeConstraintSignatureTypeContains :: ConstraintSignatureType -> ConstraintSignatureType -> Bool
+runtimeConstraintSignatureTypeContains needle signatureType =
+  signatureType == needle
+    || case signatureType of
+      ConstraintTypeApplication _ arguments ->
+        any (runtimeConstraintSignatureTypeContains needle) arguments
+      ConstraintTypeList innerType ->
+        runtimeConstraintSignatureTypeContains needle innerType
+      ConstraintTypeTuple elementTypes ->
+        any (runtimeConstraintSignatureTypeContains needle) elementTypes
+      ConstraintTypeFunction argumentType resultType ->
+        runtimeConstraintSignatureTypeContains needle argumentType
+          || runtimeConstraintSignatureTypeContains needle resultType
+      ConstraintTypeName {} ->
+        False
+
+runtimeValueExactlyMatchesConstraint :: ConstraintSignatureType -> RuntimeValue -> Bool
+runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
+  case runtimeValue of
+    VTyped typeHint _ ->
+      typeHint == signatureType
+    VFloat _ metadata ->
+      case signatureType of
+        ConstraintTypeName typeName ->
+          runtimeFloatExactlyMatchesTypeName (identifierText typeName) metadata
+        _ -> False
+    _ -> False
+
+runtimeFloatExactlyMatchesTypeName :: Text -> RuntimeFloatMetadata -> Bool
+runtimeFloatExactlyMatchesTypeName typeName metadata =
+  case (typeName, runtimeFloatTargetType metadata) of
+    ("Float", Nothing) -> True
+    ("Float16", Just NumericFloat16) -> True
+    ("Float32", Just NumericFloat32) -> True
+    ("Float64", Just NumericFloat64) -> True
+    _ -> False
 
 runtimeMethodCandidateMatches :: Text -> SignaturePayload -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
 runtimeMethodCandidateMatches classParameter methodSignature arguments (RuntimeMethodCandidate implTarget _) =
@@ -2217,36 +2277,36 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
     ("/", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
       evalFloatArithmetic "/" leftMetadata rightMetadata (leftFloat / rightFloat)
     ("+", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata ->
-          evalIntegerLiteralFloat64Arithmetic "+" rightMetadata (fromInteger leftInt + rightFloat)
+      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
+          evalIntegerFloat64Arithmetic "+" rightMetadata leftInt rightFloat (+)
     ("+", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
-          evalIntegerLiteralFloat64Arithmetic "+" leftMetadata (leftFloat + fromInteger rightInt)
+      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+          evalFloat64IntegerArithmetic "+" leftMetadata leftFloat rightInt (+)
     ("-", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata ->
-          evalIntegerLiteralFloat64Arithmetic "-" rightMetadata (fromInteger leftInt - rightFloat)
+      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
+          evalIntegerFloat64Arithmetic "-" rightMetadata leftInt rightFloat (-)
     ("-", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
-          evalIntegerLiteralFloat64Arithmetic "-" leftMetadata (leftFloat - fromInteger rightInt)
+      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+          evalFloat64IntegerArithmetic "-" leftMetadata leftFloat rightInt (-)
     ("*", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata ->
-          evalIntegerLiteralFloat64Arithmetic "*" rightMetadata (fromInteger leftInt * rightFloat)
+      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
+          evalIntegerFloat64Arithmetic "*" rightMetadata leftInt rightFloat (*)
     ("*", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
-          evalIntegerLiteralFloat64Arithmetic "*" leftMetadata (leftFloat * fromInteger rightInt)
+      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+          evalFloat64IntegerArithmetic "*" leftMetadata leftFloat rightInt (*)
     ("/", VInt _ leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata,
+      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata,
         floatIsZero rightFloat ->
           Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
     ("/", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64ArithmeticAccepted leftMetadata rightMetadata ->
-          evalIntegerLiteralFloat64Arithmetic "/" rightMetadata (fromInteger leftInt / rightFloat)
+      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
+          evalIntegerFloat64Arithmetic "/" rightMetadata leftInt rightFloat (/)
     ("/", VFloat _ leftMetadata, VInt 0 rightMetadata)
-      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
+      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
           Left (runtimeDiagnostic "E3001" "runtime primitive '/' failed: division by zero")
     ("/", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-      | runtimeIntFloat64ArithmeticAccepted rightMetadata leftMetadata ->
-          evalIntegerLiteralFloat64Arithmetic "/" leftMetadata (leftFloat / fromInteger rightInt)
+      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+          evalFloat64IntegerArithmetic "/" leftMetadata leftFloat rightInt (/)
     ("<", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       evalIntegerPredicate "<" leftInt leftMetadata rightInt rightMetadata (leftInt < rightInt)
     ("<=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
@@ -2263,10 +2323,40 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
       evalFloatPredicate ">" leftMetadata rightMetadata (leftFloat > rightFloat)
     (">=", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
       evalFloatPredicate ">=" leftMetadata rightMetadata (leftFloat >= rightFloat)
+    ("<", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
+          evalIntegerFloat64Predicate "<" leftInt rightFloat (<)
+    ("<", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+          evalFloat64IntegerPredicate "<" leftFloat rightInt (<)
+    ("<=", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
+          evalIntegerFloat64Predicate "<=" leftInt rightFloat (<=)
+    ("<=", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+          evalFloat64IntegerPredicate "<=" leftFloat rightInt (<=)
+    (">", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
+          evalIntegerFloat64Predicate ">" leftInt rightFloat (>)
+    (">", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+          evalFloat64IntegerPredicate ">" leftFloat rightInt (>)
+    (">=", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
+          evalIntegerFloat64Predicate ">=" leftInt rightFloat (>=)
+    (">=", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+          evalFloat64IntegerPredicate ">=" leftFloat rightInt (>=)
     ("==", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       evalIntegerEquality "==" leftInt leftMetadata rightInt rightMetadata
     ("==", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
       evalFloatPredicate "==" leftMetadata rightMetadata (leftFloat == rightFloat)
+    ("==", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
+          evalIntegerFloat64Equality "==" leftInt rightFloat
+    ("==", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+          evalFloat64IntegerEquality "==" leftFloat rightInt
     ("==", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool == rightBool))
     ("==", VList {}, VList {}) -> evalStructuralEquality "==" leftValue rightValue
     ("==", VTuple {}, VTuple {}) -> evalStructuralEquality "==" leftValue rightValue
@@ -2277,6 +2367,12 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
       evalIntegerEquality "!=" leftInt leftMetadata rightInt rightMetadata
     ("!=", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
       evalFloatPredicate "!=" leftMetadata rightMetadata (leftFloat /= rightFloat)
+    ("!=", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
+          evalIntegerFloat64Equality "!=" leftInt rightFloat
+    ("!=", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+          evalFloat64IntegerEquality "!=" leftFloat rightInt
     ("!=", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool /= rightBool))
     ("!=", VList {}, VList {}) -> evalStructuralEquality "!=" leftValue rightValue
     ("!=", VTuple {}, VTuple {}) -> evalStructuralEquality "!=" leftValue rightValue
@@ -2426,10 +2522,31 @@ evalFloatBinary operatorSymbol targetType result
       Right (VFloat (roundFloatTarget floatTarget result) (targetedFloatMetadata floatTarget))
   | otherwise = Right (VFloat result (untypedFloatMetadata Nothing))
 
-runtimeIntFloat64ArithmeticAccepted :: RuntimeIntMetadata -> RuntimeFloatMetadata -> Bool
-runtimeIntFloat64ArithmeticAccepted intMetadata floatMetadata =
-  runtimeIntTargetType intMetadata == Nothing
+runtimeIntFloat64PromotionAccepted :: RuntimeIntMetadata -> RuntimeFloatMetadata -> Bool
+runtimeIntFloat64PromotionAccepted intMetadata floatMetadata =
+  runtimeIntMetadataIsIntegral intMetadata
     && runtimeFloatMetadataIsFloat64Domain floatMetadata
+
+runtimeIntMetadataIsIntegral :: RuntimeIntMetadata -> Bool
+runtimeIntMetadataIsIntegral intMetadata =
+  case runtimeIntTargetType intMetadata of
+    Just numericType -> numericTypeIsIntegral numericType
+    Nothing -> True
+
+numericTypeIsIntegral :: NumericType -> Bool
+numericTypeIsIntegral numericType =
+  case numericType of
+    NumericInt8 -> True
+    NumericInt16 -> True
+    NumericInt32 -> True
+    NumericInt64 -> True
+    NumericUInt8 -> True
+    NumericUInt16 -> True
+    NumericUInt32 -> True
+    NumericUInt64 -> True
+    NumericFloat16 -> False
+    NumericFloat32 -> False
+    NumericFloat64 -> False
 
 runtimeFloatMetadataIsFloat64Domain :: RuntimeFloatMetadata -> Bool
 runtimeFloatMetadataIsFloat64Domain floatMetadata =
@@ -2438,9 +2555,48 @@ runtimeFloatMetadataIsFloat64Domain floatMetadata =
     Nothing -> True
     Just _ -> False
 
-evalIntegerLiteralFloat64Arithmetic :: Text -> RuntimeFloatMetadata -> Double -> Either Diagnostic RuntimeValue
-evalIntegerLiteralFloat64Arithmetic operatorSymbol floatMetadata result =
-  evalFloatBinary operatorSymbol (runtimeFloatTargetType floatMetadata) result
+evalIntegerFloat64Arithmetic :: Text -> RuntimeFloatMetadata -> Integer -> Double -> (Double -> Double -> Double) -> Either Diagnostic RuntimeValue
+evalIntegerFloat64Arithmetic operatorSymbol floatMetadata integerValue floatValue combine = do
+  integerFloat <- promotedIntegerFloat64Operand integerValue
+  evalFloatBinary operatorSymbol (runtimeFloatTargetType floatMetadata) (combine integerFloat floatValue)
+
+evalFloat64IntegerArithmetic :: Text -> RuntimeFloatMetadata -> Double -> Integer -> (Double -> Double -> Double) -> Either Diagnostic RuntimeValue
+evalFloat64IntegerArithmetic operatorSymbol floatMetadata floatValue integerValue combine = do
+  integerFloat <- promotedIntegerFloat64Operand integerValue
+  evalFloatBinary operatorSymbol (runtimeFloatTargetType floatMetadata) (combine floatValue integerFloat)
+
+evalIntegerFloat64Predicate :: Text -> Integer -> Double -> (Double -> Double -> Bool) -> Either Diagnostic RuntimeValue
+evalIntegerFloat64Predicate _ integerValue floatValue predicate = do
+  integerFloat <- promotedIntegerFloat64Operand integerValue
+  pure (VBool (predicate integerFloat floatValue))
+
+evalFloat64IntegerPredicate :: Text -> Double -> Integer -> (Double -> Double -> Bool) -> Either Diagnostic RuntimeValue
+evalFloat64IntegerPredicate _ floatValue integerValue predicate = do
+  integerFloat <- promotedIntegerFloat64Operand integerValue
+  pure (VBool (predicate floatValue integerFloat))
+
+evalIntegerFloat64Equality :: Text -> Integer -> Double -> Either Diagnostic RuntimeValue
+evalIntegerFloat64Equality operatorSymbol integerValue floatValue = do
+  integerFloat <- promotedIntegerFloat64Operand integerValue
+  pure (VBool (float64MixedEqualityResult operatorSymbol integerFloat floatValue))
+
+evalFloat64IntegerEquality :: Text -> Double -> Integer -> Either Diagnostic RuntimeValue
+evalFloat64IntegerEquality operatorSymbol floatValue integerValue = do
+  integerFloat <- promotedIntegerFloat64Operand integerValue
+  pure (VBool (float64MixedEqualityResult operatorSymbol floatValue integerFloat))
+
+float64MixedEqualityResult :: Text -> Double -> Double -> Bool
+float64MixedEqualityResult operatorSymbol leftValue rightValue =
+  if operatorSymbol == "!="
+    then leftValue /= rightValue
+    else leftValue == rightValue
+
+promotedIntegerFloat64Operand :: Integer -> Either Diagnostic Double
+promotedIntegerFloat64Operand integerValue =
+  case convertIntegerToFloatTarget BuiltinToFloat64 NumericFloat64 integerValue of
+    Right (VFloat floatValue _) -> Right floatValue
+    Right _ -> Left (numericConversionFloatOverflowDiagnostic BuiltinToFloat64 NumericFloat64)
+    Left diagnostic -> Left diagnostic
 
 mixedFloatArithmeticDiagnostic :: Text -> Maybe NumericType -> Maybe NumericType -> Diagnostic
 mixedFloatArithmeticDiagnostic operatorSymbol leftTarget rightTarget =

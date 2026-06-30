@@ -82,8 +82,16 @@ where scoped, plus width-specific numeric signature names:
 - floating widths (`Float16`, `Float32`, and `Float64`) have `Eq`, `Ord`,
   `Num`, `Fractional`, `Default`, and `Showable` facts.
 
+The default bundled prelude also provides concrete `Eq::equals` method bodies
+for `Int`, `Float`, `Bool`, `Float16`, `Float32`, and `Float64`. The bundled
+`Eq(Float)` and `Eq(Float64)` method facts may coexist only under this narrow
+alias-overlap rule: `Float` is the public alias for `Float64`, so the default
+prelude may expose both spellings for the same concrete width. This rule does
+not relax duplicate visible impl rejection for explicit duplicate impl facts.
+
 Later batches must define typed overload selection across multiple concrete
 impl method bodies, constraint solving beyond the current concrete fact checks,
-overlap/orphan policy, cross-module method visibility, bundled-prelude method
-bodies, dictionaries, default methods, superclasses, and runtime evidence
-before enabling broader executable class/impl semantics.
+overlap/orphan policy beyond the bundled `Float`/`Float64` alias pair,
+cross-module method visibility, broader bundled-prelude method-body families,
+dictionaries, default methods, superclasses, and runtime evidence before
+enabling broader executable class/impl semantics.

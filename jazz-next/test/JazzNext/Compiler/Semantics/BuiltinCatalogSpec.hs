@@ -60,6 +60,7 @@ import JazzNext.Compiler.WarningConfig
   )
 import JazzNext.TestHarness
   ( NamedTest,
+    assertContains,
     assertEqual,
     assertLeftDiagnosticContains,
     runTestSuite
@@ -78,6 +79,7 @@ tests =
     ("default conversion aliases stay prelude-only", testDefaultConversionAliasesStayPreludeOnly),
     ("bundled prelude file stays reproducible from catalog", testBundledPreludeFileStaysReproducibleFromCatalog),
     ("bundled prelude comparison normalizes line endings", testBundledPreludeComparisonNormalizesLineEndings),
+    ("bundled prelude includes Eq Float64 equals method body", testBundledPreludeIncludesEqFloat64EqualsMethodBody),
     ("direct compile helper stays kernel-only", testDirectCompileHelperStaysKernelOnly),
     ("compile pipeline treats catalog builtins as bound names", testCompilePipelineTreatsCatalogBuiltinsAsBound),
     ("runtime exposes catalog builtins as callable values", testRuntimeExposesCatalogBuiltinsAsFunctions),
@@ -181,6 +183,18 @@ testBundledPreludeComparisonNormalizesLineEndings =
     "CRLF checked-in prelude text normalizes to generated source"
     bundledPreludeSource
     (normalizePreludeLineEndings (Text.replace "\n" "\r\n" bundledPreludeSource))
+
+testBundledPreludeIncludesEqFloat64EqualsMethodBody :: IO ()
+testBundledPreludeIncludesEqFloat64EqualsMethodBody =
+  assertContains
+    "bundled prelude renders Eq(Float64).equals body"
+    ( Text.unlines
+        [ "impl Eq(Float64) {",
+          "equals = \\(left) -> \\(right) -> left == right.",
+          "}."
+        ]
+    )
+    bundledPreludeSource
 
 normalizePreludeLineEndings :: Text -> Text
 normalizePreludeLineEndings text =

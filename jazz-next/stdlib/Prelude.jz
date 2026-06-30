@@ -93,7 +93,9 @@ impl Num(Float32) { }.
 impl Fractional(Float32) { }.
 impl Default(Float32) { }.
 impl Showable(Float32) { }.
-impl Eq(Float64) { }.
+impl Eq(Float64) {
+equals = \(left) -> \(right) -> left == right.
+}.
 impl Ord(Float64) { }.
 impl Num(Float64) { }.
 impl Fractional(Float64) { }.

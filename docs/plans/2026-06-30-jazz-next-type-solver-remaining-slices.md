@@ -1,24 +1,28 @@
 ---
-id: JN-TYPE-SOLVER-REMAINING-SLICES-PLAN-001
+id: JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001
 status: ready
 priority: P1
 size: M
-kind: coordination
+kind: impl
 autonomous_ready: yes
 depends_on:
-  - JN-TYPE-SOLVER-CONSTRAINED-SIGNATURE-SCHEMES-001
+  - JN-TYPE-SOLVER-INFERRED-CLASS-CONSTRAINTS-001
 last_verified: 2026-06-30
-plan_section: "Remaining Solver Slice Plan"
+plan_section: "Batch 2: Final Defaulting And Ambiguity"
 target_paths:
-  - docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md
+  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - docs/spec/semantics/bindings-and-signatures.md
+  - docs/spec/runtime/primitive-semantics.md
   - docs/execution/blocker-contracts.md
   - docs/execution/queue.md
 verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
   - git diff --check
-deliverable: "Record the remaining solver rollout as verifier-backed child rows in this order: inferred class constraints, final defaulting and ambiguity, explicit type application, then runtime evidence/dictionaries. Do not batch these implementation slices together or reopen primitive mixed-width behavior."
+deliverable: "Add the final solver defaulting and ambiguity pass for unresolved class constraints, preserving current numeric literal defaults and keeping runtime evidence, dictionaries, explicit type application, and primitive mixed-width behavior out of scope."
 ---
 
 # Jazz-Next Remaining Type Solver Slices Plan

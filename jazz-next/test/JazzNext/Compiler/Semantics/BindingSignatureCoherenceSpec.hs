@@ -66,6 +66,10 @@ tests =
     ("source pipeline instantiates ordinary binding schemes per use", testSourceInstantiatesOrdinaryBindingSchemesPerUse),
     ("source pipeline instantiates unconstrained variables beside numeric constraints per use", testSourceInstantiatesUnconstrainedNumericBindingVariablesPerUse),
     ("source pipeline instantiates unconstrained variables beside equality constraints per use", testSourceInstantiatesUnconstrainedEqualityBindingVariablesPerUse),
+    ("source pipeline infers equality class constraints for ordinary binding schemes", testSourceInfersEqualityClassConstraintsForOrdinaryBindingSchemes),
+    ("source pipeline rejects missing inferred equality facts at use sites", testSourceRejectsMissingInferredEqualityFactAtUseSite),
+    ("source pipeline infers qualified method class constraints for ordinary binding schemes", testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes),
+    ("source pipeline rejects callable equality before inferred class obligations", testSourceRejectsCallableEqualityBeforeInferredClassObligations),
     ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse),
     ("source pipeline instantiates mutual recursive binding schemes per use", testSourceInstantiatesMutualRecursiveBindingSchemesPerUse),
     ("source pipeline instantiates interleaved mutual recursive schemes per use", testSourceInstantiatesInterleavedMutualRecursiveBindingSchemesPerUse),
@@ -81,6 +85,7 @@ tests =
     ("source pipeline selects qualified Float method body by argument types", testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float16 method body by argument types", testSourceSelectsQualifiedFloat16MethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float32 method body by argument types", testSourceSelectsQualifiedFloat32MethodBodyByArgumentTypes),
+    ("source pipeline selects qualified Float64 method body by argument types", testSourceSelectsQualifiedFloat64MethodBodyByArgumentTypes),
     ("source pipeline selects qualified method body through prefix dollar", testSourceSelectsQualifiedMethodBodyThroughPrefixDollar),
     ("source pipeline accepts same-impl qualified method body references", testSourceAcceptsSameImplQualifiedMethodBodyReferences),
     ("source pipeline uses impl signatures while checking method bodies", testSourceUsesImplSignaturesWhileCheckingMethodBodies),
@@ -494,6 +499,16 @@ testSourceSelectsQualifiedFloat32MethodBodyByArgumentTypes =
         <> "result :: Bool.\nresult = Eq::equals left right.\nresult."
     )
 
+testSourceSelectsQualifiedFloat64MethodBodyByArgumentTypes :: IO ()
+testSourceSelectsQualifiedFloat64MethodBodyByArgumentTypes =
+  assertSourceOkWithoutPrelude
+    ( "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+        <> "impl Eq(Float64) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+        <> "left :: Float64.\nleft = 1.5.\n"
+        <> "right :: Float64.\nright = 2.25.\n"
+        <> "result :: Bool.\nresult = Eq::equals left right.\nresult."
+    )
+
 testSourceSelectsQualifiedMethodBodyThroughPrefixDollar :: IO ()
 testSourceSelectsQualifiedMethodBodyThroughPrefixDollar =
   assertSourceOkWithoutPrelude
@@ -626,8 +641,10 @@ testSourceRejectsDuplicateClassDeclarations =
   assertSourceSingleErrorContainsWithoutPrelude "class Eq(a) { }.\nclass Eq(b) { }.\nx = 1." "E1004"
 
 testSourceRejectsDuplicateConcreteImplDeclarations :: IO ()
-testSourceRejectsDuplicateConcreteImplDeclarations =
+testSourceRejectsDuplicateConcreteImplDeclarations = do
   assertSourceSingleErrorContainsWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Int) { }.\nx = 1." "E1005"
+  assertSourceSingleErrorContainsWithoutPrelude "class Eq(a) { }.\nimpl Eq(Float) { }.\nimpl Eq(Float) { }.\nx = 1." "E1005"
+  assertSourceSingleErrorContainsWithoutPrelude "class Eq(a) { }.\nimpl Eq(Float64) { }.\nimpl Eq(Float64) { }.\nx = 1." "E1005"
 
 testSourceRejectsDuplicateAdtImplDeclarations :: IO ()
 testSourceRejectsDuplicateAdtImplDeclarations = do
@@ -1124,6 +1141,33 @@ testSourceInstantiatesUnconstrainedNumericBindingVariablesPerUse =
 testSourceInstantiatesUnconstrainedEqualityBindingVariablesPerUse :: IO ()
 testSourceInstantiatesUnconstrainedEqualityBindingVariablesPerUse =
   assertSourceOk "f = \\(x) -> \\(y) -> (x == x, y).\na = f 1 True.\nb = f 2 3."
+
+testSourceInfersEqualityClassConstraintsForOrdinaryBindingSchemes :: IO ()
+testSourceInfersEqualityClassConstraintsForOrdinaryBindingSchemes =
+  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Bool) { }.\nsame = \\(left) -> \\(right) -> left == right.\nintResult = same 1 1.\nboolResult = same True False."
+
+testSourceRejectsMissingInferredEqualityFactAtUseSite :: IO ()
+testSourceRejectsMissingInferredEqualityFactAtUseSite =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) { }.\nimpl Eq(Int) { }.\nsame = \\(left) -> \\(right) -> left == right.\nintResult = same 1 1.\nbad = same True False."
+    "missing impl fact 'Eq(Bool)'"
+
+testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes :: IO ()
+testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes =
+  assertSourceOkWithoutPrelude
+    ( "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+        <> "impl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+        <> "impl Eq(Bool) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+        <> "same = \\(left) -> \\(right) -> Eq::equals left right.\n"
+        <> "intResult = same 1 1.\n"
+        <> "boolResult = same True False."
+    )
+
+testSourceRejectsCallableEqualityBeforeInferredClassObligations :: IO ()
+testSourceRejectsCallableEqualityBeforeInferredClassObligations =
+  assertSourceSingleErrorContains
+    "f = \\(x) -> x.\nbad = f == f."
+    "callable values are not equality-supported"
 
 testSourceInstantiatesRecursiveBindingSchemesPerUse :: IO ()
 testSourceInstantiatesRecursiveBindingSchemesPerUse =
