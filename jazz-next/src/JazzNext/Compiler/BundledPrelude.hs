@@ -48,50 +48,19 @@ bundledPreludeSource =
 
     renderDefaultCapabilityImpl (className, targetType) =
       case (className, targetType) of
-        ("Eq", "Int") ->
-          Text.intercalate
-            "\n"
-            [ "impl Eq(Int) {",
-              "equals = \\(left) -> \\(right) -> left == right.",
-              "}."
-            ]
-        ("Eq", "Float") ->
-          Text.intercalate
-            "\n"
-            [ "impl Eq(Float) {",
-              "equals = \\(left) -> \\(right) -> left == right.",
-              "}."
-            ]
-        ("Eq", "Bool") ->
-          Text.intercalate
-            "\n"
-            [ "impl Eq(Bool) {",
-              "equals = \\(left) -> \\(right) -> left == right.",
-              "}."
-            ]
-        ("Eq", "Float16") ->
-          Text.intercalate
-            "\n"
-            [ "impl Eq(Float16) {",
-              "equals = \\(left) -> \\(right) -> left == right.",
-              "}."
-            ]
-        ("Eq", "Float32") ->
-          Text.intercalate
-            "\n"
-            [ "impl Eq(Float32) {",
-              "equals = \\(left) -> \\(right) -> left == right.",
-              "}."
-            ]
-        ("Eq", "Float64") ->
-          Text.intercalate
-            "\n"
-            [ "impl Eq(Float64) {",
-              "equals = \\(left) -> \\(right) -> left == right.",
-              "}."
-            ]
+        ("Eq", targetType')
+          | targetType' `elem` ["Int", "Float", "Bool", "Float16", "Float32", "Float64"] ->
+              renderEqImpl targetType'
         _ ->
           "impl " <> className <> "(" <> targetType <> ") { }."
+
+    renderEqImpl targetType =
+      Text.intercalate
+        "\n"
+        [ "impl Eq(" <> targetType <> ") {",
+          "equals = \\(left) -> \\(right) -> left == right.",
+          "}."
+        ]
 
     -- Kernel bridge bindings must precede public aliases so alias definitions
     -- can reference already-declared names in the checked-in mirror.

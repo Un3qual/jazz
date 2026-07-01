@@ -122,13 +122,13 @@ implementation children:
 - ordinary user binding generalization,
 - per-use instantiation of generalized schemes,
 - solver-backed constrained signatures for variable-bearing signatures such as
-  `@{Eq(a)}: a -> a`.
+  `@{Eq(a)}: a -> a`,
+- inferred class constraints represented and solved against visible class/impl
+  facts.
 
 Accepted under `JN-TYPE-SOLVER-CONTRACT-001` but still waiting for future
 implementation children:
 
-- inferred class constraints represented and solved against visible class/impl
-  facts,
 - defaulting beyond the already locked numeric literal defaults, using a final
   solver/defaulting phase that preserves current `Int64` and `Float64` numeric
   literal defaults.

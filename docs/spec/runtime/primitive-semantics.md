@@ -26,7 +26,7 @@ Define backend-independent language semantics for primitive operations and value
 | `-` | `Num a => a -> a -> a` | Numeric subtraction in selected numeric domain. | Compile-time type error on mismatched/non-numeric operands. |
 | `*` | `Num a => a -> a -> a` | Numeric multiplication in selected numeric domain. | Compile-time type error on mismatched/non-numeric operands. |
 | `/` | `Num a => a -> a -> a` | Numeric division in selected numeric domain. | Compile-time type error on mismatched/non-numeric operands. |
-| `==`, `!=` | `Eq a => a -> a -> Bool` | Strict, type-directed equality/inequality with no coercion for supported runtime equality families, including recursively equality-supported lists, tuples, and declared ADTs. | Compile-time type error when operand types do not match or the family has no equality runtime support. |
+| `==`, `!=` | `Eq a => a -> a -> Bool` | Strict, type-directed equality/inequality for supported runtime equality families, including recursively equality-supported lists, tuples, and declared ADTs. Direct binary concrete-integral vs peer `Float`/`Float64` operands use the numeric promotion exception below. | Compile-time type error when operand types do not match outside the explicit `Float`/`Float64` promotion exception or the family has no equality runtime support. |
 | `<`, `<=`, `>`, `>=` | `Ord a => a -> a -> Bool` | Numeric ordering for supported same-concrete numeric operands. | Compile-time type error on mismatched/non-comparable operands. |
 | `map` | `(a -> b) -> [a] -> [b]` | Applies function to each element in order. | Compile-time type error when function/input list types mismatch. |
 | `filter` | `(a -> Bool) -> [a] -> [a]` | Keeps list elements whose predicate evaluates to `True`. | Compile-time type error when predicate/list types mismatch; fatal runtime diagnostic if predicate result is non-`Bool`. |
@@ -37,8 +37,15 @@ Define backend-independent language semantics for primitive operations and value
 ## Equality Contract
 
 1. Equality is strict and type-directed.
-2. There is no backend coercive equality in canonical language behavior.
-3. Equality only compares operands of the same supported type family: `Bool`, integral numeric types, same concrete `Float`/`Float16`/`Float32`/`Float64`, list/tuple structures whose nested element types are themselves equality-supported, and declared ADT values whose complete constructor payload set is equality-supported.
+2. There is no backend coercive equality in canonical language behavior. The
+   only implicit promotion exception is the direct binary concrete-integral vs
+   peer `Float`/`Float64` rule described in the numeric section below.
+3. Equality only compares operands of the same supported type family, except for
+   that direct binary `Float`/`Float64` promotion exception: `Bool`, integral
+   numeric types, same concrete `Float`/`Float16`/`Float32`/`Float64`,
+   list/tuple structures whose nested element types are themselves
+   equality-supported, and declared ADT values whose complete constructor
+   payload set is equality-supported.
 
 Valid examples:
 

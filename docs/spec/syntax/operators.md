@@ -239,7 +239,11 @@ Rules:
 7. An operator signature must name a user operator already declared earlier in
    the same source unit.
 8. Built-in operators cannot receive operator signatures.
-9. An operator signature applies only when it immediately precedes the matching
+9. Operator signatures are allowed only at file scope or directly in module
+   bodies, matching operator declarations and bindings. They are invalid inside
+   expression blocks, classes, impls, lambdas, pattern arms, or other nested
+   scopes.
+10. An operator signature applies only when it immediately precedes the matching
    operator binding. It constrains the hidden ordinary binding type.
 
 Executable equivalences:

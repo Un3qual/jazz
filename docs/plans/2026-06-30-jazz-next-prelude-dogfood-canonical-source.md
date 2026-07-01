@@ -253,9 +253,11 @@ generator.
 - Inspect: `jazz-next/src/JazzNext/Compiler/Driver.hs`
 - Inspect: `jazz-next/src/JazzNext/CLI/Main.hs`
 
-- [ ] **Step 1: Remove full-source generation from the public API**
+- [ ] **Step 1: Keep the compatibility source export during migration**
 
-Change the module export list from this shape:
+Keep the module export list in this shape for this batch because
+`Driver.hs`, CLI tests, and semantic tests still import or compare
+`bundledPreludeSource` directly:
 
 ```haskell
 module JazzNext.Compiler.BundledPrelude
@@ -265,43 +267,18 @@ module JazzNext.Compiler.BundledPrelude
   ) where
 ```
 
-to this shape:
+Do not remove `bundledPreludeSource` from the public API until a later migration
+child updates all direct consumers to call `loadBundledPreludeSource` or to read
+the checked-in `Prelude.jz` through a test helper.
+
+- [ ] **Step 2: Add file-backed loading without deleting the shim**
+
+Update `loadBundledPreludeSource` to locate and read
+`jazz-next/stdlib/Prelude.jz`, but leave the existing generated
+`bundledPreludeSource` definition in place as a temporary compatibility shim.
+The file-backed loader should keep the current path-finding behavior:
 
 ```haskell
-module JazzNext.Compiler.BundledPrelude
-  ( bundledPreludePath,
-    loadBundledPreludeSource
-  ) where
-```
-
-- [ ] **Step 2: Replace the generator with file-backed loading**
-
-Use this implementation in `BundledPrelude.hs`:
-
-```haskell
-{-# LANGUAGE OverloadedStrings #-}
-
--- | Loads the compiler-owned bundled prelude from the checked-in Jazz source.
-module JazzNext.Compiler.BundledPrelude
-  ( bundledPreludePath,
-    loadBundledPreludeSource
-  ) where
-
-import Data.Text (Text)
-import qualified Data.Text.IO as TextIO
-import System.Directory
-  ( doesFileExist,
-    getCurrentDirectory
-  )
-import System.FilePath
-  ( (</>),
-    takeDirectory
-  )
-
--- | Repository-relative location of the checked-in bundled prelude source.
-bundledPreludePath :: FilePath
-bundledPreludePath = "jazz-next/stdlib/Prelude.jz"
-
 loadBundledPreludeSource :: IO Text
 loadBundledPreludeSource = do
   cwd <- getCurrentDirectory
@@ -334,9 +311,11 @@ findBundledPreludePathFrom directory = do
 - [ ] **Step 3: Confirm existing call sites keep their API**
 
 `Driver.hs` and `CLI/Main.hs` should continue to call
-`loadBundledPreludeSource`. Do not change `compileSource`,
-`runSource`, `compileModuleGraph`, `runModuleGraph`, or CLI prelude option
-semantics in this batch.
+`loadBundledPreludeSource`. Existing test modules that still import
+`bundledPreludeSource` should keep compiling in this batch; migrate those direct
+imports in a separate child before dropping the export. Do not change
+`compileSource`, `runSource`, `compileModuleGraph`, `runModuleGraph`, or CLI
+prelude option semantics in this batch.
 
 - [ ] **Step 4: Run the focused prelude contract test**
 
@@ -346,7 +325,9 @@ Run:
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
 ```
 
-Expected: the suite passes without any import of `bundledPreludeSource`.
+Expected: the suite passes while the temporary `bundledPreludeSource`
+compatibility export remains available. A later migration child owns removing
+the remaining direct imports and then deleting the export.
 
 ### Task 3: Preserve default, explicit, and no-prelude behavior
 

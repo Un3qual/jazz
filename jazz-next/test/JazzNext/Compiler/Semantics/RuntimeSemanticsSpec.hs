@@ -192,6 +192,7 @@ tests =
     ("qualified method dispatch defers exact filtering until target argument", testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument),
     ("qualified method dispatch preserves selected method signatures", testQualifiedMethodDispatchPreservesSelectedMethodSignature),
     ("qualified method dispatch applies typed callable argument hints", testQualifiedMethodDispatchAppliesTypedCallableArgumentHint),
+    ("qualified method dispatch applies typed callable argument hints through prefix dollar", testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar),
     ("qualified method dispatch applies closure argument signature hints", testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint),
     ("qualified method dispatch preserves defaulted closure result metadata", testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata),
     ("typed numeric sections preserve captured operand flexibility", testTypedNumericSectionPreservesCapturedOperandFlexibility),
@@ -1727,6 +1728,15 @@ testQualifiedMethodDispatchAppliesTypedCallableArgumentHint = do
           (runtimeTypedCallableArgumentHintExpr (EVar "RuntimePick::pick"))
   assertEqual "typed callable argument hint runtime result" (Right (Just (VBool False))) result
 
+testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar :: IO ()
+testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (ConstraintTypeFunction (ConstraintTypeName "UInt8") (ConstraintTypeName "Bool")))
+          (runtimeTypedCallableArgumentHintThroughPrefixDollarExpr (EVar "RuntimePick::pick"))
+  assertEqual "typed callable argument hint through prefix dollar runtime result" (Right (Just (VBool False))) result
+
 testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint :: IO ()
 testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint = do
   let result =
@@ -1760,6 +1770,15 @@ runtimeTypedCallableArgumentHintExpr callableExpr =
     ( runtimePickStatements
         ++ [ SLet "choose" (SourceSpan 9 1) callableExpr,
              SExpr (SourceSpan 10 1) (EApply (EVar "choose") (ELit (LInt 1)))
+           ]
+    )
+
+runtimeTypedCallableArgumentHintThroughPrefixDollarExpr :: Expr -> Expr
+runtimeTypedCallableArgumentHintThroughPrefixDollarExpr callableExpr =
+  EBlock
+    ( runtimePickStatements
+        ++ [ SLet "choose" (SourceSpan 9 1) callableExpr,
+             SExpr (SourceSpan 10 1) (EApply (EApply (EOperatorValue "$") (EVar "choose")) (ELit (LInt 1)))
            ]
     )
 

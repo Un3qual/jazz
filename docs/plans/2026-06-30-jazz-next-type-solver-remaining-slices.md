@@ -8,7 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-TYPE-SOLVER-INFERRED-CLASS-CONSTRAINTS-001
 last_verified: 2026-06-30
-plan_section: "Batch 2: Final Defaulting And Ambiguity"
+plan_section: "Batch 1: Final Defaulting And Ambiguity"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
@@ -50,17 +50,20 @@ specs, and repo-root docs/queue validation.
 
 ## Remaining Solver Slice Order
 
-1. `JN-TYPE-SOLVER-INFERRED-CLASS-CONSTRAINTS-001`
-2. `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001`
-3. `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001`
-4. `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`
+1. `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001`
+2. `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001`
+3. `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`
 
-This order keeps every child independently testable. It also avoids mixing
-compile-time inference work with runtime representation work.
+The inferred class-constraint child is complete and archived; the remaining
+order keeps every open child independently testable. It also avoids mixing final
+compile-time defaulting work with runtime representation work.
 
-## Batch 1: Inferred Class Constraints
+## Completed Prerequisite: Inferred Class Constraints
 
 Child id: `JN-TYPE-SOLVER-INFERRED-CLASS-CONSTRAINTS-001`
+
+Status: completed in this PR and recorded in
+`docs/execution/done-archive.md`.
 
 Goal: infer class constraints from supported operators and qualified method
 requirements, attach those constraints to generalized schemes, and solve them
@@ -113,7 +116,7 @@ bash scripts/check-docs.sh
 git diff --check
 ```
 
-## Batch 2: Final Defaulting And Ambiguity
+## Batch 1: Final Defaulting And Ambiguity
 
 Child id: `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001`
 
@@ -166,7 +169,7 @@ bash scripts/check-docs.sh
 git diff --check
 ```
 
-## Batch 3: Explicit Type Application
+## Batch 2: Explicit Type Application
 
 Child id: `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001`
 
@@ -219,7 +222,7 @@ bash scripts/check-docs.sh
 git diff --check
 ```
 
-## Batch 4: Runtime Evidence And Dictionaries
+## Batch 3: Runtime Evidence And Dictionaries
 
 Child id: `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`
 

@@ -2669,29 +2669,38 @@ inferQualifiedMethodRequirement methodKey (ClassMethodType classParameter method
   if classArity /= 1
     then Nothing
     else
-      let (classTarget, stateAfterClassTarget) = freshTypeVar state
-       in do
-            methodType <-
-              classMethodPayloadToGenericExpressionType
-                stateAfterClassTarget
-                classParameter
-                classTarget
-                methodSignature
-            if Set.null (freeTypeVariables classTarget `Set.intersection` freeTypeVariables methodType)
-              then Nothing
-              else
+      if not (classMethodSignatureHasTargetArgument classParameter methodSignature)
+        then Nothing
+        else
+          let (classTarget, stateAfterClassTarget) = freshTypeVar state
+           in do
+                methodType <-
+                  classMethodPayloadToGenericExpressionType
+                    stateAfterClassTarget
+                    classParameter
+                    classTarget
+                    methodSignature
                 let (maybeResultType, stateAfterArguments) =
                       applyKnownFunctionArguments methodType argumentTypes stateAfterClassTarget
                     resolvedClassTarget = resolveType stateAfterArguments classTarget
-                 in case maybeResultType of
-                      Just resultType
-                        | not (Set.null (freeTypeVariables resolvedClassTarget)) ->
-                            Just
-                              ( Just resultType,
-                                addInferredMethodClassConstraint capabilityName methodKey resolvedClassTarget stateAfterArguments
-                              )
-                      _ ->
-                        Nothing
+                case maybeResultType of
+                  Just resultType
+                    | not (Set.null (freeTypeVariables resolvedClassTarget)) ->
+                        Just
+                          ( Just resultType,
+                            addInferredMethodClassConstraint capabilityName methodKey resolvedClassTarget stateAfterArguments
+                          )
+                  _ ->
+                    Nothing
+
+classMethodSignatureHasTargetArgument :: Text -> SignaturePayload -> Bool
+classMethodSignatureHasTargetArgument classParameter methodSignature =
+  case signaturePayloadConstraintType methodSignature of
+    Just signatureType ->
+      let (argumentTypes, _) = constraintFunctionArgumentTypes signatureType
+       in any (constraintSignatureTypeContainsClassParameter classParameter) argumentTypes
+    Nothing ->
+      False
 
 selectQualifiedMethodCandidate ::
   Text ->
@@ -2750,37 +2759,46 @@ qualifiedMethodCandidateExactlyMatchesArguments ::
   [ExpressionType] ->
   Bool
 qualifiedMethodCandidateExactlyMatchesArguments state (ClassMethodType classParameter methodSignature) (ImplMethodType implTarget) argumentTypes =
-  case substituteClassMethodSignature classParameter implTarget methodSignature of
-    Just substitutedSignature ->
-      let (candidateArgumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
-       in length argumentTypes <= length candidateArgumentTypes
-            && any
-              (constraintSignatureTypeContains implTarget)
-              (take (length argumentTypes) candidateArgumentTypes)
+  case (signaturePayloadConstraintType methodSignature, substituteClassMethodSignature classParameter implTarget methodSignature) of
+    (Just genericSignature, Just substitutedSignature) ->
+      let (genericArgumentTypes, _) = constraintFunctionArgumentTypes genericSignature
+          (candidateArgumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
+          suppliedArgumentCount = length argumentTypes
+          suppliedGenericArgumentTypes = take suppliedArgumentCount genericArgumentTypes
+          suppliedCandidateArgumentTypes = take suppliedArgumentCount candidateArgumentTypes
+          targetArgumentPositions =
+            map (constraintSignatureTypeContainsClassParameter classParameter) suppliedGenericArgumentTypes
+       in suppliedArgumentCount <= length genericArgumentTypes
+            && suppliedArgumentCount <= length candidateArgumentTypes
+            && or targetArgumentPositions
             && and
-              ( zipWith
-                  (constraintSignatureTypeExactlyMatchesExpressionType state)
-                  candidateArgumentTypes
+              ( zipWith3
+                  exactCandidateArgumentMatches
+                  targetArgumentPositions
+                  suppliedCandidateArgumentTypes
                   argumentTypes
               )
-    Nothing ->
+    _ ->
       False
+  where
+    exactCandidateArgumentMatches targetArgumentPosition signatureType expressionType =
+      not targetArgumentPosition
+        || constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressionType
 
-constraintSignatureTypeContains :: ConstraintSignatureType -> ConstraintSignatureType -> Bool
-constraintSignatureTypeContains needle signatureType =
-  signatureType == needle
-    || case signatureType of
+constraintSignatureTypeContainsClassParameter :: Text -> ConstraintSignatureType -> Bool
+constraintSignatureTypeContainsClassParameter classParameter signatureType =
+  case signatureType of
       ConstraintTypeApplication _ arguments ->
-        any (constraintSignatureTypeContains needle) arguments
+        any (constraintSignatureTypeContainsClassParameter classParameter) arguments
       ConstraintTypeList innerType ->
-        constraintSignatureTypeContains needle innerType
+        constraintSignatureTypeContainsClassParameter classParameter innerType
       ConstraintTypeTuple elementTypes ->
-        any (constraintSignatureTypeContains needle) elementTypes
+        any (constraintSignatureTypeContainsClassParameter classParameter) elementTypes
       ConstraintTypeFunction argumentType resultType ->
-        constraintSignatureTypeContains needle argumentType
-          || constraintSignatureTypeContains needle resultType
-      ConstraintTypeName {} ->
-        False
+        constraintSignatureTypeContainsClassParameter classParameter argumentType
+          || constraintSignatureTypeContainsClassParameter classParameter resultType
+      ConstraintTypeName typeName ->
+        identifierText typeName == classParameter
 
 constraintSignatureTypeExactlyMatchesExpressionType :: InferState -> ConstraintSignatureType -> ExpressionType -> Bool
 constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressionType =

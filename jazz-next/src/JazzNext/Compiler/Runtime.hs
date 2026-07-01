@@ -2305,6 +2305,8 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
       Left (runtimeCallableEqualityDiagnostic operatorSymbol leftValue rightValue)
   | otherwise =
   case (operatorSymbol, leftValue, rightValue) of
+    ("$", functionValue, argumentValue) ->
+      applyRuntimeFunction builtinMode bindingTypeHints functionValue argumentValue
     (_, VTyped leftTypeHint leftInnerValue, _)
       | isStrictEqualityOperator operatorSymbol,
         runtimeTypeHintRequiresStructuralEquality leftTypeHint ->
@@ -2437,8 +2439,6 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
     ("!=", VList {}, VList {}) -> evalStructuralEquality "!=" leftValue rightValue
     ("!=", VTuple {}, VTuple {}) -> evalStructuralEquality "!=" leftValue rightValue
     ("!=", VConstructor {}, VConstructor {}) -> evalStructuralEquality "!=" leftValue rightValue
-    ("$", functionValue, argumentValue) ->
-      applyRuntimeFunction builtinMode bindingTypeHints functionValue argumentValue
     _ ->
       Left
         ( runtimeDiagnostic

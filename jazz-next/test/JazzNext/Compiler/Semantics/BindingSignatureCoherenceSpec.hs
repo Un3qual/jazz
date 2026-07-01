@@ -73,6 +73,8 @@ tests =
     ("source pipeline accepts primitive equality helpers without visible Eq", testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEq),
     ("source pipeline infers qualified method class constraints for ordinary binding schemes", testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes),
     ("source pipeline resolves inferred method facts through aliases", testSourceResolvesInferredMethodFactsThroughAliases),
+    ("source pipeline rejects result-only qualified method inference", testSourceRejectsResultOnlyQualifiedMethodInference),
+    ("source pipeline rejects exact matches from non-target qualified method arguments", testSourceRejectsNonTargetQualifiedMethodExactMatch),
     ("source pipeline rejects callable equality before inferred class obligations", testSourceRejectsCallableEqualityBeforeInferredClassObligations),
     ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse),
     ("source pipeline instantiates mutual recursive binding schemes per use", testSourceInstantiatesMutualRecursiveBindingSchemesPerUse),
@@ -1206,6 +1208,29 @@ testSourceResolvesInferredMethodFactsThroughAliases =
         <> "same = \\(x) -> Eq::equals x x.\n"
         <> "result = same value."
     )
+
+testSourceRejectsResultOnlyQualifiedMethodInference :: IO ()
+testSourceRejectsResultOnlyQualifiedMethodInference =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class Make(a) {\nmake :: Int -> a.\n}.\n"
+        <> "impl Make(Int) {\nmake = \\(value) -> value.\n}.\n"
+        <> "impl Make(Bool) {\nmake = \\(value) -> True.\n}.\n"
+        <> "x :: Int.\n"
+        <> "x = Make::make 0."
+    )
+    "ambiguous qualified method body"
+
+testSourceRejectsNonTargetQualifiedMethodExactMatch :: IO ()
+testSourceRejectsNonTargetQualifiedMethodExactMatch =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class Flag(a) {\nflag :: Int -> Bool.\n}.\n"
+        <> "impl Flag(Int) {\nflag = \\(value) -> True.\n}.\n"
+        <> "impl Flag(Bool) {\nflag = \\(value) -> False.\n}.\n"
+        <> "one :: Int.\n"
+        <> "one = 1.\n"
+        <> "result = Flag::flag one."
+    )
+    "ambiguous qualified method body"
 
 testSourceRejectsCallableEqualityBeforeInferredClassObligations :: IO ()
 testSourceRejectsCallableEqualityBeforeInferredClassObligations =
