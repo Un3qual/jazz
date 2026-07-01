@@ -1830,6 +1830,13 @@ stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModul
               (rewriteValidationReplayExpr exprValue)
           ]
         SSignature signatureName spanValue signatureValue
+          | shouldQualifyOperatorBinding signatureName ->
+              [ SSignature
+                  (operatorReplayIdentifier signatureName)
+                  spanValue
+                  (rewriteModuleExportSignaturePayload modulePath dataTypeNames signatureValue)
+              ]
+        SSignature signatureName spanValue signatureValue
           | Set.member (identifierText signatureName) hiddenImportExports ->
               [ SSignature
                   (hiddenValidationIdentifier signatureName)
@@ -1934,6 +1941,14 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
                   (rewriteRuntimeReplayExpr valueExpr)
               ]
         SLet {} -> []
+        SSignature signatureName spanValue signatureValue
+          | shouldQualifyOperatorBinding signatureName,
+            shouldKeepRuntimeBinding signatureName ->
+              [ SSignature
+                  (operatorReplayIdentifier signatureName)
+                  spanValue
+                  (rewriteRuntimeReplaySignaturePayload signatureValue)
+              ]
         SSignature signatureName spanValue signatureValue
           | shouldKeepRuntimeBinding signatureName,
             Set.notMember (identifierText signatureName) hiddenImportExports ->

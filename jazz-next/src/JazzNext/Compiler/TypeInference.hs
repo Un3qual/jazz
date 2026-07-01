@@ -1332,16 +1332,24 @@ inferScopeType builtinMode initialEnv initialState statements =
                         fmap
                           (defaultLiteralTypes . resolveType stateAfterExplicitConstraintCheck)
                           (Map.lookup statementIndex bindingSeedsByStatement)
+                  generalizationEnv =
+                    generalizationEnvForStatement statementIndex envForStatement
                   stateAfterDroppedInferredMethodCheck =
-                    case nextBindingType of
-                      Just inferredType
-                        | shouldGeneralizeOrdinaryBinding statementIndex envForStatement valueExpr matchingPendingSignature ->
+                    case (matchingPendingSignature, nextBindingType) of
+                      (Just pendingSignature, Just _)
+                        | shouldGeneralizeExplicitSignatureBinding generalizationEnv valueExpr pendingSignature ->
                             addUnpreservedInferredMethodConstraintErrors
                               bindingSpan
-                              envForStatement
                               stateForStatement
                               stateAfterExplicitConstraintCheck
-                              inferredType
+                              (explicitBindingSchemeVariables generalizationEnv stateAfterExplicitConstraintCheck pendingSignature)
+                      (_, Just inferredType)
+                        | shouldGeneralizeOrdinaryBinding statementIndex generalizationEnv valueExpr matchingPendingSignature ->
+                            addUnpreservedInferredMethodConstraintErrors
+                              bindingSpan
+                              stateForStatement
+                              stateAfterExplicitConstraintCheck
+                              (ordinaryBindingSchemeVariables generalizationEnv stateAfterExplicitConstraintCheck inferredType)
                       _ -> stateAfterExplicitConstraintCheck
                   stateAfterRuntimeHint =
                     case nextBindingType >>= runtimeHintFromExpressionType stateAfterDroppedInferredMethodCheck of
@@ -1471,6 +1479,22 @@ inferScopeType builtinMode initialEnv initialState statements =
       isNothing maybePendingSignature
         && Set.notMember statementIndex signedBindingStatements
         && not (isDirectConstructorAlias currentEnv valueExpr)
+
+    generalizationEnvForStatement :: Int -> TypeEnv -> TypeEnv
+    generalizationEnvForStatement statementIndex currentEnv =
+      case Map.lookup statementIndex recursiveGroupsByStatement of
+        Just groupMembers ->
+          foldl' (flip Map.delete) currentEnv (recursiveGroupBindingNames groupMembers)
+        Nothing ->
+          currentEnv
+
+    recursiveGroupBindingNames :: [Int] -> Set Text
+    recursiveGroupBindingNames groupMembers =
+      Set.fromList
+        [ bindingName
+          | memberIndex <- groupMembers,
+            Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement]
+        ]
 
     generalizeCompletedRecursiveGroup :: Map Int PendingSignatureType -> Int -> TypeEnv -> InferState -> TypeEnv
     generalizeCompletedRecursiveGroup pendingSignatures statementIndex currentEnv state =
@@ -2122,15 +2146,13 @@ ordinaryBindingSchemeVariables env state expressionType =
 
 addUnpreservedInferredMethodConstraintErrors ::
   SourceSpan ->
-  TypeEnv ->
   InferState ->
   InferState ->
-  ExpressionType ->
+  Set Int ->
   InferState
-addUnpreservedInferredMethodConstraintErrors spanValue env statementStartState state expressionType =
+addUnpreservedInferredMethodConstraintErrors spanValue statementStartState state schemeVariables =
   foldl' addUnpreservedMethodError state droppedMethodKeys
   where
-    schemeVariables = ordinaryBindingSchemeVariables env state expressionType
     droppedMethodKeys =
       Set.toList
         ( Set.fromList
@@ -2169,17 +2191,27 @@ generalizedExplicitSignatureBinding env state pendingSignature =
   let resolvedType = resolveType state (pendingSignatureDeclaredType pendingSignature)
       resolvedConstraints =
         map (resolveTypeSchemeConstraint state) (pendingSignatureExplicitConstraints pendingSignature)
+      schemeVariables = explicitBindingSchemeVariables env state pendingSignature
+      inferredMethodConstraints =
+        typeSchemeInferredMethodConstraints state schemeVariables
+      schemeConstraints =
+        dedupeTypeSchemeConstraints (resolvedConstraints ++ inferredMethodConstraints)
+      primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
+   in if Set.null schemeVariables && null schemeConstraints && null primitiveConstraints
+        then PlainTypeBinding resolvedType
+        else SchemeTypeBinding (TypeScheme schemeVariables schemeConstraints primitiveConstraints resolvedType)
+
+explicitBindingSchemeVariables :: TypeEnv -> InferState -> PendingSignatureType -> Set Int
+explicitBindingSchemeVariables env state pendingSignature =
+  let resolvedType = resolveType state (pendingSignatureDeclaredType pendingSignature)
+      resolvedConstraints =
+        map (resolveTypeSchemeConstraint state) (pendingSignatureExplicitConstraints pendingSignature)
       freeVariables =
         Set.union
           (freeTypeVariables resolvedType)
           (freeTypeVariablesInTypeSchemeConstraints resolvedConstraints)
       environmentVariables = freeTypeVariablesInEnv state env
-      quantifiedVariables = Set.difference freeVariables environmentVariables
-      schemeVariables = quantifiedVariables
-      primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
-   in if Set.null schemeVariables && null resolvedConstraints && null primitiveConstraints
-        then PlainTypeBinding resolvedType
-        else SchemeTypeBinding (TypeScheme schemeVariables resolvedConstraints primitiveConstraints resolvedType)
+   in Set.difference freeVariables environmentVariables
 
 typeSchemePrimitiveConstraints :: InferState -> Set Int -> [TypeSchemePrimitiveConstraint]
 typeSchemePrimitiveConstraints state schemeVariables =
@@ -2233,6 +2265,12 @@ typeSchemeInferredClassConstraints state schemeVariables =
        in if not (Set.null targetVariables) && targetVariables `Set.isSubsetOf` schemeVariables
             then Just targetType
             else Nothing
+
+typeSchemeInferredMethodConstraints :: InferState -> Set Int -> [TypeSchemeConstraint]
+typeSchemeInferredMethodConstraints state schemeVariables =
+  [ constraint
+    | constraint@TypeSchemeMethodConstraint {} <- typeSchemeInferredClassConstraints state schemeVariables
+  ]
 
 dedupeTypeSchemeConstraints :: [TypeSchemeConstraint] -> [TypeSchemeConstraint]
 dedupeTypeSchemeConstraints =
@@ -2859,7 +2897,7 @@ constraintSignatureTypeExactlyMatchesExpressionType :: InferState -> ConstraintS
 constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressionType =
   case constraintSignatureTypeToExpressionTypeWithState state Map.empty signatureType of
     Just signatureExpressionType ->
-      resolveType state signatureExpressionType == resolveType state expressionType
+      resolveType state signatureExpressionType == defaultLiteralTypes (resolveType state expressionType)
     Nothing ->
       False
 

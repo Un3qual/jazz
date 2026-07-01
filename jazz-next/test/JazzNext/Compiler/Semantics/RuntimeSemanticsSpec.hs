@@ -186,6 +186,7 @@ tests =
     ("qualified method dispatch executes Float64 equality body", testQualifiedMethodDispatchExecutesFloat64EqualityBody),
     ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
     ("qualified method dispatch prefers Int alias body for typed Int values", testQualifiedMethodDispatchPrefersIntAliasBody),
+    ("qualified method dispatch prefers Int alias body for direct integer literals", testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral),
     ("qualified method dispatch prefers list alias body for typed list values", testQualifiedMethodDispatchPrefersListAliasBody),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
     ("qualified method dispatch preserves higher-order exact signatures", testQualifiedMethodDispatchPreservesHigherOrderExactSignature),
@@ -1637,6 +1638,20 @@ testQualifiedMethodDispatchPrefersIntAliasBody = do
           <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
           <> "value :: Int.\nvalue = 1.\n"
           <> "RuntimeFlag::flag value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral :: IO ()
+testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "RuntimeFlag::flag 1."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)

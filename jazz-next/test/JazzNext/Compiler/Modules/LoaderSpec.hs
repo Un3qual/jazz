@@ -107,6 +107,7 @@ tests =
     ("compile module graph exposes capability facts through visible imports", testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports),
     ("run module graph keeps hidden qualified export dependencies available", testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge),
     ("run module graph retains local operator binding needed by exported binding", testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding),
+    ("run module graph retains local operator signature needed by exported binding", testRunModuleGraphRetainsLocalOperatorSignatureNeededByExportedBinding),
     ("run module graph retains local operator binding needed by explicit imported export", testRunModuleGraphRetainsLocalOperatorBindingNeededByExplicitImportedExport),
     ("run module graph does not leak retained operator binding into importer", testRunModuleGraphDoesNotLeakRetainedOperatorBindingIntoImporter),
     ("run module graph imported right operator section captures right operand", testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand),
@@ -1180,6 +1181,26 @@ testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Ops.\nplus.\n}"),
           ("src/Lib/Ops.jz", "module Lib::Ops {\noperator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\nplus = 1 %% 2.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRetainsLocalOperatorSignatureNeededByExportedBinding :: IO ()
+testRunModuleGraphRetainsLocalOperatorSignatureNeededByExportedBinding = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Ops.\nplus.\n}"),
+          ("src/Lib/Ops.jz", "module Lib::Ops {\noperator %% tier 2.\n(%%) :: Int -> Int -> Int.\n(%%) = \\(left) -> \\(right) -> left + right.\nplus = 1 %% 2.\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

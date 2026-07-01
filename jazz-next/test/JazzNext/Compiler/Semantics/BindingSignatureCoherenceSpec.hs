@@ -75,6 +75,8 @@ tests =
     ("source pipeline resolves inferred method facts through aliases", testSourceResolvesInferredMethodFactsThroughAliases),
     ("source pipeline rejects result-only qualified method inference", testSourceRejectsResultOnlyQualifiedMethodInference),
     ("source pipeline rejects unpreserved higher-order qualified method inference", testSourceRejectsUnpreservedHigherOrderQualifiedMethodInference),
+    ("source pipeline preserves inferred method constraints on signed bindings", testSourcePreservesInferredMethodConstraintsOnSignedBindings),
+    ("source pipeline preserves inferred method constraints across mutual recursion", testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion),
     ("source pipeline rejects exact matches from non-target qualified method arguments", testSourceRejectsNonTargetQualifiedMethodExactMatch),
     ("source pipeline rejects callable equality before inferred class obligations", testSourceRejectsCallableEqualityBeforeInferredClassObligations),
     ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse),
@@ -1231,6 +1233,29 @@ testSourceRejectsUnpreservedHigherOrderQualifiedMethodInference =
         <> "result = C::m f."
     )
     "ambiguous qualified method body"
+
+testSourcePreservesInferredMethodConstraintsOnSignedBindings :: IO ()
+testSourcePreservesInferredMethodConstraintsOnSignedBindings =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class C(a) {\nm :: a -> Bool.\n}.\n"
+        <> "impl C(Int) { }.\n"
+        <> "f :: @{C(a)}: a -> Bool.\n"
+        <> "f = \\(x) -> C::m x.\n"
+        <> "result = f 1."
+    )
+    "missing impl method body 'C::m'"
+
+testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion :: IO ()
+testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion =
+  assertSourceOkWithoutPrelude
+    ( "class C(a) {\nm :: a -> Bool.\n}.\n"
+        <> "impl C(Int) {\nm = \\(x) -> True.\n}.\n"
+        <> "impl C(Bool) {\nm = \\(x) -> False.\n}.\n"
+        <> "left = if True \\(x) -> C::m x else right.\n"
+        <> "right = if False \\(x) -> C::m x else left.\n"
+        <> "intResult = left 1.\n"
+        <> "boolResult = right True."
+    )
 
 testSourceRejectsNonTargetQualifiedMethodExactMatch :: IO ()
 testSourceRejectsNonTargetQualifiedMethodExactMatch =
