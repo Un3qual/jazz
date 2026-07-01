@@ -259,7 +259,7 @@ data TypeBinding
   | ConstructorTypeBinding Identifier [Identifier] [ConstructorArgumentType]
   deriving (Eq, Show)
 
-data TypeScheme = TypeScheme (Set Int) [TypeSchemeConstraint] [TypeSchemePrimitiveConstraint] ExpressionType
+data TypeScheme = TypeScheme (Set Int) [TypeSchemeConstraint] [TypeSchemePrimitiveConstraint] ScopeCapabilityFacts ExpressionType
   deriving (Eq, Show)
 
 data TypeSchemePrimitiveConstraint
@@ -1264,7 +1264,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                     pendingSignatureDeclaredType <$> matchingPendingSignature
                   (rawValueType, rawStateAfterValue) =
                     case maybePreservedSchemeAliasBinding of
-                      Just (SchemeTypeBinding (TypeScheme _ _ _ schemeType)) ->
+                      Just (SchemeTypeBinding (TypeScheme _ _ _ _ schemeType)) ->
                         (Just schemeType, stateForStatement)
                       _ ->
                         case maybeExpectedValueType of
@@ -1811,6 +1811,7 @@ data ScopeCapabilityFacts = ScopeCapabilityFacts
     scopeClassMethodSignatures :: Map Text ClassMethodType,
     scopeConcreteImplMethods :: Map Text [ImplMethodType]
   }
+  deriving (Eq, Show)
 
 emptyScopeCapabilityFacts :: ScopeCapabilityFacts
 emptyScopeCapabilityFacts =
@@ -2142,7 +2143,7 @@ generalizedOrdinaryBinding env state expressionType =
         && null inferredClassConstraints
         && null primitiveConstraints
       then PlainTypeBinding resolvedType
-      else SchemeTypeBinding (TypeScheme schemeVariables inferredClassConstraints primitiveConstraints resolvedType)
+      else SchemeTypeBinding (TypeScheme schemeVariables inferredClassConstraints primitiveConstraints (capabilityFactsFromState state) resolvedType)
 
 ordinaryBindingSchemeVariables :: TypeEnv -> InferState -> ExpressionType -> Set Int
 ordinaryBindingSchemeVariables env state expressionType =
@@ -2278,7 +2279,7 @@ generalizedExplicitSignatureBinding env state pendingSignature =
       primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
    in if Set.null schemeVariables && null schemeConstraints && null primitiveConstraints
         then PlainTypeBinding resolvedType
-        else SchemeTypeBinding (TypeScheme schemeVariables schemeConstraints primitiveConstraints resolvedType)
+        else SchemeTypeBinding (TypeScheme schemeVariables schemeConstraints primitiveConstraints (capabilityFactsFromState state) resolvedType)
 
 explicitBindingSchemeVariables :: TypeEnv -> InferState -> PendingSignatureType -> Set Int
 explicitBindingSchemeVariables env state pendingSignature =
@@ -2404,7 +2405,7 @@ freeTypeVariablesInBinding state binding =
   case binding of
     PlainTypeBinding expressionType ->
       freeTypeVariables (resolveType state expressionType)
-    SchemeTypeBinding (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints expressionType) ->
+    SchemeTypeBinding (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints _ expressionType) ->
       Set.difference
         ( Set.unions
             [ freeTypeVariables (resolveType state expressionType),
@@ -2606,7 +2607,7 @@ instantiateTypeBinding binding state =
         Nothing -> (Nothing, state)
 
 instantiateTypeScheme :: TypeScheme -> InferState -> (Maybe ExpressionType, InferState)
-instantiateTypeScheme (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints expressionType) state =
+instantiateTypeScheme (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints definingFacts expressionType) state =
   let (freshBindings, nextState) =
         foldl'
           allocateFreshBinding
@@ -2621,7 +2622,10 @@ instantiateTypeScheme (TypeScheme quantifiedVariables explicitConstraints primit
       stateWithPrimitiveConstraints =
         applyTypeSchemePrimitiveConstraints instantiatedPrimitiveConstraints nextState
       stateWithDeferredConstraints =
-        deferExplicitConstraints instantiatedConstraints stateWithPrimitiveConstraints
+        deferExplicitConstraintsWithFacts
+          (mergeCapabilityFacts definingFacts (capabilityFactsFromState state))
+          instantiatedConstraints
+          stateWithPrimitiveConstraints
    in (Just (resolveType stateWithDeferredConstraints instantiatedType), stateWithDeferredConstraints)
   where
     allocateFreshBinding (bindings, stateAcc) typeVar =
@@ -2667,13 +2671,17 @@ applyTypeSchemePrimitiveConstraints primitiveConstraints state =
                   stateAcc
 
 deferExplicitConstraints :: [TypeSchemeConstraint] -> InferState -> InferState
-deferExplicitConstraints explicitConstraints state
+deferExplicitConstraints explicitConstraints state =
+  deferExplicitConstraintsWithFacts (capabilityFactsFromState state) explicitConstraints state
+
+deferExplicitConstraintsWithFacts :: ScopeCapabilityFacts -> [TypeSchemeConstraint] -> InferState -> InferState
+deferExplicitConstraintsWithFacts facts explicitConstraints state
   | null explicitConstraints = state
   | otherwise =
       state
         { inferDeferredExplicitConstraints =
             inferDeferredExplicitConstraints state
-              ++ map (typeSchemeConstraintToDeferredExplicitConstraint (capabilityFactsFromState state)) explicitConstraints
+              ++ map (typeSchemeConstraintToDeferredExplicitConstraint facts) explicitConstraints
         }
 
 typeSchemeConstraintToDeferredExplicitConstraint :: ScopeCapabilityFacts -> TypeSchemeConstraint -> DeferredExplicitConstraint
@@ -3923,28 +3931,28 @@ resolveType :: InferState -> ExpressionType -> ExpressionType
 resolveType state = applySubstitution (inferSubst state)
 
 defaultLiteralTypes :: ExpressionType -> ExpressionType
-defaultLiteralTypes expressionType =
-  case expressionType of
-    TIntegerLiteralType {} -> TIntType
-    TListType elementType -> TListType (defaultLiteralTypes elementType)
-    TTupleType elementTypes -> TTupleType (map defaultLiteralTypes elementTypes)
-    TDataType typeName typeArguments ->
-      TDataType typeName (map defaultLiteralTypes typeArguments)
-    TFunctionType inputType outputType ->
-      TFunctionType (defaultLiteralTypes inputType) (defaultLiteralTypes outputType)
-    _ -> expressionType
+defaultLiteralTypes =
+  defaultLiteralTypesWith TIntType
 
 defaultBindingLiteralTypes :: ExpressionType -> ExpressionType
-defaultBindingLiteralTypes expressionType =
+defaultBindingLiteralTypes =
+  defaultLiteralTypesWith (TNumericType NumericInt64)
+
+defaultLiteralTypesWith :: ExpressionType -> ExpressionType -> ExpressionType
+defaultLiteralTypesWith integerLiteralDefault expressionType =
   case expressionType of
-    TIntegerLiteralType {} -> TNumericType NumericInt64
-    TListType elementType -> TListType (defaultBindingLiteralTypes elementType)
-    TTupleType elementTypes -> TTupleType (map defaultBindingLiteralTypes elementTypes)
+    TIntegerLiteralType {} -> integerLiteralDefault
+    TListType elementType ->
+      TListType (defaultLiteralTypesWith integerLiteralDefault elementType)
+    TTupleType elementTypes ->
+      TTupleType (map (defaultLiteralTypesWith integerLiteralDefault) elementTypes)
     TDataType typeName typeArguments ->
-      TDataType typeName (map defaultBindingLiteralTypes typeArguments)
+      TDataType typeName (map (defaultLiteralTypesWith integerLiteralDefault) typeArguments)
     TFunctionType inputType outputType ->
-      TFunctionType (defaultBindingLiteralTypes inputType) (defaultBindingLiteralTypes outputType)
-    _ -> defaultLiteralTypes expressionType
+      TFunctionType
+        (defaultLiteralTypesWith integerLiteralDefault inputType)
+        (defaultLiteralTypesWith integerLiteralDefault outputType)
+    _ -> expressionType
 
 runtimeHintFromExpressionType :: InferState -> ExpressionType -> Maybe ConstraintSignatureType
 runtimeHintFromExpressionType state expressionType =

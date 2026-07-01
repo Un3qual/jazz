@@ -103,6 +103,7 @@ tests =
     ("run module graph keeps alias-hidden prelude binding isolated from visible importer", testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter),
     ("run module graph keeps visible sibling import isolated from alias-hidden replay", testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenReplay),
     ("compile module graph preserves constrained schemes through export bridges", testCompileModuleGraphPreservesConstrainedSchemesThroughExportBridges),
+    ("run module graph retains local capabilities needed by inferred equality export", testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport),
     ("compile module graph keeps sibling capability facts isolated", testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated),
     ("compile module graph exposes capability facts through visible imports", testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports),
     ("run module graph keeps hidden qualified export dependencies available", testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge),
@@ -1098,6 +1099,26 @@ testCompileModuleGraphPreservesConstrainedSchemesThroughExportBridges = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Poly.\nintValue :: Int.\nintValue = id 1.\nboolValue :: Bool.\nboolValue = id True.\nboolValue.\n}"),
           ("src/Lib/Poly.jz", "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Bool) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport :: IO ()
+testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Poly (same).\nresult = same 1.\nresult.\n}"),
+          ("src/Lib/Poly.jz", "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\nsame = \\(x) -> x == x.\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

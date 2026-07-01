@@ -1586,11 +1586,87 @@ closeLocalCapabilityDependencies statements localCapabilityNames neededCapabilit
 
 collectLocalCapabilityReferences :: Set Text -> Expr -> Set Text
 collectLocalCapabilityReferences localCapabilityNames expr =
-  Set.fromList
-    [ capabilityName
-      | (capabilityName, _) <- Set.toList (collectAliasQualifiedReferencePairs expr),
-        Set.member capabilityName localCapabilityNames
-    ]
+  Set.union
+    qualifiedCapabilityReferences
+    (collectInferredLocalCapabilityReferences localCapabilityNames expr)
+  where
+    qualifiedCapabilityReferences =
+      Set.fromList
+        [ capabilityName
+          | (capabilityName, _) <- Set.toList (collectAliasQualifiedReferencePairs expr),
+            Set.member capabilityName localCapabilityNames
+        ]
+
+collectInferredLocalCapabilityReferences :: Set Text -> Expr -> Set Text
+collectInferredLocalCapabilityReferences localCapabilityNames expr
+  | Set.member "Eq" localCapabilityNames && expressionUsesStrictEquality expr =
+      Set.singleton "Eq"
+  | otherwise =
+      Set.empty
+
+expressionUsesStrictEquality :: Expr -> Bool
+expressionUsesStrictEquality expr =
+  case expr of
+    ELit _ -> False
+    EVar _ -> False
+    ELambda _ bodyExpr ->
+      expressionUsesStrictEquality bodyExpr
+    EOperatorValue operatorName ->
+      isStrictEqualityOperator operatorName
+    EList elements ->
+      any expressionUsesStrictEquality elements
+    ETuple elements ->
+      any expressionUsesStrictEquality elements
+    EApply functionExpr argumentExpr ->
+      expressionUsesStrictEquality functionExpr
+        || expressionUsesStrictEquality argumentExpr
+    EIf conditionExpr trueBranch falseBranch ->
+      any
+        expressionUsesStrictEquality
+        [conditionExpr, trueBranch, falseBranch]
+    ECase conditionExpr trueBranch falseBranch ->
+      any
+        expressionUsesStrictEquality
+        [conditionExpr, trueBranch, falseBranch]
+    EPatternCase scrutineeExpr caseArms ->
+      expressionUsesStrictEquality scrutineeExpr
+        || any
+          ( \(CaseArm _ guardExpr bodyExpr) ->
+              maybe False expressionUsesStrictEquality guardExpr
+                || expressionUsesStrictEquality bodyExpr
+          )
+          caseArms
+    EBinary operatorName leftExpr rightExpr ->
+      isStrictEqualityOperator operatorName
+        || expressionUsesStrictEquality leftExpr
+        || expressionUsesStrictEquality rightExpr
+    ESectionLeft leftExpr operatorName ->
+      isStrictEqualityOperator operatorName
+        || expressionUsesStrictEquality leftExpr
+    ESectionRight operatorName rightExpr ->
+      isStrictEqualityOperator operatorName
+        || expressionUsesStrictEquality rightExpr
+    EBlock statements ->
+      any statementUsesStrictEquality statements
+
+statementUsesStrictEquality :: Statement -> Bool
+statementUsesStrictEquality statement =
+  case statement of
+    SLet _ _ valueExpr ->
+      expressionUsesStrictEquality valueExpr
+    SExpr _ expr ->
+      expressionUsesStrictEquality expr
+    SImpl _ _ _ methods ->
+      any
+        ( \(ImplMethod _ _ methodExpr) ->
+            expressionUsesStrictEquality methodExpr
+        )
+        methods
+    _ -> False
+
+isStrictEqualityOperator :: Text -> Bool
+isStrictEqualityOperator operatorName =
+  operatorName == "==" || operatorName == "!="
 
 collectNeededAliasExports ::
   Map [Text] [Text] ->
