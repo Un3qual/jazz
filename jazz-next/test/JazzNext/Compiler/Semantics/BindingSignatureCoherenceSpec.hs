@@ -79,6 +79,7 @@ tests =
     ("source pipeline preserves inferred equality constraints on signed bindings", testSourcePreservesInferredEqualityConstraintsOnSignedBindings),
     ("source pipeline preserves inferred method constraints across mutual recursion", testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion),
     ("source pipeline resolves concrete inferred method obligations before dropping them", testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem),
+    ("source pipeline resolves concrete inferred equality obligations before dropping them", testSourceResolvesConcreteInferredEqualityObligationsBeforeDroppingThem),
     ("source pipeline rejects exact matches from non-target qualified method arguments", testSourceRejectsNonTargetQualifiedMethodExactMatch),
     ("source pipeline rejects callable equality before inferred class obligations", testSourceRejectsCallableEqualityBeforeInferredClassObligations),
     ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse),
@@ -1278,6 +1279,15 @@ testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem =
         <> "impl C(Int) {\nm = \\(x) -> True.\n}.\n"
         <> "result = (\\(x) -> C::m x) 1."
     )
+
+testSourceResolvesConcreteInferredEqualityObligationsBeforeDroppingThem :: IO ()
+testSourceResolvesConcreteInferredEqualityObligationsBeforeDroppingThem =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class Eq(a) { }.\n"
+        <> "impl Eq(Int) { }.\n"
+        <> "result = (\\(x) -> x == x) True."
+    )
+    "missing impl fact 'Eq(Bool)'"
 
 testSourceRejectsNonTargetQualifiedMethodExactMatch :: IO ()
 testSourceRejectsNonTargetQualifiedMethodExactMatch =

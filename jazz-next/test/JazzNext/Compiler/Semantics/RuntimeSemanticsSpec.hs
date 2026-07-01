@@ -44,7 +44,8 @@ import JazzNext.Compiler.Identifier
 import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
-    evaluateRuntimeExprWithBuiltinsAndBindingHints
+    evaluateRuntimeExprWithBuiltinsAndBindingHints,
+    runtimeValueExactlyMatchesConstraint
   )
 import JazzNext.Compiler.RuntimeHints
   ( bindingRuntimeHintKey
@@ -189,6 +190,7 @@ tests =
     ("qualified method dispatch prefers Int alias body for direct integer literals", testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral),
     ("qualified method dispatch prefers list alias body for typed list values", testQualifiedMethodDispatchPrefersListAliasBody),
     ("qualified method dispatch prefers list alias body for direct list literals", testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral),
+    ("qualified method dispatch does not exact-match untyped empty list literals", testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral),
     ("qualified method dispatch prefers constructor alias body for direct constructor literals", testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral),
     ("qualified method dispatch treats non-literal integer results as Int64", testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
@@ -1688,6 +1690,13 @@ testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral :: IO ()
+testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral =
+  assertEqual
+    "untyped empty list exact match"
+    False
+    (runtimeValueExactlyMatchesConstraint (ConstraintTypeList (ConstraintTypeName "Int")) (VList [] Nothing))
 
 testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral :: IO ()
 testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral = do

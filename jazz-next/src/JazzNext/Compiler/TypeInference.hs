@@ -2151,8 +2151,20 @@ addUnpreservedInferredMethodConstraintErrors ::
   Set Int ->
   InferState
 addUnpreservedInferredMethodConstraintErrors spanValue statementStartState state schemeVariables =
-  foldl' addUnpreservedMethodError state droppedMethodKeys
+  foldl'
+    addUnpreservedClassConstraintError
+    (foldl' addUnpreservedMethodError state droppedMethodKeys)
+    droppedClassConstraints
   where
+    droppedClassConstraints =
+      dedupeTypeSchemeConstraints
+        [ TypeSchemeInferredConstraint constraintName argumentType
+          | TypeSchemeInferredConstraint constraintName argumentType <-
+              newInferredClassConstraints statementStartState state,
+            not (inferredConstraintTargetPreserved state schemeVariables argumentType),
+            inferredConstraintTargetConcrete state argumentType
+        ]
+
     droppedMethodKeys =
       Set.toList
         ( Set.fromList
@@ -2168,6 +2180,15 @@ addUnpreservedInferredMethodConstraintErrors spanValue statementStartState state
         stateAcc
         (setDiagnosticPrimarySpan spanValue (mkAmbiguousQualifiedMethodBodyError methodKey))
 
+    addUnpreservedClassConstraintError stateAcc constraint =
+      annotateNewErrorsWithPrimarySpan
+        spanValue
+        stateAcc
+        ( resolveDeferredExplicitConstraint
+            stateAcc
+            (typeSchemeConstraintToDeferredExplicitConstraint (capabilityFactsFromState state) constraint)
+        )
+
 newInferredClassConstraints :: InferState -> InferState -> [TypeSchemeConstraint]
 newInferredClassConstraints previousState state =
   take newConstraintCount (inferInferredClassConstraints state)
@@ -2182,6 +2203,14 @@ inferredConstraintTargetPreserved state schemeVariables argumentType =
       targetVariables = freeTypeVariables targetType
    in not (Set.null targetVariables)
         && targetVariables `Set.isSubsetOf` schemeVariables
+
+inferredConstraintTargetConcrete :: InferState -> ExpressionType -> Bool
+inferredConstraintTargetConcrete state argumentType =
+  let resolvedArgumentType = defaultLiteralTypes (resolveType state argumentType)
+   in Set.null (freeTypeVariables resolvedArgumentType)
+        && case expressionTypeToRuntimeHint resolvedArgumentType of
+          Just _ -> True
+          Nothing -> False
 
 concreteInferredMethodConstraintSatisfied :: InferState -> Text -> Text -> ExpressionType -> Bool
 concreteInferredMethodConstraintSatisfied state constraintName methodKey argumentType =

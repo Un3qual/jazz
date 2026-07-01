@@ -8,6 +8,7 @@ module JazzNext.Compiler.Runtime
     evaluateRuntimeExprWithBuiltinsAndBindingHints,
     evaluateRuntimeExprWithBuiltins,
     evaluateRuntimeExpr,
+    runtimeValueExactlyMatchesConstraint,
     renderRuntimeValue
   ) where
 
@@ -1646,7 +1647,8 @@ runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
     VList elements Nothing ->
       case signatureType of
         ConstraintTypeList elementType ->
-          all (runtimeValueExactlyMatchesConstraint elementType) elements
+          not (null elements)
+            && all (runtimeValueExactlyMatchesConstraint elementType) elements
         _ -> False
     VTuple elements ->
       case signatureType of
