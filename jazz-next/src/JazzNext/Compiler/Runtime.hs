@@ -2595,7 +2595,7 @@ runtimeIntFloat64PromotionAccepted intMetadata floatMetadata =
 
 runtimeIntFloat64ComparisonPromotionAccepted :: RuntimeIntMetadata -> RuntimeFloatMetadata -> Bool
 runtimeIntFloat64ComparisonPromotionAccepted intMetadata floatMetadata =
-  runtimeIntMetadataHasIntegralTarget intMetadata
+  runtimeIntMetadataIsIntegral intMetadata
     && runtimeFloatMetadataIsFloat64Domain floatMetadata
 
 runtimeIntMetadataIsIntegral :: RuntimeIntMetadata -> Bool
@@ -2603,12 +2603,6 @@ runtimeIntMetadataIsIntegral intMetadata =
   case runtimeIntTargetType intMetadata of
     Just numericType -> numericTypeIsIntegral numericType
     Nothing -> True
-
-runtimeIntMetadataHasIntegralTarget :: RuntimeIntMetadata -> Bool
-runtimeIntMetadataHasIntegralTarget intMetadata =
-  case runtimeIntTargetType intMetadata of
-    Just numericType -> numericTypeIsIntegral numericType
-    Nothing -> False
 
 numericTypeIsIntegral :: NumericType -> Bool
 numericTypeIsIntegral numericType =

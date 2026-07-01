@@ -139,7 +139,7 @@ tests =
     ("runtime fallback rejects targeted Float16/Float32 mixed with untyped Float arithmetic", testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic),
     ("runtime fallback handles direct integer and Float64 mixed-domain arithmetic", testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic),
     ("runtime fallback rejects mixed targeted float comparison and equality", testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality),
-    ("runtime fallback rejects untyped integer and Float64 comparison/equality", testRuntimeFallbackRejectsUntypedIntegerFloat64ComparisonEquality),
+    ("runtime fallback handles untyped integer and Float64 comparison/equality", testRuntimeFallbackHandlesUntypedIntegerFloat64ComparisonEquality),
     ("targeted Float16 and Float32 fractional literals round at runtime", testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue),
     ("suffixed Float16 and Float32 fractional literals round at runtime", testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue),
     ("Float16 arithmetic overflow produces runtime diagnostic", testFloat16ArithmeticOverflowRuntimeError),
@@ -1038,15 +1038,15 @@ testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality = do
     "E3007"
     (evaluateRuntimeExpr (runtimeExpr (EBinary "!=" (targetedFloat "__kernel_toFloat32") untypedFloatOne)))
 
-testRuntimeFallbackRejectsUntypedIntegerFloat64ComparisonEquality :: IO ()
-testRuntimeFallbackRejectsUntypedIntegerFloat64ComparisonEquality = do
-  assertRuntimeErrorContains
+testRuntimeFallbackHandlesUntypedIntegerFloat64ComparisonEquality :: IO ()
+testRuntimeFallbackHandlesUntypedIntegerFloat64ComparisonEquality = do
+  assertRuntimeBool
     "runtime fallback untyped Int less-than untyped Float"
-    "E3007"
-    (evaluateRuntimeExpr (runtimeExpr (EBinary "<" (ELit (LInt 1)) untypedFloatOne)))
-  assertRuntimeErrorContains
+    True
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "<" (ELit (LInt 1)) untypedFloatTwo)))
+  assertRuntimeBool
     "runtime fallback untyped Int equality Float64"
-    "E3007"
+    True
     (evaluateRuntimeExpr (runtimeExpr (EBinary "==" (ELit (LInt 1)) (targetedFloat "__kernel_toFloat64"))))
 
 testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue :: IO ()
@@ -1117,8 +1117,8 @@ testDirectTypedIntegerFloat64ComparisonEqualityRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True, True, True, True, True]") (runOutput result)
   assertRuntimeErrorContains
-    "runtime fallback untyped integer-to-Float64 comparison rejected"
-    "E3007"
+    "runtime fallback untyped integer-to-Float64 comparison overflow"
+    "E3024"
     (evaluateRuntimeExpr (runtimeExpr (EBinary "==" tooLargeFloat64Integer (targetedFloat "__kernel_toFloat64"))))
 
 testFloat16Float32ComparisonEqualityRuntimeSuccess :: IO ()
@@ -2455,9 +2455,23 @@ untypedFloatOne :: Expr
 untypedFloatOne =
   ELit (LFloat 1.0 (mkFractionalLiteralSource 1 0 1) Nothing)
 
+untypedFloatTwo :: Expr
+untypedFloatTwo =
+  ELit (LFloat 2.0 (mkFractionalLiteralSource 2 0 1) Nothing)
+
 tooLargeFloat64Integer :: Expr
 tooLargeFloat64Integer =
   ELit (LInt ((floor (1.7976931348623157e308 :: Double) :: Integer) + 1))
+
+assertRuntimeBool :: Text -> Bool -> Either Diagnostic (Maybe RuntimeValue) -> IO ()
+assertRuntimeBool label expected result =
+  case result of
+    Right (Just (VBool actual)) ->
+      assertEqual label expected actual
+    Right otherValue ->
+      failTest ("expected " <> label <> " to produce Bool, got " <> Text.pack (show otherValue))
+    Left runtimeError ->
+      failTest ("expected " <> label <> " to succeed, got " <> renderDiagnostic runtimeError)
 
 assertCallableRuntimeEqualityRejected :: Text -> Expr -> IO ()
 assertCallableRuntimeEqualityRejected label expr = do
