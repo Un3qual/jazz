@@ -96,6 +96,7 @@ tests =
     ("source pipeline accepts declared user operator infix binding", testSourcePipelineAcceptsDeclaredUserOperatorInfixBinding),
     ("source pipeline accepts declared user operator signature", testSourcePipelineAcceptsDeclaredUserOperatorSignature),
     ("source pipeline rejects declared user operator signature mismatch", testSourcePipelineRejectsDeclaredUserOperatorSignatureMismatch),
+    ("source pipeline rejects non-adjacent declared user operator signature", testSourcePipelineRejectsNonAdjacentDeclaredUserOperatorSignature),
     ("source pipeline accepts declared user operator value application", testSourcePipelineAcceptsDeclaredUserOperatorValueApplication),
     ("source pipeline rejects declared user operator without binding", testSourcePipelineRejectsDeclaredUserOperatorWithoutBinding),
     ("source pipeline rejects non-callable declared user operator binding", testSourcePipelineRejectsNonCallableDeclaredUserOperatorBinding),
@@ -481,6 +482,13 @@ testSourcePipelineRejectsDeclaredUserOperatorSignatureMismatch =
     "operator %% tier 2.\n(%%) :: Int -> Int -> Bool.\n(%%) = \\(left) -> \\(right) -> left + right.\nx = 1 %% 2."
     "declared user operator signature mismatch"
     "E2005"
+
+testSourcePipelineRejectsNonAdjacentDeclaredUserOperatorSignature :: IO ()
+testSourcePipelineRejectsNonAdjacentDeclaredUserOperatorSignature =
+  assertCompileError
+    "operator %% tier 2.\n(%%) :: Int -> Int -> Int.\ngap = 0.\n(%%) = \\(left) -> \\(right) -> toFloat64 1.\nx = 1 %% 2."
+    "declared user operator signature adjacency"
+    "must annotate the next binding with the same name"
 
 testSourcePipelineAcceptsDeclaredUserOperatorValueApplication :: IO ()
 testSourcePipelineAcceptsDeclaredUserOperatorValueApplication =
