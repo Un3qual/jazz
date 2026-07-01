@@ -175,6 +175,7 @@ tests =
     ("qualified method dispatch preserves non-literal integer signature targets", testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget),
     ("qualified method dispatch preserves direct closure result signatures", testQualifiedMethodDispatchPreservesDirectClosureResultSignature),
     ("qualified method dispatch preserves tuple binding signatures", testQualifiedMethodDispatchPreservesTupleBindingSignature),
+    ("qualified method dispatch preserves tuple exact signatures", testQualifiedMethodDispatchPreservesTupleExactSignature),
     ("qualified method dispatch preserves section binding signatures", testQualifiedMethodDispatchPreservesSectionBindingSignature),
     ("qualified method dispatch treats Float as Float64 alias at runtime", testQualifiedMethodDispatchTreatsFloatAsFloat64Alias),
     ("qualified method dispatch prefers Float alias body for typed Float values", testQualifiedMethodDispatchPrefersFloatAliasBody),
@@ -186,6 +187,7 @@ tests =
     ("qualified method dispatch prefers Int alias body for typed Int values", testQualifiedMethodDispatchPrefersIntAliasBody),
     ("qualified method dispatch prefers list alias body for typed list values", testQualifiedMethodDispatchPrefersListAliasBody),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
+    ("qualified method dispatch defers exact filtering until target argument", testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument),
     ("qualified method dispatch preserves selected method signatures", testQualifiedMethodDispatchPreservesSelectedMethodSignature),
     ("qualified method dispatch applies typed callable argument hints", testQualifiedMethodDispatchAppliesTypedCallableArgumentHint),
     ("qualified method dispatch applies closure argument signature hints", testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint),
@@ -1464,6 +1466,21 @@ testQualifiedMethodDispatchPreservesTupleBindingSignature = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "False") (runOutput result)
 
+testQualifiedMethodDispatchPreservesTupleExactSignature :: IO ()
+testQualifiedMethodDispatchPreservesTupleExactSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick((Int, Int)) {\npick = \\(value) -> True.\n}.\n"
+          <> "impl RuntimePick((Int64, Int64)) {\npick = \\(value) -> False.\n}.\n"
+          <> "pair :: (Int64, Int64).\npair = (1, 2).\n"
+          <> "RuntimePick::pick pair."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
 testQualifiedMethodDispatchPreservesSectionBindingSignature :: IO ()
 testQualifiedMethodDispatchPreservesSectionBindingSignature = do
   result <-
@@ -1628,6 +1645,22 @@ testQualifiedMethodDispatchPreservesHigherOrderBindingSignature = do
           <> "impl RuntimeApply(Bool) {\napply = \\(fn) -> False.\n}.\n"
           <> "idInt :: Int -> Int.\nidInt = \\(value) -> value.\n"
           <> "RuntimeApply::apply idInt."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument :: IO ()
+testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: Int -> a -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(index) -> \\(value) -> False.\n}.\n"
+          <> "impl RuntimePick(Bool) {\npick = \\(index) -> \\(value) -> True.\n}.\n"
+          <> "one :: Int.\none = 1.\n"
+          <> "pickOne = RuntimePick::pick one.\n"
+          <> "pickOne True."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)

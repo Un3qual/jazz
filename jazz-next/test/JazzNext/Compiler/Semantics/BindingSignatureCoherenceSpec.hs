@@ -70,7 +70,9 @@ tests =
     ("source pipeline rejects missing inferred equality facts at use sites", testSourceRejectsMissingInferredEqualityFactAtUseSite),
     ("source pipeline rejects missing inferred equality facts through operator values", testSourceRejectsMissingInferredEqualityFactThroughOperatorValue),
     ("source pipeline rejects missing inferred equality facts through sections", testSourceRejectsMissingInferredEqualityFactThroughSection),
+    ("source pipeline accepts primitive equality helpers without visible Eq", testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEq),
     ("source pipeline infers qualified method class constraints for ordinary binding schemes", testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes),
+    ("source pipeline resolves inferred method facts through aliases", testSourceResolvesInferredMethodFactsThroughAliases),
     ("source pipeline rejects callable equality before inferred class obligations", testSourceRejectsCallableEqualityBeforeInferredClassObligations),
     ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse),
     ("source pipeline instantiates mutual recursive binding schemes per use", testSourceInstantiatesMutualRecursiveBindingSchemesPerUse),
@@ -167,6 +169,7 @@ tests =
     ("source pipeline rejects ambiguous variable constrained signature use", testSourceRejectsAmbiguousVariableConstrainedSignatureUse),
     ("source pipeline preserves primitive constraints on variable constrained signatures", testSourcePreservesPrimitiveConstraintsOnVariableConstrainedSignatures),
     ("source pipeline preserves explicit constraints when primitive RHS has no quantified variables", testSourcePreservesExplicitConstraintsWhenPrimitiveRhsHasNoQuantifiedVariables),
+    ("source pipeline preserves explicit Eq impl checks for structural constraints", testSourcePreservesExplicitEqImplChecksForStructuralConstraints),
     ("source pipeline resolves deferred constraints in impl method bodies", testSourceResolvesDeferredConstraintsInImplMethodBodies),
     ("source pipeline discards failed application argument constraints", testSourceDiscardsFailedApplicationArgumentConstraints),
     ("source pipeline discards speculative deferred constraints from recursive previews", testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews),
@@ -1069,6 +1072,12 @@ testSourcePreservesExplicitConstraintsWhenPrimitiveRhsHasNoQuantifiedVariables =
     "class Showable(a) { }.\naddSelf :: @{Showable(a)}: a -> a.\naddSelf = \\(x) -> x + x.\ngood = addSelf 1."
     "missing impl fact 'Showable(Int)'"
 
+testSourcePreservesExplicitEqImplChecksForStructuralConstraints :: IO ()
+testSourcePreservesExplicitEqImplChecksForStructuralConstraints =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) { }.\nxs :: @{Eq([Int])}: [Int].\nxs = [1]."
+    "missing impl fact 'Eq([Int])'"
+
 testSourceResolvesDeferredConstraintsInImplMethodBodies :: IO ()
 testSourceResolvesDeferredConstraintsInImplMethodBodies =
   assertSourceSingleErrorContainsWithoutPrelude
@@ -1173,6 +1182,10 @@ testSourceRejectsMissingInferredEqualityFactThroughSection =
     "class Eq(a) { }.\nimpl Eq(Int) { }.\nsame = \\(right) -> (== right).\nintResult = same 1 1.\nbad = same True False."
     "missing impl fact 'Eq(Bool)'"
 
+testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEq :: IO ()
+testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEq =
+  assertSourceOkWithoutPrelude "same = \\(x) -> x == x.\nok = same 1."
+
 testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes :: IO ()
 testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes =
   assertSourceOkWithoutPrelude
@@ -1182,6 +1195,16 @@ testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes =
         <> "same = \\(left) -> \\(right) -> Eq::equals left right.\n"
         <> "intResult = same 1 1.\n"
         <> "boolResult = same True False."
+    )
+
+testSourceResolvesInferredMethodFactsThroughAliases :: IO ()
+testSourceResolvesInferredMethodFactsThroughAliases =
+  assertSourceOkWithoutPrelude
+    ( "class Eq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+        <> "impl Eq(Float) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+        <> "value :: Float64.\nvalue = 1.5.\n"
+        <> "same = \\(x) -> Eq::equals x x.\n"
+        <> "result = same value."
     )
 
 testSourceRejectsCallableEqualityBeforeInferredClassObligations :: IO ()

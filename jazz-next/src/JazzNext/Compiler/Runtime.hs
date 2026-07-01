@@ -1583,32 +1583,46 @@ applyRuntimeMethodCandidate builtinMode bindingTypeHints methodCell arguments = 
 
 runtimeMethodCandidateExactlyMatches :: Text -> SignaturePayload -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
 runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments (RuntimeMethodCandidate implTarget _) =
-  case substituteClassMethodSignature classParameter implTarget methodSignature of
-    Just substitutedSignature ->
-      let (argumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
-       in length arguments <= length argumentTypes
-            && any
-              (runtimeConstraintSignatureTypeContains implTarget)
-              (take (length arguments) argumentTypes)
-            && and (zipWith runtimeValueExactlyMatchesConstraint argumentTypes arguments)
-    Nothing ->
+  case (signaturePayloadConstraintType methodSignature, substituteClassMethodSignature classParameter implTarget methodSignature) of
+    (Just genericSignature, Just substitutedSignature) ->
+      let (genericArgumentTypes, _) = constraintFunctionArgumentTypes genericSignature
+          (argumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
+          suppliedArgumentCount = length arguments
+          suppliedGenericArgumentTypes = take suppliedArgumentCount genericArgumentTypes
+          suppliedArgumentTypes = take suppliedArgumentCount argumentTypes
+          targetArgumentPositions =
+            map (runtimeConstraintSignatureTypeContainsClassParameter classParameter) suppliedGenericArgumentTypes
+       in suppliedArgumentCount <= length genericArgumentTypes
+            && suppliedArgumentCount <= length argumentTypes
+            && or targetArgumentPositions
+            && and
+              ( zipWith3
+                  runtimeExactCandidateArgumentMatches
+                  targetArgumentPositions
+                  suppliedArgumentTypes
+                  arguments
+              )
+    _ ->
       False
 
-runtimeConstraintSignatureTypeContains :: ConstraintSignatureType -> ConstraintSignatureType -> Bool
-runtimeConstraintSignatureTypeContains needle signatureType =
-  signatureType == needle
-    || case signatureType of
+runtimeExactCandidateArgumentMatches :: Bool -> ConstraintSignatureType -> RuntimeValue -> Bool
+runtimeExactCandidateArgumentMatches targetArgumentPosition signatureType runtimeValue =
+  not targetArgumentPosition || runtimeValueExactlyMatchesConstraint signatureType runtimeValue
+
+runtimeConstraintSignatureTypeContainsClassParameter :: Text -> ConstraintSignatureType -> Bool
+runtimeConstraintSignatureTypeContainsClassParameter classParameter signatureType =
+  case signatureType of
       ConstraintTypeApplication _ arguments ->
-        any (runtimeConstraintSignatureTypeContains needle) arguments
+        any (runtimeConstraintSignatureTypeContainsClassParameter classParameter) arguments
       ConstraintTypeList innerType ->
-        runtimeConstraintSignatureTypeContains needle innerType
+        runtimeConstraintSignatureTypeContainsClassParameter classParameter innerType
       ConstraintTypeTuple elementTypes ->
-        any (runtimeConstraintSignatureTypeContains needle) elementTypes
+        any (runtimeConstraintSignatureTypeContainsClassParameter classParameter) elementTypes
       ConstraintTypeFunction argumentType resultType ->
-        runtimeConstraintSignatureTypeContains needle argumentType
-          || runtimeConstraintSignatureTypeContains needle resultType
-      ConstraintTypeName {} ->
-        False
+        runtimeConstraintSignatureTypeContainsClassParameter classParameter argumentType
+          || runtimeConstraintSignatureTypeContainsClassParameter classParameter resultType
+      ConstraintTypeName typeName ->
+        identifierText typeName == classParameter
 
 runtimeValueExactlyMatchesConstraint :: ConstraintSignatureType -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
@@ -1627,12 +1641,18 @@ runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
         _ -> False
     VList _ (Just typeHint) ->
       typeHint == signatureType
+    VTuple elements ->
+      case signatureType of
+        ConstraintTypeTuple elementTypes
+          | length elementTypes == length elements ->
+              and (zipWith runtimeValueExactlyMatchesConstraint elementTypes elements)
+        _ -> False
     _ -> False
 
 runtimeIntExactlyMatchesTypeName :: Text -> RuntimeIntMetadata -> Bool
 runtimeIntExactlyMatchesTypeName typeName metadata =
   case (typeName, runtimeIntTargetType metadata) of
-    ("Int", Just NumericInt64) -> True
+    ("Int", Nothing) -> True
     ("Int8", Just NumericInt8) -> True
     ("Int16", Just NumericInt16) -> True
     ("Int32", Just NumericInt32) -> True
