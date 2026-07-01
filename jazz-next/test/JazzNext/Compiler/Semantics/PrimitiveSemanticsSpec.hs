@@ -572,7 +572,7 @@ testSourcePipelineAcceptsSameWidthFloat64OperatorValues =
 testSourcePipelineAcceptsDirectTypedIntegerFloat64OperatorValuesSections :: IO ()
 testSourcePipelineAcceptsDirectTypedIntegerFloat64OperatorValuesSections =
   assertCompilesWithBundledPrelude
-    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\ndirect :: Float64.\ndirect = (+) integer floating.\nadd = (+).\naliased :: Float64.\naliased = add integer floating.\nleftSection :: Float64.\nleftSection = (integer +) floating.\nrightSection :: Float64.\nrightSection = (+ floating) integer.\nliteralLeft :: Float.\nliteralLeft = (1 +) 1.5.\nliteralRight :: Float.\nliteralRight = (+ 1.5) 1."
+    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\ndirect :: Float64.\ndirect = (+) integer floating.\nliteralDirect :: Float.\nliteralDirect = (+) 1 1.5.\ndollarDirect :: Float64.\ndollarDirect = ($) (+) integer floating.\nadd = (+).\naliased :: Float64.\naliased = add integer floating.\nleftSection :: Float64.\nleftSection = (integer +) floating.\nrightSection :: Float64.\nrightSection = (+ floating) integer.\nliteralLeft :: Float.\nliteralLeft = (1 +) 1.5.\nliteralRight :: Float.\nliteralRight = (+ 1.5) 1."
 
 testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic :: IO ()
 testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic =

@@ -1986,41 +1986,22 @@ stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModul
       ]
 
     rewriteValidationReplaySignaturePayload signaturePayload =
-      case signaturePayload of
-        ConstrainedSignature constraints signatureType ->
-          ConstrainedSignature
-            (map rewriteValidationReplaySignatureConstraint constraints)
-            (rewriteValidationReplayConstraintType signatureType)
-        UnsupportedSignature signatureTokens ->
-          UnsupportedSignature (map rewriteValidationReplaySignatureToken signatureTokens)
-        _ -> signaturePayload
+      rewriteReplaySignaturePayload
+        rewriteValidationReplaySignatureConstraint
+        rewriteValidationReplayConstraintType
+        rewriteValidationReplaySignatureToken
+        signaturePayload
 
     rewriteValidationReplayVisibleSignaturePayload signaturePayload =
       if isEntryModule
         then signaturePayload
         else rewriteValidationReplaySignaturePayload signaturePayload
 
-    rewriteValidationReplaySignatureConstraint (SignatureConstraint constraintName arguments) =
-      SignatureConstraint
-        (validationReplayCapabilityName constraintName)
-        (map rewriteValidationReplayConstraintType arguments)
+    rewriteValidationReplaySignatureConstraint =
+      rewriteReplaySignatureConstraint validationReplayCapabilityName rewriteValidationReplayConstraintType
 
     rewriteValidationReplayConstraintType signatureType =
-      case rewriteModuleExportImplArgument modulePath dataTypeNames signatureType of
-        ConstraintTypeName name ->
-          ConstraintTypeName (validationReplayCapabilityName name)
-        ConstraintTypeApplication name arguments ->
-          ConstraintTypeApplication
-            (validationReplayCapabilityName name)
-            (map rewriteValidationReplayConstraintType arguments)
-        ConstraintTypeList innerType ->
-          ConstraintTypeList (rewriteValidationReplayConstraintType innerType)
-        ConstraintTypeTuple elementTypes ->
-          ConstraintTypeTuple (map rewriteValidationReplayConstraintType elementTypes)
-        ConstraintTypeFunction argumentType resultType ->
-          ConstraintTypeFunction
-            (rewriteValidationReplayConstraintType argumentType)
-            (rewriteValidationReplayConstraintType resultType)
+      rewriteReplayConstraintType modulePath dataTypeNames validationReplayCapabilityName signatureType
 
     rewriteValidationReplaySignatureToken signatureToken =
       case rewriteModuleExportSignatureToken modulePath dataTypeNames signatureToken of
@@ -2179,39 +2160,69 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
         . rewriteModuleExportReferences modulePath hiddenImportExports
 
     rewriteRuntimeReplaySignaturePayload signaturePayload =
-      case signaturePayload of
-        ConstrainedSignature constraints signatureType ->
-          ConstrainedSignature
-            (map rewriteRuntimeReplaySignatureConstraint constraints)
-            (rewriteRuntimeReplayConstraintType signatureType)
-        UnsupportedSignature signatureTokens ->
-          UnsupportedSignature (map rewriteRuntimeReplaySignatureToken signatureTokens)
-        _ -> signaturePayload
+      rewriteReplaySignaturePayload
+        rewriteRuntimeReplaySignatureConstraint
+        rewriteRuntimeReplayConstraintType
+        rewriteRuntimeReplaySignatureToken
+        signaturePayload
 
-    rewriteRuntimeReplaySignatureConstraint (SignatureConstraint constraintName arguments) =
-      SignatureConstraint
-        (runtimeReplayCapabilityName constraintName)
-        (map rewriteRuntimeReplayConstraintType arguments)
+    rewriteRuntimeReplaySignatureConstraint =
+      rewriteReplaySignatureConstraint runtimeReplayCapabilityName rewriteRuntimeReplayConstraintType
 
     rewriteRuntimeReplayConstraintType signatureType =
-      case rewriteModuleExportImplArgument modulePath dataTypeNames signatureType of
-        ConstraintTypeName name ->
-          ConstraintTypeName (runtimeReplayCapabilityName name)
-        ConstraintTypeApplication name arguments ->
-          ConstraintTypeApplication
-            (runtimeReplayCapabilityName name)
-            (map rewriteRuntimeReplayConstraintType arguments)
-        ConstraintTypeList innerType ->
-          ConstraintTypeList (rewriteRuntimeReplayConstraintType innerType)
-        ConstraintTypeTuple elementTypes ->
-          ConstraintTypeTuple (map rewriteRuntimeReplayConstraintType elementTypes)
-        ConstraintTypeFunction argumentType resultType ->
-          ConstraintTypeFunction
-            (rewriteRuntimeReplayConstraintType argumentType)
-            (rewriteRuntimeReplayConstraintType resultType)
+      rewriteReplayConstraintType modulePath dataTypeNames runtimeReplayCapabilityName signatureType
 
     rewriteRuntimeReplaySignatureToken signatureToken =
       rewriteModuleExportSignatureToken modulePath dataTypeNames signatureToken
+
+rewriteReplaySignaturePayload ::
+  (SignatureConstraint -> SignatureConstraint) ->
+  (ConstraintSignatureType -> ConstraintSignatureType) ->
+  (SignatureToken -> SignatureToken) ->
+  SignaturePayload ->
+  SignaturePayload
+rewriteReplaySignaturePayload rewriteConstraint rewriteConstraintType rewriteSignatureToken signaturePayload =
+  case signaturePayload of
+    ConstrainedSignature constraints signatureType ->
+      ConstrainedSignature
+        (map rewriteConstraint constraints)
+        (rewriteConstraintType signatureType)
+    UnsupportedSignature signatureTokens ->
+      UnsupportedSignature (map rewriteSignatureToken signatureTokens)
+    _ -> signaturePayload
+
+rewriteReplaySignatureConstraint ::
+  (Identifier -> Identifier) ->
+  (ConstraintSignatureType -> ConstraintSignatureType) ->
+  SignatureConstraint ->
+  SignatureConstraint
+rewriteReplaySignatureConstraint rewriteCapabilityName rewriteConstraintType (SignatureConstraint constraintName arguments) =
+  SignatureConstraint
+    (rewriteCapabilityName constraintName)
+    (map rewriteConstraintType arguments)
+
+rewriteReplayConstraintType ::
+  [Text] ->
+  Set Text ->
+  (Identifier -> Identifier) ->
+  ConstraintSignatureType ->
+  ConstraintSignatureType
+rewriteReplayConstraintType modulePath dataTypeNames rewriteCapabilityName signatureType =
+  case rewriteModuleExportImplArgument modulePath dataTypeNames signatureType of
+    ConstraintTypeName name ->
+      ConstraintTypeName (rewriteCapabilityName name)
+    ConstraintTypeApplication name arguments ->
+      ConstraintTypeApplication
+        (rewriteCapabilityName name)
+        (map (rewriteReplayConstraintType modulePath dataTypeNames rewriteCapabilityName) arguments)
+    ConstraintTypeList innerType ->
+      ConstraintTypeList (rewriteReplayConstraintType modulePath dataTypeNames rewriteCapabilityName innerType)
+    ConstraintTypeTuple elementTypes ->
+      ConstraintTypeTuple (map (rewriteReplayConstraintType modulePath dataTypeNames rewriteCapabilityName) elementTypes)
+    ConstraintTypeFunction argumentType resultType ->
+      ConstraintTypeFunction
+        (rewriteReplayConstraintType modulePath dataTypeNames rewriteCapabilityName argumentType)
+        (rewriteReplayConstraintType modulePath dataTypeNames rewriteCapabilityName resultType)
 
 moduleExportQualifiedPrefix :: [Text] -> Text
 moduleExportQualifiedPrefix modulePath =

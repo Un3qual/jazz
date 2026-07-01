@@ -107,7 +107,7 @@ tests =
     ("run module graph allows structural equality through hidden inferred equality export", testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport),
     ("run module graph keeps inferred equality export facts scoped to hidden capability", testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
     ("compile module graph keeps inferred equality export facts scoped to hidden capability", testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
-    ("compile module graph does not leak imported capability facts through inferred export", testCompileModuleGraphDoesNotLeakImportedCapabilityFactsThroughInferredExport),
+    ("compile module graph retains imported capability facts referenced by inferred export", testCompileModuleGraphRetainsImportedCapabilityFactsReferencedByInferredExport),
     ("compile module graph keeps sibling capability facts isolated", testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated),
     ("compile module graph exposes capability facts through visible imports", testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports),
     ("run module graph keeps hidden qualified export dependencies available", testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge),
@@ -1229,26 +1229,22 @@ testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
-testCompileModuleGraphDoesNotLeakImportedCapabilityFactsThroughInferredExport :: IO ()
-testCompileModuleGraphDoesNotLeakImportedCapabilityFactsThroughInferredExport = do
+testCompileModuleGraphRetainsImportedCapabilityFactsReferencedByInferredExport :: IO ()
+testCompileModuleGraphRetainsImportedCapabilityFactsReferencedByInferredExport = do
   result <-
-    compileModuleGraphWithPrelude
+    runModuleGraphWithPrelude
       defaultWarningSettings
       Nothing
       resolverConfig
       ["App", "Main"]
       lookupSource
-  case compileErrors result of
-    [err] ->
-      assertContains
-        "imported capability fact leakage error"
-        "missing class declaration 'Eq'"
-        (renderDiagnostic err)
-    _ -> failTest "expected exactly one imported capability fact leakage error"
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Wrapper (same).\nresult = same 1.\n}"),
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Wrapper (same).\nresult = same 1.\nresult.\n}"),
           ("src/Lib/Facts.jz", "module Lib::Facts {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\n}"),
           ("src/Lib/Wrapper.jz", "module Lib::Wrapper {\nimport Lib::Facts.\nsame = \\(x) -> x == x.\n}")
         ]

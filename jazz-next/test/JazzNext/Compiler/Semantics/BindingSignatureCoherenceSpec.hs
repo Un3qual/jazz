@@ -79,6 +79,8 @@ tests =
     ("source pipeline preserves inferred equality constraints on signed bindings", testSourcePreservesInferredEqualityConstraintsOnSignedBindings),
     ("source pipeline preserves inferred method constraints across mutual recursion", testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion),
     ("source pipeline resolves concrete inferred method obligations before dropping them", testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem),
+    ("source pipeline resolves literal-range inferred method obligations before dropping them", testSourceResolvesLiteralRangeInferredMethodObligationsBeforeDroppingThem),
+    ("source pipeline preserves literal-range deferred method constraints", testSourcePreservesLiteralRangeDeferredMethodConstraints),
     ("source pipeline keeps nested helper inferred method obligations scoped", testSourceKeepsNestedHelperInferredMethodObligationsScoped),
     ("source pipeline resolves concrete inferred equality obligations before dropping them", testSourceResolvesConcreteInferredEqualityObligationsBeforeDroppingThem),
     ("source pipeline checks inferred method obligations on expression statements", testSourceChecksInferredMethodObligationsOnExpressionStatements),
@@ -1319,6 +1321,23 @@ testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem =
     ( "class C(a) {\nm :: a -> Bool.\n}.\n"
         <> "impl C(Int) {\nm = \\(x) -> True.\n}.\n"
         <> "result = (\\(x) -> C::m x) 1."
+    )
+
+testSourceResolvesLiteralRangeInferredMethodObligationsBeforeDroppingThem :: IO ()
+testSourceResolvesLiteralRangeInferredMethodObligationsBeforeDroppingThem =
+  assertSourceOkWithoutPrelude
+    ( "class C(a) {\nm :: a -> Bool.\n}.\n"
+        <> "impl C(Int8) {\nm = \\(x) -> True.\n}.\n"
+        <> "result = (\\(x) -> C::m x) 1."
+    )
+
+testSourcePreservesLiteralRangeDeferredMethodConstraints :: IO ()
+testSourcePreservesLiteralRangeDeferredMethodConstraints =
+  assertSourceOkWithoutPrelude
+    ( "class C(a) {\nm :: a -> Bool.\n}.\n"
+        <> "impl C(Int8) {\nm = \\(x) -> True.\n}.\n"
+        <> "f = \\(x) -> C::m x.\n"
+        <> "result = f 1."
     )
 
 testSourceKeepsNestedHelperInferredMethodObligationsScoped :: IO ()
