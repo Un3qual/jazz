@@ -83,6 +83,7 @@ tests =
     ("source pipeline resolves concrete inferred equality obligations before dropping them", testSourceResolvesConcreteInferredEqualityObligationsBeforeDroppingThem),
     ("source pipeline checks inferred method obligations on expression statements", testSourceChecksInferredMethodObligationsOnExpressionStatements),
     ("source pipeline checks inferred equality obligations on expression statements", testSourceChecksInferredEqualityObligationsOnExpressionStatements),
+    ("source pipeline rejects ambiguous inferred equality obligations on expression statements", testSourceRejectsAmbiguousInferredEqualityObligationsOnExpressionStatements),
     ("source pipeline checks inferred method obligations on monomorphic signed bindings", testSourceChecksInferredMethodObligationsOnMonomorphicSignedBindings),
     ("source pipeline rejects exact matches from non-target qualified method arguments", testSourceRejectsNonTargetQualifiedMethodExactMatch),
     ("source pipeline rejects callable equality before inferred class obligations", testSourceRejectsCallableEqualityBeforeInferredClassObligations),
@@ -1355,6 +1356,14 @@ testSourceChecksInferredEqualityObligationsOnExpressionStatements =
         <> "(\\(x) -> x == x) True."
     )
     "missing impl fact 'Eq(Bool)'"
+
+testSourceRejectsAmbiguousInferredEqualityObligationsOnExpressionStatements :: IO ()
+testSourceRejectsAmbiguousInferredEqualityObligationsOnExpressionStatements =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class Eq(a) { }.\n"
+        <> "\\(x) -> x == x."
+    )
+    "ambiguous/defaulting explicit constraint 'Eq"
 
 testSourceChecksInferredMethodObligationsOnMonomorphicSignedBindings :: IO ()
 testSourceChecksInferredMethodObligationsOnMonomorphicSignedBindings =

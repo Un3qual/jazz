@@ -1413,11 +1413,13 @@ inferScopeType builtinMode initialEnv initialState statements =
                       _ -> Set.empty
                   stateAfterDroppedInferredMethodCheck =
                     case nextBindingType of
-                      Just _ ->
+                      Just bindingType ->
                         addUnpreservedInferredMethodConstraintErrors
                           bindingSpan
+                          generalizationEnv
                           stateForStatement
                           stateAfterExplicitConstraintCheck
+                          bindingType
                           droppedInferredSchemeVariables
                       Nothing -> stateAfterExplicitConstraintCheck
                   stateAfterRuntimeHint =
@@ -1475,11 +1477,13 @@ inferScopeType builtinMode initialEnv initialState statements =
                       stateAfterExpr
                   stateAfterDroppedInferredMethodCheck =
                     case exprType of
-                      Just _ ->
+                      Just resultType ->
                         addUnpreservedInferredMethodConstraintErrors
                           exprSpan
+                          envForStatement
                           stateForStatement
                           stateAfterExplicitConstraintCheck
+                          resultType
                           Set.empty
                       Nothing -> stateAfterExplicitConstraintCheck
                in go env exprType Nothing pendingSignaturesByStatement moduleBaselineFacts stateAfterDroppedInferredMethodCheck rest
@@ -2253,11 +2257,13 @@ ordinaryBindingSchemeVariables env state expressionType =
 
 addUnpreservedInferredMethodConstraintErrors ::
   SourceSpan ->
+  TypeEnv ->
   InferState ->
   InferState ->
+  ExpressionType ->
   Set Int ->
   InferState
-addUnpreservedInferredMethodConstraintErrors spanValue statementStartState state schemeVariables =
+addUnpreservedInferredMethodConstraintErrors spanValue env statementStartState state statementResultType schemeVariables =
   foldl'
     addUnpreservedClassConstraintError
     ( foldl'
@@ -2273,7 +2279,11 @@ addUnpreservedInferredMethodConstraintErrors spanValue statementStartState state
           | TypeSchemeInferredConstraint constraintName argumentType <-
               newInferredClassConstraints statementStartState state,
             not (inferredConstraintTargetPreserved state schemeVariables argumentType),
+            not (inferredConstraintTargetStillVisibleInEnv state env argumentType),
             inferredConstraintTargetConcrete state argumentType
+              || ( not statementIntroducedErrors
+                     && inferredConstraintTargetEscapesResult state statementResultType argumentType
+                 )
         ]
 
     droppedMethodConstraints =
@@ -2323,6 +2333,9 @@ addUnpreservedInferredMethodConstraintErrors spanValue statementStartState state
             (typeSchemeConstraintToDeferredExplicitConstraint (capabilityFactsFromState state) constraint)
         )
 
+    statementIntroducedErrors =
+      inferErrorCount state > inferErrorCount statementStartState
+
 newInferredClassConstraints :: InferState -> InferState -> [TypeSchemeConstraint]
 newInferredClassConstraints previousState state =
   take newConstraintCount (inferInferredClassConstraints state)
@@ -2345,6 +2358,21 @@ inferredConstraintTargetConcrete state argumentType =
         && case expressionTypeToRuntimeHint resolvedArgumentType of
           Just _ -> True
           Nothing -> False
+
+inferredConstraintTargetStillVisibleInEnv :: InferState -> TypeEnv -> ExpressionType -> Bool
+inferredConstraintTargetStillVisibleInEnv state env argumentType =
+  let targetType = resolveType state argumentType
+      targetVariables = freeTypeVariables targetType
+      environmentVariables = freeTypeVariablesInEnv state env
+   in not (Set.null targetVariables)
+        && targetVariables `Set.isSubsetOf` environmentVariables
+
+inferredConstraintTargetEscapesResult :: InferState -> ExpressionType -> ExpressionType -> Bool
+inferredConstraintTargetEscapesResult state statementResultType argumentType =
+  let targetVariables = freeTypeVariables (resolveType state argumentType)
+      resultVariables = freeTypeVariables (resolveType state statementResultType)
+   in not (Set.null targetVariables)
+        && not (Set.null (Set.intersection targetVariables resultVariables))
 
 concreteInferredMethodConstraintSatisfied :: InferState -> Text -> Text -> ExpressionType -> Bool
 concreteInferredMethodConstraintSatisfied state constraintName methodKey argumentType =
