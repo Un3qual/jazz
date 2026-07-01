@@ -192,6 +192,7 @@ tests =
     ("qualified method dispatch prefers list alias body for direct list literals", testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral),
     ("qualified method dispatch does not exact-match untyped empty list literals", testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral),
     ("qualified method dispatch prefers constructor alias body for direct constructor literals", testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral),
+    ("qualified method dispatch ignores monomorphic constructor payloads for exact selection", testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection),
     ("qualified method dispatch treats non-literal integer results as Int64", testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
     ("qualified method dispatch preserves higher-order exact signatures", testQualifiedMethodDispatchPreservesHigherOrderExactSignature),
@@ -1709,6 +1710,21 @@ testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral = do
           <> "impl RuntimeFlag(Box(Int)) {\nflag = \\(box) -> True.\n}.\n"
           <> "impl RuntimeFlag(Box(Int64)) {\nflag = \\(box) -> False.\n}.\n"
           <> "(RuntimeFlag::flag) (Box 1)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection :: IO ()
+testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "data Wrap a = Wrap Int64 a.\n"
+          <> "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Wrap(Int)) {\nflag = \\(wrap) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Wrap(Int64)) {\nflag = \\(wrap) -> False.\n}.\n"
+          <> "(RuntimeFlag::flag) (Wrap 1 1)."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)

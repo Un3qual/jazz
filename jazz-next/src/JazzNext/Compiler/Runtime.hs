@@ -1841,7 +1841,7 @@ runtimeValueExactlyMatchesConstructorArgument :: Map Text ConstraintSignatureTyp
 runtimeValueExactlyMatchesConstructorArgument typeParameterBindings constructorArgument runtimeValue =
   case constructorArgument of
     DataConstructorArgumentName argumentName ->
-      case constructorArgumentRuntimeHint typeParameterBindings argumentName of
+      case Map.lookup (identifierText argumentName) typeParameterBindings of
         Just concreteArgumentType ->
           runtimeValueExactlyMatchesConstraint concreteArgumentType runtimeValue
         Nothing ->

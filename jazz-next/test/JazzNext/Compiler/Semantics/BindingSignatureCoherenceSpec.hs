@@ -100,7 +100,7 @@ tests =
     ("source pipeline selects qualified method body by argument types", testSourceSelectsQualifiedMethodBodyByArgumentTypes),
     ("source pipeline rejects nested empty-list exact qualified method selection", testSourceRejectsNestedEmptyListExactQualifiedMethodSelection),
     ("source pipeline rejects constructor-wrapped nested empty-list exact qualified method selection", testSourceRejectsConstructorWrappedNestedEmptyListExactQualifiedMethodSelection),
-    ("source pipeline exact-selects qualified method body from concrete function application result", testSourceExactSelectsQualifiedMethodBodyFromConcreteFunctionApplicationResult),
+    ("source pipeline rejects opaque nested empty-list exact qualified method selection", testSourceRejectsOpaqueNestedEmptyListExactQualifiedMethodSelection),
     ("source pipeline selects qualified Float method body by argument types", testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float16 method body by argument types", testSourceSelectsQualifiedFloat16MethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float32 method body by argument types", testSourceSelectsQualifiedFloat32MethodBodyByArgumentTypes),
@@ -511,16 +511,17 @@ testSourceRejectsConstructorWrappedNestedEmptyListExactQualifiedMethodSelection 
     )
     "ambiguous qualified method body 'RuntimeFlag::flag'"
 
-testSourceExactSelectsQualifiedMethodBodyFromConcreteFunctionApplicationResult :: IO ()
-testSourceExactSelectsQualifiedMethodBodyFromConcreteFunctionApplicationResult =
-  assertSourceOkWithoutPrelude
+testSourceRejectsOpaqueNestedEmptyListExactQualifiedMethodSelection :: IO ()
+testSourceRejectsOpaqueNestedEmptyListExactQualifiedMethodSelection =
+  assertSourceSingleErrorContainsWithoutPrelude
     ( "data Box a = Box a.\n"
         <> "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-        <> "impl RuntimeFlag(Box(Int)) {\nflag = \\(box) -> True.\n}.\n"
-        <> "impl RuntimeFlag(Box(Int64)) {\nflag = \\(box) -> False.\n}.\n"
-        <> "makeBox = \\(value) -> Box value.\n"
-        <> "(RuntimeFlag::flag) (makeBox 1)."
+        <> "impl RuntimeFlag(Box([[Int]])) {\nflag = \\(box) -> True.\n}.\n"
+        <> "impl RuntimeFlag(Box([[Int64]])) {\nflag = \\(box) -> False.\n}.\n"
+        <> "make = \\(values) -> Box values.\n"
+        <> "(RuntimeFlag::flag) (make [[1], []])."
     )
+    "ambiguous qualified method body 'RuntimeFlag::flag'"
 
 testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes :: IO ()
 testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes =

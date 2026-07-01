@@ -257,6 +257,7 @@ data TypeBinding
   = PlainTypeBinding ExpressionType
   | SchemeTypeBinding TypeScheme
   | BuiltinAliasTypeBinding BuiltinSymbol
+  | BuiltinOperatorAliasTypeBinding Text
   | ConstructorTypeBinding Identifier [Identifier] [ConstructorArgumentType]
   deriving (Eq, Show)
 
@@ -404,9 +405,17 @@ inferExprType builtinMode env state expr =
           | Map.notMember methodKey env ->
               inferQualifiedMethodApplication builtinMode env state methodKey argumentExprs
         Nothing ->
-          inferGenericApplyType builtinMode env state functionExpr argumentExpr
+          case builtinOperatorApplicationSpine env expr of
+            Just (operatorSymbol, leftExpr, rightExpr) ->
+              inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr
+            Nothing ->
+              inferGenericApplyType builtinMode env state functionExpr argumentExpr
         _ ->
-          inferGenericApplyType builtinMode env state functionExpr argumentExpr
+          case builtinOperatorApplicationSpine env expr of
+            Just (operatorSymbol, leftExpr, rightExpr) ->
+              inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr
+            Nothing ->
+              inferGenericApplyType builtinMode env state functionExpr argumentExpr
     EIf conditionExpr thenExpr elseExpr ->
       inferExprType builtinMode env state (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr ->
@@ -628,6 +637,34 @@ applicationSpine expr =
           Just (identifierText name, argumentExprs)
         _ ->
           Nothing
+
+builtinOperatorApplicationSpine :: TypeEnv -> Expr -> Maybe (Text, Expr, Expr)
+builtinOperatorApplicationSpine env expr =
+  case expr of
+    EApply (EApply operatorExpr leftExpr) rightExpr -> do
+      operatorSymbol <- builtinOperatorSymbolExpr env operatorExpr
+      case lookupOperatorRule operatorSymbol of
+        Just _ -> Just (operatorSymbol, leftExpr, rightExpr)
+        Nothing -> Nothing
+    _ -> Nothing
+
+builtinOperatorSymbolExpr :: TypeEnv -> Expr -> Maybe Text
+builtinOperatorSymbolExpr env expr =
+  case expr of
+    EOperatorValue operatorSymbol
+      | isBuiltinOperatorSymbol operatorSymbol ->
+          Just operatorSymbol
+    EVar name ->
+      case Map.lookup (identifierText name) env of
+        Just (BuiltinOperatorAliasTypeBinding operatorSymbol) -> Just operatorSymbol
+        _ -> Nothing
+    _ -> Nothing
+
+builtinNumericOperatorAliasSymbol :: Text -> Bool
+builtinNumericOperatorAliasSymbol operatorSymbol =
+  case lookupOperatorRule operatorSymbol of
+    Just (NumericRule _) -> True
+    _ -> False
 
 qualifiedMethodClassIsVisible :: Text -> InferState -> Bool
 qualifiedMethodClassIsVisible methodKey state =
@@ -1433,22 +1470,29 @@ inferScopeType builtinMode initialEnv initialState statements =
               then PlainTypeBinding <$> maybeInferredType
               else ordinaryBindingForValue statementIndex currentEnv valueExpr maybeInferredType maybePendingSignature state
        in case valueExpr of
-        EVar builtinName ->
-          let referencedName = identifierText builtinName
-           in case Map.lookup referencedName currentEnv of
-                Just (BuiltinAliasTypeBinding builtinSymbol) ->
-                  Just (BuiltinAliasTypeBinding builtinSymbol)
-                Just constructorBinding@ConstructorTypeBinding {}
-                  | isNothing maybePendingSignature,
-                    isSyntheticAliasConstructorBinding bindingNameText referencedName ->
-                      Just constructorBinding
-                Just _ ->
-                  monomorphicBinding
-                Nothing ->
-                  case lookupBuiltinSymbolInMode builtinMode referencedName of
-                    Just builtinSymbol -> Just (BuiltinAliasTypeBinding builtinSymbol)
-                    Nothing -> monomorphicBinding
-        _ -> monomorphicBinding
+            EOperatorValue operatorSymbol
+              | isNothing maybePendingSignature,
+                builtinNumericOperatorAliasSymbol operatorSymbol ->
+                  Just (BuiltinOperatorAliasTypeBinding operatorSymbol)
+            EVar builtinName ->
+              let referencedName = identifierText builtinName
+               in case Map.lookup referencedName currentEnv of
+                    Just (BuiltinAliasTypeBinding builtinSymbol) ->
+                      Just (BuiltinAliasTypeBinding builtinSymbol)
+                    Just (BuiltinOperatorAliasTypeBinding operatorSymbol)
+                      | isNothing maybePendingSignature ->
+                          Just (BuiltinOperatorAliasTypeBinding operatorSymbol)
+                    Just constructorBinding@ConstructorTypeBinding {}
+                      | isNothing maybePendingSignature,
+                        isSyntheticAliasConstructorBinding bindingNameText referencedName ->
+                          Just constructorBinding
+                    Just _ ->
+                      monomorphicBinding
+                    Nothing ->
+                      case lookupBuiltinSymbolInMode builtinMode referencedName of
+                        Just builtinSymbol -> Just (BuiltinAliasTypeBinding builtinSymbol)
+                        Nothing -> monomorphicBinding
+            _ -> monomorphicBinding
 
     schemePreservingAliasBinding :: Text -> TypeEnv -> Expr -> Maybe TypeBinding
     schemePreservingAliasBinding bindingNameText currentEnv valueExpr =
@@ -2471,6 +2515,7 @@ freeTypeVariablesInBinding state binding =
         )
         quantifiedVariables
     BuiltinAliasTypeBinding {} -> Set.empty
+    BuiltinOperatorAliasTypeBinding {} -> Set.empty
     ConstructorTypeBinding _ _ argumentTypes ->
       Set.unions (map (freeTypeVariablesInConstructorArgument state) argumentTypes)
 
@@ -2653,6 +2698,10 @@ instantiateTypeBinding binding state =
       case instantiateBuiltinSymbolType builtinSymbol state of
         Just (expressionType, nextState) -> (Just expressionType, nextState)
         Nothing -> (Nothing, state)
+    BuiltinOperatorAliasTypeBinding operatorSymbol ->
+      case instantiateOperatorType operatorSymbol state of
+        Just (operatorType, nextState) -> (Just operatorType, nextState)
+        Nothing -> (Nothing, state)
     ConstructorTypeBinding {} ->
       case instantiateConstructorBinding binding state of
         Just (constructorArgumentTypes', constructorResultType, nextState) ->
@@ -2793,7 +2842,7 @@ resolveDeferredExplicitConstraint state (DeferredExplicitConstraint constraintNa
                      in if not implFactExists
                           then
                             if inferredConstraint
-                              && inferredEqualityConstraintCanUseStructuralRuntimeEquality state maybeMethodKey constraintName resolvedArgumentType
+                              && inferredEqualityConstraintCanUseStructuralRuntimeEquality state facts maybeMethodKey constraintName resolvedArgumentType
                               then state
                               else addTypeError state (mkMissingExplicitConstraintImplFactError implFactKey)
                           else case maybeMethodKey of
@@ -2819,15 +2868,22 @@ concreteImplMethodBodyExists methodKey argumentHint facts =
     (\(ImplMethodType implTarget) -> constraintSignatureTypesCompatible implTarget argumentHint)
     (Map.findWithDefault [] methodKey (scopeConcreteImplMethods facts))
 
-inferredEqualityConstraintCanUseStructuralRuntimeEquality :: InferState -> Maybe Text -> Text -> ExpressionType -> Bool
-inferredEqualityConstraintCanUseStructuralRuntimeEquality state maybeMethodKey constraintName argumentType =
+inferredEqualityConstraintCanUseStructuralRuntimeEquality :: InferState -> ScopeCapabilityFacts -> Maybe Text -> Text -> ExpressionType -> Bool
+inferredEqualityConstraintCanUseStructuralRuntimeEquality state facts maybeMethodKey constraintName argumentType =
   maybeMethodKey == Nothing
-    && inferredEqualityConstraintNameIsEq constraintName
+    && equalityConstraintNameCanUseStructuralRuntimeEquality state facts constraintName
     && structuralRuntimeEqualityType state argumentType
 
-inferredEqualityConstraintNameIsEq :: Text -> Bool
-inferredEqualityConstraintNameIsEq constraintName =
-  constraintName == "Eq" || Text.isSuffixOf "::Eq" constraintName
+equalityConstraintNameCanUseStructuralRuntimeEquality :: InferState -> ScopeCapabilityFacts -> Text -> Bool
+equalityConstraintNameCanUseStructuralRuntimeEquality state facts constraintName =
+  activeEqualityClassName state == Just constraintName
+    || generatedHiddenEqualityClassFact constraintName facts
+
+generatedHiddenEqualityClassFact :: Text -> ScopeCapabilityFacts -> Bool
+generatedHiddenEqualityClassFact constraintName facts =
+  Text.isPrefixOf "__module::" constraintName
+    && Text.isSuffixOf "::Eq" constraintName
+    && Map.lookup constraintName (scopeClassFacts facts) == Just 1
 
 structuralRuntimeEqualityType :: InferState -> ExpressionType -> Bool
 structuralRuntimeEqualityType state argumentType =
@@ -3057,8 +3113,8 @@ constructorApplicationExpressionHasExactEvidence env typeName typeArguments argu
                         constructorArgumentTypes
                         constructorArgumentExprs
                     )
-        _ -> True
-    Nothing -> True
+        _ -> False
+    Nothing -> False
 
 constructorExpressionSpine :: Expr -> Maybe (Identifier, [Expr])
 constructorExpressionSpine expr =

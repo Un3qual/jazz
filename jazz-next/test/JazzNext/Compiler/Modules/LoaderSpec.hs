@@ -106,6 +106,7 @@ tests =
     ("run module graph retains local capabilities needed by inferred equality export", testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport),
     ("run module graph allows structural equality through hidden inferred equality export", testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport),
     ("run module graph keeps inferred equality export facts scoped to hidden capability", testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
+    ("compile module graph keeps inferred equality export facts scoped to hidden capability", testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
     ("compile module graph does not leak imported capability facts through inferred export", testCompileModuleGraphDoesNotLeakImportedCapabilityFactsThroughInferredExport),
     ("compile module graph keeps sibling capability facts isolated", testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated),
     ("compile module graph exposes capability facts through visible imports", testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports),
@@ -1195,6 +1196,38 @@ testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
             "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\n" <> sameDefinition <> "\n}"
           )
         ]
+
+testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability :: IO ()
+testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [err] -> do
+      assertContains
+        "compile hidden Eq impl error"
+        "missing impl fact"
+        (renderDiagnostic err)
+      assertContains
+        "compile hidden Eq fact name"
+        "__module::Lib::Poly::Eq(Bool)"
+        (renderDiagnostic err)
+    _ -> failTest "expected exactly one compile-time hidden Eq error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Poly (same).\nclass Eq(a) { }.\nimpl Eq(Bool) { }.\nresult = same True.\n}"
+          ),
+          ( "src/Lib/Poly.jz",
+            "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\nsame = \\(x) -> x == x.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
 
 testCompileModuleGraphDoesNotLeakImportedCapabilityFactsThroughInferredExport :: IO ()
 testCompileModuleGraphDoesNotLeakImportedCapabilityFactsThroughInferredExport = do

@@ -781,6 +781,8 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
                 (resolvedModulePath resolvedModule == entryModulePath)
                 (hiddenImportExportsFor resolvedModule)
                 (neededModuleExportsFor resolvedModule)
+                (neededModuleCapabilityExportsFor resolvedModule)
+                (directlyNeededModuleCapabilityExportsFor resolvedModule)
                 loweredModule
           )
           resolvedModules
@@ -1862,8 +1864,8 @@ replayLoweredModules transformModule resolvedModules loweredModules =
         ]
     )
 
-stripModuleDeclarations :: [Text] -> Bool -> Set Text -> Set Text -> Expr -> Expr
-stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModuleExports expr =
+stripModuleDeclarations :: [Text] -> Bool -> Set Text -> Set Text -> Set Text -> Set Text -> Expr -> Expr
+stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModuleExports neededCapabilityExports directlyNeededCapabilityExports expr =
   case expr of
     EBlock statements ->
       EBlock (ensureModuleValidationBoundary (concatMap keepModuleValidationStatement statements))
@@ -1910,15 +1912,21 @@ stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModul
               [ SSignature
                   (operatorReplayIdentifier signatureName)
                   spanValue
-                  (rewriteModuleExportSignaturePayload modulePath dataTypeNames signatureValue)
+                  (rewriteValidationReplaySignaturePayload signatureValue)
               ]
         SSignature signatureName spanValue signatureValue
           | Set.member (identifierText signatureName) hiddenImportExports ->
               [ SSignature
                   (hiddenValidationIdentifier signatureName)
                   spanValue
-                  (rewriteModuleExportSignaturePayload modulePath dataTypeNames signatureValue)
+                  (rewriteValidationReplaySignaturePayload signatureValue)
               ]
+        SSignature signatureName spanValue signatureValue ->
+          [ SSignature
+              signatureName
+              spanValue
+              (rewriteValidationReplayVisibleSignaturePayload signatureValue)
+          ]
         SData spanValue typeName typeParameters constructors ->
           rewriteDataStatementForReplay
             modulePath
@@ -1931,15 +1939,15 @@ stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModul
         SClass spanValue capabilityName parameters methods ->
           [ SClass
               spanValue
-              capabilityName
+              (validationReplayCapabilityName capabilityName)
               parameters
-              (rewriteModuleExportClassMethods modulePath dataTypeNames methods)
+              (rewriteValidationReplayClassMethods methods)
           ]
         SImpl spanValue capabilityName arguments methods ->
           [ SImpl
               spanValue
-              capabilityName
-              (rewriteModuleExportImplArguments modulePath dataTypeNames arguments)
+              (validationReplayCapabilityName capabilityName)
+              (rewriteValidationReplayImplArguments arguments)
               (rewriteValidationReplayImplMethods methods)
           ]
         _ -> [statement]
@@ -1948,6 +1956,10 @@ stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModul
       if isEntryModule
         then Set.empty
         else collectOperatorBindingNames expr
+    hiddenValidationCapabilities =
+      if isEntryModule
+        then Set.empty
+        else Set.difference neededCapabilityExports directlyNeededCapabilityExports
 
     shouldQualifyOperatorBinding bindingName =
       Set.member (identifierText bindingName) replayedOperatorBindings
@@ -1956,16 +1968,75 @@ stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModul
       mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
 
     rewriteValidationReplayExpr =
-      rewriteOperatorBindingReferences modulePath replayedOperatorBindings
+      rewriteHiddenCapabilityReferences modulePath hiddenValidationCapabilities
+        . rewriteOperatorBindingReferences modulePath replayedOperatorBindings
         . rewriteModuleExportReferences modulePath hiddenImportExports
+
+    rewriteValidationReplayClassMethods methods =
+      [ ClassMethodSignature methodName methodSpan (rewriteValidationReplaySignaturePayload methodSignature)
+        | ClassMethodSignature methodName methodSpan methodSignature <- methods
+      ]
+
+    rewriteValidationReplayImplArguments =
+      map rewriteValidationReplayConstraintType
 
     rewriteValidationReplayImplMethods methods =
       [ ImplMethod methodName methodSpan (rewriteValidationReplayExpr methodExpr)
         | ImplMethod methodName methodSpan methodExpr <- methods
       ]
 
+    rewriteValidationReplaySignaturePayload signaturePayload =
+      case signaturePayload of
+        ConstrainedSignature constraints signatureType ->
+          ConstrainedSignature
+            (map rewriteValidationReplaySignatureConstraint constraints)
+            (rewriteValidationReplayConstraintType signatureType)
+        UnsupportedSignature signatureTokens ->
+          UnsupportedSignature (map rewriteValidationReplaySignatureToken signatureTokens)
+        _ -> signaturePayload
+
+    rewriteValidationReplayVisibleSignaturePayload signaturePayload =
+      if isEntryModule
+        then signaturePayload
+        else rewriteValidationReplaySignaturePayload signaturePayload
+
+    rewriteValidationReplaySignatureConstraint (SignatureConstraint constraintName arguments) =
+      SignatureConstraint
+        (validationReplayCapabilityName constraintName)
+        (map rewriteValidationReplayConstraintType arguments)
+
+    rewriteValidationReplayConstraintType signatureType =
+      case rewriteModuleExportImplArgument modulePath dataTypeNames signatureType of
+        ConstraintTypeName name ->
+          ConstraintTypeName (validationReplayCapabilityName name)
+        ConstraintTypeApplication name arguments ->
+          ConstraintTypeApplication
+            (validationReplayCapabilityName name)
+            (map rewriteValidationReplayConstraintType arguments)
+        ConstraintTypeList innerType ->
+          ConstraintTypeList (rewriteValidationReplayConstraintType innerType)
+        ConstraintTypeTuple elementTypes ->
+          ConstraintTypeTuple (map rewriteValidationReplayConstraintType elementTypes)
+        ConstraintTypeFunction argumentType resultType ->
+          ConstraintTypeFunction
+            (rewriteValidationReplayConstraintType argumentType)
+            (rewriteValidationReplayConstraintType resultType)
+
+    rewriteValidationReplaySignatureToken signatureToken =
+      case rewriteModuleExportSignatureToken modulePath dataTypeNames signatureToken of
+        SignatureNameToken name
+          | Set.member name hiddenValidationCapabilities ->
+              SignatureNameToken (moduleExportQualifiedName modulePath name)
+        rewrittenToken -> rewrittenToken
+
     hiddenValidationIdentifier name =
       mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
+
+    validationReplayCapabilityName capabilityName =
+      let capabilityNameText = identifierText capabilityName
+       in if Set.member capabilityNameText hiddenValidationCapabilities
+            then mkIdentifier (moduleExportQualifiedName modulePath capabilityNameText)
+            else capabilityName
 
 stripModuleRuntimeReplayStatements :: [Text] -> Bool -> Set Text -> Set Text -> Set Text -> Set Text -> Expr -> Expr
 stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports neededModuleExports neededCapabilityExports directlyNeededCapabilityExports expr =
