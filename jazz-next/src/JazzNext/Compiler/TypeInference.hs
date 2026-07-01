@@ -650,6 +650,7 @@ inferQualifiedMethodApplication builtinMode env state methodKey argumentExprs =
         Just typedArgumentTypes ->
           resolveQualifiedMethodApplicationType
             methodKey
+            env
             stateAfterArguments
             (zip argumentExprs typedArgumentTypes)
 
@@ -2863,10 +2864,11 @@ resolveQualifiedMethodType methodKey state =
 
 resolveQualifiedMethodApplicationType ::
   Text ->
+  TypeEnv ->
   InferState ->
   [(Expr, ExpressionType)] ->
   (Maybe ExpressionType, InferState)
-resolveQualifiedMethodApplicationType methodKey state typedArguments =
+resolveQualifiedMethodApplicationType methodKey env state typedArguments =
   case Map.lookup methodKey (inferClassMethodSignatures state) of
     Nothing
       | not (null (Map.findWithDefault [] methodKey (inferConcreteImplMethods state))) ->
@@ -2884,7 +2886,7 @@ resolveQualifiedMethodApplicationType methodKey state typedArguments =
             [implMethodType] ->
               applyQualifiedMethodCandidateWithErrors methodKey classMethodType implMethodType state argumentTypes
             implMethodTypes ->
-              selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes state typedArguments
+              selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes env state typedArguments
   where
     argumentTypes = map snd typedArguments
 
@@ -2937,10 +2939,11 @@ selectQualifiedMethodCandidate ::
   Text ->
   ClassMethodType ->
   [ImplMethodType] ->
+  TypeEnv ->
   InferState ->
   [(Expr, ExpressionType)] ->
   (Maybe ExpressionType, InferState)
-selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes state typedArguments =
+selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes env state typedArguments =
   case preferredCandidates of
     [] ->
       ( Nothing,
@@ -2977,7 +2980,7 @@ selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes state t
     filterExactMatches candidates =
       [ (matchedType, matchedState)
         | (implMethodType, matchedType, matchedState) <- candidates,
-          qualifiedMethodCandidateExactlyMatchesArguments state classMethodType implMethodType typedArguments
+          qualifiedMethodCandidateExactlyMatchesArguments state env classMethodType implMethodType typedArguments
       ]
 
     resolvedArgumentTypes stateForRendering =
@@ -2987,11 +2990,12 @@ selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes state t
 
 qualifiedMethodCandidateExactlyMatchesArguments ::
   InferState ->
+  TypeEnv ->
   ClassMethodType ->
   ImplMethodType ->
   [(Expr, ExpressionType)] ->
   Bool
-qualifiedMethodCandidateExactlyMatchesArguments state (ClassMethodType classParameter methodSignature) (ImplMethodType implTarget) typedArguments =
+qualifiedMethodCandidateExactlyMatchesArguments state env (ClassMethodType classParameter methodSignature) (ImplMethodType implTarget) typedArguments =
   case (signaturePayloadConstraintType methodSignature, substituteClassMethodSignature classParameter implTarget methodSignature) of
     (Just genericSignature, Just substitutedSignature) ->
       let (genericArgumentTypes, _) = constraintFunctionArgumentTypes genericSignature
@@ -3017,18 +3021,67 @@ qualifiedMethodCandidateExactlyMatchesArguments state (ClassMethodType classPara
     exactCandidateArgumentMatches targetArgumentPosition signatureType (argumentExpr, expressionType) =
       not targetArgumentPosition
         || constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressionType
-          && constraintSignatureExpressionHasExactEvidence signatureType argumentExpr
+          && constraintSignatureExpressionHasExactEvidence env signatureType argumentExpr
 
-constraintSignatureExpressionHasExactEvidence :: ConstraintSignatureType -> Expr -> Bool
-constraintSignatureExpressionHasExactEvidence signatureType argumentExpr =
+constraintSignatureExpressionHasExactEvidence :: TypeEnv -> ConstraintSignatureType -> Expr -> Bool
+constraintSignatureExpressionHasExactEvidence env signatureType argumentExpr =
   case (signatureType, argumentExpr) of
     (ConstraintTypeList elementType, EList elements) ->
       not (null elements)
-        && all (constraintSignatureExpressionHasExactEvidence elementType) elements
+        && all (constraintSignatureExpressionHasExactEvidence env elementType) elements
     (ConstraintTypeTuple elementTypes, ETuple elements)
       | length elementTypes == length elements ->
-          and (zipWith constraintSignatureExpressionHasExactEvidence elementTypes elements)
+          and (zipWith (constraintSignatureExpressionHasExactEvidence env) elementTypes elements)
+    (ConstraintTypeApplication typeName typeArguments, EApply {}) ->
+      constructorApplicationExpressionHasExactEvidence env typeName typeArguments argumentExpr
     _ -> True
+
+constructorApplicationExpressionHasExactEvidence :: TypeEnv -> Identifier -> [ConstraintSignatureType] -> Expr -> Bool
+constructorApplicationExpressionHasExactEvidence env typeName typeArguments argumentExpr =
+  case constructorExpressionSpine argumentExpr of
+    Just (constructorName, constructorArgumentExprs) ->
+      case Map.lookup (identifierText constructorName) env of
+        Just (ConstructorTypeBinding constructorTypeName typeParameters constructorArgumentTypes)
+          | constructorTypeName == typeName,
+            length typeParameters == length typeArguments,
+            length constructorArgumentTypes == length constructorArgumentExprs ->
+              let typeParameterBindings =
+                    Map.fromList (zip (map identifierText typeParameters) typeArguments)
+               in and
+                    ( zipWith
+                        (constructorArgumentExpressionHasExactEvidence env typeParameterBindings)
+                        constructorArgumentTypes
+                        constructorArgumentExprs
+                    )
+        _ -> False
+    Nothing -> False
+
+constructorExpressionSpine :: Expr -> Maybe (Identifier, [Expr])
+constructorExpressionSpine expr =
+  go [] expr
+  where
+    go argumentExprs currentExpr =
+      case currentExpr of
+        EApply functionExpr argumentExpr ->
+          go (argumentExpr : argumentExprs) functionExpr
+        EVar constructorName ->
+          Just (constructorName, argumentExprs)
+        _ ->
+          Nothing
+
+constructorArgumentExpressionHasExactEvidence :: TypeEnv -> Map Text ConstraintSignatureType -> ConstructorArgumentType -> Expr -> Bool
+constructorArgumentExpressionHasExactEvidence env typeParameterBindings constructorArgument argumentExpr =
+  case constructorArgument of
+    ConstructorArgumentParameter parameterName ->
+      case Map.lookup parameterName typeParameterBindings of
+        Just concreteArgumentType ->
+          constraintSignatureExpressionHasExactEvidence env concreteArgumentType argumentExpr
+        Nothing ->
+          True
+    ConstructorArgumentMonomorphic {} ->
+      True
+    ConstructorArgumentFresh ->
+      True
 
 constraintSignatureTypeContainsClassParameter :: Text -> ConstraintSignatureType -> Bool
 constraintSignatureTypeContainsClassParameter classParameter signatureType =
