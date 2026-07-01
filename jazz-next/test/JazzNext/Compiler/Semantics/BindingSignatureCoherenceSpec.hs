@@ -74,6 +74,7 @@ tests =
     ("source pipeline infers qualified method class constraints for ordinary binding schemes", testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes),
     ("source pipeline resolves inferred method facts through aliases", testSourceResolvesInferredMethodFactsThroughAliases),
     ("source pipeline rejects result-only qualified method inference", testSourceRejectsResultOnlyQualifiedMethodInference),
+    ("source pipeline rejects unpreserved higher-order qualified method inference", testSourceRejectsUnpreservedHigherOrderQualifiedMethodInference),
     ("source pipeline rejects exact matches from non-target qualified method arguments", testSourceRejectsNonTargetQualifiedMethodExactMatch),
     ("source pipeline rejects callable equality before inferred class obligations", testSourceRejectsCallableEqualityBeforeInferredClassObligations),
     ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse),
@@ -1217,6 +1218,17 @@ testSourceRejectsResultOnlyQualifiedMethodInference =
         <> "impl Make(Bool) {\nmake = \\(value) -> True.\n}.\n"
         <> "x :: Int.\n"
         <> "x = Make::make 0."
+    )
+    "ambiguous qualified method body"
+
+testSourceRejectsUnpreservedHigherOrderQualifiedMethodInference :: IO ()
+testSourceRejectsUnpreservedHigherOrderQualifiedMethodInference =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class C(a) {\nm :: (a -> a) -> Bool.\n}.\n"
+        <> "impl C(Int) {\nm = \\(f) -> True.\n}.\n"
+        <> "impl C(Bool) {\nm = \\(f) -> False.\n}.\n"
+        <> "f = \\(x) -> x.\n"
+        <> "result = C::m f."
     )
     "ambiguous qualified method body"
 
