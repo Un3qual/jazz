@@ -2822,8 +2822,12 @@ concreteImplMethodBodyExists methodKey argumentHint facts =
 inferredEqualityConstraintCanUseStructuralRuntimeEquality :: InferState -> Maybe Text -> Text -> ExpressionType -> Bool
 inferredEqualityConstraintCanUseStructuralRuntimeEquality state maybeMethodKey constraintName argumentType =
   maybeMethodKey == Nothing
-    && constraintName == "Eq"
+    && inferredEqualityConstraintNameIsEq constraintName
     && structuralRuntimeEqualityType state argumentType
+
+inferredEqualityConstraintNameIsEq :: Text -> Bool
+inferredEqualityConstraintNameIsEq constraintName =
+  constraintName == "Eq" || Text.isSuffixOf "::Eq" constraintName
 
 structuralRuntimeEqualityType :: InferState -> ExpressionType -> Bool
 structuralRuntimeEqualityType state argumentType =
@@ -3053,8 +3057,8 @@ constructorApplicationExpressionHasExactEvidence env typeName typeArguments argu
                         constructorArgumentTypes
                         constructorArgumentExprs
                     )
-        _ -> False
-    Nothing -> False
+        _ -> True
+    Nothing -> True
 
 constructorExpressionSpine :: Expr -> Maybe (Identifier, [Expr])
 constructorExpressionSpine expr =
