@@ -79,6 +79,7 @@ tests =
     ("source pipeline preserves inferred equality constraints on signed bindings", testSourcePreservesInferredEqualityConstraintsOnSignedBindings),
     ("source pipeline preserves inferred method constraints across mutual recursion", testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion),
     ("source pipeline resolves concrete inferred method obligations before dropping them", testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem),
+    ("source pipeline keeps nested helper inferred method obligations scoped", testSourceKeepsNestedHelperInferredMethodObligationsScoped),
     ("source pipeline resolves concrete inferred equality obligations before dropping them", testSourceResolvesConcreteInferredEqualityObligationsBeforeDroppingThem),
     ("source pipeline checks inferred method obligations on expression statements", testSourceChecksInferredMethodObligationsOnExpressionStatements),
     ("source pipeline checks inferred equality obligations on expression statements", testSourceChecksInferredEqualityObligationsOnExpressionStatements),
@@ -97,6 +98,7 @@ tests =
     ("source pipeline rejects non-binding impl body items", testSourceRejectsNonBindingImplBodyItem),
     ("source pipeline accepts single-target qualified method dispatch", testSourceAcceptsSingleTargetQualifiedMethodDispatch),
     ("source pipeline selects qualified method body by argument types", testSourceSelectsQualifiedMethodBodyByArgumentTypes),
+    ("source pipeline rejects nested empty-list exact qualified method selection", testSourceRejectsNestedEmptyListExactQualifiedMethodSelection),
     ("source pipeline selects qualified Float method body by argument types", testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float16 method body by argument types", testSourceSelectsQualifiedFloat16MethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float32 method body by argument types", testSourceSelectsQualifiedFloat32MethodBodyByArgumentTypes),
@@ -485,6 +487,16 @@ testSourceSelectsQualifiedMethodBodyByArgumentTypes =
     ( qualifiedEqSource
         <> "impl Eq(Bool) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\nresult :: Bool.\nresult = Eq::equals True False.\nresult."
     )
+
+testSourceRejectsNestedEmptyListExactQualifiedMethodSelection :: IO ()
+testSourceRejectsNestedEmptyListExactQualifiedMethodSelection =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+        <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+        <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+        <> "(RuntimeFlag::flag) [[1], []]."
+    )
+    "ambiguous qualified method body 'RuntimeFlag::flag'"
 
 testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes :: IO ()
 testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes =
@@ -1281,6 +1293,15 @@ testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem =
     ( "class C(a) {\nm :: a -> Bool.\n}.\n"
         <> "impl C(Int) {\nm = \\(x) -> True.\n}.\n"
         <> "result = (\\(x) -> C::m x) 1."
+    )
+
+testSourceKeepsNestedHelperInferredMethodObligationsScoped :: IO ()
+testSourceKeepsNestedHelperInferredMethodObligationsScoped =
+  assertSourceOkWithoutPrelude
+    ( "class C(a) {\nm :: a -> Bool.\n}.\n"
+        <> "impl C(Int) {\nm = \\(x) -> True.\n}.\n"
+        <> "x = { local = \\(y) -> C::m y. 1. }.\n"
+        <> "x."
     )
 
 testSourceResolvesConcreteInferredEqualityObligationsBeforeDroppingThem :: IO ()

@@ -104,6 +104,8 @@ tests =
     ("run module graph keeps visible sibling import isolated from alias-hidden replay", testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenReplay),
     ("compile module graph preserves constrained schemes through export bridges", testCompileModuleGraphPreservesConstrainedSchemesThroughExportBridges),
     ("run module graph retains local capabilities needed by inferred equality export", testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport),
+    ("run module graph keeps inferred equality export facts scoped to hidden capability", testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
+    ("compile module graph does not leak imported capability facts through inferred export", testCompileModuleGraphDoesNotLeakImportedCapabilityFactsThroughInferredExport),
     ("compile module graph keeps sibling capability facts isolated", testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated),
     ("compile module graph exposes capability facts through visible imports", testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports),
     ("run module graph keeps hidden qualified export dependencies available", testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge),
@@ -1119,6 +1121,82 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Poly (same).\nresult = same 1.\nresult.\n}"),
           ("src/Lib/Poly.jz", "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\nsame = \\(x) -> x == x.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability :: IO ()
+testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
+  mapM_
+    assertHiddenEqualityScope
+    [ ( "direct equality",
+        "result = same True.",
+        "same = \\(x) -> x == x."
+      ),
+      ( "operator equality",
+        "result = same True False.",
+        "same = (==)."
+      ),
+      ( "section equality",
+        "result = same True False.",
+        "same = \\(right) -> (== right)."
+      )
+    ]
+  where
+    assertHiddenEqualityScope (label, appUse, sameDefinition) = do
+      result <-
+        runModuleGraphWithPrelude
+          defaultWarningSettings
+          Nothing
+          resolverConfig
+          ["App", "Main"]
+          (lookupSource sameDefinition appUse)
+      case runCompileErrors result of
+        [err] -> do
+          assertContains
+            (label <> " hidden Eq impl error")
+            "missing impl fact"
+            (renderDiagnostic err)
+          assertContains
+            (label <> " hidden Eq fact name")
+            "__module::Lib::Poly::Eq(Bool)"
+            (renderDiagnostic err)
+        _ -> failTest (label <> ": expected exactly one hidden Eq compile error")
+
+    lookupSource sameDefinition appUse path =
+      pure (Map.lookup path (sourceMap sameDefinition appUse))
+
+    sourceMap sameDefinition appUse =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Poly (same).\nclass Eq(a) { }.\nimpl Eq(Bool) { }.\n" <> appUse <> "\n}"
+          ),
+          ( "src/Lib/Poly.jz",
+            "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\n" <> sameDefinition <> "\n}"
+          )
+        ]
+
+testCompileModuleGraphDoesNotLeakImportedCapabilityFactsThroughInferredExport :: IO ()
+testCompileModuleGraphDoesNotLeakImportedCapabilityFactsThroughInferredExport = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [err] ->
+      assertContains
+        "imported capability fact leakage error"
+        "missing class declaration 'Eq'"
+        (renderDiagnostic err)
+    _ -> failTest "expected exactly one imported capability fact leakage error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Wrapper (same).\nresult = same 1.\n}"),
+          ("src/Lib/Facts.jz", "module Lib::Facts {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\n}"),
+          ("src/Lib/Wrapper.jz", "module Lib::Wrapper {\nimport Lib::Facts.\nsame = \\(x) -> x == x.\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

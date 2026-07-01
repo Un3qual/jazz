@@ -82,7 +82,8 @@ import JazzNext.Compiler.Identifier
   ( Identifier,
     identifierText,
     mkIdentifier,
-    operatorBindingIdentifierText
+    operatorBindingIdentifierText,
+    qualifiedIdentifierText
   )
 import JazzNext.Compiler.RecursiveBindings
   ( collectBindingNames,
@@ -650,7 +651,7 @@ inferQualifiedMethodApplication builtinMode env state methodKey argumentExprs =
           resolveQualifiedMethodApplicationType
             methodKey
             stateAfterArguments
-            typedArgumentTypes
+            (zip argumentExprs typedArgumentTypes)
 
 inferQualifiedMethodArguments ::
   BuiltinResolutionMode ->
@@ -1363,13 +1364,28 @@ inferScopeType builtinMode initialEnv initialState statements =
                                 (inferRuntimeTypeHints stateAfterDroppedInferredMethodCheck)
                           }
                       Nothing -> stateAfterDroppedInferredMethodCheck
+                  maybeNextBinding =
+                    maybePreservedSchemeAliasBinding
+                      <|> nextBindingForValue
+                        statementIndex
+                        nameText
+                        envForStatement
+                        valueExpr
+                        nextBindingType
+                        matchingPendingSignature
+                        stateAfterRuntimeHint
+                  stateAfterCapturedConstraintPrune =
+                    case maybeNextBinding of
+                      Just binding ->
+                        pruneCapturedInferredClassConstraints stateForStatement binding stateAfterRuntimeHint
+                      Nothing -> stateAfterRuntimeHint
                   nextPendingSignaturesByStatement =
                     case matchingPendingSignature of
                       Just pendingSignature ->
                         Map.insert statementIndex pendingSignature pendingSignaturesByStatement
                       Nothing -> pendingSignaturesByStatement
                   nextEnvBeforeRecursiveGroupGeneralization =
-                    case maybePreservedSchemeAliasBinding <|> nextBindingForValue statementIndex nameText envForStatement valueExpr nextBindingType matchingPendingSignature stateAfterRuntimeHint of
+                    case maybeNextBinding of
                       Just binding -> Map.insert nameText binding env
                       Nothing -> env
                   nextEnv =
@@ -1377,8 +1393,8 @@ inferScopeType builtinMode initialEnv initialState statements =
                       nextPendingSignaturesByStatement
                       statementIndex
                       nextEnvBeforeRecursiveGroupGeneralization
-                      stateAfterRuntimeHint
-               in go nextEnv lastExprType Nothing nextPendingSignaturesByStatement moduleBaselineFacts stateAfterRuntimeHint rest
+                      stateAfterCapturedConstraintPrune
+               in go nextEnv lastExprType Nothing nextPendingSignaturesByStatement moduleBaselineFacts stateAfterCapturedConstraintPrune rest
             SExpr exprSpan expr ->
               let (envForStatement, stateForStatement) =
                     exposeVisibleRecursiveGroupSchemes statementIndex env state
@@ -1831,6 +1847,12 @@ capabilityFactsFromState state =
       scopeConcreteImplMethods = inferConcreteImplMethods state
     }
 
+typeSchemeDefiningFactsFromState :: InferState -> ScopeCapabilityFacts
+typeSchemeDefiningFactsFromState state =
+  case inferCurrentModulePath state of
+    Just _ -> inferCurrentModuleLocalCapabilityFacts state
+    Nothing -> capabilityFactsFromState state
+
 applyCapabilityFacts :: ScopeCapabilityFacts -> InferState -> InferState
 applyCapabilityFacts facts state =
   state
@@ -2143,7 +2165,7 @@ generalizedOrdinaryBinding env state expressionType =
         && null inferredClassConstraints
         && null primitiveConstraints
       then PlainTypeBinding resolvedType
-      else SchemeTypeBinding (TypeScheme schemeVariables inferredClassConstraints primitiveConstraints (capabilityFactsFromState state) resolvedType)
+      else SchemeTypeBinding (TypeScheme schemeVariables inferredClassConstraints primitiveConstraints (typeSchemeDefiningFactsFromState state) resolvedType)
 
 ordinaryBindingSchemeVariables :: TypeEnv -> InferState -> ExpressionType -> Set Int
 ordinaryBindingSchemeVariables env state expressionType =
@@ -2279,7 +2301,40 @@ generalizedExplicitSignatureBinding env state pendingSignature =
       primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
    in if Set.null schemeVariables && null schemeConstraints && null primitiveConstraints
         then PlainTypeBinding resolvedType
-        else SchemeTypeBinding (TypeScheme schemeVariables schemeConstraints primitiveConstraints (capabilityFactsFromState state) resolvedType)
+        else SchemeTypeBinding (TypeScheme schemeVariables schemeConstraints primitiveConstraints (typeSchemeDefiningFactsFromState state) resolvedType)
+
+pruneCapturedInferredClassConstraints :: InferState -> TypeBinding -> InferState -> InferState
+pruneCapturedInferredClassConstraints statementStartState binding state =
+  case binding of
+    SchemeTypeBinding (TypeScheme _ schemeConstraints _ _ _) ->
+      state
+        { inferInferredClassConstraints =
+            filter
+              (not . capturedInScheme . resolveTypeSchemeConstraint state)
+              statementConstraints
+              ++ priorConstraints
+        }
+      where
+        priorConstraintCount = length (inferInferredClassConstraints statementStartState)
+        currentConstraints = inferInferredClassConstraints state
+        statementConstraintCount = max 0 (length currentConstraints - priorConstraintCount)
+        statementConstraints = take statementConstraintCount currentConstraints
+        priorConstraints = drop statementConstraintCount currentConstraints
+        capturedConstraints =
+          [ resolveTypeSchemeConstraint state constraint
+            | constraint <- schemeConstraints,
+              typeSchemeConstraintIsInferred constraint
+          ]
+        capturedInScheme constraint =
+          constraint `elem` capturedConstraints
+    _ -> state
+
+typeSchemeConstraintIsInferred :: TypeSchemeConstraint -> Bool
+typeSchemeConstraintIsInferred constraint =
+  case constraint of
+    TypeSchemeInferredConstraint {} -> True
+    TypeSchemeMethodConstraint {} -> True
+    TypeSchemeConstraint {} -> False
 
 explicitBindingSchemeVariables :: TypeEnv -> InferState -> PendingSignatureType -> Set Int
 explicitBindingSchemeVariables env state pendingSignature =
@@ -2809,9 +2864,9 @@ resolveQualifiedMethodType methodKey state =
 resolveQualifiedMethodApplicationType ::
   Text ->
   InferState ->
-  [ExpressionType] ->
+  [(Expr, ExpressionType)] ->
   (Maybe ExpressionType, InferState)
-resolveQualifiedMethodApplicationType methodKey state argumentTypes =
+resolveQualifiedMethodApplicationType methodKey state typedArguments =
   case Map.lookup methodKey (inferClassMethodSignatures state) of
     Nothing
       | not (null (Map.findWithDefault [] methodKey (inferConcreteImplMethods state))) ->
@@ -2829,7 +2884,9 @@ resolveQualifiedMethodApplicationType methodKey state argumentTypes =
             [implMethodType] ->
               applyQualifiedMethodCandidateWithErrors methodKey classMethodType implMethodType state argumentTypes
             implMethodTypes ->
-              selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes state argumentTypes
+              selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes state typedArguments
+  where
+    argumentTypes = map snd typedArguments
 
 inferQualifiedMethodRequirement ::
   Text ->
@@ -2881,9 +2938,9 @@ selectQualifiedMethodCandidate ::
   ClassMethodType ->
   [ImplMethodType] ->
   InferState ->
-  [ExpressionType] ->
+  [(Expr, ExpressionType)] ->
   (Maybe ExpressionType, InferState)
-selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes state argumentTypes =
+selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes state typedArguments =
   case preferredCandidates of
     [] ->
       ( Nothing,
@@ -2920,24 +2977,26 @@ selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes state a
     filterExactMatches candidates =
       [ (matchedType, matchedState)
         | (implMethodType, matchedType, matchedState) <- candidates,
-          qualifiedMethodCandidateExactlyMatchesArguments state classMethodType implMethodType argumentTypes
+          qualifiedMethodCandidateExactlyMatchesArguments state classMethodType implMethodType typedArguments
       ]
 
     resolvedArgumentTypes stateForRendering =
       map (resolveType stateForRendering) argumentTypes
 
+    argumentTypes = map snd typedArguments
+
 qualifiedMethodCandidateExactlyMatchesArguments ::
   InferState ->
   ClassMethodType ->
   ImplMethodType ->
-  [ExpressionType] ->
+  [(Expr, ExpressionType)] ->
   Bool
-qualifiedMethodCandidateExactlyMatchesArguments state (ClassMethodType classParameter methodSignature) (ImplMethodType implTarget) argumentTypes =
+qualifiedMethodCandidateExactlyMatchesArguments state (ClassMethodType classParameter methodSignature) (ImplMethodType implTarget) typedArguments =
   case (signaturePayloadConstraintType methodSignature, substituteClassMethodSignature classParameter implTarget methodSignature) of
     (Just genericSignature, Just substitutedSignature) ->
       let (genericArgumentTypes, _) = constraintFunctionArgumentTypes genericSignature
           (candidateArgumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
-          suppliedArgumentCount = length argumentTypes
+          suppliedArgumentCount = length typedArguments
           suppliedGenericArgumentTypes = take suppliedArgumentCount genericArgumentTypes
           suppliedCandidateArgumentTypes = take suppliedArgumentCount candidateArgumentTypes
           targetArgumentPositions =
@@ -2950,14 +3009,26 @@ qualifiedMethodCandidateExactlyMatchesArguments state (ClassMethodType classPara
                   exactCandidateArgumentMatches
                   targetArgumentPositions
                   suppliedCandidateArgumentTypes
-                  argumentTypes
+                  typedArguments
               )
     _ ->
       False
   where
-    exactCandidateArgumentMatches targetArgumentPosition signatureType expressionType =
+    exactCandidateArgumentMatches targetArgumentPosition signatureType (argumentExpr, expressionType) =
       not targetArgumentPosition
         || constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressionType
+          && constraintSignatureExpressionHasExactEvidence signatureType argumentExpr
+
+constraintSignatureExpressionHasExactEvidence :: ConstraintSignatureType -> Expr -> Bool
+constraintSignatureExpressionHasExactEvidence signatureType argumentExpr =
+  case (signatureType, argumentExpr) of
+    (ConstraintTypeList elementType, EList elements) ->
+      not (null elements)
+        && all (constraintSignatureExpressionHasExactEvidence elementType) elements
+    (ConstraintTypeTuple elementTypes, ETuple elements)
+      | length elementTypes == length elements ->
+          and (zipWith constraintSignatureExpressionHasExactEvidence elementTypes elements)
+    _ -> True
 
 constraintSignatureTypeContainsClassParameter :: Text -> ConstraintSignatureType -> Bool
 constraintSignatureTypeContainsClassParameter classParameter signatureType =
@@ -4154,9 +4225,28 @@ addInferredMethodClassConstraint constraintName methodKey argumentType state =
 
 addInferredEqualityClassConstraintIfVisible :: ExpressionType -> InferState -> InferState
 addInferredEqualityClassConstraintIfVisible argumentType state =
-  case Map.lookup "Eq" (inferClassFacts state) of
-    Just 1 -> addInferredClassConstraint "Eq" argumentType state
-    _ -> state
+  case activeEqualityClassName state of
+    Just equalityClassName -> addInferredClassConstraint equalityClassName argumentType state
+    Nothing -> state
+
+activeEqualityClassName :: InferState -> Maybe Text
+activeEqualityClassName state =
+  case inferCurrentModulePath state of
+    Just modulePath
+      | let replayQualifiedEqName = moduleReplayQualifiedName modulePath "Eq",
+        classFactIsUnary replayQualifiedEqName ->
+          Just replayQualifiedEqName
+    _ ->
+      if classFactIsUnary "Eq"
+        then Just "Eq"
+        else Nothing
+  where
+    classFactIsUnary className =
+      Map.lookup className (inferClassFacts state) == Just 1
+
+moduleReplayQualifiedName :: [Text] -> Text -> Text
+moduleReplayQualifiedName modulePath name =
+  qualifiedIdentifierText "__module" (Text.intercalate "::" modulePath <> "::" <> name)
 
 addNumericTypeVarConstraint :: Int -> NumericConstraint -> InferState -> InferState
 addNumericTypeVarConstraint typeVar numericConstraint state =
