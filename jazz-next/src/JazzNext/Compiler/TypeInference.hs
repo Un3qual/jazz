@@ -405,17 +405,9 @@ inferExprType builtinMode env state expr =
           | Map.notMember methodKey env ->
               inferQualifiedMethodApplication builtinMode env state methodKey argumentExprs
         Nothing ->
-          case builtinOperatorApplicationSpine env expr of
-            Just (operatorSymbol, leftExpr, rightExpr) ->
-              inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr
-            Nothing ->
-              inferGenericApplyType builtinMode env state functionExpr argumentExpr
+          inferBuiltinOperatorApplyOrGenericApply functionExpr argumentExpr
         _ ->
-          case builtinOperatorApplicationSpine env expr of
-            Just (operatorSymbol, leftExpr, rightExpr) ->
-              inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr
-            Nothing ->
-              inferGenericApplyType builtinMode env state functionExpr argumentExpr
+          inferBuiltinOperatorApplyOrGenericApply functionExpr argumentExpr
     EIf conditionExpr thenExpr elseExpr ->
       inferExprType builtinMode env state (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr ->
@@ -540,6 +532,25 @@ inferExprType builtinMode env state expr =
                 stateAfterRight
             Nothing -> (Nothing, stateAfterRight)
 
+    inferBuiltinOperatorApplyOrGenericApply functionExpr argumentExpr =
+      case builtinOperatorApplicationSpine env expr of
+        Just (operatorSymbol, leftExpr, rightExpr) ->
+          inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr
+        Nothing ->
+          inferGenericApplyWithSectionFallback functionExpr argumentExpr
+
+    inferGenericApplyWithSectionFallback functionExpr argumentExpr =
+      let genericResult@(maybeGenericType, _) =
+            inferGenericApplyType builtinMode env state functionExpr argumentExpr
+       in case (maybeGenericType, builtinOperatorSectionApplication expr) of
+            (Nothing, Just (operatorSymbol, leftExpr, rightExpr)) ->
+              let binaryResult@(maybeBinaryType, _) =
+                    inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr
+               in case maybeBinaryType of
+                    Just _ -> binaryResult
+                    Nothing -> genericResult
+            _ -> genericResult
+
 inferExprTypeWithExpected ::
   BuiltinResolutionMode ->
   TypeEnv ->
@@ -647,6 +658,24 @@ builtinOperatorApplicationSpine env expr =
         Just _ -> Just (operatorSymbol, leftExpr, rightExpr)
         Nothing -> Nothing
     _ -> Nothing
+
+builtinOperatorSectionApplication :: Expr -> Maybe (Text, Expr, Expr)
+builtinOperatorSectionApplication expr =
+  case expr of
+    EApply (ESectionLeft leftExpr operatorSymbol) rightExpr
+      | builtinSectionOperatorSymbol operatorSymbol ->
+          Just (operatorSymbol, leftExpr, rightExpr)
+    EApply (ESectionRight operatorSymbol rightExpr) leftExpr
+      | builtinSectionOperatorSymbol operatorSymbol ->
+          Just (operatorSymbol, leftExpr, rightExpr)
+    _ -> Nothing
+
+builtinSectionOperatorSymbol :: Text -> Bool
+builtinSectionOperatorSymbol operatorSymbol =
+  case lookupOperatorRule operatorSymbol of
+    Just (NumericRule _) -> True
+    Just StrictEqualityRule -> True
+    _ -> False
 
 builtinOperatorSymbolExpr :: TypeEnv -> Expr -> Maybe Text
 builtinOperatorSymbolExpr env expr =

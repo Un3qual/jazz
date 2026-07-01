@@ -111,7 +111,7 @@ tests =
     ("source pipeline accepts Float64-domain integer literal arithmetic", testSourcePipelineAcceptsFloat64DomainIntegerLiteralArithmetic),
     ("source pipeline accepts direct typed integer to Float64 arithmetic", testSourcePipelineAcceptsDirectTypedIntegerFloat64Arithmetic),
     ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
-    ("source pipeline accepts direct typed integer to Float64 operator values", testSourcePipelineAcceptsDirectTypedIntegerFloat64OperatorValues),
+    ("source pipeline accepts direct typed integer to Float64 operator values and sections", testSourcePipelineAcceptsDirectTypedIntegerFloat64OperatorValuesSections),
     ("source pipeline accepts same-width Float16 and Float32 arithmetic", testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic),
     ("source pipeline accepts targeted Float16 and Float32 arithmetic", testSourcePipelineAcceptsTargetedFloat16Float32Arithmetic),
     ("source pipeline accepts Float16 and Float32 arithmetic boundary values", testSourcePipelineAcceptsFloat16Float32ArithmeticBoundaryValues),
@@ -125,7 +125,7 @@ tests =
     ("source pipeline rejects implicit integer and Float64 comparison and equality", testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality),
     ("source pipeline rejects typed integer to Float16 and Float32 promotion", testSourcePipelineRejectsTypedIntegerNarrowFloatPromotion),
     ("source pipeline rejects non-literal integer result Float64-domain arithmetic", testSourcePipelineRejectsNonLiteralIntegerResultFloat64DomainArithmetic),
-    ("source pipeline rejects integer Float64-domain sections", testSourcePipelineRejectsIntegerFloat64DomainSections),
+    ("source pipeline rejects first-class integer Float64-domain sections", testSourcePipelineRejectsFirstClassIntegerFloat64DomainSections),
     ("source pipeline rejects user-defined operator integer to Float64 promotion", testSourcePipelineRejectsUserDefinedOperatorIntegerFloat64Promotion),
     ("source pipeline rejects mixed-width float arithmetic", testSourcePipelineRejectsMixedWidthFloatArithmetic),
     ("source pipeline rejects mixed-width and implicit Float16/Float32 arithmetic", testSourcePipelineRejectsMixedWidthAndImplicitFloat16Float32Arithmetic),
@@ -569,10 +569,10 @@ testSourcePipelineAcceptsSameWidthFloat64OperatorValues =
   assertCompilesWithBundledPrelude
     "x :: Float64.\nx = (+) (toFloat64 1) (toFloat64 2)."
 
-testSourcePipelineAcceptsDirectTypedIntegerFloat64OperatorValues :: IO ()
-testSourcePipelineAcceptsDirectTypedIntegerFloat64OperatorValues =
+testSourcePipelineAcceptsDirectTypedIntegerFloat64OperatorValuesSections :: IO ()
+testSourcePipelineAcceptsDirectTypedIntegerFloat64OperatorValuesSections =
   assertCompilesWithBundledPrelude
-    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\ndirect :: Float64.\ndirect = (+) integer floating.\nadd = (+).\naliased :: Float64.\naliased = add integer floating."
+    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\ndirect :: Float64.\ndirect = (+) integer floating.\nadd = (+).\naliased :: Float64.\naliased = add integer floating.\nleftSection :: Float64.\nleftSection = (integer +) floating.\nrightSection :: Float64.\nrightSection = (+ floating) integer.\nliteralLeft :: Float.\nliteralLeft = (1 +) 1.5.\nliteralRight :: Float.\nliteralRight = (+ 1.5) 1."
 
 testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic :: IO ()
 testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic =
@@ -697,23 +697,23 @@ testSourcePipelineRejectsNonLiteralIntegerResultFloat64DomainArithmetic =
     "non-literal integer result Float64-domain arithmetic"
     "E2003"
 
-testSourcePipelineRejectsIntegerFloat64DomainSections :: IO ()
-testSourcePipelineRejectsIntegerFloat64DomainSections = do
+testSourcePipelineRejectsFirstClassIntegerFloat64DomainSections :: IO ()
+testSourcePipelineRejectsFirstClassIntegerFloat64DomainSections = do
   assertCompileError
-    "x = (1 +) 1.5."
-    "integer literal Float64-domain left section"
+    "section = (1 +).\nx = section 1.5."
+    "integer literal Float64-domain left section binding"
     "E2006"
   assertCompileError
-    "x = (+ 1.5) 1."
-    "integer literal Float64-domain right section"
+    "section = (+ 1.5).\nx = section 1."
+    "integer literal Float64-domain right section binding"
     "E2006"
   assertCompileErrorWithBundledPrelude
-    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\nx = (integer +) floating."
-    "typed integer Float64-domain left section"
+    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\nsection = (integer +).\nx = section floating."
+    "typed integer Float64-domain left section binding"
     "E2006"
   assertCompileErrorWithBundledPrelude
-    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\nx = (+ floating) integer."
-    "typed integer Float64-domain right section"
+    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\nsection = (+ floating).\nx = section integer."
+    "typed integer Float64-domain right section binding"
     "E2006"
 
 testSourcePipelineRejectsUserDefinedOperatorIntegerFloat64Promotion :: IO ()
