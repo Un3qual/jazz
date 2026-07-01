@@ -1643,11 +1643,23 @@ runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
         _ -> False
     VList _ (Just typeHint) ->
       typeHint == signatureType
+    VList elements Nothing ->
+      case signatureType of
+        ConstraintTypeList elementType ->
+          all (runtimeValueExactlyMatchesConstraint elementType) elements
+        _ -> False
     VTuple elements ->
       case signatureType of
         ConstraintTypeTuple elementTypes
           | length elementTypes == length elements ->
               and (zipWith runtimeValueExactlyMatchesConstraint elementTypes elements)
+        _ -> False
+    VConstructor {} ->
+      case signatureType of
+        ConstraintTypeName typeName ->
+          runtimeValueExactlyMatchesDataTypeName typeName runtimeValue
+        ConstraintTypeApplication typeName typeArguments ->
+          runtimeValueExactlyMatchesDataTypeApplication typeName typeArguments runtimeValue
         _ -> False
     _ -> False
 
@@ -1787,6 +1799,30 @@ runtimeValueMatchesDataTypeApplication typeName typeArguments runtimeValue =
                 )
     _ -> False
 
+runtimeValueExactlyMatchesDataTypeName :: Identifier -> RuntimeValue -> Bool
+runtimeValueExactlyMatchesDataTypeName typeName runtimeValue =
+  case runtimeValue of
+    VConstructor valueTypeName _ _ constructorArguments capturedArgs ->
+      valueTypeName == typeName
+        && constructorIsSaturated constructorArguments capturedArgs
+    _ -> False
+
+runtimeValueExactlyMatchesDataTypeApplication :: Identifier -> [ConstraintSignatureType] -> RuntimeValue -> Bool
+runtimeValueExactlyMatchesDataTypeApplication typeName typeArguments runtimeValue =
+  case runtimeValue of
+    VConstructor valueTypeName typeParameters _ constructorArguments capturedArgs
+      | valueTypeName == typeName,
+        length typeParameters == length typeArguments,
+        constructorIsSaturated constructorArguments capturedArgs ->
+          let typeParameterBindings = Map.fromList (zip (map identifierText typeParameters) typeArguments)
+           in and
+                ( zipWith
+                    (runtimeValueExactlyMatchesConstructorArgument typeParameterBindings)
+                    constructorArguments
+                    capturedArgs
+                )
+    _ -> False
+
 runtimeValueMatchesConstructorArgument :: Map Text ConstraintSignatureType -> DataConstructorArgument -> RuntimeValue -> Bool
 runtimeValueMatchesConstructorArgument typeParameterBindings constructorArgument runtimeValue =
   case constructorArgument of
@@ -1794,6 +1830,18 @@ runtimeValueMatchesConstructorArgument typeParameterBindings constructorArgument
       case constructorArgumentRuntimeHint typeParameterBindings argumentName of
         Just concreteArgumentType ->
           runtimeValueMatchesConstraint concreteArgumentType runtimeValue
+        Nothing ->
+          True
+    DataConstructorArgumentOpaque ->
+      True
+
+runtimeValueExactlyMatchesConstructorArgument :: Map Text ConstraintSignatureType -> DataConstructorArgument -> RuntimeValue -> Bool
+runtimeValueExactlyMatchesConstructorArgument typeParameterBindings constructorArgument runtimeValue =
+  case constructorArgument of
+    DataConstructorArgumentName argumentName ->
+      case constructorArgumentRuntimeHint typeParameterBindings argumentName of
+        Just concreteArgumentType ->
+          runtimeValueExactlyMatchesConstraint concreteArgumentType runtimeValue
         Nothing ->
           True
     DataConstructorArgumentOpaque ->

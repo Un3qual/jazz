@@ -2157,8 +2157,9 @@ addUnpreservedInferredMethodConstraintErrors spanValue statementStartState state
       Set.toList
         ( Set.fromList
             [ methodKey
-              | TypeSchemeMethodConstraint _ methodKey argumentType <- newInferredClassConstraints statementStartState state,
-                not (inferredConstraintTargetPreserved state schemeVariables argumentType)
+              | TypeSchemeMethodConstraint constraintName methodKey argumentType <- newInferredClassConstraints statementStartState state,
+                not (inferredConstraintTargetPreserved state schemeVariables argumentType),
+                not (concreteInferredMethodConstraintSatisfied state constraintName methodKey argumentType)
             ]
         )
 
@@ -2182,6 +2183,18 @@ inferredConstraintTargetPreserved state schemeVariables argumentType =
    in not (Set.null targetVariables)
         && targetVariables `Set.isSubsetOf` schemeVariables
 
+concreteInferredMethodConstraintSatisfied :: InferState -> Text -> Text -> ExpressionType -> Bool
+concreteInferredMethodConstraintSatisfied state constraintName methodKey argumentType =
+  let resolvedArgumentType = defaultLiteralTypes (resolveType state argumentType)
+   in Set.null (freeTypeVariables resolvedArgumentType)
+        && case expressionTypeToRuntimeHint resolvedArgumentType of
+          Just argumentHint ->
+            let facts = capabilityFactsFromState state
+             in concreteImplFactExists constraintName argumentHint facts
+                  && concreteImplMethodBodyExists methodKey argumentHint facts
+          Nothing ->
+            False
+
 generalizedExplicitSignatureBinding ::
   TypeEnv ->
   InferState ->
@@ -2192,10 +2205,10 @@ generalizedExplicitSignatureBinding env state pendingSignature =
       resolvedConstraints =
         map (resolveTypeSchemeConstraint state) (pendingSignatureExplicitConstraints pendingSignature)
       schemeVariables = explicitBindingSchemeVariables env state pendingSignature
-      inferredMethodConstraints =
-        typeSchemeInferredMethodConstraints state schemeVariables
+      inferredClassConstraints =
+        typeSchemeInferredClassConstraints state schemeVariables
       schemeConstraints =
-        dedupeTypeSchemeConstraints (resolvedConstraints ++ inferredMethodConstraints)
+        dedupeTypeSchemeConstraints (resolvedConstraints ++ inferredClassConstraints)
       primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
    in if Set.null schemeVariables && null schemeConstraints && null primitiveConstraints
         then PlainTypeBinding resolvedType
@@ -2265,12 +2278,6 @@ typeSchemeInferredClassConstraints state schemeVariables =
        in if not (Set.null targetVariables) && targetVariables `Set.isSubsetOf` schemeVariables
             then Just targetType
             else Nothing
-
-typeSchemeInferredMethodConstraints :: InferState -> Set Int -> [TypeSchemeConstraint]
-typeSchemeInferredMethodConstraints state schemeVariables =
-  [ constraint
-    | constraint@TypeSchemeMethodConstraint {} <- typeSchemeInferredClassConstraints state schemeVariables
-  ]
 
 dedupeTypeSchemeConstraints :: [TypeSchemeConstraint] -> [TypeSchemeConstraint]
 dedupeTypeSchemeConstraints =

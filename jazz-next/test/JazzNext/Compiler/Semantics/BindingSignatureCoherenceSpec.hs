@@ -76,7 +76,9 @@ tests =
     ("source pipeline rejects result-only qualified method inference", testSourceRejectsResultOnlyQualifiedMethodInference),
     ("source pipeline rejects unpreserved higher-order qualified method inference", testSourceRejectsUnpreservedHigherOrderQualifiedMethodInference),
     ("source pipeline preserves inferred method constraints on signed bindings", testSourcePreservesInferredMethodConstraintsOnSignedBindings),
+    ("source pipeline preserves inferred equality constraints on signed bindings", testSourcePreservesInferredEqualityConstraintsOnSignedBindings),
     ("source pipeline preserves inferred method constraints across mutual recursion", testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion),
+    ("source pipeline resolves concrete inferred method obligations before dropping them", testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem),
     ("source pipeline rejects exact matches from non-target qualified method arguments", testSourceRejectsNonTargetQualifiedMethodExactMatch),
     ("source pipeline rejects callable equality before inferred class obligations", testSourceRejectsCallableEqualityBeforeInferredClassObligations),
     ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse),
@@ -1245,6 +1247,18 @@ testSourcePreservesInferredMethodConstraintsOnSignedBindings =
     )
     "missing impl method body 'C::m'"
 
+testSourcePreservesInferredEqualityConstraintsOnSignedBindings :: IO ()
+testSourcePreservesInferredEqualityConstraintsOnSignedBindings =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class Eq(a) { }.\n"
+        <> "class C(a) { }.\n"
+        <> "impl C(Bool) { }.\n"
+        <> "same :: @{C(a)}: a -> a -> Bool.\n"
+        <> "same = \\(x) -> \\(y) -> x == y.\n"
+        <> "result = same True False."
+    )
+    "missing impl fact 'Eq(Bool)'"
+
 testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion :: IO ()
 testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion =
   assertSourceOkWithoutPrelude
@@ -1255,6 +1269,14 @@ testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion =
         <> "right = if False \\(x) -> C::m x else left.\n"
         <> "intResult = left 1.\n"
         <> "boolResult = right True."
+    )
+
+testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem :: IO ()
+testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem =
+  assertSourceOkWithoutPrelude
+    ( "class C(a) {\nm :: a -> Bool.\n}.\n"
+        <> "impl C(Int) {\nm = \\(x) -> True.\n}.\n"
+        <> "result = (\\(x) -> C::m x) 1."
     )
 
 testSourceRejectsNonTargetQualifiedMethodExactMatch :: IO ()
