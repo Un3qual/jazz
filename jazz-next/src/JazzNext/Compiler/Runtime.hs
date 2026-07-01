@@ -1629,6 +1629,8 @@ runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
   case runtimeValue of
     VTyped typeHint _ ->
       typeHint == signatureType
+    VClosure _ _ _ (Just typeHint) _ ->
+      typeHint == signatureType
     VInt _ metadata ->
       case signatureType of
         ConstraintTypeName typeName ->
@@ -2303,10 +2305,18 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
       Left (runtimeCallableEqualityDiagnostic operatorSymbol leftValue rightValue)
   | otherwise =
   case (operatorSymbol, leftValue, rightValue) of
-    (_, VTyped _ leftInnerValue, _) ->
-      evalBinary builtinMode bindingTypeHints operatorSymbol leftInnerValue rightValue
-    (_, _, VTyped _ rightInnerValue) ->
-      evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightInnerValue
+    (_, VTyped leftTypeHint leftInnerValue, _)
+      | isStrictEqualityOperator operatorSymbol,
+        runtimeTypeHintRequiresStructuralEquality leftTypeHint ->
+          evalStructuralEquality operatorSymbol leftValue rightValue
+      | otherwise ->
+          evalBinary builtinMode bindingTypeHints operatorSymbol leftInnerValue rightValue
+    (_, _, VTyped rightTypeHint rightInnerValue)
+      | isStrictEqualityOperator operatorSymbol,
+        runtimeTypeHintRequiresStructuralEquality rightTypeHint ->
+          evalStructuralEquality operatorSymbol leftValue rightValue
+      | otherwise ->
+          evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightInnerValue
     ("+", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       evalIntegerArithmetic "+" leftMetadata rightMetadata (leftInt + rightInt)
     ("-", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
@@ -2445,6 +2455,14 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
 isStrictEqualityOperator :: Text -> Bool
 isStrictEqualityOperator operatorSymbol =
   operatorSymbol == "==" || operatorSymbol == "!="
+
+runtimeTypeHintRequiresStructuralEquality :: ConstraintSignatureType -> Bool
+runtimeTypeHintRequiresStructuralEquality signatureType =
+  case signatureType of
+    ConstraintTypeApplication {} -> True
+    ConstraintTypeList {} -> True
+    ConstraintTypeTuple {} -> True
+    _ -> False
 
 runtimeCallableEqualityDiagnostic :: Text -> RuntimeValue -> RuntimeValue -> Diagnostic
 runtimeCallableEqualityDiagnostic operatorSymbol leftValue rightValue =

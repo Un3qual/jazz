@@ -152,6 +152,7 @@ tests =
     ("structural tuple equality evaluates at runtime", testStructuralTupleEqualityRuntimeSuccess),
     ("structural ADT equality evaluates at runtime", testStructuralAdtEqualityRuntimeSuccess),
     ("structural ADT equality sees through runtime type hints", testStructuralAdtEqualitySeesThroughRuntimeTypeHints),
+    ("structural ADT equality preserves incompatible runtime type hints", testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints),
     ("runtime fallback rejects direct callable equality", testRuntimeFallbackRejectsDirectCallableEquality),
     ("runtime fallback rejects direct callable inequality", testRuntimeFallbackRejectsDirectCallableInequality),
     ("runtime fallback rejects mixed targeted integer equality", testRuntimeFallbackRejectsMixedTargetedIntegerEquality),
@@ -187,6 +188,7 @@ tests =
     ("qualified method dispatch prefers Int alias body for typed Int values", testQualifiedMethodDispatchPrefersIntAliasBody),
     ("qualified method dispatch prefers list alias body for typed list values", testQualifiedMethodDispatchPrefersListAliasBody),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
+    ("qualified method dispatch preserves higher-order exact signatures", testQualifiedMethodDispatchPreservesHigherOrderExactSignature),
     ("qualified method dispatch defers exact filtering until target argument", testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument),
     ("qualified method dispatch preserves selected method signatures", testQualifiedMethodDispatchPreservesSelectedMethodSignature),
     ("qualified method dispatch applies typed callable argument hints", testQualifiedMethodDispatchAppliesTypedCallableArgumentHint),
@@ -1172,6 +1174,25 @@ testStructuralAdtEqualitySeesThroughRuntimeTypeHints = do
           )
   assertEqual "typed ADT structural equality runtime result" (Right (Just (VBool True))) result
 
+testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints :: IO ()
+testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          ( Map.fromList
+              [ (bindingRuntimeHintKey "left" (SourceSpan 2 1), ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"]),
+                (bindingRuntimeHintKey "right" (SourceSpan 3 1), ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt16"])
+              ]
+          )
+          ( EBlock
+              [ SData (SourceSpan 1 1) "Tag" ["a"] [DataConstructor "Tag" []],
+                SLet "left" (SourceSpan 2 1) (EVar "Tag"),
+                SLet "right" (SourceSpan 3 1) (EVar "Tag"),
+                SExpr (SourceSpan 4 1) (EBinary "==" (EVar "left") (EVar "right"))
+              ]
+          )
+  assertEqual "incompatible typed ADT structural equality runtime result" (Right (Just (VBool False))) result
+
 testRuntimeFallbackRejectsDirectCallableEquality :: IO ()
 testRuntimeFallbackRejectsDirectCallableEquality = do
   assertCallableRuntimeEqualityRejected
@@ -1649,6 +1670,21 @@ testQualifiedMethodDispatchPreservesHigherOrderBindingSignature = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesHigherOrderExactSignature :: IO ()
+testQualifiedMethodDispatchPreservesHigherOrderExactSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(Int64) {\napply = \\(fn) -> False.\n}.\n"
+          <> "id64 :: Int64 -> Int64.\nid64 = \\(value) -> value.\n"
+          <> "RuntimeApply::apply id64."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
 
 testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument :: IO ()
 testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument = do
