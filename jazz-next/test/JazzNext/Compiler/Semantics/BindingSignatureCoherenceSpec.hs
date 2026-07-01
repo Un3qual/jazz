@@ -80,6 +80,9 @@ tests =
     ("source pipeline preserves inferred method constraints across mutual recursion", testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion),
     ("source pipeline resolves concrete inferred method obligations before dropping them", testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem),
     ("source pipeline resolves concrete inferred equality obligations before dropping them", testSourceResolvesConcreteInferredEqualityObligationsBeforeDroppingThem),
+    ("source pipeline checks inferred method obligations on expression statements", testSourceChecksInferredMethodObligationsOnExpressionStatements),
+    ("source pipeline checks inferred equality obligations on expression statements", testSourceChecksInferredEqualityObligationsOnExpressionStatements),
+    ("source pipeline checks inferred method obligations on monomorphic signed bindings", testSourceChecksInferredMethodObligationsOnMonomorphicSignedBindings),
     ("source pipeline rejects exact matches from non-target qualified method arguments", testSourceRejectsNonTargetQualifiedMethodExactMatch),
     ("source pipeline rejects callable equality before inferred class obligations", testSourceRejectsCallableEqualityBeforeInferredClassObligations),
     ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse),
@@ -1289,6 +1292,34 @@ testSourceResolvesConcreteInferredEqualityObligationsBeforeDroppingThem =
     )
     "missing impl fact 'Eq(Bool)'"
 
+testSourceChecksInferredMethodObligationsOnExpressionStatements :: IO ()
+testSourceChecksInferredMethodObligationsOnExpressionStatements =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class C(a) {\nm :: a -> Bool.\n}.\n"
+        <> "impl C(Int) { }.\n"
+        <> "(\\(x) -> C::m x) 1."
+    )
+    "missing impl method body 'C::m'"
+
+testSourceChecksInferredEqualityObligationsOnExpressionStatements :: IO ()
+testSourceChecksInferredEqualityObligationsOnExpressionStatements =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class Eq(a) { }.\n"
+        <> "impl Eq(Int) { }.\n"
+        <> "(\\(x) -> x == x) True."
+    )
+    "missing impl fact 'Eq(Bool)'"
+
+testSourceChecksInferredMethodObligationsOnMonomorphicSignedBindings :: IO ()
+testSourceChecksInferredMethodObligationsOnMonomorphicSignedBindings =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class C(a) {\nm :: a -> Bool.\n}.\n"
+        <> "impl C(Int) { }.\n"
+        <> "result :: Bool.\n"
+        <> "result = (\\(x) -> C::m x) 1."
+    )
+    "missing impl method body 'C::m'"
+
 testSourceRejectsNonTargetQualifiedMethodExactMatch :: IO ()
 testSourceRejectsNonTargetQualifiedMethodExactMatch =
   assertSourceSingleErrorContainsWithoutPrelude
@@ -1323,13 +1354,13 @@ testSourceKeepsLaterRebindingOverRecursiveScheme :: IO ()
 testSourceKeepsLaterRebindingOverRecursiveScheme =
   assertSourceSingleErrorContains
     "left = if True \\(x) -> x else right.\nright = if False \\(x) -> x else left.\nleft = \\(x) -> x + 1.\nbad = left True."
-    "cannot apply function of type Int -> Int to argument of type Bool"
+    "cannot apply function of type Int64 -> Int64 to argument of type Bool"
 
 testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember :: IO ()
 testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember =
   assertSourceSingleErrorContains
     "left = if True \\(x) -> x else right.\nbad = left True.\nright = \\(x) -> left (x + 1)."
-    "cannot apply function of type Int -> Int to argument of type Bool"
+    "cannot apply function of type Int64 -> Int64 to argument of type Bool"
 
 testSourceTypesRecursiveGuardsAgainstPriorRebinding :: IO ()
 testSourceTypesRecursiveGuardsAgainstPriorRebinding =

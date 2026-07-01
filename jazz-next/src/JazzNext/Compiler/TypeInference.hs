@@ -1330,27 +1330,28 @@ inferScopeType builtinMode initialEnv initialState statements =
                         Just (resolveType stateAfterExplicitConstraintCheck (pendingSignatureDeclaredType pendingSignature))
                       _ ->
                         fmap
-                          (defaultLiteralTypes . resolveType stateAfterExplicitConstraintCheck)
+                          (defaultBindingLiteralTypes . resolveType stateAfterExplicitConstraintCheck)
                           (Map.lookup statementIndex bindingSeedsByStatement)
                   generalizationEnv =
                     generalizationEnvForStatement statementIndex envForStatement
-                  stateAfterDroppedInferredMethodCheck =
+                  droppedInferredSchemeVariables =
                     case (matchingPendingSignature, nextBindingType) of
                       (Just pendingSignature, Just _)
                         | shouldGeneralizeExplicitSignatureBinding generalizationEnv valueExpr pendingSignature ->
-                            addUnpreservedInferredMethodConstraintErrors
-                              bindingSpan
-                              stateForStatement
-                              stateAfterExplicitConstraintCheck
-                              (explicitBindingSchemeVariables generalizationEnv stateAfterExplicitConstraintCheck pendingSignature)
+                            explicitBindingSchemeVariables generalizationEnv stateAfterExplicitConstraintCheck pendingSignature
                       (_, Just inferredType)
                         | shouldGeneralizeOrdinaryBinding statementIndex generalizationEnv valueExpr matchingPendingSignature ->
-                            addUnpreservedInferredMethodConstraintErrors
-                              bindingSpan
-                              stateForStatement
-                              stateAfterExplicitConstraintCheck
-                              (ordinaryBindingSchemeVariables generalizationEnv stateAfterExplicitConstraintCheck inferredType)
-                      _ -> stateAfterExplicitConstraintCheck
+                            ordinaryBindingSchemeVariables generalizationEnv stateAfterExplicitConstraintCheck inferredType
+                      _ -> Set.empty
+                  stateAfterDroppedInferredMethodCheck =
+                    case nextBindingType of
+                      Just _ ->
+                        addUnpreservedInferredMethodConstraintErrors
+                          bindingSpan
+                          stateForStatement
+                          stateAfterExplicitConstraintCheck
+                          droppedInferredSchemeVariables
+                      Nothing -> stateAfterExplicitConstraintCheck
                   stateAfterRuntimeHint =
                     case nextBindingType >>= runtimeHintFromExpressionType stateAfterDroppedInferredMethodCheck of
                       Just runtimeHint ->
@@ -1389,7 +1390,16 @@ inferScopeType builtinMode initialEnv initialState statements =
                       exprSpan
                       stateForStatement
                       stateAfterExpr
-               in go env exprType Nothing pendingSignaturesByStatement moduleBaselineFacts stateAfterExplicitConstraintCheck rest
+                  stateAfterDroppedInferredMethodCheck =
+                    case exprType of
+                      Just _ ->
+                        addUnpreservedInferredMethodConstraintErrors
+                          exprSpan
+                          stateForStatement
+                          stateAfterExplicitConstraintCheck
+                          Set.empty
+                      Nothing -> stateAfterExplicitConstraintCheck
+               in go env exprType Nothing pendingSignaturesByStatement moduleBaselineFacts stateAfterDroppedInferredMethodCheck rest
 
     nextBindingForValue ::
       Int ->
@@ -2123,7 +2133,7 @@ isDirectConstructorAlias env expr =
 
 generalizedOrdinaryBinding :: TypeEnv -> InferState -> ExpressionType -> TypeBinding
 generalizedOrdinaryBinding env state expressionType =
-  let resolvedType = defaultLiteralTypes (resolveType state expressionType)
+  let resolvedType = defaultBindingLiteralTypes (resolveType state expressionType)
       schemeVariables = ordinaryBindingSchemeVariables env state expressionType
       inferredClassConstraints = typeSchemeInferredClassConstraints state schemeVariables
       primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
@@ -2136,7 +2146,7 @@ generalizedOrdinaryBinding env state expressionType =
 
 ordinaryBindingSchemeVariables :: TypeEnv -> InferState -> ExpressionType -> Set Int
 ordinaryBindingSchemeVariables env state expressionType =
-  let resolvedType = defaultLiteralTypes (resolveType state expressionType)
+  let resolvedType = defaultBindingLiteralTypes (resolveType state expressionType)
       freeVariables = freeTypeVariables resolvedType
       environmentVariables = freeTypeVariablesInEnv state env
       quantifiedVariables = Set.difference freeVariables environmentVariables
@@ -2153,7 +2163,11 @@ addUnpreservedInferredMethodConstraintErrors ::
 addUnpreservedInferredMethodConstraintErrors spanValue statementStartState state schemeVariables =
   foldl'
     addUnpreservedClassConstraintError
-    (foldl' addUnpreservedMethodError state droppedMethodKeys)
+    ( foldl'
+        addUnpreservedMethodError
+        (foldl' addUnpreservedConcreteMethodConstraintError state droppedConcreteMethodConstraints)
+        droppedAmbiguousMethodKeys
+    )
     droppedClassConstraints
   where
     droppedClassConstraints =
@@ -2165,13 +2179,27 @@ addUnpreservedInferredMethodConstraintErrors spanValue statementStartState state
             inferredConstraintTargetConcrete state argumentType
         ]
 
-    droppedMethodKeys =
+    droppedMethodConstraints =
+      dedupeTypeSchemeConstraints
+        [ TypeSchemeMethodConstraint constraintName methodKey argumentType
+          | TypeSchemeMethodConstraint constraintName methodKey argumentType <-
+              newInferredClassConstraints statementStartState state,
+            not (inferredConstraintTargetPreserved state schemeVariables argumentType),
+            not (concreteInferredMethodConstraintSatisfied state constraintName methodKey argumentType)
+        ]
+
+    droppedConcreteMethodConstraints =
+      [ methodConstraint
+        | methodConstraint@(TypeSchemeMethodConstraint _ _ argumentType) <- droppedMethodConstraints,
+          inferredConstraintTargetConcrete state argumentType
+      ]
+
+    droppedAmbiguousMethodKeys =
       Set.toList
         ( Set.fromList
             [ methodKey
-              | TypeSchemeMethodConstraint constraintName methodKey argumentType <- newInferredClassConstraints statementStartState state,
-                not (inferredConstraintTargetPreserved state schemeVariables argumentType),
-                not (concreteInferredMethodConstraintSatisfied state constraintName methodKey argumentType)
+              | TypeSchemeMethodConstraint _ methodKey argumentType <- droppedMethodConstraints,
+                not (inferredConstraintTargetConcrete state argumentType)
             ]
         )
 
@@ -2179,6 +2207,15 @@ addUnpreservedInferredMethodConstraintErrors spanValue statementStartState state
       addTypeError
         stateAcc
         (setDiagnosticPrimarySpan spanValue (mkAmbiguousQualifiedMethodBodyError methodKey))
+
+    addUnpreservedConcreteMethodConstraintError stateAcc constraint =
+      annotateNewErrorsWithPrimarySpan
+        spanValue
+        stateAcc
+        ( resolveDeferredExplicitConstraint
+            stateAcc
+            (typeSchemeConstraintToDeferredExplicitConstraint (capabilityFactsFromState state) constraint)
+        )
 
     addUnpreservedClassConstraintError stateAcc constraint =
       annotateNewErrorsWithPrimarySpan
@@ -3896,6 +3933,18 @@ defaultLiteralTypes expressionType =
     TFunctionType inputType outputType ->
       TFunctionType (defaultLiteralTypes inputType) (defaultLiteralTypes outputType)
     _ -> expressionType
+
+defaultBindingLiteralTypes :: ExpressionType -> ExpressionType
+defaultBindingLiteralTypes expressionType =
+  case expressionType of
+    TIntegerLiteralType {} -> TNumericType NumericInt64
+    TListType elementType -> TListType (defaultBindingLiteralTypes elementType)
+    TTupleType elementTypes -> TTupleType (map defaultBindingLiteralTypes elementTypes)
+    TDataType typeName typeArguments ->
+      TDataType typeName (map defaultBindingLiteralTypes typeArguments)
+    TFunctionType inputType outputType ->
+      TFunctionType (defaultBindingLiteralTypes inputType) (defaultBindingLiteralTypes outputType)
+    _ -> defaultLiteralTypes expressionType
 
 runtimeHintFromExpressionType :: InferState -> ExpressionType -> Maybe ConstraintSignatureType
 runtimeHintFromExpressionType state expressionType =

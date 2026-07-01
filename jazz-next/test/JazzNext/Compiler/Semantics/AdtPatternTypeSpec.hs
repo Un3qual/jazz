@@ -678,7 +678,7 @@ testSourcePipelineTypesConsLikeTailBinders = do
     (compileErrors result)
   assertSingleDiagnosticContains
     "cons-like tail binder type error text"
-    "cannot apply operator '+' to operands of type [Int] and Int"
+    "cannot apply operator '+' to operands of type [Int64] and Int"
     (compileErrors result)
 
 testSourcePipelineRejectsConsLikeListPatternScrutineeMismatch :: IO ()
@@ -707,7 +707,7 @@ testSourcePipelineTypesTuplePatternBinders = do
     (compileErrors result)
   assertSingleDiagnosticContains
     "tuple pattern binder type error text"
-    "cannot apply operator '+' to operands of type Int and Bool"
+    "cannot apply operator '+' to operands of type Int64 and Bool"
     (compileErrors result)
 
 testSourcePipelineRejectsTuplePatternScrutineeMismatch :: IO ()
