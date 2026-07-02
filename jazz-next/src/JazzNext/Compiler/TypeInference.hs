@@ -1325,7 +1325,7 @@ numericSectionCounterpartType sectionOperandType state =
 inferScopeType :: BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType builtinMode initialEnv initialState statements =
   let (scopeType, finalState) =
-        go initialEnv Nothing Nothing Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
+        go initialEnv Nothing Nothing Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
    in (scopeType, restoreCapabilityFacts initialState finalState)
   where
     indexedStatements = zip [0 ..] statements
@@ -1343,31 +1343,31 @@ inferScopeType builtinMode initialEnv initialState statements =
     stateAfterBindingSeeds = seededState
     initialModuleBaselineFacts = capabilityFactsFromState initialState
 
-    go env lastExprType pendingSignatureType pendingSignaturesByStatement moduleBaselineFacts state remainingStatements =
+    go env lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts state remainingStatements =
       case remainingStatements of
         [] -> (lastExprType, state)
         (statementIndex, statement) : rest ->
           case statement of
             SModule _ modulePath ->
-              go env lastExprType pendingSignatureType pendingSignaturesByStatement moduleBaselineFacts (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
+              go env lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
             SImport _ modulePath maybeAlias maybeSymbolNames ->
-              go env lastExprType pendingSignatureType pendingSignaturesByStatement moduleBaselineFacts (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
+              go env lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
             SClass {} ->
               let nextState = seedStatementCapabilityFact state statement
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
-               in go env lastExprType Nothing pendingSignaturesByStatement nextModuleBaselineFacts nextState rest
+               in go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
             SImpl _ capabilityName arguments methods ->
               let seededState = seedStatementCapabilityFact state statement
                   nextState =
                     checkImplMethodBodies builtinMode env seededState capabilityName arguments methods
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
-               in go env lastExprType Nothing pendingSignaturesByStatement nextModuleBaselineFacts nextState rest
+               in go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
             SData spanValue typeName typeParameters constructors ->
               let (nextEnv, nextState) =
                     registerDataConstructors spanValue typeName typeParameters constructors env state
-               in go nextEnv lastExprType Nothing pendingSignaturesByStatement moduleBaselineFacts nextState rest
+               in go nextEnv lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
                     case signaturePayloadToSignatureType signaturePayload signatureState of
@@ -1388,11 +1388,13 @@ inferScopeType builtinMode initialEnv initialState statements =
                             (mkInvalidSignatureTypeError signatureState (identifierText name) signatureSpan signaturePayload)
                         )
                   signatureState = state
-               in go env lastExprType nextPendingSignature pendingSignaturesByStatement moduleBaselineFacts nextState rest
+               in go env lastExprType nextPendingSignature pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
             SLet name bindingSpan valueExpr ->
               let nameText = identifierText name
                   (envForStatement, stateForStatement) =
                     exposeVisibleRecursiveGroupSchemes statementIndex env state
+                  recursiveGroupStartStatesForStatement =
+                    rememberRecursiveGroupStart statementIndex stateForStatement recursiveGroupStartStates
                   matchingPendingSignature =
                     case pendingSignatureType of
                       Just pendingSignature
@@ -1555,13 +1557,14 @@ inferScopeType builtinMode initialEnv initialState statements =
                     case maybeNextBinding of
                       Just binding -> Map.insert nameText binding env
                       Nothing -> env
-                  nextEnv =
+                  (nextEnv, stateAfterRecursiveGroupPrune) =
                     generalizeCompletedRecursiveGroup
                       nextPendingSignaturesByStatement
                       statementIndex
                       nextEnvBeforeRecursiveGroupGeneralization
+                      recursiveGroupStartStatesForStatement
                       stateAfterCapturedConstraintPrune
-               in go nextEnv lastExprType Nothing nextPendingSignaturesByStatement moduleBaselineFacts stateAfterCapturedConstraintPrune rest
+               in go nextEnv lastExprType Nothing nextPendingSignaturesByStatement recursiveGroupStartStatesForStatement moduleBaselineFacts stateAfterRecursiveGroupPrune rest
             SExpr exprSpan expr ->
               let (envForStatement, stateForStatement) =
                     exposeVisibleRecursiveGroupSchemes statementIndex env state
@@ -1584,7 +1587,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                           resultType
                           Set.empty
                       Nothing -> stateAfterExplicitConstraintCheck
-               in go env exprType Nothing pendingSignaturesByStatement moduleBaselineFacts stateAfterDroppedInferredMethodCheck rest
+               in go env exprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts stateAfterDroppedInferredMethodCheck rest
 
     nextBindingForValue ::
       Int ->
@@ -1712,8 +1715,17 @@ inferScopeType builtinMode initialEnv initialState statements =
             Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement]
         ]
 
-    generalizeCompletedRecursiveGroup :: Map Int PendingSignatureType -> Int -> TypeEnv -> InferState -> TypeEnv
-    generalizeCompletedRecursiveGroup pendingSignatures statementIndex currentEnv state =
+    rememberRecursiveGroupStart :: Int -> InferState -> Map Int InferState -> Map Int InferState
+    rememberRecursiveGroupStart statementIndex state groupStartStates =
+      case Map.lookup statementIndex recursiveGroupsByStatement of
+        Just groupMembers
+          | not (null groupMembers),
+            statementIndex == head groupMembers ->
+              Map.insert (head groupMembers) state groupStartStates
+        _ -> groupStartStates
+
+    generalizeCompletedRecursiveGroup :: Map Int PendingSignatureType -> Int -> TypeEnv -> Map Int InferState -> InferState -> (TypeEnv, InferState)
+    generalizeCompletedRecursiveGroup pendingSignatures statementIndex currentEnv groupStartStates state =
       case Map.lookup statementIndex recursiveGroupsByStatement of
         Just groupMembers
           | not (null groupMembers),
@@ -1726,11 +1738,24 @@ inferScopeType builtinMode initialEnv initialState statements =
                       ]
                   envOutsideGroup =
                     foldl' (flip Map.delete) currentEnv groupBindingNames
-               in foldl'
-                    (generalizeRecursiveGroupMember pendingSignatures envOutsideGroup state)
-                    currentEnv
-                    groupMembers
-        _ -> currentEnv
+                  nextEnv =
+                    foldl'
+                      (generalizeRecursiveGroupMember pendingSignatures envOutsideGroup state)
+                      currentEnv
+                      groupMembers
+                  groupStartState =
+                    Map.findWithDefault state (head groupMembers) groupStartStates
+                  groupBindings =
+                    [ binding
+                      | memberIndex <- groupMembers,
+                        Just bindingName <- [Map.lookup memberIndex bindingNamesByStatement],
+                        Just binding <- [Map.lookup bindingName nextEnv]
+                    ]
+               in
+                ( nextEnv,
+                  pruneCapturedInferredClassConstraintsForBindings groupStartState groupBindings state
+                )
+        _ -> (currentEnv, state)
 
     exposeVisibleRecursiveGroupSchemes :: Int -> TypeEnv -> InferState -> (TypeEnv, InferState)
     exposeVisibleRecursiveGroupSchemes statementIndex currentEnv state =
@@ -2553,9 +2578,14 @@ generalizedExplicitSignatureBinding env state pendingSignature =
         else SchemeTypeBinding (TypeScheme schemeVariables schemeConstraints primitiveConstraints (typeSchemeDefiningFactsFromState state schemeConstraints) resolvedType)
 
 pruneCapturedInferredClassConstraints :: InferState -> TypeBinding -> InferState -> InferState
-pruneCapturedInferredClassConstraints statementStartState binding state =
-  case typeBindingScheme binding of
-    Just (TypeScheme _ schemeConstraints _ _ _) ->
+pruneCapturedInferredClassConstraints statementStartState binding =
+  pruneCapturedInferredClassConstraintsForBindings statementStartState [binding]
+
+pruneCapturedInferredClassConstraintsForBindings :: InferState -> [TypeBinding] -> InferState -> InferState
+pruneCapturedInferredClassConstraintsForBindings statementStartState bindings state =
+  if null capturedConstraints
+    then state
+    else
       state
         { inferInferredClassConstraints =
             filter
@@ -2563,20 +2593,21 @@ pruneCapturedInferredClassConstraints statementStartState binding state =
               statementConstraints
               ++ priorConstraints
         }
-      where
-        priorConstraintCount = length (inferInferredClassConstraints statementStartState)
-        currentConstraints = inferInferredClassConstraints state
-        statementConstraintCount = max 0 (length currentConstraints - priorConstraintCount)
-        statementConstraints = take statementConstraintCount currentConstraints
-        priorConstraints = drop statementConstraintCount currentConstraints
-        capturedConstraints =
-          [ resolveTypeSchemeConstraint state constraint
-            | constraint <- schemeConstraints,
-              typeSchemeConstraintIsInferred constraint
-          ]
-        capturedInScheme constraint =
-          constraint `elem` capturedConstraints
-    Nothing -> state
+  where
+    priorConstraintCount = length (inferInferredClassConstraints statementStartState)
+    currentConstraints = inferInferredClassConstraints state
+    statementConstraintCount = max 0 (length currentConstraints - priorConstraintCount)
+    statementConstraints = take statementConstraintCount currentConstraints
+    priorConstraints = drop statementConstraintCount currentConstraints
+    capturedConstraints =
+      [ resolveTypeSchemeConstraint state constraint
+        | binding <- bindings,
+          Just (TypeScheme _ schemeConstraints _ _ _) <- [typeBindingScheme binding],
+          constraint <- schemeConstraints,
+          typeSchemeConstraintIsInferred constraint
+      ]
+    capturedInScheme constraint =
+      constraint `elem` capturedConstraints
 
 typeBindingScheme :: TypeBinding -> Maybe TypeScheme
 typeBindingScheme binding =

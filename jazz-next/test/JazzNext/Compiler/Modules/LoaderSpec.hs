@@ -106,6 +106,7 @@ tests =
     ("run module graph retains local capabilities needed by inferred equality export", testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport),
     ("run module graph allows structural equality through hidden inferred equality export", testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport),
     ("run module graph keeps inferred equality export facts scoped to hidden capability", testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
+    ("run module graph keeps helper-only inferred equality hidden despite direct sibling import", testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImport),
     ("compile module graph keeps inferred equality export facts scoped to hidden capability", testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
     ("run module graph retains imported capability facts referenced by inferred export", testCompileModuleGraphRetainsImportedCapabilityFactsReferencedByInferredExport),
     ("compile module graph keeps sibling capability facts isolated", testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated),
@@ -1196,6 +1197,48 @@ testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
             "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\n" <> sameDefinition <> "\n}"
           )
         ]
+
+testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImport :: IO ()
+testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImport = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case runCompileErrors result of
+    [err] -> do
+      assertContains
+        "helper-only import hidden Eq impl error"
+        "missing impl fact"
+        (renderDiagnostic err)
+      assertContains
+        "helper-only import hidden Eq fact name"
+        "__module::Lib::Poly::Eq(Bool)"
+        (renderDiagnostic err)
+    errors ->
+      failTest
+        ( "expected exactly one hidden Eq compile error, got "
+            <> Text.pack (show (map renderDiagnostic errors))
+        )
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport App::Direct.\nimport App::HelperOnly.\nresult = helperResult.\nresult.\n}"
+          ),
+          ( "src/App/Direct.jz",
+            "module App::Direct {\nimport Lib::Poly (Eq).\ndirect = 0.\n}"
+          ),
+          ( "src/App/HelperOnly.jz",
+            "module App::HelperOnly {\nimport Lib::Poly (same).\nclass Eq(a) { }.\nimpl Eq(Bool) { }.\nhelperResult = same True.\n}"
+          ),
+          ( "src/Lib/Poly.jz",
+            "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\nsame = \\(x) -> x == x.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
 
 testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability :: IO ()
 testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability = do

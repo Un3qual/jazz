@@ -83,6 +83,7 @@ tests =
     ("source pipeline preserves literal-range deferred method constraints", testSourcePreservesLiteralRangeDeferredMethodConstraints),
     ("source pipeline rejects ambiguous literal-range deferred method constraints", testSourceRejectsAmbiguousLiteralRangeDeferredMethodConstraints),
     ("source pipeline keeps nested helper inferred method obligations scoped", testSourceKeepsNestedHelperInferredMethodObligationsScoped),
+    ("source pipeline keeps nested recursive helper inferred method obligations scoped", testSourceKeepsNestedRecursiveHelperInferredMethodObligationsScoped),
     ("source pipeline resolves concrete inferred equality obligations before dropping them", testSourceResolvesConcreteInferredEqualityObligationsBeforeDroppingThem),
     ("source pipeline checks inferred method obligations on expression statements", testSourceChecksInferredMethodObligationsOnExpressionStatements),
     ("source pipeline checks inferred equality obligations on expression statements", testSourceChecksInferredEqualityObligationsOnExpressionStatements),
@@ -1393,6 +1394,15 @@ testSourceKeepsNestedHelperInferredMethodObligationsScoped =
         <> "impl C(Int) {\nm = \\(x) -> True.\n}.\n"
         <> "x = { local = \\(y) -> C::m y. 1. }.\n"
         <> "x."
+    )
+
+testSourceKeepsNestedRecursiveHelperInferredMethodObligationsScoped :: IO ()
+testSourceKeepsNestedRecursiveHelperInferredMethodObligationsScoped =
+  assertSourceOkWithoutPrelude
+    ( "class C(a) {\nm :: a -> Bool.\n}.\n"
+        <> "impl C(Int) {\nm = \\(x) -> True.\n}.\n"
+        <> "outer = { f = if True \\(x) -> g x else g. g = if False \\(y) -> C::m y else f. 1. }.\n"
+        <> "outer."
     )
 
 testSourceResolvesConcreteInferredEqualityObligationsBeforeDroppingThem :: IO ()

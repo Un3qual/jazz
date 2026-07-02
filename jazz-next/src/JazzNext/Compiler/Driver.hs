@@ -732,6 +732,12 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
           loweredModules
           neededModuleExportsByModule
           neededVisibleImportCapabilityExportsByModule
+      hiddenLocalCapabilityExportsByModule =
+        collectHiddenLocalCapabilityExports
+          resolvedModules
+          loweredModules
+          neededModuleExportsByModule
+          neededVisibleImportCapabilityExportsByModule
       neededCapabilityExportsByModule =
         Map.unionWith Set.union
           neededVisibleImportCapabilityExportsByModule
@@ -745,6 +751,12 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
           neededCapabilityExportsByModule
       replayBridgeModuleExportsByModule =
         Map.unionWith Set.union neededModuleExportsByModule runtimeNeededModuleExportsByModule
+      runtimeHiddenLocalCapabilityExportsByModule =
+        collectHiddenLocalCapabilityExports
+          resolvedModules
+          loweredModules
+          runtimeNeededModuleExportsByModule
+          neededVisibleImportCapabilityExportsByModule
       loweredModulesWithVisibleImportReferences =
         map
           (rewriteVisibleImportReferences hiddenImportExportsByModule exportsByModule)
@@ -771,6 +783,10 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
         Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) runtimeNeededCapabilityExportsByModule
       directlyNeededModuleCapabilityExportsFor resolvedModule =
         Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) neededVisibleImportCapabilityExportsByModule
+      hiddenLocalCapabilityExportsFor resolvedModule =
+        Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) hiddenLocalCapabilityExportsByModule
+      runtimeHiddenLocalCapabilityExportsFor resolvedModule =
+        Map.findWithDefault Set.empty (resolvedModulePath resolvedModule) runtimeHiddenLocalCapabilityExportsByModule
    in
   ModuleGraphExpr
     { moduleGraphValidationExpr =
@@ -783,6 +799,7 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
                 (neededModuleExportsFor resolvedModule)
                 (neededModuleCapabilityExportsFor resolvedModule)
                 (directlyNeededModuleCapabilityExportsFor resolvedModule)
+                (hiddenLocalCapabilityExportsFor resolvedModule)
                 loweredModule
           )
           resolvedModules
@@ -797,6 +814,7 @@ buildModuleGraphExpr entryModulePath resolvedModules loweredModules =
                 (runtimeNeededModuleExportsFor resolvedModule)
                 (neededModuleCapabilityExportsFor resolvedModule)
                 (directlyNeededModuleCapabilityExportsFor resolvedModule)
+                (runtimeHiddenLocalCapabilityExportsFor resolvedModule)
                 loweredModule
           )
           resolvedModules
@@ -1489,8 +1507,33 @@ collectNeededLocalCapabilityExports resolvedModules loweredModules neededModuleE
         not (Set.null neededCapabilities)
     ]
 
+collectHiddenLocalCapabilityExports ::
+  [ResolvedModule] ->
+  [Expr] ->
+  Map [Text] (Set Text) ->
+  Map [Text] (Set Text) ->
+  Map [Text] (Set Text)
+collectHiddenLocalCapabilityExports resolvedModules loweredModules neededModuleExportsByModule directlyNeededCapabilityExportsByModule =
+  Map.fromList
+    [ (modulePath, hiddenCapabilities)
+      | (resolvedModule, loweredModule) <- zip resolvedModules loweredModules,
+        let modulePath = resolvedModulePath resolvedModule,
+        let neededExports = Map.findWithDefault Set.empty modulePath neededModuleExportsByModule,
+        let directlyNeededCapabilities = Map.findWithDefault Set.empty modulePath directlyNeededCapabilityExportsByModule,
+        let hiddenCapabilities = hiddenLocalCapabilityDependenciesForExports loweredModule neededExports directlyNeededCapabilities,
+        not (Set.null hiddenCapabilities)
+    ]
+
 localCapabilityDependenciesForExports :: Expr -> Set Text -> Set Text -> Set Text
 localCapabilityDependenciesForExports expr neededExports directlyNeededCapabilities =
+  localCapabilityDependenciesForExportsWithDirectRoots True expr neededExports directlyNeededCapabilities
+
+hiddenLocalCapabilityDependenciesForExports :: Expr -> Set Text -> Set Text -> Set Text
+hiddenLocalCapabilityDependenciesForExports expr neededExports directlyNeededCapabilities =
+  localCapabilityDependenciesForExportsWithDirectRoots False expr neededExports directlyNeededCapabilities
+
+localCapabilityDependenciesForExportsWithDirectRoots :: Bool -> Expr -> Set Text -> Set Text -> Set Text
+localCapabilityDependenciesForExportsWithDirectRoots includeDirectRoots expr neededExports directlyNeededCapabilities =
   case expr of
     EBlock statements ->
       closeLocalCapabilityDependencies statements localCapabilityNames directDependencies
@@ -1498,7 +1541,7 @@ localCapabilityDependenciesForExports expr neededExports directlyNeededCapabilit
         localCapabilityNames = collectTopLevelCapabilityNames expr
         directDependencies =
           Set.unions
-            [ directlyNeededCapabilities,
+            [ if includeDirectRoots then directlyNeededCapabilities else Set.empty,
               Set.unions
                 [ collectLocalCapabilityReferences localCapabilityNames valueExpr
                   | SLet bindingName _ valueExpr <- statements,
@@ -1864,8 +1907,8 @@ replayLoweredModules transformModule resolvedModules loweredModules =
         ]
     )
 
-stripModuleDeclarations :: [Text] -> Bool -> Set Text -> Set Text -> Set Text -> Set Text -> Expr -> Expr
-stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModuleExports neededCapabilityExports directlyNeededCapabilityExports expr =
+stripModuleDeclarations :: [Text] -> Bool -> Set Text -> Set Text -> Set Text -> Set Text -> Set Text -> Expr -> Expr
+stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModuleExports _neededCapabilityExports directlyNeededCapabilityExports hiddenCapabilityExports expr =
   case expr of
     EBlock statements ->
       EBlock (ensureModuleValidationBoundary (concatMap keepModuleValidationStatement statements))
@@ -1937,18 +1980,15 @@ stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModul
             typeParameters
             constructors
         SClass spanValue capabilityName parameters methods ->
-          [ SClass
-              spanValue
-              (validationReplayCapabilityName capabilityName)
-              parameters
-              (rewriteValidationReplayClassMethods methods)
+          [ SClass spanValue replayCapabilityName parameters replayMethods
+            | replayCapabilityName <- validationReplayCapabilityNames capabilityName,
+              let replayMethods = rewriteValidationReplayClassMethods methods
           ]
         SImpl spanValue capabilityName arguments methods ->
-          [ SImpl
-              spanValue
-              (validationReplayCapabilityName capabilityName)
-              (rewriteValidationReplayImplArguments arguments)
-              (rewriteValidationReplayImplMethods methods)
+          [ SImpl spanValue replayCapabilityName replayArguments replayMethods
+            | replayCapabilityName <- validationReplayCapabilityNames capabilityName,
+              let replayArguments = rewriteValidationReplayImplArguments arguments,
+              let replayMethods = rewriteValidationReplayImplMethods methods
           ]
         _ -> [statement]
     dataTypeNames = collectDataTypeNames expr
@@ -1959,7 +1999,7 @@ stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModul
     hiddenValidationCapabilities =
       if isEntryModule
         then Set.empty
-        else Set.difference neededCapabilityExports directlyNeededCapabilityExports
+        else hiddenCapabilityExports
 
     shouldQualifyOperatorBinding bindingName =
       Set.member (identifierText bindingName) replayedOperatorBindings
@@ -2013,14 +2053,26 @@ stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModul
     hiddenValidationIdentifier name =
       mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
 
-    validationReplayCapabilityName capabilityName =
+    validationReplayCapabilityNames capabilityName =
       let capabilityNameText = identifierText capabilityName
-       in if Set.member capabilityNameText hiddenValidationCapabilities
-            then mkIdentifier (moduleExportQualifiedName modulePath capabilityNameText)
-            else capabilityName
+          hiddenNames =
+            [ mkIdentifier (moduleExportQualifiedName modulePath capabilityNameText)
+              | Set.member capabilityNameText hiddenValidationCapabilities
+            ]
+          visibleNames =
+            [ capabilityName
+              | Set.notMember capabilityNameText hiddenValidationCapabilities
+                  || Set.member capabilityNameText directlyNeededCapabilityExports
+            ]
+       in hiddenNames ++ visibleNames
 
-stripModuleRuntimeReplayStatements :: [Text] -> Bool -> Set Text -> Set Text -> Set Text -> Set Text -> Expr -> Expr
-stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports neededModuleExports neededCapabilityExports directlyNeededCapabilityExports expr =
+    validationReplayCapabilityName capabilityName =
+      case validationReplayCapabilityNames capabilityName of
+        replayCapabilityName : _ -> replayCapabilityName
+        [] -> capabilityName
+
+stripModuleRuntimeReplayStatements :: [Text] -> Bool -> Set Text -> Set Text -> Set Text -> Set Text -> Set Text -> Expr -> Expr
+stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports neededModuleExports neededCapabilityExports directlyNeededCapabilityExports hiddenCapabilityExports expr =
   case expr of
     EBlock statements ->
       EBlock (ensureModuleRuntimeBoundary (concatMap keepModuleRuntimeReplayStatement statements))
@@ -2043,12 +2095,10 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
         SData spanValue typeName typeParameters constructors ->
           rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName typeParameters constructors
         SClass spanValue capabilityName parameters methods ->
-          [ SClass
-              spanValue
-              (runtimeReplayCapabilityName capabilityName)
-              parameters
-              (rewriteRuntimeReplayClassMethods methods)
-            | isEntryModule || Set.member (identifierText capabilityName) neededCapabilityExports
+          [ SClass spanValue replayCapabilityName parameters replayMethods
+            | isEntryModule || Set.member (identifierText capabilityName) neededCapabilityExports,
+              replayCapabilityName <- runtimeReplayCapabilityNames capabilityName,
+              let replayMethods = rewriteRuntimeReplayClassMethods methods
           ]
         SLet bindingName spanValue valueExpr
           | shouldQualifyOperatorBinding bindingName,
@@ -2095,12 +2145,11 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
               ]
         SSignature {} -> []
         SImpl spanValue capabilityName arguments methods ->
-          [ SImpl
-              spanValue
-              (runtimeReplayCapabilityName capabilityName)
-              (rewriteRuntimeReplayImplArguments arguments)
-              (rewriteRuntimeReplayImplMethods methods)
-            | isEntryModule || Set.member (identifierText capabilityName) neededCapabilityExports
+          [ SImpl spanValue replayCapabilityName replayArguments replayMethods
+            | isEntryModule || Set.member (identifierText capabilityName) neededCapabilityExports,
+              replayCapabilityName <- runtimeReplayCapabilityNames capabilityName,
+              let replayArguments = rewriteRuntimeReplayImplArguments arguments,
+              let replayMethods = rewriteRuntimeReplayImplMethods methods
           ]
         _ | isHiddenImportExportStatement hiddenImportExports statement -> []
         _ -> [statement]
@@ -2108,7 +2157,7 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
     hiddenRuntimeCapabilities =
       if isEntryModule
         then Set.empty
-        else Set.difference neededCapabilityExports directlyNeededCapabilityExports
+        else hiddenCapabilityExports
     replayedOperatorBindings =
       if isEntryModule
         then Set.empty
@@ -2132,11 +2181,23 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
     hiddenValidationIdentifier name =
       mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
 
-    runtimeReplayCapabilityName capabilityName =
+    runtimeReplayCapabilityNames capabilityName =
       let capabilityNameText = identifierText capabilityName
-       in if Set.member capabilityNameText hiddenRuntimeCapabilities
-            then mkIdentifier (moduleExportQualifiedName modulePath capabilityNameText)
-            else capabilityName
+          hiddenNames =
+            [ mkIdentifier (moduleExportQualifiedName modulePath capabilityNameText)
+              | Set.member capabilityNameText hiddenRuntimeCapabilities
+            ]
+          visibleNames =
+            [ capabilityName
+              | Set.notMember capabilityNameText hiddenRuntimeCapabilities
+                  || Set.member capabilityNameText directlyNeededCapabilityExports
+            ]
+       in hiddenNames ++ visibleNames
+
+    runtimeReplayCapabilityName capabilityName =
+      case runtimeReplayCapabilityNames capabilityName of
+        replayCapabilityName : _ -> replayCapabilityName
+        [] -> capabilityName
 
     rewriteRuntimeReplayClassMethods methods =
       [ ClassMethodSignature methodName methodSpan (rewriteRuntimeReplaySignaturePayload methodSignature)
