@@ -1608,7 +1608,7 @@ inferScopeType builtinMode initialEnv initialState statements =
               | isNothing maybePendingSignature,
                 builtinOperatorAliasSymbol operatorSymbol ->
                   Just (operatorAliasBinding operatorSymbol monomorphicBinding)
-            _
+            EApply _ _
               | isNothing maybePendingSignature,
                 Just (operatorSymbol, maybeAliasScheme) <- builtinOperatorSymbolExpr currentEnv valueExpr ->
                   Just (operatorAliasBinding operatorSymbol (SchemeTypeBinding <$> maybeAliasScheme))
