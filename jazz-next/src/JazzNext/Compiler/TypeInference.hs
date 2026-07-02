@@ -673,7 +673,7 @@ applicationSpine expr =
 
 builtinOperatorApplicationSpine :: TypeEnv -> Expr -> Maybe (Text, Maybe TypeScheme, Expr, Expr)
 builtinOperatorApplicationSpine env expr =
-  case dollarAppliedBuiltinOperatorSectionApplication expr of
+  case dollarAppliedBuiltinOperatorSectionApplication env expr of
     Just (operatorSymbol, leftExpr, rightExpr) ->
       Just (operatorSymbol, Nothing, leftExpr, rightExpr)
     Nothing ->
@@ -685,11 +685,12 @@ builtinOperatorApplicationSpine env expr =
             Nothing -> Nothing
         _ -> Nothing
 
-dollarAppliedBuiltinOperatorSectionApplication :: Expr -> Maybe (Text, Expr, Expr)
-dollarAppliedBuiltinOperatorSectionApplication expr =
+dollarAppliedBuiltinOperatorSectionApplication :: TypeEnv -> Expr -> Maybe (Text, Expr, Expr)
+dollarAppliedBuiltinOperatorSectionApplication env expr =
   case expr of
-    EApply (EApply (EOperatorValue "$") sectionExpr) argumentExpr ->
-      builtinOperatorSectionApplication (EApply sectionExpr argumentExpr)
+    EApply (EApply dollarExpr sectionExpr) argumentExpr
+      | builtinDollarOperatorExpr env dollarExpr ->
+          builtinOperatorSectionApplication (EApply sectionExpr argumentExpr)
     _ -> Nothing
 
 builtinOperatorSectionApplication :: Expr -> Maybe (Text, Expr, Expr)
@@ -716,8 +717,9 @@ builtinOperatorSymbolExpr env expr =
     EOperatorValue operatorSymbol
       | isBuiltinOperatorSymbol operatorSymbol ->
           Just (operatorSymbol, Nothing)
-    EApply (EOperatorValue "$") operatorExpr ->
-      builtinOperatorSymbolExpr env operatorExpr
+    EApply dollarExpr operatorExpr
+      | builtinDollarOperatorExpr env dollarExpr ->
+          builtinOperatorSymbolExpr env operatorExpr
     EVar name ->
       case Map.lookup (identifierText name) env of
         Just (BuiltinOperatorAliasTypeBinding operatorSymbol) -> Just (operatorSymbol, Nothing)
@@ -725,11 +727,23 @@ builtinOperatorSymbolExpr env expr =
         _ -> Nothing
     _ -> Nothing
 
+builtinDollarOperatorExpr :: TypeEnv -> Expr -> Bool
+builtinDollarOperatorExpr env expr =
+  case expr of
+    EOperatorValue "$" -> True
+    EVar name ->
+      case Map.lookup (identifierText name) env of
+        Just (BuiltinOperatorAliasTypeBinding "$") -> True
+        Just (OperatorAliasSchemeTypeBinding "$" _) -> True
+        _ -> False
+    _ -> False
+
 builtinOperatorAliasSymbol :: Text -> Bool
 builtinOperatorAliasSymbol operatorSymbol =
   case lookupOperatorRule operatorSymbol of
     Just (NumericRule _) -> True
     Just StrictEqualityRule -> True
+    Just ApplicationRule -> True
     _ -> False
 
 applyOperatorAliasSchemeConstraints :: Text -> TypeScheme -> ExpressionType -> ExpressionType -> InferState -> InferState
@@ -3055,6 +3069,10 @@ resolveDeferredExplicitConstraint state (DeferredExplicitConstraint constraintNa
                           filter
                             (\argumentHint -> concreteImplMethodBodyExists methodKey argumentHint facts)
                             implFactHints
+                        ambiguousMethodBodyHints methodKey =
+                          inferredConstraint
+                            && expressionTypeContainsUncommittedIntegerLiteral unresolvedArgumentType
+                            && length (methodBodyHints methodKey) > 1
                         renderedImplFactKey =
                           constraintName <> "(" <> renderConstraintSignatureType (head argumentHints) <> ")"
                      in case maybeMethodKey of
@@ -3069,10 +3087,27 @@ resolveDeferredExplicitConstraint state (DeferredExplicitConstraint constraintNa
                           Just methodKey
                             | null implFactHints ->
                                 addTypeError state (mkMissingExplicitConstraintImplFactError renderedImplFactKey)
+                            | ambiguousMethodBodyHints methodKey ->
+                                addTypeError state (mkAmbiguousQualifiedMethodBodyError methodKey)
                             | not (null (methodBodyHints methodKey)) ->
                                 state
                             | otherwise ->
                                 addTypeError state (mkMissingImplMethodBodyError methodKey)
+
+expressionTypeContainsUncommittedIntegerLiteral :: ExpressionType -> Bool
+expressionTypeContainsUncommittedIntegerLiteral expressionType =
+  case expressionType of
+    TIntegerLiteralType {} -> True
+    TListType elementType ->
+      expressionTypeContainsUncommittedIntegerLiteral elementType
+    TTupleType elementTypes ->
+      any expressionTypeContainsUncommittedIntegerLiteral elementTypes
+    TDataType _ typeArguments ->
+      any expressionTypeContainsUncommittedIntegerLiteral typeArguments
+    TFunctionType argumentType resultType ->
+      expressionTypeContainsUncommittedIntegerLiteral argumentType
+        || expressionTypeContainsUncommittedIntegerLiteral resultType
+    _ -> False
 
 constraintRuntimeHintsForDeferred ::
   ScopeCapabilityFacts ->
@@ -3407,10 +3442,27 @@ constraintSignatureExpressionHasExactEvidence env signatureType argumentExpr =
           and (zipWith (constraintSignatureExpressionHasExactEvidence env) elementTypes elements)
     (ConstraintTypeApplication typeName typeArguments, EApply {}) ->
       constructorApplicationExpressionHasExactEvidence env typeName typeArguments argumentExpr
+    (_, EApply {})
+      | constraintSignatureTypeContainsList signatureType -> False
     (_, EIf {}) -> False
     (_, ECase {}) -> False
     (_, EPatternCase {}) -> False
+    (_, EBlock {})
+      | constraintSignatureTypeContainsList signatureType -> False
     _ -> True
+
+constraintSignatureTypeContainsList :: ConstraintSignatureType -> Bool
+constraintSignatureTypeContainsList signatureType =
+  case signatureType of
+    ConstraintTypeList {} -> True
+    ConstraintTypeTuple elementTypes ->
+      any constraintSignatureTypeContainsList elementTypes
+    ConstraintTypeApplication _ typeArguments ->
+      any constraintSignatureTypeContainsList typeArguments
+    ConstraintTypeFunction argumentType resultType ->
+      constraintSignatureTypeContainsList argumentType
+        || constraintSignatureTypeContainsList resultType
+    ConstraintTypeName {} -> False
 
 constructorApplicationExpressionHasExactEvidence :: TypeEnv -> Identifier -> [ConstraintSignatureType] -> Expr -> Bool
 constructorApplicationExpressionHasExactEvidence env typeName typeArguments argumentExpr =

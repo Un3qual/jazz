@@ -81,6 +81,7 @@ tests =
     ("source pipeline resolves concrete inferred method obligations before dropping them", testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem),
     ("source pipeline resolves literal-range inferred method obligations before dropping them", testSourceResolvesLiteralRangeInferredMethodObligationsBeforeDroppingThem),
     ("source pipeline preserves literal-range deferred method constraints", testSourcePreservesLiteralRangeDeferredMethodConstraints),
+    ("source pipeline rejects ambiguous literal-range deferred method constraints", testSourceRejectsAmbiguousLiteralRangeDeferredMethodConstraints),
     ("source pipeline keeps nested helper inferred method obligations scoped", testSourceKeepsNestedHelperInferredMethodObligationsScoped),
     ("source pipeline resolves concrete inferred equality obligations before dropping them", testSourceResolvesConcreteInferredEqualityObligationsBeforeDroppingThem),
     ("source pipeline checks inferred method obligations on expression statements", testSourceChecksInferredMethodObligationsOnExpressionStatements),
@@ -104,6 +105,8 @@ tests =
     ("source pipeline rejects nested empty-list exact qualified method selection", testSourceRejectsNestedEmptyListExactQualifiedMethodSelection),
     ("source pipeline rejects constructor-wrapped nested empty-list exact qualified method selection", testSourceRejectsConstructorWrappedNestedEmptyListExactQualifiedMethodSelection),
     ("source pipeline rejects opaque nested empty-list exact qualified method selection", testSourceRejectsOpaqueNestedEmptyListExactQualifiedMethodSelection),
+    ("source pipeline rejects opaque list application exact qualified method selection", testSourceRejectsOpaqueListApplicationExactQualifiedMethodSelection),
+    ("source pipeline rejects block-produced nested empty-list exact qualified method selection", testSourceRejectsBlockProducedNestedEmptyListExactQualifiedMethodSelection),
     ("source pipeline rejects control-flow nested empty-list exact qualified method selection", testSourceRejectsControlFlowNestedEmptyListExactQualifiedMethodSelection),
     ("source pipeline selects qualified Float method body by argument types", testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float16 method body by argument types", testSourceSelectsQualifiedFloat16MethodBodyByArgumentTypes),
@@ -524,6 +527,27 @@ testSourceRejectsOpaqueNestedEmptyListExactQualifiedMethodSelection =
         <> "impl RuntimeFlag(Box([[Int64]])) {\nflag = \\(box) -> False.\n}.\n"
         <> "make = \\(values) -> Box values.\n"
         <> "(RuntimeFlag::flag) (make [[1], []])."
+    )
+    "ambiguous qualified method body 'RuntimeFlag::flag'"
+
+testSourceRejectsOpaqueListApplicationExactQualifiedMethodSelection :: IO ()
+testSourceRejectsOpaqueListApplicationExactQualifiedMethodSelection =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+        <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+        <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+        <> "make = \\(values) -> values.\n"
+        <> "(RuntimeFlag::flag) (make [[1], []])."
+    )
+    "ambiguous qualified method body 'RuntimeFlag::flag'"
+
+testSourceRejectsBlockProducedNestedEmptyListExactQualifiedMethodSelection :: IO ()
+testSourceRejectsBlockProducedNestedEmptyListExactQualifiedMethodSelection =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+        <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+        <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+        <> "(RuntimeFlag::flag) { values = [[1], []].\nvalues. }."
     )
     "ambiguous qualified method body 'RuntimeFlag::flag'"
 
@@ -1350,6 +1374,17 @@ testSourcePreservesLiteralRangeDeferredMethodConstraints =
         <> "f = \\(x) -> C::m x.\n"
         <> "result = f 1."
     )
+
+testSourceRejectsAmbiguousLiteralRangeDeferredMethodConstraints :: IO ()
+testSourceRejectsAmbiguousLiteralRangeDeferredMethodConstraints =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class C(a) {\nm :: a -> Bool.\n}.\n"
+        <> "impl C(Int8) {\nm = \\(x) -> True.\n}.\n"
+        <> "impl C(Int16) {\nm = \\(x) -> False.\n}.\n"
+        <> "f = \\(x) -> C::m x.\n"
+        <> "result = f 1."
+    )
+    "ambiguous qualified method body 'C::m'"
 
 testSourceKeepsNestedHelperInferredMethodObligationsScoped :: IO ()
 testSourceKeepsNestedHelperInferredMethodObligationsScoped =
