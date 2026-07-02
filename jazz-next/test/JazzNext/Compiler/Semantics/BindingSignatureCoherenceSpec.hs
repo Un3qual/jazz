@@ -20,9 +20,11 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
+    RunResult (..),
     compileExpr,
     compileSource,
-    compileSourceWithPrelude
+    compileSourceWithPrelude,
+    runSourceWithPrelude
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -80,9 +82,11 @@ tests =
     ("source pipeline preserves inferred method constraints across mutual recursion", testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion),
     ("source pipeline resolves concrete inferred method obligations before dropping them", testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem),
     ("source pipeline resolves literal-range inferred method obligations before dropping them", testSourceResolvesLiteralRangeInferredMethodObligationsBeforeDroppingThem),
+    ("source pipeline rejects ambiguous dropped literal-range method obligations", testSourceRejectsAmbiguousDroppedLiteralRangeMethodObligations),
     ("source pipeline preserves literal-range deferred method constraints", testSourcePreservesLiteralRangeDeferredMethodConstraints),
     ("source pipeline rejects ambiguous literal-range deferred method constraints", testSourceRejectsAmbiguousLiteralRangeDeferredMethodConstraints),
     ("source pipeline keeps nested helper inferred method obligations scoped", testSourceKeepsNestedHelperInferredMethodObligationsScoped),
+    ("source pipeline preserves outer-scope local inferred method obligations", testSourcePreservesOuterScopeLocalInferredMethodObligations),
     ("source pipeline keeps nested recursive helper inferred method obligations scoped", testSourceKeepsNestedRecursiveHelperInferredMethodObligationsScoped),
     ("source pipeline resolves concrete inferred equality obligations before dropping them", testSourceResolvesConcreteInferredEqualityObligationsBeforeDroppingThem),
     ("source pipeline checks inferred method obligations on expression statements", testSourceChecksInferredMethodObligationsOnExpressionStatements),
@@ -113,6 +117,7 @@ tests =
     ("source pipeline selects qualified Float16 method body by argument types", testSourceSelectsQualifiedFloat16MethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float32 method body by argument types", testSourceSelectsQualifiedFloat32MethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float64 method body by argument types", testSourceSelectsQualifiedFloat64MethodBodyByArgumentTypes),
+    ("source pipeline preserves Float alias hint across numeric operator dispatch", testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch),
     ("source pipeline selects qualified method body through prefix dollar", testSourceSelectsQualifiedMethodBodyThroughPrefixDollar),
     ("source pipeline accepts same-impl qualified method body references", testSourceAcceptsSameImplQualifiedMethodBodyReferences),
     ("source pipeline uses impl signatures while checking method bodies", testSourceUsesImplSignaturesWhileCheckingMethodBodies),
@@ -601,6 +606,23 @@ testSourceSelectsQualifiedFloat64MethodBodyByArgumentTypes =
         <> "right :: Float64.\nright = 2.25.\n"
         <> "result :: Bool.\nresult = Eq::equals left right.\nresult."
     )
+
+testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch :: IO ()
+testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch = do
+  result <-
+    runSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Float) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Float64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "left :: Float.\nleft = 1.5.\n"
+          <> "right :: Float.\nright = 2.25.\n"
+          <> "result :: Bool.\nresult = RuntimeFlag::flag (left + right).\nresult."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
 
 testSourceSelectsQualifiedMethodBodyThroughPrefixDollar :: IO ()
 testSourceSelectsQualifiedMethodBodyThroughPrefixDollar =
@@ -1367,6 +1389,16 @@ testSourceResolvesLiteralRangeInferredMethodObligationsBeforeDroppingThem =
         <> "result = (\\(x) -> C::m x) 1."
     )
 
+testSourceRejectsAmbiguousDroppedLiteralRangeMethodObligations :: IO ()
+testSourceRejectsAmbiguousDroppedLiteralRangeMethodObligations =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class C(a) {\nm :: a -> Bool.\n}.\n"
+        <> "impl C(Int8) {\nm = \\(x) -> True.\n}.\n"
+        <> "impl C(Int16) {\nm = \\(x) -> False.\n}.\n"
+        <> "result = (\\(x) -> C::m x) 1."
+    )
+    "ambiguous qualified method body 'C::m'"
+
 testSourcePreservesLiteralRangeDeferredMethodConstraints :: IO ()
 testSourcePreservesLiteralRangeDeferredMethodConstraints =
   assertSourceOkWithoutPrelude
@@ -1394,6 +1426,15 @@ testSourceKeepsNestedHelperInferredMethodObligationsScoped =
         <> "impl C(Int) {\nm = \\(x) -> True.\n}.\n"
         <> "x = { local = \\(y) -> C::m y. 1. }.\n"
         <> "x."
+    )
+
+testSourcePreservesOuterScopeLocalInferredMethodObligations :: IO ()
+testSourcePreservesOuterScopeLocalInferredMethodObligations =
+  assertSourceOkWithoutPrelude
+    ( "class C(a) {\nm :: a -> Bool.\n}.\n"
+        <> "impl C(Int) {\nm = \\(x) -> True.\n}.\n"
+        <> "outer = \\(x) -> { local = C::m x. 1. }.\n"
+        <> "result = outer 1."
     )
 
 testSourceKeepsNestedRecursiveHelperInferredMethodObligationsScoped :: IO ()

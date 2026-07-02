@@ -2469,6 +2469,7 @@ addUnpreservedInferredMethodConstraintErrors spanValue env statementStartState s
           | TypeSchemeMethodConstraint constraintName methodKey argumentType <-
               newInferredClassConstraints statementStartState state,
             not (inferredConstraintTargetPreserved state schemeVariables argumentType),
+            not (inferredConstraintTargetStillVisibleInEnv state env argumentType),
             not (concreteInferredMethodConstraintSatisfied state constraintName methodKey argumentType)
         ]
 
@@ -2556,7 +2557,23 @@ concreteInferredMethodConstraintSatisfied state constraintName methodKey argumen
   let resolvedArgumentType = resolveType state argumentType
       facts = capabilityFactsFromState state
    in Set.null (freeTypeVariables resolvedArgumentType)
-        && inferredConstraintSatisfiedByCandidate facts state constraintName (Just methodKey) resolvedArgumentType
+        && concreteInferredMethodConstraintHasUniqueCandidate facts state constraintName methodKey resolvedArgumentType
+
+concreteInferredMethodConstraintHasUniqueCandidate :: ScopeCapabilityFacts -> InferState -> Text -> Text -> ExpressionType -> Bool
+concreteInferredMethodConstraintHasUniqueCandidate facts state constraintName methodKey argumentType =
+  case satisfyingMethodHints of
+    [] -> False
+    [_] -> True
+    _
+      | expressionTypeContainsUncommittedIntegerLiteral argumentType -> False
+      | otherwise -> True
+  where
+    satisfyingMethodHints =
+      [ argumentHint
+        | argumentHint <- inferredConstraintCandidateRuntimeHints facts state (Just methodKey) argumentType,
+          concreteImplFactExists constraintName argumentHint facts,
+          concreteImplMethodBodyExists methodKey argumentHint facts
+      ]
 
 generalizedExplicitSignatureBinding ::
   TypeEnv ->
@@ -3163,16 +3180,6 @@ constraintImplFactExistsForDeferred facts inferredConstraint constraintName argu
     else Set.member implFactKey (scopeConcreteImplFacts facts)
   where
     implFactKey = constraintName <> "(" <> renderConstraintSignatureType argumentHint <> ")"
-
-inferredConstraintSatisfiedByCandidate :: ScopeCapabilityFacts -> InferState -> Text -> Maybe Text -> ExpressionType -> Bool
-inferredConstraintSatisfiedByCandidate facts state constraintName maybeMethodKey argumentType =
-  any candidateSatisfied (inferredConstraintCandidateRuntimeHints facts state maybeMethodKey argumentType)
-  where
-    candidateSatisfied argumentHint =
-      concreteImplFactExists constraintName argumentHint facts
-        && case maybeMethodKey of
-          Nothing -> True
-          Just methodKey -> concreteImplMethodBodyExists methodKey argumentHint facts
 
 inferredConstraintCandidateRuntimeHints :: ScopeCapabilityFacts -> InferState -> Maybe Text -> ExpressionType -> [ConstraintSignatureType]
 inferredConstraintCandidateRuntimeHints facts state maybeMethodKey argumentType =

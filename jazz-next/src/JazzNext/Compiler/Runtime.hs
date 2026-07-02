@@ -2362,13 +2362,15 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
         runtimeTypeHintRequiresStructuralEquality leftTypeHint ->
           evalStructuralEquality operatorSymbol leftValue rightValue
       | otherwise ->
-          evalBinary builtinMode bindingTypeHints operatorSymbol leftInnerValue rightValue
+          preserveTypedNumericOperatorResult operatorSymbol leftTypeHint
+            =<< evalBinary builtinMode bindingTypeHints operatorSymbol leftInnerValue rightValue
     (_, _, VTyped rightTypeHint rightInnerValue)
       | isStrictEqualityOperator operatorSymbol,
         runtimeTypeHintRequiresStructuralEquality rightTypeHint ->
           evalStructuralEquality operatorSymbol leftValue rightValue
       | otherwise ->
-          evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightInnerValue
+          preserveTypedNumericOperatorResult operatorSymbol rightTypeHint
+            =<< evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightInnerValue
     ("+", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       evalIntegerArithmetic "+" leftMetadata rightMetadata (leftInt + rightInt)
     ("-", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
@@ -2505,6 +2507,27 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
 isStrictEqualityOperator :: Text -> Bool
 isStrictEqualityOperator operatorSymbol =
   operatorSymbol == "==" || operatorSymbol == "!="
+
+preserveTypedNumericOperatorResult :: Text -> ConstraintSignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
+preserveTypedNumericOperatorResult operatorSymbol typeHint runtimeValue
+  | numericArithmeticOperator operatorSymbol,
+    numericAliasTypeHint typeHint,
+    runtimeValueMatchesConstraint typeHint runtimeValue =
+      applyRuntimeTypeHint typeHint runtimeValue
+  | otherwise =
+      Right runtimeValue
+
+numericArithmeticOperator :: Text -> Bool
+numericArithmeticOperator operatorSymbol =
+  operatorSymbol == "+" || operatorSymbol == "-" || operatorSymbol == "*" || operatorSymbol == "/"
+
+numericAliasTypeHint :: ConstraintSignatureType -> Bool
+numericAliasTypeHint typeHint =
+  case typeHint of
+    ConstraintTypeName typeName ->
+      identifierText typeName == "Int" || identifierText typeName == "Float"
+    _ ->
+      False
 
 runtimeTypeHintRequiresStructuralEquality :: ConstraintSignatureType -> Bool
 runtimeTypeHintRequiresStructuralEquality signatureType =
