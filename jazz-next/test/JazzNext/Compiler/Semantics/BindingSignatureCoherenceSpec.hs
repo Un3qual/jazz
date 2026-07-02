@@ -104,6 +104,7 @@ tests =
     ("source pipeline rejects nested empty-list exact qualified method selection", testSourceRejectsNestedEmptyListExactQualifiedMethodSelection),
     ("source pipeline rejects constructor-wrapped nested empty-list exact qualified method selection", testSourceRejectsConstructorWrappedNestedEmptyListExactQualifiedMethodSelection),
     ("source pipeline rejects opaque nested empty-list exact qualified method selection", testSourceRejectsOpaqueNestedEmptyListExactQualifiedMethodSelection),
+    ("source pipeline rejects control-flow nested empty-list exact qualified method selection", testSourceRejectsControlFlowNestedEmptyListExactQualifiedMethodSelection),
     ("source pipeline selects qualified Float method body by argument types", testSourceSelectsQualifiedFloatMethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float16 method body by argument types", testSourceSelectsQualifiedFloat16MethodBodyByArgumentTypes),
     ("source pipeline selects qualified Float32 method body by argument types", testSourceSelectsQualifiedFloat32MethodBodyByArgumentTypes),
@@ -523,6 +524,16 @@ testSourceRejectsOpaqueNestedEmptyListExactQualifiedMethodSelection =
         <> "impl RuntimeFlag(Box([[Int64]])) {\nflag = \\(box) -> False.\n}.\n"
         <> "make = \\(values) -> Box values.\n"
         <> "(RuntimeFlag::flag) (make [[1], []])."
+    )
+    "ambiguous qualified method body 'RuntimeFlag::flag'"
+
+testSourceRejectsControlFlowNestedEmptyListExactQualifiedMethodSelection :: IO ()
+testSourceRejectsControlFlowNestedEmptyListExactQualifiedMethodSelection =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+        <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+        <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+        <> "(RuntimeFlag::flag) (if True [[1], []] else [[1], []])."
     )
     "ambiguous qualified method body 'RuntimeFlag::flag'"
 

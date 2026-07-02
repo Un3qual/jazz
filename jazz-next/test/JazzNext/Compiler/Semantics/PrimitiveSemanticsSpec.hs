@@ -112,6 +112,7 @@ tests =
     ("source pipeline accepts direct typed integer to Float64 arithmetic", testSourcePipelineAcceptsDirectTypedIntegerFloat64Arithmetic),
     ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
     ("source pipeline accepts direct typed integer to Float64 operator values and sections", testSourcePipelineAcceptsDirectTypedIntegerFloat64OperatorValuesSections),
+    ("source pipeline accepts dollar-applied typed integer to Float64 sections", testSourcePipelineAcceptsDollarAppliedTypedIntegerFloat64Sections),
     ("source pipeline accepts same-width Float16 and Float32 arithmetic", testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic),
     ("source pipeline accepts targeted Float16 and Float32 arithmetic", testSourcePipelineAcceptsTargetedFloat16Float32Arithmetic),
     ("source pipeline accepts Float16 and Float32 arithmetic boundary values", testSourcePipelineAcceptsFloat16Float32ArithmeticBoundaryValues),
@@ -574,6 +575,11 @@ testSourcePipelineAcceptsDirectTypedIntegerFloat64OperatorValuesSections :: IO (
 testSourcePipelineAcceptsDirectTypedIntegerFloat64OperatorValuesSections =
   assertCompilesWithBundledPrelude
     "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\ndirect :: Float64.\ndirect = (+) integer floating.\nliteralDirect :: Float.\nliteralDirect = (+) 1 1.5.\ndollarDirect :: Float64.\ndollarDirect = ($) (+) integer floating.\nadd = (+).\naliased :: Float64.\naliased = add integer floating.\nleftSection :: Float64.\nleftSection = (integer +) floating.\nrightSection :: Float64.\nrightSection = (+ floating) integer.\nliteralLeft :: Float.\nliteralLeft = (1 +) 1.5.\nliteralRight :: Float.\nliteralRight = (+ 1.5) 1."
+
+testSourcePipelineAcceptsDollarAppliedTypedIntegerFloat64Sections :: IO ()
+testSourcePipelineAcceptsDollarAppliedTypedIntegerFloat64Sections =
+  assertCompilesWithBundledPrelude
+    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\nleftSection :: Float64.\nleftSection = ($) (integer +) floating.\nrightSection :: Float64.\nrightSection = ($) (+ floating) integer."
 
 testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic :: IO ()
 testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic =

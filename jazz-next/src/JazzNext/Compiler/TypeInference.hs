@@ -673,12 +673,23 @@ applicationSpine expr =
 
 builtinOperatorApplicationSpine :: TypeEnv -> Expr -> Maybe (Text, Maybe TypeScheme, Expr, Expr)
 builtinOperatorApplicationSpine env expr =
+  case dollarAppliedBuiltinOperatorSectionApplication expr of
+    Just (operatorSymbol, leftExpr, rightExpr) ->
+      Just (operatorSymbol, Nothing, leftExpr, rightExpr)
+    Nothing ->
+      case expr of
+        EApply (EApply operatorExpr leftExpr) rightExpr -> do
+          (operatorSymbol, maybeAliasScheme) <- builtinOperatorSymbolExpr env operatorExpr
+          case lookupOperatorRule operatorSymbol of
+            Just _ -> Just (operatorSymbol, maybeAliasScheme, leftExpr, rightExpr)
+            Nothing -> Nothing
+        _ -> Nothing
+
+dollarAppliedBuiltinOperatorSectionApplication :: Expr -> Maybe (Text, Expr, Expr)
+dollarAppliedBuiltinOperatorSectionApplication expr =
   case expr of
-    EApply (EApply operatorExpr leftExpr) rightExpr -> do
-      (operatorSymbol, maybeAliasScheme) <- builtinOperatorSymbolExpr env operatorExpr
-      case lookupOperatorRule operatorSymbol of
-        Just _ -> Just (operatorSymbol, maybeAliasScheme, leftExpr, rightExpr)
-        Nothing -> Nothing
+    EApply (EApply (EOperatorValue "$") sectionExpr) argumentExpr ->
+      builtinOperatorSectionApplication (EApply sectionExpr argumentExpr)
     _ -> Nothing
 
 builtinOperatorSectionApplication :: Expr -> Maybe (Text, Expr, Expr)
@@ -728,6 +739,12 @@ applyOperatorAliasSchemeConstraints operatorSymbol typeScheme leftType rightType
       case operatorAliasEqualityConstraintTarget state leftType rightType of
         Just targetType -> instantiateOperatorAliasSchemeConstraints typeScheme targetType state
         Nothing -> state
+    Just (NumericRule _) ->
+      -- Numeric operator alias schemes only carry the primitive numeric operand
+      -- constraint that inferBinaryType has already applied here. User-written
+      -- constrained signatures are stored as ordinary schemes, not operator
+      -- aliases, so there are no explicit capability facts to replay.
+      state
     _ -> state
 
 operatorAliasEqualityConstraintTarget :: InferState -> ExpressionType -> ExpressionType -> Maybe ExpressionType
@@ -3390,6 +3407,9 @@ constraintSignatureExpressionHasExactEvidence env signatureType argumentExpr =
           and (zipWith (constraintSignatureExpressionHasExactEvidence env) elementTypes elements)
     (ConstraintTypeApplication typeName typeArguments, EApply {}) ->
       constructorApplicationExpressionHasExactEvidence env typeName typeArguments argumentExpr
+    (_, EIf {}) -> False
+    (_, ECase {}) -> False
+    (_, EPatternCase {}) -> False
     _ -> True
 
 constructorApplicationExpressionHasExactEvidence :: TypeEnv -> Identifier -> [ConstraintSignatureType] -> Expr -> Bool
