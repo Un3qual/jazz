@@ -117,6 +117,7 @@ tests =
     ("source pipeline accepts Float16 and Float32 arithmetic boundary values", testSourcePipelineAcceptsFloat16Float32ArithmeticBoundaryValues),
     ("source pipeline accepts same-width Float64 comparison and equality", testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality),
     ("source pipeline accepts direct typed integer to Float64 comparison and equality", testSourcePipelineAcceptsDirectTypedIntegerFloat64ComparisonEquality),
+    ("source pipeline accepts direct typed integer to Float64 comparison/equality operator aliases", testSourcePipelineAcceptsDirectTypedIntegerFloat64ComparisonEqualityOperatorAliases),
     ("source pipeline accepts same-width Float16 and Float32 comparison and equality", testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality),
     ("source pipeline accepts same-width Float64 comparison/equality operator values", testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues),
     ("source pipeline accepts same-width Float64 comparison/equality sections", testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualitySections),
@@ -598,6 +599,11 @@ testSourcePipelineAcceptsDirectTypedIntegerFloat64ComparisonEquality :: IO ()
 testSourcePipelineAcceptsDirectTypedIntegerFloat64ComparisonEquality =
   assertCompilesWithBundledPrelude
     "defaultInt :: Int.\ndefaultInt = 2.\nwideInt :: Int64.\nwideInt = toInt64 3.\nnarrowInt :: Int8.\nnarrowInt = toInt8 1.\ndefaultFloat :: Float.\ndefaultFloat = 2.0.\nexplicitFloat :: Float64.\nexplicitFloat = toFloat64 3.\nltDefault = narrowInt < defaultFloat.\nleExplicit = wideInt <= explicitFloat.\ngtDefault = defaultFloat > narrowInt.\ngeExplicit = explicitFloat >= wideInt.\neqDefault = defaultInt == defaultFloat.\nneExplicit = explicitFloat != narrowInt."
+
+testSourcePipelineAcceptsDirectTypedIntegerFloat64ComparisonEqualityOperatorAliases :: IO ()
+testSourcePipelineAcceptsDirectTypedIntegerFloat64ComparisonEqualityOperatorAliases =
+  assertCompilesWithBundledPrelude
+    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 1.\neqAlias = (==).\nneAlias = (!=).\neqMixed = eqAlias integer floating.\nneMixed = neAlias floating integer."
 
 testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality :: IO ()
 testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality =

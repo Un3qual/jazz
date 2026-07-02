@@ -13,7 +13,7 @@ module JazzNext.Compiler.TypeInference
 
 import Control.Applicative ((<|>))
 import Data.List (foldl')
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -258,6 +258,7 @@ data TypeBinding
   | SchemeTypeBinding TypeScheme
   | BuiltinAliasTypeBinding BuiltinSymbol
   | BuiltinOperatorAliasTypeBinding Text
+  | OperatorAliasSchemeTypeBinding Text TypeScheme
   | ConstructorTypeBinding Identifier [Identifier] [ConstructorArgumentType]
   deriving (Eq, Show)
 
@@ -495,20 +496,28 @@ inferExprType builtinMode env state expr =
     EBlock statements -> inferScopeType builtinMode env state statements
   where
     inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr =
+      let (binaryResult, _, _) =
+            inferBuiltinBinaryOperatorTypeWithOperands operatorSymbol leftExpr rightExpr
+       in binaryResult
+
+    inferBuiltinBinaryOperatorTypeWithOperands operatorSymbol leftExpr rightExpr =
       let (leftType, stateAfterLeft) =
             inferExprType builtinMode env state leftExpr
           (rightType, stateAfterRight) =
             inferExprType builtinMode env stateAfterLeft rightExpr
        in case (leftType, rightType) of
             (Just inferredLeftType, Just inferredRightType) ->
-              inferBinaryType
-                operatorSymbol
-                leftExpr
-                rightExpr
-                inferredLeftType
-                inferredRightType
-                stateAfterRight
-            _ -> (Nothing, stateAfterRight)
+              ( inferBinaryType
+                  operatorSymbol
+                  leftExpr
+                  rightExpr
+                  inferredLeftType
+                  inferredRightType
+                  stateAfterRight,
+                Just inferredLeftType,
+                Just inferredRightType
+              )
+            _ -> ((Nothing, stateAfterRight), leftType, rightType)
 
     inferBuiltinSectionLeftOperatorType operatorSymbol leftExpr =
       let (leftType, stateAfterLeft) =
@@ -534,8 +543,21 @@ inferExprType builtinMode env state expr =
 
     inferBuiltinOperatorApplyOrGenericApply functionExpr argumentExpr =
       case builtinOperatorApplicationSpine env expr of
-        Just (operatorSymbol, leftExpr, rightExpr) ->
-          inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr
+        Just (operatorSymbol, maybeAliasScheme, leftExpr, rightExpr) ->
+          let (binaryResult@(maybeBinaryType, stateAfterBinary), maybeLeftType, maybeRightType) =
+                inferBuiltinBinaryOperatorTypeWithOperands operatorSymbol leftExpr rightExpr
+           in case maybeBinaryType of
+                Just _
+                  | Just leftType <- maybeLeftType,
+                    Just rightType <- maybeRightType ->
+                  ( maybeBinaryType,
+                    maybe
+                      stateAfterBinary
+                      (\aliasScheme -> applyOperatorAliasSchemeConstraints operatorSymbol aliasScheme leftType rightType stateAfterBinary)
+                      maybeAliasScheme
+                  )
+                Nothing -> binaryResult
+                _ -> binaryResult
         Nothing ->
           inferGenericApplyWithSectionFallback functionExpr argumentExpr
 
@@ -649,13 +671,13 @@ applicationSpine expr =
         _ ->
           Nothing
 
-builtinOperatorApplicationSpine :: TypeEnv -> Expr -> Maybe (Text, Expr, Expr)
+builtinOperatorApplicationSpine :: TypeEnv -> Expr -> Maybe (Text, Maybe TypeScheme, Expr, Expr)
 builtinOperatorApplicationSpine env expr =
   case expr of
     EApply (EApply operatorExpr leftExpr) rightExpr -> do
-      operatorSymbol <- builtinOperatorSymbolExpr env operatorExpr
+      (operatorSymbol, maybeAliasScheme) <- builtinOperatorSymbolExpr env operatorExpr
       case lookupOperatorRule operatorSymbol of
-        Just _ -> Just (operatorSymbol, leftExpr, rightExpr)
+        Just _ -> Just (operatorSymbol, maybeAliasScheme, leftExpr, rightExpr)
         Nothing -> Nothing
     _ -> Nothing
 
@@ -677,25 +699,66 @@ builtinSectionOperatorSymbol operatorSymbol =
     Just StrictEqualityRule -> True
     _ -> False
 
-builtinOperatorSymbolExpr :: TypeEnv -> Expr -> Maybe Text
+builtinOperatorSymbolExpr :: TypeEnv -> Expr -> Maybe (Text, Maybe TypeScheme)
 builtinOperatorSymbolExpr env expr =
   case expr of
     EOperatorValue operatorSymbol
       | isBuiltinOperatorSymbol operatorSymbol ->
-          Just operatorSymbol
+          Just (operatorSymbol, Nothing)
     EApply (EOperatorValue "$") operatorExpr ->
       builtinOperatorSymbolExpr env operatorExpr
     EVar name ->
       case Map.lookup (identifierText name) env of
-        Just (BuiltinOperatorAliasTypeBinding operatorSymbol) -> Just operatorSymbol
+        Just (BuiltinOperatorAliasTypeBinding operatorSymbol) -> Just (operatorSymbol, Nothing)
+        Just (OperatorAliasSchemeTypeBinding operatorSymbol typeScheme) -> Just (operatorSymbol, Just typeScheme)
         _ -> Nothing
     _ -> Nothing
 
-builtinNumericOperatorAliasSymbol :: Text -> Bool
-builtinNumericOperatorAliasSymbol operatorSymbol =
+builtinOperatorAliasSymbol :: Text -> Bool
+builtinOperatorAliasSymbol operatorSymbol =
   case lookupOperatorRule operatorSymbol of
     Just (NumericRule _) -> True
+    Just StrictEqualityRule -> True
     _ -> False
+
+applyOperatorAliasSchemeConstraints :: Text -> TypeScheme -> ExpressionType -> ExpressionType -> InferState -> InferState
+applyOperatorAliasSchemeConstraints operatorSymbol typeScheme leftType rightType state =
+  case lookupOperatorRule operatorSymbol of
+    Just StrictEqualityRule ->
+      case operatorAliasEqualityConstraintTarget state leftType rightType of
+        Just targetType -> instantiateOperatorAliasSchemeConstraints typeScheme targetType state
+        Nothing -> state
+    _ -> state
+
+operatorAliasEqualityConstraintTarget :: InferState -> ExpressionType -> ExpressionType -> Maybe ExpressionType
+operatorAliasEqualityConstraintTarget state leftType rightType
+  | isJust (typedIntegerFloat64PromotionOperand state leftType rightType) = Nothing
+  | resolvedLeftType == resolvedRightType,
+    not (structuralRuntimeEqualityType state resolvedLeftType) =
+      Just resolvedLeftType
+  | otherwise = Nothing
+  where
+    resolvedLeftType = defaultLiteralTypes (resolveType state leftType)
+    resolvedRightType = defaultLiteralTypes (resolveType state rightType)
+
+instantiateOperatorAliasSchemeConstraints :: TypeScheme -> ExpressionType -> InferState -> InferState
+instantiateOperatorAliasSchemeConstraints (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints definingFacts _) targetType state =
+  let replacements =
+        Map.fromList
+          [ (typeVar, targetType)
+            | typeVar <- Set.toList quantifiedVariables
+          ]
+      instantiatedConstraints =
+        map (instantiateTypeSchemeConstraint replacements) explicitConstraints
+      instantiatedPrimitiveConstraints =
+        map (instantiateTypeSchemePrimitiveConstraint replacements) primitiveConstraints
+      stateWithPrimitiveConstraints =
+        applyTypeSchemePrimitiveConstraints instantiatedPrimitiveConstraints state
+   in deferExplicitConstraintsWithFacts
+        (mergeCapabilityFacts definingFacts (capabilityFactsFromState state))
+        definingFacts
+        instantiatedConstraints
+        stateWithPrimitiveConstraints
 
 qualifiedMethodClassIsVisible :: Text -> InferState -> Bool
 qualifiedMethodClassIsVisible methodKey state =
@@ -1336,6 +1399,8 @@ inferScopeType builtinMode initialEnv initialState statements =
                     case maybePreservedSchemeAliasBinding of
                       Just (SchemeTypeBinding (TypeScheme _ _ _ _ schemeType)) ->
                         (Just schemeType, stateForStatement)
+                      Just (OperatorAliasSchemeTypeBinding _ (TypeScheme _ _ _ _ schemeType)) ->
+                        (Just schemeType, stateForStatement)
                       _ ->
                         case maybeExpectedValueType of
                           Just expectedValueType ->
@@ -1507,8 +1572,8 @@ inferScopeType builtinMode initialEnv initialState statements =
        in case valueExpr of
             EOperatorValue operatorSymbol
               | isNothing maybePendingSignature,
-                builtinNumericOperatorAliasSymbol operatorSymbol ->
-                  Just (BuiltinOperatorAliasTypeBinding operatorSymbol)
+                builtinOperatorAliasSymbol operatorSymbol ->
+                  Just (operatorAliasBinding operatorSymbol monomorphicBinding)
             EVar builtinName ->
               let referencedName = identifierText builtinName
                in case Map.lookup referencedName currentEnv of
@@ -1517,6 +1582,9 @@ inferScopeType builtinMode initialEnv initialState statements =
                     Just (BuiltinOperatorAliasTypeBinding operatorSymbol)
                       | isNothing maybePendingSignature ->
                           Just (BuiltinOperatorAliasTypeBinding operatorSymbol)
+                    Just binding@(OperatorAliasSchemeTypeBinding _ _)
+                      | isNothing maybePendingSignature ->
+                          Just binding
                     Just constructorBinding@ConstructorTypeBinding {}
                       | isNothing maybePendingSignature,
                         isSyntheticAliasConstructorBinding bindingNameText referencedName ->
@@ -1536,6 +1604,7 @@ inferScopeType builtinMode initialEnv initialState statements =
           | isSyntheticModuleSchemeBridge bindingNameText (identifierText referencedName) ->
               case Map.lookup (identifierText referencedName) currentEnv of
                 Just binding@(SchemeTypeBinding _) -> Just binding
+                Just binding@(OperatorAliasSchemeTypeBinding _ _) -> Just binding
                 _ -> Nothing
         _ -> Nothing
 
@@ -1546,6 +1615,16 @@ inferScopeType builtinMode initialEnv initialState statements =
 
     isSyntheticAliasConstructorBinding bindingNameText referencedName =
       Text.isInfixOf "::" bindingNameText && Text.isPrefixOf "__module::" referencedName
+
+    operatorAliasBinding :: Text -> Maybe TypeBinding -> TypeBinding
+    operatorAliasBinding operatorSymbol maybeBinding =
+      case maybeBinding of
+        Just (SchemeTypeBinding typeScheme) ->
+          OperatorAliasSchemeTypeBinding operatorSymbol typeScheme
+        Just (OperatorAliasSchemeTypeBinding _ typeScheme) ->
+          OperatorAliasSchemeTypeBinding operatorSymbol typeScheme
+        _ ->
+          BuiltinOperatorAliasTypeBinding operatorSymbol
 
     ordinaryBindingForValue ::
       Int ->
@@ -2444,8 +2523,8 @@ generalizedExplicitSignatureBinding env state pendingSignature =
 
 pruneCapturedInferredClassConstraints :: InferState -> TypeBinding -> InferState -> InferState
 pruneCapturedInferredClassConstraints statementStartState binding state =
-  case binding of
-    SchemeTypeBinding (TypeScheme _ schemeConstraints _ _ _) ->
+  case typeBindingScheme binding of
+    Just (TypeScheme _ schemeConstraints _ _ _) ->
       state
         { inferInferredClassConstraints =
             filter
@@ -2466,7 +2545,14 @@ pruneCapturedInferredClassConstraints statementStartState binding state =
           ]
         capturedInScheme constraint =
           constraint `elem` capturedConstraints
-    _ -> state
+    Nothing -> state
+
+typeBindingScheme :: TypeBinding -> Maybe TypeScheme
+typeBindingScheme binding =
+  case binding of
+    SchemeTypeBinding typeScheme -> Just typeScheme
+    OperatorAliasSchemeTypeBinding _ typeScheme -> Just typeScheme
+    _ -> Nothing
 
 typeSchemeConstraintIsInferred :: TypeSchemeConstraint -> Bool
 typeSchemeConstraintIsInferred constraint =
@@ -2600,6 +2686,15 @@ freeTypeVariablesInBinding state binding =
     PlainTypeBinding expressionType ->
       freeTypeVariables (resolveType state expressionType)
     SchemeTypeBinding (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints _ expressionType) ->
+      Set.difference
+        ( Set.unions
+            [ freeTypeVariables (resolveType state expressionType),
+              freeTypeVariablesInTypeSchemeConstraints (map (resolveTypeSchemeConstraint state) explicitConstraints),
+              freeTypeVariablesInTypeSchemePrimitiveConstraints (map (resolveTypeSchemePrimitiveConstraint state) primitiveConstraints)
+            ]
+        )
+        quantifiedVariables
+    OperatorAliasSchemeTypeBinding _ (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints _ expressionType) ->
       Set.difference
         ( Set.unions
             [ freeTypeVariables (resolveType state expressionType),
@@ -2796,6 +2891,8 @@ instantiateTypeBinding binding state =
       case instantiateOperatorType operatorSymbol state of
         Just (operatorType, nextState) -> (Just operatorType, nextState)
         Nothing -> (Nothing, state)
+    OperatorAliasSchemeTypeBinding _ typeScheme ->
+      instantiateTypeScheme typeScheme state
     ConstructorTypeBinding {} ->
       case instantiateConstructorBinding binding state of
         Just (constructorArgumentTypes', constructorResultType, nextState) ->
