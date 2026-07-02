@@ -1608,6 +1608,10 @@ inferScopeType builtinMode initialEnv initialState statements =
               | isNothing maybePendingSignature,
                 builtinOperatorAliasSymbol operatorSymbol ->
                   Just (operatorAliasBinding operatorSymbol monomorphicBinding)
+            _
+              | isNothing maybePendingSignature,
+                Just (operatorSymbol, maybeAliasScheme) <- builtinOperatorSymbolExpr currentEnv valueExpr ->
+                  Just (operatorAliasBinding operatorSymbol (SchemeTypeBinding <$> maybeAliasScheme))
             EVar builtinName ->
               let referencedName = identifierText builtinName
                in case Map.lookup referencedName currentEnv of

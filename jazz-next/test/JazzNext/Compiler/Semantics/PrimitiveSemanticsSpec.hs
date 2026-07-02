@@ -113,6 +113,7 @@ tests =
     ("source pipeline accepts same-width Float64 operator values", testSourcePipelineAcceptsSameWidthFloat64OperatorValues),
     ("source pipeline accepts direct typed integer to Float64 operator values and sections", testSourcePipelineAcceptsDirectTypedIntegerFloat64OperatorValuesSections),
     ("source pipeline accepts dollar alias typed integer to Float64 operator values", testSourcePipelineAcceptsDollarAliasTypedIntegerFloat64OperatorValues),
+    ("source pipeline preserves dollar-produced operator aliases", testSourcePipelinePreservesDollarProducedOperatorAliases),
     ("source pipeline accepts dollar-applied typed integer to Float64 sections", testSourcePipelineAcceptsDollarAppliedTypedIntegerFloat64Sections),
     ("source pipeline accepts same-width Float16 and Float32 arithmetic", testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic),
     ("source pipeline accepts targeted Float16 and Float32 arithmetic", testSourcePipelineAcceptsTargetedFloat16Float32Arithmetic),
@@ -581,6 +582,11 @@ testSourcePipelineAcceptsDollarAliasTypedIntegerFloat64OperatorValues :: IO ()
 testSourcePipelineAcceptsDollarAliasTypedIntegerFloat64OperatorValues =
   assertCompilesWithBundledPrelude
     "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\napply = ($).\nresult :: Float64.\nresult = apply (+) integer floating."
+
+testSourcePipelinePreservesDollarProducedOperatorAliases :: IO ()
+testSourcePipelinePreservesDollarProducedOperatorAliases =
+  assertCompilesWithBundledPrelude
+    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\napply = ($).\nop = apply (+).\nresult :: Float64.\nresult = op integer floating."
 
 testSourcePipelineAcceptsDollarAppliedTypedIntegerFloat64Sections :: IO ()
 testSourcePipelineAcceptsDollarAppliedTypedIntegerFloat64Sections =
