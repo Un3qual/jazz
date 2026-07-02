@@ -1538,7 +1538,10 @@ localCapabilityDependenciesForExportsWithDirectRoots includeDirectRoots expr nee
     EBlock statements ->
       closeLocalCapabilityDependencies statements localCapabilityNames directDependencies
       where
-        localCapabilityNames = collectTopLevelCapabilityNames expr
+        localCapabilityNames =
+          if includeDirectRoots
+            then collectTopLevelCapabilityNames expr
+            else Set.fromList (collectTopLevelClassNames expr)
         directDependencies =
           Set.unions
             [ if includeDirectRoots then directlyNeededCapabilities else Set.empty,

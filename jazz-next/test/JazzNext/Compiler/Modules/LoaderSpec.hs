@@ -109,6 +109,7 @@ tests =
     ("run module graph keeps helper-only inferred equality hidden despite direct sibling import", testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImport),
     ("compile module graph keeps inferred equality export facts scoped to hidden capability", testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
     ("run module graph retains imported capability facts referenced by inferred export", testCompileModuleGraphRetainsImportedCapabilityFactsReferencedByInferredExport),
+    ("run module graph keeps imported-class impl visible when helper is selected", testRunModuleGraphKeepsImportedClassImplVisibleWhenHelperIsSelected),
     ("compile module graph keeps sibling capability facts isolated", testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated),
     ("compile module graph exposes capability facts through visible imports", testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports),
     ("run module graph keeps hidden qualified export dependencies available", testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge),
@@ -1290,6 +1291,33 @@ testCompileModuleGraphRetainsImportedCapabilityFactsReferencedByInferredExport =
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Wrapper (same).\nresult = same 1.\nresult.\n}"),
           ("src/Lib/Facts.jz", "module Lib::Facts {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\n}"),
           ("src/Lib/Wrapper.jz", "module Lib::Wrapper {\nimport Lib::Facts.\nsame = \\(x) -> x == x.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphKeepsImportedClassImplVisibleWhenHelperIsSelected :: IO ()
+testRunModuleGraphKeepsImportedClassImplVisibleWhenHelperIsSelected = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Wrapper (same).\nresult = same 1.\nresult.\n}"
+          ),
+          ( "src/Lib/Facts.jz",
+            "module Lib::Facts {\nclass Eq(a) { }.\n}"
+          ),
+          ( "src/Lib/Wrapper.jz",
+            "module Lib::Wrapper {\nimport Lib::Facts (Eq).\nimpl Eq(Int) { }.\nsame = \\(x) -> x == x.\n}"
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
