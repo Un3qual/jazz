@@ -190,6 +190,7 @@ tests =
     ("qualified method dispatch prefers Int alias body for direct integer literals", testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral),
     ("qualified method dispatch prefers list alias body for typed list values", testQualifiedMethodDispatchPrefersListAliasBody),
     ("qualified method dispatch prefers list alias body for direct list literals", testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral),
+    ("qualified method dispatch preserves bound nested list runtime hints", testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint),
     ("qualified method dispatch does not exact-match untyped empty list literals", testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral),
     ("qualified method dispatch prefers constructor alias body for direct constructor literals", testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral),
     ("qualified method dispatch ignores monomorphic constructor payloads for exact selection", testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection),
@@ -204,6 +205,7 @@ tests =
     ("qualified method dispatch preserves defaulted closure result metadata", testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata),
     ("typed numeric sections preserve captured operand flexibility", testTypedNumericSectionPreservesCapturedOperandFlexibility),
     ("qualified method dispatch preserves empty list binding signatures", testQualifiedMethodDispatchPreservesEmptyListBindingSignature),
+    ("qualified method dispatch preserves list-returning application signatures", testQualifiedMethodDispatchPreservesListReturningApplicationSignature),
     ("qualified method dispatch preserves mapped empty list result signatures", testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature),
     ("qualified method dispatch preserves identity-mapped empty list result signatures", testQualifiedMethodDispatchPreservesIdentityMappedEmptyListResultSignature),
     ("qualified method dispatch preserves mapped hd empty nested list result signatures", testQualifiedMethodDispatchPreservesMappedHdEmptyNestedListResultSignature),
@@ -213,6 +215,7 @@ tests =
     ("qualified method dispatch treats defaulted integer bindings as Int64", testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64),
     ("qualified method dispatch treats plain integer bindings as Int64 when exact candidates overlap", testQualifiedMethodDispatchTreatsPlainIntegerBindingAsInt64WithExactCandidates),
     ("defaulted integer binding hints reject values outside Int64 range", testDefaultedIntegerBindingHintRejectsOutsideInt64Range),
+    ("qualified method dispatch treats inferred direct integer literals as exact Int", testQualifiedMethodDispatchTreatsInferredDirectIntegerLiteralAsExactInt),
     ("qualified method dispatch preserves inferred narrow integer bindings", testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding),
     ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals),
     ("qualified method dispatch preserves ADT application binding hints", testQualifiedMethodDispatchPreservesAdtApplicationBindingHint),
@@ -1693,6 +1696,21 @@ testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
+testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint :: IO ()
+testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "values = [[1], []].\n"
+          <> "(RuntimeFlag::flag) values."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
 testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral :: IO ()
 testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral =
   assertEqual
@@ -1920,6 +1938,21 @@ testQualifiedMethodDispatchPreservesEmptyListBindingSignature = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
+testQualifiedMethodDispatchPreservesListReturningApplicationSignature :: IO ()
+testQualifiedMethodDispatchPreservesListReturningApplicationSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "make :: Bool -> [[Int64]].\nmake = \\(enabled) -> [[1], []].\n"
+          <> "(RuntimeFlag::flag) (make True)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
 testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature :: IO ()
 testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature = do
   result <-
@@ -2045,6 +2078,21 @@ testQualifiedMethodDispatchTreatsPlainIntegerBindingAsInt64WithExactCandidates =
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchTreatsInferredDirectIntegerLiteralAsExactInt :: IO ()
+testQualifiedMethodDispatchTreatsInferredDirectIntegerLiteralAsExactInt = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "result = (\\(value) -> RuntimeFlag::flag value) 1.\n"
+          <> "result."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
 
 testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding :: IO ()
 testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding = do

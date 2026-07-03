@@ -2569,7 +2569,8 @@ concreteInferredMethodConstraintHasUniqueCandidate facts state constraintName me
     [] -> False
     [_] -> True
     _
-      | expressionTypeContainsUncommittedIntegerLiteral argumentType -> False
+      | expressionTypeContainsUncommittedIntegerLiteral argumentType ->
+          uniqueExactRuntimeCandidateHint state argumentType satisfyingMethodHints
       | otherwise -> True
   where
     satisfyingMethodHints =
@@ -2578,6 +2579,16 @@ concreteInferredMethodConstraintHasUniqueCandidate facts state constraintName me
           concreteImplFactExists constraintName argumentHint facts,
           concreteImplMethodBodyExists methodKey argumentHint facts
       ]
+
+uniqueExactRuntimeCandidateHint :: InferState -> ExpressionType -> [ConstraintSignatureType] -> Bool
+uniqueExactRuntimeCandidateHint state argumentType candidateHints =
+  case
+      [ candidateHint
+        | candidateHint <- candidateHints,
+          constraintSignatureTypeExactlyMatchesExpressionType state candidateHint argumentType
+      ] of
+    [_] -> True
+    _ -> False
 
 generalizedExplicitSignatureBinding ::
   TypeEnv ->
@@ -3125,6 +3136,7 @@ resolveDeferredExplicitConstraint state (DeferredExplicitConstraint constraintNa
                           inferredConstraint
                             && expressionTypeContainsUncommittedIntegerLiteral unresolvedArgumentType
                             && length (methodBodyHints methodKey) > 1
+                            && not (uniqueExactRuntimeCandidateHint state unresolvedArgumentType (methodBodyHints methodKey))
                         renderedImplFactKey =
                           constraintName <> "(" <> renderConstraintSignatureType (head argumentHints) <> ")"
                      in case maybeMethodKey of
@@ -3484,14 +3496,48 @@ constraintSignatureExpressionHasExactEvidence env signatureType argumentExpr =
           and (zipWith (constraintSignatureExpressionHasExactEvidence env) elementTypes elements)
     (ConstraintTypeApplication typeName typeArguments, EApply {}) ->
       constructorApplicationExpressionHasExactEvidence env typeName typeArguments argumentExpr
+    (_, EVar {})
+      | constraintSignatureTypeContainsList signatureType ->
+          constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
     (_, EApply {})
-      | constraintSignatureTypeContainsList signatureType -> False
+      | constraintSignatureTypeContainsList signatureType ->
+          constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
     (_, EIf {}) -> False
     (_, ECase {}) -> False
     (_, EPatternCase {}) -> False
     (_, EBlock {})
       | constraintSignatureTypeContainsList signatureType -> False
     _ -> True
+
+constraintSignatureExpressionRuntimeHintMatches :: TypeEnv -> ConstraintSignatureType -> Expr -> Bool
+constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr =
+  case constraintSignatureExpressionRuntimeHint env argumentExpr of
+    Just runtimeHint -> runtimeHint == signatureType
+    Nothing -> False
+
+constraintSignatureExpressionRuntimeHint :: TypeEnv -> Expr -> Maybe ConstraintSignatureType
+constraintSignatureExpressionRuntimeHint env argumentExpr =
+  case argumentExpr of
+    EVar referencedName ->
+      Map.lookup (identifierText referencedName) env >>= typeBindingRuntimeHint
+    EApply functionExpr _ ->
+      case constraintSignatureExpressionRuntimeHint env functionExpr of
+        Just (ConstraintTypeFunction _ resultType) -> Just resultType
+        _ -> Nothing
+    _ -> Nothing
+
+typeBindingRuntimeHint :: TypeBinding -> Maybe ConstraintSignatureType
+typeBindingRuntimeHint binding =
+  case binding of
+    PlainTypeBinding bindingType ->
+      expressionTypeToRuntimeHint (defaultLiteralTypes bindingType)
+    SchemeTypeBinding (TypeScheme schemeVariables _ _ _ schemeType)
+      | Set.null schemeVariables ->
+          expressionTypeToRuntimeHint (defaultLiteralTypes schemeType)
+    OperatorAliasSchemeTypeBinding _ (TypeScheme schemeVariables _ _ _ schemeType)
+      | Set.null schemeVariables ->
+          expressionTypeToRuntimeHint (defaultLiteralTypes schemeType)
+    _ -> Nothing
 
 constraintSignatureTypeContainsList :: ConstraintSignatureType -> Bool
 constraintSignatureTypeContainsList signatureType =
