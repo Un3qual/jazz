@@ -119,6 +119,7 @@ tests =
     ("source pipeline accepts targeted Float16 and Float32 arithmetic", testSourcePipelineAcceptsTargetedFloat16Float32Arithmetic),
     ("source pipeline accepts Float16 and Float32 arithmetic boundary values", testSourcePipelineAcceptsFloat16Float32ArithmeticBoundaryValues),
     ("source pipeline accepts same-width Float64 comparison and equality", testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality),
+    ("source pipeline accepts Float64-domain integer literal comparison and equality", testSourcePipelineAcceptsFloat64DomainIntegerLiteralComparisonEquality),
     ("source pipeline accepts direct typed integer to Float64 comparison and equality", testSourcePipelineAcceptsDirectTypedIntegerFloat64ComparisonEquality),
     ("source pipeline accepts direct typed integer to Float64 comparison/equality operator aliases", testSourcePipelineAcceptsDirectTypedIntegerFloat64ComparisonEqualityOperatorAliases),
     ("source pipeline accepts same-width Float16 and Float32 comparison and equality", testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality),
@@ -126,7 +127,6 @@ tests =
     ("source pipeline accepts same-width Float64 comparison/equality sections", testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualitySections),
     ("source pipeline rejects mixed-width float comparison and equality", testSourcePipelineRejectsMixedWidthFloatComparisonEquality),
     ("source pipeline rejects implicit Float16 and Float32 comparison and equality", testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality),
-    ("source pipeline rejects implicit integer and Float64 comparison and equality", testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality),
     ("source pipeline rejects typed integer to Float16 and Float32 promotion", testSourcePipelineRejectsTypedIntegerNarrowFloatPromotion),
     ("source pipeline rejects non-literal integer result Float64-domain arithmetic", testSourcePipelineRejectsNonLiteralIntegerResultFloat64DomainArithmetic),
     ("source pipeline rejects first-class integer Float64-domain sections", testSourcePipelineRejectsFirstClassIntegerFloat64DomainSections),
@@ -613,6 +613,11 @@ testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality =
   assertCompiles
     "lt = 1.5 < 2.0.\nle = 2.0 <= 2.0.\ngt = 3.0 > 2.0.\nge = 3.0 >= 3.0.\neq = 2.0 == 2.0.\nne = 2.0 != 3.0."
 
+testSourcePipelineAcceptsFloat64DomainIntegerLiteralComparisonEquality :: IO ()
+testSourcePipelineAcceptsFloat64DomainIntegerLiteralComparisonEquality =
+  assertCompilesWithBundledPrelude
+    "literalLeft = 1 < 1.5.\nliteralEquality = 1 == 1.0.\nleftFloat :: Float64.\nleftFloat = toFloat64 1.\nrightFloat :: Float64.\nrightFloat = toFloat64 2.\nexplicitLeft = 1 < rightFloat.\nexplicitRight = leftFloat < 2.\nexplicitEqualityLeft = 1 == rightFloat.\nexplicitEqualityRight = leftFloat == 1.\nconvertedEquality = toFloat64 1 == 1."
+
 testSourcePipelineAcceptsDirectTypedIntegerFloat64ComparisonEquality :: IO ()
 testSourcePipelineAcceptsDirectTypedIntegerFloat64ComparisonEquality =
   assertCompilesWithBundledPrelude
@@ -640,10 +645,6 @@ testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualitySections =
 
 testSourcePipelineRejectsMixedWidthFloatComparisonEquality :: IO ()
 testSourcePipelineRejectsMixedWidthFloatComparisonEquality = do
-  assertCompileError
-    "x = 1 == 1.5."
-    "mixed Int/Float64 equality"
-    "E2004"
   assertCompileErrorWithBundledPrelude
     "left :: Float16.\nleft = toFloat16 1.\nright :: Float32.\nright = toFloat32 1.\nx = left == right."
     "mixed Float16/Float32 equality"
@@ -670,29 +671,6 @@ testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality = do
   assertCompileErrorWithBundledPrelude
     "left :: Float32.\nleft = toFloat32 1.\nx = left == 1."
     "implicit integer-to-Float32 equality"
-    "E2004"
-
-testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality :: IO ()
-testSourcePipelineRejectsImplicitIntegerFloat64ComparisonEquality = do
-  assertCompileError
-    "x = 1 < 1.5."
-    "integer literal Float64-domain comparison"
-    "E2003"
-  assertCompileError
-    "x = 1 == 1.0."
-    "integer literal Float64-domain equality"
-    "E2004"
-  assertCompileErrorWithBundledPrelude
-    "left = toFloat64 1.\nx = left < 2."
-    "implicit integer-to-Float64 comparison"
-    "E2003"
-  assertCompileErrorWithBundledPrelude
-    "left = toFloat64 1.\nx = left == 1."
-    "implicit integer-to-Float64 equality"
-    "E2004"
-  assertCompileErrorWithBundledPrelude
-    "x = toFloat64 1 == 1."
-    "toFloat64 integer literal equality"
     "E2004"
 
 testSourcePipelineRejectsTypedIntegerNarrowFloatPromotion :: IO ()

@@ -958,7 +958,7 @@ inferBinaryType operatorSymbol leftExpr rightExpr leftType rightType state =
     Just (NumericRule resultType) ->
       applyNumericBinaryRule operatorSymbol resultType leftExpr rightExpr leftType rightType state
     Just StrictEqualityRule ->
-      applyStrictEqualityBinaryRule operatorSymbol leftType rightType state
+      applyStrictEqualityBinaryRule operatorSymbol leftExpr rightExpr leftType rightType state
     Just ApplicationRule ->
       applyApplicationBinaryRule leftType rightType state
     Nothing ->
@@ -1011,8 +1011,8 @@ applyNumericBinaryRule operatorSymbol resultRule leftExpr rightExpr leftType rig
       )
 
 directIntegerFloat64NumericOperand :: NumericRuleResult -> InferState -> Expr -> Expr -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
-directIntegerFloat64NumericOperand resultRule state leftExpr rightExpr leftType rightType =
-  integerLiteralFloat64ArithmeticOperand resultRule state leftExpr rightExpr leftType rightType
+directIntegerFloat64NumericOperand _resultRule state leftExpr rightExpr leftType rightType =
+  integerLiteralFloat64PromotionOperand state leftExpr rightExpr leftType rightType
     <|> case typedIntegerFloat64PromotionOperand state leftType rightType of
       Just promotedType -> Just (promotedType, state)
       Nothing -> Nothing
@@ -1029,23 +1029,20 @@ numericRuleConstraint resultRule =
     NumericSameTypeResult -> RuntimeArithmeticNumericConstraint
     NumericBoolResult -> RuntimeComparisonNumericConstraint
 
-integerLiteralFloat64ArithmeticOperand :: NumericRuleResult -> InferState -> Expr -> Expr -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
-integerLiteralFloat64ArithmeticOperand resultRule state leftExpr rightExpr leftType rightType =
-  case resultRule of
-    NumericSameTypeResult ->
-      case (resolveType state leftType, resolveType state rightType) of
-        (TIntegerLiteralType literalRange, floatType)
-          | exprIsIntegerLiteral leftExpr,
-            integerLiteralRangeFitsFloat64 literalRange,
-            expressionTypeIsFloat64Domain floatType ->
-              Just (floatType, state)
-        (floatType, TIntegerLiteralType literalRange)
-          | exprIsIntegerLiteral rightExpr,
-            integerLiteralRangeFitsFloat64 literalRange,
-            expressionTypeIsFloat64Domain floatType ->
-              Just (floatType, state)
-        _ -> Nothing
-    NumericBoolResult -> Nothing
+integerLiteralFloat64PromotionOperand :: InferState -> Expr -> Expr -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
+integerLiteralFloat64PromotionOperand state leftExpr rightExpr leftType rightType =
+  case (resolveType state leftType, resolveType state rightType) of
+    (TIntegerLiteralType literalRange, floatType)
+      | exprIsIntegerLiteral leftExpr,
+        integerLiteralRangeFitsFloat64 literalRange,
+        expressionTypeIsFloat64Domain floatType ->
+          Just (floatType, state)
+    (floatType, TIntegerLiteralType literalRange)
+      | exprIsIntegerLiteral rightExpr,
+        integerLiteralRangeFitsFloat64 literalRange,
+        expressionTypeIsFloat64Domain floatType ->
+          Just (floatType, state)
+    _ -> Nothing
 
 exprIsIntegerLiteral :: Expr -> Bool
 exprIsIntegerLiteral expr =
@@ -1129,15 +1126,24 @@ applyApplicationBinaryRule functionType argumentType state =
 
 applyStrictEqualityBinaryRule ::
   Text ->
+  Expr ->
+  Expr ->
   ExpressionType ->
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-applyStrictEqualityBinaryRule operatorSymbol leftType rightType state =
-  case typedIntegerFloat64PromotionOperand state leftType rightType of
+applyStrictEqualityBinaryRule operatorSymbol leftExpr rightExpr leftType rightType state =
+  case integerLiteralFloat64PromotionOperand state leftExpr rightExpr leftType rightType of
     Just _ ->
       (Just TBoolType, state)
     Nothing ->
+      case typedIntegerFloat64PromotionOperand state leftType rightType of
+        Just _ ->
+          (Just TBoolType, state)
+        Nothing ->
+          strictEqualityFallback
+  where
+    strictEqualityFallback =
       case unifyTypes leftType rightType state of
         Just unifiedState ->
           let resolvedType = resolveType unifiedState leftType
@@ -3496,6 +3502,9 @@ constraintSignatureExpressionHasExactEvidence env signatureType argumentExpr =
           and (zipWith (constraintSignatureExpressionHasExactEvidence env) elementTypes elements)
     (ConstraintTypeApplication typeName typeArguments, EApply {}) ->
       constructorApplicationExpressionHasExactEvidence env typeName typeArguments argumentExpr
+        || constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
+    (ConstraintTypeFunction {}, _) ->
+      constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
     (_, EVar {})
       | constraintSignatureTypeContainsList signatureType ->
           constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
