@@ -238,6 +238,7 @@ tests =
     ("qualified method dispatch rejects wrapped self alias", testQualifiedMethodDispatchRejectsWrappedSelfAlias),
     ("qualified method dispatch rejects block-local self alias", testQualifiedMethodDispatchRejectsBlockLocalSelfAlias),
     ("qualified method dispatch follows block-local alias branches with local bindings", testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalBindings),
+    ("qualified method dispatch follows block-local alias branches with local signature hints", testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalSignatureHints),
     ("qualified method dispatch rejects mutual method alias cycle", testQualifiedMethodDispatchRejectsMutualMethodAliasCycle),
     ("qualified method dispatch rejects full-arity runtime ambiguity", testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity),
     ("qualified method dispatch executes local ADT impl body", testQualifiedMethodDispatchExecutesLocalAdtImplBody),
@@ -2601,6 +2602,26 @@ testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalBindings = do
       ( "class RuntimeFlag(a) {\nenabled :: Bool.\non :: Bool.\noff :: Bool.\n}.\n"
           <> "impl RuntimeFlag(Int) {\nenabled = { flag = True.\ntarget = if flag RuntimeFlag::on else RuntimeFlag::off.\ntarget.\n}.\non = True.\noff = False.\n}.\n"
           <> "RuntimeFlag::enabled."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalSignatureHints :: IO ()
+testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalSignatureHints = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "class RuntimeChoice(a) {\nenabled :: Bool.\non :: Bool.\noff :: Bool.\n}.\n"
+          <> "impl RuntimeChoice(Int) {\n"
+          <> "enabled = { value :: [[Int64]].\nvalue = [[1], []].\ntarget = if ((RuntimeFlag::flag) value) RuntimeChoice::on else RuntimeChoice::off.\ntarget.\n}.\n"
+          <> "on = True.\n"
+          <> "off = False.\n"
+          <> "}.\n"
+          <> "RuntimeChoice::enabled."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)

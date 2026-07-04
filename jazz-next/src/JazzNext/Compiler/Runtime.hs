@@ -725,12 +725,31 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
 
         blockCellForStatement statementIndex statement =
           case statement of
-            SLet _ _ valueExpr ->
+            SLet bindingName _ valueExpr ->
               evalValueWithModulePath blockModulePath builtinMode bindingTypeHints (blockEnvBefore statementIndex) valueExpr
+                >>= attachRuntimeTypeHint (blockBindingRuntimeTypeHint statementIndex bindingName)
                 >>= attachDefaultBindingIntegerTarget
             _ ->
               Left
                 (runtimeDiagnostic "E3020" "internal runtime error: expected block binding statement for alias selection")
+
+        blockBindingRuntimeTypeHint statementIndex bindingName =
+          case blockPreviousSignatureRuntimeTypeHint statementIndex bindingName of
+            Just signatureHint -> Just signatureHint
+            Nothing ->
+              case Map.lookup statementIndex blockStatementsByIndex of
+                Just (SLet _ bindingSpan _) ->
+                  Map.lookup
+                    (bindingRuntimeHintKeyInModule blockModulePath bindingName bindingSpan)
+                    bindingTypeHints
+                _ -> Nothing
+
+        blockPreviousSignatureRuntimeTypeHint statementIndex bindingName =
+          case Map.lookup (statementIndex - 1) blockStatementsByIndex of
+            Just (SSignature signatureName _ signaturePayload)
+              | identifierText signatureName == identifierText bindingName ->
+                  signaturePayloadConstraintType signaturePayload
+            _ -> Nothing
 
     lookupRecursivePeer :: Identifier -> [Int] -> Maybe Int
     lookupRecursivePeer targetName =
