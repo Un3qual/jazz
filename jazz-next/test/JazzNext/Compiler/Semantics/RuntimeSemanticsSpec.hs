@@ -44,7 +44,8 @@ import JazzNext.Compiler.Identifier
 import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
-    evaluateRuntimeExprWithBuiltinsAndBindingHints
+    evaluateRuntimeExprWithBuiltinsAndBindingHints,
+    runtimeValueExactlyMatchesConstraint
   )
 import JazzNext.Compiler.RuntimeHints
   ( bindingRuntimeHintKey
@@ -99,6 +100,7 @@ tests =
     ("right operator section applies at runtime", testRightOperatorSectionRuntimeSuccess),
     ("right section differs from ordinary partial application for division", testRightSectionDiffersFromOrdinaryPartialApplication),
     ("declared user operator infix applies at runtime", testDeclaredUserOperatorInfixRuntimeSuccess),
+    ("declared user operator signature applies at runtime", testDeclaredUserOperatorSignatureRuntimeSuccess),
     ("declared user operator value applies at runtime", testDeclaredUserOperatorValueRuntimeSuccess),
     ("declared user left operator section applies at runtime", testDeclaredUserLeftOperatorSectionRuntimeSuccess),
     ("declared user right operator section preserves argument order", testDeclaredUserRightOperatorSectionRuntimeSuccess),
@@ -132,22 +134,26 @@ tests =
     ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
     ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
     ("Float64-domain integer literal arithmetic evaluates at runtime", testFloat64DomainIntegerLiteralArithmeticRuntimeSuccess),
+    ("direct typed integer to Float64 arithmetic evaluates at runtime", testDirectTypedIntegerFloat64ArithmeticRuntimeSuccess),
     ("Float16 arithmetic preserves target width at runtime", testFloat16ArithmeticPreservesRuntimeWidth),
     ("Float32 arithmetic preserves target width at runtime", testFloat32ArithmeticPreservesRuntimeWidth),
     ("runtime fallback rejects targeted Float16/Float32 mixed with untyped Float arithmetic", testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic),
-    ("runtime fallback rejects integer and float mixed-domain arithmetic", testRuntimeFallbackRejectsIntegerFloatMixedDomainArithmetic),
+    ("runtime fallback handles direct integer and Float64 mixed-domain arithmetic", testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic),
     ("runtime fallback rejects mixed targeted float comparison and equality", testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality),
+    ("runtime fallback handles untyped integer and Float64 comparison/equality", testRuntimeFallbackHandlesUntypedIntegerFloat64ComparisonEquality),
     ("targeted Float16 and Float32 fractional literals round at runtime", testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue),
     ("suffixed Float16 and Float32 fractional literals round at runtime", testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue),
     ("Float16 arithmetic overflow produces runtime diagnostic", testFloat16ArithmeticOverflowRuntimeError),
     ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError),
     ("Float64 comparison and equality evaluate at runtime", testFloat64ComparisonEqualityRuntimeSuccess),
+    ("direct typed integer to Float64 comparison and equality evaluate at runtime", testDirectTypedIntegerFloat64ComparisonEqualityRuntimeSuccess),
     ("Float16 and Float32 comparison and equality evaluate at runtime", testFloat16Float32ComparisonEqualityRuntimeSuccess),
     ("targeted Float16 and Float32 fractional literals evaluate through comparison and equality", testTargetedFloat16Float32FractionalLiteralComparisonEqualityRuntimeSuccess),
     ("structural list equality evaluates at runtime", testStructuralListEqualityRuntimeSuccess),
     ("structural tuple equality evaluates at runtime", testStructuralTupleEqualityRuntimeSuccess),
     ("structural ADT equality evaluates at runtime", testStructuralAdtEqualityRuntimeSuccess),
     ("structural ADT equality sees through runtime type hints", testStructuralAdtEqualitySeesThroughRuntimeTypeHints),
+    ("structural ADT equality preserves incompatible runtime type hints", testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints),
     ("runtime fallback rejects direct callable equality", testRuntimeFallbackRejectsDirectCallableEquality),
     ("runtime fallback rejects direct callable inequality", testRuntimeFallbackRejectsDirectCallableInequality),
     ("runtime fallback rejects mixed targeted integer equality", testRuntimeFallbackRejectsMixedTargetedIntegerEquality),
@@ -171,17 +177,43 @@ tests =
     ("qualified method dispatch preserves non-literal integer signature targets", testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget),
     ("qualified method dispatch preserves direct closure result signatures", testQualifiedMethodDispatchPreservesDirectClosureResultSignature),
     ("qualified method dispatch preserves tuple binding signatures", testQualifiedMethodDispatchPreservesTupleBindingSignature),
+    ("qualified method dispatch preserves tuple exact signatures", testQualifiedMethodDispatchPreservesTupleExactSignature),
     ("qualified method dispatch preserves section binding signatures", testQualifiedMethodDispatchPreservesSectionBindingSignature),
     ("qualified method dispatch treats Float as Float64 alias at runtime", testQualifiedMethodDispatchTreatsFloatAsFloat64Alias),
+    ("qualified method dispatch prefers Float alias body for typed Float values", testQualifiedMethodDispatchPrefersFloatAliasBody),
+    ("qualified method dispatch preserves concrete left Float64 over right Float aliases", testQualifiedMethodDispatchPreservesConcreteLeftFloat64OverRightFloatAlias),
+    ("qualified method dispatch mirrors runtime Float64-domain arithmetic", testQualifiedMethodDispatchMirrorsRuntimeFloat64DomainArithmetic),
     ("qualified method dispatch executes Float equality body", testQualifiedMethodDispatchExecutesFloatEqualityBody),
+    ("qualified method dispatch executes Float16 equality body", testQualifiedMethodDispatchExecutesFloat16EqualityBody),
+    ("qualified method dispatch executes Float32 equality body", testQualifiedMethodDispatchExecutesFloat32EqualityBody),
+    ("qualified method dispatch executes Float64 equality body", testQualifiedMethodDispatchExecutesFloat64EqualityBody),
     ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
+    ("qualified method dispatch prefers Int alias body for typed Int values", testQualifiedMethodDispatchPrefersIntAliasBody),
+    ("qualified method dispatch prefers Int alias body for direct integer literals", testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral),
+    ("qualified method dispatch prefers list alias body for typed list values", testQualifiedMethodDispatchPrefersListAliasBody),
+    ("qualified method dispatch prefers list alias body for direct list literals", testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral),
+    ("qualified method dispatch preserves bound nested list runtime hints", testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint),
+    ("qualified method dispatch rejects unhinted nested list helper exact selection", testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection),
+    ("qualified method dispatch does not exact-match untyped empty list literals", testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral),
+    ("qualified method dispatch prefers constructor alias body for direct constructor literals", testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral),
+    ("qualified method dispatch ignores monomorphic constructor payloads for exact selection", testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection),
+    ("qualified method dispatch treats non-literal integer results as Int64", testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64),
     ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
+    ("qualified method dispatch preserves higher-order exact signatures", testQualifiedMethodDispatchPreservesHigherOrderExactSignature),
+    ("qualified method dispatch rejects unhinted function argument exact selection", testQualifiedMethodDispatchRejectsUnhintedFunctionArgumentExactSelection),
+    ("qualified method dispatch defers exact filtering until target argument", testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument),
     ("qualified method dispatch preserves selected method signatures", testQualifiedMethodDispatchPreservesSelectedMethodSignature),
     ("qualified method dispatch applies typed callable argument hints", testQualifiedMethodDispatchAppliesTypedCallableArgumentHint),
+    ("qualified method dispatch applies typed callable argument hints through prefix dollar", testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar),
     ("qualified method dispatch applies closure argument signature hints", testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint),
     ("qualified method dispatch preserves defaulted closure result metadata", testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata),
     ("typed numeric sections preserve captured operand flexibility", testTypedNumericSectionPreservesCapturedOperandFlexibility),
     ("qualified method dispatch preserves empty list binding signatures", testQualifiedMethodDispatchPreservesEmptyListBindingSignature),
+    ("qualified method dispatch preserves list-returning application signatures", testQualifiedMethodDispatchPreservesListReturningApplicationSignature),
+    ("qualified method dispatch preserves dollar-applied list-returning signatures", testQualifiedMethodDispatchPreservesDollarAppliedListReturningSignature),
+    ("qualified method dispatch preserves ADT-returning application signatures", testQualifiedMethodDispatchPreservesAdtReturningApplicationSignature),
+    ("qualified method dispatch preserves branch result signatures", testQualifiedMethodDispatchPreservesBranchResultSignature),
+    ("qualified method dispatch preserves block result signatures", testQualifiedMethodDispatchPreservesBlockResultSignature),
     ("qualified method dispatch preserves mapped empty list result signatures", testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature),
     ("qualified method dispatch preserves identity-mapped empty list result signatures", testQualifiedMethodDispatchPreservesIdentityMappedEmptyListResultSignature),
     ("qualified method dispatch preserves mapped hd empty nested list result signatures", testQualifiedMethodDispatchPreservesMappedHdEmptyNestedListResultSignature),
@@ -189,7 +221,9 @@ tests =
     ("qualified method dispatch normalizes hinted list aliases", testQualifiedMethodDispatchNormalizesHintedListAliases),
     ("qualified method dispatch normalizes hinted function aliases", testQualifiedMethodDispatchNormalizesHintedFunctionAliases),
     ("qualified method dispatch treats defaulted integer bindings as Int64", testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64),
+    ("qualified method dispatch treats plain integer bindings as Int64 when exact candidates overlap", testQualifiedMethodDispatchTreatsPlainIntegerBindingAsInt64WithExactCandidates),
     ("defaulted integer binding hints reject values outside Int64 range", testDefaultedIntegerBindingHintRejectsOutsideInt64Range),
+    ("qualified method dispatch treats inferred direct integer literals as exact Int", testQualifiedMethodDispatchTreatsInferredDirectIntegerLiteralAsExactInt),
     ("qualified method dispatch preserves inferred narrow integer bindings", testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding),
     ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals),
     ("qualified method dispatch preserves ADT application binding hints", testQualifiedMethodDispatchPreservesAdtApplicationBindingHint),
@@ -204,6 +238,7 @@ tests =
     ("qualified method dispatch rejects wrapped self alias", testQualifiedMethodDispatchRejectsWrappedSelfAlias),
     ("qualified method dispatch rejects block-local self alias", testQualifiedMethodDispatchRejectsBlockLocalSelfAlias),
     ("qualified method dispatch follows block-local alias branches with local bindings", testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalBindings),
+    ("qualified method dispatch follows block-local alias branches with local signature hints", testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalSignatureHints),
     ("qualified method dispatch rejects mutual method alias cycle", testQualifiedMethodDispatchRejectsMutualMethodAliasCycle),
     ("qualified method dispatch rejects full-arity runtime ambiguity", testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity),
     ("qualified method dispatch executes local ADT impl body", testQualifiedMethodDispatchExecutesLocalAdtImplBody),
@@ -652,6 +687,13 @@ testDeclaredUserOperatorInfixRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
 
+testDeclaredUserOperatorSignatureRuntimeSuccess :: IO ()
+testDeclaredUserOperatorSignatureRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) :: Int -> Int -> Int.\n(%%) = \\(left) -> \\(right) -> left + right.\n1 %% 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
 testDeclaredUserOperatorValueRuntimeSuccess :: IO ()
 testDeclaredUserOperatorValueRuntimeSuccess = do
   result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\n(%%) 1 2."
@@ -948,6 +990,16 @@ testFloat64DomainIntegerLiteralArithmeticRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(2.5, 3.5, 2.5, 3.0, 0.5)") (runOutput result)
 
+testDirectTypedIntegerFloat64ArithmeticRuntimeSuccess :: IO ()
+testDirectTypedIntegerFloat64ArithmeticRuntimeSuccess = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "integer :: Int64.\ninteger = toInt64 6.\nnarrow :: Int8.\nnarrow = toInt8 3.\nfloating :: Float64.\nfloating = toFloat64 2.\ndefaultInt :: Int.\ndefaultInt = 4.\ndefaultFloat :: Float.\ndefaultFloat = 1.5.\n(integer + floating, floating + integer, integer - floating, floating - narrow, integer * floating, narrow * defaultFloat, integer / floating, floating / integer, defaultInt + defaultFloat)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(8.0, 8.0, 4.0, -1.0, 12.0, 4.5, 3.0, 0.3333333333333333, 5.5)") (runOutput result)
+
 testFloat16ArithmeticPreservesRuntimeWidth :: IO ()
 testFloat16ArithmeticPreservesRuntimeWidth = do
   result <- runSource defaultWarningSettings "left :: Float16.\nleft = 2048.0.\none :: Float16.\none = 1.0.\nthree :: Float16.\nthree = 3.0.\nmulLeft :: Float16.\nmulLeft = 683.0.\nadd16 :: Float16.\nadd16 = left + one.\nsub16 :: Float16.\nsub16 = add16 - one.\nmul16 :: Float16.\nmul16 = mulLeft * three.\ndiv16 :: Float16.\ndiv16 = add16 / one.\n(add16, sub16, mul16, div16)."
@@ -973,16 +1025,23 @@ testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic = do
     "E3007"
     (evaluateRuntimeExpr (runtimeExpr (EBinary "+" untypedFloatOne (targetedFloat "__kernel_toFloat32"))))
 
-testRuntimeFallbackRejectsIntegerFloatMixedDomainArithmetic :: IO ()
-testRuntimeFallbackRejectsIntegerFloatMixedDomainArithmetic = do
-  assertRuntimeErrorContains
-    "runtime fallback typed Int64 plus Float64"
-    "E3007"
-    (evaluateRuntimeExpr (runtimeExpr (EBinary "+" (targetedInt "__kernel_toInt64") (targetedFloat "__kernel_toFloat64"))))
+testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic :: IO ()
+testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic = do
+  case evaluateRuntimeExpr (runtimeExpr (EBinary "+" (targetedInt "__kernel_toInt64") (targetedFloat "__kernel_toFloat64"))) of
+    Right (Just (VFloat value _)) ->
+      assertEqual "runtime fallback typed Int64 plus Float64" 2.0 value
+    Right otherValue ->
+      failTest ("expected Float64-domain runtime value, got " <> Text.pack (show otherValue))
+    Left runtimeError ->
+      failTest ("expected Float64-domain runtime success, got " <> renderDiagnostic runtimeError)
   assertRuntimeErrorContains
     "runtime fallback untyped Int plus Float16"
     "E3007"
     (evaluateRuntimeExpr (runtimeExpr (EBinary "+" (ELit (LInt 1)) (targetedFloat "__kernel_toFloat16"))))
+  assertRuntimeErrorContains
+    "runtime fallback integer-to-Float64 arithmetic overflow"
+    "E3024"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "+" tooLargeFloat64Integer (targetedFloat "__kernel_toFloat64"))))
 
 testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality :: IO ()
 testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality = do
@@ -998,6 +1057,17 @@ testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality = do
     "runtime fallback Float32 inequality untyped Float"
     "E3007"
     (evaluateRuntimeExpr (runtimeExpr (EBinary "!=" (targetedFloat "__kernel_toFloat32") untypedFloatOne)))
+
+testRuntimeFallbackHandlesUntypedIntegerFloat64ComparisonEquality :: IO ()
+testRuntimeFallbackHandlesUntypedIntegerFloat64ComparisonEquality = do
+  assertRuntimeBool
+    "runtime fallback untyped Int less-than untyped Float"
+    True
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "<" (ELit (LInt 1)) untypedFloatTwo)))
+  assertRuntimeBool
+    "runtime fallback untyped Int equality Float64"
+    True
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "==" (ELit (LInt 1)) (targetedFloat "__kernel_toFloat64"))))
 
 testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue :: IO ()
 testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue = do
@@ -1057,6 +1127,20 @@ testFloat64ComparisonEqualityRuntimeSuccess = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True, True, True, True, True]") (runOutput result)
 
+testDirectTypedIntegerFloat64ComparisonEqualityRuntimeSuccess :: IO ()
+testDirectTypedIntegerFloat64ComparisonEqualityRuntimeSuccess = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "integer :: Int64.\ninteger = toInt64 2.\nnarrow :: Int8.\nnarrow = toInt8 1.\nfloating :: Float64.\nfloating = toFloat64 2.\ndefaultFloat :: Float.\ndefaultFloat = 3.0.\n[integer < defaultFloat, integer <= floating, defaultFloat > narrow, floating >= integer, integer == floating, defaultFloat != integer]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, True, True, True, True]") (runOutput result)
+  assertRuntimeErrorContains
+    "runtime fallback untyped integer-to-Float64 comparison overflow"
+    "E3024"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "==" tooLargeFloat64Integer (targetedFloat "__kernel_toFloat64"))))
+
 testFloat16Float32ComparisonEqualityRuntimeSuccess :: IO ()
 testFloat16Float32ComparisonEqualityRuntimeSuccess = do
   result <- runSource defaultWarningSettings "a16 = toFloat16 1.\nb16 = toFloat16 2.\na32 = toFloat32 1.\nb32 = toFloat32 2.\nlt16 = a16 < b16.\nle16 = a16 <= a16.\ngt16 = b16 > a16.\nge16 = b16 >= b16.\neq16 = a16 == a16.\nne16 = a16 != b16.\nlt32 = a32 < b32.\nle32 = a32 <= a32.\ngt32 = b32 > a32.\nge32 = b32 >= b32.\neq32 = a32 == a32.\nne32 = a32 != b32.\n[lt16, le16, gt16, ge16, eq16, ne16, lt32, le32, gt32, ge32, eq32, ne32]."
@@ -1110,6 +1194,25 @@ testStructuralAdtEqualitySeesThroughRuntimeTypeHints = do
               ]
           )
   assertEqual "typed ADT structural equality runtime result" (Right (Just (VBool True))) result
+
+testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints :: IO ()
+testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          ( Map.fromList
+              [ (bindingRuntimeHintKey "left" (SourceSpan 2 1), ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"]),
+                (bindingRuntimeHintKey "right" (SourceSpan 3 1), ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt16"])
+              ]
+          )
+          ( EBlock
+              [ SData (SourceSpan 1 1) "Tag" ["a"] [DataConstructor "Tag" []],
+                SLet "left" (SourceSpan 2 1) (EVar "Tag"),
+                SLet "right" (SourceSpan 3 1) (EVar "Tag"),
+                SExpr (SourceSpan 4 1) (EBinary "==" (EVar "left") (EVar "right"))
+              ]
+          )
+  assertEqual "incompatible typed ADT structural equality runtime result" (Right (Just (VBool False))) result
 
 testRuntimeFallbackRejectsDirectCallableEquality :: IO ()
 testRuntimeFallbackRejectsDirectCallableEquality = do
@@ -1405,6 +1508,21 @@ testQualifiedMethodDispatchPreservesTupleBindingSignature = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "False") (runOutput result)
 
+testQualifiedMethodDispatchPreservesTupleExactSignature :: IO ()
+testQualifiedMethodDispatchPreservesTupleExactSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick((Int, Int)) {\npick = \\(value) -> True.\n}.\n"
+          <> "impl RuntimePick((Int64, Int64)) {\npick = \\(value) -> False.\n}.\n"
+          <> "pair :: (Int64, Int64).\npair = (1, 2).\n"
+          <> "RuntimePick::pick pair."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
 testQualifiedMethodDispatchPreservesSectionBindingSignature :: IO ()
 testQualifiedMethodDispatchPreservesSectionBindingSignature = do
   result <-
@@ -1435,6 +1553,52 @@ testQualifiedMethodDispatchTreatsFloatAsFloat64Alias = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
+testQualifiedMethodDispatchPrefersFloatAliasBody :: IO ()
+testQualifiedMethodDispatchPrefersFloatAliasBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Float) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Float64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "value :: Float.\nvalue = 1.5.\n"
+          <> "RuntimeFlag::flag value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesConcreteLeftFloat64OverRightFloatAlias :: IO ()
+testQualifiedMethodDispatchPreservesConcreteLeftFloat64OverRightFloatAlias = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Float) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Float64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "left :: Float64.\nleft = toFloat64 1.\n"
+          <> "right :: Float.\nright = 2.5.\n"
+          <> "(RuntimeFlag::flag) (left + right)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchMirrorsRuntimeFloat64DomainArithmetic :: IO ()
+testQualifiedMethodDispatchMirrorsRuntimeFloat64DomainArithmetic = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Float) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Float64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "floating :: Float64.\nfloating = toFloat64 2.\n"
+          <> "(RuntimeFlag::flag) (1.5 + floating)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
 testQualifiedMethodDispatchExecutesFloatEqualityBody :: IO ()
 testQualifiedMethodDispatchExecutesFloatEqualityBody = do
   result <-
@@ -1450,6 +1614,53 @@ testQualifiedMethodDispatchExecutesFloatEqualityBody = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+
+testQualifiedMethodDispatchExecutesFloat16EqualityBody :: IO ()
+testQualifiedMethodDispatchExecutesFloat16EqualityBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Float16) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+          <> "left :: Float16.\nleft = 1.5.\n"
+          <> "same :: Float16.\nsame = 1.5.\n"
+          <> "different :: Float16.\ndifferent = 2.25.\n"
+          <> "(RuntimeEq::equals left same, RuntimeEq::equals left different)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+
+testQualifiedMethodDispatchExecutesFloat32EqualityBody :: IO ()
+testQualifiedMethodDispatchExecutesFloat32EqualityBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Float32) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+          <> "left :: Float32.\nleft = 1.5.\n"
+          <> "same :: Float32.\nsame = 1.5.\n"
+          <> "different :: Float32.\ndifferent = 2.25.\n"
+          <> "(RuntimeEq::equals left same, RuntimeEq::equals left different)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+
+testQualifiedMethodDispatchExecutesFloat64EqualityBody :: IO ()
+testQualifiedMethodDispatchExecutesFloat64EqualityBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Float64) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+          <> "left :: Float64.\nleft = toFloat64 1.\n"
+          <> "right :: Float64.\nright = toFloat64 1.\n"
+          <> "RuntimeEq::equals left right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
 
 testQualifiedMethodDispatchTreatsIntAsInt64Alias :: IO ()
 testQualifiedMethodDispatchTreatsIntAsInt64Alias = do
@@ -1467,6 +1678,149 @@ testQualifiedMethodDispatchTreatsIntAsInt64Alias = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
+testQualifiedMethodDispatchPrefersIntAliasBody :: IO ()
+testQualifiedMethodDispatchPrefersIntAliasBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "value :: Int.\nvalue = 1.\n"
+          <> "RuntimeFlag::flag value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral :: IO ()
+testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "RuntimeFlag::flag 1."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPrefersListAliasBody :: IO ()
+testQualifiedMethodDispatchPrefersListAliasBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([Int]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([Int64]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "values :: [Int].\nvalues = [1, 2].\n"
+          <> "RuntimeFlag::flag values."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral :: IO ()
+testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([Int]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([Int64]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "(RuntimeFlag::flag) [1]."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint :: IO ()
+testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "values = [[1], []].\n"
+          <> "(RuntimeFlag::flag) values."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection :: IO ()
+testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "f = \\(x) -> RuntimeFlag::flag x.\n"
+          <> "result = f [[1], []].\n"
+          <> "result."
+      )
+  assertSingleDiagnosticContains
+    "unhinted nested list helper exact selection"
+    "ambiguous qualified method body 'RuntimeFlag::flag'"
+    (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" Nothing (runOutput result)
+
+testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral :: IO ()
+testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral =
+  assertEqual
+    "untyped empty list exact match"
+    False
+    (runtimeValueExactlyMatchesConstraint (ConstraintTypeList (ConstraintTypeName "Int")) (VList [] Nothing))
+
+testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral :: IO ()
+testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "data Box a = Box a.\n"
+          <> "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Box(Int)) {\nflag = \\(box) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Box(Int64)) {\nflag = \\(box) -> False.\n}.\n"
+          <> "(RuntimeFlag::flag) (Box 1)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection :: IO ()
+testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "data Wrap a = Wrap Int64 a.\n"
+          <> "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Wrap(Int)) {\nflag = \\(wrap) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Wrap(Int64)) {\nflag = \\(wrap) -> False.\n}.\n"
+          <> "(RuntimeFlag::flag) (Wrap 1 1)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64 :: IO ()
+testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64 = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "(RuntimeFlag::flag) ((\\(x) -> x) 1)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
 testQualifiedMethodDispatchPreservesHigherOrderBindingSignature :: IO ()
 testQualifiedMethodDispatchPreservesHigherOrderBindingSignature = do
   result <-
@@ -1477,6 +1831,54 @@ testQualifiedMethodDispatchPreservesHigherOrderBindingSignature = do
           <> "impl RuntimeApply(Bool) {\napply = \\(fn) -> False.\n}.\n"
           <> "idInt :: Int -> Int.\nidInt = \\(value) -> value.\n"
           <> "RuntimeApply::apply idInt."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesHigherOrderExactSignature :: IO ()
+testQualifiedMethodDispatchPreservesHigherOrderExactSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(Int64) {\napply = \\(fn) -> False.\n}.\n"
+          <> "id64 :: Int64 -> Int64.\nid64 = \\(value) -> value.\n"
+          <> "RuntimeApply::apply id64."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchRejectsUnhintedFunctionArgumentExactSelection :: IO ()
+testQualifiedMethodDispatchRejectsUnhintedFunctionArgumentExactSelection = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(Int64) {\napply = \\(fn) -> False.\n}.\n"
+          <> "(RuntimeApply::apply) (\\(value) -> value + 1)."
+      )
+  assertSingleDiagnosticContains
+    "unhinted function argument exact selection"
+    "ambiguous qualified method body 'RuntimeApply::apply'"
+    (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" Nothing (runOutput result)
+
+testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument :: IO ()
+testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: Int -> a -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(index) -> \\(value) -> False.\n}.\n"
+          <> "impl RuntimePick(Bool) {\npick = \\(index) -> \\(value) -> True.\n}.\n"
+          <> "one :: Int.\none = 1.\n"
+          <> "pickOne = RuntimePick::pick one.\n"
+          <> "pickOne True."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1506,6 +1908,15 @@ testQualifiedMethodDispatchAppliesTypedCallableArgumentHint = do
           (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (ConstraintTypeFunction (ConstraintTypeName "UInt8") (ConstraintTypeName "Bool")))
           (runtimeTypedCallableArgumentHintExpr (EVar "RuntimePick::pick"))
   assertEqual "typed callable argument hint runtime result" (Right (Just (VBool False))) result
+
+testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar :: IO ()
+testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (ConstraintTypeFunction (ConstraintTypeName "UInt8") (ConstraintTypeName "Bool")))
+          (runtimeTypedCallableArgumentHintThroughPrefixDollarExpr (EVar "RuntimePick::pick"))
+  assertEqual "typed callable argument hint through prefix dollar runtime result" (Right (Just (VBool False))) result
 
 testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint :: IO ()
 testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint = do
@@ -1540,6 +1951,15 @@ runtimeTypedCallableArgumentHintExpr callableExpr =
     ( runtimePickStatements
         ++ [ SLet "choose" (SourceSpan 9 1) callableExpr,
              SExpr (SourceSpan 10 1) (EApply (EVar "choose") (ELit (LInt 1)))
+           ]
+    )
+
+runtimeTypedCallableArgumentHintThroughPrefixDollarExpr :: Expr -> Expr
+runtimeTypedCallableArgumentHintThroughPrefixDollarExpr callableExpr =
+  EBlock
+    ( runtimePickStatements
+        ++ [ SLet "choose" (SourceSpan 9 1) callableExpr,
+             SExpr (SourceSpan 10 1) (EApply (EApply (EOperatorValue "$") (EVar "choose")) (ELit (LInt 1)))
            ]
     )
 
@@ -1593,6 +2013,81 @@ testQualifiedMethodDispatchPreservesEmptyListBindingSignature = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesListReturningApplicationSignature :: IO ()
+testQualifiedMethodDispatchPreservesListReturningApplicationSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "make :: Bool -> [[Int64]].\nmake = \\(enabled) -> [[1], []].\n"
+          <> "(RuntimeFlag::flag) (make True)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesDollarAppliedListReturningSignature :: IO ()
+testQualifiedMethodDispatchPreservesDollarAppliedListReturningSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "make :: Bool -> [[Int64]].\nmake = \\(enabled) -> [[1], []].\n"
+          <> "(RuntimeFlag::flag) (($) make True)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesAdtReturningApplicationSignature :: IO ()
+testQualifiedMethodDispatchPreservesAdtReturningApplicationSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "data Box a = Box a.\n"
+          <> "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Box([[Int]])) {\nflag = \\(box) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Box([[Int64]])) {\nflag = \\(box) -> False.\n}.\n"
+          <> "make = \\(enabled) -> if enabled (Box [[toInt64 1], []]) else (Box [[toInt64 2], []]).\n"
+          <> "(RuntimeFlag::flag) (make True)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesBranchResultSignature :: IO ()
+testQualifiedMethodDispatchPreservesBranchResultSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "make64 :: Bool -> [[Int64]].\nmake64 = \\(enabled) -> [[1], []].\n"
+          <> "(RuntimeFlag::flag) (if True (make64 True) else (make64 False))."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesBlockResultSignature :: IO ()
+testQualifiedMethodDispatchPreservesBlockResultSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "(RuntimeFlag::flag) {\nvalues :: [[Int64]].\nvalues = [[1], []].\nvalues.\n}."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
 
 testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature :: IO ()
 testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature = do
@@ -1700,6 +2195,36 @@ testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64 = do
           <> "impl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\n"
           <> "value = 1.\n"
           <> "RuntimePick::pick value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchTreatsPlainIntegerBindingAsInt64WithExactCandidates :: IO ()
+testQualifiedMethodDispatchTreatsPlainIntegerBindingAsInt64WithExactCandidates = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "value = 1.\n"
+          <> "RuntimeFlag::flag value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchTreatsInferredDirectIntegerLiteralAsExactInt :: IO ()
+testQualifiedMethodDispatchTreatsInferredDirectIntegerLiteralAsExactInt = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "result = (\\(value) -> RuntimeFlag::flag value) 1.\n"
+          <> "result."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -2082,6 +2607,26 @@ testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalBindings = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
+testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalSignatureHints :: IO ()
+testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalSignatureHints = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "class RuntimeChoice(a) {\nenabled :: Bool.\non :: Bool.\noff :: Bool.\n}.\n"
+          <> "impl RuntimeChoice(Int) {\n"
+          <> "enabled = { value :: [[Int64]].\nvalue = [[1], []].\ntarget = if ((RuntimeFlag::flag) value) RuntimeChoice::on else RuntimeChoice::off.\ntarget.\n}.\n"
+          <> "on = True.\n"
+          <> "off = False.\n"
+          <> "}.\n"
+          <> "RuntimeChoice::enabled."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
 testQualifiedMethodDispatchRejectsMutualMethodAliasCycle :: IO ()
 testQualifiedMethodDispatchRejectsMutualMethodAliasCycle = do
   maybeResult <-
@@ -2215,6 +2760,24 @@ targetedInt conversionName =
 untypedFloatOne :: Expr
 untypedFloatOne =
   ELit (LFloat 1.0 (mkFractionalLiteralSource 1 0 1) Nothing)
+
+untypedFloatTwo :: Expr
+untypedFloatTwo =
+  ELit (LFloat 2.0 (mkFractionalLiteralSource 2 0 1) Nothing)
+
+tooLargeFloat64Integer :: Expr
+tooLargeFloat64Integer =
+  ELit (LInt ((floor (1.7976931348623157e308 :: Double) :: Integer) + 1))
+
+assertRuntimeBool :: Text -> Bool -> Either Diagnostic (Maybe RuntimeValue) -> IO ()
+assertRuntimeBool label expected result =
+  case result of
+    Right (Just (VBool actual)) ->
+      assertEqual label expected actual
+    Right otherValue ->
+      failTest ("expected " <> label <> " to produce Bool, got " <> Text.pack (show otherValue))
+    Left runtimeError ->
+      failTest ("expected " <> label <> " to succeed, got " <> renderDiagnostic runtimeError)
 
 assertCallableRuntimeEqualityRejected :: Text -> Expr -> IO ()
 assertCallableRuntimeEqualityRejected label expr = do

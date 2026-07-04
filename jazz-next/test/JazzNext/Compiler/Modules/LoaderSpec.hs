@@ -96,16 +96,25 @@ tests =
     ("run module graph preserves alias-qualified float literal targets", testRunModuleGraphPreservesAliasQualifiedFloatLiteralTargets),
     ("run module graph keeps hidden qualified export pattern constructors available", testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge),
     ("run module graph resolves imported constructors in or-pattern alternatives", testRunModuleGraphResolvesImportedConstructorsInOrPatternAlternatives),
+    ("run module graph resolves imported constructors in lambda or-pattern alternatives", testRunModuleGraphResolvesImportedConstructorsInLambdaOrPatternAlternatives),
     ("run module graph keeps alias-qualified dependency export visible with prelude", testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude),
     ("run module graph keeps transitive alias-hidden dependency export from shadowing prelude", testRunModuleGraphTransitiveAliasHiddenExportUsesPrelude),
     ("compile module graph hides transitive alias-only exports from unqualified replay", testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport),
     ("run module graph keeps alias-hidden prelude binding isolated from visible importer", testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter),
     ("run module graph keeps visible sibling import isolated from alias-hidden replay", testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenReplay),
     ("compile module graph preserves constrained schemes through export bridges", testCompileModuleGraphPreservesConstrainedSchemesThroughExportBridges),
+    ("run module graph retains local capabilities needed by inferred equality export", testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport),
+    ("run module graph allows structural equality through hidden inferred equality export", testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport),
+    ("run module graph keeps inferred equality export facts scoped to hidden capability", testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
+    ("run module graph keeps helper-only inferred equality hidden despite direct sibling import", testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImport),
+    ("compile module graph keeps inferred equality export facts scoped to hidden capability", testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability),
+    ("run module graph retains imported capability facts referenced by inferred export", testCompileModuleGraphRetainsImportedCapabilityFactsReferencedByInferredExport),
+    ("run module graph keeps imported-class impl visible when helper is selected", testRunModuleGraphKeepsImportedClassImplVisibleWhenHelperIsSelected),
     ("compile module graph keeps sibling capability facts isolated", testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated),
     ("compile module graph exposes capability facts through visible imports", testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports),
     ("run module graph keeps hidden qualified export dependencies available", testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge),
     ("run module graph retains local operator binding needed by exported binding", testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding),
+    ("run module graph retains local operator signature needed by exported binding", testRunModuleGraphRetainsLocalOperatorSignatureNeededByExportedBinding),
     ("run module graph retains local operator binding needed by explicit imported export", testRunModuleGraphRetainsLocalOperatorBindingNeededByExplicitImportedExport),
     ("run module graph does not leak retained operator binding into importer", testRunModuleGraphDoesNotLeakRetainedOperatorBindingIntoImporter),
     ("run module graph imported right operator section captures right operand", testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand),
@@ -119,6 +128,7 @@ tests =
     ("run module graph keeps hidden impls out of runtime dispatch", testRunModuleGraphKeepsHiddenImplsOutOfRuntimeDispatch),
     ("run module graph retains local capabilities needed by exported bindings", testRunModuleGraphRetainsLocalCapabilitiesNeededByExportedBindings),
     ("run module graph retains local capabilities needed by imported capability bodies", testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedCapabilityBodies),
+    ("run module graph namespaces capabilities needed by directly imported capability bodies", testRunModuleGraphNamespacesCapabilitiesNeededByDirectlyImportedCapabilityBodies),
     ("run module graph retains value dependencies needed by imported capability bodies", testRunModuleGraphRetainsValueDependenciesNeededByImportedCapabilityBodies),
     ("run module graph prunes unused dependency bindings during runtime replay", testRunModuleGraphPrunesUnusedDependencyBindingsDuringRuntimeReplay),
     ("run module graph keeps inferred runtime hints module scoped", testRunModuleGraphKeepsInferredRuntimeHintsModuleScoped),
@@ -951,6 +961,26 @@ testRunModuleGraphResolvesImportedConstructorsInOrPatternAlternatives = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
+testRunModuleGraphResolvesImportedConstructorsInLambdaOrPatternAlternatives :: IO ()
+testRunModuleGraphResolvesImportedConstructorsInLambdaOrPatternAlternatives = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "42") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Maybe.\nchoose = \\(Just item | Also item) -> item + 1.\nchoose (Also 41)."),
+          ("src/Lib/Maybe.jz", "module Lib::Maybe {\ndata Maybe = Nothing | Just value | Also value.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
 testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude :: IO ()
 testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude = do
   result <-
@@ -1079,6 +1109,219 @@ testCompileModuleGraphPreservesConstrainedSchemesThroughExportBridges = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
+testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport :: IO ()
+testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Poly (same).\nresult = same 1.\nresult.\n}"),
+          ("src/Lib/Poly.jz", "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\nsame = \\(x) -> x == x.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport :: IO ()
+testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Poly (same).\nresult = same [1].\nresult.\n}"),
+          ("src/Lib/Poly.jz", "module Lib::Poly {\nclass Eq(a) { }.\nsame = \\(xs) -> xs == xs.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability :: IO ()
+testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
+  mapM_
+    assertHiddenEqualityScope
+    [ ( "direct equality",
+        "result = same True.",
+        "same = \\(x) -> x == x."
+      ),
+      ( "operator equality",
+        "result = same True False.",
+        "same = (==)."
+      ),
+      ( "section equality",
+        "result = same True False.",
+        "same = \\(right) -> (== right)."
+      )
+    ]
+  where
+    assertHiddenEqualityScope (label, appUse, sameDefinition) = do
+      result <-
+        runModuleGraphWithPrelude
+          defaultWarningSettings
+          Nothing
+          resolverConfig
+          ["App", "Main"]
+          (lookupSource sameDefinition appUse)
+      case runCompileErrors result of
+        [err] -> do
+          assertContains
+            (label <> " hidden Eq impl error")
+            "missing impl fact"
+            (renderDiagnostic err)
+          assertContains
+            (label <> " hidden Eq fact name")
+            "__module::Lib::Poly::Eq(Bool)"
+            (renderDiagnostic err)
+        _ -> failTest (label <> ": expected exactly one hidden Eq compile error")
+
+    lookupSource sameDefinition appUse path =
+      pure (Map.lookup path (sourceMap sameDefinition appUse))
+
+    sourceMap sameDefinition appUse =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Poly (same).\nclass Eq(a) { }.\nimpl Eq(Bool) { }.\n" <> appUse <> "\n}"
+          ),
+          ( "src/Lib/Poly.jz",
+            "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\n" <> sameDefinition <> "\n}"
+          )
+        ]
+
+testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImport :: IO ()
+testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImport = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case runCompileErrors result of
+    [err] -> do
+      assertContains
+        "helper-only import hidden Eq impl error"
+        "missing impl fact"
+        (renderDiagnostic err)
+      assertContains
+        "helper-only import hidden Eq fact name"
+        "__module::Lib::Poly::Eq(Bool)"
+        (renderDiagnostic err)
+    errors ->
+      failTest
+        ( "expected exactly one hidden Eq compile error, got "
+            <> Text.pack (show (map renderDiagnostic errors))
+        )
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport App::Direct.\nimport App::HelperOnly.\nresult = helperResult.\nresult.\n}"
+          ),
+          ( "src/App/Direct.jz",
+            "module App::Direct {\nimport Lib::Poly (Eq).\ndirect = 0.\n}"
+          ),
+          ( "src/App/HelperOnly.jz",
+            "module App::HelperOnly {\nimport Lib::Poly (same).\nclass Eq(a) { }.\nimpl Eq(Bool) { }.\nhelperResult = same True.\n}"
+          ),
+          ( "src/Lib/Poly.jz",
+            "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\nsame = \\(x) -> x == x.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability :: IO ()
+testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [err] -> do
+      assertContains
+        "compile hidden Eq impl error"
+        "missing impl fact"
+        (renderDiagnostic err)
+      assertContains
+        "compile hidden Eq fact name"
+        "__module::Lib::Poly::Eq(Bool)"
+        (renderDiagnostic err)
+    _ -> failTest "expected exactly one compile-time hidden Eq error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Poly (same).\nclass Eq(a) { }.\nimpl Eq(Bool) { }.\nresult = same True.\n}"
+          ),
+          ( "src/Lib/Poly.jz",
+            "module Lib::Poly {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\nsame = \\(x) -> x == x.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphRetainsImportedCapabilityFactsReferencedByInferredExport :: IO ()
+testCompileModuleGraphRetainsImportedCapabilityFactsReferencedByInferredExport = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Wrapper (same).\nresult = same 1.\nresult.\n}"),
+          ("src/Lib/Facts.jz", "module Lib::Facts {\nclass Eq(a) { }.\nimpl Eq(Int) { }.\n}"),
+          ("src/Lib/Wrapper.jz", "module Lib::Wrapper {\nimport Lib::Facts.\nsame = \\(x) -> x == x.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphKeepsImportedClassImplVisibleWhenHelperIsSelected :: IO ()
+testRunModuleGraphKeepsImportedClassImplVisibleWhenHelperIsSelected = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Wrapper (same).\nresult = same 1.\nresult.\n}"
+          ),
+          ( "src/Lib/Facts.jz",
+            "module Lib::Facts {\nclass Eq(a) { }.\n}"
+          ),
+          ( "src/Lib/Wrapper.jz",
+            "module Lib::Wrapper {\nimport Lib::Facts (Eq).\nimpl Eq(Int) { }.\nsame = \\(x) -> x == x.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
 testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated :: IO ()
 testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated = do
   result <-
@@ -1159,6 +1402,26 @@ testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Ops.\nplus.\n}"),
           ("src/Lib/Ops.jz", "module Lib::Ops {\noperator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\nplus = 1 %% 2.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRetainsLocalOperatorSignatureNeededByExportedBinding :: IO ()
+testRunModuleGraphRetainsLocalOperatorSignatureNeededByExportedBinding = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Ops.\nplus.\n}"),
+          ("src/Lib/Ops.jz", "module Lib::Ops {\noperator %% tier 2.\n(%%) :: Int -> Int -> Int.\n(%%) = \\(left) -> \\(right) -> left + right.\nplus = 1 %% 2.\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1446,6 +1709,30 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedCapabilityBodies = do
       Map.fromList
         [ ( "src/App/Main.jz",
             "module App::Main {\nimport Lib::Api (Choice).\nChoice::pick 1.\n}"
+          ),
+          ( "src/Lib/Api.jz",
+            "module Lib::Api {\nclass Flag(a) {\nenabled :: Bool.\n}.\nimpl Flag(Int) {\nenabled = True.\n}.\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> Flag::enabled.\n}.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphNamespacesCapabilitiesNeededByDirectlyImportedCapabilityBodies :: IO ()
+testRunModuleGraphNamespacesCapabilitiesNeededByDirectlyImportedCapabilityBodies = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Api (Choice).\nclass Flag(a) {\nenabled :: Bool.\n}.\nimpl Flag(Int) {\nenabled = False.\n}.\n(Choice::pick 1, Flag::enabled).\n}"
           ),
           ( "src/Lib/Api.jz",
             "module Lib::Api {\nclass Flag(a) {\nenabled :: Bool.\n}.\nimpl Flag(Int) {\nenabled = True.\n}.\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> Flag::enabled.\n}.\n}"

@@ -17,6 +17,8 @@ import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
+    SurfaceSignaturePayload (..),
+    SurfaceSignatureType (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Lower
@@ -36,6 +38,7 @@ tests :: [NamedTest]
 tests =
   [ ("declared tier 2 operator inherits additive precedence", testDeclaredTier2OperatorPrecedence),
     ("declared operator binding parses as hidden ordinary binding", testDeclaredOperatorBindingParsesAsHiddenBinding),
+    ("declared operator signature parses as hidden ordinary signature", testDeclaredOperatorSignatureParsesAsHiddenSignature),
     ("declared operator binding parses inside module body", testDeclaredOperatorBindingParsesInsideModuleBody),
     ("declared tier 5 operator inherits dollar associativity", testDeclaredTier5OperatorAssociativity),
     ("declared arrow-prefixed operator parses as a single user operator", testDeclaredArrowPrefixedOperator),
@@ -93,6 +96,40 @@ testDeclaredOperatorBindingParsesAsHiddenBinding =
         )
     )
     (parseSurfaceProgram "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\nresult = 1 %% 2 * 3.")
+
+testDeclaredOperatorSignatureParsesAsHiddenSignature :: IO ()
+testDeclaredOperatorSignatureParsesAsHiddenSignature =
+  assertEqual
+    "declared operator signature parse tree"
+    ( Right
+        ( SEBlock
+            [ SSSignature
+                "$operator:%25%25"
+                (SourceSpan 2 2)
+                ( SurfaceSignatureType
+                    ( SurfaceTypeFunction
+                        SurfaceTypeInt
+                        (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeInt)
+                    )
+                ),
+              SSLet
+                "$operator:%25%25"
+                (SourceSpan 3 2)
+                ( SELambda
+                    [SurfaceLambdaIdentifier "left"]
+                    ( SELambda
+                        [SurfaceLambdaIdentifier "right"]
+                        (SEBinary "+" (SEVar "left") (SEVar "right"))
+                    )
+                ),
+              SSLet
+                "result"
+                (SourceSpan 4 1)
+                (SEBinary "%%" (SELit (SLInt 1)) (SELit (SLInt 2)))
+            ]
+        )
+    )
+    (parseSurfaceProgram "operator %% tier 2.\n(%%) :: Int -> Int -> Int.\n(%%) = \\(left) -> \\(right) -> left + right.\nresult = 1 %% 2.")
 
 testDeclaredOperatorBindingParsesInsideModuleBody :: IO ()
 testDeclaredOperatorBindingParsesInsideModuleBody =

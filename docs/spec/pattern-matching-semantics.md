@@ -1,6 +1,6 @@
 # Pattern Matching Semantics
 
-Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, as-patterns, top-level case-arm or-patterns, and single `if` case-arm guards parse/lower, typecheck, and execute end-to-end in `jazz-next` `case` arms; lambda parameters support the non-guard, non-or pattern subset)
+Status: active (literal, wildcard, variable, constructor, exact-length bracketed-list, cons-like list, fixed-arity tuple, as-patterns, top-level case-arm or-patterns, top-level lambda-parameter or-patterns, and single `if` case-arm guards parse/lower, typecheck, and execute end-to-end in `jazz-next`; lambda-parameter guards and nested/grouped or-patterns remain out of scope)
 Locked decisions: 2026-03-18
 Primary plan: `docs/plans/2026-03-18-jazz-next-adt-and-pattern-matching-rebase-plan.md`
 
@@ -41,7 +41,8 @@ Current parser/core invariants:
    - cons-like list patterns such as `[head | tail]`
    - tuple patterns such as `(left, right)` or `(1, flag)`
    - as-patterns such as `whole @ Just item`
-   - top-level case-arm or-patterns such as `Just item | Also item`
+   - top-level case-arm and lambda-parameter or-patterns such as
+     `Just item | Also item`
 4. Constructor/list/tuple/as/or-patterns are preserved structurally in `EPatternCase`.
    Declared constructor patterns typecheck against ADT scrutinees and bind
    payload variables in arm bodies; bracketed-list patterns typecheck against
@@ -68,7 +69,10 @@ Current parser/core invariants:
    features.
 9. Lambda parameter patterns lower to ordinary unary lambdas whose bodies
    perform an internal single-arm `EPatternCase`, so parameter destructuring
-   reuses the same binder, type, and runtime matching contract.
+   reuses the same binder, type, runtime matching, and no-match diagnostic
+   contract as `case` patterns. Top-level lambda-parameter or-patterns lower
+   to `POr` inside that internal single-arm case; lambda guards remain
+   rejected.
 10. Pattern guards are optional case-arm expressions introduced by `if`.
     They are stored on `CaseArm`, typecheck as `Bool` under pattern binders,
     and do not participate in arm-result agreement.
@@ -98,10 +102,11 @@ Current parser/core invariants:
 10. An as-pattern `name @ pattern` delegates to the inner pattern first, then
     binds `name` to the whole scrutinee value only when the inner pattern
     succeeds.
-11. An or-pattern inside one case arm tries alternatives from left to right.
-    The first successful alternative supplies the arm's pattern bindings. If no
-    alternative matches, the whole pattern fails and matching proceeds to the
-    next arm.
+11. An or-pattern inside one case arm or pattern-shaped lambda parameter tries
+    alternatives from left to right. The first successful alternative supplies
+    the pattern bindings. If no alternative matches, the whole pattern fails
+    and matching proceeds to the next arm or, for the internal lambda
+    single-arm case, emits the existing no-match diagnostic.
 12. When a pattern matches, an absent guard selects the arm; a `True` guard
    selects the arm; a `False` guard falls through to later arms.
 13. Guards for failed patterns and non-selected arm bodies are not evaluated.
@@ -118,6 +123,7 @@ firstOrZero = case values { | [head, _] -> head | [] -> 0 }.
 headPlusNext = case values { | [head | tail] -> head + hd tail | [] -> 0 }.
 sumPair = case pair { | (left, right) -> left + right }.
 sumPairFn = \((left, right)) -> left + right.
+choose = \(Just item | Also item) -> item.
 sameValue = case value { | whole @ Just item -> whole | _ -> value }.
 positive = case value {
   | Just item if item > 0 -> item
@@ -132,14 +138,16 @@ positiveAlt = case value {
 ## Current Active Execution State
 
 1. Parser, surface AST, and core AST now represent constructor, bracketed-list,
-   tuple, and top-level case-arm or-patterns in `jazz-next`.
+   tuple, and top-level or-patterns in `jazz-next` case arms and
+   pattern-shaped lambda parameters.
 2. Analyzer/type/runtime execution is end-to-end for literal / wildcard /
    variable / constructor / exact-length bracketed-list / cons-like list /
-   fixed-arity tuple / as-patterns / top-level case-arm or-patterns / single
+   fixed-arity tuple / as-patterns / top-level case-arm and lambda-parameter
+   or-patterns / single
    guarded case arms.
 3. Pattern-shaped lambda parameters lower to internal single-arm pattern cases
    and reuse the same binder, type, runtime matching, and no-match diagnostic
-   behavior.
+   behavior, including top-level `POr` alternatives.
 4. Declared constructor patterns typecheck against the scrutinee ADT type,
    bind payload variables in arm bodies, reject unknown constructor names or
    arity mismatches with deterministic `E2011` diagnostics, and participate
@@ -177,7 +185,8 @@ positiveAlt = case value {
 
 ## Active Or-Pattern Contract
 
-Or-patterns are a single case-arm pattern form, not multiple arms:
+Or-patterns are a single pattern form, not multiple arms or parameters. In
+case arms they stay inside one arm:
 
 ```jz
 case value {
@@ -186,18 +195,27 @@ case value {
 }
 ```
 
+Pattern-shaped lambda parameters may use the same top-level alternative shape:
+
+```jz
+choose = \(Just item | Also item) -> item.
+```
+
 Surface rules:
 
 - The first `|` starts the case arm.
 - Later top-level `|` tokens before the optional guard or `->` separate
   alternatives in the same arm.
+- In a lambda parameter list, top-level `|` tokens before the parameter
+  delimiter separate alternatives for that one pattern parameter.
 - Each alternative is one currently accepted non-or case pattern: literal,
   wildcard, variable, constructor, exact-length list, cons-like list, tuple, or
   as-pattern.
 - `[head | tail]` remains the cons-like list pattern form, and pipe operators
   in arm bodies remain expression operators.
 - Or-patterns are not accepted inside constructor/list/tuple/as-pattern
-  subpatterns or lambda parameters.
+  subpatterns. Lambda parameters accept only the top-level alternative form,
+  with no lambda guards.
 
 Binder and type rules:
 
@@ -222,6 +240,8 @@ Runtime rules:
 - A matching alternative with a `False` guard falls through to the next arm.
 - If no arm is selected after pattern and guard checks, runtime emits the
   existing no-match diagnostic `E3022`.
+- In a lambda parameter, the internal single-arm case reuses the same
+  left-to-right matching and emits `E3022` when no alternative matches.
 
 ## Active Pattern Guard Contract
 
@@ -280,15 +300,15 @@ Diagnostics:
 
 ## Deferred Pattern Forms
 
-Pattern synonyms, nested/grouped or-patterns, lambda-parameter or-patterns, and
+Pattern synonyms, nested/grouped or-patterns, lambda-parameter guards, and
 multiple guard clauses remain blocked until separate active-path contracts
 define parser shape, binder scope, type rules, runtime matching behavior,
 diagnostics, target paths, and focused verification.
 
 ## Non-Goals
 
-1. Pattern synonyms, nested/grouped or-patterns, lambda-parameter or-patterns,
-   and multiple guard clauses per arm.
+1. Pattern synonyms, nested/grouped or-patterns, lambda-parameter guards, and
+   multiple guard clauses per arm.
 2. Exhaustiveness analysis beyond deterministic first-match semantics.
 3. Match-compilation optimizations or decision-tree lowering.
 4. Any new parser/type/runtime behavior under `jazz-hs/` or `jazz2/`.

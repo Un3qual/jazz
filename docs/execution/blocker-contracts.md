@@ -36,121 +36,147 @@ Each blocked item should answer these questions:
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
-- Smallest unblocker: none is promotion-ready after the bundled
-  `Eq(Int).equals` and `Eq(Bool).equals` children. Keep the umbrella blocked
-  until a separate contract narrows the next abstraction delta.
-- Decision needed: choose the next abstraction contract, such as a bundled
-  method-family expansion, method import/export behavior, runtime evidence, or
-  dictionary/default/superclass semantics.
-- Recommended default: do not promote another abstraction child from this
-  umbrella without concrete syntax, target paths, runtime/type semantics, and
-  focused verification.
+- Smallest unblocker: none currently promotion-ready after the bundled-prelude
+  `Eq(Float64).equals` alias-overlap child landed.
+- Decision needed: choose a later abstraction delta separately. The accepted
+  `Float`/`Float64` alias-overlap decision is now implemented for the bundled
+  prelude only; non-alias duplicate visible impl facts continue to reject.
+- Recommended default: keep the abstraction umbrella blocked until a separate
+  executable contract names syntax, target paths, and focused verification for
+  dictionaries, runtime evidence values, default methods, superclasses, new
+  bundled method families, or method import/export rules.
 - Candidate child: none currently.
-- Target paths: not set until the next contract is accepted.
+- Target paths: not set until the next abstraction contract is accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: re-promoting completed bundled `Eq(Int).equals` or
-  `Eq(Bool).equals` work, unqualified overloads, dictionary passing, runtime
-  evidence values, default methods, superclasses, inferred constraints, or
-  method import/export rules.
+- Not in scope: re-promoting completed bundled `Eq(Int).equals`,
+  `Eq(Bool).equals`, `Eq(Float).equals`, `Eq(Float16).equals`,
+  `Eq(Float32).equals`, or `Eq(Float64).equals` work; unqualified overloads,
+  dictionary passing, runtime evidence values, default methods, superclasses,
+  non-alias overlap/orphan behavior, or method import/export rules without a
+  new contract.
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
 
-- Smallest unblocker: none is promotion-ready after the Stage 2 fixed-tier
-  contract and parser-only declaration child. Runtime semantics now need a
-  separate executable contract before returning to `Ready Now`.
-- Decision needed: define how declared operators get executable bindings,
-  whether they are ordinary function values or a distinct declaration form, how
-  module visibility works, and which type/runtime checks close the first
-  execution slice.
-- Recommended default: keep Stage 2 parser metadata complete and block runtime
-  operator semantics until a narrow contract excludes custom precedence,
-  custom associativity, new built-ins, and runtime overload dispatch.
-- Candidate child: none currently.
-- Target paths: not set until the runtime/operator-semantics contract is
-  accepted.
+- Smallest unblocker: promote the next accepted post-signature operator child:
+  custom numeric precedence for same-source user operator declarations.
+- Decision needed: accepted on `2026-06-30`: plan operator-specific type
+  signatures, custom precedence, and custom associativity as separate child
+  rows. Operator signatures have landed; execute custom precedence next, then
+  custom associativity.
+- Recommended default: keep Stage 2 fixed-tier parsing, same-source `(op) =
+  <expr>.` execution, and adjacent operator signatures complete. Promote only
+  the custom-precedence child first; do not batch custom associativity into
+  that child.
+- Candidate child: `JN-OPERATORS-CUSTOM-PRECEDENCE-001`.
+- Target paths: `docs/spec/syntax/operators.md`;
+  `jazz-next/src/JazzNext/Compiler/Parser.hs`;
+  `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`;
+  `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`;
+  `jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`;
+  `jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`;
+  `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`;
+  `docs/plans/2026-06-30-jazz-next-operator-signatures-precedence-associativity.md`.
 - Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`.
+  `bash scripts/check-docs.sh`; plus the focused `OperatorFixitySpec.hs`,
+  `OperatorInvalidSyntaxSpec.hs`, and `RuntimeSemanticsSpec.hs` commands named
+  by the child plan.
 - Not in scope: re-promoting the completed fixed-tier contract or parser child,
-  custom precedence declarations, new builtin operators, runtime overload
-  dispatch, or parser syntax already covered by
+  re-promoting `JN-OPERATORS-DECLARED-FUNCTION-BINDINGS-001`, re-promoting
+  `JN-OPERATORS-SPECIFIC-TYPE-SIGNATURES-001`, custom associativity in the
+  precedence child, new builtin operators, runtime overload dispatch,
+  cross-module operator APIs, or parser syntax already covered by
   `JN-OPERATORS-STAGE2-FIXED-TIER-PARSER-001`.
 
 ### JN-PRIMITIVE-SURFACE-EXPANSION-PLAN-001
 
-- Smallest unblocker: none is promotion-ready after the literal-suffix contract
-  was accepted and `JN-PRIMITIVE-FRACTIONAL-LITERAL-SUFFIXES-001` was promoted.
-- Decision needed: a separate contract for implicit integer-to-float promotion,
-  implicit mixed-width arithmetic/comparison behavior, or solver/defaulting
-  behavior before any post-suffix primitive child can return to `Ready Now`.
-- Recommended default: do not promote another primitive child from this umbrella
-  until implicit promotion, mixed-width behavior, or broader solver semantics
-  are accepted with concrete target paths and focused verification.
+- Smallest unblocker: none currently promotion-ready after the direct typed
+  integer-to-`Float`/`Float64` promotion child landed.
+- Decision needed: choose a later primitive delta separately. Direct binary
+  typed integral promotion is now implemented only for arithmetic, comparison,
+  and equality with a `Float`/`Float64` peer.
+- Recommended default: keep mixed-width float behavior, `Float16`/`Float32`
+  promotion, operator-value or section promotion, user-defined operator
+  behavior, and broader solver/defaulting behavior blocked behind their own
+  contracts.
 - Candidate child: none currently.
-- Target paths: not set until the next post-suffix primitive contract is
-  accepted.
+- Target paths: not set until the next primitive contract is accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: re-promoting `JN-PRIMITIVE-LITERAL-SUFFIX-CONTRACT-001`,
-  changing the queued suffix child, callable identity semantics, user-defined
-  operator behavior, implicit promotions, typeclass solver behavior, or
-  mixed-width arithmetic before those contracts are accepted.
+  changing the completed suffix, Float64 integer-literal, or typed
+  integer-to-Float64 children, callable identity semantics, user-defined
+  operator behavior, typeclass solver behavior, implicit promotion into
+  `Float16` or `Float32`, mixed-width arithmetic, or operator value/section
+  promotion.
 
 ### JN-TYPE-GRAMMAR-CLOSURE-PLAN-001
 
-- Smallest unblocker: promote the next verifier-backed implementation child
-  from the accepted `JN-TYPE-SOLVER-CONTRACT-001` slices.
-- Decision needed: choose one remaining solver slice narrow enough for a child
-  row. The ordinary binding schemes/per-use instantiation child has landed.
-- Recommended default: keep any next executable child limited to one remaining
-  solver slice. Do not batch inferred class constraints, broad defaulting,
-  solver-backed constrained signatures, runtime dictionaries, explicit type
-  application, or primitive mixed-width behavior together.
-- Candidate child: none currently; the next curation pass must add a concrete
-  row before implementation resumes.
-- Target paths: update once a new child is promoted in
-  `docs/execution/queue.md#ready-now`.
+- Smallest unblocker: use the accepted remaining-solver slice plan and promote
+  the next implementation child, final defaulting and ambiguity, when a type
+  solver row is selected.
+- Decision needed: accepted on `2026-06-30`: write the remaining solver plan for
+  inferred class constraints, final defaulting/ambiguity, explicit type
+  application, and runtime evidence/dictionaries, but keep them as separate
+  verifier-backed child rows. Inferred class constraints have landed.
+- Recommended default: promote final defaulting/ambiguity next. Do not batch
+  broad defaulting, runtime evidence/dictionaries, explicit type application,
+  primitive mixed-width behavior, or typed integer-to-float promotion together.
+- Candidate child: `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001`.
+- Target paths: `jazz-next/src/JazzNext/Compiler/TypeInference.hs`;
+  `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`;
+  `docs/spec/semantics/bindings-and-signatures.md`;
+  `docs/spec/runtime/primitive-semantics.md`;
+  `docs/plans/2026-06-30-jazz-next-type-solver-remaining-slices.md`.
 - Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`.
-- Not in scope: re-promoting `JN-TYPE-SOLVER-CONTRACT-001`, runtime dictionary
+  `bash scripts/check-docs.sh`; plus the focused
+  `BindingSignatureCoherenceSpec.hs` and `PrimitiveSemanticsSpec.hs` commands
+  named by the remaining-slices plan.
+- Not in scope: re-promoting `JN-TYPE-SOLVER-CONTRACT-001`, re-promoting
+  `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001` or
+  `JN-TYPE-SOLVER-CONSTRAINED-SIGNATURE-SCHEMES-001`, re-promoting
+  `JN-TYPE-SOLVER-INFERRED-CLASS-CONSTRAINTS-001`, runtime dictionary
   representation, abstraction method dispatch, explicit type application,
   higher-rank polymorphism, module/import behavior, primitive mixed-width or
   implicit promotion, or any `jazz-hs`/`jazz2` work.
 
 ### JN-PATTERN-FUTURE-FORMS-PLAN-001
 
-- Smallest unblocker: none is promotion-ready after the guard contract and
-  implementation child landed. A future child must pick exactly one remaining
-  pattern form and define its binder, type, and runtime contract.
-- Decision needed: whether the next form is or-patterns or pattern synonyms,
-  and how its binder compatibility rules work.
-- Recommended default: keep future pattern forms blocked until one remaining
-  form has concrete syntax, binder compatibility, target paths, and focused
-  verification.
+- Smallest unblocker: none is promotion-ready after guard-only case-arm
+  semantics, top-level case-arm or-patterns, and lambda-parameter or-patterns
+  landed.
+- Decision needed: deferred by maintainer on `2026-06-30`; keep pattern
+  synonyms blocked for now. Define a separate pattern-synonym contract only if
+  future pattern forms are explicitly reopened.
+- Recommended default: keep pattern synonyms blocked with no candidate child
+  until a concrete binder/type/runtime contract, syntax, target paths, and
+  focused verification are accepted.
 - Candidate child: none currently.
-- Target paths: not set until the next future-pattern contract is accepted.
+- Target paths: not set until the next pattern-synonym or future-form contract
+  is accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Not in scope: re-promoting guards, adding multiple pattern forms at once,
-  generic solver behavior, or parser/runtime implementation before a contract
-  lands.
+- Not in scope: re-promoting guards, top-level case-arm or-patterns, or
+  lambda-parameter or-patterns, adding multiple pattern forms at once, pattern
+  synonyms without a concrete contract, nested/grouped or-patterns, lambda
+  guards, generic solver behavior, or any legacy compiler work.
 
 ### JN-RUNTIME-PRODUCTIZE-CLOSURE-PLAN-001
 
 - Smallest unblocker: none is promotion-ready after the CLI help output child
-  landed.
+  and explicit `-` stdin source selector child landed.
 - Decision needed: choose a later runtime product delta separately if product
   work continues.
-- Recommended default: keep the compile/run/help baseline closed. Do not reopen
-  runtime architecture, compile output, run output, packaging, generated
-  artifacts, or backend generation.
+- Recommended default: keep the compile/run/help/stdin-selector baseline
+  closed. Do not reopen runtime architecture, compile output, run output, stdin
+  source selection, packaging, generated artifacts, or backend generation.
 - Candidate child: none currently.
 - Target paths: not set until the next product delta is accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: a second backend pipeline, generated artifact output, a bare
-  `help` subcommand, or changes to compile/run/help semantics without a new
-  contract.
+  `help` subcommand, or changes to compile/run/help/stdin semantics without a
+  new contract.
 
 ### JN-MODULE-REBASE-PLAN-001
 
@@ -278,7 +304,7 @@ Each blocked item should answer these questions:
 
 - Smallest unblocker: none currently; the active evidence refresh in
   `JN-PURITY-EFFECT-CONTRACT-001` kept broader effect typing blocked pending
-  remaining solver and module-method/export/runtime-evidence contracts.
+  remaining defaulting, module-method/export, and runtime-evidence contracts.
 - Decision needed: none until those prerequisite contracts are clearer.
 - Recommended default: do not promote partial effect typing opportunistically.
 - Candidate child: none currently.

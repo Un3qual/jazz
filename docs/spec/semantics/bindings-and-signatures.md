@@ -1,6 +1,6 @@
 # Bindings and Signatures Semantics
 
-Status: active (`jazz-next` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints validated against class/impl facts, monomorphic variable constrained signatures, deterministic unsupported-variable diagnostics, unsupported constrained-signature primary spans, structural list/tuple/ADT equality over equality-supported element and constructor payload types, and ordinary binding type schemes with fresh per-use instantiation are implemented; inferred class constraints, broad defaulting, solver-backed constrained signatures, runtime evidence, and explicit type application remain future verifier-backed child rows)
+Status: active (`jazz-next` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints validated against class/impl facts, generalized variable constrained-signature schemes with per-use evidence checks, deterministic unsupported-variable diagnostics, unsupported constrained-signature primary spans, structural list/tuple/ADT equality over equality-supported element and constructor payload types, ordinary binding type schemes with fresh per-use instantiation, and inferred `Eq` class constraints from strict equality and qualified method requirements are implemented; broad defaulting, runtime evidence, and explicit type application remain future verifier-backed child rows)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
 
@@ -30,8 +30,8 @@ Adjacent future generic ADT work:
   inference.
 - The dedicated polymorphism/defaulting/typeclass-solver contract is accepted as
   `JN-TYPE-SOLVER-CONTRACT-001`, but implementation is split into child rows.
-  The first executable child, ordinary binding type schemes and per-use
-  instantiation, has landed.
+  Ordinary binding type schemes, per-use instantiation, solver-backed variable
+  constrained signatures, and inferred class constraints have landed.
 
 Adjacent numeric-width work:
 
@@ -248,6 +248,7 @@ bad = \(x) -> x.
 ## Deferred Work
 
 - Implement the remaining accepted type-solver contract through verifier-backed
-  child rows. Ordinary binding type schemes and per-use instantiation are
-  landed; inferred class constraints, broad defaulting, solver-backed
-  constrained signatures, and runtime evidence remain later children.
+  child rows. Ordinary binding type schemes, per-use instantiation,
+  solver-backed variable constrained-signature schemes, and inferred `Eq` class
+  constraints are landed; broad defaulting, runtime evidence, and explicit type
+  application remain later children.

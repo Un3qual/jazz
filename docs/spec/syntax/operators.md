@@ -206,6 +206,22 @@ The binding form is:
 operator-binding ::= "(" operator-symbol ")" "=" expression "."
 ```
 
+An operator binding may have an immediately adjacent ordinary type signature
+for the same parenthesized operator name:
+
+```jz
+operator %% tier 2.
+(%%) :: Int -> Int -> Int.
+(%%) = \(left) -> \(right) -> left + right.
+result = 1 %% 2.
+```
+
+The signature form is:
+
+```ebnf
+operator-signature ::= "(" operator-symbol ")" "::" signature-type "."
+```
+
 Rules:
 
 1. The operator symbol must be a user operator already declared earlier in the
@@ -220,6 +236,15 @@ Rules:
    ordinary value and must be callable at each operator use site.
 6. A declared user operator used without an executable binding is a compile
    error: `operator '<symbol>' has no executable binding`.
+7. An operator signature must name a user operator already declared earlier in
+   the same source unit.
+8. Built-in operators cannot receive operator signatures.
+9. Operator signatures are allowed only at file scope or directly in module
+   bodies, matching operator declarations and bindings. They are invalid inside
+   expression blocks, classes, impls, lambdas, pattern arms, or other nested
+   scopes.
+10. An operator signature applies only when it immediately precedes the matching
+   operator binding. It constrains the hidden ordinary binding type.
 
 Executable equivalences:
 
@@ -229,10 +254,10 @@ Executable equivalences:
    sections preserve argument order for non-commutative functions.
 4. `(%%)` is the ordinary callable value bound by `(%%) = <expression>.`
 
-Executable operator bindings do not introduce operator type signatures,
-implicit overload resolution, dictionaries, typeclass solver behavior, custom
-precedence, custom associativity, new built-ins, new operator declaration
-syntax, or runtime overload dispatch.
+Executable operator bindings do not introduce implicit overload resolution,
+dictionaries, typeclass solver behavior, custom precedence, custom
+associativity, new built-ins, new operator declaration syntax, or runtime
+overload dispatch.
 
 ### Invalid Stage 2 Cases
 
@@ -259,8 +284,8 @@ operator %% tier 2.
 
 Stage 2 executable bindings remain ordinary source-local bindings. They do not
 add kernel primitives, operator imports or exports, runtime overload dispatch,
-operator-specific type signatures, custom precedence, custom associativity, or
-new built-in operators.
+cross-module operator APIs, non-adjacent operator signatures, custom
+precedence, custom associativity, or new built-in operators.
 
 ## Compatibility and Drift Prevention
 

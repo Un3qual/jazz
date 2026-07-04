@@ -48,8 +48,10 @@ tests =
     ("tuple-pattern lambda parameter runs", testTuplePatternLambdaParameterRuntime),
     ("cons-like list lambda parameter runs", testConsLikeListPatternLambdaParameterRuntime),
     ("constructor-pattern lambda parameter runs", testConstructorPatternLambdaParameterRuntime),
+    ("or-pattern lambda parameter runs", testOrPatternLambdaParameterRuntime),
     ("wildcard lambda parameter runs", testWildcardPatternLambdaParameterRuntime),
     ("pattern lambda parameter reports no match at runtime", testPatternLambdaParameterNoMatchRuntime),
+    ("or-pattern lambda parameter reports no match at runtime", testOrPatternLambdaParameterNoMatchRuntime),
     ("pattern lambda parameter keeps binder type constraints", testPatternLambdaParameterTypeMismatch),
     ("signature-checked lambda rejects mismatched application", testLambdaSignatureMismatch),
     ("recursive lambda rejects mismatched recursive application", testRecursiveLambdaTypeMismatch),
@@ -215,6 +217,14 @@ testConstructorPatternLambdaParameterRuntime = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "41") (runOutput result)
 
+testOrPatternLambdaParameterRuntime :: IO ()
+testOrPatternLambdaParameterRuntime = do
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. get = \\(Just item | Also item) -> item. get (Also 41)."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "41") (runOutput result)
+
 testWildcardPatternLambdaParameterRuntime :: IO ()
 testWildcardPatternLambdaParameterRuntime = do
   result <- runSource defaultWarningSettings "ignore = \\(_) -> 1. ignore True."
@@ -230,6 +240,17 @@ testPatternLambdaParameterNoMatchRuntime = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertSingleDiagnosticCode
     "pattern lambda no-match runtime code"
+    "E3022"
+    (runRuntimeErrors result)
+  assertEqual "runtime output" Nothing (runOutput result)
+
+testOrPatternLambdaParameterNoMatchRuntime :: IO ()
+testOrPatternLambdaParameterNoMatchRuntime = do
+  result <- runSource defaultWarningSettings "data Maybe = Nothing | Just value | Also value. get = \\(Just item | Also item) -> item. get Nothing."
+  assertEqual "warnings" [] (runWarnings result)
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticCode
+    "or-pattern lambda no-match runtime code"
     "E3022"
     (runRuntimeErrors result)
   assertEqual "runtime output" Nothing (runOutput result)

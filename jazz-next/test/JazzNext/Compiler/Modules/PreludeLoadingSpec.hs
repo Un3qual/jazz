@@ -51,6 +51,9 @@ tests =
     ("bundled default prelude exposes default numeric conversion aliases", testBundledPreludeExposesDefaultNumericConversionAliases),
     ("bundled default prelude exposes Eq Int equals method body", testBundledPreludeExposesEqIntEqualsMethodBody),
     ("bundled default prelude exposes Eq Float equals method body", testBundledPreludeExposesEqFloatEqualsMethodBody),
+    ("bundled default prelude exposes Eq Float16 equals method body", testBundledPreludeExposesEqFloat16EqualsMethodBody),
+    ("bundled default prelude exposes Eq Float32 equals method body", testBundledPreludeExposesEqFloat32EqualsMethodBody),
+    ("bundled default prelude exposes Eq Float64 equals method body", testBundledPreludeExposesEqFloat64EqualsMethodBody),
     ("bundled default prelude exposes Eq Bool equals method body", testBundledPreludeExposesEqBoolEqualsMethodBody),
     ("compile without prelude rejects numeric conversion aliases", testCompileWithoutPreludeRejectsNumericConversionAliases),
     ("compile without prelude does not inherit bundled Eq equals method bodies", testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies),
@@ -273,6 +276,63 @@ testBundledPreludeExposesEqFloatEqualsMethodBody = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(True, False)") (runOutput result)
 
+testBundledPreludeExposesEqFloat16EqualsMethodBody :: IO ()
+testBundledPreludeExposesEqFloat16EqualsMethodBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( Text.unlines
+          [ "left :: Float16.",
+            "left = 1.5.",
+            "same :: Float16.",
+            "same = 1.5.",
+            "different :: Float16.",
+            "different = 2.25.",
+            "(Eq::equals left same, Eq::equals left different)."
+          ]
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+
+testBundledPreludeExposesEqFloat32EqualsMethodBody :: IO ()
+testBundledPreludeExposesEqFloat32EqualsMethodBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( Text.unlines
+          [ "left :: Float32.",
+            "left = 1.5.",
+            "same :: Float32.",
+            "same = 1.5.",
+            "different :: Float32.",
+            "different = 2.25.",
+            "(Eq::equals left same, Eq::equals left different)."
+          ]
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+
+testBundledPreludeExposesEqFloat64EqualsMethodBody :: IO ()
+testBundledPreludeExposesEqFloat64EqualsMethodBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( Text.unlines
+          [ "left :: Float64.",
+            "left = toFloat64 1.",
+            "same :: Float64.",
+            "same = toFloat64 1.",
+            "different :: Float64.",
+            "different = toFloat64 2.",
+            "(Eq::equals left same, Eq::equals left different)."
+          ]
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+
 testBundledPreludeExposesEqBoolEqualsMethodBody :: IO ()
 testBundledPreludeExposesEqBoolEqualsMethodBody = do
   result <- runSource defaultWarningSettings "(Eq::equals True True, Eq::equals True False)."
@@ -357,6 +417,69 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
     "no-prelude compile has no bundled Eq(Float).equals method body"
     "missing impl method body 'Eq::equals'"
     (compileErrors floatResult)
+  float16Result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      ( Text.unlines
+          [ "class Eq(a) {",
+            "equals :: a -> a -> Bool.",
+            "}.",
+            "impl Eq(Float16) { }.",
+            "left :: Float16.",
+            "left = 1.5.",
+            "right :: Float16.",
+            "right = 1.5.",
+            "result = Eq::equals left right.",
+            "result."
+          ]
+      )
+  assertSingleErrorContains
+    "no-prelude compile has no bundled Eq(Float16).equals method body"
+    "missing impl method body 'Eq::equals'"
+    (compileErrors float16Result)
+  float32Result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      ( Text.unlines
+          [ "class Eq(a) {",
+            "equals :: a -> a -> Bool.",
+            "}.",
+            "impl Eq(Float32) { }.",
+            "left :: Float32.",
+            "left = 1.5.",
+            "right :: Float32.",
+            "right = 1.5.",
+            "result = Eq::equals left right.",
+            "result."
+          ]
+      )
+  assertSingleErrorContains
+    "no-prelude compile has no bundled Eq(Float32).equals method body"
+    "missing impl method body 'Eq::equals'"
+    (compileErrors float32Result)
+  float64Result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      ( Text.unlines
+          [ "class Eq(a) {",
+            "equals :: a -> a -> Bool.",
+            "}.",
+            "impl Eq(Float64) { }.",
+            "left :: Float64.",
+            "left = 1.5.",
+            "right :: Float64.",
+            "right = 1.5.",
+            "result = Eq::equals left right.",
+            "result."
+          ]
+      )
+  assertSingleErrorContains
+    "no-prelude compile has no bundled Eq(Float64).equals method body"
+    "missing impl method body 'Eq::equals'"
+    (compileErrors float64Result)
 
 testCompileWithoutPreludeRejectsBundledCapabilityFacts :: IO ()
 testCompileWithoutPreludeRejectsBundledCapabilityFacts = do
@@ -445,6 +568,81 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
     "explicit prelude has no bundled Eq(Float).equals method body"
     "missing impl method body 'Eq::equals'"
     (compileErrors floatResult)
+  float16Result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      ( Just
+          ( Text.unlines
+              [ "class Eq(a) {",
+                "equals :: a -> a -> Bool.",
+                "}.",
+                "impl Eq(Float16) { }."
+              ]
+          )
+      )
+      ( Text.unlines
+          [ "left :: Float16.",
+            "left = 1.5.",
+            "right :: Float16.",
+            "right = 1.5.",
+            "result = Eq::equals left right.",
+            "result."
+          ]
+      )
+  assertSingleErrorContains
+    "explicit prelude has no bundled Eq(Float16).equals method body"
+    "missing impl method body 'Eq::equals'"
+    (compileErrors float16Result)
+  float32Result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      ( Just
+          ( Text.unlines
+              [ "class Eq(a) {",
+                "equals :: a -> a -> Bool.",
+                "}.",
+                "impl Eq(Float32) { }."
+              ]
+          )
+      )
+      ( Text.unlines
+          [ "left :: Float32.",
+            "left = 1.5.",
+            "right :: Float32.",
+            "right = 1.5.",
+            "result = Eq::equals left right.",
+            "result."
+          ]
+      )
+  assertSingleErrorContains
+    "explicit prelude has no bundled Eq(Float32).equals method body"
+    "missing impl method body 'Eq::equals'"
+    (compileErrors float32Result)
+  float64Result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      ( Just
+          ( Text.unlines
+              [ "class Eq(a) {",
+                "equals :: a -> a -> Bool.",
+                "}.",
+                "impl Eq(Float64) { }."
+              ]
+          )
+      )
+      ( Text.unlines
+          [ "left :: Float64.",
+            "left = 1.5.",
+            "right :: Float64.",
+            "right = 1.5.",
+            "result = Eq::equals left right.",
+            "result."
+          ]
+      )
+  assertSingleErrorContains
+    "explicit prelude has no bundled Eq(Float64).equals method body"
+    "missing impl method body 'Eq::equals'"
+    (compileErrors float64Result)
 
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable :: IO ()
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable = do

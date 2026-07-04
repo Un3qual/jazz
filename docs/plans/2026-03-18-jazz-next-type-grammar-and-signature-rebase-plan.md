@@ -74,15 +74,18 @@ supersedes:
 - [x] On `2026-06-24`, executed ready child
       `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001` for
       ordinary binding type schemes and per-use instantiation only.
+- [x] On `2026-06-27`, executed ready child
+      `JN-TYPE-SOLVER-CONSTRAINED-SIGNATURE-SCHEMES-001` for generalized
+      variable constrained-signature schemes with per-use evidence checks.
 
-## Active Baseline (2026-06-24)
+## Active Baseline (2026-06-29)
 
 - `jazz-next/src/JazzNext/Compiler/Parser.hs` now parses supported monomorphic signature statements into structured parser-owned payloads instead of joined raw text.
 - `jazz-next/src/JazzNext/Compiler/Parser/AST.hs` and `jazz-next/src/JazzNext/Compiler/AST.hs` now carry explicit signature/type nodes for the supported subset plus tokenized fallback for unsupported surfaces.
 - `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs` forwards structured signature payloads into the core AST.
 - `jazz-next/src/JazzNext/Compiler/Analyzer.hs` still enforces signature placement/name coherence only; signature semantics remain owned by `TypeInference.hs`.
-- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now consumes structured signature payloads for `Int`, `Bool`, nested concrete list forms, concrete tuple forms, right-associated chained function arrows, explicit parenthesized function-type overrides, empty `@{}:` constrained signatures over that same monomorphic subset, concrete unary non-empty constraints over `Int`, `Bool`, nested concrete lists, and concrete tuple compositions, and known unary constraints over lower-case type variables that appear in the signature body. It also derives generic ADT constructor value/application schemes from declaration-owned `data` type parameters and generalizes eligible ordinary user bindings after non-recursive binding or recursive-group inference, instantiating those generalized schemes freshly at each use. Direct constructor aliases, adjacent signatures, constrained numeric/equality variables, and currently monomorphic constrained signatures remain monomorphic. Unsupported broader forms continue to report through `E2009`; duplicate non-empty constraints are reported with specific duplicate-constraint text.
-- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs` explicitly accepts simple list signatures, right-associated chained function signatures, parenthesized list-to-list signatures, parenthesized function-type overrides, empty constrained signatures over monomorphic function types, concrete unary constrained signatures, monomorphic variable constrained signatures, and fresh per-use ordinary binding instantiation across non-recursive, self-recursive, and mutual-recursive bindings while keeping unsupported broader surfaces, duplicate non-empty constraints, and unconstrained signature variables on deterministic `E2009` with primary spans attached to the signature statement.
+- `jazz-next/src/JazzNext/Compiler/TypeInference.hs` now consumes structured signature payloads for `Int`, `Bool`, nested concrete list forms, concrete tuple forms, right-associated chained function arrows, explicit parenthesized function-type overrides, empty `@{}:` constrained signatures over that same monomorphic subset, concrete unary non-empty constraints over `Int`, `Bool`, nested concrete lists, and concrete tuple compositions, and known unary constraints over lower-case type variables that appear in the signature body. It also derives generic ADT constructor value/application schemes from declaration-owned `data` type parameters, generalizes eligible ordinary user bindings after non-recursive binding or recursive-group inference, instantiates generalized ordinary schemes freshly at each use, and publishes generalized variable constrained-signature schemes with use-site class/impl evidence checks. Direct constructor aliases, adjacent concrete signatures, and concrete constrained signatures remain monomorphic. Unsupported broader forms continue to report through `E2009`; duplicate non-empty constraints are reported with specific duplicate-constraint text.
+- `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs` explicitly accepts simple list signatures, right-associated chained function signatures, parenthesized list-to-list signatures, parenthesized function-type overrides, empty constrained signatures over monomorphic function types, concrete unary constrained signatures, fresh per-use ordinary binding instantiation across non-recursive, self-recursive, and mutual-recursive bindings, and per-use variable constrained-signature instantiation with visible-fact, missing-fact, and ambiguity coverage while keeping unsupported broader surfaces, duplicate non-empty constraints, and unconstrained signature variables on deterministic `E2009` with primary spans attached to the signature statement.
 - `docs/plans/2026-03-16-jazz-next-monomorphic-signature-surface.md` already delivered the safe monomorphic subset. This rebase must preserve that subset while moving ownership to the correct compiler layers.
 
 ## Scope Guardrails
@@ -113,18 +116,22 @@ Allowed in the generic ADT slice:
 - deterministic diagnostics for malformed generic declarations and
   incompatible constructor instantiations.
 
-Accepted under `JN-TYPE-SOLVER-CONTRACT-001` but split into implementation
-children:
+Accepted under `JN-TYPE-SOLVER-CONTRACT-001` and already landed through
+implementation children:
 
 - ordinary user binding generalization,
 - per-use instantiation of generalized schemes,
+- solver-backed constrained signatures for variable-bearing signatures such as
+  `@{Eq(a)}: a -> a`,
 - inferred class constraints represented and solved against visible class/impl
-  facts,
+  facts.
+
+Accepted under `JN-TYPE-SOLVER-CONTRACT-001` but still waiting for future
+implementation children:
+
 - defaulting beyond the already locked numeric literal defaults, using a final
   solver/defaulting phase that preserves current `Int64` and `Float64` numeric
-  literal defaults,
-- solver-backed constrained signatures for variable-bearing signatures such as
-  `@{Eq(a)}: a -> a`.
+  literal defaults.
 
 Still blocked or out of scope for this ready child:
 

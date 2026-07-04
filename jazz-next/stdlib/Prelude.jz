@@ -77,19 +77,25 @@ impl Num(UInt64) { }.
 impl Integral(UInt64) { }.
 impl Default(UInt64) { }.
 impl Showable(UInt64) { }.
-impl Eq(Float16) { }.
+impl Eq(Float16) {
+equals = \(left) -> \(right) -> left == right.
+}.
 impl Ord(Float16) { }.
 impl Num(Float16) { }.
 impl Fractional(Float16) { }.
 impl Default(Float16) { }.
 impl Showable(Float16) { }.
-impl Eq(Float32) { }.
+impl Eq(Float32) {
+equals = \(left) -> \(right) -> left == right.
+}.
 impl Ord(Float32) { }.
 impl Num(Float32) { }.
 impl Fractional(Float32) { }.
 impl Default(Float32) { }.
 impl Showable(Float32) { }.
-impl Eq(Float64) { }.
+impl Eq(Float64) {
+equals = \(left) -> \(right) -> left == right.
+}.
 impl Ord(Float64) { }.
 impl Num(Float64) { }.
 impl Fractional(Float64) { }.

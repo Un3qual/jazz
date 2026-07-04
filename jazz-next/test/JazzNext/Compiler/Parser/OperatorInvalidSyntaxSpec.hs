@@ -27,9 +27,12 @@ tests =
     ("rejects custom operator associativity declarations", testRejectsCustomOperatorAssociativityDeclaration),
     ("rejects user operator infix use before declaration", testRejectsUserOperatorInfixUseBeforeDeclaration),
     ("rejects user operator value use before declaration", testRejectsUserOperatorValueUseBeforeDeclaration),
+    ("rejects undeclared operator signature", testRejectsUndeclaredOperatorSignature),
+    ("rejects built-in operator signature", testRejectsBuiltinOperatorSignature),
     ("rejects undeclared operator binding", testRejectsUndeclaredOperatorBinding),
     ("rejects built-in operator binding", testRejectsBuiltinOperatorBinding),
     ("rejects nested operator binding", testRejectsNestedOperatorBinding),
+    ("rejects nested operator signature", testRejectsNestedOperatorSignature),
     ("rejects module declarations after operator declarations", testRejectsModuleAfterOperatorDeclaration),
     ("rejects undeclared percent operator", testRejectsUndeclaredPercentOperator),
     ("rejects undeclared ampersand operator", testRejectsUndeclaredAmpersandOperator),
@@ -125,6 +128,22 @@ testRejectsUserOperatorValueUseBeforeDeclaration =
     "operator '%%' must be declared before use"
     (parseSurfaceProgram "x = (%%).\noperator %% tier 2.")
 
+testRejectsUndeclaredOperatorSignature :: IO ()
+testRejectsUndeclaredOperatorSignature =
+  assertLeftDiagnosticCodeAndContains
+    "undeclared operator signature"
+    "E0001"
+    "operator '%%' must be declared before signature"
+    (parseSurfaceProgram "(%%) :: Int -> Int -> Int.\n(%%) = \\(left) -> \\(right) -> left + right.")
+
+testRejectsBuiltinOperatorSignature :: IO ()
+testRejectsBuiltinOperatorSignature =
+  assertLeftDiagnosticCodeAndContains
+    "built-in operator signature"
+    "E0001"
+    "cannot sign built-in operator '+'"
+    (parseSurfaceProgram "(+) :: Int -> Int -> Int.\noperator %% tier 2.")
+
 testRejectsUndeclaredOperatorBinding :: IO ()
 testRejectsUndeclaredOperatorBinding =
   assertLeftDiagnosticCodeAndContains
@@ -148,6 +167,14 @@ testRejectsNestedOperatorBinding =
     "E0001"
     "operator bindings are only allowed at file scope or directly in module bodies"
     (parseSurfaceProgram "operator %% tier 2.\nx = { (%%) = \\(left) -> \\(right) -> left + right. 0. }.")
+
+testRejectsNestedOperatorSignature :: IO ()
+testRejectsNestedOperatorSignature =
+  assertLeftDiagnosticCodeAndContains
+    "nested operator signature"
+    "E0001"
+    "operator signatures are only allowed at file scope or directly in module bodies"
+    (parseSurfaceProgram "operator %% tier 2.\nx = { (%%) :: Int -> Int -> Int. 0. }.")
 
 testRejectsModuleAfterOperatorDeclaration :: IO ()
 testRejectsModuleAfterOperatorDeclaration =

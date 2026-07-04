@@ -366,11 +366,61 @@ parseOperatorBinding context knownAliases declaredOperators operatorToken tokens
     operatorDeclared bindingSymbol =
       any ((== bindingSymbol) . operatorSymbol) declaredOperators
 
+parseOperatorSignature :: StatementContext -> DeclaredOperators -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseOperatorSignature context declaredOperators operatorToken tokensAfterName =
+  case context of
+    NestedBlockContext ->
+      rejectNestedOperatorSignature operatorToken
+    TopLevelContext ->
+      parseVisibleOperatorSignature
+    ModuleBodyContext ->
+      parseVisibleOperatorSignature
+  where
+    parseVisibleOperatorSignature =
+      case tokenKind operatorToken of
+        TOperator signatureSymbol
+          | isBuiltinOperatorSymbol signatureSymbol ->
+              Left
+                ( parseDiagnostic
+                    ( "cannot sign built-in operator '"
+                        <> signatureSymbol
+                        <> "' at "
+                        <> renderSourceSpan (tokenSpan operatorToken)
+                    )
+                )
+          | not (operatorDeclared signatureSymbol) ->
+              Left
+                ( parseDiagnostic
+                    ( "operator '"
+                        <> signatureSymbol
+                        <> "' must be declared before signature at "
+                        <> renderSourceSpan (tokenSpan operatorToken)
+                    )
+                )
+          | otherwise ->
+              parseSignature (mkOperatorBindingIdentifier signatureSymbol) operatorToken tokensAfterName
+        _ ->
+          Left
+            ( parseDiagnostic
+                ( "internal parser error at "
+                    <> renderSourceSpan (tokenSpan operatorToken)
+                    <> ": expected operator token in operator signature"
+                )
+            )
+
+    operatorDeclared signatureSymbol =
+      any ((== signatureSymbol) . operatorSymbol) declaredOperators
+
 -- | Disambiguate statement-level forms before expression parsing so leading
 -- identifiers can become signatures or bindings when followed by `::` or `=`.
 parseStatement :: StatementContext -> Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic ([SurfaceStatement], [Token])
 parseStatement context knownAliases declaredOperators tokens =
   case tokens of
+    Token {tokenKind = TLParen} :
+      operatorToken@Token {tokenKind = TOperator {}} :
+      Token {tokenKind = TRParen} :
+      afterName@(Token {tokenKind = TColonColon} : _) ->
+        fmap singleStatement (parseOperatorSignature context declaredOperators operatorToken afterName)
     Token {tokenKind = TLParen} :
       operatorToken@Token {tokenKind = TOperator {}} :
       Token {tokenKind = TRParen} :
@@ -445,6 +495,11 @@ beginsStatement tokens =
     Token {tokenKind = TData} : _ -> True
     Token {tokenKind = TIdentifier "operator"} : rest
       | looksLikeOperatorDeclaration rest -> True
+    Token {tokenKind = TLParen} :
+      Token {tokenKind = TOperator {}} :
+      Token {tokenKind = TRParen} :
+      Token {tokenKind = TColonColon} :
+      _ -> True
     Token {tokenKind = TLParen} :
       Token {tokenKind = TOperator {}} :
       Token {tokenKind = TRParen} :
@@ -1123,6 +1178,15 @@ rejectNestedOperatorBinding operatorToken =
   Left
     ( parseDiagnostic
         ( "operator bindings are only allowed at file scope or directly in module bodies at "
+            <> renderSourceSpan (tokenSpan operatorToken)
+        )
+    )
+
+rejectNestedOperatorSignature :: Token -> Either Diagnostic a
+rejectNestedOperatorSignature operatorToken =
+  Left
+    ( parseDiagnostic
+        ( "operator signatures are only allowed at file scope or directly in module bodies at "
             <> renderSourceSpan (tokenSpan operatorToken)
         )
     )
@@ -2887,6 +2951,8 @@ parseLambdaParameter tokens =
           parsePatternLambdaParameter tokens
       | startsAsPatternTail rest ->
           parsePatternLambdaParameter tokens
+      | startsLambdaOrPatternTail rest ->
+          parsePatternLambdaParameter tokens
       | otherwise ->
           Right (SurfaceLambdaIdentifier (mkIdentifier parameterName), rest)
     [] ->
@@ -2904,13 +2970,19 @@ parseLambdaParameter tokens =
 
 parsePatternLambdaParameter :: [Token] -> Either Diagnostic (SurfaceLambdaParameter, [Token])
 parsePatternLambdaParameter tokens = do
-  (patternValue, rest) <- parseCasePattern tokens
+  (patternValue, rest) <- parseCaseArmPattern tokens
   Right (SurfaceLambdaPattern patternValue, rest)
 
 startsAsPatternTail :: [Token] -> Bool
 startsAsPatternTail tokens =
   case tokens of
     Token {tokenKind = TAt} : _ -> True
+    _ -> False
+
+startsLambdaOrPatternTail :: [Token] -> Bool
+startsLambdaOrPatternTail tokens =
+  case tokens of
+    Token {tokenKind = TOperator "|"} : _ -> True
     _ -> False
 
 collectUntilDot :: [Token] -> Either Diagnostic ([Token], [Token])

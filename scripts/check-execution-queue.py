@@ -799,12 +799,22 @@ if done_headers and "id" not in [normalize_text(header) for header in done_heade
     fail(f"{QUEUE_PATH} Done headers must include an 'id' column: {done_headers!r}")
     done_rows = []
 
+for row in done_rows:
+    row_id = normalize_text(row.get("id", ""))
+    if not row_id:
+        fail(f"{QUEUE_PATH} Done row is missing id")
+        continue
+    fail(
+        f"{QUEUE_PATH} Done row {row_id} must be moved to "
+        f"{DONE_ARCHIVE_PATH.relative_to(ROOT)}"
+    )
+done_rows = []
+
 all_ids = set()
 seen_ids: dict[str, str] = {}
 for section_name, rows in (
     ("Ready Now", ready_rows),
     ("Blocked", blocked_rows),
-    ("Done", done_rows),
 ):
     for row in rows:
         row_id = normalize_text(row.get("id", ""))
@@ -989,7 +999,7 @@ for row in ready_rows:
         if dep == row_id:
             fail(f"{QUEUE_PATH} Ready Now row {row_id} cannot depend on itself")
             continue
-        if dep not in all_ids:
+        if dep not in all_ids and dep not in archived_ids:
             fail(f"{QUEUE_PATH} Ready Now row {row_id} has unresolved dependency id: {dep}")
 
     target_paths = split_inline_list(row["target_paths"], ",", normalize_list_item)

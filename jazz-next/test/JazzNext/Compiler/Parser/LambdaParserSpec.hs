@@ -25,6 +25,7 @@ import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
+    SurfacePattern (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Lower
@@ -62,6 +63,11 @@ tests =
     ("parses cons-like lambda parameter patterns", testParsesConsLikeListLambdaParameterPattern),
     ("parses boolean literal lambda parameter patterns", testParsesBooleanLiteralLambdaParameterPattern),
     ("parses constructor-like lambda parameter patterns", testParsesConstructorLikeLambdaParameterPattern),
+    ("parses or-pattern lambda parameter alternatives", testParsesOrPatternLambdaParameter),
+    ("parses comma after or-pattern lambda parameter alternatives", testParsesCommaAfterOrPatternLambdaParameter),
+    ("lowering desugars or-pattern parameters through case nodes", testLowerDesugarsOrPatternParameterThroughCase),
+    ("rejects grouped or-pattern lambda parameters", testRejectsGroupedOrPatternLambdaParameter),
+    ("rejects lambda parameter or-pattern guards", testRejectsLambdaOrPatternParameterGuard),
     ("rejects reserved keyword as lambda parameter", testRejectsKeywordLambdaParameter)
   ]
 
@@ -255,6 +261,99 @@ testParsesConstructorLikeLambdaParameterPattern =
     "constructor-like lambda parameter pattern"
     (parseSurfaceProgram "f = \\(Just item) -> item.")
     (\_ -> pure ())
+
+testParsesOrPatternLambdaParameter :: IO ()
+testParsesOrPatternLambdaParameter =
+  assertEqual
+    "or-pattern lambda parameter AST"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "choose"
+                (SourceSpan 1 1)
+                ( SELambda
+                    [ SurfaceLambdaPattern
+                        ( SPOr
+                            [ SPConstructor "Just" [SPVariable "item"],
+                              SPConstructor "Also" [SPVariable "item"]
+                            ]
+                        )
+                    ]
+                    (SEVar "item")
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "choose = \\(Just item | Also item) -> item.")
+
+testParsesCommaAfterOrPatternLambdaParameter :: IO ()
+testParsesCommaAfterOrPatternLambdaParameter =
+  assertEqual
+    "comma after or-pattern lambda parameter AST"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "choose"
+                (SourceSpan 1 1)
+                ( SELambda
+                    [ SurfaceLambdaPattern
+                        ( SPOr
+                            [ SPConstructor "Just" [SPVariable "item"],
+                              SPConstructor "Also" [SPVariable "item"]
+                            ]
+                        ),
+                      SurfaceLambdaIdentifier "extra"
+                    ]
+                    (SEVar "item")
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "choose = \\(Just item | Also item, extra) -> item.")
+
+testLowerDesugarsOrPatternParameterThroughCase :: IO ()
+testLowerDesugarsOrPatternParameterThroughCase =
+  assertRight
+    "parse + lower or-pattern lambda"
+    (parseSurfaceProgram "choose = \\(Just item | Also item) -> item.")
+    (\surfaceProgram -> assertEqual "lowered or-pattern lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    generatedName = "$lambda_pattern_arg_1"
+    expectedProgram =
+      EBlock
+        [ SLet
+            "choose"
+            (SourceSpan 1 1)
+            ( ELambda
+                generatedName
+                ( EPatternCase
+                    (EVar generatedName)
+                    [ CaseArm
+                        ( POr
+                            [ PConstructor "Just" [PVariable "item"],
+                              PConstructor "Also" [PVariable "item"]
+                            ]
+                        )
+                        Nothing
+                        (EVar "item")
+                    ]
+                )
+            )
+        ]
+
+testRejectsGroupedOrPatternLambdaParameter :: IO ()
+testRejectsGroupedOrPatternLambdaParameter =
+  assertLeftDiagnosticContains
+    "grouped lambda or-pattern"
+    "expected case pattern"
+    (parseSurfaceProgram "f = \\((Just item | Also item)) -> item.")
+
+testRejectsLambdaOrPatternParameterGuard :: IO ()
+testRejectsLambdaOrPatternParameterGuard =
+  assertLeftDiagnosticContains
+    "lambda or-pattern guard"
+    "expected ',' or ')'"
+    (parseSurfaceProgram "f = \\(Just item | Also item if item > 0) -> item.")
 
 testRejectsKeywordLambdaParameter :: IO ()
 testRejectsKeywordLambdaParameter =

@@ -45,6 +45,7 @@ tests =
     ("runtime compares constructor values inside pattern arms", testRuntimeComparesConstructorValuesInsidePatternArms),
     ("runtime selects the first matching or-pattern alternative", testRuntimeSelectsFirstMatchingOrPatternAlternative),
     ("runtime uses bindings from the first matching or-pattern alternative", testRuntimeUsesFirstMatchingOrPatternAlternativeBindings),
+    ("runtime uses bindings from the first matching lambda or-pattern alternative", testRuntimeUsesFirstMatchingLambdaOrPatternAlternativeBindings),
     ("runtime falls back when all or-pattern alternatives fail", testRuntimeFallsBackWhenAllOrPatternAlternativesFail),
     ("runtime selects mixed literal-led later or-pattern arm after guarded fallback", testRuntimeSelectsMixedLiteralLedLaterOrPatternArmAfterGuardedFallback),
     ("runtime selects variable-led mixed later or-pattern arm after prior body", testRuntimeSelectsVariableLedMixedLaterOrPatternArmAfterPriorBody),
@@ -155,6 +156,11 @@ testRuntimeUsesFirstMatchingOrPatternAlternativeBindings :: IO ()
 testRuntimeUsesFirstMatchingOrPatternAlternativeBindings = do
   result <- runSource defaultWarningSettings "pair = (1, 2). case pair { | (item, _) | (_, item) -> item | _ -> 0 }."
   assertSuccessfulRuntime "or-pattern alternative binding order" (Just "1") result
+
+testRuntimeUsesFirstMatchingLambdaOrPatternAlternativeBindings :: IO ()
+testRuntimeUsesFirstMatchingLambdaOrPatternAlternativeBindings = do
+  result <- runSource defaultWarningSettings "pick = \\((item, _) | (_, item)) -> item. pick (1, 2)."
+  assertSuccessfulRuntime "lambda or-pattern alternative binding order" (Just "1") result
 
 testRuntimeFallsBackWhenAllOrPatternAlternativesFail :: IO ()
 testRuntimeFallsBackWhenAllOrPatternAlternativesFail = do
