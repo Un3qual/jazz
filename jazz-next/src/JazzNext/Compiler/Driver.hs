@@ -1543,9 +1543,15 @@ localCapabilityDependenciesForExportsWithDirectRoots includeDirectRoots expr nee
             then collectTopLevelCapabilityNames expr
             else Set.fromList (collectTopLevelClassNames expr)
         directDependencies =
+          if includeDirectRoots
+            then Set.union directlyNeededCapabilities directExportDependencies
+            else
+              Set.union
+                directExportDependencies
+                (Set.difference directRootClosure directlyNeededCapabilities)
+        directExportDependencies =
           Set.unions
-            [ if includeDirectRoots then directlyNeededCapabilities else Set.empty,
-              Set.unions
+            [ Set.unions
                 [ collectLocalCapabilityReferences localCapabilityNames valueExpr
                   | SLet bindingName _ valueExpr <- statements,
                     Set.member (identifierText bindingName) neededExports
@@ -1562,6 +1568,8 @@ localCapabilityDependenciesForExportsWithDirectRoots includeDirectRoots expr nee
                     ClassMethodSignature _ _ methodSignature <- methods
                 ]
             ]
+        directRootClosure =
+          closeLocalCapabilityDependencies statements localCapabilityNames directlyNeededCapabilities
     _ -> Set.empty
 
 collectLocalCapabilityReferencesFromSignaturePayload :: Set Text -> SignaturePayload -> Set Text

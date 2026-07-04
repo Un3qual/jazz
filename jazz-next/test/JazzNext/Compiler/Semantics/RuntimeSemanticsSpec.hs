@@ -207,7 +207,10 @@ tests =
     ("typed numeric sections preserve captured operand flexibility", testTypedNumericSectionPreservesCapturedOperandFlexibility),
     ("qualified method dispatch preserves empty list binding signatures", testQualifiedMethodDispatchPreservesEmptyListBindingSignature),
     ("qualified method dispatch preserves list-returning application signatures", testQualifiedMethodDispatchPreservesListReturningApplicationSignature),
+    ("qualified method dispatch preserves dollar-applied list-returning signatures", testQualifiedMethodDispatchPreservesDollarAppliedListReturningSignature),
     ("qualified method dispatch preserves ADT-returning application signatures", testQualifiedMethodDispatchPreservesAdtReturningApplicationSignature),
+    ("qualified method dispatch preserves branch result signatures", testQualifiedMethodDispatchPreservesBranchResultSignature),
+    ("qualified method dispatch preserves block result signatures", testQualifiedMethodDispatchPreservesBlockResultSignature),
     ("qualified method dispatch preserves mapped empty list result signatures", testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature),
     ("qualified method dispatch preserves identity-mapped empty list result signatures", testQualifiedMethodDispatchPreservesIdentityMappedEmptyListResultSignature),
     ("qualified method dispatch preserves mapped hd empty nested list result signatures", testQualifiedMethodDispatchPreservesMappedHdEmptyNestedListResultSignature),
@@ -1972,6 +1975,21 @@ testQualifiedMethodDispatchPreservesListReturningApplicationSignature = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "False") (runOutput result)
 
+testQualifiedMethodDispatchPreservesDollarAppliedListReturningSignature :: IO ()
+testQualifiedMethodDispatchPreservesDollarAppliedListReturningSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "make :: Bool -> [[Int64]].\nmake = \\(enabled) -> [[1], []].\n"
+          <> "(RuntimeFlag::flag) (($) make True)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
 testQualifiedMethodDispatchPreservesAdtReturningApplicationSignature :: IO ()
 testQualifiedMethodDispatchPreservesAdtReturningApplicationSignature = do
   result <-
@@ -1983,6 +2001,35 @@ testQualifiedMethodDispatchPreservesAdtReturningApplicationSignature = do
           <> "impl RuntimeFlag(Box([[Int64]])) {\nflag = \\(box) -> False.\n}.\n"
           <> "make = \\(enabled) -> if enabled (Box [[toInt64 1], []]) else (Box [[toInt64 2], []]).\n"
           <> "(RuntimeFlag::flag) (make True)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesBranchResultSignature :: IO ()
+testQualifiedMethodDispatchPreservesBranchResultSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "make64 :: Bool -> [[Int64]].\nmake64 = \\(enabled) -> [[1], []].\n"
+          <> "(RuntimeFlag::flag) (if True (make64 True) else (make64 False))."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesBlockResultSignature :: IO ()
+testQualifiedMethodDispatchPreservesBlockResultSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "(RuntimeFlag::flag) {\nvalues :: [[Int64]].\nvalues = [[1], []].\nvalues.\n}."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)

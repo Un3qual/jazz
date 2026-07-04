@@ -128,6 +128,7 @@ tests =
     ("run module graph keeps hidden impls out of runtime dispatch", testRunModuleGraphKeepsHiddenImplsOutOfRuntimeDispatch),
     ("run module graph retains local capabilities needed by exported bindings", testRunModuleGraphRetainsLocalCapabilitiesNeededByExportedBindings),
     ("run module graph retains local capabilities needed by imported capability bodies", testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedCapabilityBodies),
+    ("run module graph namespaces capabilities needed by directly imported capability bodies", testRunModuleGraphNamespacesCapabilitiesNeededByDirectlyImportedCapabilityBodies),
     ("run module graph retains value dependencies needed by imported capability bodies", testRunModuleGraphRetainsValueDependenciesNeededByImportedCapabilityBodies),
     ("run module graph prunes unused dependency bindings during runtime replay", testRunModuleGraphPrunesUnusedDependencyBindingsDuringRuntimeReplay),
     ("run module graph keeps inferred runtime hints module scoped", testRunModuleGraphKeepsInferredRuntimeHintsModuleScoped),
@@ -1708,6 +1709,30 @@ testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedCapabilityBodies = do
       Map.fromList
         [ ( "src/App/Main.jz",
             "module App::Main {\nimport Lib::Api (Choice).\nChoice::pick 1.\n}"
+          ),
+          ( "src/Lib/Api.jz",
+            "module Lib::Api {\nclass Flag(a) {\nenabled :: Bool.\n}.\nimpl Flag(Int) {\nenabled = True.\n}.\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> Flag::enabled.\n}.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphNamespacesCapabilitiesNeededByDirectlyImportedCapabilityBodies :: IO ()
+testRunModuleGraphNamespacesCapabilitiesNeededByDirectlyImportedCapabilityBodies = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Api (Choice).\nclass Flag(a) {\nenabled :: Bool.\n}.\nimpl Flag(Int) {\nenabled = False.\n}.\n(Choice::pick 1, Flag::enabled).\n}"
           ),
           ( "src/Lib/Api.jz",
             "module Lib::Api {\nclass Flag(a) {\nenabled :: Bool.\n}.\nimpl Flag(Int) {\nenabled = True.\n}.\nclass Choice(a) {\npick :: a -> Bool.\n}.\nimpl Choice(Int) {\npick = \\(value) -> Flag::enabled.\n}.\n}"

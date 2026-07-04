@@ -3511,11 +3511,15 @@ constraintSignatureExpressionHasExactEvidence env signatureType argumentExpr =
     (_, EApply {})
       | constraintSignatureTypeContainsList signatureType ->
           constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
-    (_, EIf {}) -> False
-    (_, ECase {}) -> False
-    (_, EPatternCase {}) -> False
+    (_, EIf {}) ->
+      constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
+    (_, ECase {}) ->
+      constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
+    (_, EPatternCase {}) ->
+      constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
     (_, EBlock {})
-      | constraintSignatureTypeContainsList signatureType -> False
+      | constraintSignatureTypeContainsList signatureType ->
+          constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
     _ -> True
 
 constraintSignatureExpressionRuntimeHintMatches :: TypeEnv -> ConstraintSignatureType -> Expr -> Bool
@@ -3526,14 +3530,97 @@ constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr =
 
 constraintSignatureExpressionRuntimeHint :: TypeEnv -> Expr -> Maybe ConstraintSignatureType
 constraintSignatureExpressionRuntimeHint env argumentExpr =
+  constraintSignatureExpressionRuntimeHintWithLocalHints env Map.empty argumentExpr
+
+constraintSignatureExpressionRuntimeHintWithLocalHints ::
+  TypeEnv ->
+  Map Text ConstraintSignatureType ->
+  Expr ->
+  Maybe ConstraintSignatureType
+constraintSignatureExpressionRuntimeHintWithLocalHints env localHints argumentExpr =
   case argumentExpr of
     EVar referencedName ->
-      Map.lookup (identifierText referencedName) env >>= typeBindingRuntimeHint
+      Map.lookup (identifierText referencedName) localHints
+        <|> (Map.lookup (identifierText referencedName) env >>= typeBindingRuntimeHint)
+    EApply (EApply dollarExpr functionExpr) _
+      | builtinDollarOperatorExpr env dollarExpr ->
+          case constraintSignatureExpressionRuntimeHintWithLocalHints env localHints functionExpr of
+            Just (ConstraintTypeFunction _ resultType) -> Just resultType
+            _ -> Nothing
     EApply functionExpr _ ->
-      case constraintSignatureExpressionRuntimeHint env functionExpr of
+      case constraintSignatureExpressionRuntimeHintWithLocalHints env localHints functionExpr of
         Just (ConstraintTypeFunction _ resultType) -> Just resultType
         _ -> Nothing
+    EIf _ thenExpr elseExpr ->
+      commonConstraintSignatureExpressionRuntimeHint env localHints [thenExpr, elseExpr]
+    ECase _ thenExpr elseExpr ->
+      commonConstraintSignatureExpressionRuntimeHint env localHints [thenExpr, elseExpr]
+    EPatternCase _ caseArms ->
+      commonConstraintSignatureExpressionRuntimeHint env localHints [bodyExpr | CaseArm _ _ bodyExpr <- caseArms]
+    EBlock statements ->
+      constraintSignatureBlockRuntimeHint env localHints statements
     _ -> Nothing
+
+commonConstraintSignatureExpressionRuntimeHint ::
+  TypeEnv ->
+  Map Text ConstraintSignatureType ->
+  [Expr] ->
+  Maybe ConstraintSignatureType
+commonConstraintSignatureExpressionRuntimeHint _ _ [] = Nothing
+commonConstraintSignatureExpressionRuntimeHint env localHints (firstExpr : restExprs) = do
+  firstHint <- constraintSignatureExpressionRuntimeHintWithLocalHints env localHints firstExpr
+  if all
+    (\expr -> constraintSignatureExpressionRuntimeHintWithLocalHints env localHints expr == Just firstHint)
+    restExprs
+    then Just firstHint
+    else Nothing
+
+constraintSignatureBlockRuntimeHint ::
+  TypeEnv ->
+  Map Text ConstraintSignatureType ->
+  [Statement] ->
+  Maybe ConstraintSignatureType
+constraintSignatureBlockRuntimeHint env initialLocalHints statements =
+  go initialLocalHints Map.empty statements
+  where
+    go localHints _ [] =
+      Nothing
+    go localHints _ [SExpr _ expr] =
+      constraintSignatureExpressionRuntimeHintWithLocalHints env localHints expr
+    go localHints pendingHints (statement : rest) =
+      case statement of
+        SSignature name _ signaturePayload ->
+          let nameText = identifierText name
+              nextPendingHints =
+                case signaturePayloadRuntimeHint signaturePayload of
+                  Just runtimeHint -> Map.insert nameText runtimeHint pendingHints
+                  Nothing -> Map.delete nameText pendingHints
+           in go localHints nextPendingHints rest
+        SLet name _ valueExpr ->
+          let nameText = identifierText name
+              bindingHint =
+                Map.lookup nameText pendingHints
+                  <|> constraintSignatureExpressionRuntimeHintWithLocalHints env localHints valueExpr
+              nextLocalHints =
+                case bindingHint of
+                  Just runtimeHint -> Map.insert nameText runtimeHint localHints
+                  Nothing -> localHints
+           in go nextLocalHints (Map.delete nameText pendingHints) rest
+        _ ->
+          go localHints pendingHints rest
+
+signaturePayloadRuntimeHint :: SignaturePayload -> Maybe ConstraintSignatureType
+signaturePayloadRuntimeHint signaturePayload =
+  case signaturePayload of
+    SignatureType signatureType ->
+      expressionTypeToRuntimeHint (signatureTypeToExpressionType signatureType)
+    ConstrainedSignature _ signatureType
+      | Set.null (constraintSignatureTypeVariableNames signatureType) ->
+          Just signatureType
+    ConstrainedSignature _ signatureType ->
+      constraintSignatureTypeToExpressionType signatureType >>= expressionTypeToRuntimeHint
+    UnsupportedSignature {} ->
+      Nothing
 
 typeBindingRuntimeHint :: TypeBinding -> Maybe ConstraintSignatureType
 typeBindingRuntimeHint binding =
