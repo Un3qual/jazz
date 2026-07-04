@@ -2362,14 +2362,14 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
         runtimeTypeHintRequiresStructuralEquality leftTypeHint ->
           evalStructuralEquality operatorSymbol leftValue rightValue
       | otherwise ->
-          preserveTypedNumericOperatorResult operatorSymbol leftTypeHint
+          preserveLeftTypedNumericOperatorResult operatorSymbol leftTypeHint
             =<< evalBinary builtinMode bindingTypeHints operatorSymbol leftInnerValue rightValue
     (_, _, VTyped rightTypeHint rightInnerValue)
       | isStrictEqualityOperator operatorSymbol,
         runtimeTypeHintRequiresStructuralEquality rightTypeHint ->
           evalStructuralEquality operatorSymbol leftValue rightValue
       | otherwise ->
-          preserveTypedNumericOperatorResult operatorSymbol rightTypeHint
+          preserveRightTypedNumericOperatorResult operatorSymbol leftValue rightTypeHint
             =<< evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightInnerValue
     ("+", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       evalIntegerArithmetic "+" leftMetadata rightMetadata (leftInt + rightInt)
@@ -2508,10 +2508,20 @@ isStrictEqualityOperator :: Text -> Bool
 isStrictEqualityOperator operatorSymbol =
   operatorSymbol == "==" || operatorSymbol == "!="
 
-preserveTypedNumericOperatorResult :: Text -> ConstraintSignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
-preserveTypedNumericOperatorResult operatorSymbol typeHint runtimeValue
+preserveLeftTypedNumericOperatorResult :: Text -> ConstraintSignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
+preserveLeftTypedNumericOperatorResult operatorSymbol typeHint runtimeValue
   | numericArithmeticOperator operatorSymbol,
     numericAliasTypeHint typeHint,
+    runtimeValueMatchesConstraint typeHint runtimeValue =
+      applyRuntimeTypeHint typeHint runtimeValue
+  | otherwise =
+      Right runtimeValue
+
+preserveRightTypedNumericOperatorResult :: Text -> RuntimeValue -> ConstraintSignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
+preserveRightTypedNumericOperatorResult operatorSymbol leftValue typeHint runtimeValue
+  | numericArithmeticOperator operatorSymbol,
+    numericAliasTypeHint typeHint,
+    not (runtimeValueHasTargetedNumericMetadata leftValue),
     runtimeValueMatchesConstraint typeHint runtimeValue =
       applyRuntimeTypeHint typeHint runtimeValue
   | otherwise =
@@ -2526,6 +2536,16 @@ numericAliasTypeHint typeHint =
   case typeHint of
     ConstraintTypeName typeName ->
       identifierText typeName == "Int" || identifierText typeName == "Float"
+    _ ->
+      False
+
+runtimeValueHasTargetedNumericMetadata :: RuntimeValue -> Bool
+runtimeValueHasTargetedNumericMetadata runtimeValue =
+  case runtimeValue of
+    VInt _ metadata ->
+      runtimeIntTargetType metadata /= Nothing
+    VFloat _ metadata ->
+      runtimeFloatTargetType metadata /= Nothing
     _ ->
       False
 

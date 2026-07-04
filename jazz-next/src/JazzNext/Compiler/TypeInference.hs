@@ -2593,7 +2593,8 @@ uniqueExactRuntimeCandidateHint state argumentType candidateHints =
         | candidateHint <- candidateHints,
           constraintSignatureTypeExactlyMatchesExpressionType state candidateHint argumentType
       ] of
-    [_] -> True
+    [candidateHint] ->
+      not (constraintSignatureTypeContainsList candidateHint)
     _ -> False
 
 generalizedExplicitSignatureBinding ::

@@ -181,6 +181,8 @@ tests =
     ("qualified method dispatch preserves section binding signatures", testQualifiedMethodDispatchPreservesSectionBindingSignature),
     ("qualified method dispatch treats Float as Float64 alias at runtime", testQualifiedMethodDispatchTreatsFloatAsFloat64Alias),
     ("qualified method dispatch prefers Float alias body for typed Float values", testQualifiedMethodDispatchPrefersFloatAliasBody),
+    ("qualified method dispatch preserves concrete left Float64 over right Float aliases", testQualifiedMethodDispatchPreservesConcreteLeftFloat64OverRightFloatAlias),
+    ("qualified method dispatch mirrors runtime Float64-domain arithmetic", testQualifiedMethodDispatchMirrorsRuntimeFloat64DomainArithmetic),
     ("qualified method dispatch executes Float equality body", testQualifiedMethodDispatchExecutesFloatEqualityBody),
     ("qualified method dispatch executes Float16 equality body", testQualifiedMethodDispatchExecutesFloat16EqualityBody),
     ("qualified method dispatch executes Float32 equality body", testQualifiedMethodDispatchExecutesFloat32EqualityBody),
@@ -191,6 +193,7 @@ tests =
     ("qualified method dispatch prefers list alias body for typed list values", testQualifiedMethodDispatchPrefersListAliasBody),
     ("qualified method dispatch prefers list alias body for direct list literals", testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral),
     ("qualified method dispatch preserves bound nested list runtime hints", testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint),
+    ("qualified method dispatch rejects unhinted nested list helper exact selection", testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection),
     ("qualified method dispatch does not exact-match untyped empty list literals", testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral),
     ("qualified method dispatch prefers constructor alias body for direct constructor literals", testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral),
     ("qualified method dispatch ignores monomorphic constructor payloads for exact selection", testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection),
@@ -1564,6 +1567,37 @@ testQualifiedMethodDispatchPrefersFloatAliasBody = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
+testQualifiedMethodDispatchPreservesConcreteLeftFloat64OverRightFloatAlias :: IO ()
+testQualifiedMethodDispatchPreservesConcreteLeftFloat64OverRightFloatAlias = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Float) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Float64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "left :: Float64.\nleft = toFloat64 1.\n"
+          <> "right :: Float.\nright = 2.5.\n"
+          <> "(RuntimeFlag::flag) (left + right)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchMirrorsRuntimeFloat64DomainArithmetic :: IO ()
+testQualifiedMethodDispatchMirrorsRuntimeFloat64DomainArithmetic = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Float) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Float64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "floating :: Float64.\nfloating = toFloat64 2.\n"
+          <> "(RuntimeFlag::flag) (1.5 + floating)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
 testQualifiedMethodDispatchExecutesFloatEqualityBody :: IO ()
 testQualifiedMethodDispatchExecutesFloatEqualityBody = do
   result <-
@@ -1715,6 +1749,25 @@ testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection :: IO ()
+testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "f = \\(x) -> RuntimeFlag::flag x.\n"
+          <> "result = f [[1], []].\n"
+          <> "result."
+      )
+  assertSingleDiagnosticContains
+    "unhinted nested list helper exact selection"
+    "ambiguous qualified method body 'RuntimeFlag::flag'"
+    (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" Nothing (runOutput result)
 
 testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral :: IO ()
 testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral =
