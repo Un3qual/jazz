@@ -25,6 +25,7 @@ library
       JazzNext.Compiler.Parser.Lexer
       JazzNext.Compiler.Parser.Lower
       JazzNext.Compiler.Parser.Operator
+      JazzNext.Compiler.Parser.Signature
       JazzNext.Compiler.PreludeContract
       JazzNext.Compiler.Purity
       JazzNext.Compiler.RecursiveBindings
