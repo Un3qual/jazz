@@ -25,7 +25,8 @@ tests =
     ("rejects nested operator declarations", testRejectsNestedOperatorDeclaration),
     ("rejects zero custom operator precedence declarations", testRejectsZeroCustomOperatorPrecedenceDeclaration),
     ("rejects high custom operator precedence declarations", testRejectsHighCustomOperatorPrecedenceDeclaration),
-    ("rejects custom operator associativity declarations", testRejectsCustomOperatorAssociativityDeclaration),
+    ("rejects invalid operator associativity keyword", testRejectsInvalidOperatorAssociativityKeyword),
+    ("rejects non-associative operator chains", testRejectsNonAssociativeOperatorChain),
     ("rejects user operator infix use before declaration", testRejectsUserOperatorInfixUseBeforeDeclaration),
     ("rejects user operator value use before declaration", testRejectsUserOperatorValueUseBeforeDeclaration),
     ("rejects undeclared operator signature", testRejectsUndeclaredOperatorSignature),
@@ -113,13 +114,21 @@ testRejectsHighCustomOperatorPrecedenceDeclaration =
     "operator precedence must be between 1 and 99"
     (parseSurfaceProgram "operator %% precedence 100.")
 
-testRejectsCustomOperatorAssociativityDeclaration :: IO ()
-testRejectsCustomOperatorAssociativityDeclaration =
+testRejectsInvalidOperatorAssociativityKeyword :: IO ()
+testRejectsInvalidOperatorAssociativityKeyword =
   assertLeftDiagnosticCodeAndContains
-    "custom operator associativity declaration"
+    "invalid operator associativity keyword"
     "E0001"
-    "expected '.' after operator declaration tier"
-    (parseSurfaceProgram "operator %% tier 2 left.")
+    "expected operator associativity 'left', 'right', or 'nonassoc'"
+    (parseSurfaceProgram "operator %% tier 2 sideways.")
+
+testRejectsNonAssociativeOperatorChain :: IO ()
+testRejectsNonAssociativeOperatorChain =
+  assertLeftDiagnosticCodeAndContains
+    "non-associative operator chain"
+    "E0001"
+    "non-associative operator '?>' cannot be chained without parentheses"
+    (parseSurfaceProgram "operator ?> precedence 10 nonassoc.\nx = 1 ?> 2 ?> 3.")
 
 testRejectsUserOperatorInfixUseBeforeDeclaration :: IO ()
 testRejectsUserOperatorInfixUseBeforeDeclaration =

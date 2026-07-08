@@ -39,6 +39,8 @@ tests =
   [ ("declared tier 2 operator inherits additive precedence", testDeclaredTier2OperatorPrecedence),
     ("declared custom precedence operator binds tighter than builtins", testDeclaredCustomPrecedenceOperatorPrecedence),
     ("declared custom precedence operator defaults left associative", testDeclaredCustomPrecedenceOperatorAssociativity),
+    ("declared operator accepts explicit left associativity", testDeclaredOperatorExplicitLeftAssociativity),
+    ("declared operator accepts explicit right associativity", testDeclaredOperatorExplicitRightAssociativity),
     ("declared operator binding parses as hidden ordinary binding", testDeclaredOperatorBindingParsesAsHiddenBinding),
     ("declared operator signature parses as hidden ordinary signature", testDeclaredOperatorSignatureParsesAsHiddenSignature),
     ("declared operator binding parses inside module body", testDeclaredOperatorBindingParsesInsideModuleBody),
@@ -107,6 +109,36 @@ testDeclaredCustomPrecedenceOperatorAssociativity =
         )
     )
     (parseSurfaceProgram "operator %% precedence 25.\nx = 10 %% 3 %% 1.")
+
+testDeclaredOperatorExplicitLeftAssociativity :: IO ()
+testDeclaredOperatorExplicitLeftAssociativity =
+  assertEqual
+    "declared explicit left associativity"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "x"
+                (SourceSpan 2 1)
+                (SEBinary "%%" (SEBinary "%%" (SELit (SLInt 10)) (SELit (SLInt 3))) (SELit (SLInt 1)))
+            ]
+        )
+    )
+    (parseSurfaceProgram "operator %% tier 2 left.\nx = 10 %% 3 %% 1.")
+
+testDeclaredOperatorExplicitRightAssociativity :: IO ()
+testDeclaredOperatorExplicitRightAssociativity =
+  assertEqual
+    "declared explicit right associativity"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "x"
+                (SourceSpan 2 1)
+                (SEBinary "<|" (SEVar "a") (SEBinary "<|" (SEVar "b") (SEVar "c")))
+            ]
+        )
+    )
+    (parseSurfaceProgram "operator <| precedence 10 right.\nx = a <| b <| c.")
 
 testDeclaredOperatorBindingParsesAsHiddenBinding :: IO ()
 testDeclaredOperatorBindingParsesAsHiddenBinding =

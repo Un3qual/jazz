@@ -22,6 +22,7 @@ import qualified Data.Text as Text
 data Associativity
   = AssocLeft
   | AssocRight
+  | AssocNonAssoc
   deriving (Eq, Show)
 
 -- | Published fixity information for a builtin operator.

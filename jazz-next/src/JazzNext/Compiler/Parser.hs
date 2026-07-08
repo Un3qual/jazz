@@ -179,8 +179,9 @@ parseOperatorDeclaration context declaredOperators operatorToken tokensAfterKeyw
       validateDeclaredOperatorSymbol declaredOperators operatorToken operatorSymbol
       (fixityKeyword, afterFixityKeyword) <- consumeOperatorFixityKeyword operatorToken afterSymbol
       (operatorInfo, afterFixity) <- parseOperatorDeclarationFixity operatorToken operatorSymbol fixityKeyword afterFixityKeyword
-      remaining <- consumeOperatorDeclarationDot (operatorDeclarationFixityLabel fixityKeyword) afterFixity
-      Right (operatorInfo, remaining)
+      (operatorInfoWithAssociativity, afterAssociativity) <- parseOptionalOperatorAssociativity operatorInfo afterFixity
+      remaining <- consumeOperatorDeclarationDot (operatorDeclarationFixityLabel fixityKeyword) afterAssociativity
+      Right (operatorInfoWithAssociativity, remaining)
 
 parseOperatorDeclarationSymbol :: [Token] -> Either Diagnostic (Text, [Token])
 parseOperatorDeclarationSymbol tokens =
@@ -339,6 +340,28 @@ parseOperatorDeclarationPrecedence operatorToken operatorSymbol tokens =
                 <> renderSourceSpan (tokenSpan operatorToken)
             )
         )
+
+parseOptionalOperatorAssociativity :: OperatorInfo -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
+parseOptionalOperatorAssociativity operatorInfo tokens =
+  case tokens of
+    Token {tokenKind = TIdentifier "left"} : rest ->
+      Right (operatorInfo {operatorAssociativity = AssocLeft}, rest)
+    Token {tokenKind = TIdentifier "right"} : rest ->
+      Right (operatorInfo {operatorAssociativity = AssocRight}, rest)
+    Token {tokenKind = TIdentifier "nonassoc"} : rest ->
+      Right (operatorInfo {operatorAssociativity = AssocNonAssoc}, rest)
+    token@Token {tokenKind = TIdentifier {}} : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected operator associativity 'left', 'right', or 'nonassoc' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+    _ ->
+      Right (operatorInfo, tokens)
 
 operatorDeclarationFixityLabel :: OperatorDeclarationFixityKeyword -> Text
 operatorDeclarationFixityLabel fixityKeyword =
@@ -1000,12 +1023,10 @@ parseInfixTailWithUntil declaredOperators stop parseRhs minPrecedence leftExpr t
                   | operatorPrecedence operatorInfo < minPrecedence ->
                       Right (leftExpr, tokens)
                   | otherwise -> do
-                      let nextMinPrecedence =
-                            case operatorAssociativity operatorInfo of
-                              AssocLeft -> operatorPrecedence operatorInfo + 1
-                              AssocRight -> operatorPrecedence operatorInfo
+                      let nextMinPrecedence = operatorNextMinPrecedence operatorInfo
                       (rightExpr, remainingAfterRight) <-
                         parseRhs nextMinPrecedence tokensAfterOperator
+                      rejectNonAssociativeContinuation declaredOperators operatorInfo operatorToken remainingAfterRight
                       parseInfixTailWithUntil
                         declaredOperators
                         stop
@@ -1019,6 +1040,34 @@ parseInfixTailWithUntil declaredOperators stop parseRhs minPrecedence leftExpr t
       case remainingAfterOperator of
         Token {tokenKind = TRParen} : _ -> True
         _ -> False
+
+operatorNextMinPrecedence :: OperatorInfo -> Int
+operatorNextMinPrecedence operatorInfo =
+  case operatorAssociativity operatorInfo of
+    AssocLeft -> operatorPrecedence operatorInfo + 1
+    AssocRight -> operatorPrecedence operatorInfo
+    AssocNonAssoc -> operatorPrecedence operatorInfo + 1
+
+rejectNonAssociativeContinuation :: DeclaredOperators -> OperatorInfo -> Token -> [Token] -> Either Diagnostic ()
+rejectNonAssociativeContinuation declaredOperators operatorInfo operatorToken remainingTokens =
+  case operatorAssociativity operatorInfo of
+    AssocNonAssoc ->
+      case remainingTokens of
+        Token {tokenKind = TOperator nextSymbol} : _ ->
+          case lookupOperatorInfoIn declaredOperators nextSymbol of
+            Just nextInfo
+              | operatorPrecedence nextInfo == operatorPrecedence operatorInfo ->
+                  Left
+                    ( parseDiagnostic
+                        ( "non-associative operator '"
+                            <> operatorSymbol operatorInfo
+                            <> "' cannot be chained without parentheses at "
+                            <> renderSourceSpan (tokenSpan operatorToken)
+                        )
+                    )
+            _ -> Right ()
+        _ -> Right ()
+    _ -> Right ()
 
 -- | Shared precedence climber used by both regular expression parsing and the
 -- restricted `if` condition parser.
@@ -1440,12 +1489,10 @@ parseCaseArm knownAliases declaredOperators tokens = do
                       | operatorPrecedence operatorInfo < minPrecedence ->
                           Right (leftExpr, bodyTokens)
                       | otherwise -> do
-                          let nextMinPrecedence =
-                                case operatorAssociativity operatorInfo of
-                                  AssocLeft -> operatorPrecedence operatorInfo + 1
-                                  AssocRight -> operatorPrecedence operatorInfo
+                          let nextMinPrecedence = operatorNextMinPrecedence operatorInfo
                           (rightExpr, remainingAfterRight) <-
                             parseCaseArmBodyExprWithMinPrecedence (Just operatorSymbol) nextMinPrecedence tokensAfterOperator
+                          rejectNonAssociativeContinuation declaredOperators operatorInfo operatorToken remainingAfterRight
                           parseCaseArmBodyInfixTail
                             parentOperator
                             minPrecedence
@@ -1503,12 +1550,10 @@ parseCaseArm knownAliases declaredOperators tokens = do
                       | operatorPrecedence operatorInfo < minPrecedence ->
                           Right (leftExpr, guardTokens)
                       | otherwise -> do
-                          let nextMinPrecedence =
-                                case operatorAssociativity operatorInfo of
-                                  AssocLeft -> operatorPrecedence operatorInfo + 1
-                                  AssocRight -> operatorPrecedence operatorInfo
+                          let nextMinPrecedence = operatorNextMinPrecedence operatorInfo
                           (rightExpr, remainingAfterRight) <-
                             parseCaseGuardExprWithMinPrecedence (Just operatorSymbol) nextMinPrecedence tokensAfterOperator
+                          rejectNonAssociativeContinuation declaredOperators operatorInfo operatorToken remainingAfterRight
                           parseCaseGuardInfixTail
                             parentOperator
                             minPrecedence
