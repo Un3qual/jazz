@@ -1,29 +1,32 @@
 ---
-id: JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001
-status: done
+id: JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001
+status: ready
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
-  - JN-TYPE-SOLVER-INFERRED-CLASS-CONSTRAINTS-001
+  - JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001
 last_verified: 2026-07-08
-completed_on: 2026-07-08
-plan_section: "Batch 1: Final Defaulting And Ambiguity"
+plan_section: "Batch 2: Explicit Type Application"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - docs/spec/semantics/bindings-and-signatures.md
-  - docs/spec/runtime/primitive-semantics.md
+  - jazz-next/src/JazzNext/Compiler/Parser.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
+  - jazz-next/src/JazzNext/Compiler/AST.hs
+  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
+  - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - docs/execution/blocker-contracts.md
   - docs/execution/queue.md
 verification:
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
   - git diff --check
-deliverable: "Add the final solver defaulting and ambiguity pass for unresolved class constraints, preserving current numeric literal defaults and keeping runtime evidence, dictionaries, explicit type application, and primitive mixed-width behavior out of scope."
+deliverable: "Add one explicit `@Type` application surface for already-generalized schemes, preserving monomorphic signature type shapes while keeping type lambdas, higher-rank polymorphism, runtime dictionaries, and module import/export behavior out of scope."
 ---
 
 # Jazz-Next Remaining Type Solver Slices Plan

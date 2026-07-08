@@ -8,11 +8,12 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001` | Add explicit type application for generalized schemes | `P1` | `M` | `impl` | `yes` | `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001` | [2026-06-30-jazz-next-type-solver-remaining-slices.md](../plans/2026-06-30-jazz-next-type-solver-remaining-slices.md) | `Batch 2: Explicit Type Application` | `docs/spec/semantics/bindings-and-signatures.md`, `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/src/JazzNext/Compiler/AST.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`, `docs/execution/blocker-contracts.md`, `docs/execution/queue.md` | Add one explicit `@Type` application surface for already-generalized schemes, preserving monomorphic signature type shapes while keeping type lambdas, higher-rank polymorphism, runtime dictionaries, and module import/export behavior out of scope. | `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; `git diff --check` | `2026-07-08` |
 
-Current executor status (`2026-07-08`): Ready Now is empty after custom
-associativity for same-source user-defined operators landed. There is no
-source-backed next curation target and no named candidate currently. Pattern
-synonyms remain explicitly blocked.
+Current executor status (`2026-07-08`): executing explicit type application for
+already-generalized type-solver schemes after the type-solver lane was selected
+again. Runtime evidence/dictionaries remain blocked behind the next solver
+slice, and pattern synonyms remain explicitly blocked.
 
 ## Next Curation Target
 
