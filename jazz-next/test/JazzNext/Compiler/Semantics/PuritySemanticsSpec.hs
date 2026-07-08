@@ -43,6 +43,7 @@ tests =
   [ ("pure binding cannot call impure builtin", testPureBindingCannotCallImpureBuiltin),
     ("pure binding cannot call impure builtin through dollar application", testPureBindingCannotCallImpureBuiltinThroughDollarApplication),
     ("pure binding cannot call impure qualified method", testPureBindingCannotCallImpureQualifiedMethod),
+    ("pure binding cannot call impure callee through explicit type application", testPureBindingCannotCallImpureCalleeThroughExplicitTypeApplication),
     ("pure impl method cannot call impure callee", testPureImplMethodCannotCallImpureCallee),
     ("impure impl method can call impure callee", testImpureImplMethodCanCallImpureCallee),
     ("impure binding can call impure builtin", testImpureBindingCanCallImpureBuiltin),
@@ -80,6 +81,17 @@ testPureBindingCannotCallImpureQualifiedMethod = do
       "class Effect(a) {\nrun! :: a -> a.\n}.\nimpl Effect(Int) {\nrun! = \\(value) -> value.\n}.\nx = Effect::run! 1.\nx."
   assertSingleErrorContains
     "pure binding calling impure qualified method"
+    "E1010"
+    (compileErrors result)
+
+testPureBindingCannotCallImpureCalleeThroughExplicitTypeApplication :: IO ()
+testPureBindingCannotCallImpureCalleeThroughExplicitTypeApplication = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "class Need(a) { }.\nimpl Need(Int) { }.\nf! :: @{Need(a)}: a -> a.\nf! = \\(value) -> value.\nx = f! @Int 1.\nx."
+  assertSingleErrorContains
+    "pure binding calling impure callee through explicit type application"
     "E1010"
     (compileErrors result)
 

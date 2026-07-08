@@ -14,6 +14,7 @@ module JazzNext.Compiler.Runtime
 
 import Control.Monad (foldM, zipWithM)
 import Data.List (foldl')
+import Data.Maybe (isJust)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -64,6 +65,7 @@ import JazzNext.Compiler.CapabilityFacts
     constraintSignatureTypesCompatible,
     qualifiedMethodKey,
     signaturePayloadConstraintType,
+    signatureTypeToConstraintSignatureType,
     substituteClassMethodSignature
   )
 import JazzNext.Compiler.Identifier
@@ -122,12 +124,18 @@ data RuntimeValue
   | VConstructor Identifier [Identifier] Identifier [DataConstructorArgument] [RuntimeValue]
   | VQualifiedMethod Text Text SignaturePayload [RuntimeMethodCandidate] [RuntimeValue]
   | VTyped ConstraintSignatureType RuntimeValue
+  | VExplicitTypeApplication ConstraintSignatureType RuntimeValue
+  | VExplicitResultHint ConstraintSignatureType RuntimeValue
 
 instance Eq RuntimeValue where
   leftValue == rightValue =
     case (leftValue, rightValue) of
       (VTyped _ leftInner, rightInner) -> leftInner == rightInner
       (leftInner, VTyped _ rightInner) -> leftInner == rightInner
+      (VExplicitTypeApplication _ leftInner, rightInner) -> leftInner == rightInner
+      (leftInner, VExplicitTypeApplication _ rightInner) -> leftInner == rightInner
+      (VExplicitResultHint _ leftInner, rightInner) -> leftInner == rightInner
+      (leftInner, VExplicitResultHint _ rightInner) -> leftInner == rightInner
       (VInt leftInt _, VInt rightInt _) -> leftInt == rightInt
       (VFloat leftFloat _, VFloat rightFloat _) -> leftFloat == rightFloat
       (VBool leftBool, VBool rightBool) -> leftBool == rightBool
@@ -173,6 +181,10 @@ instance Show RuntimeValue where
         "VQualifiedMethod " <> show methodKey <> " " <> show candidates <> " " <> show capturedArgs
       VTyped typeHint innerValue ->
         "VTyped " <> show typeHint <> " " <> show innerValue
+      VExplicitTypeApplication typeHint innerValue ->
+        "VExplicitTypeApplication " <> show typeHint <> " " <> show innerValue
+      VExplicitResultHint typeHint innerValue ->
+        "VExplicitResultHint " <> show typeHint <> " " <> show innerValue
 
 instance Show RuntimeMethodCandidate where
   show (RuntimeMethodCandidate evidence _) =
@@ -222,6 +234,8 @@ renderRuntimeValue value =
           "<function>"
     VQualifiedMethod {} -> "<function>"
     VTyped _ innerValue -> renderRuntimeValue innerValue
+    VExplicitTypeApplication _ innerValue -> renderRuntimeValue innerValue
+    VExplicitResultHint _ innerValue -> renderRuntimeValue innerValue
 
 renderConstructorValue :: Identifier -> [RuntimeValue] -> Text
 renderConstructorValue constructorName arguments =
@@ -1103,8 +1117,12 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
       functionValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env functionExpr
       argumentValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env argumentExpr
       applyRuntimeFunction builtinMode bindingTypeHints functionValue argumentValue
-    ETypeApplication functionExpr _ ->
-      evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env functionExpr
+    ETypeApplication functionExpr signatureType -> do
+      let typeHint = signatureTypeToConstraintSignatureType signatureType
+      runtimeValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env functionExpr
+      if isFunctionValue runtimeValue
+        then Right (VExplicitTypeApplication typeHint runtimeValue)
+        else applyRuntimeTypeHint typeHint runtimeValue
     EIf conditionExpr thenExpr elseExpr ->
       evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr -> do
@@ -1228,6 +1246,10 @@ applyRuntimeTypeHint :: ConstraintSignatureType -> RuntimeValue -> Either Diagno
 applyRuntimeTypeHint typeHint runtimeValue =
   case runtimeValue of
     VTyped _ innerValue ->
+      applyRuntimeTypeHint typeHint innerValue
+    VExplicitTypeApplication _ innerValue ->
+      applyRuntimeTypeHint typeHint innerValue
+    VExplicitResultHint _ innerValue ->
       applyRuntimeTypeHint typeHint innerValue
     _ ->
       case (typeHint, runtimeValue) of
@@ -1484,6 +1506,8 @@ constructorPatternScrutinee :: RuntimeValue -> RuntimeValue
 constructorPatternScrutinee runtimeValue =
   case runtimeValue of
     VTyped _ innerValue -> constructorPatternScrutinee innerValue
+    VExplicitTypeApplication _ innerValue -> constructorPatternScrutinee innerValue
+    VExplicitResultHint _ innerValue -> constructorPatternScrutinee innerValue
     _ -> runtimeValue
 
 -- | Apply any callable runtime value, including sections, builtin primitives,
@@ -1496,6 +1520,13 @@ applyRuntimeFunction ::
   Either Diagnostic RuntimeValue
 applyRuntimeFunction builtinMode bindingTypeHints functionValue argumentValue =
   case functionValue of
+    VExplicitTypeApplication typeHint innerFunctionValue -> do
+      hintedArgumentValue <- applyRuntimeTypeHint typeHint argumentValue
+      resultValue <- applyRuntimeFunction builtinMode bindingTypeHints innerFunctionValue hintedArgumentValue
+      applyExplicitTypeApplicationResultHint typeHint resultValue
+    VExplicitResultHint typeHint innerFunctionValue -> do
+      resultValue <- applyRuntimeFunction builtinMode bindingTypeHints innerFunctionValue argumentValue
+      applyExplicitTypeApplicationResultHint typeHint resultValue
     VTyped typeHint innerFunctionValue -> do
       hintedArgumentValue <- applyRuntimeFunctionArgumentHint typeHint argumentValue
       resultValue <- applyRuntimeFunction builtinMode bindingTypeHints innerFunctionValue hintedArgumentValue
@@ -1556,6 +1587,48 @@ applyRuntimeFunctionArgumentHint typeHint runtimeValue =
       applyRuntimeTypeHint argumentType runtimeValue
     _ ->
       Right runtimeValue
+
+applyExplicitTypeApplicationResultHint :: ConstraintSignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyExplicitTypeApplicationResultHint typeHint runtimeValue
+  | isFunctionValue runtimeValue =
+      Right (VExplicitResultHint typeHint runtimeValue)
+  | runtimeValueCanAcceptTypeHint typeHint runtimeValue =
+      applyRuntimeTypeHint typeHint runtimeValue
+  | otherwise =
+      Right runtimeValue
+
+runtimeValueCanAcceptTypeHint :: ConstraintSignatureType -> RuntimeValue -> Bool
+runtimeValueCanAcceptTypeHint typeHint runtimeValue =
+  case runtimeValue of
+    VTyped _ innerValue ->
+      runtimeValueCanAcceptTypeHint typeHint innerValue
+    VExplicitTypeApplication _ innerValue ->
+      runtimeValueCanAcceptTypeHint typeHint innerValue
+    VExplicitResultHint _ innerValue ->
+      runtimeValueCanAcceptTypeHint typeHint innerValue
+    _ ->
+      case (typeHint, runtimeValue) of
+        (ConstraintTypeName typeName, VInt {}) ->
+          identifierText typeName == "Int" || isJust (constraintTypeNameNumericTarget typeName)
+        (ConstraintTypeName typeName, VFloat {}) ->
+          identifierText typeName == "Float" || isJust (constraintTypeNameNumericTarget typeName)
+        (ConstraintTypeName typeName, VBool {}) ->
+          identifierText typeName == "Bool"
+        (ConstraintTypeName typeName, VConstructor constructorTypeName _ _ constructorArguments capturedArgs) ->
+          identifierText typeName == identifierText constructorTypeName
+            && constructorIsSaturated constructorArguments capturedArgs
+        (ConstraintTypeApplication typeName arguments, VConstructor constructorTypeName typeParameters _ constructorArguments capturedArgs) ->
+          identifierText typeName == identifierText constructorTypeName
+            && length arguments == length typeParameters
+            && constructorIsSaturated constructorArguments capturedArgs
+        (ConstraintTypeList {}, VList {}) ->
+          True
+        (ConstraintTypeTuple elementTypes, VTuple elements) ->
+          length elementTypes == length elements
+        (ConstraintTypeFunction {}, _) ->
+          isFunctionValue runtimeValue
+        _ ->
+          False
 
 applyQualifiedMethod ::
   BuiltinResolutionMode ->
@@ -1655,6 +1728,10 @@ runtimeExactCandidateArgumentMatches targetArgumentPosition signatureType runtim
 runtimeValueExactlyMatchesConstraint :: ConstraintSignatureType -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
   case runtimeValue of
+    VExplicitTypeApplication _ innerValue ->
+      runtimeValueExactlyMatchesConstraint signatureType innerValue
+    VExplicitResultHint _ innerValue ->
+      runtimeValueExactlyMatchesConstraint signatureType innerValue
     VTyped typeHint _ ->
       typeHint == signatureType
     VClosure _ _ _ (Just typeHint) _ ->
@@ -1730,6 +1807,10 @@ runtimeMethodCandidateMatches classParameter methodSignature arguments (RuntimeM
 runtimeValueMatchesConstraint :: ConstraintSignatureType -> RuntimeValue -> Bool
 runtimeValueMatchesConstraint signatureType runtimeValue =
   case runtimeValue of
+    VExplicitTypeApplication _ innerValue ->
+      runtimeValueMatchesConstraint signatureType innerValue
+    VExplicitResultHint _ innerValue ->
+      runtimeValueMatchesConstraint signatureType innerValue
     VTyped typeHint _ ->
       constraintSignatureTypesCompatible typeHint signatureType
     _ ->
@@ -2037,6 +2118,10 @@ evalBuiltin builtinMode bindingTypeHints builtinFunction arguments =
 evalNumericConversion :: BuiltinSymbol -> NumericType -> RuntimeValue -> Either Diagnostic RuntimeValue
 evalNumericConversion builtinFunction targetType value =
   case value of
+    VExplicitTypeApplication _ innerValue ->
+      evalNumericConversion builtinFunction targetType innerValue
+    VExplicitResultHint _ innerValue ->
+      evalNumericConversion builtinFunction targetType innerValue
     VTyped _ innerValue ->
       evalNumericConversion builtinFunction targetType innerValue
     VInt integerValue _ ->
@@ -2257,6 +2342,10 @@ filterElements builtinMode bindingTypeHints predicate values = do
 runtimeFunctionResultType :: RuntimeValue -> Maybe ConstraintSignatureType
 runtimeFunctionResultType runtimeValue =
   case runtimeValue of
+    VExplicitTypeApplication _ innerValue ->
+      runtimeFunctionResultType innerValue
+    VExplicitResultHint _ innerValue ->
+      runtimeFunctionResultType innerValue
     VTyped (ConstraintTypeFunction _ resultType) _ ->
       Just resultType
     VClosure _ _ _ (Just (ConstraintTypeFunction _ resultType)) _ ->
@@ -2313,12 +2402,18 @@ attachDefaultBindingIntegerTarget runtimeValue =
           Right (VTyped typeHint innerValue)
       | otherwise ->
           VTyped typeHint <$> attachDefaultBindingIntegerTarget innerValue
+    VExplicitTypeApplication typeHint innerValue ->
+      VExplicitTypeApplication typeHint <$> attachDefaultBindingIntegerTarget innerValue
+    VExplicitResultHint typeHint innerValue ->
+      VExplicitResultHint typeHint <$> attachDefaultBindingIntegerTarget innerValue
     _ ->
       Right runtimeValue
 
 isFunctionValue :: RuntimeValue -> Bool
 isFunctionValue value =
   case value of
+    VExplicitTypeApplication _ innerValue -> isFunctionValue innerValue
+    VExplicitResultHint _ innerValue -> isFunctionValue innerValue
     VTyped _ innerValue -> isFunctionValue innerValue
     VSectionLeft {} -> True
     VSectionRight {} -> True
@@ -2800,12 +2895,24 @@ runtimeValueContainsFunction value =
           any runtimeValueContainsFunction capturedArgs
         VTyped _ innerValue ->
           runtimeValueContainsFunction innerValue
+        VExplicitTypeApplication _ innerValue ->
+          runtimeValueContainsFunction innerValue
+        VExplicitResultHint _ innerValue ->
+          runtimeValueContainsFunction innerValue
         _ ->
           False
 
 runtimeStructuralEquality :: RuntimeValue -> RuntimeValue -> Maybe Bool
 runtimeStructuralEquality leftValue rightValue =
   case (leftValue, rightValue) of
+    (VExplicitTypeApplication _ leftInnerValue, _) ->
+      runtimeStructuralEquality leftInnerValue rightValue
+    (_, VExplicitTypeApplication _ rightInnerValue) ->
+      runtimeStructuralEquality leftValue rightInnerValue
+    (VExplicitResultHint _ leftInnerValue, _) ->
+      runtimeStructuralEquality leftInnerValue rightValue
+    (_, VExplicitResultHint _ rightInnerValue) ->
+      runtimeStructuralEquality leftValue rightInnerValue
     (VTyped leftTypeHint leftInnerValue, VTyped rightTypeHint rightInnerValue)
       | constraintSignatureTypesCompatible leftTypeHint rightTypeHint ->
           runtimeStructuralEquality leftInnerValue rightInnerValue
@@ -2972,6 +3079,8 @@ renderRuntimeType value =
       | otherwise -> "Function"
     VQualifiedMethod {} -> "Function"
     VTyped _ innerValue -> renderRuntimeType innerValue
+    VExplicitTypeApplication _ innerValue -> renderRuntimeType innerValue
+    VExplicitResultHint _ innerValue -> renderRuntimeType innerValue
 
 constructorIsSaturated :: [DataConstructorArgument] -> [RuntimeValue] -> Bool
 constructorIsSaturated constructorArguments capturedArgs =

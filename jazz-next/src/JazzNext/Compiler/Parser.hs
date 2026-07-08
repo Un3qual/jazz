@@ -1074,24 +1074,27 @@ operatorNextMinPrecedence operatorInfo =
 
 rejectNonAssociativeContinuation :: DeclaredOperators -> OperatorInfo -> Token -> [Token] -> Either Diagnostic ()
 rejectNonAssociativeContinuation declaredOperators operatorInfo operatorToken remainingTokens =
-  case operatorAssociativity operatorInfo of
-    AssocNonAssoc ->
-      case remainingTokens of
-        Token {tokenKind = TOperator nextSymbol} : _ ->
-          case lookupOperatorInfoIn declaredOperators nextSymbol of
-            Just nextInfo
-              | operatorPrecedence nextInfo == operatorPrecedence operatorInfo ->
-                  Left
-                    ( parseDiagnostic
-                        ( "non-associative operator '"
-                            <> operatorSymbol operatorInfo
-                            <> "' cannot be chained without parentheses at "
-                            <> renderSourceSpan (tokenSpan operatorToken)
-                        )
+  case remainingTokens of
+    Token {tokenKind = TOperator nextSymbol} : _ ->
+      case lookupOperatorInfoIn declaredOperators nextSymbol of
+        Just nextInfo
+          | operatorPrecedence nextInfo == operatorPrecedence operatorInfo,
+            operatorAssociativity operatorInfo == AssocNonAssoc
+              || operatorAssociativity nextInfo == AssocNonAssoc ->
+              Left
+                ( parseDiagnostic
+                    ( "non-associative operator '"
+                        <> nonAssociativeSymbol nextInfo
+                        <> "' cannot be chained without parentheses at "
+                        <> renderSourceSpan (tokenSpan operatorToken)
                     )
-            _ -> Right ()
+                )
         _ -> Right ()
     _ -> Right ()
+  where
+    nonAssociativeSymbol nextInfo
+      | operatorAssociativity operatorInfo == AssocNonAssoc = operatorSymbol operatorInfo
+      | otherwise = operatorSymbol nextInfo
 
 -- | Shared precedence climber used by both regular expression parsing and the
 -- restricted `if` condition parser.

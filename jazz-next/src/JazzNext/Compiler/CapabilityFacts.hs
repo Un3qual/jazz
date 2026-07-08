@@ -15,6 +15,7 @@ module JazzNext.Compiler.CapabilityFacts
     qualifiedMethodKey,
     splitQualifiedMethodKey,
     signaturePayloadConstraintType,
+    signatureTypeToConstraintSignatureType,
     substituteClassMethodSignature,
     constraintFunctionArgumentTypes,
     renderConstraintSignatureType

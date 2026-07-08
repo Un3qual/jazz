@@ -194,6 +194,8 @@ tests =
     ("source pipeline instantiates equality constrained signatures per use", testSourceInstantiatesEqualityConstrainedSignaturePerUse),
     ("source pipeline instantiates recursive constrained signatures per use", testSourceInstantiatesRecursiveConstrainedSignaturePerUse),
     ("source pipeline applies explicit type application to generalized signatures", testSourceAppliesExplicitTypeApplicationToGeneralizedSignature),
+    ("source pipeline applies explicit type application to first source variable", testSourceAppliesExplicitTypeApplicationToFirstSourceVariable),
+    ("source pipeline rejects primitive-incompatible explicit type application", testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication),
     ("source pipeline rejects explicit type application on monomorphic bindings", testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding),
     ("source pipeline rejects extra explicit type application arguments", testSourceRejectsExtraExplicitTypeApplicationArgument),
     ("source pipeline accepts unconstrained variables beside explicit constraints", testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints),
@@ -1157,6 +1159,16 @@ testSourceInstantiatesRecursiveConstrainedSignaturePerUse =
 testSourceAppliesExplicitTypeApplicationToGeneralizedSignature :: IO ()
 testSourceAppliesExplicitTypeApplicationToGeneralizedSignature =
   assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nvalue = id @Int 1.\nvalue."
+
+testSourceAppliesExplicitTypeApplicationToFirstSourceVariable :: IO ()
+testSourceAppliesExplicitTypeApplicationToFirstSourceVariable =
+  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nchoose :: @{Eq(b)}: b -> a -> b.\nchoose = \\(x) -> \\(y) -> x.\nvalue = choose @Int 1 True.\nvalue."
+
+testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication :: IO ()
+testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Showable(a) { }.\nimpl Showable(Bool) { }.\naddSelf :: @{Showable(a)}: a -> a.\naddSelf = \\(x) -> x + x.\nbad = addSelf @Bool True."
+    "primitive numeric constraint"
 
 testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding :: IO ()
 testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding =

@@ -275,7 +275,7 @@ data TypeBinding
   | ConstructorTypeBinding Identifier [Identifier] [ConstructorArgumentType]
   deriving (Eq, Show)
 
-data TypeScheme = TypeScheme (Set Int) [TypeSchemeConstraint] [TypeSchemePrimitiveConstraint] ScopeCapabilityFacts ExpressionType
+data TypeScheme = TypeScheme (Set Int) [Int] [TypeSchemeConstraint] [TypeSchemePrimitiveConstraint] ScopeCapabilityFacts ExpressionType
   deriving (Eq, Show)
 
 data TypeSchemePrimitiveConstraint
@@ -788,7 +788,7 @@ operatorAliasEqualityConstraintTarget state leftType rightType
     resolvedRightType = defaultLiteralTypes (resolveType state rightType)
 
 instantiateOperatorAliasSchemeConstraints :: TypeScheme -> ExpressionType -> InferState -> InferState
-instantiateOperatorAliasSchemeConstraints (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints definingFacts _) targetType state =
+instantiateOperatorAliasSchemeConstraints (TypeScheme quantifiedVariables _ explicitConstraints primitiveConstraints definingFacts _) targetType state =
   let replacements =
         Map.fromList
           [ (typeVar, targetType)
@@ -1399,6 +1399,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                                 signatureSpan
                                 (signaturePayloadDeclaredType signatureType)
                                 (signaturePayloadExplicitConstraints signatureType)
+                                (signaturePayloadVariableOrder signatureType)
                             ),
                           restoreCapabilityFacts state stateAfterSignature
                         )
@@ -1451,9 +1452,9 @@ inferScopeType builtinMode initialEnv initialState statements =
                     pendingSignatureDeclaredType <$> matchingPendingSignature
                   (rawValueType, rawStateAfterValue) =
                     case maybePreservedSchemeAliasBinding of
-                      Just (SchemeTypeBinding (TypeScheme _ _ _ _ schemeType)) ->
+                      Just (SchemeTypeBinding (TypeScheme _ _ _ _ _ schemeType)) ->
                         (Just schemeType, stateForStatement)
-                      Just (OperatorAliasSchemeTypeBinding _ (TypeScheme _ _ _ _ schemeType)) ->
+                      Just (OperatorAliasSchemeTypeBinding _ (TypeScheme _ _ _ _ _ schemeType)) ->
                         (Just schemeType, stateForStatement)
                       _ ->
                         case maybeExpectedValueType of
@@ -2445,7 +2446,7 @@ generalizedOrdinaryBinding env state expressionType =
         && null inferredClassConstraints
         && null primitiveConstraints
       then PlainTypeBinding resolvedType
-      else SchemeTypeBinding (TypeScheme schemeVariables inferredClassConstraints primitiveConstraints (typeSchemeDefiningFactsFromState state inferredClassConstraints) resolvedType)
+      else SchemeTypeBinding (TypeScheme schemeVariables (Set.toList schemeVariables) inferredClassConstraints primitiveConstraints (typeSchemeDefiningFactsFromState state inferredClassConstraints) resolvedType)
 
 ordinaryBindingSchemeVariables :: TypeEnv -> InferState -> ExpressionType -> Set Int
 ordinaryBindingSchemeVariables env state expressionType =
@@ -2629,7 +2630,7 @@ generalizedExplicitSignatureBinding env state pendingSignature =
       primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
    in if Set.null schemeVariables && null schemeConstraints && null primitiveConstraints
         then PlainTypeBinding resolvedType
-        else SchemeTypeBinding (TypeScheme schemeVariables schemeConstraints primitiveConstraints (typeSchemeDefiningFactsFromState state schemeConstraints) resolvedType)
+        else SchemeTypeBinding (TypeScheme schemeVariables (orderedSchemeVariables (pendingSignatureVariableOrder pendingSignature) schemeVariables) schemeConstraints primitiveConstraints (typeSchemeDefiningFactsFromState state schemeConstraints) resolvedType)
 
 pruneCapturedInferredClassConstraints :: InferState -> TypeBinding -> InferState -> InferState
 pruneCapturedInferredClassConstraints statementStartState binding =
@@ -2656,7 +2657,7 @@ pruneCapturedInferredClassConstraintsForBindings statementStartState bindings st
     capturedConstraints =
       [ resolveTypeSchemeConstraint state constraint
         | binding <- bindings,
-          Just (TypeScheme _ schemeConstraints _ _ _) <- [typeBindingScheme binding],
+          Just (TypeScheme _ _ schemeConstraints _ _ _) <- [typeBindingScheme binding],
           constraint <- schemeConstraints,
           typeSchemeConstraintIsInferred constraint
       ]
@@ -2688,6 +2689,15 @@ explicitBindingSchemeVariables env state pendingSignature =
           (freeTypeVariablesInTypeSchemeConstraints resolvedConstraints)
       environmentVariables = freeTypeVariablesInEnv state env
    in Set.difference freeVariables environmentVariables
+
+orderedSchemeVariables :: [Int] -> Set Int -> [Int]
+orderedSchemeVariables preferredOrder schemeVariables =
+  orderedVariables ++ Set.toList unorderedVariables
+  where
+    orderedVariables =
+      filter (`Set.member` schemeVariables) preferredOrder
+    unorderedVariables =
+      Set.difference schemeVariables (Set.fromList orderedVariables)
 
 typeSchemePrimitiveConstraints :: InferState -> Set Int -> [TypeSchemePrimitiveConstraint]
 typeSchemePrimitiveConstraints state schemeVariables =
@@ -2801,7 +2811,7 @@ freeTypeVariablesInBinding state binding =
   case binding of
     PlainTypeBinding expressionType ->
       freeTypeVariables (resolveType state expressionType)
-    SchemeTypeBinding (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints _ expressionType) ->
+    SchemeTypeBinding (TypeScheme quantifiedVariables _ explicitConstraints primitiveConstraints _ expressionType) ->
       Set.difference
         ( Set.unions
             [ freeTypeVariables (resolveType state expressionType),
@@ -2810,7 +2820,7 @@ freeTypeVariablesInBinding state binding =
             ]
         )
         quantifiedVariables
-    OperatorAliasSchemeTypeBinding _ (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints _ expressionType) ->
+    OperatorAliasSchemeTypeBinding _ (TypeScheme quantifiedVariables _ explicitConstraints primitiveConstraints _ expressionType) ->
       Set.difference
         ( Set.unions
             [ freeTypeVariables (resolveType state expressionType),
@@ -2878,7 +2888,8 @@ data PendingSignatureType = PendingSignatureType
   { pendingSignatureName :: Text,
     pendingSignatureSpan :: SourceSpan,
     pendingSignatureDeclaredType :: ExpressionType,
-    pendingSignatureExplicitConstraints :: [TypeSchemeConstraint]
+    pendingSignatureExplicitConstraints :: [TypeSchemeConstraint],
+    pendingSignatureVariableOrder :: [Int]
   }
 
 targetedFractionalLiteralBindingType ::
@@ -3019,12 +3030,12 @@ instantiateTypeBinding binding state =
         Nothing -> (Nothing, state)
 
 instantiateTypeScheme :: TypeScheme -> InferState -> (Maybe ExpressionType, InferState)
-instantiateTypeScheme (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints definingFacts expressionType) state =
+instantiateTypeScheme (TypeScheme quantifiedVariables quantifiedOrder explicitConstraints primitiveConstraints definingFacts expressionType) state =
   let (freshBindings, nextState) =
         foldl'
           allocateFreshBinding
           (Map.empty, state)
-          (Set.toList quantifiedVariables)
+          (orderedSchemeVariables quantifiedOrder quantifiedVariables)
       instantiatedType =
         replaceTypeVariables freshBindings expressionType
       instantiatedConstraints =
@@ -3082,8 +3093,8 @@ instantiateTypeSchemeWithExplicitArgument ::
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-instantiateTypeSchemeWithExplicitArgument (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints definingFacts expressionType) explicitArgumentType state =
-  case Set.toList quantifiedVariables of
+instantiateTypeSchemeWithExplicitArgument (TypeScheme quantifiedVariables quantifiedOrder explicitConstraints primitiveConstraints definingFacts expressionType) explicitArgumentType state =
+  case orderedSchemeVariables quantifiedOrder quantifiedVariables of
     [] ->
       (Nothing, addTypeError state mkExplicitTypeApplicationTargetError)
     explicitTypeVar : remainingTypeVars ->
@@ -3139,7 +3150,10 @@ applyTypeSchemePrimitiveConstraints primitiveConstraints state =
         TypeSchemeNumericConstraint numericConstraint argumentType ->
           case constrainNumericOperatorType numericConstraint argumentType stateAcc of
             Just nextState -> nextState
-            Nothing -> stateAcc
+            Nothing ->
+              addTypeError
+                stateAcc
+                (mkTypeSchemeNumericConstraintError numericConstraint (resolveType stateAcc argumentType))
         TypeSchemeStrictEqualityConstraint argumentType ->
           case resolveType stateAcc argumentType of
             TVarType typeVar ->
@@ -3148,7 +3162,7 @@ applyTypeSchemePrimitiveConstraints primitiveConstraints state =
               | supportsRuntimeEqualityType stateAcc resolvedType ->
                   stateAcc
               | otherwise ->
-                  stateAcc
+                  addTypeError stateAcc (mkTypeSchemeStrictEqualityConstraintError resolvedType)
 
 deferExplicitConstraints :: [TypeSchemeConstraint] -> InferState -> InferState
 deferExplicitConstraints explicitConstraints state =
@@ -3710,10 +3724,10 @@ typeBindingRuntimeHint binding =
   case binding of
     PlainTypeBinding bindingType ->
       expressionTypeToRuntimeHint (defaultLiteralTypes bindingType)
-    SchemeTypeBinding (TypeScheme schemeVariables _ _ _ schemeType)
+    SchemeTypeBinding (TypeScheme schemeVariables _ _ _ _ schemeType)
       | Set.null schemeVariables ->
           expressionTypeToRuntimeHint (defaultLiteralTypes schemeType)
-    OperatorAliasSchemeTypeBinding _ (TypeScheme schemeVariables _ _ _ schemeType)
+    OperatorAliasSchemeTypeBinding _ (TypeScheme schemeVariables _ _ _ _ schemeType)
       | Set.null schemeVariables ->
           expressionTypeToRuntimeHint (defaultLiteralTypes schemeType)
     _ -> Nothing
@@ -4021,7 +4035,8 @@ annotateNewErrorsWithPrimarySpan spanValue previousState nextState =
 
 data SignaturePayloadType = SignaturePayloadType
   { signaturePayloadDeclaredType :: ExpressionType,
-    signaturePayloadExplicitConstraints :: [TypeSchemeConstraint]
+    signaturePayloadExplicitConstraints :: [TypeSchemeConstraint],
+    signaturePayloadVariableOrder :: [Int]
   }
 
 -- | Normalize the currently accepted signature subset. Unsupported surfaces
@@ -4030,12 +4045,12 @@ signaturePayloadToSignatureType :: SignaturePayload -> InferState -> (Maybe Sign
 signaturePayloadToSignatureType signaturePayload state =
   case signaturePayload of
     SignatureType signatureType ->
-      (Just (SignaturePayloadType (signatureTypeToExpressionType signatureType) []), state)
+      (Just (SignaturePayloadType (signatureTypeToExpressionType signatureType) [] []), state)
     ConstrainedSignature [] signatureType ->
-      (fmap (\declaredType -> SignaturePayloadType declaredType []) (constraintSignatureTypeToExpressionType signatureType), state)
+      (fmap (\declaredType -> SignaturePayloadType declaredType [] []) (constraintSignatureTypeToExpressionType signatureType), state)
     ConstrainedSignature constraints signatureType
       | supportedConcreteConstraints state constraints ->
-          (fmap (\declaredType -> SignaturePayloadType declaredType []) (constraintSignatureTypeToExpressionType signatureType), state)
+          (fmap (\declaredType -> SignaturePayloadType declaredType [] []) (constraintSignatureTypeToExpressionType signatureType), state)
       | supportedVariableConstraints state constraints signatureType ->
           variableConstraintSignaturePayloadToExpressionType constraints signatureType state
       | otherwise ->
@@ -4095,16 +4110,21 @@ variableConstraintSignaturePayloadToExpressionType ::
   InferState ->
   (Maybe SignaturePayloadType, InferState)
 variableConstraintSignaturePayloadToExpressionType constraints signatureType state =
-  let variableNames = Set.toAscList (constraintSignatureTypeVariableNames signatureType)
+  let variableNames = constraintSignatureTypeVariableNamesInOrder signatureType
       (signatureVariables, nextState) = allocateSignatureTypeVariables variableNames state
       convertedType =
         constraintSignatureTypeToExpressionTypeWithVariables signatureVariables signatureType
       convertedConstraints =
         traverse (variableConstraintToTypeSchemeConstraint signatureVariables) constraints
+      variableOrder =
+        [ typeVar
+          | variableName <- variableNames,
+            Just (TVarType typeVar) <- [Map.lookup variableName signatureVariables]
+        ]
    in
     case (convertedType, convertedConstraints) of
       (Just expressionType, Just explicitConstraints) ->
-        (Just (SignaturePayloadType expressionType explicitConstraints), nextState)
+        (Just (SignaturePayloadType expressionType explicitConstraints variableOrder), nextState)
       _ -> (Nothing, state)
 
 variableConstraintToTypeSchemeConstraint ::
@@ -4191,6 +4211,34 @@ constraintSignatureTypeVariableNames signatureType =
       Set.union
         (constraintSignatureTypeVariableNames argumentType)
         (constraintSignatureTypeVariableNames resultType)
+
+constraintSignatureTypeVariableNamesInOrder :: ConstraintSignatureType -> [Text]
+constraintSignatureTypeVariableNamesInOrder =
+  dedupe . go
+  where
+    go signatureType =
+      case signatureType of
+        ConstraintTypeName name
+          | identifierLooksLikeTypeVariable name ->
+              [identifierText name]
+          | otherwise ->
+              []
+        ConstraintTypeApplication _ arguments ->
+          concatMap go arguments
+        ConstraintTypeList innerType ->
+          go innerType
+        ConstraintTypeTuple elementTypes ->
+          concatMap go elementTypes
+        ConstraintTypeFunction argumentType resultType ->
+          go argumentType ++ go resultType
+
+    dedupe =
+      goDedupe Set.empty
+
+    goDedupe _ [] = []
+    goDedupe seen (name : rest)
+      | Set.member name seen = goDedupe seen rest
+      | otherwise = name : goDedupe (Set.insert name seen) rest
 
 constraintSignatureTypeSupportsVariableBody :: ConstraintSignatureType -> Bool
 constraintSignatureTypeSupportsVariableBody signatureType =
@@ -5153,6 +5201,18 @@ mkNumericSectionOperandTypeError operatorSymbol _ operandType =
         <> "' requires a numeric operand, found "
         <> renderType operandType
     )
+
+mkTypeSchemeNumericConstraintError :: NumericConstraint -> ExpressionType -> Diagnostic
+mkTypeSchemeNumericConstraintError _ foundType =
+  mkDiagnostic
+    "E2003"
+    ("primitive numeric constraint cannot be satisfied by " <> renderType foundType)
+
+mkTypeSchemeStrictEqualityConstraintError :: ExpressionType -> Diagnostic
+mkTypeSchemeStrictEqualityConstraintError foundType =
+  mkDiagnostic
+    "E2004"
+    ("primitive strict equality constraint cannot be satisfied by " <> renderType foundType)
 
 mkMissingOperatorBindingError :: Text -> Diagnostic
 mkMissingOperatorBindingError operatorSymbol =
