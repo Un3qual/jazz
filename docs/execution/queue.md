@@ -8,11 +8,10 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `JN-OPERATORS-CUSTOM-ASSOCIATIVITY-001` | Add explicit associativity for user operators | `P1` | `M` | `impl` | `yes` | `JN-OPERATORS-CUSTOM-PRECEDENCE-001` | [2026-06-30-jazz-next-operator-signatures-precedence-associativity.md](../plans/2026-06-30-jazz-next-operator-signatures-precedence-associativity.md) | `Batch 3: Custom associativity` | `docs/spec/syntax/operators.md`, `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`, `jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`, `docs/execution/blocker-contracts.md`, `docs/execution/queue.md` | Add explicit `left`, `right`, and `nonassoc` associativity syntax for same-source user operators, preserving existing tier and precedence declarations while keeping new precedence ranges, cross-module operator APIs, overload dispatch, and new built-ins out of scope. | `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; `git diff --check` | `2026-07-08` |
 
-Current executor status (`2026-07-08`): `Ready Now` is empty after custom
-numeric precedence for same-source user-defined operators landed. The remaining
-source-backed operator candidate is custom associativity. Pattern synonyms
-remain explicitly blocked.
+Current executor status (`2026-07-08`): executing custom associativity for
+same-source user-defined operators. Pattern synonyms remain explicitly blocked.
 
 ## Next Curation Target
 
@@ -27,7 +26,6 @@ target and no named candidate currently.
 
 | blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `JN-USER-DEFINED-OPERATORS-PLAN-001` | `JN-OPERATORS-CUSTOM-ASSOCIATIVITY-001` | `impl` | [blocker-contracts.md](blocker-contracts.md#jn-user-defined-operators-plan-001) | Next ordered operator child after custom precedence: explicit `left`, `right`, and `nonassoc` associativity syntax. | `docs/spec/syntax/operators.md`, `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`, `jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`, `docs/plans/2026-06-30-jazz-next-operator-signatures-precedence-associativity.md` | `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; `git diff --check` | Promote only the custom-associativity child; new precedence ranges, cross-module operator APIs, overload dispatch, and new built-ins remain later work. |
 
 ## Blocked
 

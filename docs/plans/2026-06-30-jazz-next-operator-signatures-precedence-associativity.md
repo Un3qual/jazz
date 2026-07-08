@@ -1,15 +1,14 @@
 ---
-id: JN-OPERATORS-CUSTOM-PRECEDENCE-001
-status: done
+id: JN-OPERATORS-CUSTOM-ASSOCIATIVITY-001
+status: ready
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
-  - JN-OPERATORS-SPECIFIC-TYPE-SIGNATURES-001
+  - JN-OPERATORS-CUSTOM-PRECEDENCE-001
 last_verified: 2026-07-08
-completed_on: 2026-07-08
-plan_section: "Batch 2: Custom precedence"
+plan_section: "Batch 3: Custom associativity"
 target_paths:
   - docs/spec/syntax/operators.md
   - jazz-next/src/JazzNext/Compiler/Parser.hs
@@ -17,17 +16,15 @@ target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
   - jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs
   - jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - docs/execution/blocker-contracts.md
   - docs/execution/queue.md
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
   - git diff --check
-deliverable: "Add custom numeric precedence declarations for same-source user operators, preserving existing tier declarations and default left associativity while keeping custom associativity, cross-module operator APIs, overload dispatch, and new built-ins out of scope."
+deliverable: "Add explicit `left`, `right`, and `nonassoc` associativity syntax for same-source user operators, preserving existing tier and precedence declarations while keeping new precedence ranges, cross-module operator APIs, overload dispatch, and new built-ins out of scope."
 ---
 
 # Jazz-Next Operator Signatures, Precedence, And Associativity Plan
