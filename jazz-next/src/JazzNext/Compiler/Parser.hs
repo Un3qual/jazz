@@ -4,7 +4,8 @@
 -- token stream into a block-wrapped surface AST while enforcing the current
 -- statement and operator grammar.
 module JazzNext.Compiler.Parser
-  ( parseSurfaceProgram
+  ( parseSurfaceExpressionTokens,
+    parseSurfaceProgram
   ) where
 
 import Data.Char
@@ -813,6 +814,9 @@ parseExprStatement knownAliases declaredOperators tokens = do
 parseExpr :: Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseExpr knownAliases declaredOperators =
   parseExprWithMinPrecedenceUntil knownAliases declaredOperators neverStop 1
+
+parseSurfaceExpressionTokens :: Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseSurfaceExpressionTokens = parseExpr
 
 -- | Entry point for expression parsing that first folds application via
 -- `parseApplicationExpr`, then continues with precedence-climbing for infix

@@ -7,27 +7,36 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
+    SourceSpan (..),
     renderDiagnostic
   )
 import JazzNext.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource
   )
 import JazzNext.Compiler.Parser.AST
-  ( SurfaceExpr (..),
+  ( SurfaceCaseArm (..),
+    SurfaceExpr (..),
+    SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
-    SurfaceNumericType (..)
+    SurfaceNumericType (..),
+    SurfacePattern (..),
+    SurfaceSignaturePayload (..),
+    SurfaceSignatureToken (..),
+    SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Expression
   ( parseExpressionTokens
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
-    TokenKind (..),
-    tokenize
+    TokenKind (..)
   )
 import JazzNext.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..)
+  )
+import JazzNext.Compiler.Parser.TestSupport
+  ( lexSource
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -45,6 +54,8 @@ tests =
   [ ("application binds tighter than infix precedence", testApplicationBeforeInfixPrecedence),
     ("declared operators participate in precedence climbing", testDeclaredOperatorPrecedence),
     ("parses qualified variables with list and tuple arguments", testQualifiedVariablesListsAndTuples),
+    ("parses control-flow and block expression starters", testControlFlowAndBlockExpressionStarters),
+    ("uses known aliases for block statement disambiguation", testKnownAliasesDisambiguateBlockStatements),
     ("parses operator values and sections", testOperatorValuesAndSections),
     ("parses fractional literal suffix", testFractionalLiteralSuffix),
     ("reports invalid fractional literals", testInvalidFractionalLiteralDiagnostic),
@@ -87,6 +98,61 @@ testQualifiedVariablesListsAndTuples = do
     )
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
+
+testControlFlowAndBlockExpressionStarters :: IO ()
+testControlFlowAndBlockExpressionStarters = do
+  ifTokens <- lexSource "if True 1 else 2."
+  assertExpression
+    "if expression starter"
+    (SEIf (SELit (SLBool True)) (SELit (SLInt 1)) (SELit (SLInt 2)))
+    [TDot]
+    (parseExpressionTokens Set.empty [] ifTokens)
+
+  caseTokens <- lexSource "case value { | 0 -> 1 | _ -> 2 }."
+  assertExpression
+    "case expression starter"
+    ( SECase
+        (SEVar "value")
+        [ SurfaceCaseArm (SPLiteral (SLInt 0)) Nothing (SELit (SLInt 1)),
+          SurfaceCaseArm SPWildcard Nothing (SELit (SLInt 2))
+        ]
+    )
+    [TDot]
+    (parseExpressionTokens Set.empty [] caseTokens)
+
+  lambdaTokens <- lexSource "\\(x) -> x."
+  assertExpression
+    "lambda expression starter"
+    (SELambda [SurfaceLambdaIdentifier "x"] (SEVar "x"))
+    [TDot]
+    (parseExpressionTokens Set.empty [] lambdaTokens)
+
+  blockTokens <- lexSource "{ x = 1. x. }."
+  assertExpression
+    "block expression starter"
+    ( SEBlock
+        [ SSLet "x" (SourceSpan 1 3) (SELit (SLInt 1)),
+          SSExpr (SourceSpan 1 10) (SEVar "x")
+        ]
+    )
+    [TDot]
+    (parseExpressionTokens Set.empty [] blockTokens)
+
+testKnownAliasesDisambiguateBlockStatements :: IO ()
+testKnownAliasesDisambiguateBlockStatements = do
+  aliasTokens <- lexSource "{ Result::a. }."
+  assertExpression
+    "known alias parses compact qualified lookup in block"
+    (SEBlock [SSExpr (SourceSpan 1 3) (SEQualifiedVar "Result" "a")])
+    [TDot]
+    (parseExpressionTokens (Set.singleton "Result") [] aliasTokens)
+
+  nonAliasTokens <- lexSource "{ Result::a. }."
+  assertExpression
+    "unknown alias keeps compact signature in block"
+    (SEBlock [SSSignature "Result" (SourceSpan 1 3) (SurfaceUnsupportedSignature [SurfaceSignatureNameToken "a"])])
+    [TDot]
+    (parseExpressionTokens Set.empty [] nonAliasTokens)
 
 testOperatorValuesAndSections :: IO ()
 testOperatorValuesAndSections = do
@@ -138,12 +204,6 @@ assertExpression label expectedExpr expectedRemainingKinds actual =
 
 tokenKinds :: (SurfaceExpr, [Token]) -> (SurfaceExpr, [TokenKind])
 tokenKinds (expr, remaining) = (expr, fmap tokenKind remaining)
-
-lexSource :: Text -> IO [Token]
-lexSource source =
-  case tokenize source of
-    Right tokens -> pure tokens
-    Left diagnostic -> failTest ("tokenize: expected Right, got " <> renderDiagnostic diagnostic)
 
 textShow :: Show a => a -> Text
 textShow = fromString . show
