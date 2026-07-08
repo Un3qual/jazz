@@ -22,9 +22,12 @@ library
       JazzNext.Compiler.ModuleResolver
       JazzNext.Compiler.Parser
       JazzNext.Compiler.Parser.AST
+      JazzNext.Compiler.Parser.Declaration
+      JazzNext.Compiler.Parser.Expression
       JazzNext.Compiler.Parser.Lexer
       JazzNext.Compiler.Parser.Lower
       JazzNext.Compiler.Parser.Operator
+      JazzNext.Compiler.Parser.Pattern
       JazzNext.Compiler.Parser.Signature
       JazzNext.Compiler.Parser.TokenParser
       JazzNext.Compiler.PreludeContract
