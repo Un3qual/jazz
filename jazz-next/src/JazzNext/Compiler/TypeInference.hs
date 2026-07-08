@@ -48,8 +48,15 @@ import JazzNext.Compiler.BuiltinCatalog
     builtinSymbolName,
     builtinSymbolNumericConversionTarget,
     lookupBuiltinSymbolInMode,
+    numericTypeFloatIntegerBounds,
     numericTypeFloatMax,
-    numericTypeIntegerBounds
+    numericTypeFromName,
+    numericTypeIntegerBounds,
+    numericTypeIsIntegral,
+    numericTypeLiteralIntegerBounds,
+    numericTypeSupportsRuntimeArithmetic,
+    numericTypeSupportsRuntimeComparison,
+    renderNumericTypeName
   )
 import JazzNext.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
@@ -57,7 +64,11 @@ import JazzNext.Compiler.CapabilityFacts
     concreteImplFactClassName,
     constraintFunctionArgumentTypes,
     constraintImplFactKey,
+    constraintSignatureAliasVariants,
+    constraintSignatureTypeContainsClassParameter,
+    constraintSignatureTypesCompatible,
     identifierLooksLikeTypeVariable,
+    normalizeConstraintSignatureName,
     qualifiedMethodKey,
     renderConstraintSignatureType,
     signaturePayloadConstraintType,
@@ -3696,21 +3707,6 @@ constructorArgumentExpressionHasExactEvidence env typeParameterBindings construc
     ConstructorArgumentFresh ->
       True
 
-constraintSignatureTypeContainsClassParameter :: Text -> ConstraintSignatureType -> Bool
-constraintSignatureTypeContainsClassParameter classParameter signatureType =
-  case signatureType of
-      ConstraintTypeApplication _ arguments ->
-        any (constraintSignatureTypeContainsClassParameter classParameter) arguments
-      ConstraintTypeList innerType ->
-        constraintSignatureTypeContainsClassParameter classParameter innerType
-      ConstraintTypeTuple elementTypes ->
-        any (constraintSignatureTypeContainsClassParameter classParameter) elementTypes
-      ConstraintTypeFunction argumentType resultType ->
-        constraintSignatureTypeContainsClassParameter classParameter argumentType
-          || constraintSignatureTypeContainsClassParameter classParameter resultType
-      ConstraintTypeName typeName ->
-        identifierText typeName == classParameter
-
 constraintSignatureTypeExactlyMatchesExpressionType :: InferState -> ConstraintSignatureType -> ExpressionType -> Bool
 constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressionType =
   case constraintSignatureTypeToExpressionTypeWithState state Map.empty signatureType of
@@ -3718,62 +3714,6 @@ constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressi
       resolveType state signatureExpressionType == defaultLiteralTypes (resolveType state expressionType)
     Nothing ->
       False
-
-constraintSignatureTypesCompatible :: ConstraintSignatureType -> ConstraintSignatureType -> Bool
-constraintSignatureTypesCompatible leftType rightType =
-  case (leftType, rightType) of
-    (ConstraintTypeName leftName, ConstraintTypeName rightName) ->
-      normalizeConstraintSignatureName (identifierText leftName)
-        == normalizeConstraintSignatureName (identifierText rightName)
-    (ConstraintTypeApplication leftName leftArguments, ConstraintTypeApplication rightName rightArguments)
-      | normalizeConstraintSignatureName (identifierText leftName)
-          == normalizeConstraintSignatureName (identifierText rightName),
-        length leftArguments == length rightArguments ->
-          and (zipWith constraintSignatureTypesCompatible leftArguments rightArguments)
-    (ConstraintTypeList leftElementType, ConstraintTypeList rightElementType) ->
-      constraintSignatureTypesCompatible leftElementType rightElementType
-    (ConstraintTypeTuple leftElementTypes, ConstraintTypeTuple rightElementTypes)
-      | length leftElementTypes == length rightElementTypes ->
-          and (zipWith constraintSignatureTypesCompatible leftElementTypes rightElementTypes)
-    (ConstraintTypeFunction leftArgumentType leftResultType, ConstraintTypeFunction rightArgumentType rightResultType) ->
-      constraintSignatureTypesCompatible leftArgumentType rightArgumentType
-        && constraintSignatureTypesCompatible leftResultType rightResultType
-    _ -> False
-
-normalizeConstraintSignatureName :: Text -> Text
-normalizeConstraintSignatureName typeName =
-  case typeName of
-    "Int" -> "Int64"
-    "Float" -> "Float64"
-    _ -> typeName
-
-constraintSignatureAliasVariants :: ConstraintSignatureType -> [ConstraintSignatureType]
-constraintSignatureAliasVariants signatureType =
-  case signatureType of
-    ConstraintTypeName name ->
-      map ConstraintTypeName (constraintSignatureAliasNames name)
-    ConstraintTypeApplication name arguments ->
-      [ ConstraintTypeApplication name variantArguments
-        | variantArguments <- traverse constraintSignatureAliasVariants arguments
-      ]
-    ConstraintTypeList elementType ->
-      map ConstraintTypeList (constraintSignatureAliasVariants elementType)
-    ConstraintTypeTuple elementTypes ->
-      map ConstraintTypeTuple (traverse constraintSignatureAliasVariants elementTypes)
-    ConstraintTypeFunction argumentType resultType ->
-      [ ConstraintTypeFunction variantArgument variantResult
-        | variantArgument <- constraintSignatureAliasVariants argumentType,
-          variantResult <- constraintSignatureAliasVariants resultType
-      ]
-
-constraintSignatureAliasNames :: Identifier -> [Identifier]
-constraintSignatureAliasNames name =
-  case identifierText name of
-    "Int" -> [name, mkIdentifier "Int64"]
-    "Int64" -> [name, mkIdentifier "Int"]
-    "Float" -> [name, mkIdentifier "Float64"]
-    "Float64" -> [name, mkIdentifier "Float"]
-    _ -> [name]
 
 applyQualifiedMethodCandidate ::
   Text ->
@@ -4198,51 +4138,6 @@ numericTypeNameToExpressionType :: Text -> Maybe ExpressionType
 numericTypeNameToExpressionType typeName =
   TNumericType <$> numericTypeFromName typeName
 
-numericTypeFromName :: Text -> Maybe NumericType
-numericTypeFromName typeName =
-  case typeName of
-    "Int8" -> Just NumericInt8
-    "Int16" -> Just NumericInt16
-    "Int32" -> Just NumericInt32
-    "Int64" -> Just NumericInt64
-    "UInt8" -> Just NumericUInt8
-    "UInt16" -> Just NumericUInt16
-    "UInt32" -> Just NumericUInt32
-    "UInt64" -> Just NumericUInt64
-    "Float16" -> Just NumericFloat16
-    "Float32" -> Just NumericFloat32
-    "Float64" -> Just NumericFloat64
-    _ -> Nothing
-
-numericTypeIsIntegral :: NumericType -> Bool
-numericTypeIsIntegral numericType =
-  case numericType of
-    NumericInt8 -> True
-    NumericInt16 -> True
-    NumericInt32 -> True
-    NumericInt64 -> True
-    NumericUInt8 -> True
-    NumericUInt16 -> True
-    NumericUInt32 -> True
-    NumericUInt64 -> True
-    NumericFloat16 -> False
-    NumericFloat32 -> False
-    NumericFloat64 -> False
-
-numericTypeSupportsRuntimeArithmetic :: NumericType -> Bool
-numericTypeSupportsRuntimeArithmetic numericType =
-  numericTypeIsIntegral numericType
-    || numericType == NumericFloat16
-    || numericType == NumericFloat32
-    || numericType == NumericFloat64
-
-numericTypeSupportsRuntimeComparison :: NumericType -> Bool
-numericTypeSupportsRuntimeComparison numericType =
-  numericTypeIsIntegral numericType
-    || numericType == NumericFloat16
-    || numericType == NumericFloat32
-    || numericType == NumericFloat64
-
 integerLiteralRangeFitsNumericType :: IntegerLiteralRange -> NumericType -> Bool
 integerLiteralRangeFitsNumericType literalRange numericType =
   case numericTypeIntegerBounds numericType of
@@ -4318,19 +4213,6 @@ numericConversionTargetFromCallable builtinMode env functionName =
           Nothing
         Nothing ->
           lookupBuiltinSymbolInMode builtinMode nameText >>= builtinSymbolNumericConversionTarget
-
-numericTypeLiteralIntegerBounds :: NumericType -> Maybe (Integer, Integer)
-numericTypeLiteralIntegerBounds numericType =
-  case numericTypeIntegerBounds numericType of
-    Just bounds -> Just bounds
-    Nothing -> numericTypeFloatIntegerBounds numericType
-
-numericTypeFloatIntegerBounds :: NumericType -> Maybe (Integer, Integer)
-numericTypeFloatIntegerBounds numericType =
-  case numericTypeFloatMax numericType of
-    Just maxMagnitude ->
-      Just (ceiling (negate maxMagnitude), floor maxMagnitude)
-    Nothing -> Nothing
 
 singletonIntegerLiteralRange :: Integer -> IntegerLiteralRange
 singletonIntegerLiteralRange value = IntegerLiteralRange value value
@@ -4414,21 +4296,6 @@ combineIntegerLiteralRanges (IntegerLiteralRange leftMin leftMax) (IntegerLitera
 integerLiteralRangeBounds :: IntegerLiteralRange -> (Integer, Integer)
 integerLiteralRangeBounds (IntegerLiteralRange lower upper) =
   (lower, upper)
-
-renderNumericTypeName :: NumericType -> Text
-renderNumericTypeName numericType =
-  case numericType of
-    NumericInt8 -> "Int8"
-    NumericInt16 -> "Int16"
-    NumericInt32 -> "Int32"
-    NumericInt64 -> "Int64"
-    NumericUInt8 -> "UInt8"
-    NumericUInt16 -> "UInt16"
-    NumericUInt32 -> "UInt32"
-    NumericUInt64 -> "UInt64"
-    NumericFloat16 -> "Float16"
-    NumericFloat32 -> "Float32"
-    NumericFloat64 -> "Float64"
 
 renderSignaturePayload :: SignaturePayload -> Text
 renderSignaturePayload signaturePayload =

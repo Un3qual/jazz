@@ -1,0 +1,49 @@
+cabal-version: 3.0
+name: jazz-next
+version: 0.1.0.0
+build-type: Simple
+
+library
+  hs-source-dirs: src
+  default-language: Haskell2010
+  exposed-modules:
+      JazzNext.CLI.Main
+      JazzNext.Compiler.AST
+      JazzNext.Compiler.Analyzer
+      JazzNext.Compiler.BuiltinCatalog
+      JazzNext.Compiler.BundledPrelude
+      JazzNext.Compiler.CapabilityFacts
+      JazzNext.Compiler.Desugar
+      JazzNext.Compiler.Diagnostics
+      JazzNext.Compiler.Driver
+      JazzNext.Compiler.FractionalLiteral
+      JazzNext.Compiler.Identifier
+      JazzNext.Compiler.ModuleReplay
+      JazzNext.Compiler.ModuleResolver
+      JazzNext.Compiler.Parser
+      JazzNext.Compiler.Parser.AST
+      JazzNext.Compiler.Parser.Declaration
+      JazzNext.Compiler.Parser.Expression
+      JazzNext.Compiler.Parser.Lexer
+      JazzNext.Compiler.Parser.Lower
+      JazzNext.Compiler.Parser.Operator
+      JazzNext.Compiler.Parser.Pattern
+      JazzNext.Compiler.Parser.Signature
+      JazzNext.Compiler.Parser.TokenParser
+      JazzNext.Compiler.PreludeContract
+      JazzNext.Compiler.Purity
+      JazzNext.Compiler.RecursiveBindings
+      JazzNext.Compiler.Runtime
+      JazzNext.Compiler.RuntimeHints
+      JazzNext.Compiler.SourceProgram
+      JazzNext.Compiler.TypeInference
+      JazzNext.Compiler.WarningCatalog
+      JazzNext.Compiler.WarningConfig
+      JazzNext.Compiler.Warnings
+  build-depends:
+      base >= 4.17 && < 4.18,
+      containers >= 0.6 && < 0.7,
+      directory >= 1.3 && < 1.4,
+      filepath >= 1.4 && < 1.5,
+      megaparsec >= 9.0 && < 10,
+      text >= 2.0 && < 2.1

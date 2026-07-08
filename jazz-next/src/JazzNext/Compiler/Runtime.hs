@@ -53,11 +53,15 @@ import JazzNext.Compiler.BuiltinCatalog
     builtinSymbolNumericConversionTarget,
     lookupBuiltinSymbolInMode,
     numericTypeFloatMax,
-    numericTypeIntegerBounds
+    numericTypeIntegerBounds,
+    numericTypeIsIntegral,
+    renderNumericTypeName
   )
 import JazzNext.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
     constraintFunctionArgumentTypes,
+    constraintSignatureTypeContainsClassParameter,
+    constraintSignatureTypesCompatible,
     qualifiedMethodKey,
     signaturePayloadConstraintType,
     substituteClassMethodSignature
@@ -1611,7 +1615,7 @@ runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments (R
           suppliedGenericArgumentTypes = take suppliedArgumentCount genericArgumentTypes
           suppliedArgumentTypes = take suppliedArgumentCount argumentTypes
           targetArgumentPositions =
-            map (runtimeConstraintSignatureTypeContainsClassParameter classParameter) suppliedGenericArgumentTypes
+            map (constraintSignatureTypeContainsClassParameter classParameter) suppliedGenericArgumentTypes
        in suppliedArgumentCount <= length genericArgumentTypes
             && suppliedArgumentCount <= length argumentTypes
             && or targetArgumentPositions
@@ -1628,21 +1632,6 @@ runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments (R
 runtimeExactCandidateArgumentMatches :: Bool -> ConstraintSignatureType -> RuntimeValue -> Bool
 runtimeExactCandidateArgumentMatches targetArgumentPosition signatureType runtimeValue =
   not targetArgumentPosition || runtimeValueExactlyMatchesConstraint signatureType runtimeValue
-
-runtimeConstraintSignatureTypeContainsClassParameter :: Text -> ConstraintSignatureType -> Bool
-runtimeConstraintSignatureTypeContainsClassParameter classParameter signatureType =
-  case signatureType of
-      ConstraintTypeApplication _ arguments ->
-        any (runtimeConstraintSignatureTypeContainsClassParameter classParameter) arguments
-      ConstraintTypeList innerType ->
-        runtimeConstraintSignatureTypeContainsClassParameter classParameter innerType
-      ConstraintTypeTuple elementTypes ->
-        any (runtimeConstraintSignatureTypeContainsClassParameter classParameter) elementTypes
-      ConstraintTypeFunction argumentType resultType ->
-        runtimeConstraintSignatureTypeContainsClassParameter classParameter argumentType
-          || runtimeConstraintSignatureTypeContainsClassParameter classParameter resultType
-      ConstraintTypeName typeName ->
-        identifierText typeName == classParameter
 
 runtimeValueExactlyMatchesConstraint :: ConstraintSignatureType -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
@@ -1721,7 +1710,7 @@ runtimeValueMatchesConstraint :: ConstraintSignatureType -> RuntimeValue -> Bool
 runtimeValueMatchesConstraint signatureType runtimeValue =
   case runtimeValue of
     VTyped typeHint _ ->
-      runtimeConstraintTypesCompatible typeHint signatureType
+      constraintSignatureTypesCompatible typeHint signatureType
     _ ->
       case signatureType of
         ConstraintTypeName typeName ->
@@ -1732,7 +1721,7 @@ runtimeValueMatchesConstraint signatureType runtimeValue =
           case runtimeValue of
             VList elements maybeTypeHint ->
               case maybeTypeHint of
-                Just typeHint -> runtimeConstraintTypesCompatible typeHint signatureType
+                Just typeHint -> constraintSignatureTypesCompatible typeHint signatureType
                 Nothing -> all (runtimeValueMatchesConstraint elementType) elements
             _ -> False
         ConstraintTypeTuple elementTypes ->
@@ -1743,39 +1732,8 @@ runtimeValueMatchesConstraint signatureType runtimeValue =
             _ -> False
         ConstraintTypeFunction {} ->
           case runtimeValue of
-            VClosure _ _ _ (Just typeHint) _ -> runtimeConstraintTypesCompatible typeHint signatureType
+            VClosure _ _ _ (Just typeHint) _ -> constraintSignatureTypesCompatible typeHint signatureType
             _ -> isFunctionValue runtimeValue
-
-runtimeConstraintTypesCompatible :: ConstraintSignatureType -> ConstraintSignatureType -> Bool
-runtimeConstraintTypesCompatible leftType rightType =
-  case (leftType, rightType) of
-    (ConstraintTypeName leftName, ConstraintTypeName rightName) ->
-      runtimeConstraintNamesCompatible leftName rightName
-    (ConstraintTypeApplication leftName leftArguments, ConstraintTypeApplication rightName rightArguments)
-      | runtimeConstraintNamesCompatible leftName rightName,
-        length leftArguments == length rightArguments ->
-          and (zipWith runtimeConstraintTypesCompatible leftArguments rightArguments)
-    (ConstraintTypeList leftElementType, ConstraintTypeList rightElementType) ->
-      runtimeConstraintTypesCompatible leftElementType rightElementType
-    (ConstraintTypeTuple leftElementTypes, ConstraintTypeTuple rightElementTypes)
-      | length leftElementTypes == length rightElementTypes ->
-          and (zipWith runtimeConstraintTypesCompatible leftElementTypes rightElementTypes)
-    (ConstraintTypeFunction leftArgumentType leftResultType, ConstraintTypeFunction rightArgumentType rightResultType) ->
-      runtimeConstraintTypesCompatible leftArgumentType rightArgumentType
-        && runtimeConstraintTypesCompatible leftResultType rightResultType
-    _ -> False
-
-runtimeConstraintNamesCompatible :: Identifier -> Identifier -> Bool
-runtimeConstraintNamesCompatible leftName rightName =
-  normalizeRuntimeConstraintName (identifierText leftName)
-    == normalizeRuntimeConstraintName (identifierText rightName)
-
-normalizeRuntimeConstraintName :: Text -> Text
-normalizeRuntimeConstraintName typeName =
-  case typeName of
-    "Int" -> "Int64"
-    "Float" -> "Float64"
-    _ -> typeName
 
 runtimeValueMatchesTypeName :: Text -> RuntimeValue -> Bool
 runtimeValueMatchesTypeName typeName runtimeValue =
@@ -2254,21 +2212,6 @@ numericConversionFloatOverflowDiagnostic builtinFunction targetType =
         <> renderNumericTypeName targetType
     )
 
-renderNumericTypeName :: NumericType -> Text
-renderNumericTypeName numericType =
-  case numericType of
-    NumericInt8 -> "Int8"
-    NumericInt16 -> "Int16"
-    NumericInt32 -> "Int32"
-    NumericInt64 -> "Int64"
-    NumericUInt8 -> "UInt8"
-    NumericUInt16 -> "UInt16"
-    NumericUInt32 -> "UInt32"
-    NumericUInt64 -> "UInt64"
-    NumericFloat16 -> "Float16"
-    NumericFloat32 -> "Float32"
-    NumericFloat64 -> "Float64"
-
 -- | Evaluate filter predicates element-by-element and enforce that each
 -- predicate application returns a Bool.
 filterElements :: BuiltinResolutionMode -> Map BindingRuntimeHintKey ConstraintSignatureType -> RuntimeValue -> [RuntimeValue] -> Either Diagnostic [RuntimeValue]
@@ -2716,21 +2659,6 @@ runtimeIntMetadataIsIntegral intMetadata =
     Just numericType -> numericTypeIsIntegral numericType
     Nothing -> True
 
-numericTypeIsIntegral :: NumericType -> Bool
-numericTypeIsIntegral numericType =
-  case numericType of
-    NumericInt8 -> True
-    NumericInt16 -> True
-    NumericInt32 -> True
-    NumericInt64 -> True
-    NumericUInt8 -> True
-    NumericUInt16 -> True
-    NumericUInt32 -> True
-    NumericUInt64 -> True
-    NumericFloat16 -> False
-    NumericFloat32 -> False
-    NumericFloat64 -> False
-
 runtimeFloatMetadataIsFloat64Domain :: RuntimeFloatMetadata -> Bool
 runtimeFloatMetadataIsFloat64Domain floatMetadata =
   case runtimeFloatTargetType floatMetadata of
@@ -2858,7 +2786,7 @@ runtimeStructuralEquality :: RuntimeValue -> RuntimeValue -> Maybe Bool
 runtimeStructuralEquality leftValue rightValue =
   case (leftValue, rightValue) of
     (VTyped leftTypeHint leftInnerValue, VTyped rightTypeHint rightInnerValue)
-      | runtimeConstraintTypesCompatible leftTypeHint rightTypeHint ->
+      | constraintSignatureTypesCompatible leftTypeHint rightTypeHint ->
           runtimeStructuralEquality leftInnerValue rightInnerValue
       | otherwise ->
           Just False
