@@ -37,10 +37,6 @@ parseSupportedSignaturePayload :: [Token] -> Maybe SurfaceSignaturePayload
 parseSupportedSignaturePayload =
   parseTokenStreamMaybe "signature payload" signaturePayloadParser
 
-parseConstrainedSignaturePayload :: [Token] -> Maybe SurfaceSignaturePayload
-parseConstrainedSignaturePayload =
-  parseTokenStreamMaybe "constrained signature payload" constrainedSignaturePayloadParser
-
 parseConstrainedSignatureType :: [Token] -> Maybe SurfaceConstrainedSignatureType
 parseConstrainedSignatureType =
   parseTokenStreamMaybe "constrained signature type" constrainedSignatureTypeParser
@@ -48,10 +44,6 @@ parseConstrainedSignatureType =
 splitTopLevelCommaTokens :: [Token] -> Maybe [[Token]]
 splitTopLevelCommaTokens =
   parseTokenStreamMaybe "top-level comma list" topLevelCommaTokensParser
-
-parseSupportedSignatureType :: [Token] -> Maybe SurfaceSignatureType
-parseSupportedSignatureType =
-  parseTokenStreamMaybe "signature type" signatureTypeParser
 
 parseTokenStreamMaybe :: Text -> TokenParser.Parser a -> [Token] -> Maybe a
 parseTokenStreamMaybe label parser tokens =

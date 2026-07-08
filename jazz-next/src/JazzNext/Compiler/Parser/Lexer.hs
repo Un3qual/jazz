@@ -175,7 +175,7 @@ symbolToken spanValue = do
     '[' -> fixedToken TLBracket "[" spanValue
     ']' -> fixedToken TRBracket "]" spanValue
     ',' -> fixedToken TComma "," spanValue
-    _ -> unexpectedCharacter spanValue nextChar
+    _ -> MP.anySingle *> unexpectedCharacter spanValue nextChar
 
 fixedToken :: TokenKind -> Text -> SourceSpan -> LexerParser Token
 fixedToken kind lexeme spanValue = do

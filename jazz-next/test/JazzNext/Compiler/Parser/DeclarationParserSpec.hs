@@ -2,10 +2,8 @@
 
 module Main (main) where
 
-import Data.Text (Text)
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
-    renderDiagnostic
   )
 import JazzNext.Compiler.Identifier
   ( mkIdentifier
@@ -19,15 +17,13 @@ import JazzNext.Compiler.Parser.Declaration
   ( parseDataStatementTokens,
     parseImportStatementTokens
   )
-import JazzNext.Compiler.Parser.Lexer
-  ( Token,
-    tokenize
+import JazzNext.Compiler.Parser.TestSupport
+  ( lexSource
   )
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
     assertLeftDiagnosticContains,
-    failTest,
     runTestSuite
   )
 
@@ -81,9 +77,3 @@ testParsesDataConstructors = do
         )
     )
     (parseDataStatementTokens tokens)
-
-lexSource :: Text -> IO [Token]
-lexSource source =
-  case tokenize source of
-    Right tokens -> pure tokens
-    Left diagnostic -> failTest ("tokenize: expected Right, got " <> renderDiagnostic diagnostic)

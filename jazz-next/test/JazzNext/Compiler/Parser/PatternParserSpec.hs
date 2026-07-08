@@ -2,7 +2,6 @@
 
 module Main (main) where
 
-import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( renderDiagnostic
@@ -14,12 +13,14 @@ import JazzNext.Compiler.Parser.AST
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
-    TokenKind (..),
-    tokenize
+    TokenKind (..)
   )
 import JazzNext.Compiler.Parser.Pattern
   ( parseCaseArmPatternTokens,
     parseLambdaParameterTokens
+  )
+import JazzNext.Compiler.Parser.TestSupport
+  ( lexSource
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -94,9 +95,3 @@ testRejectsFractionalLiteralPatterns = do
 
 tokenKinds :: [Token] -> [TokenKind]
 tokenKinds = map tokenKind
-
-lexSource :: Text -> IO [Token]
-lexSource source =
-  case tokenize source of
-    Right tokens -> pure tokens
-    Left diagnostic -> failTest ("tokenize: expected Right, got " <> renderDiagnostic diagnostic)

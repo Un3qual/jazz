@@ -314,18 +314,8 @@ collectTopLevelBindingNames :: Expr -> [Text]
 collectTopLevelBindingNames expr =
   case expr of
     EBlock statements ->
-      concatMap collectStatementBindingNames statements
+      concatMap statementBindingNames statements
     _ -> []
-  where
-    collectStatementBindingNames statement =
-      case statement of
-        SLet bindingName _ _ ->
-          [identifierText bindingName]
-        SData _ _ _ constructors ->
-          [ identifierText constructorName
-            | DataConstructor constructorName _ <- constructors
-          ]
-        _ -> []
 
 collectTopLevelClassNames :: Expr -> [Text]
 collectTopLevelClassNames expr =
@@ -877,11 +867,109 @@ collectExportDependencies expr =
     EBlock statements ->
       let exportedNames =
             Set.fromList (concatMap statementBindingNames statements)
-       in Map.fromList
-            [ (identifierText bindingName, Set.intersection exportedNames (collectUnqualifiedReferences valueExpr))
-              | SLet bindingName _ valueExpr <- statements
-            ]
+          constructorNamesByType =
+            dataConstructorNamesByType statements
+          localDataTypeNames =
+            Map.keysSet constructorNamesByType
+          dataTypeExports =
+            dataTypeDependencyExports constructorNamesByType
+          signatureDependencies =
+            Map.fromListWith
+              Set.union
+              [ ( identifierText signatureName,
+                  dataTypeExports (signaturePayloadDataTypeReferences signaturePayload)
+                )
+                | SSignature signatureName _ signaturePayload <- statements
+              ]
+          constructorDependencies =
+            Map.fromListWith
+              Set.union
+              [ ( identifierText constructorName,
+                  dataTypeExports
+                    ( Set.unions
+                        [ constructorArgumentDataTypeReferences localDataTypeNames constructorArgument
+                          | constructorArgument <- constructorArguments
+                        ]
+                    )
+                )
+                | SData _ _ _ constructors <- statements,
+                  DataConstructor constructorName constructorArguments <- constructors
+              ]
+       in Map.unionWith
+            Set.union
+            ( Map.fromList
+                [ ( identifierText bindingName,
+                    Set.unions
+                      [ Set.intersection exportedNames (collectUnqualifiedReferences valueExpr),
+                        Map.findWithDefault Set.empty (identifierText bindingName) signatureDependencies
+                      ]
+                  )
+                  | SLet bindingName _ valueExpr <- statements
+                ]
+            )
+            constructorDependencies
     _ -> Map.empty
+
+dataConstructorNamesByType :: [Statement] -> Map Text (Set Text)
+dataConstructorNamesByType statements =
+  Map.fromList
+    [ ( identifierText typeName,
+        Set.fromList
+          [ identifierText constructorName
+            | DataConstructor constructorName _ <- constructors
+          ]
+      )
+      | SData _ typeName _ constructors <- statements
+    ]
+
+dataTypeDependencyExports :: Map Text (Set Text) -> Set Text -> Set Text
+dataTypeDependencyExports constructorNamesByType typeNames =
+  Set.unions
+    [ Map.findWithDefault Set.empty typeName constructorNamesByType
+      | typeName <- Set.toList typeNames
+    ]
+
+signaturePayloadDataTypeReferences :: SignaturePayload -> Set Text
+signaturePayloadDataTypeReferences signaturePayload =
+  case signaturePayload of
+    SignatureType _ -> Set.empty
+    ConstrainedSignature constraints signatureType ->
+      Set.union
+        (Set.unions (map signatureConstraintDataTypeReferences constraints))
+        (constraintSignatureTypeReferences signatureType)
+    UnsupportedSignature tokens ->
+      Set.fromList
+        [ name
+          | SignatureNameToken name <- tokens
+        ]
+
+signatureConstraintDataTypeReferences :: SignatureConstraint -> Set Text
+signatureConstraintDataTypeReferences (SignatureConstraint _ arguments) =
+  Set.unions (map constraintSignatureTypeReferences arguments)
+
+constraintSignatureTypeReferences :: ConstraintSignatureType -> Set Text
+constraintSignatureTypeReferences signatureType =
+  case signatureType of
+    ConstraintTypeName typeName ->
+      Set.singleton (identifierText typeName)
+    ConstraintTypeApplication typeName arguments ->
+      Set.insert (identifierText typeName) (Set.unions (map constraintSignatureTypeReferences arguments))
+    ConstraintTypeList innerType ->
+      constraintSignatureTypeReferences innerType
+    ConstraintTypeTuple elementTypes ->
+      Set.unions (map constraintSignatureTypeReferences elementTypes)
+    ConstraintTypeFunction argumentType resultType ->
+      Set.union
+        (constraintSignatureTypeReferences argumentType)
+        (constraintSignatureTypeReferences resultType)
+
+constructorArgumentDataTypeReferences :: Set Text -> DataConstructorArgument -> Set Text
+constructorArgumentDataTypeReferences localDataTypeNames constructorArgument =
+  case constructorArgument of
+    DataConstructorArgumentName argumentName ->
+      let argumentNameText = identifierText argumentName
+       in Set.fromList [argumentNameText | Set.member argumentNameText localDataTypeNames]
+    DataConstructorArgumentOpaque -> Set.empty
 
 closeExportDependencies :: Map Text (Set Text) -> Set Text -> Set Text
 closeExportDependencies exportDependencies neededExports =
@@ -1349,9 +1437,12 @@ collectAliasQualifiedReferencePairs expr =
       Set.unions
         ( collectAliasQualifiedReferencePairs scrutineeExpr :
           [ Set.union
-              (maybe Set.empty collectAliasQualifiedReferencePairs guardExpr)
-              (collectAliasQualifiedReferencePairs bodyExpr)
-          | CaseArm _ guardExpr bodyExpr <- caseArms
+              (collectAliasQualifiedReferencePairsFromPattern patternValue)
+              ( Set.union
+                  (maybe Set.empty collectAliasQualifiedReferencePairs guardExpr)
+                  (collectAliasQualifiedReferencePairs bodyExpr)
+              )
+          | CaseArm patternValue guardExpr bodyExpr <- caseArms
           ]
         )
     EBinary _ leftExpr rightExpr ->
@@ -1382,6 +1473,32 @@ collectAliasQualifiedReferencesFromStatement statement =
     SClass {} -> Set.empty
     SModule {} -> Set.empty
     SImport {} -> Set.empty
+
+collectAliasQualifiedReferencePairsFromPattern :: Pattern -> Set (Text, Text)
+collectAliasQualifiedReferencePairsFromPattern patternValue =
+  case patternValue of
+    PWildcard -> Set.empty
+    PVariable _ -> Set.empty
+    PLiteral _ -> Set.empty
+    PConstructor constructorName nestedPatterns ->
+      Set.union
+        ( case splitQualifiedIdentifierText (identifierText constructorName) of
+            Just qualifiedName -> Set.singleton qualifiedName
+            Nothing -> Set.empty
+        )
+        (Set.unions (map collectAliasQualifiedReferencePairsFromPattern nestedPatterns))
+    PList nestedPatterns ->
+      Set.unions (map collectAliasQualifiedReferencePairsFromPattern nestedPatterns)
+    PConsList headPattern tailPattern ->
+      Set.union
+        (collectAliasQualifiedReferencePairsFromPattern headPattern)
+        (collectAliasQualifiedReferencePairsFromPattern tailPattern)
+    PTuple nestedPatterns ->
+      Set.unions (map collectAliasQualifiedReferencePairsFromPattern nestedPatterns)
+    PAs _ nestedPattern ->
+      collectAliasQualifiedReferencePairsFromPattern nestedPattern
+    POr alternatives ->
+      Set.unions (map collectAliasQualifiedReferencePairsFromPattern alternatives)
 
 replayLoweredModules ::
   (ResolvedModule -> Expr -> Expr) ->
@@ -1462,6 +1579,7 @@ stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModul
         SData spanValue typeName typeParameters constructors ->
           rewriteDataStatementForReplay
             modulePath
+            dataTypeNames
             hiddenImportExports
             (Set.union hiddenImportExports neededModuleExports)
             spanValue
@@ -1582,7 +1700,7 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
             | isEntryModule
           ]
         SData spanValue typeName typeParameters constructors ->
-          rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName typeParameters constructors
+          rewriteDataStatementForReplay modulePath dataTypeNames hiddenImportExports neededModuleExports spanValue typeName typeParameters constructors
         SClass spanValue capabilityName parameters methods ->
           [ SClass spanValue replayCapabilityName parameters replayMethods
             | isEntryModule || Set.member (identifierText capabilityName) neededCapabilityExports,
@@ -1972,12 +2090,13 @@ rewriteDataStatementForReplay ::
   [Text] ->
   Set Text ->
   Set Text ->
+  Set Text ->
   SourceSpan ->
   Identifier ->
   [Identifier] ->
   [DataConstructor] ->
   [Statement]
-rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports spanValue typeName typeParameters constructors =
+rewriteDataStatementForReplay modulePath dataTypeNames hiddenImportExports neededModuleExports spanValue typeName typeParameters constructors =
   [ SData spanValue replayTypeName typeParameters replayConstructors
     | not (null replayConstructors)
   ]
@@ -2001,8 +2120,8 @@ rewriteDataStatementForReplay modulePath hiddenImportExports neededModuleExports
     replayConstructorArgument constructorArgument =
       case constructorArgument of
         DataConstructorArgumentName argumentName
-          | identifierText argumentName == identifierText typeName ->
-              DataConstructorArgumentName replayTypeName
+          | Set.member (identifierText argumentName) dataTypeNames ->
+              DataConstructorArgumentName (rewriteModuleExportImplTypeName modulePath dataTypeNames argumentName)
         _ -> constructorArgument
 
 isHiddenImportExportStatement :: Set Text -> Statement -> Bool
