@@ -23,7 +23,8 @@ tests =
     ("rejects invalid operator declaration tiers", testRejectsInvalidOperatorDeclarationTier),
     ("rejects duplicate operator declarations", testRejectsDuplicateOperatorDeclaration),
     ("rejects nested operator declarations", testRejectsNestedOperatorDeclaration),
-    ("rejects custom operator precedence declarations", testRejectsCustomOperatorPrecedenceDeclaration),
+    ("rejects zero custom operator precedence declarations", testRejectsZeroCustomOperatorPrecedenceDeclaration),
+    ("rejects high custom operator precedence declarations", testRejectsHighCustomOperatorPrecedenceDeclaration),
     ("rejects custom operator associativity declarations", testRejectsCustomOperatorAssociativityDeclaration),
     ("rejects user operator infix use before declaration", testRejectsUserOperatorInfixUseBeforeDeclaration),
     ("rejects user operator value use before declaration", testRejectsUserOperatorValueUseBeforeDeclaration),
@@ -96,13 +97,21 @@ testRejectsNestedOperatorDeclaration =
     "operator declarations are only allowed at file scope or directly in module bodies"
     (parseSurfaceProgram "x = { operator %% tier 2. y = 1. }.")
 
-testRejectsCustomOperatorPrecedenceDeclaration :: IO ()
-testRejectsCustomOperatorPrecedenceDeclaration =
+testRejectsZeroCustomOperatorPrecedenceDeclaration :: IO ()
+testRejectsZeroCustomOperatorPrecedenceDeclaration =
   assertLeftDiagnosticCodeAndContains
-    "custom operator precedence declaration"
+    "zero custom operator precedence declaration"
     "E0001"
-    "expected 'tier' in operator declaration"
-    (parseSurfaceProgram "operator %% precedence 2.")
+    "operator precedence must be between 1 and 99"
+    (parseSurfaceProgram "operator %% precedence 0.")
+
+testRejectsHighCustomOperatorPrecedenceDeclaration :: IO ()
+testRejectsHighCustomOperatorPrecedenceDeclaration =
+  assertLeftDiagnosticCodeAndContains
+    "high custom operator precedence declaration"
+    "E0001"
+    "operator precedence must be between 1 and 99"
+    (parseSurfaceProgram "operator %% precedence 100.")
 
 testRejectsCustomOperatorAssociativityDeclaration :: IO ()
 testRejectsCustomOperatorAssociativityDeclaration =

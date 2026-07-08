@@ -53,6 +53,7 @@ import qualified JazzNext.Compiler.Parser.Declaration as Declaration
 import JazzNext.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
+    declaredOperatorInfoForPrecedence,
     declaredOperatorInfoForTier,
     isBuiltinOperatorSymbol,
     isReservedOperatorSymbol,
@@ -65,6 +66,10 @@ import JazzNext.Compiler.Parser.Signature
   )
 
 type DeclaredOperators = [OperatorInfo]
+
+data OperatorDeclarationFixityKeyword
+  = OperatorTierKeyword
+  | OperatorPrecedenceKeyword
 
 -- Parses the current minimal surface language into a block-wrapped program.
 -- Most top-level forms are dot-terminated; module declarations instead own a
@@ -172,9 +177,9 @@ parseOperatorDeclaration context declaredOperators operatorToken tokensAfterKeyw
     parseTopLevelOperatorDeclaration = do
       (operatorSymbol, afterSymbol) <- parseOperatorDeclarationSymbol tokensAfterKeyword
       validateDeclaredOperatorSymbol declaredOperators operatorToken operatorSymbol
-      afterTierKeyword <- consumeOperatorTierKeyword operatorToken afterSymbol
-      (operatorInfo, afterTier) <- parseOperatorDeclarationTier operatorToken operatorSymbol afterTierKeyword
-      remaining <- consumeOperatorDeclarationDot afterTier
+      (fixityKeyword, afterFixityKeyword) <- consumeOperatorFixityKeyword operatorToken afterSymbol
+      (operatorInfo, afterFixity) <- parseOperatorDeclarationFixity operatorToken operatorSymbol fixityKeyword afterFixityKeyword
+      remaining <- consumeOperatorDeclarationDot (operatorDeclarationFixityLabel fixityKeyword) afterFixity
       Right (operatorInfo, remaining)
 
 parseOperatorDeclarationSymbol :: [Token] -> Either Diagnostic (Text, [Token])
@@ -238,15 +243,17 @@ validateDeclaredOperatorSymbol declaredOperators operatorToken declaredSymbol
             )
         )
 
-consumeOperatorTierKeyword :: Token -> [Token] -> Either Diagnostic [Token]
-consumeOperatorTierKeyword operatorToken tokens =
+consumeOperatorFixityKeyword :: Token -> [Token] -> Either Diagnostic (OperatorDeclarationFixityKeyword, [Token])
+consumeOperatorFixityKeyword operatorToken tokens =
   case tokens of
     Token {tokenKind = TIdentifier "tier"} : rest ->
-      Right rest
+      Right (OperatorTierKeyword, rest)
+    Token {tokenKind = TIdentifier "precedence"} : rest ->
+      Right (OperatorPrecedenceKeyword, rest)
     token : _ ->
       Left
         ( parseDiagnostic
-            ( "expected 'tier' in operator declaration at "
+            ( "expected 'tier' or 'precedence' in operator declaration at "
                 <> renderSourceSpan (tokenSpan token)
                 <> ", found '"
                 <> tokenLexeme token
@@ -256,10 +263,18 @@ consumeOperatorTierKeyword operatorToken tokens =
     [] ->
       Left
         ( parseDiagnostic
-            ( "expected 'tier' before end of input in operator declaration at "
+            ( "expected 'tier' or 'precedence' before end of input in operator declaration at "
                 <> renderSourceSpan (tokenSpan operatorToken)
             )
         )
+
+parseOperatorDeclarationFixity :: Token -> Text -> OperatorDeclarationFixityKeyword -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
+parseOperatorDeclarationFixity operatorToken operatorSymbol fixityKeyword tokens =
+  case fixityKeyword of
+    OperatorTierKeyword ->
+      parseOperatorDeclarationTier operatorToken operatorSymbol tokens
+    OperatorPrecedenceKeyword ->
+      parseOperatorDeclarationPrecedence operatorToken operatorSymbol tokens
 
 parseOperatorDeclarationTier :: Token -> Text -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
 parseOperatorDeclarationTier operatorToken operatorSymbol tokens =
@@ -293,15 +308,24 @@ parseOperatorDeclarationTier operatorToken operatorSymbol tokens =
             )
         )
 
-consumeOperatorDeclarationDot :: [Token] -> Either Diagnostic [Token]
-consumeOperatorDeclarationDot tokens =
+parseOperatorDeclarationPrecedence :: Token -> Text -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
+parseOperatorDeclarationPrecedence operatorToken operatorSymbol tokens =
   case tokens of
-    Token {tokenKind = TDot} : rest ->
-      Right rest
+    Token {tokenKind = TInt precedence} : rest ->
+      case declaredOperatorInfoForPrecedence operatorSymbol precedence of
+        Just operatorInfo ->
+          Right (operatorInfo, rest)
+        Nothing ->
+          Left
+            ( parseDiagnostic
+                ( "operator precedence must be between 1 and 99 at "
+                    <> renderSourceSpan (tokenSpan operatorToken)
+                )
+            )
     token : _ ->
       Left
         ( parseDiagnostic
-            ( "expected '.' after operator declaration tier at "
+            ( "expected operator precedence 1-99 at "
                 <> renderSourceSpan (tokenSpan token)
                 <> ", found '"
                 <> tokenLexeme token
@@ -309,7 +333,38 @@ consumeOperatorDeclarationDot tokens =
             )
         )
     [] ->
-      Left (parseDiagnostic "expected '.' after operator declaration tier before end of input")
+      Left
+        ( parseDiagnostic
+            ( "expected operator precedence 1-99 before end of input in operator declaration at "
+                <> renderSourceSpan (tokenSpan operatorToken)
+            )
+        )
+
+operatorDeclarationFixityLabel :: OperatorDeclarationFixityKeyword -> Text
+operatorDeclarationFixityLabel fixityKeyword =
+  case fixityKeyword of
+    OperatorTierKeyword -> "tier"
+    OperatorPrecedenceKeyword -> "precedence"
+
+consumeOperatorDeclarationDot :: Text -> [Token] -> Either Diagnostic [Token]
+consumeOperatorDeclarationDot fixityLabel tokens =
+  case tokens of
+    Token {tokenKind = TDot} : rest ->
+      Right rest
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected '.' after operator declaration "
+                <> fixityLabel
+                <> " at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+    [] ->
+      Left (parseDiagnostic ("expected '.' after operator declaration " <> fixityLabel <> " before end of input"))
 
 parseOperatorBinding :: StatementContext -> Set Text -> DeclaredOperators -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseOperatorBinding context knownAliases declaredOperators operatorToken tokensAfterEquals =
@@ -520,16 +575,17 @@ looksLikeOperatorDeclaration tokensAfterKeyword =
   case tokensAfterKeyword of
     Token {tokenKind = TOperator {}} : _ -> True
     Token {tokenKind = TArrow} : _ -> True
-    Token {tokenKind = TIdentifier {}} : rest -> hasOperatorTierBeforeTerminator rest
+    Token {tokenKind = TIdentifier {}} : rest -> hasOperatorFixityKeywordBeforeTerminator rest
     _ -> False
 
-hasOperatorTierBeforeTerminator :: [Token] -> Bool
-hasOperatorTierBeforeTerminator tokens =
+hasOperatorFixityKeywordBeforeTerminator :: [Token] -> Bool
+hasOperatorFixityKeywordBeforeTerminator tokens =
   case tokens of
     [] -> False
     Token {tokenKind = TDot} : _ -> False
     Token {tokenKind = TIdentifier "tier"} : _ -> True
-    _ : rest -> hasOperatorTierBeforeTerminator rest
+    Token {tokenKind = TIdentifier "precedence"} : _ -> True
+    _ : rest -> hasOperatorFixityKeywordBeforeTerminator rest
 
 isDeclarationContext :: StatementContext -> Bool
 isDeclarationContext context =

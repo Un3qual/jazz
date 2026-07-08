@@ -100,6 +100,7 @@ tests =
     ("right operator section applies at runtime", testRightOperatorSectionRuntimeSuccess),
     ("right section differs from ordinary partial application for division", testRightSectionDiffersFromOrdinaryPartialApplication),
     ("declared user operator infix applies at runtime", testDeclaredUserOperatorInfixRuntimeSuccess),
+    ("declared custom precedence user operator groups at runtime", testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess),
     ("declared user operator signature applies at runtime", testDeclaredUserOperatorSignatureRuntimeSuccess),
     ("declared user operator value applies at runtime", testDeclaredUserOperatorValueRuntimeSuccess),
     ("declared user left operator section applies at runtime", testDeclaredUserLeftOperatorSectionRuntimeSuccess),
@@ -686,6 +687,13 @@ testDeclaredUserOperatorInfixRuntimeSuccess = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
+
+testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess :: IO ()
+testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% precedence 99.\n(%%) = \\(left) -> \\(right) -> left - right.\n20 + 10 %% 3 * 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "34") (runOutput result)
 
 testDeclaredUserOperatorSignatureRuntimeSuccess :: IO ()
 testDeclaredUserOperatorSignatureRuntimeSuccess = do
