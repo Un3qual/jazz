@@ -88,6 +88,7 @@ data SurfaceExpr
   | SEList [SurfaceExpr]
   | SETuple [SurfaceExpr]
   | SEApply SurfaceExpr SurfaceExpr
+  | SETypeApplication SurfaceExpr SurfaceSignatureType
   | SEIf SurfaceExpr SurfaceExpr SurfaceExpr
   | SECase SurfaceExpr [SurfaceCaseArm]
   | SEBinary Text SurfaceExpr SurfaceExpr

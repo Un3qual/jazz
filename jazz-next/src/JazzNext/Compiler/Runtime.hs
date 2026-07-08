@@ -962,6 +962,8 @@ exprContainsFunctionBranch :: Expr -> Bool
 exprContainsFunctionBranch expr =
   case expr of
     ELambda {} -> True
+    ETypeApplication functionExpr _ ->
+      exprContainsFunctionBranch functionExpr
     EIf _ thenExpr elseExpr ->
       exprContainsFunctionBranch thenExpr
         || exprContainsFunctionBranch elseExpr
@@ -1001,6 +1003,8 @@ scopeContainsFunctionBranch statements =
                     bindingExpr
             _ -> False
         ELambda {} -> True
+        ETypeApplication functionExpr _ ->
+          exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings functionExpr
         EIf _ thenExpr elseExpr ->
           exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
             || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
@@ -1035,6 +1039,8 @@ exprDefinitelyNotFunctionValue expr =
     EList {} -> True
     ETuple {} -> True
     EBinary {} -> True
+    ETypeApplication functionExpr _ ->
+      exprDefinitelyNotFunctionValue functionExpr
     EIf _ thenExpr elseExpr ->
       exprDefinitelyNotFunctionValue thenExpr
         && exprDefinitelyNotFunctionValue elseExpr
@@ -1090,6 +1096,8 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
       functionValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env functionExpr
       argumentValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env argumentExpr
       applyRuntimeFunction builtinMode bindingTypeHints functionValue argumentValue
+    ETypeApplication functionExpr _ ->
+      evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env functionExpr
     EIf conditionExpr thenExpr elseExpr ->
       evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr -> do

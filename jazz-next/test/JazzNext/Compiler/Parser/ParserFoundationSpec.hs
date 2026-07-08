@@ -74,7 +74,10 @@ tests =
     ("tracks tab-aligned expression spans", testTabAlignedExpressionSpan),
     ("parses nested scope expression", testParseNestedScopeExpression),
     ("parses block argument expression with stable inner spans", testParseBlockArgumentExpression),
+    ("parses explicit type application expression", testParseExplicitTypeApplicationExpression),
+    ("rejects unsupported explicit type application argument", testRejectsUnsupportedExplicitTypeApplicationArgument),
     ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
+    ("lowers explicit type application expression", testLowerExplicitTypeApplicationExpression),
     ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram),
     ("lowers numeric width signature names into analyzer AST", testLowerNumericWidthSignatureProgram),
     ("lowers fractional literal into analyzer AST", testLowerFractionalLiteralProgram),
@@ -483,6 +486,24 @@ testParseBlockArgumentExpression =
     )
     (parseSurfaceProgram "result = f {\n  x = 1.\n  x.\n}.")
 
+testParseExplicitTypeApplicationExpression :: IO ()
+testParseExplicitTypeApplicationExpression =
+  assertRight
+    "explicit type application parse"
+    (parseSurfaceProgram "value = id @Int 1.\nvalue.")
+    ( \surfaceProgram -> do
+        let rendered = Text.pack (show surfaceProgram)
+        assertContains "surface type application" "SETypeApplication" rendered
+        assertContains "surface type application argument" "SurfaceTypeInt" rendered
+    )
+
+testRejectsUnsupportedExplicitTypeApplicationArgument :: IO ()
+testRejectsUnsupportedExplicitTypeApplicationArgument =
+  assertLeftDiagnosticContains
+    "unsupported explicit type application argument"
+    "unsupported explicit type application argument after '@'"
+    (parseSurfaceProgram "value = id @a 1.\nvalue.")
+
 testLowerSurfaceProgram :: IO ()
 testLowerSurfaceProgram =
   assertRight
@@ -495,6 +516,17 @@ testLowerSurfaceProgram =
         [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
           SExpr (SourceSpan 2 1) (EVar "x")
         ]
+
+testLowerExplicitTypeApplicationExpression :: IO ()
+testLowerExplicitTypeApplicationExpression =
+  assertRight
+    "explicit type application lowering"
+    (parseSurfaceProgram "value = id @Int 1.\nvalue.")
+    ( \surfaceProgram -> do
+        let rendered = Text.pack (show (lowerSurfaceExpr surfaceProgram))
+        assertContains "lowered type application" "ETypeApplication" rendered
+        assertContains "lowered type application argument" "TypeInt" rendered
+    )
 
 testLowerTupleLiteralAndSignatureProgram :: IO ()
 testLowerTupleLiteralAndSignatureProgram =

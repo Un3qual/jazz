@@ -205,6 +205,8 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
         ( functionWarnings ++ argumentWarnings,
           functionErrors ++ argumentErrors ++ purityErrors
         )
+    ETypeApplication functionExpr _ ->
+      collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context functionExpr
     EIf conditionExpr thenExpr elseExpr ->
       collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr ->

@@ -1,6 +1,6 @@
 ---
 id: JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001
 last_verified: 2026-07-08
+completed_on: 2026-07-08
 plan_section: "Batch 2: Explicit Type Application"
 target_paths:
   - docs/spec/semantics/bindings-and-signatures.md
@@ -15,6 +16,10 @@ target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
   - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
   - jazz-next/src/JazzNext/Compiler/AST.hs
+  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
+  - jazz-next/src/JazzNext/Compiler/ModuleReplay.hs
+  - jazz-next/src/JazzNext/Compiler/RecursiveBindings.hs
+  - jazz-next/src/JazzNext/Compiler/Runtime.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
@@ -23,6 +28,8 @@ target_paths:
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
   - git diff --check
@@ -55,13 +62,13 @@ specs, and repo-root docs/queue validation.
 ## Remaining Solver Slice Order
 
 1. `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001` (completed `2026-07-08`)
-2. `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001`
+2. `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001` (completed `2026-07-08`)
 3. `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`
 
 The inferred class-constraint and final defaulting/ambiguity children are
-complete and archived. The remaining order keeps every open child independently
-testable. It also avoids mixing explicit type application with runtime
-representation work.
+complete and archived, and explicit type application is now complete and
+archived. Runtime evidence/dictionaries remains the only accepted open child.
+The remaining order keeps every open child independently testable.
 
 ## Completed Prerequisite: Inferred Class Constraints
 
@@ -187,6 +194,9 @@ git diff --check
 
 Child id: `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001`
 
+Status: completed on `2026-07-08` and recorded in
+`docs/execution/done-archive.md`.
+
 Goal: add one explicit type application surface for already-generalized
 schemes, without adding higher-rank polymorphism or runtime evidence.
 
@@ -205,6 +215,10 @@ Target paths:
 - `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
 - `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
 - `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/ModuleReplay.hs`
+- `jazz-next/src/JazzNext/Compiler/RecursiveBindings.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
 - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
 - `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
@@ -217,6 +231,14 @@ Rules:
   accepted by signatures.
 - Wrong arity, unsupported type application targets, and unsupported type
   argument shapes produce deterministic diagnostics.
+
+Landed behavior: `expr @Type` parses and lowers into explicit
+type-application nodes. The type argument uses the existing monomorphic
+signature type grammar. Type inference instantiates generalized scheme
+bindings with the explicit type for the first quantified variable, freshens
+remaining variables, preserves existing deferred class/primitive obligations,
+erases the node at runtime, and rejects monomorphic or already-instantiated
+targets with `E2017`.
 
 Out of scope:
 
@@ -231,6 +253,8 @@ Focused verification:
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 git diff --check

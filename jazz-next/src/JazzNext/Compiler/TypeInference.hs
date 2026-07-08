@@ -175,6 +175,8 @@ canonicalizeExpr expr =
     ETuple elements -> ETuple (map canonicalizeExpr elements)
     EApply functionExpr argumentExpr ->
       EApply (canonicalizeExpr functionExpr) (canonicalizeExpr argumentExpr)
+    ETypeApplication functionExpr signatureType ->
+      ETypeApplication (canonicalizeExpr functionExpr) signatureType
     EIf conditionExpr thenExpr elseExpr ->
       ECase
         (canonicalizeExpr conditionExpr)
@@ -420,6 +422,8 @@ inferExprType builtinMode env state expr =
           inferBuiltinOperatorApplyOrGenericApply functionExpr argumentExpr
         _ ->
           inferBuiltinOperatorApplyOrGenericApply functionExpr argumentExpr
+    ETypeApplication functionExpr typeArgument ->
+      inferExplicitTypeApplication builtinMode env state functionExpr typeArgument
     EIf conditionExpr thenExpr elseExpr ->
       inferExprType builtinMode env state (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr ->
@@ -3041,6 +3045,73 @@ instantiateTypeScheme (TypeScheme quantifiedVariables explicitConstraints primit
       let (freshType, nextState) = freshTypeVar stateAcc
        in (Map.insert typeVar freshType bindings, nextState)
 
+inferExplicitTypeApplication ::
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  Expr ->
+  SignatureType ->
+  (Maybe ExpressionType, InferState)
+inferExplicitTypeApplication builtinMode env state functionExpr typeArgument =
+  case explicitTypeApplicationScheme env functionExpr of
+    Just typeScheme ->
+      instantiateTypeSchemeWithExplicitArgument
+        typeScheme
+        (signatureTypeToExpressionType typeArgument)
+        state
+    Nothing ->
+      let (maybeFunctionType, stateAfterFunction) =
+            inferExprType builtinMode env state functionExpr
+       in
+        case maybeFunctionType of
+          Just _ ->
+            (Nothing, addTypeError stateAfterFunction mkExplicitTypeApplicationTargetError)
+          Nothing -> (Nothing, stateAfterFunction)
+
+explicitTypeApplicationScheme :: TypeEnv -> Expr -> Maybe TypeScheme
+explicitTypeApplicationScheme env functionExpr =
+  case functionExpr of
+    EVar name ->
+      Map.lookup (identifierText name) env >>= typeBindingScheme
+    EOperatorValue operatorSymbol ->
+      Map.lookup (operatorBindingIdentifierText operatorSymbol) env >>= typeBindingScheme
+    _ -> Nothing
+
+instantiateTypeSchemeWithExplicitArgument ::
+  TypeScheme ->
+  ExpressionType ->
+  InferState ->
+  (Maybe ExpressionType, InferState)
+instantiateTypeSchemeWithExplicitArgument (TypeScheme quantifiedVariables explicitConstraints primitiveConstraints definingFacts expressionType) explicitArgumentType state =
+  case Set.toList quantifiedVariables of
+    [] ->
+      (Nothing, addTypeError state mkExplicitTypeApplicationTargetError)
+    explicitTypeVar : remainingTypeVars ->
+      let (freshBindings, nextState) =
+            foldl'
+              allocateFreshBinding
+              (Map.singleton explicitTypeVar explicitArgumentType, state)
+              remainingTypeVars
+          instantiatedType =
+            replaceTypeVariables freshBindings expressionType
+          instantiatedConstraints =
+            map (instantiateTypeSchemeConstraint freshBindings) explicitConstraints
+          instantiatedPrimitiveConstraints =
+            map (instantiateTypeSchemePrimitiveConstraint freshBindings) primitiveConstraints
+          stateWithPrimitiveConstraints =
+            applyTypeSchemePrimitiveConstraints instantiatedPrimitiveConstraints nextState
+          stateWithDeferredConstraints =
+            deferExplicitConstraintsWithFacts
+              (mergeCapabilityFacts definingFacts (capabilityFactsFromState state))
+              definingFacts
+              instantiatedConstraints
+              stateWithPrimitiveConstraints
+       in (Just (resolveType stateWithDeferredConstraints instantiatedType), stateWithDeferredConstraints)
+  where
+    allocateFreshBinding (bindings, stateAcc) typeVar =
+      let (freshType, nextState) = freshTypeVar stateAcc
+       in (Map.insert typeVar freshType bindings, nextState)
+
 instantiateTypeSchemeConstraint :: Map Int ExpressionType -> TypeSchemeConstraint -> TypeSchemeConstraint
 instantiateTypeSchemeConstraint replacements constraint =
   case constraint of
@@ -4972,6 +5043,12 @@ mkApplyTypeError functionType argumentType =
         <> " to argument of type "
         <> renderType argumentType
     )
+
+mkExplicitTypeApplicationTargetError :: Diagnostic
+mkExplicitTypeApplicationTargetError =
+  mkDiagnostic
+    "E2017"
+    "explicit type application target must be a generalized binding"
 
 mkNumericConversionLiteralTypeError :: Text -> Integer -> NumericType -> (Integer, Integer) -> Diagnostic
 mkNumericConversionLiteralTypeError conversionName literalValue targetType (lowerBound, upperBound) =

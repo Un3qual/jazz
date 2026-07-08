@@ -193,6 +193,9 @@ tests =
     ("source pipeline instantiates primitive constrained signatures per use", testSourceInstantiatesPrimitiveConstrainedSignaturePerUse),
     ("source pipeline instantiates equality constrained signatures per use", testSourceInstantiatesEqualityConstrainedSignaturePerUse),
     ("source pipeline instantiates recursive constrained signatures per use", testSourceInstantiatesRecursiveConstrainedSignaturePerUse),
+    ("source pipeline applies explicit type application to generalized signatures", testSourceAppliesExplicitTypeApplicationToGeneralizedSignature),
+    ("source pipeline rejects explicit type application on monomorphic bindings", testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding),
+    ("source pipeline rejects extra explicit type application arguments", testSourceRejectsExtraExplicitTypeApplicationArgument),
     ("source pipeline accepts unconstrained variables beside explicit constraints", testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints),
     ("source pipeline honors visible facts for variable constrained signatures", testSourceHonorsVisibleFactsForVariableConstrainedSignatures),
     ("source pipeline rejects missing use-site facts for variable constrained signatures", testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures),
@@ -1150,6 +1153,22 @@ testSourceInstantiatesEqualityConstrainedSignaturePerUse =
 testSourceInstantiatesRecursiveConstrainedSignaturePerUse :: IO ()
 testSourceInstantiatesRecursiveConstrainedSignaturePerUse =
   assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Bool) { }.\nchoose :: @{Eq(a)}: a -> a.\nchoose = if True \\(x) -> x else choose.\nintValue = choose 1.\nboolValue = choose True."
+
+testSourceAppliesExplicitTypeApplicationToGeneralizedSignature :: IO ()
+testSourceAppliesExplicitTypeApplicationToGeneralizedSignature =
+  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nvalue = id @Int 1.\nvalue."
+
+testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding :: IO ()
+testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding =
+  assertSourceSingleErrorContains
+    "inc :: Int -> Int.\ninc = \\(x) -> x + 1.\nvalue = inc @Int 1."
+    "explicit type application target must be a generalized binding"
+
+testSourceRejectsExtraExplicitTypeApplicationArgument :: IO ()
+testSourceRejectsExtraExplicitTypeApplicationArgument =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nvalue = id @Int @Bool 1."
+    "explicit type application target must be a generalized binding"
 
 testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints :: IO ()
 testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints =

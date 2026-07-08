@@ -69,6 +69,8 @@ freeVarsExprWithBound bound expr =
       Set.union
         (freeVarsExprWithBound bound functionExpr)
         (freeVarsExprWithBound bound argumentExpr)
+    ETypeApplication functionExpr _ ->
+      freeVarsExprWithBound bound functionExpr
     EIf conditionExpr thenExpr elseExpr ->
       freeVarsExprWithBound bound (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr ->
@@ -299,6 +301,8 @@ selfAliasLikeReference bindingNameText =
             operatorBindingIdentifierText operatorSymbol == bindingNameText ->
               (True, False)
         EOperatorValue {} -> noSummary
+        ETypeApplication functionExpr _ ->
+          aliasSummary boundNames scopeBindings visitedBindings functionExpr
         EIf conditionExpr thenExpr elseExpr ->
           foldl'
             combineSummaries
@@ -401,6 +405,8 @@ selfAliasLikeReference bindingNameText =
             [ nonAliasSummary boundNames scopeBindings visitedBindings functionExpr,
               nonAliasSummary boundNames scopeBindings visitedBindings argumentExpr
             ]
+        ETypeApplication functionExpr _ ->
+          nonAliasSummary boundNames scopeBindings visitedBindings functionExpr
         EIf conditionExpr thenExpr elseExpr ->
           foldl'
             combineSummaries

@@ -41,6 +41,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceNumericType (..),
     SurfacePattern (..),
     SurfaceSignaturePayload (..),
+    SurfaceSignatureType (..),
     SurfaceSignatureToken (..),
     SurfaceStatement (..)
   )
@@ -62,7 +63,8 @@ import JazzNext.Compiler.Parser.Operator
   )
 import qualified JazzNext.Compiler.Parser.Pattern as Pattern
 import JazzNext.Compiler.Parser.Signature
-  ( parseSignaturePayload
+  ( parseSignaturePayload,
+    parseSignatureTypePrefix
   )
 
 type DeclaredOperators = [OperatorInfo]
@@ -969,11 +971,33 @@ parseApplicationTailUntil ::
 parseApplicationTailUntil knownAliases declaredOperators stop functionExpr tokens
   | stop tokens = Right (functionExpr, tokens)
   | otherwise =
-      case startsPrimaryExprTokens tokens of
-        True -> do
-          (argumentExpr, remainingAfterArgument) <- parsePrimaryExprUntil knownAliases declaredOperators stop tokens
-          parseApplicationTailUntil knownAliases declaredOperators stop (SEApply functionExpr argumentExpr) remainingAfterArgument
-        False -> Right (functionExpr, tokens)
+      case tokens of
+        typeApplicationToken@Token {tokenKind = TAt} : tokensAfterAt -> do
+          (typeArgument, remainingAfterTypeArgument) <-
+            parseTypeApplicationArgument typeApplicationToken tokensAfterAt
+          parseApplicationTailUntil
+            knownAliases
+            declaredOperators
+            stop
+            (SETypeApplication functionExpr typeArgument)
+            remainingAfterTypeArgument
+        _
+          | startsPrimaryExprTokens tokens -> do
+              (argumentExpr, remainingAfterArgument) <- parsePrimaryExprUntil knownAliases declaredOperators stop tokens
+              parseApplicationTailUntil knownAliases declaredOperators stop (SEApply functionExpr argumentExpr) remainingAfterArgument
+        _ -> Right (functionExpr, tokens)
+
+parseTypeApplicationArgument :: Token -> [Token] -> Either Diagnostic (SurfaceSignatureType, [Token])
+parseTypeApplicationArgument typeApplicationToken tokens =
+  case parseSignatureTypePrefix tokens of
+    Just parsedTypeArgument -> Right parsedTypeArgument
+    Nothing ->
+      Left
+        ( parseDiagnostic
+            ( "unsupported explicit type application argument after '@' at "
+                <> renderSourceSpan (tokenSpan typeApplicationToken)
+            )
+        )
 
 neverStop :: [Token] -> Bool
 neverStop _ = False
