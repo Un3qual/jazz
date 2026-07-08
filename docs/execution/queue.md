@@ -8,13 +8,14 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001` | Final solver defaulting and ambiguity diagnostics | `P1` | `M` | `impl` | `yes` | `JN-TYPE-SOLVER-INFERRED-CLASS-CONSTRAINTS-001` | [2026-06-30-jazz-next-type-solver-remaining-slices.md](../plans/2026-06-30-jazz-next-type-solver-remaining-slices.md) | `Batch 1: Final Defaulting And Ambiguity` | `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`, `docs/spec/semantics/bindings-and-signatures.md`, `docs/spec/runtime/primitive-semantics.md`, `docs/execution/blocker-contracts.md`, `docs/execution/queue.md` | Add the final solver defaulting and ambiguity pass for unresolved class constraints, preserving current numeric literal defaults and keeping runtime evidence, dictionaries, explicit type application, and primitive mixed-width behavior out of scope. | `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; `git diff --check` | `2026-06-30` |
 
-Current executor status (`2026-06-30`): `Ready Now` is empty after the
-parallel unblock batch landed `Eq(Float64).equals`, direct typed
-integer-to-`Float64` promotion, operator-specific adjacent signatures, and
-inferred class constraints. The remaining source-backed candidates are ordered
-below: final solver defaulting/ambiguity first, then custom operator
-precedence. Pattern synonyms remain explicitly blocked.
+Current executor status (`2026-07-08`): `Ready Now` contains the promoted final
+solver defaulting/ambiguity child after the parallel unblock batch landed
+`Eq(Float64).equals`, direct typed integer-to-`Float64` promotion,
+operator-specific adjacent signatures, and inferred class constraints. The
+remaining post-child source-backed candidate is custom operator precedence.
+Pattern synonyms remain explicitly blocked.
 
 ## Next Curation Target
 
@@ -29,7 +30,6 @@ target and no named candidate currently.
 
 | blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `JN-TYPE-GRAMMAR-CLOSURE-PLAN-001` | `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001` | `impl` | [blocker-contracts.md](blocker-contracts.md#jn-type-grammar-closure-plan-001) | Next ordered solver child after inferred class constraints: final defaulting and deterministic ambiguity diagnostics without runtime evidence or type application. | `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`, `docs/spec/semantics/bindings-and-signatures.md`, `docs/spec/runtime/primitive-semantics.md`, `docs/plans/2026-06-30-jazz-next-type-solver-remaining-slices.md` | `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; `git diff --check` | Promote only Batch 2 final defaulting/ambiguity; keep explicit type application, runtime evidence/dictionaries, and primitive mixed-width behavior out of scope. |
 | `JN-USER-DEFINED-OPERATORS-PLAN-001` | `JN-OPERATORS-CUSTOM-PRECEDENCE-001` | `impl` | [blocker-contracts.md](blocker-contracts.md#jn-user-defined-operators-plan-001) | Next ordered operator child after adjacent signatures: custom numeric precedence before custom associativity. | `docs/spec/syntax/operators.md`, `jazz-next/src/JazzNext/Compiler/Parser.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`, `jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`, `docs/plans/2026-06-30-jazz-next-operator-signatures-precedence-associativity.md` | `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; `git diff --check` | Promote only the custom-precedence child; custom associativity, cross-module operator APIs, overload dispatch, and new built-ins remain later work. |
 
 ## Blocked
