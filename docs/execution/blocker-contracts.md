@@ -112,33 +112,39 @@ Each blocked item should answer these questions:
 
 ### JN-TYPE-GRAMMAR-CLOSURE-PLAN-001
 
-- Smallest unblocker: use the accepted remaining-solver slice plan and promote
-  the next implementation child, final defaulting and ambiguity, when a type
-  solver row is selected.
+- Smallest unblocker: none currently selected by the live queue after final
+  defaulting/ambiguity landed. When the type-solver lane is selected again, use
+  the accepted remaining-solver slice plan and promote the next implementation
+  child, explicit type application.
 - Decision needed: accepted on `2026-06-30`: write the remaining solver plan for
   inferred class constraints, final defaulting/ambiguity, explicit type
-  application, and runtime evidence/dictionaries, but keep them as separate
-  verifier-backed child rows. Inferred class constraints have landed.
-- Recommended default: promote final defaulting/ambiguity next. Do not batch
-  broad defaulting, runtime evidence/dictionaries, explicit type application,
-  primitive mixed-width behavior, or typed integer-to-float promotion together.
-- Candidate child: `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001`.
-- Target paths: `jazz-next/src/JazzNext/Compiler/TypeInference.hs`;
+  application, and runtime evidence/dictionaries as separate verifier-backed
+  child rows. Inferred class constraints and final defaulting/ambiguity have
+  landed.
+- Recommended default: do not promote a type-solver child while the live queue
+  points at custom operator precedence. If the type-solver lane is explicitly
+  selected next, promote explicit type application only; do not batch runtime
+  evidence/dictionaries, primitive mixed-width behavior, or typed
+  integer-to-float promotion together.
+- Candidate child: `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001` when the
+  type-solver lane is selected again.
+- Target paths: `docs/spec/semantics/bindings-and-signatures.md`;
+  `jazz-next/src/JazzNext/Compiler/Parser.hs`;
+  `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`;
+  `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`;
   `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`;
-  `docs/spec/semantics/bindings-and-signatures.md`;
-  `docs/spec/runtime/primitive-semantics.md`;
   `docs/plans/2026-06-30-jazz-next-type-solver-remaining-slices.md`.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`; plus the focused
-  `BindingSignatureCoherenceSpec.hs` and `PrimitiveSemanticsSpec.hs` commands
-  named by the remaining-slices plan.
+  `BindingSignatureCoherenceSpec.hs` command named by the remaining-slices plan.
 - Not in scope: re-promoting `JN-TYPE-SOLVER-CONTRACT-001`, re-promoting
   `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001` or
   `JN-TYPE-SOLVER-CONSTRAINED-SIGNATURE-SCHEMES-001`, re-promoting
-  `JN-TYPE-SOLVER-INFERRED-CLASS-CONSTRAINTS-001`, runtime dictionary
-  representation, abstraction method dispatch, explicit type application,
-  higher-rank polymorphism, module/import behavior, primitive mixed-width or
-  implicit promotion, or any `jazz-hs`/`jazz2` work.
+  `JN-TYPE-SOLVER-INFERRED-CLASS-CONSTRAINTS-001`, re-promoting
+  `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001`, runtime dictionary
+  representation, abstraction method dispatch, higher-rank polymorphism,
+  module/import behavior, primitive mixed-width or implicit promotion, or any
+  `jazz-hs`/`jazz2` work.
 
 ### JN-PATTERN-FUTURE-FORMS-PLAN-001
 

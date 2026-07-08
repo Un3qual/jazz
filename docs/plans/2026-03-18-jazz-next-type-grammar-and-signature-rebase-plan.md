@@ -124,14 +124,16 @@ implementation children:
 - solver-backed constrained signatures for variable-bearing signatures such as
   `@{Eq(a)}: a -> a`,
 - inferred class constraints represented and solved against visible class/impl
-  facts.
+  facts,
+- final inferred-constraint ambiguity/defaulting diagnostics while preserving
+  current numeric literal defaults.
 
 Accepted under `JN-TYPE-SOLVER-CONTRACT-001` but still waiting for future
 implementation children:
 
-- defaulting beyond the already locked numeric literal defaults, using a final
-  solver/defaulting phase that preserves current `Int64` and `Float64` numeric
-  literal defaults.
+- explicit type application for already-generalized schemes,
+- runtime evidence/dictionary representation after compile-time solver behavior
+  is settled.
 
 Still blocked or out of scope for this ready child:
 
@@ -171,7 +173,9 @@ Locked decisions:
   unchanged: ambiguous integer literals default through `Int`/`Int64`, and
   ambiguous fractional literals default through `Float`/`Float64`. The solver
   defaulting phase must not reopen primitive implicit integer-to-float
-  promotion or implicit mixed-width behavior.
+  promotion or implicit mixed-width behavior. The final defaulting/ambiguity
+  child landed on `2026-07-08` with deterministic inferred-constraint
+  ambiguity diagnostics.
 - Variable constrained signatures such as `@{Eq(a)}: a -> a` graduate from the
   current monomorphic annotation-only behavior to generalized constrained
   schemes once the solver-backed constrained-signature child lands. Concrete and

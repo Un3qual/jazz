@@ -87,6 +87,9 @@ Box f == Box f
 - Ambiguous integer literals default to `Int64`.
 - `Float` is the cross-platform default fractional type and maps to `Float64`.
 - Ambiguous fractional literals default to `Float64`.
+- The final solver/defaulting pass preserves these numeric literal defaults
+  before emitting ambiguity diagnostics for unresolved non-numeric class
+  constraints.
 - Context can choose a narrower explicit type for an integer literal, for example an `Int32` annotation can make `2` an `Int32`.
 - Numeric operators require one concrete numeric type per operation, matching the Haskell-like `(+) :: Num a => a -> a -> a` shape.
 - Mixed concrete widths, such as `Int32 + Int64`, are type errors unless one side is converted explicitly.

@@ -1,13 +1,14 @@
 ---
 id: JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
   - JN-TYPE-SOLVER-INFERRED-CLASS-CONSTRAINTS-001
-last_verified: 2026-06-30
+last_verified: 2026-07-08
+completed_on: 2026-07-08
 plan_section: "Batch 1: Final Defaulting And Ambiguity"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
@@ -50,13 +51,14 @@ specs, and repo-root docs/queue validation.
 
 ## Remaining Solver Slice Order
 
-1. `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001`
+1. `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001` (completed `2026-07-08`)
 2. `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001`
 3. `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`
 
-The inferred class-constraint child is complete and archived; the remaining
-order keeps every open child independently testable. It also avoids mixing final
-compile-time defaulting work with runtime representation work.
+The inferred class-constraint and final defaulting/ambiguity children are
+complete and archived. The remaining order keeps every open child independently
+testable. It also avoids mixing explicit type application with runtime
+representation work.
 
 ## Completed Prerequisite: Inferred Class Constraints
 
@@ -120,6 +122,9 @@ git diff --check
 
 Child id: `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001`
 
+Status: completed on `2026-07-08` and recorded in
+`docs/execution/done-archive.md`.
+
 Goal: run a final solver phase after unification and class/impl solving that
 preserves current numeric literal defaults and emits deterministic ambiguity
 diagnostics for still-unresolved class constraints.
@@ -150,6 +155,12 @@ ambiguous.
 
 Expected diagnostic: unresolved `Eq(a)` ambiguity with the binding or terminal
 expression span. The child must not invent a default for arbitrary `Eq(a)`.
+
+Landed behavior: inferred unresolved class constraints now report
+`ambiguous/defaulting inferred constraint ...`, while explicit constrained
+signature ambiguity continues to report the explicit constrained-signature
+diagnostic. Existing integer literal defaults remain preserved through the
+final solver path.
 
 Out of scope:
 

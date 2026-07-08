@@ -1,6 +1,6 @@
 # Bindings and Signatures Semantics
 
-Status: active (`jazz-next` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints validated against class/impl facts, generalized variable constrained-signature schemes with per-use evidence checks, deterministic unsupported-variable diagnostics, unsupported constrained-signature primary spans, structural list/tuple/ADT equality over equality-supported element and constructor payload types, ordinary binding type schemes with fresh per-use instantiation, and inferred `Eq` class constraints from strict equality and qualified method requirements are implemented; broad defaulting, runtime evidence, and explicit type application remain future verifier-backed child rows)
+Status: active (`jazz-next` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints validated against class/impl facts, generalized variable constrained-signature schemes with per-use evidence checks, deterministic unsupported-variable diagnostics, unsupported constrained-signature primary spans, structural list/tuple/ADT equality over equality-supported element and constructor payload types, ordinary binding type schemes with fresh per-use instantiation, inferred `Eq` class constraints from strict equality and qualified method requirements, and final inferred-constraint ambiguity diagnostics are implemented; runtime evidence and explicit type application remain future verifier-backed child rows)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
 
@@ -31,7 +31,8 @@ Adjacent future generic ADT work:
 - The dedicated polymorphism/defaulting/typeclass-solver contract is accepted as
   `JN-TYPE-SOLVER-CONTRACT-001`, but implementation is split into child rows.
   Ordinary binding type schemes, per-use instantiation, solver-backed variable
-  constrained signatures, and inferred class constraints have landed.
+  constrained signatures, inferred class constraints, and final
+  inferred-constraint ambiguity diagnostics have landed.
 
 Adjacent numeric-width work:
 
@@ -99,6 +100,9 @@ verifier-backed child rows.
    type applications remain explicit unsupported-type-application errors until
    that syntax has its own contract, and un-defaulted variables report an
    ambiguity/defaulting failure with the relevant binding or signature span.
+   Inferred obligations use `ambiguous/defaulting inferred constraint ...`;
+   explicit constrained-signature obligations keep the explicit
+   constrained-signature diagnostic.
 
 Out of scope for this accepted contract:
 
@@ -250,5 +254,6 @@ bad = \(x) -> x.
 - Implement the remaining accepted type-solver contract through verifier-backed
   child rows. Ordinary binding type schemes, per-use instantiation,
   solver-backed variable constrained-signature schemes, and inferred `Eq` class
-  constraints are landed; broad defaulting, runtime evidence, and explicit type
-  application remain later children.
+  constraints are landed, and the final solver/defaulting path now preserves
+  numeric literal defaults while reporting inferred-constraint ambiguity;
+  runtime evidence and explicit type application remain later children.
