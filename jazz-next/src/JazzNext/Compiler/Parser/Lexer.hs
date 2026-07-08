@@ -67,7 +67,7 @@ data TokenKind
   | TLBracket
   | TRBracket
   | TComma
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 -- | Concrete token annotated with the original lexeme and its starting source
 -- span so later parser errors can report precise locations.
@@ -76,7 +76,7 @@ data Token = Token
     tokenLexeme :: Text,
     tokenSpan :: SourceSpan
   }
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data LexerError = LexerError Text
   deriving (Eq, Ord, Show)
