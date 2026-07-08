@@ -1,7 +1,7 @@
 # Operators and Sections
 
-Status: active (phase 0 contract lock; Stage 2 fixed-tier/executable binding contract lock; custom precedence contract lock)
-Locked decisions: 2026-03-03; Stage 2 fixed-tier contract locked 2026-06-04; Stage 2 executable binding contract locked 2026-06-27; custom precedence locked 2026-07-08
+Status: active (phase 0 contract lock; Stage 2 fixed-tier/executable binding contract lock; custom precedence/associativity contract lock)
+Locked decisions: 2026-03-03; Stage 2 fixed-tier contract locked 2026-06-04; Stage 2 executable binding contract locked 2026-06-27; custom precedence locked 2026-07-08; custom associativity locked 2026-07-08
 Primary plan: `docs/plans/spec-clarification/2026-03-03/syntax/15-operator-fixity-and-sections.md`
 
 ## Purpose
@@ -102,9 +102,9 @@ Stage 2:
 Stage 3:
 
 1. Custom precedence declarations.
-2. Default-left associativity for custom-precedence operators.
-3. No custom associativity, runtime overload dispatch, cross-module operator
-   APIs, or new built-in operators.
+2. Optional `left`, `right`, and `nonassoc` associativity declarations.
+3. No runtime overload dispatch, cross-module operator APIs, or new built-in
+   operators.
 
 ## Stage 2 Fixed-Tier User Operators
 
@@ -147,9 +147,8 @@ tier's associativity:
 | `4` | `==`, `!=`, `<`, `<=`, `>=`, `>` | Left |
 | `5` | `$` | Right |
 
-Fixed-tier declarations do not provide syntax for custom associativity. For
-example, `operator %% tier 2 right.` is invalid until the custom-associativity
-extension lands.
+Fixed-tier declarations may optionally override the inherited associativity
+with the custom associativity syntax described below.
 
 ### Custom Numeric Precedence User Operators
 
@@ -184,6 +183,41 @@ Rules:
 5. Duplicate declarations, built-in symbols, reserved symbols, and invalid
    operator characters are rejected under the same rules as fixed-tier
    declarations.
+
+### Custom Associativity
+
+Both fixed-tier and custom-precedence declarations may include one optional
+associativity keyword:
+
+```jz
+operator <symbol> tier <1-5> <associativity>.
+operator <symbol> precedence <1-99> <associativity>.
+```
+
+Grammar:
+
+```ebnf
+operator-associativity ::= "left" | "right" | "nonassoc"
+```
+
+Examples:
+
+```jz
+operator %% tier 2 left.
+operator <| precedence 10 right.
+operator ?> tier 4 nonassoc.
+```
+
+Rules:
+
+1. `left` groups same-precedence chains to the left.
+2. `right` groups same-precedence chains to the right.
+3. `nonassoc` rejects unparenthesized chains at the same precedence because
+   grouping must be explicit.
+4. Omitted associativity keeps the inherited tier associativity for `tier`
+   declarations and defaults to left associativity for `precedence`
+   declarations.
+5. Unknown associativity keywords are invalid.
 
 ### Allowed Symbols
 
@@ -290,8 +324,8 @@ Executable equivalences:
 4. `(%%)` is the ordinary callable value bound by `(%%) = <expression>.`
 
 Executable operator bindings do not introduce implicit overload resolution,
-dictionaries, typeclass solver behavior, custom associativity, new built-ins,
-operator imports or exports, or runtime overload dispatch.
+dictionaries, typeclass solver behavior, new built-ins, operator imports or
+exports, or runtime overload dispatch.
 
 ### Invalid Stage 2 Cases
 
@@ -305,7 +339,9 @@ operator abc tier 2.      // letters are not operator characters
 operator %% tier 6.       // tier outside 1-5
 operator %% precedence 0. // precedence outside 1-99
 operator %% precedence 100. // precedence outside 1-99
-operator %% tier 2 left.  // custom associativity is out of scope
+operator %% tier 2 sideways. // invalid associativity keyword
+operator ?> precedence 10 nonassoc.
+value = 1 ?> 2 ?> 3.      // non-associative chain needs parentheses
 ```
 
 Using a user operator before its declaration is invalid:
@@ -319,8 +355,8 @@ operator %% tier 2.
 
 Stage 2 executable bindings remain ordinary source-local bindings. They do not
 add kernel primitives, operator imports or exports, runtime overload dispatch,
-cross-module operator APIs, non-adjacent operator signatures, custom
-associativity, or new built-in operators.
+cross-module operator APIs, non-adjacent operator signatures, or new built-in
+operators.
 
 ## Compatibility and Drift Prevention
 

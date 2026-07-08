@@ -113,6 +113,10 @@ The parser in [jazz-hs/src/Parser/Lang.hs](../jazz-hs/src/Parser/Lang.hs) and te
   numeric precedence:
   - `operator %% tier 2.`
   - `operator %% precedence 25.`
+- User-operator declarations can include explicit associativity:
+  - `operator %% tier 2 left.`
+  - `operator <| precedence 10 right.`
+  - `operator ?> tier 4 nonassoc.`
 - Declared user operators become executable through ordinary parenthesized
   bindings such as `(%%) = \(left) -> \(right) -> left + right.`
 
@@ -435,8 +439,9 @@ Based on the full repo, these areas still require implementation convergence eve
 - Extending staged operator roadmap work in `jazz-next` beyond implemented v1
   parser/fixity/sections behavior, source-local fixed-tier declarations,
   same-source executable operator bindings, adjacent operator signatures, and
-  custom numeric precedence. Custom associativity remains the next accepted
-  operator child:
+  custom numeric precedence/associativity. Runtime overload dispatch,
+  cross-module operator APIs, new precedence ranges, and new built-in operators
+  remain blocked until separate executable contracts exist:
   - `docs/spec/syntax/operators.md`
   - `jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`
   - `jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`
