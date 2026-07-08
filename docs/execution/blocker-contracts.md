@@ -105,8 +105,8 @@ Each blocked item should answer these questions:
 
 ### JN-TYPE-GRAMMAR-CLOSURE-PLAN-001
 
-- Smallest unblocker: promote the runtime evidence/dictionaries child when the
-  type-solver lane continues.
+- Smallest unblocker: execute the promoted runtime evidence/dictionaries
+  `Ready Now` row.
 - Decision needed: accepted on `2026-06-30`: write the remaining solver plan for
   inferred class constraints, final defaulting/ambiguity, explicit type
   application, and runtime evidence/dictionaries as separate verifier-backed
@@ -116,7 +116,8 @@ Each blocked item should answer these questions:
   batch default methods, superclasses, module method import/export behavior,
   orphan/overlap changes, dictionary optimization, primitive mixed-width
   behavior, or typed integer-to-float promotion together.
-- Candidate child: `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`.
+- Candidate child: `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`,
+  currently promoted in `Ready Now`.
 - Target paths: `docs/spec/abstractions/capability-model.md`;
   `docs/spec/semantics/bindings-and-signatures.md`;
   `jazz-next/src/JazzNext/Compiler/TypeInference.hs`;

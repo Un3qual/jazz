@@ -1,39 +1,30 @@
 ---
-id: JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001
-status: done
+id: JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001
+status: ready
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
-  - JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001
+  - JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001
 last_verified: 2026-07-08
-completed_on: 2026-07-08
-plan_section: "Batch 2: Explicit Type Application"
+plan_section: "Batch 3: Runtime Evidence And Dictionaries"
 target_paths:
+  - docs/spec/abstractions/capability-model.md
   - docs/spec/semantics/bindings-and-signatures.md
-  - jazz-next/src/JazzNext/Compiler/Parser.hs
-  - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
-  - jazz-next/src/JazzNext/Compiler/Parser/Lower.hs
-  - jazz-next/src/JazzNext/Compiler/AST.hs
-  - jazz-next/src/JazzNext/Compiler/Analyzer.hs
-  - jazz-next/src/JazzNext/Compiler/ModuleReplay.hs
-  - jazz-next/src/JazzNext/Compiler/RecursiveBindings.hs
-  - jazz-next/src/JazzNext/Compiler/Runtime.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
-  - jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  - jazz-next/src/JazzNext/Compiler/Runtime.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - docs/execution/blocker-contracts.md
   - docs/execution/queue.md
 verification:
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
   - git diff --check
-deliverable: "Add one explicit `@Type` application surface for already-generalized schemes, preserving monomorphic signature type shapes while keeping type lambdas, higher-rank polymorphism, runtime dictionaries, and module import/export behavior out of scope."
+deliverable: "Introduce the first compiler-owned runtime evidence/dictionary representation for selected class/impl facts while keeping evidence non-user-visible and preserving explicit qualified method dispatch behavior."
 ---
 
 # Jazz-Next Remaining Type Solver Slices Plan
