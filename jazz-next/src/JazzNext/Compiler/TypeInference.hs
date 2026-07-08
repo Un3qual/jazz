@@ -64,7 +64,11 @@ import JazzNext.Compiler.CapabilityFacts
     concreteImplFactClassName,
     constraintFunctionArgumentTypes,
     constraintImplFactKey,
+    constraintSignatureAliasVariants,
+    constraintSignatureTypeContainsClassParameter,
+    constraintSignatureTypesCompatible,
     identifierLooksLikeTypeVariable,
+    normalizeConstraintSignatureName,
     qualifiedMethodKey,
     renderConstraintSignatureType,
     signaturePayloadConstraintType,
@@ -3703,21 +3707,6 @@ constructorArgumentExpressionHasExactEvidence env typeParameterBindings construc
     ConstructorArgumentFresh ->
       True
 
-constraintSignatureTypeContainsClassParameter :: Text -> ConstraintSignatureType -> Bool
-constraintSignatureTypeContainsClassParameter classParameter signatureType =
-  case signatureType of
-      ConstraintTypeApplication _ arguments ->
-        any (constraintSignatureTypeContainsClassParameter classParameter) arguments
-      ConstraintTypeList innerType ->
-        constraintSignatureTypeContainsClassParameter classParameter innerType
-      ConstraintTypeTuple elementTypes ->
-        any (constraintSignatureTypeContainsClassParameter classParameter) elementTypes
-      ConstraintTypeFunction argumentType resultType ->
-        constraintSignatureTypeContainsClassParameter classParameter argumentType
-          || constraintSignatureTypeContainsClassParameter classParameter resultType
-      ConstraintTypeName typeName ->
-        identifierText typeName == classParameter
-
 constraintSignatureTypeExactlyMatchesExpressionType :: InferState -> ConstraintSignatureType -> ExpressionType -> Bool
 constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressionType =
   case constraintSignatureTypeToExpressionTypeWithState state Map.empty signatureType of
@@ -3725,62 +3714,6 @@ constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressi
       resolveType state signatureExpressionType == defaultLiteralTypes (resolveType state expressionType)
     Nothing ->
       False
-
-constraintSignatureTypesCompatible :: ConstraintSignatureType -> ConstraintSignatureType -> Bool
-constraintSignatureTypesCompatible leftType rightType =
-  case (leftType, rightType) of
-    (ConstraintTypeName leftName, ConstraintTypeName rightName) ->
-      normalizeConstraintSignatureName (identifierText leftName)
-        == normalizeConstraintSignatureName (identifierText rightName)
-    (ConstraintTypeApplication leftName leftArguments, ConstraintTypeApplication rightName rightArguments)
-      | normalizeConstraintSignatureName (identifierText leftName)
-          == normalizeConstraintSignatureName (identifierText rightName),
-        length leftArguments == length rightArguments ->
-          and (zipWith constraintSignatureTypesCompatible leftArguments rightArguments)
-    (ConstraintTypeList leftElementType, ConstraintTypeList rightElementType) ->
-      constraintSignatureTypesCompatible leftElementType rightElementType
-    (ConstraintTypeTuple leftElementTypes, ConstraintTypeTuple rightElementTypes)
-      | length leftElementTypes == length rightElementTypes ->
-          and (zipWith constraintSignatureTypesCompatible leftElementTypes rightElementTypes)
-    (ConstraintTypeFunction leftArgumentType leftResultType, ConstraintTypeFunction rightArgumentType rightResultType) ->
-      constraintSignatureTypesCompatible leftArgumentType rightArgumentType
-        && constraintSignatureTypesCompatible leftResultType rightResultType
-    _ -> False
-
-normalizeConstraintSignatureName :: Text -> Text
-normalizeConstraintSignatureName typeName =
-  case typeName of
-    "Int" -> "Int64"
-    "Float" -> "Float64"
-    _ -> typeName
-
-constraintSignatureAliasVariants :: ConstraintSignatureType -> [ConstraintSignatureType]
-constraintSignatureAliasVariants signatureType =
-  case signatureType of
-    ConstraintTypeName name ->
-      map ConstraintTypeName (constraintSignatureAliasNames name)
-    ConstraintTypeApplication name arguments ->
-      [ ConstraintTypeApplication name variantArguments
-        | variantArguments <- traverse constraintSignatureAliasVariants arguments
-      ]
-    ConstraintTypeList elementType ->
-      map ConstraintTypeList (constraintSignatureAliasVariants elementType)
-    ConstraintTypeTuple elementTypes ->
-      map ConstraintTypeTuple (traverse constraintSignatureAliasVariants elementTypes)
-    ConstraintTypeFunction argumentType resultType ->
-      [ ConstraintTypeFunction variantArgument variantResult
-        | variantArgument <- constraintSignatureAliasVariants argumentType,
-          variantResult <- constraintSignatureAliasVariants resultType
-      ]
-
-constraintSignatureAliasNames :: Identifier -> [Identifier]
-constraintSignatureAliasNames name =
-  case identifierText name of
-    "Int" -> [name, mkIdentifier "Int64"]
-    "Int64" -> [name, mkIdentifier "Int"]
-    "Float" -> [name, mkIdentifier "Float64"]
-    "Float64" -> [name, mkIdentifier "Float"]
-    _ -> [name]
 
 applyQualifiedMethodCandidate ::
   Text ->
