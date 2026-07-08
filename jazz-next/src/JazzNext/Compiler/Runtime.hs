@@ -100,7 +100,13 @@ data RuntimeIntMetadata = RuntimeIntMetadata
   }
   deriving (Eq, Show)
 
-data RuntimeMethodCandidate = RuntimeMethodCandidate ConstraintSignatureType (Either Diagnostic RuntimeValue)
+data RuntimeEvidence = RuntimeEvidence Text ConstraintSignatureType (Maybe Text)
+  deriving (Eq, Show)
+
+runtimeEvidenceTarget :: RuntimeEvidence -> ConstraintSignatureType
+runtimeEvidenceTarget (RuntimeEvidence _ implTarget _) = implTarget
+
+data RuntimeMethodCandidate = RuntimeMethodCandidate RuntimeEvidence (Either Diagnostic RuntimeValue)
 
 data RuntimeValue
   = VInt Integer RuntimeIntMetadata
@@ -140,8 +146,8 @@ instance Eq RuntimeValue where
       _ -> False
 
 instance Eq RuntimeMethodCandidate where
-  RuntimeMethodCandidate leftTarget leftCell == RuntimeMethodCandidate rightTarget rightCell =
-    leftTarget == rightTarget && leftCell == rightCell
+  RuntimeMethodCandidate leftEvidence leftCell == RuntimeMethodCandidate rightEvidence rightCell =
+    leftEvidence == rightEvidence && leftCell == rightCell
 
 instance Show RuntimeValue where
   show value =
@@ -169,8 +175,8 @@ instance Show RuntimeValue where
         "VTyped " <> show typeHint <> " " <> show innerValue
 
 instance Show RuntimeMethodCandidate where
-  show (RuntimeMethodCandidate implTarget _) =
-    "RuntimeMethodCandidate " <> show implTarget
+  show (RuntimeMethodCandidate evidence _) =
+    "RuntimeMethodCandidate " <> show evidence
 
 evaluateRuntimeExpr :: Expr -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExpr = evaluateRuntimeExprWithBuiltins ResolveKernelOnly
@@ -850,8 +856,9 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
               map
                 ( \(ImplMethod methodName _ methodExpr) ->
                     let methodKey = qualifiedMethodKey capabilityName methodName
+                        evidence = RuntimeEvidence (identifierText capabilityName) implTarget (Just methodKey)
                      in ( methodKey,
-                          RuntimeMethodCandidate implTarget (methodCandidateCell implTarget methodKey methodExpr)
+                          RuntimeMethodCandidate evidence (methodCandidateCell implTarget methodKey methodExpr)
                         )
                 )
                 methods
@@ -1595,13 +1602,15 @@ runtimeQualifiedMethodIsFullyApplied ::
 runtimeQualifiedMethodIsFullyApplied classParameter methodSignature arguments candidates =
   any candidateIsFullyApplied candidates
   where
-    candidateIsFullyApplied (RuntimeMethodCandidate implTarget _) =
+    candidateIsFullyApplied (RuntimeMethodCandidate evidence _) =
       case substituteClassMethodSignature classParameter implTarget methodSignature of
         Just substitutedSignature ->
           let (argumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
            in length arguments >= length argumentTypes
         Nothing ->
           False
+      where
+        implTarget = runtimeEvidenceTarget evidence
 
 applyRuntimeMethodCandidate ::
   BuiltinResolutionMode ->
@@ -1614,7 +1623,7 @@ applyRuntimeMethodCandidate builtinMode bindingTypeHints methodCell arguments = 
   foldM (applyRuntimeFunction builtinMode bindingTypeHints) methodValue arguments
 
 runtimeMethodCandidateExactlyMatches :: Text -> SignaturePayload -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
-runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments (RuntimeMethodCandidate implTarget _) =
+runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments (RuntimeMethodCandidate evidence _) =
   case (signaturePayloadConstraintType methodSignature, substituteClassMethodSignature classParameter implTarget methodSignature) of
     (Just genericSignature, Just substitutedSignature) ->
       let (genericArgumentTypes, _) = constraintFunctionArgumentTypes genericSignature
@@ -1636,6 +1645,8 @@ runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments (R
               )
     _ ->
       False
+  where
+    implTarget = runtimeEvidenceTarget evidence
 
 runtimeExactCandidateArgumentMatches :: Bool -> ConstraintSignatureType -> RuntimeValue -> Bool
 runtimeExactCandidateArgumentMatches targetArgumentPosition signatureType runtimeValue =
@@ -1705,7 +1716,7 @@ runtimeFloatExactlyMatchesTypeName typeName metadata =
     _ -> False
 
 runtimeMethodCandidateMatches :: Text -> SignaturePayload -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
-runtimeMethodCandidateMatches classParameter methodSignature arguments (RuntimeMethodCandidate implTarget _) =
+runtimeMethodCandidateMatches classParameter methodSignature arguments (RuntimeMethodCandidate evidence _) =
   case substituteClassMethodSignature classParameter implTarget methodSignature of
     Just substitutedSignature ->
       let (argumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
@@ -1713,6 +1724,8 @@ runtimeMethodCandidateMatches classParameter methodSignature arguments (RuntimeM
             && and (zipWith runtimeValueMatchesConstraint argumentTypes arguments)
     Nothing ->
       False
+  where
+    implTarget = runtimeEvidenceTarget evidence
 
 runtimeValueMatchesConstraint :: ConstraintSignatureType -> RuntimeValue -> Bool
 runtimeValueMatchesConstraint signatureType runtimeValue =

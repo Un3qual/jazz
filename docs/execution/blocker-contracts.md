@@ -43,8 +43,8 @@ Each blocked item should answer these questions:
   prelude only; non-alias duplicate visible impl facts continue to reject.
 - Recommended default: keep the abstraction umbrella blocked until a separate
   executable contract names syntax, target paths, and focused verification for
-  dictionaries, runtime evidence values, default methods, superclasses, new
-  bundled method families, or method import/export rules.
+  user-visible dictionaries, dictionary optimization, default methods,
+  superclasses, new bundled method families, or method import/export rules.
 - Candidate child: none currently.
 - Target paths: not set until the next abstraction contract is accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
@@ -52,9 +52,9 @@ Each blocked item should answer these questions:
 - Not in scope: re-promoting completed bundled `Eq(Int).equals`,
   `Eq(Bool).equals`, `Eq(Float).equals`, `Eq(Float16).equals`,
   `Eq(Float32).equals`, or `Eq(Float64).equals` work; unqualified overloads,
-  dictionary passing, runtime evidence values, default methods, superclasses,
-  non-alias overlap/orphan behavior, or method import/export rules without a
-  new contract.
+  dictionary passing/optimization, default methods, superclasses, non-alias
+  overlap/orphan behavior, or method import/export rules without a new
+  contract.
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
 
@@ -105,36 +105,28 @@ Each blocked item should answer these questions:
 
 ### JN-TYPE-GRAMMAR-CLOSURE-PLAN-001
 
-- Smallest unblocker: execute the promoted runtime evidence/dictionaries
-  `Ready Now` row.
+- Smallest unblocker: none currently after runtime evidence/dictionaries
+  landed.
 - Decision needed: accepted on `2026-06-30`: write the remaining solver plan for
   inferred class constraints, final defaulting/ambiguity, explicit type
   application, and runtime evidence/dictionaries as separate verifier-backed
-  child rows. Inferred class constraints and final defaulting/ambiguity have
-  landed, and explicit type application landed on `2026-07-08`.
-- Recommended default: promote runtime evidence/dictionaries only; do not
-  batch default methods, superclasses, module method import/export behavior,
-  orphan/overlap changes, dictionary optimization, primitive mixed-width
-  behavior, or typed integer-to-float promotion together.
-- Candidate child: `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`,
-  currently promoted in `Ready Now`.
-- Target paths: `docs/spec/abstractions/capability-model.md`;
-  `docs/spec/semantics/bindings-and-signatures.md`;
-  `jazz-next/src/JazzNext/Compiler/TypeInference.hs`;
-  `jazz-next/src/JazzNext/Compiler/Runtime.hs`;
-  `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`;
-  `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`;
-  `docs/plans/2026-06-30-jazz-next-type-solver-remaining-slices.md`.
+  child rows. All accepted children from that plan are now landed.
+- Recommended default: keep type grammar closure blocked until a new concrete
+  contract exists; do not promote default methods, superclasses, module method
+  import/export behavior, orphan/overlap changes, dictionary optimization,
+  primitive mixed-width behavior, typed integer-to-float promotion, or another
+  broad type-system batch opportunistically.
+- Candidate child: none currently.
+- Target paths: not set until the next type-system contract is accepted.
 - Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`; plus the focused
-  `BindingSignatureCoherenceSpec.hs` and `RuntimeSemanticsSpec.hs` commands
-  named by the remaining-slices plan.
+  `bash scripts/check-docs.sh`.
 - Not in scope: re-promoting `JN-TYPE-SOLVER-CONTRACT-001`, re-promoting
   `JN-TYPE-SOLVER-ORDINARY-BINDING-SCHEMES-001` or
   `JN-TYPE-SOLVER-CONSTRAINED-SIGNATURE-SCHEMES-001`, re-promoting
   `JN-TYPE-SOLVER-INFERRED-CLASS-CONSTRAINTS-001`, re-promoting
   `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001`, re-promoting
-  `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001`, default methods,
+  `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001`, re-promoting
+  `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`, default methods,
   superclasses, abstraction method import/export behavior, higher-rank
   polymorphism, primitive mixed-width or implicit promotion, or any `jazz-hs`/
   `jazz2` work.
@@ -301,10 +293,10 @@ Each blocked item should answer these questions:
 
 ### JN-PURITY-EFFECT-TYPING-PLAN-001
 
-- Smallest unblocker: none currently; the active evidence refresh in
-  `JN-PURITY-EFFECT-CONTRACT-001` kept broader effect typing blocked pending
-  remaining defaulting, module-method/export, and runtime-evidence contracts.
-- Decision needed: none until those prerequisite contracts are clearer.
+- Smallest unblocker: none currently; broader effect typing remains blocked
+  after final defaulting and compiler-owned runtime evidence landed.
+- Decision needed: none until module-method/export behavior and a concrete
+  effect-system contract are clearer.
 - Recommended default: do not promote partial effect typing opportunistically.
 - Candidate child: none currently.
 - Target paths: not set until a future effect-system contract is accepted.

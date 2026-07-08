@@ -37,6 +37,6 @@ Define the currently enforced purity contract for `!`-suffixed names in the acti
 - Cross-module purity graph analysis.
 - Runtime purity enforcement.
 
-These remain blocked under `JN-PURITY-EFFECT-TYPING-PLAN-001` until the
-solver-backed constrained-signature/defaulting/runtime-evidence work and
-module-method/export contracts are clearer.
+These remain blocked under `JN-PURITY-EFFECT-TYPING-PLAN-001` until
+module-method/export behavior and a concrete effect-system contract are
+clearer.

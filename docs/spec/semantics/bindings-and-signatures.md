@@ -1,6 +1,6 @@
 # Bindings and Signatures Semantics
 
-Status: active (`jazz-next` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints validated against class/impl facts, generalized variable constrained-signature schemes with per-use evidence checks, deterministic unsupported-variable diagnostics, unsupported constrained-signature primary spans, structural list/tuple/ADT equality over equality-supported element and constructor payload types, ordinary binding type schemes with fresh per-use instantiation, inferred `Eq` class constraints from strict equality and qualified method requirements, final inferred-constraint ambiguity diagnostics, and expression-level explicit type application for generalized schemes are implemented; runtime evidence remains a future verifier-backed child row)
+Status: active (`jazz-next` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints validated against class/impl facts, generalized variable constrained-signature schemes with per-use evidence checks, deterministic unsupported-variable diagnostics, unsupported constrained-signature primary spans, structural list/tuple/ADT equality over equality-supported element and constructor payload types, ordinary binding type schemes with fresh per-use instantiation, inferred `Eq` class constraints from strict equality and qualified method requirements, final inferred-constraint ambiguity diagnostics, expression-level explicit type application for generalized schemes, and compiler-owned runtime evidence for qualified method candidates are implemented)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
 
@@ -33,8 +33,9 @@ Adjacent future generic ADT work:
   Ordinary binding type schemes, per-use instantiation, solver-backed variable
   constrained signatures, inferred class constraints, and final
   inferred-constraint ambiguity diagnostics have landed. Expression-level
-  explicit type application for generalized schemes has also landed; runtime
-  evidence/dictionaries remain a separate future child.
+  explicit type application for generalized schemes and compiler-owned runtime
+  evidence for qualified method candidates have also landed. All accepted
+  type-solver children from the current remaining-slices plan are complete.
 
 Adjacent numeric-width work:
 
@@ -115,10 +116,15 @@ verifier-backed child rows.
    targets reject with deterministic `E2017`. The construct has no runtime
    evidence representation; runtime evaluation erases it to the wrapped
    expression.
+9. Compiler-owned runtime evidence records exist for selected concrete
+   class/impl method candidates. Evidence records identify the class, concrete
+   impl target, and method key; qualified method dispatch consumes them
+   internally. They are not source-level values and render as functions when a
+   qualified method value is observed.
 
 Out of scope for this accepted contract:
 
-- runtime dictionary representation or runtime evidence,
+- user-visible dictionary values or dictionary optimization,
 - abstraction method dispatch,
 - higher-rank polymorphism,
 - generic constructor pattern typing,
@@ -262,9 +268,6 @@ bad = \(x) -> x.
 
 ## Deferred Work
 
-- Implement the remaining accepted type-solver contract through verifier-backed
-  child rows. Ordinary binding type schemes, per-use instantiation,
-  solver-backed variable constrained-signature schemes, inferred `Eq` class
-  constraints, final solver/defaulting ambiguity diagnostics, and explicit type
-  application are landed; runtime evidence/dictionaries remains the later
-  child.
+- All accepted type-solver children from the current remaining-slices plan have
+  landed. Future dictionary/default-method/superclass/module-method behavior
+  needs a new concrete contract with target paths and focused verification.

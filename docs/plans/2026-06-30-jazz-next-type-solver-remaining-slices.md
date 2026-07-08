@@ -1,6 +1,7 @@
 ---
 id: JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001
-status: ready
+status: done
+completed_on: 2026-07-08
 priority: P1
 size: M
 kind: impl
@@ -38,15 +39,15 @@ deliverable: "Introduce the first compiler-owned runtime evidence/dictionary rep
 verifier-backed implementation children.
 
 **Architecture:** keep the completed ordinary-binding schemes and explicit
-constrained-signature schemes as the base. Each next child expands one solver
-axis only and carries focused type-inference tests; runtime evidence and
-dictionaries remain last because they need the compile-time solver behavior to
-exist first.
+constrained-signature schemes as the base. Each child expands one solver axis
+only and carries focused type-inference or runtime tests; runtime evidence and
+dictionaries landed last because they needed the compile-time solver behavior
+to exist first.
 
 **Tech Stack:** Haskell `jazz-next` type inference, existing class/impl fact
-metadata, source-pipeline tests in `BindingSignatureCoherenceSpec.hs`, future
-runtime evidence tests in `RuntimeSemanticsSpec.hs`, active bindings/signatures
-specs, and repo-root docs/queue validation.
+metadata, source-pipeline tests in `BindingSignatureCoherenceSpec.hs`, runtime
+evidence tests in `RuntimeSemanticsSpec.hs`, active bindings/signatures specs,
+and repo-root docs/queue validation.
 
 ---
 
@@ -54,12 +55,12 @@ specs, and repo-root docs/queue validation.
 
 1. `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001` (completed `2026-07-08`)
 2. `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001` (completed `2026-07-08`)
-3. `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`
+3. `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001` (completed `2026-07-08`)
 
 The inferred class-constraint and final defaulting/ambiguity children are
 complete and archived, and explicit type application is now complete and
-archived. Runtime evidence/dictionaries remains the only accepted open child.
-The remaining order keeps every open child independently testable.
+archived. Runtime evidence/dictionaries is also complete and archived. No
+accepted open child remains in this plan.
 
 ## Completed Prerequisite: Inferred Class Constraints
 
@@ -255,6 +256,9 @@ git diff --check
 
 Child id: `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`
 
+Status: completed on `2026-07-08` and recorded in
+`docs/execution/done-archive.md`.
+
 Goal: introduce the first runtime evidence representation only after inferred
 constraints, defaulting, and explicit type application have compile-time
 coverage.
@@ -276,6 +280,15 @@ Accepted behavior:
   internally.
 - Missing, duplicate, or ambiguous evidence stays diagnostic-first and
   deterministic.
+
+Landed behavior:
+
+- Runtime qualified-method candidates now carry compiler-owned
+  `RuntimeEvidence` records with class name, concrete impl target, and method
+  key.
+- Candidate selection consumes the evidence target internally.
+- Evidence is not an ordinary source value, and `renderRuntimeValue` still
+  renders qualified method values as `<function>`.
 
 Out of scope:
 

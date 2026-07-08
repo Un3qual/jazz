@@ -45,6 +45,7 @@ import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
     evaluateRuntimeExprWithBuiltinsAndBindingHints,
+    renderRuntimeValue,
     runtimeValueExactlyMatchesConstraint
   )
 import JazzNext.Compiler.RuntimeHints
@@ -169,6 +170,7 @@ tests =
     ("scope with only declarations has no runtime output", testDeclarationOnlyScopeHasNoOutput),
     ("scope with only capability declarations has no runtime output", testCapabilityDeclarationOnlyScopeHasNoOutput),
     ("capability declarations are inert at runtime", testCapabilityDeclarationsRuntimeInert),
+    ("qualified method candidates carry compiler-owned runtime evidence", testQualifiedMethodCandidateCarriesRuntimeEvidence),
     ("qualified method dispatch executes selected impl body", testQualifiedMethodDispatchExecutesImplBody),
     ("let-bound qualified method dispatch executes selected impl body", testLetBoundQualifiedMethodDispatchExecutesImplBody),
     ("qualified method dispatch selects runtime body by argument types", testQualifiedMethodDispatchSelectsRuntimeBodyByArgumentTypes),
@@ -1401,6 +1403,66 @@ testCapabilityDeclarationsRuntimeInert = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "capability declarations do not affect runtime output" (Just "1") (runOutput result)
+
+testQualifiedMethodCandidateCarriesRuntimeEvidence :: IO ()
+testQualifiedMethodCandidateCarriesRuntimeEvidence =
+  case evaluateRuntimeExpr qualifiedMethodEvidenceExpr of
+    Right (Just methodValue@VQualifiedMethod {}) -> do
+      assertContains
+        "runtime candidate evidence record"
+        "RuntimeEvidence"
+        (Text.pack (show methodValue))
+      assertContains
+        "runtime candidate evidence class"
+        "Eq"
+        (Text.pack (show methodValue))
+      assertContains
+        "runtime candidate evidence target"
+        "Int"
+        (Text.pack (show methodValue))
+      assertEqual "runtime evidence stays non-user-visible" "<function>" (renderRuntimeValue methodValue)
+    Right otherValue ->
+      failTest ("expected qualified method runtime value, got " <> Text.pack (show otherValue))
+    Left runtimeError ->
+      failTest ("expected qualified method runtime value, got " <> renderDiagnostic runtimeError)
+  where
+    qualifiedMethodEvidenceExpr =
+      EBlock
+        [ SClass
+            (SourceSpan 1 1)
+            "Eq"
+            ["a"]
+            [ ClassMethodSignature
+                "equals"
+                (SourceSpan 2 1)
+                ( ConstrainedSignature
+                    []
+                    ( ConstraintTypeFunction
+                        (ConstraintTypeName "a")
+                        (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool"))
+                    )
+                )
+            ],
+          SImpl
+            (SourceSpan 3 1)
+            "Eq"
+            [ConstraintTypeName "Int"]
+            [ ImplMethod
+                "equals"
+                (SourceSpan 4 1)
+                (ELambda "left" (ELambda "right" (ELit (LBool True))))
+            ],
+          SImpl
+            (SourceSpan 5 1)
+            "Eq"
+            [ConstraintTypeName "Bool"]
+            [ ImplMethod
+                "equals"
+                (SourceSpan 6 1)
+                (ELambda "left" (ELambda "right" (ELit (LBool True))))
+            ],
+          SExpr (SourceSpan 7 1) (EVar "Eq::equals")
+        ]
 
 testQualifiedMethodDispatchExecutesImplBody :: IO ()
 testQualifiedMethodDispatchExecutesImplBody = do
