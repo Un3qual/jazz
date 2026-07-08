@@ -14,7 +14,14 @@ module JazzNext.Compiler.BuiltinCatalog
     builtinSymbolKernelName,
     builtinSymbolNumericConversionTarget,
     numericTypeFloatMax,
+    numericTypeFloatIntegerBounds,
+    numericTypeFromName,
     numericTypeIntegerBounds,
+    numericTypeIsIntegral,
+    numericTypeLiteralIntegerBounds,
+    numericTypeSupportsRuntimeArithmetic,
+    numericTypeSupportsRuntimeComparison,
+    renderNumericTypeName,
     kernelBridgeBindingPrefix,
     kernelBridgeTargetName,
     isBuiltinSymbolNameInMode,
@@ -201,6 +208,76 @@ numericTypeIntegerBounds numericType =
     signedLower bits = negate (2 ^ (bits - 1))
     signedUpper bits = (2 ^ (bits - 1)) - 1
     unsignedUpper bits = (2 ^ bits) - 1
+
+numericTypeFloatIntegerBounds :: NumericType -> Maybe (Integer, Integer)
+numericTypeFloatIntegerBounds numericType =
+  case numericTypeFloatMax numericType of
+    Just maxMagnitude ->
+      Just (ceiling (negate maxMagnitude), floor maxMagnitude)
+    Nothing -> Nothing
+
+numericTypeLiteralIntegerBounds :: NumericType -> Maybe (Integer, Integer)
+numericTypeLiteralIntegerBounds numericType =
+  case numericTypeIntegerBounds numericType of
+    Just bounds -> Just bounds
+    Nothing -> numericTypeFloatIntegerBounds numericType
+
+numericTypeFromName :: Text -> Maybe NumericType
+numericTypeFromName typeName =
+  case typeName of
+    "Int8" -> Just NumericInt8
+    "Int16" -> Just NumericInt16
+    "Int32" -> Just NumericInt32
+    "Int64" -> Just NumericInt64
+    "UInt8" -> Just NumericUInt8
+    "UInt16" -> Just NumericUInt16
+    "UInt32" -> Just NumericUInt32
+    "UInt64" -> Just NumericUInt64
+    "Float16" -> Just NumericFloat16
+    "Float32" -> Just NumericFloat32
+    "Float64" -> Just NumericFloat64
+    _ -> Nothing
+
+renderNumericTypeName :: NumericType -> Text
+renderNumericTypeName numericType =
+  case numericType of
+    NumericInt8 -> "Int8"
+    NumericInt16 -> "Int16"
+    NumericInt32 -> "Int32"
+    NumericInt64 -> "Int64"
+    NumericUInt8 -> "UInt8"
+    NumericUInt16 -> "UInt16"
+    NumericUInt32 -> "UInt32"
+    NumericUInt64 -> "UInt64"
+    NumericFloat16 -> "Float16"
+    NumericFloat32 -> "Float32"
+    NumericFloat64 -> "Float64"
+
+numericTypeIsIntegral :: NumericType -> Bool
+numericTypeIsIntegral numericType =
+  case numericType of
+    NumericInt8 -> True
+    NumericInt16 -> True
+    NumericInt32 -> True
+    NumericInt64 -> True
+    NumericUInt8 -> True
+    NumericUInt16 -> True
+    NumericUInt32 -> True
+    NumericUInt64 -> True
+    NumericFloat16 -> False
+    NumericFloat32 -> False
+    NumericFloat64 -> False
+
+numericTypeSupportsRuntimeArithmetic :: NumericType -> Bool
+numericTypeSupportsRuntimeArithmetic numericType =
+  numericTypeIsIntegral numericType
+    || numericType == NumericFloat16
+    || numericType == NumericFloat32
+    || numericType == NumericFloat64
+
+numericTypeSupportsRuntimeComparison :: NumericType -> Bool
+numericTypeSupportsRuntimeComparison numericType =
+  numericTypeSupportsRuntimeArithmetic numericType
 
 -- | Prefix reserved for prelude bindings that directly expose kernel-owned
 -- builtin symbols. Example: `__kernel_map = __kernel_map.`

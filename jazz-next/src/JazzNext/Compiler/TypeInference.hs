@@ -48,8 +48,15 @@ import JazzNext.Compiler.BuiltinCatalog
     builtinSymbolName,
     builtinSymbolNumericConversionTarget,
     lookupBuiltinSymbolInMode,
+    numericTypeFloatIntegerBounds,
     numericTypeFloatMax,
-    numericTypeIntegerBounds
+    numericTypeFromName,
+    numericTypeIntegerBounds,
+    numericTypeIsIntegral,
+    numericTypeLiteralIntegerBounds,
+    numericTypeSupportsRuntimeArithmetic,
+    numericTypeSupportsRuntimeComparison,
+    renderNumericTypeName
   )
 import JazzNext.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
@@ -4198,51 +4205,6 @@ numericTypeNameToExpressionType :: Text -> Maybe ExpressionType
 numericTypeNameToExpressionType typeName =
   TNumericType <$> numericTypeFromName typeName
 
-numericTypeFromName :: Text -> Maybe NumericType
-numericTypeFromName typeName =
-  case typeName of
-    "Int8" -> Just NumericInt8
-    "Int16" -> Just NumericInt16
-    "Int32" -> Just NumericInt32
-    "Int64" -> Just NumericInt64
-    "UInt8" -> Just NumericUInt8
-    "UInt16" -> Just NumericUInt16
-    "UInt32" -> Just NumericUInt32
-    "UInt64" -> Just NumericUInt64
-    "Float16" -> Just NumericFloat16
-    "Float32" -> Just NumericFloat32
-    "Float64" -> Just NumericFloat64
-    _ -> Nothing
-
-numericTypeIsIntegral :: NumericType -> Bool
-numericTypeIsIntegral numericType =
-  case numericType of
-    NumericInt8 -> True
-    NumericInt16 -> True
-    NumericInt32 -> True
-    NumericInt64 -> True
-    NumericUInt8 -> True
-    NumericUInt16 -> True
-    NumericUInt32 -> True
-    NumericUInt64 -> True
-    NumericFloat16 -> False
-    NumericFloat32 -> False
-    NumericFloat64 -> False
-
-numericTypeSupportsRuntimeArithmetic :: NumericType -> Bool
-numericTypeSupportsRuntimeArithmetic numericType =
-  numericTypeIsIntegral numericType
-    || numericType == NumericFloat16
-    || numericType == NumericFloat32
-    || numericType == NumericFloat64
-
-numericTypeSupportsRuntimeComparison :: NumericType -> Bool
-numericTypeSupportsRuntimeComparison numericType =
-  numericTypeIsIntegral numericType
-    || numericType == NumericFloat16
-    || numericType == NumericFloat32
-    || numericType == NumericFloat64
-
 integerLiteralRangeFitsNumericType :: IntegerLiteralRange -> NumericType -> Bool
 integerLiteralRangeFitsNumericType literalRange numericType =
   case numericTypeIntegerBounds numericType of
@@ -4318,19 +4280,6 @@ numericConversionTargetFromCallable builtinMode env functionName =
           Nothing
         Nothing ->
           lookupBuiltinSymbolInMode builtinMode nameText >>= builtinSymbolNumericConversionTarget
-
-numericTypeLiteralIntegerBounds :: NumericType -> Maybe (Integer, Integer)
-numericTypeLiteralIntegerBounds numericType =
-  case numericTypeIntegerBounds numericType of
-    Just bounds -> Just bounds
-    Nothing -> numericTypeFloatIntegerBounds numericType
-
-numericTypeFloatIntegerBounds :: NumericType -> Maybe (Integer, Integer)
-numericTypeFloatIntegerBounds numericType =
-  case numericTypeFloatMax numericType of
-    Just maxMagnitude ->
-      Just (ceiling (negate maxMagnitude), floor maxMagnitude)
-    Nothing -> Nothing
 
 singletonIntegerLiteralRange :: Integer -> IntegerLiteralRange
 singletonIntegerLiteralRange value = IntegerLiteralRange value value
@@ -4414,21 +4363,6 @@ combineIntegerLiteralRanges (IntegerLiteralRange leftMin leftMax) (IntegerLitera
 integerLiteralRangeBounds :: IntegerLiteralRange -> (Integer, Integer)
 integerLiteralRangeBounds (IntegerLiteralRange lower upper) =
   (lower, upper)
-
-renderNumericTypeName :: NumericType -> Text
-renderNumericTypeName numericType =
-  case numericType of
-    NumericInt8 -> "Int8"
-    NumericInt16 -> "Int16"
-    NumericInt32 -> "Int32"
-    NumericInt64 -> "Int64"
-    NumericUInt8 -> "UInt8"
-    NumericUInt16 -> "UInt16"
-    NumericUInt32 -> "UInt32"
-    NumericUInt64 -> "UInt64"
-    NumericFloat16 -> "Float16"
-    NumericFloat32 -> "Float32"
-    NumericFloat64 -> "Float64"
 
 renderSignaturePayload :: SignaturePayload -> Text
 renderSignaturePayload signaturePayload =

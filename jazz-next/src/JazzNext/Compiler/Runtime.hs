@@ -53,7 +53,9 @@ import JazzNext.Compiler.BuiltinCatalog
     builtinSymbolNumericConversionTarget,
     lookupBuiltinSymbolInMode,
     numericTypeFloatMax,
-    numericTypeIntegerBounds
+    numericTypeIntegerBounds,
+    numericTypeIsIntegral,
+    renderNumericTypeName
   )
 import JazzNext.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
@@ -2254,21 +2256,6 @@ numericConversionFloatOverflowDiagnostic builtinFunction targetType =
         <> renderNumericTypeName targetType
     )
 
-renderNumericTypeName :: NumericType -> Text
-renderNumericTypeName numericType =
-  case numericType of
-    NumericInt8 -> "Int8"
-    NumericInt16 -> "Int16"
-    NumericInt32 -> "Int32"
-    NumericInt64 -> "Int64"
-    NumericUInt8 -> "UInt8"
-    NumericUInt16 -> "UInt16"
-    NumericUInt32 -> "UInt32"
-    NumericUInt64 -> "UInt64"
-    NumericFloat16 -> "Float16"
-    NumericFloat32 -> "Float32"
-    NumericFloat64 -> "Float64"
-
 -- | Evaluate filter predicates element-by-element and enforce that each
 -- predicate application returns a Bool.
 filterElements :: BuiltinResolutionMode -> Map BindingRuntimeHintKey ConstraintSignatureType -> RuntimeValue -> [RuntimeValue] -> Either Diagnostic [RuntimeValue]
@@ -2715,21 +2702,6 @@ runtimeIntMetadataIsIntegral intMetadata =
   case runtimeIntTargetType intMetadata of
     Just numericType -> numericTypeIsIntegral numericType
     Nothing -> True
-
-numericTypeIsIntegral :: NumericType -> Bool
-numericTypeIsIntegral numericType =
-  case numericType of
-    NumericInt8 -> True
-    NumericInt16 -> True
-    NumericInt32 -> True
-    NumericInt64 -> True
-    NumericUInt8 -> True
-    NumericUInt16 -> True
-    NumericUInt32 -> True
-    NumericUInt64 -> True
-    NumericFloat16 -> False
-    NumericFloat32 -> False
-    NumericFloat64 -> False
 
 runtimeFloatMetadataIsFloat64Domain :: RuntimeFloatMetadata -> Bool
 runtimeFloatMetadataIsFloat64Domain floatMetadata =
