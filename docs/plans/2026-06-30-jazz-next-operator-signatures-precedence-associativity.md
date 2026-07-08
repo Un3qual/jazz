@@ -1,13 +1,14 @@
 ---
 id: JN-OPERATORS-CUSTOM-PRECEDENCE-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
   - JN-OPERATORS-SPECIFIC-TYPE-SIGNATURES-001
-last_verified: 2026-06-30
+last_verified: 2026-07-08
+completed_on: 2026-07-08
 plan_section: "Batch 2: Custom precedence"
 target_paths:
   - docs/spec/syntax/operators.md
@@ -54,9 +55,9 @@ repo-root queue/docs validation.
 
 ## Roadmap
 
-1. `JN-OPERATORS-SPECIFIC-TYPE-SIGNATURES-001`
-2. `JN-OPERATORS-CUSTOM-PRECEDENCE-001`
-3. `JN-OPERATORS-CUSTOM-ASSOCIATIVITY-001`
+1. `JN-OPERATORS-SPECIFIC-TYPE-SIGNATURES-001` (done 2026-06-30)
+2. `JN-OPERATORS-CUSTOM-PRECEDENCE-001` (done 2026-07-08)
+3. `JN-OPERATORS-CUSTOM-ASSOCIATIVITY-001` (next)
 
 The queue should promote only one child at a time.
 
@@ -139,6 +140,8 @@ git diff --check
 ## Batch 2: Custom precedence
 
 Child id: `JN-OPERATORS-CUSTOM-PRECEDENCE-001`
+
+Status: done 2026-07-08.
 
 Accepted source form:
 

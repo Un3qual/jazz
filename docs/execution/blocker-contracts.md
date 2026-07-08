@@ -58,35 +58,34 @@ Each blocked item should answer these questions:
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
 
-- Smallest unblocker: promote the next accepted post-signature operator child:
-  custom numeric precedence for same-source user operator declarations.
+- Smallest unblocker: promote the next accepted post-precedence operator child:
+  custom associativity for same-source user operator declarations.
 - Decision needed: accepted on `2026-06-30`: plan operator-specific type
   signatures, custom precedence, and custom associativity as separate child
-  rows. Operator signatures have landed; execute custom precedence next, then
-  custom associativity.
+  rows. Operator signatures and custom precedence have landed; execute custom
+  associativity next.
 - Recommended default: keep Stage 2 fixed-tier parsing, same-source `(op) =
-  <expr>.` execution, and adjacent operator signatures complete. Promote only
-  the custom-precedence child first; do not batch custom associativity into
+  <expr>.` execution, adjacent operator signatures, and custom numeric
+  precedence complete. Promote only the custom-associativity child; do not
+  batch runtime overload dispatch, cross-module APIs, or new built-ins into
   that child.
-- Candidate child: `JN-OPERATORS-CUSTOM-PRECEDENCE-001`.
+- Candidate child: `JN-OPERATORS-CUSTOM-ASSOCIATIVITY-001`.
 - Target paths: `docs/spec/syntax/operators.md`;
   `jazz-next/src/JazzNext/Compiler/Parser.hs`;
   `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`;
   `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`;
   `jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`;
   `jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`;
-  `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`;
   `docs/plans/2026-06-30-jazz-next-operator-signatures-precedence-associativity.md`.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`; plus the focused `OperatorFixitySpec.hs`,
-  `OperatorInvalidSyntaxSpec.hs`, and `RuntimeSemanticsSpec.hs` commands named
-  by the child plan.
+  and `OperatorInvalidSyntaxSpec.hs` commands named by the child plan.
 - Not in scope: re-promoting the completed fixed-tier contract or parser child,
   re-promoting `JN-OPERATORS-DECLARED-FUNCTION-BINDINGS-001`, re-promoting
-  `JN-OPERATORS-SPECIFIC-TYPE-SIGNATURES-001`, custom associativity in the
-  precedence child, new builtin operators, runtime overload dispatch,
-  cross-module operator APIs, or parser syntax already covered by
-  `JN-OPERATORS-STAGE2-FIXED-TIER-PARSER-001`.
+  `JN-OPERATORS-SPECIFIC-TYPE-SIGNATURES-001`, re-promoting
+  `JN-OPERATORS-CUSTOM-PRECEDENCE-001`, new precedence ranges, new builtin
+  operators, runtime overload dispatch, cross-module operator APIs, or parser
+  syntax already covered by `JN-OPERATORS-STAGE2-FIXED-TIER-PARSER-001`.
 
 ### JN-PRIMITIVE-SURFACE-EXPANSION-PLAN-001
 

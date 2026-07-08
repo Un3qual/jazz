@@ -109,6 +109,12 @@ The parser in [jazz-hs/src/Parser/Lang.hs](../jazz-hs/src/Parser/Lang.hs) and te
   - `(+ 2)` means `\x -> x + 2`
   - `((+) 2)` means `\x -> 2 + x`
 - `$` is parsed as right-associative low-precedence application.
+- Source-local user operators can be declared with fixed tiers or custom
+  numeric precedence:
+  - `operator %% tier 2.`
+  - `operator %% precedence 25.`
+- Declared user operators become executable through ordinary parenthesized
+  bindings such as `(%%) = \(left) -> \(right) -> left + right.`
 
 ### Parsed Expression Forms
 
@@ -426,10 +432,16 @@ Based on the full repo, these areas still require implementation convergence eve
 - Extending parsed signature type grammar beyond the closed structured-signature rebase in `jazz-next` (adjacent signatures over `Int`, `Bool`, nested concrete list types, concrete tuple types, right-associative function types, parenthesized function-type overrides, empty `@{}:` constrained wrappers, class/impl-validated concrete unary constrained signatures, duplicate non-empty constraint diagnostics, monomorphic variable constrained signatures, unsupported-variable constrained-signature diagnostics, unsupported constrained-signature primary spans, ordinary binding type schemes, fresh per-use instantiation for eligible ordinary bindings, solver-backed variable constrained signatures, inferred class constraints, and final inferred-constraint ambiguity/defaulting diagnostics are implemented and test-covered; runtime evidence, explicit type application, and broader polymorphic/generalized type-variable signatures remain blocked behind future verifier-backed children):
   - `docs/spec/semantics/bindings-and-signatures.md`
   - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
-- Extending staged operator roadmap work in `jazz-next` beyond implemented v1 parser/fixity/sections behavior:
+- Extending staged operator roadmap work in `jazz-next` beyond implemented v1
+  parser/fixity/sections behavior, source-local fixed-tier declarations,
+  same-source executable operator bindings, adjacent operator signatures, and
+  custom numeric precedence. Custom associativity remains the next accepted
+  operator child:
   - `docs/spec/syntax/operators.md`
   - `jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`
+  - `jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs`
   - `jazz-next/test/JazzNext/Compiler/Parser/OperatorSectionSpec.hs`
+  - `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
 - Extending primitive semantics coverage beyond the implemented v1 runtime/type subset (`+`, `-`, `*`, `/`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `map`, `filter`, `hd`, `tl`, `print!`, target-named numeric conversions `toInt8`..`toFloat64`, Float64 fractional literal defaults, direct annotated `Float16`/`Float32` fractional literal bindings, same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic with width-preserving runtime float results, same concrete `Float`/`Float16`/`Float32`/`Float64` comparison/equality, and structural list/tuple/ADT equality over equality-supported element and constructor payload types) as the runtime surface expands:
   - `docs/spec/runtime/primitive-semantics.md`
   - `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`
