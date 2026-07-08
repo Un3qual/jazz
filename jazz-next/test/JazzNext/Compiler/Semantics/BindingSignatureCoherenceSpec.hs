@@ -73,6 +73,8 @@ tests =
     ("source pipeline rejects missing inferred equality facts through operator values", testSourceRejectsMissingInferredEqualityFactThroughOperatorValue),
     ("source pipeline rejects missing inferred equality facts through sections", testSourceRejectsMissingInferredEqualityFactThroughSection),
     ("source pipeline accepts primitive equality helpers without visible Eq", testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEq),
+    ("source pipeline preserves numeric defaults through final solver phase", testSourcePreservesNumericDefaultsThroughFinalSolverPhase),
+    ("source pipeline rejects ambiguous inferred equality binding use", testSourceRejectsAmbiguousInferredEqualityBindingUse),
     ("source pipeline infers qualified method class constraints for ordinary binding schemes", testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes),
     ("source pipeline resolves inferred method facts through aliases", testSourceResolvesInferredMethodFactsThroughAliases),
     ("source pipeline rejects result-only qualified method inference", testSourceRejectsResultOnlyQualifiedMethodInference),
@@ -1295,6 +1297,19 @@ testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEq :: IO ()
 testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEq =
   assertSourceOkWithoutPrelude "same = \\(x) -> x == x.\nok = same 1."
 
+testSourcePreservesNumericDefaultsThroughFinalSolverPhase :: IO ()
+testSourcePreservesNumericDefaultsThroughFinalSolverPhase =
+  assertSourceOk "numeric = \\(x) -> x + 1.\nresult = numeric 2.\nresult."
+
+testSourceRejectsAmbiguousInferredEqualityBindingUse :: IO ()
+testSourceRejectsAmbiguousInferredEqualityBindingUse =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class Eq(a) { }.\n"
+        <> "ambiguous = \\(x) -> x == x.\n"
+        <> "ambiguous."
+    )
+    "ambiguous/defaulting inferred constraint 'Eq"
+
 testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes :: IO ()
 testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes =
   assertSourceOkWithoutPrelude
@@ -1479,7 +1494,7 @@ testSourceRejectsAmbiguousInferredEqualityObligationsOnExpressionStatements =
     ( "class Eq(a) { }.\n"
         <> "\\(x) -> x == x."
     )
-    "ambiguous/defaulting explicit constraint 'Eq"
+    "ambiguous/defaulting inferred constraint 'Eq"
 
 testSourceChecksInferredMethodObligationsOnMonomorphicSignedBindings :: IO ()
 testSourceChecksInferredMethodObligationsOnMonomorphicSignedBindings =

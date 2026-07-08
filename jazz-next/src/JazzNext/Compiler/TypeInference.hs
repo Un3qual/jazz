@@ -3129,7 +3129,7 @@ resolveDeferredExplicitConstraint state (DeferredExplicitConstraint constraintNa
         defaultLiteralTypes unresolvedArgumentType
    in
     if not (Set.null (freeTypeVariables unresolvedArgumentType))
-      then addTypeError state (mkAmbiguousExplicitConstraintError constraintName resolvedArgumentType)
+      then addTypeError state (mkAmbiguousDeferredConstraintError inferredConstraint constraintName resolvedArgumentType)
       else
         case Map.lookup constraintName (scopeClassFacts facts) of
           Nothing ->
@@ -3140,7 +3140,7 @@ resolveDeferredExplicitConstraint state (DeferredExplicitConstraint constraintNa
             | otherwise ->
                 case constraintRuntimeHintsForDeferred facts state inferredConstraint constraintName maybeMethodKey unresolvedArgumentType of
                   [] ->
-                    addTypeError state (mkAmbiguousExplicitConstraintError constraintName resolvedArgumentType)
+                    addTypeError state (mkAmbiguousDeferredConstraintError inferredConstraint constraintName resolvedArgumentType)
                   argumentHints ->
                     let implFactHints =
                           filter
@@ -5197,6 +5197,23 @@ mkAmbiguousExplicitConstraintError constraintName argumentType =
         <> renderType argumentType
         <> ")': explicit constrained signatures do not default unresolved type variables"
     )
+
+mkAmbiguousInferredConstraintError :: Text -> ExpressionType -> Diagnostic
+mkAmbiguousInferredConstraintError constraintName argumentType =
+  mkDiagnostic
+    "E2009"
+    ( "ambiguous/defaulting inferred constraint '"
+        <> constraintName
+        <> "("
+        <> renderType argumentType
+        <> ")': inferred class constraints do not default unresolved type variables"
+    )
+
+mkAmbiguousDeferredConstraintError :: Bool -> Text -> ExpressionType -> Diagnostic
+mkAmbiguousDeferredConstraintError inferredConstraint =
+  if inferredConstraint
+    then mkAmbiguousInferredConstraintError
+    else mkAmbiguousExplicitConstraintError
 
 mkPatternTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkPatternTypeMismatchError scrutineeType patternType =
