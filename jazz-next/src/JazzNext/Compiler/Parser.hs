@@ -1474,7 +1474,7 @@ parseCaseArm knownAliases declaredOperators tokens = do
   tokensAfterPipe <- consumeCaseArmPipe tokens
   (casePattern, afterPattern) <- parseCaseArmPattern tokensAfterPipe
   (guardExpr, afterArrow) <- parseOptionalCaseArmGuard afterPattern
-  (bodyExpr, remaining) <- parseCaseArmBodyExprWithMinPrecedence Nothing 1 afterArrow
+  (bodyExpr, remaining) <- parseCaseArmBodyExprWithMinPrecedence neverStop Nothing 1 afterArrow
   pure (SurfaceCaseArm casePattern guardExpr bodyExpr, remaining)
   where
     parseOptionalCaseArmGuard allTokens =
@@ -1497,20 +1497,28 @@ parseCaseArm knownAliases declaredOperators tokens = do
         Token {tokenKind = TOperator "|"} : _ ->
           Left (parseDiagnostic "expected guard expression before next case arm")
         _ ->
-          parseCaseGuardExprWithMinPrecedence Nothing 1 allTokens
+          parseCaseGuardExprWithMinPrecedence neverStop Nothing 1 allTokens
 
-    parseCaseGuardExprWithMinPrecedence parentOperator minPrecedence guardTokens = do
+    parseCaseGuardExprWithMinPrecedence rhsStop parentOperator minPrecedence guardTokens = do
       (leftExpr, remainingTokens) <-
-        parseApplicationExprUntil knownAliases declaredOperators stopsBeforeCaseGuardTerminator guardTokens
-      parseCaseGuardInfixTail parentOperator minPrecedence leftExpr remainingTokens
+        parseApplicationExprUntil
+          knownAliases
+          declaredOperators
+          (stopsBeforeCaseGuardTerminatorOr rhsStop)
+          guardTokens
+      parseCaseGuardInfixTail rhsStop parentOperator minPrecedence leftExpr remainingTokens
 
-    parseCaseArmBodyExprWithMinPrecedence parentOperator minPrecedence bodyTokens = do
+    parseCaseArmBodyExprWithMinPrecedence rhsStop parentOperator minPrecedence bodyTokens = do
       (leftExpr, remainingTokens) <-
-        parseApplicationExprUntil knownAliases declaredOperators stopsBeforeCaseArmBoundary bodyTokens
-      parseCaseArmBodyInfixTail parentOperator minPrecedence leftExpr remainingTokens
+        parseApplicationExprUntil
+          knownAliases
+          declaredOperators
+          (stopsBeforeCaseArmBoundaryOr rhsStop)
+          bodyTokens
+      parseCaseArmBodyInfixTail rhsStop parentOperator minPrecedence leftExpr remainingTokens
 
-    parseCaseArmBodyInfixTail parentOperator minPrecedence leftExpr bodyTokens
-      | stopsBeforeCaseArmTerminator bodyTokens = Right (leftExpr, bodyTokens)
+    parseCaseArmBodyInfixTail rhsStop parentOperator minPrecedence leftExpr bodyTokens
+      | stopsBeforeCaseArmTerminator bodyTokens || rhsStop bodyTokens = Right (leftExpr, bodyTokens)
       | otherwise =
           case bodyTokens of
             operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : tokensAfterOperator
@@ -1534,10 +1542,17 @@ parseCaseArm knownAliases declaredOperators tokens = do
                           Right (leftExpr, bodyTokens)
                       | otherwise -> do
                           let nextMinPrecedence = operatorNextMinPrecedence operatorInfo
+                              rhsStopForOperator =
+                                samePrecedenceNonAssociativeRhsStop declaredOperators operatorInfo rhsStop
                           (rightExpr, remainingAfterRight) <-
-                            parseCaseArmBodyExprWithMinPrecedence (Just operatorSymbol) nextMinPrecedence tokensAfterOperator
+                            parseCaseArmBodyExprWithMinPrecedence
+                              rhsStopForOperator
+                              (Just operatorSymbol)
+                              nextMinPrecedence
+                              tokensAfterOperator
                           rejectNonAssociativeContinuation declaredOperators operatorInfo operatorToken remainingAfterRight
                           parseCaseArmBodyInfixTail
+                            rhsStop
                             parentOperator
                             minPrecedence
                             (SEBinary operatorSymbol leftExpr rightExpr)
@@ -1553,6 +1568,9 @@ parseCaseArm knownAliases declaredOperators tokens = do
       case allTokens of
         Token {tokenKind = TRBrace} : _ -> True
         _ -> False
+
+    stopsBeforeCaseArmBoundaryOr rhsStop allTokens =
+      rhsStop allTokens || stopsBeforeCaseArmBoundary allTokens
 
     caseArmPipeStartsBoundary parentOperator minPrecedence leftExpr tokensAfterPipe =
       case parseCasePattern tokensAfterPipe of
@@ -1570,8 +1588,8 @@ parseCaseArm knownAliases declaredOperators tokens = do
               hasTopLevelArrowBeforeCaseArmBoundary tokensAfterPipe
         _ -> False
 
-    parseCaseGuardInfixTail parentOperator minPrecedence leftExpr guardTokens
-      | stopsBeforeCaseGuardTerminator guardTokens = Right (leftExpr, guardTokens)
+    parseCaseGuardInfixTail rhsStop parentOperator minPrecedence leftExpr guardTokens
+      | stopsBeforeCaseGuardTerminator guardTokens || rhsStop guardTokens = Right (leftExpr, guardTokens)
       | otherwise =
           case guardTokens of
             operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : tokensAfterOperator
@@ -1595,10 +1613,17 @@ parseCaseArm knownAliases declaredOperators tokens = do
                           Right (leftExpr, guardTokens)
                       | otherwise -> do
                           let nextMinPrecedence = operatorNextMinPrecedence operatorInfo
+                              rhsStopForOperator =
+                                samePrecedenceNonAssociativeRhsStop declaredOperators operatorInfo rhsStop
                           (rightExpr, remainingAfterRight) <-
-                            parseCaseGuardExprWithMinPrecedence (Just operatorSymbol) nextMinPrecedence tokensAfterOperator
+                            parseCaseGuardExprWithMinPrecedence
+                              rhsStopForOperator
+                              (Just operatorSymbol)
+                              nextMinPrecedence
+                              tokensAfterOperator
                           rejectNonAssociativeContinuation declaredOperators operatorInfo operatorToken remainingAfterRight
                           parseCaseGuardInfixTail
+                            rhsStop
                             parentOperator
                             minPrecedence
                             (SEBinary operatorSymbol leftExpr rightExpr)
@@ -1615,6 +1640,9 @@ parseCaseArm knownAliases declaredOperators tokens = do
         Token {tokenKind = TArrow} : _ -> True
         Token {tokenKind = TRBrace} : _ -> True
         _ -> False
+
+    stopsBeforeCaseGuardTerminatorOr rhsStop allTokens =
+      rhsStop allTokens || stopsBeforeCaseGuardTerminator allTokens
 
     caseGuardPipeStartsBoundary parentOperator minPrecedence leftExpr tokensAfterPipe =
       startsDefiniteGuardedCaseArmAfterGuardBoundary tokensAfterPipe

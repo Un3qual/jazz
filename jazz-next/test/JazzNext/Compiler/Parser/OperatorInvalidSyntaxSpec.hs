@@ -29,6 +29,8 @@ tests =
     ("rejects non-associative operator chains", testRejectsNonAssociativeOperatorChain),
     ("rejects same-precedence chain before non-associative operator", testRejectsSamePrecedenceChainBeforeNonAssociativeOperator),
     ("rejects right-associative same-precedence non-associative chains", testRejectsRightAssociativeSamePrecedenceNonAssociativeChain),
+    ("rejects case-arm body same-precedence non-associative chains", testRejectsCaseArmBodySamePrecedenceNonAssociativeChain),
+    ("rejects case guard same-precedence non-associative chains", testRejectsCaseGuardSamePrecedenceNonAssociativeChain),
     ("rejects user operator infix use before declaration", testRejectsUserOperatorInfixUseBeforeDeclaration),
     ("rejects user operator value use before declaration", testRejectsUserOperatorValueUseBeforeDeclaration),
     ("rejects undeclared operator signature", testRejectsUndeclaredOperatorSignature),
@@ -147,6 +149,22 @@ testRejectsRightAssociativeSamePrecedenceNonAssociativeChain =
     "E0001"
     "non-associative operator '?>' cannot be chained without parentheses"
     (parseSurfaceProgram "operator ?> precedence 1 nonassoc.\nx = 1 $ 2 ?> 3.")
+
+testRejectsCaseArmBodySamePrecedenceNonAssociativeChain :: IO ()
+testRejectsCaseArmBodySamePrecedenceNonAssociativeChain =
+  assertLeftDiagnosticCodeAndContains
+    "case-arm body same-precedence non-associative chain"
+    "E0001"
+    "non-associative operator '?>' cannot be chained without parentheses"
+    (parseSurfaceProgram "operator ?> precedence 1 nonassoc.\nx = case value { | _ -> 1 $ 2 ?> 3 }.")
+
+testRejectsCaseGuardSamePrecedenceNonAssociativeChain :: IO ()
+testRejectsCaseGuardSamePrecedenceNonAssociativeChain =
+  assertLeftDiagnosticCodeAndContains
+    "case guard same-precedence non-associative chain"
+    "E0001"
+    "non-associative operator '?>' cannot be chained without parentheses"
+    (parseSurfaceProgram "operator ?> precedence 1 nonassoc.\nx = case value { | _ if 1 $ 2 ?> 3 -> 1 }.")
 
 testRejectsUserOperatorInfixUseBeforeDeclaration :: IO ()
 testRejectsUserOperatorInfixUseBeforeDeclaration =
