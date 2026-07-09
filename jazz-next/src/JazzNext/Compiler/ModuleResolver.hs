@@ -698,10 +698,10 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 
     validateImportSymbols :: Map Text BindingOrigin -> ParsedImport -> Either Diagnostic (Map Text BindingOrigin)
     validateImportSymbols seenSymbols importDecl =
-      case parsedImportSymbols importDecl of
-        Nothing ->
+      case parsedImportAlias importDecl of
+        Just _ ->
           Right seenSymbols
-        Just symbolNames ->
+        Nothing ->
           case Map.lookup (parsedImportModulePath importDecl) exportsByModule of
             Nothing ->
               Left
@@ -719,11 +719,15 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                     Map.findWithDefault Set.empty (parsedImportModulePath importDecl) classExportsByModule
                   exportedImportSymbols =
                     Set.union exportedSymbols exportedClassNames
+                  importedSymbolNames =
+                    case parsedImportSymbols importDecl of
+                      Nothing -> Set.toAscList exportedImportSymbols
+                      Just explicitSymbolNames -> explicitSymbolNames
                in
               foldM
                 (validateImportSymbol importDecl exportedImportSymbols)
                 seenSymbols
-                symbolNames
+                importedSymbolNames
 
     validateQualifiedReferences :: Set Text -> Either Diagnostic ()
     validateQualifiedReferences visibleClassNames =
@@ -776,8 +780,11 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           Left (mkMissingImportSymbolError symbolName importDecl exportedSymbols)
       | otherwise =
           case Map.lookup symbolName seenSymbols of
-            Just previousOrigin ->
-              Left (mkImportSymbolCollisionError symbolName previousOrigin importDecl)
+            Just previousOrigin
+              | bindingOriginModulePath previousOrigin == parsedImportModulePath importDecl ->
+                  Right seenSymbols
+              | otherwise ->
+                  Left (mkImportSymbolCollisionError symbolName previousOrigin importDecl)
             Nothing ->
               Right
                 ( Map.insert

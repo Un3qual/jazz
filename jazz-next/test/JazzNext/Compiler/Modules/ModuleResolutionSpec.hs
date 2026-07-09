@@ -61,6 +61,8 @@ tests =
     ("reports non-exported import symbols with module context", testReportsMissingImportSymbol),
     ("reports unqualified references hidden by explicit symbol lists", testReportsHiddenExplicitImportValueReference),
     ("reports import symbol collisions across imported modules", testReportsImportSymbolCollision),
+    ("reports import symbol collisions across bare imports", testReportsBareImportSymbolCollision),
+    ("reports import symbol collisions across bare and symbol-list imports", testReportsMixedImportSymbolCollision),
     ("reports import alias collisions across imported modules", testReportsImportAliasCollision),
     ("reports pattern references to constructors hidden by explicit imports", testReportsHiddenExplicitImportConstructorPatternReference),
     ("reports unqualified references to bindings imported only by alias", testReportsUnqualifiedAliasImportReference),
@@ -629,6 +631,50 @@ testReportsImportSymbolCollision = do
     sourceFiles =
       Map.fromList
         [ ("src/App/Main.jz", "import A::Ops (map).\nimport B::Ops (map).\nmain = map."),
+          ("src/A/Ops.jz", "map = 1."),
+          ("src/B/Ops.jz", "map = 2.")
+        ]
+
+testReportsBareImportSymbolCollision :: IO ()
+testReportsBareImportSymbolCollision = do
+  assertCollision "A then B" "import A::Ops.\nimport B::Ops.\nmain = map."
+  assertCollision "B then A" "import B::Ops.\nimport A::Ops.\nmain = map."
+  where
+    assertCollision label importerSource = do
+      let result = resolveModuleGraph config (sourceFiles importerSource) ["App", "Main"]
+      assertLeftContains (label <> " collision code") "E4008" result
+      assertLeftContains (label <> " collision symbol") "symbol 'map'" result
+      assertLeftDiagnosticMetadata
+        (label <> " collision metadata")
+        (Just (SourceSpan 2 1))
+        (Just (SourceSpan 1 1))
+        (Just "map")
+        result
+
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles importerSource =
+      Map.fromList
+        [ ("src/App/Main.jz", importerSource),
+          ("src/A/Ops.jz", "map = 1."),
+          ("src/B/Ops.jz", "map = 2.")
+        ]
+
+testReportsMixedImportSymbolCollision :: IO ()
+testReportsMixedImportSymbolCollision = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  assertLeftContains "mixed collision code" "E4008" result
+  assertLeftContains "mixed collision symbol" "symbol 'map'" result
+  assertLeftDiagnosticMetadata
+    "mixed collision metadata"
+    (Just (SourceSpan 2 1))
+    (Just (SourceSpan 1 1))
+    (Just "map")
+    result
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import A::Ops.\nimport B::Ops (map).\nmain = map."),
           ("src/A/Ops.jz", "map = 1."),
           ("src/B/Ops.jz", "map = 2.")
         ]
