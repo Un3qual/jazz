@@ -1,7 +1,7 @@
 # jazz-next Compiler Architecture Remediation Design
 
-**Date:** 2026-07-09  
-**Status:** Approved in conversation; awaiting written-spec review  
+**Date:** 2026-07-09
+**Status:** Approved in conversation; awaiting written-spec review
 **Scope:** Active compiler under `jazz-next/` only
 
 ## Purpose
