@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -123,7 +124,7 @@ testControlFlowAndBlockExpressionStarters = do
   lambdaTokens <- lexSource "\\(x) -> x."
   assertExpression
     "lambda expression starter"
-    (SELambda [SurfaceLambdaIdentifier "x"] (SEVar "x"))
+    (SELambda (SurfaceLambdaIdentifier "x" :| []) (SEVar "x"))
     [TDot]
     (parseExpressionTokens Set.empty [] lambdaTokens)
 

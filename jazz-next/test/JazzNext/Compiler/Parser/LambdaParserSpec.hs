@@ -2,12 +2,7 @@
 
 module Main (main) where
 
-import Control.Exception
-  ( SomeException,
-    evaluate,
-    try
-  )
-import qualified Data.Text as Text
+import Data.List.NonEmpty (NonEmpty (..))
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     Expr (..),
@@ -33,11 +28,9 @@ import JazzNext.Compiler.Parser.Lower
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
     assertLeftDiagnosticContains,
     assertRight,
-    failTest,
     runTestSuite
   )
 
@@ -53,7 +46,6 @@ tests =
     ("lowering nests multi-argument lambdas into unary core nodes", testLowerNestsMultiArgumentLambda),
     ("lowering desugars pattern parameters through case nodes", testLowerDesugarsPatternParametersThroughCase),
     ("lowering preserves duplicate parameter shadowing", testLowerPreservesDuplicateParameterShadowing),
-    ("lowering rejects impossible empty lambda surface nodes", testLowerRejectsImpossibleEmptyLambda),
     ("rejects empty lambda parameter list", testRejectsEmptyLambdaParameters),
     ("rejects lambda without parenthesized parameters", testRejectsUnparenthesizedLambda),
     ("rejects lambda parameter trailing comma", testRejectsTrailingCommaParameterList),
@@ -77,7 +69,7 @@ testParsesSingleArgumentLambda =
     "single-argument lambda AST"
     ( Right
         ( SEBlock
-            [ SSLet "id" (SourceSpan 1 1) (SELambda [SurfaceLambdaIdentifier "x"] (SEVar "x"))
+            [ SSLet "id" (SourceSpan 1 1) (SELambda (SurfaceLambdaIdentifier "x" :| []) (SEVar "x"))
             ]
         )
     )
@@ -89,7 +81,7 @@ testParsesMultiArgumentLambda =
     "multi-argument lambda AST"
     ( Right
         ( SEBlock
-            [ SSLet "const" (SourceSpan 1 1) (SELambda [SurfaceLambdaIdentifier "x", SurfaceLambdaIdentifier "y"] (SEVar "x"))
+            [ SSLet "const" (SourceSpan 1 1) (SELambda (SurfaceLambdaIdentifier "x" :| [SurfaceLambdaIdentifier "y"]) (SEVar "x"))
             ]
         )
     )
@@ -105,7 +97,7 @@ testParsesLambdaBodyApplication =
                 "apply"
                 (SourceSpan 1 1)
                 ( SELambda
-                    [SurfaceLambdaIdentifier "f", SurfaceLambdaIdentifier "x"]
+                    (SurfaceLambdaIdentifier "f" :| [SurfaceLambdaIdentifier "x"])
                     (SEApply (SEVar "f") (SEVar "x"))
                 )
             ]
@@ -122,7 +114,7 @@ testParsesParenthesizedLambdaApplication =
             [ SSLet
                 "run"
                 (SourceSpan 1 1)
-                (SEApply (SELambda [SurfaceLambdaIdentifier "x"] (SEVar "x")) (SELit (SLInt 1)))
+                (SEApply (SELambda (SurfaceLambdaIdentifier "x" :| []) (SEVar "x")) (SELit (SLInt 1)))
             ]
         )
     )
@@ -183,21 +175,6 @@ testLowerPreservesDuplicateParameterShadowing =
             (SourceSpan 1 1)
             (ELambda "x" (ELambda "x" (EVar "x")))
         ]
-
-testLowerRejectsImpossibleEmptyLambda :: IO ()
-testLowerRejectsImpossibleEmptyLambda = do
-  result <- try (evaluate (lowerSurfaceExpr (SELambda [] (SEVar "x")))) :: IO (Either SomeException Expr)
-  case result of
-    Left err ->
-      assertContains
-        "empty lambda lowering failure"
-        "empty lambda parameter list"
-        (Text.pack (show err))
-    Right loweredExpr ->
-      failTest
-        ( "expected empty lambda lowering to fail, got "
-            <> Text.pack (show loweredExpr)
-        )
 
 testRejectsEmptyLambdaParameters :: IO ()
 testRejectsEmptyLambdaParameters =
@@ -272,13 +249,14 @@ testParsesOrPatternLambdaParameter =
                 "choose"
                 (SourceSpan 1 1)
                 ( SELambda
-                    [ SurfaceLambdaPattern
+                    ( SurfaceLambdaPattern
                         ( SPOr
                             [ SPConstructor "Just" [SPVariable "item"],
                               SPConstructor "Also" [SPVariable "item"]
                             ]
                         )
-                    ]
+                        :| []
+                    )
                     (SEVar "item")
                 )
             ]
@@ -296,14 +274,14 @@ testParsesCommaAfterOrPatternLambdaParameter =
                 "choose"
                 (SourceSpan 1 1)
                 ( SELambda
-                    [ SurfaceLambdaPattern
+                    ( SurfaceLambdaPattern
                         ( SPOr
                             [ SPConstructor "Just" [SPVariable "item"],
                               SPConstructor "Also" [SPVariable "item"]
                             ]
-                        ),
-                      SurfaceLambdaIdentifier "extra"
-                    ]
+                        )
+                        :| [SurfaceLambdaIdentifier "extra"]
+                    )
                     (SEVar "item")
                 )
             ]

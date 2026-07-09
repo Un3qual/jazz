@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     DataConstructorArgument (..),
@@ -760,7 +761,7 @@ testParsesAsPatternLambdaParameter =
                 "f"
                 (SourceSpan 1 1)
                 ( SELambda
-                    [SurfaceLambdaPattern (SPAs "whole" (SPConsList (SPVariable "head") (SPVariable "tail")))]
+                    (SurfaceLambdaPattern (SPAs "whole" (SPConsList (SPVariable "head") (SPVariable "tail"))) :| [])
                     (SEVar "head")
                 )
             ]

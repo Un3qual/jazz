@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
@@ -150,9 +151,9 @@ testDeclaredOperatorBindingParsesAsHiddenBinding =
                 "$operator:%25%25"
                 (SourceSpan 2 2)
                 ( SELambda
-                    [SurfaceLambdaIdentifier "left"]
+                    (SurfaceLambdaIdentifier "left" :| [])
                     ( SELambda
-                        [SurfaceLambdaIdentifier "right"]
+                        (SurfaceLambdaIdentifier "right" :| [])
                         (SEBinary "+" (SEVar "left") (SEVar "right"))
                     )
                 ),
@@ -184,9 +185,9 @@ testDeclaredOperatorSignatureParsesAsHiddenSignature =
                 "$operator:%25%25"
                 (SourceSpan 3 2)
                 ( SELambda
-                    [SurfaceLambdaIdentifier "left"]
+                    (SurfaceLambdaIdentifier "left" :| [])
                     ( SELambda
-                        [SurfaceLambdaIdentifier "right"]
+                        (SurfaceLambdaIdentifier "right" :| [])
                         (SEBinary "+" (SEVar "left") (SEVar "right"))
                     )
                 ),
@@ -210,9 +211,9 @@ testDeclaredOperatorBindingParsesInsideModuleBody =
                 "$operator:%25%25"
                 (SourceSpan 3 2)
                 ( SELambda
-                    [SurfaceLambdaIdentifier "left"]
+                    (SurfaceLambdaIdentifier "left" :| [])
                     ( SELambda
-                        [SurfaceLambdaIdentifier "right"]
+                        (SurfaceLambdaIdentifier "right" :| [])
                         (SEBinary "+" (SEVar "left") (SEVar "right"))
                     )
                 )

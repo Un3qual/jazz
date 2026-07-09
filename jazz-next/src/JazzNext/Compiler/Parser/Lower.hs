@@ -4,6 +4,8 @@ module JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr
   ) where
 
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
@@ -88,16 +90,12 @@ lowerSurfaceExpr surfaceExpr =
       ESectionRight operatorSymbol (lowerSurfaceExpr rightExpr)
     SEBlock statements -> EBlock (map lowerSurfaceStatement statements)
 
-lowerSurfaceLambda :: [SurfaceLambdaParameter] -> SurfaceExpr -> Expr
+lowerSurfaceLambda :: NonEmpty SurfaceLambdaParameter -> SurfaceExpr -> Expr
 lowerSurfaceLambda parameters bodyExpr =
-  case parameters of
-    [] ->
-      error
-        ( "internal lowering error: empty lambda parameter list in lowerSurfaceLambda for body "
-            ++ show bodyExpr
-        )
-    _ ->
-      foldr lowerParameter (lowerSurfaceExpr bodyExpr) (zip [1 :: Int ..] parameters)
+  foldr
+    lowerParameter
+    (lowerSurfaceExpr bodyExpr)
+    (zip [1 :: Int ..] (NonEmpty.toList parameters))
   where
     lowerParameter (_, SurfaceLambdaIdentifier parameterName) loweredBody =
       ELambda parameterName loweredBody

@@ -12,6 +12,7 @@ import Data.Char
   ( isLower,
     isUpper
   )
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Read as TextRead
@@ -1951,7 +1952,7 @@ parseLambdaExprUntil knownAliases declaredOperators stop lambdaToken tokensAfter
             )
         )
 
-parseLambdaParameters :: [Token] -> Either Diagnostic ([SurfaceLambdaParameter], [Token])
+parseLambdaParameters :: [Token] -> Either Diagnostic (NonEmpty SurfaceLambdaParameter, [Token])
 parseLambdaParameters tokensAfterLeftParen =
   case tokensAfterLeftParen of
     token@(Token {tokenKind = TRParen}) : _ ->
@@ -1963,15 +1964,15 @@ parseLambdaParameters tokensAfterLeftParen =
         )
     _ -> do
       (firstParameter, afterFirstParameter) <- parseLambdaParameter tokensAfterLeftParen
-      go [firstParameter] afterFirstParameter
+      go firstParameter [] afterFirstParameter
   where
-    go revParameters allTokens =
+    go firstParameter revRemainingParameters allTokens =
       case allTokens of
         Token {tokenKind = TComma} : rest -> do
           (nextParameter, afterNextParameter) <- parseLambdaParameter rest
-          go (nextParameter : revParameters) afterNextParameter
+          go firstParameter (nextParameter : revRemainingParameters) afterNextParameter
         Token {tokenKind = TRParen} : rest ->
-          Right (reverse revParameters, rest)
+          Right (firstParameter :| reverse revRemainingParameters, rest)
         [] ->
           Left (parseDiagnostic "expected ')' before end of input in lambda parameter list")
         token : _ ->

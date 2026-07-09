@@ -20,6 +20,7 @@ import Data.Functor.Identity
     runIdentity
   )
 import Data.List (foldl', sortOn)
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -401,12 +402,13 @@ collectExprReferences boundNames surfaceExpr =
       | otherwise -> Set.singleton (identifierText name)
     SEQualifiedVar _ _ -> Set.empty
     SELambda params body ->
-      Set.union
-        (Set.unions (map collectLambdaParameterReferences params))
-        ( collectExprReferences
-            (Set.union boundNames (Set.unions (map collectLambdaParameterBinders params)))
-            body
-        )
+      let parameterList = NonEmpty.toList params
+       in Set.union
+            (Set.unions (map collectLambdaParameterReferences parameterList))
+            ( collectExprReferences
+                (Set.union boundNames (Set.unions (map collectLambdaParameterBinders parameterList)))
+                body
+            )
     SEOperatorValue _ -> Set.empty
     SEList items ->
       Set.unions (map (collectExprReferences boundNames) items)
