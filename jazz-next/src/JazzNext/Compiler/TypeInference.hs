@@ -4705,10 +4705,15 @@ runtimeHintForTypeBinding state binding =
 
 typeSchemeRuntimeHint :: InferState -> TypeScheme -> Maybe ConstraintSignatureType
 typeSchemeRuntimeHint state (TypeScheme schemeVariables schemeVariableOrder _ _ _ expressionType) =
-  expressionTypeToRuntimeHintWithVariables
-    variableHints
-    (defaultLiteralTypes (resolveType state expressionType))
+  case resolvedSchemeType of
+    TFunctionType {} ->
+      expressionTypeToRuntimeHintWithVariables
+        variableHints
+        resolvedSchemeType
+    _ -> Nothing
   where
+    resolvedSchemeType =
+      defaultLiteralTypes (resolveType state expressionType)
     orderedVariables =
       orderedSchemeVariables schemeVariableOrder schemeVariables
     variableHints =

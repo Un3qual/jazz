@@ -51,6 +51,10 @@ import JazzNext.Compiler.Runtime
 import JazzNext.Compiler.RuntimeHints
   ( bindingRuntimeHintKey
   )
+import JazzNext.Compiler.TypeInference
+  ( InferenceResult (..),
+    inferExpressionWithBuiltins
+  )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
   )
@@ -199,6 +203,8 @@ tests =
     ("qualified method dispatch prefers list alias body for typed list values", testQualifiedMethodDispatchPrefersListAliasBody),
     ("qualified method dispatch prefers list alias body for direct list literals", testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral),
     ("qualified method dispatch preserves bound nested list runtime hints", testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint),
+    ("qualified method dispatch instantiates explicit empty list type application hints", testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint),
+    ("qualified method dispatch omits plain polymorphic empty list runtime hints", testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint),
     ("qualified method dispatch rejects unhinted nested list helper exact selection", testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection),
     ("qualified method dispatch does not exact-match untyped empty list literals", testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral),
     ("qualified method dispatch prefers constructor alias body for direct constructor literals", testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral),
@@ -1869,6 +1875,32 @@ testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint :: IO ()
+testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([Int]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([Bool]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "empty = [].\n"
+          <> "(RuntimeFlag::flag) (empty @Int)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint :: IO ()
+testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint = do
+  let expr =
+        EBlock
+          [ SLet "empty" (SourceSpan 1 1) (EList []),
+            SExpr (SourceSpan 2 1) (EVar "empty")
+          ]
+  inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
+  assertEqual "inference errors" [] (inferredErrors inference)
+  assertEqual "plain polymorphic empty list runtime hints" Map.empty (inferredRuntimeTypeHints inference)
 
 testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection :: IO ()
 testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection = do

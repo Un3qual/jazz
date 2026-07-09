@@ -14,7 +14,7 @@ module JazzNext.Compiler.Runtime
 
 import Control.Monad (foldM, zipWithM)
 import Data.List (foldl')
-import Data.Maybe (isJust, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -1124,7 +1124,7 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
       runtimeValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env functionExpr
       if isFunctionValue runtimeValue
         then Right (VExplicitTypeApplication typeHint runtimeValue)
-        else applyRuntimeTypeHint typeHint runtimeValue
+        else applyRuntimeTypeHint (fromMaybe typeHint (explicitTypeApplicationRuntimeValueHint typeHint runtimeValue)) runtimeValue
     EIf conditionExpr thenExpr elseExpr ->
       evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr -> do
@@ -1637,21 +1637,50 @@ runtimeValueCanAcceptTypeHint typeHint runtimeValue =
 
 explicitTypeApplicationRuntimeFunctionHint :: ConstraintSignatureType -> RuntimeValue -> Maybe ConstraintSignatureType
 explicitTypeApplicationRuntimeFunctionHint typeHint runtimeValue = do
-  functionHint <- runtimeFunctionSignatureHint runtimeValue
-  variableName <- listToMaybe (constraintSignatureTypeVariableNamesInOrder functionHint)
-  pure (substituteConstraintSignatureTypeVariable variableName typeHint functionHint)
+  explicitTypeApplicationRuntimeTemplateHint typeHint runtimeValue
 
-runtimeFunctionSignatureHint :: RuntimeValue -> Maybe ConstraintSignatureType
-runtimeFunctionSignatureHint runtimeValue =
+explicitTypeApplicationRuntimeValueHint :: ConstraintSignatureType -> RuntimeValue -> Maybe ConstraintSignatureType
+explicitTypeApplicationRuntimeValueHint typeHint runtimeValue =
+  case explicitTypeApplicationRuntimeTemplateHint typeHint runtimeValue of
+    Just instantiatedTemplate -> Just instantiatedTemplate
+    Nothing -> explicitTypeApplicationRuntimeShapeHint typeHint runtimeValue
+
+explicitTypeApplicationRuntimeTemplateHint :: ConstraintSignatureType -> RuntimeValue -> Maybe ConstraintSignatureType
+explicitTypeApplicationRuntimeTemplateHint typeHint runtimeValue = do
+  templateHint <- runtimeValueSignatureHint runtimeValue
+  variableName <- listToMaybe (constraintSignatureTypeVariableNamesInOrder templateHint)
+  pure (substituteConstraintSignatureTypeVariable variableName typeHint templateHint)
+
+explicitTypeApplicationRuntimeShapeHint :: ConstraintSignatureType -> RuntimeValue -> Maybe ConstraintSignatureType
+explicitTypeApplicationRuntimeShapeHint typeHint runtimeValue =
+  case runtimeValue of
+    VTyped _ innerValue ->
+      explicitTypeApplicationRuntimeShapeHint typeHint innerValue
+    VExplicitTypeApplication _ innerValue ->
+      explicitTypeApplicationRuntimeShapeHint typeHint innerValue
+    VExplicitResultHint _ innerValue ->
+      explicitTypeApplicationRuntimeShapeHint typeHint innerValue
+    VList {} ->
+      Just (ConstraintTypeList typeHint)
+    VConstructor typeName typeParameters _ constructorArguments capturedArgs
+      | length typeParameters == 1,
+        constructorIsSaturated constructorArguments capturedArgs ->
+          Just (ConstraintTypeApplication typeName [typeHint])
+    _ -> Nothing
+
+runtimeValueSignatureHint :: RuntimeValue -> Maybe ConstraintSignatureType
+runtimeValueSignatureHint runtimeValue =
   case runtimeValue of
     VTyped typeHint _ ->
       Just typeHint
     VExplicitTypeApplication _ innerValue ->
-      runtimeFunctionSignatureHint innerValue
+      runtimeValueSignatureHint innerValue
     VExplicitResultHint _ innerValue ->
-      runtimeFunctionSignatureHint innerValue
+      runtimeValueSignatureHint innerValue
     VClosure _ _ _ maybeTypeHint _ ->
       maybeTypeHint
+    VList _ (Just typeHint) ->
+      Just typeHint
     _ -> Nothing
 
 substituteConstraintSignatureTypeVariable :: Text -> ConstraintSignatureType -> ConstraintSignatureType -> ConstraintSignatureType
