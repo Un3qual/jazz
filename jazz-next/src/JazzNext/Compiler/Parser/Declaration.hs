@@ -474,8 +474,8 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
           then Right []
           else
             case splitTopLevelCommaTokens argumentTokens >>= traverse parseConstrainedSignatureType of
-              Just parsedArguments -> Right parsedArguments
-              Nothing ->
+              Right parsedArguments -> Right parsedArguments
+              Left _ ->
                 Left
                   ( parseDiagnostic
                       ( "unsupported "

@@ -10,7 +10,7 @@ module JazzNext.Compiler.Parser.Signature
 
 import Control.Applicative ((<|>))
 import Data.Text (Text)
-import qualified Data.Text as Text
+import JazzNext.Compiler.Diagnostics (Diagnostic)
 import JazzNext.Compiler.Identifier
   ( mkIdentifier
   )
@@ -36,32 +36,22 @@ parseSignaturePayload signatureTokens =
     Nothing -> SurfaceUnsupportedSignature (map surfaceSignatureTokenFromToken signatureTokens)
 
 parseSupportedSignaturePayload :: [Token] -> Maybe SurfaceSignaturePayload
-parseSupportedSignaturePayload =
-  parseTokenStreamMaybe "signature payload" signaturePayloadParser
+parseSupportedSignaturePayload tokens =
+  case TokenParser.runTokenParser "signature payload" signaturePayloadParser tokens of
+    Right signaturePayload -> Just signaturePayload
+    Left _ -> Nothing
 
-parseConstrainedSignatureType :: [Token] -> Maybe SurfaceConstrainedSignatureType
+parseConstrainedSignatureType :: [Token] -> Either Diagnostic SurfaceConstrainedSignatureType
 parseConstrainedSignatureType =
-  parseTokenStreamMaybe "constrained signature type" constrainedSignatureTypeParser
+  TokenParser.runTokenParser "constrained signature type" constrainedSignatureTypeParser
 
-parseSignatureTypePrefix :: [Token] -> Maybe (SurfaceSignatureType, [Token])
+parseSignatureTypePrefix :: [Token] -> Either Diagnostic (SurfaceSignatureType, [Token])
 parseSignatureTypePrefix =
-  parseTokenStreamPrefixMaybe "signature type" signatureTypeParser
+  TokenParser.runTokenParserPrefix "signature type" signatureTypeParser
 
-splitTopLevelCommaTokens :: [Token] -> Maybe [[Token]]
+splitTopLevelCommaTokens :: [Token] -> Either Diagnostic [[Token]]
 splitTopLevelCommaTokens =
-  parseTokenStreamMaybe "top-level comma list" topLevelCommaTokensParser
-
-parseTokenStreamMaybe :: Text -> TokenParser.Parser a -> [Token] -> Maybe a
-parseTokenStreamMaybe label parser tokens =
-  case TokenParser.runTokenParser label parser tokens of
-    Right value -> Just value
-    Left _ -> Nothing
-
-parseTokenStreamPrefixMaybe :: Text -> TokenParser.Parser a -> [Token] -> Maybe (a, [Token])
-parseTokenStreamPrefixMaybe label parser tokens =
-  case MP.runParser ((,) <$> parser <*> MP.getInput) (Text.unpack label) tokens of
-    Right value -> Just value
-    Left _ -> Nothing
+  TokenParser.runTokenParser "top-level comma list" topLevelCommaTokensParser
 
 signaturePayloadParser :: TokenParser.Parser SurfaceSignaturePayload
 signaturePayloadParser =

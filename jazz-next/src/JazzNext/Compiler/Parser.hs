@@ -991,8 +991,8 @@ parseApplicationTailUntil knownAliases declaredOperators stop functionExpr token
 parseTypeApplicationArgument :: Token -> [Token] -> Either Diagnostic (SurfaceSignatureType, [Token])
 parseTypeApplicationArgument typeApplicationToken tokens =
   case parseSignatureTypePrefix tokens of
-    Just parsedTypeArgument -> Right parsedTypeArgument
-    Nothing ->
+    Right parsedTypeArgument -> Right parsedTypeArgument
+    Left _ ->
       Left
         ( parseDiagnostic
             ( "unsupported explicit type application argument after '@' at "

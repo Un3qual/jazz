@@ -7,7 +7,8 @@ import JazzNext.Compiler.Diagnostics
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Parser.Lexer
-  ( TokenKind (..),
+  ( Token (..),
+    TokenKind (..),
     tokenize
   )
 import JazzNext.Compiler.Parser.TestSupport
@@ -17,7 +18,8 @@ import JazzNext.Compiler.Parser.TokenParser
   ( Parser,
     parseIdentifier,
     parseTokenKind,
-    runTokenParser
+    runTokenParser,
+    runTokenParserPrefix
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -33,6 +35,7 @@ main = runTestSuite "TokenParser" tests
 tests :: [NamedTest]
 tests =
   [ ("runs a Megaparsec token parser over lexer tokens", testRunTokenParser),
+    ("prefix parser returns the unconsumed token stream", testRunTokenParserPrefixReturnsRemainder),
     ("renders token parser diagnostics with token spans", testTokenParserDiagnostic),
     ("renders invalid character lexer diagnostics", testInvalidCharacterLexerDiagnostic)
   ]
@@ -48,6 +51,14 @@ testRunTokenParser = do
         ((,,,) <$> parseIdentifier <*> parseTokenKind TEquals <*> parseInteger <*> parseTokenKind TDot)
         tokens
     )
+
+testRunTokenParserPrefixReturnsRemainder :: IO ()
+testRunTokenParserPrefixReturnsRemainder = do
+  tokens <- lexSource "value."
+  assertEqual
+    "prefix result"
+    (Right ("value", [TDot]))
+    (fmap (fmap (map tokenKind)) (runTokenParserPrefix "identifier prefix" parseIdentifier tokens))
 
 testTokenParserDiagnostic :: IO ()
 testTokenParserDiagnostic = do
