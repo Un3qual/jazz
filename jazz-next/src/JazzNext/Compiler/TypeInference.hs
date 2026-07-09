@@ -107,6 +107,11 @@ import JazzNext.Compiler.RecursiveBindings
 import JazzNext.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol
   )
+import JazzNext.Compiler.Pattern
+  ( commonPatternBinderNames,
+    extendBoundWithPattern,
+    patternBinderNames
+  )
 import JazzNext.Compiler.RuntimeHints
   ( BindingRuntimeHintKey,
     bindingRuntimeHintKeyInModule
@@ -5636,54 +5641,6 @@ renderTypeAtom expressionType =
   case expressionType of
     TFunctionType _ _ -> "(" <> renderType expressionType <> ")"
     _ -> renderType expressionType
-
-extendBoundWithPattern :: Pattern -> Set Text -> Set Text
-extendBoundWithPattern pattern bound =
-  case pattern of
-    PVariable name -> Set.insert (identifierText name) bound
-    PWildcard -> bound
-    PLiteral {} -> bound
-    PConstructor _ patterns ->
-      foldl' (flip extendBoundWithPattern) bound patterns
-    PList patterns ->
-      foldl' (flip extendBoundWithPattern) bound patterns
-    PConsList headPattern tailPattern ->
-      extendBoundWithPattern tailPattern (extendBoundWithPattern headPattern bound)
-    PTuple patterns ->
-      foldl' (flip extendBoundWithPattern) bound patterns
-    PAs name pattern ->
-      extendBoundWithPattern pattern (Set.insert (identifierText name) bound)
-    POr alternatives ->
-      Set.union bound (commonPatternBinderNames alternatives)
-
-commonPatternBinderNames :: [Pattern] -> Set Text
-commonPatternBinderNames alternatives =
-  case alternatives of
-    [] -> Set.empty
-    firstAlternative : rest ->
-      foldl'
-        Set.intersection
-        (patternBinderNames firstAlternative)
-        (map patternBinderNames rest)
-
-patternBinderNames :: Pattern -> Set Text
-patternBinderNames pattern =
-  case pattern of
-    PVariable name -> Set.singleton (identifierText name)
-    PWildcard -> Set.empty
-    PLiteral {} -> Set.empty
-    PConstructor _ patterns ->
-      Set.unions (map patternBinderNames patterns)
-    PList patterns ->
-      Set.unions (map patternBinderNames patterns)
-    PConsList headPattern tailPattern ->
-      Set.union (patternBinderNames headPattern) (patternBinderNames tailPattern)
-    PTuple patterns ->
-      Set.unions (map patternBinderNames patterns)
-    PAs name nestedPattern ->
-      Set.insert (identifierText name) (patternBinderNames nestedPattern)
-    POr alternatives ->
-      commonPatternBinderNames alternatives
 
 inferPatternCaseType ::
   BuiltinResolutionMode ->

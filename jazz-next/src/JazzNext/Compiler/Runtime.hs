@@ -79,6 +79,9 @@ import JazzNext.Compiler.Identifier
 import JazzNext.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol
   )
+import JazzNext.Compiler.Pattern
+  ( patternBinderNames
+  )
 import JazzNext.Compiler.RecursiveBindings
   ( collectBindingNames,
     freeVarsExprWithBound,
@@ -664,7 +667,7 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
 
     caseArmBoundNames :: CaseArm -> Set Text
     caseArmBoundNames (CaseArm pattern _ _) =
-      patternBoundNames pattern
+      patternBinderNames pattern
 
     -- Single-expression blocks are semantically transparent here, so peel
     -- them before following recursive alias edges and cycle detection.
@@ -3158,36 +3161,3 @@ renderRuntimeType value =
 constructorIsSaturated :: [DataConstructorArgument] -> [RuntimeValue] -> Bool
 constructorIsSaturated constructorArguments capturedArgs =
   length capturedArgs >= length constructorArguments
-
-extendBoundWithPattern :: Pattern -> Set Text -> Set Text
-extendBoundWithPattern pattern bound =
-  Set.union bound (patternBoundNames pattern)
-
-patternBoundNames :: Pattern -> Set Text
-patternBoundNames pattern =
-  case pattern of
-    PVariable name -> Set.singleton (identifierText name)
-    PWildcard -> Set.empty
-    PLiteral {} -> Set.empty
-    PConstructor _ patterns ->
-      Set.unions (map patternBoundNames patterns)
-    PList patterns ->
-      Set.unions (map patternBoundNames patterns)
-    PConsList headPattern tailPattern ->
-      Set.union (patternBoundNames headPattern) (patternBoundNames tailPattern)
-    PTuple patterns ->
-      Set.unions (map patternBoundNames patterns)
-    PAs name pattern ->
-      Set.insert (identifierText name) (patternBoundNames pattern)
-    POr alternatives ->
-      commonPatternBoundNames alternatives
-
-commonPatternBoundNames :: [Pattern] -> Set Text
-commonPatternBoundNames alternatives =
-  case alternatives of
-    [] -> Set.empty
-    firstAlternative : rest ->
-      foldl'
-        Set.intersection
-        (patternBoundNames firstAlternative)
-        (map patternBoundNames rest)

@@ -35,6 +35,7 @@ library
       JazzNext.Compiler.Parser.Pattern
       JazzNext.Compiler.Parser.Signature
       JazzNext.Compiler.Parser.TokenParser
+      JazzNext.Compiler.Pattern
       JazzNext.Compiler.PreludeContract
       JazzNext.Compiler.Purity
       JazzNext.Compiler.RecursiveBindings
@@ -204,6 +205,11 @@ test-suite primitive-semantics-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+
+test-suite pattern-semantics-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Semantics/PatternSemanticsSpec.hs
 
 test-suite purity-semantics-spec
   import: test-common

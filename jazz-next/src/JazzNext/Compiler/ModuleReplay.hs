@@ -56,6 +56,9 @@ import JazzNext.Compiler.Identifier
     qualifiedIdentifierText,
     splitQualifiedIdentifierText
   )
+import JazzNext.Compiler.Pattern
+  ( patternBinderNames
+  )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
     ResolvedModule (..),
@@ -604,7 +607,7 @@ rewriteExprReferences importTargets boundNames expression =
             (fmap (rewriteExprReferences importTargets armBoundNames) guardExpr)
             (rewriteExprReferences importTargets armBoundNames bodyExpr)
           | CaseArm patternValue guardExpr bodyExpr <- caseArms,
-            let armBoundNames = Set.union boundNames (patternBinders patternValue)
+            let armBoundNames = Set.union boundNames (patternBinderNames patternValue)
         ]
     EBinary operatorName leftExpr rightExpr ->
       EBinary
@@ -781,32 +784,6 @@ rewritePatternReferences importTargets boundNames patternValue =
     POr alternatives ->
       POr (map (rewritePatternReferences importTargets boundNames) alternatives)
 
-patternBinders :: Pattern -> Set Text
-patternBinders patternValue =
-  case patternValue of
-    PWildcard -> Set.empty
-    PVariable name -> Set.singleton (identifierText name)
-    PLiteral _ -> Set.empty
-    PConstructor _ nestedPatterns -> Set.unions (map patternBinders nestedPatterns)
-    PList nestedPatterns -> Set.unions (map patternBinders nestedPatterns)
-    PConsList headPattern tailPattern ->
-      Set.union (patternBinders headPattern) (patternBinders tailPattern)
-    PTuple nestedPatterns -> Set.unions (map patternBinders nestedPatterns)
-    PAs name nestedPattern ->
-      Set.insert (identifierText name) (patternBinders nestedPattern)
-    POr alternatives ->
-      commonPatternBinders alternatives
-
-commonPatternBinders :: [Pattern] -> Set Text
-commonPatternBinders alternatives =
-  case alternatives of
-    [] -> Set.empty
-    firstAlternative : rest ->
-      foldl'
-        Set.intersection
-        (patternBinders firstAlternative)
-        (map patternBinders rest)
-
 collectUnqualifiedReferences :: Expr -> Set Text
 collectUnqualifiedReferences expr =
   case expr of
@@ -848,7 +825,7 @@ collectUnqualifiedReferences expr =
                         (maybe Set.empty collectUnqualifiedReferences guardExpr)
                         (collectUnqualifiedReferences bodyExpr)
                     )
-                    (patternBinders patternValue)
+                    (patternBinderNames patternValue)
                 )
               | CaseArm patternValue guardExpr bodyExpr <- caseArms
             ]
@@ -2003,7 +1980,7 @@ rewriteHiddenCapabilityReferences modulePath hiddenCapabilities =
                 (fmap (rewriteExprCapabilityReferences armBoundNames) guardExpr)
                 (rewriteExprCapabilityReferences armBoundNames bodyExpr)
               | CaseArm patternValue guardExpr bodyExpr <- caseArms,
-                let armBoundNames = Set.union boundNames (patternBinders patternValue)
+                let armBoundNames = Set.union boundNames (patternBinderNames patternValue)
             ]
         EBinary operatorName leftExpr rightExpr ->
           EBinary
