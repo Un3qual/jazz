@@ -18,7 +18,6 @@ library
       JazzNext.Compiler.BuiltinCatalog
       JazzNext.Compiler.BundledPrelude
       JazzNext.Compiler.CapabilityFacts
-      JazzNext.Compiler.Desugar
       JazzNext.Compiler.Diagnostics
       JazzNext.Compiler.Driver
       JazzNext.Compiler.FractionalLiteral
@@ -190,6 +189,11 @@ test-suite builtin-catalog-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
+
+test-suite core-normalization-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Semantics/CoreNormalizationSpec.hs
 
 test-suite if-expression-type-spec
   import: test-common

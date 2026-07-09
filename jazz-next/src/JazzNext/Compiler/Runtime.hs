@@ -579,8 +579,6 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
       case peelSingleExprBlock expr of
         EIf conditionExpr thenExpr elseExpr ->
           selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr
-        ECase conditionExpr thenExpr elseExpr ->
-          selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr
         EPatternCase scrutineeExpr caseArms -> do
           scrutineeValue <- evalValueAt statementIndex env scrutineeExpr
           selectedArm <-
@@ -927,8 +925,6 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
           case peelSingleExprBlock expr of
             EIf conditionExpr thenExpr elseExpr ->
               selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
-            ECase conditionExpr thenExpr elseExpr ->
-              selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
             EPatternCase scrutineeExpr caseArms -> do
               scrutineeValue <- evalValueWithModulePath methodModulePath builtinMode bindingTypeHints env scrutineeExpr
               selectedArm <-
@@ -993,9 +989,6 @@ exprContainsFunctionBranch expr =
     EIf _ thenExpr elseExpr ->
       exprContainsFunctionBranch thenExpr
         || exprContainsFunctionBranch elseExpr
-    ECase _ thenExpr elseExpr ->
-      exprContainsFunctionBranch thenExpr
-        || exprContainsFunctionBranch elseExpr
     EPatternCase _ caseArms ->
       any
         (\(CaseArm _ _ bodyExpr) -> exprContainsFunctionBranch bodyExpr)
@@ -1034,9 +1027,6 @@ scopeContainsFunctionBranch statements =
         EIf _ thenExpr elseExpr ->
           exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
             || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
-        ECase _ thenExpr elseExpr ->
-          exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
-            || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
         EPatternCase _ caseArms ->
           any
             ( \(CaseArm _ _ bodyExpr) ->
@@ -1068,9 +1058,6 @@ exprDefinitelyNotFunctionValue expr =
     ETypeApplication functionExpr _ ->
       exprDefinitelyNotFunctionValue functionExpr
     EIf _ thenExpr elseExpr ->
-      exprDefinitelyNotFunctionValue thenExpr
-        && exprDefinitelyNotFunctionValue elseExpr
-    ECase _ thenExpr elseExpr ->
       exprDefinitelyNotFunctionValue thenExpr
         && exprDefinitelyNotFunctionValue elseExpr
     EPatternCase {} ->
@@ -1128,9 +1115,7 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
       if isFunctionValue runtimeValue
         then Right (VExplicitTypeApplication typeHint runtimeValue)
         else applyRuntimeTypeHint (fromMaybe typeHint (explicitTypeApplicationRuntimeValueHint typeHint runtimeValue)) runtimeValue
-    EIf conditionExpr thenExpr elseExpr ->
-      evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env (ECase conditionExpr thenExpr elseExpr)
-    ECase conditionExpr thenExpr elseExpr -> do
+    EIf conditionExpr thenExpr elseExpr -> do
       conditionValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env conditionExpr
       case conditionValue of
         VBool True -> evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env thenExpr

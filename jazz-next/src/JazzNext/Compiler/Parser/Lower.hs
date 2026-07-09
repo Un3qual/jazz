@@ -79,6 +79,11 @@ lowerSurfaceExpr surfaceExpr =
       EPatternCase
         (lowerSurfaceExpr scrutineeExpr)
         (map lowerSurfaceCaseArm caseArms)
+    SEBinary operatorSymbol functionExpr argumentExpr
+      | operatorSymbol == Text.pack "$" ->
+          EApply
+            (lowerSurfaceExpr functionExpr)
+            (lowerSurfaceExpr argumentExpr)
     SEBinary operatorSymbol leftExpr rightExpr ->
       EBinary
         operatorSymbol

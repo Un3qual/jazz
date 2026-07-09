@@ -75,8 +75,6 @@ freeVarsExprWithBound bound expr =
     ETypeApplication functionExpr _ ->
       freeVarsExprWithBound bound functionExpr
     EIf conditionExpr thenExpr elseExpr ->
-      freeVarsExprWithBound bound (ECase conditionExpr thenExpr elseExpr)
-    ECase conditionExpr thenExpr elseExpr ->
       Set.unions
         [ freeVarsExprWithBound bound conditionExpr,
           freeVarsExprWithBound bound thenExpr,
@@ -313,13 +311,6 @@ selfAliasLikeReference bindingNameText =
             [ aliasSummary boundNames scopeBindings visitedBindings thenExpr,
               aliasSummary boundNames scopeBindings visitedBindings elseExpr
             ]
-        ECase conditionExpr thenExpr elseExpr ->
-          foldl'
-            combineSummaries
-            (nonAliasSummary boundNames scopeBindings visitedBindings conditionExpr)
-            [ aliasSummary boundNames scopeBindings visitedBindings thenExpr,
-              aliasSummary boundNames scopeBindings visitedBindings elseExpr
-            ]
         EPatternCase scrutineeExpr caseArms ->
           foldl'
             combineSummaries
@@ -411,14 +402,6 @@ selfAliasLikeReference bindingNameText =
         ETypeApplication functionExpr _ ->
           nonAliasSummary boundNames scopeBindings visitedBindings functionExpr
         EIf conditionExpr thenExpr elseExpr ->
-          foldl'
-            combineSummaries
-            noSummary
-            [ nonAliasSummary boundNames scopeBindings visitedBindings conditionExpr,
-              nonAliasSummary boundNames scopeBindings visitedBindings thenExpr,
-              nonAliasSummary boundNames scopeBindings visitedBindings elseExpr
-            ]
-        ECase conditionExpr thenExpr elseExpr ->
           foldl'
             combineSummaries
             noSummary

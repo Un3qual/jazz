@@ -79,8 +79,6 @@ data Expr
   | EApply Expr Expr
   | ETypeApplication Expr SignatureType
   | EIf Expr Expr Expr
-  -- Internal canonical branch form used after control-flow desugaring.
-  | ECase Expr Expr Expr
   | EPatternCase Expr [CaseArm]
   | EBinary Text Expr Expr
   | ESectionLeft Expr Text

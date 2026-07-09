@@ -21,9 +21,6 @@ import JazzNext.Compiler.Parser.AST
 import JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr
   )
-import JazzNext.Compiler.Desugar
-  ( desugarExpr
-  )
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
@@ -43,7 +40,7 @@ tests =
     ("grouped infix expression is not treated as section", testGroupedExpressionIsNotSection),
     ("section application binds before infix operators", testSectionApplicationBeforeInfix),
     ("lowering preserves bare operator value nodes", testLowerPreservesBareOperatorValue),
-    ("desugaring preserves bare operator value nodes", testDesugarPreservesBareOperatorValue),
+    ("lowered bare operator values need no post-pass", testLoweredBareOperatorValueIsCanonical),
     ("lowering preserves explicit left section nodes", testLowerPreservesLeftSectionNodes),
     ("lowering preserves explicit section nodes", testLowerPreservesSectionNodes)
   ]
@@ -166,12 +163,12 @@ testLowerPreservesBareOperatorValue =
         [ SLet "f" (SourceSpan 1 1) (EOperatorValue "+")
         ]
 
-testDesugarPreservesBareOperatorValue :: IO ()
-testDesugarPreservesBareOperatorValue =
+testLoweredBareOperatorValueIsCanonical :: IO ()
+testLoweredBareOperatorValueIsCanonical =
   assertRight
-    "parse + lower + desugar bare operator value"
+    "parse + canonical lower bare operator value"
     (parseSurfaceProgram "f = (+).")
-    (\surfaceProgram -> assertEqual "desugared AST" expectedProgram (desugarExpr (lowerSurfaceExpr surfaceProgram)))
+    (\surfaceProgram -> assertEqual "canonical lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
       EBlock

@@ -211,8 +211,6 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
     ETypeApplication functionExpr _ ->
       collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context functionExpr
     EIf conditionExpr thenExpr elseExpr ->
-      collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context (ECase conditionExpr thenExpr elseExpr)
-    ECase conditionExpr thenExpr elseExpr ->
       let (conditionWarnings, conditionErrors) =
             collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context conditionExpr
           (thenWarnings, thenErrors) =

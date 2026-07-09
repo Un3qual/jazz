@@ -22,9 +22,6 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
-import JazzNext.Compiler.Desugar
-  ( desugarExpr
-  )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
     SurfaceConstrainedSignatureType (..),
@@ -83,7 +80,7 @@ tests =
     ("rejects unsupported explicit type application argument", testRejectsUnsupportedExplicitTypeApplicationArgument),
     ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
     ("lowers explicit type application expression", testLowerExplicitTypeApplicationExpression),
-    ("desugars lowered explicit type application expression", testDesugarExplicitTypeApplicationExpression),
+    ("lowered explicit type application needs no post-pass", testLoweredExplicitTypeApplicationIsCanonical),
     ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram),
     ("lowers Unit value and signature into analyzer AST", testLowerUnitValueAndSignature),
     ("lowers numeric width signature names into analyzer AST", testLowerNumericWidthSignatureProgram),
@@ -567,16 +564,16 @@ testLowerExplicitTypeApplicationExpression =
         assertContains "lowered type application argument" "TypeInt" rendered
     )
 
-testDesugarExplicitTypeApplicationExpression :: IO ()
-testDesugarExplicitTypeApplicationExpression =
+testLoweredExplicitTypeApplicationIsCanonical :: IO ()
+testLoweredExplicitTypeApplicationIsCanonical =
   assertRight
-    "parse + lower + desugar explicit type application"
+    "parse + canonical lower explicit type application"
     (parseSurfaceProgram "value = id @Int 1.\nvalue.")
     ( \surfaceProgram ->
         assertEqual
-          "desugared type application AST"
+          "canonical lowered type application AST"
           expectedProgram
-          (desugarExpr (lowerSurfaceExpr surfaceProgram))
+          (lowerSurfaceExpr surfaceProgram)
     )
   where
     expectedProgram =

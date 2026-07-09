@@ -192,7 +192,6 @@ qualifyExprSourceSpans sourcePath expr =
     EApply function argument -> EApply (go function) (go argument)
     ETypeApplication function signatureType -> ETypeApplication (go function) signatureType
     EIf condition trueBranch falseBranch -> EIf (go condition) (go trueBranch) (go falseBranch)
-    ECase condition trueBranch falseBranch -> ECase (go condition) (go trueBranch) (go falseBranch)
     EPatternCase scrutinee arms -> EPatternCase (go scrutinee) (map qualifyCaseArm arms)
     EBinary symbol left right -> EBinary symbol (go left) (go right)
     ESectionLeft left symbol -> ESectionLeft (go left) symbol
@@ -594,11 +593,6 @@ rewriteExprReferences importTargets boundNames expression =
         (rewriteExprReferences importTargets boundNames conditionExpr)
         (rewriteExprReferences importTargets boundNames trueBranch)
         (rewriteExprReferences importTargets boundNames falseBranch)
-    ECase conditionExpr trueBranch falseBranch ->
-      ECase
-        (rewriteExprReferences importTargets boundNames conditionExpr)
-        (rewriteExprReferences importTargets boundNames trueBranch)
-        (rewriteExprReferences importTargets boundNames falseBranch)
     EPatternCase scrutineeExpr caseArms ->
       EPatternCase
         (rewriteExprReferences importTargets boundNames scrutineeExpr)
@@ -667,11 +661,6 @@ rewriteOperatorBindingReferences modulePath replayedOperatorBindings expression 
         signatureType
     EIf conditionExpr trueBranch falseBranch ->
       EIf
-        (rewriteOperatorReference conditionExpr)
-        (rewriteOperatorReference trueBranch)
-        (rewriteOperatorReference falseBranch)
-    ECase conditionExpr trueBranch falseBranch ->
-      ECase
         (rewriteOperatorReference conditionExpr)
         (rewriteOperatorReference trueBranch)
         (rewriteOperatorReference falseBranch)
@@ -803,12 +792,6 @@ collectUnqualifiedReferences expr =
     ETypeApplication functionExpr _ ->
       collectUnqualifiedReferences functionExpr
     EIf conditionExpr trueBranch falseBranch ->
-      Set.unions
-        [ collectUnqualifiedReferences conditionExpr,
-          collectUnqualifiedReferences trueBranch,
-          collectUnqualifiedReferences falseBranch
-        ]
-    ECase conditionExpr trueBranch falseBranch ->
       Set.unions
         [ collectUnqualifiedReferences conditionExpr,
           collectUnqualifiedReferences trueBranch,
@@ -1284,10 +1267,6 @@ expressionUsesStrictEquality expr =
       any
         expressionUsesStrictEquality
         [conditionExpr, trueBranch, falseBranch]
-    ECase conditionExpr trueBranch falseBranch ->
-      any
-        expressionUsesStrictEquality
-        [conditionExpr, trueBranch, falseBranch]
     EPatternCase scrutineeExpr caseArms ->
       expressionUsesStrictEquality scrutineeExpr
         || any
@@ -1462,12 +1441,6 @@ collectAliasQualifiedReferencePairs expr =
     ETypeApplication functionExpr _ ->
       collectAliasQualifiedReferencePairs functionExpr
     EIf conditionExpr trueBranch falseBranch ->
-      Set.unions
-        [ collectAliasQualifiedReferencePairs conditionExpr,
-          collectAliasQualifiedReferencePairs trueBranch,
-          collectAliasQualifiedReferencePairs falseBranch
-        ]
-    ECase conditionExpr trueBranch falseBranch ->
       Set.unions
         [ collectAliasQualifiedReferencePairs conditionExpr,
           collectAliasQualifiedReferencePairs trueBranch,
@@ -1964,11 +1937,6 @@ rewriteHiddenCapabilityReferences modulePath hiddenCapabilities =
             signatureType
         EIf conditionExpr trueBranch falseBranch ->
           EIf
-            (rewriteExprCapabilityReferences boundNames conditionExpr)
-            (rewriteExprCapabilityReferences boundNames trueBranch)
-            (rewriteExprCapabilityReferences boundNames falseBranch)
-        ECase conditionExpr trueBranch falseBranch ->
-          ECase
             (rewriteExprCapabilityReferences boundNames conditionExpr)
             (rewriteExprCapabilityReferences boundNames trueBranch)
             (rewriteExprCapabilityReferences boundNames falseBranch)

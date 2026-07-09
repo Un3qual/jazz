@@ -148,17 +148,16 @@ inferExpressionWithBuiltinsAndHiddenStatements ::
   Expr ->
   IO InferenceResult
 inferExpressionWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices settings expr = do
-  let canonicalExpr = canonicalizeExpr expr
   AnalysisResult _ warnings errors <-
     analyzeProgramWithBuiltinsAndHiddenStatements
       builtinMode
       hiddenStatementIndices
       settings
-      canonicalExpr
-  let (typeErrors, runtimeTypeHints) = collectExprTypeInfo builtinMode canonicalExpr
+      expr
+  let (typeErrors, runtimeTypeHints) = collectExprTypeInfo builtinMode expr
   pure
     InferenceResult
-      { inferredExpr = canonicalExpr,
+      { inferredExpr = expr,
         inferredWarnings = warnings,
         inferredErrors = errors ++ typeErrors,
         inferredRuntimeTypeHints = runtimeTypeHints
@@ -166,80 +165,6 @@ inferExpressionWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndice
 
 inferExpressionDefault :: Expr -> IO InferenceResult
 inferExpressionDefault = inferExpression defaultWarningSettings
-
--- Keep if/case canonicalization local so new AST variants do not depend on the
--- legacy desugar module shape.
-canonicalizeExpr :: Expr -> Expr
-canonicalizeExpr expr =
-  case expr of
-    ELit literal -> ELit literal
-    EVar name -> EVar name
-    ELambda parameterName bodyExpr ->
-      ELambda parameterName (canonicalizeExpr bodyExpr)
-    EOperatorValue operatorSymbol -> EOperatorValue operatorSymbol
-    EList elements -> EList (map canonicalizeExpr elements)
-    ETuple elements -> ETuple (map canonicalizeExpr elements)
-    EApply functionExpr argumentExpr ->
-      EApply (canonicalizeExpr functionExpr) (canonicalizeExpr argumentExpr)
-    ETypeApplication functionExpr signatureType ->
-      ETypeApplication (canonicalizeExpr functionExpr) signatureType
-    EIf conditionExpr thenExpr elseExpr ->
-      ECase
-        (canonicalizeExpr conditionExpr)
-        (canonicalizeExpr thenExpr)
-        (canonicalizeExpr elseExpr)
-    ECase conditionExpr thenExpr elseExpr ->
-      ECase
-        (canonicalizeExpr conditionExpr)
-        (canonicalizeExpr thenExpr)
-        (canonicalizeExpr elseExpr)
-    EPatternCase scrutineeExpr caseArms ->
-      EPatternCase
-        (canonicalizeExpr scrutineeExpr)
-        (map canonicalizeCaseArm caseArms)
-    EBinary operatorSymbol leftExpr rightExpr
-      | operatorSymbol == "$" ->
-          EApply
-            (canonicalizeExpr leftExpr)
-            (canonicalizeExpr rightExpr)
-      | otherwise ->
-          EBinary
-            operatorSymbol
-            (canonicalizeExpr leftExpr)
-            (canonicalizeExpr rightExpr)
-    ESectionLeft leftExpr operatorSymbol ->
-      ESectionLeft (canonicalizeExpr leftExpr) operatorSymbol
-    ESectionRight operatorSymbol rightExpr ->
-      ESectionRight operatorSymbol (canonicalizeExpr rightExpr)
-    EBlock statements -> EBlock (map canonicalizeStatement statements)
-
-canonicalizeCaseArm :: CaseArm -> CaseArm
-canonicalizeCaseArm (CaseArm patternExpr guardExpr bodyExpr) =
-  CaseArm patternExpr (fmap canonicalizeExpr guardExpr) (canonicalizeExpr bodyExpr)
-
-canonicalizeStatement :: Statement -> Statement
-canonicalizeStatement statement =
-  case statement of
-    SLet name spanValue valueExpr ->
-      SLet name spanValue (canonicalizeExpr valueExpr)
-    SSignature name spanValue signaturePayload ->
-      SSignature name spanValue signaturePayload
-    SData spanValue typeName typeParameters constructors ->
-      SData spanValue typeName typeParameters constructors
-    SClass spanValue capabilityName parameters methods ->
-      SClass spanValue capabilityName parameters methods
-    SImpl spanValue capabilityName arguments methods ->
-      SImpl spanValue capabilityName arguments (map canonicalizeImplMethod methods)
-    SModule spanValue modulePath ->
-      SModule spanValue modulePath
-    SImport spanValue modulePath alias importedSymbols ->
-      SImport spanValue modulePath alias importedSymbols
-    SExpr spanValue expr ->
-      SExpr spanValue (canonicalizeExpr expr)
-
-canonicalizeImplMethod :: ImplMethod -> ImplMethod
-canonicalizeImplMethod (ImplMethod methodName spanValue methodExpr) =
-  ImplMethod methodName spanValue (canonicalizeExpr methodExpr)
 
 -- | Internal type language used by the current inferencer.
 data ExpressionType
@@ -431,8 +356,6 @@ inferExprType builtinMode env state expr =
     ETypeApplication functionExpr typeArgument ->
       inferExplicitTypeApplication builtinMode env state functionExpr typeArgument
     EIf conditionExpr thenExpr elseExpr ->
-      inferExprType builtinMode env state (ECase conditionExpr thenExpr elseExpr)
-    ECase conditionExpr thenExpr elseExpr ->
       let (conditionType, stateAfterCondition) =
             inferExprType builtinMode env state conditionExpr
           (thenType, stateAfterThen) =
@@ -2343,9 +2266,6 @@ exprContainsFunctionBranch expr =
     EIf _ thenExpr elseExpr ->
       exprContainsFunctionBranch thenExpr
         || exprContainsFunctionBranch elseExpr
-    ECase _ thenExpr elseExpr ->
-      exprContainsFunctionBranch thenExpr
-        || exprContainsFunctionBranch elseExpr
     EPatternCase _ caseArms ->
       any
         (\(CaseArm _ _ bodyExpr) -> exprContainsFunctionBranch bodyExpr)
@@ -2379,9 +2299,6 @@ scopeContainsFunctionBranch statements =
             _ -> False
         ELambda {} -> True
         EIf _ thenExpr elseExpr ->
-          exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
-            || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
-        ECase _ thenExpr elseExpr ->
           exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
             || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
         EPatternCase _ caseArms ->
@@ -3652,8 +3569,6 @@ constraintSignatureExpressionHasExactEvidence env signatureType argumentExpr =
           constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
     (_, EIf {}) ->
       constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
-    (_, ECase {}) ->
-      constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
     (_, EPatternCase {}) ->
       constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
     (_, EBlock {})
@@ -3691,8 +3606,6 @@ constraintSignatureExpressionRuntimeHintWithLocalHints env localHints argumentEx
         Just (ConstraintTypeFunction _ resultType) -> Just resultType
         _ -> Nothing
     EIf _ thenExpr elseExpr ->
-      commonConstraintSignatureExpressionRuntimeHint env localHints [thenExpr, elseExpr]
-    ECase _ thenExpr elseExpr ->
       commonConstraintSignatureExpressionRuntimeHint env localHints [thenExpr, elseExpr]
     EPatternCase _ caseArms ->
       commonConstraintSignatureExpressionRuntimeHint env localHints [bodyExpr | CaseArm _ _ bodyExpr <- caseArms]
