@@ -23,9 +23,14 @@ CLI module-graph mode parses `--entry-module <A::B>` before resolver traversal. 
 
 ## Candidate Lookup
 
-For a requested module path, the resolver builds candidate paths by joining each deduplicated module root with the module-relative `.jz` file path.
+For a requested module path, the resolver builds candidate paths by joining each module root with the module-relative `.jz` file path.
 
-Candidate roots are deduplicated before lookup while preserving first occurrence. Duplicate roots therefore cannot create ambiguity by themselves.
+Candidate paths are lexically normalized before deduplication and lookup.
+Roots such as `src`, `src/.`, and paths with reducible `..` components therefore
+refer to one candidate. The pure resolver does not resolve symlinks or compare
+filesystem identities; physically equivalent symlink roots remain distinct.
+Normalized candidates are deduplicated while preserving first occurrence, so
+lexically equivalent roots cannot create ambiguity by themselves.
 
 Candidate lookup outcomes:
 

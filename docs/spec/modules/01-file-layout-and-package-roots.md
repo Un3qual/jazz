@@ -37,7 +37,12 @@ A module root is a source-root directory searched for module-relative files. For
 
 The CLI accepts repeated `--module-root <path>` flags when `--entry-module <A::B>` is present. If no module root is supplied, CLI module-graph mode uses `.` as the sole root. Driver and test helpers may pass an explicit `ModuleResolutionConfig`; the same ordered-root semantics apply.
 
-Duplicate roots are deduplicated before lookup while preserving the first occurrence. Root order is semantically meaningful:
+Candidate paths are lexically normalized before deduplication and lookup.
+Roots such as `src`, `src/.`, and paths with reducible `..` components therefore
+refer to one candidate. The pure resolver does not resolve symlinks or compare
+filesystem identities; physically equivalent symlink roots remain distinct.
+
+Duplicate normalized roots are deduplicated before lookup while preserving the first occurrence. Root order is semantically meaningful:
 
 - no matching candidate is `E4001`;
 - one matching candidate is selected;

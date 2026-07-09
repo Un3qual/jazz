@@ -46,6 +46,7 @@ tests =
     ("collapses duplicate imports to one dependency edge", testCollapsesDuplicateImports),
     ("reuses already-resolved modules across branches", testReusesAlreadyResolvedModuleAcrossBranches),
     ("deduplicates duplicate module roots before ambiguity checks", testDeduplicatesDuplicateRoots),
+    ("deduplicates lexically equivalent module roots before ambiguity checks", testDeduplicatesEquivalentRoots),
     ("reports unresolved import with importer context", testReportsUnresolvedImport),
     ("reports ambiguous module candidates across roots", testReportsAmbiguousImport),
     ("reports import cycles with minimal trace", testReportsCycle),
@@ -349,6 +350,30 @@ testDeduplicatesDuplicateRoots =
             resolvedSourcePath = "src/App/Main.jz",
             resolvedImports = [["Lib", "Util"]]
           }
+      ]
+
+testDeduplicatesEquivalentRoots :: IO ()
+testDeduplicatesEquivalentRoots =
+  assertRight
+    "equivalent roots are not treated as ambiguity"
+    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (\modules -> assertEqual "resolved modules" expectedModules modules)
+  where
+    config =
+      ModuleResolutionConfig
+        { moduleRoots = ["src", "src/."],
+          moduleExtension = ".jz"
+        }
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Util.\nutil."),
+          ("src/./App/Main.jz", "import Lib::Util.\nutil."),
+          ("src/Lib/Util.jz", "util = 1."),
+          ("src/./Lib/Util.jz", "util = 1.")
+        ]
+    expectedModules =
+      [ ResolvedModule ["Lib", "Util"] "src/Lib/Util.jz" [],
+        ResolvedModule ["App", "Main"] "src/App/Main.jz" [["Lib", "Util"]]
       ]
 
 testReportsUnresolvedImport :: IO ()

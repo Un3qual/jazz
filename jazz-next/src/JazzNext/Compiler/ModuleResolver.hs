@@ -49,7 +49,10 @@ import JazzNext.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceStatement (..)
   )
-import System.FilePath ((</>))
+import System.FilePath
+  ( normalise,
+    (</>)
+  )
 
 -- | File-system lookup policy for module loading.
 data ModuleResolutionConfig = ModuleResolutionConfig
@@ -262,7 +265,7 @@ resolveModuleGraphWithLookupAndVisibleSymbols config ambientVisibleSymbols ambie
       let relativePath = modulePathToRelativeFileWithExt (moduleExtension config) modulePath
           candidatePaths =
             dedupePreservingOrder
-              (map (appendRelativePath relativePath) (moduleRoots config))
+              (map (normalise . appendRelativePath relativePath) (moduleRoots config))
       candidatesWithContents <-
         mapM
           (\candidatePath -> do
