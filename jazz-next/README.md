@@ -22,7 +22,8 @@ Do not implement new compiler functionality in legacy directories.
 - `src/JazzNext/Compiler/TypeInference.hs`: inference result plumbing that carries warnings and semantic errors from analysis.
 - `src/JazzNext/Compiler/Driver.hs`: warning-as-error gating plus semantic-error propagation into compile results.
 - `src/JazzNext/CLI/Main.hs`: CLI flag/env/config resolution and warning-aware compile output behavior.
-- `scripts/test-warning-config.sh`: local `jazz-next` test entrypoint.
+- `jazz-next.cabal`: packaged library, `jazz-next` executable, and complete test-suite registration.
+- `scripts/test-warning-config.sh`: compatibility runner for executing every spec through the local `runghc` wrapper.
 
 ## Test layout
 
@@ -46,13 +47,13 @@ answer.
 Compile it:
 
 ```bash
-bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs first.jz
+cabal run --project-dir=jazz-next jazz-next -- first.jz
 ```
 
 Successful compile output is quiet. Run it:
 
 ```bash
-bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs --run first.jz
+cabal run --project-dir=jazz-next jazz-next -- --run first.jz
 ```
 
 Expected output:
@@ -64,13 +65,13 @@ Expected output:
 Run source from stdin explicitly:
 
 ```bash
-printf '40 + 2.' | bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs --run -
+printf '40 + 2.' | cabal run --project-dir=jazz-next jazz-next -- --run -
 ```
 
 Show CLI help:
 
 ```bash
-bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs --help
+cabal run --project-dir=jazz-next jazz-next -- --help
 ```
 
 The help path prints usage to stdout and does not read stdin, source files,
@@ -80,7 +81,8 @@ warning config files, or Prelude files.
 
 ```bash
 # from repository root:
+cabal test --project-dir=jazz-next all
+
+# compatibility runner for the same spec programs:
 bash jazz-next/scripts/test-warning-config.sh
-# or from inside jazz-next/:
-# bash scripts/test-warning-config.sh
 ```
