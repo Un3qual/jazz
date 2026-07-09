@@ -81,7 +81,8 @@ Module-graph compile/run uses this order:
 3. Collect visible prelude binding names as ambient symbols for import validation.
 4. Resolve the entry module graph using the file-layout and resolution rules.
 5. Replay resolved source files in dependency-first order from the memoized source lookup.
-6. Parse and lower each resolved module source.
+6. Parse and lower each resolved module source, then qualify every
+   statement-owned span with that module's resolved source path.
 7. Build a validation replay program that contains dependency and entry module statements.
 8. Merge prelude statements before the validation replay program.
 9. Run analyzer/type inference and warning collection on the validation replay program.
@@ -136,6 +137,12 @@ Module diagnostics should preserve the context from earlier spec slices:
 - cycles include a minimal cycle trace;
 - module parse diagnostics include the source path;
 - import-binding diagnostics include importer/imported-module context.
+
+After each resolved source is lowered, every statement-owned span is qualified
+with that module's resolved source path before replay combines modules.
+Semantic primary and related locations therefore render as
+`path:line:column`, including cross-module diagnostics. Standalone-source spans
+retain their existing `line:column` rendering.
 
 ## Truth Table
 

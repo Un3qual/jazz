@@ -70,6 +70,7 @@ tests =
     ("run module graph ignores dependency expression statements", testRunModuleGraphIgnoresDependencyExpressions),
     ("compile module graph validates dependency expression statements", testCompileModuleGraphValidatesDependencyExpressions),
     ("run module graph validates dependency expression statements before runtime", testRunModuleGraphValidatesDependencyExpressionsBeforeRuntime),
+    ("compile module graph qualifies semantic diagnostic spans with source paths", testCompileModuleGraphQualifiesSemanticDiagnosticSpans),
     ("compile module graph validates hidden dependency exports", testCompileModuleGraphValidatesHiddenDependencyExports),
     ("compile module graph rewrites hidden constructor dependency expressions", testCompileModuleGraphRewritesHiddenConstructorDependencyExpressions),
     ("compile module graph reports unresolved import diagnostics", testCompileModuleGraphUnresolved),
@@ -394,6 +395,29 @@ testRunModuleGraphValidatesDependencyExpressionsBeforeRuntime = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
           ("src/Lib/Util.jz", "module Lib::Util {\nutil :: Int.\nTrue.\nutil = 1.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphQualifiesSemanticDiagnosticSpans :: IO ()
+testCompileModuleGraphQualifiesSemanticDiagnosticSpans = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [err] -> do
+      assertContains "semantic error code" "E2005" (renderDiagnostic err)
+      assertContains "semantic primary source" "src/Lib/Bad.jz:1:1" (renderDiagnostic err)
+      assertContains "semantic related source" "related src/Lib/Bad.jz:2:1" (renderDiagnostic err)
+    _ -> failTest "expected exactly one source-qualified dependency semantic error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Bad (x).\nx."),
+          ("src/Lib/Bad.jz", "x :: Int.\nx = True.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

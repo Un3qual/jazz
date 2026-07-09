@@ -43,6 +43,7 @@ import JazzNext.Compiler.Diagnostics
     SourceSpan (..),
     mkDiagnostic,
     prependDiagnosticSummary,
+    qualifySourceSpan,
     setDiagnosticCode
   )
 import JazzNext.Compiler.Identifier
@@ -170,7 +171,55 @@ parseAndLowerResolvedModule resolvedModule sourceText =
             )
         )
     Right loweredSource ->
-      Right loweredSource
+      Right
+        ( qualifyExprSourceSpans
+            (resolvedSourcePath resolvedModule)
+            loweredSource
+        )
+
+qualifyExprSourceSpans :: FilePath -> Expr -> Expr
+qualifyExprSourceSpans sourcePath expr =
+  case expr of
+    ELit literal -> ELit literal
+    EVar name -> EVar name
+    ELambda parameter body -> ELambda parameter (go body)
+    EOperatorValue symbol -> EOperatorValue symbol
+    EList items -> EList (map go items)
+    ETuple items -> ETuple (map go items)
+    EApply function argument -> EApply (go function) (go argument)
+    ETypeApplication function signatureType -> ETypeApplication (go function) signatureType
+    EIf condition trueBranch falseBranch -> EIf (go condition) (go trueBranch) (go falseBranch)
+    ECase condition trueBranch falseBranch -> ECase (go condition) (go trueBranch) (go falseBranch)
+    EPatternCase scrutinee arms -> EPatternCase (go scrutinee) (map qualifyCaseArm arms)
+    EBinary symbol left right -> EBinary symbol (go left) (go right)
+    ESectionLeft left symbol -> ESectionLeft (go left) symbol
+    ESectionRight symbol right -> ESectionRight symbol (go right)
+    EBlock statements -> EBlock (map qualifyStatement statements)
+  where
+    go = qualifyExprSourceSpans sourcePath
+    qualifySpan = qualifySourceSpan sourcePath
+
+    qualifyCaseArm (CaseArm patternValue guardExpr bodyExpr) =
+      CaseArm patternValue (fmap go guardExpr) (go bodyExpr)
+
+    qualifyClassMethod (ClassMethodSignature name spanValue payload) =
+      ClassMethodSignature name (qualifySpan spanValue) payload
+
+    qualifyImplMethod (ImplMethod name spanValue bodyExpr) =
+      ImplMethod name (qualifySpan spanValue) (go bodyExpr)
+
+    qualifyStatement statement =
+      case statement of
+        SLet name spanValue valueExpr -> SLet name (qualifySpan spanValue) (go valueExpr)
+        SSignature name spanValue payload -> SSignature name (qualifySpan spanValue) payload
+        SData spanValue name parameters constructors -> SData (qualifySpan spanValue) name parameters constructors
+        SClass spanValue name parameters methods ->
+          SClass (qualifySpan spanValue) name parameters (map qualifyClassMethod methods)
+        SImpl spanValue name arguments methods ->
+          SImpl (qualifySpan spanValue) name arguments (map qualifyImplMethod methods)
+        SModule spanValue path -> SModule (qualifySpan spanValue) path
+        SImport spanValue path alias symbols -> SImport (qualifySpan spanValue) path alias symbols
+        SExpr spanValue valueExpr -> SExpr (qualifySpan spanValue) (go valueExpr)
 
 -- | Build validation/runtime replay programs while preserving module import
 -- visibility rules through qualified synthetic bindings.
