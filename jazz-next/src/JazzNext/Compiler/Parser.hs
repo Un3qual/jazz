@@ -41,6 +41,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceNumericType (..),
     SurfacePattern (..),
     SurfaceSignaturePayload (..),
+    SurfaceSignatureType (..),
     SurfaceSignatureToken (..),
     SurfaceStatement (..)
   )
@@ -53,6 +54,7 @@ import qualified JazzNext.Compiler.Parser.Declaration as Declaration
 import JazzNext.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
+    declaredOperatorInfoForPrecedence,
     declaredOperatorInfoForTier,
     isBuiltinOperatorSymbol,
     isReservedOperatorSymbol,
@@ -61,10 +63,15 @@ import JazzNext.Compiler.Parser.Operator
   )
 import qualified JazzNext.Compiler.Parser.Pattern as Pattern
 import JazzNext.Compiler.Parser.Signature
-  ( parseSignaturePayload
+  ( parseSignaturePayload,
+    parseSignatureTypePrefix
   )
 
 type DeclaredOperators = [OperatorInfo]
+
+data OperatorDeclarationFixityKeyword
+  = OperatorTierKeyword
+  | OperatorPrecedenceKeyword
 
 -- Parses the current minimal surface language into a block-wrapped program.
 -- Most top-level forms are dot-terminated; module declarations instead own a
@@ -172,10 +179,11 @@ parseOperatorDeclaration context declaredOperators operatorToken tokensAfterKeyw
     parseTopLevelOperatorDeclaration = do
       (operatorSymbol, afterSymbol) <- parseOperatorDeclarationSymbol tokensAfterKeyword
       validateDeclaredOperatorSymbol declaredOperators operatorToken operatorSymbol
-      afterTierKeyword <- consumeOperatorTierKeyword operatorToken afterSymbol
-      (operatorInfo, afterTier) <- parseOperatorDeclarationTier operatorToken operatorSymbol afterTierKeyword
-      remaining <- consumeOperatorDeclarationDot afterTier
-      Right (operatorInfo, remaining)
+      (fixityKeyword, afterFixityKeyword) <- consumeOperatorFixityKeyword operatorToken afterSymbol
+      (operatorInfo, afterFixity) <- parseOperatorDeclarationFixity operatorToken operatorSymbol fixityKeyword afterFixityKeyword
+      (operatorInfoWithAssociativity, afterAssociativity) <- parseOptionalOperatorAssociativity operatorInfo afterFixity
+      remaining <- consumeOperatorDeclarationDot (operatorDeclarationFixityLabel fixityKeyword) afterAssociativity
+      Right (operatorInfoWithAssociativity, remaining)
 
 parseOperatorDeclarationSymbol :: [Token] -> Either Diagnostic (Text, [Token])
 parseOperatorDeclarationSymbol tokens =
@@ -238,15 +246,17 @@ validateDeclaredOperatorSymbol declaredOperators operatorToken declaredSymbol
             )
         )
 
-consumeOperatorTierKeyword :: Token -> [Token] -> Either Diagnostic [Token]
-consumeOperatorTierKeyword operatorToken tokens =
+consumeOperatorFixityKeyword :: Token -> [Token] -> Either Diagnostic (OperatorDeclarationFixityKeyword, [Token])
+consumeOperatorFixityKeyword operatorToken tokens =
   case tokens of
     Token {tokenKind = TIdentifier "tier"} : rest ->
-      Right rest
+      Right (OperatorTierKeyword, rest)
+    Token {tokenKind = TIdentifier "precedence"} : rest ->
+      Right (OperatorPrecedenceKeyword, rest)
     token : _ ->
       Left
         ( parseDiagnostic
-            ( "expected 'tier' in operator declaration at "
+            ( "expected 'tier' or 'precedence' in operator declaration at "
                 <> renderSourceSpan (tokenSpan token)
                 <> ", found '"
                 <> tokenLexeme token
@@ -256,10 +266,18 @@ consumeOperatorTierKeyword operatorToken tokens =
     [] ->
       Left
         ( parseDiagnostic
-            ( "expected 'tier' before end of input in operator declaration at "
+            ( "expected 'tier' or 'precedence' before end of input in operator declaration at "
                 <> renderSourceSpan (tokenSpan operatorToken)
             )
         )
+
+parseOperatorDeclarationFixity :: Token -> Text -> OperatorDeclarationFixityKeyword -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
+parseOperatorDeclarationFixity operatorToken operatorSymbol fixityKeyword tokens =
+  case fixityKeyword of
+    OperatorTierKeyword ->
+      parseOperatorDeclarationTier operatorToken operatorSymbol tokens
+    OperatorPrecedenceKeyword ->
+      parseOperatorDeclarationPrecedence operatorToken operatorSymbol tokens
 
 parseOperatorDeclarationTier :: Token -> Text -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
 parseOperatorDeclarationTier operatorToken operatorSymbol tokens =
@@ -293,15 +311,24 @@ parseOperatorDeclarationTier operatorToken operatorSymbol tokens =
             )
         )
 
-consumeOperatorDeclarationDot :: [Token] -> Either Diagnostic [Token]
-consumeOperatorDeclarationDot tokens =
+parseOperatorDeclarationPrecedence :: Token -> Text -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
+parseOperatorDeclarationPrecedence operatorToken operatorSymbol tokens =
   case tokens of
-    Token {tokenKind = TDot} : rest ->
-      Right rest
+    Token {tokenKind = TInt precedence} : rest ->
+      case declaredOperatorInfoForPrecedence operatorSymbol precedence of
+        Just operatorInfo ->
+          Right (operatorInfo, rest)
+        Nothing ->
+          Left
+            ( parseDiagnostic
+                ( "operator precedence must be between 1 and 99 at "
+                    <> renderSourceSpan (tokenSpan operatorToken)
+                )
+            )
     token : _ ->
       Left
         ( parseDiagnostic
-            ( "expected '.' after operator declaration tier at "
+            ( "expected operator precedence 1-99 at "
                 <> renderSourceSpan (tokenSpan token)
                 <> ", found '"
                 <> tokenLexeme token
@@ -309,7 +336,60 @@ consumeOperatorDeclarationDot tokens =
             )
         )
     [] ->
-      Left (parseDiagnostic "expected '.' after operator declaration tier before end of input")
+      Left
+        ( parseDiagnostic
+            ( "expected operator precedence 1-99 before end of input in operator declaration at "
+                <> renderSourceSpan (tokenSpan operatorToken)
+            )
+        )
+
+parseOptionalOperatorAssociativity :: OperatorInfo -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
+parseOptionalOperatorAssociativity operatorInfo tokens =
+  case tokens of
+    Token {tokenKind = TIdentifier "left"} : rest ->
+      Right (operatorInfo {operatorAssociativity = AssocLeft}, rest)
+    Token {tokenKind = TIdentifier "right"} : rest ->
+      Right (operatorInfo {operatorAssociativity = AssocRight}, rest)
+    Token {tokenKind = TIdentifier "nonassoc"} : rest ->
+      Right (operatorInfo {operatorAssociativity = AssocNonAssoc}, rest)
+    token@Token {tokenKind = TIdentifier {}} : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected operator associativity 'left', 'right', or 'nonassoc' at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+    _ ->
+      Right (operatorInfo, tokens)
+
+operatorDeclarationFixityLabel :: OperatorDeclarationFixityKeyword -> Text
+operatorDeclarationFixityLabel fixityKeyword =
+  case fixityKeyword of
+    OperatorTierKeyword -> "tier"
+    OperatorPrecedenceKeyword -> "precedence"
+
+consumeOperatorDeclarationDot :: Text -> [Token] -> Either Diagnostic [Token]
+consumeOperatorDeclarationDot fixityLabel tokens =
+  case tokens of
+    Token {tokenKind = TDot} : rest ->
+      Right rest
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected '.' after operator declaration "
+                <> fixityLabel
+                <> " at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
+    [] ->
+      Left (parseDiagnostic ("expected '.' after operator declaration " <> fixityLabel <> " before end of input"))
 
 parseOperatorBinding :: StatementContext -> Set Text -> DeclaredOperators -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseOperatorBinding context knownAliases declaredOperators operatorToken tokensAfterEquals =
@@ -520,16 +600,17 @@ looksLikeOperatorDeclaration tokensAfterKeyword =
   case tokensAfterKeyword of
     Token {tokenKind = TOperator {}} : _ -> True
     Token {tokenKind = TArrow} : _ -> True
-    Token {tokenKind = TIdentifier {}} : rest -> hasOperatorTierBeforeTerminator rest
+    Token {tokenKind = TIdentifier {}} : rest -> hasOperatorFixityKeywordBeforeTerminator rest
     _ -> False
 
-hasOperatorTierBeforeTerminator :: [Token] -> Bool
-hasOperatorTierBeforeTerminator tokens =
+hasOperatorFixityKeywordBeforeTerminator :: [Token] -> Bool
+hasOperatorFixityKeywordBeforeTerminator tokens =
   case tokens of
     [] -> False
     Token {tokenKind = TDot} : _ -> False
     Token {tokenKind = TIdentifier "tier"} : _ -> True
-    _ : rest -> hasOperatorTierBeforeTerminator rest
+    Token {tokenKind = TIdentifier "precedence"} : _ -> True
+    _ : rest -> hasOperatorFixityKeywordBeforeTerminator rest
 
 isDeclarationContext :: StatementContext -> Bool
 isDeclarationContext context =
@@ -836,7 +917,7 @@ parseExprWithMinPrecedenceUntil knownAliases declaredOperators stop minPrecedenc
   parseInfixTailWithUntil
     declaredOperators
     stop
-    (parseExprWithMinPrecedenceUntil knownAliases declaredOperators stop)
+    (\rhsStop -> parseExprWithMinPrecedenceUntil knownAliases declaredOperators rhsStop)
     minPrecedence
     leftExpr
     remainingTokens
@@ -862,7 +943,7 @@ parseExprWithoutApplicationWithMinPrecedenceUntil knownAliases declaredOperators
   parseInfixTailWithUntil
     declaredOperators
     stop
-    (parseExprWithoutApplicationWithMinPrecedenceUntil knownAliases declaredOperators stop)
+    (\rhsStop -> parseExprWithoutApplicationWithMinPrecedenceUntil knownAliases declaredOperators rhsStop)
     minPrecedence
     leftExpr
     remainingTokens
@@ -890,11 +971,33 @@ parseApplicationTailUntil ::
 parseApplicationTailUntil knownAliases declaredOperators stop functionExpr tokens
   | stop tokens = Right (functionExpr, tokens)
   | otherwise =
-      case startsPrimaryExprTokens tokens of
-        True -> do
-          (argumentExpr, remainingAfterArgument) <- parsePrimaryExprUntil knownAliases declaredOperators stop tokens
-          parseApplicationTailUntil knownAliases declaredOperators stop (SEApply functionExpr argumentExpr) remainingAfterArgument
-        False -> Right (functionExpr, tokens)
+      case tokens of
+        typeApplicationToken@Token {tokenKind = TAt} : tokensAfterAt -> do
+          (typeArgument, remainingAfterTypeArgument) <-
+            parseTypeApplicationArgument typeApplicationToken tokensAfterAt
+          parseApplicationTailUntil
+            knownAliases
+            declaredOperators
+            stop
+            (SETypeApplication functionExpr typeArgument)
+            remainingAfterTypeArgument
+        _
+          | startsPrimaryExprTokens tokens -> do
+              (argumentExpr, remainingAfterArgument) <- parsePrimaryExprUntil knownAliases declaredOperators stop tokens
+              parseApplicationTailUntil knownAliases declaredOperators stop (SEApply functionExpr argumentExpr) remainingAfterArgument
+        _ -> Right (functionExpr, tokens)
+
+parseTypeApplicationArgument :: Token -> [Token] -> Either Diagnostic (SurfaceSignatureType, [Token])
+parseTypeApplicationArgument typeApplicationToken tokens =
+  case parseSignatureTypePrefix tokens of
+    Just parsedTypeArgument -> Right parsedTypeArgument
+    Nothing ->
+      Left
+        ( parseDiagnostic
+            ( "unsupported explicit type application argument after '@' at "
+                <> renderSourceSpan (tokenSpan typeApplicationToken)
+            )
+        )
 
 neverStop :: [Token] -> Bool
 neverStop _ = False
@@ -917,7 +1020,7 @@ startsPrimaryExprTokens allTokens =
 parseInfixTailWithUntil ::
   DeclaredOperators ->
   ([Token] -> Bool) ->
-  (Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])) ->
+  (([Token] -> Bool) -> Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])) ->
   Int ->
   SurfaceExpr ->
   [Token] ->
@@ -944,12 +1047,12 @@ parseInfixTailWithUntil declaredOperators stop parseRhs minPrecedence leftExpr t
                   | operatorPrecedence operatorInfo < minPrecedence ->
                       Right (leftExpr, tokens)
                   | otherwise -> do
-                      let nextMinPrecedence =
-                            case operatorAssociativity operatorInfo of
-                              AssocLeft -> operatorPrecedence operatorInfo + 1
-                              AssocRight -> operatorPrecedence operatorInfo
+                      let nextMinPrecedence = operatorNextMinPrecedence operatorInfo
+                          rhsStop =
+                            samePrecedenceNonAssociativeRhsStop declaredOperators operatorInfo stop
                       (rightExpr, remainingAfterRight) <-
-                        parseRhs nextMinPrecedence tokensAfterOperator
+                        parseRhs rhsStop nextMinPrecedence tokensAfterOperator
+                      rejectNonAssociativeContinuation declaredOperators operatorInfo operatorToken remainingAfterRight
                       parseInfixTailWithUntil
                         declaredOperators
                         stop
@@ -964,6 +1067,51 @@ parseInfixTailWithUntil declaredOperators stop parseRhs minPrecedence leftExpr t
         Token {tokenKind = TRParen} : _ -> True
         _ -> False
 
+operatorNextMinPrecedence :: OperatorInfo -> Int
+operatorNextMinPrecedence operatorInfo =
+  case operatorAssociativity operatorInfo of
+    AssocLeft -> operatorPrecedence operatorInfo + 1
+    AssocRight -> operatorPrecedence operatorInfo
+    AssocNonAssoc -> operatorPrecedence operatorInfo + 1
+
+rejectNonAssociativeContinuation :: DeclaredOperators -> OperatorInfo -> Token -> [Token] -> Either Diagnostic ()
+rejectNonAssociativeContinuation declaredOperators operatorInfo operatorToken remainingTokens =
+  case remainingTokens of
+    Token {tokenKind = TOperator nextSymbol} : _ ->
+      case lookupOperatorInfoIn declaredOperators nextSymbol of
+        Just nextInfo
+          | operatorPrecedence nextInfo == operatorPrecedence operatorInfo,
+            operatorAssociativity operatorInfo == AssocNonAssoc
+              || operatorAssociativity nextInfo == AssocNonAssoc ->
+              Left
+                ( parseDiagnostic
+                    ( "non-associative operator '"
+                        <> nonAssociativeSymbol nextInfo
+                        <> "' cannot be chained without parentheses at "
+                        <> renderSourceSpan (tokenSpan operatorToken)
+                    )
+                )
+        _ -> Right ()
+    _ -> Right ()
+  where
+    nonAssociativeSymbol nextInfo
+      | operatorAssociativity operatorInfo == AssocNonAssoc = operatorSymbol operatorInfo
+      | otherwise = operatorSymbol nextInfo
+
+samePrecedenceNonAssociativeRhsStop :: DeclaredOperators -> OperatorInfo -> ([Token] -> Bool) -> [Token] -> Bool
+samePrecedenceNonAssociativeRhsStop declaredOperators operatorInfo stop tokens =
+  stop tokens
+    || case tokens of
+      Token {tokenKind = TOperator nextSymbol} : _ ->
+        case lookupOperatorInfoIn declaredOperators nextSymbol of
+          Just nextInfo ->
+            operatorPrecedence nextInfo == operatorPrecedence operatorInfo
+              && ( operatorAssociativity operatorInfo == AssocNonAssoc
+                     || operatorAssociativity nextInfo == AssocNonAssoc
+                 )
+          _ -> False
+      _ -> False
+
 -- | Shared precedence climber used by both regular expression parsing and the
 -- restricted `if` condition parser.
 parseInfixTailWith ::
@@ -972,7 +1120,8 @@ parseInfixTailWith ::
   SurfaceExpr ->
   [Token] ->
   Either Diagnostic (SurfaceExpr, [Token])
-parseInfixTailWith = parseInfixTailWithUntil [] neverStop
+parseInfixTailWith parseRhs =
+  parseInfixTailWithUntil [] neverStop (\_ -> parseRhs)
 
 parsePrimaryExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parsePrimaryExpr = parsePrimaryExprUntil Set.empty [] neverStop
@@ -1325,7 +1474,7 @@ parseCaseArm knownAliases declaredOperators tokens = do
   tokensAfterPipe <- consumeCaseArmPipe tokens
   (casePattern, afterPattern) <- parseCaseArmPattern tokensAfterPipe
   (guardExpr, afterArrow) <- parseOptionalCaseArmGuard afterPattern
-  (bodyExpr, remaining) <- parseCaseArmBodyExprWithMinPrecedence Nothing 1 afterArrow
+  (bodyExpr, remaining) <- parseCaseArmBodyExprWithMinPrecedence neverStop Nothing 1 afterArrow
   pure (SurfaceCaseArm casePattern guardExpr bodyExpr, remaining)
   where
     parseOptionalCaseArmGuard allTokens =
@@ -1348,20 +1497,28 @@ parseCaseArm knownAliases declaredOperators tokens = do
         Token {tokenKind = TOperator "|"} : _ ->
           Left (parseDiagnostic "expected guard expression before next case arm")
         _ ->
-          parseCaseGuardExprWithMinPrecedence Nothing 1 allTokens
+          parseCaseGuardExprWithMinPrecedence neverStop Nothing 1 allTokens
 
-    parseCaseGuardExprWithMinPrecedence parentOperator minPrecedence guardTokens = do
+    parseCaseGuardExprWithMinPrecedence rhsStop parentOperator minPrecedence guardTokens = do
       (leftExpr, remainingTokens) <-
-        parseApplicationExprUntil knownAliases declaredOperators stopsBeforeCaseGuardTerminator guardTokens
-      parseCaseGuardInfixTail parentOperator minPrecedence leftExpr remainingTokens
+        parseApplicationExprUntil
+          knownAliases
+          declaredOperators
+          (stopsBeforeCaseGuardTerminatorOr rhsStop)
+          guardTokens
+      parseCaseGuardInfixTail rhsStop parentOperator minPrecedence leftExpr remainingTokens
 
-    parseCaseArmBodyExprWithMinPrecedence parentOperator minPrecedence bodyTokens = do
+    parseCaseArmBodyExprWithMinPrecedence rhsStop parentOperator minPrecedence bodyTokens = do
       (leftExpr, remainingTokens) <-
-        parseApplicationExprUntil knownAliases declaredOperators stopsBeforeCaseArmBoundary bodyTokens
-      parseCaseArmBodyInfixTail parentOperator minPrecedence leftExpr remainingTokens
+        parseApplicationExprUntil
+          knownAliases
+          declaredOperators
+          (stopsBeforeCaseArmBoundaryOr rhsStop)
+          bodyTokens
+      parseCaseArmBodyInfixTail rhsStop parentOperator minPrecedence leftExpr remainingTokens
 
-    parseCaseArmBodyInfixTail parentOperator minPrecedence leftExpr bodyTokens
-      | stopsBeforeCaseArmTerminator bodyTokens = Right (leftExpr, bodyTokens)
+    parseCaseArmBodyInfixTail rhsStop parentOperator minPrecedence leftExpr bodyTokens
+      | stopsBeforeCaseArmTerminator bodyTokens || rhsStop bodyTokens = Right (leftExpr, bodyTokens)
       | otherwise =
           case bodyTokens of
             operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : tokensAfterOperator
@@ -1384,13 +1541,18 @@ parseCaseArm knownAliases declaredOperators tokens = do
                       | operatorPrecedence operatorInfo < minPrecedence ->
                           Right (leftExpr, bodyTokens)
                       | otherwise -> do
-                          let nextMinPrecedence =
-                                case operatorAssociativity operatorInfo of
-                                  AssocLeft -> operatorPrecedence operatorInfo + 1
-                                  AssocRight -> operatorPrecedence operatorInfo
+                          let nextMinPrecedence = operatorNextMinPrecedence operatorInfo
+                              rhsStopForOperator =
+                                samePrecedenceNonAssociativeRhsStop declaredOperators operatorInfo rhsStop
                           (rightExpr, remainingAfterRight) <-
-                            parseCaseArmBodyExprWithMinPrecedence (Just operatorSymbol) nextMinPrecedence tokensAfterOperator
+                            parseCaseArmBodyExprWithMinPrecedence
+                              rhsStopForOperator
+                              (Just operatorSymbol)
+                              nextMinPrecedence
+                              tokensAfterOperator
+                          rejectNonAssociativeContinuation declaredOperators operatorInfo operatorToken remainingAfterRight
                           parseCaseArmBodyInfixTail
+                            rhsStop
                             parentOperator
                             minPrecedence
                             (SEBinary operatorSymbol leftExpr rightExpr)
@@ -1406,6 +1568,9 @@ parseCaseArm knownAliases declaredOperators tokens = do
       case allTokens of
         Token {tokenKind = TRBrace} : _ -> True
         _ -> False
+
+    stopsBeforeCaseArmBoundaryOr rhsStop allTokens =
+      rhsStop allTokens || stopsBeforeCaseArmBoundary allTokens
 
     caseArmPipeStartsBoundary parentOperator minPrecedence leftExpr tokensAfterPipe =
       case parseCasePattern tokensAfterPipe of
@@ -1423,8 +1588,8 @@ parseCaseArm knownAliases declaredOperators tokens = do
               hasTopLevelArrowBeforeCaseArmBoundary tokensAfterPipe
         _ -> False
 
-    parseCaseGuardInfixTail parentOperator minPrecedence leftExpr guardTokens
-      | stopsBeforeCaseGuardTerminator guardTokens = Right (leftExpr, guardTokens)
+    parseCaseGuardInfixTail rhsStop parentOperator minPrecedence leftExpr guardTokens
+      | stopsBeforeCaseGuardTerminator guardTokens || rhsStop guardTokens = Right (leftExpr, guardTokens)
       | otherwise =
           case guardTokens of
             operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : tokensAfterOperator
@@ -1447,13 +1612,18 @@ parseCaseArm knownAliases declaredOperators tokens = do
                       | operatorPrecedence operatorInfo < minPrecedence ->
                           Right (leftExpr, guardTokens)
                       | otherwise -> do
-                          let nextMinPrecedence =
-                                case operatorAssociativity operatorInfo of
-                                  AssocLeft -> operatorPrecedence operatorInfo + 1
-                                  AssocRight -> operatorPrecedence operatorInfo
+                          let nextMinPrecedence = operatorNextMinPrecedence operatorInfo
+                              rhsStopForOperator =
+                                samePrecedenceNonAssociativeRhsStop declaredOperators operatorInfo rhsStop
                           (rightExpr, remainingAfterRight) <-
-                            parseCaseGuardExprWithMinPrecedence (Just operatorSymbol) nextMinPrecedence tokensAfterOperator
+                            parseCaseGuardExprWithMinPrecedence
+                              rhsStopForOperator
+                              (Just operatorSymbol)
+                              nextMinPrecedence
+                              tokensAfterOperator
+                          rejectNonAssociativeContinuation declaredOperators operatorInfo operatorToken remainingAfterRight
                           parseCaseGuardInfixTail
+                            rhsStop
                             parentOperator
                             minPrecedence
                             (SEBinary operatorSymbol leftExpr rightExpr)
@@ -1470,6 +1640,9 @@ parseCaseArm knownAliases declaredOperators tokens = do
         Token {tokenKind = TArrow} : _ -> True
         Token {tokenKind = TRBrace} : _ -> True
         _ -> False
+
+    stopsBeforeCaseGuardTerminatorOr rhsStop allTokens =
+      rhsStop allTokens || stopsBeforeCaseGuardTerminator allTokens
 
     caseGuardPipeStartsBoundary parentOperator minPrecedence leftExpr tokensAfterPipe =
       startsDefiniteGuardedCaseArmAfterGuardBoundary tokensAfterPipe

@@ -23,8 +23,14 @@ tests =
     ("rejects invalid operator declaration tiers", testRejectsInvalidOperatorDeclarationTier),
     ("rejects duplicate operator declarations", testRejectsDuplicateOperatorDeclaration),
     ("rejects nested operator declarations", testRejectsNestedOperatorDeclaration),
-    ("rejects custom operator precedence declarations", testRejectsCustomOperatorPrecedenceDeclaration),
-    ("rejects custom operator associativity declarations", testRejectsCustomOperatorAssociativityDeclaration),
+    ("rejects zero custom operator precedence declarations", testRejectsZeroCustomOperatorPrecedenceDeclaration),
+    ("rejects high custom operator precedence declarations", testRejectsHighCustomOperatorPrecedenceDeclaration),
+    ("rejects invalid operator associativity keyword", testRejectsInvalidOperatorAssociativityKeyword),
+    ("rejects non-associative operator chains", testRejectsNonAssociativeOperatorChain),
+    ("rejects same-precedence chain before non-associative operator", testRejectsSamePrecedenceChainBeforeNonAssociativeOperator),
+    ("rejects right-associative same-precedence non-associative chains", testRejectsRightAssociativeSamePrecedenceNonAssociativeChain),
+    ("rejects case-arm body same-precedence non-associative chains", testRejectsCaseArmBodySamePrecedenceNonAssociativeChain),
+    ("rejects case guard same-precedence non-associative chains", testRejectsCaseGuardSamePrecedenceNonAssociativeChain),
     ("rejects user operator infix use before declaration", testRejectsUserOperatorInfixUseBeforeDeclaration),
     ("rejects user operator value use before declaration", testRejectsUserOperatorValueUseBeforeDeclaration),
     ("rejects undeclared operator signature", testRejectsUndeclaredOperatorSignature),
@@ -96,21 +102,69 @@ testRejectsNestedOperatorDeclaration =
     "operator declarations are only allowed at file scope or directly in module bodies"
     (parseSurfaceProgram "x = { operator %% tier 2. y = 1. }.")
 
-testRejectsCustomOperatorPrecedenceDeclaration :: IO ()
-testRejectsCustomOperatorPrecedenceDeclaration =
+testRejectsZeroCustomOperatorPrecedenceDeclaration :: IO ()
+testRejectsZeroCustomOperatorPrecedenceDeclaration =
   assertLeftDiagnosticCodeAndContains
-    "custom operator precedence declaration"
+    "zero custom operator precedence declaration"
     "E0001"
-    "expected 'tier' in operator declaration"
-    (parseSurfaceProgram "operator %% precedence 2.")
+    "operator precedence must be between 1 and 99"
+    (parseSurfaceProgram "operator %% precedence 0.")
 
-testRejectsCustomOperatorAssociativityDeclaration :: IO ()
-testRejectsCustomOperatorAssociativityDeclaration =
+testRejectsHighCustomOperatorPrecedenceDeclaration :: IO ()
+testRejectsHighCustomOperatorPrecedenceDeclaration =
   assertLeftDiagnosticCodeAndContains
-    "custom operator associativity declaration"
+    "high custom operator precedence declaration"
     "E0001"
-    "expected '.' after operator declaration tier"
-    (parseSurfaceProgram "operator %% tier 2 left.")
+    "operator precedence must be between 1 and 99"
+    (parseSurfaceProgram "operator %% precedence 100.")
+
+testRejectsInvalidOperatorAssociativityKeyword :: IO ()
+testRejectsInvalidOperatorAssociativityKeyword =
+  assertLeftDiagnosticCodeAndContains
+    "invalid operator associativity keyword"
+    "E0001"
+    "expected operator associativity 'left', 'right', or 'nonassoc'"
+    (parseSurfaceProgram "operator %% tier 2 sideways.")
+
+testRejectsNonAssociativeOperatorChain :: IO ()
+testRejectsNonAssociativeOperatorChain =
+  assertLeftDiagnosticCodeAndContains
+    "non-associative operator chain"
+    "E0001"
+    "non-associative operator '?>' cannot be chained without parentheses"
+    (parseSurfaceProgram "operator ?> precedence 10 nonassoc.\nx = 1 ?> 2 ?> 3.")
+
+testRejectsSamePrecedenceChainBeforeNonAssociativeOperator :: IO ()
+testRejectsSamePrecedenceChainBeforeNonAssociativeOperator =
+  assertLeftDiagnosticCodeAndContains
+    "same-precedence chain before non-associative operator"
+    "E0001"
+    "non-associative operator '?>' cannot be chained without parentheses"
+    (parseSurfaceProgram "operator ?> precedence 4 nonassoc.\nx = 1 + 2 ?> 3.")
+
+testRejectsRightAssociativeSamePrecedenceNonAssociativeChain :: IO ()
+testRejectsRightAssociativeSamePrecedenceNonAssociativeChain =
+  assertLeftDiagnosticCodeAndContains
+    "right-associative same-precedence non-associative chain"
+    "E0001"
+    "non-associative operator '?>' cannot be chained without parentheses"
+    (parseSurfaceProgram "operator ?> precedence 1 nonassoc.\nx = 1 $ 2 ?> 3.")
+
+testRejectsCaseArmBodySamePrecedenceNonAssociativeChain :: IO ()
+testRejectsCaseArmBodySamePrecedenceNonAssociativeChain =
+  assertLeftDiagnosticCodeAndContains
+    "case-arm body same-precedence non-associative chain"
+    "E0001"
+    "non-associative operator '?>' cannot be chained without parentheses"
+    (parseSurfaceProgram "operator ?> precedence 1 nonassoc.\nx = case value { | _ -> 1 $ 2 ?> 3 }.")
+
+testRejectsCaseGuardSamePrecedenceNonAssociativeChain :: IO ()
+testRejectsCaseGuardSamePrecedenceNonAssociativeChain =
+  assertLeftDiagnosticCodeAndContains
+    "case guard same-precedence non-associative chain"
+    "E0001"
+    "non-associative operator '?>' cannot be chained without parentheses"
+    (parseSurfaceProgram "operator ?> precedence 1 nonassoc.\nx = case value { | _ if 1 $ 2 ?> 3 -> 1 }.")
 
 testRejectsUserOperatorInfixUseBeforeDeclaration :: IO ()
 testRejectsUserOperatorInfixUseBeforeDeclaration =

@@ -3,12 +3,14 @@
 -- | Signature grammar helpers for the surface parser.
 module JazzNext.Compiler.Parser.Signature
   ( parseConstrainedSignatureType,
+    parseSignatureTypePrefix,
     parseSignaturePayload,
     splitTopLevelCommaTokens
   ) where
 
 import Control.Applicative ((<|>))
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.Identifier
   ( mkIdentifier
   )
@@ -41,6 +43,10 @@ parseConstrainedSignatureType :: [Token] -> Maybe SurfaceConstrainedSignatureTyp
 parseConstrainedSignatureType =
   parseTokenStreamMaybe "constrained signature type" constrainedSignatureTypeParser
 
+parseSignatureTypePrefix :: [Token] -> Maybe (SurfaceSignatureType, [Token])
+parseSignatureTypePrefix =
+  parseTokenStreamPrefixMaybe "signature type" signatureTypeParser
+
 splitTopLevelCommaTokens :: [Token] -> Maybe [[Token]]
 splitTopLevelCommaTokens =
   parseTokenStreamMaybe "top-level comma list" topLevelCommaTokensParser
@@ -48,6 +54,12 @@ splitTopLevelCommaTokens =
 parseTokenStreamMaybe :: Text -> TokenParser.Parser a -> [Token] -> Maybe a
 parseTokenStreamMaybe label parser tokens =
   case TokenParser.runTokenParser label parser tokens of
+    Right value -> Just value
+    Left _ -> Nothing
+
+parseTokenStreamPrefixMaybe :: Text -> TokenParser.Parser a -> [Token] -> Maybe (a, [Token])
+parseTokenStreamPrefixMaybe label parser tokens =
+  case MP.runParser ((,) <$> parser <*> MP.getInput) (Text.unpack label) tokens of
     Right value -> Just value
     Left _ -> Nothing
 

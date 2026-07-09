@@ -45,10 +45,15 @@ import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
     evaluateRuntimeExprWithBuiltinsAndBindingHints,
+    renderRuntimeValue,
     runtimeValueExactlyMatchesConstraint
   )
 import JazzNext.Compiler.RuntimeHints
   ( bindingRuntimeHintKey
+  )
+import JazzNext.Compiler.TypeInference
+  ( InferenceResult (..),
+    inferExpressionWithBuiltins
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -100,6 +105,7 @@ tests =
     ("right operator section applies at runtime", testRightOperatorSectionRuntimeSuccess),
     ("right section differs from ordinary partial application for division", testRightSectionDiffersFromOrdinaryPartialApplication),
     ("declared user operator infix applies at runtime", testDeclaredUserOperatorInfixRuntimeSuccess),
+    ("declared custom precedence user operator groups at runtime", testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess),
     ("declared user operator signature applies at runtime", testDeclaredUserOperatorSignatureRuntimeSuccess),
     ("declared user operator value applies at runtime", testDeclaredUserOperatorValueRuntimeSuccess),
     ("declared user left operator section applies at runtime", testDeclaredUserLeftOperatorSectionRuntimeSuccess),
@@ -168,12 +174,16 @@ tests =
     ("scope with only declarations has no runtime output", testDeclarationOnlyScopeHasNoOutput),
     ("scope with only capability declarations has no runtime output", testCapabilityDeclarationOnlyScopeHasNoOutput),
     ("capability declarations are inert at runtime", testCapabilityDeclarationsRuntimeInert),
+    ("qualified method candidates carry compiler-owned runtime evidence", testQualifiedMethodCandidateCarriesRuntimeEvidence),
     ("qualified method dispatch executes selected impl body", testQualifiedMethodDispatchExecutesImplBody),
     ("let-bound qualified method dispatch executes selected impl body", testLetBoundQualifiedMethodDispatchExecutesImplBody),
     ("qualified method dispatch selects runtime body by argument types", testQualifiedMethodDispatchSelectsRuntimeBodyByArgumentTypes),
     ("qualified method dispatch executes same-impl qualified method call", testQualifiedMethodDispatchExecutesSameImplQualifiedMethodCall),
     ("qualified method dispatch selects width-specific integer body", testQualifiedMethodDispatchSelectsWidthSpecificIntegerBody),
     ("qualified method dispatch selects width-specific integer body for direct literals", testQualifiedMethodDispatchSelectsWidthSpecificIntegerBodyForDirectLiterals),
+    ("qualified method dispatch preserves direct explicit type application hints", testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint),
+    ("qualified method dispatch preserves inferred explicit type application tuple hints", testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint),
+    ("qualified method dispatch applies explicit type argument to matching parameter", testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter),
     ("qualified method dispatch preserves non-literal integer signature targets", testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget),
     ("qualified method dispatch preserves direct closure result signatures", testQualifiedMethodDispatchPreservesDirectClosureResultSignature),
     ("qualified method dispatch preserves tuple binding signatures", testQualifiedMethodDispatchPreservesTupleBindingSignature),
@@ -193,6 +203,8 @@ tests =
     ("qualified method dispatch prefers list alias body for typed list values", testQualifiedMethodDispatchPrefersListAliasBody),
     ("qualified method dispatch prefers list alias body for direct list literals", testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral),
     ("qualified method dispatch preserves bound nested list runtime hints", testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint),
+    ("qualified method dispatch instantiates explicit empty list type application hints", testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint),
+    ("qualified method dispatch omits plain polymorphic empty list runtime hints", testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint),
     ("qualified method dispatch rejects unhinted nested list helper exact selection", testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection),
     ("qualified method dispatch does not exact-match untyped empty list literals", testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral),
     ("qualified method dispatch prefers constructor alias body for direct constructor literals", testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral),
@@ -686,6 +698,13 @@ testDeclaredUserOperatorInfixRuntimeSuccess = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
+
+testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess :: IO ()
+testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% precedence 99.\n(%%) = \\(left) -> \\(right) -> left - right.\n20 + 10 %% 3 * 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "34") (runOutput result)
 
 testDeclaredUserOperatorSignatureRuntimeSuccess :: IO ()
 testDeclaredUserOperatorSignatureRuntimeSuccess = do
@@ -1394,6 +1413,66 @@ testCapabilityDeclarationsRuntimeInert = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "capability declarations do not affect runtime output" (Just "1") (runOutput result)
 
+testQualifiedMethodCandidateCarriesRuntimeEvidence :: IO ()
+testQualifiedMethodCandidateCarriesRuntimeEvidence =
+  case evaluateRuntimeExpr qualifiedMethodEvidenceExpr of
+    Right (Just methodValue@VQualifiedMethod {}) -> do
+      assertContains
+        "runtime candidate evidence record"
+        "RuntimeEvidence"
+        (Text.pack (show methodValue))
+      assertContains
+        "runtime candidate evidence class"
+        "Eq"
+        (Text.pack (show methodValue))
+      assertContains
+        "runtime candidate evidence target"
+        "Int"
+        (Text.pack (show methodValue))
+      assertEqual "runtime evidence stays non-user-visible" "<function>" (renderRuntimeValue methodValue)
+    Right otherValue ->
+      failTest ("expected qualified method runtime value, got " <> Text.pack (show otherValue))
+    Left runtimeError ->
+      failTest ("expected qualified method runtime value, got " <> renderDiagnostic runtimeError)
+  where
+    qualifiedMethodEvidenceExpr =
+      EBlock
+        [ SClass
+            (SourceSpan 1 1)
+            "Eq"
+            ["a"]
+            [ ClassMethodSignature
+                "equals"
+                (SourceSpan 2 1)
+                ( ConstrainedSignature
+                    []
+                    ( ConstraintTypeFunction
+                        (ConstraintTypeName "a")
+                        (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool"))
+                    )
+                )
+            ],
+          SImpl
+            (SourceSpan 3 1)
+            "Eq"
+            [ConstraintTypeName "Int"]
+            [ ImplMethod
+                "equals"
+                (SourceSpan 4 1)
+                (ELambda "left" (ELambda "right" (ELit (LBool True))))
+            ],
+          SImpl
+            (SourceSpan 5 1)
+            "Eq"
+            [ConstraintTypeName "Bool"]
+            [ ImplMethod
+                "equals"
+                (SourceSpan 6 1)
+                (ELambda "left" (ELambda "right" (ELit (LBool True))))
+            ],
+          SExpr (SourceSpan 7 1) (EVar "Eq::equals")
+        ]
+
 testQualifiedMethodDispatchExecutesImplBody :: IO ()
 testQualifiedMethodDispatchExecutesImplBody = do
   result <- runSource defaultWarningSettings (runtimeEqSource <> "RuntimeEq::equals 1 1.")
@@ -1458,6 +1537,52 @@ testQualifiedMethodDispatchSelectsWidthSpecificIntegerBodyForDirectLiterals = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint :: IO ()
+testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "id :: @{RuntimeEq(a)}: a -> a.\nid = \\(value) -> value.\n"
+          <> "result = RuntimeEq::equals (id @UInt8 1) (id @UInt8 2).\nresult."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint :: IO ()
+testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq((Int, Bool)) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq((UInt8, Bool)) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "pair = \\(value) -> (value, True).\n"
+          <> "result = RuntimeEq::equals (pair @UInt8 1) (pair @UInt8 2).\nresult."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter :: IO ()
+testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "select :: @{RuntimeEq(b)}: Int16 -> b -> b.\n"
+          <> "select = \\(width) -> \\(value) -> value.\n"
+          <> "result = RuntimeEq::equals (select @UInt8 300 1) (select @UInt8 300 2).\nresult."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
 
 testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget :: IO ()
 testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget = do
@@ -1750,6 +1875,32 @@ testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint :: IO ()
+testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([Int]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([Bool]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "empty = [].\n"
+          <> "(RuntimeFlag::flag) (empty @Int)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint :: IO ()
+testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint = do
+  let expr =
+        EBlock
+          [ SLet "empty" (SourceSpan 1 1) (EList []),
+            SExpr (SourceSpan 2 1) (EVar "empty")
+          ]
+  inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
+  assertEqual "inference errors" [] (inferredErrors inference)
+  assertEqual "plain polymorphic empty list runtime hints" Map.empty (inferredRuntimeTypeHints inference)
 
 testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection :: IO ()
 testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection = do

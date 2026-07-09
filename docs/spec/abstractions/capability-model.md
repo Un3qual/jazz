@@ -89,9 +89,13 @@ alias-overlap rule: `Float` is the public alias for `Float64`, so the default
 prelude may expose both spellings for the same concrete width. This rule does
 not relax duplicate visible impl rejection for explicit duplicate impl facts.
 
-Later batches must define typed overload selection across multiple concrete
-impl method bodies, constraint solving beyond the current concrete fact checks,
-overlap/orphan policy beyond the bundled `Float`/`Float64` alias pair,
-cross-module method visibility, broader bundled-prelude method-body families,
-dictionaries, default methods, superclasses, and runtime evidence before
-enabling broader executable class/impl semantics.
+Runtime evidence (landed `2026-07-08`): concrete impl method candidates carry
+compiler-owned evidence records at runtime. Evidence records identify the
+class, concrete impl target, and method key, and explicit `Class::method`
+dispatch consumes them internally. They are not user-visible ordinary values.
+
+Later batches must define user-visible dictionary behavior or dictionary
+optimization, overlap/orphan policy beyond the bundled `Float`/`Float64` alias
+pair, cross-module method visibility, broader bundled-prelude method-body
+families, default methods, and superclasses before enabling broader executable
+class/impl semantics.

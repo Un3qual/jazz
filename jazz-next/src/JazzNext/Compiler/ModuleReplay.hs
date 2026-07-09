@@ -533,6 +533,10 @@ rewriteExprReferences importTargets boundNames expression =
       EApply
         (rewriteExprReferences importTargets boundNames functionExpr)
         (rewriteExprReferences importTargets boundNames argumentExpr)
+    ETypeApplication functionExpr signatureType ->
+      ETypeApplication
+        (rewriteExprReferences importTargets boundNames functionExpr)
+        signatureType
     EIf conditionExpr trueBranch falseBranch ->
       EIf
         (rewriteExprReferences importTargets boundNames conditionExpr)
@@ -605,6 +609,10 @@ rewriteOperatorBindingReferences modulePath replayedOperatorBindings expression 
       EApply
         (rewriteOperatorReference functionExpr)
         (rewriteOperatorReference argumentExpr)
+    ETypeApplication functionExpr signatureType ->
+      ETypeApplication
+        (rewriteOperatorReference functionExpr)
+        signatureType
     EIf conditionExpr trueBranch falseBranch ->
       EIf
         (rewriteOperatorReference conditionExpr)
@@ -766,6 +774,8 @@ collectUnqualifiedReferences expr =
     ETuple elements -> Set.unions (map collectUnqualifiedReferences elements)
     EApply functionExpr argumentExpr ->
       Set.union (collectUnqualifiedReferences functionExpr) (collectUnqualifiedReferences argumentExpr)
+    ETypeApplication functionExpr _ ->
+      collectUnqualifiedReferences functionExpr
     EIf conditionExpr trueBranch falseBranch ->
       Set.unions
         [ collectUnqualifiedReferences conditionExpr,
@@ -1242,6 +1252,8 @@ expressionUsesStrictEquality expr =
     EApply functionExpr argumentExpr ->
       expressionUsesStrictEquality functionExpr
         || expressionUsesStrictEquality argumentExpr
+    ETypeApplication functionExpr _ ->
+      expressionUsesStrictEquality functionExpr
     EIf conditionExpr trueBranch falseBranch ->
       any
         expressionUsesStrictEquality
@@ -1421,6 +1433,8 @@ collectAliasQualifiedReferencePairs expr =
       Set.union
         (collectAliasQualifiedReferencePairs functionExpr)
         (collectAliasQualifiedReferencePairs argumentExpr)
+    ETypeApplication functionExpr _ ->
+      collectAliasQualifiedReferencePairs functionExpr
     EIf conditionExpr trueBranch falseBranch ->
       Set.unions
         [ collectAliasQualifiedReferencePairs conditionExpr,
@@ -1918,6 +1932,10 @@ rewriteHiddenCapabilityReferences modulePath hiddenCapabilities =
           EApply
             (rewriteExprCapabilityReferences boundNames functionExpr)
             (rewriteExprCapabilityReferences boundNames argumentExpr)
+        ETypeApplication functionExpr signatureType ->
+          ETypeApplication
+            (rewriteExprCapabilityReferences boundNames functionExpr)
+            signatureType
         EIf conditionExpr trueBranch falseBranch ->
           EIf
             (rewriteExprCapabilityReferences boundNames conditionExpr)

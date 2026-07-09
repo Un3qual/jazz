@@ -73,6 +73,8 @@ tests =
     ("source pipeline rejects missing inferred equality facts through operator values", testSourceRejectsMissingInferredEqualityFactThroughOperatorValue),
     ("source pipeline rejects missing inferred equality facts through sections", testSourceRejectsMissingInferredEqualityFactThroughSection),
     ("source pipeline accepts primitive equality helpers without visible Eq", testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEq),
+    ("source pipeline preserves numeric defaults through final solver phase", testSourcePreservesNumericDefaultsThroughFinalSolverPhase),
+    ("source pipeline rejects ambiguous inferred equality binding use", testSourceRejectsAmbiguousInferredEqualityBindingUse),
     ("source pipeline infers qualified method class constraints for ordinary binding schemes", testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes),
     ("source pipeline resolves inferred method facts through aliases", testSourceResolvesInferredMethodFactsThroughAliases),
     ("source pipeline rejects result-only qualified method inference", testSourceRejectsResultOnlyQualifiedMethodInference),
@@ -191,6 +193,12 @@ tests =
     ("source pipeline instantiates primitive constrained signatures per use", testSourceInstantiatesPrimitiveConstrainedSignaturePerUse),
     ("source pipeline instantiates equality constrained signatures per use", testSourceInstantiatesEqualityConstrainedSignaturePerUse),
     ("source pipeline instantiates recursive constrained signatures per use", testSourceInstantiatesRecursiveConstrainedSignaturePerUse),
+    ("source pipeline applies explicit type application to generalized signatures", testSourceAppliesExplicitTypeApplicationToGeneralizedSignature),
+    ("source pipeline applies explicit type application to first source variable", testSourceAppliesExplicitTypeApplicationToFirstSourceVariable),
+    ("source pipeline applies explicit type application to inferred type order", testSourceAppliesExplicitTypeApplicationToInferredTypeOrder),
+    ("source pipeline rejects primitive-incompatible explicit type application", testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication),
+    ("source pipeline rejects explicit type application on monomorphic bindings", testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding),
+    ("source pipeline rejects extra explicit type application arguments", testSourceRejectsExtraExplicitTypeApplicationArgument),
     ("source pipeline accepts unconstrained variables beside explicit constraints", testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints),
     ("source pipeline honors visible facts for variable constrained signatures", testSourceHonorsVisibleFactsForVariableConstrainedSignatures),
     ("source pipeline rejects missing use-site facts for variable constrained signatures", testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures),
@@ -1149,6 +1157,46 @@ testSourceInstantiatesRecursiveConstrainedSignaturePerUse :: IO ()
 testSourceInstantiatesRecursiveConstrainedSignaturePerUse =
   assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Bool) { }.\nchoose :: @{Eq(a)}: a -> a.\nchoose = if True \\(x) -> x else choose.\nintValue = choose 1.\nboolValue = choose True."
 
+testSourceAppliesExplicitTypeApplicationToGeneralizedSignature :: IO ()
+testSourceAppliesExplicitTypeApplicationToGeneralizedSignature =
+  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nvalue = id @Int 1.\nvalue."
+
+testSourceAppliesExplicitTypeApplicationToFirstSourceVariable :: IO ()
+testSourceAppliesExplicitTypeApplicationToFirstSourceVariable =
+  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nchoose :: @{Eq(b)}: b -> a -> b.\nchoose = \\(x) -> \\(y) -> x.\nvalue = choose @Int 1 True.\nvalue."
+
+testSourceAppliesExplicitTypeApplicationToInferredTypeOrder :: IO ()
+testSourceAppliesExplicitTypeApplicationToInferredTypeOrder = do
+  result <-
+    runSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      ( "flip = \\(f) -> \\(x) -> \\(y) -> f y x.\n"
+          <> "value = flip @Int (\\(left) -> \\(right) -> left + 1) True 2.\n"
+          <> "value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication :: IO ()
+testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Showable(a) { }.\nimpl Showable(Bool) { }.\naddSelf :: @{Showable(a)}: a -> a.\naddSelf = \\(x) -> x + x.\nbad = addSelf @Bool True."
+    "primitive numeric constraint"
+
+testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding :: IO ()
+testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding =
+  assertSourceSingleErrorContains
+    "inc :: Int -> Int.\ninc = \\(x) -> x + 1.\nvalue = inc @Int 1."
+    "explicit type application target must be a generalized binding"
+
+testSourceRejectsExtraExplicitTypeApplicationArgument :: IO ()
+testSourceRejectsExtraExplicitTypeApplicationArgument =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) { }.\nimpl Eq(Int) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nvalue = id @Int @Bool 1."
+    "explicit type application target must be a generalized binding"
+
 testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints :: IO ()
 testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints =
   assertSourceOk "choose :: @{Eq(a)}: a -> b -> a.\nchoose = \\(x) -> \\(y) -> x.\nintBool = choose 1 True.\nintInt = choose 2 3."
@@ -1294,6 +1342,19 @@ testSourceRejectsMissingInferredEqualityFactThroughSection =
 testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEq :: IO ()
 testSourceAcceptsPrimitiveEqualityHelperWithoutVisibleEq =
   assertSourceOkWithoutPrelude "same = \\(x) -> x == x.\nok = same 1."
+
+testSourcePreservesNumericDefaultsThroughFinalSolverPhase :: IO ()
+testSourcePreservesNumericDefaultsThroughFinalSolverPhase =
+  assertSourceOk "numeric = \\(x) -> x + 1.\nresult = numeric 2.\nresult."
+
+testSourceRejectsAmbiguousInferredEqualityBindingUse :: IO ()
+testSourceRejectsAmbiguousInferredEqualityBindingUse =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class Eq(a) { }.\n"
+        <> "ambiguous = \\(x) -> x == x.\n"
+        <> "ambiguous."
+    )
+    "ambiguous/defaulting inferred constraint 'Eq"
 
 testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes :: IO ()
 testSourceInfersQualifiedMethodClassConstraintsForOrdinaryBindingSchemes =
@@ -1479,7 +1540,7 @@ testSourceRejectsAmbiguousInferredEqualityObligationsOnExpressionStatements =
     ( "class Eq(a) { }.\n"
         <> "\\(x) -> x == x."
     )
-    "ambiguous/defaulting explicit constraint 'Eq"
+    "ambiguous/defaulting inferred constraint 'Eq"
 
 testSourceChecksInferredMethodObligationsOnMonomorphicSignedBindings :: IO ()
 testSourceChecksInferredMethodObligationsOnMonomorphicSignedBindings =

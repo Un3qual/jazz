@@ -124,14 +124,12 @@ implementation children:
 - solver-backed constrained signatures for variable-bearing signatures such as
   `@{Eq(a)}: a -> a`,
 - inferred class constraints represented and solved against visible class/impl
-  facts.
+  facts,
+- final inferred-constraint ambiguity/defaulting diagnostics while preserving
+  current numeric literal defaults.
 
-Accepted under `JN-TYPE-SOLVER-CONTRACT-001` but still waiting for future
-implementation children:
-
-- defaulting beyond the already locked numeric literal defaults, using a final
-  solver/defaulting phase that preserves current `Int64` and `Float64` numeric
-  literal defaults.
+No accepted `JN-TYPE-SOLVER-CONTRACT-001` implementation children remain
+pending in the current remaining-slices plan.
 
 Still blocked or out of scope for this ready child:
 
@@ -171,12 +169,16 @@ Locked decisions:
   unchanged: ambiguous integer literals default through `Int`/`Int64`, and
   ambiguous fractional literals default through `Float`/`Float64`. The solver
   defaulting phase must not reopen primitive implicit integer-to-float
-  promotion or implicit mixed-width behavior.
-- Variable constrained signatures such as `@{Eq(a)}: a -> a` graduate from the
-  current monomorphic annotation-only behavior to generalized constrained
-  schemes once the solver-backed constrained-signature child lands. Concrete and
-  currently monomorphic constrained-signature behavior is not reworked by the
-  ordinary-binding schemes child.
+  promotion or implicit mixed-width behavior. The final defaulting/ambiguity
+  child landed on `2026-07-08` with deterministic inferred-constraint
+  ambiguity diagnostics.
+- Variable constrained signatures such as `@{Eq(a)}: a -> a` now produce
+  generalized constrained schemes. Each use site freshens quantified variables,
+  preserves the explicit scheme constraints, solves concrete class/impl evidence
+  against visible facts, and reaches the final defaulting/ambiguity phase before
+  reporting unsolved obligations. Concrete constrained signatures remain
+  annotation-only and normalize to the same monomorphic signature body as an
+  ordinary adjacent signature.
 - Diagnostics remain deterministic: unsolved constraints name the missing
   class/impl evidence, duplicate constraints keep source-order duplicate
   reporting, arity errors name expected and actual argument counts, unsupported

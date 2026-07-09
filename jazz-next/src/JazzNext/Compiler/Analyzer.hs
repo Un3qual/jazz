@@ -192,8 +192,8 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
           (argumentWarnings, argumentErrors) =
             collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context argumentExpr
           purityErrors =
-            case functionExpr of
-              EVar calleeName
+            case directCallCalleeName functionExpr of
+              Just calleeName
                 | shouldRejectImpureCall builtinMode visibleBindings visibleClassNames context calleeName ->
                     [ mkImpureCallInPureContextError
                         context
@@ -205,6 +205,8 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
         ( functionWarnings ++ argumentWarnings,
           functionErrors ++ argumentErrors ++ purityErrors
         )
+    ETypeApplication functionExpr _ ->
+      collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context functionExpr
     EIf conditionExpr thenExpr elseExpr ->
       collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context (ECase conditionExpr thenExpr elseExpr)
     ECase conditionExpr thenExpr elseExpr ->
@@ -836,6 +838,13 @@ shouldRejectImpureCall builtinMode visibleBindings visibleClassNames context cal
                || isBuiltinSymbolNameInMode builtinMode calleeNameText
                || qualifiedMethodClassIsVisible visibleClassNames calleeNameText
            )
+
+directCallCalleeName :: Expr -> Maybe Identifier
+directCallCalleeName expr =
+  case expr of
+    EVar calleeName -> Just calleeName
+    ETypeApplication functionExpr _ -> directCallCalleeName functionExpr
+    _ -> Nothing
 
 mkImpureCallInPureContextError ::
   AnalysisContext ->

@@ -66,6 +66,8 @@ lowerSurfaceExpr surfaceExpr =
       ETuple (map lowerSurfaceExpr elements)
     SEApply functionExpr argumentExpr ->
       EApply (lowerSurfaceExpr functionExpr) (lowerSurfaceExpr argumentExpr)
+    SETypeApplication functionExpr signatureType ->
+      ETypeApplication (lowerSurfaceExpr functionExpr) (lowerSurfaceSignatureType signatureType)
     SEIf conditionExpr thenExpr elseExpr ->
       EIf
         (lowerSurfaceExpr conditionExpr)

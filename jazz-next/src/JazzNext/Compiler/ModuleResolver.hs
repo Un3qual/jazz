@@ -413,6 +413,8 @@ collectExprReferences boundNames surfaceExpr =
       Set.union
         (collectExprReferences boundNames function)
         (collectExprReferences boundNames argument)
+    SETypeApplication function _ ->
+      collectExprReferences boundNames function
     SEIf condition trueBranch falseBranch ->
       Set.unions
         [ collectExprReferences boundNames condition,
@@ -552,6 +554,8 @@ collectQualifiedReferences surfaceExpr =
       Set.union
         (collectQualifiedReferences function)
         (collectQualifiedReferences argument)
+    SETypeApplication function _ ->
+      collectQualifiedReferences function
     SEIf condition trueBranch falseBranch ->
       Set.unions
         [ collectQualifiedReferences condition,

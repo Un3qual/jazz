@@ -40,10 +40,11 @@ canonical unary class vocabulary listed above and includes the first inert
 default concrete impl facts for `Int`, `Float`, and `Bool` capability
 constraints.
 
-Those declarations still add no defaulting, dictionaries, or runtime evidence
-values. The first explicit method slice supports `Class::method` references
-only when a prior visible class method signature and exactly one visible
-concrete impl method body exist; broader method lookup, overload selection,
-and runtime evidence remain future work. `jazz-next` rejects non-canonical
-`trait` declarations. Ordinary bindings, signatures, and qualified import
-aliases may still use these words where the parser permits them.
+Those declarations still add no user-visible defaulting or dictionary values.
+Explicit `Class::method` references can select visible concrete impl method
+bodies, and runtime method candidates carry compiler-owned evidence identifying
+the class, concrete impl target, and method key. Broader method lookup,
+dictionary optimization, default methods, superclasses, and module method
+visibility remain future work. `jazz-next` rejects non-canonical `trait`
+declarations. Ordinary bindings, signatures, and qualified import aliases may
+still use these words where the parser permits them.

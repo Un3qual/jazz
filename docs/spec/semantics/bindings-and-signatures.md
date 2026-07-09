@@ -1,6 +1,6 @@
 # Bindings and Signatures Semantics
 
-Status: active (`jazz-next` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints validated against class/impl facts, generalized variable constrained-signature schemes with per-use evidence checks, deterministic unsupported-variable diagnostics, unsupported constrained-signature primary spans, structural list/tuple/ADT equality over equality-supported element and constructor payload types, ordinary binding type schemes with fresh per-use instantiation, and inferred `Eq` class constraints from strict equality and qualified method requirements are implemented; broad defaulting, runtime evidence, and explicit type application remain future verifier-backed child rows)
+Status: active (`jazz-next` structured-signature rebase closed for the supported monomorphic subset; adjacent monomorphic signatures, width-specific numeric signature names, `Int`/`Float` aliases, empty `@{}:` constrained signatures, concrete unary non-empty constraints validated against class/impl facts, generalized variable constrained-signature schemes with per-use evidence checks, deterministic unsupported-variable diagnostics, unsupported constrained-signature primary spans, structural list/tuple/ADT equality over equality-supported element and constructor payload types, ordinary binding type schemes with fresh per-use instantiation, inferred `Eq` class constraints from strict equality and qualified method requirements, final inferred-constraint ambiguity diagnostics, expression-level explicit type application for generalized schemes, and compiler-owned runtime evidence for qualified method candidates are implemented)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md`
 
@@ -31,7 +31,11 @@ Adjacent future generic ADT work:
 - The dedicated polymorphism/defaulting/typeclass-solver contract is accepted as
   `JN-TYPE-SOLVER-CONTRACT-001`, but implementation is split into child rows.
   Ordinary binding type schemes, per-use instantiation, solver-backed variable
-  constrained signatures, and inferred class constraints have landed.
+  constrained signatures, inferred class constraints, and final
+  inferred-constraint ambiguity diagnostics have landed. Expression-level
+  explicit type application for generalized schemes and compiler-owned runtime
+  evidence for qualified method candidates have also landed. All accepted
+  type-solver children from the current remaining-slices plan are complete.
 
 Adjacent numeric-width work:
 
@@ -52,8 +56,8 @@ implementation child.
 3. A signature does not float across unrelated declarations or expressions.
 4. An empty constrained-signature prefix (`@{}:`) has no semantic obligations and normalizes to the same monomorphic type subset as an ordinary adjacent signature.
 5. Non-empty concrete constrained signatures are accepted when the unary constraint name has a visible explicit-parameter `class` declaration, such as `class Eq(a) { }.`, and the single concrete argument has a visible matching concrete `impl` fact. Concrete arguments are limited to `Int`, `Float`, width-specific numeric types, `Bool`, nested lists, or tuple compositions of those concrete types. Accepted concrete constraints are annotation-only obligations and normalize to the same monomorphic signature body as an ordinary adjacent signature. The default bundled prelude provides canonical unary vocabulary class declarations plus the first default concrete impl facts for `Eq`, `Ord`, `Num`, `Integral`, `Fractional`, `Default`, and `Showable` over `Int`, `Float`, and `Bool` where currently scoped; explicit-prelude and no-prelude entry points do not inherit those bundled facts.
-6. Non-empty constrained signatures are also accepted for known unary constraint names whose single argument is a lower-case type variable, when every lower-case type variable in the signature body appears in at least one supported unary constraint and every constrained variable appears in the body. Repeated source variable names in one signature map to the same fresh internal inference variable for that binding. These accepted variable constraints are monomorphic and annotation-only: they do not generalize at later use sites, do not introduce defaulting, do not call a typeclass solver, and do not add runtime dispatch.
-7. Non-empty constrained signatures with duplicate constraint names, missing class/impl facts for concrete constraints, arguments that do not match the declared class arity, unconstrained body variables, unused constrained variables, type applications, or function-type constraint arguments must fail deterministically with `E2009`; duplicate constraint names must name the duplicate, arity errors must name the expected and actual argument counts, unsupported variable-bearing constrained signatures must name the supported unary-constraint requirement, and the diagnostic primary span must remain attached to the signature statement.
+6. Non-empty constrained signatures are also accepted for known unary constraint names whose single argument is a lower-case type variable, when every lower-case type variable in the signature body appears in at least one supported unary constraint and every constrained variable appears in the body. Repeated source variable names in one signature map to the same fresh internal inference variable for that binding. These accepted variable constraints produce generalized constrained schemes: each use site instantiates fresh variables, solves concrete class/impl evidence against visible facts, and reaches the final defaulting/ambiguity phase before reporting unsolved obligations. They are not user-visible dictionary values and do not add source-level runtime dispatch.
+7. Non-empty constrained signatures with duplicate constraint names, missing class/impl facts for concrete constraints, arguments that do not match the declared class arity, unconstrained body variables, unused constrained variables, unsupported constraint-argument type applications, or function-type constraint arguments must fail deterministically with `E2009`; duplicate constraint names must name the duplicate, arity errors must name the expected and actual argument counts, unsupported variable-bearing constrained signatures must name the supported unary-constraint requirement, and the diagnostic primary span must remain attached to the signature statement.
 8. Same-scope rebinding is allowed and deterministic: last declaration in the same scope wins.
 9. Nested scopes may shadow outer bindings.
 10. Non-recursive use-before-definition is invalid and must produce a compile-time error.
@@ -88,23 +92,42 @@ verifier-backed child rows.
    fractional literals default through `Float`/`Float64`. This phase must not
    reopen primitive implicit integer-to-float promotion or implicit mixed-width
    behavior.
-6. Variable constrained signatures such as `@{Eq(a)}: a -> a` graduate from the
-   current monomorphic annotation-only behavior to generalized constrained
-   schemes when the solver-backed constrained-signature child lands. Concrete
-   and currently monomorphic constrained signatures are not reworked by the
-   first ordinary-binding schemes child.
+6. Variable constrained signatures such as `@{Eq(a)}: a -> a` now produce
+   generalized constrained schemes. Each use site freshens quantified
+   variables, preserves the explicit scheme constraints, solves concrete
+   class/impl evidence against visible facts, and reaches the final
+   defaulting/ambiguity phase before reporting unsolved obligations. Concrete
+   constrained signatures remain annotation-only and normalize to the same
+   monomorphic signature body as an ordinary adjacent signature.
 7. Diagnostics must remain deterministic: unsolved constraints name missing
    class/impl evidence, duplicate constraints report the duplicate in source
    order, arity errors name expected and actual argument counts, unsupported
-   type applications remain explicit unsupported-type-application errors until
-   that syntax has its own contract, and un-defaulted variables report an
-   ambiguity/defaulting failure with the relevant binding or signature span.
+   type-application forms inside constrained signature arguments remain
+   explicit unsupported-type-application errors, and un-defaulted variables
+   report an ambiguity/defaulting failure with the relevant binding or
+   signature span. Inferred obligations use `ambiguous/defaulting inferred
+   constraint ...`; explicit constrained-signature obligations keep the
+   explicit constrained-signature diagnostic.
+8. Expression-level explicit type application uses `expr @Type`. The type
+   argument is parsed with the same supported monomorphic signature type
+   grammar (`Int`, `Bool`, `Float`, width-specific numerics, lists, tuples,
+   and functions). It applies only to already-generalized scheme bindings. It
+   fixes the first quantified variable to the explicit type, freshens any
+   remaining quantified variables, and then reuses existing class/impl and
+   primitive obligation checks. Monomorphic targets and already-instantiated
+   targets reject with deterministic `E2017`. The construct has no runtime
+   evidence representation; runtime evaluation erases it to the wrapped
+   expression.
+9. Compiler-owned runtime evidence records exist for selected concrete
+   class/impl method candidates. Evidence records identify the class, concrete
+   impl target, and method key; qualified method dispatch consumes them
+   internally. They are not source-level values and render as functions when a
+   qualified method value is observed.
 
 Out of scope for this accepted contract:
 
-- runtime dictionary representation or runtime evidence,
+- user-visible dictionary values or dictionary optimization,
 - abstraction method dispatch,
-- explicit type application,
 - higher-rank polymorphism,
 - generic constructor pattern typing,
 - module/import behavior,
@@ -247,8 +270,6 @@ bad = \(x) -> x.
 
 ## Deferred Work
 
-- Implement the remaining accepted type-solver contract through verifier-backed
-  child rows. Ordinary binding type schemes, per-use instantiation,
-  solver-backed variable constrained-signature schemes, and inferred `Eq` class
-  constraints are landed; broad defaulting, runtime evidence, and explicit type
-  application remain later children.
+- All accepted type-solver children from the current remaining-slices plan have
+  landed. Future dictionary/default-method/superclass/module-method behavior
+  needs a new concrete contract with target paths and focused verification.

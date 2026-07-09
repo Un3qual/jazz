@@ -1,7 +1,7 @@
 # Operators and Sections
 
-Status: active (phase 0 contract lock; Stage 2 fixed-tier/executable binding contract lock)
-Locked decisions: 2026-03-03; Stage 2 fixed-tier contract locked 2026-06-04; Stage 2 executable binding contract locked 2026-06-27
+Status: active (phase 0 contract lock; Stage 2 fixed-tier/executable binding contract lock; custom precedence/associativity contract lock)
+Locked decisions: 2026-03-03; Stage 2 fixed-tier contract locked 2026-06-04; Stage 2 executable binding contract locked 2026-06-27; custom precedence locked 2026-07-08; custom associativity locked 2026-07-08
 Primary plan: `docs/plans/spec-clarification/2026-03-03/syntax/15-operator-fixity-and-sections.md`
 
 ## Purpose
@@ -97,13 +97,14 @@ Stage 2:
 1. Controlled user-defined operator declarations.
 2. Restricted character set and fixed precedence tiers.
 3. Same-source executable bindings through ordinary function values.
-4. No custom precedence, no custom associativity, no runtime overload dispatch,
-   and no new built-in operators.
+4. Adjacent operator-specific signatures for executable user operators.
 
-Stage 3 (optional, only if needed):
+Stage 3:
 
 1. Custom precedence declarations.
-2. Additional validation to prevent ambiguity regressions.
+2. Optional `left`, `right`, and `nonassoc` associativity declarations.
+3. No runtime overload dispatch, cross-module operator APIs, or new built-in
+   operators.
 
 ## Stage 2 Fixed-Tier User Operators
 
@@ -146,9 +147,77 @@ tier's associativity:
 | `4` | `==`, `!=`, `<`, `<=`, `>=`, `>` | Left |
 | `5` | `$` | Right |
 
-Stage 2 does not provide syntax for custom numeric precedence or custom
-associativity. For example, `operator %% precedence 20.` and
-`operator %% tier 2 right.` are invalid.
+Fixed-tier declarations may optionally override the inherited associativity
+with the custom associativity syntax described below.
+
+### Custom Numeric Precedence User Operators
+
+Custom numeric precedence declarations use the same source-unit-local operator
+symbol rules as fixed-tier declarations:
+
+```jz
+operator <symbol> precedence <1-99>.
+```
+
+Grammar:
+
+```ebnf
+operator-declaration ::= "operator" operator-symbol "precedence" operator-precedence "."
+operator-precedence  ::= integer in the inclusive range 1..99
+```
+
+Examples:
+
+```jz
+operator %% precedence 25.
+operator <+> precedence 99.
+```
+
+Rules:
+
+1. Higher precedence numbers bind tighter.
+2. Built-in tier anchors keep their current relative ordering.
+3. A custom-precedence operator without explicit associativity defaults to left
+   associativity.
+4. Existing `operator <symbol> tier <1-5>.` declarations remain valid.
+5. Duplicate declarations, built-in symbols, reserved symbols, and invalid
+   operator characters are rejected under the same rules as fixed-tier
+   declarations.
+
+### Custom Associativity
+
+Both fixed-tier and custom-precedence declarations may include one optional
+associativity keyword:
+
+```jz
+operator <symbol> tier <1-5> <associativity>.
+operator <symbol> precedence <1-99> <associativity>.
+```
+
+Grammar:
+
+```ebnf
+operator-associativity ::= "left" | "right" | "nonassoc"
+```
+
+Examples:
+
+```jz
+operator %% tier 2 left.
+operator <| precedence 10 right.
+operator ?> tier 4 nonassoc.
+```
+
+Rules:
+
+1. `left` groups same-precedence chains to the left.
+2. `right` groups same-precedence chains to the right.
+3. `nonassoc` rejects unparenthesized chains at the same precedence because
+   grouping must be explicit.
+4. Omitted associativity keeps the inherited tier associativity for `tier`
+   declarations and defaults to left associativity for `precedence`
+   declarations.
+5. Unknown associativity keywords are invalid.
 
 ### Allowed Symbols
 
@@ -184,7 +253,7 @@ Stage 2 declarations are source-unit local:
 3. Imported modules may use their own declared operators internally, but callers
    must declare any user operator symbols they use in their own source unit.
 4. Duplicate declarations of the same symbol in one source unit are invalid,
-   even when the duplicate repeats the same tier.
+   even when the duplicate repeats the same tier or precedence.
 5. Operator declarations are not allowed inside expressions, blocks, classes,
    impls, lambdas, pattern arms, or any other nested scope.
 
@@ -255,9 +324,8 @@ Executable equivalences:
 4. `(%%)` is the ordinary callable value bound by `(%%) = <expression>.`
 
 Executable operator bindings do not introduce implicit overload resolution,
-dictionaries, typeclass solver behavior, custom precedence, custom
-associativity, new built-ins, new operator declaration syntax, or runtime
-overload dispatch.
+dictionaries, typeclass solver behavior, new built-ins, operator imports or
+exports, or runtime overload dispatch.
 
 ### Invalid Stage 2 Cases
 
@@ -269,8 +337,11 @@ operator -> tier 5.       // reserved grammar token
 operator .. tier 1.       // reserved character
 operator abc tier 2.      // letters are not operator characters
 operator %% tier 6.       // tier outside 1-5
-operator %% precedence 2. // custom precedence is out of scope
-operator %% tier 2 left.  // custom associativity is out of scope
+operator %% precedence 0. // precedence outside 1-99
+operator %% precedence 100. // precedence outside 1-99
+operator %% tier 2 sideways. // invalid associativity keyword
+operator ?> precedence 10 nonassoc.
+value = 1 ?> 2 ?> 3.      // non-associative chain needs parentheses
 ```
 
 Using a user operator before its declaration is invalid:
@@ -284,8 +355,8 @@ operator %% tier 2.
 
 Stage 2 executable bindings remain ordinary source-local bindings. They do not
 add kernel primitives, operator imports or exports, runtime overload dispatch,
-cross-module operator APIs, non-adjacent operator signatures, custom
-precedence, custom associativity, or new built-in operators.
+cross-module operator APIs, non-adjacent operator signatures, or new built-in
+operators.
 
 ## Compatibility and Drift Prevention
 

@@ -1,28 +1,31 @@
 ---
-id: JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001
-status: ready
+id: JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001
+status: done
+completed_on: 2026-07-08
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on:
-  - JN-TYPE-SOLVER-INFERRED-CLASS-CONSTRAINTS-001
-last_verified: 2026-06-30
-plan_section: "Batch 1: Final Defaulting And Ambiguity"
+  - JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001
+last_verified: 2026-07-08
+plan_section: "Batch 3: Runtime Evidence And Dictionaries"
 target_paths:
-  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
-  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - docs/spec/abstractions/capability-model.md
   - docs/spec/semantics/bindings-and-signatures.md
-  - docs/spec/runtime/primitive-semantics.md
+  - jazz-next/src/JazzNext/Compiler/TypeInference.hs
+  - jazz-next/src/JazzNext/Compiler/Runtime.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - docs/execution/blocker-contracts.md
   - docs/execution/queue.md
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+  - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
   - git diff --check
-deliverable: "Add the final solver defaulting and ambiguity pass for unresolved class constraints, preserving current numeric literal defaults and keeping runtime evidence, dictionaries, explicit type application, and primitive mixed-width behavior out of scope."
+deliverable: "Introduce the first compiler-owned runtime evidence/dictionary representation for selected class/impl facts while keeping evidence non-user-visible and preserving explicit qualified method dispatch behavior."
 ---
 
 # Jazz-Next Remaining Type Solver Slices Plan
@@ -36,27 +39,28 @@ deliverable: "Add the final solver defaulting and ambiguity pass for unresolved 
 verifier-backed implementation children.
 
 **Architecture:** keep the completed ordinary-binding schemes and explicit
-constrained-signature schemes as the base. Each next child expands one solver
-axis only and carries focused type-inference tests; runtime evidence and
-dictionaries remain last because they need the compile-time solver behavior to
-exist first.
+constrained-signature schemes as the base. Each child expands one solver axis
+only and carries focused type-inference or runtime tests; runtime evidence and
+dictionaries landed last because they needed the compile-time solver behavior
+to exist first.
 
 **Tech Stack:** Haskell `jazz-next` type inference, existing class/impl fact
-metadata, source-pipeline tests in `BindingSignatureCoherenceSpec.hs`, future
-runtime evidence tests in `RuntimeSemanticsSpec.hs`, active bindings/signatures
-specs, and repo-root docs/queue validation.
+metadata, source-pipeline tests in `BindingSignatureCoherenceSpec.hs`, runtime
+evidence tests in `RuntimeSemanticsSpec.hs`, active bindings/signatures specs,
+and repo-root docs/queue validation.
 
 ---
 
 ## Remaining Solver Slice Order
 
-1. `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001`
-2. `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001`
-3. `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`
+1. `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001` (completed `2026-07-08`)
+2. `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001` (completed `2026-07-08`)
+3. `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001` (completed `2026-07-08`)
 
-The inferred class-constraint child is complete and archived; the remaining
-order keeps every open child independently testable. It also avoids mixing final
-compile-time defaulting work with runtime representation work.
+The inferred class-constraint and final defaulting/ambiguity children are
+complete and archived, and explicit type application is now complete and
+archived. Runtime evidence/dictionaries is also complete and archived. No
+accepted open child remains in this plan.
 
 ## Completed Prerequisite: Inferred Class Constraints
 
@@ -120,6 +124,9 @@ git diff --check
 
 Child id: `JN-TYPE-SOLVER-FINAL-DEFAULTING-AMBIGUITY-001`
 
+Status: completed on `2026-07-08` and recorded in
+`docs/execution/done-archive.md`.
+
 Goal: run a final solver phase after unification and class/impl solving that
 preserves current numeric literal defaults and emits deterministic ambiguity
 diagnostics for still-unresolved class constraints.
@@ -151,6 +158,12 @@ ambiguous.
 Expected diagnostic: unresolved `Eq(a)` ambiguity with the binding or terminal
 expression span. The child must not invent a default for arbitrary `Eq(a)`.
 
+Landed behavior: inferred unresolved class constraints now report
+`ambiguous/defaulting inferred constraint ...`, while explicit constrained
+signature ambiguity continues to report the explicit constrained-signature
+diagnostic. Existing integer literal defaults remain preserved through the
+final solver path.
+
 Out of scope:
 
 - implicit integer-to-float promotion,
@@ -173,6 +186,9 @@ git diff --check
 
 Child id: `JN-TYPE-SOLVER-EXPLICIT-TYPE-APPLICATION-001`
 
+Status: completed on `2026-07-08` and recorded in
+`docs/execution/done-archive.md`.
+
 Goal: add one explicit type application surface for already-generalized
 schemes, without adding higher-rank polymorphism or runtime evidence.
 
@@ -191,6 +207,10 @@ Target paths:
 - `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`
 - `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
 - `jazz-next/src/JazzNext/Compiler/AST.hs`
+- `jazz-next/src/JazzNext/Compiler/Analyzer.hs`
+- `jazz-next/src/JazzNext/Compiler/ModuleReplay.hs`
+- `jazz-next/src/JazzNext/Compiler/RecursiveBindings.hs`
+- `jazz-next/src/JazzNext/Compiler/Runtime.hs`
 - `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
 - `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs`
@@ -203,6 +223,14 @@ Rules:
   accepted by signatures.
 - Wrong arity, unsupported type application targets, and unsupported type
   argument shapes produce deterministic diagnostics.
+
+Landed behavior: `expr @Type` parses and lowers into explicit
+type-application nodes. The type argument uses the existing monomorphic
+signature type grammar. Type inference instantiates generalized scheme
+bindings with the explicit type for the first quantified variable, freshens
+remaining variables, preserves existing deferred class/primitive obligations,
+erases the node at runtime, and rejects monomorphic or already-instantiated
+targets with `E2017`.
 
 Out of scope:
 
@@ -217,6 +245,8 @@ Focused verification:
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
 bash scripts/check-execution-queue.sh
 bash scripts/check-docs.sh
 git diff --check
@@ -225,6 +255,9 @@ git diff --check
 ## Batch 3: Runtime Evidence And Dictionaries
 
 Child id: `JN-TYPE-SOLVER-RUNTIME-EVIDENCE-DICTIONARIES-001`
+
+Status: completed on `2026-07-08` and recorded in
+`docs/execution/done-archive.md`.
 
 Goal: introduce the first runtime evidence representation only after inferred
 constraints, defaulting, and explicit type application have compile-time
@@ -247,6 +280,15 @@ Accepted behavior:
   internally.
 - Missing, duplicate, or ambiguous evidence stays diagnostic-first and
   deterministic.
+
+Landed behavior:
+
+- Runtime qualified-method candidates now carry compiler-owned
+  `RuntimeEvidence` records with class name, concrete impl target, and method
+  key.
+- Candidate selection consumes the evidence target internally.
+- Evidence is not an ordinary source value, and `renderRuntimeValue` still
+  renders qualified method values as `<function>`.
 
 Out of scope:
 

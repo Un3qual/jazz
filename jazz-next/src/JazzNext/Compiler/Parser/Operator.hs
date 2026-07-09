@@ -5,6 +5,7 @@ module JazzNext.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
     builtinOperatorInfos,
+    declaredOperatorInfoForPrecedence,
     declaredOperatorInfoForTier,
     isBuiltinOperatorSymbol,
     isReservedOperatorSymbol,
@@ -21,6 +22,7 @@ import qualified Data.Text as Text
 data Associativity
   = AssocLeft
   | AssocRight
+  | AssocNonAssoc
   deriving (Eq, Show)
 
 -- | Published fixity information for a builtin operator.
@@ -93,6 +95,15 @@ declaredOperatorInfoForTier symbol tier =
     4 -> Just (OperatorInfo symbol 2 AssocLeft)
     5 -> Just (OperatorInfo symbol 1 AssocRight)
     _ -> Nothing
+
+-- | Custom precedence declarations use the parser's native precedence scale
+-- directly. Larger numbers bind tighter and custom associativity defaults left.
+declaredOperatorInfoForPrecedence :: Text -> Integer -> Maybe OperatorInfo
+declaredOperatorInfoForPrecedence symbol precedence
+  | precedence >= 1 && precedence <= 99 =
+      Just (OperatorInfo symbol (fromInteger precedence) AssocLeft)
+  | otherwise =
+      Nothing
 
 -- | Characters allowed in Stage 2 user-defined operator symbols.
 isStage2OperatorSymbolChar :: Char -> Bool

@@ -1174,16 +1174,17 @@ looksLikeOperatorDeclaration tokensAfterKeyword =
   case tokensAfterKeyword of
     Token {tokenKind = TOperator {}} : _ -> True
     Token {tokenKind = TArrow} : _ -> True
-    Token {tokenKind = TIdentifier {}} : rest -> hasOperatorTierBeforeTerminator rest
+    Token {tokenKind = TIdentifier {}} : rest -> hasOperatorFixityKeywordBeforeTerminator rest
     _ -> False
 
-hasOperatorTierBeforeTerminator :: [Token] -> Bool
-hasOperatorTierBeforeTerminator tokens =
+hasOperatorFixityKeywordBeforeTerminator :: [Token] -> Bool
+hasOperatorFixityKeywordBeforeTerminator tokens =
   case tokens of
     [] -> False
     Token {tokenKind = TDot} : _ -> False
     Token {tokenKind = TIdentifier "tier"} : _ -> True
-    _ : rest -> hasOperatorTierBeforeTerminator rest
+    Token {tokenKind = TIdentifier "precedence"} : _ -> True
+    _ : rest -> hasOperatorFixityKeywordBeforeTerminator rest
 
 looksLikeReservedAbstractionDeclaration :: Text -> [Token] -> Bool
 looksLikeReservedAbstractionDeclaration name tokensAfterKeyword =
