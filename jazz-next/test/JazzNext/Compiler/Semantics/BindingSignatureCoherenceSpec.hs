@@ -195,6 +195,7 @@ tests =
     ("source pipeline instantiates recursive constrained signatures per use", testSourceInstantiatesRecursiveConstrainedSignaturePerUse),
     ("source pipeline applies explicit type application to generalized signatures", testSourceAppliesExplicitTypeApplicationToGeneralizedSignature),
     ("source pipeline applies explicit type application to first source variable", testSourceAppliesExplicitTypeApplicationToFirstSourceVariable),
+    ("source pipeline applies explicit type application to inferred type order", testSourceAppliesExplicitTypeApplicationToInferredTypeOrder),
     ("source pipeline rejects primitive-incompatible explicit type application", testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication),
     ("source pipeline rejects explicit type application on monomorphic bindings", testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding),
     ("source pipeline rejects extra explicit type application arguments", testSourceRejectsExtraExplicitTypeApplicationArgument),
@@ -1163,6 +1164,20 @@ testSourceAppliesExplicitTypeApplicationToGeneralizedSignature =
 testSourceAppliesExplicitTypeApplicationToFirstSourceVariable :: IO ()
 testSourceAppliesExplicitTypeApplicationToFirstSourceVariable =
   assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nchoose :: @{Eq(b)}: b -> a -> b.\nchoose = \\(x) -> \\(y) -> x.\nvalue = choose @Int 1 True.\nvalue."
+
+testSourceAppliesExplicitTypeApplicationToInferredTypeOrder :: IO ()
+testSourceAppliesExplicitTypeApplicationToInferredTypeOrder = do
+  result <-
+    runSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      ( "flip = \\(f) -> \\(x) -> \\(y) -> f y x.\n"
+          <> "value = flip @Int (\\(left) -> \\(right) -> left + 1) True 2.\n"
+          <> "value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
 
 testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication :: IO ()
 testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication =

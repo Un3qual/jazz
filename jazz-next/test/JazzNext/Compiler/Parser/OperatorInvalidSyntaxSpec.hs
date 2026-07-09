@@ -28,6 +28,7 @@ tests =
     ("rejects invalid operator associativity keyword", testRejectsInvalidOperatorAssociativityKeyword),
     ("rejects non-associative operator chains", testRejectsNonAssociativeOperatorChain),
     ("rejects same-precedence chain before non-associative operator", testRejectsSamePrecedenceChainBeforeNonAssociativeOperator),
+    ("rejects right-associative same-precedence non-associative chains", testRejectsRightAssociativeSamePrecedenceNonAssociativeChain),
     ("rejects user operator infix use before declaration", testRejectsUserOperatorInfixUseBeforeDeclaration),
     ("rejects user operator value use before declaration", testRejectsUserOperatorValueUseBeforeDeclaration),
     ("rejects undeclared operator signature", testRejectsUndeclaredOperatorSignature),
@@ -138,6 +139,14 @@ testRejectsSamePrecedenceChainBeforeNonAssociativeOperator =
     "E0001"
     "non-associative operator '?>' cannot be chained without parentheses"
     (parseSurfaceProgram "operator ?> precedence 4 nonassoc.\nx = 1 + 2 ?> 3.")
+
+testRejectsRightAssociativeSamePrecedenceNonAssociativeChain :: IO ()
+testRejectsRightAssociativeSamePrecedenceNonAssociativeChain =
+  assertLeftDiagnosticCodeAndContains
+    "right-associative same-precedence non-associative chain"
+    "E0001"
+    "non-associative operator '?>' cannot be chained without parentheses"
+    (parseSurfaceProgram "operator ?> precedence 1 nonassoc.\nx = 1 $ 2 ?> 3.")
 
 testRejectsUserOperatorInfixUseBeforeDeclaration :: IO ()
 testRejectsUserOperatorInfixUseBeforeDeclaration =

@@ -55,6 +55,7 @@ tests =
     ("reports nested module declaration parse failure in a module file", testReportsNestedModuleDeclarationParseFailure),
     ("accepts symbol-list imports when requested symbols are exported", testAcceptsValidImportSymbolList),
     ("accepts symbol-list imports for data constructors", testAcceptsDataConstructorImportSymbolList),
+    ("accepts type applications while collecting module references", testAcceptsTypeApplicationsWhileCollectingModuleReferences),
     ("accepts bare imports as unqualified visible exports", testAcceptsBareImportUnqualifiedExport),
     ("accepts local bindings over hidden symbol-list exports", testAcceptsLocalBindingOverHiddenExplicitImport),
     ("reports non-exported import symbols with module context", testReportsMissingImportSymbol),
@@ -486,6 +487,32 @@ testAcceptsDataConstructorImportSymbolList =
           { resolvedModulePath = ["App", "Main"],
             resolvedSourcePath = "src/App/Main.jz",
             resolvedImports = [["Lib", "Maybe"]]
+          }
+      ]
+
+testAcceptsTypeApplicationsWhileCollectingModuleReferences :: IO ()
+testAcceptsTypeApplicationsWhileCollectingModuleReferences =
+  assertRight
+    "type applications in module reference collection"
+    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (\modules -> assertEqual "resolved modules" expectedModules modules)
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Util as Util.\nmain = Util::id @Int 1."),
+          ("src/Lib/Util.jz", "id = \\(value) -> value.\nvalue = id @Int 1.")
+        ]
+    expectedModules =
+      [ ResolvedModule
+          { resolvedModulePath = ["Lib", "Util"],
+            resolvedSourcePath = "src/Lib/Util.jz",
+            resolvedImports = []
+          },
+        ResolvedModule
+          { resolvedModulePath = ["App", "Main"],
+            resolvedSourcePath = "src/App/Main.jz",
+            resolvedImports = [["Lib", "Util"]]
           }
       ]
 

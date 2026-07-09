@@ -2439,6 +2439,7 @@ generalizedOrdinaryBinding :: TypeEnv -> InferState -> ExpressionType -> TypeBin
 generalizedOrdinaryBinding env state expressionType =
   let resolvedType = defaultBindingLiteralTypes (resolveType state expressionType)
       schemeVariables = ordinaryBindingSchemeVariables env state expressionType
+      schemeVariableOrder = orderedSchemeVariables (expressionTypeVariableOrder resolvedType) schemeVariables
       inferredClassConstraints = typeSchemeInferredClassConstraints state schemeVariables
       primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
    in
@@ -2446,7 +2447,7 @@ generalizedOrdinaryBinding env state expressionType =
         && null inferredClassConstraints
         && null primitiveConstraints
       then PlainTypeBinding resolvedType
-      else SchemeTypeBinding (TypeScheme schemeVariables (Set.toList schemeVariables) inferredClassConstraints primitiveConstraints (typeSchemeDefiningFactsFromState state inferredClassConstraints) resolvedType)
+      else SchemeTypeBinding (TypeScheme schemeVariables schemeVariableOrder inferredClassConstraints primitiveConstraints (typeSchemeDefiningFactsFromState state inferredClassConstraints) resolvedType)
 
 ordinaryBindingSchemeVariables :: TypeEnv -> InferState -> ExpressionType -> Set Int
 ordinaryBindingSchemeVariables env state expressionType =
@@ -2698,6 +2699,36 @@ orderedSchemeVariables preferredOrder schemeVariables =
       filter (`Set.member` schemeVariables) preferredOrder
     unorderedVariables =
       Set.difference schemeVariables (Set.fromList orderedVariables)
+
+expressionTypeVariableOrder :: ExpressionType -> [Int]
+expressionTypeVariableOrder =
+  dedupe . go
+  where
+    go expressionType =
+      case expressionType of
+        TIntType -> []
+        TIntegerLiteralType {} -> []
+        TFloatType -> []
+        TNumericType {} -> []
+        TBoolType -> []
+        TListType elementType ->
+          go elementType
+        TTupleType elementTypes ->
+          concatMap go elementTypes
+        TDataType _ typeArguments ->
+          concatMap go typeArguments
+        TFunctionType inputType outputType ->
+          go inputType ++ go outputType
+        TVarType typeVar ->
+          [typeVar]
+
+    dedupe =
+      goDedupe Set.empty
+
+    goDedupe _ [] = []
+    goDedupe seen (typeVar : rest)
+      | Set.member typeVar seen = goDedupe seen rest
+      | otherwise = typeVar : goDedupe (Set.insert typeVar seen) rest
 
 typeSchemePrimitiveConstraints :: InferState -> Set Int -> [TypeSchemePrimitiveConstraint]
 typeSchemePrimitiveConstraints state schemeVariables =

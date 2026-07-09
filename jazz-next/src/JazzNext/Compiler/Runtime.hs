@@ -14,7 +14,7 @@ module JazzNext.Compiler.Runtime
 
 import Control.Monad (foldM, zipWithM)
 import Data.List (foldl')
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, listToMaybe)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -63,6 +63,7 @@ import JazzNext.Compiler.CapabilityFacts
     constraintFunctionArgumentTypes,
     constraintSignatureTypeContainsClassParameter,
     constraintSignatureTypesCompatible,
+    identifierLooksLikeTypeVariable,
     qualifiedMethodKey,
     signaturePayloadConstraintType,
     signatureTypeToConstraintSignatureType,
@@ -1521,9 +1522,12 @@ applyRuntimeFunction ::
 applyRuntimeFunction builtinMode bindingTypeHints functionValue argumentValue =
   case functionValue of
     VExplicitTypeApplication typeHint innerFunctionValue -> do
-      hintedArgumentValue <- applyRuntimeTypeHint typeHint argumentValue
-      resultValue <- applyRuntimeFunction builtinMode bindingTypeHints innerFunctionValue hintedArgumentValue
-      applyExplicitTypeApplicationResultHint typeHint resultValue
+      case explicitTypeApplicationRuntimeFunctionHint typeHint innerFunctionValue of
+        Just instantiatedFunctionHint ->
+          applyRuntimeFunction builtinMode bindingTypeHints (VTyped instantiatedFunctionHint innerFunctionValue) argumentValue
+        Nothing -> do
+          resultValue <- applyRuntimeFunction builtinMode bindingTypeHints innerFunctionValue argumentValue
+          applyExplicitTypeApplicationResultHint typeHint resultValue
     VExplicitResultHint typeHint innerFunctionValue -> do
       resultValue <- applyRuntimeFunction builtinMode bindingTypeHints innerFunctionValue argumentValue
       applyExplicitTypeApplicationResultHint typeHint resultValue
@@ -1629,6 +1633,73 @@ runtimeValueCanAcceptTypeHint typeHint runtimeValue =
           isFunctionValue runtimeValue
         _ ->
           False
+
+explicitTypeApplicationRuntimeFunctionHint :: ConstraintSignatureType -> RuntimeValue -> Maybe ConstraintSignatureType
+explicitTypeApplicationRuntimeFunctionHint typeHint runtimeValue = do
+  functionHint <- runtimeFunctionSignatureHint runtimeValue
+  variableName <- listToMaybe (constraintSignatureTypeVariableNamesInOrder functionHint)
+  pure (substituteConstraintSignatureTypeVariable variableName typeHint functionHint)
+
+runtimeFunctionSignatureHint :: RuntimeValue -> Maybe ConstraintSignatureType
+runtimeFunctionSignatureHint runtimeValue =
+  case runtimeValue of
+    VTyped typeHint _ ->
+      Just typeHint
+    VExplicitTypeApplication _ innerValue ->
+      runtimeFunctionSignatureHint innerValue
+    VExplicitResultHint _ innerValue ->
+      runtimeFunctionSignatureHint innerValue
+    VClosure _ _ _ maybeTypeHint _ ->
+      maybeTypeHint
+    _ -> Nothing
+
+substituteConstraintSignatureTypeVariable :: Text -> ConstraintSignatureType -> ConstraintSignatureType -> ConstraintSignatureType
+substituteConstraintSignatureTypeVariable variableName replacementType signatureType =
+  case signatureType of
+    ConstraintTypeName name
+      | identifierLooksLikeTypeVariable name,
+        identifierText name == variableName ->
+          replacementType
+      | otherwise ->
+          signatureType
+    ConstraintTypeApplication typeName arguments ->
+      ConstraintTypeApplication typeName (map (substituteConstraintSignatureTypeVariable variableName replacementType) arguments)
+    ConstraintTypeList innerType ->
+      ConstraintTypeList (substituteConstraintSignatureTypeVariable variableName replacementType innerType)
+    ConstraintTypeTuple elementTypes ->
+      ConstraintTypeTuple (map (substituteConstraintSignatureTypeVariable variableName replacementType) elementTypes)
+    ConstraintTypeFunction argumentType resultType ->
+      ConstraintTypeFunction
+        (substituteConstraintSignatureTypeVariable variableName replacementType argumentType)
+        (substituteConstraintSignatureTypeVariable variableName replacementType resultType)
+
+constraintSignatureTypeVariableNamesInOrder :: ConstraintSignatureType -> [Text]
+constraintSignatureTypeVariableNamesInOrder =
+  dedupe . go
+  where
+    go signatureType =
+      case signatureType of
+        ConstraintTypeName name
+          | identifierLooksLikeTypeVariable name ->
+              [identifierText name]
+          | otherwise ->
+              []
+        ConstraintTypeApplication _ arguments ->
+          concatMap go arguments
+        ConstraintTypeList innerType ->
+          go innerType
+        ConstraintTypeTuple elementTypes ->
+          concatMap go elementTypes
+        ConstraintTypeFunction argumentType resultType ->
+          go argumentType ++ go resultType
+
+    dedupe =
+      goDedupe Set.empty
+
+    goDedupe _ [] = []
+    goDedupe seen (name : rest)
+      | Set.member name seen = goDedupe seen rest
+      | otherwise = name : goDedupe (Set.insert name seen) rest
 
 applyQualifiedMethod ::
   BuiltinResolutionMode ->

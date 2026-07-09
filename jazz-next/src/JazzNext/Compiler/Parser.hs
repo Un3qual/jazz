@@ -917,7 +917,7 @@ parseExprWithMinPrecedenceUntil knownAliases declaredOperators stop minPrecedenc
   parseInfixTailWithUntil
     declaredOperators
     stop
-    (parseExprWithMinPrecedenceUntil knownAliases declaredOperators stop)
+    (\rhsStop -> parseExprWithMinPrecedenceUntil knownAliases declaredOperators rhsStop)
     minPrecedence
     leftExpr
     remainingTokens
@@ -943,7 +943,7 @@ parseExprWithoutApplicationWithMinPrecedenceUntil knownAliases declaredOperators
   parseInfixTailWithUntil
     declaredOperators
     stop
-    (parseExprWithoutApplicationWithMinPrecedenceUntil knownAliases declaredOperators stop)
+    (\rhsStop -> parseExprWithoutApplicationWithMinPrecedenceUntil knownAliases declaredOperators rhsStop)
     minPrecedence
     leftExpr
     remainingTokens
@@ -1020,7 +1020,7 @@ startsPrimaryExprTokens allTokens =
 parseInfixTailWithUntil ::
   DeclaredOperators ->
   ([Token] -> Bool) ->
-  (Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])) ->
+  (([Token] -> Bool) -> Int -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])) ->
   Int ->
   SurfaceExpr ->
   [Token] ->
@@ -1048,8 +1048,10 @@ parseInfixTailWithUntil declaredOperators stop parseRhs minPrecedence leftExpr t
                       Right (leftExpr, tokens)
                   | otherwise -> do
                       let nextMinPrecedence = operatorNextMinPrecedence operatorInfo
+                          rhsStop =
+                            samePrecedenceNonAssociativeRhsStop declaredOperators operatorInfo stop
                       (rightExpr, remainingAfterRight) <-
-                        parseRhs nextMinPrecedence tokensAfterOperator
+                        parseRhs rhsStop nextMinPrecedence tokensAfterOperator
                       rejectNonAssociativeContinuation declaredOperators operatorInfo operatorToken remainingAfterRight
                       parseInfixTailWithUntil
                         declaredOperators
@@ -1096,6 +1098,20 @@ rejectNonAssociativeContinuation declaredOperators operatorInfo operatorToken re
       | operatorAssociativity operatorInfo == AssocNonAssoc = operatorSymbol operatorInfo
       | otherwise = operatorSymbol nextInfo
 
+samePrecedenceNonAssociativeRhsStop :: DeclaredOperators -> OperatorInfo -> ([Token] -> Bool) -> [Token] -> Bool
+samePrecedenceNonAssociativeRhsStop declaredOperators operatorInfo stop tokens =
+  stop tokens
+    || case tokens of
+      Token {tokenKind = TOperator nextSymbol} : _ ->
+        case lookupOperatorInfoIn declaredOperators nextSymbol of
+          Just nextInfo ->
+            operatorPrecedence nextInfo == operatorPrecedence operatorInfo
+              && ( operatorAssociativity operatorInfo == AssocNonAssoc
+                     || operatorAssociativity nextInfo == AssocNonAssoc
+                 )
+          _ -> False
+      _ -> False
+
 -- | Shared precedence climber used by both regular expression parsing and the
 -- restricted `if` condition parser.
 parseInfixTailWith ::
@@ -1104,7 +1120,8 @@ parseInfixTailWith ::
   SurfaceExpr ->
   [Token] ->
   Either Diagnostic (SurfaceExpr, [Token])
-parseInfixTailWith = parseInfixTailWithUntil [] neverStop
+parseInfixTailWith parseRhs =
+  parseInfixTailWithUntil [] neverStop (\_ -> parseRhs)
 
 parsePrimaryExpr :: [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parsePrimaryExpr = parsePrimaryExprUntil Set.empty [] neverStop
