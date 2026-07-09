@@ -100,6 +100,11 @@ test-suite module-resolution-spec
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
 
+test-suite module-pipeline-contract-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs
+
 test-suite prelude-loading-spec
   import: test-common
   type: exitcode-stdio-1.0
