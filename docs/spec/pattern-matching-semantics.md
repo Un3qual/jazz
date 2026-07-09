@@ -39,6 +39,7 @@ Current parser/core invariants:
    - uppercase constructor patterns such as `Just item` or `Nothing`
    - bracketed list patterns such as `[head, _]` or `[]`
    - cons-like list patterns such as `[head | tail]`
+   - the zero-element tuple / Unit pattern `()`
    - tuple patterns such as `(left, right)` or `(1, flag)`
    - as-patterns such as `whole @ Just item`
    - top-level case-arm and lambda-parameter or-patterns such as
@@ -50,10 +51,11 @@ Current parser/core invariants:
    patterns typecheck against non-empty list deconstruction with the head
    subpattern at the element type and the tail subpattern at the same list type;
    tuple patterns typecheck against fixed-arity tuple scrutinees and bind
-   element variables in arm bodies; as-patterns typecheck their inner pattern
-   against the scrutinee and bind the whole scrutinee value at the scrutinee
-   type after the inner pattern succeeds; or-patterns typecheck every
-   alternative against the same scrutinee, require the same binder names in
+   element variables in arm bodies; the zero-element tuple pattern `()`
+   matches only the Unit value `()` and binds no names; as-patterns typecheck
+   their inner pattern against the scrutinee and bind the whole scrutinee value
+   at the scrutinee type after the inner pattern succeeds; or-patterns
+   typecheck every alternative against the same scrutinee, require the same binder names in
    every alternative, and expose only compatible common binders to the arm
    guard and body. Runtime matching supports declared constructors,
    exact-length bracketed lists, cons-like lists, fixed-arity tuples,
@@ -66,13 +68,15 @@ Current parser/core invariants:
 7. The older `ECase Expr Expr Expr` form remains the internal boolean-branch
    representation used after `if` desugaring.
 8. Tuple values and fixed-arity tuple case patterns are active core runtime
-   features.
+   features, including `()` as the zero-element Unit value and pattern.
 9. Lambda parameter patterns lower to ordinary unary lambdas whose bodies
    perform an internal single-arm `EPatternCase`, so parameter destructuring
    reuses the same binder, type, runtime matching, and no-match diagnostic
    contract as `case` patterns. Top-level lambda-parameter or-patterns lower
    to `POr` inside that internal single-arm case; lambda guards remain
    rejected.
+   The shorthand `\()` lowers through this rule as one `PTuple []` parameter,
+   equivalent to `\(())`; it is not a nullary lambda.
 10. Pattern guards are optional case-arm expressions introduced by `if`.
     They are stored on `CaseArm`, typecheck as `Bool` under pattern binders,
     and do not participate in arm-result agreement.
@@ -99,6 +103,7 @@ Current parser/core invariants:
    subpattern against the remaining list.
 9. A tuple pattern matches a runtime tuple with exactly the same element count,
    then recursively matches element subpatterns.
+   The zero-element case therefore matches only `()` and binds no names.
 10. An as-pattern `name @ pattern` delegates to the inner pattern first, then
     binds `name` to the whole scrutinee value only when the inner pattern
     succeeds.
