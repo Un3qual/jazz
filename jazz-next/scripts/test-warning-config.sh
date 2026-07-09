@@ -69,6 +69,11 @@ fi
 
 echo "PASS: runghc wrapper handles missing HOME without unbound-variable crash"
 
+if rg -n '^data (ExpressionType|InferState|TypeScheme)\b' jazz-next/src/JazzNext/Compiler/TypeInference.hs; then
+  echo "TypeInference facade still owns internal model types" >&2
+  exit 1
+fi
+
 for test_file in "${TEST_FILES[@]}"; do
   "$RUNGHC" "${RUNGHC_INCLUDES[@]}" "$test_file"
 done
