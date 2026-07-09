@@ -134,14 +134,18 @@ constrainedListTypeParser =
 
 constrainedParenthesizedTypeParser :: TokenParser.Parser SurfaceConstrainedSignatureType
 constrainedParenthesizedTypeParser =
-  betweenTokenKinds TLParen TRParen $ do
-    firstElement <- constrainedSignatureTypeParser
-    remainingElements <- MP.many (commaParser *> constrainedSignatureTypeParser)
-    case remainingElements of
-      [] ->
-        pure firstElement
-      _ ->
-        pure (SurfaceConstrainedTypeTuple (firstElement : remainingElements))
+  betweenTokenKinds TLParen TRParen $
+    ( MP.lookAhead (TokenParser.parseTokenKind TRParen)
+        *> pure (SurfaceConstrainedTypeTuple [])
+    )
+      <|> do
+        firstElement <- constrainedSignatureTypeParser
+        remainingElements <- MP.many (commaParser *> constrainedSignatureTypeParser)
+        case remainingElements of
+          [] ->
+            pure firstElement
+          _ ->
+            pure (SurfaceConstrainedTypeTuple (firstElement : remainingElements))
 
 signatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 signatureTypeParser = do
@@ -172,14 +176,18 @@ listSignatureTypeParser =
 
 parenthesizedSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 parenthesizedSignatureTypeParser =
-  betweenTokenKinds TLParen TRParen $ do
-    firstElement <- signatureTypeParser
-    remainingElements <- MP.many (commaParser *> signatureTypeParser)
-    case remainingElements of
-      [] ->
-        pure firstElement
-      _ ->
-        pure (SurfaceTypeTuple (firstElement : remainingElements))
+  betweenTokenKinds TLParen TRParen $
+    ( MP.lookAhead (TokenParser.parseTokenKind TRParen)
+        *> pure (SurfaceTypeTuple [])
+    )
+      <|> do
+        firstElement <- signatureTypeParser
+        remainingElements <- MP.many (commaParser *> signatureTypeParser)
+        case remainingElements of
+          [] ->
+            pure firstElement
+          _ ->
+            pure (SurfaceTypeTuple (firstElement : remainingElements))
 
 namedSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 namedSignatureTypeParser = do

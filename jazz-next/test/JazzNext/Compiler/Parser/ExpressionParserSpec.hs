@@ -52,7 +52,8 @@ main = runTestSuite "ExpressionParser" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("application binds tighter than infix precedence", testApplicationBeforeInfixPrecedence),
+  [ ("parses Unit as the empty tuple expression", testParsesUnitExpression),
+    ("application binds tighter than infix precedence", testApplicationBeforeInfixPrecedence),
     ("declared operators participate in precedence climbing", testDeclaredOperatorPrecedence),
     ("parses qualified variables with list and tuple arguments", testQualifiedVariablesListsAndTuples),
     ("parses control-flow and block expression starters", testControlFlowAndBlockExpressionStarters),
@@ -62,6 +63,15 @@ tests =
     ("reports invalid fractional literals", testInvalidFractionalLiteralDiagnostic),
     ("reports undeclared infix operators", testUndeclaredOperatorDiagnostic)
   ]
+
+testParsesUnitExpression :: IO ()
+testParsesUnitExpression = do
+  tokens <- lexSource "()."
+  assertExpression
+    "Unit expression"
+    (SETuple [])
+    [TDot]
+    (parseExpressionTokens Set.empty [] tokens)
 
 testApplicationBeforeInfixPrecedence :: IO ()
 testApplicationBeforeInfixPrecedence = do

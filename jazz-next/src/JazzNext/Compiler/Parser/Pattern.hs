@@ -162,16 +162,22 @@ expectedCasePatternDiagnostic token =
 
 parseTuplePattern :: Token -> PatternParser SurfacePattern
 parseTuplePattern leftParenToken = do
-  firstPattern <- parseCasePattern
-  afterFirstPattern <- getRemainingTokens
-  case afterFirstPattern of
-    Token {tokenKind = TComma} : rest -> do
+  tokens <- getRemainingTokens
+  case tokens of
+    Token {tokenKind = TRParen} : rest -> do
       setRemainingTokens rest
-      tuplePatterns <- parseTuplePatternElements [firstPattern]
-      consumeRightParen
-      pure (SPTuple tuplePatterns)
-    _ ->
-      throwDiagnostic (expectedCasePatternDiagnostic leftParenToken)
+      pure (SPTuple [])
+    _ -> do
+      firstPattern <- parseCasePattern
+      afterFirstPattern <- getRemainingTokens
+      case afterFirstPattern of
+        Token {tokenKind = TComma} : rest -> do
+          setRemainingTokens rest
+          tuplePatterns <- parseTuplePatternElements [firstPattern]
+          consumeRightParen
+          pure (SPTuple tuplePatterns)
+        _ ->
+          throwDiagnostic (expectedCasePatternDiagnostic leftParenToken)
 
 parseTuplePatternElements :: [SurfacePattern] -> PatternParser [SurfacePattern]
 parseTuplePatternElements reversedPatterns = do

@@ -60,6 +60,8 @@ tests =
     ("parses parenthesized function signature into structured nodes", testParseParenthesizedFunctionSignature),
     ("parses tuple literal into structured nodes", testParseTupleLiteral),
     ("parses tuple signature into structured nodes", testParseTupleSignature),
+    ("parses Unit value and signature into structured nodes", testParseUnitValueAndSignature),
+    ("parses constrained Unit signature into structured nodes", testParseConstrainedUnitSignature),
     ("parses numeric width signature names into structured nodes", testParseNumericWidthSignatureTypes),
     ("parses fractional literal without treating decimal dot as statement terminator", testParseFractionalLiteral),
     ("parses fractional literal suffixes as concrete float targets", testParseFractionalLiteralSuffixes),
@@ -83,6 +85,7 @@ tests =
     ("lowers explicit type application expression", testLowerExplicitTypeApplicationExpression),
     ("desugars lowered explicit type application expression", testDesugarExplicitTypeApplicationExpression),
     ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram),
+    ("lowers Unit value and signature into analyzer AST", testLowerUnitValueAndSignature),
     ("lowers numeric width signature names into analyzer AST", testLowerNumericWidthSignatureProgram),
     ("lowers fractional literal into analyzer AST", testLowerFractionalLiteralProgram),
     ("lowers fractional literal suffixes into analyzer AST", testLowerFractionalLiteralSuffixesProgram),
@@ -220,6 +223,38 @@ testParseTupleSignature =
         )
     )
     (parseSurfaceProgram "pair :: (Int, Bool).\npair = (1, True).")
+
+testParseUnitValueAndSignature :: IO ()
+testParseUnitValueAndSignature =
+  assertEqual
+    "Unit value and signature"
+    ( Right
+        ( SEBlock
+            [ SSSignature
+                "unit"
+                (SourceSpan 1 1)
+                (SurfaceSignatureType (SurfaceTypeTuple [])),
+              SSLet "unit" (SourceSpan 2 1) (SETuple [])
+            ]
+        )
+    )
+    (parseSurfaceProgram "unit :: ().\nunit = ().")
+
+testParseConstrainedUnitSignature :: IO ()
+testParseConstrainedUnitSignature =
+  assertEqual
+    "constrained Unit signature"
+    ( Right
+        ( SEBlock
+            [ SSSignature
+                "unit"
+                (SourceSpan 1 1)
+                (SurfaceConstrainedSignature [] (SurfaceConstrainedTypeTuple [])),
+              SSLet "unit" (SourceSpan 2 1) (SETuple [])
+            ]
+        )
+    )
+    (parseSurfaceProgram "unit :: @{}: ().\nunit = ().")
 
 testParseNumericWidthSignatureTypes :: IO ()
 testParseNumericWidthSignatureTypes = do
@@ -570,6 +605,25 @@ testLowerTupleLiteralAndSignatureProgram =
                   "pair"
                   (SourceSpan 2 1)
                   (ETuple [ELit (LInt 1), ELit (LBool True)])
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
+
+testLowerUnitValueAndSignature :: IO ()
+testLowerUnitValueAndSignature =
+  assertRight
+    "parse + lower Unit value/signature"
+    (parseSurfaceProgram "unit :: ().\nunit = ().")
+    ( \surfaceProgram ->
+        assertEqual
+          "lowered Unit AST"
+          ( EBlock
+              [ SSignature
+                  "unit"
+                  (SourceSpan 1 1)
+                  (SignatureType (TypeTuple [])),
+                SLet "unit" (SourceSpan 2 1) (ETuple [])
               ]
           )
           (lowerSurfaceExpr surfaceProgram)

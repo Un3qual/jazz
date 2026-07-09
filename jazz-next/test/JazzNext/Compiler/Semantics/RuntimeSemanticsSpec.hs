@@ -76,7 +76,8 @@ main = runTestSuite "RuntimeSemantics" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("if with False condition skips then branch runtime failure", testIfFalseSkipsThenRuntimeFailure),
+  [ ("Unit renders and participates in structural equality", testUnitRenderingAndEquality),
+    ("if with False condition skips then branch runtime failure", testIfFalseSkipsThenRuntimeFailure),
     ("if with True condition skips else branch runtime failure", testIfTrueSkipsElseRuntimeFailure),
     ("division by zero produces fatal runtime diagnostic", testDivisionByZeroRuntimeError),
     ("direct self alias produces deterministic runtime diagnostic", testDirectSelfAliasRuntimeError),
@@ -257,6 +258,13 @@ tests =
     ("method-bearing capability declarations are inert at runtime", testMethodBearingCapabilityDeclarationsRuntimeInert),
     ("scope result requires terminal expression", testScopeDeclarationAfterExprClearsResult)
   ]
+
+testUnitRenderingAndEquality :: IO ()
+testUnitRenderingAndEquality = do
+  result <- runSource defaultWarningSettings "(() == (), ())."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, ())") (runOutput result)
 
 testIfFalseSkipsThenRuntimeFailure :: IO ()
 testIfFalseSkipsThenRuntimeFailure = do

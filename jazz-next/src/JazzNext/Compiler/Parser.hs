@@ -1281,6 +1281,8 @@ requireOperatorVisible declaredOperators operatorToken =
 parseParenExpr :: Set Text -> DeclaredOperators -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseParenExpr knownAliases declaredOperators tokensAfterLeftParen =
   case tokensAfterLeftParen of
+    Token {tokenKind = TRParen} : remaining ->
+      Right (SETuple [], remaining)
     operatorToken@(Token {tokenKind = TOperator operatorSymbol}) : rest ->
       case rest of
         Token {tokenKind = TRParen} : remaining -> do
