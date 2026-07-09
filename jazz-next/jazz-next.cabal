@@ -45,6 +45,7 @@ library
       JazzNext.Compiler.SourceProgram
       JazzNext.Compiler.TypeInference
       JazzNext.Compiler.TypeInference.Diagnostics
+      JazzNext.Compiler.TypeInference.Pattern
       JazzNext.Compiler.TypeInference.State
       JazzNext.Compiler.TypeInference.Solver
       JazzNext.Compiler.TypeInference.Types
