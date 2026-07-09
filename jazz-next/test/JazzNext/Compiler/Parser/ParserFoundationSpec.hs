@@ -22,6 +22,9 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
+import JazzNext.Compiler.Desugar
+  ( desugarExpr
+  )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
     SurfaceConstrainedSignatureType (..),
@@ -78,6 +81,7 @@ tests =
     ("rejects unsupported explicit type application argument", testRejectsUnsupportedExplicitTypeApplicationArgument),
     ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
     ("lowers explicit type application expression", testLowerExplicitTypeApplicationExpression),
+    ("desugars lowered explicit type application expression", testDesugarExplicitTypeApplicationExpression),
     ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram),
     ("lowers numeric width signature names into analyzer AST", testLowerNumericWidthSignatureProgram),
     ("lowers fractional literal into analyzer AST", testLowerFractionalLiteralProgram),
@@ -527,6 +531,27 @@ testLowerExplicitTypeApplicationExpression =
         assertContains "lowered type application" "ETypeApplication" rendered
         assertContains "lowered type application argument" "TypeInt" rendered
     )
+
+testDesugarExplicitTypeApplicationExpression :: IO ()
+testDesugarExplicitTypeApplicationExpression =
+  assertRight
+    "parse + lower + desugar explicit type application"
+    (parseSurfaceProgram "value = id @Int 1.\nvalue.")
+    ( \surfaceProgram ->
+        assertEqual
+          "desugared type application AST"
+          expectedProgram
+          (desugarExpr (lowerSurfaceExpr surfaceProgram))
+    )
+  where
+    expectedProgram =
+      EBlock
+        [ SLet
+            "value"
+            (SourceSpan 1 1)
+            (EApply (ETypeApplication (EVar "id") TypeInt) (ELit (LInt 1))),
+          SExpr (SourceSpan 2 1) (EVar "value")
+        ]
 
 testLowerTupleLiteralAndSignatureProgram :: IO ()
 testLowerTupleLiteralAndSignatureProgram =

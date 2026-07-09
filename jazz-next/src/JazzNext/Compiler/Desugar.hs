@@ -25,6 +25,8 @@ desugarExpr expr =
     ETuple elements -> ETuple (map desugarExpr elements)
     EApply functionExpr argumentExpr ->
       EApply (desugarExpr functionExpr) (desugarExpr argumentExpr)
+    ETypeApplication functionExpr signatureType ->
+      ETypeApplication (desugarExpr functionExpr) signatureType
     EIf conditionExpr thenExpr elseExpr ->
       ECase
         (desugarExpr conditionExpr)
