@@ -178,6 +178,7 @@ tests =
     ("qualified method dispatch selects width-specific integer body", testQualifiedMethodDispatchSelectsWidthSpecificIntegerBody),
     ("qualified method dispatch selects width-specific integer body for direct literals", testQualifiedMethodDispatchSelectsWidthSpecificIntegerBodyForDirectLiterals),
     ("qualified method dispatch preserves direct explicit type application hints", testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint),
+    ("qualified method dispatch preserves inferred explicit type application tuple hints", testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint),
     ("qualified method dispatch applies explicit type argument to matching parameter", testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter),
     ("qualified method dispatch preserves non-literal integer signature targets", testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget),
     ("qualified method dispatch preserves direct closure result signatures", testQualifiedMethodDispatchPreservesDirectClosureResultSignature),
@@ -1541,6 +1542,21 @@ testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint = do
           <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
           <> "id :: @{RuntimeEq(a)}: a -> a.\nid = \\(value) -> value.\n"
           <> "result = RuntimeEq::equals (id @UInt8 1) (id @UInt8 2).\nresult."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint :: IO ()
+testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq((Int, Bool)) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq((UInt8, Bool)) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "pair = \\(value) -> (value, True).\n"
+          <> "result = RuntimeEq::equals (pair @UInt8 1) (pair @UInt8 2).\nresult."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)

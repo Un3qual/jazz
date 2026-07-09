@@ -9,6 +9,7 @@ module JazzNext.Compiler.CapabilityFacts
     constraintSignatureAliasNames,
     constraintSignatureAliasVariants,
     constraintSignatureTypeContainsClassParameter,
+    constraintSignatureTypeVariableNamesInOrder,
     constraintSignatureTypesCompatible,
     identifierLooksLikeTypeVariable,
     normalizeConstraintSignatureName,
@@ -308,3 +309,31 @@ identifierLooksLikeTypeVariable name =
   case Text.uncons (identifierText name) of
     Just (firstChar, _) -> isLower firstChar
     Nothing -> False
+
+constraintSignatureTypeVariableNamesInOrder :: ConstraintSignatureType -> [Text]
+constraintSignatureTypeVariableNamesInOrder =
+  dedupe . go
+  where
+    go signatureType =
+      case signatureType of
+        ConstraintTypeName name
+          | identifierLooksLikeTypeVariable name ->
+              [identifierText name]
+          | otherwise ->
+              []
+        ConstraintTypeApplication _ arguments ->
+          concatMap go arguments
+        ConstraintTypeList innerType ->
+          go innerType
+        ConstraintTypeTuple elementTypes ->
+          concatMap go elementTypes
+        ConstraintTypeFunction argumentType resultType ->
+          go argumentType ++ go resultType
+
+    dedupe =
+      goDedupe []
+
+    goDedupe _ [] = []
+    goDedupe seen (name : rest)
+      | name `elem` seen = goDedupe seen rest
+      | otherwise = name : goDedupe (name : seen) rest

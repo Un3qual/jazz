@@ -66,6 +66,7 @@ import JazzNext.Compiler.CapabilityFacts
     constraintImplFactKey,
     constraintSignatureAliasVariants,
     constraintSignatureTypeContainsClassParameter,
+    constraintSignatureTypeVariableNamesInOrder,
     constraintSignatureTypesCompatible,
     identifierLooksLikeTypeVariable,
     normalizeConstraintSignatureName,
@@ -1544,17 +1545,6 @@ inferScopeType builtinMode initialEnv initialState statements =
                           bindingType
                           droppedInferredSchemeVariables
                       Nothing -> stateAfterExplicitConstraintCheck
-                  stateAfterRuntimeHint =
-                    case nextBindingType >>= runtimeHintFromExpressionType stateAfterDroppedInferredMethodCheck of
-                      Just runtimeHint ->
-                        stateAfterDroppedInferredMethodCheck
-                          { inferRuntimeTypeHints =
-                              Map.insert
-                                (bindingRuntimeHintKeyInModule (inferCurrentModulePath stateAfterDroppedInferredMethodCheck) name bindingSpan)
-                                runtimeHint
-                                (inferRuntimeTypeHints stateAfterDroppedInferredMethodCheck)
-                          }
-                      Nothing -> stateAfterDroppedInferredMethodCheck
                   maybeNextBinding =
                     maybePreservedSchemeAliasBinding
                       <|> nextBindingForValue
@@ -1564,7 +1554,23 @@ inferScopeType builtinMode initialEnv initialState statements =
                         valueExpr
                         nextBindingType
                         matchingPendingSignature
-                        stateAfterRuntimeHint
+                        stateAfterDroppedInferredMethodCheck
+                  stateAfterRuntimeHint =
+                    case
+                        runtimeHintForBinding
+                          stateAfterDroppedInferredMethodCheck
+                          maybeNextBinding
+                          nextBindingType
+                      of
+                        Just runtimeHint ->
+                          stateAfterDroppedInferredMethodCheck
+                            { inferRuntimeTypeHints =
+                                Map.insert
+                                  (bindingRuntimeHintKeyInModule (inferCurrentModulePath stateAfterDroppedInferredMethodCheck) name bindingSpan)
+                                  runtimeHint
+                                  (inferRuntimeTypeHints stateAfterDroppedInferredMethodCheck)
+                            }
+                        Nothing -> stateAfterDroppedInferredMethodCheck
                   stateAfterCapturedConstraintPrune =
                     case maybeNextBinding of
                       Just binding ->
@@ -4243,34 +4249,6 @@ constraintSignatureTypeVariableNames signatureType =
         (constraintSignatureTypeVariableNames argumentType)
         (constraintSignatureTypeVariableNames resultType)
 
-constraintSignatureTypeVariableNamesInOrder :: ConstraintSignatureType -> [Text]
-constraintSignatureTypeVariableNamesInOrder =
-  dedupe . go
-  where
-    go signatureType =
-      case signatureType of
-        ConstraintTypeName name
-          | identifierLooksLikeTypeVariable name ->
-              [identifierText name]
-          | otherwise ->
-              []
-        ConstraintTypeApplication _ arguments ->
-          concatMap go arguments
-        ConstraintTypeList innerType ->
-          go innerType
-        ConstraintTypeTuple elementTypes ->
-          concatMap go elementTypes
-        ConstraintTypeFunction argumentType resultType ->
-          go argumentType ++ go resultType
-
-    dedupe =
-      goDedupe Set.empty
-
-    goDedupe _ [] = []
-    goDedupe seen (name : rest)
-      | Set.member name seen = goDedupe seen rest
-      | otherwise = name : goDedupe (Set.insert name seen) rest
-
 constraintSignatureTypeSupportsVariableBody :: ConstraintSignatureType -> Bool
 constraintSignatureTypeSupportsVariableBody signatureType =
   case signatureType of
@@ -4708,6 +4686,46 @@ defaultLiteralTypesWith integerLiteralDefault expressionType =
         (defaultLiteralTypesWith integerLiteralDefault outputType)
     _ -> expressionType
 
+runtimeHintForBinding :: InferState -> Maybe TypeBinding -> Maybe ExpressionType -> Maybe ConstraintSignatureType
+runtimeHintForBinding state maybeBinding maybeExpressionType =
+  case maybeBinding >>= runtimeHintForTypeBinding state of
+    Just runtimeHint -> Just runtimeHint
+    Nothing -> maybeExpressionType >>= runtimeHintFromExpressionType state
+
+runtimeHintForTypeBinding :: InferState -> TypeBinding -> Maybe ConstraintSignatureType
+runtimeHintForTypeBinding state binding =
+  case binding of
+    PlainTypeBinding expressionType ->
+      runtimeHintFromExpressionType state expressionType
+    SchemeTypeBinding typeScheme ->
+      typeSchemeRuntimeHint state typeScheme
+    OperatorAliasSchemeTypeBinding _ typeScheme ->
+      typeSchemeRuntimeHint state typeScheme
+    _ -> Nothing
+
+typeSchemeRuntimeHint :: InferState -> TypeScheme -> Maybe ConstraintSignatureType
+typeSchemeRuntimeHint state (TypeScheme schemeVariables schemeVariableOrder _ _ _ expressionType) =
+  expressionTypeToRuntimeHintWithVariables
+    variableHints
+    (defaultLiteralTypes (resolveType state expressionType))
+  where
+    orderedVariables =
+      orderedSchemeVariables schemeVariableOrder schemeVariables
+    variableHints =
+      Map.fromList
+        [ (typeVar, ConstraintTypeName (mkIdentifier (typeSchemeRuntimeVariableName index)))
+          | (index, typeVar) <- zip [0 :: Int ..] orderedVariables
+        ]
+
+typeSchemeRuntimeVariableName :: Int -> Text
+typeSchemeRuntimeVariableName index
+  | index >= 0 && index < length variableNames =
+      Text.singleton (variableNames !! index)
+  | otherwise =
+      "t" <> Text.pack (show index)
+  where
+    variableNames = ['a' .. 'z']
+
 runtimeHintFromExpressionType :: InferState -> ExpressionType -> Maybe ConstraintSignatureType
 runtimeHintFromExpressionType state expressionType =
   expressionTypeToRuntimeHint (defaultLiteralTypes (resolveType state expressionType))
@@ -4738,6 +4756,34 @@ expressionTypeToRuntimeHint expressionType =
         <$> expressionTypeToRuntimeHint inputType
         <*> expressionTypeToRuntimeHint outputType
     TVarType {} -> Nothing
+
+expressionTypeToRuntimeHintWithVariables :: Map Int ConstraintSignatureType -> ExpressionType -> Maybe ConstraintSignatureType
+expressionTypeToRuntimeHintWithVariables variableHints expressionType =
+  case expressionType of
+    TIntType -> Just (ConstraintTypeName "Int")
+    TIntegerLiteralType literalRange
+      | integerLiteralRangeFitsNumericType literalRange NumericInt64 ->
+          Just (ConstraintTypeName "Int")
+      | otherwise -> Nothing
+    TFloatType -> Just (ConstraintTypeName "Float")
+    TNumericType numericType -> Just (ConstraintTypeName (mkIdentifier (renderNumericTypeName numericType)))
+    TBoolType -> Just (ConstraintTypeName "Bool")
+    TListType elementType ->
+      ConstraintTypeList <$> expressionTypeToRuntimeHintWithVariables variableHints elementType
+    TTupleType elementTypes ->
+      ConstraintTypeTuple <$> traverse (expressionTypeToRuntimeHintWithVariables variableHints) elementTypes
+    TDataType typeName typeArguments ->
+      case traverse (expressionTypeToRuntimeHintWithVariables variableHints) typeArguments of
+        Just [] -> Just (ConstraintTypeName typeName)
+        Just argumentHints ->
+          Just (ConstraintTypeApplication typeName argumentHints)
+        Nothing -> Nothing
+    TFunctionType inputType outputType ->
+      ConstraintTypeFunction
+        <$> expressionTypeToRuntimeHintWithVariables variableHints inputType
+        <*> expressionTypeToRuntimeHintWithVariables variableHints outputType
+    TVarType typeVar ->
+      Map.lookup typeVar variableHints
 
 applySubstitution :: Map Int ExpressionType -> ExpressionType -> ExpressionType
 applySubstitution subst expressionType =

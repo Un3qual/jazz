@@ -62,6 +62,7 @@ import JazzNext.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
     constraintFunctionArgumentTypes,
     constraintSignatureTypeContainsClassParameter,
+    constraintSignatureTypeVariableNamesInOrder,
     constraintSignatureTypesCompatible,
     identifierLooksLikeTypeVariable,
     qualifiedMethodKey,
@@ -1672,34 +1673,6 @@ substituteConstraintSignatureTypeVariable variableName replacementType signature
       ConstraintTypeFunction
         (substituteConstraintSignatureTypeVariable variableName replacementType argumentType)
         (substituteConstraintSignatureTypeVariable variableName replacementType resultType)
-
-constraintSignatureTypeVariableNamesInOrder :: ConstraintSignatureType -> [Text]
-constraintSignatureTypeVariableNamesInOrder =
-  dedupe . go
-  where
-    go signatureType =
-      case signatureType of
-        ConstraintTypeName name
-          | identifierLooksLikeTypeVariable name ->
-              [identifierText name]
-          | otherwise ->
-              []
-        ConstraintTypeApplication _ arguments ->
-          concatMap go arguments
-        ConstraintTypeList innerType ->
-          go innerType
-        ConstraintTypeTuple elementTypes ->
-          concatMap go elementTypes
-        ConstraintTypeFunction argumentType resultType ->
-          go argumentType ++ go resultType
-
-    dedupe =
-      goDedupe Set.empty
-
-    goDedupe _ [] = []
-    goDedupe seen (name : rest)
-      | Set.member name seen = goDedupe seen rest
-      | otherwise = name : goDedupe (Set.insert name seen) rest
 
 applyQualifiedMethod ::
   BuiltinResolutionMode ->
