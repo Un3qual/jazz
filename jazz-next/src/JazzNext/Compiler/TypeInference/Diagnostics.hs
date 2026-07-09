@@ -5,6 +5,7 @@ module JazzNext.Compiler.TypeInference.Diagnostics
   ( InferExprFn,
     addTypeError,
     annotateNewErrorsWithPrimarySpan,
+    duplicateConstraintName,
     mkAmbiguousDeferredConstraintError,
     mkAmbiguousQualifiedMethodBodyError,
     mkAmbiguousQualifiedMethodBodyForArgumentsError,
@@ -22,6 +23,7 @@ module JazzNext.Compiler.TypeInference.Diagnostics
     mkIfConditionTypeError,
     mkImplMethodMissingClassMethodError,
     mkImplMethodTypeMismatchError,
+    mkInvalidSignatureTypeError,
     mkInvalidQualifiedMethodSignatureError,
     mkListElementTypeMismatchError,
     mkListPatternTypeMismatchError,
@@ -59,10 +61,11 @@ module JazzNext.Compiler.TypeInference.Diagnostics
 
 import Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( ConstraintSignatureType,
+  ( ConstraintSignatureType (..),
     Expr,
     NumericType,
     SignatureConstraint (..),
@@ -74,7 +77,12 @@ import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode,
     renderNumericTypeName
   )
-import JazzNext.Compiler.CapabilityFacts (renderConstraintSignatureType)
+import JazzNext.Compiler.CapabilityFacts
+  ( concreteConstraintArgument,
+    constraintImplFactKey,
+    identifierLooksLikeTypeVariable,
+    renderConstraintSignatureType
+  )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic (..),
     SourceSpan,
@@ -89,7 +97,9 @@ import JazzNext.Compiler.TypeInference.State
   ( InferState (..),
     InferenceOutput (..),
     inferErrorCount,
-    inferErrorsRev
+    inferErrorsRev,
+    inferClassFacts,
+    inferConcreteImplFacts
   )
 import JazzNext.Compiler.TypeInference.Types
   ( ExpressionType (..),
@@ -423,3 +433,118 @@ withSubject = setDiagnosticSubject
 
 tshow :: Show a => a -> Text
 tshow = Text.pack . show
+mkInvalidSignatureTypeError :: InferState -> Text -> SourceSpan -> SignaturePayload -> Diagnostic
+mkInvalidSignatureTypeError state symbol signatureSpan signaturePayload =
+  setDiagnosticSubject symbol $
+    setDiagnosticPrimarySpan
+      signatureSpan
+      ( mkDiagnostic
+          "E2009"
+          (invalidSignatureSummary state symbol signaturePayload)
+      )
+
+invalidSignatureSummary :: InferState -> Text -> SignaturePayload -> Text
+invalidSignatureSummary state symbol signaturePayload =
+  case signaturePayload of
+    ConstrainedSignature constraints _
+      | Just duplicateName <- duplicateConstraintName constraints ->
+          "invalid or unsupported signature for '"
+            <> symbol
+            <> "': duplicate constraint '"
+            <> duplicateName
+            <> "' in '"
+            <> renderSignaturePayload signaturePayload
+            <> "'"
+    ConstrainedSignature constraints signatureType
+      | constrainedSignatureHasTypeVariable constraints signatureType ->
+          "invalid or unsupported signature for '"
+            <> symbol
+            <> "': type-variable constrained signatures require every constrained variable to appear in the signature body before inference can accept '"
+            <> renderSignaturePayload signaturePayload
+            <> "'"
+    ConstrainedSignature constraints _
+      | Just reason <- concreteConstraintFailureSummary state constraints ->
+          "invalid or unsupported signature for '"
+            <> symbol
+            <> "': "
+            <> reason
+            <> " in '"
+            <> renderSignaturePayload signaturePayload
+            <> "'"
+    _ ->
+      "invalid or unsupported signature for '"
+        <> symbol
+        <> "': '"
+        <> renderSignaturePayload signaturePayload
+        <> "'"
+
+concreteConstraintFailureSummary :: InferState -> [SignatureConstraint] -> Maybe Text
+concreteConstraintFailureSummary state constraints
+  | null constraints = Nothing
+  | otherwise = firstJust (map constraintFailureSummary constraints)
+  where
+    constraintFailureSummary (SignatureConstraint constraintName arguments)
+      | Nothing <- maybeClassArity =
+          Just ("missing class declaration '" <> constraintNameText <> "'")
+      | Just expectedArity <- maybeClassArity,
+        expectedArity /= length arguments =
+          Just
+            ( "constraint '"
+                <> constraintNameText
+                <> "' expects "
+                <> Text.pack (show expectedArity)
+                <> " argument(s), got "
+                <> Text.pack (show (length arguments))
+            )
+      | [argument] <- arguments,
+        concreteConstraintArgument argument,
+        let implFactKey = constraintImplFactKey constraintName argument,
+        Set.notMember implFactKey (inferConcreteImplFacts state) =
+          Just ("missing impl fact '" <> implFactKey <> "'")
+      | otherwise =
+          Nothing
+      where
+        constraintNameText = identifierText constraintName
+        maybeClassArity = Map.lookup constraintNameText (inferClassFacts state)
+
+    firstJust results =
+      case results of
+        [] -> Nothing
+        Just result : _ -> Just result
+        Nothing : rest -> firstJust rest
+
+constrainedSignatureHasTypeVariable :: [SignatureConstraint] -> ConstraintSignatureType -> Bool
+constrainedSignatureHasTypeVariable constraints signatureType =
+  any constraintHasTypeVariable constraints
+    || constraintTypeHasTypeVariable signatureType
+
+constraintHasTypeVariable :: SignatureConstraint -> Bool
+constraintHasTypeVariable (SignatureConstraint _ arguments) =
+  any constraintTypeHasTypeVariable arguments
+
+constraintTypeHasTypeVariable :: ConstraintSignatureType -> Bool
+constraintTypeHasTypeVariable signatureType =
+  case signatureType of
+    ConstraintTypeName name ->
+      identifierLooksLikeTypeVariable name
+    ConstraintTypeApplication name arguments ->
+      identifierLooksLikeTypeVariable name || any constraintTypeHasTypeVariable arguments
+    ConstraintTypeList innerType ->
+      constraintTypeHasTypeVariable innerType
+    ConstraintTypeTuple elementTypes ->
+      any constraintTypeHasTypeVariable elementTypes
+    ConstraintTypeFunction argumentType resultType ->
+      constraintTypeHasTypeVariable argumentType || constraintTypeHasTypeVariable resultType
+
+duplicateConstraintName :: [SignatureConstraint] -> Maybe Text
+duplicateConstraintName constraints =
+  go Set.empty constraints
+  where
+    go seen remainingConstraints =
+      case remainingConstraints of
+        [] -> Nothing
+        SignatureConstraint constraintName _ : rest ->
+          let constraintNameText = identifierText constraintName
+           in if Set.member constraintNameText seen
+                then Just constraintNameText
+                else go (Set.insert constraintNameText seen) rest
