@@ -1,0 +1,120 @@
+-- | Internal type model shared by inference subsystems.
+module JazzNext.Compiler.TypeInference.Types
+  ( ClassMethodType (..),
+    ConstructorArgumentType (..),
+    DataTypeBinding (..),
+    ExpressionType (..),
+    ImplMethodType (..),
+    IntegerLiteralRange (..),
+    NumericConstraint (..),
+    ScopeCapabilityFacts (..),
+    TypeBinding (..),
+    TypeEnv,
+    TypeScheme (..),
+    TypeSchemeConstraint (..),
+    TypeSchemePrimitiveConstraint (..),
+    emptyScopeCapabilityFacts
+  ) where
+
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
+import Data.Text (Text)
+import JazzNext.Compiler.AST
+  ( ConstraintSignatureType,
+    NumericType,
+    SignaturePayload
+  )
+import JazzNext.Compiler.BuiltinCatalog (BuiltinSymbol)
+import JazzNext.Compiler.Name (Name)
+
+data ExpressionType
+  = TIntType
+  | TIntegerLiteralType IntegerLiteralRange
+  | TFloatType
+  | TNumericType NumericType
+  | TBoolType
+  | TListType ExpressionType
+  | TTupleType [ExpressionType]
+  | TDataType Name [ExpressionType]
+  | TFunctionType ExpressionType ExpressionType
+  | TVarType Int
+  deriving (Eq, Show)
+
+data ConstructorArgumentType
+  = ConstructorArgumentMonomorphic ExpressionType
+  | ConstructorArgumentParameter Text
+  | ConstructorArgumentFresh
+  deriving (Eq, Show)
+
+data IntegerLiteralRange = IntegerLiteralRange Integer Integer
+  deriving (Eq, Show)
+
+data NumericConstraint
+  = AnyNumericConstraint
+  | RuntimeArithmeticNumericConstraint
+  | RuntimeComparisonNumericConstraint
+  | IntegralNumericConstraint
+  | IntegralLiteralNumericConstraint IntegerLiteralRange
+  deriving (Eq, Show)
+
+data TypeBinding
+  = PlainTypeBinding ExpressionType
+  | SchemeTypeBinding TypeScheme
+  | BuiltinAliasTypeBinding BuiltinSymbol
+  | BuiltinOperatorAliasTypeBinding Text
+  | OperatorAliasSchemeTypeBinding Text TypeScheme
+  | ConstructorTypeBinding Name [Name] [ConstructorArgumentType]
+  deriving (Eq, Show)
+
+data TypeScheme = TypeScheme
+  { schemeQuantifiedVariables :: Set Int,
+    schemeQuantifiedOrder :: [Int],
+    schemeClassConstraints :: [TypeSchemeConstraint],
+    schemePrimitiveConstraints :: [TypeSchemePrimitiveConstraint],
+    schemeDefiningCapabilities :: ScopeCapabilityFacts,
+    schemeResultType :: ExpressionType
+  }
+  deriving (Eq, Show)
+
+data TypeSchemePrimitiveConstraint
+  = TypeSchemeNumericConstraint NumericConstraint ExpressionType
+  | TypeSchemeStrictEqualityConstraint ExpressionType
+  deriving (Eq, Show)
+
+data TypeSchemeConstraint
+  = TypeSchemeConstraint Text ExpressionType
+  | TypeSchemeInferredConstraint Text ExpressionType
+  | TypeSchemeMethodConstraint Text Text ExpressionType
+  deriving (Eq, Show)
+
+type TypeEnv = Map Name TypeBinding
+
+data DataTypeBinding = DataTypeBinding [Name] [[ConstructorArgumentType]]
+  deriving (Eq, Show)
+
+data ClassMethodType = ClassMethodType Text SignaturePayload
+  deriving (Eq, Show)
+
+data ImplMethodType = ImplMethodType ConstraintSignatureType
+  deriving (Eq, Show)
+
+data ScopeCapabilityFacts = ScopeCapabilityFacts
+  { scopeClassFacts :: Map Text Int,
+    scopeGeneratedEqualityClassFacts :: Set Text,
+    scopeConcreteImplFacts :: Set Text,
+    scopeClassMethodSignatures :: Map Text ClassMethodType,
+    scopeConcreteImplMethods :: Map Text [ImplMethodType]
+  }
+  deriving (Eq, Show)
+
+emptyScopeCapabilityFacts :: ScopeCapabilityFacts
+emptyScopeCapabilityFacts =
+  ScopeCapabilityFacts
+    { scopeClassFacts = Map.empty,
+      scopeGeneratedEqualityClassFacts = Set.empty,
+      scopeConcreteImplFacts = Set.empty,
+      scopeClassMethodSignatures = Map.empty,
+      scopeConcreteImplMethods = Map.empty
+    }

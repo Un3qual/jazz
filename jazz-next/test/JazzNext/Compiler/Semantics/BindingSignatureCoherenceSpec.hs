@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import qualified Data.Set as Set
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
@@ -17,6 +18,11 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
     renderDiagnostic
+  )
+import JazzNext.Compiler.TypeInference.Types
+  ( ExpressionType (..),
+    TypeScheme (..),
+    emptyScopeCapabilityFacts
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
@@ -46,7 +52,8 @@ main = runTestSuite "BindingSignatureCoherence" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("signature directly above matching binding is accepted", testSignatureDirectlyAboveBinding),
+  [ ("type scheme record preserves fields", testTypeSchemeRecordPreservesFields),
+    ("signature directly above matching binding is accepted", testSignatureDirectlyAboveBinding),
     ("signature type mismatch is rejected", testSignatureTypeMismatch),
     ("signature separated from binding by expression is rejected", testSignatureSeparatedFromBinding),
     ("signature must match immediate binding name", testSignatureNameMismatch),
@@ -218,6 +225,23 @@ tests =
     ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream),
     ("mismatched pending signature does not monomorphize following binding", testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding)
   ]
+
+testTypeSchemeRecordPreservesFields :: IO ()
+testTypeSchemeRecordPreservesFields =
+  assertEqual
+    "scheme result"
+    (TFunctionType (TVarType 0) (TVarType 0))
+    (schemeResultType scheme)
+  where
+    scheme =
+      TypeScheme
+        { schemeQuantifiedVariables = Set.singleton 0,
+          schemeQuantifiedOrder = [0],
+          schemeClassConstraints = [],
+          schemePrimitiveConstraints = [],
+          schemeDefiningCapabilities = emptyScopeCapabilityFacts,
+          schemeResultType = TFunctionType (TVarType 0) (TVarType 0)
+        }
 
 testSignatureDirectlyAboveBinding :: IO ()
 testSignatureDirectlyAboveBinding = do

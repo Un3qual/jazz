@@ -54,8 +54,6 @@ import JazzNext.Compiler.BuiltinCatalog
     numericTypeIntegerBounds,
     numericTypeIsIntegral,
     numericTypeLiteralIntegerBounds,
-    numericTypeSupportsRuntimeArithmetic,
-    numericTypeSupportsRuntimeComparison,
     renderNumericTypeName
   )
 import JazzNext.Compiler.CapabilityFacts
@@ -124,6 +122,59 @@ import JazzNext.Compiler.RuntimeHints
   ( BindingRuntimeHintKey,
     bindingRuntimeHintKeyInModule
   )
+import JazzNext.Compiler.TypeInference.State
+  ( DeclarationState (..),
+    DeferredExplicitConstraint (..),
+    InferState (..),
+    InferenceOutput (..),
+    ModuleInferenceState (..),
+    inferClassFacts,
+    inferClassMethodSignatures,
+    inferConcreteImplFacts,
+    inferConcreteImplMethods,
+    inferCurrentModuleLocalCapabilityFacts,
+    inferCurrentModulePath,
+    inferDataTypes,
+    inferDeferredExplicitConstraints,
+    inferErrorCount,
+    inferErrorsRev,
+    inferGeneratedEqualityClassFacts,
+    inferInferredClassConstraints,
+    inferModuleCapabilityFacts,
+    inferNumericVars,
+    inferRuntimeTypeHints,
+    inferStrictEqualityVars,
+    initialInferState
+  )
+import JazzNext.Compiler.TypeInference.Solver
+  ( addNumericTypeVarConstraint,
+    addStrictEqualityTypeVarConstraint,
+    combineIntegerLiteralRanges,
+    constrainNumericOperatorType,
+    freshTypeVar,
+    freshTypeVariable,
+    integerLiteralRangeBounds,
+    integerLiteralRangeFitsNumericType,
+    resolveType,
+    supportsRuntimeEqualityType,
+    unifyTypes
+  )
+import JazzNext.Compiler.TypeInference.Types
+  ( ClassMethodType (..),
+    ConstructorArgumentType (..),
+    DataTypeBinding (..),
+    ExpressionType (..),
+    ImplMethodType (..),
+    IntegerLiteralRange (..),
+    NumericConstraint (..),
+    ScopeCapabilityFacts (..),
+    TypeBinding (..),
+    TypeEnv,
+    TypeScheme (..),
+    TypeSchemeConstraint (..),
+    TypeSchemePrimitiveConstraint (..),
+    emptyScopeCapabilityFacts
+  )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
     defaultWarningSettings
@@ -174,121 +225,17 @@ inferExpressionWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndice
 inferExpressionDefault :: Expr -> IO InferenceResult
 inferExpressionDefault = inferExpression defaultWarningSettings
 
--- | Internal type language used by the current inferencer.
-data ExpressionType
-  = TIntType
-  | TIntegerLiteralType IntegerLiteralRange
-  | TFloatType
-  | TNumericType NumericType
-  | TBoolType
-  | TListType ExpressionType
-  | TTupleType [ExpressionType]
-  | TDataType Name [ExpressionType]
-  | TFunctionType ExpressionType ExpressionType
-  | TVarType Int
-  deriving (Eq, Show)
+modifyDeclarationState :: (DeclarationState -> DeclarationState) -> InferState -> InferState
+modifyDeclarationState update state =
+  state {inferDeclarations = update (inferDeclarations state)}
 
-data ConstructorArgumentType
-  = ConstructorArgumentMonomorphic ExpressionType
-  | ConstructorArgumentParameter Text
-  | ConstructorArgumentFresh
-  deriving (Eq, Show)
+modifyModuleInferenceState :: (ModuleInferenceState -> ModuleInferenceState) -> InferState -> InferState
+modifyModuleInferenceState update state =
+  state {inferModule = update (inferModule state)}
 
-data IntegerLiteralRange = IntegerLiteralRange Integer Integer
-  deriving (Eq, Show)
-
-data NumericConstraint
-  = AnyNumericConstraint
-  | RuntimeArithmeticNumericConstraint
-  | RuntimeComparisonNumericConstraint
-  | IntegralNumericConstraint
-  | IntegralLiteralNumericConstraint IntegerLiteralRange
-  deriving (Eq, Show)
-
-data TypeBinding
-  = PlainTypeBinding ExpressionType
-  | SchemeTypeBinding TypeScheme
-  | BuiltinAliasTypeBinding BuiltinSymbol
-  | BuiltinOperatorAliasTypeBinding Text
-  | OperatorAliasSchemeTypeBinding Text TypeScheme
-  | ConstructorTypeBinding Name [Name] [ConstructorArgumentType]
-  deriving (Eq, Show)
-
-data TypeScheme = TypeScheme (Set Int) [Int] [TypeSchemeConstraint] [TypeSchemePrimitiveConstraint] ScopeCapabilityFacts ExpressionType
-  deriving (Eq, Show)
-
-data TypeSchemePrimitiveConstraint
-  = TypeSchemeNumericConstraint NumericConstraint ExpressionType
-  | TypeSchemeStrictEqualityConstraint ExpressionType
-  deriving (Eq, Show)
-
-data TypeSchemeConstraint
-  = TypeSchemeConstraint Text ExpressionType
-  | TypeSchemeInferredConstraint Text ExpressionType
-  | TypeSchemeMethodConstraint Text Text ExpressionType
-  deriving (Eq, Show)
-
-type TypeEnv = Map Name TypeBinding
-
-data DataTypeBinding = DataTypeBinding [Name] [[ConstructorArgumentType]]
-  deriving (Eq, Show)
-
-data ClassMethodType = ClassMethodType Text SignaturePayload
-  deriving (Eq, Show)
-
-data ImplMethodType = ImplMethodType ConstraintSignatureType
-  deriving (Eq, Show)
-
--- | Mutable inference state threaded explicitly through the checker.
-data InferState = InferState
-  { inferNextTypeVar :: Int,
-    inferSubst :: Map Int ExpressionType,
-    -- Type variables originating from strict-equality sections must eventually
-    -- resolve to runtime-supported equality families.
-    inferStrictEqualityVars :: Set Int,
-    -- Type variables originating from generic numeric operators must resolve
-    -- to a concrete numeric family before they can be applied.
-    inferNumericVars :: Map Int NumericConstraint,
-    inferDataTypes :: Map Text DataTypeBinding,
-    inferClassFacts :: Map Text Int,
-    inferGeneratedEqualityClassFacts :: Set Text,
-    inferConcreteImplFacts :: Set Text,
-    inferClassMethodSignatures :: Map Text ClassMethodType,
-    inferConcreteImplMethods :: Map Text [ImplMethodType],
-    inferCurrentModulePath :: Maybe [Text],
-    inferCurrentModuleLocalCapabilityFacts :: ScopeCapabilityFacts,
-    inferModuleCapabilityFacts :: Map [Text] ScopeCapabilityFacts,
-    inferRuntimeTypeHints :: Map BindingRuntimeHintKey ConstraintSignatureType,
-    inferDeferredExplicitConstraints :: [DeferredExplicitConstraint],
-    inferInferredClassConstraints :: [TypeSchemeConstraint],
-    inferErrorsRev :: [Diagnostic],
-    inferErrorCount :: Int
-  }
-
-data DeferredExplicitConstraint = DeferredExplicitConstraint Text (Maybe Text) Bool ExpressionType ScopeCapabilityFacts ScopeCapabilityFacts
-
-initialInferState :: InferState
-initialInferState =
-  InferState
-    { inferNextTypeVar = 0,
-      inferSubst = Map.empty,
-      inferStrictEqualityVars = Set.empty,
-      inferNumericVars = Map.empty,
-      inferDataTypes = Map.empty,
-      inferClassFacts = Map.empty,
-      inferGeneratedEqualityClassFacts = Set.empty,
-      inferConcreteImplFacts = Set.empty,
-      inferClassMethodSignatures = Map.empty,
-      inferConcreteImplMethods = Map.empty,
-      inferCurrentModulePath = Nothing,
-      inferCurrentModuleLocalCapabilityFacts = emptyScopeCapabilityFacts,
-      inferModuleCapabilityFacts = Map.empty,
-      inferRuntimeTypeHints = Map.empty,
-      inferDeferredExplicitConstraints = [],
-      inferInferredClassConstraints = [],
-      inferErrorsRev = [],
-      inferErrorCount = 0
-    }
+modifyInferenceOutput :: (InferenceOutput -> InferenceOutput) -> InferState -> InferState
+modifyInferenceOutput update state =
+  state {inferOutput = update (inferOutput state)}
 
 collectExprTypeErrors :: BuiltinResolutionMode -> Expr -> [Diagnostic]
 collectExprTypeErrors builtinMode expr =
@@ -597,10 +544,14 @@ inferGenericApplyType builtinMode env state functionExpr argumentExpr =
 
 discardFailedFunctionApplicationConstraints :: InferState -> InferState -> InferState -> InferState
 discardFailedFunctionApplicationConstraints stateBeforeFunction _ stateAfterApplication =
-  stateAfterApplication
-    { inferDeferredExplicitConstraints =
-        inferDeferredExplicitConstraints stateBeforeFunction
-    }
+  modifyInferenceOutput
+    ( \output ->
+        output
+          { outputDeferredConstraints =
+              inferDeferredExplicitConstraints stateBeforeFunction
+          }
+    )
+    stateAfterApplication
 
 qualifiedMethodApplicationSpine :: Expr -> InferState -> Maybe (Name, Text, [Expr])
 qualifiedMethodApplicationSpine expr state =
@@ -728,7 +679,7 @@ operatorAliasEqualityConstraintTarget state leftType rightType
     resolvedRightType = defaultLiteralTypes (resolveType state rightType)
 
 instantiateOperatorAliasSchemeConstraints :: TypeScheme -> ExpressionType -> InferState -> InferState
-instantiateOperatorAliasSchemeConstraints (TypeScheme quantifiedVariables _ explicitConstraints primitiveConstraints definingFacts _) targetType state =
+instantiateOperatorAliasSchemeConstraints typeScheme targetType state =
   let replacements =
         Map.fromList
           [ (typeVar, targetType)
@@ -745,6 +696,11 @@ instantiateOperatorAliasSchemeConstraints (TypeScheme quantifiedVariables _ expl
         definingFacts
         instantiatedConstraints
         stateWithPrimitiveConstraints
+  where
+    quantifiedVariables = schemeQuantifiedVariables typeScheme
+    explicitConstraints = schemeClassConstraints typeScheme
+    primitiveConstraints = schemePrimitiveConstraints typeScheme
+    definingFacts = schemeDefiningCapabilities typeScheme
 
 qualifiedMethodClassIsVisible :: Text -> InferState -> Bool
 qualifiedMethodClassIsVisible methodKey state =
@@ -1395,10 +1351,10 @@ inferScopeType builtinMode initialEnv initialState statements =
                     pendingSignatureDeclaredType <$> matchingPendingSignature
                   (rawValueType, rawStateAfterValue) =
                     case maybePreservedSchemeAliasBinding of
-                      Just (SchemeTypeBinding (TypeScheme _ _ _ _ _ schemeType)) ->
-                        (Just schemeType, stateForStatement)
-                      Just (OperatorAliasSchemeTypeBinding _ (TypeScheme _ _ _ _ _ schemeType)) ->
-                        (Just schemeType, stateForStatement)
+                      Just (SchemeTypeBinding typeScheme) ->
+                        (Just (schemeResultType typeScheme), stateForStatement)
+                      Just (OperatorAliasSchemeTypeBinding _ typeScheme) ->
+                        (Just (schemeResultType typeScheme), stateForStatement)
                       _ ->
                         case maybeExpectedValueType of
                           Just expectedValueType ->
@@ -1505,13 +1461,17 @@ inferScopeType builtinMode initialEnv initialState statements =
                           nextBindingType
                       of
                         Just runtimeHint ->
-                          stateAfterDroppedInferredMethodCheck
-                            { inferRuntimeTypeHints =
-                                Map.insert
-                                  (bindingRuntimeHintKeyInModule (inferCurrentModulePath stateAfterDroppedInferredMethodCheck) name bindingSpan)
-                                  runtimeHint
-                                  (inferRuntimeTypeHints stateAfterDroppedInferredMethodCheck)
-                            }
+                          modifyInferenceOutput
+                            ( \output ->
+                                output
+                                  { outputRuntimeHints =
+                                      Map.insert
+                                        (bindingRuntimeHintKeyInModule (inferCurrentModulePath stateAfterDroppedInferredMethodCheck) name bindingSpan)
+                                        runtimeHint
+                                        (inferRuntimeTypeHints stateAfterDroppedInferredMethodCheck)
+                                  }
+                            )
+                            stateAfterDroppedInferredMethodCheck
                         Nothing -> stateAfterDroppedInferredMethodCheck
                   stateAfterCapturedConstraintPrune =
                     case maybeNextBinding of
@@ -1868,11 +1828,15 @@ inferScopeType builtinMode initialEnv initialState statements =
             _ -> stateAcc
 
         discardPreviewDiagnostics originalState previewState =
-          previewState
-            { inferErrorsRev = inferErrorsRev originalState,
-              inferRuntimeTypeHints = inferRuntimeTypeHints originalState,
-              inferDeferredExplicitConstraints = inferDeferredExplicitConstraints originalState
-            }
+          modifyInferenceOutput
+            ( \output ->
+                output
+                  { outputErrorsRev = inferErrorsRev originalState,
+                    outputRuntimeHints = inferRuntimeTypeHints originalState,
+                    outputDeferredConstraints = inferDeferredExplicitConstraints originalState
+                  }
+            )
+            previewState
 
         previewIntroducedDiagnostics originalState previewState =
           length (inferErrorsRev previewState) /= length (inferErrorsRev originalState)
@@ -2018,25 +1982,6 @@ allocateBindingSeeds indexedStatements initialState =
            in (Map.insert statementIndex bindingSeed bindingSeeds, nextState)
         _ -> (bindingSeeds, state)
 
-data ScopeCapabilityFacts = ScopeCapabilityFacts
-  { scopeClassFacts :: Map Text Int,
-    scopeGeneratedEqualityClassFacts :: Set Text,
-    scopeConcreteImplFacts :: Set Text,
-    scopeClassMethodSignatures :: Map Text ClassMethodType,
-    scopeConcreteImplMethods :: Map Text [ImplMethodType]
-  }
-  deriving (Eq, Show)
-
-emptyScopeCapabilityFacts :: ScopeCapabilityFacts
-emptyScopeCapabilityFacts =
-  ScopeCapabilityFacts
-    { scopeClassFacts = Map.empty,
-      scopeGeneratedEqualityClassFacts = Set.empty,
-      scopeConcreteImplFacts = Set.empty,
-      scopeClassMethodSignatures = Map.empty,
-      scopeConcreteImplMethods = Map.empty
-    }
-
 capabilityFactsFromState :: InferState -> ScopeCapabilityFacts
 capabilityFactsFromState state =
   ScopeCapabilityFacts
@@ -2099,24 +2044,39 @@ typeSchemeConstraintCapabilityName constraint =
 
 applyCapabilityFacts :: ScopeCapabilityFacts -> InferState -> InferState
 applyCapabilityFacts facts state =
-  state
-    { inferClassFacts = scopeClassFacts facts,
-      inferGeneratedEqualityClassFacts = scopeGeneratedEqualityClassFacts facts,
-      inferConcreteImplFacts = scopeConcreteImplFacts facts,
-      inferClassMethodSignatures = scopeClassMethodSignatures facts,
-      inferConcreteImplMethods = scopeConcreteImplMethods facts
-    }
+  modifyDeclarationState
+    ( \declarations ->
+        declarations
+          { declarationClassFacts = scopeClassFacts facts,
+            declarationGeneratedEqualityClassFacts = scopeGeneratedEqualityClassFacts facts,
+            declarationConcreteImplFacts = scopeConcreteImplFacts facts,
+            declarationClassMethodSignatures = scopeClassMethodSignatures facts,
+            declarationConcreteImplMethods = scopeConcreteImplMethods facts
+          }
+    )
+    state
 
 restoreCapabilityFacts :: InferState -> InferState -> InferState
 restoreCapabilityFacts previousState nextState =
-  nextState
-    { inferClassFacts = inferClassFacts previousState,
-      inferGeneratedEqualityClassFacts = inferGeneratedEqualityClassFacts previousState,
-      inferConcreteImplFacts = inferConcreteImplFacts previousState,
-      inferClassMethodSignatures = inferClassMethodSignatures previousState,
-      inferConcreteImplMethods = inferConcreteImplMethods previousState,
-      inferCurrentModuleLocalCapabilityFacts = inferCurrentModuleLocalCapabilityFacts previousState
-    }
+  modifyModuleInferenceState
+    ( \moduleState ->
+        moduleState
+          { inferenceLocalCapabilities =
+              inferCurrentModuleLocalCapabilityFacts previousState
+          }
+    )
+    ( modifyDeclarationState
+        ( \declarations ->
+            declarations
+              { declarationClassFacts = inferClassFacts previousState,
+                declarationGeneratedEqualityClassFacts = inferGeneratedEqualityClassFacts previousState,
+                declarationConcreteImplFacts = inferConcreteImplFacts previousState,
+                declarationClassMethodSignatures = inferClassMethodSignatures previousState,
+                declarationConcreteImplMethods = inferConcreteImplMethods previousState
+              }
+        )
+        nextState
+    )
 
 mergeCapabilityFacts :: ScopeCapabilityFacts -> ScopeCapabilityFacts -> ScopeCapabilityFacts
 mergeCapabilityFacts leftFacts rightFacts =
@@ -2151,21 +2111,29 @@ flushCurrentModuleCapabilityFacts :: InferState -> InferState
 flushCurrentModuleCapabilityFacts state =
   case inferCurrentModulePath state of
     Just modulePath ->
-      state
-        { inferModuleCapabilityFacts =
-            Map.insert
-              modulePath
-              (inferCurrentModuleLocalCapabilityFacts state)
-              (inferModuleCapabilityFacts state)
-        }
+      modifyModuleInferenceState
+        ( \moduleState ->
+            moduleState
+              { inferenceModuleCapabilities =
+                  Map.insert
+                    modulePath
+                    (inferCurrentModuleLocalCapabilityFacts state)
+                    (inferModuleCapabilityFacts state)
+              }
+        )
+        state
     Nothing -> state
 
 enterModuleCapabilityScope :: ScopeCapabilityFacts -> [Text] -> InferState -> InferState
 enterModuleCapabilityScope baselineFacts modulePath state =
-  (applyCapabilityFacts baselineFacts (flushCurrentModuleCapabilityFacts state))
-    { inferCurrentModulePath = Just modulePath,
-      inferCurrentModuleLocalCapabilityFacts = emptyScopeCapabilityFacts
-    }
+  modifyModuleInferenceState
+    ( \moduleState ->
+        moduleState
+          { inferenceModulePath = Just modulePath,
+            inferenceLocalCapabilities = emptyScopeCapabilityFacts
+          }
+    )
+    (applyCapabilityFacts baselineFacts (flushCurrentModuleCapabilityFacts state))
 
 importModuleCapabilityFacts :: [Text] -> Maybe Text -> Maybe [Text] -> InferState -> InferState
 importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state =
@@ -2217,10 +2185,14 @@ seedStatementCapabilityFact state statement =
       stateWithVisibleFacts = applyCapabilityFacts facts state
    in case inferCurrentModulePath state of
         Just _ ->
-          stateWithVisibleFacts
-            { inferCurrentModuleLocalCapabilityFacts =
-                seedFacts (inferCurrentModuleLocalCapabilityFacts state) (0, statement)
-            }
+          modifyModuleInferenceState
+            ( \moduleState ->
+                moduleState
+                  { inferenceLocalCapabilities =
+                      seedFacts (inferCurrentModuleLocalCapabilityFacts state) (0, statement)
+                  }
+            )
+            stateWithVisibleFacts
         Nothing ->
           stateWithVisibleFacts
 
@@ -2418,7 +2390,16 @@ generalizedOrdinaryBinding env state expressionType =
         && null inferredClassConstraints
         && null primitiveConstraints
       then PlainTypeBinding resolvedType
-      else SchemeTypeBinding (TypeScheme schemeVariables schemeVariableOrder inferredClassConstraints primitiveConstraints (typeSchemeDefiningFactsFromState state inferredClassConstraints) resolvedType)
+      else
+        SchemeTypeBinding
+          TypeScheme
+            { schemeQuantifiedVariables = schemeVariables,
+              schemeQuantifiedOrder = schemeVariableOrder,
+              schemeClassConstraints = inferredClassConstraints,
+              schemePrimitiveConstraints = primitiveConstraints,
+              schemeDefiningCapabilities = typeSchemeDefiningFactsFromState state inferredClassConstraints,
+              schemeResultType = resolvedType
+            }
 
 ordinaryBindingSchemeVariables :: TypeEnv -> InferState -> ExpressionType -> Set Int
 ordinaryBindingSchemeVariables env state expressionType =
@@ -2602,7 +2583,16 @@ generalizedExplicitSignatureBinding env state pendingSignature =
       primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
    in if Set.null schemeVariables && null schemeConstraints && null primitiveConstraints
         then PlainTypeBinding resolvedType
-        else SchemeTypeBinding (TypeScheme schemeVariables (orderedSchemeVariables (pendingSignatureVariableOrder pendingSignature) schemeVariables) schemeConstraints primitiveConstraints (typeSchemeDefiningFactsFromState state schemeConstraints) resolvedType)
+        else
+          SchemeTypeBinding
+            TypeScheme
+              { schemeQuantifiedVariables = schemeVariables,
+                schemeQuantifiedOrder = orderedSchemeVariables (pendingSignatureVariableOrder pendingSignature) schemeVariables,
+                schemeClassConstraints = schemeConstraints,
+                schemePrimitiveConstraints = primitiveConstraints,
+                schemeDefiningCapabilities = typeSchemeDefiningFactsFromState state schemeConstraints,
+                schemeResultType = resolvedType
+              }
 
 pruneCapturedInferredClassConstraints :: InferState -> TypeBinding -> InferState -> InferState
 pruneCapturedInferredClassConstraints statementStartState binding =
@@ -2613,13 +2603,17 @@ pruneCapturedInferredClassConstraintsForBindings statementStartState bindings st
   if null capturedConstraints
     then state
     else
-      state
-        { inferInferredClassConstraints =
-            filter
-              (not . capturedInScheme . resolveTypeSchemeConstraint state)
-              statementConstraints
-              ++ priorConstraints
-        }
+      modifyInferenceOutput
+        ( \output ->
+            output
+              { outputInferredConstraints =
+                  filter
+                    (not . capturedInScheme . resolveTypeSchemeConstraint state)
+                    statementConstraints
+                    ++ priorConstraints
+              }
+        )
+        state
   where
     priorConstraintCount = length (inferInferredClassConstraints statementStartState)
     currentConstraints = inferInferredClassConstraints state
@@ -2629,8 +2623,8 @@ pruneCapturedInferredClassConstraintsForBindings statementStartState bindings st
     capturedConstraints =
       [ resolveTypeSchemeConstraint state constraint
         | binding <- bindings,
-          Just (TypeScheme _ _ schemeConstraints _ _ _) <- [typeBindingScheme binding],
-          constraint <- schemeConstraints,
+          Just typeScheme <- [typeBindingScheme binding],
+          constraint <- schemeClassConstraints typeScheme,
           typeSchemeConstraintIsInferred constraint
       ]
     capturedInScheme constraint =
@@ -2813,24 +2807,24 @@ freeTypeVariablesInBinding state binding =
   case binding of
     PlainTypeBinding expressionType ->
       freeTypeVariables (resolveType state expressionType)
-    SchemeTypeBinding (TypeScheme quantifiedVariables _ explicitConstraints primitiveConstraints _ expressionType) ->
+    SchemeTypeBinding typeScheme ->
       Set.difference
         ( Set.unions
-            [ freeTypeVariables (resolveType state expressionType),
-              freeTypeVariablesInTypeSchemeConstraints (map (resolveTypeSchemeConstraint state) explicitConstraints),
-              freeTypeVariablesInTypeSchemePrimitiveConstraints (map (resolveTypeSchemePrimitiveConstraint state) primitiveConstraints)
+            [ freeTypeVariables (resolveType state (schemeResultType typeScheme)),
+              freeTypeVariablesInTypeSchemeConstraints (map (resolveTypeSchemeConstraint state) (schemeClassConstraints typeScheme)),
+              freeTypeVariablesInTypeSchemePrimitiveConstraints (map (resolveTypeSchemePrimitiveConstraint state) (schemePrimitiveConstraints typeScheme))
             ]
         )
-        quantifiedVariables
-    OperatorAliasSchemeTypeBinding _ (TypeScheme quantifiedVariables _ explicitConstraints primitiveConstraints _ expressionType) ->
+        (schemeQuantifiedVariables typeScheme)
+    OperatorAliasSchemeTypeBinding _ typeScheme ->
       Set.difference
         ( Set.unions
-            [ freeTypeVariables (resolveType state expressionType),
-              freeTypeVariablesInTypeSchemeConstraints (map (resolveTypeSchemeConstraint state) explicitConstraints),
-              freeTypeVariablesInTypeSchemePrimitiveConstraints (map (resolveTypeSchemePrimitiveConstraint state) primitiveConstraints)
+            [ freeTypeVariables (resolveType state (schemeResultType typeScheme)),
+              freeTypeVariablesInTypeSchemeConstraints (map (resolveTypeSchemeConstraint state) (schemeClassConstraints typeScheme)),
+              freeTypeVariablesInTypeSchemePrimitiveConstraints (map (resolveTypeSchemePrimitiveConstraint state) (schemePrimitiveConstraints typeScheme))
             ]
         )
-        quantifiedVariables
+        (schemeQuantifiedVariables typeScheme)
     BuiltinAliasTypeBinding {} -> Set.empty
     BuiltinOperatorAliasTypeBinding {} -> Set.empty
     ConstructorTypeBinding _ _ argumentTypes ->
@@ -2952,13 +2946,17 @@ registerDataConstructors spanValue typeName typeParameters constructors env init
             foldl' register (env, initialState, []) constructors
        in
         ( nextEnv,
-          nextState
-            { inferDataTypes =
-                Map.insert
-                  typeNameText
-                  (DataTypeBinding typeParameters (reverse constructorPayloadsRev))
-                  (inferDataTypes nextState)
-            }
+          modifyDeclarationState
+            ( \declarations ->
+                declarations
+                  { declarationDataTypes =
+                      Map.insert
+                        typeNameText
+                        (DataTypeBinding typeParameters (reverse constructorPayloadsRev))
+                        (inferDataTypes nextState)
+                  }
+            )
+            nextState
         )
   where
     typeNameText = identifierText typeName
@@ -3032,7 +3030,7 @@ instantiateTypeBinding binding state =
         Nothing -> (Nothing, state)
 
 instantiateTypeScheme :: TypeScheme -> InferState -> (Maybe ExpressionType, InferState)
-instantiateTypeScheme (TypeScheme quantifiedVariables quantifiedOrder explicitConstraints primitiveConstraints definingFacts expressionType) state =
+instantiateTypeScheme typeScheme state =
   let (freshBindings, nextState) =
         foldl'
           allocateFreshBinding
@@ -3054,6 +3052,13 @@ instantiateTypeScheme (TypeScheme quantifiedVariables quantifiedOrder explicitCo
           stateWithPrimitiveConstraints
    in (Just (resolveType stateWithDeferredConstraints instantiatedType), stateWithDeferredConstraints)
   where
+    quantifiedVariables = schemeQuantifiedVariables typeScheme
+    quantifiedOrder = schemeQuantifiedOrder typeScheme
+    explicitConstraints = schemeClassConstraints typeScheme
+    primitiveConstraints = schemePrimitiveConstraints typeScheme
+    definingFacts = schemeDefiningCapabilities typeScheme
+    expressionType = schemeResultType typeScheme
+
     allocateFreshBinding (bindings, stateAcc) typeVar =
       let (freshType, nextState) = freshTypeVar stateAcc
        in (Map.insert typeVar freshType bindings, nextState)
@@ -3095,7 +3100,7 @@ instantiateTypeSchemeWithExplicitArgument ::
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-instantiateTypeSchemeWithExplicitArgument (TypeScheme quantifiedVariables quantifiedOrder explicitConstraints primitiveConstraints definingFacts expressionType) explicitArgumentType state =
+instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state =
   case orderedSchemeVariables quantifiedOrder quantifiedVariables of
     [] ->
       (Nothing, addTypeError state mkExplicitTypeApplicationTargetError)
@@ -3121,6 +3126,13 @@ instantiateTypeSchemeWithExplicitArgument (TypeScheme quantifiedVariables quanti
               stateWithPrimitiveConstraints
        in (Just (resolveType stateWithDeferredConstraints instantiatedType), stateWithDeferredConstraints)
   where
+    quantifiedVariables = schemeQuantifiedVariables typeScheme
+    quantifiedOrder = schemeQuantifiedOrder typeScheme
+    explicitConstraints = schemeClassConstraints typeScheme
+    primitiveConstraints = schemePrimitiveConstraints typeScheme
+    definingFacts = schemeDefiningCapabilities typeScheme
+    expressionType = schemeResultType typeScheme
+
     allocateFreshBinding (bindings, stateAcc) typeVar =
       let (freshType, nextState) = freshTypeVar stateAcc
        in (Map.insert typeVar freshType bindings, nextState)
@@ -3174,21 +3186,46 @@ deferExplicitConstraintsWithFacts :: ScopeCapabilityFacts -> ScopeCapabilityFact
 deferExplicitConstraintsWithFacts facts structuralFacts explicitConstraints state
   | null explicitConstraints = state
   | otherwise =
-      state
-        { inferDeferredExplicitConstraints =
-            inferDeferredExplicitConstraints state
-              ++ map (typeSchemeConstraintToDeferredExplicitConstraint facts structuralFacts) explicitConstraints
-        }
+      modifyInferenceOutput
+        ( \output ->
+            output
+              { outputDeferredConstraints =
+                  inferDeferredExplicitConstraints state
+                    ++ map (typeSchemeConstraintToDeferredExplicitConstraint facts structuralFacts) explicitConstraints
+              }
+        )
+        state
 
 typeSchemeConstraintToDeferredExplicitConstraint :: ScopeCapabilityFacts -> ScopeCapabilityFacts -> TypeSchemeConstraint -> DeferredExplicitConstraint
 typeSchemeConstraintToDeferredExplicitConstraint facts structuralFacts constraint =
   case constraint of
     TypeSchemeConstraint constraintName argumentType ->
-      DeferredExplicitConstraint constraintName Nothing False argumentType facts structuralFacts
+      DeferredExplicitConstraint
+        { deferredConstraintName = constraintName,
+          deferredMethodKey = Nothing,
+          deferredWasInferred = False,
+          deferredArgumentType = argumentType,
+          deferredVisibleFacts = facts,
+          deferredStructuralFacts = structuralFacts
+        }
     TypeSchemeInferredConstraint constraintName argumentType ->
-      DeferredExplicitConstraint constraintName Nothing True argumentType facts structuralFacts
+      DeferredExplicitConstraint
+        { deferredConstraintName = constraintName,
+          deferredMethodKey = Nothing,
+          deferredWasInferred = True,
+          deferredArgumentType = argumentType,
+          deferredVisibleFacts = facts,
+          deferredStructuralFacts = structuralFacts
+        }
     TypeSchemeMethodConstraint constraintName methodKey argumentType ->
-      DeferredExplicitConstraint constraintName (Just methodKey) True argumentType facts structuralFacts
+      DeferredExplicitConstraint
+        { deferredConstraintName = constraintName,
+          deferredMethodKey = Just methodKey,
+          deferredWasInferred = True,
+          deferredArgumentType = argumentType,
+          deferredVisibleFacts = facts,
+          deferredStructuralFacts = structuralFacts
+        }
 
 finalizeDeferredExplicitConstraintsAt :: SourceSpan -> InferState -> InferState -> InferState
 finalizeDeferredExplicitConstraintsAt spanValue statementStartState state =
@@ -3206,10 +3243,12 @@ resolveStatementDeferredExplicitConstraints statementStartState state =
     statementConstraints =
       drop (length priorConstraints) currentConstraints
     stateWithoutStatementConstraints =
-      state {inferDeferredExplicitConstraints = priorConstraints}
+      modifyInferenceOutput
+        (\output -> output {outputDeferredConstraints = priorConstraints})
+        state
 
 resolveDeferredExplicitConstraint :: InferState -> DeferredExplicitConstraint -> InferState
-resolveDeferredExplicitConstraint state (DeferredExplicitConstraint constraintName maybeMethodKey inferredConstraint argumentType facts structuralFacts) =
+resolveDeferredExplicitConstraint state deferredConstraint =
   let unresolvedArgumentType =
         resolveType state argumentType
       resolvedArgumentType =
@@ -3262,6 +3301,13 @@ resolveDeferredExplicitConstraint state (DeferredExplicitConstraint constraintNa
                                 state
                             | otherwise ->
                                 addTypeError state (mkMissingImplMethodBodyError methodKey)
+  where
+    constraintName = deferredConstraintName deferredConstraint
+    maybeMethodKey = deferredMethodKey deferredConstraint
+    inferredConstraint = deferredWasInferred deferredConstraint
+    argumentType = deferredArgumentType deferredConstraint
+    facts = deferredVisibleFacts deferredConstraint
+    structuralFacts = deferredStructuralFacts deferredConstraint
 
 expressionTypeContainsUncommittedIntegerLiteral :: ExpressionType -> Bool
 expressionTypeContainsUncommittedIntegerLiteral expressionType =
@@ -3405,7 +3451,7 @@ structuralRuntimeEqualityType state argumentType =
     TTupleType elementTypes ->
       all (supportsRuntimeEqualityType state) elementTypes
     TDataType typeName typeArguments ->
-      dataTypeSupportsRuntimeEquality state typeName typeArguments
+      supportsRuntimeEqualityType state (TDataType typeName typeArguments)
     _ ->
       False
 
@@ -3727,12 +3773,12 @@ typeBindingRuntimeHint binding =
   case binding of
     PlainTypeBinding bindingType ->
       expressionTypeToRuntimeHint (defaultLiteralTypes bindingType)
-    SchemeTypeBinding (TypeScheme schemeVariables _ _ _ _ schemeType)
-      | Set.null schemeVariables ->
-          expressionTypeToRuntimeHint (defaultLiteralTypes schemeType)
-    OperatorAliasSchemeTypeBinding _ (TypeScheme schemeVariables _ _ _ _ schemeType)
-      | Set.null schemeVariables ->
-          expressionTypeToRuntimeHint (defaultLiteralTypes schemeType)
+    SchemeTypeBinding typeScheme
+      | Set.null (schemeQuantifiedVariables typeScheme) ->
+          expressionTypeToRuntimeHint (defaultLiteralTypes (schemeResultType typeScheme))
+    OperatorAliasSchemeTypeBinding _ typeScheme
+      | Set.null (schemeQuantifiedVariables typeScheme) ->
+          expressionTypeToRuntimeHint (defaultLiteralTypes (schemeResultType typeScheme))
     _ -> Nothing
 
 constraintSignatureTypeContainsList :: ConstraintSignatureType -> Bool
@@ -4024,7 +4070,9 @@ freshTypeVars count initialState =
 -- by an inner expression inference step.
 annotateNewErrorsWithPrimarySpan :: SourceSpan -> InferState -> InferState -> InferState
 annotateNewErrorsWithPrimarySpan spanValue previousState nextState =
-  nextState {inferErrorsRev = updatedNewErrors ++ existingErrors}
+  modifyInferenceOutput
+    (\output -> output {outputErrorsRev = updatedNewErrors ++ existingErrors})
+    nextState
   where
     previousErrorCount = inferErrorCount previousState
     newErrorCount = inferErrorCount nextState - previousErrorCount
@@ -4232,14 +4280,6 @@ numericTypeNameToExpressionType :: Text -> Maybe ExpressionType
 numericTypeNameToExpressionType typeName =
   TNumericType <$> numericTypeFromName typeName
 
-integerLiteralRangeFitsNumericType :: IntegerLiteralRange -> NumericType -> Bool
-integerLiteralRangeFitsNumericType literalRange numericType =
-  case numericTypeIntegerBounds numericType of
-    Just (lowerBound, upperBound) ->
-      let (literalMin, literalMax) = integerLiteralRangeBounds literalRange
-       in literalMin >= lowerBound && literalMax <= upperBound
-    Nothing -> False
-
 numericConversionLiteralDiagnostic :: BuiltinResolutionMode -> TypeEnv -> Expr -> Expr -> Maybe Diagnostic
 numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr =
   case (functionExpr, argumentExpr) of
@@ -4382,14 +4422,6 @@ mergeIntegerLiteralRanges leftType rightType =
         (mergeIntegerLiteralRanges leftInputType rightInputType)
         (mergeIntegerLiteralRanges leftOutputType rightOutputType)
     _ -> leftType
-
-combineIntegerLiteralRanges :: IntegerLiteralRange -> IntegerLiteralRange -> IntegerLiteralRange
-combineIntegerLiteralRanges (IntegerLiteralRange leftMin leftMax) (IntegerLiteralRange rightMin rightMax) =
-  IntegerLiteralRange (min leftMin rightMin) (max leftMax rightMax)
-
-integerLiteralRangeBounds :: IntegerLiteralRange -> (Integer, Integer)
-integerLiteralRangeBounds (IntegerLiteralRange lower upper) =
-  (lower, upper)
 
 renderSignaturePayload :: SignaturePayload -> Text
 renderSignaturePayload signaturePayload =
@@ -4614,20 +4646,6 @@ instantiateBuiltinSymbolTypeByName builtinName state =
        in Just (TFunctionType valueType valueType, stateAfterValueType)
     _ -> Nothing
 
--- | Allocate a fresh type variable for the current inference run.
-freshTypeVar :: InferState -> (ExpressionType, InferState)
-freshTypeVar state =
-  let (_, expressionType, nextState) = freshTypeVariable state
-   in (expressionType, nextState)
-
-freshTypeVariable :: InferState -> (Int, ExpressionType, InferState)
-freshTypeVariable state =
-  let nextVar = inferNextTypeVar state
-   in (nextVar, TVarType nextVar, state {inferNextTypeVar = nextVar + 1})
-
-resolveType :: InferState -> ExpressionType -> ExpressionType
-resolveType state = applySubstitution (inferSubst state)
-
 defaultLiteralTypes :: ExpressionType -> ExpressionType
 defaultLiteralTypes =
   defaultLiteralTypesWith TIntType
@@ -4670,7 +4688,7 @@ runtimeHintForTypeBinding state binding =
     _ -> Nothing
 
 typeSchemeRuntimeHint :: InferState -> TypeScheme -> Maybe ConstraintSignatureType
-typeSchemeRuntimeHint state (TypeScheme schemeVariables schemeVariableOrder _ _ _ expressionType) =
+typeSchemeRuntimeHint state typeScheme =
   case resolvedSchemeType of
     TFunctionType {} ->
       expressionTypeToRuntimeHintWithVariables
@@ -4678,6 +4696,9 @@ typeSchemeRuntimeHint state (TypeScheme schemeVariables schemeVariableOrder _ _ 
         resolvedSchemeType
     _ -> Nothing
   where
+    schemeVariables = schemeQuantifiedVariables typeScheme
+    schemeVariableOrder = schemeQuantifiedOrder typeScheme
+    expressionType = schemeResultType typeScheme
     resolvedSchemeType =
       defaultLiteralTypes (resolveType state expressionType)
     orderedVariables =
@@ -4756,172 +4777,38 @@ expressionTypeToRuntimeHintWithVariables variableHints expressionType =
     TVarType typeVar ->
       Map.lookup typeVar variableHints
 
-applySubstitution :: Map Int ExpressionType -> ExpressionType -> ExpressionType
-applySubstitution subst expressionType =
-  case expressionType of
-    TIntType -> TIntType
-    TIntegerLiteralType literalRange -> TIntegerLiteralType literalRange
-    TFloatType -> TFloatType
-    TNumericType numericType -> TNumericType numericType
-    TBoolType -> TBoolType
-    TListType elementType -> TListType (applySubstitution subst elementType)
-    TTupleType elementTypes -> TTupleType (map (applySubstitution subst) elementTypes)
-    TDataType typeName typeArguments ->
-      TDataType typeName (map (applySubstitution subst) typeArguments)
-    TFunctionType inputType outputType ->
-      TFunctionType
-        (applySubstitution subst inputType)
-        (applySubstitution subst outputType)
-    TVarType typeVar ->
-      case Map.lookup typeVar subst of
-        Just replacementType -> applySubstitution subst replacementType
-        Nothing -> TVarType typeVar
-
--- | First-order unification over the small internal type language.
-unifyTypes :: ExpressionType -> ExpressionType -> InferState -> Maybe InferState
-unifyTypes leftType rightType state =
-  let resolvedLeft = resolveType state leftType
-      resolvedRight = resolveType state rightType
-   in case (resolvedLeft, resolvedRight) of
-        (TIntType, TIntType) -> Just state
-        (TIntegerLiteralType {}, TIntegerLiteralType {}) -> Just state
-        (TIntegerLiteralType {}, TIntType) -> Just state
-        (TIntType, TIntegerLiteralType {}) -> Just state
-        (TIntegerLiteralType literalRange, TNumericType rightNumericType)
-          | integerLiteralRangeFitsNumericType literalRange rightNumericType -> Just state
-        (TNumericType leftNumericType, TIntegerLiteralType literalRange)
-          | integerLiteralRangeFitsNumericType literalRange leftNumericType -> Just state
-        (TFloatType, TFloatType) -> Just state
-        (TFloatType, TNumericType NumericFloat64) -> Just state
-        (TNumericType NumericFloat64, TFloatType) -> Just state
-        (TIntType, TNumericType NumericInt64) -> Just state
-        (TNumericType NumericInt64, TIntType) -> Just state
-        (TNumericType leftNumericType, TNumericType rightNumericType)
-          | leftNumericType == rightNumericType -> Just state
-        (TBoolType, TBoolType) -> Just state
-        (TDataType leftName leftArguments, TDataType rightName rightArguments)
-          | leftName == rightName,
-            length leftArguments == length rightArguments ->
-              unifyTypeLists leftArguments rightArguments state
-        (TListType leftElementType, TListType rightElementType) ->
-          unifyTypes leftElementType rightElementType state
-        (TTupleType leftElementTypes, TTupleType rightElementTypes)
-          | length leftElementTypes == length rightElementTypes ->
-              unifyTypeLists leftElementTypes rightElementTypes state
-        ( TFunctionType leftInputType leftOutputType,
-          TFunctionType rightInputType rightOutputType
-          ) -> do
-          stateAfterInput <- unifyTypes leftInputType rightInputType state
-          unifyTypes leftOutputType rightOutputType stateAfterInput
-        (TVarType leftVar, _) -> bindTypeVar leftVar resolvedRight state
-        (_, TVarType rightVar) -> bindTypeVar rightVar resolvedLeft state
-        _ -> Nothing
-
-unifyTypeLists :: [ExpressionType] -> [ExpressionType] -> InferState -> Maybe InferState
-unifyTypeLists leftTypes rightTypes state =
-  if length leftTypes /= length rightTypes
-    then Nothing
-    else
-      foldl'
-        step
-        (Just state)
-        (zip leftTypes rightTypes)
-  where
-    step maybeState (leftType, rightType) =
-      case maybeState of
-        Just stateAcc -> unifyTypes leftType rightType stateAcc
-        Nothing -> Nothing
-
--- | Bind a type variable while preserving the deferred equality constraints
--- introduced by strict-equality operator sections.
-bindTypeVar :: Int -> ExpressionType -> InferState -> Maybe InferState
-bindTypeVar typeVar replacementType state
-  | replacementType == TVarType typeVar = Just state
-  | occursInType typeVar replacementType = Nothing
-  -- Preserve compile/runtime contract when deferred section vars later unify.
-  | typeVarIsStrictEqualityConstrained && not (supportsDeferredEqualityOperandType state replacementType) =
-      Nothing
-  | otherwise =
-      case constrainedReplacementType of
-        Nothing -> Nothing
-        Just nextReplacementType ->
-          Just
-            (stateAfterNumericConstraint nextReplacementType)
-              { inferSubst = Map.insert typeVar nextReplacementType (inferSubst state),
-                inferStrictEqualityVars = nextStrictEqualityVars nextReplacementType
-              }
-  where
-    typeVarIsStrictEqualityConstrained =
-      Set.member typeVar (inferStrictEqualityVars state)
-    typeVarNumericConstraint =
-      Map.lookup typeVar (inferNumericVars state)
-    constrainedReplacementType =
-      case typeVarNumericConstraint of
-        Just numericConstraint ->
-          applyNumericConstraintToReplacement numericConstraint replacementType
-        Nothing -> Just replacementType
-    strictEqualityVarsWithoutTypeVar =
-      Set.delete typeVar (inferStrictEqualityVars state)
-    nextStrictEqualityVars nextReplacementType =
-      case nextReplacementType of
-        TVarType replacementVar
-          | typeVarIsStrictEqualityConstrained ->
-              Set.insert replacementVar strictEqualityVarsWithoutTypeVar
-        _ -> strictEqualityVarsWithoutTypeVar
-    numericVarsWithoutTypeVar =
-      Map.delete typeVar (inferNumericVars state)
-    stateAfterNumericConstraint nextReplacementType =
-      case (typeVarNumericConstraint, nextReplacementType) of
-        (Just numericConstraint, TVarType replacementVar) ->
-          addNumericTypeVarConstraint
-            replacementVar
-            numericConstraint
-            state {inferNumericVars = numericVarsWithoutTypeVar}
-        _ ->
-          state {inferNumericVars = numericVarsWithoutTypeVar}
-
-occursInType :: Int -> ExpressionType -> Bool
-occursInType typeVar expressionType =
-  case expressionType of
-    TIntType -> False
-    TIntegerLiteralType {} -> False
-    TFloatType -> False
-    TNumericType {} -> False
-    TBoolType -> False
-    TListType elementType -> occursInType typeVar elementType
-    TTupleType elementTypes -> any (occursInType typeVar) elementTypes
-    TDataType _ typeArguments -> any (occursInType typeVar) typeArguments
-    TFunctionType inputType outputType ->
-      occursInType typeVar inputType || occursInType typeVar outputType
-    TVarType otherVar -> typeVar == otherVar
-
 addTypeError :: InferState -> Diagnostic -> InferState
 addTypeError state errorText =
-  state
-    { inferErrorsRev = errorText : inferErrorsRev state,
-      inferErrorCount = inferErrorCount state + 1
-    }
-
-addStrictEqualityTypeVarConstraint :: Int -> InferState -> InferState
-addStrictEqualityTypeVarConstraint typeVar state =
-  state
-    { inferStrictEqualityVars =
-        Set.insert typeVar (inferStrictEqualityVars state)
-    }
+  modifyInferenceOutput
+    ( \output ->
+        output
+          { outputErrorsRev = errorText : inferErrorsRev state,
+            outputErrorCount = inferErrorCount state + 1
+          }
+    )
+    state
 
 addInferredClassConstraint :: Text -> ExpressionType -> InferState -> InferState
 addInferredClassConstraint constraintName argumentType state =
-  state
-    { inferInferredClassConstraints =
-        TypeSchemeInferredConstraint constraintName argumentType : inferInferredClassConstraints state
-    }
+  modifyInferenceOutput
+    ( \output ->
+        output
+          { outputInferredConstraints =
+              TypeSchemeInferredConstraint constraintName argumentType : inferInferredClassConstraints state
+          }
+    )
+    state
 
 addInferredMethodClassConstraint :: Text -> Text -> ExpressionType -> InferState -> InferState
 addInferredMethodClassConstraint constraintName methodKey argumentType state =
-  state
-    { inferInferredClassConstraints =
-        TypeSchemeMethodConstraint constraintName methodKey argumentType : inferInferredClassConstraints state
-    }
+  modifyInferenceOutput
+    ( \output ->
+        output
+          { outputInferredConstraints =
+              TypeSchemeMethodConstraint constraintName methodKey argumentType : inferInferredClassConstraints state
+          }
+    )
+    state
 
 addInferredEqualityClassConstraintIfVisible :: ExpressionType -> InferState -> InferState
 addInferredEqualityClassConstraintIfVisible argumentType state =
@@ -4947,101 +4834,6 @@ activeEqualityClassName state =
 moduleReplayQualifiedName :: [Text] -> Text -> Text
 moduleReplayQualifiedName modulePath name =
   qualifiedIdentifierText "__module" (Text.intercalate "::" modulePath <> "::" <> name)
-
-addNumericTypeVarConstraint :: Int -> NumericConstraint -> InferState -> InferState
-addNumericTypeVarConstraint typeVar numericConstraint state =
-  state
-    { inferNumericVars =
-        Map.insertWith
-          combineNumericConstraints
-          typeVar
-          numericConstraint
-          (inferNumericVars state)
-    }
-
-combineNumericConstraints :: NumericConstraint -> NumericConstraint -> NumericConstraint
-combineNumericConstraints leftConstraint rightConstraint =
-  case (leftConstraint, rightConstraint) of
-    (IntegralLiteralNumericConstraint leftRange, IntegralLiteralNumericConstraint rightRange) ->
-      IntegralLiteralNumericConstraint (combineIntegerLiteralRanges leftRange rightRange)
-    (IntegralLiteralNumericConstraint literalRange, _) ->
-      IntegralLiteralNumericConstraint literalRange
-    (_, IntegralLiteralNumericConstraint literalRange) ->
-      IntegralLiteralNumericConstraint literalRange
-    (IntegralNumericConstraint, _) -> IntegralNumericConstraint
-    (_, IntegralNumericConstraint) -> IntegralNumericConstraint
-    (RuntimeArithmeticNumericConstraint, _) -> RuntimeArithmeticNumericConstraint
-    (_, RuntimeArithmeticNumericConstraint) -> RuntimeArithmeticNumericConstraint
-    (RuntimeComparisonNumericConstraint, _) -> RuntimeComparisonNumericConstraint
-    (_, RuntimeComparisonNumericConstraint) -> RuntimeComparisonNumericConstraint
-    _ -> AnyNumericConstraint
-
-applyNumericConstraintToReplacement :: NumericConstraint -> ExpressionType -> Maybe ExpressionType
-applyNumericConstraintToReplacement numericConstraint replacementType =
-  case (numericConstraint, replacementType) of
-    (IntegralLiteralNumericConstraint constraintRange, TIntegerLiteralType replacementRange) ->
-      Just (TIntegerLiteralType (combineIntegerLiteralRanges constraintRange replacementRange))
-    _
-      | typeSatisfiesNumericConstraint numericConstraint replacementType ->
-          Just replacementType
-      | otherwise ->
-          Nothing
-
-constrainNumericOperatorType :: NumericConstraint -> ExpressionType -> InferState -> Maybe InferState
-constrainNumericOperatorType numericConstraint expressionType state =
-  case resolveType state expressionType of
-    TVarType typeVar ->
-      Just (addNumericTypeVarConstraint typeVar numericConstraint state)
-    resolvedType
-      | typeSatisfiesNumericConstraint numericConstraint resolvedType ->
-          Just state
-      | otherwise ->
-          Nothing
-
-typeSatisfiesNumericConstraint :: NumericConstraint -> ExpressionType -> Bool
-typeSatisfiesNumericConstraint numericConstraint expressionType =
-  case numericConstraint of
-    AnyNumericConstraint ->
-      case expressionType of
-        TIntType -> True
-        TIntegerLiteralType {} -> True
-        TFloatType -> True
-        TNumericType {} -> True
-        TVarType {} -> True
-        _ -> False
-    RuntimeArithmeticNumericConstraint ->
-      case expressionType of
-        TIntType -> True
-        TIntegerLiteralType {} -> True
-        TFloatType -> True
-        TNumericType numericType ->
-          numericTypeSupportsRuntimeArithmetic numericType
-        TVarType {} -> True
-        _ -> False
-    RuntimeComparisonNumericConstraint ->
-      case expressionType of
-        TIntType -> True
-        TIntegerLiteralType {} -> True
-        TFloatType -> True
-        TNumericType numericType ->
-          numericTypeSupportsRuntimeComparison numericType
-        TVarType {} -> True
-        _ -> False
-    IntegralNumericConstraint ->
-      case expressionType of
-        TIntType -> True
-        TIntegerLiteralType {} -> True
-        TNumericType numericType -> numericTypeIsIntegral numericType
-        TVarType {} -> True
-        _ -> False
-    IntegralLiteralNumericConstraint literalRange ->
-      case expressionType of
-        TIntType -> True
-        TIntegerLiteralType {} -> True
-        TNumericType numericType ->
-          numericTypeIsIntegral numericType && integerLiteralRangeFitsNumericType literalRange numericType
-        TVarType {} -> True
-        _ -> False
 
 mkBinaryTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
 mkBinaryTypeError operatorSymbol leftType rightType =
@@ -6167,10 +5959,14 @@ inferTuplePatternType env scrutineeType patterns state =
 
 rollbackSkippedPatternState :: InferState -> InferState -> InferState
 rollbackSkippedPatternState stableState failedState =
-  stableState
-    { inferErrorsRev = inferErrorsRev failedState,
-      inferErrorCount = inferErrorCount failedState
-    }
+  modifyInferenceOutput
+    ( \output ->
+        output
+          { outputErrorsRev = inferErrorsRev failedState,
+            outputErrorCount = inferErrorCount failedState
+          }
+    )
+    stableState
 
 hasNewPatternError :: InferState -> InferState -> Bool
 hasNewPatternError previousState nextState =
@@ -6231,67 +6027,3 @@ mkOrPatternBinderTypeMismatchError binderName leftType rightType =
 renderBinderSet :: Set Name -> Text
 renderBinderSet names =
   "{" <> Text.intercalate ", " (map identifierText (Set.toList names)) <> "}"
-
-supportsRuntimeEqualityType :: InferState -> ExpressionType -> Bool
-supportsRuntimeEqualityType state expressionType =
-  supportsRuntimeEqualityTypeWith Set.empty state expressionType
-
-supportsRuntimeEqualityTypeWith :: Set Text -> InferState -> ExpressionType -> Bool
-supportsRuntimeEqualityTypeWith seenDataTypes state expressionType =
-  -- Keep compile-time acceptance aligned with the currently implemented
-  -- runtime equality evaluator to avoid compile/runtime contract drift.
-  case resolveType state expressionType of
-    TIntType -> True
-    TIntegerLiteralType {} -> True
-    TFloatType -> True
-    TNumericType numericType -> numericTypeSupportsRuntimeComparison numericType
-    TBoolType -> True
-    TListType elementType -> supportsRuntimeEqualityTypeWith seenDataTypes state elementType
-    TTupleType elementTypes -> all (supportsRuntimeEqualityTypeWith seenDataTypes state) elementTypes
-    TDataType typeName typeArguments ->
-      dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments
-    _ -> False
-
-dataTypeSupportsRuntimeEquality :: InferState -> Name -> [ExpressionType] -> Bool
-dataTypeSupportsRuntimeEquality state typeName typeArguments =
-  dataTypeSupportsRuntimeEqualityWith Set.empty state typeName typeArguments
-
-dataTypeSupportsRuntimeEqualityWith :: Set Text -> InferState -> Name -> [ExpressionType] -> Bool
-dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
-  let resolvedTypeArguments = map (resolveType state) typeArguments
-      dataTypeKey =
-        identifierText typeName
-          <> "<"
-          <> Text.intercalate ", " (map renderType resolvedTypeArguments)
-          <> ">"
-   in if Set.member dataTypeKey seenDataTypes
-        then True
-        else dataTypeSupportsRuntimeEqualityUnseen (Set.insert dataTypeKey seenDataTypes) resolvedTypeArguments
-  where
-    dataTypeSupportsRuntimeEqualityUnseen nextSeenDataTypes resolvedTypeArguments =
-      case Map.lookup (identifierText typeName) (inferDataTypes state) of
-        Just (DataTypeBinding typeParameters constructors)
-          | length typeParameters == length resolvedTypeArguments ->
-              let typeParameterBindings =
-                    Map.fromList
-                      (zip (map identifierText typeParameters) resolvedTypeArguments)
-               in all
-                    (all (constructorArgumentSupportsRuntimeEquality nextSeenDataTypes typeParameterBindings))
-                    constructors
-        _ -> False
-
-    constructorArgumentSupportsRuntimeEquality nextSeenDataTypes typeParameterBindings argumentType =
-      case argumentType of
-        ConstructorArgumentMonomorphic expressionType ->
-          supportsRuntimeEqualityTypeWith nextSeenDataTypes state expressionType
-        ConstructorArgumentParameter parameterName ->
-          case Map.lookup parameterName typeParameterBindings of
-            Just expressionType -> supportsRuntimeEqualityTypeWith nextSeenDataTypes state expressionType
-            Nothing -> False
-        ConstructorArgumentFresh -> False
-
-supportsDeferredEqualityOperandType :: InferState -> ExpressionType -> Bool
-supportsDeferredEqualityOperandType state expressionType =
-  case resolveType state expressionType of
-    TVarType _ -> True
-    _ -> supportsRuntimeEqualityType state expressionType
