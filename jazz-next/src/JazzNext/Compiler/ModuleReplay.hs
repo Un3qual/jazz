@@ -6,15 +6,9 @@ module JazzNext.Compiler.ModuleReplay
     collectNeededLocalCapabilityExports,
     collectTopLevelBindingNames,
     collectTopLevelClassNames,
-    loadLoweredModuleGraph,
-    loadModuleGraphSource
+    loadLoweredModuleGraph
   ) where
 
-import Data.IORef
-  ( newIORef,
-    readIORef,
-    writeIORef
-  )
 import Data.List
   ( foldl'
   )
@@ -40,12 +34,9 @@ import JazzNext.Compiler.AST
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan (..),
-    mkDiagnostic,
-    prependDiagnosticSummary,
-    qualifySourceSpan,
-    setDiagnosticCode
+    SourceSpan (..)
   )
+import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode)
 import JazzNext.Compiler.Identifier
   ( identifierText,
     isOperatorBindingIdentifierText,
@@ -58,6 +49,7 @@ import JazzNext.Compiler.Name
   ( GeneratedNameKind (..),
     Name (..),
     NameNamespace (..),
+    ResolvedNameOrigin (..),
     generatedName,
     qualifiedName,
     renderName,
@@ -69,16 +61,13 @@ import JazzNext.Compiler.Pattern
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
     ResolvedModule (..),
-    resolveModuleGraphWithLookup,
-    resolveModuleGraphWithLookupAndVisibleSymbols
+    resolveProgram
   )
+import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
 import JazzNext.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol
   )
-import JazzNext.Compiler.SourceProgram
-  ( parseAndLowerStandaloneSource,
-    scopeStatements
-  )
+import JazzNext.Compiler.SourceProgram (scopeStatements)
 
 -- | Module graph replay needs two programs: one that keeps dependency
 -- expression statements for validation and one that strips them for runtime.
@@ -87,148 +76,208 @@ data ModuleGraphExpr = ModuleGraphExpr
     moduleGraphRuntimeExpr :: Expr
   }
 
--- | Resolve an entry module graph and replay the source texts in dependency
--- order so the rest of the pipeline can still operate on a single source blob.
-loadModuleGraphSource ::
-  ModuleResolutionConfig ->
-  [Text] ->
-  (FilePath -> IO (Maybe Text)) ->
-  IO (Either Diagnostic Text)
-loadModuleGraphSource resolutionConfig entryModulePath sourceLookup = do
-  memoizedSourceLookup <- memoizeSourceLookup sourceLookup
-  resolutionResult <-
-    resolveModuleGraphWithLookup resolutionConfig memoizedSourceLookup entryModulePath
-  case resolutionResult of
-    Left resolutionError ->
-      pure (Left resolutionError)
-    Right resolvedModules -> do
-      sourceReplayResult <- replayResolvedSources resolvedModules memoizedSourceLookup
-      pure (fmap (Text.intercalate "\n") sourceReplayResult)
-
 -- | Resolve and lower a module graph into validation and runtime replay
--- expressions. Dependency expressions stay present for semantic validation and
--- are stripped only from the runtime replay expression.
+-- expressions from the resolver's retained cores. This is the last temporary
+-- replay consumer; it no longer reads or parses resolved source files again.
 loadLoweredModuleGraph ::
+  BuiltinResolutionMode ->
   Set Text ->
   Set Text ->
   ModuleResolutionConfig ->
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
   IO (Either Diagnostic ModuleGraphExpr)
-loadLoweredModuleGraph ambientVisibleSymbols ambientVisibleClassNames resolutionConfig entryModulePath sourceLookup = do
-  memoizedSourceLookup <- memoizeSourceLookup sourceLookup
+loadLoweredModuleGraph builtinMode ambientVisibleSymbols ambientVisibleClassNames resolutionConfig entryModulePath sourceLookup = do
   resolutionResult <-
-    resolveModuleGraphWithLookupAndVisibleSymbols resolutionConfig ambientVisibleSymbols ambientVisibleClassNames memoizedSourceLookup entryModulePath
+    resolveProgram
+      resolutionConfig
+      builtinMode
+      (Set.map (sourceName . mkIdentifier) ambientVisibleSymbols)
+      (Set.map (sourceName . mkIdentifier) ambientVisibleClassNames)
+      sourceLookup
+      entryModulePath
   case resolutionResult of
     Left resolutionError ->
       pure (Left resolutionError)
-    Right resolvedModules -> do
-      sourceReplayResult <- replayResolvedSources resolvedModules memoizedSourceLookup
-      pure $
-        do
-          replayedSources <- sourceReplayResult
-          loweredModules <-
-            sequence
-              [ parseAndLowerResolvedModule resolvedModule sourceText
-                | (resolvedModule, sourceText) <- zip resolvedModules replayedSources
-              ]
-          pure (buildModuleGraphExpr entryModulePath resolvedModules loweredModules)
+    Right resolvedProgram ->
+      let graphModules = ModuleGraph.resolvedProgramModules resolvedProgram
+          resolvedModules = map legacyResolvedModule graphModules
+          loweredModules = map legacyReplayModule graphModules
+       in pure (Right (buildModuleGraphExpr entryModulePath resolvedModules loweredModules))
 
--- | Replay resolved source files from the memoized lookup so driver errors stay
--- stable even after resolution has already succeeded.
-replayResolvedSources ::
-  [ResolvedModule] ->
-  (FilePath -> IO (Maybe Text)) ->
-  IO (Either Diagnostic [Text])
-replayResolvedSources resolvedModules sourceLookup =
-  go [] resolvedModules
+legacyResolvedModule :: ModuleGraph.ResolvedModule -> ResolvedModule
+legacyResolvedModule resolvedModule =
+  ResolvedModule
+    { resolvedModulePath = ModuleGraph.resolvedModulePath resolvedModule,
+      resolvedSourcePath = ModuleGraph.resolvedSourcePath resolvedModule,
+      resolvedImports = ModuleGraph.resolvedImports resolvedModule
+    }
+
+legacyReplayModule :: ModuleGraph.ResolvedModule -> Expr
+legacyReplayModule resolvedModule =
+  case legacyExpr imports (ModuleGraph.coreModuleExpr (ModuleGraph.resolvedModuleCore resolvedModule)) of
+    EBlock statements -> EBlock (map importStatement imports <> statements)
+    expression -> EBlock (map importStatement imports <> [SExpr syntheticSpan expression])
   where
-    go acc remainingModules =
-      case remainingModules of
-        [] -> pure (Right (reverse acc))
-        resolvedModule : rest -> do
-          maybeSource <- sourceLookup (resolvedSourcePath resolvedModule)
-          case maybeSource of
-            Nothing ->
-              pure
-                ( Left
-                    ( mkDiagnostic
-                        "E4001"
-                        ( "unresolved import '"
-                            <> renderModulePath (resolvedModulePath resolvedModule)
-                            <> "'; expected source at '"
-                            <> Text.pack (resolvedSourcePath resolvedModule)
-                            <> "'"
-                        )
-                    )
-                )
-            Just sourceText ->
-              go (sourceText : acc) rest
+    imports = ModuleGraph.resolvedModuleImports resolvedModule
+    syntheticSpan = SourceSpan 1 1
+    importStatement importDecl =
+      SImport
+        (ModuleGraph.resolvedImportSpan importDecl)
+        (ModuleGraph.resolvedImportPath importDecl)
+        (ModuleGraph.resolvedImportAlias importDecl)
+        (ModuleGraph.resolvedImportSymbols importDecl)
 
-parseAndLowerResolvedModule :: ResolvedModule -> Text -> Either Diagnostic Expr
-parseAndLowerResolvedModule resolvedModule sourceText =
-  case parseAndLowerStandaloneSource sourceText of
-    Left parseError ->
-      Left
-        ( setDiagnosticCode
-            "E4004"
-            ( prependDiagnosticSummary
-                ( "module parse error at '"
-                    <> Text.pack (resolvedSourcePath resolvedModule)
-                    <> "': "
-                )
-                parseError
-            )
-        )
-    Right loweredSource ->
-      Right
-        ( qualifyExprSourceSpans
-            (resolvedSourcePath resolvedModule)
-            loweredSource
-        )
-
-qualifyExprSourceSpans :: FilePath -> Expr -> Expr
-qualifyExprSourceSpans sourcePath expr =
-  case expr of
+legacyExpr :: [ModuleGraph.ResolvedImport] -> Expr -> Expr
+legacyExpr imports expression =
+  case expression of
     ELit literal -> ELit literal
-    EVar name -> EVar name
-    ELambda parameter body -> ELambda parameter (go body)
+    EVar name -> EVar (legacyName imports name)
+    ELambda parameter body -> ELambda (legacyName imports parameter) (legacyExpr imports body)
     EOperatorValue symbol -> EOperatorValue symbol
-    EList items -> EList (map go items)
-    ETuple items -> ETuple (map go items)
-    EApply function argument -> EApply (go function) (go argument)
-    ETypeApplication function signatureType -> ETypeApplication (go function) signatureType
-    EIf condition trueBranch falseBranch -> EIf (go condition) (go trueBranch) (go falseBranch)
-    EPatternCase scrutinee arms -> EPatternCase (go scrutinee) (map qualifyCaseArm arms)
-    EBinary symbol left right -> EBinary symbol (go left) (go right)
-    ESectionLeft left symbol -> ESectionLeft (go left) symbol
-    ESectionRight symbol right -> ESectionRight symbol (go right)
-    EBlock statements -> EBlock (map qualifyStatement statements)
+    EList items -> EList (map (legacyExpr imports) items)
+    ETuple items -> ETuple (map (legacyExpr imports) items)
+    EApply function argument -> EApply (legacyExpr imports function) (legacyExpr imports argument)
+    ETypeApplication function signatureType -> ETypeApplication (legacyExpr imports function) signatureType
+    EIf condition trueBranch falseBranch ->
+      EIf (legacyExpr imports condition) (legacyExpr imports trueBranch) (legacyExpr imports falseBranch)
+    EPatternCase scrutinee arms -> EPatternCase (legacyExpr imports scrutinee) (map legacyArm arms)
+    EBinary symbol left right -> EBinary symbol (legacyExpr imports left) (legacyExpr imports right)
+    ESectionLeft left symbol -> ESectionLeft (legacyExpr imports left) symbol
+    ESectionRight symbol right -> ESectionRight symbol (legacyExpr imports right)
+    EBlock statements -> EBlock (map (legacyStatement imports) statements)
   where
-    go = qualifyExprSourceSpans sourcePath
-    qualifySpan = qualifySourceSpan sourcePath
+    legacyArm (CaseArm patternValue guard body) =
+      CaseArm
+        (legacyPattern imports patternValue)
+        (fmap (legacyExpr imports) guard)
+        (legacyExpr imports body)
 
-    qualifyCaseArm (CaseArm patternValue guardExpr bodyExpr) =
-      CaseArm patternValue (fmap go guardExpr) (go bodyExpr)
+legacyStatement :: [ModuleGraph.ResolvedImport] -> Statement -> Statement
+legacyStatement imports statement =
+  case statement of
+    SLet name spanValue value ->
+      SLet (legacyName imports name) spanValue (legacyExpr imports value)
+    SSignature name spanValue payload ->
+      SSignature (legacyName imports name) spanValue (legacySignaturePayload imports payload)
+    SData spanValue name parameters constructors ->
+      SData
+        spanValue
+        (legacyName imports name)
+        (map (legacyName imports) parameters)
+        (map (legacyDataConstructor imports) constructors)
+    SClass spanValue name parameters methods ->
+      SClass
+        spanValue
+        (legacyName imports name)
+        (map (legacyName imports) parameters)
+        (map legacyClassMethod methods)
+    SImpl spanValue name arguments methods ->
+      SImpl
+        spanValue
+        (legacyName imports name)
+        (map (legacyConstraintType imports) arguments)
+        (map legacyImplMethod methods)
+    SModule spanValue path -> SModule spanValue path
+    SImport spanValue path alias symbols -> SImport spanValue path alias symbols
+    SExpr spanValue value -> SExpr spanValue (legacyExpr imports value)
+  where
+    legacyClassMethod (ClassMethodSignature name spanValue payload) =
+      ClassMethodSignature (legacyName imports name) spanValue (legacySignaturePayload imports payload)
+    legacyImplMethod (ImplMethod name spanValue body) =
+      ImplMethod (legacyName imports name) spanValue (legacyExpr imports body)
 
-    qualifyClassMethod (ClassMethodSignature name spanValue payload) =
-      ClassMethodSignature name (qualifySpan spanValue) payload
+legacyDataConstructor :: [ModuleGraph.ResolvedImport] -> DataConstructor -> DataConstructor
+legacyDataConstructor imports (DataConstructor name arguments) =
+  DataConstructor (legacyName imports name) (map legacyArgument arguments)
+  where
+    legacyArgument argument =
+      case argument of
+        DataConstructorArgumentName argumentName ->
+          DataConstructorArgumentName (legacyName imports argumentName)
+        DataConstructorArgumentOpaque -> DataConstructorArgumentOpaque
 
-    qualifyImplMethod (ImplMethod name spanValue bodyExpr) =
-      ImplMethod name (qualifySpan spanValue) (go bodyExpr)
+legacyPattern :: [ModuleGraph.ResolvedImport] -> Pattern -> Pattern
+legacyPattern imports patternValue =
+  case patternValue of
+    PWildcard -> PWildcard
+    PVariable name -> PVariable (legacyName imports name)
+    PLiteral literal -> PLiteral literal
+    PConstructor name patterns ->
+      PConstructor (legacyName imports name) (map (legacyPattern imports) patterns)
+    PList patterns -> PList (map (legacyPattern imports) patterns)
+    PConsList headPattern tailPattern ->
+      PConsList (legacyPattern imports headPattern) (legacyPattern imports tailPattern)
+    PTuple patterns -> PTuple (map (legacyPattern imports) patterns)
+    PAs name pattern' -> PAs (legacyName imports name) (legacyPattern imports pattern')
+    POr patterns -> POr (map (legacyPattern imports) patterns)
 
-    qualifyStatement statement =
-      case statement of
-        SLet name spanValue valueExpr -> SLet name (qualifySpan spanValue) (go valueExpr)
-        SSignature name spanValue payload -> SSignature name (qualifySpan spanValue) payload
-        SData spanValue name parameters constructors -> SData (qualifySpan spanValue) name parameters constructors
-        SClass spanValue name parameters methods ->
-          SClass (qualifySpan spanValue) name parameters (map qualifyClassMethod methods)
-        SImpl spanValue name arguments methods ->
-          SImpl (qualifySpan spanValue) name arguments (map qualifyImplMethod methods)
-        SModule spanValue path -> SModule (qualifySpan spanValue) path
-        SImport spanValue path alias symbols -> SImport (qualifySpan spanValue) path alias symbols
-        SExpr spanValue valueExpr -> SExpr (qualifySpan spanValue) (go valueExpr)
+legacySignaturePayload :: [ModuleGraph.ResolvedImport] -> SignaturePayload -> SignaturePayload
+legacySignaturePayload imports payload =
+  case payload of
+    SignatureType signatureType -> SignatureType signatureType
+    ConstrainedSignature constraints signatureType ->
+      ConstrainedSignature
+        (map legacyConstraint constraints)
+        (legacyConstraintType imports signatureType)
+    UnsupportedSignature tokens -> UnsupportedSignature (map legacyToken tokens)
+  where
+    legacyConstraint (SignatureConstraint name arguments) =
+      SignatureConstraint (legacyName imports name) (map (legacyConstraintType imports) arguments)
+    legacyToken token =
+      case token of
+        SignatureNameToken name -> SignatureNameToken (legacyName imports name)
+        _ -> token
+
+legacyConstraintType :: [ModuleGraph.ResolvedImport] -> ConstraintSignatureType -> ConstraintSignatureType
+legacyConstraintType imports signatureType =
+  case signatureType of
+    ConstraintTypeName name -> ConstraintTypeName (legacyName imports name)
+    ConstraintTypeApplication name arguments ->
+      ConstraintTypeApplication (legacyName imports name) (map (legacyConstraintType imports) arguments)
+    ConstraintTypeList innerType -> ConstraintTypeList (legacyConstraintType imports innerType)
+    ConstraintTypeTuple elementTypes -> ConstraintTypeTuple (map (legacyConstraintType imports) elementTypes)
+    ConstraintTypeFunction argumentType resultType ->
+      ConstraintTypeFunction (legacyConstraintType imports argumentType) (legacyConstraintType imports resultType)
+
+legacyName :: [ModuleGraph.ResolvedImport] -> Name -> Name
+legacyName imports name =
+  case name of
+    ResolvedName CurrentModule _ identifier -> surfaceName identifier
+    ResolvedName AmbientPrelude _ identifier -> surfaceName identifier
+    ResolvedName (ImportedModule modulePath) _ identifier ->
+      case visibleImportFor modulePath (identifierText identifier) of
+        True -> surfaceName identifier
+        False ->
+          case aliasFor modulePath of
+            Just aliasName -> QualifiedName (mkIdentifier aliasName) identifier
+            Nothing -> surfaceName identifier
+    BuiltinName identifier -> SourceName identifier
+    _ -> name
+  where
+    visibleImportFor modulePath symbolName =
+      any
+        ( \importDecl ->
+            ModuleGraph.resolvedImportPath importDecl == modulePath
+              && ModuleGraph.resolvedImportAlias importDecl == Nothing
+              && maybe True (symbolName `elem`) (ModuleGraph.resolvedImportSymbols importDecl)
+        )
+        imports
+    aliasFor modulePath =
+      case
+          [ aliasName
+            | importDecl <- imports,
+              ModuleGraph.resolvedImportPath importDecl == modulePath,
+              Just aliasName <- [ModuleGraph.resolvedImportAlias importDecl]
+          ] of
+        aliasName : _ -> Just aliasName
+        [] -> Nothing
+
+    surfaceName identifier =
+      case splitQualifiedIdentifierText (identifierText identifier) of
+        Just (qualifierName, memberName) ->
+          QualifiedName (mkIdentifier qualifierName) (mkIdentifier memberName)
+        Nothing -> SourceName identifier
 
 -- | Build validation/runtime replay programs while preserving module import
 -- visibility rules through qualified synthetic bindings.
@@ -2182,21 +2231,3 @@ isHiddenImportExportStatement hiddenImportExports statement =
 
 renderModulePath :: [Text] -> Text
 renderModulePath segments = Text.intercalate "::" segments
-
--- | Memoize source lookups so module resolution and source replay do not read
--- the same file repeatedly.
-memoizeSourceLookup ::
-  (FilePath -> IO (Maybe Text)) ->
-  IO (FilePath -> IO (Maybe Text))
-memoizeSourceLookup sourceLookup = do
-  cacheRef <- newIORef (Map.empty :: Map FilePath (Maybe Text))
-  pure $
-    \path -> do
-      cache <- readIORef cacheRef
-      case Map.lookup path cache of
-        Just cachedSource ->
-          pure cachedSource
-        Nothing -> do
-          loadedSource <- sourceLookup path
-          writeIORef cacheRef (Map.insert path loadedSource cache)
-          pure loadedSource

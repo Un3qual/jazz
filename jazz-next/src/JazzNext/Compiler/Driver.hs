@@ -205,7 +205,14 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
     Right loweredPrelude -> do
       let ambientVisibleSymbols = loweredPreludeVisibleSymbols loweredPrelude
           ambientVisibleClassNames = loweredPreludeVisibleClassNames loweredPrelude
-      moduleGraphExprResult <- loadLoweredModuleGraph ambientVisibleSymbols ambientVisibleClassNames resolutionConfig entryModulePath sourceLookup
+      moduleGraphExprResult <-
+        loadLoweredModuleGraph
+          (builtinResolutionMode resolvedPrelude)
+          ambientVisibleSymbols
+          ambientVisibleClassNames
+          resolutionConfig
+          entryModulePath
+          sourceLookup
       case moduleGraphExprResult of
         Left resolutionError ->
           pure
@@ -336,7 +343,14 @@ runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entr
     Right loweredPrelude -> do
       let ambientVisibleSymbols = loweredPreludeVisibleSymbols loweredPrelude
           ambientVisibleClassNames = loweredPreludeVisibleClassNames loweredPrelude
-      moduleGraphExprResult <- loadLoweredModuleGraph ambientVisibleSymbols ambientVisibleClassNames resolutionConfig entryModulePath sourceLookup
+      moduleGraphExprResult <-
+        loadLoweredModuleGraph
+          (builtinResolutionMode resolvedPrelude)
+          ambientVisibleSymbols
+          ambientVisibleClassNames
+          resolutionConfig
+          entryModulePath
+          sourceLookup
       case moduleGraphExprResult of
         Left resolutionError ->
           pure

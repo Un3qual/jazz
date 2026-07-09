@@ -1,12 +1,16 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Lowers parser-surface nodes into the smaller core AST consumed by later
 -- compiler phases.
 module JazzNext.Compiler.Parser.Lower
-  ( lowerSurfaceExpr
+  ( lowerSurfaceExpr,
+    lowerSurfaceModule
   ) where
 
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Text as Text
+import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
@@ -54,6 +58,135 @@ import JazzNext.Compiler.Name
     qualifiedName,
     sourceName
   )
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    mkDiagnostic,
+    qualifySourceSpan
+  )
+import JazzNext.Compiler.ModuleGraph
+  ( CoreModule (..),
+    ResolvedImport (..)
+  )
+
+-- | Validate and lower one parsed module exactly once. Module/import forms are
+-- retained as graph metadata and removed from the executable core scope.
+lowerSurfaceModule :: FilePath -> [Text] -> SurfaceExpr -> Either Diagnostic CoreModule
+lowerSurfaceModule sourcePath expectedPath surfaceExpr = do
+  declaredPath <- validateDeclaredPath
+  pure
+    CoreModule
+      { coreModuleDeclaredPath = declaredPath,
+        coreModuleImports = imports,
+        coreModuleExpr = qualifyExprSourceSpans sourcePath loweredBody
+      }
+  where
+    statements =
+      case surfaceExpr of
+        SEBlock moduleStatements -> moduleStatements
+        _ -> []
+
+    declarations =
+      [ modulePath
+        | SSModule _ modulePath <- statements
+      ]
+
+    imports =
+      [ ResolvedImport
+          { resolvedImportSpan = qualifySourceSpan sourcePath spanValue,
+            resolvedImportPath = modulePath,
+            resolvedImportAlias = alias,
+            resolvedImportSymbols = importedSymbols
+          }
+        | SSImport spanValue modulePath alias importedSymbols <- statements
+      ]
+
+    executableStatements =
+      [ statement
+        | statement <- statements,
+          case statement of
+            SSModule {} -> False
+            SSImport {} -> False
+            _ -> True
+      ]
+
+    loweredBody =
+      case surfaceExpr of
+        SEBlock _ -> EBlock (map lowerSurfaceStatement executableStatements)
+        _ -> lowerSurfaceExpr surfaceExpr
+
+    validateDeclaredPath =
+      case declarations of
+        [] -> Right Nothing
+        [declaredPath]
+          | declaredPath == expectedPath -> Right (Just declaredPath)
+          | otherwise ->
+              Left
+                ( mkDiagnostic
+                    "E4006"
+                    ( "module declaration mismatch at '"
+                        <> Text.pack sourcePath
+                        <> "': expected '"
+                        <> renderModulePath expectedPath
+                        <> "', found '"
+                        <> renderModulePath declaredPath
+                        <> "'"
+                    )
+                )
+        declaredPaths ->
+          Left
+            ( mkDiagnostic
+                "E4005"
+                ( "multiple module declarations in '"
+                    <> Text.pack sourcePath
+                    <> "': "
+                    <> Text.intercalate ", " (map renderModulePath declaredPaths)
+                )
+            )
+
+    renderModulePath = Text.intercalate "::"
+
+qualifyExprSourceSpans :: FilePath -> Expr -> Expr
+qualifyExprSourceSpans sourcePath expr =
+  case expr of
+    ELit literal -> ELit literal
+    EVar name -> EVar name
+    ELambda parameter body -> ELambda parameter (go body)
+    EOperatorValue symbol -> EOperatorValue symbol
+    EList items -> EList (map go items)
+    ETuple items -> ETuple (map go items)
+    EApply function argument -> EApply (go function) (go argument)
+    ETypeApplication function signatureType -> ETypeApplication (go function) signatureType
+    EIf condition trueBranch falseBranch -> EIf (go condition) (go trueBranch) (go falseBranch)
+    EPatternCase scrutinee arms -> EPatternCase (go scrutinee) (map qualifyCaseArm arms)
+    EBinary symbol left right -> EBinary symbol (go left) (go right)
+    ESectionLeft left symbol -> ESectionLeft (go left) symbol
+    ESectionRight symbol right -> ESectionRight symbol (go right)
+    EBlock statements -> EBlock (map qualifyStatement statements)
+  where
+    go = qualifyExprSourceSpans sourcePath
+    qualifySpan = qualifySourceSpan sourcePath
+
+    qualifyCaseArm (CaseArm patternValue guardExpr bodyExpr) =
+      CaseArm patternValue (fmap go guardExpr) (go bodyExpr)
+
+    qualifyClassMethod (ClassMethodSignature name spanValue payload) =
+      ClassMethodSignature name (qualifySpan spanValue) payload
+
+    qualifyImplMethod (ImplMethod name spanValue bodyExpr) =
+      ImplMethod name (qualifySpan spanValue) (go bodyExpr)
+
+    qualifyStatement statement =
+      case statement of
+        SLet name spanValue valueExpr -> SLet name (qualifySpan spanValue) (go valueExpr)
+        SSignature name spanValue payload -> SSignature name (qualifySpan spanValue) payload
+        SData spanValue name parameters constructors -> SData (qualifySpan spanValue) name parameters constructors
+        SClass spanValue name parameters methods ->
+          SClass (qualifySpan spanValue) name parameters (map qualifyClassMethod methods)
+        SImpl spanValue name arguments methods ->
+          SImpl (qualifySpan spanValue) name arguments (map qualifyImplMethod methods)
+        SModule spanValue path -> SModule (qualifySpan spanValue) path
+        SImport spanValue path alias symbols -> SImport (qualifySpan spanValue) path alias symbols
+        SExpr spanValue valueExpr -> SExpr (qualifySpan spanValue) (go valueExpr)
 
 -- | Convert parser-surface nodes into core nodes while preserving statement
 -- source spans. Expression constructors like `ELit`, `EVar`, `EApply`, and

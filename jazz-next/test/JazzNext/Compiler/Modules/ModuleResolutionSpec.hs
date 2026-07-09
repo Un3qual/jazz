@@ -3,6 +3,7 @@
 module Main (main) where
 
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
@@ -18,8 +19,11 @@ import JazzNext.Compiler.ModuleResolver
     ResolvedModule (..),
     modulePathToRelativeFile,
     parseModulePathText,
-    resolveModuleGraph
+    resolveModuleGraph,
+    resolveProgram
   )
+import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
+import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
@@ -35,6 +39,7 @@ main = runTestSuite "ModuleResolution" tests
 tests :: [NamedTest]
 tests =
   [ ("rejects empty entry module path before traversal", testRejectsEmptyEntryModulePath),
+    ("resolved program retains lowered modules", testResolvedProgramRetainsLoweredModules),
     ("accepts lexer-compatible continuation characters in CLI module paths", testParseModulePathContinuations),
     ("preserves exact module path segments while resolving", testPreservesExactModulePathSegments),
     ("maps module path to relative .jz file", testModulePathMapping),
@@ -76,6 +81,36 @@ tests =
     ("reports standalone qualified references through unknown aliases", testReportsStandaloneUnknownQualifiedAliasReference),
     ("reports qualified alias references to missing exports", testReportsMissingQualifiedAliasExport)
   ]
+
+testResolvedProgramRetainsLoweredModules :: IO ()
+testResolvedProgramRetainsLoweredModules = do
+  result <-
+    resolveProgram
+      resolverConfig
+      ResolveKernelOnly
+      Set.empty
+      Set.empty
+      lookupSource
+      ["App", "Main"]
+  assertRight "resolved program" result $ \program -> do
+    assertEqual
+      "module order"
+      [["Lib", "Value"], ["App", "Main"]]
+      (map ModuleGraph.resolvedModulePath (ModuleGraph.resolvedProgramModules program))
+    assertEqual "entry path" ["App", "Main"] (ModuleGraph.resolvedProgramEntryPath program)
+    assertEqual "module count" 2 (length (ModuleGraph.resolvedProgramModules program))
+    assertEqual
+      "unresolved core names"
+      []
+      (concatMap ModuleGraph.unresolvedResolvedModuleNames (ModuleGraph.resolvedProgramModules program))
+  where
+    resolverConfig = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main { import Lib::Value. answer. }"),
+          ("src/Lib/Value.jz", "module Lib::Value { answer = 1. }")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
 
 sharedCycleSourceFiles :: Map.Map FilePath Text
 sharedCycleSourceFiles =
