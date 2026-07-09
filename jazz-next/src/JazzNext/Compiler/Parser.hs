@@ -1957,13 +1957,8 @@ parseLambdaExprUntil knownAliases declaredOperators stop lambdaToken tokensAfter
 parseLambdaParameters :: [Token] -> Either Diagnostic (NonEmpty SurfaceLambdaParameter, [Token])
 parseLambdaParameters tokensAfterLeftParen =
   case tokensAfterLeftParen of
-    token@(Token {tokenKind = TRParen}) : _ ->
-      Left
-        ( parseDiagnostic
-            ( "expected lambda parameter before ')' at "
-                <> renderSourceSpan (tokenSpan token)
-            )
-        )
+    Token {tokenKind = TRParen} : rest ->
+      Right (SurfaceLambdaPattern (SPTuple []) :| [], rest)
     _ -> do
       (firstParameter, afterFirstParameter) <- parseLambdaParameter tokensAfterLeftParen
       go firstParameter [] afterFirstParameter

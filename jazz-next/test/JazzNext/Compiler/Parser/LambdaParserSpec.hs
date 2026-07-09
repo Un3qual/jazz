@@ -46,9 +46,12 @@ tests =
     ("lowering nests multi-argument lambdas into unary core nodes", testLowerNestsMultiArgumentLambda),
     ("lowering desugars pattern parameters through case nodes", testLowerDesugarsPatternParametersThroughCase),
     ("lowering preserves duplicate parameter shadowing", testLowerPreservesDuplicateParameterShadowing),
-    ("rejects empty lambda parameter list", testRejectsEmptyLambdaParameters),
+    ("parses Unit lambda shorthand as one pattern parameter", testParsesUnitLambdaShorthand),
+    ("parses explicit nested Unit lambda parameter", testParsesExplicitUnitLambdaParameter),
+    ("lowers Unit lambda shorthand to one core lambda", testLowersUnitLambdaShorthand),
     ("rejects lambda without parenthesized parameters", testRejectsUnparenthesizedLambda),
     ("rejects lambda parameter trailing comma", testRejectsTrailingCommaParameterList),
+    ("rejects trailing comma after Unit lambda parameter", testRejectsTrailingCommaAfterUnitParameter),
     ("parses wildcard lambda parameter patterns", testParsesWildcardLambdaParameterPattern),
     ("parses tuple-shaped lambda parameter patterns", testParsesTupleLambdaParameterPattern),
     ("parses bracketed-list lambda parameter patterns", testParsesListLambdaParameterPattern),
@@ -176,12 +179,70 @@ testLowerPreservesDuplicateParameterShadowing =
             (ELambda "x" (ELambda "x" (EVar "x")))
         ]
 
-testRejectsEmptyLambdaParameters :: IO ()
-testRejectsEmptyLambdaParameters =
+testParsesUnitLambdaShorthand :: IO ()
+testParsesUnitLambdaShorthand =
+  assertEqual
+    "Unit lambda shorthand AST"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "thunk"
+                (SourceSpan 1 1)
+                ( SELambda
+                    (SurfaceLambdaPattern (SPTuple []) :| [])
+                    (SELit (SLInt 42))
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "thunk = \\() -> 42.")
+
+testParsesExplicitUnitLambdaParameter :: IO ()
+testParsesExplicitUnitLambdaParameter =
+  assertEqual
+    "explicit Unit lambda AST"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "thunk"
+                (SourceSpan 1 1)
+                ( SELambda
+                    (SurfaceLambdaPattern (SPTuple []) :| [])
+                    (SELit (SLInt 42))
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "thunk = \\(()) -> 42.")
+
+testLowersUnitLambdaShorthand :: IO ()
+testLowersUnitLambdaShorthand =
+  assertRight
+    "parse + lower Unit lambda"
+    (parseSurfaceProgram "thunk = \\() -> 42.")
+    (\surfaceProgram -> assertEqual "lowered Unit lambda" expectedProgram (lowerSurfaceExpr surfaceProgram))
+  where
+    generatedName = "$lambda_pattern_arg_1"
+    expectedProgram =
+      EBlock
+        [ SLet
+            "thunk"
+            (SourceSpan 1 1)
+            ( ELambda
+                generatedName
+                ( EPatternCase
+                    (EVar generatedName)
+                    [CaseArm (PTuple []) Nothing (ELit (LInt 42))]
+                )
+            )
+        ]
+
+testRejectsTrailingCommaAfterUnitParameter :: IO ()
+testRejectsTrailingCommaAfterUnitParameter =
   assertLeftDiagnosticContains
-    "empty lambda parameters"
-    "expected lambda parameter"
-    (parseSurfaceProgram "f = \\() -> x.")
+    "Unit lambda trailing comma"
+    "expected"
+    (parseSurfaceProgram "thunk = \\((),) -> 42.")
 
 testRejectsUnparenthesizedLambda :: IO ()
 testRejectsUnparenthesizedLambda =
