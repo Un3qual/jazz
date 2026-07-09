@@ -27,6 +27,7 @@ library
       JazzNext.Compiler.Name
       JazzNext.Compiler.Parser
       JazzNext.Compiler.Parser.AST
+      JazzNext.Compiler.Parser.Context
       JazzNext.Compiler.Parser.Declaration
       JazzNext.Compiler.Parser.Expression
       JazzNext.Compiler.Parser.Lexer

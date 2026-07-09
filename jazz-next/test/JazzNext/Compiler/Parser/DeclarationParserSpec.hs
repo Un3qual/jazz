@@ -3,7 +3,8 @@
 module Main (main) where
 
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
+  ( Diagnostic,
+    SourceSpan (..),
   )
 import JazzNext.Compiler.Identifier
   ( mkIdentifier
@@ -13,13 +14,15 @@ import JazzNext.Compiler.Parser.AST
     SurfaceDataConstructorArgument (..),
     SurfaceStatement (..)
   )
+import JazzNext.Compiler.Parser.Lexer (Token)
 import JazzNext.Compiler.Parser.Declaration
-  ( parseDataStatementTokens,
-    parseImportStatementTokens
+  ( parseDataStatementParser,
+    parseImportStatementParser
   )
 import JazzNext.Compiler.Parser.TestSupport
   ( lexSource
   )
+import JazzNext.Compiler.Parser.TokenParser (runTokenParserPrefix)
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
@@ -77,3 +80,11 @@ testParsesDataConstructors = do
         )
     )
     (parseDataStatementTokens tokens)
+
+parseImportStatementTokens :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseImportStatementTokens =
+  runTokenParserPrefix "owned import declaration" parseImportStatementParser
+
+parseDataStatementTokens :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseDataStatementTokens =
+  runTokenParserPrefix "owned data declaration" parseDataStatementParser

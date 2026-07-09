@@ -3,6 +3,7 @@
 -- | Signature grammar helpers for the surface parser.
 module JazzNext.Compiler.Parser.Signature
   ( parseConstrainedSignatureType,
+    parseSignatureTypeParser,
     parseSignatureTypePrefix,
     parseSignaturePayload,
     splitTopLevelCommaTokens
@@ -141,6 +142,9 @@ signatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 signatureTypeParser = do
   argumentType <- functionOperandTypeParser
   parseFunctionResult argumentType <|> pure argumentType
+
+parseSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
+parseSignatureTypeParser = signatureTypeParser
 
 parseFunctionResult :: SurfaceSignatureType -> TokenParser.Parser SurfaceSignatureType
 parseFunctionResult argumentType = do

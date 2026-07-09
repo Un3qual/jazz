@@ -25,8 +25,13 @@ import JazzNext.Compiler.Parser.AST
     SurfaceSignatureToken (..),
     SurfaceStatement (..)
   )
+import JazzNext.Compiler.Parser.Context
+  ( ParserContext (..),
+    StatementContext (..)
+  )
+import JazzNext.Compiler.Parser.Declaration (parseStatementParser)
 import JazzNext.Compiler.Parser.Expression
-  ( parseExpressionTokens
+  ( parseExpressionParser
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
@@ -36,9 +41,11 @@ import JazzNext.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..)
   )
+import JazzNext.Compiler.Parser (parseStatementsUntilBrace)
 import JazzNext.Compiler.Parser.TestSupport
   ( lexSource
   )
+import JazzNext.Compiler.Parser.TokenParser (runTokenParserPrefix)
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
@@ -218,6 +225,20 @@ tokenKinds (expr, remaining) = (expr, fmap tokenKind remaining)
 
 textShow :: Show a => a -> Text
 textShow = fromString . show
+
+parseExpressionTokens :: Set.Set Text -> [OperatorInfo] -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseExpressionTokens knownAliases declaredOperators =
+  runTokenParserPrefix "owned expression" (expressionParser initialContext)
+  where
+    initialContext =
+      ParserContext
+        { parserKnownAliases = knownAliases,
+          parserDeclaredOperators = declaredOperators,
+          parserStatementContext = NestedBlockContext
+        }
+    expressionParser = parseExpressionParser blockParser
+    statementParser = parseStatementParser expressionParser blockParser
+    blockParser = parseStatementsUntilBrace statementParser
 
 fromString :: String -> Text
 fromString = Text.pack
