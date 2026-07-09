@@ -37,6 +37,7 @@ import JazzNext.Compiler.Parser.AST
 import JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr
   )
+import JazzNext.Compiler.Name (qualifiedName)
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
@@ -948,7 +949,7 @@ testLowersClassQualifiedMethodReference =
                   "result"
                   (SourceSpan 1 1)
                   ( EApply
-                      (EApply (EVar "Eq::equals") (ELit (LInt 1)))
+                      (EApply (EVar (qualifiedName "Eq" "equals")) (ELit (LInt 1)))
                       (ELit (LInt 1))
                   ),
                 SExpr (SourceSpan 2 1) (EVar "result")
@@ -1106,7 +1107,7 @@ testParsesImplMethodBindingMetadata =
     ( \surfaceProgram -> do
         let rendered = Text.pack (show surfaceProgram)
         assertContains "surface impl method metadata" "SurfaceImplMethod" rendered
-        assertContains "surface impl method name" "identifierText = \"equals\"" rendered
+        assertContains "surface impl method name" "Identifier \"equals\" Pure" rendered
         assertContains "surface impl method expression" "SEBinary \"==\"" rendered
     )
 
@@ -1118,7 +1119,7 @@ testLowersImplMethodBindingMetadata =
     ( \surfaceProgram -> do
         let rendered = Text.pack (show (lowerSurfaceExpr surfaceProgram))
         assertContains "lowered impl method metadata" "ImplMethod" rendered
-        assertContains "lowered impl method name" "identifierText = \"equals\"" rendered
+        assertContains "lowered impl method name" "SourceName (Identifier \"equals\" Pure)" rendered
         assertContains "lowered impl method expression" "EBinary \"==\"" rendered
     )
 

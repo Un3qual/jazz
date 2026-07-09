@@ -28,9 +28,9 @@ import JazzNext.Compiler.AST
     Pattern (..),
     Statement (..)
   )
-import JazzNext.Compiler.Identifier
-  ( identifierText,
-    operatorBindingIdentifierText
+import JazzNext.Compiler.Name
+  ( Name,
+    operatorBindingName
   )
 import JazzNext.Compiler.Pattern
   ( extendBoundWithPattern
@@ -39,28 +39,26 @@ import JazzNext.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol
   )
 
-collectBindingNames :: [(Int, Statement)] -> Map Int Text
+collectBindingNames :: [(Int, Statement)] -> Map Int Name
 collectBindingNames =
   foldl' step Map.empty
   where
     step bindingNames (statementIndex, statement) =
       case statement of
         SLet bindingName _ _ ->
-          Map.insert statementIndex (identifierText bindingName) bindingNames
+          Map.insert statementIndex bindingName bindingNames
         _ -> bindingNames
 
-freeVarsExprWithBound :: Set Text -> Expr -> Set Text
+freeVarsExprWithBound :: Set Name -> Expr -> Set Name
 freeVarsExprWithBound bound expr =
   case expr of
     ELit _ -> Set.empty
     EVar name
-      | Set.member nameText bound -> Set.empty
-      | otherwise -> Set.singleton nameText
-      where
-        nameText = identifierText name
+      | Set.member name bound -> Set.empty
+      | otherwise -> Set.singleton name
     ELambda parameterName bodyExpr ->
       freeVarsExprWithBound
-        (Set.insert (identifierText parameterName) bound)
+        (Set.insert parameterName bound)
         bodyExpr
     EOperatorValue operatorSymbol ->
       operatorBindingFreeVar bound operatorSymbol
@@ -107,15 +105,15 @@ freeVarsExprWithBound bound expr =
     EBlock statements ->
       freeVarsScopeWithBound bound statements
 
-operatorBindingFreeVar :: Set Text -> Text -> Set Text
+operatorBindingFreeVar :: Set Name -> Text -> Set Name
 operatorBindingFreeVar bound operatorSymbol
   | isBuiltinOperatorSymbol operatorSymbol = Set.empty
   | Set.member bindingName bound = Set.empty
   | otherwise = Set.singleton bindingName
   where
-    bindingName = operatorBindingIdentifierText operatorSymbol
+    bindingName = operatorBindingName operatorSymbol
 
-freeVarsScopeWithBound :: Set Text -> [Statement] -> Set Text
+freeVarsScopeWithBound :: Set Name -> [Statement] -> Set Name
 freeVarsScopeWithBound initialBound statements =
   snd (foldl' step (initialBound, Set.empty) indexedStatements)
   where
@@ -145,14 +143,14 @@ freeVarsScopeWithBound initialBound statements =
             Set.union freeNames (freeVarsExprWithBound boundNames expr)
           )
         SLet bindingName _ valueExpr ->
-          let boundWithSelf = Set.insert (identifierText bindingName) boundNames
+          let boundWithSelf = Set.insert bindingName boundNames
               rhsBoundNames = Set.union boundWithSelf (recursivePeerNames statementIndex)
            in
             ( boundWithSelf,
               Set.union freeNames (freeVarsExprWithBound rhsBoundNames valueExpr)
             )
 
-inferRecursiveGroupsOrdered :: Set Text -> [(Int, Statement)] -> Map Int [Int]
+inferRecursiveGroupsOrdered :: Set Name -> [(Int, Statement)] -> Map Int [Int]
 inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
   Map.fromList
     [ (statementIndex, componentStatements)
@@ -163,7 +161,7 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
     ]
   where
     declarationInfo =
-      [ (statementIndex, identifierText bindingName, valueExpr)
+      [ (statementIndex, bindingName, valueExpr)
         | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
       ]
     declarationStatementsByName =
@@ -258,13 +256,13 @@ inferSelfRecursiveBindings predicate =
         SLet bindingName _ valueExpr
           | predicate valueExpr,
             Set.member
-              (identifierText bindingName)
+              bindingName
               (freeVarsExprWithBound Set.empty valueExpr) ->
               Set.insert statementIndex recursiveStatements
         _ -> recursiveStatements
 
-selfAliasLikeReference :: Text -> Expr -> Bool
-selfAliasLikeReference bindingNameText =
+selfAliasLikeReference :: Name -> Expr -> Bool
+selfAliasLikeReference bindingName =
   isAliasOnly . aliasSummary Set.empty Map.empty Set.empty
   where
     isAliasOnly (hasAliasPath, hasNonAliasPath) =
@@ -280,26 +278,24 @@ selfAliasLikeReference bindingNameText =
     aliasSummary boundNames scopeBindings visitedBindings expr =
       case expr of
         EVar name ->
-          let nameText = identifierText name
-           in
-            if Set.member nameText boundNames
+          if Set.member name boundNames
               then noSummary
               else
-                case Map.lookup nameText scopeBindings of
+                case Map.lookup name scopeBindings of
                   Just bindingExpr
-                    | Set.notMember nameText visitedBindings ->
+                    | Set.notMember name visitedBindings ->
                         aliasSummary
                           boundNames
                           scopeBindings
-                          (Set.insert nameText visitedBindings)
+                          (Set.insert name visitedBindings)
                           bindingExpr
                   _ ->
-                    if nameText == bindingNameText
+                    if name == bindingName
                       then (True, False)
                       else noSummary
         EOperatorValue operatorSymbol
           | not (isBuiltinOperatorSymbol operatorSymbol),
-            operatorBindingIdentifierText operatorSymbol == bindingNameText ->
+            operatorBindingName operatorSymbol == bindingName ->
               (True, False)
         EOperatorValue {} -> noSummary
         ETypeApplication functionExpr _ ->
@@ -363,21 +359,19 @@ selfAliasLikeReference bindingNameText =
       case expr of
         ELit {} -> noSummary
         EVar name ->
-          let nameText = identifierText name
-           in
-            if Set.member nameText boundNames
+          if Set.member name boundNames
               then noSummary
               else
-                case Map.lookup nameText scopeBindings of
+                case Map.lookup name scopeBindings of
                   Just bindingExpr
-                    | Set.notMember nameText visitedBindings ->
+                    | Set.notMember name visitedBindings ->
                         nonAliasSummary
                           boundNames
                           scopeBindings
-                          (Set.insert nameText visitedBindings)
+                          (Set.insert name visitedBindings)
                           bindingExpr
                   _ ->
-                    if nameText == bindingNameText
+                    if name == bindingName
                       then (False, True)
                       else noSummary
         ELambda {} -> noSummary
@@ -463,5 +457,5 @@ selfAliasLikeReference bindingNameText =
         collect scopeBindings statement =
           case statement of
             SLet bindingName _ valueExpr ->
-              Map.insert (identifierText bindingName) valueExpr scopeBindings
+              Map.insert bindingName valueExpr scopeBindings
             _ -> scopeBindings

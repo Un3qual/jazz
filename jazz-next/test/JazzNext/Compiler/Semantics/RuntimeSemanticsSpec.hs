@@ -38,9 +38,7 @@ import JazzNext.Compiler.Driver
 import JazzNext.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource
   )
-import JazzNext.Compiler.Identifier
-  ( Identifier
-  )
+import JazzNext.Compiler.Name (Name, qualifiedName)
 import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
@@ -1371,7 +1369,11 @@ qualifiedMethodStructuralEqualityExpr =
         ],
       SExpr
         (SourceSpan 5 1)
-        (EBinary "==" (EList [EVar "RuntimeEq::equals"]) (EList [EVar "RuntimeEq::equals"]))
+        ( EBinary
+            "=="
+            (EList [EVar (qualifiedName "RuntimeEq" "equals")])
+            (EList [EVar (qualifiedName "RuntimeEq" "equals")])
+        )
     ]
 
 testFloat16ConversionRoundsRuntimeValue :: IO ()
@@ -1478,7 +1480,7 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
                 (SourceSpan 6 1)
                 (ELambda "left" (ELambda "right" (ELit (LBool True))))
             ],
-          SExpr (SourceSpan 7 1) (EVar "Eq::equals")
+          SExpr (SourceSpan 7 1) (EVar (qualifiedName "Eq" "equals"))
         ]
 
 testQualifiedMethodDispatchExecutesImplBody :: IO ()
@@ -2065,7 +2067,7 @@ testQualifiedMethodDispatchAppliesTypedCallableArgumentHint = do
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
           (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (ConstraintTypeFunction (ConstraintTypeName "UInt8") (ConstraintTypeName "Bool")))
-          (runtimeTypedCallableArgumentHintExpr (EVar "RuntimePick::pick"))
+          (runtimeTypedCallableArgumentHintExpr (EVar (qualifiedName "RuntimePick" "pick")))
   assertEqual "typed callable argument hint runtime result" (Right (Just (VBool False))) result
 
 testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar :: IO ()
@@ -2074,7 +2076,7 @@ testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
           (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (ConstraintTypeFunction (ConstraintTypeName "UInt8") (ConstraintTypeName "Bool")))
-          (runtimeTypedCallableArgumentHintThroughPrefixDollarExpr (EVar "RuntimePick::pick"))
+          (runtimeTypedCallableArgumentHintThroughPrefixDollarExpr (EVar (qualifiedName "RuntimePick" "pick")))
   assertEqual "typed callable argument hint through prefix dollar runtime result" (Right (Just (VBool False))) result
 
 testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint :: IO ()
@@ -2084,7 +2086,7 @@ testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint = do
           ResolveKernelOnly
           (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (ConstraintTypeFunction (ConstraintTypeName "UInt8") (ConstraintTypeName "Bool")))
           ( runtimeTypedCallableArgumentHintExpr
-              (ELambda "value" (EApply (EVar "RuntimePick::pick") (EVar "value")))
+              (ELambda "value" (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "value")))
           )
   assertEqual "closure argument signature hint runtime result" (Right (Just (VBool False))) result
 
@@ -2470,7 +2472,7 @@ testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint = do
                   "tag"
                   (SourceSpan 6 1)
                   (EVar "Tag"),
-                SExpr (SourceSpan 7 1) (EApply (EVar "RuntimePick::pick") (EVar "tag"))
+                SExpr (SourceSpan 7 1) (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "tag"))
               ]
           )
   assertEqual "phantom ADT application hint runtime result" (Right (Just (VBool False))) result
@@ -2508,7 +2510,7 @@ testQualifiedMethodDispatchPreservesAdtConcretePayloadHint = do
                       (EApply (EVar "Box") (ELit (LFloat 1.5 (mkFractionalLiteralSource 1 5 1) Nothing)))
                       (EApply (EVar "__kernel_toUInt8") (ELit (LInt 2)))
                   ),
-                SExpr (SourceSpan 7 1) (EApply (EVar "RuntimePick::pick") (EVar "box"))
+                SExpr (SourceSpan 7 1) (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "box"))
               ]
           )
   assertEqual "ADT concrete payload hint runtime result" (Right (Just (VBool False))) result
@@ -2535,7 +2537,11 @@ testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint = do
                          (SourceSpan 7 1)
                          ( EPatternCase
                              (EVar "token")
-                             [CaseArm (PConstructor "Token" [PVariable "value"]) Nothing (EApply (EVar "RuntimePick::pick") (EVar "value"))]
+                             [ CaseArm
+                                 (PConstructor "Token" [PVariable "value"])
+                                 Nothing
+                                 (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "value"))
+                             ]
                          )
                      ]
               )
@@ -2575,7 +2581,7 @@ testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName = do
                       (EApply (EVar "Box") (ELit (LInt 1)))
                       (EApply (EVar "__kernel_toUInt8") (ELit (LInt 2)))
                   ),
-                SExpr (SourceSpan 7 1) (EApply (EVar "RuntimePick::pick") (EVar "box"))
+                SExpr (SourceSpan 7 1) (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "box"))
               ]
           )
   assertEqual "unknown constructor field hint runtime result" (Right (Just (VBool False))) result
@@ -2852,7 +2858,7 @@ ambiguousQualifiedMethodRuntimeExpr =
         [ImplMethod "choose" (SourceSpan 6 1) (ELambda "value" (ELit (LBool False)))],
       SExpr
         (SourceSpan 7 1)
-        (EApply (EVar "RuntimePick::choose") (ELit (LInt 1)))
+        (EApply (EVar (qualifiedName "RuntimePick" "choose")) (ELit (LInt 1)))
     ]
 
 testQualifiedMethodDispatchExecutesLocalAdtImplBody :: IO ()
@@ -2908,11 +2914,11 @@ rightSectionValue :: Expr
 rightSectionValue =
   ESectionRight "+" (ELit (LInt 1))
 
-targetedFloat :: Identifier -> Expr
+targetedFloat :: Name -> Expr
 targetedFloat conversionName =
   EApply (EVar conversionName) (ELit (LInt 1))
 
-targetedInt :: Identifier -> Expr
+targetedInt :: Name -> Expr
 targetedInt conversionName =
   EApply (EVar conversionName) (ELit (LInt 1))
 

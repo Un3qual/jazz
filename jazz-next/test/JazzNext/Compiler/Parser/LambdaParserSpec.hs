@@ -13,6 +13,10 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)
   )
+import JazzNext.Compiler.Name
+  ( GeneratedNameKind (..),
+    generatedName
+  )
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
@@ -145,16 +149,16 @@ testLowerDesugarsPatternParametersThroughCase =
     (parseSurfaceProgram "sumPair = \\((left, right)) -> left + right.")
     (\surfaceProgram -> assertEqual "lowered pattern lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
-    generatedName = "$lambda_pattern_arg_1"
+    generatedParameter = generatedName (LambdaPatternArgument 1)
     expectedProgram =
       EBlock
         [ SLet
             "sumPair"
             (SourceSpan 1 1)
             ( ELambda
-                generatedName
+                generatedParameter
                 ( EPatternCase
-                    (EVar generatedName)
+                    (EVar generatedParameter)
                     [ CaseArm
                         (PTuple [PVariable "left", PVariable "right"])
                         Nothing
@@ -222,16 +226,16 @@ testLowersUnitLambdaShorthand =
     (parseSurfaceProgram "thunk = \\() -> 42.")
     (\surfaceProgram -> assertEqual "lowered Unit lambda" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
-    generatedName = "$lambda_pattern_arg_1"
+    generatedParameter = generatedName (LambdaPatternArgument 1)
     expectedProgram =
       EBlock
         [ SLet
             "thunk"
             (SourceSpan 1 1)
             ( ELambda
-                generatedName
+                generatedParameter
                 ( EPatternCase
-                    (EVar generatedName)
+                    (EVar generatedParameter)
                     [CaseArm (PTuple []) Nothing (ELit (LInt 42))]
                 )
             )
@@ -357,16 +361,16 @@ testLowerDesugarsOrPatternParameterThroughCase =
     (parseSurfaceProgram "choose = \\(Just item | Also item) -> item.")
     (\surfaceProgram -> assertEqual "lowered or-pattern lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
-    generatedName = "$lambda_pattern_arg_1"
+    generatedParameter = generatedName (LambdaPatternArgument 1)
     expectedProgram =
       EBlock
         [ SLet
             "choose"
             (SourceSpan 1 1)
             ( ELambda
-                generatedName
+                generatedParameter
                 ( EPatternCase
-                    (EVar generatedName)
+                    (EVar generatedParameter)
                     [ CaseArm
                         ( POr
                             [ PConstructor "Just" [PVariable "item"],

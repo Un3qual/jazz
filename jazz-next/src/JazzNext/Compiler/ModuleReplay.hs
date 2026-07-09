@@ -47,14 +47,21 @@ import JazzNext.Compiler.Diagnostics
     setDiagnosticCode
   )
 import JazzNext.Compiler.Identifier
-  ( Identifier,
-    identifierText,
+  ( identifierText,
     isOperatorBindingIdentifierText,
     mkIdentifier,
-    mkQualifiedIdentifier,
     operatorBindingIdentifierText,
     qualifiedIdentifierText,
     splitQualifiedIdentifierText
+  )
+import JazzNext.Compiler.Name
+  ( GeneratedNameKind (..),
+    Name (..),
+    NameNamespace (..),
+    generatedName,
+    qualifiedName,
+    renderName,
+    sourceName
   )
 import JazzNext.Compiler.Pattern
   ( patternBinderNames
@@ -528,14 +535,24 @@ rewriteVisibleImportReferences hiddenImportExportsByModule exportsByModule expr 
             Nothing -> exportedNames
             Just symbolNames -> Set.intersection exportedNames (Set.fromList symbolNames)
 
-rewriteBlockReferences :: Map Text [Text] -> Set Text -> [Statement] -> [Statement]
+rewriteBlockReferences :: Map Text [Text] -> Set Name -> [Statement] -> [Statement]
 rewriteBlockReferences importTargets outerBoundNames statements =
   map (rewriteStatementReferences importTargets blockBoundNames) statements
   where
     blockBoundNames =
       Set.union
         outerBoundNames
-        (Set.fromList (concatMap statementBindingNames statements))
+        (Set.fromList (concatMap statementBoundNames statements))
+
+statementBoundNames :: Statement -> [Name]
+statementBoundNames statement =
+  case statement of
+    SLet bindingName _ _ -> [bindingName]
+    SData _ _ _ constructors ->
+      [ constructorName
+        | DataConstructor constructorName _ <- constructors
+      ]
+    _ -> []
 
 statementBindingNames :: Statement -> [Text]
 statementBindingNames statement =
@@ -548,7 +565,7 @@ statementBindingNames statement =
       ]
     _ -> []
 
-rewriteStatementReferences :: Map Text [Text] -> Set Text -> Statement -> Statement
+rewriteStatementReferences :: Map Text [Text] -> Set Name -> Statement -> Statement
 rewriteStatementReferences importTargets boundNames statement =
   case statement of
     SLet bindingName spanValue valueExpr ->
@@ -565,16 +582,16 @@ rewriteStatementReferences importTargets boundNames statement =
         ]
     _ -> statement
 
-rewriteExprReferences :: Map Text [Text] -> Set Text -> Expr -> Expr
+rewriteExprReferences :: Map Text [Text] -> Set Name -> Expr -> Expr
 rewriteExprReferences importTargets boundNames expression =
   case expression of
     ELit _ -> expression
     EVar name ->
-      EVar (rewriteReferenceIdentifier importTargets boundNames name)
+      EVar (rewriteReferenceName importTargets boundNames name)
     ELambda parameterName bodyExpr ->
       ELambda
         parameterName
-        (rewriteExprReferences importTargets (Set.insert (identifierText parameterName) boundNames) bodyExpr)
+        (rewriteExprReferences importTargets (Set.insert parameterName boundNames) bodyExpr)
     EOperatorValue _ -> expression
     EList elements ->
       EList (map (rewriteExprReferences importTargets boundNames) elements)
@@ -615,13 +632,13 @@ rewriteExprReferences importTargets boundNames expression =
     EBlock nestedStatements ->
       EBlock (rewriteBlockReferences importTargets boundNames nestedStatements)
 
-rewriteReferenceIdentifier :: Map Text [Text] -> Set Text -> Identifier -> Identifier
-rewriteReferenceIdentifier importTargets boundNames name =
+rewriteReferenceName :: Map Text [Text] -> Set Name -> Name -> Name
+rewriteReferenceName importTargets boundNames name =
   let nameText = identifierText name
    in case Map.lookup nameText importTargets of
         Just modulePath
-          | Set.notMember nameText boundNames ->
-              mkIdentifier (moduleExportQualifiedName modulePath nameText)
+          | Set.notMember name boundNames ->
+              moduleReplayBridgeName modulePath ValueNamespace nameText
         _ -> name
 
 collectOperatorBindingNames :: Expr -> Set Text
@@ -733,18 +750,18 @@ rewriteOperatorBindingReferences modulePath replayedOperatorBindings expression 
     operatorReplayReference operatorName
       | isBuiltinOperatorSymbol operatorName = Nothing
       | Set.member bindingName replayedOperatorBindings =
-          Just (mkIdentifier (moduleExportQualifiedName modulePath bindingName))
+          Just (moduleReplayBridgeName modulePath ValueNamespace bindingName)
       | otherwise = Nothing
       where
         bindingName = operatorBindingIdentifierText operatorName
 
     operatorReplaySectionLeftParameter =
-      mkIdentifier "$operator_replay_section_left"
+      generatedName OperatorSectionLeft
 
     operatorReplaySectionRightParameter =
-      mkIdentifier "$operator_replay_section_right"
+      generatedName OperatorSectionRight
 
-rewritePatternReferences :: Map Text [Text] -> Set Text -> Pattern -> Pattern
+rewritePatternReferences :: Map Text [Text] -> Set Name -> Pattern -> Pattern
 rewritePatternReferences importTargets boundNames patternValue =
   case patternValue of
     PWildcard -> PWildcard
@@ -752,7 +769,7 @@ rewritePatternReferences importTargets boundNames patternValue =
     PLiteral literalValue -> PLiteral literalValue
     PConstructor constructorName nestedPatterns ->
       PConstructor
-        (rewriteReferenceIdentifier importTargets boundNames constructorName)
+        (rewriteReferenceName importTargets boundNames constructorName)
         (map (rewritePatternReferences importTargets boundNames) nestedPatterns)
     PList nestedPatterns ->
       PList (map (rewritePatternReferences importTargets boundNames) nestedPatterns)
@@ -767,7 +784,7 @@ rewritePatternReferences importTargets boundNames patternValue =
         name
         ( rewritePatternReferences
             importTargets
-            (Set.insert (identifierText name) boundNames)
+            (Set.insert name boundNames)
             nestedPattern
         )
     POr alternatives ->
@@ -808,7 +825,7 @@ collectUnqualifiedReferences expr =
                         (maybe Set.empty collectUnqualifiedReferences guardExpr)
                         (collectUnqualifiedReferences bodyExpr)
                     )
-                    (patternBinderNames patternValue)
+                    (Set.map renderName (patternBinderNames patternValue))
                 )
               | CaseArm patternValue guardExpr bodyExpr <- caseArms
             ]
@@ -958,7 +975,7 @@ signaturePayloadDataTypeReferences signaturePayload =
         (constraintSignatureTypeReferences signatureType)
     UnsupportedSignature tokens ->
       Set.fromList
-        [ name
+        [ identifierText name
           | SignatureNameToken name <- tokens
         ]
 
@@ -1372,7 +1389,11 @@ addAliasImportBindings exportsByModule neededModuleExportsByModule hiddenImportE
           | Set.member (identifierText exportedName) sourceExportNames,
             not (isOperatorBindingIdentifierText (identifierText exportedName)) ->
               [ SLet
-                  (mkIdentifier (moduleExportQualifiedName (resolvedModulePath resolvedModule) (identifierText exportedName)))
+                  ( moduleReplayBridgeName
+                      (resolvedModulePath resolvedModule)
+                      ValueNamespace
+                      (identifierText exportedName)
+                  )
                   spanValue
                   ( if Set.member (identifierText exportedName) hiddenSourceExportNames
                       then
@@ -1389,9 +1410,9 @@ addAliasImportBindings exportsByModule neededModuleExportsByModule hiddenImportE
       case statement of
         SImport spanValue modulePath (Just aliasName) Nothing ->
           [ SLet
-              (mkQualifiedIdentifier aliasName exportedName)
+              (qualifiedName (mkIdentifier aliasName) (mkIdentifier exportedName))
               spanValue
-              (EVar (mkIdentifier (moduleExportQualifiedName modulePath exportedName)))
+              (EVar (moduleReplayBridgeName modulePath ValueNamespace exportedName))
             | let referencedNames = Map.findWithDefault Set.empty aliasName aliasReferences,
               let exportedNames = Set.fromList (Map.findWithDefault [] modulePath exportsByModule),
               exportedName <- Set.toList (Set.intersection referencedNames exportedNames)
@@ -1401,6 +1422,14 @@ addAliasImportBindings exportsByModule neededModuleExportsByModule hiddenImportE
 moduleExportQualifiedName :: [Text] -> Text -> Text
 moduleExportQualifiedName modulePath exportedName =
   qualifiedIdentifierText "__module" (renderModulePath modulePath <> "::" <> exportedName)
+
+moduleReplayBridgeName :: [Text] -> NameNamespace -> Text -> Name
+moduleReplayBridgeName modulePath namespace exportedName =
+  generatedName (ModuleReplayBridge modulePath namespace exportedName)
+
+moduleReplayQualifiedBridgeName :: [Text] -> NameNamespace -> Text -> Text -> Name
+moduleReplayQualifiedBridgeName modulePath namespace qualifierName memberName =
+  moduleReplayBridgeName modulePath namespace (qualifiedIdentifierText qualifierName memberName)
 
 rewriteModuleExportReferences :: [Text] -> Set Text -> Expr -> Expr
 rewriteModuleExportReferences modulePath exportNames =
@@ -1625,7 +1654,7 @@ stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModul
       Set.member (identifierText bindingName) replayedOperatorBindings
 
     operatorReplayIdentifier name =
-      mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
+      moduleReplayBridgeName modulePath ValueNamespace (identifierText name)
 
     rewriteValidationReplayExpr =
       rewriteHiddenCapabilityReferences modulePath hiddenValidationCapabilities
@@ -1666,17 +1695,18 @@ stripModuleDeclarations modulePath isEntryModule hiddenImportExports neededModul
     rewriteValidationReplaySignatureToken signatureToken =
       case rewriteModuleExportSignatureToken modulePath dataTypeNames signatureToken of
         SignatureNameToken name
-          | Set.member name hiddenValidationCapabilities ->
-              SignatureNameToken (moduleExportQualifiedName modulePath name)
+          | Set.member (identifierText name) hiddenValidationCapabilities ->
+              SignatureNameToken
+                (moduleReplayBridgeName modulePath CapabilityNamespace (identifierText name))
         rewrittenToken -> rewrittenToken
 
     hiddenValidationIdentifier name =
-      mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
+      moduleReplayBridgeName modulePath ValueNamespace (identifierText name)
 
     validationReplayCapabilityNames capabilityName =
       let capabilityNameText = identifierText capabilityName
           hiddenNames =
-            [ mkIdentifier (moduleExportQualifiedName modulePath capabilityNameText)
+            [ moduleReplayBridgeName modulePath CapabilityNamespace capabilityNameText
               | Set.member capabilityNameText hiddenValidationCapabilities
             ]
           visibleNames =
@@ -1796,15 +1826,15 @@ stripModuleRuntimeReplayStatements modulePath isEntryModule hiddenImportExports 
       Set.member (identifierText bindingName) replayedOperatorBindings
 
     operatorReplayIdentifier name =
-      mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
+      moduleReplayBridgeName modulePath ValueNamespace (identifierText name)
 
     hiddenValidationIdentifier name =
-      mkIdentifier (moduleExportQualifiedName modulePath (identifierText name))
+      moduleReplayBridgeName modulePath ValueNamespace (identifierText name)
 
     runtimeReplayCapabilityNames capabilityName =
       let capabilityNameText = identifierText capabilityName
           hiddenNames =
-            [ mkIdentifier (moduleExportQualifiedName modulePath capabilityNameText)
+            [ moduleReplayBridgeName modulePath CapabilityNamespace capabilityNameText
               | Set.member capabilityNameText hiddenRuntimeCapabilities
             ]
           visibleNames =
@@ -1873,7 +1903,7 @@ rewriteReplaySignaturePayload rewriteConstraint rewriteConstraintType rewriteSig
     _ -> signaturePayload
 
 rewriteReplaySignatureConstraint ::
-  (Identifier -> Identifier) ->
+  (Name -> Name) ->
   (ConstraintSignatureType -> ConstraintSignatureType) ->
   SignatureConstraint ->
   SignatureConstraint
@@ -1885,7 +1915,7 @@ rewriteReplaySignatureConstraint rewriteCapabilityName rewriteConstraintType (Si
 rewriteReplayConstraintType ::
   [Text] ->
   Set Text ->
-  (Identifier -> Identifier) ->
+  (Name -> Name) ->
   ConstraintSignatureType ->
   ConstraintSignatureType
 rewriteReplayConstraintType modulePath dataTypeNames rewriteCapabilityName signatureType =
@@ -1921,7 +1951,7 @@ rewriteHiddenCapabilityReferences modulePath hiddenCapabilities =
         ELambda parameterName bodyExpr ->
           ELambda
             parameterName
-            (rewriteExprCapabilityReferences (Set.insert (identifierText parameterName) boundNames) bodyExpr)
+            (rewriteExprCapabilityReferences (Set.insert parameterName boundNames) bodyExpr)
         EOperatorValue _ -> expression
         EList elements ->
           EList (map (rewriteExprCapabilityReferences boundNames) elements)
@@ -1968,7 +1998,7 @@ rewriteHiddenCapabilityReferences modulePath hiddenCapabilities =
         blockBoundNames =
           Set.union
             outerBoundNames
-            (Set.fromList (concatMap statementBindingNames statements))
+            (Set.fromList (concatMap statementBoundNames statements))
 
     rewriteStatementCapabilityReferences boundNames statement =
       case statement of
@@ -1987,12 +2017,15 @@ rewriteHiddenCapabilityReferences modulePath hiddenCapabilities =
         _ -> statement
 
     rewriteCapabilityReferenceIdentifier boundNames name =
-      let nameText = identifierText name
-       in case splitQualifiedIdentifierText nameText of
-        Just (capabilityName, methodName)
-          | Set.member capabilityName hiddenCapabilities,
-            Set.notMember nameText boundNames ->
-              mkIdentifier (qualifiedIdentifierText (moduleExportQualifiedName modulePath capabilityName) methodName)
+      case name of
+        QualifiedName capabilityName methodName
+          | Set.member (identifierText capabilityName) hiddenCapabilities,
+            Set.notMember name boundNames ->
+              moduleReplayQualifiedBridgeName
+                modulePath
+                ValueNamespace
+                (identifierText capabilityName)
+                (identifierText methodName)
         _ -> name
 
 collectDataTypeNames :: Expr -> Set Text
@@ -2059,8 +2092,9 @@ rewriteModuleExportSignatureToken ::
 rewriteModuleExportSignatureToken modulePath dataTypeNames signatureToken =
   case signatureToken of
     SignatureNameToken name
-      | Set.member name dataTypeNames ->
-          SignatureNameToken (moduleExportQualifiedName modulePath name)
+      | Set.member (identifierText name) dataTypeNames ->
+          SignatureNameToken
+            (moduleReplayBridgeName modulePath TypeNamespace (identifierText name))
     _ -> signatureToken
 
 rewriteModuleExportImplArgument ::
@@ -2085,11 +2119,11 @@ rewriteModuleExportImplArgument modulePath dataTypeNames signatureType =
         (rewriteModuleExportImplArgument modulePath dataTypeNames argumentType)
         (rewriteModuleExportImplArgument modulePath dataTypeNames resultType)
 
-rewriteModuleExportImplTypeName :: [Text] -> Set Text -> Identifier -> Identifier
+rewriteModuleExportImplTypeName :: [Text] -> Set Text -> Name -> Name
 rewriteModuleExportImplTypeName modulePath dataTypeNames typeName =
   let typeNameText = identifierText typeName
    in if Set.member typeNameText dataTypeNames
-        then mkIdentifier (moduleExportQualifiedName modulePath typeNameText)
+        then moduleReplayBridgeName modulePath TypeNamespace typeNameText
         else typeName
 
 rewriteModuleExportImplMethods :: [Text] -> Set Text -> [ImplMethod] -> [ImplMethod]
@@ -2104,8 +2138,8 @@ rewriteDataStatementForReplay ::
   Set Text ->
   Set Text ->
   SourceSpan ->
-  Identifier ->
-  [Identifier] ->
+  Name ->
+  [Name] ->
   [DataConstructor] ->
   [Statement]
 rewriteDataStatementForReplay modulePath dataTypeNames hiddenImportExports neededModuleExports spanValue typeName typeParameters constructors =
@@ -2114,7 +2148,7 @@ rewriteDataStatementForReplay modulePath dataTypeNames hiddenImportExports neede
   ]
   where
     replayTypeName =
-      mkIdentifier (moduleExportQualifiedName modulePath (identifierText typeName))
+      moduleReplayBridgeName modulePath TypeNamespace (identifierText typeName)
 
     replayConstructors =
       [ replayConstructor
@@ -2125,7 +2159,10 @@ rewriteDataStatementForReplay modulePath dataTypeNames hiddenImportExports neede
           let replayConstructorArguments = map replayConstructorArgument constructorArguments,
           let replayConstructor =
                 if hiddenConstructor
-                  then DataConstructor (mkIdentifier (moduleExportQualifiedName modulePath constructorText)) replayConstructorArguments
+                  then
+                    DataConstructor
+                      (moduleReplayBridgeName modulePath ValueNamespace constructorText)
+                      replayConstructorArguments
                   else DataConstructor constructorName replayConstructorArguments
       ]
 

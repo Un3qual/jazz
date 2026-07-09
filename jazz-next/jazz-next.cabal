@@ -24,6 +24,7 @@ library
       JazzNext.Compiler.Identifier
       JazzNext.Compiler.ModuleReplay
       JazzNext.Compiler.ModuleResolver
+      JazzNext.Compiler.Name
       JazzNext.Compiler.Parser
       JazzNext.Compiler.Parser.AST
       JazzNext.Compiler.Parser.Declaration
@@ -204,6 +205,11 @@ test-suite lambda-semantics-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs
+
+test-suite name-semantics-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Semantics/NameSemanticsSpec.hs
 
 test-suite primitive-semantics-spec
   import: test-common

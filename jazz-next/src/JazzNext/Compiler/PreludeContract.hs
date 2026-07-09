@@ -29,8 +29,8 @@ import JazzNext.Compiler.Diagnostics
     setDiagnosticRelatedSpan,
     setDiagnosticSubject
   )
-import JazzNext.Compiler.Identifier
-  ( identifierText
+import JazzNext.Compiler.Name
+  ( renderName
   )
 
 -- | Validate explicit prelude bridge declarations that map prelude-visible
@@ -50,7 +50,7 @@ validatePreludeKernelBridges preludeExpr =
     validateStatement (diagnostics, seenBindings, seenBindingSpans) statement =
       case statement of
         SLet bindingName bindingSpan bindingExpr ->
-          let bindingNameText = identifierText bindingName
+          let bindingNameText = renderName bindingName
               statementDiagnostics =
                 validateBridge
                   seenBindings
@@ -106,7 +106,7 @@ validatePreludeKernelBridges preludeExpr =
         Just targetName ->
           case bindingExpr of
             EVar rhsName
-              | identifierText rhsName /= targetName ->
+              | renderName rhsName /= targetName ->
                   [ bridgeDiagnostic
                       bindingName
                       bindingSpan
@@ -117,7 +117,7 @@ validatePreludeKernelBridges preludeExpr =
                               <> "' must reference kernel symbol '"
                               <> targetName
                               <> "', found '"
-                              <> identifierText rhsName
+                              <> renderName rhsName
                               <> "'"
                           )
                       )

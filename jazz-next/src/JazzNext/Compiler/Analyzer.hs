@@ -52,9 +52,13 @@ import JazzNext.Compiler.Diagnostics
     sortWarnings
   )
 import JazzNext.Compiler.Identifier
-  ( Identifier,
-    identifierPurity,
-    identifierText
+  ( identifierPurity,
+    identifierText,
+    mkIdentifier
+  )
+import JazzNext.Compiler.Name
+  ( Name,
+    sourceName
   )
 import JazzNext.Compiler.Pattern
   ( patternBinderNames
@@ -147,7 +151,7 @@ analyzeRebindingWarningsWithBuiltins builtinMode settings expr =
 collectExprDiagnostics ::
   BuiltinResolutionMode ->
   WarningSettings ->
-  Map Text VisibleBinding ->
+  Map Name VisibleBinding ->
   Set Text ->
   AnalysisContext ->
   Expr ->
@@ -156,7 +160,7 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
   case expr of
     ELit _ -> ([], [])
     EVar name ->
-      case Map.lookup nameText visibleBindings of
+      case Map.lookup name visibleBindings of
         Just _ -> ([], [])
         Nothing
           | isBuiltinSymbolNameInMode builtinMode nameText -> ([], [])
@@ -167,7 +171,7 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
     ELambda parameterName bodyExpr ->
       let lambdaBindings =
             Map.insert
-              parameterNameText
+              parameterName
               lambdaVisibleBinding
               visibleBindings
           shadowingWarnings =
@@ -176,14 +180,12 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
               Just primarySpan ->
                 collectOuterScopeShadowingWarnings
                   settings
-                  parameterNameText
+                  parameterName
                   primarySpan
                   visibleBindings
           (bodyWarnings, bodyErrors) =
             collectExprDiagnostics builtinMode settings lambdaBindings visibleClassNames context bodyExpr
        in (shadowingWarnings ++ bodyWarnings, bodyErrors)
-      where
-        parameterNameText = identifierText parameterName
     EOperatorValue _ -> ([], [])
     EList elements ->
       collectExprListDiagnostics builtinMode settings visibleBindings visibleClassNames context elements
@@ -201,7 +203,7 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
                     [ mkImpureCallInPureContextError
                         context
                         calleeName
-                        (Map.lookup (identifierText calleeName) visibleBindings >>= visibleBindingDiagnosticSpan)
+                        (Map.lookup calleeName visibleBindings >>= visibleBindingDiagnosticSpan)
                     ]
               _ -> []
        in
@@ -271,7 +273,7 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
 collectExprListDiagnostics ::
   BuiltinResolutionMode ->
   WarningSettings ->
-  Map Text VisibleBinding ->
+  Map Name VisibleBinding ->
   Set Text ->
   AnalysisContext ->
   [Expr] ->
@@ -296,7 +298,7 @@ collectScopeDiagnostics ::
   BuiltinResolutionMode ->
   Set Int ->
   WarningSettings ->
-  Map Text VisibleBinding ->
+  Map Name VisibleBinding ->
   Set Text ->
   AnalysisContext ->
   [Statement] ->
@@ -314,7 +316,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
       Map.map
         Set.fromList
         ( inferRecursiveGroupsOrdered
-            (Set.union (Map.keysSet outerScope) (builtinNamesInMode builtinMode))
+            (Set.union (Map.keysSet outerScope) (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode)))
             indexedStatements
         )
     bindingDeclarationsByStatement = collectBindingDeclarations indexedStatements
@@ -332,9 +334,9 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
     errorsWithFinalPending = flushPendingSignature finalPendingSignature finalErrorsRev
 
     step ::
-      (Map Text VisibleBinding, Map Text SourceSpan, Set Text, Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Diagnostic]) ->
+      (Map Name VisibleBinding, Map Text SourceSpan, Set Text, Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Diagnostic]) ->
       (Int, Statement) ->
-      (Map Text VisibleBinding, Map Text SourceSpan, Set Text, Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Diagnostic])
+      (Map Name VisibleBinding, Map Text SourceSpan, Set Text, Map Text SourceSpan, Maybe PendingSignature, [WarningRecord], [Diagnostic])
     step (scopeBindings, classDeclarations, importedClassNames, implDeclarations, pendingSignature, warningsRev, errorsRev) (statementIndex, statement) =
       case statement of
         SExpr exprSpan expr ->
@@ -491,7 +493,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
                             bindingSpan
                         ]
               rebindingWarning =
-                case Map.lookup bindingNameText scopeBindings of
+                case Map.lookup bindingName scopeBindings of
                   Just previousBinding
                     | isWarningEnabled settings SameScopeRebinding,
                       not (visibleBindingIsHiddenPrelude previousBinding) ->
@@ -502,17 +504,17 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
                         ]
                   _ -> []
               shadowingWarning =
-                case Map.lookup bindingNameText scopeBindings of
+                case Map.lookup bindingName scopeBindings of
                   Just _ -> []
                   Nothing ->
                     collectOuterScopeShadowingWarnings
                       settings
-                      bindingNameText
+                      bindingName
                       bindingSpan
                       outerScope
               nextScope =
                 Map.insert
-                  bindingNameText
+                  bindingName
                   (mkVisibleBinding hiddenStatementIndices statementIndex bindingSpan)
                   scopeBindings
               visible =
@@ -547,7 +549,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
               errorsWithValue
             )
 
-    currentVisibleBindings :: Map Text VisibleBinding -> Map Text VisibleBinding
+    currentVisibleBindings :: Map Name VisibleBinding -> Map Name VisibleBinding
     -- Local scope is left-biased so inner declarations shadow outer bindings.
     currentVisibleBindings scopeBindings = scopeBindings `Map.union` outerScope
 
@@ -606,8 +608,8 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
 
     withRecursivePeerBindings ::
       Int ->
-      Map Text VisibleBinding ->
-      Map Text VisibleBinding
+      Map Name VisibleBinding ->
+      Map Name VisibleBinding
     withRecursivePeerBindings statementIndex visibleNow =
       let peers =
             Set.delete
@@ -725,7 +727,7 @@ mkDuplicateClassMethodError className methodName methodSpan previousSpan =
         methodSpan
         (mkDiagnostic "E1006" ("duplicate method signature '" <> methodName <> "' in class '" <> className <> "'"))
 
-duplicateImplMethodErrors :: Identifier -> [ConstraintSignatureType] -> [ImplMethod] -> [Diagnostic]
+duplicateImplMethodErrors :: Name -> [ConstraintSignatureType] -> [ImplMethod] -> [Diagnostic]
 duplicateImplMethodErrors capabilityName arguments methods =
   reverse errorsRev
   where
@@ -755,7 +757,7 @@ mkDuplicateImplMethodError implLabel methodName methodSpan previousSpan =
 collectImplMethodDiagnostics ::
   BuiltinResolutionMode ->
   WarningSettings ->
-  Map Text VisibleBinding ->
+  Map Name VisibleBinding ->
   Set Text ->
   [ImplMethod] ->
   ([WarningRecord], [Diagnostic])
@@ -795,7 +797,7 @@ topLevelContext =
 
 -- | Create the purity/diagnostic context that should apply while checking the
 -- body of a specific binding.
-contextForBinding :: Identifier -> SourceSpan -> AnalysisContext
+contextForBinding :: Name -> SourceSpan -> AnalysisContext
 contextForBinding bindingName bindingSpan =
   AnalysisContext
     { contextLabel = "binding '" <> identifierText bindingName <> "'",
@@ -805,7 +807,7 @@ contextForBinding bindingName bindingSpan =
       contextLambdaSpan = Just bindingSpan
     }
 
-contextForImplMethod :: Identifier -> SourceSpan -> AnalysisContext
+contextForImplMethod :: Name -> SourceSpan -> AnalysisContext
 contextForImplMethod methodName methodSpan =
   AnalysisContext
     { contextLabel = "impl method '" <> identifierText methodName <> "'",
@@ -823,10 +825,10 @@ contextForExpressionStatement statementSpan context =
 -- context is pure and the callee is known either locally or through builtins.
 shouldRejectImpureCall ::
   BuiltinResolutionMode ->
-  Map Text VisibleBinding ->
+  Map Name VisibleBinding ->
   Set Text ->
   AnalysisContext ->
-  Identifier ->
+  Name ->
   Bool
 shouldRejectImpureCall builtinMode visibleBindings visibleClassNames context calleeName =
   not (contextAllowsImpureCalls context)
@@ -835,12 +837,12 @@ shouldRejectImpureCall builtinMode visibleBindings visibleClassNames context cal
     calleeNameText = identifierText calleeName
     isKnownImpureCallee =
       identifierPurity calleeName == Impure
-        && ( Map.member calleeNameText visibleBindings
+        && ( Map.member calleeName visibleBindings
                || isBuiltinSymbolNameInMode builtinMode calleeNameText
                || qualifiedMethodClassIsVisible visibleClassNames calleeNameText
            )
 
-directCallCalleeName :: Expr -> Maybe Identifier
+directCallCalleeName :: Expr -> Maybe Name
 directCallCalleeName expr =
   case expr of
     EVar calleeName -> Just calleeName
@@ -849,7 +851,7 @@ directCallCalleeName expr =
 
 mkImpureCallInPureContextError ::
   AnalysisContext ->
-  Identifier ->
+  Name ->
   Maybe SourceSpan ->
   Diagnostic
 mkImpureCallInPureContextError context calleeName maybeCalleeSpan =
@@ -881,14 +883,14 @@ withMaybe maybeValue setter value =
 
 collectBindingDeclarations ::
   [(Int, Statement)] ->
-  Map Int (Text, SourceSpan)
+  Map Int (Name, SourceSpan)
 collectBindingDeclarations =
   foldl' collect Map.empty
   where
     collect declarations (statementIndex, statement) =
       case statement of
         SLet name spanValue _ ->
-          Map.insert statementIndex (identifierText name, spanValue) declarations
+          Map.insert statementIndex (name, spanValue) declarations
         _ -> declarations
 
 -- | Tag bindings that came from hidden prelude statements so user-facing
@@ -907,14 +909,14 @@ registerDataConstructors ::
   Int ->
   SourceSpan ->
   [DataConstructor] ->
-  Map Text VisibleBinding ->
-  Map Text VisibleBinding
+  Map Name VisibleBinding ->
+  Map Name VisibleBinding
 registerDataConstructors hiddenStatementIndices statementIndex spanValue constructors bindings =
   foldl' register bindings constructors
   where
     constructorBinding = mkVisibleBinding hiddenStatementIndices statementIndex spanValue
     register bindingsAcc (DataConstructor constructorName _) =
-      Map.insert (identifierText constructorName) constructorBinding bindingsAcc
+      Map.insert constructorName constructorBinding bindingsAcc
 
 collectDataConstructorRebindingWarnings ::
   WarningSettings ->
@@ -922,7 +924,7 @@ collectDataConstructorRebindingWarnings ::
   Int ->
   SourceSpan ->
   [DataConstructor] ->
-  Map Text VisibleBinding ->
+  Map Name VisibleBinding ->
   [WarningRecord]
 collectDataConstructorRebindingWarnings
   settings
@@ -941,7 +943,7 @@ collectDataConstructorRebindingWarnings
     collect (bindingsAcc, warningsAcc) (DataConstructor constructorName _) =
       let constructorNameText = identifierText constructorName
           warning =
-            case Map.lookup constructorNameText bindingsAcc of
+            case Map.lookup constructorName bindingsAcc of
               Just previousBinding
                 | not (visibleBindingIsHiddenPrelude previousBinding) ->
                     [ mkSameScopeRebindingWarning
@@ -951,7 +953,7 @@ collectDataConstructorRebindingWarnings
                     ]
               _ -> []
        in
-        ( Map.insert constructorNameText constructorBinding bindingsAcc,
+        ( Map.insert constructorName constructorBinding bindingsAcc,
           warning ++ warningsAcc
         )
 
@@ -1006,14 +1008,13 @@ collectUnusedBindingUseState hiddenStatementIndices indexedStatements =
            in
             case statement of
               SLet bindingName _ _ ->
-                let bindingNameText = identifierText bindingName
-                    rebindingStatementIndices' =
-                      if Set.member bindingNameText activeRebindingNames
+                let rebindingStatementIndices' =
+                      if Set.member bindingName activeRebindingNames
                         then Set.insert statementIndex rebindingStatementIndices
                         else rebindingStatementIndices
                  in
-                  ( Map.insert bindingNameText statementIndex activeBindings,
-                    Set.insert bindingNameText activeRebindingNames,
+                  ( Map.insert bindingName statementIndex activeBindings,
+                    Set.insert bindingName activeRebindingNames,
                     usedWithStatementReferences,
                     rebindingStatementIndices'
                   )
@@ -1034,7 +1035,7 @@ collectUnusedBindingUseState hiddenStatementIndices indexedStatements =
       case statement of
         SLet bindingName _ valueExpr ->
           Set.delete
-            (identifierText bindingName)
+            bindingName
             (freeVarsExprWithBound Set.empty valueExpr)
         SExpr _ expr ->
           freeVarsExprWithBound Set.empty expr
@@ -1052,10 +1053,10 @@ collectUnusedBindingUseState hiddenStatementIndices indexedStatements =
           Set.insert bindingStatementIndex usedStatementIndices
 
     removeConstructor activeBindings (DataConstructor constructorName _) =
-      Map.delete (identifierText constructorName) activeBindings
+      Map.delete constructorName activeBindings
 
     registerConstructor activeRebindingNames (DataConstructor constructorName _) =
-      Set.insert (identifierText constructorName) activeRebindingNames
+      Set.insert constructorName activeRebindingNames
 
 visibleBindingDiagnosticSpan :: VisibleBinding -> Maybe SourceSpan
 visibleBindingDiagnosticSpan visibleBinding =
@@ -1065,9 +1066,9 @@ visibleBindingDiagnosticSpan visibleBinding =
 
 collectOuterScopeShadowingWarnings ::
   WarningSettings ->
-  Text ->
+  Name ->
   SourceSpan ->
-  Map Text VisibleBinding ->
+  Map Name VisibleBinding ->
   [WarningRecord]
 collectOuterScopeShadowingWarnings settings bindingName primarySpan outerScope
   | not (isWarningEnabled settings ShadowingOuterScope) = []
@@ -1076,7 +1077,7 @@ collectOuterScopeShadowingWarnings settings bindingName primarySpan outerScope
         Just previousBinding
           | not (visibleBindingIsHiddenPrelude previousBinding) ->
               [ mkOuterScopeShadowingWarning
-                  bindingName
+                  (identifierText bindingName)
                   primarySpan
                   (visibleBindingDiagnosticSpan previousBinding)
               ]
@@ -1123,7 +1124,7 @@ lambdaVisibleBinding =
       visibleBindingIsHiddenPrelude = True
     }
 
-extendBindingsWithPattern :: Pattern -> Map Text VisibleBinding -> Map Text VisibleBinding
+extendBindingsWithPattern :: Pattern -> Map Name VisibleBinding -> Map Name VisibleBinding
 extendBindingsWithPattern pattern bindings =
   Set.foldl'
     (\bindingsAcc binderName -> Map.insert binderName patternVisibleBinding bindingsAcc)

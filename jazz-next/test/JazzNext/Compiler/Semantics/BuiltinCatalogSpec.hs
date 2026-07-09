@@ -52,6 +52,7 @@ import JazzNext.Compiler.Driver
 import JazzNext.Compiler.Identifier
   ( mkIdentifier
   )
+import JazzNext.Compiler.Name (sourceName)
 import JazzNext.Compiler.Runtime
   ( evaluateRuntimeExpr
   )
@@ -375,7 +376,7 @@ overAppliedBuiltinExpr name =
         EApply
           (EApply (EVar "__kernel_toFloat64") (ELit (LInt 1)))
           (ELit (LInt 2))
-      _ -> EApply (EVar (mkIdentifier name)) (ELit (LInt 1))
+      _ -> EApply (EVar (sourceName (mkIdentifier name))) (ELit (LInt 1))
 
 runtimeExpr :: Expr -> Expr
 runtimeExpr expr =

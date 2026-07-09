@@ -8,15 +8,14 @@ module JazzNext.Compiler.Pattern
 import Data.List (foldl')
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Text (Text)
 import JazzNext.Compiler.AST (Pattern (..))
-import JazzNext.Compiler.Identifier (identifierText)
+import JazzNext.Compiler.Name (Name)
 
-extendBoundWithPattern :: Pattern -> Set Text -> Set Text
+extendBoundWithPattern :: Pattern -> Set Name -> Set Name
 extendBoundWithPattern patternValue bound =
   Set.union bound (patternBinderNames patternValue)
 
-commonPatternBinderNames :: [Pattern] -> Set Text
+commonPatternBinderNames :: [Pattern] -> Set Name
 commonPatternBinderNames alternatives =
   case alternatives of
     [] -> Set.empty
@@ -26,10 +25,10 @@ commonPatternBinderNames alternatives =
         (patternBinderNames firstAlternative)
         (map patternBinderNames rest)
 
-patternBinderNames :: Pattern -> Set Text
+patternBinderNames :: Pattern -> Set Name
 patternBinderNames patternValue =
   case patternValue of
-    PVariable name -> Set.singleton (identifierText name)
+    PVariable name -> Set.singleton name
     PWildcard -> Set.empty
     PLiteral {} -> Set.empty
     PConstructor _ patterns ->
@@ -41,6 +40,6 @@ patternBinderNames patternValue =
     PTuple patterns ->
       Set.unions (map patternBinderNames patterns)
     PAs name nestedPattern ->
-      Set.insert (identifierText name) (patternBinderNames nestedPattern)
+      Set.insert name (patternBinderNames nestedPattern)
     POr alternatives ->
       commonPatternBinderNames alternatives

@@ -4,8 +4,7 @@
 -- the current naming convention.
 module JazzNext.Compiler.Identifier
   ( Identifier,
-    identifierText,
-    identifierPurity,
+    IdentifierLike (..),
     mkIdentifier,
     mkOperatorBindingIdentifier,
     mkQualifiedIdentifier,
@@ -35,20 +34,22 @@ import Numeric
   )
 
 -- | Names annotated with the purity implied by their spelling.
-data Identifier = Identifier
-  { identifierText :: Text,
-    identifierPurity :: Purity
-  }
-  deriving (Eq, Show)
+data Identifier = Identifier Text Purity
+  deriving (Eq, Ord, Show)
+
+class IdentifierLike name where
+  identifierText :: name -> Text
+  identifierPurity :: name -> Purity
+
+instance IdentifierLike Identifier where
+  identifierText (Identifier name _) = name
+  identifierPurity (Identifier _ purity) = purity
 
 -- | Construct an identifier and derive its purity once so later phases can
 -- reuse the classification without re-parsing the name text.
 mkIdentifier :: Text -> Identifier
 mkIdentifier name =
-  Identifier
-    { identifierText = name,
-      identifierPurity = namePurity name
-    }
+  Identifier name (namePurity name)
 
 -- | Render the compiler-owned binding name that backs an executable user
 -- operator declaration. The prefix is not source-identifiable, and every

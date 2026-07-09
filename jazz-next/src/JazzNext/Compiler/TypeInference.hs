@@ -91,11 +91,19 @@ import JazzNext.Compiler.FractionalLiteral
     fractionalLiteralIntegralValue
   )
 import JazzNext.Compiler.Identifier
-  ( Identifier,
-    identifierText,
+  ( identifierText,
     mkIdentifier,
-    operatorBindingIdentifierText,
     qualifiedIdentifierText
+  )
+import JazzNext.Compiler.Name
+  ( GeneratedNameKind (..),
+    Name (..),
+    NameNamespace (..),
+    generatedName,
+    operatorBindingName,
+    qualifiedMemberName,
+    renderName,
+    sourceName
   )
 import JazzNext.Compiler.RecursiveBindings
   ( collectBindingNames,
@@ -175,7 +183,7 @@ data ExpressionType
   | TBoolType
   | TListType ExpressionType
   | TTupleType [ExpressionType]
-  | TDataType Identifier [ExpressionType]
+  | TDataType Name [ExpressionType]
   | TFunctionType ExpressionType ExpressionType
   | TVarType Int
   deriving (Eq, Show)
@@ -203,7 +211,7 @@ data TypeBinding
   | BuiltinAliasTypeBinding BuiltinSymbol
   | BuiltinOperatorAliasTypeBinding Text
   | OperatorAliasSchemeTypeBinding Text TypeScheme
-  | ConstructorTypeBinding Identifier [Identifier] [ConstructorArgumentType]
+  | ConstructorTypeBinding Name [Name] [ConstructorArgumentType]
   deriving (Eq, Show)
 
 data TypeScheme = TypeScheme (Set Int) [Int] [TypeSchemeConstraint] [TypeSchemePrimitiveConstraint] ScopeCapabilityFacts ExpressionType
@@ -220,9 +228,9 @@ data TypeSchemeConstraint
   | TypeSchemeMethodConstraint Text Text ExpressionType
   deriving (Eq, Show)
 
-type TypeEnv = Map Text TypeBinding
+type TypeEnv = Map Name TypeBinding
 
-data DataTypeBinding = DataTypeBinding [Identifier] [[ConstructorArgumentType]]
+data DataTypeBinding = DataTypeBinding [Name] [[ConstructorArgumentType]]
   deriving (Eq, Show)
 
 data ClassMethodType = ClassMethodType Text SignaturePayload
@@ -243,6 +251,7 @@ data InferState = InferState
     inferNumericVars :: Map Int NumericConstraint,
     inferDataTypes :: Map Text DataTypeBinding,
     inferClassFacts :: Map Text Int,
+    inferGeneratedEqualityClassFacts :: Set Text,
     inferConcreteImplFacts :: Set Text,
     inferClassMethodSignatures :: Map Text ClassMethodType,
     inferConcreteImplMethods :: Map Text [ImplMethodType],
@@ -267,6 +276,7 @@ initialInferState =
       inferNumericVars = Map.empty,
       inferDataTypes = Map.empty,
       inferClassFacts = Map.empty,
+      inferGeneratedEqualityClassFacts = Set.empty,
       inferConcreteImplFacts = Set.empty,
       inferClassMethodSignatures = Map.empty,
       inferConcreteImplMethods = Map.empty,
@@ -306,7 +316,7 @@ inferExprType builtinMode env state expr =
   case expr of
     ELit literal -> (Just (literalExpressionType literal), checkLiteralType state literal)
     EVar name ->
-      case Map.lookup nameText env of
+      case Map.lookup name env of
         Just localType -> instantiateTypeBinding localType state
         Nothing ->
           case instantiateBuiltinType builtinMode nameText state of
@@ -321,7 +331,7 @@ inferExprType builtinMode env state expr =
       let (parameterType, stateAfterParameter) = freshTypeVar state
           extendedEnv =
             Map.insert
-              (identifierText parameterName)
+              parameterName
               (PlainTypeBinding parameterType)
               env
           (bodyType, stateAfterBody) =
@@ -346,8 +356,8 @@ inferExprType builtinMode env state expr =
     ETuple elements -> inferTupleType builtinMode env state elements
     EApply functionExpr argumentExpr ->
       case qualifiedMethodApplicationSpine expr state of
-        Just (methodKey, argumentExprs)
-          | Map.notMember methodKey env ->
+        Just (methodName, methodKey, argumentExprs)
+          | Map.notMember methodName env ->
               inferQualifiedMethodApplication builtinMode env state methodKey argumentExprs
         Nothing ->
           inferBuiltinOperatorApplyOrGenericApply functionExpr argumentExpr
@@ -529,7 +539,7 @@ inferExprTypeWithExpected builtinMode env state expectedType expr =
     (TFunctionType argumentType resultType, ELambda parameterName bodyExpr) ->
       let extendedEnv =
             Map.insert
-              (identifierText parameterName)
+              parameterName
               (PlainTypeBinding argumentType)
               env
           (bodyType, stateAfterBody) =
@@ -592,15 +602,16 @@ discardFailedFunctionApplicationConstraints stateBeforeFunction _ stateAfterAppl
         inferDeferredExplicitConstraints stateBeforeFunction
     }
 
-qualifiedMethodApplicationSpine :: Expr -> InferState -> Maybe (Text, [Expr])
+qualifiedMethodApplicationSpine :: Expr -> InferState -> Maybe (Name, Text, [Expr])
 qualifiedMethodApplicationSpine expr state =
   case applicationSpine expr of
-    Just (methodKey, argumentExprs)
-      | qualifiedMethodClassIsVisible methodKey state ->
-          Just (methodKey, argumentExprs)
+    Just (methodName, argumentExprs)
+      | let methodKey = identifierText methodName,
+        qualifiedMethodClassIsVisible methodKey state ->
+          Just (methodName, methodKey, argumentExprs)
     _ -> Nothing
 
-applicationSpine :: Expr -> Maybe (Text, [Expr])
+applicationSpine :: Expr -> Maybe (Name, [Expr])
 applicationSpine expr =
   go [] expr
   where
@@ -611,7 +622,7 @@ applicationSpine expr =
         EApply functionExpr argumentExpr ->
           go (argumentExpr : argumentExprs) functionExpr
         EVar name ->
-          Just (identifierText name, argumentExprs)
+          Just (name, argumentExprs)
         _ ->
           Nothing
 
@@ -665,7 +676,7 @@ builtinOperatorSymbolExpr env expr =
       | builtinDollarOperatorExpr env dollarExpr ->
           builtinOperatorSymbolExpr env operatorExpr
     EVar name ->
-      case Map.lookup (identifierText name) env of
+      case Map.lookup name env of
         Just (BuiltinOperatorAliasTypeBinding operatorSymbol) -> Just (operatorSymbol, Nothing)
         Just (OperatorAliasSchemeTypeBinding operatorSymbol typeScheme) -> Just (operatorSymbol, Just typeScheme)
         _ -> Nothing
@@ -676,7 +687,7 @@ builtinDollarOperatorExpr env expr =
   case expr of
     EOperatorValue "$" -> True
     EVar name ->
-      case Map.lookup (identifierText name) env of
+      case Map.lookup name env of
         Just (BuiltinOperatorAliasTypeBinding "$") -> True
         Just (OperatorAliasSchemeTypeBinding "$" _) -> True
         _ -> False
@@ -1281,7 +1292,10 @@ inferScopeType builtinMode initialEnv initialState statements =
     indexedStatements = zip [0 ..] statements
     recursiveGroupsByStatement =
       inferRecursiveGroupsOrdered
-        (Set.union (Map.keysSet initialEnv) (builtinNamesInMode builtinMode))
+        ( Set.union
+            (Map.keysSet initialEnv)
+            (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
+        )
         indexedStatements
     selfRecursiveFunctionStatements =
       inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements
@@ -1361,22 +1375,22 @@ inferScopeType builtinMode initialEnv initialState statements =
                       bindingSeedsByStatement
                   envWithBindingSeed =
                     case
-                        ( shouldSeedSelfRecursiveFunction statementIndex nameText envForStatement,
+                        ( shouldSeedSelfRecursiveFunction statementIndex name envForStatement,
                           Map.lookup statementIndex bindingSeedsByStatement
                         ) of
                       (True, Just bindingSeed) ->
-                        Map.insert nameText (PlainTypeBinding bindingSeed) envWithRecursiveBindings
+                        Map.insert name (PlainTypeBinding bindingSeed) envWithRecursiveBindings
                       _ -> envWithRecursiveBindings
                   envWithPendingSignature =
                     case matchingPendingSignature of
                       Just pendingSignature ->
                         Map.insert
-                          nameText
+                          name
                           (PlainTypeBinding (pendingSignatureDeclaredType pendingSignature))
                           envWithBindingSeed
                       Nothing -> envWithBindingSeed
                   maybePreservedSchemeAliasBinding =
-                    schemePreservingAliasBinding nameText envWithPendingSignature valueExpr
+                    schemePreservingAliasBinding name envWithPendingSignature valueExpr
                   maybeExpectedValueType =
                     pendingSignatureDeclaredType <$> matchingPendingSignature
                   (rawValueType, rawStateAfterValue) =
@@ -1477,7 +1491,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                     maybePreservedSchemeAliasBinding
                       <|> nextBindingForValue
                         statementIndex
-                        nameText
+                        name
                         envForStatement
                         valueExpr
                         nextBindingType
@@ -1511,7 +1525,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                       Nothing -> pendingSignaturesByStatement
                   nextEnvBeforeRecursiveGroupGeneralization =
                     case maybeNextBinding of
-                      Just binding -> Map.insert nameText binding env
+                      Just binding -> Map.insert name binding env
                       Nothing -> env
                   (nextEnv, stateAfterRecursiveGroupPrune) =
                     generalizeCompletedRecursiveGroup
@@ -1547,14 +1561,14 @@ inferScopeType builtinMode initialEnv initialState statements =
 
     nextBindingForValue ::
       Int ->
-      Text ->
+      Name ->
       TypeEnv ->
       Expr ->
       Maybe ExpressionType ->
       Maybe PendingSignatureType ->
       InferState ->
       Maybe TypeBinding
-    nextBindingForValue statementIndex bindingNameText currentEnv valueExpr maybeInferredType maybePendingSignature state =
+    nextBindingForValue statementIndex bindingName currentEnv valueExpr maybeInferredType maybePendingSignature state =
       let monomorphicBinding =
             if Set.member statementIndex (Map.keysSet recursiveGroupsByStatement)
               then PlainTypeBinding <$> maybeInferredType
@@ -1570,7 +1584,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                   Just (operatorAliasBinding operatorSymbol (SchemeTypeBinding <$> maybeAliasScheme))
             EVar builtinName ->
               let referencedName = identifierText builtinName
-               in case Map.lookup referencedName currentEnv of
+               in case Map.lookup builtinName currentEnv of
                     Just (BuiltinAliasTypeBinding builtinSymbol) ->
                       Just (BuiltinAliasTypeBinding builtinSymbol)
                     Just (BuiltinOperatorAliasTypeBinding operatorSymbol)
@@ -1581,7 +1595,7 @@ inferScopeType builtinMode initialEnv initialState statements =
                           Just binding
                     Just constructorBinding@ConstructorTypeBinding {}
                       | isNothing maybePendingSignature,
-                        isSyntheticAliasConstructorBinding bindingNameText referencedName ->
+                        isSyntheticAliasConstructorBinding bindingName builtinName ->
                           Just constructorBinding
                     Just _ ->
                       monomorphicBinding
@@ -1591,24 +1605,33 @@ inferScopeType builtinMode initialEnv initialState statements =
                         Nothing -> monomorphicBinding
             _ -> monomorphicBinding
 
-    schemePreservingAliasBinding :: Text -> TypeEnv -> Expr -> Maybe TypeBinding
-    schemePreservingAliasBinding bindingNameText currentEnv valueExpr =
+    schemePreservingAliasBinding :: Name -> TypeEnv -> Expr -> Maybe TypeBinding
+    schemePreservingAliasBinding bindingName currentEnv valueExpr =
       case valueExpr of
         EVar referencedName
-          | isSyntheticModuleSchemeBridge bindingNameText (identifierText referencedName) ->
-              case Map.lookup (identifierText referencedName) currentEnv of
+          | isSyntheticModuleSchemeBridge bindingName referencedName ->
+              case Map.lookup referencedName currentEnv of
                 Just binding@(SchemeTypeBinding _) -> Just binding
                 Just binding@(OperatorAliasSchemeTypeBinding _ _) -> Just binding
                 _ -> Nothing
         _ -> Nothing
 
-    isSyntheticModuleSchemeBridge :: Text -> Text -> Bool
-    isSyntheticModuleSchemeBridge bindingNameText referencedNameText =
-      Text.isPrefixOf "__module::" bindingNameText
-        || Text.isPrefixOf "__module::" referencedNameText
+    isSyntheticModuleSchemeBridge :: Name -> Name -> Bool
+    isSyntheticModuleSchemeBridge bindingName referencedName =
+      isModuleReplayBridge bindingName || isModuleReplayBridge referencedName
 
-    isSyntheticAliasConstructorBinding bindingNameText referencedName =
-      Text.isInfixOf "::" bindingNameText && Text.isPrefixOf "__module::" referencedName
+    isSyntheticAliasConstructorBinding bindingName referencedName =
+      isQualifiedName bindingName && isModuleReplayBridge referencedName
+
+    isModuleReplayBridge name =
+      case name of
+        GeneratedName ModuleReplayBridge {} -> True
+        _ -> False
+
+    isQualifiedName name =
+      case name of
+        QualifiedName {} -> True
+        _ -> False
 
     operatorAliasBinding :: Text -> Maybe TypeBinding -> TypeBinding
     operatorAliasBinding operatorSymbol maybeBinding =
@@ -1667,7 +1690,7 @@ inferScopeType builtinMode initialEnv initialState statements =
         Nothing ->
           currentEnv
 
-    recursiveGroupBindingNames :: [Int] -> Set Text
+    recursiveGroupBindingNames :: [Int] -> Set Name
     recursiveGroupBindingNames groupMembers =
       Set.fromList
         [ bindingName
@@ -1765,17 +1788,16 @@ inferScopeType builtinMode initialEnv initialState statements =
     interleavedBindingFeedsLaterGroup statementIndex groupMembers =
       case Map.lookup statementIndex statementsByIndex of
         Just (SLet bindingName _ _) ->
-          let bindingNameText = identifierText bindingName
-           in any
-                (laterGroupMemberReferences bindingNameText)
+          any
+                (laterGroupMemberReferences bindingName)
                 (filter (> statementIndex) groupMembers)
         _ -> False
 
-    laterGroupMemberReferences :: Text -> Int -> Bool
-    laterGroupMemberReferences bindingNameText memberIndex =
+    laterGroupMemberReferences :: Name -> Int -> Bool
+    laterGroupMemberReferences bindingName memberIndex =
       case Map.lookup memberIndex statementsByIndex of
         Just (SLet _ _ valueExpr) ->
-          Set.member bindingNameText (freeVarsExprWithBound Set.empty valueExpr)
+          Set.member bindingName (freeVarsExprWithBound Set.empty valueExpr)
         _ -> False
 
     laterGroupMemberDependsOnInterveningBinding :: Int -> [Int] -> Bool
@@ -1793,11 +1815,11 @@ inferScopeType builtinMode initialEnv initialState statements =
                     (Map.toList bindingNamesByStatement)
             _ -> False
 
-        interveningBindingIsReferenced referencedNames memberIndex (bindingIndex, bindingNameText) =
+        interveningBindingIsReferenced referencedNames memberIndex (bindingIndex, bindingName) =
           bindingIndex > statementIndex
             && bindingIndex < memberIndex
             && Set.notMember bindingIndex groupMemberSet
-            && Set.member bindingNameText referencedNames
+            && Set.member bindingName referencedNames
 
     previewRecursiveGroupState :: TypeEnv -> InferState -> Int -> [Int] -> Maybe InferState
     previewRecursiveGroupState currentEnv state statementIndex groupMembers =
@@ -1819,11 +1841,11 @@ inferScopeType builtinMode initialEnv initialState statements =
                       bindingSeedsByStatement
                   envWithBindingSeed =
                     case
-                        ( shouldSeedSelfRecursiveFunction memberIndex nameText currentEnv,
+                        ( shouldSeedSelfRecursiveFunction memberIndex bindingName currentEnv,
                           Map.lookup memberIndex bindingSeedsByStatement
                         ) of
                       (True, Just bindingSeed) ->
-                        Map.insert nameText (PlainTypeBinding bindingSeed) envWithRecursiveBindings
+                        Map.insert bindingName (PlainTypeBinding bindingSeed) envWithRecursiveBindings
                       _ -> envWithRecursiveBindings
                   (valueType, rawStateAfterValue) =
                     inferExprType builtinMode envWithBindingSeed stateAcc valueExpr
@@ -1855,26 +1877,26 @@ inferScopeType builtinMode initialEnv initialState statements =
         previewIntroducedDiagnostics originalState previewState =
           length (inferErrorsRev previewState) /= length (inferErrorsRev originalState)
 
-    shouldSeedSelfRecursiveFunction :: Int -> Text -> TypeEnv -> Bool
-    shouldSeedSelfRecursiveFunction statementIndex bindingNameText visibleEnv =
+    shouldSeedSelfRecursiveFunction :: Int -> Name -> TypeEnv -> Bool
+    shouldSeedSelfRecursiveFunction statementIndex bindingName visibleEnv =
       Set.member statementIndex selfRecursiveFunctionStatements
-        && Map.notMember bindingNameText visibleEnv
+        && Map.notMember bindingName visibleEnv
 
     exposeRecursiveGroupMember :: Int -> TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
     exposeRecursiveGroupMember statementIndex envOutsideGroup state currentEnv memberIndex =
       case Map.lookup memberIndex bindingNamesByStatement of
-        Just bindingNameText
-          | latestBindingIndexBefore statementIndex bindingNameText == Just memberIndex ->
+        Just bindingName
+          | latestBindingIndexBefore statementIndex bindingName == Just memberIndex ->
               generalizeRecursiveGroupMember Map.empty envOutsideGroup state currentEnv memberIndex
         _ -> currentEnv
 
-    latestBindingIndexBefore :: Int -> Text -> Maybe Int
-    latestBindingIndexBefore statementIndex bindingNameText =
+    latestBindingIndexBefore :: Int -> Name -> Maybe Int
+    latestBindingIndexBefore statementIndex bindingName =
       foldl' latest Nothing (Map.toList bindingNamesByStatement)
       where
         latest currentLatest (memberIndex, memberName)
           | memberIndex < statementIndex,
-            memberName == bindingNameText =
+            memberName == bindingName =
               case currentLatest of
                 Just previousIndex
                   | previousIndex > memberIndex -> currentLatest
@@ -1884,19 +1906,19 @@ inferScopeType builtinMode initialEnv initialState statements =
     generalizeRecursiveGroupMember :: Map Int PendingSignatureType -> TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
     generalizeRecursiveGroupMember pendingSignatures envOutsideGroup state currentEnv memberIndex =
       case (Map.lookup memberIndex statementsByIndex, Map.lookup memberIndex bindingNamesByStatement) of
-        (Just (SLet _ _ valueExpr), Just bindingNameText)
+        (Just (SLet _ _ valueExpr), Just bindingName)
           | Just pendingSignature <- Map.lookup memberIndex pendingSignatures,
             shouldGeneralizeExplicitSignatureBinding envOutsideGroup valueExpr pendingSignature ->
               Map.insert
-                bindingNameText
+                bindingName
                 (generalizedExplicitSignatureBinding envOutsideGroup state pendingSignature)
                 currentEnv
-        (Just (SLet _ _ valueExpr), Just bindingNameText)
+        (Just (SLet _ _ valueExpr), Just bindingName)
           | shouldGeneralizeOrdinaryBinding memberIndex envOutsideGroup valueExpr Nothing ->
               case Map.lookup memberIndex bindingSeedsByStatement of
                 Just bindingSeed ->
                   Map.insert
-                    bindingNameText
+                    bindingName
                     (generalizedOrdinaryBinding envOutsideGroup state bindingSeed)
                     currentEnv
                 _ -> currentEnv
@@ -1906,7 +1928,7 @@ checkImplMethodBodies ::
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
-  Identifier ->
+  Name ->
   [ConstraintSignatureType] ->
   [ImplMethod] ->
   InferState
@@ -1975,7 +1997,7 @@ checkImplMethodBodies builtinMode env state capabilityName arguments methods =
     currentImplMethodBindings :: ConstraintSignatureType -> InferState -> TypeEnv
     currentImplMethodBindings implTarget stateForBindings =
       Map.fromList
-        [ (methodKey, PlainTypeBinding methodType)
+        [ (qualifiedMemberName capabilityName methodName, PlainTypeBinding methodType)
           | ImplMethod methodName _ _ <- methods,
             let methodKey = qualifiedMethodKey capabilityName methodName,
             Just (ClassMethodType classParameter methodSignature) <- [Map.lookup methodKey (inferClassMethodSignatures stateForBindings)],
@@ -1998,6 +2020,7 @@ allocateBindingSeeds indexedStatements initialState =
 
 data ScopeCapabilityFacts = ScopeCapabilityFacts
   { scopeClassFacts :: Map Text Int,
+    scopeGeneratedEqualityClassFacts :: Set Text,
     scopeConcreteImplFacts :: Set Text,
     scopeClassMethodSignatures :: Map Text ClassMethodType,
     scopeConcreteImplMethods :: Map Text [ImplMethodType]
@@ -2008,6 +2031,7 @@ emptyScopeCapabilityFacts :: ScopeCapabilityFacts
 emptyScopeCapabilityFacts =
   ScopeCapabilityFacts
     { scopeClassFacts = Map.empty,
+      scopeGeneratedEqualityClassFacts = Set.empty,
       scopeConcreteImplFacts = Set.empty,
       scopeClassMethodSignatures = Map.empty,
       scopeConcreteImplMethods = Map.empty
@@ -2017,6 +2041,7 @@ capabilityFactsFromState :: InferState -> ScopeCapabilityFacts
 capabilityFactsFromState state =
   ScopeCapabilityFacts
     { scopeClassFacts = inferClassFacts state,
+      scopeGeneratedEqualityClassFacts = inferGeneratedEqualityClassFacts state,
       scopeConcreteImplFacts = inferConcreteImplFacts state,
       scopeClassMethodSignatures = inferClassMethodSignatures state,
       scopeConcreteImplMethods = inferConcreteImplMethods state
@@ -2039,6 +2064,10 @@ typeSchemeReferencedCapabilityFacts schemeConstraints facts =
         Set.filter
           (\implKey -> Set.member (concreteImplFactClassName implKey) referencedCapabilityNames)
           (scopeConcreteImplFacts facts),
+      scopeGeneratedEqualityClassFacts =
+        Set.filter
+          (`Set.member` referencedCapabilityNames)
+          (scopeGeneratedEqualityClassFacts facts),
       scopeClassMethodSignatures =
         Map.filterWithKey
           (\methodKey _ -> methodKeyReferencesCapturedCapability methodKey)
@@ -2072,6 +2101,7 @@ applyCapabilityFacts :: ScopeCapabilityFacts -> InferState -> InferState
 applyCapabilityFacts facts state =
   state
     { inferClassFacts = scopeClassFacts facts,
+      inferGeneratedEqualityClassFacts = scopeGeneratedEqualityClassFacts facts,
       inferConcreteImplFacts = scopeConcreteImplFacts facts,
       inferClassMethodSignatures = scopeClassMethodSignatures facts,
       inferConcreteImplMethods = scopeConcreteImplMethods facts
@@ -2081,6 +2111,7 @@ restoreCapabilityFacts :: InferState -> InferState -> InferState
 restoreCapabilityFacts previousState nextState =
   nextState
     { inferClassFacts = inferClassFacts previousState,
+      inferGeneratedEqualityClassFacts = inferGeneratedEqualityClassFacts previousState,
       inferConcreteImplFacts = inferConcreteImplFacts previousState,
       inferClassMethodSignatures = inferClassMethodSignatures previousState,
       inferConcreteImplMethods = inferConcreteImplMethods previousState,
@@ -2091,6 +2122,10 @@ mergeCapabilityFacts :: ScopeCapabilityFacts -> ScopeCapabilityFacts -> ScopeCap
 mergeCapabilityFacts leftFacts rightFacts =
   ScopeCapabilityFacts
     { scopeClassFacts = Map.union (scopeClassFacts leftFacts) (scopeClassFacts rightFacts),
+      scopeGeneratedEqualityClassFacts =
+        Set.union
+          (scopeGeneratedEqualityClassFacts leftFacts)
+          (scopeGeneratedEqualityClassFacts rightFacts),
       scopeConcreteImplFacts =
         Set.union
           (scopeConcreteImplFacts leftFacts)
@@ -2154,6 +2189,8 @@ filterImportedCapabilityFacts maybeAlias maybeSymbolNames facts =
                 Map.filterWithKey
                   (\className _ -> Set.member className visibleSymbols)
                   (scopeClassFacts facts),
+              scopeGeneratedEqualityClassFacts =
+                Set.filter (`Set.member` visibleSymbols) (scopeGeneratedEqualityClassFacts facts),
               scopeConcreteImplFacts =
                 Set.filter
                   (\implKey -> Set.member (concreteImplFactClassName implKey) visibleSymbols)
@@ -2195,7 +2232,13 @@ seedFacts facts (_, statement) =
         capabilityName
         parameters
         methods
-        facts {scopeClassFacts = Map.insert (identifierText capabilityName) (length parameters) (scopeClassFacts facts)}
+        facts
+          { scopeClassFacts = Map.insert (identifierText capabilityName) (length parameters) (scopeClassFacts facts),
+            scopeGeneratedEqualityClassFacts =
+              if generatedEqualityCapabilityName capabilityName
+                then Set.insert (renderName capabilityName) (scopeGeneratedEqualityClassFacts facts)
+                else scopeGeneratedEqualityClassFacts facts
+          }
     SImpl _ capabilityName arguments methods ->
       seedImplMethodFacts capabilityName arguments methods $
         case concreteImplFactKey capabilityName arguments of
@@ -2206,8 +2249,8 @@ seedFacts facts (_, statement) =
     _ -> facts
 
 seedClassMethodFacts ::
-  Identifier ->
-  [Identifier] ->
+  Name ->
+  [Name] ->
   [ClassMethodSignature] ->
   ScopeCapabilityFacts ->
   ScopeCapabilityFacts
@@ -2231,7 +2274,7 @@ seedClassMethodFacts capabilityName parameters methods facts =
     _ -> facts
 
 seedImplMethodFacts ::
-  Identifier ->
+  Name ->
   [ConstraintSignatureType] ->
   [ImplMethod] ->
   ScopeCapabilityFacts ->
@@ -2289,12 +2332,12 @@ scopeContainsFunctionBranch statements =
     exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings scopeExpr =
       case scopeExpr of
         EVar bindingName ->
-          case Map.lookup (identifierText bindingName) scopeBindings of
+          case Map.lookup bindingName scopeBindings of
             Just bindingExpr
-              | Set.notMember (identifierText bindingName) visitedBindings ->
+              | Set.notMember bindingName visitedBindings ->
                   exprContainsFunctionBranchViaScopeBindings
                     scopeBindings
-                    (Set.insert (identifierText bindingName) visitedBindings)
+                    (Set.insert bindingName visitedBindings)
                     bindingExpr
             _ -> False
         ELambda {} -> True
@@ -2317,14 +2360,14 @@ scopeContainsFunctionBranch statements =
         collect scopeBindings statement =
           case statement of
             SLet bindingName _ valueExpr ->
-              Map.insert (identifierText bindingName) valueExpr scopeBindings
+              Map.insert bindingName valueExpr scopeBindings
             _ -> scopeBindings
 
 recursiveBindingEnv ::
   Int ->
   TypeEnv ->
   Map Int [Int] ->
-  Map Int Text ->
+  Map Int Name ->
   Map Int ExpressionType ->
   TypeEnv
 recursiveBindingEnv statementIndex env recursiveGroupsByStatement bindingNamesByStatement bindingSeedsByStatement =
@@ -2358,7 +2401,7 @@ isDirectConstructorAlias :: TypeEnv -> Expr -> Bool
 isDirectConstructorAlias env expr =
   case expr of
     EVar referencedName ->
-      case Map.lookup (identifierText referencedName) env of
+      case Map.lookup referencedName env of
         Just ConstructorTypeBinding {} -> True
         _ -> False
     _ -> False
@@ -2895,7 +2938,7 @@ concreteFloatNumericType expressionType =
     TNumericType NumericFloat64 -> Just NumericFloat64
     _ -> Nothing
 
-registerDataConstructors :: SourceSpan -> Identifier -> [Identifier] -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
+registerDataConstructors :: SourceSpan -> Name -> [Name] -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
 registerDataConstructors spanValue typeName typeParameters constructors env initialState =
   case Map.lookup typeNameText (inferDataTypes initialState) of
     Just _ ->
@@ -2925,14 +2968,14 @@ registerDataConstructors spanValue typeName typeParameters constructors env init
             constructorArgumentTypes typeParameters constructorArguments stateAcc
        in
         ( Map.insert
-            (identifierText constructorName)
+            constructorName
             (ConstructorTypeBinding typeName typeParameters argumentTypes)
             envAcc,
           nextState,
           argumentTypes : constructorPayloadsAcc
         )
 
-constructorArgumentTypes :: [Identifier] -> [DataConstructorArgument] -> InferState -> ([ConstructorArgumentType], InferState)
+constructorArgumentTypes :: [Name] -> [DataConstructorArgument] -> InferState -> ([ConstructorArgumentType], InferState)
 constructorArgumentTypes typeParameters constructorArguments state
   | null typeParameters =
       let (argumentTypes, nextState) = freshTypeVars (length constructorArguments) state
@@ -2956,7 +2999,7 @@ constructorArgumentTypes typeParameters constructorArguments state
         DataConstructorArgumentOpaque ->
           (argumentTypes ++ [ConstructorArgumentFresh], stateAcc)
 
-namedConstructorPayloadType :: Identifier -> Maybe ExpressionType
+namedConstructorPayloadType :: Name -> Maybe ExpressionType
 namedConstructorPayloadType =
   constraintSignatureTypeToExpressionType . ConstraintTypeName
 
@@ -3042,9 +3085,9 @@ explicitTypeApplicationScheme :: TypeEnv -> Expr -> Maybe TypeScheme
 explicitTypeApplicationScheme env functionExpr =
   case functionExpr of
     EVar name ->
-      Map.lookup (identifierText name) env >>= typeBindingScheme
+      Map.lookup name env >>= typeBindingScheme
     EOperatorValue operatorSymbol ->
-      Map.lookup (operatorBindingIdentifierText operatorSymbol) env >>= typeBindingScheme
+      Map.lookup (operatorBindingName operatorSymbol) env >>= typeBindingScheme
     _ -> Nothing
 
 instantiateTypeSchemeWithExplicitArgument ::
@@ -3345,9 +3388,14 @@ equalityConstraintNameCanUseStructuralRuntimeEquality state facts constraintName
 
 generatedHiddenEqualityClassFact :: Text -> ScopeCapabilityFacts -> Bool
 generatedHiddenEqualityClassFact constraintName facts =
-  Text.isPrefixOf "__module::" constraintName
-    && Text.isSuffixOf "::Eq" constraintName
+  Set.member constraintName (scopeGeneratedEqualityClassFacts facts)
     && Map.lookup constraintName (scopeClassFacts facts) == Just 1
+
+generatedEqualityCapabilityName :: Name -> Bool
+generatedEqualityCapabilityName name =
+  case name of
+    GeneratedName (ModuleReplayBridge _ CapabilityNamespace "Eq") -> True
+    _ -> False
 
 structuralRuntimeEqualityType :: InferState -> ExpressionType -> Bool
 structuralRuntimeEqualityType state argumentType =
@@ -3595,7 +3643,7 @@ constraintSignatureExpressionRuntimeHintWithLocalHints env localHints argumentEx
   case argumentExpr of
     EVar referencedName ->
       Map.lookup (identifierText referencedName) localHints
-        <|> (Map.lookup (identifierText referencedName) env >>= typeBindingRuntimeHint)
+        <|> (Map.lookup referencedName env >>= typeBindingRuntimeHint)
     EApply (EApply dollarExpr functionExpr) _
       | builtinDollarOperatorExpr env dollarExpr ->
           case constraintSignatureExpressionRuntimeHintWithLocalHints env localHints functionExpr of
@@ -3700,11 +3748,11 @@ constraintSignatureTypeContainsList signatureType =
         || constraintSignatureTypeContainsList resultType
     ConstraintTypeName {} -> False
 
-constructorApplicationExpressionHasExactEvidence :: TypeEnv -> Identifier -> [ConstraintSignatureType] -> Expr -> Bool
+constructorApplicationExpressionHasExactEvidence :: TypeEnv -> Name -> [ConstraintSignatureType] -> Expr -> Bool
 constructorApplicationExpressionHasExactEvidence env typeName typeArguments argumentExpr =
   case constructorExpressionSpine argumentExpr of
     Just (constructorName, constructorArgumentExprs) ->
-      case Map.lookup (identifierText constructorName) env of
+      case Map.lookup constructorName env of
         Just (ConstructorTypeBinding constructorTypeName typeParameters constructorArgumentTypes)
           | constructorTypeName == typeName,
             length typeParameters == length typeArguments,
@@ -3720,7 +3768,7 @@ constructorApplicationExpressionHasExactEvidence env typeName typeArguments argu
         _ -> False
     Nothing -> False
 
-constructorExpressionSpine :: Expr -> Maybe (Identifier, [Expr])
+constructorExpressionSpine :: Expr -> Maybe (Name, [Expr])
 constructorExpressionSpine expr =
   go [] expr
   where
@@ -3905,8 +3953,8 @@ instantiateConstructorBinding binding state =
     _ -> Nothing
 
 instantiateConstructorType ::
-  Identifier ->
-  [Identifier] ->
+  Name ->
+  [Name] ->
   [ConstructorArgumentType] ->
   InferState ->
   ([ExpressionType], ExpressionType, InferState)
@@ -3922,7 +3970,7 @@ instantiateConstructorType typeName typeParameters argumentTypes state =
     )
 
 instantiateConstructorTypeParameters ::
-  [Identifier] ->
+  [Name] ->
   InferState ->
   (Map Text ExpressionType, [ExpressionType], InferState)
 instantiateConstructorTypeParameters typeParameters state =
@@ -4249,10 +4297,10 @@ targetedFloatLiteralDiagnostic targetType literalValue literalSource =
 finiteFloat :: Double -> Bool
 finiteFloat value = not (isNaN value) && not (isInfinite value)
 
-numericConversionTargetFromCallable :: BuiltinResolutionMode -> TypeEnv -> Identifier -> Maybe NumericType
+numericConversionTargetFromCallable :: BuiltinResolutionMode -> TypeEnv -> Name -> Maybe NumericType
 numericConversionTargetFromCallable builtinMode env functionName =
   let nameText = identifierText functionName
-   in case Map.lookup nameText env of
+   in case Map.lookup functionName env of
         Just (BuiltinAliasTypeBinding builtinSymbol) ->
           builtinSymbolNumericConversionTarget builtinSymbol
         Just _ ->
@@ -4442,7 +4490,7 @@ tokenNeedsTrailingSpace token =
 renderSignatureToken :: SignatureToken -> Text
 renderSignatureToken token =
   case token of
-    SignatureNameToken name -> name
+    SignatureNameToken name -> identifierText name
     SignatureIntToken value -> Text.pack (show value)
     SignatureArrowToken -> "->"
     SignatureAtToken -> "@"
@@ -4500,7 +4548,7 @@ instantiateOperatorType operatorSymbol state =
 
 instantiateDeclaredOperatorBindingType :: TypeEnv -> Text -> InferState -> (Maybe ExpressionType, InferState)
 instantiateDeclaredOperatorBindingType env operatorSymbol state =
-  case Map.lookup (operatorBindingIdentifierText operatorSymbol) env of
+  case Map.lookup (operatorBindingName operatorSymbol) env of
     Just binding ->
       instantiateTypeBinding binding state
     Nothing ->
@@ -4514,7 +4562,7 @@ declaredOperatorRightSectionExpr operatorSymbol rightExpr =
     leftParameter
     (EApply (EApply (EOperatorValue operatorSymbol) (EVar leftParameter)) rightExpr)
   where
-    leftParameter = mkIdentifier "$operator_section_left"
+    leftParameter = generatedName OperatorSectionLeft
 
 -- | Instantiate builtin symbol types on demand so each use site gets fresh type
 -- variables instead of sharing one global schematic type.
@@ -4636,7 +4684,7 @@ typeSchemeRuntimeHint state (TypeScheme schemeVariables schemeVariableOrder _ _ 
       orderedSchemeVariables schemeVariableOrder schemeVariables
     variableHints =
       Map.fromList
-        [ (typeVar, ConstraintTypeName (mkIdentifier (typeSchemeRuntimeVariableName index)))
+        [ (typeVar, ConstraintTypeName (sourceName (mkIdentifier (typeSchemeRuntimeVariableName index))))
           | (index, typeVar) <- zip [0 :: Int ..] orderedVariables
         ]
 
@@ -4662,7 +4710,7 @@ expressionTypeToRuntimeHint expressionType =
           Just (ConstraintTypeName "Int")
       | otherwise -> Nothing
     TFloatType -> Just (ConstraintTypeName "Float")
-    TNumericType numericType -> Just (ConstraintTypeName (mkIdentifier (renderNumericTypeName numericType)))
+    TNumericType numericType -> Just (ConstraintTypeName (sourceName (mkIdentifier (renderNumericTypeName numericType))))
     TBoolType -> Just (ConstraintTypeName "Bool")
     TListType elementType ->
       ConstraintTypeList <$> expressionTypeToRuntimeHint elementType
@@ -4689,7 +4737,7 @@ expressionTypeToRuntimeHintWithVariables variableHints expressionType =
           Just (ConstraintTypeName "Int")
       | otherwise -> Nothing
     TFloatType -> Just (ConstraintTypeName "Float")
-    TNumericType numericType -> Just (ConstraintTypeName (mkIdentifier (renderNumericTypeName numericType)))
+    TNumericType numericType -> Just (ConstraintTypeName (sourceName (mkIdentifier (renderNumericTypeName numericType))))
     TBoolType -> Just (ConstraintTypeName "Bool")
     TListType elementType ->
       ConstraintTypeList <$> expressionTypeToRuntimeHintWithVariables variableHints elementType
@@ -5293,7 +5341,7 @@ mkImplMethodTypeMismatchError methodKey methodSpan declaredType inferredType =
             <> renderType inferredType
         )
 
-mkUnknownConstructorPayloadTypeError :: Identifier -> Diagnostic
+mkUnknownConstructorPayloadTypeError :: Name -> Diagnostic
 mkUnknownConstructorPayloadTypeError payloadTypeName =
   mkDiagnostic
     "E2013"
@@ -5666,21 +5714,19 @@ rejectDuplicatePatternBinders pattern typing stableState checkedState =
     addDuplicateError stateAcc duplicateName =
       addTypeError stateAcc (mkDuplicatePatternBinderError duplicateName)
 
-patternDuplicateBinderNames :: Pattern -> [Text]
+patternDuplicateBinderNames :: Pattern -> [Name]
 patternDuplicateBinderNames pattern =
   Set.toList duplicates
   where
     (_, duplicates) = collect pattern Set.empty Set.empty
 
-    collect :: Pattern -> Set Text -> Set Text -> (Set Text, Set Text)
+    collect :: Pattern -> Set Name -> Set Name -> (Set Name, Set Name)
     collect candidate seen duplicatesAcc =
       case candidate of
         PVariable name ->
-          let nameText = identifierText name
-           in
-            if Set.member nameText seen
-              then (seen, Set.insert nameText duplicatesAcc)
-              else (Set.insert nameText seen, duplicatesAcc)
+          if Set.member name seen
+            then (seen, Set.insert name duplicatesAcc)
+            else (Set.insert name seen, duplicatesAcc)
         PWildcard -> (seen, duplicatesAcc)
         PLiteral {} -> (seen, duplicatesAcc)
         PConstructor _ nestedPatterns ->
@@ -5692,11 +5738,10 @@ patternDuplicateBinderNames pattern =
         PTuple nestedPatterns ->
           collectNested seen duplicatesAcc nestedPatterns
         PAs name nestedPattern ->
-          let nameText = identifierText name
-              (seenAfterName, duplicatesAfterName) =
-                if Set.member nameText seen
-                  then (seen, Set.insert nameText duplicatesAcc)
-                  else (Set.insert nameText seen, duplicatesAcc)
+          let (seenAfterName, duplicatesAfterName) =
+                if Set.member name seen
+                  then (seen, Set.insert name duplicatesAcc)
+                  else (Set.insert name seen, duplicatesAcc)
            in collect nestedPattern seenAfterName duplicatesAfterName
         POr alternatives ->
           let duplicatesAfterAlternatives =
@@ -5722,7 +5767,7 @@ inferPatternType env scrutineeType pattern state =
       ( emptyPatternTyping
           { patternBindings =
               Map.singleton
-                (identifierText name)
+                name
                 (PlainTypeBinding (resolveType state scrutineeType))
           },
         state
@@ -5759,7 +5804,7 @@ inferPatternType env scrutineeType pattern state =
             ( typing
                 { patternBindings =
                     Map.insert
-                      (identifierText name)
+                      name
                       (PlainTypeBinding (resolveType stateAfterPattern scrutineeType))
                       (patternBindings typing)
                 },
@@ -5900,12 +5945,12 @@ resolvePatternBindings state bindings =
 inferConstructorPatternType ::
   TypeEnv ->
   ExpressionType ->
-  Identifier ->
+  Name ->
   [Pattern] ->
   InferState ->
   (PatternTyping, InferState)
 inferConstructorPatternType env scrutineeType constructorName patterns state =
-  case Map.lookup constructorNameText env of
+  case Map.lookup constructorName env of
     Just constructorBinding ->
       case instantiateConstructorBinding constructorBinding state of
         Just (argumentTypes, constructorResultType, stateAfterConstructor) ->
@@ -6149,11 +6194,11 @@ mkUnknownConstructorPatternError constructorName =
     "E2011"
     ("unknown constructor case pattern '" <> constructorName <> "'")
 
-mkDuplicatePatternBinderError :: Text -> Diagnostic
+mkDuplicatePatternBinderError :: Name -> Diagnostic
 mkDuplicatePatternBinderError binderName =
   mkDiagnostic
     "E2011"
-    ("duplicate case pattern binder '" <> binderName <> "'")
+    ("duplicate case pattern binder '" <> identifierText binderName <> "'")
 
 mkEmptyOrPatternError :: Diagnostic
 mkEmptyOrPatternError =
@@ -6161,7 +6206,7 @@ mkEmptyOrPatternError =
     "E2011"
     "or-pattern must contain at least one alternative"
 
-mkOrPatternBinderSetMismatchError :: Set Text -> Set Text -> Diagnostic
+mkOrPatternBinderSetMismatchError :: Set Name -> Set Name -> Diagnostic
 mkOrPatternBinderSetMismatchError expectedNames foundNames =
   mkDiagnostic
     "E2011"
@@ -6171,21 +6216,21 @@ mkOrPatternBinderSetMismatchError expectedNames foundNames =
         <> renderBinderSet foundNames
     )
 
-mkOrPatternBinderTypeMismatchError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
+mkOrPatternBinderTypeMismatchError :: Name -> ExpressionType -> ExpressionType -> Diagnostic
 mkOrPatternBinderTypeMismatchError binderName leftType rightType =
   mkDiagnostic
     "E2011"
     ( "or-pattern binder '"
-        <> binderName
+        <> identifierText binderName
         <> "' has incompatible types "
         <> renderType leftType
         <> " and "
         <> renderType rightType
     )
 
-renderBinderSet :: Set Text -> Text
+renderBinderSet :: Set Name -> Text
 renderBinderSet names =
-  "{" <> Text.intercalate ", " (Set.toList names) <> "}"
+  "{" <> Text.intercalate ", " (map identifierText (Set.toList names)) <> "}"
 
 supportsRuntimeEqualityType :: InferState -> ExpressionType -> Bool
 supportsRuntimeEqualityType state expressionType =
@@ -6207,11 +6252,11 @@ supportsRuntimeEqualityTypeWith seenDataTypes state expressionType =
       dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments
     _ -> False
 
-dataTypeSupportsRuntimeEquality :: InferState -> Identifier -> [ExpressionType] -> Bool
+dataTypeSupportsRuntimeEquality :: InferState -> Name -> [ExpressionType] -> Bool
 dataTypeSupportsRuntimeEquality state typeName typeArguments =
   dataTypeSupportsRuntimeEqualityWith Set.empty state typeName typeArguments
 
-dataTypeSupportsRuntimeEqualityWith :: Set Text -> InferState -> Identifier -> [ExpressionType] -> Bool
+dataTypeSupportsRuntimeEqualityWith :: Set Text -> InferState -> Name -> [ExpressionType] -> Bool
 dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
   let resolvedTypeArguments = map (resolveType state) typeArguments
       dataTypeKey =

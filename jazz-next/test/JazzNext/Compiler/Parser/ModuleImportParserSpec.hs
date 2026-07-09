@@ -24,6 +24,7 @@ import JazzNext.Compiler.Parser.AST
 import JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr
   )
+import JazzNext.Compiler.Name (qualifiedName)
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
@@ -370,7 +371,7 @@ testLowersQualifiedAliasLookup =
     expectedProgram =
       EBlock
         [ SImport (SourceSpan 1 1) ["Lib", "Math"] (Just "Math") Nothing,
-          SExpr (SourceSpan 2 1) (EVar "Math::subtract")
+          SExpr (SourceSpan 2 1) (EVar (qualifiedName "Math" "subtract"))
         ]
 
 testRejectsSpacedQualifiedAliasLookupInBindingExpression :: IO ()
