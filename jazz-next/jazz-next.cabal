@@ -23,6 +23,7 @@ library jazz-next-internal
       JazzNext.Compiler.Driver
       JazzNext.Compiler.FractionalLiteral
       JazzNext.Compiler.ModuleGraph
+      JazzNext.Compiler.ModuleExports
       JazzNext.Compiler.ModuleInterface
       JazzNext.Compiler.ModuleCompiler
       JazzNext.Compiler.ModuleResolver
@@ -119,6 +120,11 @@ test-suite module-resolution-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
+
+test-suite module-exports-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Modules/ModuleExportsSpec.hs
 
 test-suite module-pipeline-contract-spec
   import: test-common
