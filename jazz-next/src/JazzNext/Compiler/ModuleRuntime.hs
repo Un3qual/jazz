@@ -10,6 +10,7 @@ module JazzNext.Compiler.ModuleRuntime
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Text (Text)
 import JazzNext.Compiler.CapabilityFacts (splitQualifiedMethodKey)
 import JazzNext.Compiler.AST
@@ -21,12 +22,20 @@ import JazzNext.Compiler.ModuleGraph
   ( ResolvedImport (..),
     ResolvedModule (resolvedModuleImports, resolvedModulePath)
   )
+import JazzNext.Compiler.ModuleExports
+  ( ModuleExport (..),
+    ModuleImportMode (..),
+    exportInventoryEntries,
+    exportNamesInNamespace,
+    inventoryHasExport,
+    visibleImportInventory
+  )
 import JazzNext.Compiler.ModuleInterface
   ( CompiledModule (..),
     CompiledPrelude (..),
     CompiledProgram (..),
-    ModuleExport (..),
-    ModuleInterface (..)
+    ModuleInterface (..),
+    moduleInterfaceExportInventory
   )
 import JazzNext.Compiler.Name
   ( Name (ResolvedName),
@@ -183,24 +192,33 @@ publishExports origin moduleInterface env =
 
 interfaceExports :: ModuleInterface -> [ModuleExport]
 interfaceExports moduleInterface =
-  Map.keys (interfaceValueTypes moduleInterface)
+  [ export
+    | export <-
+        Set.toList
+          (exportInventoryEntries (moduleInterfaceExportInventory moduleInterface)),
+      moduleExportNamespace export `elem` [ValueNamespace, ConstructorNamespace]
+  ]
     <> map (ModuleExport ValueNamespace) (Map.keys (interfaceClassMethods moduleInterface))
 
 runtimeExportSelected :: ResolvedImport -> ModuleInterface -> ModuleExport -> Bool
 runtimeExportSelected importDecl moduleInterface moduleExport =
-  case Map.lookup exportName (interfaceClassMethods moduleInterface) of
-    Just _
-      | moduleExportNamespace moduleExport == ValueNamespace ->
-          resolvedImportAlias importDecl == Nothing
-            && maybe True classSelected (resolvedImportSymbols importDecl)
-    _ ->
-      maybe True (exportName `elem`) (resolvedImportSymbols importDecl)
+  case splitQualifiedMethodKey (moduleExportName moduleExport) of
+    Just (className, _) ->
+      resolvedImportAlias importDecl == Nothing
+        && Set.member className selectedClassNames
+    Nothing -> inventoryHasExport moduleExport selectedInventory
   where
-    classSelected symbols =
-      case splitQualifiedMethodKey exportName of
-        Just (className, _) -> className `elem` symbols
-        Nothing -> False
-    exportName = moduleExportName moduleExport
+    importMode =
+      case resolvedImportAlias importDecl of
+        Nothing -> UnqualifiedImport
+        Just _ -> QualifiedAliasImport
+    selectedInventory =
+      visibleImportInventory
+        importMode
+        (resolvedImportSymbols importDecl)
+        (moduleInterfaceExportInventory moduleInterface)
+    selectedClassNames =
+      exportNamesInNamespace CapabilityNamespace selectedInventory
 
 lookupExportCell :: ResolvedNameOrigin -> ModuleExport -> RuntimeEnv -> Maybe RuntimeCell
 lookupExportCell origin moduleExport env =

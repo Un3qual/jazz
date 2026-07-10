@@ -3,6 +3,7 @@
 module Main (main) where
 
 import qualified Data.Set as Set
+import qualified Data.Map.Strict as Map
 import JazzNext.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleImportMode (..),
@@ -13,8 +14,17 @@ import JazzNext.Compiler.ModuleExports
     selectorEligibleNames,
     visibleImportInventory
   )
+import JazzNext.Compiler.ModuleInterface
+  ( ModuleInterface (..),
+    emptyModuleInterface,
+    moduleInterfaceExportInventory
+  )
 import JazzNext.Compiler.Name (NameNamespace (..))
 import JazzNext.TestHarness (NamedTest, assertEqual, runTestSuite)
+import JazzNext.Compiler.TypeInference.Types
+  ( ExpressionType (TIntType),
+    TypeBinding (PlainTypeBinding)
+  )
 
 main :: IO ()
 main = runTestSuite "ModuleExports" tests
@@ -26,7 +36,8 @@ tests =
     ("selects every same-text namespace entry", testSelectsSameTextEntries),
     ("filters alias imports to values and constructors", testAliasVisibility),
     ("keeps all namespaces for unqualified imports", testUnqualifiedVisibility),
-    ("finds the first requested namespace deterministically", testFirstNamespace)
+    ("finds the first requested namespace deterministically", testFirstNamespace),
+    ("derives compiled interface exports by namespace", testInterfaceInventory)
   ]
 
 sampleInventory =
@@ -102,3 +113,23 @@ testFirstNamespace =
         "Box"
         sampleInventory
     )
+
+testInterfaceInventory :: IO ()
+testInterfaceInventory =
+  assertEqual
+    "interface inventory"
+    ( Set.fromList
+        [ ModuleExport ValueNamespace "answer",
+          ModuleExport CapabilityNamespace "Eq"
+        ]
+    )
+    (exportInventoryEntries (moduleInterfaceExportInventory interface))
+  where
+    interface =
+      emptyModuleInterface
+        { interfaceValueTypes =
+            Map.singleton
+              (ModuleExport ValueNamespace "answer")
+              (PlainTypeBinding TIntType),
+          interfaceClassFacts = Map.singleton "Eq" 1
+        }

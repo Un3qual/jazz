@@ -26,11 +26,11 @@ import JazzNext.Compiler.Runtime (renderRuntimeValue)
 import JazzNext.Compiler.ModuleInterface
   ( CompiledModule (compiledModuleInterface),
     CompiledProgram (compiledProgramErrors),
-    ModuleExport (..),
     ModuleInterface (interfaceValueTypes),
     emptyCompileInputs,
     lookupCompiledModule
   )
+import JazzNext.Compiler.ModuleExports (ModuleExport (..))
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import JazzNext.Compiler.Name (NameNamespace (ConstructorNamespace, ValueNamespace))
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)

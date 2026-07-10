@@ -84,6 +84,7 @@ capabilitiesTests =
     , ("run module graph rebases imported class method result hints from the class origin", testRunModuleGraphRebasesImportedClassMethodResultHintsFromClassOrigin)
     , ("compile module graph rejects classes that collide with the ambient prelude", testCompileModuleGraphRejectsAmbientClassCollision)
     , ("compile module graph rejects classes that collide with visible imported classes", testCompileModuleGraphRejectsImportedClassCollision)
+    , ("compile module graph does not re-export imported classes", testCompileModuleGraphDoesNotReexportImportedClasses)
   ]
 
 testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules :: IO ()
@@ -1069,6 +1070,42 @@ testCompileModuleGraphRejectsImportedClassCollision = do
           ),
           ( "src/Lib/Facts.jz",
             "module Lib::Facts {\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphDoesNotReexportImportedClasses :: IO ()
+testCompileModuleGraphDoesNotReexportImportedClasses = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [diagnostic] -> do
+      assertContains "non-transitive class code" "E4007" (renderDiagnostic diagnostic)
+      assertContains
+        "non-transitive class export"
+        "import symbol 'Eq' is not exported by module 'Lib::Wrapper'"
+        (renderDiagnostic diagnostic)
+    diagnostics ->
+      failTest
+        ( "expected one non-transitive class export diagnostic, got "
+            <> Text.pack (show (map renderDiagnostic diagnostics))
+        )
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Wrapper (Eq).\nx = 1.\n}"
+          ),
+          ( "src/Lib/Wrapper.jz",
+            "module Lib::Wrapper {\nimport Lib::Facts (Eq).\nwrapper = 0.\n}"
+          ),
+          ( "src/Lib/Facts.jz",
+            "module Lib::Facts {\nclass Eq(a) { }.\n}"
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
