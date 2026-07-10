@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved by the maintainer for implementation planning on `2026-07-09`.
+Implemented and verified on `2026-07-09`.
 
 ## Goal
 

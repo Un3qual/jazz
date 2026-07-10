@@ -1,12 +1,13 @@
 ---
 id: JN-MODULE-TYPED-EXPORT-INVENTORY-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-07-09
+completed_on: 2026-07-09
 plan_section: "Implementation Batch: Typed Module Export Inventory"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/ModuleInterface.hs
@@ -101,7 +102,7 @@ closes the queue row after full verification.
   `selectorEligibleNames`, `selectExportNames`, `visibleImportInventory`,
   `inventoryHasExport`, and `firstExportNamespace`.
 
-- [ ] **Step 1: Add the focused inventory test before the module exists**
+- [x] **Step 1: Add the focused inventory test before the module exists**
 
 Create `ModuleExportsSpec.hs` with this complete test program:
 
@@ -212,7 +213,7 @@ testFirstNamespace =
     )
 ```
 
-- [ ] **Step 2: Run the test and verify the API is absent**
+- [x] **Step 2: Run the test and verify the API is absent**
 
 Run:
 
@@ -223,7 +224,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 Expected: compilation fails because
 `JazzNext.Compiler.ModuleExports` does not exist.
 
-- [ ] **Step 3: Implement the complete shared inventory API**
+- [x] **Step 3: Implement the complete shared inventory API**
 
 Create `ModuleExports.hs` with this implementation:
 
@@ -347,7 +348,7 @@ test-suite module-exports-spec
 Add the new test file immediately before `ModuleResolutionSpec.hs` in the
 `TEST_FILES` array in `jazz-next/scripts/test-warning-config.sh`.
 
-- [ ] **Step 4: Run the inventory suite and verify it passes**
+- [x] **Step 4: Run the inventory suite and verify it passes**
 
 Run:
 
@@ -357,7 +358,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 
 Expected: all six `ModuleExports` tests pass.
 
-- [ ] **Step 5: Commit the shared API and focused test**
+- [x] **Step 5: Commit the shared API and focused test**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/ModuleExports.hs jazz-next/test/JazzNext/Compiler/Modules/ModuleExportsSpec.hs jazz-next/jazz-next.cabal jazz-next/scripts/test-warning-config.sh
@@ -385,7 +386,7 @@ git commit -m "refactor: add typed module export inventory"
   derives ordinary and class-method runtime export visibility from the same
   selected inventory.
 
-- [ ] **Step 1: Add a non-transitive class-export characterization test**
+- [x] **Step 1: Add a non-transitive class-export characterization test**
 
 Add this entry to `capabilitiesTests`:
 
@@ -433,7 +434,7 @@ testCompileModuleGraphDoesNotReexportImportedClasses = do
     lookupSource path = pure (Map.lookup path sourceMap)
 ```
 
-- [ ] **Step 2: Run the loader suite as the pre-refactor characterization**
+- [x] **Step 2: Run the loader suite as the pre-refactor characterization**
 
 Run:
 
@@ -444,7 +445,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 Expected: the new non-transitive test and all existing capability-import tests
 pass before the structural refactor.
 
-- [ ] **Step 3: Move `ModuleExport` and derive interface inventory**
+- [x] **Step 3: Move `ModuleExport` and derive interface inventory**
 
 Remove the local `ModuleExport` declaration and export from
 `ModuleInterface.hs`, then import it from `JazzNext.Compiler.ModuleExports`.
@@ -477,7 +478,7 @@ In `ModuleRuntime.hs` and `ModulePipelineContractSpec.hs`, remove
 import JazzNext.Compiler.ModuleExports (ModuleExport (..))
 ```
 
-- [ ] **Step 4: Replace compiler-local selection policy with inventory queries**
+- [x] **Step 4: Replace compiler-local selection policy with inventory queries**
 
 In `ModuleCompiler.hs`, import:
 
@@ -520,7 +521,7 @@ Leave `importedDataTypes` populated under qualified internal keys exactly as it
 is today. Keep `selectedCapabilities`, `factUsesClass`, and `methodUsesClass`,
 but feed them only `selectedClassNames` from the inventory.
 
-- [ ] **Step 5: Route runtime export selection through the inventory**
+- [x] **Step 5: Route runtime export selection through the inventory**
 
 In `ModuleRuntime.hs`, import `qualified Data.Set as Set`, import
 `moduleInterfaceExportInventory`, and extend the `ModuleExports` import to:
@@ -577,7 +578,7 @@ runtimeExportSelected importDecl moduleInterface moduleExport =
 This keeps class method runtime cells attached to selected capability exports
 without presenting `Class::method` as a separately selectable import symbol.
 
-- [ ] **Step 6: Run focused compiled-interface verification**
+- [x] **Step 6: Run focused compiled-interface verification**
 
 Run:
 
@@ -591,7 +592,7 @@ Expected: both suites pass, including explicit class method dispatch, hidden
 impl isolation, imported class origins, alias-hidden classes, and the new
 non-transitive export test.
 
-- [ ] **Step 7: Commit compiled-interface migration**
+- [x] **Step 7: Commit compiled-interface migration**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/ModuleInterface.hs jazz-next/src/JazzNext/Compiler/ModuleCompiler.hs jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs jazz-next/test/JazzNext/Compiler/Modules/Loader/CapabilitiesTests.hs jazz-next/test/JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs
@@ -613,7 +614,7 @@ git commit -m "refactor: select module interfaces through export inventory"
   `resolvedExportInventoriesState` map for the graph; import validation and
   core-name resolution query these inventories.
 
-- [ ] **Step 1: Add resolver characterization cases**
+- [x] **Step 1: Add resolver characterization cases**
 
 Add these entries to the `tests` list in `ModuleResolutionSpec.hs`:
 
@@ -699,7 +700,7 @@ testKeepsRepeatedClassImportsIdempotent = do
 Add `assertLeftDiagnosticCodeAndContains` to the existing `JazzNext.TestHarness`
 import list.
 
-- [ ] **Step 2: Run resolver characterization before migration**
+- [x] **Step 2: Run resolver characterization before migration**
 
 Run:
 
@@ -709,7 +710,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 
 Expected: all existing and new resolver behavior tests pass.
 
-- [ ] **Step 3: Add an architecture guard that fails on parallel state fields**
+- [x] **Step 3: Add an architecture guard that fails on parallel state fields**
 
 Append this check beside the existing module-architecture guards in
 `jazz-next/scripts/test-warning-config.sh`:
@@ -730,7 +731,7 @@ bash jazz-next/scripts/test-warning-config.sh
 Expected: failure with `ModuleResolver still carries parallel namespace export
 inventories` before the resolver refactor.
 
-- [ ] **Step 4: Replace parsed and resolved parallel maps with one inventory**
+- [x] **Step 4: Replace parsed and resolved parallel maps with one inventory**
 
 Add `import Data.Maybe (fromMaybe)` and this Task 1 API import in
 `ModuleResolver.hs`:
@@ -800,7 +801,7 @@ Set.union
   (exportNamesInNamespace ConstructorNamespace inventory)
 ```
 
-- [ ] **Step 5: Route name resolution through inventories**
+- [x] **Step 5: Route name resolution through inventories**
 
 Change `resolveCoreModuleNames` to receive the current module inventory and
 `Map [Text] ModuleExportInventory`. Use this helper for every non-aliased
@@ -837,7 +838,7 @@ fromMaybe fallbackNamespace
 Use `exportNamesInNamespace` over the current inventory for local-name and
 class-origin checks.
 
-- [ ] **Step 6: Route import validation through the same inventory**
+- [x] **Step 6: Route import validation through the same inventory**
 
 Change `validateImportBindings` to accept only
 `Map [Text] ModuleExportInventory` for dependency exports. For each import:
@@ -869,7 +870,7 @@ Use `eligibleImportNames` for `E4007` and `E4008`. Use
 or type names, for existing `E4011` and `E4012` free-value reference checks.
 Keep all existing diagnostic constructors and their span/origin data unchanged.
 
-- [ ] **Step 7: Run resolver, loader, and architecture verification**
+- [x] **Step 7: Run resolver, loader, and architecture verification**
 
 Run:
 
@@ -884,7 +885,7 @@ bash jazz-next/scripts/test-warning-config.sh
 Expected: all focused suites and the full warning-config harness pass; the
 parallel-state architecture guard prints nothing.
 
-- [ ] **Step 8: Commit resolver migration**
+- [x] **Step 8: Commit resolver migration**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/ModuleResolver.hs jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs jazz-next/scripts/test-warning-config.sh
@@ -912,7 +913,7 @@ git commit -m "refactor: unify module resolver export inventory"
 - Produces: normative typed export documentation, current feature evidence,
   completed child metadata, and a terminal queue state with no stale candidate.
 
-- [ ] **Step 1: Align the normative import inventory contract**
+- [x] **Step 1: Align the normative import inventory contract**
 
 Replace the current value-only export inventory text in
 `04-qualified-imports-and-binding.md` with a namespace table containing these
@@ -932,7 +933,7 @@ classes. Preserve the existing import truth table and add rows for explicit
 class selection, hidden class selection, alias-hidden classes, and repeated
 class imports.
 
-- [ ] **Step 2: Refresh current architecture evidence**
+- [x] **Step 2: Refresh current architecture evidence**
 
 Update the module/import row in `docs/feature-status.md` to name
 `ModuleExports.hs` and `ModuleExportsSpec.hs`, and state that resolver and
@@ -943,7 +944,7 @@ complete with the final verification date. Change the design spec status to
 `Implemented and verified on 2026-07-09` only after every verification command
 below passes.
 
-- [ ] **Step 3: Close the execution metadata atomically**
+- [x] **Step 3: Close the execution metadata atomically**
 
 After product and docs verification passes:
 
@@ -959,7 +960,7 @@ After product and docs verification passes:
 6. Do not promote default methods, superclasses, alias-qualified classes,
    re-exports, orphan/overlap behavior, or any other follow-up from this child.
 
-- [ ] **Step 4: Run the complete verification ladder**
+- [x] **Step 4: Run the complete verification ladder**
 
 Run:
 
@@ -977,7 +978,7 @@ git diff --check
 Expected: all focused module suites, the full `jazz-next` harness, queue/docs
 validators, and whitespace validation pass.
 
-- [ ] **Step 5: Review the final diff against the design constraints**
+- [x] **Step 5: Review the final diff against the design constraints**
 
 Run:
 
@@ -991,7 +992,7 @@ Expected: the diff is limited to the declared product/test/docs surfaces;
 `git diff --check` is silent; the scope scan finds no new alias-qualified class
 syntax, re-export implementation, default methods, or superclasses.
 
-- [ ] **Step 6: Commit verified closeout metadata**
+- [x] **Step 6: Commit verified closeout metadata**
 
 ```bash
 git add docs/spec/modules/04-qualified-imports-and-binding.md docs/feature-status.md docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md docs/superpowers/specs/2026-07-09-jazz-next-typed-module-export-inventory-design.md docs/plans/2026-07-09-jazz-next-typed-module-export-inventory.md docs/execution/blocker-contracts.md docs/execution/queue.md docs/execution/done-archive.md

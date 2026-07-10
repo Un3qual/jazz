@@ -36,20 +36,20 @@ Each blocked item should answer these questions:
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
-- Smallest unblocker: the cross-cutting typed module export inventory child is
-  accepted under module ownership as
+- Smallest unblocker: none currently. The cross-cutting typed module export
+  inventory landed under module ownership as
   `JN-MODULE-TYPED-EXPORT-INVENTORY-001`; there is no separate abstraction
   child to promote.
 - Decision needed: none for that child. Preserve current non-aliased class
   capability imports, alias-hidden capabilities, class-attached impl payloads,
   and non-transitive module boundaries.
-- Recommended default: execute the module-owned typed inventory child only.
-  Keep user-visible dictionaries, dictionary optimization, default methods,
+- Recommended default: keep the landed typed inventory behavior. Keep
+  user-visible dictionaries, dictionary optimization, default methods,
   superclasses, new bundled method families, alias-qualified classes,
   re-exports, and new impl policy blocked behind separate contracts.
 - Candidate child: none currently.
-- Target paths: owned by `JN-MODULE-TYPED-EXPORT-INVENTORY-001`; no independent
-  abstraction paths are open.
+- Target paths: not set; no independent abstraction paths are open after the
+  typed inventory child landed.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: re-promoting completed bundled `Eq(Int).equals`,
@@ -57,7 +57,7 @@ Each blocked item should answer these questions:
   `Eq(Float32).equals`, or `Eq(Float64).equals` work; unqualified overloads,
   dictionary passing/optimization, default methods, superclasses, non-alias
   overlap/orphan behavior, alias-qualified classes, re-exports, or any method
-  visibility expansion beyond the accepted typed inventory contract.
+  visibility expansion beyond the landed typed inventory contract.
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
 
@@ -174,25 +174,24 @@ Each blocked item should answer these questions:
 
 ### JN-MODULE-REBASE-PLAN-001
 
-- Smallest unblocker: implement the accepted namespace-aware export inventory
-  refactor in `JN-MODULE-TYPED-EXPORT-INVENTORY-001`.
-- Decision needed: none. The maintainer accepted existing behavior: bare and
-  explicit non-alias imports expose selected class capability units; alias
+- Smallest unblocker: none currently. The namespace-aware export inventory
+  refactor landed as `JN-MODULE-TYPED-EXPORT-INVENTORY-001`.
+- Decision needed: none. The landed behavior keeps bare and explicit non-alias
+  imports exposing selected class capability units; alias
   imports expose no capabilities; imported classes are not re-exported.
-- Recommended default: execute exactly the typed inventory plan and preserve
-  the current syntax and `E4007`-`E4014` diagnostic contract.
-- Candidate child: `JN-MODULE-TYPED-EXPORT-INVENTORY-001`.
-- Target paths: `jazz-next/src/JazzNext/Compiler/ModuleInterface.hs`,
-  `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`,
-  `jazz-next/src/JazzNext/Compiler/ModuleCompiler.hs`,
-  `jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs`, module resolver/loader/
-  pipeline tests, Cabal/test harness metadata, and the linked module
-  specification.
+- Recommended default: preserve the completed typed inventory, current syntax,
+  and `E4007`-`E4014` diagnostic contract until a separate source-backed module
+  behavior contract is accepted.
+- Candidate child: none currently.
+- Target paths: not set until a separate module behavior contract is accepted.
 - Verification: focused `ModuleExportsSpec.hs`,
   `ModulePipelineContractSpec.hs`, `ModuleResolutionSpec.hs`, and `LoaderSpec.hs`;
   `bash jazz-next/scripts/test-warning-config.sh`;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.
+- Landed evidence: `ModuleExports.hs` now owns the typed inventory used by
+  resolver, compiled-interface, and runtime selection; focused and full
+  verification passed on `2026-07-09`.
 - Not in scope: new import or export syntax, re-exports, alias-qualified
   classes, separate impl imports, orphan/overlap policy, default methods,
   superclasses, new prelude/catalog API, public builtin fallback in no-prelude
