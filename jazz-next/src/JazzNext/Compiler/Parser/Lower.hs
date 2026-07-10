@@ -1,10 +1,16 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Lowers parser-surface nodes into the smaller core AST consumed by later
 -- compiler phases.
 module JazzNext.Compiler.Parser.Lower
-  ( lowerSurfaceExpr
+  ( lowerSurfaceExpr,
+    lowerSurfaceModule
   ) where
 
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Text as Text
+import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
@@ -40,11 +46,145 @@ import JazzNext.Compiler.Parser.AST
     SurfaceSignatureType (..),
     SurfaceStatement (..)
   )
-import JazzNext.Compiler.Identifier
-  ( mkIdentifier,
-    mkQualifiedIdentifier,
-    identifierText
+import JazzNext.Compiler.Name
+  ( GeneratedNameKind (..),
+    generatedName,
+    identifierText,
+    isOperatorBindingIdentifierText,
+    mkIdentifier,
+    operatorBindingNameFromIdentifier,
+    qualifiedName,
+    sourceName
   )
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    mkDiagnostic,
+    qualifySourceSpan
+  )
+import JazzNext.Compiler.ModuleGraph
+  ( CoreModule (..),
+    ResolvedImport (..)
+  )
+
+-- | Validate and lower one parsed module exactly once. Module/import forms are
+-- retained as graph metadata and removed from the executable core scope.
+lowerSurfaceModule :: FilePath -> [Text] -> SurfaceExpr -> Either Diagnostic CoreModule
+lowerSurfaceModule sourcePath expectedPath surfaceExpr = do
+  declaredPath <- validateDeclaredPath
+  pure
+    CoreModule
+      { coreModuleDeclaredPath = declaredPath,
+        coreModuleImports = imports,
+        coreModuleExpr = qualifyExprSourceSpans sourcePath loweredBody
+      }
+  where
+    statements =
+      case surfaceExpr of
+        SEBlock moduleStatements -> moduleStatements
+        _ -> []
+
+    declarations =
+      [ modulePath
+        | SSModule _ modulePath <- statements
+      ]
+
+    imports =
+      [ ResolvedImport
+          { resolvedImportSpan = qualifySourceSpan sourcePath spanValue,
+            resolvedImportPath = modulePath,
+            resolvedImportAlias = alias,
+            resolvedImportSymbols = importedSymbols
+          }
+        | SSImport spanValue modulePath alias importedSymbols <- statements
+      ]
+
+    executableStatements =
+      [ statement
+        | statement <- statements,
+          case statement of
+            SSModule {} -> False
+            SSImport {} -> False
+            _ -> True
+      ]
+
+    loweredBody =
+      case surfaceExpr of
+        SEBlock _ -> EBlock (map lowerSurfaceStatement executableStatements)
+        _ -> lowerSurfaceExpr surfaceExpr
+
+    validateDeclaredPath =
+      case declarations of
+        [] -> Right Nothing
+        [declaredPath]
+          | declaredPath == expectedPath -> Right (Just declaredPath)
+          | otherwise ->
+              Left
+                ( mkDiagnostic
+                    "E4006"
+                    ( "module declaration mismatch at '"
+                        <> Text.pack sourcePath
+                        <> "': expected '"
+                        <> renderModulePath expectedPath
+                        <> "', found '"
+                        <> renderModulePath declaredPath
+                        <> "'"
+                    )
+                )
+        declaredPaths ->
+          Left
+            ( mkDiagnostic
+                "E4005"
+                ( "multiple module declarations in '"
+                    <> Text.pack sourcePath
+                    <> "': "
+                    <> Text.intercalate ", " (map renderModulePath declaredPaths)
+                )
+            )
+
+    renderModulePath = Text.intercalate "::"
+
+qualifyExprSourceSpans :: FilePath -> Expr -> Expr
+qualifyExprSourceSpans sourcePath expr =
+  case expr of
+    ELit literal -> ELit literal
+    EVar name -> EVar name
+    ELambda parameter body -> ELambda parameter (go body)
+    EOperatorValue symbol -> EOperatorValue symbol
+    EList items -> EList (map go items)
+    ETuple items -> ETuple (map go items)
+    EApply function argument -> EApply (go function) (go argument)
+    ETypeApplication function signatureType -> ETypeApplication (go function) signatureType
+    EIf condition trueBranch falseBranch -> EIf (go condition) (go trueBranch) (go falseBranch)
+    EPatternCase scrutinee arms -> EPatternCase (go scrutinee) (map qualifyCaseArm arms)
+    EBinary symbol left right -> EBinary symbol (go left) (go right)
+    ESectionLeft left symbol -> ESectionLeft (go left) symbol
+    ESectionRight symbol right -> ESectionRight symbol (go right)
+    EBlock statements -> EBlock (map qualifyStatement statements)
+  where
+    go = qualifyExprSourceSpans sourcePath
+    qualifySpan = qualifySourceSpan sourcePath
+
+    qualifyCaseArm (CaseArm patternValue guardExpr bodyExpr) =
+      CaseArm patternValue (fmap go guardExpr) (go bodyExpr)
+
+    qualifyClassMethod (ClassMethodSignature name spanValue payload) =
+      ClassMethodSignature name (qualifySpan spanValue) payload
+
+    qualifyImplMethod (ImplMethod name spanValue bodyExpr) =
+      ImplMethod name (qualifySpan spanValue) (go bodyExpr)
+
+    qualifyStatement statement =
+      case statement of
+        SLet name spanValue valueExpr -> SLet name (qualifySpan spanValue) (go valueExpr)
+        SSignature name spanValue payload -> SSignature name (qualifySpan spanValue) payload
+        SData spanValue name parameters constructors -> SData (qualifySpan spanValue) name parameters constructors
+        SClass spanValue name parameters methods ->
+          SClass (qualifySpan spanValue) name parameters (map qualifyClassMethod methods)
+        SImpl spanValue name arguments methods ->
+          SImpl (qualifySpan spanValue) name arguments (map qualifyImplMethod methods)
+        SModule spanValue path -> SModule (qualifySpan spanValue) path
+        SImport spanValue path alias symbols -> SImport (qualifySpan spanValue) path alias symbols
+        SExpr spanValue valueExpr -> SExpr (qualifySpan spanValue) (go valueExpr)
 
 -- | Convert parser-surface nodes into core nodes while preserving statement
 -- source spans. Expression constructors like `ELit`, `EVar`, `EApply`, and
@@ -54,9 +194,9 @@ lowerSurfaceExpr :: SurfaceExpr -> Expr
 lowerSurfaceExpr surfaceExpr =
   case surfaceExpr of
     SELit literal -> ELit (lowerSurfaceLiteral literal)
-    SEVar name -> EVar name
+    SEVar name -> EVar (sourceName name)
     SEQualifiedVar qualifier member ->
-      EVar (mkQualifiedIdentifier (identifierText qualifier) (identifierText member))
+      EVar (qualifiedName qualifier member)
     SELambda parameters bodyExpr ->
       lowerSurfaceLambda parameters bodyExpr
     SEOperatorValue operatorSymbol -> EOperatorValue operatorSymbol
@@ -77,6 +217,11 @@ lowerSurfaceExpr surfaceExpr =
       EPatternCase
         (lowerSurfaceExpr scrutineeExpr)
         (map lowerSurfaceCaseArm caseArms)
+    SEBinary operatorSymbol functionExpr argumentExpr
+      | operatorSymbol == Text.pack "$" ->
+          EApply
+            (lowerSurfaceExpr functionExpr)
+            (lowerSurfaceExpr argumentExpr)
     SEBinary operatorSymbol leftExpr rightExpr ->
       EBinary
         operatorSymbol
@@ -88,27 +233,22 @@ lowerSurfaceExpr surfaceExpr =
       ESectionRight operatorSymbol (lowerSurfaceExpr rightExpr)
     SEBlock statements -> EBlock (map lowerSurfaceStatement statements)
 
-lowerSurfaceLambda :: [SurfaceLambdaParameter] -> SurfaceExpr -> Expr
+lowerSurfaceLambda :: NonEmpty SurfaceLambdaParameter -> SurfaceExpr -> Expr
 lowerSurfaceLambda parameters bodyExpr =
-  case parameters of
-    [] ->
-      error
-        ( "internal lowering error: empty lambda parameter list in lowerSurfaceLambda for body "
-            ++ show bodyExpr
-        )
-    _ ->
-      foldr lowerParameter (lowerSurfaceExpr bodyExpr) (zip [1 :: Int ..] parameters)
+  foldr
+    lowerParameter
+    (lowerSurfaceExpr bodyExpr)
+    (zip [1 :: Int ..] (NonEmpty.toList parameters))
   where
     lowerParameter (_, SurfaceLambdaIdentifier parameterName) loweredBody =
-      ELambda parameterName loweredBody
+      ELambda (sourceName parameterName) loweredBody
     lowerParameter (parameterIndex, SurfaceLambdaPattern parameterPattern) loweredBody =
-      let generatedName =
-            mkIdentifier
-              (Text.pack "$lambda_pattern_arg_" <> Text.pack (show parameterIndex))
+      let parameterName =
+            generatedName (LambdaPatternArgument parameterIndex)
        in ELambda
-            generatedName
+            parameterName
             ( EPatternCase
-                (EVar generatedName)
+                (EVar parameterName)
                 [CaseArm (lowerSurfacePattern parameterPattern) Nothing loweredBody]
             )
 
@@ -126,10 +266,10 @@ lowerSurfacePattern :: SurfacePattern -> Pattern
 lowerSurfacePattern surfacePattern =
   case surfacePattern of
     SPWildcard -> PWildcard
-    SPVariable name -> PVariable name
+    SPVariable name -> PVariable (sourceName name)
     SPLiteral literal -> PLiteral (lowerSurfaceLiteral literal)
     SPConstructor name patterns ->
-      PConstructor name (map lowerSurfacePattern patterns)
+      PConstructor (sourceName name) (map lowerSurfacePattern patterns)
     SPList patterns ->
       PList (map lowerSurfacePattern patterns)
     SPConsList headPattern tailPattern ->
@@ -137,7 +277,7 @@ lowerSurfacePattern surfacePattern =
     SPTuple patterns ->
       PTuple (map lowerSurfacePattern patterns)
     SPAs name pattern ->
-      PAs name (lowerSurfacePattern pattern)
+      PAs (sourceName name) (lowerSurfacePattern pattern)
     SPOr patterns ->
       POr (map lowerSurfacePattern patterns)
 
@@ -153,17 +293,17 @@ lowerSurfaceStatement :: SurfaceStatement -> Statement
 lowerSurfaceStatement surfaceStatement =
   case surfaceStatement of
     SSLet name spanValue valueExpr ->
-      SLet name spanValue (lowerSurfaceExpr valueExpr)
+      SLet (lowerBindingName name) spanValue (lowerSurfaceExpr valueExpr)
     SSSignature name spanValue signaturePayload ->
-      SSignature name spanValue (lowerSurfaceSignaturePayload signaturePayload)
+      SSignature (lowerBindingName name) spanValue (lowerSurfaceSignaturePayload signaturePayload)
     SSData spanValue typeName typeParameters constructors ->
-      SData spanValue typeName typeParameters (map lowerSurfaceDataConstructor constructors)
+      SData spanValue (sourceName typeName) (map sourceName typeParameters) (map lowerSurfaceDataConstructor constructors)
     SSClass spanValue capabilityName parameters methods ->
-      SClass spanValue capabilityName parameters (map lowerSurfaceClassMethodSignature methods)
+      SClass spanValue (sourceName capabilityName) (map sourceName parameters) (map lowerSurfaceClassMethodSignature methods)
     SSImpl spanValue capabilityName arguments methods ->
       SImpl
         spanValue
-        capabilityName
+        (sourceName capabilityName)
         (map lowerSurfaceConstrainedSignatureType arguments)
         (map lowerSurfaceImplMethod methods)
     SSModule spanValue modulePath ->
@@ -175,11 +315,11 @@ lowerSurfaceStatement surfaceStatement =
 
 lowerSurfaceClassMethodSignature :: SurfaceClassMethodSignature -> ClassMethodSignature
 lowerSurfaceClassMethodSignature (SurfaceClassMethodSignature methodName spanValue signaturePayload) =
-  ClassMethodSignature methodName spanValue (lowerSurfaceSignaturePayload signaturePayload)
+  ClassMethodSignature (sourceName methodName) spanValue (lowerSurfaceSignaturePayload signaturePayload)
 
 lowerSurfaceImplMethod :: SurfaceImplMethod -> ImplMethod
 lowerSurfaceImplMethod (SurfaceImplMethod methodName spanValue methodExpr) =
-  ImplMethod methodName spanValue (lowerSurfaceExpr methodExpr)
+  ImplMethod (sourceName methodName) spanValue (lowerSurfaceExpr methodExpr)
 
 lowerSurfaceSignaturePayload :: SurfaceSignaturePayload -> SignaturePayload
 lowerSurfaceSignaturePayload surfaceSignaturePayload =
@@ -198,16 +338,16 @@ lowerSurfaceSignaturePayload surfaceSignaturePayload =
 lowerSurfaceSignatureConstraint :: SurfaceSignatureConstraint -> SignatureConstraint
 lowerSurfaceSignatureConstraint (SurfaceSignatureConstraint constraintName constraintArguments) =
   SignatureConstraint
-    constraintName
+    (sourceName constraintName)
     (map lowerSurfaceConstrainedSignatureType constraintArguments)
 
 lowerSurfaceConstrainedSignatureType :: SurfaceConstrainedSignatureType -> ConstraintSignatureType
 lowerSurfaceConstrainedSignatureType signatureType =
   case signatureType of
     SurfaceConstrainedTypeName name ->
-      ConstraintTypeName name
+      ConstraintTypeName (sourceName name)
     SurfaceConstrainedTypeApplication name arguments ->
-      ConstraintTypeApplication name (map lowerSurfaceConstrainedSignatureType arguments)
+      ConstraintTypeApplication (sourceName name) (map lowerSurfaceConstrainedSignatureType arguments)
     SurfaceConstrainedTypeList innerType ->
       ConstraintTypeList (lowerSurfaceConstrainedSignatureType innerType)
     SurfaceConstrainedTypeTuple elementTypes ->
@@ -251,7 +391,7 @@ lowerSurfaceNumericType surfaceNumericType =
 lowerSurfaceSignatureToken :: SurfaceSignatureToken -> SignatureToken
 lowerSurfaceSignatureToken surfaceSignatureToken =
   case surfaceSignatureToken of
-    SurfaceSignatureNameToken name -> SignatureNameToken name
+    SurfaceSignatureNameToken name -> SignatureNameToken (sourceName (mkIdentifier name))
     SurfaceSignatureIntToken value -> SignatureIntToken value
     SurfaceSignatureArrowToken -> SignatureArrowToken
     SurfaceSignatureAtToken -> SignatureAtToken
@@ -268,12 +408,17 @@ lowerSurfaceSignatureToken surfaceSignatureToken =
 
 lowerSurfaceDataConstructor :: SurfaceDataConstructor -> DataConstructor
 lowerSurfaceDataConstructor (SurfaceDataConstructor constructorName constructorArguments) =
-  DataConstructor constructorName (map lowerSurfaceDataConstructorArgument constructorArguments)
+  DataConstructor (sourceName constructorName) (map lowerSurfaceDataConstructorArgument constructorArguments)
 
 lowerSurfaceDataConstructorArgument :: SurfaceDataConstructorArgument -> DataConstructorArgument
 lowerSurfaceDataConstructorArgument surfaceArgument =
   case surfaceArgument of
     SurfaceDataConstructorArgumentName argumentName ->
-      DataConstructorArgumentName argumentName
+      DataConstructorArgumentName (sourceName argumentName)
     SurfaceDataConstructorArgumentOpaque ->
       DataConstructorArgumentOpaque
+
+lowerBindingName name
+  | isOperatorBindingIdentifierText (identifierText name) =
+      operatorBindingNameFromIdentifier name
+  | otherwise = sourceName name

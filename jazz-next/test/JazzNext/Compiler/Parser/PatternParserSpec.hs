@@ -31,14 +31,23 @@ import JazzNext.TestHarness
   )
 
 main :: IO ()
-main = runTestSuite "PatternParser" tests
+main = runTestSuite "PatternGrammar" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("parses case-arm pattern tokens and preserves remainder", testParsesCaseArmPatternTokens),
+  [ ("parses Unit case-arm pattern tokens", testParsesUnitCaseArmPatternTokens),
+    ("parses case-arm pattern tokens and preserves remainder", testParsesCaseArmPatternTokens),
     ("parses lambda parameter tokens", testParsesLambdaParameterTokens),
     ("rejects fractional literal patterns", testRejectsFractionalLiteralPatterns)
   ]
+
+testParsesUnitCaseArmPatternTokens :: IO ()
+testParsesUnitCaseArmPatternTokens = do
+  tokens <- lexSource "() -> body"
+  assertEqual
+    "Unit case-arm pattern"
+    (Right (SPTuple [], [TArrow, TIdentifier "body"]))
+    (fmap (fmap tokenKinds) (parseCaseArmPatternTokens tokens))
 
 testParsesCaseArmPatternTokens :: IO ()
 testParsesCaseArmPatternTokens = do

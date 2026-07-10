@@ -5,6 +5,7 @@
 module JazzNext.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
+    isImmediatelyAfter,
     tokenize
   ) where
 
@@ -19,7 +20,8 @@ import qualified Data.Text.Read as TextRead
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan (..),
-    mkDiagnostic
+    mkDiagnostic,
+    renderSourceSpan
   )
 import JazzNext.Compiler.Parser.Operator
   ( isStage2OperatorSymbolChar
@@ -77,6 +79,12 @@ data Token = Token
     tokenSpan :: SourceSpan
   }
   deriving (Eq, Ord, Show)
+
+isImmediatelyAfter :: Token -> Token -> Bool
+isImmediatelyAfter leftToken rightToken =
+  spanLine (tokenSpan leftToken) == spanLine (tokenSpan rightToken)
+    && spanColumn (tokenSpan rightToken)
+      == spanColumn (tokenSpan leftToken) + Text.length (tokenLexeme leftToken)
 
 data LexerError = LexerError Text
   deriving (Eq, Ord, Show)
@@ -284,8 +292,7 @@ firstCustomLexerError bundle =
 -- | Render a compact source position for lexer diagnostics before full span
 -- rendering is available at this phase.
 renderSpanValue :: SourceSpan -> Text
-renderSpanValue (SourceSpan line column) =
-  Text.pack (show line) <> ":" <> Text.pack (show column)
+renderSpanValue = renderSourceSpan
 
 parseIntegerLiteral :: SourceSpan -> Text -> LexerParser Integer
 parseIntegerLiteral spanValue digits =

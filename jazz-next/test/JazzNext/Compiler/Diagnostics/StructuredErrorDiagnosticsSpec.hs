@@ -21,7 +21,8 @@ main = runTestSuite "StructuredErrorDiagnostics" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("rendered diagnostics include code, primary span, and related span", testRenderDiagnosticWithPrimaryAndRelatedSpans)
+  [ ("rendered diagnostics include code, primary span, and related span", testRenderDiagnosticWithPrimaryAndRelatedSpans),
+    ("rendered diagnostics include source-qualified spans", testRenderDiagnosticWithSourceQualifiedSpans)
   ]
 
 testRenderDiagnosticWithPrimaryAndRelatedSpans :: IO ()
@@ -40,3 +41,16 @@ testRenderDiagnosticWithPrimaryAndRelatedSpans = do
   assertContains "rendered error code" "E1010" rendered
   assertContains "rendered primary span" "2:1" rendered
   assertContains "rendered related span" "1:1" rendered
+
+testRenderDiagnosticWithSourceQualifiedSpans :: IO ()
+testRenderDiagnosticWithSourceQualifiedSpans = do
+  let rendered =
+        renderDiagnostic $
+          setDiagnosticRelatedSpan
+            (SourceSpanIn "src/Lib/Bad.jz" 2 1)
+            ( setDiagnosticPrimarySpan
+                (SourceSpanIn "src/Lib/Bad.jz" 1 1)
+                (mkDiagnostic "E2005" "binding 'x' declared as Int but inferred as Bool")
+            )
+  assertContains "source-qualified primary span" "src/Lib/Bad.jz:1:1" rendered
+  assertContains "source-qualified related span" "related src/Lib/Bad.jz:2:1" rendered

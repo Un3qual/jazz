@@ -17,9 +17,10 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)
   )
-import JazzNext.Compiler.Identifier
-  ( Identifier,
-    mkIdentifier
+import JazzNext.Compiler.Name
+  ( Name,
+    mkIdentifier,
+    sourceName
   )
 import JazzNext.Compiler.RecursiveBindings
   ( collectBindingNames,
@@ -246,8 +247,8 @@ testInferSelfRecursiveBindingsIsParameterized = do
         ELambda {} -> True
         _ -> False
 
-ident :: Text -> Identifier
-ident = mkIdentifier
+ident :: Text -> Name
+ident = sourceName . mkIdentifier
 
 span0 :: SourceSpan
 span0 = SourceSpan 1 1

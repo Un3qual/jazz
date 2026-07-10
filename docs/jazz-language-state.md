@@ -33,6 +33,14 @@ tracked by `docs/feature-status.md`, the runtime/semantic specs, and the
 execution queue. The older `jazz-hs` compiler remains useful historical
 evidence, but its parse-only behavior is not an active implementation target.
 
+The active compiler uses one surface-parser ownership model and a canonical core
+with `EIf`, `EPatternCase`, and ordinary application nodes. Module-graph mode
+parses and lowers every source once, resolves structured names into a retained
+dependency-ordered graph, compiles each module against explicit interfaces, and
+evaluates each module against explicit runtime exports. The implementation is a
+private Haskell library behind the supported `jazz-next` CLI; these internal
+boundaries do not change Jazz syntax.
+
 ## What The Top-Level README Claims
 
 The top-level [README](../README.md) describes Jazz as:
@@ -388,7 +396,7 @@ But there are multiple mismatches with the active parser:
 
 - the parser recognizes `class`, not `trait`
 - the parser's `impl` syntax expects constraint syntax like `@{...}:`, while the prelude often uses simpler `impl Num(Int) { ... }`
-- the active compiler does not auto-load this prelude
+- the legacy compiler did not auto-load this prelude
 - much of the functionality implied by the prelude is not wired into code generation or analysis
 
 Best interpretation: `Prelude.jz` captures intended future language/library design more than current executable behavior.
@@ -484,7 +492,7 @@ Based on the full repo, these areas still require implementation convergence eve
 - Tuple literals, concrete tuple signature types, fixed-arity tuple case
   patterns, cons-like list case patterns, and pattern-shaped lambda parameters
   are now active core runtime/type features in `jazz-next`.
-- Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit symbol-list visibility diagnostics, alias-import unqualified visibility diagnostics, `Alias::symbol` qualified alias lookup, default bundled-prelude module graph driver helpers, explicit no-prelude module graph ownership checks, and deterministic resolver/binding diagnostics now work in the active parser/CLI path. The baseline clarification matrix is tracked in `docs/spec/modules/00-module-clarification-matrix.md`; module file layout/package-root behavior, deterministic resolution/cycle behavior, loader pipeline behavior, qualified import/name-binding semantics, and migration/compatibility policy are specified in `docs/spec/modules/01-file-layout-and-package-roots.md`, `docs/spec/modules/02-resolution-algorithm-and-cycles.md`, `docs/spec/modules/03-loader-behavior-and-diagnostics.md`, `docs/spec/modules/04-qualified-imports-and-binding.md`, and `docs/spec/modules/05-migration-and-compatibility.md`. The active file-layout parser/resolver, resolution/import-binding, and loader/migration harnesses are now locked in `jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs`, `jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs`, `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`, and `jazz-next/test/JazzNext/CLI/CLISpec.hs`; no active Phase 6 module harness row remains in `Ready Now`.
+- Module/import loading semantics are partially implemented in `jazz-next`: canonical brace-bodied module declarations, alias/symbol-list imports, explicit visibility diagnostics, and `Alias::symbol` lookup now flow through a parse-once resolved graph, per-module compile interfaces, and per-module runtime exports. Default bundled-prelude and explicit no-prelude ownership checks remain covered, as do deterministic resolver/binding diagnostics. The baseline clarification matrix is tracked in `docs/spec/modules/00-module-clarification-matrix.md`; the active contracts are specified in `docs/spec/modules/01-file-layout-and-package-roots.md` through `docs/spec/modules/05-migration-and-compatibility.md`. The parser/resolver, module-pipeline, loader, and CLI harnesses are locked in `ModuleImportParserSpec.hs`, `ModuleResolutionSpec.hs`, `ModulePipelineContractSpec.hs`, `LoaderSpec.hs`, and `CLISpec.hs`; no active Phase 6 module harness row remains in `Ready Now`.
 - Whether ADTs and pattern matching are central in the current design or just inherited scaffolding.
 - Which non-JavaScript product backend, if any, should exist beyond interpreter-backed execution.
 
@@ -503,7 +511,7 @@ If you need a practical baseline for continuing Jazz, use this order:
    - canonical lambdas with lexical closure runtime support (`\(x) -> expr`, multi-argument lambdas lowered into nested unary functions); pattern-shaped parameters lower through internal pattern-case bodies while preserving ordinary unary core lambdas
    - application, list literals, and tuple literals
    - adjacent type signatures over the supported monomorphic subset (`Int`, `Bool`, nested concrete list types, concrete tuple types, right-associative function types, explicit parenthesized function-type overrides, empty `@{}:` constrained wrappers, concrete unary constrained signatures, and known unary variable constrained signatures under the monomorphic annotation-only contract)
-   - `if ... else ...` surface expressions (canonicalized to `case` internally)
+   - `if ... else ...` surface expressions retained as canonical core `EIf`
    - canonical `data` declarations, including lowercase generic declaration parameters preserved in active metadata, with constructor values/applications plus direct `case <expr> { | pattern -> expr ... }` parsing/lowering for literal, wildcard, variable, constructor, bracketed-list, cons-like list, tuple, and as-patterns; analyzer/type/runtime execution covers integer, boolean, and fractional literal patterns, wildcard, variable, declared constructor patterns, exact-length bracketed-list patterns, cons-like list head/tail patterns, fixed-arity tuple patterns, and as-patterns
    - active top-level/module-body `class` declarations with explicit lowercase parameter metadata plus signature-only method metadata, and concrete `impl` abstraction declarations with method binding metadata that lower into core declaration nodes, reject missing/duplicate/non-variable class parameters, duplicate class declarations, duplicate class method signatures, duplicate impl method bindings, duplicate concrete impl facts, non-binding impl body items, and method-bearing non-concrete impl bodies, and let concrete constrained signatures validate against visible class/impl facts using declared class arity; `Self` is not reserved; class method body/default syntax rejects explicitly; explicit `Class::method` references execute for the active typed dispatch slice across visible concrete impl method bodies, with deterministic no-match and ambiguity diagnostics plus concrete impl bodies checked against the substituted method type; runtime method candidates carry compiler-owned evidence identifying class, concrete impl target, and method key; non-canonical `trait` declarations reject with diagnostics pointing future abstraction syntax back to `class`/`impl`, while `class`/`impl`/`trait` remain available as ordinary binding, signature, and qualified-alias identifiers; the bundled default prelude now declares the canonical `Eq(a)`, `Ord(a)`, `Num(a)`, `Integral(a)`, `Fractional(a)`, `Showable(a)`, and `Default(a)` classes plus scoped concrete impl facts over `Int`/`Float`/`Bool` defaults and width-specific numeric signature names, including the first executable `Eq(Int).equals` body, but unqualified overloads, under-applied overloaded function values, user-visible dictionaries/dictionary optimization, default methods, additional bundled-prelude method bodies, and broader module export/import method behavior remain future work
    - opt-in compiler warnings for same-scope rebinding (`W0001`),

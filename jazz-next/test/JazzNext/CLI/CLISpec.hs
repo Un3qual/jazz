@@ -485,8 +485,8 @@ testCliModuleGraphDefaultRootSuccess = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("./App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
-                  ("./Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
+                [ ("App/Main.jz", "module App::Main {\nimport Lib::Util.\nutil.\n}"),
+                  ("Lib/Util.jz", "module Lib::Util {\nutil = 1.\n}")
                 ]
             )
         )

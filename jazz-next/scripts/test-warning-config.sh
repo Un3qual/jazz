@@ -69,6 +69,31 @@ fi
 
 echo "PASS: runghc wrapper handles missing HOME without unbound-variable crash"
 
+if rg -n '^data (ExpressionType|InferState|TypeScheme)\b' jazz-next/src/JazzNext/Compiler/TypeInference.hs; then
+  echo "TypeInference facade still owns internal model types" >&2
+  exit 1
+fi
+
+if rg -n 'ModuleReplay|moduleGraphValidationExpr|moduleGraphRuntimeExpr|__module::|ModuleReplayBridge' jazz-next/src jazz-next/test jazz-next/jazz-next.cabal; then
+  echo "Removed module-replay architecture resurfaced" >&2
+  exit 1
+fi
+
+if rg -n 'JazzNext\.Compiler\.Identifier' jazz-next/src jazz-next/test jazz-next/jazz-next.cabal; then
+  echo "legacy Identifier module is still referenced" >&2
+  exit 1
+fi
+
+if rg -n '^library$' jazz-next/jazz-next.cabal; then
+  echo "public compiler library remains exposed" >&2
+  exit 1
+fi
+
+if rg -n 'length original - length remaining' jazz-next/src/JazzNext/Compiler/Parser/Declaration.hs; then
+  echo "declaration parser still rescans token suffixes to advance owned prefixes" >&2
+  exit 1
+fi
+
 for test_file in "${TEST_FILES[@]}"; do
   "$RUNGHC" "${RUNGHC_INCLUDES[@]}" "$test_file"
 done

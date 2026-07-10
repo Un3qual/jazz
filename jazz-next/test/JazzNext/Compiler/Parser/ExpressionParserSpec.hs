@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -24,8 +25,13 @@ import JazzNext.Compiler.Parser.AST
     SurfaceSignatureToken (..),
     SurfaceStatement (..)
   )
+import JazzNext.Compiler.Parser.Context
+  ( ParserContext (..),
+    StatementContext (..)
+  )
+import JazzNext.Compiler.Parser.Declaration (parseStatementParser)
 import JazzNext.Compiler.Parser.Expression
-  ( parseExpressionTokens
+  ( parseExpressionParser
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
@@ -35,9 +41,11 @@ import JazzNext.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..)
   )
+import JazzNext.Compiler.Parser (parseStatementsUntilBrace)
 import JazzNext.Compiler.Parser.TestSupport
   ( lexSource
   )
+import JazzNext.Compiler.Parser.TokenParser (runTokenParserPrefix)
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
@@ -51,7 +59,8 @@ main = runTestSuite "ExpressionParser" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("application binds tighter than infix precedence", testApplicationBeforeInfixPrecedence),
+  [ ("parses Unit as the empty tuple expression", testParsesUnitExpression),
+    ("application binds tighter than infix precedence", testApplicationBeforeInfixPrecedence),
     ("declared operators participate in precedence climbing", testDeclaredOperatorPrecedence),
     ("parses qualified variables with list and tuple arguments", testQualifiedVariablesListsAndTuples),
     ("parses control-flow and block expression starters", testControlFlowAndBlockExpressionStarters),
@@ -61,6 +70,15 @@ tests =
     ("reports invalid fractional literals", testInvalidFractionalLiteralDiagnostic),
     ("reports undeclared infix operators", testUndeclaredOperatorDiagnostic)
   ]
+
+testParsesUnitExpression :: IO ()
+testParsesUnitExpression = do
+  tokens <- lexSource "()."
+  assertExpression
+    "Unit expression"
+    (SETuple [])
+    [TDot]
+    (parseExpressionTokens Set.empty [] tokens)
 
 testApplicationBeforeInfixPrecedence :: IO ()
 testApplicationBeforeInfixPrecedence = do
@@ -123,7 +141,7 @@ testControlFlowAndBlockExpressionStarters = do
   lambdaTokens <- lexSource "\\(x) -> x."
   assertExpression
     "lambda expression starter"
-    (SELambda [SurfaceLambdaIdentifier "x"] (SEVar "x"))
+    (SELambda (SurfaceLambdaIdentifier "x" :| []) (SEVar "x"))
     [TDot]
     (parseExpressionTokens Set.empty [] lambdaTokens)
 
@@ -207,6 +225,20 @@ tokenKinds (expr, remaining) = (expr, fmap tokenKind remaining)
 
 textShow :: Show a => a -> Text
 textShow = fromString . show
+
+parseExpressionTokens :: Set.Set Text -> [OperatorInfo] -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
+parseExpressionTokens knownAliases declaredOperators =
+  runTokenParserPrefix "owned expression" (expressionParser initialContext)
+  where
+    initialContext =
+      ParserContext
+        { parserKnownAliases = knownAliases,
+          parserDeclaredOperators = declaredOperators,
+          parserStatementContext = NestedBlockContext
+        }
+    expressionParser = parseExpressionParser blockParser
+    statementParser = parseStatementParser expressionParser blockParser
+    blockParser = parseStatementsUntilBrace statementParser
 
 fromString :: String -> Text
 fromString = Text.pack

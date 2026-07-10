@@ -4,7 +4,12 @@
 -- intentionally simple and mirrors the same builtin/operator contracts enforced
 -- by analysis and type inference.
 module JazzNext.Compiler.Runtime
-  ( RuntimeValue (..),
+  ( ModuleEvaluationMode (..),
+    RuntimeCell,
+    RuntimeEnv,
+    RuntimeValue (..),
+    ScopeResult (..),
+    evaluateModuleScope,
     evaluateRuntimeExprWithBuiltinsAndBindingHints,
     evaluateRuntimeExprWithBuiltins,
     evaluateRuntimeExpr,
@@ -53,6 +58,7 @@ import JazzNext.Compiler.BuiltinCatalog
     builtinSymbolName,
     builtinSymbolNumericConversionTarget,
     lookupBuiltinSymbolInMode,
+    numericTypeFromName,
     numericTypeFloatMax,
     numericTypeIntegerBounds,
     numericTypeIsIntegral,
@@ -70,19 +76,26 @@ import JazzNext.Compiler.CapabilityFacts
     signatureTypeToConstraintSignatureType,
     substituteClassMethodSignature
   )
-import JazzNext.Compiler.Identifier
-  ( Identifier,
+import JazzNext.Compiler.Name
+  ( GeneratedNameKind (..),
+    Name (..),
+    NameNamespace (ConstructorNamespace),
+    ResolvedNameOrigin (..),
+    generatedName,
     identifierText,
     mkIdentifier,
-    operatorBindingIdentifierText
+    operatorBindingName,
+    qualifiedMemberName,
+    sourceName
   )
 import JazzNext.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol
   )
+import JazzNext.Compiler.Pattern
+  ( patternBinderNames
+  )
 import JazzNext.Compiler.RecursiveBindings
   ( collectBindingNames,
-    freeVarsExprWithBound,
-    freeVarsScopeWithBound,
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings
   )
@@ -118,12 +131,12 @@ data RuntimeValue
   | VBool Bool
   | VList [RuntimeValue] (Maybe ConstraintSignatureType)
   | VTuple [RuntimeValue]
-  | VClosure RuntimeEnv Identifier Expr (Maybe ConstraintSignatureType) (Maybe [Text])
+  | VClosure RuntimeEnv Name Expr (Maybe ConstraintSignatureType) (Maybe [Text])
   | VBuiltin BuiltinSymbol [RuntimeValue]
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
   | VSectionRight Text RuntimeValue
-  | VConstructor Identifier [Identifier] Identifier [DataConstructorArgument] [RuntimeValue]
+  | VConstructor Name [Name] Name [DataConstructorArgument] [RuntimeValue]
   | VQualifiedMethod Text Text SignaturePayload [RuntimeMethodCandidate] [RuntimeValue]
   | VTyped ConstraintSignatureType RuntimeValue
   | VExplicitTypeApplication ConstraintSignatureType RuntimeValue
@@ -239,7 +252,7 @@ renderRuntimeValue value =
     VExplicitTypeApplication _ innerValue -> renderRuntimeValue innerValue
     VExplicitResultHint _ innerValue -> renderRuntimeValue innerValue
 
-renderConstructorValue :: Identifier -> [RuntimeValue] -> Text
+renderConstructorValue :: Name -> [RuntimeValue] -> Text
 renderConstructorValue constructorName arguments =
   case arguments of
     [] -> renderConstructorName constructorName
@@ -249,48 +262,116 @@ renderConstructorValue constructorName arguments =
         <> Text.intercalate ", " (map renderRuntimeValue arguments)
         <> ")"
 
-renderConstructorName :: Identifier -> Text
+renderConstructorName :: Name -> Text
 renderConstructorName constructorName =
-  let nameText = identifierText constructorName
-      segments = Text.splitOn "::" nameText
-   in case segments of
-        "__module" : _ -> last segments
-        _ -> nameText
+  case constructorName of
+    ResolvedName _ ConstructorNamespace identifier -> identifierText identifier
+    _ -> identifierText constructorName
+
+runtimeDefinitionName :: Maybe [Text] -> Name -> Name
+runtimeDefinitionName maybeModulePath name =
+  case (maybeModulePath, name) of
+    (Just modulePath, ResolvedName CurrentModule namespace identifier) ->
+      ResolvedName (ImportedModule modulePath) namespace identifier
+    _ -> name
+
+runtimeConstructorArgument :: Maybe [Text] -> DataConstructorArgument -> DataConstructorArgument
+runtimeConstructorArgument maybeModulePath argument =
+  case argument of
+    DataConstructorArgumentName name ->
+      DataConstructorArgumentName (runtimeDefinitionName maybeModulePath name)
+    DataConstructorArgumentOpaque -> DataConstructorArgumentOpaque
+
+runtimeConstraintType :: Maybe [Text] -> ConstraintSignatureType -> ConstraintSignatureType
+runtimeConstraintType maybeModulePath signatureType =
+  case signatureType of
+    ConstraintTypeName name -> ConstraintTypeName (runtimeConstraintTypeName maybeModulePath name)
+    ConstraintTypeApplication name arguments ->
+      ConstraintTypeApplication
+        (runtimeConstraintTypeName maybeModulePath name)
+        (map (runtimeConstraintType maybeModulePath) arguments)
+    ConstraintTypeList elementType -> ConstraintTypeList (runtimeConstraintType maybeModulePath elementType)
+    ConstraintTypeTuple elementTypes -> ConstraintTypeTuple (map (runtimeConstraintType maybeModulePath) elementTypes)
+    ConstraintTypeFunction argumentType resultType ->
+      ConstraintTypeFunction
+        (runtimeConstraintType maybeModulePath argumentType)
+        (runtimeConstraintType maybeModulePath resultType)
+
+runtimeConstraintTypeName :: Maybe [Text] -> Name -> Name
+runtimeConstraintTypeName maybeModulePath name
+  | identifierText name `elem` ["Int", "Float", "Bool"] = name
+  | Just _ <- numericTypeFromName (identifierText name) = name
+  | otherwise = runtimeDefinitionName maybeModulePath name
 
 -- | Runtime cells can hold either a value or the deterministic failure for a
 -- recursive binding that cannot be forced safely.
 type RuntimeCell = Either Diagnostic RuntimeValue
 
-type RuntimeEnv = Map Text RuntimeCell
+type RuntimeEnv = Map Name RuntimeCell
+
+data ScopeResult = ScopeResult
+  { scopeResultEnvironment :: RuntimeEnv,
+    scopeResultValue :: Maybe RuntimeValue
+  }
+
+data ModuleEvaluationMode
+  = EvaluateDependencyModule
+  | EvaluateEntryModule
+  deriving (Eq, Show)
 
 -- | Evaluate a block scope in order. Declarations clear `lastExprValue`, so
 -- `evalScope` returns `Just` only when the final surviving statement is an
 -- `SExpr`; otherwise the block yields `Nothing`.
 evalScope :: BuiltinResolutionMode -> Map BindingRuntimeHintKey ConstraintSignatureType -> RuntimeEnv -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
-evalScope =
-  evalScopeWithModulePath Nothing
+evalScope builtinMode bindingTypeHints initialEnv statements =
+  scopeResultValue
+    <$> evaluateModuleScope
+      Nothing
+      EvaluateEntryModule
+      builtinMode
+      bindingTypeHints
+      initialEnv
+      statements
 
 evalScopeWithModulePath :: Maybe [Text] -> BuiltinResolutionMode -> Map BindingRuntimeHintKey ConstraintSignatureType -> RuntimeEnv -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
-evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEnv statements = go initialEnv Nothing indexedStatements
+evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEnv statements =
+  scopeResultValue
+    <$> evaluateModuleScope
+      currentModulePath
+      EvaluateEntryModule
+      builtinMode
+      bindingTypeHints
+      initialEnv
+      statements
+
+evaluateModuleScope ::
+  Maybe [Text] ->
+  ModuleEvaluationMode ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey ConstraintSignatureType ->
+  RuntimeEnv ->
+  [Statement] ->
+  Either Diagnostic ScopeResult
+evaluateModuleScope currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements = go initialEnv Nothing indexedStatements
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = Map.fromList indexedStatements
     modulePathsByStatement = collectModulePathsByStatement currentModulePath indexedStatements
     recursiveGroups =
       inferRecursiveGroupsOrdered
-        (Set.union (Map.keysSet initialEnv) (builtinNamesInMode builtinMode))
+        (Set.union (Map.keysSet initialEnv) (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode)))
         indexedStatements
     selfRecursiveFunctionStatements =
       inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
     bindingCells = map (uncurry cellForStatement) indexedStatements
 
-    go :: RuntimeEnv -> Maybe RuntimeValue -> [(Int, Statement)] -> Either Diagnostic (Maybe RuntimeValue)
+    go :: RuntimeEnv -> Maybe RuntimeValue -> [(Int, Statement)] -> Either Diagnostic ScopeResult
     go env lastExprValue remainingStatements =
       case remainingStatements of
         [] ->
           -- Declaration-only scopes intentionally remain `Nothing` until a terminal `SExpr` sets a value.
-          Right lastExprValue
+          Right (ScopeResult env lastExprValue)
         (statementIndex, statement) : rest ->
           case statement of
             SSignature {} ->
@@ -304,13 +385,20 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
             SImpl _ capabilityName arguments methods ->
               go (insertImplMethods (modulePathForStatement statementIndex) capabilityName arguments methods env) Nothing rest
             SData _ typeName typeParameters constructors ->
-              go (insertDataConstructors typeName typeParameters constructors env) Nothing rest
-            SLet name _ _ -> do
-              value <- bindingCellAt statementIndex
-              go (Map.insert (identifierText name) (Right value) env) Nothing rest
-            SExpr _ expr -> do
-              value <- evalValueAt statementIndex env expr
-              go env (Just value) rest
+              go (insertDataConstructors (modulePathForStatement statementIndex) typeName typeParameters constructors env) Nothing rest
+            SLet name _ _ ->
+              case evaluationMode of
+                EvaluateDependencyModule ->
+                  go (Map.insert name (bindingCellAt statementIndex) env) Nothing rest
+                EvaluateEntryModule -> do
+                  value <- bindingCellAt statementIndex
+                  go (Map.insert name (Right value) env) Nothing rest
+            SExpr _ expr ->
+              case evaluationMode of
+                EvaluateDependencyModule -> go env Nothing rest
+                EvaluateEntryModule -> do
+                  value <- evalValueAt statementIndex env expr
+                  go env (Just value) rest
 
     modulePathForStatement :: Int -> Maybe [Text]
     modulePathForStatement statementIndex =
@@ -337,7 +425,7 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
           Left
             (runtimeDiagnostic "E3020" "internal runtime error: expected binding statement")
 
-    bindingCell :: Int -> Identifier -> Expr -> RuntimeCell
+    bindingCell :: Int -> Name -> Expr -> RuntimeCell
     bindingCell statementIndex bindingName valueExpr =
       case selectedRecursiveAliasTarget statementIndex visibleEnv valueExpr of
         Left diagnostic ->
@@ -357,7 +445,7 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
       where
         visibleEnv = bindingEnv statementIndex bindingName
 
-    evalBindingValue :: Int -> Identifier -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
+    evalBindingValue :: Int -> Name -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
     evalBindingValue statementIndex bindingName env valueExpr =
       case previousSignatureNumericTarget statementIndex bindingName of
         Just targetType -> do
@@ -382,7 +470,7 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
       where
         conversionBuiltin = numericConversionBuiltinForTarget targetType
 
-    previousSignatureNumericTarget :: Int -> Identifier -> Maybe NumericType
+    previousSignatureNumericTarget :: Int -> Name -> Maybe NumericType
     previousSignatureNumericTarget statementIndex bindingName =
       case Map.lookup (statementIndex - 1) statementsByIndex of
         Just (SSignature signatureName _ signaturePayload)
@@ -390,7 +478,7 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
               signatureNumericTarget signaturePayload
         _ -> Nothing
 
-    previousSignatureRuntimeTypeHint :: Int -> Identifier -> Maybe ConstraintSignatureType
+    previousSignatureRuntimeTypeHint :: Int -> Name -> Maybe ConstraintSignatureType
     previousSignatureRuntimeTypeHint statementIndex bindingName =
       case Map.lookup (statementIndex - 1) statementsByIndex of
         Just (SSignature signatureName _ signaturePayload)
@@ -398,17 +486,20 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
               signaturePayloadConstraintType signaturePayload
         _ -> Nothing
 
-    bindingRuntimeTypeHint :: Int -> Identifier -> Maybe ConstraintSignatureType
+    bindingRuntimeTypeHint :: Int -> Name -> Maybe ConstraintSignatureType
     bindingRuntimeTypeHint statementIndex bindingName =
-      case previousSignatureRuntimeTypeHint statementIndex bindingName of
-        Just signatureHint -> Just signatureHint
-        Nothing ->
-          case Map.lookup statementIndex statementsByIndex of
-            Just (SLet _ bindingSpan _) ->
-              Map.lookup
-                (bindingRuntimeHintKeyInModule (modulePathForStatement statementIndex) bindingName bindingSpan)
-                bindingTypeHints
-            _ -> Nothing
+      runtimeConstraintType (modulePathForStatement statementIndex) <$> rawHint
+      where
+        rawHint =
+          case previousSignatureRuntimeTypeHint statementIndex bindingName of
+            Just signatureHint -> Just signatureHint
+            Nothing ->
+              case Map.lookup statementIndex statementsByIndex of
+                Just (SLet _ bindingSpan _) ->
+                  Map.lookup
+                    (bindingRuntimeHintKeyInModule (modulePathForStatement statementIndex) bindingName bindingSpan)
+                    bindingTypeHints
+                _ -> Nothing
 
     collectModulePathsByStatement :: Maybe [Text] -> [(Int, Statement)] -> Map Int (Maybe [Text])
     collectModulePathsByStatement initialModulePath =
@@ -477,36 +568,35 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
               Left
                 (runtimeDiagnostic "E3020" "internal runtime error: missing binding statement while resolving alias")
 
-    bindingEnv :: Int -> Identifier -> RuntimeEnv
+    bindingEnv :: Int -> Name -> RuntimeEnv
     bindingEnv statementIndex bindingName =
-      case functionSelfReferenceCell statementIndex bindingNameText of
+      case functionSelfReferenceCell statementIndex bindingName of
         Just selfCell ->
           Map.insert
-            bindingNameText
+            bindingName
             selfCell
             peerVisibleEnv
         Nothing
           | recursiveBindingNeedsSelf statementIndex ->
               Map.insert
-                bindingNameText
+                bindingName
                 (bindingCellAt statementIndex)
                 peerVisibleEnv
           | otherwise -> peerVisibleEnv
       where
-        bindingNameText = identifierText bindingName
         peerVisibleEnv = recursivePeerEnv statementIndex (envBefore statementIndex)
 
-    functionSelfReferenceCell :: Int -> Text -> Maybe RuntimeCell
-    functionSelfReferenceCell statementIndex bindingNameText
-      | recursiveFunctionNeedsSelf statementIndex bindingNameText =
+    functionSelfReferenceCell :: Int -> Name -> Maybe RuntimeCell
+    functionSelfReferenceCell statementIndex bindingName
+      | recursiveFunctionNeedsSelf statementIndex bindingName =
           Just (Left (runtimeDiagnostic "E3021" "runtime recursive binding has no concrete value"))
       | otherwise =
           Nothing
 
-    recursiveFunctionNeedsSelf :: Int -> Text -> Bool
-    recursiveFunctionNeedsSelf statementIndex bindingNameText =
+    recursiveFunctionNeedsSelf :: Int -> Name -> Bool
+    recursiveFunctionNeedsSelf statementIndex bindingName =
       Set.member statementIndex selfRecursiveFunctionStatements
-        && Map.notMember bindingNameText (envBefore statementIndex)
+        && Map.notMember bindingName (envBefore statementIndex)
 
     recursiveBindingNeedsSelf :: Int -> Bool
     recursiveBindingNeedsSelf statementIndex =
@@ -521,13 +611,13 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
     -- evaluate to their closure first, then get their own binding stitched
     -- into the captured env without forcing the whole wrapper through a
     -- self-referential scope during evaluation.
-    attachSelfRecursiveBinding :: Int -> Identifier -> RuntimeValue -> RuntimeValue
+    attachSelfRecursiveBinding :: Int -> Name -> RuntimeValue -> RuntimeValue
     attachSelfRecursiveBinding statementIndex bindingName runtimeValue
-      | recursiveFunctionNeedsSelf statementIndex (identifierText bindingName) =
+      | recursiveFunctionNeedsSelf statementIndex bindingName =
           case runtimeValue of
             VClosure capturedEnv parameterName bodyExpr maybeTypeHint closureModulePath ->
               VClosure
-                (Map.insert (identifierText bindingName) (bindingCellAt statementIndex) capturedEnv)
+                (Map.insert bindingName (bindingCellAt statementIndex) capturedEnv)
                 parameterName
                 bodyExpr
                 maybeTypeHint
@@ -536,11 +626,11 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
       | otherwise =
           runtimeValue
 
-    recursiveAliasTarget :: Set Text -> Int -> Expr -> Maybe Int
+    recursiveAliasTarget :: Set Name -> Int -> Expr -> Maybe Int
     recursiveAliasTarget locallyBoundNames statementIndex valueExpr =
       case peelSingleExprBlock valueExpr of
         EVar targetName ->
-          if Set.member (identifierText targetName) locallyBoundNames
+          if Set.member targetName locallyBoundNames
             then Nothing
             else
               case Map.lookup statementIndex recursiveGroups of
@@ -549,9 +639,9 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
                 Nothing -> Nothing
         EOperatorValue operatorSymbol
           | not (isBuiltinOperatorSymbol operatorSymbol) ->
-              let targetName = mkIdentifier (operatorBindingIdentifierText operatorSymbol)
+              let targetName = operatorBindingName operatorSymbol
                in
-                if Set.member (identifierText targetName) locallyBoundNames
+                if Set.member targetName locallyBoundNames
                   then Nothing
                   else
                     case Map.lookup statementIndex recursiveGroups of
@@ -567,7 +657,7 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
       selectedRecursiveAliasTargetWithBound Set.empty
 
     selectedRecursiveAliasTargetWithBound ::
-      Set Text ->
+      Set Name ->
       Int ->
       RuntimeEnv ->
       Expr ->
@@ -576,12 +666,11 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
       case peelSingleExprBlock expr of
         EIf conditionExpr thenExpr elseExpr ->
           selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr
-        ECase conditionExpr thenExpr elseExpr ->
-          selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr
         EPatternCase scrutineeExpr caseArms -> do
           scrutineeValue <- evalValueAt statementIndex env scrutineeExpr
           selectedArm <-
             selectMatchingCaseArmForAlias
+              (modulePathForStatement statementIndex)
               (evalValueAt statementIndex)
               env
               scrutineeValue
@@ -598,7 +687,7 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
         peeledExpr ->
           Right (recursiveAliasTarget locallyBoundNames statementIndex peeledExpr)
 
-    selectRecursiveAliasTarget :: Set Text -> Int -> RuntimeEnv -> Expr -> Expr -> Expr -> Either Diagnostic (Maybe Int)
+    selectRecursiveAliasTarget :: Set Name -> Int -> RuntimeEnv -> Expr -> Expr -> Expr -> Either Diagnostic (Maybe Int)
     selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr = do
       conditionValue <- evalValueAt statementIndex env conditionExpr
       case conditionValue of
@@ -614,12 +703,13 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
             )
 
     selectMatchingCaseArmForAlias ::
+      Maybe [Text] ->
       (RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue) ->
       RuntimeEnv ->
       RuntimeValue ->
       [CaseArm] ->
-      Either Diagnostic (Maybe (Set Text, RuntimeEnv, Expr))
-    selectMatchingCaseArmForAlias evalGuard env scrutineeValue =
+      Either Diagnostic (Maybe (Set Name, RuntimeEnv, Expr))
+    selectMatchingCaseArmForAlias patternModulePath evalGuard env scrutineeValue =
       go
       where
         go remainingArms =
@@ -629,7 +719,7 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
               chooseArm caseArm rest
 
         chooseArm caseArm rest =
-          case matchCaseArm env scrutineeValue caseArm of
+          case matchCaseArm patternModulePath env scrutineeValue caseArm of
             Just (armEnv, guardExpr, bodyExpr) ->
               case guardExpr of
                 Nothing ->
@@ -662,9 +752,9 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
             Nothing ->
               go rest
 
-    caseArmBoundNames :: CaseArm -> Set Text
+    caseArmBoundNames :: CaseArm -> Set Name
     caseArmBoundNames (CaseArm pattern _ _) =
-      patternBoundNames pattern
+      patternBinderNames pattern
 
     -- Single-expression blocks are semantically transparent here, so peel
     -- them before following recursive alias edges and cycle detection.
@@ -684,31 +774,30 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
                 (followLocalAlias Set.empty aliasName (localAliasBindings prefixStatements))
         _ -> Nothing
 
-    localAliasBindings :: [Statement] -> Map Text Expr
+    localAliasBindings :: [Statement] -> Map Name Expr
     localAliasBindings =
       foldl' collectBinding Map.empty
       where
         collectBinding bindings statement =
           case statement of
             SLet bindingName _ bindingExpr ->
-              Map.insert (identifierText bindingName) bindingExpr bindings
+              Map.insert bindingName bindingExpr bindings
             _ -> bindings
 
-    followLocalAlias :: Set Text -> Identifier -> Map Text Expr -> Maybe Expr
+    followLocalAlias :: Set Name -> Name -> Map Name Expr -> Maybe Expr
     followLocalAlias visitedNames aliasName localBindings =
-      let aliasNameText = identifierText aliasName
-       in if Set.member aliasNameText visitedNames
-            then Nothing
-            else
-              case Map.lookup aliasNameText localBindings of
-                Just aliasExpr ->
-                  case peelSingleExprBlock aliasExpr of
-                    EVar nextAliasName
-                      | Map.member (identifierText nextAliasName) localBindings ->
-                          followLocalAlias (Set.insert aliasNameText visitedNames) nextAliasName localBindings
-                    _ -> Just aliasExpr
-                Nothing ->
-                  Nothing
+      if Set.member aliasName visitedNames
+        then Nothing
+        else
+          case Map.lookup aliasName localBindings of
+            Just aliasExpr ->
+              case peelSingleExprBlock aliasExpr of
+                EVar nextAliasName
+                  | Map.member nextAliasName localBindings ->
+                      followLocalAlias (Set.insert aliasName visitedNames) nextAliasName localBindings
+                _ -> Just aliasExpr
+            Nothing ->
+              Nothing
 
     blockLocalAliasEnv :: Maybe [Text] -> RuntimeEnv -> [Statement] -> RuntimeEnv
     blockLocalAliasEnv blockModulePath blockInitialEnv blockStatements =
@@ -728,11 +817,11 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
           case Map.lookup statementIndex blockStatementsByIndex of
             Just (SLet bindingName _ _) ->
               Map.insert
-                (identifierText bindingName)
+                bindingName
                 (blockBindingCellAt statementIndex)
                 (blockEnvBefore statementIndex)
             Just (SData _ typeName typeParameters constructors) ->
-              insertDataConstructors typeName typeParameters constructors (blockEnvBefore statementIndex)
+              insertDataConstructors blockModulePath typeName typeParameters constructors (blockEnvBefore statementIndex)
             Just (SClass _ capabilityName parameters methods) ->
               insertClassMethods capabilityName parameters methods (blockEnvBefore statementIndex)
             Just (SImpl _ capabilityName arguments methods) ->
@@ -760,15 +849,18 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
                 (runtimeDiagnostic "E3020" "internal runtime error: expected block binding statement for alias selection")
 
         blockBindingRuntimeTypeHint statementIndex bindingName =
-          case blockPreviousSignatureRuntimeTypeHint statementIndex bindingName of
-            Just signatureHint -> Just signatureHint
-            Nothing ->
-              case Map.lookup statementIndex blockStatementsByIndex of
-                Just (SLet _ bindingSpan _) ->
-                  Map.lookup
-                    (bindingRuntimeHintKeyInModule blockModulePath bindingName bindingSpan)
-                    bindingTypeHints
-                _ -> Nothing
+          runtimeConstraintType blockModulePath <$> rawHint
+          where
+            rawHint =
+              case blockPreviousSignatureRuntimeTypeHint statementIndex bindingName of
+                Just signatureHint -> Just signatureHint
+                Nothing ->
+                  case Map.lookup statementIndex blockStatementsByIndex of
+                    Just (SLet _ bindingSpan _) ->
+                      Map.lookup
+                        (bindingRuntimeHintKeyInModule blockModulePath bindingName bindingSpan)
+                        bindingTypeHints
+                    _ -> Nothing
 
         blockPreviousSignatureRuntimeTypeHint statementIndex bindingName =
           case Map.lookup (statementIndex - 1) blockStatementsByIndex of
@@ -777,16 +869,14 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
                   signaturePayloadConstraintType signaturePayload
             _ -> Nothing
 
-    lookupRecursivePeer :: Identifier -> [Int] -> Maybe Int
+    lookupRecursivePeer :: Name -> [Int] -> Maybe Int
     lookupRecursivePeer targetName =
       foldl' chooseTarget Nothing
       where
-        targetNameText = identifierText targetName
-
         chooseTarget currentChoice peerIndex =
           case Map.lookup peerIndex bindingNamesByStatement of
             Just peerName
-              | peerName == targetNameText ->
+              | peerName == targetName ->
                   Just peerIndex
             _ -> currentChoice
 
@@ -800,11 +890,11 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
       case Map.lookup statementIndex statementsByIndex of
         Just (SLet bindingName _ _) ->
           Map.insert
-            (identifierText bindingName)
+            bindingName
             (bindingCellAt statementIndex)
             (envBefore statementIndex)
         Just (SData _ typeName typeParameters constructors) ->
-          insertDataConstructors typeName typeParameters constructors (envBefore statementIndex)
+          insertDataConstructors (modulePathForStatement statementIndex) typeName typeParameters constructors (envBefore statementIndex)
         Just (SClass _ capabilityName parameters methods) ->
           insertClassMethods capabilityName parameters methods (envBefore statementIndex)
         Just (SImpl _ capabilityName arguments methods) ->
@@ -832,17 +922,25 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
                 _ ->
                   envAcc
 
-    insertDataConstructors :: Identifier -> [Identifier] -> [DataConstructor] -> RuntimeEnv -> RuntimeEnv
-    insertDataConstructors typeName typeParameters constructors env =
+    insertDataConstructors :: Maybe [Text] -> Name -> [Name] -> [DataConstructor] -> RuntimeEnv -> RuntimeEnv
+    insertDataConstructors definitionModulePath typeName typeParameters constructors env =
       foldl' insertConstructor env constructors
       where
         insertConstructor envAcc (DataConstructor constructorName constructorArguments) =
           Map.insert
-            (identifierText constructorName)
-            (Right (VConstructor typeName typeParameters constructorName constructorArguments []))
+            constructorName
+            ( Right
+                ( VConstructor
+                    (runtimeDefinitionName definitionModulePath typeName)
+                    typeParameters
+                    (runtimeDefinitionName definitionModulePath constructorName)
+                    (map (runtimeConstructorArgument definitionModulePath) constructorArguments)
+                    []
+                )
+            )
             envAcc
 
-    insertClassMethods :: Identifier -> [Identifier] -> [ClassMethodSignature] -> RuntimeEnv -> RuntimeEnv
+    insertClassMethods :: Name -> [Name] -> [ClassMethodSignature] -> RuntimeEnv -> RuntimeEnv
     insertClassMethods capabilityName parameters methods env =
       case parameters of
         [classParameter] ->
@@ -851,17 +949,19 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
       where
         insertMethod classParameter envAcc (ClassMethodSignature methodName _ methodSignature) =
           let methodKey = qualifiedMethodKey capabilityName methodName
-           in if Map.member methodKey envAcc
+              methodName' = qualifiedMemberName capabilityName methodName
+           in if Map.member methodName' envAcc
                 then envAcc
-                else Map.insert methodKey (Right (VQualifiedMethod methodKey classParameter methodSignature [] [])) envAcc
+                else Map.insert methodName' (Right (VQualifiedMethod methodKey classParameter methodSignature [] [])) envAcc
 
-    insertImplMethods :: Maybe [Text] -> Identifier -> [ConstraintSignatureType] -> [ImplMethod] -> RuntimeEnv -> RuntimeEnv
+    insertImplMethods :: Maybe [Text] -> Name -> [ConstraintSignatureType] -> [ImplMethod] -> RuntimeEnv -> RuntimeEnv
     insertImplMethods methodModulePath capabilityName arguments methods env =
       case arguments of
         [implTarget]
           | concreteConstraintArgument implTarget ->
               methodEnv
           where
+            runtimeImplTarget = runtimeConstraintType methodModulePath implTarget
             methodEnv = foldl' insertCandidate env methodCandidates
             methodExprsByKey =
               Map.fromList
@@ -872,13 +972,15 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
               map
                 ( \(ImplMethod methodName _ methodExpr) ->
                     let methodKey = qualifiedMethodKey capabilityName methodName
-                        evidence = RuntimeEvidence (identifierText capabilityName) implTarget (Just methodKey)
-                     in ( methodKey,
-                          RuntimeMethodCandidate evidence (methodCandidateCell implTarget methodKey methodExpr)
+                        methodName' = qualifiedMemberName capabilityName methodName
+                        evidence = RuntimeEvidence (identifierText capabilityName) runtimeImplTarget (Just methodKey)
+                     in ( methodName',
+                          methodKey,
+                          RuntimeMethodCandidate evidence (methodCandidateCell runtimeImplTarget methodName' methodKey methodExpr)
                         )
                 )
                 methods
-            methodCandidateCell implTarget methodKey methodExpr =
+            methodCandidateCell implTarget methodName methodKey methodExpr =
               case selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey Set.empty methodEnv methodKey methodExpr of
                 Left diagnostic ->
                   Left diagnostic
@@ -890,9 +992,9 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
                     )
                 Right False ->
                   evalValueWithModulePath methodModulePath builtinMode bindingTypeHints methodEnv methodExpr
-                    >>= attachRuntimeMethodSignature methodEnv implTarget methodKey
-            insertCandidate envAcc (methodKey, methodCandidate) =
-              Map.adjust (addMethodCandidate methodCandidate) methodKey envAcc
+                    >>= attachRuntimeMethodSignature methodEnv implTarget methodName
+            insertCandidate envAcc (methodName, _, methodCandidate) =
+              Map.adjust (addMethodCandidate methodCandidate) methodName envAcc
         _ -> env
       where
         addMethodCandidate methodCandidate methodCell =
@@ -904,11 +1006,11 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
     attachRuntimeMethodSignature ::
       RuntimeEnv ->
       ConstraintSignatureType ->
-      Text ->
+      Name ->
       RuntimeValue ->
       Either Diagnostic RuntimeValue
-    attachRuntimeMethodSignature env implTarget methodKey methodValue =
-      case Map.lookup methodKey env of
+    attachRuntimeMethodSignature env implTarget methodName methodValue =
+      case Map.lookup methodName env of
         Just (Right (VQualifiedMethod _ classParameter methodSignature _ _)) ->
           attachRuntimeTypeHint
             (substituteClassMethodSignature classParameter implTarget methodSignature)
@@ -924,12 +1026,11 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
           case peelSingleExprBlock expr of
             EIf conditionExpr thenExpr elseExpr ->
               selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
-            ECase conditionExpr thenExpr elseExpr ->
-              selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
             EPatternCase scrutineeExpr caseArms -> do
               scrutineeValue <- evalValueWithModulePath methodModulePath builtinMode bindingTypeHints env scrutineeExpr
               selectedArm <-
                 selectMatchingCaseArmForAlias
+                  methodModulePath
                   (evalValueWithModulePath methodModulePath builtinMode bindingTypeHints)
                   env
                   scrutineeValue
@@ -990,9 +1091,6 @@ exprContainsFunctionBranch expr =
     EIf _ thenExpr elseExpr ->
       exprContainsFunctionBranch thenExpr
         || exprContainsFunctionBranch elseExpr
-    ECase _ thenExpr elseExpr ->
-      exprContainsFunctionBranch thenExpr
-        || exprContainsFunctionBranch elseExpr
     EPatternCase _ caseArms ->
       any
         (\(CaseArm _ _ bodyExpr) -> exprContainsFunctionBranch bodyExpr)
@@ -1017,21 +1115,18 @@ scopeContainsFunctionBranch statements =
     exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings scopeExpr =
       case scopeExpr of
         EVar bindingName ->
-          case Map.lookup (identifierText bindingName) scopeBindings of
+          case Map.lookup bindingName scopeBindings of
             Just bindingExpr
-              | Set.notMember (identifierText bindingName) visitedBindings ->
+              | Set.notMember bindingName visitedBindings ->
                   exprContainsFunctionBranchViaScopeBindings
                     scopeBindings
-                    (Set.insert (identifierText bindingName) visitedBindings)
+                    (Set.insert bindingName visitedBindings)
                     bindingExpr
             _ -> False
         ELambda {} -> True
         ETypeApplication functionExpr _ ->
           exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings functionExpr
         EIf _ thenExpr elseExpr ->
-          exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
-            || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
-        ECase _ thenExpr elseExpr ->
           exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
             || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
         EPatternCase _ caseArms ->
@@ -1050,7 +1145,7 @@ scopeContainsFunctionBranch statements =
         collect scopeBindings statement =
           case statement of
             SLet bindingName _ valueExpr ->
-              Map.insert (identifierText bindingName) valueExpr scopeBindings
+              Map.insert bindingName valueExpr scopeBindings
             _ -> scopeBindings
 
 -- Fail fast only when a recursive SCC member is obviously non-function-valued;
@@ -1065,9 +1160,6 @@ exprDefinitelyNotFunctionValue expr =
     ETypeApplication functionExpr _ ->
       exprDefinitelyNotFunctionValue functionExpr
     EIf _ thenExpr elseExpr ->
-      exprDefinitelyNotFunctionValue thenExpr
-        && exprDefinitelyNotFunctionValue elseExpr
-    ECase _ thenExpr elseExpr ->
       exprDefinitelyNotFunctionValue thenExpr
         && exprDefinitelyNotFunctionValue elseExpr
     EPatternCase {} ->
@@ -1091,7 +1183,7 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
   case expr of
     ELit literal -> Right (literalRuntimeValue literal)
     EVar name ->
-      case Map.lookup nameText env of
+      case Map.lookup name env of
         Just value -> value >>= forceQualifiedMethodValue builtinMode bindingTypeHints
         Nothing ->
           case lookupBuiltinSymbolInMode builtinMode nameText of
@@ -1125,9 +1217,7 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
       if isFunctionValue runtimeValue
         then Right (VExplicitTypeApplication typeHint runtimeValue)
         else applyRuntimeTypeHint (fromMaybe typeHint (explicitTypeApplicationRuntimeValueHint typeHint runtimeValue)) runtimeValue
-    EIf conditionExpr thenExpr elseExpr ->
-      evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env (ECase conditionExpr thenExpr elseExpr)
-    ECase conditionExpr thenExpr elseExpr -> do
+    EIf conditionExpr thenExpr elseExpr -> do
       conditionValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env conditionExpr
       case conditionValue of
         VBool True -> evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env thenExpr
@@ -1196,7 +1286,7 @@ lookupOperatorBindingRuntimeValue ::
   RuntimeEnv ->
   Either Diagnostic RuntimeValue
 lookupOperatorBindingRuntimeValue builtinMode bindingTypeHints operatorSymbol env =
-  case Map.lookup (operatorBindingIdentifierText operatorSymbol) env of
+  case Map.lookup (operatorBindingName operatorSymbol) env of
     Just value ->
       value >>= forceQualifiedMethodValue builtinMode bindingTypeHints
     Nothing ->
@@ -1215,12 +1305,12 @@ declaredOperatorRightSectionClosure currentModulePath operatorValue rightValue e
     Nothing
     currentModulePath
   where
-    functionName = mkIdentifier "$operator_section_function"
-    leftParameter = mkIdentifier "$operator_section_left"
-    rightParameter = mkIdentifier "$operator_section_right"
+    functionName = generatedName OperatorSectionFunction
+    leftParameter = generatedName OperatorSectionLeft
+    rightParameter = generatedName OperatorSectionRight
     capturedEnv =
-      Map.insert (identifierText functionName) (Right operatorValue) $
-        Map.insert (identifierText rightParameter) (Right rightValue) env
+      Map.insert functionName (Right operatorValue) $
+        Map.insert rightParameter (Right rightValue) env
 
 literalRuntimeValue :: Literal -> RuntimeValue
 literalRuntimeValue literal =
@@ -1307,13 +1397,13 @@ applyConstructorArgumentRuntimeHint typeParameterHints constructorArgument runti
     DataConstructorArgumentOpaque ->
       Right runtimeValue
 
-constructorArgumentRuntimeHint :: Map Text ConstraintSignatureType -> Identifier -> Maybe ConstraintSignatureType
+constructorArgumentRuntimeHint :: Map Text ConstraintSignatureType -> Name -> Maybe ConstraintSignatureType
 constructorArgumentRuntimeHint typeParameterHints argumentName =
   case Map.lookup (identifierText argumentName) typeParameterHints of
     Just hintedType -> Just hintedType
     Nothing -> concreteConstructorPayloadRuntimeHint argumentName
 
-concreteConstructorPayloadRuntimeHint :: Identifier -> Maybe ConstraintSignatureType
+concreteConstructorPayloadRuntimeHint :: Name -> Maybe ConstraintSignatureType
 concreteConstructorPayloadRuntimeHint argumentName
   | Just _ <- constraintTypeNameNumericTarget argumentName =
       Just (ConstraintTypeName argumentName)
@@ -1322,7 +1412,7 @@ concreteConstructorPayloadRuntimeHint argumentName
   | otherwise =
       Nothing
 
-constraintTypeNameNumericTarget :: Identifier -> Maybe NumericType
+constraintTypeNameNumericTarget :: Name -> Maybe NumericType
 constraintTypeNameNumericTarget typeName =
   case identifierText typeName of
     "Int" -> Just NumericInt64
@@ -1407,7 +1497,7 @@ selectMatchingCaseArm currentModulePath builtinMode bindingTypeHints env scrutin
           chooseArm caseArm rest
 
     chooseArm caseArm rest =
-      case matchCaseArm env scrutineeValue caseArm of
+      case matchCaseArm currentModulePath env scrutineeValue caseArm of
         Just (armEnv, guardExpr, bodyExpr) ->
           case guardExpr of
             Nothing ->
@@ -1431,23 +1521,24 @@ selectMatchingCaseArm currentModulePath builtinMode bindingTypeHints env scrutin
 -- | Pattern bindings are prepended to the arm environment so they shadow outer
 -- runtime bindings only while evaluating the selected arm body.
 matchCaseArm ::
+  Maybe [Text] ->
   RuntimeEnv ->
   RuntimeValue ->
   CaseArm ->
   Maybe (RuntimeEnv, Maybe Expr, Expr)
-matchCaseArm env scrutineeValue (CaseArm pattern guardExpr bodyExpr) =
-  case matchPattern scrutineeValue pattern of
+matchCaseArm currentModulePath env scrutineeValue (CaseArm pattern guardExpr bodyExpr) =
+  case matchPattern currentModulePath scrutineeValue pattern of
     Just patternBindings ->
       Just (Map.union patternBindings env, guardExpr, bodyExpr)
     Nothing -> Nothing
 
-matchPattern :: RuntimeValue -> Pattern -> Maybe RuntimeEnv
-matchPattern scrutineeValue pattern =
+matchPattern :: Maybe [Text] -> RuntimeValue -> Pattern -> Maybe RuntimeEnv
+matchPattern currentModulePath scrutineeValue pattern =
   case pattern of
     PWildcard -> Just Map.empty
     PVariable name ->
       Just
-        (Map.singleton (identifierText name) (Right scrutineeValue))
+        (Map.singleton name (Right scrutineeValue))
     PLiteral literal
       | scrutineeValue == literalRuntimeValue literal ->
           Just Map.empty
@@ -1456,51 +1547,51 @@ matchPattern scrutineeValue pattern =
     PConstructor constructorName patterns ->
       case constructorPatternScrutinee scrutineeValue of
         VConstructor _ _ valueConstructorName constructorArguments capturedArgs
-          | valueConstructorName == constructorName,
+          | valueConstructorName == runtimeDefinitionName currentModulePath constructorName,
             constructorIsSaturated constructorArguments capturedArgs,
             length capturedArgs == length patterns ->
-              matchPatternList capturedArgs patterns
+              matchPatternList currentModulePath capturedArgs patterns
         _ -> Nothing
     PList patterns ->
       case scrutineeValue of
         VList elements _
           | length elements == length patterns ->
-              matchPatternList elements patterns
+              matchPatternList currentModulePath elements patterns
         _ -> Nothing
     PConsList headPattern tailPattern ->
       case scrutineeValue of
         VList (headValue : tailValues) maybeTypeHint -> do
-          headBindings <- matchPattern headValue headPattern
-          tailBindings <- matchPattern (VList tailValues maybeTypeHint) tailPattern
+          headBindings <- matchPattern currentModulePath headValue headPattern
+          tailBindings <- matchPattern currentModulePath (VList tailValues maybeTypeHint) tailPattern
           Just (tailBindings `Map.union` headBindings)
         _ -> Nothing
     PTuple patterns ->
       case scrutineeValue of
         VTuple elements
           | length elements == length patterns ->
-              matchPatternList elements patterns
+              matchPatternList currentModulePath elements patterns
         _ -> Nothing
     PAs name pattern -> do
-      patternBindings <- matchPattern scrutineeValue pattern
-      Just (Map.insert (identifierText name) (Right scrutineeValue) patternBindings)
+      patternBindings <- matchPattern currentModulePath scrutineeValue pattern
+      Just (Map.insert name (Right scrutineeValue) patternBindings)
     POr alternatives ->
-      matchFirstAlternative scrutineeValue alternatives
+      matchFirstAlternative currentModulePath scrutineeValue alternatives
 
-matchFirstAlternative :: RuntimeValue -> [Pattern] -> Maybe RuntimeEnv
-matchFirstAlternative scrutineeValue alternatives =
+matchFirstAlternative :: Maybe [Text] -> RuntimeValue -> [Pattern] -> Maybe RuntimeEnv
+matchFirstAlternative currentModulePath scrutineeValue alternatives =
   case alternatives of
     [] -> Nothing
     alternative : rest ->
-      case matchPattern scrutineeValue alternative of
+      case matchPattern currentModulePath scrutineeValue alternative of
         Just patternBindings -> Just patternBindings
-        Nothing -> matchFirstAlternative scrutineeValue rest
+        Nothing -> matchFirstAlternative currentModulePath scrutineeValue rest
 
-matchPatternList :: [RuntimeValue] -> [Pattern] -> Maybe RuntimeEnv
-matchPatternList values patterns =
+matchPatternList :: Maybe [Text] -> [RuntimeValue] -> [Pattern] -> Maybe RuntimeEnv
+matchPatternList currentModulePath values patterns =
   foldM step Map.empty (zip values patterns)
   where
     step bindings (value, pattern) =
-      case matchPattern value pattern of
+      case matchPattern currentModulePath value pattern of
         Just patternBindings -> Just (patternBindings `Map.union` bindings)
         Nothing -> Nothing
 
@@ -1550,7 +1641,7 @@ applyRuntimeFunction builtinMode bindingTypeHints functionValue argumentValue =
           closureModulePath
           builtinMode
           bindingTypeHints
-          (Map.insert (identifierText parameterName) (Right hintedArgumentValue) capturedEnv)
+          (Map.insert parameterName (Right hintedArgumentValue) capturedEnv)
           bodyExpr
       case maybeTypeHint of
         Just typeHint -> applyRuntimeFunctionResultHint typeHint resultValue
@@ -1937,7 +2028,7 @@ runtimeValueMatchesDataTypeName typeName runtimeValue =
         && constructorIsSaturated constructorArguments capturedArgs
     _ -> False
 
-runtimeValueMatchesDataTypeApplication :: Identifier -> [ConstraintSignatureType] -> RuntimeValue -> Bool
+runtimeValueMatchesDataTypeApplication :: Name -> [ConstraintSignatureType] -> RuntimeValue -> Bool
 runtimeValueMatchesDataTypeApplication typeName typeArguments runtimeValue =
   case runtimeValue of
     VConstructor valueTypeName typeParameters _ constructorArguments capturedArgs
@@ -1953,7 +2044,7 @@ runtimeValueMatchesDataTypeApplication typeName typeArguments runtimeValue =
                 )
     _ -> False
 
-runtimeValueExactlyMatchesDataTypeName :: Identifier -> RuntimeValue -> Bool
+runtimeValueExactlyMatchesDataTypeName :: Name -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesDataTypeName typeName runtimeValue =
   case runtimeValue of
     VConstructor valueTypeName _ _ constructorArguments capturedArgs ->
@@ -1961,7 +2052,7 @@ runtimeValueExactlyMatchesDataTypeName typeName runtimeValue =
         && constructorIsSaturated constructorArguments capturedArgs
     _ -> False
 
-runtimeValueExactlyMatchesDataTypeApplication :: Identifier -> [ConstraintSignatureType] -> RuntimeValue -> Bool
+runtimeValueExactlyMatchesDataTypeApplication :: Name -> [ConstraintSignatureType] -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesDataTypeApplication typeName typeArguments runtimeValue =
   case runtimeValue of
     VConstructor valueTypeName typeParameters _ constructorArguments capturedArgs
@@ -2067,7 +2158,7 @@ applyOperator builtinMode bindingTypeHints operatorSymbol arguments =
 
 -- | Constructor values are curried like builtins until their declared arity is
 -- saturated; extra applications are runtime errors.
-applyConstructor :: Identifier -> [Identifier] -> Identifier -> [DataConstructorArgument] -> [RuntimeValue] -> Either Diagnostic RuntimeValue
+applyConstructor :: Name -> [Name] -> Name -> [DataConstructorArgument] -> [RuntimeValue] -> Either Diagnostic RuntimeValue
 applyConstructor typeName typeParameters constructorName constructorArguments arguments
   | length arguments <= constructorArity =
       Right (VConstructor typeName typeParameters constructorName constructorArguments arguments)
@@ -3158,36 +3249,3 @@ renderRuntimeType value =
 constructorIsSaturated :: [DataConstructorArgument] -> [RuntimeValue] -> Bool
 constructorIsSaturated constructorArguments capturedArgs =
   length capturedArgs >= length constructorArguments
-
-extendBoundWithPattern :: Pattern -> Set Text -> Set Text
-extendBoundWithPattern pattern bound =
-  Set.union bound (patternBoundNames pattern)
-
-patternBoundNames :: Pattern -> Set Text
-patternBoundNames pattern =
-  case pattern of
-    PVariable name -> Set.singleton (identifierText name)
-    PWildcard -> Set.empty
-    PLiteral {} -> Set.empty
-    PConstructor _ patterns ->
-      Set.unions (map patternBoundNames patterns)
-    PList patterns ->
-      Set.unions (map patternBoundNames patterns)
-    PConsList headPattern tailPattern ->
-      Set.union (patternBoundNames headPattern) (patternBoundNames tailPattern)
-    PTuple patterns ->
-      Set.unions (map patternBoundNames patterns)
-    PAs name pattern ->
-      Set.insert (identifierText name) (patternBoundNames pattern)
-    POr alternatives ->
-      commonPatternBoundNames alternatives
-
-commonPatternBoundNames :: [Pattern] -> Set Text
-commonPatternBoundNames alternatives =
-  case alternatives of
-    [] -> Set.empty
-    firstAlternative : rest ->
-      foldl'
-        Set.intersection
-        (patternBoundNames firstAlternative)
-        (map patternBoundNames rest)
