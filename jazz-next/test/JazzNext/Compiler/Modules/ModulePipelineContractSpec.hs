@@ -24,13 +24,17 @@ import JazzNext.Compiler.ModuleRuntime
   )
 import JazzNext.Compiler.Runtime (renderRuntimeValue)
 import JazzNext.Compiler.ModuleInterface
-  ( CompiledModule (compiledModuleInterface),
+  ( CompiledModule (compiledModuleInterface, compiledResolvedModule),
     CompiledProgram (compiledProgramErrors),
     ModuleInterface (interfaceValueTypes),
     emptyCompileInputs,
     lookupCompiledModule
   )
-import JazzNext.Compiler.ModuleExports (ModuleExport (..))
+import JazzNext.Compiler.ModuleExports
+  ( ModuleExport (..),
+    exportInventoryEntries
+  )
+import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import JazzNext.Compiler.Name (NameNamespace (ConstructorNamespace, ValueNamespace))
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
@@ -49,6 +53,9 @@ tests =
   [ ("dependency expressions are checked but not executed", testDependencyExpressionContract),
     ("compiled interfaces expose only declared exports", testCompiledInterfacesExposeOnlyDeclaredExports),
     ("runtime modules publish only declared exports", testRuntimeModulePublishesDeclaredExports),
+    ("compiled modules retain private interfaces with public inventories", testCompiledModuleKeepsPrivateInterfaceWithPublicInventory),
+    ("runtime modules publish explicit value exports only", testRuntimeModulePublishesExplicitExportsOnly),
+    ("runtime modules publish methods only for public classes", testRuntimeModulePublishesPublicClassMethodsOnly),
     ("module export identities distinguish shadowed values and constructors", testModuleExportIdentityPreservesNamespaces),
     ("compiled dependency terminal expressions are skipped", testCompiledDependencyTerminalExpressionIsSkipped),
     ("alias imports stay qualified", testAliasIsolationContract),
@@ -69,6 +76,67 @@ testRuntimeModulePublishesDeclaredExports = do
             "export names"
             (Set.fromList [ModuleExport ValueNamespace "answer"])
             (Map.keysSet (runtimeModuleExports runtimeModule))
+
+testCompiledModuleKeepsPrivateInterfaceWithPublicInventory :: IO ()
+testCompiledModuleKeepsPrivateInterfaceWithPublicInventory = do
+  compiled <- compileFixtureProgram explicitExportSources
+  case lookupCompiledModule ["Lib", "Value"] compiled of
+    Nothing -> fail "missing compiled Lib::Value module"
+    Just compiledModule -> do
+      assertEqual
+        "full compiled interface"
+        (Set.fromList [ModuleExport ValueNamespace "answer", ModuleExport ValueNamespace "helper"])
+        (Map.keysSet (interfaceValueTypes (compiledModuleInterface compiledModule)))
+      assertEqual
+        "public compiled inventory"
+        (Set.singleton (ModuleExport ValueNamespace "answer"))
+        ( exportInventoryEntries
+            (ModuleGraph.resolvedModuleExportInventory (compiledResolvedModule compiledModule))
+        )
+
+testRuntimeModulePublishesExplicitExportsOnly :: IO ()
+testRuntimeModulePublishesExplicitExportsOnly = do
+  compiled <- compileFixtureProgram explicitExportSources
+  case evaluateCompiledProgram compiled of
+    Left diagnostic -> fail (Text.unpack (renderDiagnostic diagnostic))
+    Right runtime ->
+      case lookupRuntimeModule ["Lib", "Value"] runtime of
+        Nothing -> fail "missing runtime Lib::Value module"
+        Just runtimeModule ->
+          assertEqual
+            "public runtime exports"
+            (Set.singleton (ModuleExport ValueNamespace "answer"))
+            (Map.keysSet (runtimeModuleExports runtimeModule))
+
+testRuntimeModulePublishesPublicClassMethodsOnly :: IO ()
+testRuntimeModulePublishesPublicClassMethodsOnly = do
+  compiled <- compileFixtureProgram explicitCapabilitySources
+  case evaluateCompiledProgram compiled of
+    Left diagnostic -> fail (Text.unpack (renderDiagnostic diagnostic))
+    Right runtime ->
+      case lookupRuntimeModule ["Lib", "Facts"] runtime of
+        Nothing -> fail "missing runtime Lib::Facts module"
+        Just runtimeModule ->
+          assertEqual
+            "public class method runtime exports"
+            (Set.singleton (ModuleExport ValueNamespace "Eq::equals"))
+            (Map.keysSet (runtimeModuleExports runtimeModule))
+
+explicitExportSources :: Map.Map FilePath Text
+explicitExportSources =
+  Map.fromList
+    [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value (answer).\nanswer 41.\n}"),
+      ("src/Lib/Value.jz", "module Lib::Value (answer) {\nhelper = \\(x) -> x + 1.\nanswer = \\(x) -> helper x.\n}")
+    ]
+
+explicitCapabilitySources :: Map.Map FilePath Text
+explicitCapabilitySources =
+  Map.fromList
+    [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Facts (Eq).\nEq::equals 1 1.\n}"),
+      ( "src/Lib/Facts.jz",
+        "module Lib::Facts (Eq) {\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\nclass Hidden(a) {\nsecret :: a -> Bool.\n}.\nimpl Eq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\nimpl Hidden(Int) {\nsecret = \\(value) -> False.\n}.\n}"
+      )
+    ]
 
 testModuleExportIdentityPreservesNamespaces :: IO ()
 testModuleExportIdentityPreservesNamespaces = do

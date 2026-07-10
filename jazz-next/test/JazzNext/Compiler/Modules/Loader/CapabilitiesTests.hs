@@ -85,6 +85,9 @@ capabilitiesTests =
     , ("compile module graph rejects classes that collide with the ambient prelude", testCompileModuleGraphRejectsAmbientClassCollision)
     , ("compile module graph rejects classes that collide with visible imported classes", testCompileModuleGraphRejectsImportedClassCollision)
     , ("compile module graph does not re-export imported classes", testCompileModuleGraphDoesNotReexportImportedClasses)
+    , ("run module graph publishes explicitly exported class", testRunModuleGraphPublishesExplicitlyExportedClass)
+    , ("compile module graph rejects private explicit class import", testCompileModuleGraphRejectsPrivateExplicitClassImport)
+    , ("compile module graph allows local class matching private dependency class", testCompileModuleGraphAllowsLocalClassMatchingPrivateDependencyClass)
   ]
 
 testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules :: IO ()
@@ -1106,6 +1109,56 @@ testCompileModuleGraphDoesNotReexportImportedClasses = do
           ),
           ( "src/Lib/Facts.jz",
             "module Lib::Facts {\nclass Eq(a) { }.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphPublishesExplicitlyExportedClass :: IO ()
+testRunModuleGraphPublishesExplicitlyExportedClass = do
+  result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] lookupSource
+  assertEqual "public class compile errors" [] (runCompileErrors result)
+  assertEqual "public class runtime errors" [] (runRuntimeErrors result)
+  assertEqual "public class runtime output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Facts (Eq).\nEq::equals 1 1.\n}"),
+          ( "src/Lib/Facts.jz",
+            "module Lib::Facts (Eq) {\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\nclass Hidden(a) { }.\nimpl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphRejectsPrivateExplicitClassImport :: IO ()
+testCompileModuleGraphRejectsPrivateExplicitClassImport = do
+  result <- compileModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] lookupSource
+  case compileErrors result of
+    [diagnostic] -> do
+      assertContains "private class import code" "E4007" (renderDiagnostic diagnostic)
+      assertContains "private class import name" "Hidden" (renderDiagnostic diagnostic)
+    diagnostics -> failTest ("expected one E4007 diagnostic, got " <> Text.pack (show diagnostics))
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Facts (Hidden).\n0.\n}"),
+          ( "src/Lib/Facts.jz",
+            "module Lib::Facts (Eq) {\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\nclass Hidden(a) { }.\nimpl Eq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphAllowsLocalClassMatchingPrivateDependencyClass :: IO ()
+testCompileModuleGraphAllowsLocalClassMatchingPrivateDependencyClass = do
+  result <- compileModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] lookupSource
+  assertEqual "private dependency class collision errors" [] (compileErrors result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Facts.\nclass Hidden(a) { }.\n0.\n}"
+          ),
+          ( "src/Lib/Facts.jz",
+            "module Lib::Facts (Eq) {\nclass Eq(a) { }.\nclass Hidden(a) { }.\n}"
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

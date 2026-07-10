@@ -26,6 +26,7 @@ import JazzNext.Compiler.ModuleGraph
   )
 import JazzNext.Compiler.ModuleExports
   ( ModuleExport (..),
+    ModuleExportInventory,
     ModuleImportMode (..),
     exportNamesInNamespace,
     inventoryHasExport,
@@ -169,6 +170,7 @@ dependencyImportInterface importDecl compiledModule =
     (ImportedModule (resolvedImportPath importDecl))
     (resolvedImportAlias importDecl)
     (resolvedImportSymbols importDecl)
+    (resolvedModuleExportInventory (compiledResolvedModule compiledModule))
     (compiledModuleInterface compiledModule)
 
 data ImportedInterface = ImportedInterface
@@ -204,10 +206,16 @@ mergeModuleInterfaces left right =
     }
 
 importWholeInterface :: ResolvedNameOrigin -> ModuleInterface -> ImportedInterface
-importWholeInterface origin = importSelectedInterface origin Nothing Nothing
+importWholeInterface origin moduleInterface =
+  importSelectedInterface
+    origin
+    Nothing
+    Nothing
+    (moduleInterfaceExportInventory moduleInterface)
+    moduleInterface
 
-importSelectedInterface :: ResolvedNameOrigin -> Maybe Text -> Maybe [Text] -> ModuleInterface -> ImportedInterface
-importSelectedInterface origin maybeAlias maybeSymbols moduleInterface =
+importSelectedInterface :: ResolvedNameOrigin -> Maybe Text -> Maybe [Text] -> ModuleExportInventory -> ModuleInterface -> ImportedInterface
+importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInterface =
   ImportedInterface
     { importedTypes =
         Map.fromList
@@ -238,7 +246,7 @@ importSelectedInterface origin maybeAlias maybeSymbols moduleInterface =
       visibleImportInventory
         importMode
         maybeSymbols
-        (moduleInterfaceExportInventory moduleInterface)
+        publicInventory
     selectedValueTypes =
       Map.filterWithKey
         (\export _ -> inventoryHasExport export selectedInventory)

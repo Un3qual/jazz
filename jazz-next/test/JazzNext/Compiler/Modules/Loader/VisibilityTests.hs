@@ -79,6 +79,11 @@ visibilityTests =
     , ("compile module graph accepts qualified alias use before import", testCompileModuleGraphQualifiedAliasLookupBeforeImport)
     , ("run module graph lets ordinary bindings shadow local constructors", testRunModuleGraphOrdinaryBindingShadowsLocalConstructor)
     , ("run module graph imports ordinary bindings that shadow constructors", testRunModuleGraphImportsOrdinaryBindingThatShadowsConstructor)
+    , ("run module graph executes public closure with private helper", testRunModuleGraphExecutesPublicClosureWithPrivateHelper)
+    , ("compile module graph rejects private alias member", testCompileModuleGraphRejectsPrivateAliasMember)
+    , ("compile module graph supports opaque exported type", testCompileModuleGraphSupportsOpaqueExportedType)
+    , ("run module graph imports exported constructor without type name", testRunModuleGraphImportsExportedConstructorWithoutTypeName)
+    , ("run module graph keeps private entry bindings usable", testRunModuleGraphKeepsPrivateEntryBindingsUsable)
   ]
 
 testRunModuleGraphDefaultLoadsBundledPrelude :: IO ()
@@ -765,4 +770,70 @@ testRunModuleGraphImportsOrdinaryBindingThatShadowsConstructor = do
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Maybe (Just).\nJust.\n}"),
           ("src/Lib/Maybe.jz", "module Lib::Maybe {\ndata Maybe = Just value.\nJust = 1.\n}")
         ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphExecutesPublicClosureWithPrivateHelper :: IO ()
+testRunModuleGraphExecutesPublicClosureWithPrivateHelper = do
+  result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] lookupSource
+  assertEqual "private helper closure compile errors" [] (runCompileErrors result)
+  assertEqual "private helper closure runtime errors" [] (runRuntimeErrors result)
+  assertEqual "private helper closure output" (Just "42") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value (answer).\nanswer 41.\n}"),
+          ("src/Lib/Value.jz", "module Lib::Value (answer) {\nhelper = \\(x) -> x + 1.\nanswer = \\(x) -> helper x.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphRejectsPrivateAliasMember :: IO ()
+testCompileModuleGraphRejectsPrivateAliasMember = do
+  result <- compileModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] lookupSource
+  case compileErrors result of
+    [diagnostic] -> do
+      assertContains "private alias code" "E4014" (renderDiagnostic diagnostic)
+      assertContains "private alias member" "helper" (renderDiagnostic diagnostic)
+    diagnostics -> failTest ("expected one E4014 diagnostic, got " <> Text.pack (show diagnostics))
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value as Value.\nValue::helper.\n}"),
+          ("src/Lib/Value.jz", "module Lib::Value (answer) {\nhelper = 1.\nanswer = helper.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphSupportsOpaqueExportedType :: IO ()
+testCompileModuleGraphSupportsOpaqueExportedType = do
+  result <- compileModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] lookupSource
+  assertEqual "opaque exported type compile errors" [] (compileErrors result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Box.\nclass Use(a) {\nuse :: a -> Bool.\n}.\nimpl Use(Box) {\nuse = \\(value) -> True.\n}.\nUse::use boxed.\n}"),
+          ("src/Lib/Box.jz", "module Lib::Box (Box, boxed) {\ndata Box = Pack Int.\nboxed = Pack 1.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphImportsExportedConstructorWithoutTypeName :: IO ()
+testRunModuleGraphImportsExportedConstructorWithoutTypeName = do
+  result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] lookupSource
+  assertEqual "constructor-only export compile errors" [] (runCompileErrors result)
+  assertEqual "constructor-only export runtime errors" [] (runRuntimeErrors result)
+  assertEqual "constructor-only export output" (Just "Pack(1)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Box (Pack).\nPack 1.\n}"),
+          ("src/Lib/Box.jz", "module Lib::Box (Pack) {\ndata Box = Pack Int.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphKeepsPrivateEntryBindingsUsable :: IO ()
+testRunModuleGraphKeepsPrivateEntryBindingsUsable = do
+  result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] lookupSource
+  assertEqual "private entry binding compile errors" [] (runCompileErrors result)
+  assertEqual "private entry binding runtime errors" [] (runRuntimeErrors result)
+  assertEqual "private entry binding output" (Just "41") (runOutput result)
+  where
+    sourceMap = Map.singleton "src/App/Main.jz" "module App::Main () {\nhelper = 41.\nhelper.\n}"
     lookupSource path = pure (Map.lookup path sourceMap)

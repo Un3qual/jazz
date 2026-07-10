@@ -20,10 +20,11 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics (Diagnostic)
 import JazzNext.Compiler.ModuleGraph
   ( ResolvedImport (..),
-    ResolvedModule (resolvedModuleImports, resolvedModulePath)
+    ResolvedModule (resolvedModuleExportInventory, resolvedModuleImports, resolvedModulePath)
   )
 import JazzNext.Compiler.ModuleExports
   ( ModuleExport (..),
+    ModuleExportInventory,
     ModuleImportMode (..),
     exportInventoryEntries,
     exportNamesInNamespace,
@@ -119,6 +120,7 @@ evaluateCompiledProgram compiledProgram =
                     runtimeModuleExports =
                       publishExports
                         CurrentModule
+                        (resolvedModuleExportInventory resolvedModule)
                         (compiledModuleInterface compiledModule)
                         (scopeResultEnvironment scopeResult)
                   }
@@ -144,6 +146,7 @@ evaluatePrelude compiledPrelude =
       pure
         ( publishEnvironment
             AmbientPrelude
+            (moduleInterfaceExportInventory (compiledPreludeInterface compiledPrelude))
             (compiledPreludeInterface compiledPrelude)
             (scopeResultEnvironment scopeResult)
         )
@@ -152,11 +155,12 @@ importRuntimeModule :: CompiledProgram -> [RuntimeModule] -> ResolvedImport -> R
 importRuntimeModule compiledProgram runtimeModules importDecl env =
   case (lookupCompiled dependencyPath, lookupRuntime dependencyPath) of
     (Just compiledDependency, Just runtimeDependency) ->
-      let interface = compiledModuleInterface compiledDependency
+      let publicInventory =
+            resolvedModuleExportInventory (compiledResolvedModule compiledDependency)
           selectedExports =
             [ (moduleExport, cell)
               | (moduleExport, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
-                runtimeExportSelected importDecl interface moduleExport
+                runtimeExportSelected importDecl publicInventory moduleExport
             ]
           insertExport (moduleExport, cell) =
             Map.insert
@@ -174,34 +178,38 @@ importRuntimeModule compiledProgram runtimeModules importDecl env =
       findByPath (resolvedModulePath . compiledResolvedModule) path (compiledProgramModules compiledProgram)
     lookupRuntime path = findByPath runtimeModulePath path runtimeModules
 
-publishEnvironment :: ResolvedNameOrigin -> ModuleInterface -> RuntimeEnv -> RuntimeEnv
-publishEnvironment origin moduleInterface env =
+publishEnvironment :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> RuntimeEnv
+publishEnvironment origin publicInventory moduleInterface env =
   Map.fromList
     [ (ResolvedName origin (moduleExportNamespace moduleExport) (mkIdentifier (moduleExportName moduleExport)), cell)
-      | moduleExport <- interfaceExports moduleInterface,
+      | moduleExport <- interfaceExports publicInventory moduleInterface,
         Just cell <- [lookupExportCell origin moduleExport env]
     ]
 
-publishExports :: ResolvedNameOrigin -> ModuleInterface -> RuntimeEnv -> Map ModuleExport RuntimeCell
-publishExports origin moduleInterface env =
+publishExports :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> Map ModuleExport RuntimeCell
+publishExports origin publicInventory moduleInterface env =
   Map.fromList
     [ (moduleExport, cell)
-      | moduleExport <- interfaceExports moduleInterface,
+      | moduleExport <- interfaceExports publicInventory moduleInterface,
         Just cell <- [lookupExportCell origin moduleExport env]
     ]
 
-interfaceExports :: ModuleInterface -> [ModuleExport]
-interfaceExports moduleInterface =
+interfaceExports :: ModuleExportInventory -> ModuleInterface -> [ModuleExport]
+interfaceExports publicInventory moduleInterface =
   [ export
-    | export <-
-        Set.toList
-          (exportInventoryEntries (moduleInterfaceExportInventory moduleInterface)),
+    | export <- Set.toList (exportInventoryEntries publicInventory),
       moduleExportNamespace export `elem` [ValueNamespace, ConstructorNamespace]
   ]
-    <> map (ModuleExport ValueNamespace) (Map.keys (interfaceClassMethods moduleInterface))
+    <> [ ModuleExport ValueNamespace methodKey
+         | methodKey <- Map.keys (interfaceClassMethods moduleInterface),
+           Just (className, _) <- [splitQualifiedMethodKey methodKey],
+           Set.member className publicClassNames
+       ]
+  where
+    publicClassNames = exportNamesInNamespace CapabilityNamespace publicInventory
 
-runtimeExportSelected :: ResolvedImport -> ModuleInterface -> ModuleExport -> Bool
-runtimeExportSelected importDecl moduleInterface moduleExport =
+runtimeExportSelected :: ResolvedImport -> ModuleExportInventory -> ModuleExport -> Bool
+runtimeExportSelected importDecl publicInventory moduleExport =
   case splitQualifiedMethodKey (moduleExportName moduleExport) of
     Just (className, _) ->
       resolvedImportAlias importDecl == Nothing
@@ -216,7 +224,7 @@ runtimeExportSelected importDecl moduleInterface moduleExport =
       visibleImportInventory
         importMode
         (resolvedImportSymbols importDecl)
-        (moduleInterfaceExportInventory moduleInterface)
+        publicInventory
     selectedClassNames =
       exportNamesInNamespace CapabilityNamespace selectedInventory
 
