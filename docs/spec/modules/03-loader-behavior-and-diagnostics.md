@@ -79,28 +79,35 @@ Module-graph compile/run uses this order:
 1. Resolve the prelude source.
 2. Parse, validate, and lower the selected prelude when present.
 3. Collect visible prelude binding names as ambient symbols for import validation.
-4. Resolve the entry module graph using the file-layout and resolution rules.
-5. Replay resolved source files in dependency-first order from the memoized source lookup.
-6. Parse and lower each resolved module source, then qualify every
-   statement-owned span with that module's resolved source path.
-7. Build a validation replay program that contains dependency and entry module statements.
-8. Merge prelude statements before the validation replay program.
-9. Run analyzer/type inference and warning collection on the validation replay program.
-10. Promote warnings according to warning settings.
-11. For run mode only, build and analyze a runtime replay program, then evaluate it if compile diagnostics are empty.
+4. Resolve the entry module graph using the file-layout and resolution rules,
+   parsing and lowering every selected source exactly once.
+5. Retain dependency-ordered `CoreModule` values with structured resolved names
+   and source-qualified spans in a `ResolvedProgram`.
+6. Compile the prepared prelude once into its ambient interface.
+7. Compile each resolved module in dependency order against only the selected
+   prelude and dependency interfaces visible through its imports.
+8. Collect warnings and semantic diagnostics from the compiled prelude and
+   modules, then promote warnings according to warning settings.
+9. For run mode only, evaluate the compiled modules in dependency order against
+   explicit runtime exports if compile diagnostics are empty.
 
 Module graph source parse failures are `E4004` and include the resolved source path. Resolution failures use the `E4001` through `E4009` module diagnostic family defined by the resolution and import-binding specs.
 
-## Runtime Replay
+## Per-Module Compilation and Evaluation
 
-Compile mode validates the whole module graph. Dependency module expression statements are kept in the validation replay program so semantic errors in dependency expressions are reported.
+Compile mode validates every module in the graph. Each module is analyzed once
+against explicit imported type, data, class, impl, method, and runtime-hint
+facts. Its interface publishes only declared values, constructors, and
+capability metadata; transitive imports do not become exports.
 
-Run mode uses a separate runtime replay program:
+Run mode consumes that same successful `CompiledProgram`:
 
-- dependency module expression statements are removed;
-- entry module expression statements are retained;
-- dependency bindings and data constructors needed by visible or qualified imports remain available;
-- module declarations are removed before analysis/runtime replay.
+- dependency declarations and bindings establish a module-local runtime
+  environment and exported cells;
+- dependency expression statements are skipped rather than executed;
+- only selected exports are inserted into an importer's environment;
+- the entry module's expression statements are evaluated and may produce the
+  program output.
 
 This preserves dependency expression isolation: dependency expressions are checked for compile-time validity but do not produce runtime output while running an entry module.
 
@@ -108,7 +115,7 @@ This preserves dependency expression isolation: dependency expressions are check
 
 V1 has no persistent module cache and no cross-invocation invalidation policy.
 
-Within one compile/run invocation, the loader memoizes source lookup results by candidate path. The first lookup result for a path is reused during resolution and replay, including missing-source results. This keeps diagnostics deterministic and prevents a source file from being read once for resolution and then changing before replay.
+Within one compile/run invocation, the loader memoizes source lookup results by candidate path. The first lookup result for a path is reused throughout resolution, including missing-source results. Because the resolver retains the lowered core, compilation and evaluation do not read module source again. This keeps diagnostics deterministic and prevents a source file from changing between resolution and compilation.
 
 Future persistent caching must not change the observable diagnostics, dependency order, prelude selection, or dependency expression isolation specified here.
 
@@ -138,8 +145,8 @@ Module diagnostics should preserve the context from earlier spec slices:
 - module parse diagnostics include the source path;
 - import-binding diagnostics include importer/imported-module context.
 
-After each resolved source is lowered, every statement-owned span is qualified
-with that module's resolved source path before replay combines modules.
+As each resolved source is lowered, every statement-owned span is qualified
+with that module's resolved source path before per-module analysis.
 Semantic primary and related locations therefore render as
 `path:line:column`, including cross-module diagnostics. Standalone-source spans
 retain their existing `line:column` rendering.
@@ -159,14 +166,14 @@ retain their existing `line:column` rendering.
 | module graph run succeeds | entry-module runtime output on stdout, exit `0` |
 | dependency module expression would fail at runtime only | no runtime output from dependency expression |
 | dependency module expression is semantically invalid | compile diagnostic before runtime |
-| same file is requested during resolution and replay | first source lookup result is reused |
+| same file is requested more than once during graph resolution | first source lookup result is reused |
 
-Implementation evidence (2026-05-30): `LoaderSpec.hs` and `CLISpec.hs` now
-lock the active `jazz-next` harness for module-graph default roots, exclusive
-CLI source selection, dependency expression validation before run-mode runtime
-evaluation, dependency expression runtime isolation, memoized source lookup
-reuse, ambiguous/resolver diagnostics, fail-fast module source parse diagnostics,
-and stable compile/run stdout suppression for diagnostics.
+Implementation evidence (2026-07-09): `ModulePipelineContractSpec.hs`,
+`LoaderSpec.hs`, and `CLISpec.hs` lock parse-once graph retention, explicit
+compile/runtime export boundaries, module-graph default roots, exclusive CLI
+source selection, dependency expression validation and runtime isolation,
+memoized source lookup, resolver diagnostics, fail-fast module parsing, and
+stable compile/run stdout suppression for diagnostics.
 
 ## Non-Goals
 

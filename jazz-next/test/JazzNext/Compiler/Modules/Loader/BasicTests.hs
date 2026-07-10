@@ -54,9 +54,9 @@ basicTests =
     , ("run module graph validates dependency expression statements before runtime", testRunModuleGraphValidatesDependencyExpressionsBeforeRuntime)
     , ("compile module graph qualifies semantic diagnostic spans with source paths", testCompileModuleGraphQualifiesSemanticDiagnosticSpans)
     , ("compile module graph reports module source parse diagnostics", testCompileModuleGraphParseFailure)
-    , ("run module graph prunes unused dependency bindings during runtime replay", testRunModuleGraphPrunesUnusedDependencyBindingsDuringRuntimeReplay)
-    , ("run module graph qualifies sibling data fields during replay", testRunModuleGraphQualifiesSiblingDataFieldsDuringReplay)
-    , ("loader reuses memoized source lookup across resolve and replay", testMemoizedLookupReuse)
+    , ("run module graph skips unused dependency bindings during module evaluation", testRunModuleGraphSkipsUnusedDependencyBindingsDuringEvaluation)
+    , ("run module graph qualifies sibling data fields across modules", testRunModuleGraphQualifiesSiblingDataFieldsAcrossModules)
+    , ("loader reuses memoized source lookup across resolution and compilation", testMemoizedLookupReuse)
   ]
 
 testCompileModuleGraphSuccess :: IO ()
@@ -250,8 +250,8 @@ testCompileModuleGraphParseFailure = do
         [("src/App/Main.jz", "module App::Main.")]
     lookupSource path = pure (Map.lookup path sourceMap)
 
-testRunModuleGraphPrunesUnusedDependencyBindingsDuringRuntimeReplay :: IO ()
-testRunModuleGraphPrunesUnusedDependencyBindingsDuringRuntimeReplay = do
+testRunModuleGraphSkipsUnusedDependencyBindingsDuringEvaluation :: IO ()
+testRunModuleGraphSkipsUnusedDependencyBindingsDuringEvaluation = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
@@ -274,8 +274,8 @@ testRunModuleGraphPrunesUnusedDependencyBindingsDuringRuntimeReplay = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
-testRunModuleGraphQualifiesSiblingDataFieldsDuringReplay :: IO ()
-testRunModuleGraphQualifiesSiblingDataFieldsDuringReplay = do
+testRunModuleGraphQualifiesSiblingDataFieldsAcrossModules :: IO ()
+testRunModuleGraphQualifiesSiblingDataFieldsAcrossModules = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings
@@ -332,7 +332,7 @@ testMemoizedLookupReuse = do
     lookupByReadCount path readCount =
       case path of
         -- Without memoization this second read would replace the resolver-accepted
-        -- source and fail replay. Memoized lookup should keep first-read content.
+        -- source and fail compilation. Memoized lookup should keep first-read content.
         "src/App/Main.jz"
           | readCount == 1 -> Just "module App::Main {\nimport Lib::Util.\nutil.\n}"
           | otherwise -> Just "broken = ."

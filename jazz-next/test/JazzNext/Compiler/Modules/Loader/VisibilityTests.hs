@@ -70,9 +70,9 @@ visibilityTests =
     , ("run module graph resolves imported constructors in lambda or-pattern alternatives", testRunModuleGraphResolvesImportedConstructorsInLambdaOrPatternAlternatives)
     , ("run module graph keeps alias-qualified dependency export visible with prelude", testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude)
     , ("run module graph keeps transitive alias-hidden dependency export from shadowing prelude", testRunModuleGraphTransitiveAliasHiddenExportUsesPrelude)
-    , ("compile module graph hides transitive alias-only exports from unqualified replay", testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport)
+    , ("compile module graph hides transitive alias-only exports from unqualified visibility", testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport)
     , ("run module graph keeps alias-hidden prelude binding isolated from visible importer", testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter)
-    , ("run module graph keeps visible sibling import isolated from alias-hidden replay", testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenReplay)
+    , ("run module graph keeps visible sibling import isolated from alias-hidden modules", testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenModule)
     , ("run module graph keeps hidden qualified export dependencies available", testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge)
     , ("run module graph resolves qualified alias lookup", testRunModuleGraphQualifiedAliasLookup)
     , ("run module graph resolves qualified alias lookup through dependency export", testRunModuleGraphQualifiedAliasLookupUsesDependencyExport)
@@ -626,8 +626,8 @@ testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
-testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenReplay :: IO ()
-testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenReplay = do
+testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenModule :: IO ()
+testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenModule = do
   result <-
     runModuleGraphWithResolvedPrelude
       defaultWarningSettings

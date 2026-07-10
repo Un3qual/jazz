@@ -88,8 +88,7 @@ data ModuleResolutionConfig = ModuleResolutionConfig
   }
   deriving (Eq, Show)
 
--- | Minimal resolved-module record consumed by the driver when replaying source
--- in dependency order.
+-- | Compatibility summary returned by the resolver's inventory-only entrypoints.
 data ResolvedModule = ResolvedModule
   { resolvedModulePath :: [Text],
     resolvedSourcePath :: FilePath,
@@ -745,7 +744,7 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
           ConstraintTypeFunction (resolveConstraintType argumentType) (resolveConstraintType resultType)
 
 -- | Collect unqualified free references used to validate explicit and alias
--- import visibility before driver replay rewrites names.
+-- import visibility before core names are resolved structurally.
 collectReferencedNames :: SurfaceExpr -> Set Text
 collectReferencedNames = collectExprReferences Set.empty
 

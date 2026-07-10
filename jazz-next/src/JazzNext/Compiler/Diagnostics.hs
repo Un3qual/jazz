@@ -33,8 +33,8 @@ import JazzNext.Compiler.WarningCatalog
   )
 
 -- | 1-based source location used throughout the compiler. Standalone parsing
--- uses the compact constructor; module replay qualifies spans with a path
--- before semantic analysis combines multiple source files.
+-- uses the compact constructor; resolved modules qualify spans with their
+-- source paths before per-module semantic analysis.
 data SourceSpan
   = SourceSpan
       { spanLine :: Int,

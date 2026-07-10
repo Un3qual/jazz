@@ -81,6 +81,11 @@ Standalone compile/run mode remains a single source input and does not use modul
 
 Module graph mode is entered explicitly through `--entry-module`; it resolves the entry module and imports through the module-root search contract above.
 
+Each selected module source is parsed and lowered once during resolution. The
+resulting core module retains its resolved source path and structured module
+identity for later per-module compilation and evaluation; file layout does not
+depend on generated wrapper sources or a second source read.
+
 ## Non-Goals
 
 The v1 file-layout contract does not define:

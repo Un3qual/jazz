@@ -8,7 +8,7 @@ Depends on: `docs/spec/modules/01-file-layout-and-package-roots.md`
 
 This document defines the deterministic v1 module resolution algorithm for active `jazz-next` module-graph compilation and execution. It documents existing resolver behavior and does not introduce new compiler behavior.
 
-Name binding for qualified imports, loader replay/runtime behavior, cache policy, and future package metadata remain separate module spec slices.
+Name binding for qualified imports, per-module compile/runtime behavior, cache policy, and future package metadata remain separate module spec slices.
 
 ## Inputs
 
@@ -55,7 +55,7 @@ For each module:
 1. If the module is already resolved, reuse the resolved result and do not traverse it again.
 2. If the module is already in the active call stack, stop with `E4003`.
 3. Load the module source using candidate lookup.
-4. Parse the source and collect module declarations, imports, exports, unqualified references, and qualified references. Parse failure while loading a module is `E4004`.
+4. Parse and lower the source once, retaining its `CoreModule`, and collect module declarations, imports, exports, unqualified references, and qualified references. Parse failure while loading a module is `E4004`.
 5. Validate module declarations:
    - a source file with no module declaration is allowed; it uses the resolved path as module identity;
    - exactly one matching top-level brace-bodied declaration is allowed;
@@ -64,7 +64,7 @@ For each module:
 6. Deduplicate imported module paths and sort them by rendered `A::B` text.
 7. Resolve dependencies in that sorted order.
 8. Validate import bindings after dependencies have exported-name inventories.
-9. Add the current module after all dependencies.
+9. Resolve core names structurally and add the retained current module after all dependencies.
 
 The final resolved module list is dependency-first. For example, resolving `App::Main` that imports `Lib::Util` yields `Lib::Util` before `App::Main`.
 
@@ -114,7 +114,7 @@ visit(call_stack, state, module_path):
     state = visit(next_stack, state, import_path)
 
   validate_import_bindings(parsed, state.exports)
-  return state + resolved module_path
+  return state + resolved core module_path
 ```
 
 ## Truth Table
@@ -141,7 +141,7 @@ shared dependency reuse across branches, and nested minimal cycle traces.
 
 This resolution slice does not define:
 
-- loader replay, compile/run output, or dependency expression execution;
+- per-module compilation, compile/run output, or dependency expression execution;
 - import binding/shadowing details beyond the dependency graph needed for resolution;
 - cache invalidation or memoized source lookup policy;
 - package metadata or automatic root discovery;

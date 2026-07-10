@@ -662,7 +662,7 @@ applyOperatorAliasSchemeConstraints operatorSymbol typeScheme leftType rightType
       -- Numeric operator alias schemes only carry the primitive numeric operand
       -- constraint that inferBinaryType has already applied here. User-written
       -- constrained signatures are stored as ordinary schemes, not operator
-      -- aliases, so there are no explicit capability facts to replay.
+      -- aliases, so there are no explicit capability facts to apply.
       state
     _ -> state
 

@@ -12,22 +12,29 @@ Do not implement new compiler functionality in legacy directories.
 provided through the private `jazz-next-internal` package library solely for the
 executable and test components; there is no supported Haskell embedding API yet.
 
-## Current implementation slices
+## Current architecture
 
-- `src/JazzNext/Compiler/AST.hs`: analyzer-facing core AST used after parser/lowering.
-- `src/JazzNext/Compiler/Warnings.hs`: warning category/severity definitions and category parsing.
-- `src/JazzNext/Compiler/WarningConfig.hs`: `-W` token parsing and precedence merge (`CLI > env > config > default`).
-- `src/JazzNext/Compiler/Diagnostics.hs`: warning payload shape and deterministic warning sorting.
-- `src/JazzNext/Compiler/Parser/Lexer.hs`: minimal tokenization for parser bootstrap.
-- `src/JazzNext/Compiler/Parser.hs`: minimal surface parser for current syntax slices.
-- `src/JazzNext/Compiler/Parser/AST.hs`: parse-surface AST contract.
-- `src/JazzNext/Compiler/Parser/Lower.hs`: parse-AST -> analyzer-AST lowering boundary.
-- `src/JazzNext/Compiler/Analyzer.hs`: scope-aware rebinding warning analysis (`W0001`) plus binding/signature coherence checks (signature adjacency + unbound variable diagnostics).
-- `src/JazzNext/Compiler/TypeInference.hs`: inference result plumbing that carries warnings and semantic errors from analysis.
-- `src/JazzNext/Compiler/Driver.hs`: warning-as-error gating plus semantic-error propagation into compile results.
-- `src/JazzNext/CLI/Main.hs`: CLI flag/env/config resolution and warning-aware compile output behavior.
-- `jazz-next.cabal`: private implementation library, `jazz-next` executable, and complete test-suite registration.
-- `scripts/test-warning-config.sh`: compatibility runner for executing every spec through the local `runghc` wrapper.
+- `Compiler.Parser.*` owns surface grammar and one Megaparsec error model;
+  `Parser.Lower` produces the canonical core AST.
+- `Compiler.AST` has one conditional node (`EIf`), one pattern-case node
+  (`EPatternCase`), and ordinary `EApply` for application including `$`.
+- `Compiler.Name` owns both source identifiers and structured resolved names;
+  compiler phases render names only for diagnostics and user output.
+- `Compiler.ModuleResolver` parses and lowers each source once into a
+  dependency-ordered `ResolvedProgram` of retained `CoreModule` values.
+- `Compiler.ModuleCompiler` analyzes each module against explicit dependency
+  `ModuleInterface` values; `Compiler.ModuleRuntime` evaluates modules against
+  explicit runtime exports and executes only the entry module's expressions.
+- `Compiler.TypeInference` is the public façade over focused internal type,
+  state, solver, capability, pattern, scope, and diagnostic modules.
+- `Compiler.Driver` coordinates prelude preparation, resolution, per-module
+  compilation, warning promotion, and optional runtime evaluation.
+- `jazz-next.cabal` defines the private `jazz-next-internal` implementation
+  library, the `jazz-next` executable, and the registered test suites.
+- `scripts/test-warning-config.sh` runs the compatibility and structural audit.
+
+These are implementation boundaries only. The module and import syntax exposed
+to Jazz programs is unchanged by the internal module pipeline.
 
 ## Test layout
 

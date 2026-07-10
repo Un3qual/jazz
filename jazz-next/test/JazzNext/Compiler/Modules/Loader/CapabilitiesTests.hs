@@ -50,7 +50,7 @@ capabilitiesTests =
     , ("compile module graph keeps alias-qualified ADT equality distinct from local ADT", testCompileModuleGraphKeepsAliasQualifiedAdtEqualityDistinct)
     , ("compile module graph resolves alias-qualified impl method references", testCompileModuleGraphResolvesAliasQualifiedImplMethodReferences)
     , ("compile module graph rewrites hidden impl method references", testCompileModuleGraphRewritesHiddenImplMethodReferences)
-    , ("compile module graph keeps replayed ADT impl facts distinct", testCompileModuleGraphKeepsReplayedAdtImplFactsDistinct)
+    , ("compile module graph keeps module ADT impl facts distinct", testCompileModuleGraphKeepsModuleAdtImplFactsDistinct)
     , ("compile module graph preserves constrained schemes through export bridges", testCompileModuleGraphPreservesConstrainedSchemesThroughExportBridges)
     , ("run module graph retains local capabilities needed by inferred equality export", testRunModuleGraphRetainsLocalCapabilitiesNeededByInferredEqualityExport)
     , ("run module graph allows structural equality through hidden inferred equality export", testRunModuleGraphAllowsStructuralEqualityThroughHiddenInferredEqualityExport)
@@ -77,7 +77,7 @@ capabilitiesTests =
     , ("run module graph namespaces hidden retained local capabilities", testRunModuleGraphNamespacesHiddenRetainedLocalCapabilities)
     , ("run module graph namespaces alias-retained local capabilities", testRunModuleGraphNamespacesAliasRetainedLocalCapabilities)
     , ("run module graph rewrites hidden capability references despite value shadowing", testRunModuleGraphRewritesHiddenCapabilityReferencesDespiteValueShadowing)
-    , ("run module graph replays data referenced by imported class methods", testRunModuleGraphReplaysDataReferencedByImportedClassMethods)
+    , ("run module graph exposes data referenced by imported class methods", testRunModuleGraphExposesDataReferencedByImportedClassMethods)
   ]
 
 testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules :: IO ()
@@ -182,8 +182,8 @@ testCompileModuleGraphRewritesHiddenImplMethodReferences = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
-testCompileModuleGraphKeepsReplayedAdtImplFactsDistinct :: IO ()
-testCompileModuleGraphKeepsReplayedAdtImplFactsDistinct = do
+testCompileModuleGraphKeepsModuleAdtImplFactsDistinct :: IO ()
+testCompileModuleGraphKeepsModuleAdtImplFactsDistinct = do
   result <-
     compileModuleGraphWithPrelude
       defaultWarningSettings
@@ -194,7 +194,7 @@ testCompileModuleGraphKeepsReplayedAdtImplFactsDistinct = do
   case compileErrors result of
     [err] ->
       assertContains
-        "replayed ADT impl fact isolation"
+        "module ADT impl fact isolation"
         "missing impl fact 'Eq(Box(Int))'"
         (renderDiagnostic err)
     errors ->
@@ -875,8 +875,8 @@ testRunModuleGraphRewritesHiddenCapabilityReferencesDespiteValueShadowing = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
-testRunModuleGraphReplaysDataReferencedByImportedClassMethods :: IO ()
-testRunModuleGraphReplaysDataReferencedByImportedClassMethods = do
+testRunModuleGraphExposesDataReferencedByImportedClassMethods :: IO ()
+testRunModuleGraphExposesDataReferencedByImportedClassMethods = do
   result <-
     runModuleGraphWithPrelude
       defaultWarningSettings

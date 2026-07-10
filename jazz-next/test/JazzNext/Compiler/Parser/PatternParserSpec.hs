@@ -31,7 +31,7 @@ import JazzNext.TestHarness
   )
 
 main :: IO ()
-main = runTestSuite "PatternParser" tests
+main = runTestSuite "PatternGrammar" tests
 
 tests :: [NamedTest]
 tests =
