@@ -1315,7 +1315,16 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
     collectVisibleImportClassName visibleClassNames importDecl =
       case dependencyInventory importDecl of
         Nothing ->
-          Right visibleClassNames
+          Left
+            ( mkDiagnostic
+                "E4010"
+                ( "internal resolver error while validating imports for '"
+                    <> renderModulePath importerPath
+                    <> "': missing exports for module '"
+                    <> renderModulePath (parsedImportModulePath importDecl)
+                    <> "'"
+                )
+            )
         Just inventory ->
           Right
             ( Set.union

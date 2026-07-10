@@ -47,6 +47,7 @@ tests =
   [ ("rejects empty entry module path before traversal", testRejectsEmptyEntryModulePath),
     ("resolved program retains lowered modules", testResolvedProgramRetainsLoweredModules),
     ("resolved module carries explicit public inventory", testResolvedModuleCarriesExplicitPublicInventory),
+    ("empty export list produces empty inventory", testEmptyExportListProducesEmptyInventory),
     ("explicit exports keep private local bindings resolvable", testExplicitExportsKeepPrivateLocalsUsable),
     ("rejects unknown module export names", testRejectsUnknownModuleExport),
     ("rejects imported-only module export names", testRejectsImportedOnlyModuleExport),
@@ -156,6 +157,38 @@ testResolvedModuleCarriesExplicitPublicInventory = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value (answer).\nanswer.\n}"),
           ("src/Lib/Value.jz", "module Lib::Value (answer) {\nhelper = 1.\nanswer = helper.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
+
+testEmptyExportListProducesEmptyInventory :: IO ()
+testEmptyExportListProducesEmptyInventory = do
+  result <-
+    resolveProgram
+      testResolverConfig
+      ResolveKernelOnly
+      Set.empty
+      Set.empty
+      lookupSource
+      ["App", "Main"]
+  assertRight "resolved empty public inventory" result $ \program ->
+    case
+        [ resolvedModule
+          | resolvedModule <- ModuleGraph.resolvedProgramModules program,
+            ModuleGraph.resolvedModulePath resolvedModule == ["Lib", "Value"]
+        ] of
+      [resolvedModule] ->
+        assertEqual
+          "public inventory is empty"
+          Set.empty
+          ( exportInventoryEntries
+              (ModuleGraph.resolvedModuleExportInventory resolvedModule)
+          )
+      modules -> failTest ("expected one resolved Lib::Value module, got " <> Text.pack (show (length modules)))
+  where
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value.\n0.\n}"),
+          ("src/Lib/Value.jz", "module Lib::Value () {\nhidden = 1.\n}")
         ]
     lookupSource path = pure (Map.lookup path sources)
 

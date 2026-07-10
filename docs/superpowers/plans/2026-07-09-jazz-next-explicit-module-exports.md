@@ -539,7 +539,7 @@ resolver cases fail because every owned declaration is still public.
 
 - [x] **Step 3: Add the module-declaration selector API**
 
-Export and implement in `ModuleExports.hs`:
+Export and implement in `jazz-next/src/JazzNext/Compiler/ModuleExports.hs`:
 
 ```haskell
 declarationExportNames :: ModuleExportInventory -> Set Text
@@ -908,7 +908,8 @@ compiler imports still leak because consumers use the full interface inventory.
 
 - [x] **Step 4: Filter compiler imports through the resolved public inventory**
 
-Import `ModuleExportInventory` in `ModuleCompiler.hs`. Change the selection
+Import `ModuleExportInventory` in
+`jazz-next/src/JazzNext/Compiler/ModuleCompiler.hs`. Change the selection
 function to:
 
 ```haskell
@@ -1138,7 +1139,7 @@ whitespace check passes.
 Run:
 
 ```bash
-git diff --stat HEAD~3..HEAD
+git diff --stat "$(git merge-base main HEAD)"..HEAD
 rg -n 're-export|\.\.\)|public |private |operator export|superclass|default method' jazz-next/src/JazzNext/Compiler jazz-next/test/JazzNext/Compiler
 git diff --check
 ```

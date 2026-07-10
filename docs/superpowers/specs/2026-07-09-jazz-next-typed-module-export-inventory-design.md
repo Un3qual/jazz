@@ -26,11 +26,12 @@ The active `jazz-next` module pipeline already supports:
 - module-scoped type, capability, and runtime metadata.
 
 The implementation currently represents those exports differently at each
-stage. `ModuleResolver.hs` carries separate maps for values, constructors,
-data types, and classes. `ModuleInterface.hs` uses `ModuleExport` for value
-bindings while keeping data and capability payloads in separate fields.
-`ModuleCompiler.hs` then reconstructs selection rules independently when it
-filters a dependency interface.
+stage. `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs` carries separate maps
+for values, constructors, data types, and classes.
+`jazz-next/src/JazzNext/Compiler/ModuleInterface.hs` uses `ModuleExport` for
+value bindings while keeping data and capability payloads in separate fields.
+`jazz-next/src/JazzNext/Compiler/ModuleCompiler.hs` then reconstructs selection
+rules independently when it filters a dependency interface.
 
 That split makes the module boundary harder to reason about and has allowed
 the normative module documentation to lag behind implemented class-import
@@ -41,8 +42,10 @@ model without introducing a second mutable export manifest.
 
 ### Non-Aliased imports
 
-`import Lib::Facts.` exposes every supported unqualified export from the
-module, including every class declared by that module.
+`import Lib::Facts.` exposes every supported unqualified entry in the module's
+public inventory. For a module without an explicit export list, that baseline
+includes every supported owned export and every class declared by the module;
+an explicit export allowlist narrows the public inventory first.
 
 `import Lib::Facts (Eq).` exposes `Eq` as one capability unit. The imported
 payload includes:
@@ -253,7 +256,8 @@ legacy compiler files belong in the child.
 - selector-eligible names exclude type-only entries;
 - selecting an eligible name retains all same-text typed entries;
 - alias filtering excludes capability entries; and
-- bare filtering retains the supported unqualified inventory.
+- bare filtering retains the supported unqualified entries from the module's
+  public inventory.
 
 ### Resolver coverage
 

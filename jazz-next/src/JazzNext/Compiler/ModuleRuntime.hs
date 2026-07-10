@@ -192,19 +192,21 @@ importRuntimeModule compiledProgram runtimeModules importDecl env =
 
 publishEnvironment :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> RuntimeEnv
 publishEnvironment origin publicInventory moduleInterface env =
-  Map.fromList
-    [ (ResolvedName origin (runtimeExportNamespace runtimeExport) (mkIdentifier (runtimeExportName runtimeExport)), cell)
-      | runtimeExport <- interfaceExports publicInventory moduleInterface,
-        Just cell <- [lookupExportCell origin runtimeExport env]
-    ]
+  let renderedLookupIndex = buildRenderedLookupIndex env
+   in Map.fromList
+        [ (ResolvedName origin (runtimeExportNamespace runtimeExport) (mkIdentifier (runtimeExportName runtimeExport)), cell)
+          | runtimeExport <- interfaceExports publicInventory moduleInterface,
+            Just cell <- [lookupExportCell origin runtimeExport env renderedLookupIndex]
+        ]
 
 publishExports :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> Map RuntimeExport RuntimeCell
 publishExports origin publicInventory moduleInterface env =
-  Map.fromList
-    [ (runtimeExport, cell)
-      | runtimeExport <- interfaceExports publicInventory moduleInterface,
-        Just cell <- [lookupExportCell origin runtimeExport env]
-    ]
+  let renderedLookupIndex = buildRenderedLookupIndex env
+   in Map.fromList
+        [ (runtimeExport, cell)
+          | runtimeExport <- interfaceExports publicInventory moduleInterface,
+            Just cell <- [lookupExportCell origin runtimeExport env renderedLookupIndex]
+        ]
 
 interfaceExports :: ModuleExportInventory -> ModuleInterface -> [RuntimeExport]
 interfaceExports publicInventory moduleInterface =
@@ -253,11 +255,13 @@ runtimeExportNamespace runtimeExport =
     RuntimeBindingExport moduleExport -> moduleExportNamespace moduleExport
     RuntimeCapabilityMethodExport {} -> ValueNamespace
 
-lookupExportCell :: ResolvedNameOrigin -> RuntimeExport -> RuntimeEnv -> Maybe RuntimeCell
-lookupExportCell origin runtimeExport env =
+type RenderedLookupIndex = Map (NameNamespace, Text) RuntimeCell
+
+lookupExportCell :: ResolvedNameOrigin -> RuntimeExport -> RuntimeEnv -> RenderedLookupIndex -> Maybe RuntimeCell
+lookupExportCell origin runtimeExport env renderedLookupIndex =
   case Map.lookup expectedName env of
     Just cell -> Just cell
-    Nothing -> lookupRendered runtimeExport env
+    Nothing -> lookupRendered runtimeExport renderedLookupIndex
   where
     exportName = runtimeExportName runtimeExport
     expectedName =
@@ -265,22 +269,28 @@ lookupExportCell origin runtimeExport env =
         AmbientPrelude -> sourceName (mkIdentifier exportName)
         _ -> ResolvedName origin (runtimeExportNamespace runtimeExport) (mkIdentifier exportName)
 
-lookupRendered :: RuntimeExport -> RuntimeEnv -> Maybe RuntimeCell
-lookupRendered runtimeExport =
-  go . Map.toList
+buildRenderedLookupIndex :: RuntimeEnv -> RenderedLookupIndex
+buildRenderedLookupIndex =
+  foldr indexName Map.empty . Map.toList
   where
-    targetName = runtimeExportName runtimeExport
-    go entries =
-      case entries of
-        [] -> Nothing
-        (name, cell) : rest
-          | (renderName name == targetName || identifierText name == targetName),
-            nameMatchesNamespace name -> Just cell
-          | otherwise -> go rest
-    nameMatchesNamespace name =
+    indexName (name, cell) index =
+      foldr
+        (\key -> Map.insert key cell)
+        index
+        [ (namespace, renderedName)
+          | namespace <- matchingNamespaces name,
+            renderedName <- Set.toList (Set.fromList [renderName name, identifierText name])
+        ]
+    matchingNamespaces name =
       case name of
-        ResolvedName _ namespace _ -> namespace == runtimeExportNamespace runtimeExport
-        _ -> True
+        ResolvedName _ namespace _ -> [namespace]
+        _ -> [ValueNamespace, ConstructorNamespace, TypeNamespace, CapabilityNamespace]
+
+lookupRendered :: RuntimeExport -> RenderedLookupIndex -> Maybe RuntimeCell
+lookupRendered runtimeExport renderedLookupIndex =
+  Map.lookup
+    (runtimeExportNamespace runtimeExport, runtimeExportName runtimeExport)
+    renderedLookupIndex
 
 scopeStatements :: Expr -> [Statement]
 scopeStatements expression =

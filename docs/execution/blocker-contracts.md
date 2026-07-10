@@ -190,8 +190,9 @@ Each blocked item should answer these questions:
   `bash jazz-next/scripts/test-warning-config.sh`;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.
-- Landed evidence: `ModuleExports.hs` owns the typed inventory; module headers
-  now carry optional allowlists; `ModuleResolver.hs` separates local and public
+- Landed evidence: `jazz-next/src/JazzNext/Compiler/ModuleExports.hs` owns the
+  typed inventory; module headers now carry optional allowlists;
+  `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs` separates local and public
   inventories; compiler imports and runtime publication consume the public
   inventory; focused and full verification passed on `2026-07-10`.
 - Not in scope: re-exports, wildcard or constructor-group shorthand, body-level

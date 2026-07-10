@@ -212,11 +212,16 @@ declarations, local value names sharing alias identifiers, data-constructor
 imports, and the `E4007`/`E4008`/`E4009`/`E4011`/`E4012`/`E4013`/`E4014`
 diagnostic contexts and metadata exposed by the resolver.
 
-Implementation evidence (2026-07-09): `ModuleExports.hs` now owns the typed
-inventory and shared selection policy used by `ModuleResolver.hs`,
-`ModuleCompiler.hs`, and `ModuleRuntime.hs`. `ModuleExportsSpec.hs`,
-`ModuleResolutionSpec.hs`, `ModulePipelineContractSpec.hs`, and loader
-capability tests lock namespace identity, type-only selector rejection,
+Implementation evidence (2026-07-09):
+`jazz-next/src/JazzNext/Compiler/ModuleExports.hs` now owns the typed inventory
+and shared selection policy used by
+`jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`,
+`jazz-next/src/JazzNext/Compiler/ModuleCompiler.hs`, and
+`jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs`.
+`jazz-next/test/JazzNext/Compiler/Modules/ModuleExportsSpec.hs`,
+`jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs`,
+`jazz-next/test/JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs`, and
+loader capability tests lock namespace identity, type-only selector rejection,
 explicit class selection, class collisions, alias-hidden capabilities,
 non-transitive class exports, and repeated-import idempotence while preserving
 `E4007`-`E4014`.
