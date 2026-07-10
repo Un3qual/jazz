@@ -8,11 +8,16 @@ Depends on:
 - `docs/spec/modules/02-resolution-algorithm-and-cycles.md`
 - `docs/spec/modules/03-loader-behavior-and-diagnostics.md`
 
+See also: `docs/spec/modules/06-explicit-export-lists.md` defines the module
+publication boundary consumed by the import forms in this document.
+
 ## Scope
 
 This document defines v1 import binding behavior for active `jazz-next` module-graph compilation and execution. It documents existing parser, resolver, and loader behavior without introducing new compiler behavior.
 
-Future package metadata, additional import forms, export lists, and migration policy remain separate module spec slices.
+Future package metadata, additional import forms, and migration policy remain
+separate module spec slices. Explicit module export lists are defined by
+`docs/spec/modules/06-explicit-export-lists.md`.
 
 ## Import Forms
 
@@ -216,11 +221,18 @@ explicit class selection, class collisions, alias-hidden capabilities,
 non-transitive class exports, and repeated-import idempotence while preserving
 `E4007`-`E4014`.
 
+Implementation evidence (2026-07-10): module-header allowlists now publish a
+validated public typed inventory to these import rules while retaining the full
+local/compiler inventory inside the defining module. Unknown or imported-only
+header entries report `E4015`; downstream missing import/member behavior keeps
+`E4007`-`E4014`.
+
 ## Non-Goals
 
-This qualified import slice does not define:
+This qualified import slice does not define the explicit export-list syntax;
+that boundary is owned by `docs/spec/modules/06-explicit-export-lists.md`. It
+also does not define:
 
-- export lists or explicit module export declarations;
 - qualified full-module-path lookup such as `Lib::Math::subtract`;
 - wildcard import modifiers or import hiding syntax;
 - re-export behavior;

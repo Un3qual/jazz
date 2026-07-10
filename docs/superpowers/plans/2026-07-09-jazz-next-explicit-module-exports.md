@@ -1,12 +1,13 @@
 ---
 id: JN-MODULE-EXPLICIT-EXPORT-LIST-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-last_verified: 2026-07-09
+last_verified: 2026-07-10
+completed_on: 2026-07-10
 plan_section: "Implementation Batch: Explicit Module Export Lists"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/Parser/AST.hs
@@ -111,7 +112,7 @@ and Markdown queue/docs validators.
 - Produces: `CoreModule.coreModuleDeclaredExports :: Maybe [Text]`.
 - Preserves: `Nothing` means export-all; `Just []` means export-nothing.
 
-- [ ] **Step 1: Add parser characterization tests for omitted, populated, and empty lists**
+- [x] **Step 1: Add parser characterization tests for omitted, populated, and empty lists**
 
 Update the existing module AST expectations so omitted lists use `Nothing`,
 then add these tests to `ModuleImportParserSpec.hs`:
@@ -193,7 +194,7 @@ Add list entries for the six tests. Update all existing `SSModule` expected
 values in this file, `Foundation/ModulesTests.hs`, and `OperatorFixitySpec.hs`
 to pass `Nothing` as the fourth constructor argument.
 
-- [ ] **Step 2: Run the parser suites and verify the AST change is red**
+- [x] **Step 2: Run the parser suites and verify the AST change is red**
 
 Run:
 
@@ -204,7 +205,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 Expected: compilation fails because `SSModule` still accepts only a span and
 module path.
 
-- [ ] **Step 3: Extend the surface and core module records**
+- [x] **Step 3: Extend the surface and core module records**
 
 Change the surface constructor in `Parser/AST.hs` to:
 
@@ -225,7 +226,7 @@ Update `Parser.leadingModuleDeclaration` to match:
     SSModule spanValue _ _ : _ -> Just spanValue
 ```
 
-- [ ] **Step 4: Parse the optional module export list**
+- [x] **Step 4: Parse the optional module export list**
 
 Replace `parseModuleStatementFromTokens` with:
 
@@ -343,7 +344,7 @@ parseModuleExport tokens =
         )
 ```
 
-- [ ] **Step 5: Preserve the list through lowering**
+- [x] **Step 5: Preserve the list through lowering**
 
 In `lowerSurfaceModule`, replace the declaration extraction and validation with
 this complete tuple-returning version. This preserves the existing `E4005` and
@@ -406,7 +407,7 @@ Update the fallback surface lowering case to ignore the list:
       SModule spanValue modulePath
 ```
 
-- [ ] **Step 6: Run focused parser verification**
+- [x] **Step 6: Run focused parser verification**
 
 Run:
 
@@ -419,7 +420,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 Expected: all three suites pass, including omitted, populated, empty,
 duplicate, and malformed module export headers.
 
-- [ ] **Step 7: Commit parser and lowering support**
+- [x] **Step 7: Commit parser and lowering support**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/Parser/AST.hs jazz-next/src/JazzNext/Compiler/Parser/Declaration.hs jazz-next/src/JazzNext/Compiler/Parser.hs jazz-next/src/JazzNext/Compiler/Parser/Lower.hs jazz-next/src/JazzNext/Compiler/ModuleGraph.hs jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs jazz-next/test/JazzNext/Compiler/Parser/Foundation/ModulesTests.hs jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs
@@ -443,7 +444,7 @@ git commit -m "feat: parse explicit module export lists"
 - Produces: resolver diagnostic `E4015` for unknown or imported-only names.
 - Preserves: local resolution uses the full owned inventory.
 
-- [ ] **Step 1: Add inventory and resolver tests before production changes**
+- [x] **Step 1: Add inventory and resolver tests before production changes**
 
 Add this inventory case to `ModuleExportsSpec.hs`:
 
@@ -524,7 +525,7 @@ testExplicitImportRejectsPrivateModuleBinding = do
 
 Register all cases in their suite lists.
 
-- [ ] **Step 2: Run the inventory and resolver suites and verify red behavior**
+- [x] **Step 2: Run the inventory and resolver suites and verify red behavior**
 
 Run:
 
@@ -536,7 +537,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 Expected: `ModuleExportsSpec` fails because `declarationExportNames` is absent;
 resolver cases fail because every owned declaration is still public.
 
-- [ ] **Step 3: Add the module-declaration selector API**
+- [x] **Step 3: Add the module-declaration selector API**
 
 Export and implement in `ModuleExports.hs`:
 
@@ -550,7 +551,7 @@ declarationExportNames =
 Keep `selectorEligibleNames` unchanged so explicit import lists still exclude
 type-only names.
 
-- [ ] **Step 4: Carry public inventories on resolved modules**
+- [x] **Step 4: Carry public inventories on resolved modules**
 
 Add to `ModuleGraph.ResolvedModule`:
 
@@ -573,7 +574,7 @@ data ParsedModule = ParsedModule
   }
 ```
 
-- [ ] **Step 5: Validate explicit export names and derive the public inventory**
+- [x] **Step 5: Validate explicit export names and derive the public inventory**
 
 Import `find` from `Data.List`, `qualifySourceSpan` from diagnostics,
 `declarationExportNames`, and `selectExportNames`. Add:
@@ -656,7 +657,7 @@ In `parseModuleDetails`, derive and store both inventories:
           }
 ```
 
-- [ ] **Step 6: Route local and dependency resolution through the correct inventories**
+- [x] **Step 6: Route local and dependency resolution through the correct inventories**
 
 In `visitModule`:
 
@@ -683,7 +684,7 @@ Do not change import validation's use of
 `resolvedExportInventoriesState`; after this change it already contains public
 inventories only.
 
-- [ ] **Step 7: Run focused resolver verification**
+- [x] **Step 7: Run focused resolver verification**
 
 Run:
 
@@ -695,7 +696,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 Expected: both suites pass, including local private visibility, export-all
 compatibility, `E4015`, and downstream `E4007`.
 
-- [ ] **Step 8: Commit resolver publication semantics**
+- [x] **Step 8: Commit resolver publication semantics**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/ModuleExports.hs jazz-next/src/JazzNext/Compiler/ModuleGraph.hs jazz-next/src/JazzNext/Compiler/ModuleResolver.hs jazz-next/test/JazzNext/Compiler/Modules/ModuleExportsSpec.hs jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
@@ -720,7 +721,7 @@ git commit -m "feat: resolve explicit module exports"
 - Produces: runtime modules publishing only public value/constructor cells and
   class-attached method cells.
 
-- [ ] **Step 1: Add compiled-interface and runtime publication tests**
+- [x] **Step 1: Add compiled-interface and runtime publication tests**
 
 Add these cases to `ModulePipelineContractSpec.hs`:
 
@@ -781,7 +782,7 @@ import JazzNext.Compiler.ModuleInterface
   )
 ```
 
-- [ ] **Step 2: Add loader cases for private closures, aliases, and classes**
+- [x] **Step 2: Add loader cases for private closures, aliases, and classes**
 
 Add to `VisibilityTests.hs`:
 
@@ -893,7 +894,7 @@ testCompileModuleGraphRejectsPrivateExplicitClassImport = do
 
 Register all seven loader cases in their suite lists.
 
-- [ ] **Step 3: Run the pipeline and loader tests and verify publication is red**
+- [x] **Step 3: Run the pipeline and loader tests and verify publication is red**
 
 Run:
 
@@ -905,7 +906,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 Expected: the full interface test passes, but private runtime cells and private
 compiler imports still leak because consumers use the full interface inventory.
 
-- [ ] **Step 4: Filter compiler imports through the resolved public inventory**
+- [x] **Step 4: Filter compiler imports through the resolved public inventory**
 
 Import `ModuleExportInventory` in `ModuleCompiler.hs`. Change the selection
 function to:
@@ -956,7 +957,7 @@ dependencyImportInterface importDecl compiledModule =
     (compiledModuleInterface compiledModule)
 ```
 
-- [ ] **Step 5: Publish runtime cells through the same public inventory**
+- [x] **Step 5: Publish runtime cells through the same public inventory**
 
 Change runtime publication signatures to:
 
@@ -1016,7 +1017,7 @@ The interface parameter is no longer needed. In `importRuntimeModule`, obtain
 the public inventory from `compiledDependency` and pass it to every selection
 check.
 
-- [ ] **Step 6: Run focused compiler/runtime verification**
+- [x] **Step 6: Run focused compiler/runtime verification**
 
 Run:
 
@@ -1029,7 +1030,7 @@ Expected: both suites pass, including private closure capture, runtime
 publication, alias rejection, opaque type support, constructor-only selection,
 and class/impl payload filtering.
 
-- [ ] **Step 7: Commit compiler and runtime enforcement**
+- [x] **Step 7: Commit compiler and runtime enforcement**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/ModuleCompiler.hs jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs jazz-next/test/JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs jazz-next/test/JazzNext/Compiler/Modules/Loader/CapabilitiesTests.hs jazz-next/test/JazzNext/Compiler/Modules/Loader/VisibilityTests.hs
@@ -1059,7 +1060,7 @@ git commit -m "feat: enforce explicit module exports"
 - Produces: completed child metadata and a terminal-empty queue unless another
   separately accepted candidate exists.
 
-- [ ] **Step 1: Activate and link the normative export-list contract**
+- [x] **Step 1: Activate and link the normative export-list contract**
 
 After implementation behavior passes, change the status in
 `06-explicit-export-lists.md` from:
@@ -1078,7 +1079,7 @@ Keep every approved syntax, namespace, ownership, visibility, diagnostic, and
 non-goal rule already recorded in that file. Add the spec to the module
 clarification matrix and link it from the qualified-import contract.
 
-- [ ] **Step 2: Refresh architecture and feature evidence**
+- [x] **Step 2: Refresh architecture and feature evidence**
 
 Update `docs/feature-status.md` and `docs/jazz-language-state.md` to state:
 
@@ -1093,14 +1094,14 @@ Mark the explicit-export follow-up complete in the runtime/module umbrella and
 change the design status to:
 
 ```markdown
-Implemented and verified on `2026-07-09`.
+Implemented and verified on `2026-07-10`.
 ```
 
-- [ ] **Step 3: Close execution metadata atomically**
+- [x] **Step 3: Close execution metadata atomically**
 
 After product and docs verification passes:
 
-1. Change this plan to `status: done`, add `completed_on: 2026-07-09`, and mark
+1. Change this plan to `status: done`, add `completed_on: 2026-07-10`, and mark
    every checkbox complete.
 2. Remove `JN-MODULE-EXPLICIT-EXPORT-LIST-001` from `Ready Now`.
 3. Add a `done-archive.md` row with exact focused and full verification.
@@ -1111,7 +1112,7 @@ After product and docs verification passes:
 6. Do not promote re-exports, wildcard shorthand, package work, cross-module
    operators, default methods, superclasses, or effects from this child.
 
-- [ ] **Step 4: Run the complete verification ladder**
+- [x] **Step 4: Run the complete verification ladder**
 
 Run:
 
@@ -1132,7 +1133,7 @@ git diff --check
 Expected: every focused suite, full compatibility harness, queue/docs gate, and
 whitespace check passes.
 
-- [ ] **Step 5: Review scope before closeout**
+- [x] **Step 5: Review scope before closeout**
 
 Run:
 
@@ -1146,7 +1147,7 @@ Expected: changes stay on the declared parser/module/test/docs surfaces; the
 scope scan finds only tests or comments proving excluded behavior, not an
 implementation of excluded syntax.
 
-- [ ] **Step 6: Commit verified contract closeout**
+- [x] **Step 6: Commit verified contract closeout**
 
 ```bash
 git add docs/spec/modules/00-module-clarification-matrix.md docs/spec/modules/04-qualified-imports-and-binding.md docs/spec/modules/06-explicit-export-lists.md docs/feature-status.md docs/jazz-language-state.md docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md docs/superpowers/specs/2026-07-09-jazz-next-explicit-module-exports-design.md docs/superpowers/plans/2026-07-09-jazz-next-explicit-module-exports.md docs/execution/blocker-contracts.md docs/execution/queue.md docs/execution/done-archive.md

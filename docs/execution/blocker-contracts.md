@@ -174,30 +174,26 @@ Each blocked item should answer these questions:
 
 ### JN-MODULE-REBASE-PLAN-001
 
-- Smallest unblocker: implement the approved explicit module export allowlist
-  contract as `JN-MODULE-EXPLICIT-EXPORT-LIST-001`.
-- Decision needed: none. The maintainer approved optional header allowlists,
-  omitted-list export-all compatibility, `()` export-nothing behavior, exact
-  text selection across owned value/constructor/type/class entries, and no
-  re-exports.
-- Recommended default: execute the ready child exactly as specified, retaining
-  a full local/compiler interface while publishing one validated public typed
-  inventory to resolver dependents, compiler imports, and runtime modules.
-- Candidate child: `JN-MODULE-EXPLICIT-EXPORT-LIST-001` is promoted in
-  `docs/execution/queue.md`; no post-child candidate is accepted.
-- Target paths: active `jazz-next` parser AST/declaration/lowering, module
-  graph/export/resolver/compiler/runtime owners, focused parser/module/loader
-  tests, and the linked module contract/status/queue documents enumerated in
-  the child plan frontmatter.
+- Smallest unblocker: none currently. The explicit module export allowlist
+  child landed as `JN-MODULE-EXPLICIT-EXPORT-LIST-001`.
+- Decision needed: none. Optional header allowlists, omitted-list export-all,
+  `()` export-nothing, owned value/constructor/type/class selection, local and
+  public inventory separation, and no re-exports are implemented.
+- Recommended default: preserve the completed explicit-export contract and
+  `E4007`-`E4015` diagnostics until a separate source-backed module behavior
+  contract is accepted.
+- Candidate child: none currently.
+- Target paths: not set until a separate module behavior contract is accepted.
 - Verification: focused `ModuleImportParserSpec.hs`, `ParserFoundationSpec.hs`,
   `OperatorFixitySpec.hs`, `ModuleExportsSpec.hs`,
   `ModuleResolutionSpec.hs`, `ModulePipelineContractSpec.hs`, and `LoaderSpec.hs`;
   `bash jazz-next/scripts/test-warning-config.sh`;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.
-- Landed evidence: `ModuleExports.hs` now owns the typed inventory used by
-  resolver, compiled-interface, and runtime selection; focused and full
-  verification passed on `2026-07-09`.
+- Landed evidence: `ModuleExports.hs` owns the typed inventory; module headers
+  now carry optional allowlists; `ModuleResolver.hs` separates local and public
+  inventories; compiler imports and runtime publication consume the public
+  inventory; focused and full verification passed on `2026-07-10`.
 - Not in scope: re-exports, wildcard or constructor-group shorthand, body-level
   export declarations, visibility modifiers, cross-module operators,
   alias-qualified classes, separate impl imports, orphan/overlap policy,

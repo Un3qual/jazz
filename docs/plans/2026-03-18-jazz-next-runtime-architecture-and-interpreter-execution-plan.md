@@ -68,7 +68,7 @@ re-exports, alias-qualified classes, or broader abstraction semantics.
 Focused module suites, the full `jazz-next` warning/compatibility harness, and
 the repository queue/docs validators passed on `2026-07-09`.
 
-## Accepted Module Follow-up: Explicit Export Lists
+## Completed Module Follow-up: Explicit Export Lists
 
 On `2026-07-09`, the maintainer approved
 `JN-MODULE-EXPLICIT-EXPORT-LIST-001` as the next module child. It adds optional
@@ -82,6 +82,12 @@ The implementation plan is
 [`2026-07-09-jazz-next-explicit-module-exports.md`](../superpowers/plans/2026-07-09-jazz-next-explicit-module-exports.md).
 Re-exports, wildcard shorthand, cross-module operators, packages, default
 methods, superclasses, effects, and broader impl policy remain blocked.
+
+Implementation completed on `2026-07-10`. Parser/lowering preserve the
+optional header allowlist, the resolver separates local and public typed
+inventories with deterministic `E4015`, compiler imports filter the full
+interface through the public inventory, and runtime modules publish only public
+value/constructor cells and public-class method cells.
 
 ## Plan Progress
 
@@ -110,7 +116,8 @@ methods, superclasses, effects, and broader impl policy remain blocked.
       prelude/module reads.
 - [x] On `2026-07-09`, completed `JN-MODULE-TYPED-EXPORT-INVENTORY-001`
       without changing public import syntax or `E4007`-`E4014` diagnostics.
-- [ ] Implement and verify `JN-MODULE-EXPLICIT-EXPORT-LIST-001` against the
+- [x] Implemented and verified `JN-MODULE-EXPLICIT-EXPORT-LIST-001` on
+      `2026-07-10` against the
       approved header allowlist and local/public inventory contract.
 - [x] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next` for the active structured monomorphic subset.
 - [x] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.

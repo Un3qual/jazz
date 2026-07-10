@@ -1,6 +1,6 @@
 # Explicit Module Export Lists
 
-Status: planned; implementation pending
+Status: active explicit module export contract
 
 ## Syntax
 

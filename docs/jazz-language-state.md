@@ -41,6 +41,14 @@ evaluates each module against explicit runtime exports. The implementation is a
 private Haskell library behind the supported `jazz-next` CLI; these internal
 boundaries do not change Jazz syntax.
 
+Active `jazz-next` module headers accept optional explicit export allowlists:
+`module Foo::Bar (value, Type, Constructor, Class) { ... }`. Omitting the list
+preserves export-all behavior, while `()` publishes nothing. Resolver
+dependencies, compiler imports, and runtime publication share the validated
+public typed inventory; unlisted owned declarations remain available inside
+the defining module for resolution, inference, and evaluation. Unknown or
+imported-only header entries report `E4015`, and re-exports remain unsupported.
+
 ## What The Top-Level README Claims
 
 The top-level [README](../README.md) describes Jazz as:
