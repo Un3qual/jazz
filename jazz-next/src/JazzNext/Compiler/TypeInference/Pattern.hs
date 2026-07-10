@@ -15,8 +15,7 @@ import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..), Expr, Literal (..), Pattern (..) )
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode)
-import JazzNext.Compiler.Identifier (identifierText)
-import JazzNext.Compiler.Name (Name)
+import JazzNext.Compiler.Name (Name, identifierText)
 import JazzNext.Compiler.Pattern
   ( commonPatternBinderNames, patternBinderNames )
 import JazzNext.Compiler.TypeInference.Diagnostics

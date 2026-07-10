@@ -6,7 +6,7 @@ import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan (..),
   )
-import JazzNext.Compiler.Identifier
+import JazzNext.Compiler.Name
   ( mkIdentifier
   )
 import JazzNext.Compiler.Parser.AST

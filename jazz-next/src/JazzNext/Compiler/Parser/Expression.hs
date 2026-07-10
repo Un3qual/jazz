@@ -21,7 +21,7 @@ import JazzNext.Compiler.FractionalLiteral
   ( fractionalLiteralExceedsMagnitude,
     mkFractionalLiteralSource
   )
-import JazzNext.Compiler.Identifier
+import JazzNext.Compiler.Name
   ( identifierText,
     mkIdentifier
   )

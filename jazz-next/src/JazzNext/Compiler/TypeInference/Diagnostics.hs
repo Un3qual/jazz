@@ -91,8 +91,7 @@ import JazzNext.Compiler.Diagnostics
     setDiagnosticRelatedSpan,
     setDiagnosticSubject
   )
-import JazzNext.Compiler.Identifier (identifierText)
-import JazzNext.Compiler.Name (Name)
+import JazzNext.Compiler.Name (Name, identifierText)
 import JazzNext.Compiler.TypeInference.State
   ( InferState (..),
     InferenceOutput (..),

@@ -2,12 +2,12 @@
 
 module Main (main) where
 
-import JazzNext.Compiler.Identifier (mkIdentifier)
 import JazzNext.Compiler.Name
   ( GeneratedNameKind (..),
     Name (..),
     NameNamespace (..),
     generatedName,
+    mkIdentifier,
     namePurity,
     renderName,
     resolvedImportedName,

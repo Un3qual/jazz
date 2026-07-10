@@ -29,7 +29,7 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.FractionalLiteral
   ( FractionalLiteralSource
   )
-import JazzNext.Compiler.Identifier
+import JazzNext.Compiler.Name
   ( Identifier
   )
 

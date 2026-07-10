@@ -17,10 +17,11 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)
   )
-import JazzNext.Compiler.Identifier
-  ( mkIdentifier
+import JazzNext.Compiler.Name
+  ( Name,
+    mkIdentifier,
+    sourceName
   )
-import JazzNext.Compiler.Name (Name, sourceName)
 import JazzNext.Compiler.RecursiveBindings
   ( collectBindingNames,
     freeVarsExprWithBound,

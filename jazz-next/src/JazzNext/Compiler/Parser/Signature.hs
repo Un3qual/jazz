@@ -12,7 +12,7 @@ module JazzNext.Compiler.Parser.Signature
 import Control.Applicative ((<|>))
 import Data.Text (Text)
 import JazzNext.Compiler.Diagnostics (Diagnostic)
-import JazzNext.Compiler.Identifier
+import JazzNext.Compiler.Name
   ( mkIdentifier
   )
 import JazzNext.Compiler.Parser.AST

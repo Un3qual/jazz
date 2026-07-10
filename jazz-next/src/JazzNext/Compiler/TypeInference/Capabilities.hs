@@ -94,12 +94,10 @@ import JazzNext.Compiler.Diagnostics
   ( SourceSpan,
     setDiagnosticPrimarySpan
   )
-import JazzNext.Compiler.Identifier
-  ( identifierText,
-    mkIdentifier
-  )
 import JazzNext.Compiler.Name
   ( Name,
+    identifierText,
+    mkIdentifier,
     qualifiedMemberName,
     renderName,
     sourceName

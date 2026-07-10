@@ -14,7 +14,7 @@ import JazzNext.Compiler.Driver
     compileSource,
     compileSourceWithPrelude
   )
-import JazzNext.Compiler.Identifier
+import JazzNext.Compiler.Name
   ( identifierPurity,
     identifierText,
     mkIdentifier

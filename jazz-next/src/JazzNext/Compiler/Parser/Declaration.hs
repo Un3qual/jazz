@@ -31,7 +31,7 @@ import JazzNext.Compiler.Diagnostics
     mkDiagnostic,
     renderSourceSpan
   )
-import JazzNext.Compiler.Identifier
+import JazzNext.Compiler.Name
   ( Identifier,
     identifierText,
     mkIdentifier,

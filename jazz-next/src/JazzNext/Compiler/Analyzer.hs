@@ -53,13 +53,11 @@ import JazzNext.Compiler.Diagnostics
     setDiagnosticSubject,
     sortWarnings
   )
-import JazzNext.Compiler.Identifier
-  ( identifierPurity,
-    identifierText,
-    mkIdentifier
-  )
 import JazzNext.Compiler.Name
   ( Name,
+    identifierPurity,
+    identifierText,
+    mkIdentifier,
     sourceName
   )
 import JazzNext.Compiler.Pattern

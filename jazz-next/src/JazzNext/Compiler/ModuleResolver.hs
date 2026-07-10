@@ -37,10 +37,6 @@ import JazzNext.Compiler.Diagnostics
     setDiagnosticRelatedSpan,
     setDiagnosticSubject
   )
-import JazzNext.Compiler.Identifier
-  ( identifierText,
-    mkIdentifier
-  )
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
@@ -64,6 +60,8 @@ import JazzNext.Compiler.Name
   ( Name (..),
     NameNamespace (..),
     ResolvedNameOrigin (..),
+    identifierText,
+    mkIdentifier,
     renderName
   )
 import JazzNext.Compiler.Parser

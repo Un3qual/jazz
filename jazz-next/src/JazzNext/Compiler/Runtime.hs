@@ -76,16 +76,14 @@ import JazzNext.Compiler.CapabilityFacts
     signatureTypeToConstraintSignatureType,
     substituteClassMethodSignature
   )
-import JazzNext.Compiler.Identifier
-  ( identifierText,
-    mkIdentifier
-  )
 import JazzNext.Compiler.Name
   ( GeneratedNameKind (..),
     Name (..),
     NameNamespace (ConstructorNamespace),
     ResolvedNameOrigin (..),
     generatedName,
+    identifierText,
+    mkIdentifier,
     operatorBindingName,
     qualifiedMemberName,
     sourceName

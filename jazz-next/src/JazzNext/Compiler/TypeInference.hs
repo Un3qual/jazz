@@ -57,14 +57,12 @@ import JazzNext.Compiler.FractionalLiteral
     fractionalLiteralExceedsMagnitude,
     fractionalLiteralIntegralValue
   )
-import JazzNext.Compiler.Identifier
-  ( identifierText,
-    mkIdentifier
-  )
 import JazzNext.Compiler.Name
   ( GeneratedNameKind (..),
     Name (..),
     generatedName,
+    identifierText,
+    mkIdentifier,
     operatorBindingName,
     renderName,
     sourceName

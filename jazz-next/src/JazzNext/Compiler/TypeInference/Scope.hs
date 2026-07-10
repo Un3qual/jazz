@@ -40,12 +40,10 @@ import JazzNext.Compiler.FractionalLiteral
   ( FractionalLiteralSource,
     fractionalLiteralExceedsMagnitude
   )
-import JazzNext.Compiler.Identifier
-  ( identifierText,
-    mkIdentifier
-  )
 import JazzNext.Compiler.Name
   ( Name (..),
+    identifierText,
+    mkIdentifier,
     operatorBindingName,
     sourceName
   )

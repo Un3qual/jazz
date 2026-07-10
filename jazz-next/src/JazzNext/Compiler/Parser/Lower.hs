@@ -46,14 +46,12 @@ import JazzNext.Compiler.Parser.AST
     SurfaceSignatureType (..),
     SurfaceStatement (..)
   )
-import JazzNext.Compiler.Identifier
-  ( identifierText,
-    isOperatorBindingIdentifierText,
-    mkIdentifier
-  )
 import JazzNext.Compiler.Name
   ( GeneratedNameKind (..),
     generatedName,
+    identifierText,
+    isOperatorBindingIdentifierText,
+    mkIdentifier,
     operatorBindingNameFromIdentifier,
     qualifiedName,
     sourceName

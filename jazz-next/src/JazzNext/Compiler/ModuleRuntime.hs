@@ -17,7 +17,6 @@ import JazzNext.Compiler.AST
     Statement
   )
 import JazzNext.Compiler.Diagnostics (Diagnostic)
-import JazzNext.Compiler.Identifier (identifierText, mkIdentifier)
 import JazzNext.Compiler.ModuleGraph
   ( ResolvedImport (..),
     ResolvedModule (resolvedModuleImports, resolvedModulePath)
@@ -32,6 +31,8 @@ import JazzNext.Compiler.Name
   ( Name (ResolvedName),
     NameNamespace (..),
     ResolvedNameOrigin (..),
+    identifierText,
+    mkIdentifier,
     renderName,
     sourceName
   )

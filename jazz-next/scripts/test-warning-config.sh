@@ -79,6 +79,11 @@ if rg -n 'ModuleReplay|moduleGraphValidationExpr|moduleGraphRuntimeExpr|__module
   exit 1
 fi
 
+if rg -n 'JazzNext\.Compiler\.Identifier' jazz-next/src jazz-next/test jazz-next/jazz-next.cabal; then
+  echo "legacy Identifier module is still referenced" >&2
+  exit 1
+fi
+
 for test_file in "${TEST_FILES[@]}"; do
   "$RUNGHC" "${RUNGHC_INCLUDES[@]}" "$test_file"
 done

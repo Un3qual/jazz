@@ -19,7 +19,7 @@ import JazzNext.Compiler.Diagnostics
     SourceSpan (..),
     renderSourceSpan
   )
-import JazzNext.Compiler.Identifier (mkIdentifier)
+import JazzNext.Compiler.Name (mkIdentifier)
 import JazzNext.Compiler.Parser.AST
   ( SurfaceLambdaParameter (..),
     SurfaceLiteral (..),

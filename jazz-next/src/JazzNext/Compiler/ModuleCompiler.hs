@@ -28,9 +28,10 @@ import JazzNext.Compiler.ModuleInterface
 import JazzNext.Compiler.Name
   ( Name (..),
     NameNamespace (..),
-    ResolvedNameOrigin (..)
+    ResolvedNameOrigin (..),
+    identifierText,
+    mkIdentifier
   )
-import JazzNext.Compiler.Identifier (identifierText, mkIdentifier)
 import JazzNext.Compiler.Prelude (PreparedPrelude (..))
 import JazzNext.Compiler.TypeInference
   ( InferenceInputs (..),

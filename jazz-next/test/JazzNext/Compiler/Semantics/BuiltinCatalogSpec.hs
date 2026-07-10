@@ -49,10 +49,10 @@ import JazzNext.Compiler.Driver
     runSource,
     runSourceWithPrelude
   )
-import JazzNext.Compiler.Identifier
-  ( mkIdentifier
+import JazzNext.Compiler.Name
+  ( mkIdentifier,
+    sourceName
   )
-import JazzNext.Compiler.Name (sourceName)
 import JazzNext.Compiler.Runtime
   ( evaluateRuntimeExpr
   )

@@ -2,7 +2,16 @@
 
 -- | Structured names used after surface syntax is lowered into the core AST.
 module JazzNext.Compiler.Name
-  ( GeneratedNameKind (..),
+  ( Identifier,
+    IdentifierLike (..),
+    mkIdentifier,
+    mkOperatorBindingIdentifier,
+    mkQualifiedIdentifier,
+    isOperatorBindingIdentifierText,
+    operatorBindingIdentifierText,
+    qualifiedIdentifierText,
+    splitQualifiedIdentifierText,
+    GeneratedNameKind (..),
     Name (..),
     NameNamespace (..),
     ResolvedNameOrigin (..),
@@ -20,15 +29,69 @@ module JazzNext.Compiler.Name
     sourceName
   ) where
 
+import Data.Char
+  ( ord,
+    toUpper
+  )
 import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
-import JazzNext.Compiler.Identifier
-  ( Identifier,
-    IdentifierLike (..),
-    operatorBindingIdentifierText
-  )
 import JazzNext.Compiler.Purity (Purity (..))
+import qualified JazzNext.Compiler.Purity as Purity
+import Numeric (showHex)
+
+-- | A source identifier paired with the purity implied by its spelling.
+data Identifier = Identifier Text Purity
+  deriving (Eq, Ord, Show)
+
+class IdentifierLike name where
+  identifierText :: name -> Text
+  identifierPurity :: name -> Purity
+
+instance IdentifierLike Identifier where
+  identifierText (Identifier name _) = name
+  identifierPurity (Identifier _ purity) = purity
+
+mkIdentifier :: Text -> Identifier
+mkIdentifier name = Identifier name (Purity.namePurity name)
+
+operatorBindingIdentifierText :: Text -> Text
+operatorBindingIdentifierText operatorSymbol =
+  operatorBindingIdentifierPrefix <> Text.concatMap encodeOperatorChar operatorSymbol
+  where
+    encodeOperatorChar char =
+      let hexText = Text.pack (map toUpper (showHex (ord char) ""))
+       in "%" <> Text.justifyRight 2 '0' hexText
+
+operatorBindingIdentifierPrefix :: Text
+operatorBindingIdentifierPrefix = "$operator:"
+
+isOperatorBindingIdentifierText :: Text -> Bool
+isOperatorBindingIdentifierText = Text.isPrefixOf operatorBindingIdentifierPrefix
+
+mkOperatorBindingIdentifier :: Text -> Identifier
+mkOperatorBindingIdentifier = mkIdentifier . operatorBindingIdentifierText
+
+qualifiedIdentifierText :: Text -> Text -> Text
+qualifiedIdentifierText qualifier member = qualifier <> "::" <> member
+
+mkQualifiedIdentifier :: Text -> Text -> Identifier
+mkQualifiedIdentifier qualifier member = mkIdentifier (qualifiedIdentifierText qualifier member)
+
+splitQualifiedIdentifierText :: Text -> Maybe (Text, Text)
+splitQualifiedIdentifierText name =
+  case Text.breakOn "::" name of
+    (qualifier, rest)
+      | Text.null qualifier -> Nothing
+      | Text.null rest -> Nothing
+      | Text.null member -> Nothing
+      | Text.isInfixOf "::" member -> Nothing
+      | otherwise -> Just (qualifier, member)
+      where
+        member = Text.drop 2 rest
+
+instance IsString Identifier where
+  fromString = mkIdentifier . Text.pack
 
 data NameNamespace
   = ValueNamespace
