@@ -27,7 +27,6 @@ import JazzNext.Compiler.ModuleGraph
 import JazzNext.Compiler.ModuleInterface
 import JazzNext.Compiler.Name
   ( Name (..),
-    NameNamespace (..),
     ResolvedNameOrigin (..),
     identifierText,
     mkIdentifier
@@ -200,10 +199,10 @@ importSelectedInterface origin maybeAlias maybeSymbols moduleInterface =
   ImportedInterface
     { importedTypes =
         Map.fromList
-          [ ( ResolvedName origin (bindingNamespace binding) (mkIdentifier exportName),
+          [ ( ResolvedName origin (moduleExportNamespace export) (mkIdentifier (moduleExportName export)),
               rebaseTypeBinding origin dataTypeNames classNames binding
             )
-            | (exportName, binding) <- Map.toList selectedValueTypes
+            | (export, binding) <- Map.toList selectedValueTypes
           ],
       importedDataTypes =
         Map.fromList
@@ -219,7 +218,10 @@ importSelectedInterface origin maybeAlias maybeSymbols moduleInterface =
     dataTypeNames = Map.keysSet (interfaceDataTypes moduleInterface)
     classNames = Map.keysSet (interfaceClassFacts moduleInterface)
     selected name = maybe True (name `elem`) maybeSymbols
-    selectedValueTypes = Map.filterWithKey (\name _ -> selected name) (interfaceValueTypes moduleInterface)
+    selectedValueTypes =
+      Map.filterWithKey
+        (\export _ -> selected (moduleExportName export))
+        (interfaceValueTypes moduleInterface)
     includeCapabilities = maybeAlias == Nothing
     selectedClassFacts
       | includeCapabilities = Map.filterWithKey (\name _ -> selected name) (interfaceClassFacts moduleInterface)
@@ -239,12 +241,6 @@ importSelectedInterface origin maybeAlias maybeSymbols moduleInterface =
           scopeConcreteImplMethods =
             Map.filterWithKey (methodUsesClass selectedClassNames) (interfaceConcreteImplMethods moduleInterface)
         }
-
-bindingNamespace :: TypeBinding -> NameNamespace
-bindingNamespace binding =
-  case binding of
-    ConstructorTypeBinding {} -> ConstructorNamespace
-    _ -> ValueNamespace
 
 qualifiedKey :: ResolvedNameOrigin -> Text -> Text
 qualifiedKey origin name =

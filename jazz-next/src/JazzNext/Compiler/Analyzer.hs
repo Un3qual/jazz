@@ -434,8 +434,13 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
                 case Map.lookup classNameText classDeclarations of
                   Just previousSpan ->
                     ( classDeclarations,
-                      [mkDuplicateClassDeclarationError classNameText classSpan previousSpan]
+                      [mkDuplicateClassDeclarationError classNameText classSpan (Just previousSpan)]
                     )
+                  Nothing
+                    | Set.member classNameText (Set.union importedClassNames outerClassNames) ->
+                        ( classDeclarations,
+                          [mkDuplicateClassDeclarationError classNameText classSpan Nothing]
+                        )
                   Nothing ->
                     (Map.insert classNameText classSpan classDeclarations, [])
               methodErrors = duplicateClassMethodErrors classNameText methods
@@ -737,13 +742,12 @@ mkMismatchedSignatureError signatureName signatureSpan bindingName bindingSpan =
         )
     )
 
-mkDuplicateClassDeclarationError :: Text -> SourceSpan -> SourceSpan -> Diagnostic
-mkDuplicateClassDeclarationError className classSpan previousSpan =
+mkDuplicateClassDeclarationError :: Text -> SourceSpan -> Maybe SourceSpan -> Diagnostic
+mkDuplicateClassDeclarationError className classSpan maybePreviousSpan =
   setDiagnosticSubject className $
-    setDiagnosticRelatedSpan previousSpan $
-      setDiagnosticPrimarySpan
-        classSpan
-        (mkDiagnostic "E1004" ("duplicate class declaration '" <> className <> "'"))
+    maybe id setDiagnosticRelatedSpan maybePreviousSpan $
+      setDiagnosticPrimarySpan classSpan $
+        mkDiagnostic "E1004" ("duplicate class declaration '" <> className <> "'")
 
 duplicateClassMethodErrors :: Text -> [ClassMethodSignature] -> [Diagnostic]
 duplicateClassMethodErrors className methods =

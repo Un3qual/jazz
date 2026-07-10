@@ -25,6 +25,7 @@ import JazzNext.Compiler.ModuleInterface
   ( CompiledModule (..),
     CompiledPrelude (..),
     CompiledProgram (..),
+    ModuleExport (..),
     ModuleInterface (..)
   )
 import JazzNext.Compiler.Name
@@ -44,11 +45,9 @@ import JazzNext.Compiler.Runtime
     ScopeResult (..),
     evaluateModuleScope
   )
-import JazzNext.Compiler.TypeInference.Types (TypeBinding (ConstructorTypeBinding))
-
 data RuntimeModule = RuntimeModule
   { runtimeModulePath :: [Text],
-    runtimeModuleExports :: Map Text RuntimeCell
+    runtimeModuleExports :: Map ModuleExport RuntimeCell
   }
 
 data RuntimeProgram = RuntimeProgram
@@ -146,16 +145,16 @@ importRuntimeModule compiledProgram runtimeModules importDecl env =
     (Just compiledDependency, Just runtimeDependency) ->
       let interface = compiledModuleInterface compiledDependency
           selectedExports =
-            [ (exportName, cell)
-              | (exportName, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
-                runtimeExportSelected importDecl interface exportName
+            [ (moduleExport, cell)
+              | (moduleExport, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
+                runtimeExportSelected importDecl interface moduleExport
             ]
-          insertExport (exportName, cell) =
+          insertExport (moduleExport, cell) =
             Map.insert
               ( ResolvedName
                   (ImportedModule dependencyPath)
-                  (exportNamespace exportName interface)
-                  (mkIdentifier exportName)
+                  (moduleExportNamespace moduleExport)
+                  (mkIdentifier (moduleExportName moduleExport))
               )
               cell
        in foldr insertExport env selectedExports
@@ -169,65 +168,68 @@ importRuntimeModule compiledProgram runtimeModules importDecl env =
 publishEnvironment :: ResolvedNameOrigin -> ModuleInterface -> RuntimeEnv -> RuntimeEnv
 publishEnvironment origin moduleInterface env =
   Map.fromList
-    [ (ResolvedName origin (exportNamespace exportName moduleInterface) (mkIdentifier exportName), cell)
-      | exportName <- interfaceExportNames moduleInterface,
-        Just cell <- [lookupExportCell origin exportName moduleInterface env]
+    [ (ResolvedName origin (moduleExportNamespace moduleExport) (mkIdentifier (moduleExportName moduleExport)), cell)
+      | moduleExport <- interfaceExports moduleInterface,
+        Just cell <- [lookupExportCell origin moduleExport env]
     ]
 
-publishExports :: ResolvedNameOrigin -> ModuleInterface -> RuntimeEnv -> Map Text RuntimeCell
+publishExports :: ResolvedNameOrigin -> ModuleInterface -> RuntimeEnv -> Map ModuleExport RuntimeCell
 publishExports origin moduleInterface env =
   Map.fromList
-    [ (exportName, cell)
-      | exportName <- interfaceExportNames moduleInterface,
-        Just cell <- [lookupExportCell origin exportName moduleInterface env]
+    [ (moduleExport, cell)
+      | moduleExport <- interfaceExports moduleInterface,
+        Just cell <- [lookupExportCell origin moduleExport env]
     ]
 
-interfaceExportNames :: ModuleInterface -> [Text]
-interfaceExportNames moduleInterface =
+interfaceExports :: ModuleInterface -> [ModuleExport]
+interfaceExports moduleInterface =
   Map.keys (interfaceValueTypes moduleInterface)
-    <> Map.keys (interfaceClassMethods moduleInterface)
+    <> map (ModuleExport ValueNamespace) (Map.keys (interfaceClassMethods moduleInterface))
 
-runtimeExportSelected :: ResolvedImport -> ModuleInterface -> Text -> Bool
-runtimeExportSelected importDecl moduleInterface exportName =
+runtimeExportSelected :: ResolvedImport -> ModuleInterface -> ModuleExport -> Bool
+runtimeExportSelected importDecl moduleInterface moduleExport =
   case Map.lookup exportName (interfaceClassMethods moduleInterface) of
-    Just _ ->
-      resolvedImportAlias importDecl == Nothing
-        && maybe True classSelected (resolvedImportSymbols importDecl)
-    Nothing ->
+    Just _
+      | moduleExportNamespace moduleExport == ValueNamespace ->
+          resolvedImportAlias importDecl == Nothing
+            && maybe True classSelected (resolvedImportSymbols importDecl)
+    _ ->
       maybe True (exportName `elem`) (resolvedImportSymbols importDecl)
   where
     classSelected symbols =
       case splitQualifiedMethodKey exportName of
         Just (className, _) -> className `elem` symbols
         Nothing -> False
+    exportName = moduleExportName moduleExport
 
-lookupExportCell :: ResolvedNameOrigin -> Text -> ModuleInterface -> RuntimeEnv -> Maybe RuntimeCell
-lookupExportCell origin exportName moduleInterface env =
+lookupExportCell :: ResolvedNameOrigin -> ModuleExport -> RuntimeEnv -> Maybe RuntimeCell
+lookupExportCell origin moduleExport env =
   case Map.lookup expectedName env of
     Just cell -> Just cell
-    Nothing -> lookupRendered exportName env
+    Nothing -> lookupRendered moduleExport env
   where
+    exportName = moduleExportName moduleExport
     expectedName =
       case origin of
         AmbientPrelude -> sourceName (mkIdentifier exportName)
-        _ -> ResolvedName origin (exportNamespace exportName moduleInterface) (mkIdentifier exportName)
+        _ -> ResolvedName origin (moduleExportNamespace moduleExport) (mkIdentifier exportName)
 
-lookupRendered :: Text -> RuntimeEnv -> Maybe RuntimeCell
-lookupRendered targetName =
+lookupRendered :: ModuleExport -> RuntimeEnv -> Maybe RuntimeCell
+lookupRendered moduleExport =
   go . Map.toList
   where
+    targetName = moduleExportName moduleExport
     go entries =
       case entries of
         [] -> Nothing
         (name, cell) : rest
-          | renderName name == targetName || identifierText name == targetName -> Just cell
+          | (renderName name == targetName || identifierText name == targetName),
+            nameMatchesNamespace name -> Just cell
           | otherwise -> go rest
-
-exportNamespace :: Text -> ModuleInterface -> NameNamespace
-exportNamespace exportName moduleInterface =
-  case Map.lookup exportName (interfaceValueTypes moduleInterface) of
-    Just ConstructorTypeBinding {} -> ConstructorNamespace
-    _ -> ValueNamespace
+    nameMatchesNamespace name =
+      case name of
+        ResolvedName _ namespace _ -> namespace == moduleExportNamespace moduleExport
+        _ -> True
 
 scopeStatements :: Expr -> [Statement]
 scopeStatements expression =

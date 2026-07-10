@@ -122,7 +122,8 @@ import JazzNext.Compiler.TypeInference.Types
   )
 import JazzNext.Compiler.ModuleInterface
   ( ModuleInterface (..),
-    emptyModuleInterface
+    emptyModuleInterface,
+    moduleExportForBinding
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -243,7 +244,7 @@ moduleInterfaceFromState inputs expr state =
   emptyModuleInterface
     { interfaceValueTypes =
         Map.fromList
-          [ (renderName name, binding)
+          [ (moduleExportForBinding (renderName name) binding, binding)
             | name <- Set.toList declaredValues,
               Just binding <- [Map.lookup name (inferVisibleTypes state)]
           ],

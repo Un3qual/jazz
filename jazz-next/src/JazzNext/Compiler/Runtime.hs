@@ -279,7 +279,7 @@ runtimeConstructorArgument :: Maybe [Text] -> DataConstructorArgument -> DataCon
 runtimeConstructorArgument maybeModulePath argument =
   case argument of
     DataConstructorArgumentName name ->
-      DataConstructorArgumentName (runtimeDefinitionName maybeModulePath name)
+      DataConstructorArgumentName (runtimeConstraintTypeName maybeModulePath name)
     DataConstructorArgumentOpaque -> DataConstructorArgumentOpaque
 
 runtimeConstraintType :: Maybe [Text] -> ConstraintSignatureType -> ConstraintSignatureType
@@ -301,6 +301,7 @@ runtimeConstraintTypeName :: Maybe [Text] -> Name -> Name
 runtimeConstraintTypeName maybeModulePath name
   | identifierText name `elem` ["Int", "Float", "Bool"] = name
   | Just _ <- numericTypeFromName (identifierText name) = name
+  | identifierLooksLikeTypeVariable name = name
   | otherwise = runtimeDefinitionName maybeModulePath name
 
 -- | Runtime cells can hold either a value or the deterministic failure for a
@@ -992,7 +993,7 @@ evaluateModuleScope currentModulePath evaluationMode builtinMode bindingTypeHint
                     )
                 Right False ->
                   evalValueWithModulePath methodModulePath builtinMode bindingTypeHints methodEnv methodExpr
-                    >>= attachRuntimeMethodSignature methodEnv implTarget methodName
+                    >>= attachRuntimeMethodSignature methodModulePath methodEnv implTarget methodName
             insertCandidate envAcc (methodName, _, methodCandidate) =
               Map.adjust (addMethodCandidate methodCandidate) methodName envAcc
         _ -> env
@@ -1004,16 +1005,19 @@ evaluateModuleScope currentModulePath evaluationMode builtinMode bindingTypeHint
             _ -> methodCell
 
     attachRuntimeMethodSignature ::
+      Maybe [Text] ->
       RuntimeEnv ->
       ConstraintSignatureType ->
       Name ->
       RuntimeValue ->
       Either Diagnostic RuntimeValue
-    attachRuntimeMethodSignature env implTarget methodName methodValue =
+    attachRuntimeMethodSignature methodModulePath env implTarget methodName methodValue =
       case Map.lookup methodName env of
         Just (Right (VQualifiedMethod _ classParameter methodSignature _ _)) ->
           attachRuntimeTypeHint
-            (substituteClassMethodSignature classParameter implTarget methodSignature)
+            ( runtimeConstraintType methodModulePath
+                <$> substituteClassMethodSignature classParameter implTarget methodSignature
+            )
             methodValue
         _ ->
           Right methodValue
