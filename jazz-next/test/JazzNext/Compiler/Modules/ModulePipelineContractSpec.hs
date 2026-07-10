@@ -17,7 +17,8 @@ import JazzNext.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import JazzNext.Compiler.ModuleResolver (resolveProgram)
 import JazzNext.Compiler.ModuleCompiler (compileResolvedProgram)
 import JazzNext.Compiler.ModuleRuntime
-  ( RuntimeModule (runtimeModuleExports),
+  ( RuntimeExport (..),
+    RuntimeModule (runtimeModuleExports),
     RuntimeProgram (runtimeProgramOutput),
     evaluateCompiledProgram,
     lookupRuntimeModule
@@ -74,7 +75,7 @@ testRuntimeModulePublishesDeclaredExports = do
         Just runtimeModule ->
           assertEqual
             "export names"
-            (Set.fromList [ModuleExport ValueNamespace "answer"])
+            (Set.fromList [RuntimeBindingExport (ModuleExport ValueNamespace "answer")])
             (Map.keysSet (runtimeModuleExports runtimeModule))
 
 testCompiledModuleKeepsPrivateInterfaceWithPublicInventory :: IO ()
@@ -105,7 +106,7 @@ testRuntimeModulePublishesExplicitExportsOnly = do
         Just runtimeModule ->
           assertEqual
             "public runtime exports"
-            (Set.singleton (ModuleExport ValueNamespace "answer"))
+            (Set.singleton (RuntimeBindingExport (ModuleExport ValueNamespace "answer")))
             (Map.keysSet (runtimeModuleExports runtimeModule))
 
 testRuntimeModulePublishesPublicClassMethodsOnly :: IO ()
@@ -119,7 +120,7 @@ testRuntimeModulePublishesPublicClassMethodsOnly = do
         Just runtimeModule ->
           assertEqual
             "public class method runtime exports"
-            (Set.singleton (ModuleExport ValueNamespace "Eq::equals"))
+            (Set.singleton (RuntimeCapabilityMethodExport "Eq" "equals"))
             (Map.keysSet (runtimeModuleExports runtimeModule))
 
 explicitExportSources :: Map.Map FilePath Text
@@ -161,10 +162,13 @@ testModuleExportIdentityPreservesNamespaces = do
         Just runtimeModule ->
           assertEqual
             "runtime shadowed export identities"
-            expectedExports
+            expectedRuntimeExports
             ( Map.keysSet
                 ( Map.filterWithKey
-                    (\moduleExport _ -> moduleExportName moduleExport == "Just")
+                    (\runtimeExport _ ->
+                       case runtimeExport of
+                         RuntimeBindingExport moduleExport -> moduleExportName moduleExport == "Just"
+                         RuntimeCapabilityMethodExport {} -> False)
                     (runtimeModuleExports runtimeModule)
                 )
             )
@@ -174,6 +178,7 @@ testModuleExportIdentityPreservesNamespaces = do
         [ ModuleExport ValueNamespace "Just",
           ModuleExport ConstructorNamespace "Just"
         ]
+    expectedRuntimeExports = Set.map RuntimeBindingExport expectedExports
     shadowingSources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Maybe (Just). Just. }"),

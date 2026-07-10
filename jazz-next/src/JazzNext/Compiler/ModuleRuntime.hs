@@ -2,7 +2,8 @@
 
 -- | Evaluate a successful compiled program once in dependency order.
 module JazzNext.Compiler.ModuleRuntime
-  ( RuntimeModule (..),
+  ( RuntimeExport (..),
+    RuntimeModule (..),
     RuntimeProgram (..),
     evaluateCompiledProgram,
     lookupRuntimeModule
@@ -55,9 +56,20 @@ import JazzNext.Compiler.Runtime
     ScopeResult (..),
     evaluateModuleScope
   )
+
+-- | Runtime-facing exports keep capability methods structurally distinct from
+-- ordinary values instead of encoding their owner in a value-name string.
+data RuntimeExport
+  = RuntimeBindingExport ModuleExport
+  | RuntimeCapabilityMethodExport
+      { runtimeExportCapabilityName :: Text,
+        runtimeExportMethodName :: Text
+      }
+  deriving (Eq, Ord, Show)
+
 data RuntimeModule = RuntimeModule
   { runtimeModulePath :: [Text],
-    runtimeModuleExports :: Map ModuleExport RuntimeCell
+    runtimeModuleExports :: Map RuntimeExport RuntimeCell
   }
 
 data RuntimeProgram = RuntimeProgram
@@ -158,16 +170,16 @@ importRuntimeModule compiledProgram runtimeModules importDecl env =
       let publicInventory =
             resolvedModuleExportInventory (compiledResolvedModule compiledDependency)
           selectedExports =
-            [ (moduleExport, cell)
-              | (moduleExport, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
-                runtimeExportSelected importDecl publicInventory moduleExport
+            [ (runtimeExport, cell)
+              | (runtimeExport, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
+                runtimeExportSelected importDecl publicInventory runtimeExport
             ]
-          insertExport (moduleExport, cell) =
+          insertExport (runtimeExport, cell) =
             Map.insert
               ( ResolvedName
                   (ImportedModule dependencyPath)
-                  (moduleExportNamespace moduleExport)
-                  (mkIdentifier (moduleExportName moduleExport))
+                  (runtimeExportNamespace runtimeExport)
+                  (mkIdentifier (runtimeExportName runtimeExport))
               )
               cell
        in foldr insertExport env selectedExports
@@ -181,40 +193,41 @@ importRuntimeModule compiledProgram runtimeModules importDecl env =
 publishEnvironment :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> RuntimeEnv
 publishEnvironment origin publicInventory moduleInterface env =
   Map.fromList
-    [ (ResolvedName origin (moduleExportNamespace moduleExport) (mkIdentifier (moduleExportName moduleExport)), cell)
-      | moduleExport <- interfaceExports publicInventory moduleInterface,
-        Just cell <- [lookupExportCell origin moduleExport env]
+    [ (ResolvedName origin (runtimeExportNamespace runtimeExport) (mkIdentifier (runtimeExportName runtimeExport)), cell)
+      | runtimeExport <- interfaceExports publicInventory moduleInterface,
+        Just cell <- [lookupExportCell origin runtimeExport env]
     ]
 
-publishExports :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> Map ModuleExport RuntimeCell
+publishExports :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> Map RuntimeExport RuntimeCell
 publishExports origin publicInventory moduleInterface env =
   Map.fromList
-    [ (moduleExport, cell)
-      | moduleExport <- interfaceExports publicInventory moduleInterface,
-        Just cell <- [lookupExportCell origin moduleExport env]
+    [ (runtimeExport, cell)
+      | runtimeExport <- interfaceExports publicInventory moduleInterface,
+        Just cell <- [lookupExportCell origin runtimeExport env]
     ]
 
-interfaceExports :: ModuleExportInventory -> ModuleInterface -> [ModuleExport]
+interfaceExports :: ModuleExportInventory -> ModuleInterface -> [RuntimeExport]
 interfaceExports publicInventory moduleInterface =
-  [ export
+  [ RuntimeBindingExport export
     | export <- Set.toList (exportInventoryEntries publicInventory),
       moduleExportNamespace export `elem` [ValueNamespace, ConstructorNamespace]
   ]
-    <> [ ModuleExport ValueNamespace methodKey
+    <> [ RuntimeCapabilityMethodExport className methodName
          | methodKey <- Map.keys (interfaceClassMethods moduleInterface),
-           Just (className, _) <- [splitQualifiedMethodKey methodKey],
+           Just (className, methodName) <- [splitQualifiedMethodKey methodKey],
            Set.member className publicClassNames
        ]
   where
     publicClassNames = exportNamesInNamespace CapabilityNamespace publicInventory
 
-runtimeExportSelected :: ResolvedImport -> ModuleExportInventory -> ModuleExport -> Bool
-runtimeExportSelected importDecl publicInventory moduleExport =
-  case splitQualifiedMethodKey (moduleExportName moduleExport) of
-    Just (className, _) ->
+runtimeExportSelected :: ResolvedImport -> ModuleExportInventory -> RuntimeExport -> Bool
+runtimeExportSelected importDecl publicInventory runtimeExport =
+  case runtimeExport of
+    RuntimeCapabilityMethodExport className _ ->
       resolvedImportAlias importDecl == Nothing
         && Set.member className selectedClassNames
-    Nothing -> inventoryHasExport moduleExport selectedInventory
+    RuntimeBindingExport moduleExport ->
+      inventoryHasExport moduleExport selectedInventory
   where
     importMode =
       case resolvedImportAlias importDecl of
@@ -228,23 +241,35 @@ runtimeExportSelected importDecl publicInventory moduleExport =
     selectedClassNames =
       exportNamesInNamespace CapabilityNamespace selectedInventory
 
-lookupExportCell :: ResolvedNameOrigin -> ModuleExport -> RuntimeEnv -> Maybe RuntimeCell
-lookupExportCell origin moduleExport env =
+runtimeExportName :: RuntimeExport -> Text
+runtimeExportName runtimeExport =
+  case runtimeExport of
+    RuntimeBindingExport moduleExport -> moduleExportName moduleExport
+    RuntimeCapabilityMethodExport className methodName -> className <> "::" <> methodName
+
+runtimeExportNamespace :: RuntimeExport -> NameNamespace
+runtimeExportNamespace runtimeExport =
+  case runtimeExport of
+    RuntimeBindingExport moduleExport -> moduleExportNamespace moduleExport
+    RuntimeCapabilityMethodExport {} -> ValueNamespace
+
+lookupExportCell :: ResolvedNameOrigin -> RuntimeExport -> RuntimeEnv -> Maybe RuntimeCell
+lookupExportCell origin runtimeExport env =
   case Map.lookup expectedName env of
     Just cell -> Just cell
-    Nothing -> lookupRendered moduleExport env
+    Nothing -> lookupRendered runtimeExport env
   where
-    exportName = moduleExportName moduleExport
+    exportName = runtimeExportName runtimeExport
     expectedName =
       case origin of
         AmbientPrelude -> sourceName (mkIdentifier exportName)
-        _ -> ResolvedName origin (moduleExportNamespace moduleExport) (mkIdentifier exportName)
+        _ -> ResolvedName origin (runtimeExportNamespace runtimeExport) (mkIdentifier exportName)
 
-lookupRendered :: ModuleExport -> RuntimeEnv -> Maybe RuntimeCell
-lookupRendered moduleExport =
+lookupRendered :: RuntimeExport -> RuntimeEnv -> Maybe RuntimeCell
+lookupRendered runtimeExport =
   go . Map.toList
   where
-    targetName = moduleExportName moduleExport
+    targetName = runtimeExportName runtimeExport
     go entries =
       case entries of
         [] -> Nothing
@@ -254,7 +279,7 @@ lookupRendered moduleExport =
           | otherwise -> go rest
     nameMatchesNamespace name =
       case name of
-        ResolvedName _ namespace _ -> namespace == moduleExportNamespace moduleExport
+        ResolvedName _ namespace _ -> namespace == runtimeExportNamespace runtimeExport
         _ -> True
 
 scopeStatements :: Expr -> [Statement]

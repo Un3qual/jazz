@@ -63,6 +63,7 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.ModuleGraph
   ( CoreModule (..),
+    DeclaredModuleExports (..),
     ResolvedImport (..)
   )
 
@@ -85,8 +86,8 @@ lowerSurfaceModule sourcePath expectedPath surfaceExpr = do
         _ -> []
 
     declarations =
-      [ (modulePath, moduleExports)
-        | SSModule _ modulePath moduleExports <- statements
+      [ (modulePath, spanValue, moduleExports)
+        | SSModule spanValue modulePath moduleExports <- statements
       ]
 
     imports =
@@ -116,8 +117,14 @@ lowerSurfaceModule sourcePath expectedPath surfaceExpr = do
     validateDeclaration =
       case declarations of
         [] -> Right (Nothing, Nothing)
-        [(declaredPath, declaredExports)]
-          | declaredPath == expectedPath -> Right (Just declaredPath, declaredExports)
+        [(declaredPath, declarationSpan, declaredExportNames)]
+          | declaredPath == expectedPath ->
+              Right
+                ( Just declaredPath,
+                  DeclaredModuleExports
+                    (qualifySourceSpan sourcePath declarationSpan)
+                    <$> declaredExportNames
+                )
           | otherwise ->
               Left
                 ( mkDiagnostic
@@ -138,10 +145,11 @@ lowerSurfaceModule sourcePath expectedPath surfaceExpr = do
                 ( "multiple module declarations in '"
                     <> Text.pack sourcePath
                     <> "': "
-                    <> Text.intercalate ", " (map (renderModulePath . fst) declaredModules)
+                    <> Text.intercalate ", " (map (renderModulePath . declaredModulePath) declaredModules)
                 )
             )
 
+    declaredModulePath (modulePath, _, _) = modulePath
     renderModulePath = Text.intercalate "::"
 
 qualifyExprSourceSpans :: FilePath -> Expr -> Expr

@@ -1599,73 +1599,61 @@ parseImportSymbolList tokensAfterLeftParen =
                 <> renderSourceSpan (tokenSpan token)
             )
         )
-    _ -> do
-      (firstSymbol, _, afterFirstSymbol) <- parseImportSymbol tokensAfterLeftParen
-      go [firstSymbol] (Set.singleton firstSymbol) afterFirstSymbol
-  where
-    go revSymbols seenSymbols allTokens =
-      case allTokens of
-        Token {tokenKind = TComma} : rest -> do
-          (nextSymbol, symbolSpan, afterNextSymbol) <- parseImportSymbol rest
-          if Set.member nextSymbol seenSymbols
-            then
-              Left
-                ( parseDiagnostic
-                    ( "duplicate import symbol '"
-                        <> nextSymbol
-                        <> "' at "
-                        <> renderSourceSpan symbolSpan
-                    )
-                )
-            else
-              go
-                (nextSymbol : revSymbols)
-                (Set.insert nextSymbol seenSymbols)
-                afterNextSymbol
-        Token {tokenKind = TRParen} : rest ->
-          Right (reverse revSymbols, rest)
-        [] ->
-          Left (parseDiagnostic "expected ')' before end of input in import symbol list")
-        token : _ ->
-          Left
-            ( parseDiagnostic
-                ( "expected ',' or ')' at "
-                    <> renderSourceSpan (tokenSpan token)
-                    <> ", found '"
-                    <> tokenLexeme token
-                    <> "'"
-                )
-            )
+    _ ->
+      parseNonEmptyUniqueNameList
+        "import symbol"
+        "import symbol list"
+        parseImportSymbol
+        tokensAfterLeftParen
 
 parseModuleExportList :: [Token] -> Either Diagnostic ([Text], [Token])
 parseModuleExportList tokensAfterLeftParen =
   case tokensAfterLeftParen of
     Token {tokenKind = TRParen} : rest -> Right ([], rest)
-    _ -> do
-      (firstExport, _, afterFirstExport) <- parseModuleExport tokensAfterLeftParen
-      go [firstExport] (Set.singleton firstExport) afterFirstExport
+    _ ->
+      parseNonEmptyUniqueNameList
+        "module export"
+        "module export list"
+        parseModuleExport
+        tokensAfterLeftParen
+
+parseNonEmptyUniqueNameList ::
+  Text ->
+  Text ->
+  ([Token] -> Either Diagnostic (Text, SourceSpan, [Token])) ->
+  [Token] ->
+  Either Diagnostic ([Text], [Token])
+parseNonEmptyUniqueNameList itemDescription listDescription parseName tokens = do
+  (firstName, _, afterFirstName) <- parseName tokens
+  go [firstName] (Set.singleton firstName) afterFirstName
   where
-    go revExports seenExports allTokens =
+    go reversedNames seenNames allTokens =
       case allTokens of
         Token {tokenKind = TComma} : rest -> do
-          (nextExport, exportSpan, afterNextExport) <- parseModuleExport rest
-          if Set.member nextExport seenExports
+          (nextName, nameSpan, afterNextName) <- parseName rest
+          if Set.member nextName seenNames
             then
               Left
                 ( parseDiagnostic
-                    ( "duplicate module export '"
-                        <> nextExport
+                    ( "duplicate "
+                        <> itemDescription
+                        <> " '"
+                        <> nextName
                         <> "' at "
-                        <> renderSourceSpan exportSpan
+                        <> renderSourceSpan nameSpan
                     )
                 )
             else
               go
-                (nextExport : revExports)
-                (Set.insert nextExport seenExports)
-                afterNextExport
-        Token {tokenKind = TRParen} : rest -> Right (reverse revExports, rest)
-        [] -> Left (parseDiagnostic "expected ')' before end of input in module export list")
+                (nextName : reversedNames)
+                (Set.insert nextName seenNames)
+                afterNextName
+        Token {tokenKind = TRParen} : rest -> Right (reverse reversedNames, rest)
+        [] ->
+          Left
+            ( parseDiagnostic
+                ("expected ')' before end of input in " <> listDescription)
+            )
         token : _ ->
           Left
             ( parseDiagnostic

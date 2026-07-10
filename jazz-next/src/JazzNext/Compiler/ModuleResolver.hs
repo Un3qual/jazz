@@ -34,7 +34,6 @@ import JazzNext.Compiler.Diagnostics
     SourceSpan,
     mkDiagnostic,
     mkMessageDiagnostic,
-    qualifySourceSpan,
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
     setDiagnosticSubject
@@ -446,7 +445,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
         validatePublicExportInventory
           sourcePath
           expectedModulePath
-          (explicitModuleExports surfaceExpr)
+          (ModuleGraph.coreModuleDeclaredExports coreModule)
           localInventory
       Right
         ParsedModule
@@ -458,49 +457,39 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
             parsedModuleCore = coreModule
           }
 
-explicitModuleExports :: SurfaceExpr -> Maybe (SourceSpan, [Text])
-explicitModuleExports surfaceExpr =
-  case surfaceExpr of
-    SEBlock statements ->
-      case
-          [ (spanValue, exportNames)
-            | SSModule spanValue _ (Just exportNames) <- statements
-          ] of
-        [] -> Nothing
-        firstExportList : _ -> Just firstExportList
-    _ -> Nothing
-
 validatePublicExportInventory ::
   FilePath ->
   [Text] ->
-  Maybe (SourceSpan, [Text]) ->
+  Maybe ModuleGraph.DeclaredModuleExports ->
   ModuleExportInventory ->
   Either Diagnostic ModuleExportInventory
 validatePublicExportInventory sourcePath modulePath maybeExplicitExports localInventory =
   case maybeExplicitExports of
     Nothing -> Right localInventory
-    Just (moduleSpan, exportNames) ->
-      case find (`Set.notMember` availableNames) exportNames of
-        Nothing -> Right (selectExportNames (Just exportNames) localInventory)
-        Just missingName ->
-          Left
-            ( setDiagnosticSubject missingName
-                ( setDiagnosticPrimarySpan
-                    (qualifySourceSpan sourcePath moduleSpan)
-                    ( mkDiagnostic
-                        "E4015"
-                        ( "module export '"
-                            <> missingName
-                            <> "' is not declared by module '"
-                            <> renderModulePath modulePath
-                            <> "' in '"
-                            <> Text.pack sourcePath
-                            <> "'; available declarations: "
-                            <> renderDeclarationNames availableNames
+    Just declaredExports ->
+      let moduleSpan = ModuleGraph.declaredModuleExportsSpan declaredExports
+          exportNames = ModuleGraph.declaredModuleExportNames declaredExports
+       in case find (`Set.notMember` availableNames) exportNames of
+            Nothing -> Right (selectExportNames (Just exportNames) localInventory)
+            Just missingName ->
+              Left
+                ( setDiagnosticSubject missingName
+                    ( setDiagnosticPrimarySpan
+                        moduleSpan
+                        ( mkDiagnostic
+                            "E4015"
+                            ( "module export '"
+                                <> missingName
+                                <> "' is not declared by module '"
+                                <> renderModulePath modulePath
+                                <> "' in '"
+                                <> Text.pack sourcePath
+                                <> "'; available declarations: "
+                                <> renderDeclarationNames availableNames
+                            )
                         )
                     )
                 )
-            )
   where
     availableNames = declarationExportNames localInventory
 

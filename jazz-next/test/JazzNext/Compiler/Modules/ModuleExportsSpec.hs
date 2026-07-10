@@ -6,6 +6,7 @@ import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 import JazzNext.Compiler.ModuleExports
   ( ModuleExport (..),
+    ModuleExportInventory,
     ModuleImportMode (..),
     declarationExportNames,
     exportInventory,
@@ -42,6 +43,7 @@ tests =
     ("derives compiled interface exports by namespace", testInterfaceInventory)
   ]
 
+sampleInventory :: ModuleExportInventory
 sampleInventory =
   exportInventory
     [ ModuleExport ValueNamespace "answer",

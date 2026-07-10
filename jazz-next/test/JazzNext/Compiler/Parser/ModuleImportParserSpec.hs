@@ -10,6 +10,10 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)
   )
+import JazzNext.Compiler.ModuleGraph
+  ( CoreModule (coreModuleDeclaredExports),
+    DeclaredModuleExports (..)
+  )
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
@@ -25,7 +29,6 @@ import JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr,
     lowerSurfaceModule
   )
-import JazzNext.Compiler.ModuleGraph (CoreModule (coreModuleDeclaredExports))
 import JazzNext.Compiler.Name (qualifiedName)
 import JazzNext.TestHarness
   ( NamedTest,
@@ -142,7 +145,14 @@ testLowersModuleExportList =
     ( \surfaceProgram ->
         assertEqual
           "lowered module export metadata"
-          (Right (Just ["answer"]))
+          ( Right
+              ( Just
+                  ( DeclaredModuleExports
+                      (SourceSpanIn "src/Lib/Value.jz" 1 1)
+                      ["answer"]
+                  )
+              )
+          )
           ( coreModuleDeclaredExports
               <$> lowerSurfaceModule "src/Lib/Value.jz" ["Lib", "Value"] surfaceProgram
           )
