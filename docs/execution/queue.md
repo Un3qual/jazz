@@ -8,14 +8,14 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `JN-MODULE-NAMESPACE-AWARE-EXPORT-001` | Add namespace-aware module export selectors | `P1` | `M` | `impl` | `yes` | `-` | [2026-07-10-jazz-next-namespace-aware-module-exports.md](../superpowers/plans/2026-07-10-jazz-next-namespace-aware-module-exports.md) | `Implementation Batch: Namespace-Aware Module Exports` | `jazz-next/src/JazzNext/Compiler/ModuleExports.hs`, `jazz-next/src/JazzNext/Compiler/ModuleGraph.hs`, `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`, `jazz-next/src/JazzNext/Compiler/Parser/AST.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Declaration.hs`, `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`, `jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs`, `jazz-next/test/JazzNext/Compiler/Modules/ModuleExportsSpec.hs`, `jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs`, `jazz-next/test/JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs`, `docs/spec/modules/06-explicit-export-lists.md`, `docs/feature-status.md`, `docs/jazz-language-state.md`, `docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md`, `docs/execution/blocker-contracts.md`, `docs/execution/queue.md`, `docs/execution/done-archive.md` | Add optional value, constructor, type, and class prefixes to module export allowlists, carry structured selectors through parsing/lowering, and publish exact typed entries while preserving bare-selector and import compatibility. | `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModuleExportsSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs`; `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`; `bash jazz-next/scripts/test-warning-config.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; git diff --check | `2026-07-10` |
 
-Current executor status (`2026-07-10`): `Ready Now` is empty because the
-explicit module export allowlist child landed with focused and full
-verification. There is no source-backed next curation target and no named
-candidate currently. Stop at blocker/coordinator triage instead of inventing
-executable work. Keep re-exports, wildcard shorthand, cross-module operators,
-packages, default methods, superclasses, effects, and broader impl policy
-blocked until separate accepted contracts name target paths and verification.
+Current executor status (`2026-07-10`): the maintainer accepted the
+namespace-aware module export child as a focused follow-up to explicit export
+allowlists. Execute only that row, then restore the terminal-empty queue unless
+a separate source-backed contract is accepted. Keep re-exports, wildcard
+shorthand, cross-module operators, packages, default methods, superclasses,
+effects, and broader impl policy blocked.
 
 ## Next Curation Target
 
