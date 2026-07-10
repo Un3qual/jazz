@@ -12,7 +12,10 @@ module JazzNext.Compiler.ModuleExports
     exportNamesInNamespaces,
     declarationExportNames,
     selectorEligibleNames,
+    inventoryHasSelector,
+    renderModuleExportSelector,
     selectExportNames,
+    selectModuleExportSelectors,
     visibleImportInventory,
     inventoryHasExport,
     firstExportNamespace
@@ -71,6 +74,28 @@ selectorEligibleNames =
   exportNamesInNamespaces
     [ValueNamespace, ConstructorNamespace, CapabilityNamespace]
 
+inventoryHasSelector :: ModuleExportSelector -> ModuleExportInventory -> Bool
+inventoryHasSelector selector =
+  any (moduleExportSelectorMatches selector) . Set.toList . exportInventoryEntries
+
+renderModuleExportSelector :: ModuleExportSelector -> Text
+renderModuleExportSelector selector =
+  case moduleExportSelectorNamespace selector of
+    Nothing -> "'" <> moduleExportSelectorName selector <> "'"
+    Just namespace ->
+      moduleExportNamespaceKeyword namespace
+        <> " '"
+        <> moduleExportSelectorName selector
+        <> "'"
+
+moduleExportNamespaceKeyword :: NameNamespace -> Text
+moduleExportNamespaceKeyword namespace =
+  case namespace of
+    ValueNamespace -> "value"
+    ConstructorNamespace -> "constructor"
+    TypeNamespace -> "type"
+    CapabilityNamespace -> "class"
+
 selectExportNames :: Maybe [Text] -> ModuleExportInventory -> ModuleExportInventory
 selectExportNames maybeNames inventory =
   case maybeNames of
@@ -82,6 +107,21 @@ selectExportNames maybeNames inventory =
                 ((`Set.member` selectedNames) . moduleExportName)
                 (exportInventoryEntries inventory)
             )
+
+selectModuleExportSelectors :: [ModuleExportSelector] -> ModuleExportInventory -> ModuleExportInventory
+selectModuleExportSelectors selectors inventory =
+  ModuleExportInventory
+    ( Set.filter
+        (\export -> any (`moduleExportSelectorMatches` export) selectors)
+        (exportInventoryEntries inventory)
+    )
+
+moduleExportSelectorMatches :: ModuleExportSelector -> ModuleExport -> Bool
+moduleExportSelectorMatches selector export =
+  moduleExportSelectorName selector == moduleExportName export
+    && case moduleExportSelectorNamespace selector of
+      Nothing -> True
+      Just namespace -> namespace == moduleExportNamespace export
 
 visibleImportInventory ::
   ModuleImportMode ->

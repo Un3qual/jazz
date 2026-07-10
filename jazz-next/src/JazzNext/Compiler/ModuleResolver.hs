@@ -59,15 +59,18 @@ import JazzNext.Compiler.BuiltinCatalog
 import JazzNext.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
-    ModuleExportSelector (moduleExportSelectorName),
+    ModuleExportSelector (..),
     ModuleImportMode (..),
     declarationExportNames,
     exportInventory,
+    exportInventoryEntries,
     exportNamesInNamespace,
     exportNamesInNamespaces,
     firstExportNamespace,
+    inventoryHasSelector,
+    renderModuleExportSelector,
     selectorEligibleNames,
-    selectExportNames,
+    selectModuleExportSelectors,
     visibleImportInventory
   )
 import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
@@ -469,33 +472,40 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports localIn
     Nothing -> Right localInventory
     Just declaredExports ->
       let moduleSpan = ModuleGraph.declaredModuleExportsSpan declaredExports
-          exportNames =
-            map
-              moduleExportSelectorName
-              (ModuleGraph.declaredModuleExportSelectors declaredExports)
-       in case find (`Set.notMember` availableNames) exportNames of
-            Nothing -> Right (selectExportNames (Just exportNames) localInventory)
-            Just missingName ->
+          selectors = ModuleGraph.declaredModuleExportSelectors declaredExports
+       in case find (not . (`inventoryHasSelector` localInventory)) selectors of
+            Nothing -> Right (selectModuleExportSelectors selectors localInventory)
+            Just missingSelector ->
               Left
-                ( setDiagnosticSubject missingName
+                ( setDiagnosticSubject (moduleExportSelectorName missingSelector)
                     ( setDiagnosticPrimarySpan
                         moduleSpan
                         ( mkDiagnostic
                             "E4015"
-                            ( "module export '"
-                                <> missingName
-                                <> "' is not declared by module '"
+                            ( "module export "
+                                <> renderModuleExportSelector missingSelector
+                                <> " is not declared by module '"
                                 <> renderModulePath modulePath
                                 <> "' in '"
                                 <> Text.pack sourcePath
                                 <> "'; available declarations: "
-                                <> renderDeclarationNames availableNames
+                                <> renderAvailableDeclarations missingSelector
                             )
                         )
                     )
                 )
   where
     availableNames = declarationExportNames localInventory
+    renderAvailableDeclarations selector =
+      case moduleExportSelectorNamespace selector of
+        Nothing -> renderDeclarationNames availableNames
+        Just _ ->
+          Text.intercalate
+            ", "
+            [ renderModuleExportSelector
+                (ModuleExportSelector (Just (moduleExportNamespace export)) (moduleExportName export))
+              | export <- Set.toAscList (exportInventoryEntries localInventory)
+            ]
 
 renderDeclarationNames :: Set Text -> Text
 renderDeclarationNames names

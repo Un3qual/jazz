@@ -28,7 +28,9 @@ import JazzNext.Compiler.ModuleExports
     exportInventoryEntries
   )
 import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
-import JazzNext.Compiler.Name (NameNamespace (ValueNamespace))
+import JazzNext.Compiler.Name
+  ( NameNamespace (TypeNamespace, ValueNamespace)
+  )
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
@@ -48,6 +50,8 @@ tests =
     ("resolved program retains lowered modules", testResolvedProgramRetainsLoweredModules),
     ("resolved module carries explicit public inventory", testResolvedModuleCarriesExplicitPublicInventory),
     ("empty export list produces empty inventory", testEmptyExportListProducesEmptyInventory),
+    ("namespace-aware exports select exact public entries", testNamespaceAwareExportsSelectExactEntries),
+    ("namespace-aware exports reject same-name wrong namespace", testNamespaceAwareExportsRejectWrongNamespace),
     ("explicit exports keep private local bindings resolvable", testExplicitExportsKeepPrivateLocalsUsable),
     ("rejects unknown module export names", testRejectsUnknownModuleExport),
     ("rejects imported-only module export names", testRejectsImportedOnlyModuleExport),
@@ -190,6 +194,59 @@ testEmptyExportListProducesEmptyInventory = do
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value.\n0.\n}"),
           ("src/Lib/Value.jz", "module Lib::Value () {\nhidden = 1.\n}")
         ]
+    lookupSource path = pure (Map.lookup path sources)
+
+testNamespaceAwareExportsSelectExactEntries :: IO ()
+testNamespaceAwareExportsSelectExactEntries = do
+  result <-
+    resolveProgram
+      testResolverConfig
+      ResolveKernelOnly
+      Set.empty
+      Set.empty
+      lookupSource
+      ["Lib", "Box"]
+  assertRight "resolved namespace-aware public inventory" result $ \program ->
+    case ModuleGraph.resolvedProgramModules program of
+      [resolvedModule] ->
+        assertEqual
+          "public inventory contains exact type and value exports"
+          ( Set.fromList
+              [ ModuleExport TypeNamespace "Box",
+                ModuleExport ValueNamespace "Box"
+              ]
+          )
+          ( exportInventoryEntries
+              (ModuleGraph.resolvedModuleExportInventory resolvedModule)
+          )
+      modules -> failTest ("expected one resolved Lib::Box module, got " <> Text.pack (show (length modules)))
+  where
+    sources =
+      Map.singleton
+        "src/Lib/Box.jz"
+        "module Lib::Box (type Box, value Box) {\ndata Box = Box payload.\nBox = 1.\n}"
+    lookupSource path = pure (Map.lookup path sources)
+
+testNamespaceAwareExportsRejectWrongNamespace :: IO ()
+testNamespaceAwareExportsRejectWrongNamespace = do
+  result <-
+    resolveProgram
+      testResolverConfig
+      ResolveKernelOnly
+      Set.empty
+      Set.empty
+      lookupSource
+      ["Lib", "Token"]
+  assertLeftDiagnosticCodeAndContains
+    "wrong namespace module export"
+    "E4015"
+    "module export type 'Token' is not declared by module 'Lib::Token'"
+    result
+  where
+    sources =
+      Map.singleton
+        "src/Lib/Token.jz"
+        "module Lib::Token (type Token) {\ndata Box = Token.\n}"
     lookupSource path = pure (Map.lookup path sources)
 
 testExplicitExportsKeepPrivateLocalsUsable :: IO ()

@@ -58,6 +58,7 @@ tests =
     ("runtime modules publish explicit value exports only", testRuntimeModulePublishesExplicitExportsOnly),
     ("runtime modules publish methods only for public classes", testRuntimeModulePublishesPublicClassMethodsOnly),
     ("module export identities distinguish shadowed values and constructors", testModuleExportIdentityPreservesNamespaces),
+    ("namespace-aware runtime exports publish selected value only", testNamespaceAwareRuntimeExportPublishesValueOnly),
     ("compiled dependency terminal expressions are skipped", testCompiledDependencyTerminalExpressionIsSkipped),
     ("alias imports stay qualified", testAliasIsolationContract),
     ("transitive imports do not leak", testTransitiveVisibilityContract),
@@ -183,6 +184,26 @@ testModuleExportIdentityPreservesNamespaces = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Maybe (Just). Just. }"),
           ("src/Lib/Maybe.jz", "module Lib::Maybe { data Maybe = Just value. Just = 1. }")
+        ]
+
+testNamespaceAwareRuntimeExportPublishesValueOnly :: IO ()
+testNamespaceAwareRuntimeExportPublishesValueOnly = do
+  compiled <- compileFixtureProgram sources
+  case evaluateCompiledProgram compiled of
+    Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right runtime ->
+      case lookupRuntimeModule ["Lib", "Maybe"] runtime of
+        Nothing -> fail "missing runtime Lib::Maybe module"
+        Just runtimeModule ->
+          assertEqual
+            "namespace-selected runtime exports"
+            (Set.singleton (RuntimeBindingExport (ModuleExport ValueNamespace "Just")))
+            (Map.keysSet (runtimeModuleExports runtimeModule))
+  where
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main { import Lib::Maybe (Just). Just. }"),
+          ("src/Lib/Maybe.jz", "module Lib::Maybe (value Just) { data Maybe = Just value. Just = 1. }")
         ]
 
 testCompiledDependencyTerminalExpressionIsSkipped :: IO ()

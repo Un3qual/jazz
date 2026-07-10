@@ -117,13 +117,13 @@ lowerSurfaceModule sourcePath expectedPath surfaceExpr = do
     validateDeclaration =
       case declarations of
         [] -> Right (Nothing, Nothing)
-        [(declaredPath, declarationSpan, declaredExportNames)]
+        [(declaredPath, declarationSpan, declaredExportSelectors)]
           | declaredPath == expectedPath ->
               Right
                 ( Just declaredPath,
                   DeclaredModuleExports
                     (qualifySourceSpan sourcePath declarationSpan)
-                    <$> declaredExportNames
+                    <$> declaredExportSelectors
                 )
           | otherwise ->
               Left

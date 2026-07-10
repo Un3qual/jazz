@@ -38,7 +38,8 @@ import JazzNext.Compiler.Name
     mkOperatorBindingIdentifier
   )
 import JazzNext.Compiler.ModuleExports
-  ( ModuleExportSelector (..)
+  ( ModuleExportSelector (..),
+    renderModuleExportSelector
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
@@ -1727,24 +1728,6 @@ moduleExportNamespacePrefix prefix =
     "type" -> Just TypeNamespace
     "class" -> Just CapabilityNamespace
     _ -> Nothing
-
-renderModuleExportSelector :: ModuleExportSelector -> Text
-renderModuleExportSelector selector =
-  case moduleExportSelectorNamespace selector of
-    Nothing -> "'" <> moduleExportSelectorName selector <> "'"
-    Just namespace ->
-      renderModuleExportNamespace namespace
-        <> " '"
-        <> moduleExportSelectorName selector
-        <> "'"
-
-renderModuleExportNamespace :: NameNamespace -> Text
-renderModuleExportNamespace namespace =
-  case namespace of
-    ValueNamespace -> "value"
-    ConstructorNamespace -> "constructor"
-    TypeNamespace -> "type"
-    CapabilityNamespace -> "class"
 
 parseImportSymbol :: [Token] -> Either Diagnostic (Text, SourceSpan, [Token])
 parseImportSymbol tokens =
