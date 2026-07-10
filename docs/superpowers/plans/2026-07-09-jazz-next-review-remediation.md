@@ -22,11 +22,13 @@
 ### Task 1: Reject every ambiguous unqualified import combination
 
 **Files:**
+
 - Modify: `jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs:28-74,604-654`
 - Modify: `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs:699-730`
 - Modify: `docs/spec/modules/04-qualified-imports-and-binding.md:42-85,128-160`
 
 **Interfaces:**
+
 - Consumes: `ParsedImport`, `BindingOrigin`, `parsedModuleExports`, and `parsedModuleClassNames` already owned by `ModuleResolver`.
 - Produces: `validateImportSymbols :: Map Text BindingOrigin -> ParsedImport -> Either Diagnostic (Map Text BindingOrigin)` that records all names exposed by non-aliased imports and emits the existing E4008 diagnostic for a second origin.
 
@@ -213,12 +215,14 @@ git commit -m "fix: reject ambiguous unqualified imports"
 ### Task 2: Normalize lexical module roots before ambiguity checks
 
 **Files:**
+
 - Modify: `jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs:40-55,321-354`
 - Modify: `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs:49,258-266`
 - Modify: `docs/spec/modules/01-file-layout-and-package-roots.md:30-50`
 - Modify: `docs/spec/modules/02-resolution-algorithm-and-cycles.md:22-38`
 
 **Interfaces:**
+
 - Consumes: `System.FilePath.normalise`, existing `appendRelativePath`, and ordered `moduleRoots`.
 - Produces: normalized candidate paths that are deduplicated before source lookup while preserving the first root's order.
 
@@ -318,6 +322,7 @@ git commit -m "fix: normalize module lookup roots"
 ### Task 3: Carry source paths through semantic diagnostics
 
 **Files:**
+
 - Modify: `jazz-next/test/JazzNext/Compiler/Diagnostics/StructuredErrorDiagnosticsSpec.hs:5-40`
 - Modify: `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs:52-145,330-420`
 - Modify: `jazz-next/src/JazzNext/Compiler/Diagnostics.hs:6-23,34-40,177-180`
@@ -326,6 +331,7 @@ git commit -m "fix: normalize module lookup roots"
 - Modify: `docs/spec/modules/03-loader-behavior-and-diagnostics.md:88-105,135-165`
 
 **Interfaces:**
+
 - Consumes: existing `SourceSpan` fields carried by core `Statement`, `ClassMethodSignature`, and `ImplMethod` nodes.
 - Produces: `SourceSpanIn FilePath Int Int`, `qualifySourceSpan :: FilePath -> SourceSpan -> SourceSpan`, and module replay that qualifies all original statement spans before analysis.
 
@@ -554,6 +560,7 @@ git commit -m "fix: preserve module diagnostic source paths"
 ### Task 4: Encode non-empty surface lambda parameters
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/AST.hs:9-20,80-90`
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser.hs:20-70,1912-1987`
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs:5-15,89-112`
@@ -564,6 +571,7 @@ git commit -m "fix: preserve module diagnostic source paths"
 - Modify: `jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs`
 
 **Interfaces:**
+
 - Consumes: the grammar guarantee that a lambda has a first parameter before `parseLambdaParameters` succeeds.
 - Produces: `SELambda (NonEmpty SurfaceLambdaParameter) SurfaceExpr`; zero-parameter Jazz syntax remains the same parser error.
 
@@ -720,11 +728,13 @@ git commit -m "refactor: make surface lambda parameters non-empty"
 ### Task 5: Package the CLI and register the complete Cabal test suite
 
 **Files:**
+
 - Create: `jazz-next/app/Main.hs`
 - Modify: `jazz-next/jazz-next.cabal:1-48`
 - Modify: `jazz-next/README.md:13-90`
 
 **Interfaces:**
+
 - Consumes: public `JazzNext.CLI.Main.main` and all 29 existing `*Spec.hs` entry points.
 - Produces: Cabal executable target `jazz-next` and 29 `exitcode-stdio-1.0` test targets sharing one dependency configuration.
 
@@ -970,9 +980,11 @@ git commit -m "build: package jazz-next cli and tests"
 ### Task 6: Run complete regression and repository verification
 
 **Files:**
+
 - Verify only; modify a file only if a verification failure exposes a defect caused by Tasks 1-5, then rerun the focused red-green cycle before amending the owning task's commit.
 
 **Interfaces:**
+
 - Consumes: all five fixed contracts and the repository documentation checks.
 - Produces: fresh completion evidence with a clean working tree.
 

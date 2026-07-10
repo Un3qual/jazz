@@ -64,10 +64,12 @@
 ### Task 1: Lock the module-pipeline behavior contract
 
 **Files:**
+
 - Create: `jazz-next/test/JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs`
 - Modify: `jazz-next/jazz-next.cabal:88-107`
 
 **Interfaces:**
+
 - Consumes: existing `compileModuleGraphWithPrelude`, `runModuleGraphWithPrelude`, `ModuleResolutionConfig`, `CompileResult`, and `RunResult`.
 - Produces: a focused parity suite named `module-pipeline-contract-spec` that both the replay and replacement pipelines must pass.
 
@@ -229,6 +231,7 @@ git commit -m "test: lock module pipeline behavior"
 ### Task 2: Centralize core-pattern semantics
 
 **Files:**
+
 - Create: `jazz-next/src/JazzNext/Compiler/Pattern.hs`
 - Create: `jazz-next/test/JazzNext/Compiler/Semantics/PatternSemanticsSpec.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Analyzer.hs:1108-1184`
@@ -239,6 +242,7 @@ git commit -m "test: lock module pipeline behavior"
 - Modify: `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Consumes: `JazzNext.Compiler.AST.Pattern` and `Identifier`.
 - Produces: `patternBinderNames`, `commonPatternBinderNames`, and `extendBoundWithPattern` as the only core implementations.
 
@@ -376,6 +380,7 @@ git commit -m "refactor: centralize core pattern semantics"
 ### Task 3: Canonicalize the core AST around `EIf`
 
 **Files:**
+
 - Create: `jazz-next/test/JazzNext/Compiler/Semantics/CoreNormalizationSpec.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/AST.hs:70-89`
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs:55-111`
@@ -389,6 +394,7 @@ git commit -m "refactor: centralize core pattern semantics"
 - Modify: `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Consumes: surface `SEIf` and `SEBinary "$"`.
 - Produces: core `EIf` for conditionals and `EApply` for `$`; `ECase` and `desugarExpr` cease to exist.
 
@@ -482,6 +488,7 @@ git commit -m "refactor: canonicalize core conditionals and application"
 ### Task 4: Introduce structured core names
 
 **Files:**
+
 - Create: `jazz-next/src/JazzNext/Compiler/Name.hs`
 - Create: `jazz-next/test/JazzNext/Compiler/Semantics/NameSemanticsSpec.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/AST.hs`
@@ -491,6 +498,7 @@ git commit -m "refactor: canonicalize core conditionals and application"
 - Modify: affected tests and `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Consumes: source-level `Identifier` values.
 - Produces: `Name`, `NameNamespace`, `ResolvedNameOrigin`, `GeneratedNameKind`, and explicit constructors/helpers for source, qualified, resolved, builtin, and generated names.
 
@@ -710,12 +718,14 @@ git commit -m "refactor: represent compiler names structurally"
 ### Task 5: Unify the token parser and pattern grammar
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/TokenParser.hs`
 - Rewrite: `jazz-next/src/JazzNext/Compiler/Parser/Pattern.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/Signature.hs`
 - Modify: parser tests
 
 **Interfaces:**
+
 - Consumes: lexer `[Token]` streams.
 - Produces: `runTokenParser`, `runTokenParserPrefix`, `failTokenParser`, and direct `Parser` grammar functions with one Megaparsec error channel.
 
@@ -813,6 +823,7 @@ git commit -m "refactor: unify token and pattern parsing"
 ### Task 6: Give expression and declaration grammars real ownership
 
 **Files:**
+
 - Create: `jazz-next/src/JazzNext/Compiler/Parser/Context.hs`
 - Rewrite: `jazz-next/src/JazzNext/Compiler/Parser/Expression.hs`
 - Rewrite: `jazz-next/src/JazzNext/Compiler/Parser/Declaration.hs`
@@ -820,6 +831,7 @@ git commit -m "refactor: unify token and pattern parsing"
 - Modify: parser tests and `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Consumes: `ParserContext`, token streams, and parser callbacks only where recursive grammar requires them.
 - Produces: owner-defined expression/declaration combinators and a small `parseSurfaceProgram` façade that ties their recursive callbacks together.
 
@@ -927,6 +939,7 @@ git commit -m "refactor: assign parser grammar ownership"
 ### Task 7: Extract inference types, state, and solver
 
 **Files:**
+
 - Create: `jazz-next/src/JazzNext/Compiler/TypeInference/Types.hs`
 - Create: `jazz-next/src/JazzNext/Compiler/TypeInference/State.hs`
 - Create: `jazz-next/src/JazzNext/Compiler/TypeInference/Solver.hs`
@@ -934,6 +947,7 @@ git commit -m "refactor: assign parser grammar ownership"
 - Modify: `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Consumes: existing internal type definitions and solver functions.
 - Produces: named `TypeScheme`, named `DeferredExplicitConstraint`, nested `InferState`, and solver operations with unchanged behavior.
 
@@ -1072,6 +1086,7 @@ git commit -m "refactor: extract inference types state and solver"
 ### Task 8: Extract inference capabilities, patterns, scope, and diagnostics
 
 **Files:**
+
 - Create: `jazz-next/src/JazzNext/Compiler/TypeInference/Capabilities.hs`
 - Create: `jazz-next/src/JazzNext/Compiler/TypeInference/Pattern.hs`
 - Create: `jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs`
@@ -1080,6 +1095,7 @@ git commit -m "refactor: extract inference types state and solver"
 - Modify: `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Consumes: `Types`, `State`, `Solver`, AST, capability facts, recursive-binding facts.
 - Produces: a façade `TypeInference.hs` exposing only `InferenceResult` and the four existing entrypoints, plus the future module-aware entrypoint.
 
@@ -1163,6 +1179,7 @@ git commit -m "refactor: split inference by semantic ownership"
 ### Task 9: Retain parsed modules in a resolved graph
 
 **Files:**
+
 - Create: `jazz-next/src/JazzNext/Compiler/ModuleGraph.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/Lower.hs`
@@ -1170,6 +1187,7 @@ git commit -m "refactor: split inference by semantic ownership"
 - Modify: module resolver/loader tests and `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Consumes: source lookup and `ModuleResolutionConfig`.
 - Produces: `resolveProgram :: ModuleResolutionConfig -> BuiltinResolutionMode -> Set Name -> Set Name -> (FilePath -> IO (Maybe Text)) -> [Text] -> IO (Either Diagnostic ResolvedProgram)`.
 
@@ -1276,6 +1294,7 @@ git commit -m "refactor: retain parsed modules in resolved graph"
 ### Task 10: Publish compile-time module interfaces
 
 **Files:**
+
 - Create: `jazz-next/src/JazzNext/Compiler/Prelude.hs`
 - Create: `jazz-next/src/JazzNext/Compiler/ModuleInterface.hs`
 - Create: `jazz-next/src/JazzNext/Compiler/ModuleCompiler.hs`
@@ -1286,6 +1305,7 @@ git commit -m "refactor: retain parsed modules in resolved graph"
 - Modify: module contract/loader tests and `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Consumes: `ResolvedProgram`, parse-once `PreparedPrelude`, warning settings, builtin mode.
 - Produces: `ModuleInterface`, `CompiledPrelude`, `CompiledModule`, `CompiledProgram`, `compilePreparedPrelude`, and `compileResolvedProgram`.
 
@@ -1483,12 +1503,14 @@ git commit -m "feat: compile modules against explicit interfaces"
 ### Task 11: Evaluate modules against runtime exports
 
 **Files:**
+
 - Create: `jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Runtime.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/ModuleInterface.hs`
 - Modify: module contract/loader/runtime tests and `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Consumes: a successful `CompiledProgram`, including its already-compiled prelude.
 - Produces: `RuntimeModule`, `RuntimeProgram`, and `evaluateCompiledProgram`.
 
@@ -1609,6 +1631,7 @@ git commit -m "feat: evaluate modules against runtime exports"
 ### Task 12: Cut the driver over and delete module replay
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/Driver.hs`
 - Modify: `jazz-next/src/JazzNext/CLI/Main.hs`
 - Modify: module tests and `jazz-next/jazz-next.cabal`
@@ -1616,6 +1639,7 @@ git commit -m "feat: evaluate modules against runtime exports"
 - Delete: temporary replay compatibility helpers from `Name`, `Runtime`, and `TypeInference`
 
 **Interfaces:**
+
 - Consumes: `resolveProgram`, `compileResolvedProgram`, `evaluateCompiledProgram`.
 - Produces: unchanged public `compileModuleGraph*` and `runModuleGraph*` results with no replay implementation.
 
@@ -1736,12 +1760,14 @@ git commit -m "refactor: replace module replay with module pipeline"
 ### Task 13: Make `Compiler.Name` the sole identifier owner
 
 **Files:**
+
 - Modify: all `jazz-next/src/**/*.hs` imports of `JazzNext.Compiler.Identifier`
 - Modify: affected tests
 - Delete: `jazz-next/src/JazzNext/Compiler/Identifier.hs`
 - Modify: `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Consumes: final `Compiler.Name` API.
 - Produces: one owner for source identifiers and structured core names.
 
@@ -1784,10 +1810,12 @@ git commit -m "refactor: make compiler name module authoritative"
 ### Task 14: Make the compiler library private
 
 **Files:**
+
 - Modify: `jazz-next/jazz-next.cabal`
 - Modify: `jazz-next/README.md`
 
 **Interfaces:**
+
 - Consumes: final production/test module inventory.
 - Produces: private `jazz-next-internal` library used only by package components.
 
@@ -1866,11 +1894,13 @@ git commit -m "build: keep jazz-next compiler internals private"
 ### Task 15: Split oversized test modules by concern
 
 **Files:**
+
 - Create: support modules listed in the Planned File Structure section
 - Modify: `LoaderSpec.hs`, `RuntimeSemanticsSpec.hs`, `BindingSignatureCoherenceSpec.hs`, `AdtPatternParserSpec.hs`, and `ParserFoundationSpec.hs`
 - Modify: `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
+
 - Consumes: existing `NamedTest` values and suite names.
 - Produces: small suite entrypoints aggregating `NamedTest` groups; no behavioral changes and no new framework.
 
@@ -1952,6 +1982,7 @@ git commit -m "test: split oversized jazz-next suites"
 ### Task 16: Update architecture documentation and run the final audit
 
 **Files:**
+
 - Modify: `jazz-next/README.md`
 - Modify: `docs/jazz-language-state.md`
 - Modify: `docs/feature-status.md`
@@ -1962,6 +1993,7 @@ git commit -m "test: split oversized jazz-next suites"
 - Modify: this plan's checkboxes as tasks complete
 
 **Interfaces:**
+
 - Consumes: final source tree and verified commands.
 - Produces: current active-compiler documentation with no replay claims.
 

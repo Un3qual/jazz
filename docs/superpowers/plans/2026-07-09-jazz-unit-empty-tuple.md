@@ -40,6 +40,7 @@
 ### Task 1: Parse and lower Unit values, patterns, and signature types
 
 **Files:**
+
 - Modify: `jazz-next/test/JazzNext/Compiler/Parser/ExpressionParserSpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Parser/PatternParserSpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs`
@@ -49,6 +50,7 @@
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/Signature.hs`
 
 **Interfaces:**
+
 - Consumes: existing `SETuple [SurfaceExpr]`, `SPTuple [SurfacePattern]`, `SurfaceTypeTuple [SurfaceSignatureType]`, and `SurfaceConstrainedTypeTuple [SurfaceConstrainedSignatureType]` constructors.
 - Produces: `parseParenExpr ... [TRParen] == Right (SETuple [], ...)`; `parseCaseArmPatternTokens` returns `SPTuple []` for `()`; both signature parsers return empty tuple types; existing lowering yields `ETuple []`, `PTuple []`, `TypeTuple []`, and `ConstraintTypeTuple []` without new constructors.
 
@@ -302,11 +304,13 @@ git commit -m "feat: add Jazz Unit value type and pattern"
 ### Task 2: Add Unit-lambda sugar and prove unary semantics end to end
 
 **Files:**
+
 - Modify: `jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser.hs`
 
 **Interfaces:**
+
 - Consumes: Task 1's `SPTuple []`, `SETuple []`, `SurfaceTypeTuple []`, and unchanged pattern-parameter lowering.
 - Produces: `\()` and `\(())` both parse as `SELambda (SurfaceLambdaPattern (SPTuple []) :| []) body`; lowering remains a unary `ELambda`; `() -> a` signatures and `function ()` applications typecheck through existing tuple semantics.
 
@@ -503,12 +507,14 @@ git commit -m "feat: add unary Unit lambda syntax"
 ### Task 3: Document Unit semantics and perform full verification
 
 **Files:**
+
 - Modify: `docs/spec/authoritative-syntax.md`
 - Modify: `docs/spec/pattern-matching-semantics.md`
 - Modify: `docs/spec/adt-pattern-semantics.md`
 - Modify: `docs/spec/semantics/bindings-and-signatures.md`
 
 **Interfaces:**
+
 - Consumes: Tasks 1-2's tested syntax and semantics.
 - Produces: authoritative documentation stating that `()` is the zero-tuple Unit and `\()` is unary Unit-pattern sugar, plus repository-wide verification evidence.
 
