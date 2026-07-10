@@ -206,7 +206,7 @@ testDeclaredOperatorBindingParsesInsideModuleBody =
     "declared operator binding in module body parse tree"
     ( Right
         ( SEBlock
-            [ SSModule (SourceSpan 1 1) ["Demo"],
+            [ SSModule (SourceSpan 1 1) ["Demo"] Nothing,
               SSLet
                 "$operator:%25%25"
                 (SourceSpan 3 2)

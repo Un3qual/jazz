@@ -182,7 +182,7 @@ data SurfaceStatement
   | SSData SourceSpan Identifier [Identifier] [SurfaceDataConstructor]
   | SSClass SourceSpan Identifier [Identifier] [SurfaceClassMethodSignature]
   | SSImpl SourceSpan Identifier [SurfaceConstrainedSignatureType] [SurfaceImplMethod]
-  | SSModule SourceSpan [Text]
+  | SSModule SourceSpan [Text] (Maybe [Text])
   | SSImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SSExpr SourceSpan SurfaceExpr
   deriving (Eq, Show)

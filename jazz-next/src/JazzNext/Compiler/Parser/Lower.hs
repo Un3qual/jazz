@@ -70,10 +70,11 @@ import JazzNext.Compiler.ModuleGraph
 -- retained as graph metadata and removed from the executable core scope.
 lowerSurfaceModule :: FilePath -> [Text] -> SurfaceExpr -> Either Diagnostic CoreModule
 lowerSurfaceModule sourcePath expectedPath surfaceExpr = do
-  declaredPath <- validateDeclaredPath
+  (declaredPath, declaredExports) <- validateDeclaration
   pure
     CoreModule
       { coreModuleDeclaredPath = declaredPath,
+        coreModuleDeclaredExports = declaredExports,
         coreModuleImports = imports,
         coreModuleExpr = qualifyExprSourceSpans sourcePath loweredBody
       }
@@ -84,8 +85,8 @@ lowerSurfaceModule sourcePath expectedPath surfaceExpr = do
         _ -> []
 
     declarations =
-      [ modulePath
-        | SSModule _ modulePath <- statements
+      [ (modulePath, moduleExports)
+        | SSModule _ modulePath moduleExports <- statements
       ]
 
     imports =
@@ -112,11 +113,11 @@ lowerSurfaceModule sourcePath expectedPath surfaceExpr = do
         SEBlock _ -> EBlock (map lowerSurfaceStatement executableStatements)
         _ -> lowerSurfaceExpr surfaceExpr
 
-    validateDeclaredPath =
+    validateDeclaration =
       case declarations of
-        [] -> Right Nothing
-        [declaredPath]
-          | declaredPath == expectedPath -> Right (Just declaredPath)
+        [] -> Right (Nothing, Nothing)
+        [(declaredPath, declaredExports)]
+          | declaredPath == expectedPath -> Right (Just declaredPath, declaredExports)
           | otherwise ->
               Left
                 ( mkDiagnostic
@@ -130,14 +131,14 @@ lowerSurfaceModule sourcePath expectedPath surfaceExpr = do
                         <> "'"
                     )
                 )
-        declaredPaths ->
+        declaredModules ->
           Left
             ( mkDiagnostic
                 "E4005"
                 ( "multiple module declarations in '"
                     <> Text.pack sourcePath
                     <> "': "
-                    <> Text.intercalate ", " (map renderModulePath declaredPaths)
+                    <> Text.intercalate ", " (map (renderModulePath . fst) declaredModules)
                 )
             )
 
@@ -306,7 +307,7 @@ lowerSurfaceStatement surfaceStatement =
         (sourceName capabilityName)
         (map lowerSurfaceConstrainedSignatureType arguments)
         (map lowerSurfaceImplMethod methods)
-    SSModule spanValue modulePath ->
+    SSModule spanValue modulePath _ ->
       SModule spanValue modulePath
     SSImport spanValue modulePath alias importedSymbols ->
       SImport spanValue modulePath alias importedSymbols

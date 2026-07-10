@@ -29,6 +29,7 @@ import JazzNext.Compiler.Name (Name (..))
 
 data CoreModule = CoreModule
   { coreModuleDeclaredPath :: Maybe [Text],
+    coreModuleDeclaredExports :: Maybe [Text],
     coreModuleImports :: [ResolvedImport],
     coreModuleExpr :: Expr
   }

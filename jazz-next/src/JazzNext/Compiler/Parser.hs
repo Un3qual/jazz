@@ -156,5 +156,5 @@ reversePrepend values reversedValues =
 leadingModuleDeclaration :: [SurfaceStatement] -> Maybe SourceSpan
 leadingModuleDeclaration statements =
   case statements of
-    SSModule spanValue _ : _ -> Just spanValue
+    SSModule spanValue _ _ : _ -> Just spanValue
     _ -> Nothing
