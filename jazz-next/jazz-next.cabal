@@ -8,7 +8,8 @@ license: GPL-3.0-only
 maintainer: un3qual
 category: Language
 
-library
+library jazz-next-internal
+  visibility: private
   hs-source-dirs: src
   default-language: Haskell2010
   exposed-modules:
@@ -71,7 +72,7 @@ executable jazz-next
   default-language: Haskell2010
   build-depends:
       base >= 4.17 && < 4.18,
-      jazz-next
+      jazz-next:jazz-next-internal
 
 common test-common
   hs-source-dirs: test
@@ -84,7 +85,7 @@ common test-common
       containers >= 0.6 && < 0.7,
       directory >= 1.3 && < 1.4,
       filepath >= 1.4 && < 1.5,
-      jazz-next,
+      jazz-next:jazz-next-internal,
       text >= 2.0 && < 2.1
 
 test-suite cli-spec

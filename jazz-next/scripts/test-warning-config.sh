@@ -84,6 +84,11 @@ if rg -n 'JazzNext\.Compiler\.Identifier' jazz-next/src jazz-next/test jazz-next
   exit 1
 fi
 
+if rg -n '^library$' jazz-next/jazz-next.cabal; then
+  echo "public compiler library remains exposed" >&2
+  exit 1
+fi
+
 for test_file in "${TEST_FILES[@]}"; do
   "$RUNGHC" "${RUNGHC_INCLUDES[@]}" "$test_file"
 done

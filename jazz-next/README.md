@@ -8,6 +8,10 @@ Legacy references:
 
 Do not implement new compiler functionality in legacy directories.
 
+`jazz-next` is currently a CLI/compiler package. Its Haskell implementation is
+provided through the private `jazz-next-internal` package library solely for the
+executable and test components; there is no supported Haskell embedding API yet.
+
 ## Current implementation slices
 
 - `src/JazzNext/Compiler/AST.hs`: analyzer-facing core AST used after parser/lowering.
@@ -22,7 +26,7 @@ Do not implement new compiler functionality in legacy directories.
 - `src/JazzNext/Compiler/TypeInference.hs`: inference result plumbing that carries warnings and semantic errors from analysis.
 - `src/JazzNext/Compiler/Driver.hs`: warning-as-error gating plus semantic-error propagation into compile results.
 - `src/JazzNext/CLI/Main.hs`: CLI flag/env/config resolution and warning-aware compile output behavior.
-- `jazz-next.cabal`: packaged library, `jazz-next` executable, and complete test-suite registration.
+- `jazz-next.cabal`: private implementation library, `jazz-next` executable, and complete test-suite registration.
 - `scripts/test-warning-config.sh`: compatibility runner for executing every spec through the local `runghc` wrapper.
 
 ## Test layout
