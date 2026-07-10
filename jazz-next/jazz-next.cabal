@@ -24,6 +24,8 @@ library
       JazzNext.Compiler.Identifier
       JazzNext.Compiler.ModuleReplay
       JazzNext.Compiler.ModuleGraph
+      JazzNext.Compiler.ModuleInterface
+      JazzNext.Compiler.ModuleCompiler
       JazzNext.Compiler.ModuleResolver
       JazzNext.Compiler.Name
       JazzNext.Compiler.Parser
@@ -39,6 +41,7 @@ library
       JazzNext.Compiler.Parser.TokenParser
       JazzNext.Compiler.Pattern
       JazzNext.Compiler.PreludeContract
+      JazzNext.Compiler.Prelude
       JazzNext.Compiler.Purity
       JazzNext.Compiler.RecursiveBindings
       JazzNext.Compiler.Runtime

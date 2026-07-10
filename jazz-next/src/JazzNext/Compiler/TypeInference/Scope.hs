@@ -71,6 +71,7 @@ import JazzNext.Compiler.TypeInference.State
   ( DeclarationState (..),
     InferState (..),
     InferenceOutput (..),
+    ModuleInferenceState (..),
     inferCurrentModulePath,
     inferDataTypes,
     inferDeferredExplicitConstraints,
@@ -125,6 +126,13 @@ modifyInferenceOutput :: (InferenceOutput -> InferenceOutput) -> InferState -> I
 modifyInferenceOutput update state =
   state {inferOutput = update (inferOutput state)}
 
+publishVisibleTypes :: TypeEnv -> InferState -> InferState
+publishVisibleTypes env state =
+  state
+    { inferModule =
+        (inferModule state) {inferenceVisibleTypes = env}
+    }
+
 inferScopeType :: InferExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType inferExpression builtinMode initialEnv initialState statements =
   let (scopeType, finalState) =
@@ -151,7 +159,7 @@ inferScopeType inferExpression builtinMode initialEnv initialState statements =
 
     go env lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts state remainingStatements =
       case remainingStatements of
-        [] -> (lastExprType, state)
+        [] -> (lastExprType, publishVisibleTypes env state)
         (statementIndex, statement) : rest ->
           case statement of
             SModule _ modulePath ->

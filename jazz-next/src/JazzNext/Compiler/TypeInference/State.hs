@@ -24,6 +24,7 @@ module JazzNext.Compiler.TypeInference.State
     inferRuntimeTypeHints,
     inferStrictEqualityVars,
     inferSubst,
+    inferVisibleTypes,
     initialInferState
   ) where
 
@@ -42,6 +43,7 @@ import JazzNext.Compiler.TypeInference.Types
     ImplMethodType,
     NumericConstraint,
     ScopeCapabilityFacts,
+    TypeEnv,
     TypeSchemeConstraint,
     emptyScopeCapabilityFacts
   )
@@ -67,7 +69,8 @@ data DeclarationState = DeclarationState
 data ModuleInferenceState = ModuleInferenceState
   { inferenceModulePath :: Maybe [Text],
     inferenceLocalCapabilities :: ScopeCapabilityFacts,
-    inferenceModuleCapabilities :: Map [Text] ScopeCapabilityFacts
+    inferenceModuleCapabilities :: Map [Text] ScopeCapabilityFacts,
+    inferenceVisibleTypes :: TypeEnv
   }
   deriving (Eq, Show)
 
@@ -121,7 +124,8 @@ initialInferState =
         ModuleInferenceState
           { inferenceModulePath = Nothing,
             inferenceLocalCapabilities = emptyScopeCapabilityFacts,
-            inferenceModuleCapabilities = Map.empty
+            inferenceModuleCapabilities = Map.empty,
+            inferenceVisibleTypes = Map.empty
           },
       inferOutput =
         InferenceOutput
@@ -171,6 +175,9 @@ inferCurrentModuleLocalCapabilityFacts = inferenceLocalCapabilities . inferModul
 
 inferModuleCapabilityFacts :: InferState -> Map [Text] ScopeCapabilityFacts
 inferModuleCapabilityFacts = inferenceModuleCapabilities . inferModule
+
+inferVisibleTypes :: InferState -> TypeEnv
+inferVisibleTypes = inferenceVisibleTypes . inferModule
 
 inferRuntimeTypeHints :: InferState -> Map BindingRuntimeHintKey ConstraintSignatureType
 inferRuntimeTypeHints = outputRuntimeHints . inferOutput

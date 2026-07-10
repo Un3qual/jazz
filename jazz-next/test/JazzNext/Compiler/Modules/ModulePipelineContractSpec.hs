@@ -3,7 +3,9 @@
 module Main (main) where
 
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics (renderDiagnostic)
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
@@ -12,6 +14,16 @@ import JazzNext.Compiler.Driver
     runModuleGraphWithPrelude
   )
 import JazzNext.Compiler.ModuleResolver (ModuleResolutionConfig (..))
+import JazzNext.Compiler.ModuleResolver (resolveProgram)
+import JazzNext.Compiler.ModuleCompiler (compileResolvedProgram)
+import JazzNext.Compiler.ModuleInterface
+  ( CompiledModule (compiledModuleInterface),
+    CompiledProgram (compiledProgramErrors),
+    ModuleInterface (interfaceValueTypes),
+    emptyCompileInputs,
+    lookupCompiledModule
+  )
+import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
 import JazzNext.TestHarness
   ( NamedTest,
@@ -26,10 +38,41 @@ main = runTestSuite "ModulePipelineContract" tests
 tests :: [NamedTest]
 tests =
   [ ("dependency expressions are checked but not executed", testDependencyExpressionContract),
+    ("compiled interfaces expose only declared exports", testCompiledInterfacesExposeOnlyDeclaredExports),
     ("alias imports stay qualified", testAliasIsolationContract),
     ("transitive imports do not leak", testTransitiveVisibilityContract),
     ("module diagnostics retain source paths", testSourcePathContract)
   ]
+
+testCompiledInterfacesExposeOnlyDeclaredExports :: IO ()
+testCompiledInterfacesExposeOnlyDeclaredExports = do
+  resolvedResult <-
+    resolveProgram
+      resolverConfig
+      ResolveKernelOnly
+      Set.empty
+      Set.empty
+      lookupSource
+      ["App", "Main"]
+  case resolvedResult of
+    Left diagnostic -> fail ("resolution failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right resolved -> do
+      compiled <- compileResolvedProgram (emptyCompileInputs defaultWarningSettings) resolved
+      case lookupCompiledModule ["Lib", "Value"] compiled of
+        Nothing -> fail "missing compiled Lib::Value module"
+        Just compiledModule ->
+          assertEqual
+            "exported values"
+            (Set.fromList ["answer"])
+            (Map.keysSet (interfaceValueTypes (compiledModuleInterface compiledModule)))
+      assertEqual "no compile errors" [] (compiledProgramErrors compiled)
+  where
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main { import Lib::Value. answer. }"),
+          ("src/Lib/Value.jz", "module Lib::Value { answer = 1. }")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
 
 testDependencyExpressionContract :: IO ()
 testDependencyExpressionContract = do

@@ -4,29 +4,37 @@
 -- canonicalizes the lowered AST, reuses analyzer diagnostics, and adds the
 -- small collection of type/runtime-compatibility checks implemented so far.
 module JazzNext.Compiler.TypeInference
-  ( InferenceResult (..),
+  ( InferenceInputs (..),
+    InferenceResult (..),
     inferExpressionWithBuiltinsAndHiddenStatements,
     inferExpressionWithBuiltins,
+    inferExpressionWithInputs,
+    inferExpressionWithInputsAndHiddenStatements,
     inferExpression,
     inferExpressionDefault
   ) where
 
 import Control.Applicative ((<|>))
 import Data.Maybe (isJust)
+import Data.List (foldl')
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
 import JazzNext.Compiler.Analyzer
-  ( AnalysisResult (..),
-    analyzeProgramWithBuiltinsAndHiddenStatements
+  ( AnalysisBinding (..),
+    AnalysisInputs (..),
+    AnalysisResult (..),
+    analyzeProgramWithInputs
   )
 import JazzNext.Compiler.AST
   ( ConstraintSignatureType (..),
+    DataConstructor (..),
     Expr (..),
     Literal (..),
-    NumericType (..)
+    NumericType (..),
+    Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
@@ -50,13 +58,16 @@ import JazzNext.Compiler.FractionalLiteral
     fractionalLiteralIntegralValue
   )
 import JazzNext.Compiler.Identifier
-  ( identifierText
+  ( identifierText,
+    mkIdentifier
   )
 import JazzNext.Compiler.Name
   ( GeneratedNameKind (..),
     Name (..),
     generatedName,
-    operatorBindingName
+    operatorBindingName,
+    renderName,
+    sourceName
   )
 import JazzNext.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol
@@ -75,11 +86,16 @@ import JazzNext.Compiler.TypeInference.Scope
     instantiateNonBuiltinTypeBinding
   )
 import JazzNext.Compiler.TypeInference.State
-  ( InferState (..),
+  ( DeclarationState (..),
+    InferState (..),
     InferenceOutput (..),
+    ModuleInferenceState (..),
+    inferCurrentModuleLocalCapabilityFacts,
+    inferDataTypes,
     inferDeferredExplicitConstraints,
     inferErrorsRev,
     inferRuntimeTypeHints,
+    inferVisibleTypes,
     initialInferState
   )
 import JazzNext.Compiler.TypeInference.Solver
@@ -96,12 +112,19 @@ import JazzNext.Compiler.TypeInference.Solver
     unifyTypes
   )
 import JazzNext.Compiler.TypeInference.Types
-  ( ExpressionType (..),
+  ( DataTypeBinding,
+    ExpressionType (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
     TypeBinding (..),
+    ScopeCapabilityFacts (..),
+    TypeScheme (..),
     TypeEnv,
-    TypeScheme (..)
+    emptyScopeCapabilityFacts
+  )
+import JazzNext.Compiler.ModuleInterface
+  ( ModuleInterface (..),
+    emptyModuleInterface
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -115,9 +138,19 @@ data InferenceResult = InferenceResult
   { inferredExpr :: Expr,
     inferredWarnings :: [WarningRecord],
     inferredErrors :: [Diagnostic],
-    inferredRuntimeTypeHints :: Map BindingRuntimeHintKey ConstraintSignatureType
+    inferredRuntimeTypeHints :: Map BindingRuntimeHintKey ConstraintSignatureType,
+    inferredModuleInterface :: ModuleInterface
   }
   deriving (Eq, Show)
+
+data InferenceInputs = InferenceInputs
+  { inferenceBuiltinMode :: BuiltinResolutionMode,
+    inferenceWarningSettings :: WarningSettings,
+    inferenceImportedTypes :: TypeEnv,
+    inferenceImportedDataTypes :: Map Text DataTypeBinding,
+    inferenceImportedCapabilities :: ScopeCapabilityFacts,
+    inferenceCurrentModulePath :: Maybe [Text]
+  }
 
 -- This currently forwards analyzer diagnostics while the richer inference/type
 -- pipeline is still being built in jazz-next.
@@ -134,21 +167,120 @@ inferExpressionWithBuiltinsAndHiddenStatements ::
   WarningSettings ->
   Expr ->
   IO InferenceResult
-inferExpressionWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices settings expr = do
+inferExpressionWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices settings =
+  inferExpressionWithInputsAndHiddenStatements
+    (emptyInferenceInputs builtinMode settings)
+    hiddenStatementIndices
+
+inferExpressionWithInputs :: InferenceInputs -> Expr -> IO InferenceResult
+inferExpressionWithInputs inputs =
+  inferExpressionWithInputsAndHiddenStatements inputs Set.empty
+
+inferExpressionWithInputsAndHiddenStatements :: InferenceInputs -> Set Int -> Expr -> IO InferenceResult
+inferExpressionWithInputsAndHiddenStatements inputs hiddenStatementIndices expr = do
   AnalysisResult _ warnings errors <-
-    analyzeProgramWithBuiltinsAndHiddenStatements
-      builtinMode
+    analyzeProgramWithInputs
+      (analysisInputsForInference inputs)
       hiddenStatementIndices
-      settings
       expr
-  let (typeErrors, runtimeTypeHints) = collectExprTypeInfo builtinMode expr
+  let (_, finalState) =
+        inferExprType
+          (inferenceBuiltinMode inputs)
+          (inferenceImportedTypes inputs)
+          (initialStateForInference inputs)
+          expr
+      typeErrors = reverse (inferErrorsRev finalState)
+      runtimeTypeHints = inferRuntimeTypeHints finalState
   pure
     InferenceResult
       { inferredExpr = expr,
         inferredWarnings = warnings,
         inferredErrors = errors ++ typeErrors,
-        inferredRuntimeTypeHints = runtimeTypeHints
+        inferredRuntimeTypeHints = runtimeTypeHints,
+        inferredModuleInterface = moduleInterfaceFromState inputs expr finalState
       }
+
+emptyInferenceInputs :: BuiltinResolutionMode -> WarningSettings -> InferenceInputs
+emptyInferenceInputs builtinMode settings =
+  InferenceInputs
+    { inferenceBuiltinMode = builtinMode,
+      inferenceWarningSettings = settings,
+      inferenceImportedTypes = Map.empty,
+      inferenceImportedDataTypes = Map.empty,
+      inferenceImportedCapabilities = emptyScopeCapabilityFacts,
+      inferenceCurrentModulePath = Nothing
+    }
+
+analysisInputsForInference :: InferenceInputs -> AnalysisInputs
+analysisInputsForInference inputs =
+  AnalysisInputs
+    { analysisBuiltinMode = inferenceBuiltinMode inputs,
+      analysisWarningSettings = inferenceWarningSettings inputs,
+      analysisImportedValues =
+        Map.map (const (AnalysisBinding Nothing True)) (inferenceImportedTypes inputs),
+      analysisImportedClasses =
+        Set.map
+          (sourceName . mkIdentifier)
+          (Map.keysSet (scopeClassFacts (inferenceImportedCapabilities inputs))),
+      analysisModulePath = inferenceCurrentModulePath inputs
+    }
+
+initialStateForInference :: InferenceInputs -> InferState
+initialStateForInference inputs =
+  applyCapabilityFacts
+    (inferenceImportedCapabilities inputs)
+    initialInferState
+      { inferDeclarations =
+          (inferDeclarations initialInferState)
+            { declarationDataTypes = inferenceImportedDataTypes inputs
+            },
+        inferModule =
+          (inferModule initialInferState)
+            { inferenceModulePath = inferenceCurrentModulePath inputs
+            }
+      }
+
+moduleInterfaceFromState :: InferenceInputs -> Expr -> InferState -> ModuleInterface
+moduleInterfaceFromState inputs expr state =
+  emptyModuleInterface
+    { interfaceValueTypes =
+        Map.fromList
+          [ (renderName name, binding)
+            | name <- Set.toList declaredValues,
+              Just binding <- [Map.lookup name (inferVisibleTypes state)]
+          ],
+      interfaceDataTypes = Map.restrictKeys (inferDataTypes state) declaredDataTypes,
+      interfaceClassFacts = scopeClassFacts localCapabilities,
+      interfaceGeneratedEqualityClassFacts = scopeGeneratedEqualityClassFacts localCapabilities,
+      interfaceConcreteImplFacts = scopeConcreteImplFacts localCapabilities,
+      interfaceClassMethods = scopeClassMethodSignatures localCapabilities,
+      interfaceConcreteImplMethods = scopeConcreteImplMethods localCapabilities,
+      interfaceRuntimeHints = inferRuntimeTypeHints state
+    }
+  where
+    (declaredValues, declaredDataTypes) = declaredModuleNames expr
+    localCapabilities =
+      case inferenceCurrentModulePath inputs of
+        Just _ -> inferCurrentModuleLocalCapabilityFacts state
+        Nothing -> capabilityFactsFromState state
+
+declaredModuleNames :: Expr -> (Set Name, Set Text)
+declaredModuleNames expression =
+  case expression of
+    EBlock statements -> foldl' collect (Set.empty, Set.empty) statements
+    _ -> (Set.empty, Set.empty)
+  where
+    collect (valueNames, dataTypeNames) statement =
+      case statement of
+        SLet name _ _ -> (Set.insert name valueNames, dataTypeNames)
+        SData _ typeName _ constructors ->
+          ( foldl'
+              (\names (DataConstructor constructorName _) -> Set.insert constructorName names)
+              valueNames
+              constructors,
+            Set.insert (renderName typeName) dataTypeNames
+          )
+        _ -> (valueNames, dataTypeNames)
 
 inferExpressionDefault :: Expr -> IO InferenceResult
 inferExpressionDefault = inferExpression defaultWarningSettings
@@ -156,16 +288,6 @@ inferExpressionDefault = inferExpression defaultWarningSettings
 modifyInferenceOutput :: (InferenceOutput -> InferenceOutput) -> InferState -> InferState
 modifyInferenceOutput update state =
   state {inferOutput = update (inferOutput state)}
-
-collectExprTypeInfo :: BuiltinResolutionMode -> Expr -> ([Diagnostic], Map BindingRuntimeHintKey ConstraintSignatureType)
-collectExprTypeInfo builtinMode expr =
-  let (_, finalState) =
-        inferExprType
-          builtinMode
-          Map.empty
-          initialInferState
-          expr
-   in (reverse (inferErrorsRev finalState), inferRuntimeTypeHints finalState)
 
 instantiateEnvBinding :: TypeBinding -> InferState -> (Maybe ExpressionType, InferState)
 instantiateEnvBinding binding state =

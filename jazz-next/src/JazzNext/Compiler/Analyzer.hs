@@ -4,10 +4,13 @@
 -- AST shape intact while enforcing scope visibility, signature adjacency, and
 -- stub-v1 purity/rebinding rules.
 module JazzNext.Compiler.Analyzer
-  ( Expr (..),
+  ( AnalysisBinding (..),
+    AnalysisInputs (..),
+    Expr (..),
     Statement (..),
     AnalysisResult (..),
     analyzeProgramWithBuiltinsAndHiddenStatements,
+    analyzeProgramWithInputs,
     analyzeProgramWithBuiltins,
     analyzeProgram,
     analyzeRebindingWarningsWithBuiltins,
@@ -27,7 +30,6 @@ import JazzNext.Compiler.AST
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
-    Literal (..),
     Pattern (..),
     Statement (..)
   )
@@ -88,6 +90,21 @@ data AnalysisResult = AnalysisResult
   }
   deriving (Eq, Show)
 
+data AnalysisBinding = AnalysisBinding
+  { analysisBindingSpan :: Maybe SourceSpan,
+    analysisBindingIsHiddenPrelude :: Bool
+  }
+  deriving (Eq, Show)
+
+data AnalysisInputs = AnalysisInputs
+  { analysisBuiltinMode :: BuiltinResolutionMode,
+    analysisWarningSettings :: WarningSettings,
+    analysisImportedValues :: Map Name AnalysisBinding,
+    analysisImportedClasses :: Set Name,
+    analysisModulePath :: Maybe [Text]
+  }
+  deriving (Eq, Show)
+
 -- | Describes the purity and location context surrounding the expression
 -- currently being analyzed.
 data AnalysisContext = AnalysisContext
@@ -127,12 +144,25 @@ analyzeProgramWithBuiltinsAndHiddenStatements ::
   Expr ->
   IO AnalysisResult
 analyzeProgramWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices settings expr =
+  analyzeProgramWithInputs
+    AnalysisInputs
+      { analysisBuiltinMode = builtinMode,
+        analysisWarningSettings = settings,
+        analysisImportedValues = Map.empty,
+        analysisImportedClasses = Set.empty,
+        analysisModulePath = Nothing
+      }
+    hiddenStatementIndices
+    expr
+
+analyzeProgramWithInputs :: AnalysisInputs -> Set Int -> Expr -> IO AnalysisResult
+analyzeProgramWithInputs inputs hiddenStatementIndices expr =
   let (warnings, errors) =
         case expr of
           EBlock statements ->
-            collectScopeDiagnostics builtinMode hiddenStatementIndices settings Map.empty Set.empty topLevelContext statements
+            collectScopeDiagnostics builtinMode hiddenStatementIndices settings importedBindings importedClasses topLevelContext statements
           _ ->
-            collectExprDiagnostics builtinMode settings Map.empty Set.empty topLevelContext expr
+            collectExprDiagnostics builtinMode settings importedBindings importedClasses topLevelContext expr
    in
     pure
       AnalysisResult
@@ -140,6 +170,19 @@ analyzeProgramWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices
           analysisWarnings = sortWarnings warnings,
           analysisErrors = errors
         }
+  where
+    builtinMode = analysisBuiltinMode inputs
+    settings = analysisWarningSettings inputs
+    importedBindings = Map.map analysisBindingToVisibleBinding (analysisImportedValues inputs)
+    importedClasses = Set.map identifierText (analysisImportedClasses inputs)
+
+analysisBindingToVisibleBinding :: AnalysisBinding -> VisibleBinding
+analysisBindingToVisibleBinding binding =
+  VisibleBinding
+    { visibleBindingSpan = maybe (SourceSpan 0 0) id (analysisBindingSpan binding),
+      visibleBindingIsHiddenPrelude =
+        analysisBindingIsHiddenPrelude binding || analysisBindingSpan binding == Nothing
+    }
 
 analyzeRebindingWarnings :: WarningSettings -> Expr -> IO [WarningRecord]
 analyzeRebindingWarnings = analyzeRebindingWarningsWithBuiltins ResolveKernelOnly

@@ -34,9 +34,7 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     RenderDiagnostic (..),
-    WarningRecord (..),
-    prependDiagnosticSummary,
-    setDiagnosticCode
+    WarningRecord (..)
   )
 import JazzNext.Compiler.BundledPrelude
   ( loadBundledPreludeSource
@@ -47,22 +45,18 @@ import JazzNext.Compiler.BuiltinCatalog
 import JazzNext.Compiler.ModuleReplay
   ( ModuleGraphExpr (..),
     collectNeededLocalCapabilityExports,
-    collectTopLevelBindingNames,
-    collectTopLevelClassNames,
     loadLoweredModuleGraph
   )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig
   )
-import JazzNext.Compiler.Parser
-  ( parseSurfaceProgram
+import JazzNext.Compiler.Prelude
+  ( PreparedPrelude (..),
+    ResolvedPrelude (..),
+    preparePrelude,
+    resolvedExplicitPrelude
   )
-import JazzNext.Compiler.Parser.Lower
-  ( lowerSurfaceExpr
-  )
-import JazzNext.Compiler.PreludeContract
-  ( validatePreludeKernelBridges
-  )
+import JazzNext.Compiler.Name (renderName)
 import JazzNext.Compiler.Runtime
   ( evaluateRuntimeExprWithBuiltinsAndBindingHints,
     renderRuntimeValue
@@ -100,20 +94,6 @@ data RunResult = RunResult
     runOutput :: Maybe Text
   }
   deriving (Eq, Show)
-
--- | How the driver should source the prelude for the current invocation.
-data ResolvedPrelude
-  = PreludeAbsent
-  | PreludeBundled Text
-  | PreludeExplicit Text
-  deriving (Eq, Show)
-
--- | Parsed/lowered prelude form after source selection. The constructor records
--- whether statements should be hidden from user-facing diagnostics.
-data LoweredResolvedPrelude
-  = LoweredPreludeAbsent
-  | LoweredPreludeBundled Expr
-  | LoweredPreludeExplicit Expr
 
 -- Compiler driver flow for the current implementation slice:
 -- analyze -> collect warnings/errors -> apply warning-as-error policy.
@@ -158,7 +138,7 @@ compileSourceWithResolvedPrelude settings resolvedPrelude source =
     Right loweredProgram ->
       compileExprWithBuiltinsAndHiddenStatements
         (parsedHiddenStatementIndices loweredProgram)
-        (builtinResolutionMode resolvedPrelude)
+        (parsedBuiltinMode loweredProgram)
         settings
         (parsedExpr loweredProgram)
 
@@ -195,19 +175,19 @@ compileModuleGraphWithResolvedPrelude ::
   (FilePath -> IO (Maybe Text)) ->
   IO CompileResult
 compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = do
-  case lowerResolvedPrelude resolvedPrelude of
+  case preparePrelude resolvedPrelude of
     Left preludeError ->
       pure
         CompileResult
           { compileWarnings = [],
             compileErrors = [preludeError]
           }
-    Right loweredPrelude -> do
-      let ambientVisibleSymbols = loweredPreludeVisibleSymbols loweredPrelude
-          ambientVisibleClassNames = loweredPreludeVisibleClassNames loweredPrelude
+    Right preparedPrelude -> do
+      let ambientVisibleSymbols = Set.map renderName (preparedPreludeVisibleValues preparedPrelude)
+          ambientVisibleClassNames = Set.map renderName (preparedPreludeVisibleClasses preparedPrelude)
       moduleGraphExprResult <-
         loadLoweredModuleGraph
-          (builtinResolutionMode resolvedPrelude)
+          (preparedPreludeBuiltinMode preparedPrelude)
           ambientVisibleSymbols
           ambientVisibleClassNames
           resolutionConfig
@@ -221,10 +201,10 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
                 compileErrors = [resolutionError]
               }
         Right moduleGraphExpr ->
-          let loweredProgram = mergeLoweredResolvedPrelude loweredPrelude (moduleGraphValidationExpr moduleGraphExpr)
+          let loweredProgram = mergePreparedPrelude preparedPrelude (moduleGraphValidationExpr moduleGraphExpr)
            in compileExprWithBuiltinsAndHiddenStatements
                 (parsedHiddenStatementIndices loweredProgram)
-                (builtinResolutionMode resolvedPrelude)
+                (parsedBuiltinMode loweredProgram)
                 settings
                 (parsedExpr loweredProgram)
 
@@ -294,7 +274,7 @@ runSourceWithResolvedPrelude settings resolvedPrelude source =
     Right loweredProgram ->
       runExprWithBuiltinsAndHiddenStatements
         (parsedHiddenStatementIndices loweredProgram)
-        (builtinResolutionMode resolvedPrelude)
+        (parsedBuiltinMode loweredProgram)
         settings
         (parsedExpr loweredProgram)
 
@@ -331,7 +311,7 @@ runModuleGraphWithResolvedPrelude ::
   (FilePath -> IO (Maybe Text)) ->
   IO RunResult
 runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = do
-  case lowerResolvedPrelude resolvedPrelude of
+  case preparePrelude resolvedPrelude of
     Left preludeError ->
       pure
         RunResult
@@ -340,12 +320,12 @@ runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entr
             runRuntimeErrors = [],
             runOutput = Nothing
           }
-    Right loweredPrelude -> do
-      let ambientVisibleSymbols = loweredPreludeVisibleSymbols loweredPrelude
-          ambientVisibleClassNames = loweredPreludeVisibleClassNames loweredPrelude
+    Right preparedPrelude -> do
+      let ambientVisibleSymbols = Set.map renderName (preparedPreludeVisibleValues preparedPrelude)
+          ambientVisibleClassNames = Set.map renderName (preparedPreludeVisibleClasses preparedPrelude)
       moduleGraphExprResult <-
         loadLoweredModuleGraph
-          (builtinResolutionMode resolvedPrelude)
+          (preparedPreludeBuiltinMode preparedPrelude)
           ambientVisibleSymbols
           ambientVisibleClassNames
           resolutionConfig
@@ -361,11 +341,11 @@ runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entr
                 runOutput = Nothing
               }
         Right moduleGraphExpr ->
-          let validationProgram = mergeLoweredResolvedPrelude loweredPrelude (moduleGraphValidationExpr moduleGraphExpr)
-              runtimeProgram = mergeLoweredResolvedPrelude loweredPrelude (moduleGraphRuntimeExpr moduleGraphExpr)
+          let validationProgram = mergePreparedPrelude preparedPrelude (moduleGraphValidationExpr moduleGraphExpr)
+              runtimeProgram = mergePreparedPrelude preparedPrelude (moduleGraphRuntimeExpr moduleGraphExpr)
            in runExprWithValidationAndRuntimeExprs
                 (parsedHiddenStatementIndices validationProgram)
-                (builtinResolutionMode resolvedPrelude)
+                (parsedBuiltinMode validationProgram)
                 settings
                 (parsedExpr validationProgram)
                 (parsedExpr runtimeProgram)
@@ -452,106 +432,37 @@ isPromoted settings warning = isWarningError settings (warningCategory warning)
 warningToError :: WarningRecord -> Diagnostic
 warningToError = toDiagnostic
 
--- | The builtin lookup policy currently stays kernel-only for every prelude
--- mode; explicit preludes change source, not builtin name resolution.
-builtinResolutionMode :: ResolvedPrelude -> BuiltinResolutionMode
-builtinResolutionMode resolvedPrelude =
-  case resolvedPrelude of
-    -- Explicit no-prelude paths are now kernel-only. Public names such as
-    -- `map` and `print!` require an actual prelude source; low-level no-prelude
-    -- entry points may reference only the `__kernel_*` bridge symbols.
-    PreludeAbsent -> ResolveKernelOnly
-    PreludeBundled _ -> ResolveKernelOnly
-    PreludeExplicit _ -> ResolveKernelOnly
-
 -- | Parse the incoming source and splice in prelude statements when required,
 -- tracking which synthetic statements should stay hidden from user diagnostics.
 parseAndLowerSource :: ResolvedPrelude -> Text -> Either Diagnostic ParsedProgram
 parseAndLowerSource resolvedPrelude source = do
   loweredSource <- parseAndLowerStandaloneSource source
-  mergeResolvedPrelude resolvedPrelude loweredSource
+  preparedPrelude <- preparePrelude resolvedPrelude
+  pure (mergePreparedPrelude preparedPrelude loweredSource)
 
-mergeResolvedPrelude :: ResolvedPrelude -> Expr -> Either Diagnostic ParsedProgram
-mergeResolvedPrelude resolvedPrelude loweredSource =
-  (`mergeLoweredResolvedPrelude` loweredSource) <$> lowerResolvedPrelude resolvedPrelude
-
-mergeLoweredResolvedPrelude :: LoweredResolvedPrelude -> Expr -> ParsedProgram
-mergeLoweredResolvedPrelude loweredResolvedPrelude loweredSource =
-  case loweredResolvedPrelude of
-    LoweredPreludeAbsent ->
+mergePreparedPrelude :: PreparedPrelude -> Expr -> ParsedProgram
+mergePreparedPrelude preparedPrelude loweredSource =
+  case preparedPreludeExpr preparedPrelude of
+    Nothing ->
       ParsedProgram
         { parsedExpr = loweredSource,
-          parsedHiddenStatementIndices = Set.empty
+          parsedHiddenStatementIndices = Set.empty,
+          parsedBuiltinMode = preparedPreludeBuiltinMode preparedPrelude
         }
-    LoweredPreludeBundled loweredPrelude ->
-      let preludeStatements = scopeStatements loweredPrelude
-          combinedExpr =
-            EBlock (preludeStatements ++ scopeStatements loweredSource)
-          hiddenStatementIndices =
-            Set.fromList [0 .. length preludeStatements - 1]
-       in ParsedProgram
-            { parsedExpr = combinedExpr,
-              parsedHiddenStatementIndices = hiddenStatementIndices
-            }
-    LoweredPreludeExplicit loweredPrelude ->
+    Just loweredPrelude ->
       let preludeStatements = scopeStatements loweredPrelude
           combinedExpr =
             EBlock (preludeStatements ++ scopeStatements loweredSource)
        in ParsedProgram
             { parsedExpr = combinedExpr,
-              parsedHiddenStatementIndices = Set.empty
+              parsedHiddenStatementIndices = preparedPreludeHiddenStatementIndices preparedPrelude,
+              parsedBuiltinMode = preparedPreludeBuiltinMode preparedPrelude
             }
 
 -- | Lowered program paired with statement indices that came from synthetic
 -- bundled prelude source.
 data ParsedProgram = ParsedProgram
   { parsedExpr :: Expr,
-    parsedHiddenStatementIndices :: Set Int
+    parsedHiddenStatementIndices :: Set Int,
+    parsedBuiltinMode :: BuiltinResolutionMode
   }
-
-resolvedExplicitPrelude :: Maybe Text -> ResolvedPrelude
-resolvedExplicitPrelude maybePrelude =
-  case maybePrelude of
-    Nothing -> PreludeAbsent
-    Just preludeText -> PreludeExplicit preludeText
-
-lowerResolvedPrelude :: ResolvedPrelude -> Either Diagnostic LoweredResolvedPrelude
-lowerResolvedPrelude resolvedPrelude =
-  case resolvedPrelude of
-    PreludeAbsent -> Right LoweredPreludeAbsent
-    PreludeBundled preludeText -> LoweredPreludeBundled <$> validateAndLowerPrelude preludeText
-    PreludeExplicit preludeText -> LoweredPreludeExplicit <$> validateAndLowerPrelude preludeText
-
-loweredPreludeVisibleSymbols :: LoweredResolvedPrelude -> Set Text
-loweredPreludeVisibleSymbols loweredResolvedPrelude =
-  case loweredResolvedPrelude of
-    LoweredPreludeAbsent -> Set.empty
-    LoweredPreludeBundled loweredPrelude -> collectVisiblePreludeBindings loweredPrelude
-    LoweredPreludeExplicit loweredPrelude -> collectVisiblePreludeBindings loweredPrelude
-  where
-    collectVisiblePreludeBindings loweredPrelude =
-      Set.fromList (collectTopLevelBindingNames loweredPrelude)
-
-loweredPreludeVisibleClassNames :: LoweredResolvedPrelude -> Set Text
-loweredPreludeVisibleClassNames loweredResolvedPrelude =
-  case loweredResolvedPrelude of
-    LoweredPreludeAbsent -> Set.empty
-    LoweredPreludeBundled loweredPrelude -> collectVisiblePreludeClassNames loweredPrelude
-    LoweredPreludeExplicit loweredPrelude -> collectVisiblePreludeClassNames loweredPrelude
-  where
-    collectVisiblePreludeClassNames loweredPrelude =
-      Set.fromList (collectTopLevelClassNames loweredPrelude)
-
--- | Parse and validate an explicit/bundled prelude before it is merged into the
--- main program source.
-validateAndLowerPrelude :: Text -> Either Diagnostic Expr
-validateAndLowerPrelude preludeText =
-  case parseSurfaceProgram preludeText of
-    Left parseError ->
-      Left (setDiagnosticCode "E0002" (prependDiagnosticSummary "prelude parse error: " parseError))
-    Right preludeSurfaceExpr ->
-      let loweredPrelude = lowerSurfaceExpr preludeSurfaceExpr
-       in
-        case validatePreludeKernelBridges loweredPrelude of
-          [] -> Right loweredPrelude
-          firstValidationError : _ -> Left firstValidationError
