@@ -16,6 +16,13 @@ import JazzNext.Compiler.Driver
 import JazzNext.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import JazzNext.Compiler.ModuleResolver (resolveProgram)
 import JazzNext.Compiler.ModuleCompiler (compileResolvedProgram)
+import JazzNext.Compiler.ModuleRuntime
+  ( RuntimeModule (runtimeModuleExports),
+    RuntimeProgram (runtimeProgramOutput),
+    evaluateCompiledProgram,
+    lookupRuntimeModule
+  )
+import JazzNext.Compiler.Runtime (renderRuntimeValue)
 import JazzNext.Compiler.ModuleInterface
   ( CompiledModule (compiledModuleInterface),
     CompiledProgram (compiledProgramErrors),
@@ -39,10 +46,65 @@ tests :: [NamedTest]
 tests =
   [ ("dependency expressions are checked but not executed", testDependencyExpressionContract),
     ("compiled interfaces expose only declared exports", testCompiledInterfacesExposeOnlyDeclaredExports),
+    ("runtime modules publish only declared exports", testRuntimeModulePublishesDeclaredExports),
+    ("compiled dependency terminal expressions are skipped", testCompiledDependencyTerminalExpressionIsSkipped),
     ("alias imports stay qualified", testAliasIsolationContract),
     ("transitive imports do not leak", testTransitiveVisibilityContract),
     ("module diagnostics retain source paths", testSourcePathContract)
   ]
+
+testRuntimeModulePublishesDeclaredExports :: IO ()
+testRuntimeModulePublishesDeclaredExports = do
+  compiled <- compileFixtureProgram simpleSources
+  case evaluateCompiledProgram compiled of
+    Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right runtime ->
+      case lookupRuntimeModule ["Lib", "Value"] runtime of
+        Nothing -> fail "missing runtime Lib::Value module"
+        Just runtimeModule ->
+          assertEqual
+            "export names"
+            (Set.fromList ["answer"])
+            (Map.keysSet (runtimeModuleExports runtimeModule))
+
+testCompiledDependencyTerminalExpressionIsSkipped :: IO ()
+testCompiledDependencyTerminalExpressionIsSkipped = do
+  compiled <- compileFixtureProgram dependencyExpressionSources
+  case evaluateCompiledProgram compiled of
+    Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right runtime ->
+      assertEqual
+        "entry output"
+        (Just "1")
+        (renderRuntimeValue <$> runtimeProgramOutput runtime)
+
+compileFixtureProgram :: Map.Map FilePath Text -> IO CompiledProgram
+compileFixtureProgram sources = do
+  resolvedResult <-
+    resolveProgram
+      resolverConfig
+      ResolveKernelOnly
+      Set.empty
+      Set.empty
+      (\path -> pure (Map.lookup path sources))
+      ["App", "Main"]
+  case resolvedResult of
+    Left diagnostic -> fail ("resolution failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right resolved -> compileResolvedProgram (emptyCompileInputs defaultWarningSettings) resolved
+
+simpleSources :: Map.Map FilePath Text
+simpleSources =
+  Map.fromList
+    [ ("src/App/Main.jz", "module App::Main { import Lib::Value. answer. }"),
+      ("src/Lib/Value.jz", "module Lib::Value { answer = 1. }")
+    ]
+
+dependencyExpressionSources :: Map.Map FilePath Text
+dependencyExpressionSources =
+  Map.fromList
+    [ ("src/App/Main.jz", "module App::Main { import Lib::Value. value. }"),
+      ("src/Lib/Value.jz", "module Lib::Value { value = 1. 1 / 0. }")
+    ]
 
 testCompiledInterfacesExposeOnlyDeclaredExports :: IO ()
 testCompiledInterfacesExposeOnlyDeclaredExports = do

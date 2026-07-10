@@ -27,6 +27,7 @@ library
       JazzNext.Compiler.ModuleInterface
       JazzNext.Compiler.ModuleCompiler
       JazzNext.Compiler.ModuleResolver
+      JazzNext.Compiler.ModuleRuntime
       JazzNext.Compiler.Name
       JazzNext.Compiler.Parser
       JazzNext.Compiler.Parser.AST

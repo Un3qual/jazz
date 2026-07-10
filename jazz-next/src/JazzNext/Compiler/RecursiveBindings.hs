@@ -25,7 +25,6 @@ import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     Expr (..),
-    Pattern (..),
     Statement (..)
   )
 import JazzNext.Compiler.Name

@@ -4,7 +4,12 @@
 -- intentionally simple and mirrors the same builtin/operator contracts enforced
 -- by analysis and type inference.
 module JazzNext.Compiler.Runtime
-  ( RuntimeValue (..),
+  ( ModuleEvaluationMode (..),
+    RuntimeCell,
+    RuntimeEnv,
+    RuntimeValue (..),
+    ScopeResult (..),
+    evaluateModuleScope,
     evaluateRuntimeExprWithBuiltinsAndBindingHints,
     evaluateRuntimeExprWithBuiltins,
     evaluateRuntimeExpr,
@@ -90,8 +95,6 @@ import JazzNext.Compiler.Pattern
   )
 import JazzNext.Compiler.RecursiveBindings
   ( collectBindingNames,
-    freeVarsExprWithBound,
-    freeVarsScopeWithBound,
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings
   )
@@ -272,15 +275,50 @@ type RuntimeCell = Either Diagnostic RuntimeValue
 
 type RuntimeEnv = Map Name RuntimeCell
 
+data ScopeResult = ScopeResult
+  { scopeResultEnvironment :: RuntimeEnv,
+    scopeResultValue :: Maybe RuntimeValue
+  }
+
+data ModuleEvaluationMode
+  = EvaluateDependencyModule
+  | EvaluateEntryModule
+  deriving (Eq, Show)
+
 -- | Evaluate a block scope in order. Declarations clear `lastExprValue`, so
 -- `evalScope` returns `Just` only when the final surviving statement is an
 -- `SExpr`; otherwise the block yields `Nothing`.
 evalScope :: BuiltinResolutionMode -> Map BindingRuntimeHintKey ConstraintSignatureType -> RuntimeEnv -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
-evalScope =
-  evalScopeWithModulePath Nothing
+evalScope builtinMode bindingTypeHints initialEnv statements =
+  scopeResultValue
+    <$> evaluateModuleScope
+      Nothing
+      EvaluateEntryModule
+      builtinMode
+      bindingTypeHints
+      initialEnv
+      statements
 
 evalScopeWithModulePath :: Maybe [Text] -> BuiltinResolutionMode -> Map BindingRuntimeHintKey ConstraintSignatureType -> RuntimeEnv -> [Statement] -> Either Diagnostic (Maybe RuntimeValue)
-evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEnv statements = go initialEnv Nothing indexedStatements
+evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEnv statements =
+  scopeResultValue
+    <$> evaluateModuleScope
+      currentModulePath
+      EvaluateEntryModule
+      builtinMode
+      bindingTypeHints
+      initialEnv
+      statements
+
+evaluateModuleScope ::
+  Maybe [Text] ->
+  ModuleEvaluationMode ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey ConstraintSignatureType ->
+  RuntimeEnv ->
+  [Statement] ->
+  Either Diagnostic ScopeResult
+evaluateModuleScope currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements = go initialEnv Nothing indexedStatements
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = Map.fromList indexedStatements
@@ -294,12 +332,12 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
     bindingNamesByStatement = collectBindingNames indexedStatements
     bindingCells = map (uncurry cellForStatement) indexedStatements
 
-    go :: RuntimeEnv -> Maybe RuntimeValue -> [(Int, Statement)] -> Either Diagnostic (Maybe RuntimeValue)
+    go :: RuntimeEnv -> Maybe RuntimeValue -> [(Int, Statement)] -> Either Diagnostic ScopeResult
     go env lastExprValue remainingStatements =
       case remainingStatements of
         [] ->
           -- Declaration-only scopes intentionally remain `Nothing` until a terminal `SExpr` sets a value.
-          Right lastExprValue
+          Right (ScopeResult env lastExprValue)
         (statementIndex, statement) : rest ->
           case statement of
             SSignature {} ->
@@ -317,9 +355,12 @@ evalScopeWithModulePath currentModulePath builtinMode bindingTypeHints initialEn
             SLet name _ _ -> do
               value <- bindingCellAt statementIndex
               go (Map.insert name (Right value) env) Nothing rest
-            SExpr _ expr -> do
-              value <- evalValueAt statementIndex env expr
-              go env (Just value) rest
+            SExpr _ expr ->
+              case evaluationMode of
+                EvaluateDependencyModule -> go env Nothing rest
+                EvaluateEntryModule -> do
+                  value <- evalValueAt statementIndex env expr
+                  go env (Just value) rest
 
     modulePathForStatement :: Int -> Maybe [Text]
     modulePathForStatement statementIndex =
