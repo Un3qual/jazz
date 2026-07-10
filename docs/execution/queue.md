@@ -10,12 +10,13 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
 Current executor status (`2026-07-10`): `Ready Now` is empty because the
-explicit module export allowlist child landed with focused and full
-verification. There is no source-backed next curation target and no named
-candidate currently. Stop at blocker/coordinator triage instead of inventing
-executable work. Keep re-exports, wildcard shorthand, cross-module operators,
-packages, default methods, superclasses, effects, and broader impl policy
-blocked until separate accepted contracts name target paths and verification.
+namespace-aware module export child landed with focused and full verification.
+There is no source-backed next curation target and no named candidate currently.
+Stop at blocker/coordinator triage instead of inventing executable work. Keep
+re-exports, import-side namespace prefixes, wildcard shorthand, cross-module
+operators, packages, default methods, superclasses, effects, and broader impl
+policy blocked until separate accepted contracts name target paths and
+verification.
 
 ## Next Curation Target
 

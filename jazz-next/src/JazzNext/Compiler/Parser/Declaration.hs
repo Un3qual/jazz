@@ -32,9 +32,14 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Name
   ( Identifier,
+    NameNamespace (..),
     identifierText,
     mkIdentifier,
     mkOperatorBindingIdentifier
+  )
+import JazzNext.Compiler.ModuleExports
+  ( ModuleExportSelector (..),
+    renderModuleExportSelector
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
@@ -1600,55 +1605,59 @@ parseImportSymbolList tokensAfterLeftParen =
             )
         )
     _ ->
-      parseNonEmptyUniqueNameList
+      parseNonEmptyUniqueList
         "import symbol"
         "import symbol list"
+        (\name -> "'" <> name <> "'")
         parseImportSymbol
         tokensAfterLeftParen
 
-parseModuleExportList :: [Token] -> Either Diagnostic ([Text], [Token])
+parseModuleExportList :: [Token] -> Either Diagnostic ([ModuleExportSelector], [Token])
 parseModuleExportList tokensAfterLeftParen =
   case tokensAfterLeftParen of
     Token {tokenKind = TRParen} : rest -> Right ([], rest)
     _ ->
-      parseNonEmptyUniqueNameList
+      parseNonEmptyUniqueList
         "module export"
         "module export list"
+        renderModuleExportSelector
         parseModuleExport
         tokensAfterLeftParen
 
-parseNonEmptyUniqueNameList ::
+parseNonEmptyUniqueList ::
+  Ord item =>
   Text ->
   Text ->
-  ([Token] -> Either Diagnostic (Text, SourceSpan, [Token])) ->
+  (item -> Text) ->
+  ([Token] -> Either Diagnostic (item, SourceSpan, [Token])) ->
   [Token] ->
-  Either Diagnostic ([Text], [Token])
-parseNonEmptyUniqueNameList itemDescription listDescription parseName tokens = do
-  (firstName, _, afterFirstName) <- parseName tokens
-  go [firstName] (Set.singleton firstName) afterFirstName
+  Either Diagnostic ([item], [Token])
+parseNonEmptyUniqueList itemDescription listDescription renderItem parseItem tokens = do
+  (firstItem, _, afterFirstItem) <- parseItem tokens
+  go [firstItem] (Set.singleton firstItem) afterFirstItem
   where
-    go reversedNames seenNames allTokens =
+    go reversedItems seenItems allTokens =
       case allTokens of
         Token {tokenKind = TComma} : rest -> do
-          (nextName, nameSpan, afterNextName) <- parseName rest
-          if Set.member nextName seenNames
+          (nextItem, itemSpan, afterNextItem) <- parseItem rest
+          if Set.member nextItem seenItems
             then
               Left
                 ( parseDiagnostic
                     ( "duplicate "
                         <> itemDescription
-                        <> " '"
-                        <> nextName
-                        <> "' at "
-                        <> renderSourceSpan nameSpan
+                        <> " "
+                        <> renderItem nextItem
+                        <> " at "
+                        <> renderSourceSpan itemSpan
                     )
                 )
             else
               go
-                (nextName : reversedNames)
-                (Set.insert nextName seenNames)
-                afterNextName
-        Token {tokenKind = TRParen} : rest -> Right (reverse reversedNames, rest)
+                (nextItem : reversedItems)
+                (Set.insert nextItem seenItems)
+                afterNextItem
+        Token {tokenKind = TRParen} : rest -> Right (reverse reversedItems, rest)
         [] ->
           Left
             ( parseDiagnostic
@@ -1665,11 +1674,14 @@ parseNonEmptyUniqueNameList itemDescription listDescription parseName tokens = d
                 )
             )
 
-parseModuleExport :: [Token] -> Either Diagnostic (Text, SourceSpan, [Token])
+parseModuleExport :: [Token] -> Either Diagnostic (ModuleExportSelector, SourceSpan, [Token])
 parseModuleExport tokens =
   case tokens of
+    Token {tokenKind = TIdentifier prefix} : Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan} : rest
+      | Just namespace <- moduleExportNamespacePrefix prefix ->
+          Right (ModuleExportSelector (Just namespace) exportName, exportSpan, rest)
     Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan} : rest ->
-      Right (exportName, exportSpan, rest)
+      Right (ModuleExportSelector Nothing exportName, exportSpan, rest)
     [] -> Left (parseDiagnostic "expected module export name before end of input")
     token : _ ->
       Left
@@ -1681,6 +1693,15 @@ parseModuleExport tokens =
                 <> "'"
             )
         )
+
+moduleExportNamespacePrefix :: Text -> Maybe NameNamespace
+moduleExportNamespacePrefix prefix =
+  case prefix of
+    "value" -> Just ValueNamespace
+    "constructor" -> Just ConstructorNamespace
+    "type" -> Just TypeNamespace
+    "class" -> Just CapabilityNamespace
+    _ -> Nothing
 
 parseImportSymbol :: [Token] -> Either Diagnostic (Text, SourceSpan, [Token])
 parseImportSymbol tokens =

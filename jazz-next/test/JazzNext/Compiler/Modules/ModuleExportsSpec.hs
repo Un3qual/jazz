@@ -7,12 +7,14 @@ import qualified Data.Map.Strict as Map
 import JazzNext.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
+    ModuleExportSelector (..),
     ModuleImportMode (..),
     declarationExportNames,
     exportInventory,
     exportInventoryEntries,
     firstExportNamespace,
     selectExportNames,
+    selectModuleExportSelectors,
     selectorEligibleNames,
     visibleImportInventory
   )
@@ -37,6 +39,8 @@ tests =
     ("lists every declaration namespace as module export names", testDeclarationExportNames),
     ("excludes type-only names from selector eligibility", testSelectorEligibility),
     ("selects every same-text namespace entry", testSelectsSameTextEntries),
+    ("selects exact module export namespaces", testSelectsExactModuleExportNamespaces),
+    ("keeps same-text entries for bare module export selectors", testBareModuleExportSelectorKeepsSameTextEntries),
     ("filters alias imports to values and constructors", testAliasVisibility),
     ("keeps all namespaces for unqualified imports", testUnqualifiedVisibility),
     ("finds the first requested namespace deterministically", testFirstNamespace),
@@ -91,6 +95,50 @@ testSelectsSameTextEntries =
         ]
     )
     (exportInventoryEntries (selectExportNames (Just ["Box"]) sampleInventory))
+
+testSelectsExactModuleExportNamespaces :: IO ()
+testSelectsExactModuleExportNamespaces =
+  assertEqual
+    "exact typed exports"
+    ( Set.fromList
+        [ ModuleExport ValueNamespace "Shared",
+          ModuleExport TypeNamespace "Shared",
+          ModuleExport CapabilityNamespace "Shared"
+        ]
+    )
+    ( exportInventoryEntries
+        ( selectModuleExportSelectors
+            [ ModuleExportSelector (Just ValueNamespace) "Shared",
+              ModuleExportSelector (Just TypeNamespace) "Shared",
+              ModuleExportSelector (Just CapabilityNamespace) "Shared"
+            ]
+            sharedInventory
+        )
+    )
+  where
+    sharedInventory =
+      exportInventory
+        [ ModuleExport ValueNamespace "Shared",
+          ModuleExport ConstructorNamespace "Shared",
+          ModuleExport TypeNamespace "Shared",
+          ModuleExport CapabilityNamespace "Shared"
+        ]
+
+testBareModuleExportSelectorKeepsSameTextEntries :: IO ()
+testBareModuleExportSelectorKeepsSameTextEntries =
+  assertEqual
+    "bare module export selector"
+    ( Set.fromList
+        [ ModuleExport ConstructorNamespace "Box",
+          ModuleExport TypeNamespace "Box"
+        ]
+    )
+    ( exportInventoryEntries
+        ( selectModuleExportSelectors
+            [ModuleExportSelector Nothing "Box"]
+            sampleInventory
+        )
+    )
 
 testAliasVisibility :: IO ()
 testAliasVisibility =

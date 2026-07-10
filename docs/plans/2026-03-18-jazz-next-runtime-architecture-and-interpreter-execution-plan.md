@@ -89,6 +89,20 @@ inventories with deterministic `E4015`, compiler imports filter the full
 interface through the public inventory, and runtime modules publish only public
 value/constructor cells and public-class method cells.
 
+## Completed Module Follow-up: Namespace-Aware Export Selectors
+
+On `2026-07-10`, `JN-MODULE-NAMESPACE-AWARE-EXPORT-001` added contextual
+`value`, `constructor`, `type`, and `class` prefixes to module export
+allowlists. Prefixed selectors publish one exact typed entry, while bare
+selectors retain the existing all-same-text behavior. Structured selectors
+flow through the parser, lowering, and module graph into resolver validation;
+compiler and runtime consumers continue to use the resulting public inventory.
+
+The implementation plan is
+[`2026-07-10-jazz-next-namespace-aware-module-exports.md`](../superpowers/plans/2026-07-10-jazz-next-namespace-aware-module-exports.md).
+Import syntax, re-exports, wildcard/constructor-group shorthand, packages, and
+local name-resolution precedence remain unchanged.
+
 ## Plan Progress
 
 - [x] Captured the active-path runtime architecture and file ownership.
@@ -119,6 +133,9 @@ value/constructor cells and public-class method cells.
 - [x] Implemented and verified `JN-MODULE-EXPLICIT-EXPORT-LIST-001` on
       `2026-07-10` against the
       approved header allowlist and local/public inventory contract.
+- [x] Implemented and verified `JN-MODULE-NAMESPACE-AWARE-EXPORT-001` on
+      `2026-07-10` with exact namespace prefixes and bare-selector
+      compatibility.
 - [x] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next` for the active structured monomorphic subset.
 - [x] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
 - [x] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.

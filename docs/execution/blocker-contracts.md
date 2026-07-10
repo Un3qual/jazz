@@ -174,13 +174,13 @@ Each blocked item should answer these questions:
 
 ### JN-MODULE-REBASE-PLAN-001
 
-- Smallest unblocker: none currently. The explicit module export allowlist
-  child landed as `JN-MODULE-EXPLICIT-EXPORT-LIST-001`.
-- Decision needed: none. Optional header allowlists, omitted-list export-all,
-  `()` export-nothing, owned value/constructor/type/class selection, local and
-  public inventory separation, and no re-exports are implemented.
-- Recommended default: preserve the completed explicit-export contract and
-  `E4007`-`E4015` diagnostics until a separate source-backed module behavior
+- Smallest unblocker: none currently. The namespace-aware module export child
+  landed as `JN-MODULE-NAMESPACE-AWARE-EXPORT-001`.
+- Decision needed: none. Optional namespace prefixes, bare-selector
+  compatibility, omitted-list export-all, `()` export-nothing, local/public
+  inventory separation, and no re-exports are implemented.
+- Recommended default: preserve the completed namespace-aware export contract
+  and `E4007`-`E4015` diagnostics until a separate source-backed module behavior
   contract is accepted.
 - Candidate child: none currently.
 - Target paths: not set until a separate module behavior contract is accepted.
@@ -191,7 +191,8 @@ Each blocked item should answer these questions:
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.
 - Landed evidence: `jazz-next/src/JazzNext/Compiler/ModuleExports.hs` owns the
-  typed inventory; module headers now carry optional allowlists;
+  typed inventory and structured selectors; module headers accept exact
+  `value`, `constructor`, `type`, and `class` prefixes plus bare compatibility;
   `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs` separates local and public
   inventories; compiler imports and runtime publication consume the public
   inventory; focused and full verification passed on `2026-07-10`.

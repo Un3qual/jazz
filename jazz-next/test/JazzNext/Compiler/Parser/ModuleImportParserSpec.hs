@@ -14,6 +14,9 @@ import JazzNext.Compiler.ModuleGraph
   ( CoreModule (coreModuleDeclaredExports),
     DeclaredModuleExports (..)
   )
+import JazzNext.Compiler.ModuleExports
+  ( ModuleExportSelector (..)
+  )
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
@@ -29,7 +32,10 @@ import JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr,
     lowerSurfaceModule
   )
-import JazzNext.Compiler.Name (qualifiedName)
+import JazzNext.Compiler.Name
+  ( NameNamespace (..),
+    qualifiedName
+  )
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
@@ -45,6 +51,8 @@ tests :: [NamedTest]
 tests =
   [ ("parses module declaration statement", testParsesModuleDeclaration),
     ("parses populated module export list", testParsesModuleExportList),
+    ("parses namespace-aware module export list", testParsesNamespaceAwareModuleExportList),
+    ("keeps namespace prefix words contextual in module export lists", testParsesNamespacePrefixWordsAsBareExports),
     ("parses empty module export list", testParsesEmptyModuleExportList),
     ("lowers module export list into core metadata", testLowersModuleExportList),
     ("parses canonical brace-bodied module declaration boundary", testParsesCanonicalModuleDeclarationBoundary),
@@ -81,6 +89,7 @@ tests =
     ("rejects module statement with missing path", testRejectsModuleMissingPath),
     ("rejects module statement with trailing separator using separator span", testRejectsModuleTrailingSeparatorSpan),
     ("rejects duplicate module export", testRejectsDuplicateModuleExport),
+    ("rejects duplicate namespace-aware module export", testRejectsDuplicateNamespaceAwareModuleExport),
     ("rejects trailing comma in module export list", testRejectsTrailingCommaInModuleExportList),
     ("rejects unclosed module export list", testRejectsUnclosedModuleExportList),
     ("rejects missing body after module export list", testRejectsMissingBodyAfterModuleExportList),
@@ -115,13 +124,68 @@ testParsesModuleExportList =
             [ SSModule
                 (SourceSpan 1 1)
                 ["Lib", "Maybe"]
-                (Just ["Maybe", "Just", "Nothing", "mapMaybe"]),
+                ( Just
+                    [ ModuleExportSelector Nothing "Maybe",
+                      ModuleExportSelector Nothing "Just",
+                      ModuleExportSelector Nothing "Nothing",
+                      ModuleExportSelector Nothing "mapMaybe"
+                    ]
+                ),
               SSLet "mapMaybe" (SourceSpan 2 1) (SELit (SLInt 1))
             ]
         )
     )
     ( parseSurfaceProgram
         "module Lib::Maybe (Maybe, Just, Nothing, mapMaybe) {\nmapMaybe = 1.\n}"
+    )
+
+testParsesNamespaceAwareModuleExportList :: IO ()
+testParsesNamespaceAwareModuleExportList =
+  assertEqual
+    "namespace-aware module export list surface AST"
+    ( Right
+        ( SEBlock
+            [ SSModule
+                (SourceSpan 1 1)
+                ["Lib", "Box"]
+                ( Just
+                    [ ModuleExportSelector (Just TypeNamespace) "Box",
+                      ModuleExportSelector (Just ConstructorNamespace) "Box",
+                      ModuleExportSelector (Just ValueNamespace) "Box",
+                      ModuleExportSelector (Just CapabilityNamespace) "Printable",
+                      ModuleExportSelector Nothing "legacy"
+                    ]
+                ),
+              SSLet "legacy" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    ( parseSurfaceProgram
+        "module Lib::Box (type Box, constructor Box, value Box, class Printable, legacy) {\nlegacy = 1.\n}"
+    )
+
+testParsesNamespacePrefixWordsAsBareExports :: IO ()
+testParsesNamespacePrefixWordsAsBareExports =
+  assertEqual
+    "contextual namespace prefix words"
+    ( Right
+        ( SEBlock
+            [ SSModule
+                (SourceSpan 1 1)
+                ["Lib", "Keywords"]
+                ( Just
+                    [ ModuleExportSelector Nothing "value",
+                      ModuleExportSelector Nothing "constructor",
+                      ModuleExportSelector Nothing "type",
+                      ModuleExportSelector Nothing "class"
+                    ]
+                ),
+              SSLet "answer" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    ( parseSurfaceProgram
+        "module Lib::Keywords (value, constructor, type, class) {\nanswer = 1.\n}"
     )
 
 testParsesEmptyModuleExportList :: IO ()
@@ -149,7 +213,7 @@ testLowersModuleExportList =
               ( Just
                   ( DeclaredModuleExports
                       (SourceSpanIn "src/Lib/Value.jz" 1 1)
-                      ["answer"]
+                      [ModuleExportSelector Nothing "answer"]
                   )
               )
           )
@@ -536,6 +600,21 @@ testRejectsDuplicateModuleExport = do
     "duplicate module export span"
     "1:28"
     (parseSurfaceProgram "module Lib::Value (answer, answer) {\nanswer = 1.\n}")
+
+testRejectsDuplicateNamespaceAwareModuleExport :: IO ()
+testRejectsDuplicateNamespaceAwareModuleExport = do
+  assertRight
+    "same-name different namespace module exports"
+    ( parseSurfaceProgram
+        "module Lib::Box (type Box, constructor Box) {\ndata Box = Box value.\n}"
+    )
+    (const (pure ()))
+  assertLeftDiagnosticContains
+    "duplicate namespace-aware module export"
+    "duplicate module export type 'Box'"
+    ( parseSurfaceProgram
+        "module Lib::Box (type Box, type Box) {\ndata Box = Box value.\n}"
+    )
 
 testRejectsTrailingCommaInModuleExportList :: IO ()
 testRejectsTrailingCommaInModuleExportList = do
