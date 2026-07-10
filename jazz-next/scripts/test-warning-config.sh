@@ -31,6 +31,7 @@ TEST_FILES=(
   jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
   jazz-next/test/JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs
   jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
+  jazz-next/test/JazzNext/Compiler/Modules/ModuleExportsSpec.hs
   jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
   jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
   jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
@@ -81,6 +82,11 @@ fi
 
 if rg -n 'JazzNext\.Compiler\.Identifier' jazz-next/src jazz-next/test jazz-next/jazz-next.cabal; then
   echo "legacy Identifier module is still referenced" >&2
+  exit 1
+fi
+
+if rg -n 'parsedModule(Exports|ValueNames|DataTypeNames|ConstructorNames|ClassNames)|resolved(ExportsState|ValueExportsState|DataTypeExportsState|ConstructorExportsState|ClassExportsState)' jazz-next/src/JazzNext/Compiler/ModuleResolver.hs; then
+  echo "ModuleResolver still carries parallel namespace export inventories" >&2
   exit 1
 fi
 

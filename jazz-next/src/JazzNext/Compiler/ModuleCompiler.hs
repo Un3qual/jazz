@@ -24,9 +24,18 @@ import JazzNext.Compiler.ModuleGraph
     ResolvedModule (..),
     ResolvedProgram (..)
   )
+import JazzNext.Compiler.ModuleExports
+  ( ModuleExport (..),
+    ModuleExportInventory,
+    ModuleImportMode (..),
+    exportNamesInNamespace,
+    inventoryHasExport,
+    visibleImportInventory
+  )
 import JazzNext.Compiler.ModuleInterface
 import JazzNext.Compiler.Name
   ( Name (..),
+    NameNamespace (CapabilityNamespace),
     ResolvedNameOrigin (..),
     identifierText,
     mkIdentifier
@@ -161,6 +170,7 @@ dependencyImportInterface importDecl compiledModule =
     (ImportedModule (resolvedImportPath importDecl))
     (resolvedImportAlias importDecl)
     (resolvedImportSymbols importDecl)
+    (resolvedModuleExportInventory (compiledResolvedModule compiledModule))
     (compiledModuleInterface compiledModule)
 
 data ImportedInterface = ImportedInterface
@@ -196,10 +206,16 @@ mergeModuleInterfaces left right =
     }
 
 importWholeInterface :: ResolvedNameOrigin -> ModuleInterface -> ImportedInterface
-importWholeInterface origin = importSelectedInterface origin Nothing Nothing
+importWholeInterface origin moduleInterface =
+  importSelectedInterface
+    origin
+    Nothing
+    Nothing
+    (moduleInterfaceExportInventory moduleInterface)
+    moduleInterface
 
-importSelectedInterface :: ResolvedNameOrigin -> Maybe Text -> Maybe [Text] -> ModuleInterface -> ImportedInterface
-importSelectedInterface origin maybeAlias maybeSymbols moduleInterface =
+importSelectedInterface :: ResolvedNameOrigin -> Maybe Text -> Maybe [Text] -> ModuleExportInventory -> ModuleInterface -> ImportedInterface
+importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInterface =
   ImportedInterface
     { importedTypes =
         Map.fromList
@@ -222,16 +238,24 @@ importSelectedInterface origin maybeAlias maybeSymbols moduleInterface =
   where
     dataTypeNames = Map.keysSet (interfaceDataTypes moduleInterface)
     classNames = Map.keysSet (interfaceClassFacts moduleInterface)
-    selected name = maybe True (name `elem`) maybeSymbols
+    importMode =
+      case maybeAlias of
+        Nothing -> UnqualifiedImport
+        Just _ -> QualifiedAliasImport
+    selectedInventory =
+      visibleImportInventory
+        importMode
+        maybeSymbols
+        publicInventory
     selectedValueTypes =
       Map.filterWithKey
-        (\export _ -> selected (moduleExportName export))
+        (\export _ -> inventoryHasExport export selectedInventory)
         (interfaceValueTypes moduleInterface)
-    includeCapabilities = maybeAlias == Nothing
-    selectedClassFacts
-      | includeCapabilities = Map.filterWithKey (\name _ -> selected name) (interfaceClassFacts moduleInterface)
-      | otherwise = Map.empty
-    selectedClassNames = Map.keysSet selectedClassFacts
+    selectedClassNames = exportNamesInNamespace CapabilityNamespace selectedInventory
+    selectedClassFacts =
+      Map.restrictKeys
+        (interfaceClassFacts moduleInterface)
+        selectedClassNames
     selectedCapabilities =
       ScopeCapabilityFacts
         { scopeClassFacts = selectedClassFacts,

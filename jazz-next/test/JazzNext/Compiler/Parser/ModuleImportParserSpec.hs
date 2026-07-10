@@ -10,6 +10,10 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)
   )
+import JazzNext.Compiler.ModuleGraph
+  ( CoreModule (coreModuleDeclaredExports),
+    DeclaredModuleExports (..)
+  )
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
@@ -22,7 +26,8 @@ import JazzNext.Compiler.Parser.AST
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Lower
-  ( lowerSurfaceExpr
+  ( lowerSurfaceExpr,
+    lowerSurfaceModule
   )
 import JazzNext.Compiler.Name (qualifiedName)
 import JazzNext.TestHarness
@@ -39,6 +44,9 @@ main = runTestSuite "ModuleImportParser" tests
 tests :: [NamedTest]
 tests =
   [ ("parses module declaration statement", testParsesModuleDeclaration),
+    ("parses populated module export list", testParsesModuleExportList),
+    ("parses empty module export list", testParsesEmptyModuleExportList),
+    ("lowers module export list into core metadata", testLowersModuleExportList),
     ("parses canonical brace-bodied module declaration boundary", testParsesCanonicalModuleDeclarationBoundary),
     ("parses module imports with stable indented spans", testParsesModuleImportsWithStableIndentedSpans),
     ("parses import statement bare dot", testParsesImportBare),
@@ -72,6 +80,10 @@ tests =
     ("rejects module declaration nested inside block expression", testRejectsModuleDeclarationNestedInsideBlock),
     ("rejects module statement with missing path", testRejectsModuleMissingPath),
     ("rejects module statement with trailing separator using separator span", testRejectsModuleTrailingSeparatorSpan),
+    ("rejects duplicate module export", testRejectsDuplicateModuleExport),
+    ("rejects trailing comma in module export list", testRejectsTrailingCommaInModuleExportList),
+    ("rejects unclosed module export list", testRejectsUnclosedModuleExportList),
+    ("rejects missing body after module export list", testRejectsMissingBodyAfterModuleExportList),
     ("rejects import statement with trailing separator using separator span", testRejectsImportTrailingSeparatorSpan),
     ("rejects import statement with empty symbol list", testRejectsImportEmptySymbolList),
     ("rejects import statement with empty symbol list using rparen span", testRejectsImportEmptySymbolListSpan),
@@ -87,12 +99,64 @@ testParsesModuleDeclaration =
     "module surface AST"
     ( Right
         ( SEBlock
-            [ SSModule (SourceSpan 1 1) ["App", "Core"],
+            [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
               SSLet "x" (SourceSpan 2 1) (SELit (SLInt 1))
             ]
         )
     )
     (parseSurfaceProgram "module App::Core {\nx = 1.\n}")
+
+testParsesModuleExportList :: IO ()
+testParsesModuleExportList =
+  assertEqual
+    "module export list surface AST"
+    ( Right
+        ( SEBlock
+            [ SSModule
+                (SourceSpan 1 1)
+                ["Lib", "Maybe"]
+                (Just ["Maybe", "Just", "Nothing", "mapMaybe"]),
+              SSLet "mapMaybe" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    ( parseSurfaceProgram
+        "module Lib::Maybe (Maybe, Just, Nothing, mapMaybe) {\nmapMaybe = 1.\n}"
+    )
+
+testParsesEmptyModuleExportList :: IO ()
+testParsesEmptyModuleExportList =
+  assertEqual
+    "empty module export list"
+    ( Right
+        ( SEBlock
+            [ SSModule (SourceSpan 1 1) ["App", "Internal"] (Just []),
+              SSLet "helper" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    (parseSurfaceProgram "module App::Internal () {\nhelper = 1.\n}")
+
+testLowersModuleExportList :: IO ()
+testLowersModuleExportList =
+  assertRight
+    "parse module export list"
+    (parseSurfaceProgram "module Lib::Value (answer) {\nanswer = 1.\n}")
+    ( \surfaceProgram ->
+        assertEqual
+          "lowered module export metadata"
+          ( Right
+              ( Just
+                  ( DeclaredModuleExports
+                      (SourceSpanIn "src/Lib/Value.jz" 1 1)
+                      ["answer"]
+                  )
+              )
+          )
+          ( coreModuleDeclaredExports
+              <$> lowerSurfaceModule "src/Lib/Value.jz" ["Lib", "Value"] surfaceProgram
+          )
+    )
 
 testParsesCanonicalModuleDeclarationBoundary :: IO ()
 testParsesCanonicalModuleDeclarationBoundary =
@@ -100,7 +164,7 @@ testParsesCanonicalModuleDeclarationBoundary =
     "canonical module boundary surface AST"
     ( Right
         ( SEBlock
-            [ SSModule (SourceSpan 1 1) ["App", "Main"],
+            [ SSModule (SourceSpan 1 1) ["App", "Main"] Nothing,
               SSImport (SourceSpan 2 1) ["Lib", "Math"] (Just "Math") Nothing,
               SSLet "result" (SourceSpan 3 1) (SEQualifiedVar "Math" "answer")
             ]
@@ -114,7 +178,7 @@ testParsesModuleImportsWithStableIndentedSpans =
     "module import indented spans"
     ( Right
         ( SEBlock
-            [ SSModule (SourceSpan 1 1) ["App", "Main"],
+            [ SSModule (SourceSpan 1 1) ["App", "Main"] Nothing,
               SSImport (SourceSpan 3 3) ["Lib", "Math"] (Just "Math") Nothing,
               SSImport (SourceSpan 4 3) ["Std", "List"] Nothing (Just ["map"]),
               SSLet "result" (SourceSpan 5 3) (SEQualifiedVar "Math" "answer")
@@ -457,6 +521,46 @@ testRejectsModuleTrailingSeparatorSpan =
     "module trailing separator span"
     "1:9"
     (parseSurfaceProgram "module A::.")
+
+testRejectsDuplicateModuleExport :: IO ()
+testRejectsDuplicateModuleExport = do
+  assertLeftDiagnosticContains
+    "duplicate module export code"
+    "E0001"
+    (parseSurfaceProgram "module Lib::Value (answer, answer) {\nanswer = 1.\n}")
+  assertLeftDiagnosticContains
+    "duplicate module export message"
+    "duplicate module export 'answer'"
+    (parseSurfaceProgram "module Lib::Value (answer, answer) {\nanswer = 1.\n}")
+  assertLeftDiagnosticContains
+    "duplicate module export span"
+    "1:28"
+    (parseSurfaceProgram "module Lib::Value (answer, answer) {\nanswer = 1.\n}")
+
+testRejectsTrailingCommaInModuleExportList :: IO ()
+testRejectsTrailingCommaInModuleExportList = do
+  assertLeftDiagnosticContains
+    "trailing module export comma code"
+    "E0001"
+    (parseSurfaceProgram "module Lib::Value (answer,) {\nanswer = 1.\n}")
+  assertLeftDiagnosticContains
+    "trailing module export comma message"
+    "expected module export name"
+    (parseSurfaceProgram "module Lib::Value (answer,) {\nanswer = 1.\n}")
+
+testRejectsUnclosedModuleExportList :: IO ()
+testRejectsUnclosedModuleExportList =
+  assertLeftDiagnosticContains
+    "unclosed module export list"
+    "expected ',' or ')'"
+    (parseSurfaceProgram "module Lib::Value (answer {\nanswer = 1.\n}")
+
+testRejectsMissingBodyAfterModuleExportList :: IO ()
+testRejectsMissingBodyAfterModuleExportList =
+  assertLeftDiagnosticContains
+    "missing body after module export list"
+    "expected '{'"
+    (parseSurfaceProgram "module Lib::Value (answer).")
 
 testRejectsImportTrailingSeparatorSpan :: IO ()
 testRejectsImportTrailingSeparatorSpan =

@@ -2,7 +2,8 @@
 
 -- | Parse-once module graph shared by semantic compilation and runtime.
 module JazzNext.Compiler.ModuleGraph
-  ( CoreModule (..),
+  ( DeclaredModuleExports (..),
+    CoreModule (..),
     ResolvedImport (..),
     ResolvedModule (..),
     ResolvedProgram (..),
@@ -25,10 +26,21 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics (SourceSpan)
+import JazzNext.Compiler.ModuleExports (ModuleExportInventory)
 import JazzNext.Compiler.Name (Name (..))
+
+-- | A source-qualified explicit export clause retained after lowering.
+-- Absence means the module uses the default export-all policy; a present
+-- empty name list represents an explicit export-none clause.
+data DeclaredModuleExports = DeclaredModuleExports
+  { declaredModuleExportsSpan :: SourceSpan,
+    declaredModuleExportNames :: [Text]
+  }
+  deriving (Eq, Show)
 
 data CoreModule = CoreModule
   { coreModuleDeclaredPath :: Maybe [Text],
+    coreModuleDeclaredExports :: Maybe DeclaredModuleExports,
     coreModuleImports :: [ResolvedImport],
     coreModuleExpr :: Expr
   }
@@ -46,6 +58,7 @@ data ResolvedModule = ResolvedModule
   { resolvedModulePath :: [Text],
     resolvedSourcePath :: FilePath,
     resolvedModuleImports :: [ResolvedImport],
+    resolvedModuleExportInventory :: ModuleExportInventory,
     resolvedModuleCore :: CoreModule
   }
   deriving (Eq, Show)

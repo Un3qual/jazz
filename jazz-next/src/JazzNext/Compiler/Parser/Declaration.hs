@@ -659,10 +659,20 @@ parseModuleStatementFromTokens parseModuleBody tokens =
   case tokens of
     moduleToken@Token {tokenKind = TModule} : tokensAfterModuleKeyword -> do
       (modulePath, afterModulePath) <- parseModulePath tokensAfterModuleKeyword
-      case afterModulePath of
+      (moduleExports, beforeModuleBody) <-
+        case afterModulePath of
+          Token {tokenKind = TLParen} : afterLeftParen -> do
+            (exportNames, remaining) <- parseModuleExportList afterLeftParen
+            pure (Just exportNames, remaining)
+          _ -> pure (Nothing, afterModulePath)
+      case beforeModuleBody of
         Token {tokenKind = TLBrace} : tokensAfterLeftBrace -> do
           (bodyStatements, remaining) <- parseModuleBody tokensAfterLeftBrace
-          pure (SSModule (tokenSpan moduleToken) modulePath : bodyStatements, remaining)
+          pure
+            ( SSModule (tokenSpan moduleToken) modulePath moduleExports
+                : bodyStatements,
+              remaining
+            )
         [] ->
           Left
             ( parseDiagnostic
@@ -1589,33 +1599,61 @@ parseImportSymbolList tokensAfterLeftParen =
                 <> renderSourceSpan (tokenSpan token)
             )
         )
-    _ -> do
-      (firstSymbol, firstSpan, afterFirstSymbol) <- parseImportSymbol tokensAfterLeftParen
-      go [firstSymbol] (Set.singleton firstSymbol) afterFirstSymbol
+    _ ->
+      parseNonEmptyUniqueNameList
+        "import symbol"
+        "import symbol list"
+        parseImportSymbol
+        tokensAfterLeftParen
+
+parseModuleExportList :: [Token] -> Either Diagnostic ([Text], [Token])
+parseModuleExportList tokensAfterLeftParen =
+  case tokensAfterLeftParen of
+    Token {tokenKind = TRParen} : rest -> Right ([], rest)
+    _ ->
+      parseNonEmptyUniqueNameList
+        "module export"
+        "module export list"
+        parseModuleExport
+        tokensAfterLeftParen
+
+parseNonEmptyUniqueNameList ::
+  Text ->
+  Text ->
+  ([Token] -> Either Diagnostic (Text, SourceSpan, [Token])) ->
+  [Token] ->
+  Either Diagnostic ([Text], [Token])
+parseNonEmptyUniqueNameList itemDescription listDescription parseName tokens = do
+  (firstName, _, afterFirstName) <- parseName tokens
+  go [firstName] (Set.singleton firstName) afterFirstName
   where
-    go revSymbols seenSymbols allTokens =
+    go reversedNames seenNames allTokens =
       case allTokens of
         Token {tokenKind = TComma} : rest -> do
-          (nextSymbol, symbolSpan, afterNextSymbol) <- parseImportSymbol rest
-          if Set.member nextSymbol seenSymbols
+          (nextName, nameSpan, afterNextName) <- parseName rest
+          if Set.member nextName seenNames
             then
               Left
                 ( parseDiagnostic
-                    ( "duplicate import symbol '"
-                        <> nextSymbol
+                    ( "duplicate "
+                        <> itemDescription
+                        <> " '"
+                        <> nextName
                         <> "' at "
-                        <> renderSourceSpan symbolSpan
+                        <> renderSourceSpan nameSpan
                     )
                 )
             else
               go
-                (nextSymbol : revSymbols)
-                (Set.insert nextSymbol seenSymbols)
-                afterNextSymbol
-        Token {tokenKind = TRParen} : rest ->
-          Right (reverse revSymbols, rest)
+                (nextName : reversedNames)
+                (Set.insert nextName seenNames)
+                afterNextName
+        Token {tokenKind = TRParen} : rest -> Right (reverse reversedNames, rest)
         [] ->
-          Left (parseDiagnostic "expected ')' before end of input in import symbol list")
+          Left
+            ( parseDiagnostic
+                ("expected ')' before end of input in " <> listDescription)
+            )
         token : _ ->
           Left
             ( parseDiagnostic
@@ -1626,6 +1664,23 @@ parseImportSymbolList tokensAfterLeftParen =
                     <> "'"
                 )
             )
+
+parseModuleExport :: [Token] -> Either Diagnostic (Text, SourceSpan, [Token])
+parseModuleExport tokens =
+  case tokens of
+    Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan} : rest ->
+      Right (exportName, exportSpan, rest)
+    [] -> Left (parseDiagnostic "expected module export name before end of input")
+    token : _ ->
+      Left
+        ( parseDiagnostic
+            ( "expected module export name at "
+                <> renderSourceSpan (tokenSpan token)
+                <> ", found '"
+                <> tokenLexeme token
+                <> "'"
+            )
+        )
 
 parseImportSymbol :: [Token] -> Either Diagnostic (Text, SourceSpan, [Token])
 parseImportSymbol tokens =

@@ -13,7 +13,8 @@ module JazzNext.Compiler.ModuleInterface
     emptyCompiledPrelude,
     emptyModuleInterface,
     lookupCompiledModule,
-    moduleExportForBinding
+    moduleExportForBinding,
+    moduleInterfaceExportInventory
   ) where
 
 import Data.Map.Strict (Map)
@@ -25,6 +26,11 @@ import JazzNext.Compiler.AST (ConstraintSignatureType, Expr)
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import JazzNext.Compiler.Diagnostics (Diagnostic, WarningRecord)
 import JazzNext.Compiler.ModuleGraph (ResolvedModule (resolvedModulePath))
+import JazzNext.Compiler.ModuleExports
+  ( ModuleExport (..),
+    ModuleExportInventory,
+    exportInventory
+  )
 import JazzNext.Compiler.Name (NameNamespace (..))
 import JazzNext.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import JazzNext.Compiler.TypeInference.Types
@@ -34,12 +40,6 @@ import JazzNext.Compiler.TypeInference.Types
     TypeBinding (..)
   )
 import JazzNext.Compiler.WarningConfig (WarningSettings)
-
-data ModuleExport = ModuleExport
-  { moduleExportNamespace :: NameNamespace,
-    moduleExportName :: Text
-  }
-  deriving (Eq, Ord, Show)
 
 moduleExportForBinding :: Text -> TypeBinding -> ModuleExport
 moduleExportForBinding exportName binding =
@@ -62,6 +62,18 @@ data ModuleInterface = ModuleInterface
     interfaceRuntimeHints :: Map BindingRuntimeHintKey ConstraintSignatureType
   }
   deriving (Eq, Show)
+
+moduleInterfaceExportInventory :: ModuleInterface -> ModuleExportInventory
+moduleInterfaceExportInventory interface =
+  exportInventory
+    ( Map.keys (interfaceValueTypes interface)
+        <> [ ModuleExport TypeNamespace name
+             | name <- Map.keys (interfaceDataTypes interface)
+           ]
+        <> [ ModuleExport CapabilityNamespace name
+             | name <- Map.keys (interfaceClassFacts interface)
+           ]
+    )
 
 emptyModuleInterface :: ModuleInterface
 emptyModuleInterface =

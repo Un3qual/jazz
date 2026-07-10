@@ -36,25 +36,28 @@ Each blocked item should answer these questions:
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
-- Smallest unblocker: none currently promotion-ready after the bundled-prelude
-  `Eq(Float64).equals` alias-overlap child landed.
-- Decision needed: choose a later abstraction delta separately. The accepted
-  `Float`/`Float64` alias-overlap decision is now implemented for the bundled
-  prelude only; non-alias duplicate visible impl facts continue to reject.
-- Recommended default: keep the abstraction umbrella blocked until a separate
-  executable contract names syntax, target paths, and focused verification for
+- Smallest unblocker: none currently. The cross-cutting typed module export
+  inventory landed under module ownership as
+  `JN-MODULE-TYPED-EXPORT-INVENTORY-001`; there is no separate abstraction
+  child to promote.
+- Decision needed: none for that child. Preserve current non-aliased class
+  capability imports, alias-hidden capabilities, class-attached impl payloads,
+  and non-transitive module boundaries.
+- Recommended default: keep the landed typed inventory behavior. Keep
   user-visible dictionaries, dictionary optimization, default methods,
-  superclasses, new bundled method families, or method import/export rules.
+  superclasses, new bundled method families, alias-qualified classes,
+  re-exports, and new impl policy blocked behind separate contracts.
 - Candidate child: none currently.
-- Target paths: not set until the next abstraction contract is accepted.
+- Target paths: not set; no independent abstraction paths are open after the
+  typed inventory child landed.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
 - Not in scope: re-promoting completed bundled `Eq(Int).equals`,
   `Eq(Bool).equals`, `Eq(Float).equals`, `Eq(Float16).equals`,
   `Eq(Float32).equals`, or `Eq(Float64).equals` work; unqualified overloads,
   dictionary passing/optimization, default methods, superclasses, non-alias
-  overlap/orphan behavior, or method import/export rules without a new
-  contract.
+  overlap/orphan behavior, alias-qualified classes, re-exports, or any method
+  visibility expansion beyond the landed typed inventory contract.
 
 ### JN-USER-DEFINED-OPERATORS-PLAN-001
 
@@ -171,21 +174,32 @@ Each blocked item should answer these questions:
 
 ### JN-MODULE-REBASE-PLAN-001
 
-- Smallest unblocker: none currently after the stdlib/prelude next API
-  candidate validation; keep module/import execution closed until a concrete
-  future stdlib/catalog API or module behavior is named.
-- Decision needed: the exact public stdlib/catalog API or module behavior that
-  should grow next, plus its runtime/API contract.
-- Recommended default: keep module/import execution closed until a product
-  feature needs new stdlib/catalog surface.
+- Smallest unblocker: none currently. The explicit module export allowlist
+  child landed as `JN-MODULE-EXPLICIT-EXPORT-LIST-001`.
+- Decision needed: none. Optional header allowlists, omitted-list export-all,
+  `()` export-nothing, owned value/constructor/type/class selection, local and
+  public inventory separation, and no re-exports are implemented.
+- Recommended default: preserve the completed explicit-export contract and
+  `E4007`-`E4015` diagnostics until a separate source-backed module behavior
+  contract is accepted.
 - Candidate child: none currently.
-- Target paths: not set until a concrete API/runtime contract exists.
-- Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`.
-- Not in scope: reworking `ModuleResolver.hs`, adding new import syntax,
-  reopening the closed module graph harness, adding new prelude/catalog API
-  without a named contract, adding direct public builtin fallback in no-prelude
-  mode, or adding package/module-root semantics.
+- Target paths: not set until a separate module behavior contract is accepted.
+- Verification: focused `ModuleImportParserSpec.hs`, `ParserFoundationSpec.hs`,
+  `OperatorFixitySpec.hs`, `ModuleExportsSpec.hs`,
+  `ModuleResolutionSpec.hs`, `ModulePipelineContractSpec.hs`, and `LoaderSpec.hs`;
+  `bash jazz-next/scripts/test-warning-config.sh`;
+  `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
+  `git diff --check`.
+- Landed evidence: `jazz-next/src/JazzNext/Compiler/ModuleExports.hs` owns the
+  typed inventory; module headers now carry optional allowlists;
+  `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs` separates local and public
+  inventories; compiler imports and runtime publication consume the public
+  inventory; focused and full verification passed on `2026-07-10`.
+- Not in scope: re-exports, wildcard or constructor-group shorthand, body-level
+  export declarations, visibility modifiers, cross-module operators,
+  alias-qualified classes, separate impl imports, orphan/overlap policy,
+  default methods, superclasses, effects, new prelude/catalog API, public
+  builtin fallback in no-prelude mode, or package/module-root semantics.
 
 ### JN-WARNING-DEPRECATED-SYNTAX-CONTRACT-001
 

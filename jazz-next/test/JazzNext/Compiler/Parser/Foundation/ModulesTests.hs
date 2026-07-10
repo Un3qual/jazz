@@ -65,7 +65,7 @@ testParsesOperatorKeywordAsModuleBodyBindingName =
     "operator keyword module-body binding name"
     ( Right
         ( SEBlock
-            [ SSModule (SourceSpan 1 1) ["App", "Core"],
+            [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
               SSLet "operator" (SourceSpan 2 1) (SELit (SLInt 1)),
               SSLet "value" (SourceSpan 3 1) (SEVar "operator")
             ]
@@ -114,7 +114,7 @@ testParsesCapabilityDeclarationsInModuleBody =
     "module body capability declarations"
     ( Right
         ( SEBlock
-            [ SSModule (SourceSpan 1 1) ["App", "Core"],
+            [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
               SSClass (SourceSpan 2 1) "Eq" ["a"] [],
               SSImpl (SourceSpan 3 1) "Eq" [SurfaceConstrainedTypeName "Int"] []
             ]

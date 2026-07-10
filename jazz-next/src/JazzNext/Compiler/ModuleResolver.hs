@@ -20,10 +20,11 @@ import Data.Functor.Identity
   ( Identity (..),
     runIdentity
   )
-import Data.List (foldl', sortOn)
+import Data.List (find, foldl', sortOn)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
@@ -54,6 +55,19 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
     lookupBuiltinSymbolInMode
+  )
+import JazzNext.Compiler.ModuleExports
+  ( ModuleExport (..),
+    ModuleExportInventory,
+    ModuleImportMode (..),
+    declarationExportNames,
+    exportInventory,
+    exportNamesInNamespace,
+    exportNamesInNamespaces,
+    firstExportNamespace,
+    selectorEligibleNames,
+    selectExportNames,
+    visibleImportInventory
   )
 import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
 import JazzNext.Compiler.Name
@@ -111,11 +125,8 @@ data ParsedImport = ParsedImport
 -- export, and reference inventories, not the lowered executable program.
 data ParsedModule = ParsedModule
   { parsedModuleImports :: [ParsedImport],
-    parsedModuleExports :: Set Text,
-    parsedModuleValueNames :: Set Text,
-    parsedModuleDataTypeNames :: Set Text,
-    parsedModuleConstructorNames :: Set Text,
-    parsedModuleClassNames :: Set Text,
+    parsedModuleLocalInventory :: ModuleExportInventory,
+    parsedModulePublicInventory :: ModuleExportInventory,
     parsedModuleReferences :: Set Text,
     parsedModuleQualifiedReferences :: Set (Text, Text),
     parsedModuleCore :: ModuleGraph.CoreModule
@@ -132,11 +143,7 @@ data ResolvedState = ResolvedState
   { resolvedSetState :: Set [Text],
     resolvedModulesRevState :: [ResolvedModule],
     resolvedGraphModulesRevState :: [ModuleGraph.ResolvedModule],
-    resolvedExportsState :: Map [Text] (Set Text),
-    resolvedValueExportsState :: Map [Text] (Set Text),
-    resolvedDataTypeExportsState :: Map [Text] (Set Text),
-    resolvedConstructorExportsState :: Map [Text] (Set Text),
-    resolvedClassExportsState :: Map [Text] (Set Text)
+    resolvedExportInventoriesState :: Map [Text] ModuleExportInventory
   }
 
 modulePathToRelativeFile :: [Text] -> FilePath
@@ -269,11 +276,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
         { resolvedSetState = Set.empty,
           resolvedModulesRevState = [],
           resolvedGraphModulesRevState = [],
-          resolvedExportsState = Map.empty,
-          resolvedValueExportsState = Map.empty,
-          resolvedDataTypeExportsState = Map.empty,
-          resolvedConstructorExportsState = Map.empty,
-          resolvedClassExportsState = Map.empty
+          resolvedExportInventoriesState = Map.empty
         }
 
     visitModule callStack state modulePath
@@ -304,13 +307,12 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                             sourcePath
                             modulePath
                             (parsedModuleImports parsedModule)
-                            (parsedModuleClassNames parsedModule)
+                            (exportNamesInNamespace CapabilityNamespace (parsedModuleLocalInventory parsedModule))
                             (parsedModuleReferences parsedModule)
                             (parsedModuleQualifiedReferences parsedModule)
                             ambientVisibleSymbols
                             ambientVisibleClassNames
-                            (resolvedClassExportsState stateAfterDeps)
-                            (resolvedExportsState stateAfterDeps) of
+                            (resolvedExportInventoriesState stateAfterDeps) of
                         Left err -> pure (Left err)
                         Right () ->
                           let resolvedModule =
@@ -325,14 +327,8 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                   modulePath
                                   ambientVisibleSymbols
                                   ambientVisibleClassNames
-                                  (parsedModuleValueNames parsedModule)
-                                  (parsedModuleDataTypeNames parsedModule)
-                                  (parsedModuleConstructorNames parsedModule)
-                                  (parsedModuleClassNames parsedModule)
-                                  (resolvedValueExportsState stateAfterDeps)
-                                  (resolvedDataTypeExportsState stateAfterDeps)
-                                  (resolvedConstructorExportsState stateAfterDeps)
-                                  (resolvedClassExportsState stateAfterDeps)
+                                  (parsedModuleLocalInventory parsedModule)
+                                  (resolvedExportInventoriesState stateAfterDeps)
                                   (parsedModuleImports parsedModule)
                                   (parsedModuleCore parsedModule)
                               resolvedGraphModule =
@@ -340,6 +336,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                   { ModuleGraph.resolvedModulePath = modulePath,
                                     ModuleGraph.resolvedSourcePath = sourcePath,
                                     ModuleGraph.resolvedModuleImports = ModuleGraph.coreModuleImports resolvedCore,
+                                    ModuleGraph.resolvedModuleExportInventory = parsedModulePublicInventory parsedModule,
                                     ModuleGraph.resolvedModuleCore = resolvedCore
                                   }
                            in pure
@@ -351,31 +348,11 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                           resolvedModule : resolvedModulesRevState stateAfterDeps,
                                         resolvedGraphModulesRevState =
                                           resolvedGraphModule : resolvedGraphModulesRevState stateAfterDeps,
-                                        resolvedExportsState =
+                                        resolvedExportInventoriesState =
                                           Map.insert
                                             modulePath
-                                            (parsedModuleExports parsedModule)
-                                            (resolvedExportsState stateAfterDeps),
-                                        resolvedValueExportsState =
-                                          Map.insert
-                                            modulePath
-                                            (parsedModuleValueNames parsedModule)
-                                            (resolvedValueExportsState stateAfterDeps),
-                                        resolvedDataTypeExportsState =
-                                          Map.insert
-                                            modulePath
-                                            (parsedModuleDataTypeNames parsedModule)
-                                            (resolvedDataTypeExportsState stateAfterDeps),
-                                        resolvedConstructorExportsState =
-                                          Map.insert
-                                            modulePath
-                                            (parsedModuleConstructorNames parsedModule)
-                                            (resolvedConstructorExportsState stateAfterDeps),
-                                        resolvedClassExportsState =
-                                          Map.insert
-                                            modulePath
-                                            (parsedModuleClassNames parsedModule)
-                                            (resolvedClassExportsState stateAfterDeps)
+                                            (parsedModulePublicInventory parsedModule)
+                                            (resolvedExportInventoriesState stateAfterDeps)
                                       }
                                 )
 
@@ -459,19 +436,67 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
         )
     Right surfaceExpr -> do
       coreModule <- lowerSurfaceModule sourcePath expectedModulePath surfaceExpr
-      let topLevelBindings = collectTopLevelBindings surfaceExpr
+      let localInventory = collectModuleExportInventory surfaceExpr
+          topLevelBindings =
+            Set.union
+              (exportNamesInNamespace ValueNamespace localInventory)
+              (exportNamesInNamespace ConstructorNamespace localInventory)
+      publicInventory <-
+        validatePublicExportInventory
+          sourcePath
+          expectedModulePath
+          (ModuleGraph.coreModuleDeclaredExports coreModule)
+          localInventory
       Right
         ParsedModule
           { parsedModuleImports = collectImports surfaceExpr,
-            parsedModuleExports = topLevelBindings,
-            parsedModuleValueNames = collectTopLevelValueNames surfaceExpr,
-            parsedModuleDataTypeNames = collectTopLevelDataTypeNames surfaceExpr,
-            parsedModuleConstructorNames = collectTopLevelConstructorNames surfaceExpr,
-            parsedModuleClassNames = collectTopLevelClassNames surfaceExpr,
+            parsedModuleLocalInventory = localInventory,
+            parsedModulePublicInventory = publicInventory,
             parsedModuleReferences = collectReferencedNames surfaceExpr Set.\\ topLevelBindings,
             parsedModuleQualifiedReferences = collectQualifiedReferences surfaceExpr,
             parsedModuleCore = coreModule
           }
+
+validatePublicExportInventory ::
+  FilePath ->
+  [Text] ->
+  Maybe ModuleGraph.DeclaredModuleExports ->
+  ModuleExportInventory ->
+  Either Diagnostic ModuleExportInventory
+validatePublicExportInventory sourcePath modulePath maybeExplicitExports localInventory =
+  case maybeExplicitExports of
+    Nothing -> Right localInventory
+    Just declaredExports ->
+      let moduleSpan = ModuleGraph.declaredModuleExportsSpan declaredExports
+          exportNames = ModuleGraph.declaredModuleExportNames declaredExports
+       in case find (`Set.notMember` availableNames) exportNames of
+            Nothing -> Right (selectExportNames (Just exportNames) localInventory)
+            Just missingName ->
+              Left
+                ( setDiagnosticSubject missingName
+                    ( setDiagnosticPrimarySpan
+                        moduleSpan
+                        ( mkDiagnostic
+                            "E4015"
+                            ( "module export '"
+                                <> missingName
+                                <> "' is not declared by module '"
+                                <> renderModulePath modulePath
+                                <> "' in '"
+                                <> Text.pack sourcePath
+                                <> "'; available declarations: "
+                                <> renderDeclarationNames availableNames
+                            )
+                        )
+                    )
+                )
+  where
+    availableNames = declarationExportNames localInventory
+
+renderDeclarationNames :: Set Text -> Text
+renderDeclarationNames names
+  | Set.null names = "<none>"
+  | otherwise = Text.intercalate ", " (Set.toAscList names)
 
 collectImports :: SurfaceExpr -> [ParsedImport]
 collectImports surfaceExpr =
@@ -488,86 +513,46 @@ collectImportPaths imports =
     | importDecl <- imports
   ]
 
-collectTopLevelBindings :: SurfaceExpr -> Set Text
-collectTopLevelBindings surfaceExpr =
-  case surfaceExpr of
-    SEBlock statements ->
-      Set.fromList (concatMap collectStatementBindings statements)
-    _ -> Set.empty
-  where
-    collectStatementBindings statement =
-      case statement of
-        SSLet bindingName _ _ ->
-          [ identifierText bindingName
-            | not (isOperatorBindingIdentifierText (identifierText bindingName))
-          ]
-        SSData _ _ _ constructors ->
-          [ identifierText constructorName
-            | SurfaceDataConstructor constructorName _ <- constructors
-          ]
+collectModuleExportInventory :: SurfaceExpr -> ModuleExportInventory
+collectModuleExportInventory surfaceExpr =
+  exportInventory
+    ( case surfaceExpr of
+        SEBlock statements -> concatMap statementExports statements
         _ -> []
-
-collectTopLevelValueNames :: SurfaceExpr -> Set Text
-collectTopLevelValueNames surfaceExpr =
-  case surfaceExpr of
-    SEBlock statements ->
-      Set.fromList
-        [ identifierText bindingName
-          | SSLet bindingName _ _ <- statements,
-            not (isOperatorBindingIdentifierText (identifierText bindingName))
-        ]
-    _ -> Set.empty
-
-collectTopLevelDataTypeNames :: SurfaceExpr -> Set Text
-collectTopLevelDataTypeNames surfaceExpr =
-  case surfaceExpr of
-    SEBlock statements ->
-      Set.fromList
-        [ identifierText typeName
-          | SSData _ typeName _ _ <- statements
-        ]
-    _ -> Set.empty
-
-collectTopLevelConstructorNames :: SurfaceExpr -> Set Text
-collectTopLevelConstructorNames surfaceExpr =
-  case surfaceExpr of
-    SEBlock statements ->
-      Set.fromList
-        [ identifierText constructorName
-          | SSData _ _ _ constructors <- statements,
-            SurfaceDataConstructor constructorName _ <- constructors
-        ]
-    _ -> Set.empty
-
-collectTopLevelClassNames :: SurfaceExpr -> Set Text
-collectTopLevelClassNames surfaceExpr =
-  case surfaceExpr of
-    SEBlock statements ->
-      Set.fromList
-        [ identifierText className
-          | SSClass _ className _ _ <- statements
-        ]
-    _ -> Set.empty
+    )
+  where
+    statementExports statement =
+      case statement of
+        SSLet bindingName _ _
+          | not (isOperatorBindingIdentifierText (identifierText bindingName)) ->
+              [ModuleExport ValueNamespace (identifierText bindingName)]
+        SSData _ typeName _ constructors ->
+          ModuleExport TypeNamespace (identifierText typeName)
+            : [ ModuleExport ConstructorNamespace (identifierText constructorName)
+                | SurfaceDataConstructor constructorName _ <- constructors
+              ]
+        SSClass _ className _ _ ->
+          [ModuleExport CapabilityNamespace (identifierText className)]
+        _ -> []
 
 resolveCoreModuleNames ::
   BuiltinResolutionMode ->
   [Text] ->
   Set Text ->
   Set Text ->
-  Set Text ->
-  Set Text ->
-  Set Text ->
-  Set Text ->
-  Map [Text] (Set Text) ->
-  Map [Text] (Set Text) ->
-  Map [Text] (Set Text) ->
-  Map [Text] (Set Text) ->
+  ModuleExportInventory ->
+  Map [Text] ModuleExportInventory ->
   [ParsedImport] ->
   ModuleGraph.CoreModule ->
   ModuleGraph.CoreModule
-resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses localValues localDataTypes localConstructors localClasses valuesByModule dataTypesByModule constructorsByModule classesByModule imports coreModule =
+resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses localInventory inventoriesByModule imports coreModule =
   coreModule {ModuleGraph.coreModuleExpr = resolveExpr (ModuleGraph.coreModuleExpr coreModule)}
   where
+    localValues = exportNamesInNamespace ValueNamespace localInventory
+    localDataTypes = exportNamesInNamespace TypeNamespace localInventory
+    localConstructors = exportNamesInNamespace ConstructorNamespace localInventory
+    localClasses = exportNamesInNamespace CapabilityNamespace localInventory
+
     aliasPaths =
       Map.fromList
         [ (aliasName, parsedImportModulePath importDecl)
@@ -581,7 +566,7 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
           | importDecl <- imports,
             parsedImportAlias importDecl == Nothing,
             let modulePath = parsedImportModulePath importDecl,
-            name <- selectedImportNames importDecl (Map.findWithDefault Set.empty modulePath valuesByModule)
+            name <- Set.toList (exportNamesInNamespace ValueNamespace (visibleDependencyInventory importDecl))
         ]
 
     visibleConstructorOrigins =
@@ -590,7 +575,7 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
           | importDecl <- imports,
             parsedImportAlias importDecl == Nothing,
             let modulePath = parsedImportModulePath importDecl,
-            name <- selectedImportNames importDecl (Map.findWithDefault Set.empty modulePath constructorsByModule)
+            name <- Set.toList (exportNamesInNamespace ConstructorNamespace (visibleDependencyInventory importDecl))
         ]
 
     visibleTypeOrigins =
@@ -599,7 +584,7 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
           | importDecl <- imports,
             parsedImportAlias importDecl == Nothing,
             let modulePath = parsedImportModulePath importDecl,
-            name <- selectedImportNames importDecl (Map.findWithDefault Set.empty modulePath dataTypesByModule)
+            name <- Set.toList (exportNamesInNamespace TypeNamespace (visibleDependencyInventory importDecl))
         ]
 
     visibleClassOrigins =
@@ -608,13 +593,17 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
           | importDecl <- imports,
             parsedImportAlias importDecl == Nothing,
             let modulePath = parsedImportModulePath importDecl,
-            name <- selectedImportNames importDecl (Map.findWithDefault Set.empty modulePath classesByModule)
+            name <- Set.toList (exportNamesInNamespace CapabilityNamespace (visibleDependencyInventory importDecl))
         ]
 
-    selectedImportNames importDecl availableNames =
-      case parsedImportSymbols importDecl of
-        Nothing -> Set.toList availableNames
-        Just selectedNames -> filter (`Set.member` availableNames) selectedNames
+    visibleDependencyInventory importDecl =
+      case Map.lookup (parsedImportModulePath importDecl) inventoriesByModule of
+        Nothing -> exportInventory []
+        Just inventory ->
+          visibleImportInventory
+            UnqualifiedImport
+            (parsedImportSymbols importDecl)
+            inventory
 
     resolveName namespace name =
       case name of
@@ -666,10 +655,17 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
 
     importedNamespace dependencyPath nameText fallbackNamespace
       | fallbackNamespace /= ValueNamespace = fallbackNamespace
-      | Set.member nameText (Map.findWithDefault Set.empty dependencyPath valuesByModule) = ValueNamespace
-      | Set.member nameText (Map.findWithDefault Set.empty dependencyPath constructorsByModule) = ConstructorNamespace
-      | Set.member nameText (Map.findWithDefault Set.empty dependencyPath classesByModule) = CapabilityNamespace
-      | otherwise = ValueNamespace
+      | otherwise =
+          fromMaybe
+            fallbackNamespace
+            ( firstExportNamespace
+                [ValueNamespace, ConstructorNamespace, CapabilityNamespace]
+                nameText
+                dependencyInventory
+            )
+      where
+        dependencyInventory =
+          Map.findWithDefault (exportInventory []) dependencyPath inventoriesByModule
 
     ambientName namespace nameText =
       case namespace of
@@ -1031,10 +1027,9 @@ validateImportBindings ::
   Set (Text, Text) ->
   Set Text ->
   Set Text ->
-  Map [Text] (Set Text) ->
-  Map [Text] (Set Text) ->
+  Map [Text] ModuleExportInventory ->
   Either Diagnostic ()
-validateImportBindings sourcePath importerPath imports localClassNames referencedNames qualifiedReferences ambientVisibleSymbols ambientVisibleClassNames classExportsByModule exportsByModule = do
+validateImportBindings sourcePath importerPath imports localClassNames referencedNames qualifiedReferences ambientVisibleSymbols ambientVisibleClassNames inventoriesByModule = do
   go Map.empty Map.empty imports
   visibleSymbols <- collectVisibleImportSymbols imports
   visibleClassNames <- collectVisibleImportClassNames imports
@@ -1049,6 +1044,28 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           Left (mkHiddenAliasImportSymbolError symbolName importDecl aliasName)
         Nothing -> Right ()
   where
+    dependencyInventory importDecl =
+      Map.lookup (parsedImportModulePath importDecl) inventoriesByModule
+
+    eligibleImportNames = selectorEligibleNames
+
+    visibleUnqualifiedInventory importDecl inventory =
+      case parsedImportAlias importDecl of
+        Just _ -> exportInventory []
+        Nothing ->
+          visibleImportInventory
+            UnqualifiedImport
+            (parsedImportSymbols importDecl)
+            inventory
+
+    aliasMemberNames inventory =
+      exportNamesInNamespaces
+        [ValueNamespace, ConstructorNamespace]
+        (visibleImportInventory QualifiedAliasImport Nothing inventory)
+
+    valueAndConstructorNames =
+      exportNamesInNamespaces [ValueNamespace, ConstructorNamespace]
+
     go seenSymbols seenAliases remainingImports =
       case remainingImports of
         [] ->
@@ -1084,7 +1101,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
         Just _ ->
           Right seenSymbols
         Nothing ->
-          case Map.lookup (parsedImportModulePath importDecl) exportsByModule of
+          case dependencyInventory importDecl of
             Nothing ->
               Left
                 ( mkDiagnostic
@@ -1096,11 +1113,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                         <> "'"
                     )
                 )
-            Just exportedSymbols ->
-              let exportedClassNames =
-                    Map.findWithDefault Set.empty (parsedImportModulePath importDecl) classExportsByModule
-                  exportedImportSymbols =
-                    Set.union exportedSymbols exportedClassNames
+            Just inventory ->
+              let exportedImportSymbols = eligibleImportNames inventory
                   importedSymbolNames =
                     case parsedImportSymbols importDecl of
                       Nothing -> Set.toAscList exportedImportSymbols
@@ -1127,7 +1141,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                 Nothing ->
                   Left (mkUnknownQualifiedAliasError aliasName symbolName)
                 Just importDecl ->
-                  case Map.lookup (parsedImportModulePath importDecl) exportsByModule of
+                  case dependencyInventory importDecl of
                     Nothing ->
                       Left
                         ( mkDiagnostic
@@ -1139,9 +1153,11 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                                 <> "'"
                             )
                         )
-                    Just exportedSymbols
-                      | Set.member symbolName exportedSymbols -> Right ()
-                      | otherwise -> Left (mkMissingQualifiedAliasSymbolError symbolName importDecl aliasName exportedSymbols)
+                    Just inventory ->
+                      let exportedSymbols = aliasMemberNames inventory
+                       in if Set.member symbolName exportedSymbols
+                            then Right ()
+                            else Left (mkMissingQualifiedAliasSymbolError symbolName importDecl aliasName exportedSymbols)
 
     findAliasImport :: Text -> Maybe ParsedImport
     findAliasImport aliasName =
@@ -1270,7 +1286,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 
     collectVisibleImportSymbol :: Set Text -> ParsedImport -> Either Diagnostic (Set Text)
     collectVisibleImportSymbol visibleSymbols importDecl =
-      case Map.lookup (parsedImportModulePath importDecl) exportsByModule of
+      case dependencyInventory importDecl of
         Nothing ->
           Left
             ( mkDiagnostic
@@ -1282,16 +1298,12 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                     <> "'"
                 )
             )
-        Just exportedSymbols ->
+        Just inventory ->
           Right
             ( Set.union
                 visibleSymbols
-                ( case parsedImportAlias importDecl of
-                    Just _ -> Set.empty
-                    Nothing ->
-                      case parsedImportSymbols importDecl of
-                        Nothing -> exportedSymbols
-                        Just symbolNames -> Set.fromList symbolNames
+                ( valueAndConstructorNames
+                    (visibleUnqualifiedInventory importDecl inventory)
                 )
             )
 
@@ -1301,19 +1313,25 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 
     collectVisibleImportClassName :: Set Text -> ParsedImport -> Either Diagnostic (Set Text)
     collectVisibleImportClassName visibleClassNames importDecl =
-      case Map.lookup (parsedImportModulePath importDecl) classExportsByModule of
+      case dependencyInventory importDecl of
         Nothing ->
-          Right visibleClassNames
-        Just exportedClassNames ->
+          Left
+            ( mkDiagnostic
+                "E4010"
+                ( "internal resolver error while validating imports for '"
+                    <> renderModulePath importerPath
+                    <> "': missing exports for module '"
+                    <> renderModulePath (parsedImportModulePath importDecl)
+                    <> "'"
+                )
+            )
+        Just inventory ->
           Right
             ( Set.union
                 visibleClassNames
-                ( case parsedImportAlias importDecl of
-                    Just _ -> Set.empty
-                    Nothing ->
-                      case parsedImportSymbols importDecl of
-                        Nothing -> exportedClassNames
-                        Just symbolNames -> Set.intersection exportedClassNames (Set.fromList symbolNames)
+                ( exportNamesInNamespace
+                    CapabilityNamespace
+                    (visibleUnqualifiedInventory importDecl inventory)
                 )
             )
 
@@ -1323,7 +1341,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
         [ (symbolName, importDecl)
           | importDecl <- imports,
             Just symbolNames <- [parsedImportSymbols importDecl],
-            Just exportedSymbols <- [Map.lookup (parsedImportModulePath importDecl) exportsByModule],
+            Just inventory <- [dependencyInventory importDecl],
+            let exportedSymbols = valueAndConstructorNames inventory,
             let hiddenSymbols = Set.difference exportedSymbols (Set.fromList symbolNames),
             symbolName <- Set.toList hiddenSymbols,
             Set.member symbolName referencedNames,
@@ -1336,7 +1355,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
         [ (symbolName, importDecl, aliasName)
           | importDecl <- imports,
             Just aliasName <- [parsedImportAlias importDecl],
-            Just exportedSymbols <- [Map.lookup (parsedImportModulePath importDecl) exportsByModule],
+            Just inventory <- [dependencyInventory importDecl],
+            let exportedSymbols = valueAndConstructorNames inventory,
             symbolName <- Set.toList exportedSymbols,
             Set.member symbolName referencedNames,
             not (Set.member symbolName visibleSymbols)
