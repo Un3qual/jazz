@@ -85,6 +85,11 @@ if rg -n 'JazzNext\.Compiler\.Identifier' jazz-next/src jazz-next/test jazz-next
   exit 1
 fi
 
+if rg -n 'parsedModule(Exports|ValueNames|DataTypeNames|ConstructorNames|ClassNames)|resolved(ExportsState|ValueExportsState|DataTypeExportsState|ConstructorExportsState|ClassExportsState)' jazz-next/src/JazzNext/Compiler/ModuleResolver.hs; then
+  echo "ModuleResolver still carries parallel namespace export inventories" >&2
+  exit 1
+fi
+
 if rg -n '^library$' jazz-next/jazz-next.cabal; then
   echo "public compiler library remains exposed" >&2
   exit 1

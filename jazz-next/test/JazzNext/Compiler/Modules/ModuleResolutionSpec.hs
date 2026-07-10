@@ -28,6 +28,7 @@ import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
     assertLeftContains,
+    assertLeftDiagnosticCodeAndContains,
     assertRight,
     failTest,
     runTestSuite
@@ -77,6 +78,10 @@ tests =
     ("accepts local bindings sharing qualified alias names", testAcceptsLocalBindingSharingAliasName),
     ("accepts qualified references through alias imports", testAcceptsQualifiedAliasImportReference),
     ("accepts qualified references to data constructors through alias imports", testAcceptsQualifiedAliasDataConstructorReference),
+    ("accepts explicit class import symbols", testAcceptsExplicitClassImportSymbol),
+    ("rejects type-only explicit import symbols", testRejectsTypeOnlyImportSymbol),
+    ("reports class import collisions", testReportsClassImportCollision),
+    ("keeps repeated class imports idempotent", testKeepsRepeatedClassImportsIdempotent),
     ("reports qualified references through unknown aliases", testReportsUnknownQualifiedAliasReference),
     ("reports standalone qualified references through unknown aliases", testReportsStandaloneUnknownQualifiedAliasReference),
     ("reports qualified alias references to missing exports", testReportsMissingQualifiedAliasExport)
@@ -990,6 +995,70 @@ testReportsMissingQualifiedAliasExport = do
         [ ("src/App/Main.jz", "import Lib::Math as Math.\nmain = Math::subtract."),
           ("src/Lib/Math.jz", "add = 1.")
         ]
+
+testResolverConfig :: ModuleResolutionConfig
+testResolverConfig =
+  ModuleResolutionConfig
+    { moduleRoots = ["src"],
+      moduleExtension = ".jz"
+    }
+
+testAcceptsExplicitClassImportSymbol :: IO ()
+testAcceptsExplicitClassImportSymbol = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  assertRight "explicit class import" result (const (pure ()))
+  where
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Facts (Eq).\nx :: @{Eq(Int)}: Int.\nx = 1."),
+          ("src/Lib/Facts.jz", "class Eq(a) { }.\nimpl Eq(Int) { }.")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
+
+testRejectsTypeOnlyImportSymbol :: IO ()
+testRejectsTypeOnlyImportSymbol = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  assertLeftDiagnosticCodeAndContains
+    "type-only import"
+    "E4007"
+    "import symbol 'Optional' is not exported"
+    result
+  where
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Types (Optional).\nx = 1."),
+          ("src/Lib/Types.jz", "data Optional a = Some a | None.")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
+
+testReportsClassImportCollision :: IO ()
+testReportsClassImportCollision = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  assertLeftDiagnosticCodeAndContains
+    "class import collision"
+    "E4008"
+    "import binding collision for symbol 'Eq'"
+    result
+  where
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "import A::Facts.\nimport B::Facts.\nx = 1."),
+          ("src/A/Facts.jz", "class Eq(a) { }."),
+          ("src/B/Facts.jz", "class Eq(a) { }.")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
+
+testKeepsRepeatedClassImportsIdempotent :: IO ()
+testKeepsRepeatedClassImportsIdempotent = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  assertRight "repeated class import" result (const (pure ()))
+  where
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Facts.\nimport Lib::Facts.\nx :: @{Eq(Int)}: Int.\nx = 1."),
+          ("src/Lib/Facts.jz", "class Eq(a) { }.\nimpl Eq(Int) { }.")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
 
 assertLeftDiagnosticMetadata ::
   Show a =>
