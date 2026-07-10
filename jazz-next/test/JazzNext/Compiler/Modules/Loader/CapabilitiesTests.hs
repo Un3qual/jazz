@@ -80,6 +80,10 @@ capabilitiesTests =
     , ("run module graph exposes data referenced by imported class methods", testRunModuleGraphExposesDataReferencedByImportedClassMethods)
     , ("run module graph preserves imported generic constructor payload dispatch", testRunModuleGraphPreservesImportedGenericConstructorPayloadDispatch)
     , ("run module graph keeps imported ADT names in type positions", testRunModuleGraphKeepsImportedAdtNamesInTypePositions)
+    , ("run module graph rebases dependency class method result hints", testRunModuleGraphRebasesDependencyClassMethodResultHints)
+    , ("run module graph rebases imported class method result hints from the class origin", testRunModuleGraphRebasesImportedClassMethodResultHintsFromClassOrigin)
+    , ("compile module graph rejects classes that collide with the ambient prelude", testCompileModuleGraphRejectsAmbientClassCollision)
+    , ("compile module graph rejects classes that collide with visible imported classes", testCompileModuleGraphRejectsImportedClassCollision)
   ]
 
 testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules :: IO ()
@@ -207,7 +211,7 @@ testCompileModuleGraphKeepsModuleAdtImplFactsDistinct = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Box.\ndata Box a = Box a.\nclass Eq(a) { }.\nuse :: @{Eq(Box(Int))}: Int.\nuse = 1."),
+        [ ("src/App/Main.jz", "import Lib::Box (Box).\ndata Box a = Box a.\nclass Eq(a) { }.\nuse :: @{Eq(Box(Int))}: Int.\nuse = 1."),
           ("src/Lib/Box.jz", "data Box a = Box a.\nclass Eq(a) { }.\nimpl Eq(Box(Int)) { }.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -942,5 +946,129 @@ testRunModuleGraphKeepsImportedAdtNamesInTypePositions = do
             "module App::Main {\nimport Lib::Box.\nclass Pick(a) {\npick :: a -> Bool.\n}.\nimpl Pick(Box(UInt8)) {\npick = \\(box) -> True.\n}.\nbox = Box (__kernel_toUInt8 1).\nPick::pick box.\n}"
           ),
           ("src/Lib/Box.jz", "module Lib::Box {\ndata Box a = Box a.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRebasesDependencyClassMethodResultHints :: IO ()
+testRunModuleGraphRebasesDependencyClassMethodResultHints = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  case runRuntimeErrors result of
+    [diagnostic] -> do
+      assertContains "rebased result hint overflow code" "E3025" (renderDiagnostic diagnostic)
+      assertContains "rebased result hint overflow target" "outside UInt8 range" (renderDiagnostic diagnostic)
+    diagnostics ->
+      failTest
+        ( "expected one UInt8 overflow after applying the method result hint, got "
+            <> Text.pack (show (map renderDiagnostic diagnostics))
+        )
+  assertEqual "runtime output" Nothing (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Factory.\n(\\(Box value) -> value + 255) (Make::make 0).\n}"
+          ),
+          ( "src/Lib/Factory.jz",
+            "module Lib::Factory {\ndata Box = Box UInt8.\nclass Make(a) {\nmake :: a -> Box.\n}.\nimpl Make(Int) {\nmake = \\(value) -> Box 1.\n}.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRebasesImportedClassMethodResultHintsFromClassOrigin :: IO ()
+testRunModuleGraphRebasesImportedClassMethodResultHintsFromClassOrigin = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  case runRuntimeErrors result of
+    [diagnostic] -> do
+      assertContains "imported class result hint overflow code" "E3025" (renderDiagnostic diagnostic)
+      assertContains "imported class result hint overflow target" "outside UInt8 range" (renderDiagnostic diagnostic)
+    diagnostics ->
+      failTest
+        ( "expected one UInt8 overflow after applying the imported class method result hint, got "
+            <> Text.pack (show (map renderDiagnostic diagnostics))
+        )
+  assertEqual "runtime output" Nothing (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Api.\nimpl Make(Int) {\nmake = \\(value) -> Box 1.\n}.\n(\\(Box value) -> value + 255) (Make::make 0).\n}"
+          ),
+          ( "src/Lib/Api.jz",
+            "module Lib::Api {\ndata Box = Box UInt8.\nclass Make(a) {\nmake :: a -> Box.\n}.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphRejectsAmbientClassCollision :: IO ()
+testCompileModuleGraphRejectsAmbientClassCollision = do
+  result <-
+    compileModuleGraph
+      defaultWarningSettings
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [diagnostic] ->
+      let rendered = renderDiagnostic diagnostic
+       in do
+            assertContains "ambient class collision code" "E1004" rendered
+            assertContains "ambient class collision summary" "duplicate class declaration 'Eq'" rendered
+    diagnostics ->
+      failTest
+        ( "expected one ambient class collision, got "
+            <> Text.pack (show (map renderDiagnostic diagnostics))
+        )
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphRejectsImportedClassCollision :: IO ()
+testCompileModuleGraphRejectsImportedClassCollision = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [diagnostic] ->
+      let rendered = renderDiagnostic diagnostic
+       in do
+            assertContains "imported class collision code" "E1004" rendered
+            assertContains "imported class collision summary" "duplicate class declaration 'Eq'" rendered
+    diagnostics ->
+      failTest
+        ( "expected one imported class collision, got "
+            <> Text.pack (show (map renderDiagnostic diagnostics))
+        )
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Facts (Eq).\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\n}"
+          ),
+          ( "src/Lib/Facts.jz",
+            "module Lib::Facts {\nclass Eq(a) {\nequals :: a -> a -> Bool.\n}.\n}"
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

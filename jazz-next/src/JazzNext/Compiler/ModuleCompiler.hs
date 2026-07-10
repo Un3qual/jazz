@@ -27,7 +27,6 @@ import JazzNext.Compiler.ModuleGraph
 import JazzNext.Compiler.ModuleInterface
 import JazzNext.Compiler.Name
   ( Name (..),
-    NameNamespace (..),
     ResolvedNameOrigin (..),
     identifierText,
     mkIdentifier
@@ -72,6 +71,7 @@ compilePreparedPrelude settings preparedPrelude =
               inferenceImportedTypes = Map.empty,
               inferenceImportedDataTypes = Map.empty,
               inferenceImportedCapabilities = emptyScopeCapabilityFacts,
+              inferenceImportedClassNames = Set.empty,
               inferenceCurrentModulePath = Just []
             }
           (preparedPreludeHiddenStatementIndices preparedPrelude)
@@ -127,6 +127,7 @@ compileResolvedProgram inputs resolvedProgram = do
               inferenceImportedTypes = interfaceTypeEnv importedInterface,
               inferenceImportedDataTypes = importedDataTypes importedInterface,
               inferenceImportedCapabilities = interfaceCapabilities importedInterface,
+              inferenceImportedClassNames = importedClassNames importedInterface,
               inferenceCurrentModulePath = Just modulePath
             }
           moduleExpr
@@ -165,11 +166,12 @@ dependencyImportInterface importDecl compiledModule =
 data ImportedInterface = ImportedInterface
   { importedTypes :: TypeEnv,
     importedDataTypes :: Map Text DataTypeBinding,
-    importedCapabilities :: ScopeCapabilityFacts
+    importedCapabilities :: ScopeCapabilityFacts,
+    importedClassNames :: Set.Set Text
   }
 
 emptyImportedInterface :: ImportedInterface
-emptyImportedInterface = ImportedInterface Map.empty Map.empty emptyScopeCapabilityFacts
+emptyImportedInterface = ImportedInterface Map.empty Map.empty emptyScopeCapabilityFacts Set.empty
 
 interfaceTypeEnv :: ImportedInterface -> TypeEnv
 interfaceTypeEnv = importedTypes
@@ -189,7 +191,8 @@ mergeModuleInterfaces left right =
             scopeConcreteImplFacts = Set.union (scopeConcreteImplFacts (importedCapabilities left)) (scopeConcreteImplFacts (importedCapabilities right)),
             scopeClassMethodSignatures = Map.union (scopeClassMethodSignatures (importedCapabilities left)) (scopeClassMethodSignatures (importedCapabilities right)),
             scopeConcreteImplMethods = Map.unionWith (<>) (scopeConcreteImplMethods (importedCapabilities left)) (scopeConcreteImplMethods (importedCapabilities right))
-          }
+          },
+      importedClassNames = Set.union (importedClassNames left) (importedClassNames right)
     }
 
 importWholeInterface :: ResolvedNameOrigin -> ModuleInterface -> ImportedInterface
@@ -200,10 +203,10 @@ importSelectedInterface origin maybeAlias maybeSymbols moduleInterface =
   ImportedInterface
     { importedTypes =
         Map.fromList
-          [ ( ResolvedName origin (bindingNamespace binding) (mkIdentifier exportName),
+          [ ( ResolvedName origin (moduleExportNamespace export) (mkIdentifier (moduleExportName export)),
               rebaseTypeBinding origin dataTypeNames classNames binding
             )
-            | (exportName, binding) <- Map.toList selectedValueTypes
+            | (export, binding) <- Map.toList selectedValueTypes
           ],
       importedDataTypes =
         Map.fromList
@@ -213,13 +216,17 @@ importSelectedInterface origin maybeAlias maybeSymbols moduleInterface =
             | (dataTypeName, dataType) <- Map.toList (interfaceDataTypes moduleInterface)
           ],
       importedCapabilities =
-        rebaseCapabilityFacts origin dataTypeNames classNames selectedCapabilities
+        rebaseCapabilityFacts origin dataTypeNames classNames selectedCapabilities,
+      importedClassNames = selectedClassNames
     }
   where
     dataTypeNames = Map.keysSet (interfaceDataTypes moduleInterface)
     classNames = Map.keysSet (interfaceClassFacts moduleInterface)
     selected name = maybe True (name `elem`) maybeSymbols
-    selectedValueTypes = Map.filterWithKey (\name _ -> selected name) (interfaceValueTypes moduleInterface)
+    selectedValueTypes =
+      Map.filterWithKey
+        (\export _ -> selected (moduleExportName export))
+        (interfaceValueTypes moduleInterface)
     includeCapabilities = maybeAlias == Nothing
     selectedClassFacts
       | includeCapabilities = Map.filterWithKey (\name _ -> selected name) (interfaceClassFacts moduleInterface)
@@ -239,12 +246,6 @@ importSelectedInterface origin maybeAlias maybeSymbols moduleInterface =
           scopeConcreteImplMethods =
             Map.filterWithKey (methodUsesClass selectedClassNames) (interfaceConcreteImplMethods moduleInterface)
         }
-
-bindingNamespace :: TypeBinding -> NameNamespace
-bindingNamespace binding =
-  case binding of
-    ConstructorTypeBinding {} -> ConstructorNamespace
-    _ -> ValueNamespace
 
 qualifiedKey :: ResolvedNameOrigin -> Text -> Text
 qualifiedKey origin name =

@@ -6,12 +6,14 @@ module JazzNext.Compiler.ModuleInterface
     CompiledModule (..),
     CompiledPrelude (..),
     CompiledProgram (..),
+    ModuleExport (..),
     ModuleInterface (..),
     compileInputs,
     emptyCompileInputs,
     emptyCompiledPrelude,
     emptyModuleInterface,
-    lookupCompiledModule
+    lookupCompiledModule,
+    moduleExportForBinding
   ) where
 
 import Data.Map.Strict (Map)
@@ -23,17 +25,34 @@ import JazzNext.Compiler.AST (ConstraintSignatureType, Expr)
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import JazzNext.Compiler.Diagnostics (Diagnostic, WarningRecord)
 import JazzNext.Compiler.ModuleGraph (ResolvedModule (resolvedModulePath))
+import JazzNext.Compiler.Name (NameNamespace (..))
 import JazzNext.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import JazzNext.Compiler.TypeInference.Types
   ( ClassMethodType,
     DataTypeBinding,
     ImplMethodType,
-    TypeBinding
+    TypeBinding (..)
   )
 import JazzNext.Compiler.WarningConfig (WarningSettings)
 
+data ModuleExport = ModuleExport
+  { moduleExportNamespace :: NameNamespace,
+    moduleExportName :: Text
+  }
+  deriving (Eq, Ord, Show)
+
+moduleExportForBinding :: Text -> TypeBinding -> ModuleExport
+moduleExportForBinding exportName binding =
+  ModuleExport
+    { moduleExportNamespace =
+        case binding of
+          ConstructorTypeBinding {} -> ConstructorNamespace
+          _ -> ValueNamespace,
+      moduleExportName = exportName
+    }
+
 data ModuleInterface = ModuleInterface
-  { interfaceValueTypes :: Map Text TypeBinding,
+  { interfaceValueTypes :: Map ModuleExport TypeBinding,
     interfaceDataTypes :: Map Text DataTypeBinding,
     interfaceClassFacts :: Map Text Int,
     interfaceGeneratedEqualityClassFacts :: Set Text,

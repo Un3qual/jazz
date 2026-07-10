@@ -78,6 +78,7 @@ visibilityTests =
     , ("run module graph resolves qualified alias lookup through dependency export", testRunModuleGraphQualifiedAliasLookupUsesDependencyExport)
     , ("compile module graph accepts qualified alias use before import", testCompileModuleGraphQualifiedAliasLookupBeforeImport)
     , ("run module graph lets ordinary bindings shadow local constructors", testRunModuleGraphOrdinaryBindingShadowsLocalConstructor)
+    , ("run module graph imports ordinary bindings that shadow constructors", testRunModuleGraphImportsOrdinaryBindingThatShadowsConstructor)
   ]
 
 testRunModuleGraphDefaultLoadsBundledPrelude :: IO ()
@@ -743,5 +744,25 @@ testRunModuleGraphOrdinaryBindingShadowsLocalConstructor = do
     sourceMap =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\ndata Maybe = Just value.\nJust = 1.\nJust.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphImportsOrdinaryBindingThatShadowsConstructor :: IO ()
+testRunModuleGraphImportsOrdinaryBindingThatShadowsConstructor = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Maybe (Just).\nJust.\n}"),
+          ("src/Lib/Maybe.jz", "module Lib::Maybe {\ndata Maybe = Just value.\nJust = 1.\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

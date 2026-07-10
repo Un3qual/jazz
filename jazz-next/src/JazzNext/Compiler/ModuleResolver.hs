@@ -666,6 +666,7 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
 
     importedNamespace dependencyPath nameText fallbackNamespace
       | fallbackNamespace /= ValueNamespace = fallbackNamespace
+      | Set.member nameText (Map.findWithDefault Set.empty dependencyPath valuesByModule) = ValueNamespace
       | Set.member nameText (Map.findWithDefault Set.empty dependencyPath constructorsByModule) = ConstructorNamespace
       | Set.member nameText (Map.findWithDefault Set.empty dependencyPath classesByModule) = CapabilityNamespace
       | otherwise = ValueNamespace

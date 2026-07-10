@@ -26,11 +26,13 @@ import JazzNext.Compiler.Runtime (renderRuntimeValue)
 import JazzNext.Compiler.ModuleInterface
   ( CompiledModule (compiledModuleInterface),
     CompiledProgram (compiledProgramErrors),
+    ModuleExport (..),
     ModuleInterface (interfaceValueTypes),
     emptyCompileInputs,
     lookupCompiledModule
   )
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
+import JazzNext.Compiler.Name (NameNamespace (ConstructorNamespace, ValueNamespace))
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
 import JazzNext.TestHarness
   ( NamedTest,
@@ -47,6 +49,7 @@ tests =
   [ ("dependency expressions are checked but not executed", testDependencyExpressionContract),
     ("compiled interfaces expose only declared exports", testCompiledInterfacesExposeOnlyDeclaredExports),
     ("runtime modules publish only declared exports", testRuntimeModulePublishesDeclaredExports),
+    ("module export identities distinguish shadowed values and constructors", testModuleExportIdentityPreservesNamespaces),
     ("compiled dependency terminal expressions are skipped", testCompiledDependencyTerminalExpressionIsSkipped),
     ("alias imports stay qualified", testAliasIsolationContract),
     ("transitive imports do not leak", testTransitiveVisibilityContract),
@@ -64,8 +67,50 @@ testRuntimeModulePublishesDeclaredExports = do
         Just runtimeModule ->
           assertEqual
             "export names"
-            (Set.fromList ["answer"])
+            (Set.fromList [ModuleExport ValueNamespace "answer"])
             (Map.keysSet (runtimeModuleExports runtimeModule))
+
+testModuleExportIdentityPreservesNamespaces :: IO ()
+testModuleExportIdentityPreservesNamespaces = do
+  compiled <- compileFixtureProgram shadowingSources
+  case lookupCompiledModule ["Lib", "Maybe"] compiled of
+    Nothing -> fail "missing compiled Lib::Maybe module"
+    Just compiledModule ->
+      assertEqual
+        "compiled shadowed export identities"
+        expectedExports
+        ( Map.keysSet
+            ( Map.filterWithKey
+                (\moduleExport _ -> moduleExportName moduleExport == "Just")
+                (interfaceValueTypes (compiledModuleInterface compiledModule))
+            )
+        )
+  case evaluateCompiledProgram compiled of
+    Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right runtime ->
+      case lookupRuntimeModule ["Lib", "Maybe"] runtime of
+        Nothing -> fail "missing runtime Lib::Maybe module"
+        Just runtimeModule ->
+          assertEqual
+            "runtime shadowed export identities"
+            expectedExports
+            ( Map.keysSet
+                ( Map.filterWithKey
+                    (\moduleExport _ -> moduleExportName moduleExport == "Just")
+                    (runtimeModuleExports runtimeModule)
+                )
+            )
+  where
+    expectedExports =
+      Set.fromList
+        [ ModuleExport ValueNamespace "Just",
+          ModuleExport ConstructorNamespace "Just"
+        ]
+    shadowingSources =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main { import Lib::Maybe (Just). Just. }"),
+          ("src/Lib/Maybe.jz", "module Lib::Maybe { data Maybe = Just value. Just = 1. }")
+        ]
 
 testCompiledDependencyTerminalExpressionIsSkipped :: IO ()
 testCompiledDependencyTerminalExpressionIsSkipped = do
@@ -125,7 +170,7 @@ testCompiledInterfacesExposeOnlyDeclaredExports = do
         Just compiledModule ->
           assertEqual
             "exported values"
-            (Set.fromList ["answer"])
+            (Set.fromList [ModuleExport ValueNamespace "answer"])
             (Map.keysSet (interfaceValueTypes (compiledModuleInterface compiledModule)))
       assertEqual "no compile errors" [] (compiledProgramErrors compiled)
   where

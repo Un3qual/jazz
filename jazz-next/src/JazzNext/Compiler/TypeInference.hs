@@ -122,7 +122,8 @@ import JazzNext.Compiler.TypeInference.Types
   )
 import JazzNext.Compiler.ModuleInterface
   ( ModuleInterface (..),
-    emptyModuleInterface
+    emptyModuleInterface,
+    moduleExportForBinding
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -147,6 +148,7 @@ data InferenceInputs = InferenceInputs
     inferenceImportedTypes :: TypeEnv,
     inferenceImportedDataTypes :: Map Text DataTypeBinding,
     inferenceImportedCapabilities :: ScopeCapabilityFacts,
+    inferenceImportedClassNames :: Set Text,
     inferenceCurrentModulePath :: Maybe [Text]
   }
 
@@ -206,6 +208,7 @@ emptyInferenceInputs builtinMode settings =
       inferenceImportedTypes = Map.empty,
       inferenceImportedDataTypes = Map.empty,
       inferenceImportedCapabilities = emptyScopeCapabilityFacts,
+      inferenceImportedClassNames = Set.empty,
       inferenceCurrentModulePath = Nothing
     }
 
@@ -219,7 +222,10 @@ analysisInputsForInference inputs =
       analysisImportedClasses =
         Set.map
           (sourceName . mkIdentifier)
-          (Map.keysSet (scopeClassFacts (inferenceImportedCapabilities inputs))),
+          ( Set.union
+              (inferenceImportedClassNames inputs)
+              (Map.keysSet (scopeClassFacts (inferenceImportedCapabilities inputs)))
+          ),
       analysisModulePath = inferenceCurrentModulePath inputs
     }
 
@@ -243,7 +249,7 @@ moduleInterfaceFromState inputs expr state =
   emptyModuleInterface
     { interfaceValueTypes =
         Map.fromList
-          [ (renderName name, binding)
+          [ (moduleExportForBinding (renderName name) binding, binding)
             | name <- Set.toList declaredValues,
               Just binding <- [Map.lookup name (inferVisibleTypes state)]
           ],
