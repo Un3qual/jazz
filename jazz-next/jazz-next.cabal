@@ -107,6 +107,13 @@ test-suite loader-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Modules/LoaderSpec.hs
+  other-modules:
+      JazzNext.Compiler.Modules.Loader.BasicTests
+      JazzNext.Compiler.Modules.Loader.CapabilitiesTests
+      JazzNext.Compiler.Modules.Loader.DiagnosticsTests
+      JazzNext.Compiler.Modules.Loader.OperatorsTests
+      JazzNext.Compiler.Modules.Loader.Shared
+      JazzNext.Compiler.Modules.Loader.VisibilityTests
 
 test-suite module-resolution-spec
   import: test-common
@@ -127,6 +134,11 @@ test-suite adt-pattern-parser-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
+  other-modules:
+      JazzNext.Compiler.Parser.AdtPattern.DeclarationsTests
+      JazzNext.Compiler.Parser.AdtPattern.InvalidSyntaxTests
+      JazzNext.Compiler.Parser.AdtPattern.PatternsTests
+      JazzNext.Compiler.Parser.AdtPattern.Shared
 
 test-suite declaration-parser-spec
   import: test-common
@@ -172,6 +184,12 @@ test-suite parser-foundation-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Parser/ParserFoundationSpec.hs
+  other-modules:
+      JazzNext.Compiler.Parser.Foundation.ExpressionsTests
+      JazzNext.Compiler.Parser.Foundation.InvalidSyntaxTests
+      JazzNext.Compiler.Parser.Foundation.ModulesTests
+      JazzNext.Compiler.Parser.Foundation.Shared
+      JazzNext.Compiler.Parser.Foundation.SignaturesTests
 
 test-suite pattern-parser-spec
   import: test-common
@@ -197,6 +215,13 @@ test-suite binding-signature-coherence-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  other-modules:
+      JazzNext.Compiler.Semantics.BindingSignature.BasicsTests
+      JazzNext.Compiler.Semantics.BindingSignature.ConstraintsTests
+      JazzNext.Compiler.Semantics.BindingSignature.DiagnosticsTests
+      JazzNext.Compiler.Semantics.BindingSignature.GeneralizationTests
+      JazzNext.Compiler.Semantics.BindingSignature.RecursionTests
+      JazzNext.Compiler.Semantics.BindingSignature.Shared
 
 test-suite builtin-catalog-spec
   import: test-common
@@ -252,3 +277,10 @@ test-suite runtime-semantics-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
+  other-modules:
+      JazzNext.Compiler.Semantics.Runtime.CapabilitiesTests
+      JazzNext.Compiler.Semantics.Runtime.ControlFlowTests
+      JazzNext.Compiler.Semantics.Runtime.NumericTests
+      JazzNext.Compiler.Semantics.Runtime.RecursionTests
+      JazzNext.Compiler.Semantics.Runtime.RenderingTests
+      JazzNext.Compiler.Semantics.Runtime.Shared
