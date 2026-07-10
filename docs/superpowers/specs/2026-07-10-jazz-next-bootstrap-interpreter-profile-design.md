@@ -33,8 +33,52 @@ The first bootstrap milestone is reached when a Jazz-authored lexer can:
 6. match the Haskell lexer over the accepted and rejected parser fixtures.
 
 This is hosted bootstrapping, not the final self-hosting fixed point. The later
-fixed point requires a Jazz-authored compiler to produce a stage-1 artifact and
-for stage 1 to produce an equivalent stage-2 artifact.
+fixed point requires stage 0 to run the Jazz-authored compiler and emit LLVM IR
+for a native stage-1 compiler, then requires stage 1 to emit semantically
+equivalent stage-2 LLVM IR and a conforming native binary.
+
+## Long-Term Native Target
+
+LLVM-generated native binaries are the committed destination after hosted
+bootstrapping. The interpreter remains stage 0, the reference execution engine,
+and a useful development surface; it is not the permanent artifact format for
+compiled Jazz programs.
+
+The retained compiler pipeline is:
+
+```text
+Jazz source
+  -> surface AST
+  -> canonical typed core
+  -> backend-neutral lowered IR
+  -> LLVM IR
+  -> LLVM object generation and native link
+  -> native Jazz binary plus native runtime
+```
+
+The backend-neutral lowered IR is a permanent compiler boundary. It owns
+closure conversion, explicit control flow, concrete runtime representation
+choices, calls, and data-layout requests without encoding LLVM instruction
+objects throughout the frontend. LLVM lowering consumes this IR; the
+interpreter continues to consume canonical core.
+
+There is no planned bytecode format or bytecode VM between canonical core and
+LLVM. A temporary executable bytecode layer would duplicate control-flow,
+calling-convention, runtime, and artifact work that the LLVM backend must later
+replace.
+
+The first native runtime exposes the same semantic services as the bootstrap
+kernel through a small versioned ABI: allocation and garbage-collector hooks,
+`Char`/`Text` representation, text I/O, process arguments and exit, fatal
+diagnostics, and later deterministic collections. Jazz stdlib and compiler code
+target Jazz APIs rather than Haskell values or LLVM intrinsics, so the stage-0
+Haskell implementation and native runtime implementation can coexist without
+forking source code.
+
+LLVM tool invocation, object generation, platform linking, garbage collection,
+and native ABI implementation require a separate accepted backend design before
+implementation. This bootstrap profile fixes their architectural boundary but
+does not promote them ahead of the hosted lexer milestone.
 
 ## Chosen Profile
 
@@ -213,9 +257,11 @@ resolver and typechecker move into Jazz:
    interfaces. Positional ADTs remain sufficient for the first lexer.
 3. Immutable `Bytes`, UTF-8 encode/decode, and efficient text/byte builders for
    diagnostics and artifacts.
-4. Bitwise operations and checked integer/byte encoding for bytecode.
-5. A versioned canonical representation for core AST, inferred types, module
-   interfaces, diagnostics, and bytecode.
+4. A backend-neutral lowered IR with explicit control flow, closure conversion,
+   calls, and runtime data-layout requests.
+5. LLVM IR emission from the lowered IR plus native runtime ABI conformance.
+6. A versioned canonical representation for core AST, inferred types, module
+   interfaces, lowered IR, diagnostics, and normalized LLVM parity evidence.
 
 These facilities must be introduced behind Jazz-level APIs so replacing a host
 implementation does not require rewriting compiler logic.
@@ -309,7 +355,9 @@ The bootstrap interpreter profile does not add:
 - mutable variables or general shared mutable state;
 - concurrency, clocks, randomness, networking, subprocesses, or environment
   access;
-- LLVM, native, Wasm, or JavaScript generation; or
+- implementation of LLVM lowering, object generation, native linking, or the
+  native runtime in the lexer-readiness tranche;
+- Wasm or JavaScript generation; or
 - a stage-1/stage-2 fixed-point claim.
 
 Those features require separate accepted contracts when they become the
