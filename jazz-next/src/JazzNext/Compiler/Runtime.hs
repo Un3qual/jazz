@@ -1015,12 +1015,17 @@ evaluateModuleScope currentModulePath evaluationMode builtinMode bindingTypeHint
       case Map.lookup methodName env of
         Just (Right (VQualifiedMethod _ classParameter methodSignature _ _)) ->
           attachRuntimeTypeHint
-            ( runtimeConstraintType methodModulePath
+            ( runtimeConstraintType signatureModulePath
                 <$> substituteClassMethodSignature classParameter implTarget methodSignature
             )
             methodValue
         _ ->
           Right methodValue
+      where
+        signatureModulePath =
+          case methodName of
+            ResolvedName (ImportedModule classModulePath) _ _ -> Just classModulePath
+            _ -> methodModulePath
 
     selectedQualifiedMethodAliasTarget :: Maybe [Text] -> Map Text Expr -> Set Text -> RuntimeEnv -> Text -> Expr -> Either Diagnostic Bool
     selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey expr
