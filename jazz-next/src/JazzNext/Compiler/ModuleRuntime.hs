@@ -11,6 +11,7 @@ module JazzNext.Compiler.ModuleRuntime
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
+import JazzNext.Compiler.CapabilityFacts (splitQualifiedMethodKey)
 import JazzNext.Compiler.AST
   ( Expr (EBlock),
     Statement
@@ -125,7 +126,7 @@ evaluatePrelude compiledPrelude =
     Just expression -> do
       scopeResult <-
         evaluateModuleScope
-          Nothing
+          (Just [])
           EvaluateDependencyModule
           (compiledPreludeBuiltinMode compiledPrelude)
           (compiledPreludeRuntimeHints compiledPrelude)
@@ -146,7 +147,7 @@ importRuntimeModule compiledProgram runtimeModules importDecl env =
           selectedExports =
             [ (exportName, cell)
               | (exportName, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
-                maybe True (exportName `elem`) (resolvedImportSymbols importDecl)
+                runtimeExportSelected importDecl interface exportName
             ]
           insertExport (exportName, cell) =
             Map.insert
@@ -168,7 +169,7 @@ publishEnvironment :: ResolvedNameOrigin -> ModuleInterface -> RuntimeEnv -> Run
 publishEnvironment origin moduleInterface env =
   Map.fromList
     [ (ResolvedName origin (exportNamespace exportName moduleInterface) (mkIdentifier exportName), cell)
-      | exportName <- Map.keys (interfaceValueTypes moduleInterface),
+      | exportName <- interfaceExportNames moduleInterface,
         Just cell <- [lookupExportCell origin exportName moduleInterface env]
     ]
 
@@ -176,9 +177,28 @@ publishExports :: ResolvedNameOrigin -> ModuleInterface -> RuntimeEnv -> Map Tex
 publishExports origin moduleInterface env =
   Map.fromList
     [ (exportName, cell)
-      | exportName <- Map.keys (interfaceValueTypes moduleInterface),
+      | exportName <- interfaceExportNames moduleInterface,
         Just cell <- [lookupExportCell origin exportName moduleInterface env]
     ]
+
+interfaceExportNames :: ModuleInterface -> [Text]
+interfaceExportNames moduleInterface =
+  Map.keys (interfaceValueTypes moduleInterface)
+    <> Map.keys (interfaceClassMethods moduleInterface)
+
+runtimeExportSelected :: ResolvedImport -> ModuleInterface -> Text -> Bool
+runtimeExportSelected importDecl moduleInterface exportName =
+  case Map.lookup exportName (interfaceClassMethods moduleInterface) of
+    Just _ ->
+      resolvedImportAlias importDecl == Nothing
+        && maybe True classSelected (resolvedImportSymbols importDecl)
+    Nothing ->
+      maybe True (exportName `elem`) (resolvedImportSymbols importDecl)
+  where
+    classSelected symbols =
+      case splitQualifiedMethodKey exportName of
+        Just (className, _) -> className `elem` symbols
+        Nothing -> False
 
 lookupExportCell :: ResolvedNameOrigin -> Text -> ModuleInterface -> RuntimeEnv -> Maybe RuntimeCell
 lookupExportCell origin exportName moduleInterface env =

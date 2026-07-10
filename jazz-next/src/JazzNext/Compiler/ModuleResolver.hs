@@ -52,6 +52,7 @@ import JazzNext.Compiler.AST
     Pattern (..),
     SignatureConstraint (..),
     SignaturePayload (..),
+    SignatureToken (..),
     Statement (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
@@ -333,8 +334,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                   { ModuleGraph.resolvedModulePath = modulePath,
                                     ModuleGraph.resolvedSourcePath = sourcePath,
                                     ModuleGraph.resolvedModuleImports = ModuleGraph.coreModuleImports resolvedCore,
-                                    ModuleGraph.resolvedModuleCore = resolvedCore,
-                                    ModuleGraph.resolvedImports = sortedImports
+                                    ModuleGraph.resolvedModuleCore = resolvedCore
                                   }
                            in pure
                                 ( Right
@@ -726,7 +726,12 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
           ConstrainedSignature
             (map resolveSignatureConstraint constraints)
             (resolveConstraintType signatureType)
-        UnsupportedSignature tokens -> UnsupportedSignature tokens
+        UnsupportedSignature tokens -> UnsupportedSignature (map resolveSignatureToken tokens)
+
+    resolveSignatureToken token =
+      case token of
+        SignatureNameToken name -> SignatureNameToken (resolveName TypeNamespace name)
+        _ -> token
 
     resolveSignatureConstraint (SignatureConstraint name arguments) =
       SignatureConstraint (resolveName CapabilityNamespace name) (map resolveConstraintType arguments)

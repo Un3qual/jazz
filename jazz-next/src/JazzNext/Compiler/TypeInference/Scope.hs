@@ -7,7 +7,6 @@ module JazzNext.Compiler.TypeInference.Scope
     instantiateNonBuiltinTypeBinding
   ) where
 
-import Control.Applicative ((<|>))
 import Data.List (foldl')
 import Data.Maybe (isNothing)
 import Data.Map.Strict (Map)
@@ -46,8 +45,7 @@ import JazzNext.Compiler.Identifier
     mkIdentifier
   )
 import JazzNext.Compiler.Name
-  ( GeneratedNameKind (..),
-    Name (..),
+  ( Name (..),
     operatorBindingName,
     sourceName
   )
@@ -137,7 +135,8 @@ inferScopeType :: InferExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState 
 inferScopeType inferExpression builtinMode initialEnv initialState statements =
   let (scopeType, finalState) =
         go initialEnv Nothing Nothing Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
-   in (scopeType, restoreCapabilityFacts initialState finalState)
+      stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
+   in (scopeType, restoreCapabilityFacts initialState stateWithPublishedModuleFacts)
   where
     indexedStatements = zip [0 ..] statements
     recursiveGroupsByStatement =
@@ -239,22 +238,14 @@ inferScopeType inferExpression builtinMode initialEnv initialState statements =
                           (PlainTypeBinding (pendingSignatureDeclaredType pendingSignature))
                           envWithBindingSeed
                       Nothing -> envWithBindingSeed
-                  maybePreservedSchemeAliasBinding =
-                    schemePreservingAliasBinding name envWithPendingSignature valueExpr
                   maybeExpectedValueType =
                     pendingSignatureDeclaredType <$> matchingPendingSignature
                   (rawValueType, rawStateAfterValue) =
-                    case maybePreservedSchemeAliasBinding of
-                      Just (SchemeTypeBinding typeScheme) ->
-                        (Just (schemeResultType typeScheme), stateForStatement)
-                      Just (OperatorAliasSchemeTypeBinding _ typeScheme) ->
-                        (Just (schemeResultType typeScheme), stateForStatement)
-                      _ ->
-                        case maybeExpectedValueType of
-                          Just expectedValueType ->
-                            inferExprTypeWithExpected inferExpression builtinMode envWithPendingSignature stateForStatement expectedValueType valueExpr
-                          Nothing ->
-                            inferExpression builtinMode envWithPendingSignature stateForStatement valueExpr
+                    case maybeExpectedValueType of
+                      Just expectedValueType ->
+                        inferExprTypeWithExpected inferExpression builtinMode envWithPendingSignature stateForStatement expectedValueType valueExpr
+                      Nothing ->
+                        inferExpression builtinMode envWithPendingSignature stateForStatement valueExpr
                   valueType =
                     targetedFractionalLiteralBindingType
                       nameText
@@ -338,15 +329,14 @@ inferScopeType inferExpression builtinMode initialEnv initialState statements =
                           droppedInferredSchemeVariables
                       Nothing -> stateAfterExplicitConstraintCheck
                   maybeNextBinding =
-                    maybePreservedSchemeAliasBinding
-                      <|> nextBindingForValue
-                        statementIndex
-                        name
-                        envForStatement
-                        valueExpr
-                        nextBindingType
-                        matchingPendingSignature
-                        stateAfterDroppedInferredMethodCheck
+                    nextBindingForValue
+                      statementIndex
+                      name
+                      envForStatement
+                      valueExpr
+                      nextBindingType
+                      matchingPendingSignature
+                      stateAfterDroppedInferredMethodCheck
                   stateAfterRuntimeHint =
                     case
                         runtimeHintForBinding
@@ -469,10 +459,6 @@ inferScopeType inferExpression builtinMode initialEnv initialState statements =
                     Just binding@(OperatorAliasSchemeTypeBinding _ _)
                       | isNothing maybePendingSignature ->
                           Just binding
-                    Just constructorBinding@ConstructorTypeBinding {}
-                      | isNothing maybePendingSignature,
-                        isSyntheticAliasConstructorBinding bindingName builtinName ->
-                          Just constructorBinding
                     Just _ ->
                       monomorphicBinding
                     Nothing ->
@@ -480,34 +466,6 @@ inferScopeType inferExpression builtinMode initialEnv initialState statements =
                         Just builtinSymbol -> Just (BuiltinAliasTypeBinding builtinSymbol)
                         Nothing -> monomorphicBinding
             _ -> monomorphicBinding
-
-    schemePreservingAliasBinding :: Name -> TypeEnv -> Expr -> Maybe TypeBinding
-    schemePreservingAliasBinding bindingName currentEnv valueExpr =
-      case valueExpr of
-        EVar referencedName
-          | isSyntheticModuleSchemeBridge bindingName referencedName ->
-              case Map.lookup referencedName currentEnv of
-                Just binding@(SchemeTypeBinding _) -> Just binding
-                Just binding@(OperatorAliasSchemeTypeBinding _ _) -> Just binding
-                _ -> Nothing
-        _ -> Nothing
-
-    isSyntheticModuleSchemeBridge :: Name -> Name -> Bool
-    isSyntheticModuleSchemeBridge bindingName referencedName =
-      isModuleReplayBridge bindingName || isModuleReplayBridge referencedName
-
-    isSyntheticAliasConstructorBinding bindingName referencedName =
-      isQualifiedName bindingName && isModuleReplayBridge referencedName
-
-    isModuleReplayBridge name =
-      case name of
-        GeneratedName ModuleReplayBridge {} -> True
-        _ -> False
-
-    isQualifiedName name =
-      case name of
-        QualifiedName {} -> True
-        _ -> False
 
     operatorAliasBinding :: Text -> Maybe TypeBinding -> TypeBinding
     operatorAliasBinding operatorSymbol maybeBinding =

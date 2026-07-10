@@ -90,10 +90,10 @@ import JazzNext.Compiler.TypeInference.State
     InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
-    inferCurrentModuleLocalCapabilityFacts,
     inferDataTypes,
     inferDeferredExplicitConstraints,
     inferErrorsRev,
+    inferModuleCapabilityFacts,
     inferRuntimeTypeHints,
     inferVisibleTypes,
     initialInferState
@@ -261,7 +261,7 @@ moduleInterfaceFromState inputs expr state =
     (declaredValues, declaredDataTypes) = declaredModuleNames expr
     localCapabilities =
       case inferenceCurrentModulePath inputs of
-        Just _ -> inferCurrentModuleLocalCapabilityFacts state
+        Just modulePath -> Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state)
         Nothing -> capabilityFactsFromState state
 
 declaredModuleNames :: Expr -> (Set Name, Set Text)

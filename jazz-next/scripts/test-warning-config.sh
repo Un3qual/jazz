@@ -74,6 +74,11 @@ if rg -n '^data (ExpressionType|InferState|TypeScheme)\b' jazz-next/src/JazzNext
   exit 1
 fi
 
+if rg -n 'ModuleReplay|moduleGraphValidationExpr|moduleGraphRuntimeExpr|__module::|ModuleReplayBridge' jazz-next/src jazz-next/test jazz-next/jazz-next.cabal; then
+  echo "Removed module-replay architecture resurfaced" >&2
+  exit 1
+fi
+
 for test_file in "${TEST_FILES[@]}"; do
   "$RUNGHC" "${RUNGHC_INCLUDES[@]}" "$test_file"
 done

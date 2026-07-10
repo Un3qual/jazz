@@ -11,25 +11,13 @@ import Data.IORef
   )
 import Data.Text (Text)
 import qualified Data.Text as Text
-import JazzNext.Compiler.AST
-  ( ClassMethodSignature (..),
-    ConstraintSignatureType (..),
-    Expr (..),
-    ImplMethod (..),
-    Literal (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    Statement (..)
-  )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
-    renderDiagnostic
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     ResolvedPrelude (..),
     RunResult (..),
-    collectNeededLocalCapabilityExports,
     compileModuleGraph,
     compileModuleGraphWithResolvedPrelude,
     compileModuleGraphWithPrelude,
@@ -38,8 +26,7 @@ import JazzNext.Compiler.Driver
     runModuleGraphWithPrelude
   )
 import JazzNext.Compiler.ModuleResolver
-  ( ModuleResolutionConfig (..),
-    ResolvedModule (..)
+  ( ModuleResolutionConfig (..)
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -141,7 +128,6 @@ tests =
     ("run module graph rewrites hidden capability references despite value shadowing", testRunModuleGraphRewritesHiddenCapabilityReferencesDespiteValueShadowing),
     ("run module graph replays data referenced by imported class methods", testRunModuleGraphReplaysDataReferencedByImportedClassMethods),
     ("run module graph qualifies sibling data fields during replay", testRunModuleGraphQualifiesSiblingDataFieldsDuringReplay),
-    ("driver retains transitive local capabilities needed by imported signatures", testCollectNeededLocalCapabilityExportsClosesThroughRetainedClassMethodSignatures),
     ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
     ("run module graph reports cycle diagnostics", testRunModuleGraphCycle),
     ("loader reuses memoized source lookup across resolve and replay", testMemoizedLookupReuse)
@@ -1208,7 +1194,7 @@ testRunModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
             (renderDiagnostic err)
           assertContains
             (label <> " hidden Eq fact name")
-            "__module::Lib::Poly::Eq(Bool)"
+            "Lib::Poly::Eq(Bool)"
             (renderDiagnostic err)
         _ -> failTest (label <> ": expected exactly one hidden Eq compile error")
 
@@ -1242,7 +1228,7 @@ testRunModuleGraphKeepsHelperOnlyInferredEqualityHiddenDespiteDirectSiblingImpor
         (renderDiagnostic err)
       assertContains
         "helper-only import hidden Eq fact name"
-        "__module::Lib::Poly::Eq(Bool)"
+        "Lib::Poly::Eq(Bool)"
         (renderDiagnostic err)
     errors ->
       failTest
@@ -1284,7 +1270,7 @@ testCompileModuleGraphKeepsInferredEqualityExportFactsScopedToHiddenCapability =
         (renderDiagnostic err)
       assertContains
         "compile hidden Eq fact name"
-        "__module::Lib::Poly::Eq(Bool)"
+        "Lib::Poly::Eq(Bool)"
         (renderDiagnostic err)
     _ -> failTest "expected exactly one compile-time hidden Eq error"
   where
@@ -2040,66 +2026,6 @@ testRunModuleGraphQualifiesSiblingDataFieldsDuringReplay = do
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
-
-testCollectNeededLocalCapabilityExportsClosesThroughRetainedClassMethodSignatures :: IO ()
-testCollectNeededLocalCapabilityExportsClosesThroughRetainedClassMethodSignatures =
-  assertEqual
-    "needed local capabilities"
-    (Map.singleton modulePath (Set.fromList ["Aux", "Need"]))
-    ( collectNeededLocalCapabilityExports
-        [ResolvedModule modulePath "src/Lib/Api.jz" []]
-        [loweredModule]
-        (Map.singleton modulePath (Set.singleton "foo"))
-        Map.empty
-    )
-  where
-    modulePath = ["Lib", "Api"]
-    spanValue = SourceSpan 1 1
-    loweredModule =
-      EBlock
-        [ SClass
-            spanValue
-            "Aux"
-            ["a"]
-            [ ClassMethodSignature
-                "ok"
-                spanValue
-                ( ConstrainedSignature
-                    []
-                    (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool"))
-                )
-            ],
-          SImpl
-            spanValue
-            "Aux"
-            [ConstraintTypeName "Int"]
-            [ImplMethod "ok" spanValue (ELambda "value" (ELit (LBool True)))],
-          SClass
-            spanValue
-            "Need"
-            ["a"]
-            [ ClassMethodSignature
-                "aux"
-                spanValue
-                ( ConstrainedSignature
-                    [SignatureConstraint "Aux" [ConstraintTypeName "Int"]]
-                    (ConstraintTypeName "Bool")
-                )
-            ],
-          SImpl
-            spanValue
-            "Need"
-            [ConstraintTypeName "Int"]
-            [ImplMethod "aux" spanValue (ELit (LBool True))],
-          SSignature
-            "foo"
-            spanValue
-            ( ConstrainedSignature
-                [SignatureConstraint "Need" [ConstraintTypeName "Int"]]
-                (ConstraintTypeName "Int")
-            ),
-          SLet "foo" spanValue (ELit (LInt 1))
-        ]
 
 testCompileModuleGraphModuleDeclarationMismatch :: IO ()
 testCompileModuleGraphModuleDeclarationMismatch = do

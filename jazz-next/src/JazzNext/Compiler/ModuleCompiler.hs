@@ -12,6 +12,12 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import JazzNext.Compiler.AST
+  ( ConstraintSignatureType (..),
+    SignatureConstraint (..),
+    SignaturePayload (..),
+    SignatureToken (..)
+  )
 import JazzNext.Compiler.ModuleGraph
   ( CoreModule (coreModuleExpr),
     ResolvedImport (..),
@@ -20,11 +26,11 @@ import JazzNext.Compiler.ModuleGraph
   )
 import JazzNext.Compiler.ModuleInterface
 import JazzNext.Compiler.Name
-  ( Name (ResolvedName),
+  ( Name (..),
     NameNamespace (..),
     ResolvedNameOrigin (..)
   )
-import JazzNext.Compiler.Identifier (mkIdentifier)
+import JazzNext.Compiler.Identifier (identifierText, mkIdentifier)
 import JazzNext.Compiler.Prelude (PreparedPrelude (..))
 import JazzNext.Compiler.TypeInference
   ( InferenceInputs (..),
@@ -33,10 +39,17 @@ import JazzNext.Compiler.TypeInference
     inferExpressionWithInputsAndHiddenStatements
   )
 import JazzNext.Compiler.TypeInference.Types
-  ( DataTypeBinding,
+  ( ClassMethodType (..),
+    ConstructorArgumentType (..),
+    DataTypeBinding (..),
+    ExpressionType (..),
+    ImplMethodType (..),
     ScopeCapabilityFacts (..),
     TypeBinding (..),
     TypeEnv,
+    TypeScheme (..),
+    TypeSchemeConstraint (..),
+    TypeSchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts
   )
 import JazzNext.Compiler.WarningConfig (WarningSettings)
@@ -58,7 +71,7 @@ compilePreparedPrelude settings preparedPrelude =
               inferenceImportedTypes = Map.empty,
               inferenceImportedDataTypes = Map.empty,
               inferenceImportedCapabilities = emptyScopeCapabilityFacts,
-              inferenceCurrentModulePath = Nothing
+              inferenceCurrentModulePath = Just []
             }
           (preparedPreludeHiddenStatementIndices preparedPrelude)
           preludeExpr
@@ -186,17 +199,24 @@ importSelectedInterface origin maybeAlias maybeSymbols moduleInterface =
   ImportedInterface
     { importedTypes =
         Map.fromList
-          [ (ResolvedName origin (bindingNamespace binding) (mkIdentifier exportName), binding)
+          [ ( ResolvedName origin (bindingNamespace binding) (mkIdentifier exportName),
+              rebaseTypeBinding origin dataTypeNames classNames binding
+            )
             | (exportName, binding) <- Map.toList selectedValueTypes
           ],
       importedDataTypes =
         Map.fromList
-          [ (qualifiedKey origin dataTypeName, dataType)
+          [ ( qualifiedKey origin dataTypeName,
+              rebaseDataTypeBinding origin dataTypeNames classNames dataType
+            )
             | (dataTypeName, dataType) <- Map.toList (interfaceDataTypes moduleInterface)
           ],
-      importedCapabilities = selectedCapabilities
+      importedCapabilities =
+        rebaseCapabilityFacts origin dataTypeNames classNames selectedCapabilities
     }
   where
+    dataTypeNames = Map.keysSet (interfaceDataTypes moduleInterface)
+    classNames = Map.keysSet (interfaceClassFacts moduleInterface)
     selected name = maybe True (name `elem`) maybeSymbols
     selectedValueTypes = Map.filterWithKey (\name _ -> selected name) (interfaceValueTypes moduleInterface)
     includeCapabilities = maybeAlias == Nothing
@@ -206,18 +226,17 @@ importSelectedInterface origin maybeAlias maybeSymbols moduleInterface =
     selectedClassNames = Map.keysSet selectedClassFacts
     selectedCapabilities =
       ScopeCapabilityFacts
-        { scopeClassFacts = Map.mapKeys (qualifiedKey origin) selectedClassFacts,
+        { scopeClassFacts = selectedClassFacts,
           scopeGeneratedEqualityClassFacts =
-            Set.map (qualifiedKey origin) $
-              Set.filter
-                (`Set.member` selectedClassNames)
-                (interfaceGeneratedEqualityClassFacts moduleInterface),
+            Set.filter
+              (`Set.member` selectedClassNames)
+              (interfaceGeneratedEqualityClassFacts moduleInterface),
           scopeConcreteImplFacts =
-            Set.map (qualifyFact origin selectedClassNames) (Set.filter (factUsesClass selectedClassNames) (interfaceConcreteImplFacts moduleInterface)),
+            Set.filter (factUsesClass selectedClassNames) (interfaceConcreteImplFacts moduleInterface),
           scopeClassMethodSignatures =
-            Map.mapKeys (qualifiedKey origin) (Map.filterWithKey (methodUsesClass selectedClassNames) (interfaceClassMethods moduleInterface)),
+            Map.filterWithKey (methodUsesClass selectedClassNames) (interfaceClassMethods moduleInterface),
           scopeConcreteImplMethods =
-            Map.mapKeys (qualifiedKey origin) (Map.filterWithKey (methodUsesClass selectedClassNames) (interfaceConcreteImplMethods moduleInterface))
+            Map.filterWithKey (methodUsesClass selectedClassNames) (interfaceConcreteImplMethods moduleInterface)
         }
 
 bindingNamespace :: TypeBinding -> NameNamespace
@@ -235,11 +254,171 @@ qualifiedKey origin name =
 factUsesClass :: Set.Set Text -> Text -> Bool
 factUsesClass classNames fact = Set.member (fst (Text.breakOn "(" fact)) classNames
 
-qualifyFact :: ResolvedNameOrigin -> Set.Set Text -> Text -> Text
-qualifyFact origin _ fact =
-  let (className, arguments) = Text.breakOn "(" fact
-   in qualifiedKey origin className <> arguments
-
 methodUsesClass :: Set.Set Text -> Text -> value -> Bool
 methodUsesClass classNames methodKey _ =
   any (\className -> (className <> "::") `Text.isPrefixOf` methodKey) (Set.toList classNames)
+
+rebaseTypeBinding :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> TypeBinding -> TypeBinding
+rebaseTypeBinding origin dataTypeNames classNames binding =
+  case binding of
+    PlainTypeBinding expressionType ->
+      PlainTypeBinding (rebaseExpressionType origin dataTypeNames expressionType)
+    SchemeTypeBinding typeScheme ->
+      SchemeTypeBinding (rebaseTypeScheme origin dataTypeNames classNames typeScheme)
+    BuiltinAliasTypeBinding {} -> binding
+    BuiltinOperatorAliasTypeBinding {} -> binding
+    OperatorAliasSchemeTypeBinding operatorSymbol typeScheme ->
+      OperatorAliasSchemeTypeBinding operatorSymbol (rebaseTypeScheme origin dataTypeNames classNames typeScheme)
+    ConstructorTypeBinding typeName parameters arguments ->
+      ConstructorTypeBinding
+        (rebaseKnownName origin dataTypeNames typeName)
+        parameters
+        (map (rebaseConstructorArgument origin dataTypeNames) arguments)
+
+rebaseDataTypeBinding :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> DataTypeBinding -> DataTypeBinding
+rebaseDataTypeBinding origin dataTypeNames _ (DataTypeBinding parameters constructors) =
+  DataTypeBinding parameters (map (map (rebaseConstructorArgument origin dataTypeNames)) constructors)
+
+rebaseConstructorArgument :: ResolvedNameOrigin -> Set.Set Text -> ConstructorArgumentType -> ConstructorArgumentType
+rebaseConstructorArgument origin dataTypeNames argument =
+  case argument of
+    ConstructorArgumentMonomorphic TVarType {} ->
+      ConstructorArgumentFresh
+    ConstructorArgumentMonomorphic expressionType ->
+      ConstructorArgumentMonomorphic (rebaseExpressionType origin dataTypeNames expressionType)
+    ConstructorArgumentParameter {} -> argument
+    ConstructorArgumentFresh -> argument
+
+rebaseExpressionType :: ResolvedNameOrigin -> Set.Set Text -> ExpressionType -> ExpressionType
+rebaseExpressionType origin dataTypeNames expressionType =
+  case expressionType of
+    TListType elementType -> TListType (rebaseExpressionType origin dataTypeNames elementType)
+    TTupleType elementTypes -> TTupleType (map (rebaseExpressionType origin dataTypeNames) elementTypes)
+    TDataType typeName arguments ->
+      TDataType
+        (rebaseKnownName origin dataTypeNames typeName)
+        (map (rebaseExpressionType origin dataTypeNames) arguments)
+    TFunctionType argumentType resultType ->
+      TFunctionType
+        (rebaseExpressionType origin dataTypeNames argumentType)
+        (rebaseExpressionType origin dataTypeNames resultType)
+    _ -> expressionType
+
+rebaseTypeScheme :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> TypeScheme -> TypeScheme
+rebaseTypeScheme origin dataTypeNames classNames typeScheme =
+  typeScheme
+    { schemeClassConstraints = map rebaseSchemeConstraint (schemeClassConstraints typeScheme),
+      schemePrimitiveConstraints = map rebasePrimitiveConstraint (schemePrimitiveConstraints typeScheme),
+      schemeDefiningCapabilities = rebaseCapabilityFacts origin dataTypeNames classNames (schemeDefiningCapabilities typeScheme),
+      schemeResultType = rebaseExpressionType origin dataTypeNames (schemeResultType typeScheme)
+    }
+  where
+    rebaseSchemeConstraint constraint =
+      case constraint of
+        TypeSchemeConstraint capabilityName argumentType ->
+          TypeSchemeConstraint (rebaseKnownText origin classNames capabilityName) (rebaseExpressionType origin dataTypeNames argumentType)
+        TypeSchemeInferredConstraint capabilityName argumentType ->
+          TypeSchemeInferredConstraint (rebaseKnownText origin classNames capabilityName) (rebaseExpressionType origin dataTypeNames argumentType)
+        TypeSchemeMethodConstraint capabilityName methodKey argumentType ->
+          TypeSchemeMethodConstraint
+            (rebaseKnownText origin classNames capabilityName)
+            (rebaseMethodKey origin classNames methodKey)
+            (rebaseExpressionType origin dataTypeNames argumentType)
+    rebasePrimitiveConstraint primitiveConstraint =
+      case primitiveConstraint of
+        TypeSchemeNumericConstraint numericConstraint argumentType ->
+          TypeSchemeNumericConstraint numericConstraint (rebaseExpressionType origin dataTypeNames argumentType)
+        TypeSchemeStrictEqualityConstraint argumentType ->
+          TypeSchemeStrictEqualityConstraint (rebaseExpressionType origin dataTypeNames argumentType)
+
+rebaseCapabilityFacts :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ScopeCapabilityFacts -> ScopeCapabilityFacts
+rebaseCapabilityFacts origin dataTypeNames classNames facts =
+  ScopeCapabilityFacts
+    { scopeClassFacts = Map.mapKeys (rebaseKnownText origin classNames) (scopeClassFacts facts),
+      scopeGeneratedEqualityClassFacts = Set.map (rebaseKnownText origin classNames) (scopeGeneratedEqualityClassFacts facts),
+      scopeConcreteImplFacts = Set.map (rebaseFact origin dataTypeNames classNames) (scopeConcreteImplFacts facts),
+      scopeClassMethodSignatures =
+        Map.fromList
+          [ (rebaseMethodKey origin classNames methodKey, rebaseClassMethod origin dataTypeNames classNames methodType)
+            | (methodKey, methodType) <- Map.toList (scopeClassMethodSignatures facts)
+          ],
+      scopeConcreteImplMethods =
+        Map.fromList
+          [ (rebaseMethodKey origin classNames methodKey, map (rebaseImplMethod origin dataTypeNames classNames) methodTypes)
+            | (methodKey, methodTypes) <- Map.toList (scopeConcreteImplMethods facts)
+          ]
+    }
+
+rebaseClassMethod :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ClassMethodType -> ClassMethodType
+rebaseClassMethod origin dataTypeNames classNames (ClassMethodType parameter payload) =
+  ClassMethodType parameter (rebaseSignaturePayload origin dataTypeNames classNames payload)
+
+rebaseImplMethod :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ImplMethodType -> ImplMethodType
+rebaseImplMethod origin dataTypeNames classNames (ImplMethodType target) =
+  ImplMethodType (rebaseConstraintType origin dataTypeNames classNames target)
+
+rebaseSignaturePayload :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SignaturePayload -> SignaturePayload
+rebaseSignaturePayload origin dataTypeNames classNames payload =
+  case payload of
+    SignatureType {} -> payload
+    ConstrainedSignature constraints signatureType ->
+      ConstrainedSignature
+        [ SignatureConstraint
+            (rebaseKnownName origin classNames capabilityName)
+            (map (rebaseConstraintType origin dataTypeNames classNames) arguments)
+          | SignatureConstraint capabilityName arguments <- constraints
+        ]
+        (rebaseConstraintType origin dataTypeNames classNames signatureType)
+    UnsupportedSignature tokens ->
+      UnsupportedSignature
+        [ case token of
+            SignatureNameToken name -> SignatureNameToken (rebaseKnownName origin dataTypeNames name)
+            _ -> token
+          | token <- tokens
+        ]
+
+rebaseConstraintType :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ConstraintSignatureType -> ConstraintSignatureType
+rebaseConstraintType origin dataTypeNames _ signatureType =
+  case signatureType of
+    ConstraintTypeName typeName -> ConstraintTypeName (rebaseKnownName origin dataTypeNames typeName)
+    ConstraintTypeApplication typeName arguments ->
+      ConstraintTypeApplication
+        (rebaseKnownName origin dataTypeNames typeName)
+        (map (rebaseConstraintType origin dataTypeNames Set.empty) arguments)
+    ConstraintTypeList elementType -> ConstraintTypeList (rebaseConstraintType origin dataTypeNames Set.empty elementType)
+    ConstraintTypeTuple elementTypes -> ConstraintTypeTuple (map (rebaseConstraintType origin dataTypeNames Set.empty) elementTypes)
+    ConstraintTypeFunction argumentType resultType ->
+      ConstraintTypeFunction
+        (rebaseConstraintType origin dataTypeNames Set.empty argumentType)
+        (rebaseConstraintType origin dataTypeNames Set.empty resultType)
+
+rebaseKnownName :: ResolvedNameOrigin -> Set.Set Text -> Name -> Name
+rebaseKnownName origin knownNames name =
+  case name of
+    ResolvedName CurrentModule namespace identifier
+      | Set.member (identifierText identifier) knownNames ->
+          ResolvedName origin namespace identifier
+    _ -> name
+
+rebaseKnownText :: ResolvedNameOrigin -> Set.Set Text -> Text -> Text
+rebaseKnownText origin knownNames name
+  | Set.member name knownNames = qualifiedKey origin name
+  | otherwise = name
+
+rebaseMethodKey :: ResolvedNameOrigin -> Set.Set Text -> Text -> Text
+rebaseMethodKey origin classNames methodKey =
+  case [className | className <- Set.toList classNames, (className <> "::") `Text.isPrefixOf` methodKey] of
+    className : _ -> qualifiedKey origin className <> Text.drop (Text.length className) methodKey
+    [] -> methodKey
+
+rebaseFact :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> Text -> Text
+rebaseFact origin dataTypeNames classNames =
+  Text.concat . map rebaseToken . Text.groupBy sameTokenKind
+  where
+    knownNames = Set.union dataTypeNames classNames
+    rebaseToken token
+      | Text.all identifierCharacter token = rebaseKnownText origin knownNames token
+      | otherwise = token
+    sameTokenKind left right = identifierCharacter left == identifierCharacter right
+    identifierCharacter character =
+      character == ':' || character == '_' || ('0' <= character && character <= '9') || ('A' <= character && character <= 'Z') || ('a' <= character && character <= 'z')

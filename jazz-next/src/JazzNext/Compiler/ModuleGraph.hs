@@ -21,6 +21,7 @@ import JazzNext.Compiler.AST
     Pattern (..),
     SignatureConstraint (..),
     SignaturePayload (..),
+    SignatureToken (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics (SourceSpan)
@@ -45,10 +46,7 @@ data ResolvedModule = ResolvedModule
   { resolvedModulePath :: [Text],
     resolvedSourcePath :: FilePath,
     resolvedModuleImports :: [ResolvedImport],
-    resolvedModuleCore :: CoreModule,
-    -- Temporary compatibility inventory for the replay implementation. Task
-    -- 12 removes replay and this projection with it.
-    resolvedImports :: [[Text]]
+    resolvedModuleCore :: CoreModule
   }
   deriving (Eq, Show)
 
@@ -143,7 +141,8 @@ signaturePayloadNames payload =
     SignatureType _ -> []
     ConstrainedSignature constraints signatureType ->
       concatMap signatureConstraintNames constraints <> constraintTypeNames signatureType
-    UnsupportedSignature _ -> []
+    UnsupportedSignature tokens ->
+      [name | SignatureNameToken name <- tokens]
 
 signatureConstraintNames :: SignatureConstraint -> [Name]
 signatureConstraintNames (SignatureConstraint name arguments) =

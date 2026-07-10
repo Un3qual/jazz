@@ -12,7 +12,6 @@ module JazzNext.Compiler.Driver
     compileModuleGraph,
     compileModuleGraphWithPrelude,
     compileModuleGraphWithResolvedPrelude,
-    collectNeededLocalCapabilityExports,
     RunResult (..),
     runExpr,
     runSource,
@@ -42,13 +41,21 @@ import JazzNext.Compiler.BundledPrelude
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..)
   )
-import JazzNext.Compiler.ModuleReplay
-  ( ModuleGraphExpr (..),
-    collectNeededLocalCapabilityExports,
-    loadLoweredModuleGraph
+import JazzNext.Compiler.ModuleCompiler
+  ( compilePreparedPrelude,
+    compileResolvedProgram
+  )
+import JazzNext.Compiler.ModuleInterface
+  ( CompiledProgram (..),
+    compileInputs
   )
 import JazzNext.Compiler.ModuleResolver
-  ( ModuleResolutionConfig
+  ( ModuleResolutionConfig,
+    resolveProgram
+  )
+import JazzNext.Compiler.ModuleRuntime
+  ( RuntimeProgram (runtimeProgramOutput),
+    evaluateCompiledProgram
   )
 import JazzNext.Compiler.Prelude
   ( PreparedPrelude (..),
@@ -56,7 +63,6 @@ import JazzNext.Compiler.Prelude
     preparePrelude,
     resolvedExplicitPrelude
   )
-import JazzNext.Compiler.Name (renderName)
 import JazzNext.Compiler.Runtime
   ( evaluateRuntimeExprWithBuiltinsAndBindingHints,
     renderRuntimeValue
@@ -175,38 +181,28 @@ compileModuleGraphWithResolvedPrelude ::
   (FilePath -> IO (Maybe Text)) ->
   IO CompileResult
 compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = do
-  case preparePrelude resolvedPrelude of
-    Left preludeError ->
+  compiledResult <-
+    buildCompiledProgram
+      settings
+      resolvedPrelude
+      resolutionConfig
+      entryModulePath
+      sourceLookup
+  case compiledResult of
+    Left diagnostic ->
       pure
         CompileResult
           { compileWarnings = [],
-            compileErrors = [preludeError]
+            compileErrors = [diagnostic]
           }
-    Right preparedPrelude -> do
-      let ambientVisibleSymbols = Set.map renderName (preparedPreludeVisibleValues preparedPrelude)
-          ambientVisibleClassNames = Set.map renderName (preparedPreludeVisibleClasses preparedPrelude)
-      moduleGraphExprResult <-
-        loadLoweredModuleGraph
-          (preparedPreludeBuiltinMode preparedPrelude)
-          ambientVisibleSymbols
-          ambientVisibleClassNames
-          resolutionConfig
-          entryModulePath
-          sourceLookup
-      case moduleGraphExprResult of
-        Left resolutionError ->
-          pure
+    Right compiledProgram ->
+      let warnings = filterWarningsForPromotion settings (compiledProgramWarnings compiledProgram)
+          promotedWarningErrors = map warningToError (filter (isPromoted settings) warnings)
+       in pure
             CompileResult
-              { compileWarnings = [],
-                compileErrors = [resolutionError]
+              { compileWarnings = warnings,
+                compileErrors = compiledProgramErrors compiledProgram <> promotedWarningErrors
               }
-        Right moduleGraphExpr ->
-          let loweredProgram = mergePreparedPrelude preparedPrelude (moduleGraphValidationExpr moduleGraphExpr)
-           in compileExprWithBuiltinsAndHiddenStatements
-                (parsedHiddenStatementIndices loweredProgram)
-                (parsedBuiltinMode loweredProgram)
-                settings
-                (parsedExpr loweredProgram)
 
 runExpr :: WarningSettings -> Expr -> IO RunResult
 runExpr = runExprWithBuiltins ResolveKernelOnly
@@ -311,99 +307,78 @@ runModuleGraphWithResolvedPrelude ::
   (FilePath -> IO (Maybe Text)) ->
   IO RunResult
 runModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = do
-  case preparePrelude resolvedPrelude of
-    Left preludeError ->
+  compiledResult <-
+    buildCompiledProgram
+      settings
+      resolvedPrelude
+      resolutionConfig
+      entryModulePath
+      sourceLookup
+  case compiledResult of
+    Left diagnostic ->
       pure
         RunResult
           { runWarnings = [],
-            runCompileErrors = [preludeError],
+            runCompileErrors = [diagnostic],
             runRuntimeErrors = [],
             runOutput = Nothing
           }
-    Right preparedPrelude -> do
-      let ambientVisibleSymbols = Set.map renderName (preparedPreludeVisibleValues preparedPrelude)
-          ambientVisibleClassNames = Set.map renderName (preparedPreludeVisibleClasses preparedPrelude)
-      moduleGraphExprResult <-
-        loadLoweredModuleGraph
-          (preparedPreludeBuiltinMode preparedPrelude)
-          ambientVisibleSymbols
-          ambientVisibleClassNames
-          resolutionConfig
-          entryModulePath
-          sourceLookup
-      case moduleGraphExprResult of
-        Left resolutionError ->
-          pure
-            RunResult
-              { runWarnings = [],
-                runCompileErrors = [resolutionError],
-                runRuntimeErrors = [],
-                runOutput = Nothing
-              }
-        Right moduleGraphExpr ->
-          let validationProgram = mergePreparedPrelude preparedPrelude (moduleGraphValidationExpr moduleGraphExpr)
-              runtimeProgram = mergePreparedPrelude preparedPrelude (moduleGraphRuntimeExpr moduleGraphExpr)
-           in runExprWithValidationAndRuntimeExprs
-                (parsedHiddenStatementIndices validationProgram)
-                (parsedBuiltinMode validationProgram)
-                settings
-                (parsedExpr validationProgram)
-                (parsedExpr runtimeProgram)
-
-runExprWithValidationAndRuntimeExprs ::
-  Set Int ->
-  BuiltinResolutionMode ->
-  WarningSettings ->
-  Expr ->
-  Expr ->
-  IO RunResult
-runExprWithValidationAndRuntimeExprs
-  hiddenStatementIndices
-  builtinMode
-  settings
-  validationExpr
-  runtimeExpr = do
-  (warnings, compileErrors, _, _) <-
-    analyzeWithWarnings hiddenStatementIndices builtinMode settings validationExpr
-  if not (null compileErrors)
-    then
-      pure
-        RunResult
-          { runWarnings = warnings,
-            runCompileErrors = compileErrors,
-            runRuntimeErrors = [],
-            runOutput = Nothing
-          }
-    else do
-      (_, runtimeCompileErrors, canonicalRuntimeExpr, runtimeTypeHints) <-
-        analyzeWithWarnings hiddenStatementIndices builtinMode settings runtimeExpr
-      if not (null runtimeCompileErrors)
-        then
-          pure
-            RunResult
-              { runWarnings = warnings,
-                runCompileErrors = runtimeCompileErrors,
-                runRuntimeErrors = [],
-                runOutput = Nothing
-              }
-        else
-          case evaluateRuntimeExprWithBuiltinsAndBindingHints builtinMode runtimeTypeHints canonicalRuntimeExpr of
-            Left runtimeError ->
+    Right compiledProgram ->
+      let warnings = filterWarningsForPromotion settings (compiledProgramWarnings compiledProgram)
+          promotedWarningErrors = map warningToError (filter (isPromoted settings) warnings)
+          compileErrors = compiledProgramErrors compiledProgram <> promotedWarningErrors
+       in if not (null compileErrors)
+            then
               pure
                 RunResult
                   { runWarnings = warnings,
-                    runCompileErrors = [],
-                    runRuntimeErrors = [runtimeError],
+                    runCompileErrors = compileErrors,
+                    runRuntimeErrors = [],
                     runOutput = Nothing
                   }
-            Right runtimeValue ->
-              pure
-                RunResult
-                  { runWarnings = warnings,
-                    runCompileErrors = [],
-                    runRuntimeErrors = [],
-                    runOutput = fmap renderRuntimeValue runtimeValue
-                  }
+            else
+              case evaluateCompiledProgram compiledProgram of
+                Left runtimeError ->
+                  pure
+                    RunResult
+                      { runWarnings = warnings,
+                        runCompileErrors = [],
+                        runRuntimeErrors = [runtimeError],
+                        runOutput = Nothing
+                      }
+                Right runtimeProgram ->
+                  pure
+                    RunResult
+                      { runWarnings = warnings,
+                        runCompileErrors = [],
+                        runRuntimeErrors = [],
+                        runOutput = renderRuntimeValue <$> runtimeProgramOutput runtimeProgram
+                      }
+
+buildCompiledProgram ::
+  WarningSettings ->
+  ResolvedPrelude ->
+  ModuleResolutionConfig ->
+  [Text] ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO (Either Diagnostic CompiledProgram)
+buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath sourceLookup =
+  case preparePrelude resolvedPrelude of
+    Left preludeError -> pure (Left preludeError)
+    Right preparedPrelude -> do
+      resolvedResult <-
+        resolveProgram
+          resolutionConfig
+          (preparedPreludeBuiltinMode preparedPrelude)
+          (preparedPreludeVisibleValues preparedPrelude)
+          (preparedPreludeVisibleClasses preparedPrelude)
+          sourceLookup
+          entryModulePath
+      case resolvedResult of
+        Left resolutionError -> pure (Left resolutionError)
+        Right resolvedProgram -> do
+          compiledPrelude <- compilePreparedPrelude settings preparedPrelude
+          Right <$> compileResolvedProgram (compileInputs settings compiledPrelude) resolvedProgram
 
 -- | Run inference/canonicalization, collect warnings from `inferredWarnings`,
 -- promote configured warnings into errors, and return the canonicalized

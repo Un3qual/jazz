@@ -22,7 +22,6 @@ library
       JazzNext.Compiler.Driver
       JazzNext.Compiler.FractionalLiteral
       JazzNext.Compiler.Identifier
-      JazzNext.Compiler.ModuleReplay
       JazzNext.Compiler.ModuleGraph
       JazzNext.Compiler.ModuleInterface
       JazzNext.Compiler.ModuleCompiler

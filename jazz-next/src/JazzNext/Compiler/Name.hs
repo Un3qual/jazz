@@ -51,7 +51,6 @@ data GeneratedNameKind
   | OperatorSectionFunction
   | OperatorSectionLeft
   | OperatorSectionRight
-  | ModuleReplayBridge [Text] NameNamespace Text
   deriving (Eq, Ord, Show)
 
 data Name
@@ -80,13 +79,11 @@ qualifiedMemberName qualifier member =
   case (qualifier, member) of
     (SourceName qualifierIdentifier, SourceName memberIdentifier) ->
       QualifiedName qualifierIdentifier memberIdentifier
-    (GeneratedName (ModuleReplayBridge modulePath _ qualifierName), SourceName memberIdentifier) ->
-      GeneratedName
-        ( ModuleReplayBridge
-            modulePath
-            ValueNamespace
-            (qualifierName <> "::" <> identifierText memberIdentifier)
-        )
+    (ResolvedName origin CapabilityNamespace qualifierIdentifier, ResolvedName _ ValueNamespace memberIdentifier) ->
+      ResolvedName
+        origin
+        ValueNamespace
+        (fromString (Text.unpack (identifierText qualifierIdentifier <> "::" <> identifierText memberIdentifier)))
     _ ->
       SourceName (fromString (Text.unpack (renderName qualifier <> "::" <> renderName member)))
 
@@ -123,8 +120,6 @@ renderName name =
     ResolvedName AmbientPrelude _ member -> identifierText member
     BuiltinName identifier -> identifierText identifier
     GeneratedName (OperatorBinding storageName) -> storageName
-    GeneratedName (ModuleReplayBridge modulePath _ exportedName) ->
-      Text.intercalate "::" ("__module" : modulePath ++ [exportedName])
     GeneratedName generated -> "<generated:" <> Text.pack (show generated) <> ">"
 
 namePurity :: Name -> Purity

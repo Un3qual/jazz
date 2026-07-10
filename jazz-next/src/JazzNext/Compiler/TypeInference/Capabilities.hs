@@ -23,7 +23,6 @@ module JazzNext.Compiler.TypeInference.Capabilities
     freeTypeVariablesInEnv,
     freeTypeVariablesInTypeSchemeConstraints,
     freshTypeVars,
-    generatedEqualityCapabilityName,
     importModuleCapabilityFacts,
     inferQualifiedMethodApplication,
     instantiateQualifiedMethodType,
@@ -97,13 +96,10 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Identifier
   ( identifierText,
-    mkIdentifier,
-    qualifiedIdentifierText
+    mkIdentifier
   )
 import JazzNext.Compiler.Name
-  ( GeneratedNameKind (..),
-    Name (..),
-    NameNamespace (..),
+  ( Name,
     qualifiedMemberName,
     renderName,
     sourceName
@@ -183,9 +179,23 @@ capabilityFactsFromState state =
 
 typeSchemeDefiningFactsFromState :: InferState -> [TypeSchemeConstraint] -> ScopeCapabilityFacts
 typeSchemeDefiningFactsFromState state schemeConstraints =
-  case inferCurrentModulePath state of
-    Just _ -> typeSchemeReferencedCapabilityFacts schemeConstraints (capabilityFactsFromState state)
-    Nothing -> capabilityFactsFromState state
+  capturedFacts
+    { scopeGeneratedEqualityClassFacts =
+        Set.union
+          inferredStructuralEqualityClasses
+          (scopeGeneratedEqualityClassFacts capturedFacts)
+    }
+  where
+    capturedFacts =
+      case inferCurrentModulePath state of
+        Just _ -> typeSchemeReferencedCapabilityFacts schemeConstraints (capabilityFactsFromState state)
+        Nothing -> capabilityFactsFromState state
+    inferredStructuralEqualityClasses =
+      Set.fromList
+        [ capabilityName
+          | TypeSchemeInferredConstraint capabilityName _ <- schemeConstraints,
+            activeEqualityClassName state == Just capabilityName
+        ]
 
 typeSchemeReferencedCapabilityFacts :: [TypeSchemeConstraint] -> ScopeCapabilityFacts -> ScopeCapabilityFacts
 typeSchemeReferencedCapabilityFacts schemeConstraints facts =
@@ -395,10 +405,7 @@ seedFacts facts (_, statement) =
         methods
         facts
           { scopeClassFacts = Map.insert (identifierText capabilityName) (length parameters) (scopeClassFacts facts),
-            scopeGeneratedEqualityClassFacts =
-              if generatedEqualityCapabilityName capabilityName
-                then Set.insert (renderName capabilityName) (scopeGeneratedEqualityClassFacts facts)
-                else scopeGeneratedEqualityClassFacts facts
+            scopeGeneratedEqualityClassFacts = scopeGeneratedEqualityClassFacts facts
           }
     SImpl _ capabilityName arguments methods ->
       seedImplMethodFacts capabilityName arguments methods $
@@ -460,12 +467,6 @@ seedImplMethodFacts capabilityName arguments methods facts =
             acc
     _ -> facts
 
-
-generatedEqualityCapabilityName :: Name -> Bool
-generatedEqualityCapabilityName name =
-  case name of
-    GeneratedName (ModuleReplayBridge _ CapabilityNamespace "Eq") -> True
-    _ -> False
 
 modifyDeclarationState :: (DeclarationState -> DeclarationState) -> InferState -> InferState
 modifyDeclarationState update state =
@@ -2090,19 +2091,14 @@ addInferredEqualityClassConstraintIfVisible argumentType state =
 
 activeEqualityClassName :: InferState -> Maybe Text
 activeEqualityClassName state =
-  case inferCurrentModulePath state of
-    Just modulePath
-      | let replayQualifiedEqName = moduleReplayQualifiedName modulePath "Eq",
-        classFactIsUnary replayQualifiedEqName ->
-          Just replayQualifiedEqName
-    _ ->
-      if classFactIsUnary "Eq"
-        then Just "Eq"
-        else Nothing
+  if classFactIsUnary "Eq"
+    then Just "Eq"
+    else
+      case filter importedEqualityClass (Map.toList (inferClassFacts state)) of
+        [(className, _)] -> Just className
+        _ -> Nothing
   where
     classFactIsUnary className =
       Map.lookup className (inferClassFacts state) == Just 1
-
-moduleReplayQualifiedName :: [Text] -> Text -> Text
-moduleReplayQualifiedName modulePath name =
-  qualifiedIdentifierText "__module" (Text.intercalate "::" modulePath <> "::" <> name)
+    importedEqualityClass (className, arity) =
+      arity == 1 && "::Eq" `Text.isSuffixOf` className
