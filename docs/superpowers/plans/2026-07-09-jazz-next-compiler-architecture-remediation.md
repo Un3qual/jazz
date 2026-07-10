@@ -2045,6 +2045,6 @@ git add jazz-next/README.md docs/jazz-language-state.md docs/feature-status.md d
 git commit -m "docs: describe jazz-next module pipeline architecture"
 ```
 
-- [ ] **Step 8: Re-run the final verification after the commit**
+- [x] **Step 8: Re-run the final verification after the commit**
 
 Repeat Steps 2-6 against committed `HEAD`. Do not declare completion from pre-commit results.
