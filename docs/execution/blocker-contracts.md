@@ -174,16 +174,16 @@ Each blocked item should answer these questions:
 
 ### JN-MODULE-REBASE-PLAN-001
 
-- Smallest unblocker: `JN-MODULE-NAMESPACE-AWARE-EXPORT-001` is the accepted
-  follow-up to the landed explicit module export allowlist.
-- Decision needed: none. The maintainer approved explicit namespace prefixes
-  with bare-selector compatibility on `2026-07-10`.
-- Recommended default: implement only exact `value`, `constructor`, `type`, and
-  `class` module export selectors; leave import syntax and all broader module
-  behavior unchanged.
-- Candidate child: `JN-MODULE-NAMESPACE-AWARE-EXPORT-001`.
-- Target paths: `jazz-next/src/JazzNext/Compiler/{ModuleExports.hs,ModuleGraph.hs,ModuleResolver.hs,Parser/AST.hs,Parser/Declaration.hs,Parser/Lower.hs}`;
-  focused parser/inventory/resolver/pipeline tests; module/status/queue docs.
+- Smallest unblocker: none currently. The namespace-aware module export child
+  landed as `JN-MODULE-NAMESPACE-AWARE-EXPORT-001`.
+- Decision needed: none. Optional namespace prefixes, bare-selector
+  compatibility, omitted-list export-all, `()` export-nothing, local/public
+  inventory separation, and no re-exports are implemented.
+- Recommended default: preserve the completed namespace-aware export contract
+  and `E4007`-`E4015` diagnostics until a separate source-backed module behavior
+  contract is accepted.
+- Candidate child: none currently.
+- Target paths: not set until a separate module behavior contract is accepted.
 - Verification: focused `ModuleImportParserSpec.hs`, `ParserFoundationSpec.hs`,
   `OperatorFixitySpec.hs`, `ModuleExportsSpec.hs`,
   `ModuleResolutionSpec.hs`, `ModulePipelineContractSpec.hs`, and `LoaderSpec.hs`;
@@ -191,7 +191,8 @@ Each blocked item should answer these questions:
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.
 - Landed evidence: `jazz-next/src/JazzNext/Compiler/ModuleExports.hs` owns the
-  typed inventory; module headers now carry optional allowlists;
+  typed inventory and structured selectors; module headers accept exact
+  `value`, `constructor`, `type`, and `class` prefixes plus bare compatibility;
   `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs` separates local and public
   inventories; compiler imports and runtime publication consume the public
   inventory; focused and full verification passed on `2026-07-10`.

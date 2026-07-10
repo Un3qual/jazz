@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved for implementation on `2026-07-10`.
+Implemented and verified on `2026-07-10`.
 
 ## Goal
 

@@ -41,12 +41,14 @@ evaluates each module against explicit runtime exports. The implementation is a
 private Haskell library behind the supported `jazz-next` CLI; these internal
 boundaries do not change Jazz syntax.
 
-Active `jazz-next` module headers accept optional explicit export allowlists:
-`module Foo::Bar (value, Type, Constructor, Class) { ... }`. Omitting the list
-preserves export-all behavior, while `()` publishes nothing. Resolver
-dependencies, compiler imports, and runtime publication share the validated
-public typed inventory; unlisted owned declarations remain available inside
-the defining module for resolution, inference, and evaluation. Unknown or
+Active `jazz-next` module headers accept optional explicit export allowlists.
+The contextual prefixes `value`, `constructor`, `type`, and `class` select one
+exact typed namespace; bare selectors retain the compatibility behavior of
+publishing every owned same-text entry. Omitting the list preserves export-all
+behavior, while `()` publishes nothing. Resolver dependencies, compiler
+imports, and runtime publication share the validated public typed inventory;
+unlisted owned declarations remain available inside the defining module for
+resolution, inference, and evaluation. Unknown, wrong-namespace, or
 imported-only header entries report `E4015`, and re-exports remain unsupported.
 
 ## What The Top-Level README Claims

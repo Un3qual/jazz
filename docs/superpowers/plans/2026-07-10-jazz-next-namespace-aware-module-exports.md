@@ -1,12 +1,13 @@
 ---
 id: JN-MODULE-NAMESPACE-AWARE-EXPORT-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-07-10
+completed_on: 2026-07-10
 plan_section: "Implementation Batch: Namespace-Aware Module Exports"
 target_paths:
   - jazz-next/src/JazzNext/Compiler/ModuleExports.hs
@@ -26,6 +27,7 @@ target_paths:
   - docs/execution/blocker-contracts.md
   - docs/execution/queue.md
   - docs/execution/done-archive.md
+  - docs/superpowers/specs/2026-07-10-jazz-next-namespace-aware-module-exports-design.md
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModuleExportsSpec.hs
@@ -92,7 +94,7 @@ queue/docs validators.
 - Produces: `DeclaredModuleExports` carrying `[ModuleExportSelector]`.
 - Preserves: bare names, omitted lists, empty lists, and `E0001` syntax errors.
 
-- [ ] **Step 1: Write parser and lowering tests**
+- [x] **Step 1: Write parser and lowering tests**
 
 Add expectations equivalent to:
 
@@ -113,7 +115,7 @@ stores the same selectors in `DeclaredModuleExports`. Add one case that accepts
 `type Box, constructor Box` and one that rejects duplicate `type Box` with the
 existing `E0001` duplicate diagnostic.
 
-- [ ] **Step 2: Run the parser suite and verify RED**
+- [x] **Step 2: Run the parser suite and verify RED**
 
 Run:
 
@@ -124,7 +126,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 Expected: compilation fails because `ModuleExportSelector` and the structured
 `SSModule` payload do not exist.
 
-- [ ] **Step 3: Add the structured selector type**
+- [x] **Step 3: Add the structured selector type**
 
 In `JazzNext.Compiler.ModuleExports`, export and add:
 
@@ -139,7 +141,7 @@ data ModuleExportSelector = ModuleExportSelector
 Change `SSModule` and `DeclaredModuleExports` to store selectors rather than
 bare `Text` names. Update lowering to carry the structured values unchanged.
 
-- [ ] **Step 4: Parse contextual namespace prefixes**
+- [x] **Step 4: Parse contextual namespace prefixes**
 
 Replace the module-export use of `parseNonEmptyUniqueNameList` with a focused
 selector loop. Parse a leading identifier in
@@ -159,7 +161,7 @@ Use the structured selector as the duplicate key so same-text entries in
 different explicit namespaces are accepted. Preserve current comma, closing
 parenthesis, trailing-comma, and end-of-input diagnostics.
 
-- [ ] **Step 5: Run parser verification and commit**
+- [x] **Step 5: Run parser verification and commit**
 
 Run the focused parser suite above and `git diff --check`. Expected: all
 `ModuleImportParser` tests pass. Commit:
@@ -186,7 +188,7 @@ git commit -m "feat: parse namespace-aware module exports"
 - Produces: exact namespace-aware `E4015` validation.
 - Consumes: existing compiler/runtime public-inventory filtering unchanged.
 
-- [ ] **Step 1: Write inventory and resolver tests**
+- [x] **Step 1: Write inventory and resolver tests**
 
 Add an inventory test that selects only `TypeNamespace "Box"` from a sample
 inventory containing type, constructor, and value entries named `Box`. Retain
@@ -210,7 +212,7 @@ Add a pipeline case where a module declares both constructor and value `Just`
 but exports only `value Just`; runtime exports must contain only
 `RuntimeBindingExport (ModuleExport ValueNamespace "Just")`.
 
-- [ ] **Step 2: Run inventory, resolver, and pipeline suites and verify RED**
+- [x] **Step 2: Run inventory, resolver, and pipeline suites and verify RED**
 
 Run:
 
@@ -223,7 +225,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 Expected: exact selection tests fail because the resolver still reduces module
 exports to bare names.
 
-- [ ] **Step 3: Implement exact inventory selection**
+- [x] **Step 3: Implement exact inventory selection**
 
 Export and implement:
 
@@ -243,7 +245,7 @@ selectModuleExportSelectors selectors inventory =
 `selectorMatches` compares names for bare selectors and compares the complete
 `ModuleExport namespace name` identity for prefixed selectors.
 
-- [ ] **Step 4: Validate selectors against owned declarations**
+- [x] **Step 4: Validate selectors against owned declarations**
 
 In `validatePublicExportInventory`, find the first selector that does not match
 the local inventory. Bare selectors use `declarationExportNames`; prefixed
@@ -252,7 +254,7 @@ selectors use `inventoryHasExport`. Render the selector as `type 'Box'`,
 name as `diagnosticSubject`. On success, call
 `selectModuleExportSelectors selectors localInventory`.
 
-- [ ] **Step 5: Run focused verification and commit**
+- [x] **Step 5: Run focused verification and commit**
 
 Run all three focused suites above plus `LoaderSpec` and `git diff --check`.
 Expected: all pass. Commit:
@@ -281,20 +283,20 @@ git commit -m "feat: enforce namespace-aware module exports"
 - Produces: terminal-empty queue state after closing this one child.
 - Preserves: all non-goals from the approved design.
 
-- [ ] **Step 1: Update normative and status documentation**
+- [x] **Step 1: Update normative and status documentation**
 
 Document the four prefixes, exact selection, bare compatibility behavior,
 opaque `type` exports, duplicate rules, unchanged imports, and `E4015` wording.
 Record the child in the runtime/module umbrella, feature matrix, language-state
 summary, and blocker landed evidence.
 
-- [ ] **Step 2: Close execution metadata**
+- [x] **Step 2: Close execution metadata**
 
 Set this plan to `status: done` with `completed_on: 2026-07-10`, remove its
 `Ready Now` row, restore the queue's terminal-empty status, and add one concise
 `done-archive.md` row with exact verification evidence.
 
-- [ ] **Step 3: Run the complete verification ladder**
+- [x] **Step 3: Run the complete verification ladder**
 
 Run every frontmatter verification command, then:
 
@@ -307,7 +309,7 @@ git diff --check
 Expected: focused and full tests, queue/docs checks, and whitespace checks pass;
 the scope scan finds only documented non-goals and negative coverage.
 
-- [ ] **Step 4: Commit closeout documentation**
+- [x] **Step 4: Commit closeout documentation**
 
 ```bash
 git add docs/spec/modules/06-explicit-export-lists.md docs/feature-status.md docs/jazz-language-state.md docs/plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md docs/execution/blocker-contracts.md docs/execution/queue.md docs/execution/done-archive.md docs/superpowers/plans/2026-07-10-jazz-next-namespace-aware-module-exports.md
