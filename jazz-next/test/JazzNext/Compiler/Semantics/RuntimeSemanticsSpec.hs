@@ -2,15 +2,2947 @@
 
 module Main (main) where
 
-import JazzNext.Compiler.Semantics.Runtime.ControlFlowTests (controlFlowTests)
-import JazzNext.Compiler.Semantics.Runtime.RecursionTests (recursionTests)
-import JazzNext.Compiler.Semantics.Runtime.NumericTests (numericTests)
-import JazzNext.Compiler.Semantics.Runtime.CapabilitiesTests (capabilityTests)
-import JazzNext.Compiler.Semantics.Runtime.RenderingTests (renderingTests)
-import JazzNext.TestHarness (NamedTest, runTestSuite)
+import Control.Exception
+  ( SomeException,
+    try
+  )
+import qualified Data.Map.Strict as Map
+import Data.Text (Text)
+import qualified Data.Text as Text
+import JazzNext.Compiler.AST
+  ( CaseArm (..),
+    ClassMethodSignature (..),
+    ConstraintSignatureType (..),
+    DataConstructorArgument (..),
+    DataConstructor (..),
+    Expr (..),
+    ImplMethod (..),
+    Literal (..),
+    Pattern (..),
+    SignaturePayload (..),
+    Statement (..)
+  )
+import JazzNext.Compiler.Diagnostics
+  ( Diagnostic,
+    SourceSpan (..),
+    renderDiagnostic
+  )
+import JazzNext.Compiler.BuiltinCatalog
+  ( BuiltinResolutionMode (..)
+  )
+import JazzNext.Compiler.Driver
+  ( RunResult (..),
+    runSource,
+    runSourceWithPrelude
+  )
+import JazzNext.Compiler.FractionalLiteral
+  ( mkFractionalLiteralSource
+  )
+import JazzNext.Compiler.Identifier
+  ( Identifier
+  )
+import JazzNext.Compiler.Runtime
+  ( RuntimeValue (..),
+    evaluateRuntimeExpr,
+    evaluateRuntimeExprWithBuiltinsAndBindingHints,
+    renderRuntimeValue,
+    runtimeValueExactlyMatchesConstraint
+  )
+import JazzNext.Compiler.RuntimeHints
+  ( bindingRuntimeHintKey
+  )
+import JazzNext.Compiler.TypeInference
+  ( InferenceResult (..),
+    inferExpressionWithBuiltins
+  )
+import JazzNext.Compiler.WarningConfig
+  ( defaultWarningSettings
+  )
+import JazzNext.TestHarness
+  ( NamedTest,
+    assertContains,
+    assertLeftDiagnosticCodeAndContains,
+    assertEqual,
+    assertSingleDiagnosticContains,
+    failTest,
+    runTestSuite
+  )
+import System.Timeout
+  ( timeout
+  )
 
 main :: IO ()
 main = runTestSuite "RuntimeSemantics" tests
 
 tests :: [NamedTest]
-tests = controlFlowTests ++ recursionTests ++ numericTests ++ capabilityTests ++ renderingTests
+tests =
+  [ ("if with False condition skips then branch runtime failure", testIfFalseSkipsThenRuntimeFailure),
+    ("if with True condition skips else branch runtime failure", testIfTrueSkipsElseRuntimeFailure),
+    ("division by zero produces fatal runtime diagnostic", testDivisionByZeroRuntimeError),
+    ("direct self alias produces deterministic runtime diagnostic", testDirectSelfAliasRuntimeError),
+    ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError),
+    ("wrapped direct self alias produces deterministic runtime diagnostic", testWrappedDirectSelfAliasRuntimeError),
+    ("same-name non-alias self application produces runtime unbound diagnostic", testSameNameNonAliasSelfApplicationTerminates),
+    ("mixed wrapper with eager selected branch produces runtime unbound diagnostic", testMixedWrapperWithSelectedNonAliasSelfUseTerminates),
+    ("block wrapper with eager statement before alias terminal produces runtime unbound diagnostic", testBlockWrapperWithEagerStatementBeforeAliasTerminalTerminates),
+    ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError),
+    ("mixed wrapped alias cycle still produces deterministic runtime diagnostic", testMixedWrappedAliasCycleRuntimeError),
+    ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError),
+    ("pattern-case alias-only recursive cycle produces deterministic runtime diagnostic", testPatternCaseAliasOnlyRecursiveCycleRuntimeError),
+    ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer),
+    ("pattern-case guard lambda does not classify non-function recursion", testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion),
+    ("function-valued pattern guard self-reference produces recursion diagnostic", testFunctionPatternGuardSelfReferenceRuntimeError),
+    ("function-valued pattern guard uses prior rebinding", testFunctionPatternGuardUsesPriorRebinding),
+    ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError),
+    ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError),
+    ("nested block alias cycle ignores later outer peer name", testNestedBlockAliasCycleIgnoresLaterOuterPeer),
+    ("pattern-case without a matching arm produces deterministic runtime diagnostic", testPatternCaseNoMatchRuntimeError),
+    ("constructor over-application produces arity runtime diagnostic", testConstructorOverApplicationRuntimeError),
+    ("bare dollar operator value applies at runtime", testDollarOperatorValueRuntimeSuccess),
+    ("bare operator value applies at runtime", testBareOperatorValueRuntimeSuccess),
+    ("explicit partial application of bare operator value applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess),
+    ("left operator section applies at runtime", testLeftOperatorSectionRuntimeSuccess),
+    ("right operator section applies at runtime", testRightOperatorSectionRuntimeSuccess),
+    ("right section differs from ordinary partial application for division", testRightSectionDiffersFromOrdinaryPartialApplication),
+    ("declared user operator infix applies at runtime", testDeclaredUserOperatorInfixRuntimeSuccess),
+    ("declared custom precedence user operator groups at runtime", testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess),
+    ("declared user operator signature applies at runtime", testDeclaredUserOperatorSignatureRuntimeSuccess),
+    ("declared user operator value applies at runtime", testDeclaredUserOperatorValueRuntimeSuccess),
+    ("declared user left operator section applies at runtime", testDeclaredUserLeftOperatorSectionRuntimeSuccess),
+    ("declared user right operator section preserves argument order", testDeclaredUserRightOperatorSectionRuntimeSuccess),
+    ("recursive declared user operator applies at runtime", testRecursiveDeclaredUserOperatorRuntimeSuccess),
+    ("recursive declared user operator value alias produces deterministic runtime diagnostic", testRecursiveDeclaredUserOperatorValueAliasRuntimeError),
+    ("indirect recursive declared user operator value alias produces deterministic runtime diagnostic", testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError),
+    ("map + hd evaluates over nested list literals", testMapHdNestedListsRuntimeSuccess),
+    ("filter keeps only matching list elements", testFilterRuntimeSuccess),
+    ("tl returns the tail of a non-empty list", testTlReturnsTailRuntimeValue),
+    ("tuple literal evaluates and renders at runtime", testTupleLiteralRuntimeValue),
+    ("hd on empty list produces fatal runtime diagnostic", testHdEmptyListRuntimeError),
+    ("tl on empty list produces fatal runtime diagnostic", testTlEmptyListRuntimeError),
+    ("direct runtime helper rejects canonical prelude alias without bundled prelude", testRuntimeHelperRejectsCanonicalAlias),
+    ("runtime fallback rejects kernel hd on non-list values", testRuntimeFallbackRejectsHdNonList),
+    ("runtime fallback rejects kernel tl on non-list values", testRuntimeFallbackRejectsTlNonList),
+    ("runtime fallback rejects kernel map with non-function mapper", testRuntimeFallbackRejectsMapNonFunctionMapper),
+    ("runtime fallback rejects kernel map with non-list collection", testRuntimeFallbackRejectsMapNonListCollection),
+    ("runtime fallback rejects kernel filter with non-function predicate", testRuntimeFallbackRejectsFilterNonFunctionPredicate),
+    ("runtime fallback rejects kernel filter with non-list collection", testRuntimeFallbackRejectsFilterNonListCollection),
+    ("runtime fallback rejects kernel filter predicate returning non-Bool", testRuntimeFallbackRejectsFilterPredicateNonBool),
+    ("print! returns evaluated argument value", testPrintBuiltinReturnsArgument),
+    ("target-named integer conversion evaluates at runtime", testIntegerConversionRuntimeSuccess),
+    ("target-named integer conversion preserves source-exact integral Float literal", testIntegerConversionSourceExactIntegralFloatRuntimeSuccess),
+    ("default integer conversion alias preserves source-exact integral Float literal", testDefaultIntegerConversionAliasRuntimeSuccess),
+    ("Float64 signature preserves source-exact integral conversion", testFloat64SignaturePreservesSourceExactIntegralConversion),
+    ("Float16 signature converts from rounded runtime value", testFloat16SignatureConvertsFromRoundedRuntimeValue),
+    ("width-specific integer arithmetic checks preserved result bounds", testWidthSpecificIntegerArithmeticBoundsRuntimeError),
+    ("target-named float conversion evaluates at runtime", testFloatConversionRuntimeSuccess),
+    ("default float conversion alias evaluates at runtime", testDefaultFloatConversionAliasRuntimeSuccess),
+    ("dynamic integer-to-Float64 overflow checks source magnitude", testDynamicIntegerToFloat64OverflowRuntimeError),
+    ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
+    ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
+    ("Float64-domain integer literal arithmetic evaluates at runtime", testFloat64DomainIntegerLiteralArithmeticRuntimeSuccess),
+    ("direct typed integer to Float64 arithmetic evaluates at runtime", testDirectTypedIntegerFloat64ArithmeticRuntimeSuccess),
+    ("Float16 arithmetic preserves target width at runtime", testFloat16ArithmeticPreservesRuntimeWidth),
+    ("Float32 arithmetic preserves target width at runtime", testFloat32ArithmeticPreservesRuntimeWidth),
+    ("runtime fallback rejects targeted Float16/Float32 mixed with untyped Float arithmetic", testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic),
+    ("runtime fallback handles direct integer and Float64 mixed-domain arithmetic", testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic),
+    ("runtime fallback rejects mixed targeted float comparison and equality", testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality),
+    ("runtime fallback handles untyped integer and Float64 comparison/equality", testRuntimeFallbackHandlesUntypedIntegerFloat64ComparisonEquality),
+    ("targeted Float16 and Float32 fractional literals round at runtime", testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue),
+    ("suffixed Float16 and Float32 fractional literals round at runtime", testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue),
+    ("Float16 arithmetic overflow produces runtime diagnostic", testFloat16ArithmeticOverflowRuntimeError),
+    ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError),
+    ("Float64 comparison and equality evaluate at runtime", testFloat64ComparisonEqualityRuntimeSuccess),
+    ("direct typed integer to Float64 comparison and equality evaluate at runtime", testDirectTypedIntegerFloat64ComparisonEqualityRuntimeSuccess),
+    ("Float16 and Float32 comparison and equality evaluate at runtime", testFloat16Float32ComparisonEqualityRuntimeSuccess),
+    ("targeted Float16 and Float32 fractional literals evaluate through comparison and equality", testTargetedFloat16Float32FractionalLiteralComparisonEqualityRuntimeSuccess),
+    ("structural list equality evaluates at runtime", testStructuralListEqualityRuntimeSuccess),
+    ("structural tuple equality evaluates at runtime", testStructuralTupleEqualityRuntimeSuccess),
+    ("structural ADT equality evaluates at runtime", testStructuralAdtEqualityRuntimeSuccess),
+    ("structural ADT equality sees through runtime type hints", testStructuralAdtEqualitySeesThroughRuntimeTypeHints),
+    ("structural ADT equality preserves incompatible runtime type hints", testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints),
+    ("runtime fallback rejects direct callable equality", testRuntimeFallbackRejectsDirectCallableEquality),
+    ("runtime fallback rejects direct callable inequality", testRuntimeFallbackRejectsDirectCallableInequality),
+    ("runtime fallback rejects mixed targeted integer equality", testRuntimeFallbackRejectsMixedTargetedIntegerEquality),
+    ("runtime fallback rejects mixed targeted integer comparison", testRuntimeFallbackRejectsMixedTargetedIntegerComparison),
+    ("runtime fallback rejects structural equality over functions", testRuntimeFallbackRejectsFunctionStructuralEquality),
+    ("runtime fallback rejects structural equality over qualified methods", testRuntimeFallbackRejectsQualifiedMethodStructuralEquality),
+    ("runtime fallback rejects different-length structural equality over functions", testRuntimeFallbackRejectsDifferentLengthFunctionStructuralEquality),
+    ("runtime fallback rejects different saturated ADT constructors with function payloads", testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors),
+    ("Float16 conversion rounds to target precision", testFloat16ConversionRoundsRuntimeValue),
+    ("dynamic integer conversion range failure reports deterministic diagnostic", testDynamicIntegerConversionRangeRuntimeError),
+    ("runtime fallback rejects non-numeric conversion values", testRuntimeFallbackRejectsNonNumericConversionValue),
+    ("scope with only declarations has no runtime output", testDeclarationOnlyScopeHasNoOutput),
+    ("scope with only capability declarations has no runtime output", testCapabilityDeclarationOnlyScopeHasNoOutput),
+    ("capability declarations are inert at runtime", testCapabilityDeclarationsRuntimeInert),
+    ("qualified method candidates carry compiler-owned runtime evidence", testQualifiedMethodCandidateCarriesRuntimeEvidence),
+    ("qualified method dispatch executes selected impl body", testQualifiedMethodDispatchExecutesImplBody),
+    ("let-bound qualified method dispatch executes selected impl body", testLetBoundQualifiedMethodDispatchExecutesImplBody),
+    ("qualified method dispatch selects runtime body by argument types", testQualifiedMethodDispatchSelectsRuntimeBodyByArgumentTypes),
+    ("qualified method dispatch executes same-impl qualified method call", testQualifiedMethodDispatchExecutesSameImplQualifiedMethodCall),
+    ("qualified method dispatch selects width-specific integer body", testQualifiedMethodDispatchSelectsWidthSpecificIntegerBody),
+    ("qualified method dispatch selects width-specific integer body for direct literals", testQualifiedMethodDispatchSelectsWidthSpecificIntegerBodyForDirectLiterals),
+    ("qualified method dispatch preserves direct explicit type application hints", testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint),
+    ("qualified method dispatch preserves inferred explicit type application tuple hints", testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint),
+    ("qualified method dispatch applies explicit type argument to matching parameter", testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter),
+    ("qualified method dispatch preserves non-literal integer signature targets", testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget),
+    ("qualified method dispatch preserves direct closure result signatures", testQualifiedMethodDispatchPreservesDirectClosureResultSignature),
+    ("qualified method dispatch preserves tuple binding signatures", testQualifiedMethodDispatchPreservesTupleBindingSignature),
+    ("qualified method dispatch preserves tuple exact signatures", testQualifiedMethodDispatchPreservesTupleExactSignature),
+    ("qualified method dispatch preserves section binding signatures", testQualifiedMethodDispatchPreservesSectionBindingSignature),
+    ("qualified method dispatch treats Float as Float64 alias at runtime", testQualifiedMethodDispatchTreatsFloatAsFloat64Alias),
+    ("qualified method dispatch prefers Float alias body for typed Float values", testQualifiedMethodDispatchPrefersFloatAliasBody),
+    ("qualified method dispatch preserves concrete left Float64 over right Float aliases", testQualifiedMethodDispatchPreservesConcreteLeftFloat64OverRightFloatAlias),
+    ("qualified method dispatch mirrors runtime Float64-domain arithmetic", testQualifiedMethodDispatchMirrorsRuntimeFloat64DomainArithmetic),
+    ("qualified method dispatch executes Float equality body", testQualifiedMethodDispatchExecutesFloatEqualityBody),
+    ("qualified method dispatch executes Float16 equality body", testQualifiedMethodDispatchExecutesFloat16EqualityBody),
+    ("qualified method dispatch executes Float32 equality body", testQualifiedMethodDispatchExecutesFloat32EqualityBody),
+    ("qualified method dispatch executes Float64 equality body", testQualifiedMethodDispatchExecutesFloat64EqualityBody),
+    ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias),
+    ("qualified method dispatch prefers Int alias body for typed Int values", testQualifiedMethodDispatchPrefersIntAliasBody),
+    ("qualified method dispatch prefers Int alias body for direct integer literals", testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral),
+    ("qualified method dispatch prefers list alias body for typed list values", testQualifiedMethodDispatchPrefersListAliasBody),
+    ("qualified method dispatch prefers list alias body for direct list literals", testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral),
+    ("qualified method dispatch preserves bound nested list runtime hints", testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint),
+    ("qualified method dispatch instantiates explicit empty list type application hints", testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint),
+    ("qualified method dispatch omits plain polymorphic empty list runtime hints", testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint),
+    ("qualified method dispatch rejects unhinted nested list helper exact selection", testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection),
+    ("qualified method dispatch does not exact-match untyped empty list literals", testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral),
+    ("qualified method dispatch prefers constructor alias body for direct constructor literals", testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral),
+    ("qualified method dispatch ignores monomorphic constructor payloads for exact selection", testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection),
+    ("qualified method dispatch treats non-literal integer results as Int64", testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64),
+    ("qualified method dispatch preserves higher-order binding signatures", testQualifiedMethodDispatchPreservesHigherOrderBindingSignature),
+    ("qualified method dispatch preserves higher-order exact signatures", testQualifiedMethodDispatchPreservesHigherOrderExactSignature),
+    ("qualified method dispatch rejects unhinted function argument exact selection", testQualifiedMethodDispatchRejectsUnhintedFunctionArgumentExactSelection),
+    ("qualified method dispatch defers exact filtering until target argument", testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument),
+    ("qualified method dispatch preserves selected method signatures", testQualifiedMethodDispatchPreservesSelectedMethodSignature),
+    ("qualified method dispatch applies typed callable argument hints", testQualifiedMethodDispatchAppliesTypedCallableArgumentHint),
+    ("qualified method dispatch applies typed callable argument hints through prefix dollar", testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar),
+    ("qualified method dispatch applies closure argument signature hints", testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint),
+    ("qualified method dispatch preserves defaulted closure result metadata", testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata),
+    ("typed numeric sections preserve captured operand flexibility", testTypedNumericSectionPreservesCapturedOperandFlexibility),
+    ("qualified method dispatch preserves empty list binding signatures", testQualifiedMethodDispatchPreservesEmptyListBindingSignature),
+    ("qualified method dispatch preserves list-returning application signatures", testQualifiedMethodDispatchPreservesListReturningApplicationSignature),
+    ("qualified method dispatch preserves dollar-applied list-returning signatures", testQualifiedMethodDispatchPreservesDollarAppliedListReturningSignature),
+    ("qualified method dispatch preserves ADT-returning application signatures", testQualifiedMethodDispatchPreservesAdtReturningApplicationSignature),
+    ("qualified method dispatch preserves branch result signatures", testQualifiedMethodDispatchPreservesBranchResultSignature),
+    ("qualified method dispatch preserves block result signatures", testQualifiedMethodDispatchPreservesBlockResultSignature),
+    ("qualified method dispatch preserves mapped empty list result signatures", testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature),
+    ("qualified method dispatch preserves identity-mapped empty list result signatures", testQualifiedMethodDispatchPreservesIdentityMappedEmptyListResultSignature),
+    ("qualified method dispatch preserves mapped hd empty nested list result signatures", testQualifiedMethodDispatchPreservesMappedHdEmptyNestedListResultSignature),
+    ("qualified method dispatch preserves hd element signatures", testQualifiedMethodDispatchPreservesHdElementSignature),
+    ("qualified method dispatch normalizes hinted list aliases", testQualifiedMethodDispatchNormalizesHintedListAliases),
+    ("qualified method dispatch normalizes hinted function aliases", testQualifiedMethodDispatchNormalizesHintedFunctionAliases),
+    ("qualified method dispatch treats defaulted integer bindings as Int64", testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64),
+    ("qualified method dispatch treats plain integer bindings as Int64 when exact candidates overlap", testQualifiedMethodDispatchTreatsPlainIntegerBindingAsInt64WithExactCandidates),
+    ("defaulted integer binding hints reject values outside Int64 range", testDefaultedIntegerBindingHintRejectsOutsideInt64Range),
+    ("qualified method dispatch treats inferred direct integer literals as exact Int", testQualifiedMethodDispatchTreatsInferredDirectIntegerLiteralAsExactInt),
+    ("qualified method dispatch preserves inferred narrow integer bindings", testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding),
+    ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals),
+    ("qualified method dispatch preserves ADT application binding hints", testQualifiedMethodDispatchPreservesAdtApplicationBindingHint),
+    ("qualified method dispatch preserves phantom ADT application binding hints", testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint),
+    ("qualified method dispatch preserves ADT concrete payload hints", testQualifiedMethodDispatchPreservesAdtConcretePayloadHint),
+    ("qualified method dispatch preserves monomorphic ADT concrete payload hints", testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint),
+    ("qualified method dispatch ignores unknown constructor field hint names", testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName),
+    ("qualified method dispatch keeps nested inferred hints scoped", testQualifiedMethodDispatchKeepsNestedInferredHintsScoped),
+    ("qualified method dispatch prefers alias binding over method sentinel at runtime", testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime),
+    ("qualified zero-argument method dispatch returns value", testQualifiedZeroArgumentMethodDispatchReturnsValue),
+    ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias),
+    ("qualified method dispatch rejects wrapped self alias", testQualifiedMethodDispatchRejectsWrappedSelfAlias),
+    ("qualified method dispatch rejects block-local self alias", testQualifiedMethodDispatchRejectsBlockLocalSelfAlias),
+    ("qualified method dispatch follows block-local alias branches with local bindings", testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalBindings),
+    ("qualified method dispatch follows block-local alias branches with local signature hints", testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalSignatureHints),
+    ("qualified method dispatch rejects mutual method alias cycle", testQualifiedMethodDispatchRejectsMutualMethodAliasCycle),
+    ("qualified method dispatch rejects full-arity runtime ambiguity", testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity),
+    ("qualified method dispatch executes local ADT impl body", testQualifiedMethodDispatchExecutesLocalAdtImplBody),
+    ("method-bearing capability declarations are inert at runtime", testMethodBearingCapabilityDeclarationsRuntimeInert),
+    ("scope result requires terminal expression", testScopeDeclarationAfterExprClearsResult)
+  ]
+
+testIfFalseSkipsThenRuntimeFailure :: IO ()
+testIfFalseSkipsThenRuntimeFailure = do
+  result <- runSource defaultWarningSettings "if False (1 / 0) else 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "2") (runOutput result)
+
+testIfTrueSkipsElseRuntimeFailure :: IO ()
+testIfTrueSkipsElseRuntimeFailure = do
+  result <- runSource defaultWarningSettings "if True 1 else (1 / 0)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1") (runOutput result)
+
+testDivisionByZeroRuntimeError :: IO ()
+testDivisionByZeroRuntimeError = do
+  result <- runSource defaultWarningSettings "1 / 0."
+  let runtimeErrors = runRuntimeErrors result
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "runtime fatal division by zero"
+    "E3001"
+    runtimeErrors
+  case runtimeErrors of
+    [] ->
+      fail "expected division-by-zero runtime error, but got no runtime errors"
+    runtimeError : _ ->
+      assertContains
+        "runtime fatal mentions division by zero"
+        "division by zero"
+        (renderDiagnostic runtimeError)
+  assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testDirectSelfAliasRuntimeError :: IO ()
+testDirectSelfAliasRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = f. f.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected direct self alias to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for direct self alias, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "direct self alias runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "direct self alias runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testAliasOnlyRecursiveCycleRuntimeError :: IO ()
+testAliasOnlyRecursiveCycleRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "even = odd. odd = even. even.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected alias-only recursive cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "alias-only recursive cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "alias-only recursive cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testWrappedDirectSelfAliasRuntimeError :: IO ()
+testWrappedDirectSelfAliasRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True f else 0. f.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected wrapped direct self alias to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for wrapped direct self alias, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "wrapped direct self alias runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "wrapped direct self alias runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testSameNameNonAliasSelfApplicationTerminates :: IO ()
+testSameNameNonAliasSelfApplicationTerminates = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = (\\(x) -> x) f. f 1.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected same-name non-alias self application to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected same-name non-alias self application to report a runtime diagnostic, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "same-name non-alias self application runtime code"
+        "E3002"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "same-name non-alias self application runtime text"
+        "unbound variable 'f'"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on failure" Nothing (runOutput result)
+
+testMixedWrapperWithSelectedNonAliasSelfUseTerminates :: IO ()
+testMixedWrapperWithSelectedNonAliasSelfUseTerminates = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True (f + 1) else f. 0.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected mixed wrapper with eager selected self use to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected mixed wrapper with eager selected self use to report a runtime diagnostic, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "mixed wrapper selected branch runtime code"
+        "E3002"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "mixed wrapper selected branch runtime text"
+        "unbound variable 'f'"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on failure" Nothing (runOutput result)
+
+testBlockWrapperWithEagerStatementBeforeAliasTerminalTerminates :: IO ()
+testBlockWrapperWithEagerStatementBeforeAliasTerminalTerminates = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = { f + 1. f. }. 0.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected block wrapper with eager statement before alias terminal to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected block wrapper with eager statement before alias terminal to report a runtime diagnostic, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "block wrapper eager statement runtime code"
+        "E3002"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "block wrapper eager statement runtime text"
+        "unbound variable 'f'"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on failure" Nothing (runOutput result)
+
+testWrappedAliasOnlyRecursiveCycleRuntimeError :: IO ()
+testWrappedAliasOnlyRecursiveCycleRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True g else g. g = f. f.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected wrapped alias-only recursive cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for wrapped alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "wrapped alias-only recursive cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "wrapped alias-only recursive cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testMixedWrappedAliasCycleRuntimeError :: IO ()
+testMixedWrappedAliasCycleRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True g else \\(x) -> x. g = f. f 1.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected mixed wrapped alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for mixed wrapped alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "mixed wrapped alias cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "mixed wrapped alias cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testWrappedAliasCycleConditionRuntimeError :: IO ()
+testWrappedAliasCycleConditionRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if (1 / 0 == 0) g else g. g = f. f.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected wrapped alias cycle condition failure to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected wrapped alias cycle condition failure to return a runtime diagnostic, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "wrapped alias cycle condition runtime code"
+        "E3001"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "wrapped alias cycle condition runtime text"
+        "division by zero"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testPatternCaseAliasOnlyRecursiveCycleRuntimeError :: IO ()
+testPatternCaseAliasOnlyRecursiveCycleRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "x = case 0 { | 0 -> y }. y = x. x.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected pattern-case alias-only recursive cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for pattern-case alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "pattern-case alias cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "pattern-case alias cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testPatternCaseBinderDoesNotAliasRecursivePeer :: IO ()
+testPatternCaseBinderDoesNotAliasRecursivePeer = do
+  result <- runSource defaultWarningSettings "x = case 0 { | y -> y }. y = x. x."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "0") (runOutput result)
+
+testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion :: IO ()
+testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "x = case 1 { | 0 if (\\(value) -> True) 0 -> 0 | _ -> x }. x.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected pattern-case guard-lambda recursion to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for guard-lambda recursion, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "guard-lambda recursion runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "guard-lambda recursion runtime text"
+        "no concrete value"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testFunctionPatternGuardSelfReferenceRuntimeError :: IO ()
+testFunctionPatternGuardSelfReferenceRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = case 1 { | 1 if f 0 == 0 -> \\(x) -> x | _ -> \\(x) -> x }. f 1.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected function-valued pattern guard self-reference to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for function-valued pattern guard self-reference, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "function-valued pattern guard self-reference runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "function-valued pattern guard self-reference runtime text"
+        "no concrete value"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testFunctionPatternGuardUsesPriorRebinding :: IO ()
+testFunctionPatternGuardUsesPriorRebinding = do
+  result <- runSource defaultWarningSettings "f = \\(x) -> 0. f = case 1 { | 1 if f 0 == 0 -> \\(x) -> x | _ -> \\(x) -> x + 1 }. f 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1") (runOutput result)
+
+testBlockWrappedAliasOnlyRecursiveCycleRuntimeError :: IO ()
+testBlockWrappedAliasOnlyRecursiveCycleRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "a = { b. }. b = { a. }. a.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected block-wrapped alias-only recursive cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for block-wrapped alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "block-wrapped alias-only recursive cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "block-wrapped alias-only recursive cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testNonFunctionRecursiveCycleRuntimeError :: IO ()
+testNonFunctionRecursiveCycleRuntimeError = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "x = y + 1. y = x + 1. x.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected non-function recursive cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for non-function recursive cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "non-function recursive cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "non-function recursive cycle runtime text"
+        "no concrete value"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testNestedBlockAliasCycleIgnoresLaterOuterPeer :: IO ()
+testNestedBlockAliasCycleIgnoresLaterOuterPeer = do
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "x = { y = z. z = y. y. }. z = x. x.") :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing ->
+      failTest "expected nested block alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected nested block alias cycle to report a deterministic runtime diagnostic, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "nested block alias cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "nested block alias cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testPatternCaseNoMatchRuntimeError :: IO ()
+testPatternCaseNoMatchRuntimeError = do
+  let result = evaluateRuntimeExpr patternCaseNoMatchExpr
+  assertLeftDiagnosticCodeAndContains
+    "pattern-case no-match runtime code"
+    "E3022"
+    "matched no arms"
+    result
+
+patternCaseNoMatchExpr :: Expr
+patternCaseNoMatchExpr =
+  EPatternCase
+    (ELit (LInt 1))
+    [ CaseArm
+        (PLiteral (LInt 0))
+        Nothing
+        (ELit (LInt 2))
+    ]
+
+testConstructorOverApplicationRuntimeError :: IO ()
+testConstructorOverApplicationRuntimeError = do
+  let result = evaluateRuntimeExpr overAppliedConstructorExpr
+  assertLeftDiagnosticCodeAndContains
+    "constructor over-application runtime code"
+    "E3023"
+    "constructor 'Just' expected 1 argument but received 2"
+    result
+
+overAppliedConstructorExpr :: Expr
+overAppliedConstructorExpr =
+  EBlock
+    [ SData
+        (SourceSpan 1 1)
+        "Maybe"
+        []
+        [DataConstructor "Just" [DataConstructorArgumentName "value"]],
+      SExpr
+        (SourceSpan 1 20)
+        (EApply (EApply (EVar "Just") (ELit (LInt 1))) (ELit (LInt 2)))
+    ]
+
+testDollarOperatorValueRuntimeSuccess :: IO ()
+testDollarOperatorValueRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "($) (1 +) 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testBareOperatorValueRuntimeSuccess :: IO ()
+testBareOperatorValueRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "(+) 1 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testExplicitPartialOperatorValueRuntimeSuccess :: IO ()
+testExplicitPartialOperatorValueRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "((+) 1) 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testLeftOperatorSectionRuntimeSuccess :: IO ()
+testLeftOperatorSectionRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "(1 +) 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testRightOperatorSectionRuntimeSuccess :: IO ()
+testRightOperatorSectionRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "(+ 1) 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testRightSectionDiffersFromOrdinaryPartialApplication :: IO ()
+testRightSectionDiffersFromOrdinaryPartialApplication = do
+  rightSectionResult <- runSource defaultWarningSettings "(/ 2) 10."
+  partialApplicationResult <- runSource defaultWarningSettings "((/) 2) 10."
+  assertEqual "right section compile errors" [] (runCompileErrors rightSectionResult)
+  assertEqual "right section runtime errors" [] (runRuntimeErrors rightSectionResult)
+  assertEqual "right section runtime output" (Just "5") (runOutput rightSectionResult)
+  assertEqual "partial application compile errors" [] (runCompileErrors partialApplicationResult)
+  assertEqual "partial application runtime errors" [] (runRuntimeErrors partialApplicationResult)
+  assertEqual "partial application runtime output" (Just "0") (runOutput partialApplicationResult)
+
+testDeclaredUserOperatorInfixRuntimeSuccess :: IO ()
+testDeclaredUserOperatorInfixRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\n1 %% 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess :: IO ()
+testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% precedence 99.\n(%%) = \\(left) -> \\(right) -> left - right.\n20 + 10 %% 3 * 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "34") (runOutput result)
+
+testDeclaredUserOperatorSignatureRuntimeSuccess :: IO ()
+testDeclaredUserOperatorSignatureRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) :: Int -> Int -> Int.\n(%%) = \\(left) -> \\(right) -> left + right.\n1 %% 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testDeclaredUserOperatorValueRuntimeSuccess :: IO ()
+testDeclaredUserOperatorValueRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\n(%%) 1 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testDeclaredUserLeftOperatorSectionRuntimeSuccess :: IO ()
+testDeclaredUserLeftOperatorSectionRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left - right.\n(2 %%) 10."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "-8") (runOutput result)
+
+testDeclaredUserRightOperatorSectionRuntimeSuccess :: IO ()
+testDeclaredUserRightOperatorSectionRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left - right.\n(%% 2) 10."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "8") (runOutput result)
+
+testRecursiveDeclaredUserOperatorRuntimeSuccess :: IO ()
+testRecursiveDeclaredUserOperatorRuntimeSuccess = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> if left == 0 right else (left - 1) %% right.\nx = 2 %% 3.\nx."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testRecursiveDeclaredUserOperatorValueAliasRuntimeError :: IO ()
+testRecursiveDeclaredUserOperatorValueAliasRuntimeError = do
+  maybeResult <-
+    timeout
+      1000000
+      ( try
+          (runSource defaultWarningSettings "operator %% tier 2.\n(%%) = (%%).\n1 %% 2.")
+          :: IO (Either SomeException RunResult)
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected declared operator value alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for declared operator value alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "declared operator value alias cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "declared operator value alias cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError :: IO ()
+testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError = do
+  maybeResult <-
+    timeout
+      1000000
+      ( try
+          (runSource defaultWarningSettings "operator %% tier 2.\n(%%) = alias.\nalias = (%%).\n1 %% 2.")
+          :: IO (Either SomeException RunResult)
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected indirect declared operator value alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for indirect declared operator value alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "indirect declared operator value alias cycle runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "indirect declared operator value alias cycle runtime text"
+        "recursive alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testMapHdNestedListsRuntimeSuccess :: IO ()
+testMapHdNestedListsRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "map hd [[1, 2], [3], [4, 5]]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[1, 3, 4]") (runOutput result)
+
+testFilterRuntimeSuccess :: IO ()
+testFilterRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "filter (> 1) [1, 2, 3, 1]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[2, 3]") (runOutput result)
+
+testTlReturnsTailRuntimeValue :: IO ()
+testTlReturnsTailRuntimeValue = do
+  result <- runSource defaultWarningSettings "tl [1, 2, 3]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[2, 3]") (runOutput result)
+
+testTupleLiteralRuntimeValue :: IO ()
+testTupleLiteralRuntimeValue = do
+  result <- runSource defaultWarningSettings "(1, True)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(1, True)") (runOutput result)
+
+testHdEmptyListRuntimeError :: IO ()
+testHdEmptyListRuntimeError = do
+  result <- runSource defaultWarningSettings "hd []."
+  let runtimeErrors = runRuntimeErrors result
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "runtime fatal empty-list hd"
+    "E3009"
+    runtimeErrors
+  case runtimeErrors of
+    [] ->
+      fail "expected empty-list hd runtime error, but got no runtime errors"
+    runtimeError : _ ->
+      assertContains
+        "runtime fatal mentions empty list"
+        "empty list"
+        (renderDiagnostic runtimeError)
+  assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testTlEmptyListRuntimeError :: IO ()
+testTlEmptyListRuntimeError = do
+  result <- runSource defaultWarningSettings "tl []."
+  let runtimeErrors = runRuntimeErrors result
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "runtime fatal empty-list tl"
+    "E3010"
+    runtimeErrors
+  case runtimeErrors of
+    [] ->
+      fail "expected empty-list tl runtime error, but got no runtime errors"
+    runtimeError : _ ->
+      assertContains
+        "runtime fatal mentions empty list"
+        "empty list"
+        (renderDiagnostic runtimeError)
+  assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testRuntimeHelperRejectsCanonicalAlias :: IO ()
+testRuntimeHelperRejectsCanonicalAlias = do
+  let result = evaluateRuntimeExpr (runtimeExpr (EVar "map"))
+  assertRuntimeErrorContains "runtime helper canonical alias rejected" "E3002" result
+
+testRuntimeFallbackRejectsHdNonList :: IO ()
+testRuntimeFallbackRejectsHdNonList = do
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "__kernel_hd") (ELit (LInt 1))))
+  assertRuntimeErrorContains "runtime fallback hd non-list" "E3011" result
+
+testRuntimeFallbackRejectsTlNonList :: IO ()
+testRuntimeFallbackRejectsTlNonList = do
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "__kernel_tl") (ELit (LInt 1))))
+  assertRuntimeErrorContains "runtime fallback tl non-list" "E3012" result
+
+testRuntimeFallbackRejectsMapNonFunctionMapper :: IO ()
+testRuntimeFallbackRejectsMapNonFunctionMapper = do
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_map") (ELit (LInt 1))) (EList [ELit (LInt 1)])))
+  assertRuntimeErrorContains "runtime fallback map mapper" "E3015" result
+
+testRuntimeFallbackRejectsMapNonListCollection :: IO ()
+testRuntimeFallbackRejectsMapNonListCollection = do
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_map") (EVar "__kernel_hd")) (ELit (LInt 1))))
+  assertRuntimeErrorContains "runtime fallback map collection" "E3013" result
+
+testRuntimeFallbackRejectsFilterNonFunctionPredicate :: IO ()
+testRuntimeFallbackRejectsFilterNonFunctionPredicate = do
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_filter") (ELit (LInt 1))) (EList [ELit (LInt 1)])))
+  assertRuntimeErrorContains "runtime fallback filter predicate" "E3017" result
+
+testRuntimeFallbackRejectsFilterNonListCollection :: IO ()
+testRuntimeFallbackRejectsFilterNonListCollection = do
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_filter") (ESectionLeft (ELit (LInt 1)) "<")) (ELit (LInt 1))))
+  assertRuntimeErrorContains "runtime fallback filter collection" "E3018" result
+
+testRuntimeFallbackRejectsFilterPredicateNonBool :: IO ()
+testRuntimeFallbackRejectsFilterPredicateNonBool = do
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_filter") (ESectionLeft (ELit (LInt 1)) "+")) (EList [ELit (LInt 1)])))
+  assertRuntimeErrorContains "runtime fallback filter predicate bool result" "E3019" result
+
+testPrintBuiltinReturnsArgument :: IO ()
+testPrintBuiltinReturnsArgument = do
+  result <- runSource defaultWarningSettings "print! 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1") (runOutput result)
+
+testIntegerConversionRuntimeSuccess :: IO ()
+testIntegerConversionRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "toUInt8 255."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "255") (runOutput result)
+
+testIntegerConversionSourceExactIntegralFloatRuntimeSuccess :: IO ()
+testIntegerConversionSourceExactIntegralFloatRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "toInt64 9223372036854775807.0."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "9223372036854775807") (runOutput result)
+
+testDefaultIntegerConversionAliasRuntimeSuccess :: IO ()
+testDefaultIntegerConversionAliasRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "toInt 9223372036854775807.0."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "9223372036854775807") (runOutput result)
+
+testFloat64SignaturePreservesSourceExactIntegralConversion :: IO ()
+testFloat64SignaturePreservesSourceExactIntegralConversion = do
+  result <- runSource defaultWarningSettings "value :: Float64.\nvalue = 9223372036854775807.0.\ntoInt64 value."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "9223372036854775807") (runOutput result)
+
+testFloat16SignatureConvertsFromRoundedRuntimeValue :: IO ()
+testFloat16SignatureConvertsFromRoundedRuntimeValue = do
+  result <- runSource defaultWarningSettings "value :: Float16.\nvalue = 2049.0.\ntoInt64 value."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "2048") (runOutput result)
+
+testWidthSpecificIntegerArithmeticBoundsRuntimeError :: IO ()
+testWidthSpecificIntegerArithmeticBoundsRuntimeError = do
+  result <- runSource defaultWarningSettings "value = toUInt8 255.\nvalue + 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "UInt8 arithmetic overflow runtime code"
+    "E3025"
+    (runRuntimeErrors result)
+  assertSingleDiagnosticContains
+    "UInt8 arithmetic overflow runtime text"
+    "outside UInt8 range"
+    (runRuntimeErrors result)
+  assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testFloatConversionRuntimeSuccess :: IO ()
+testFloatConversionRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "toFloat64 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1.0") (runOutput result)
+
+testDefaultFloatConversionAliasRuntimeSuccess :: IO ()
+testDefaultFloatConversionAliasRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "toFloat 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1.0") (runOutput result)
+
+testDynamicIntegerToFloat64OverflowRuntimeError :: IO ()
+testDynamicIntegerToFloat64OverflowRuntimeError = do
+  let justAboveFloat64MaxInteger = show ((floor (1.7976931348623157e308 :: Double) :: Integer) + 1)
+      source = Text.pack ("id = \\(value) -> value.\ntoFloat64 (id " <> justAboveFloat64MaxInteger <> ").")
+  result <- runSource defaultWarningSettings source
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "dynamic integer-to-Float64 overflow runtime code"
+    "E3024"
+    (runRuntimeErrors result)
+  assertSingleDiagnosticContains
+    "dynamic integer-to-Float64 overflow runtime text"
+    "finite Float64"
+    (runRuntimeErrors result)
+  assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testFractionalLiteralRuntimeSuccess :: IO ()
+testFractionalLiteralRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "1.25."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1.25") (runOutput result)
+
+testFloat64ArithmeticRuntimeSuccess :: IO ()
+testFloat64ArithmeticRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "((7.5 - 1.5) * 2.0) / 3.0 + 0.25."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "4.25") (runOutput result)
+
+testFloat64DomainIntegerLiteralArithmeticRuntimeSuccess :: IO ()
+testFloat64DomainIntegerLiteralArithmeticRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "(1 + 1.5, 1.5 + 2, 5 - 2.5, 2 * 1.5, 1 / 2.0)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(2.5, 3.5, 2.5, 3.0, 0.5)") (runOutput result)
+
+testDirectTypedIntegerFloat64ArithmeticRuntimeSuccess :: IO ()
+testDirectTypedIntegerFloat64ArithmeticRuntimeSuccess = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "integer :: Int64.\ninteger = toInt64 6.\nnarrow :: Int8.\nnarrow = toInt8 3.\nfloating :: Float64.\nfloating = toFloat64 2.\ndefaultInt :: Int.\ndefaultInt = 4.\ndefaultFloat :: Float.\ndefaultFloat = 1.5.\n(integer + floating, floating + integer, integer - floating, floating - narrow, integer * floating, narrow * defaultFloat, integer / floating, floating / integer, defaultInt + defaultFloat)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(8.0, 8.0, 4.0, -1.0, 12.0, 4.5, 3.0, 0.3333333333333333, 5.5)") (runOutput result)
+
+testFloat16ArithmeticPreservesRuntimeWidth :: IO ()
+testFloat16ArithmeticPreservesRuntimeWidth = do
+  result <- runSource defaultWarningSettings "left :: Float16.\nleft = 2048.0.\none :: Float16.\none = 1.0.\nthree :: Float16.\nthree = 3.0.\nmulLeft :: Float16.\nmulLeft = 683.0.\nadd16 :: Float16.\nadd16 = left + one.\nsub16 :: Float16.\nsub16 = add16 - one.\nmul16 :: Float16.\nmul16 = mulLeft * three.\ndiv16 :: Float16.\ndiv16 = add16 / one.\n(add16, sub16, mul16, div16)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(2048.0, 2047.0, 2048.0, 2048.0)") (runOutput result)
+
+testFloat32ArithmeticPreservesRuntimeWidth :: IO ()
+testFloat32ArithmeticPreservesRuntimeWidth = do
+  result <- runSource defaultWarningSettings "one :: Float32.\none = 1.0.\nepsilon :: Float32.\nepsilon = 0.00000001.\nadd32 :: Float32.\nadd32 = one + epsilon.\nsub32 :: Float32.\nsub32 = add32 - epsilon.\nmul32 :: Float32.\nmul32 = one * add32.\ndiv32 :: Float32.\ndiv32 = add32 / one.\n(add32, sub32, mul32, div32)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(1.0, 1.0, 1.0, 1.0)") (runOutput result)
+
+testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic :: IO ()
+testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic = do
+  assertRuntimeErrorContains
+    "runtime fallback Float16 plus untyped Float"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "+" (targetedFloat "__kernel_toFloat16") untypedFloatOne)))
+  assertRuntimeErrorContains
+    "runtime fallback untyped Float plus Float32"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "+" untypedFloatOne (targetedFloat "__kernel_toFloat32"))))
+
+testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic :: IO ()
+testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic = do
+  case evaluateRuntimeExpr (runtimeExpr (EBinary "+" (targetedInt "__kernel_toInt64") (targetedFloat "__kernel_toFloat64"))) of
+    Right (Just (VFloat value _)) ->
+      assertEqual "runtime fallback typed Int64 plus Float64" 2.0 value
+    Right otherValue ->
+      failTest ("expected Float64-domain runtime value, got " <> Text.pack (show otherValue))
+    Left runtimeError ->
+      failTest ("expected Float64-domain runtime success, got " <> renderDiagnostic runtimeError)
+  assertRuntimeErrorContains
+    "runtime fallback untyped Int plus Float16"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "+" (ELit (LInt 1)) (targetedFloat "__kernel_toFloat16"))))
+  assertRuntimeErrorContains
+    "runtime fallback integer-to-Float64 arithmetic overflow"
+    "E3024"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "+" tooLargeFloat64Integer (targetedFloat "__kernel_toFloat64"))))
+
+testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality :: IO ()
+testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality = do
+  assertRuntimeErrorContains
+    "runtime fallback Float16 less-than Float32"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "<" (targetedFloat "__kernel_toFloat16") (targetedFloat "__kernel_toFloat32"))))
+  assertRuntimeErrorContains
+    "runtime fallback Float16 equality Float64"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "==" (targetedFloat "__kernel_toFloat16") (targetedFloat "__kernel_toFloat64"))))
+  assertRuntimeErrorContains
+    "runtime fallback Float32 inequality untyped Float"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "!=" (targetedFloat "__kernel_toFloat32") untypedFloatOne)))
+
+testRuntimeFallbackHandlesUntypedIntegerFloat64ComparisonEquality :: IO ()
+testRuntimeFallbackHandlesUntypedIntegerFloat64ComparisonEquality = do
+  assertRuntimeBool
+    "runtime fallback untyped Int less-than untyped Float"
+    True
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "<" (ELit (LInt 1)) untypedFloatTwo)))
+  assertRuntimeBool
+    "runtime fallback untyped Int equality Float64"
+    True
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "==" (ELit (LInt 1)) (targetedFloat "__kernel_toFloat64"))))
+
+testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue :: IO ()
+testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue = do
+  result <- runSource defaultWarningSettings "x16 :: Float16.\nx16 = 2049.0.\nx32 :: Float32.\nx32 = 1.00000001.\ny16 :: @{}: Float16.\ny16 = 2049.0.\ny32 :: @{}: Float32.\ny32 = 1.00000001.\n(x16, x32, y16, y32)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(2048.0, 1.0, 2048.0, 1.0)") (runOutput result)
+
+testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue :: IO ()
+testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue = do
+  result <- runSource defaultWarningSettings "x16 = 2049.0f16.\nx32 = 1.00000001f32.\nx64 = 1.5f64.\n(x16, x32, x64)."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(2048.0, 1.0, 1.5)") (runOutput result)
+
+testFloat16ArithmeticOverflowRuntimeError :: IO ()
+testFloat16ArithmeticOverflowRuntimeError = do
+  result <- runSource defaultWarningSettings "left = toFloat16 65504.\nright = toFloat16 65504.\nleft + right."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "Float16 arithmetic overflow runtime code"
+    "E3025"
+    (runRuntimeErrors result)
+  assertSingleDiagnosticContains
+    "Float16 arithmetic overflow runtime text"
+    "finite Float16"
+    (runRuntimeErrors result)
+  assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testFloat64ArithmeticOverflowRuntimeError :: IO ()
+testFloat64ArithmeticOverflowRuntimeError = do
+  let hugeInteger = "1" <> replicate 200 '0'
+      source =
+        Text.pack
+          ( "left = toFloat64 "
+              <> hugeInteger
+              <> ".\nright = toFloat64 "
+              <> hugeInteger
+              <> ".\nleft * right."
+          )
+  result <- runSource defaultWarningSettings source
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "Float64 arithmetic overflow runtime code"
+    "E3025"
+    (runRuntimeErrors result)
+  assertSingleDiagnosticContains
+    "Float64 arithmetic overflow runtime text"
+    "non-finite Float result"
+    (runRuntimeErrors result)
+  assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testFloat64ComparisonEqualityRuntimeSuccess :: IO ()
+testFloat64ComparisonEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "lt = 1.5 < 2.0.\nle = 2.0 <= 2.0.\ngt = 3.0 > 2.0.\nge = 3.0 >= 3.0.\neq = 2.0 == 2.0.\nne = 2.0 != 3.0.\n[lt, le, gt, ge, eq, ne]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, True, True, True, True]") (runOutput result)
+
+testDirectTypedIntegerFloat64ComparisonEqualityRuntimeSuccess :: IO ()
+testDirectTypedIntegerFloat64ComparisonEqualityRuntimeSuccess = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "integer :: Int64.\ninteger = toInt64 2.\nnarrow :: Int8.\nnarrow = toInt8 1.\nfloating :: Float64.\nfloating = toFloat64 2.\ndefaultFloat :: Float.\ndefaultFloat = 3.0.\n[integer < defaultFloat, integer <= floating, defaultFloat > narrow, floating >= integer, integer == floating, defaultFloat != integer]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, True, True, True, True]") (runOutput result)
+  assertRuntimeErrorContains
+    "runtime fallback untyped integer-to-Float64 comparison overflow"
+    "E3024"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "==" tooLargeFloat64Integer (targetedFloat "__kernel_toFloat64"))))
+
+testFloat16Float32ComparisonEqualityRuntimeSuccess :: IO ()
+testFloat16Float32ComparisonEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "a16 = toFloat16 1.\nb16 = toFloat16 2.\na32 = toFloat32 1.\nb32 = toFloat32 2.\nlt16 = a16 < b16.\nle16 = a16 <= a16.\ngt16 = b16 > a16.\nge16 = b16 >= b16.\neq16 = a16 == a16.\nne16 = a16 != b16.\nlt32 = a32 < b32.\nle32 = a32 <= a32.\ngt32 = b32 > a32.\nge32 = b32 >= b32.\neq32 = a32 == a32.\nne32 = a32 != b32.\n[lt16, le16, gt16, ge16, eq16, ne16, lt32, le32, gt32, ge32, eq32, ne32]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, True, True, True, True, True, True, True, True, True, True]") (runOutput result)
+
+testTargetedFloat16Float32FractionalLiteralComparisonEqualityRuntimeSuccess :: IO ()
+testTargetedFloat16Float32FractionalLiteralComparisonEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "a16 :: Float16.\na16 = 1.5.\nb16 :: Float16.\nb16 = 2.25.\na32 :: Float32.\na32 = 1.5.\nb32 :: Float32.\nb32 = 2.25.\n[a16 < b16, a16 <= a16, b16 > a16, b16 >= b16, a16 == a16, a16 != b16, a32 < b32, a32 <= a32, b32 > a32, b32 >= b32, a32 == a32, a32 != b32]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, True, True, True, True, True, True, True, True, True, True]") (runOutput result)
+
+testStructuralListEqualityRuntimeSuccess :: IO ()
+testStructuralListEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "same = [1, 2] == [1, 2].\ndifferent = [1, 2] != [1, 3].\nshorter = [1] == [1, 2].\nnested = [[True], [False]] == [[True], [False]].\n[same, different, shorter, nested]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, False, True]") (runOutput result)
+
+testStructuralTupleEqualityRuntimeSuccess :: IO ()
+testStructuralTupleEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "same = (1, True) == (1, True).\ndifferent = (1, (True, 2)) != (1, (True, 3)).\n[same, different]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True]") (runOutput result)
+
+testStructuralAdtEqualityRuntimeSuccess :: IO ()
+testStructuralAdtEqualityRuntimeSuccess = do
+  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a.\nsame = Just 1 == Just 1.\ndifferentPayload = Just 1 != Just 2.\ndifferentCtor = Just 1 == Nothing.\nnested = Just [True] == Just [True].\n[same, differentPayload, differentCtor, nested]."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "[True, True, False, True]") (runOutput result)
+
+testStructuralAdtEqualitySeesThroughRuntimeTypeHints :: IO ()
+testStructuralAdtEqualitySeesThroughRuntimeTypeHints = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          ( Map.fromList
+              [ (bindingRuntimeHintKey "left" (SourceSpan 2 1), ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"]),
+                (bindingRuntimeHintKey "right" (SourceSpan 3 1), ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"])
+              ]
+          )
+          ( EBlock
+              [ SData (SourceSpan 1 1) "Tag" ["a"] [DataConstructor "Tag" []],
+                SLet "left" (SourceSpan 2 1) (EVar "Tag"),
+                SLet "right" (SourceSpan 3 1) (EVar "Tag"),
+                SExpr (SourceSpan 4 1) (EBinary "==" (EVar "left") (EVar "right"))
+              ]
+          )
+  assertEqual "typed ADT structural equality runtime result" (Right (Just (VBool True))) result
+
+testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints :: IO ()
+testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          ( Map.fromList
+              [ (bindingRuntimeHintKey "left" (SourceSpan 2 1), ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"]),
+                (bindingRuntimeHintKey "right" (SourceSpan 3 1), ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt16"])
+              ]
+          )
+          ( EBlock
+              [ SData (SourceSpan 1 1) "Tag" ["a"] [DataConstructor "Tag" []],
+                SLet "left" (SourceSpan 2 1) (EVar "Tag"),
+                SLet "right" (SourceSpan 3 1) (EVar "Tag"),
+                SExpr (SourceSpan 4 1) (EBinary "==" (EVar "left") (EVar "right"))
+              ]
+          )
+  assertEqual "incompatible typed ADT structural equality runtime result" (Right (Just (VBool False))) result
+
+testRuntimeFallbackRejectsDirectCallableEquality :: IO ()
+testRuntimeFallbackRejectsDirectCallableEquality = do
+  assertCallableRuntimeEqualityRejected
+    "runtime closure equality"
+    (EBinary "==" closureValue closureValue)
+  assertCallableRuntimeEqualityRejected
+    "runtime builtin equality"
+    (EBinary "==" builtinValue builtinValue)
+  assertCallableRuntimeEqualityRejected
+    "runtime operator equality"
+    (EBinary "==" operatorValue operatorValue)
+  assertCallableRuntimeEqualityRejected
+    "runtime left section equality"
+    (EBinary "==" leftSectionValue leftSectionValue)
+
+testRuntimeFallbackRejectsDirectCallableInequality :: IO ()
+testRuntimeFallbackRejectsDirectCallableInequality = do
+  assertCallableRuntimeEqualityRejected
+    "runtime closure inequality"
+    (EBinary "!=" closureValue closureValue)
+  assertCallableRuntimeEqualityRejected
+    "runtime right section inequality"
+    (EBinary "!=" rightSectionValue rightSectionValue)
+
+testRuntimeFallbackRejectsMixedTargetedIntegerEquality :: IO ()
+testRuntimeFallbackRejectsMixedTargetedIntegerEquality =
+  assertRuntimeErrorContains
+    "runtime fallback mixed targeted integer equality"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "==" (targetedInt "__kernel_toInt8") (targetedInt "__kernel_toUInt8"))))
+
+testRuntimeFallbackRejectsMixedTargetedIntegerComparison :: IO ()
+testRuntimeFallbackRejectsMixedTargetedIntegerComparison = do
+  assertRuntimeErrorContains
+    "runtime fallback mixed targeted integer less-than"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "<" (targetedInt "__kernel_toInt8") (targetedInt "__kernel_toUInt8"))))
+  assertRuntimeErrorContains
+    "runtime fallback targeted UInt8 less-or-equal untyped out-of-range Int"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary "<=" (targetedInt "__kernel_toUInt8") (ELit (LInt 256)))))
+  assertRuntimeErrorContains
+    "runtime fallback mixed targeted integer greater-than"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary ">" (targetedInt "__kernel_toUInt8") (targetedInt "__kernel_toInt16"))))
+  assertRuntimeErrorContains
+    "runtime fallback mixed targeted integer greater-or-equal"
+    "E3007"
+    (evaluateRuntimeExpr (runtimeExpr (EBinary ">=" (targetedInt "__kernel_toUInt16") (targetedInt "__kernel_toInt8"))))
+
+testRuntimeFallbackRejectsFunctionStructuralEquality :: IO ()
+testRuntimeFallbackRejectsFunctionStructuralEquality = do
+  let identity = ELambda "x" (EVar "x")
+      result = evaluateRuntimeExpr (runtimeExpr (EBinary "==" (EList [identity]) (EList [identity])))
+  assertRuntimeErrorContains "runtime fallback function structural equality" "E3007" result
+  assertRuntimeErrorContains
+    "runtime fallback function structural equality callable text"
+    "callable values are not equality-supported"
+    result
+
+testRuntimeFallbackRejectsQualifiedMethodStructuralEquality :: IO ()
+testRuntimeFallbackRejectsQualifiedMethodStructuralEquality = do
+  let result = evaluateRuntimeExpr qualifiedMethodStructuralEqualityExpr
+  assertRuntimeErrorContains "runtime fallback qualified method structural equality" "E3007" result
+  assertRuntimeErrorContains
+    "runtime fallback qualified method structural equality callable text"
+    "callable values are not equality-supported"
+    result
+
+testRuntimeFallbackRejectsDifferentLengthFunctionStructuralEquality :: IO ()
+testRuntimeFallbackRejectsDifferentLengthFunctionStructuralEquality = do
+  let identity = ELambda "x" (EVar "x")
+  assertCallableRuntimeEqualityRejected
+    "different-length function structural equality"
+    (EBinary "==" (EList [identity]) (EList [identity, identity]))
+
+testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors :: IO ()
+testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors = do
+  let result = evaluateRuntimeExpr differentSaturatedAdtConstructorEqualityExpr
+  assertRuntimeErrorContains "different saturated ADT constructor equality code" "E3007" result
+  assertRuntimeErrorContains
+    "different saturated ADT constructor equality callable text"
+    "callable values are not equality-supported"
+    result
+  where
+    identity = ELambda "x" (EVar "x")
+
+    differentSaturatedAdtConstructorEqualityExpr =
+      EBlock
+        [ SData
+            (SourceSpan 1 1)
+            "Maybe"
+            []
+            [ DataConstructor "Nothing" [],
+              DataConstructor "Just" [DataConstructorArgumentName "value"]
+            ],
+          SExpr
+            (SourceSpan 2 1)
+            (EBinary "==" (EApply (EVar "Just") identity) (EVar "Nothing"))
+        ]
+
+qualifiedMethodStructuralEqualityExpr :: Expr
+qualifiedMethodStructuralEqualityExpr =
+  EBlock
+    [ SClass
+        (SourceSpan 1 1)
+        "RuntimeEq"
+        ["a"]
+        [ ClassMethodSignature
+            "equals"
+            (SourceSpan 2 1)
+            ( ConstrainedSignature
+                []
+                ( ConstraintTypeFunction
+                    (ConstraintTypeName "a")
+                    (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool"))
+                )
+            )
+        ],
+      SImpl
+        (SourceSpan 3 1)
+        "RuntimeEq"
+        [ConstraintTypeName "Int"]
+        [ ImplMethod
+            "equals"
+            (SourceSpan 4 1)
+            (ELambda "left" (ELambda "right" (EBinary "==" (EVar "left") (EVar "right"))))
+        ],
+      SExpr
+        (SourceSpan 5 1)
+        (EBinary "==" (EList [EVar "RuntimeEq::equals"]) (EList [EVar "RuntimeEq::equals"]))
+    ]
+
+testFloat16ConversionRoundsRuntimeValue :: IO ()
+testFloat16ConversionRoundsRuntimeValue = do
+  result <- runSource defaultWarningSettings "toFloat16 2049."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "2048.0") (runOutput result)
+
+testDynamicIntegerConversionRangeRuntimeError :: IO ()
+testDynamicIntegerConversionRangeRuntimeError = do
+  result <- runSource defaultWarningSettings "x :: Int.\nx = 256.\ntoUInt8 x."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "dynamic conversion range runtime code"
+    "E3024"
+    (runRuntimeErrors result)
+  assertSingleDiagnosticContains
+    "dynamic conversion range runtime text"
+    "outside UInt8 range"
+    (runRuntimeErrors result)
+  assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testRuntimeFallbackRejectsNonNumericConversionValue :: IO ()
+testRuntimeFallbackRejectsNonNumericConversionValue = do
+  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "__kernel_toInt8") (ELit (LBool True))))
+  assertRuntimeErrorContains "runtime fallback conversion non-numeric" "E3024" result
+
+testDeclarationOnlyScopeHasNoOutput :: IO ()
+testDeclarationOnlyScopeHasNoOutput = do
+  result <- runSource defaultWarningSettings "x = 1."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "declaration-only scope produces no output" Nothing (runOutput result)
+
+testCapabilityDeclarationOnlyScopeHasNoOutput :: IO ()
+testCapabilityDeclarationOnlyScopeHasNoOutput = do
+  result <- runSource defaultWarningSettings "class RuntimeOnly(a) { }.\nimpl RuntimeOnly(Int) { }."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "declaration-only capability scope produces no output" Nothing (runOutput result)
+
+testCapabilityDeclarationsRuntimeInert :: IO ()
+testCapabilityDeclarationsRuntimeInert = do
+  result <- runSource defaultWarningSettings "class RuntimeOnly(a) { }.\nimpl RuntimeOnly(Int) { }.\nx = 1.\nx."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "capability declarations do not affect runtime output" (Just "1") (runOutput result)
+
+testQualifiedMethodCandidateCarriesRuntimeEvidence :: IO ()
+testQualifiedMethodCandidateCarriesRuntimeEvidence =
+  case evaluateRuntimeExpr qualifiedMethodEvidenceExpr of
+    Right (Just methodValue@VQualifiedMethod {}) -> do
+      assertContains
+        "runtime candidate evidence record"
+        "RuntimeEvidence"
+        (Text.pack (show methodValue))
+      assertContains
+        "runtime candidate evidence class"
+        "Eq"
+        (Text.pack (show methodValue))
+      assertContains
+        "runtime candidate evidence target"
+        "Int"
+        (Text.pack (show methodValue))
+      assertEqual "runtime evidence stays non-user-visible" "<function>" (renderRuntimeValue methodValue)
+    Right otherValue ->
+      failTest ("expected qualified method runtime value, got " <> Text.pack (show otherValue))
+    Left runtimeError ->
+      failTest ("expected qualified method runtime value, got " <> renderDiagnostic runtimeError)
+  where
+    qualifiedMethodEvidenceExpr =
+      EBlock
+        [ SClass
+            (SourceSpan 1 1)
+            "Eq"
+            ["a"]
+            [ ClassMethodSignature
+                "equals"
+                (SourceSpan 2 1)
+                ( ConstrainedSignature
+                    []
+                    ( ConstraintTypeFunction
+                        (ConstraintTypeName "a")
+                        (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool"))
+                    )
+                )
+            ],
+          SImpl
+            (SourceSpan 3 1)
+            "Eq"
+            [ConstraintTypeName "Int"]
+            [ ImplMethod
+                "equals"
+                (SourceSpan 4 1)
+                (ELambda "left" (ELambda "right" (ELit (LBool True))))
+            ],
+          SImpl
+            (SourceSpan 5 1)
+            "Eq"
+            [ConstraintTypeName "Bool"]
+            [ ImplMethod
+                "equals"
+                (SourceSpan 6 1)
+                (ELambda "left" (ELambda "right" (ELit (LBool True))))
+            ],
+          SExpr (SourceSpan 7 1) (EVar "Eq::equals")
+        ]
+
+testQualifiedMethodDispatchExecutesImplBody :: IO ()
+testQualifiedMethodDispatchExecutesImplBody = do
+  result <- runSource defaultWarningSettings (runtimeEqSource <> "RuntimeEq::equals 1 1.")
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testLetBoundQualifiedMethodDispatchExecutesImplBody :: IO ()
+testLetBoundQualifiedMethodDispatchExecutesImplBody = do
+  result <- runSource defaultWarningSettings (runtimeEqSource <> "result = RuntimeEq::equals 1 1.\nresult.")
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchSelectsRuntimeBodyByArgumentTypes :: IO ()
+testQualifiedMethodDispatchSelectsRuntimeBodyByArgumentTypes = do
+  result <- runSource defaultWarningSettings (runtimeEqSource <> "impl RuntimeEq(Bool) {\nequals = \\(left) -> \\(right) -> left != right.\n}.\n(RuntimeEq::equals 1 2, RuntimeEq::equals True False).")
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(False, True)") (runOutput result)
+
+testQualifiedMethodDispatchExecutesSameImplQualifiedMethodCall :: IO ()
+testQualifiedMethodDispatchExecutesSameImplQualifiedMethodCall = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\nnotEquals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\nnotEquals = \\(left) -> \\(right) -> RuntimeEq::equals left right != True.\n}.\n"
+          <> "RuntimeEq::notEquals 1 2."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchSelectsWidthSpecificIntegerBody :: IO ()
+testQualifiedMethodDispatchSelectsWidthSpecificIntegerBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int8) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq(Int16) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "left :: Int8.\nleft = 1.\n"
+          <> "right :: Int8.\nright = 2.\n"
+          <> "RuntimeEq::equals left right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchSelectsWidthSpecificIntegerBodyForDirectLiterals :: IO ()
+testQualifiedMethodDispatchSelectsWidthSpecificIntegerBodyForDirectLiterals = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int8) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq(Int16) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "right :: Int8.\nright = 2.\n"
+          <> "RuntimeEq::equals 1 right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint :: IO ()
+testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "id :: @{RuntimeEq(a)}: a -> a.\nid = \\(value) -> value.\n"
+          <> "result = RuntimeEq::equals (id @UInt8 1) (id @UInt8 2).\nresult."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint :: IO ()
+testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq((Int, Bool)) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq((UInt8, Bool)) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "pair = \\(value) -> (value, True).\n"
+          <> "result = RuntimeEq::equals (pair @UInt8 1) (pair @UInt8 2).\nresult."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter :: IO ()
+testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "select :: @{RuntimeEq(b)}: Int16 -> b -> b.\n"
+          <> "select = \\(width) -> \\(value) -> value.\n"
+          <> "result = RuntimeEq::equals (select @UInt8 300 1) (select @UInt8 300 2).\nresult."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget :: IO ()
+testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "id8 :: UInt8 -> UInt8.\nid8 = \\(value) -> value.\n"
+          <> "left :: UInt8.\nleft = id8 1.\n"
+          <> "right :: UInt8.\nright = id8 2.\n"
+          <> "RuntimeEq::equals left right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesDirectClosureResultSignature :: IO ()
+testQualifiedMethodDispatchPreservesDirectClosureResultSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "id8 :: UInt8 -> UInt8.\nid8 = \\(value) -> value.\n"
+          <> "left = id8 1.\n"
+          <> "right = id8 2.\n"
+          <> "RuntimeEq::equals left right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesTupleBindingSignature :: IO ()
+testQualifiedMethodDispatchPreservesTupleBindingSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick((Int, Int)) {\npick = \\(value) -> True.\n}.\n"
+          <> "impl RuntimePick((UInt8, UInt8)) {\npick = \\(value) -> False.\n}.\n"
+          <> "pair :: (UInt8, UInt8).\npair = (1, 2).\n"
+          <> "RuntimePick::pick pair."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesTupleExactSignature :: IO ()
+testQualifiedMethodDispatchPreservesTupleExactSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick((Int, Int)) {\npick = \\(value) -> True.\n}.\n"
+          <> "impl RuntimePick((Int64, Int64)) {\npick = \\(value) -> False.\n}.\n"
+          <> "pair :: (Int64, Int64).\npair = (1, 2).\n"
+          <> "RuntimePick::pick pair."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesSectionBindingSignature :: IO ()
+testQualifiedMethodDispatchPreservesSectionBindingSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(UInt8) {\napply = \\(fn) -> False.\n}.\n"
+          <> "inc8 :: UInt8 -> UInt8.\ninc8 = (+ 1).\n"
+          <> "RuntimeApply::apply inc8."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchTreatsFloatAsFloat64Alias :: IO ()
+testQualifiedMethodDispatchTreatsFloatAsFloat64Alias = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Float) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "left :: Float64.\nleft = toFloat64 1.\n"
+          <> "right :: Float64.\nright = toFloat64 1.\n"
+          <> "RuntimeEq::equals left right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPrefersFloatAliasBody :: IO ()
+testQualifiedMethodDispatchPrefersFloatAliasBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Float) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Float64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "value :: Float.\nvalue = 1.5.\n"
+          <> "RuntimeFlag::flag value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesConcreteLeftFloat64OverRightFloatAlias :: IO ()
+testQualifiedMethodDispatchPreservesConcreteLeftFloat64OverRightFloatAlias = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Float) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Float64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "left :: Float64.\nleft = toFloat64 1.\n"
+          <> "right :: Float.\nright = 2.5.\n"
+          <> "(RuntimeFlag::flag) (left + right)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchMirrorsRuntimeFloat64DomainArithmetic :: IO ()
+testQualifiedMethodDispatchMirrorsRuntimeFloat64DomainArithmetic = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Float) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Float64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "floating :: Float64.\nfloating = toFloat64 2.\n"
+          <> "(RuntimeFlag::flag) (1.5 + floating)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchExecutesFloatEqualityBody :: IO ()
+testQualifiedMethodDispatchExecutesFloatEqualityBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Float) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+          <> "left :: Float.\nleft = 1.5.\n"
+          <> "same :: Float.\nsame = 1.5.\n"
+          <> "different :: Float.\ndifferent = 2.25.\n"
+          <> "(RuntimeEq::equals left same, RuntimeEq::equals left different)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+
+testQualifiedMethodDispatchExecutesFloat16EqualityBody :: IO ()
+testQualifiedMethodDispatchExecutesFloat16EqualityBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Float16) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+          <> "left :: Float16.\nleft = 1.5.\n"
+          <> "same :: Float16.\nsame = 1.5.\n"
+          <> "different :: Float16.\ndifferent = 2.25.\n"
+          <> "(RuntimeEq::equals left same, RuntimeEq::equals left different)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+
+testQualifiedMethodDispatchExecutesFloat32EqualityBody :: IO ()
+testQualifiedMethodDispatchExecutesFloat32EqualityBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Float32) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+          <> "left :: Float32.\nleft = 1.5.\n"
+          <> "same :: Float32.\nsame = 1.5.\n"
+          <> "different :: Float32.\ndifferent = 2.25.\n"
+          <> "(RuntimeEq::equals left same, RuntimeEq::equals left different)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+
+testQualifiedMethodDispatchExecutesFloat64EqualityBody :: IO ()
+testQualifiedMethodDispatchExecutesFloat64EqualityBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Float64) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+          <> "left :: Float64.\nleft = toFloat64 1.\n"
+          <> "right :: Float64.\nright = toFloat64 1.\n"
+          <> "RuntimeEq::equals left right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchTreatsIntAsInt64Alias :: IO ()
+testQualifiedMethodDispatchTreatsIntAsInt64Alias = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "left :: Int.\nleft = 1.\n"
+          <> "right :: Int.\nright = 2.\n"
+          <> "RuntimeEq::equals left right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPrefersIntAliasBody :: IO ()
+testQualifiedMethodDispatchPrefersIntAliasBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "value :: Int.\nvalue = 1.\n"
+          <> "RuntimeFlag::flag value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral :: IO ()
+testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "RuntimeFlag::flag 1."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPrefersListAliasBody :: IO ()
+testQualifiedMethodDispatchPrefersListAliasBody = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([Int]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([Int64]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "values :: [Int].\nvalues = [1, 2].\n"
+          <> "RuntimeFlag::flag values."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral :: IO ()
+testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([Int]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([Int64]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "(RuntimeFlag::flag) [1]."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint :: IO ()
+testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "values = [[1], []].\n"
+          <> "(RuntimeFlag::flag) values."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint :: IO ()
+testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([Int]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([Bool]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "empty = [].\n"
+          <> "(RuntimeFlag::flag) (empty @Int)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint :: IO ()
+testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint = do
+  let expr =
+        EBlock
+          [ SLet "empty" (SourceSpan 1 1) (EList []),
+            SExpr (SourceSpan 2 1) (EVar "empty")
+          ]
+  inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
+  assertEqual "inference errors" [] (inferredErrors inference)
+  assertEqual "plain polymorphic empty list runtime hints" Map.empty (inferredRuntimeTypeHints inference)
+
+testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection :: IO ()
+testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "f = \\(x) -> RuntimeFlag::flag x.\n"
+          <> "result = f [[1], []].\n"
+          <> "result."
+      )
+  assertSingleDiagnosticContains
+    "unhinted nested list helper exact selection"
+    "ambiguous qualified method body 'RuntimeFlag::flag'"
+    (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" Nothing (runOutput result)
+
+testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral :: IO ()
+testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral =
+  assertEqual
+    "untyped empty list exact match"
+    False
+    (runtimeValueExactlyMatchesConstraint (ConstraintTypeList (ConstraintTypeName "Int")) (VList [] Nothing))
+
+testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral :: IO ()
+testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "data Box a = Box a.\n"
+          <> "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Box(Int)) {\nflag = \\(box) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Box(Int64)) {\nflag = \\(box) -> False.\n}.\n"
+          <> "(RuntimeFlag::flag) (Box 1)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection :: IO ()
+testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "data Wrap a = Wrap Int64 a.\n"
+          <> "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Wrap(Int)) {\nflag = \\(wrap) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Wrap(Int64)) {\nflag = \\(wrap) -> False.\n}.\n"
+          <> "(RuntimeFlag::flag) (Wrap 1 1)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64 :: IO ()
+testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64 = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "(RuntimeFlag::flag) ((\\(x) -> x) 1)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesHigherOrderBindingSignature :: IO ()
+testQualifiedMethodDispatchPreservesHigherOrderBindingSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(Bool) {\napply = \\(fn) -> False.\n}.\n"
+          <> "idInt :: Int -> Int.\nidInt = \\(value) -> value.\n"
+          <> "RuntimeApply::apply idInt."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesHigherOrderExactSignature :: IO ()
+testQualifiedMethodDispatchPreservesHigherOrderExactSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(Int64) {\napply = \\(fn) -> False.\n}.\n"
+          <> "id64 :: Int64 -> Int64.\nid64 = \\(value) -> value.\n"
+          <> "RuntimeApply::apply id64."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchRejectsUnhintedFunctionArgumentExactSelection :: IO ()
+testQualifiedMethodDispatchRejectsUnhintedFunctionArgumentExactSelection = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(Int64) {\napply = \\(fn) -> False.\n}.\n"
+          <> "(RuntimeApply::apply) (\\(value) -> value + 1)."
+      )
+  assertSingleDiagnosticContains
+    "unhinted function argument exact selection"
+    "ambiguous qualified method body 'RuntimeApply::apply'"
+    (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" Nothing (runOutput result)
+
+testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument :: IO ()
+testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: Int -> a -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(index) -> \\(value) -> False.\n}.\n"
+          <> "impl RuntimePick(Bool) {\npick = \\(index) -> \\(value) -> True.\n}.\n"
+          <> "one :: Int.\none = 1.\n"
+          <> "pickOne = RuntimePick::pick one.\n"
+          <> "pickOne True."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesSelectedMethodSignature :: IO ()
+testQualifiedMethodDispatchPreservesSelectedMethodSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class Id(a) {\nid :: a -> a.\n}.\n"
+          <> "impl Id(Int) {\nid = \\(value) -> value.\n}.\n"
+          <> "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(Bool) {\napply = \\(fn) -> False.\n}.\n"
+          <> "RuntimeApply::apply Id::id."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchAppliesTypedCallableArgumentHint :: IO ()
+testQualifiedMethodDispatchAppliesTypedCallableArgumentHint = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (ConstraintTypeFunction (ConstraintTypeName "UInt8") (ConstraintTypeName "Bool")))
+          (runtimeTypedCallableArgumentHintExpr (EVar "RuntimePick::pick"))
+  assertEqual "typed callable argument hint runtime result" (Right (Just (VBool False))) result
+
+testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar :: IO ()
+testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (ConstraintTypeFunction (ConstraintTypeName "UInt8") (ConstraintTypeName "Bool")))
+          (runtimeTypedCallableArgumentHintThroughPrefixDollarExpr (EVar "RuntimePick::pick"))
+  assertEqual "typed callable argument hint through prefix dollar runtime result" (Right (Just (VBool False))) result
+
+testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint :: IO ()
+testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (ConstraintTypeFunction (ConstraintTypeName "UInt8") (ConstraintTypeName "Bool")))
+          ( runtimeTypedCallableArgumentHintExpr
+              (ELambda "value" (EApply (EVar "RuntimePick::pick") (EVar "value")))
+          )
+  assertEqual "closure argument signature hint runtime result" (Right (Just (VBool False))) result
+
+testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata :: IO ()
+testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\n"
+          <> "impl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\n"
+          <> "f = \\(value) -> 1.\n"
+          <> "result = RuntimePick::pick (f True).\n"
+          <> "result."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+runtimeTypedCallableArgumentHintExpr :: Expr -> Expr
+runtimeTypedCallableArgumentHintExpr callableExpr =
+  EBlock
+    ( runtimePickStatements
+        ++ [ SLet "choose" (SourceSpan 9 1) callableExpr,
+             SExpr (SourceSpan 10 1) (EApply (EVar "choose") (ELit (LInt 1)))
+           ]
+    )
+
+runtimeTypedCallableArgumentHintThroughPrefixDollarExpr :: Expr -> Expr
+runtimeTypedCallableArgumentHintThroughPrefixDollarExpr callableExpr =
+  EBlock
+    ( runtimePickStatements
+        ++ [ SLet "choose" (SourceSpan 9 1) callableExpr,
+             SExpr (SourceSpan 10 1) (EApply (EApply (EOperatorValue "$") (EVar "choose")) (ELit (LInt 1)))
+           ]
+    )
+
+runtimePickStatements :: [Statement]
+runtimePickStatements =
+  [ SClass
+      (SourceSpan 1 1)
+      "RuntimePick"
+      ["a"]
+      [ ClassMethodSignature
+          "pick"
+          (SourceSpan 2 1)
+          (ConstrainedSignature [] (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool")))
+      ],
+    SImpl
+      (SourceSpan 3 1)
+      "RuntimePick"
+      [ConstraintTypeName "Int"]
+      [ImplMethod "pick" (SourceSpan 4 1) (ELambda "value" (ELit (LBool True)))],
+    SImpl
+      (SourceSpan 5 1)
+      "RuntimePick"
+      [ConstraintTypeName "UInt8"]
+      [ImplMethod "pick" (SourceSpan 6 1) (ELambda "value" (ELit (LBool False)))]
+  ]
+
+testTypedNumericSectionPreservesCapturedOperandFlexibility :: IO ()
+testTypedNumericSectionPreservesCapturedOperandFlexibility = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "add8 :: UInt8 -> UInt8.\n"
+          <> "add8 = (+ 1).\n"
+          <> "add8 (toUInt8 2)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "3") (runOutput result)
+
+testQualifiedMethodDispatchPreservesEmptyListBindingSignature :: IO ()
+testQualifiedMethodDispatchPreservesEmptyListBindingSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(values) -> True.\n}.\n"
+          <> "impl RuntimePick(Bool) {\npick = \\(values) -> False.\n}.\n"
+          <> "values :: [Int].\nvalues = [].\n"
+          <> "RuntimePick::pick values."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesListReturningApplicationSignature :: IO ()
+testQualifiedMethodDispatchPreservesListReturningApplicationSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "make :: Bool -> [[Int64]].\nmake = \\(enabled) -> [[1], []].\n"
+          <> "(RuntimeFlag::flag) (make True)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesDollarAppliedListReturningSignature :: IO ()
+testQualifiedMethodDispatchPreservesDollarAppliedListReturningSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "make :: Bool -> [[Int64]].\nmake = \\(enabled) -> [[1], []].\n"
+          <> "(RuntimeFlag::flag) (($) make True)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesAdtReturningApplicationSignature :: IO ()
+testQualifiedMethodDispatchPreservesAdtReturningApplicationSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "data Box a = Box a.\n"
+          <> "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Box([[Int]])) {\nflag = \\(box) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Box([[Int64]])) {\nflag = \\(box) -> False.\n}.\n"
+          <> "make = \\(enabled) -> if enabled (Box [[toInt64 1], []]) else (Box [[toInt64 2], []]).\n"
+          <> "(RuntimeFlag::flag) (make True)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesBranchResultSignature :: IO ()
+testQualifiedMethodDispatchPreservesBranchResultSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "make64 :: Bool -> [[Int64]].\nmake64 = \\(enabled) -> [[1], []].\n"
+          <> "(RuntimeFlag::flag) (if True (make64 True) else (make64 False))."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesBlockResultSignature :: IO ()
+testQualifiedMethodDispatchPreservesBlockResultSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "(RuntimeFlag::flag) {\nvalues :: [[Int64]].\nvalues = [[1], []].\nvalues.\n}."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature :: IO ()
+testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(values) -> True.\n}.\n"
+          <> "impl RuntimePick(UInt8) {\npick = \\(values) -> False.\n}.\n"
+          <> "id8 :: UInt8 -> UInt8.\nid8 = \\(value) -> value.\n"
+          <> "values :: [UInt8].\nvalues = [].\n"
+          <> "mapped = map id8 values.\n"
+          <> "RuntimePick::pick mapped."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesIdentityMappedEmptyListResultSignature :: IO ()
+testQualifiedMethodDispatchPreservesIdentityMappedEmptyListResultSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(values) -> True.\n}.\n"
+          <> "impl RuntimePick(UInt8) {\npick = \\(values) -> False.\n}.\n"
+          <> "values :: [UInt8].\nvalues = [].\n"
+          <> "mapped = map (\\(value) -> value) values.\n"
+          <> "RuntimePick::pick mapped."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesMappedHdEmptyNestedListResultSignature :: IO ()
+testQualifiedMethodDispatchPreservesMappedHdEmptyNestedListResultSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(values) -> True.\n}.\n"
+          <> "impl RuntimePick(UInt8) {\npick = \\(values) -> False.\n}.\n"
+          <> "values :: [[UInt8]].\nvalues = [].\n"
+          <> "mapped = map hd values.\n"
+          <> "RuntimePick::pick mapped."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesHdElementSignature :: IO ()
+testQualifiedMethodDispatchPreservesHdElementSignature = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
+          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
+          <> "values :: [UInt8].\nvalues = [1].\n"
+          <> "left = hd values.\n"
+          <> "right = hd values.\n"
+          <> "RuntimeEq::equals left right."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchNormalizesHintedListAliases :: IO ()
+testQualifiedMethodDispatchNormalizesHintedListAliases = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int64) {\npick = \\(values) -> True.\n}.\n"
+          <> "impl RuntimePick(Bool) {\npick = \\(values) -> False.\n}.\n"
+          <> "values :: [Int].\nvalues = [].\n"
+          <> "RuntimePick::pick values."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchNormalizesHintedFunctionAliases :: IO ()
+testQualifiedMethodDispatchNormalizesHintedFunctionAliases = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int64) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(Bool) {\napply = \\(fn) -> False.\n}.\n"
+          <> "idInt :: Int -> Int.\nidInt = \\(value) -> value.\n"
+          <> "RuntimeApply::apply idInt."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64 :: IO ()
+testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64 = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\n"
+          <> "impl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\n"
+          <> "value = 1.\n"
+          <> "RuntimePick::pick value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchTreatsPlainIntegerBindingAsInt64WithExactCandidates :: IO ()
+testQualifiedMethodDispatchTreatsPlainIntegerBindingAsInt64WithExactCandidates = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "value = 1.\n"
+          <> "RuntimeFlag::flag value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchTreatsInferredDirectIntegerLiteralAsExactInt :: IO ()
+testQualifiedMethodDispatchTreatsInferredDirectIntegerLiteralAsExactInt = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "result = (\\(value) -> RuntimeFlag::flag value) 1.\n"
+          <> "result."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding :: IO ()
+testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\n"
+          <> "impl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\n"
+          <> "value = if True 1 else toUInt8 2.\n"
+          <> "RuntimePick::pick value."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals :: IO ()
+testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeApply(a) {\napply :: (a -> Bool) -> Bool.\n}.\n"
+          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
+          <> "impl RuntimeApply(UInt8) {\napply = \\(fn) -> False.\n}.\n"
+          <> "eq1 = (1 ==).\n"
+          <> "RuntimeApply::apply eq1."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchPreservesAdtApplicationBindingHint :: IO ()
+testQualifiedMethodDispatchPreservesAdtApplicationBindingHint = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "data Box a = Box a.\n"
+          <> "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick(Box(Int)) {\npick = \\(box) -> True.\n}.\n"
+          <> "impl RuntimePick(Box(UInt8)) {\npick = \\(box) -> False.\n}.\n"
+          <> "box = if True (Box 1) else (Box (toUInt8 2)).\n"
+          <> "RuntimePick::pick box."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint :: IO ()
+testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "tag" (SourceSpan 6 1)) (ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"]))
+          ( EBlock
+              [ SData
+                  (SourceSpan 1 1)
+                  "Tag"
+                  ["a"]
+                  [DataConstructor "Tag" []],
+                SClass
+                  (SourceSpan 2 1)
+                  "RuntimePick"
+                  ["a"]
+                  [ ClassMethodSignature
+                      "pick"
+                      (SourceSpan 3 1)
+                      (ConstrainedSignature [] (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool")))
+                  ],
+                SImpl
+                  (SourceSpan 4 1)
+                  "RuntimePick"
+                  [ConstraintTypeApplication "Tag" [ConstraintTypeName "Int"]]
+                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "tag" (ELit (LBool True)))],
+                SImpl
+                  (SourceSpan 4 1)
+                  "RuntimePick"
+                  [ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"]]
+                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "tag" (ELit (LBool False)))],
+                SLet
+                  "tag"
+                  (SourceSpan 6 1)
+                  (EVar "Tag"),
+                SExpr (SourceSpan 7 1) (EApply (EVar "RuntimePick::pick") (EVar "tag"))
+              ]
+          )
+  assertEqual "phantom ADT application hint runtime result" (Right (Just (VBool False))) result
+
+testQualifiedMethodDispatchPreservesAdtConcretePayloadHint :: IO ()
+testQualifiedMethodDispatchPreservesAdtConcretePayloadHint = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "box" (SourceSpan 6 1)) (ConstraintTypeApplication "Box" [ConstraintTypeName "UInt8"]))
+          ( EBlock
+              [ SData
+                  (SourceSpan 1 1)
+                  "Box"
+                  ["a"]
+                  [DataConstructor "Box" [DataConstructorArgumentName "Float32", DataConstructorArgumentName "a"]],
+                SClass
+                  (SourceSpan 2 1)
+                  "RuntimePick"
+                  ["a"]
+                  [ ClassMethodSignature
+                      "pick"
+                      (SourceSpan 3 1)
+                      (ConstrainedSignature [] (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool")))
+                  ],
+                SImpl
+                  (SourceSpan 4 1)
+                  "RuntimePick"
+                  [ConstraintTypeApplication "Box" [ConstraintTypeName "UInt8"]]
+                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "box" (ELit (LBool False)))],
+                SLet
+                  "box"
+                  (SourceSpan 6 1)
+                  ( EApply
+                      (EApply (EVar "Box") (ELit (LFloat 1.5 (mkFractionalLiteralSource 1 5 1) Nothing)))
+                      (EApply (EVar "__kernel_toUInt8") (ELit (LInt 2)))
+                  ),
+                SExpr (SourceSpan 7 1) (EApply (EVar "RuntimePick::pick") (EVar "box"))
+              ]
+          )
+  assertEqual "ADT concrete payload hint runtime result" (Right (Just (VBool False))) result
+
+testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint :: IO ()
+testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "token" (SourceSpan 6 1)) (ConstraintTypeName "Token"))
+          ( EBlock
+              ( [ SData
+                    (SourceSpan 1 1)
+                    "Token"
+                    []
+                    [DataConstructor "Token" [DataConstructorArgumentName "UInt8"]]
+                ]
+                  ++ runtimePickStatements
+                  ++ [ SLet
+                         "token"
+                         (SourceSpan 6 1)
+                         (EApply (EVar "Token") (ELit (LInt 1))),
+                       SExpr
+                         (SourceSpan 7 1)
+                         ( EPatternCase
+                             (EVar "token")
+                             [CaseArm (PConstructor "Token" [PVariable "value"]) Nothing (EApply (EVar "RuntimePick::pick") (EVar "value"))]
+                         )
+                     ]
+              )
+          )
+  assertEqual "monomorphic ADT concrete payload hint runtime result" (Right (Just (VBool False))) result
+
+testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName :: IO ()
+testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName = do
+  let result =
+        evaluateRuntimeExprWithBuiltinsAndBindingHints
+          ResolveKernelOnly
+          (Map.singleton (bindingRuntimeHintKey "box" (SourceSpan 6 1)) (ConstraintTypeApplication "Box" [ConstraintTypeName "UInt8"]))
+          ( EBlock
+              [ SData
+                  (SourceSpan 1 1)
+                  "Box"
+                  ["a"]
+                  [DataConstructor "Box" [DataConstructorArgumentName "value", DataConstructorArgumentName "a"]],
+                SClass
+                  (SourceSpan 2 1)
+                  "RuntimePick"
+                  ["a"]
+                  [ ClassMethodSignature
+                      "pick"
+                      (SourceSpan 3 1)
+                      (ConstrainedSignature [] (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool")))
+                  ],
+                SImpl
+                  (SourceSpan 4 1)
+                  "RuntimePick"
+                  [ConstraintTypeApplication "Box" [ConstraintTypeName "UInt8"]]
+                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "box" (ELit (LBool False)))],
+                SLet
+                  "box"
+                  (SourceSpan 6 1)
+                  ( EApply
+                      (EApply (EVar "Box") (ELit (LInt 1)))
+                      (EApply (EVar "__kernel_toUInt8") (ELit (LInt 2)))
+                  ),
+                SExpr (SourceSpan 7 1) (EApply (EVar "RuntimePick::pick") (EVar "box"))
+              ]
+          )
+  assertEqual "unknown constructor field hint runtime result" (Right (Just (VBool False))) result
+
+testQualifiedMethodDispatchKeepsNestedInferredHintsScoped :: IO ()
+testQualifiedMethodDispatchKeepsNestedInferredHintsScoped = do
+  result <-
+    runSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      ( "dummy = 0.\n"
+          <> "z = 1.\n"
+          <> "x = { y :: UInt8.\ny = 1.\ny. }.\n"
+          <> "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
+          <> "impl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\n"
+          <> "impl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\n"
+          <> "RuntimePick::pick z."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testDefaultedIntegerBindingHintRejectsOutsideInt64Range :: IO ()
+testDefaultedIntegerBindingHintRejectsOutsideInt64Range = do
+  result <- runSource defaultWarningSettings "value = 18446744073709551616.\nvalue."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "defaulted integer runtime code"
+    "E3024"
+    (runRuntimeErrors result)
+  assertSingleDiagnosticContains
+    "defaulted integer runtime text"
+    "outside Int64 range"
+    (runRuntimeErrors result)
+  assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime :: IO ()
+testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do
+  let result =
+        evaluateRuntimeExpr
+          ( runtimeExpr
+              ( EBlock
+                  [ SLet "Eq::helper" (SourceSpan 1 1) (ELambda "value" (ELit (LBool True))),
+                    SClass
+                      (SourceSpan 2 1)
+                      "Eq"
+                      ["a"]
+                      [ ClassMethodSignature
+                          "helper"
+                          (SourceSpan 3 1)
+                          ( ConstrainedSignature
+                              []
+                              (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool"))
+                          )
+                      ],
+                    SImpl
+                      (SourceSpan 4 1)
+                      "Eq"
+                      [ConstraintTypeName "Int"]
+                      [ImplMethod "helper" (SourceSpan 5 1) (ELambda "value" (ELit (LBool False)))],
+                    SExpr
+                      (SourceSpan 6 1)
+                      (EApply (EVar "Eq::helper") (ELit (LInt 1)))
+                  ]
+              )
+          )
+  assertEqual "alias binding runtime result" (Right (Just (VBool True))) result
+
+testQualifiedZeroArgumentMethodDispatchReturnsValue :: IO ()
+testQualifiedZeroArgumentMethodDispatchReturnsValue = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nenabled :: Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nenabled = True.\n}.\n"
+          <> "RuntimeFlag::enabled."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchRejectsDirectSelfAlias :: IO ()
+testQualifiedMethodDispatchRejectsDirectSelfAlias = do
+  maybeResult <-
+    timeout
+      1000000
+      ( try
+          ( runSource
+              defaultWarningSettings
+              ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+                  <> "impl RuntimeEq(Int) {\nequals = RuntimeEq::equals.\n}.\n"
+                  <> "RuntimeEq::equals 1 1."
+              )
+          ) ::
+          IO (Either SomeException RunResult)
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected direct qualified method self alias to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for direct qualified method self alias, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "direct qualified method self alias runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "direct qualified method self alias runtime text"
+        "recursive qualified method alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testQualifiedMethodDispatchRejectsWrappedSelfAlias :: IO ()
+testQualifiedMethodDispatchRejectsWrappedSelfAlias = do
+  maybeResult <-
+    timeout
+      1000000
+      ( try
+          ( runSource
+              defaultWarningSettings
+              ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
+                  <> "impl RuntimeEq(Int) {\nequals = if True RuntimeEq::equals else \\(left) -> \\(right) -> left == right.\n}.\n"
+                  <> "RuntimeEq::equals 1 1."
+              )
+          ) ::
+          IO (Either SomeException RunResult)
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected wrapped qualified method self alias to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for wrapped qualified method self alias, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "wrapped qualified method self alias runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "wrapped qualified method self alias runtime text"
+        "recursive qualified method alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testQualifiedMethodDispatchRejectsBlockLocalSelfAlias :: IO ()
+testQualifiedMethodDispatchRejectsBlockLocalSelfAlias = do
+  maybeResult <-
+    timeout
+      1000000
+      ( try
+          ( runSource
+              defaultWarningSettings
+              ( "class RuntimeFlag(a) {\nenabled :: Bool.\n}.\n"
+                  <> "impl RuntimeFlag(Int) {\nenabled = { helper = RuntimeFlag::enabled.\nhelper. }.\n}.\n"
+                  <> "RuntimeFlag::enabled."
+              )
+          ) ::
+          IO (Either SomeException RunResult)
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected block-local qualified method self alias to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for block-local qualified method self alias, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "block-local qualified method self alias runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "block-local qualified method self alias runtime text"
+        "recursive qualified method alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalBindings :: IO ()
+testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalBindings = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nenabled :: Bool.\non :: Bool.\noff :: Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nenabled = { flag = True.\ntarget = if flag RuntimeFlag::on else RuntimeFlag::off.\ntarget.\n}.\non = True.\noff = False.\n}.\n"
+          <> "RuntimeFlag::enabled."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalSignatureHints :: IO ()
+testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalSignatureHints = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> False.\n}.\n"
+          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> True.\n}.\n"
+          <> "class RuntimeChoice(a) {\nenabled :: Bool.\non :: Bool.\noff :: Bool.\n}.\n"
+          <> "impl RuntimeChoice(Int) {\n"
+          <> "enabled = { value :: [[Int64]].\nvalue = [[1], []].\ntarget = if ((RuntimeFlag::flag) value) RuntimeChoice::on else RuntimeChoice::off.\ntarget.\n}.\n"
+          <> "on = True.\n"
+          <> "off = False.\n"
+          <> "}.\n"
+          <> "RuntimeChoice::enabled."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchRejectsMutualMethodAliasCycle :: IO ()
+testQualifiedMethodDispatchRejectsMutualMethodAliasCycle = do
+  maybeResult <-
+    timeout
+      1000000
+      ( try
+          ( runSource
+              defaultWarningSettings
+              ( "class RuntimeFlag(a) {\nenabled :: Bool.\nother :: Bool.\n}.\n"
+                  <> "impl RuntimeFlag(Int) {\nenabled = RuntimeFlag::other.\nother = RuntimeFlag::enabled.\n}.\n"
+                  <> "RuntimeFlag::enabled."
+              )
+          ) ::
+          IO (Either SomeException RunResult)
+      )
+  case maybeResult of
+    Nothing ->
+      failTest "expected mutual qualified method alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
+    Just (Left err) ->
+      failTest ("expected deterministic runtime diagnostic for mutual qualified method alias cycle, but evaluation raised " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "compile errors" [] (runCompileErrors result)
+      assertSingleDiagnosticContains
+        "mutual qualified method alias runtime code"
+        "E3021"
+        (runRuntimeErrors result)
+      assertSingleDiagnosticContains
+        "mutual qualified method alias runtime text"
+        "recursive qualified method alias cycle"
+        (runRuntimeErrors result)
+      assertEqual "runtime output is suppressed on runtime failure" Nothing (runOutput result)
+
+testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity :: IO ()
+testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity =
+  assertRuntimeErrorContains
+    "fully applied ambiguous qualified method"
+    "ambiguous qualified method body 'RuntimePick::choose'"
+    (evaluateRuntimeExpr ambiguousQualifiedMethodRuntimeExpr)
+
+ambiguousQualifiedMethodRuntimeExpr :: Expr
+ambiguousQualifiedMethodRuntimeExpr =
+  EBlock
+    [ SClass
+        (SourceSpan 1 1)
+        "RuntimePick"
+        ["a"]
+        [ ClassMethodSignature
+            "choose"
+            (SourceSpan 2 1)
+            ( ConstrainedSignature
+                []
+                (ConstraintTypeFunction (ConstraintTypeName "Int") (ConstraintTypeName "Bool"))
+            )
+        ],
+      SImpl
+        (SourceSpan 3 1)
+        "RuntimePick"
+        [ConstraintTypeName "Int"]
+        [ImplMethod "choose" (SourceSpan 4 1) (ELambda "value" (ELit (LBool True)))],
+      SImpl
+        (SourceSpan 5 1)
+        "RuntimePick"
+        [ConstraintTypeName "Bool"]
+        [ImplMethod "choose" (SourceSpan 6 1) (ELambda "value" (ELit (LBool False)))],
+      SExpr
+        (SourceSpan 7 1)
+        (EApply (EVar "RuntimePick::choose") (ELit (LInt 1)))
+    ]
+
+testQualifiedMethodDispatchExecutesLocalAdtImplBody :: IO ()
+testQualifiedMethodDispatchExecutesLocalAdtImplBody = do
+  result <- runSource defaultWarningSettings (runtimeEqSource <> "data Token = Token Int.\ndata Box a = Box a.\nimpl RuntimeEq(Token) {\nequals = \\(left) -> \\(right) -> True.\n}.\nimpl RuntimeEq(Box(Int)) {\nequals = \\(left) -> \\(right) -> True.\n}.\nresult = (RuntimeEq::equals (Token 1) (Token 2), RuntimeEq::equals (Box 1) (Box 2)).\nresult.")
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, True)") (runOutput result)
+
+testMethodBearingCapabilityDeclarationsRuntimeInert :: IO ()
+testMethodBearingCapabilityDeclarationsRuntimeInert = do
+  result <- runSource defaultWarningSettings (runtimeEqSource <> "x = 1.\nx.")
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "method-bearing capability declarations do not affect runtime output" (Just "1") (runOutput result)
+
+runtimeEqSource :: Text
+runtimeEqSource =
+  "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
+
+testScopeDeclarationAfterExprClearsResult :: IO ()
+testScopeDeclarationAfterExprClearsResult = do
+  result <- runSource defaultWarningSettings "x = 1. x. y = 2."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "declaration after expression clears scope result" Nothing (runOutput result)
+
+runtimeExpr :: Expr -> Expr
+runtimeExpr expr =
+  EBlock
+    [ SExpr
+        (SourceSpan 1 1)
+        expr
+    ]
+
+closureValue :: Expr
+closureValue =
+  ELambda "value" (EVar "value")
+
+builtinValue :: Expr
+builtinValue =
+  EVar "__kernel_hd"
+
+operatorValue :: Expr
+operatorValue =
+  EOperatorValue "+"
+
+leftSectionValue :: Expr
+leftSectionValue =
+  ESectionLeft (ELit (LInt 1)) "+"
+
+rightSectionValue :: Expr
+rightSectionValue =
+  ESectionRight "+" (ELit (LInt 1))
+
+targetedFloat :: Identifier -> Expr
+targetedFloat conversionName =
+  EApply (EVar conversionName) (ELit (LInt 1))
+
+targetedInt :: Identifier -> Expr
+targetedInt conversionName =
+  EApply (EVar conversionName) (ELit (LInt 1))
+
+untypedFloatOne :: Expr
+untypedFloatOne =
+  ELit (LFloat 1.0 (mkFractionalLiteralSource 1 0 1) Nothing)
+
+untypedFloatTwo :: Expr
+untypedFloatTwo =
+  ELit (LFloat 2.0 (mkFractionalLiteralSource 2 0 1) Nothing)
+
+tooLargeFloat64Integer :: Expr
+tooLargeFloat64Integer =
+  ELit (LInt ((floor (1.7976931348623157e308 :: Double) :: Integer) + 1))
+
+assertRuntimeBool :: Text -> Bool -> Either Diagnostic (Maybe RuntimeValue) -> IO ()
+assertRuntimeBool label expected result =
+  case result of
+    Right (Just (VBool actual)) ->
+      assertEqual label expected actual
+    Right otherValue ->
+      failTest ("expected " <> label <> " to produce Bool, got " <> Text.pack (show otherValue))
+    Left runtimeError ->
+      failTest ("expected " <> label <> " to succeed, got " <> renderDiagnostic runtimeError)
+
+assertCallableRuntimeEqualityRejected :: Text -> Expr -> IO ()
+assertCallableRuntimeEqualityRejected label expr = do
+  let result = evaluateRuntimeExpr (runtimeExpr expr)
+  assertRuntimeErrorContains (label <> " code") "E3007" result
+  assertRuntimeErrorContains
+    (label <> " callable text")
+    "callable values are not equality-supported"
+    result
+
+assertRuntimeErrorContains :: Text -> Text -> Either Diagnostic (Maybe a) -> IO ()
+assertRuntimeErrorContains label expectedCode result =
+  case result of
+    Left runtimeError ->
+      assertContains label expectedCode (renderDiagnostic runtimeError)
+    Right _ ->
+      failTest ("expected runtime error containing " <> expectedCode <> ", but evaluation succeeded")

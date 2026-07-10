@@ -21,7 +21,6 @@ module JazzNext.Compiler.Parser.AST
     SurfaceStatement (..)
   ) where
 
-import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text)
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan
@@ -29,7 +28,7 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.FractionalLiteral
   ( FractionalLiteralSource
   )
-import JazzNext.Compiler.Name
+import JazzNext.Compiler.Identifier
   ( Identifier
   )
 
@@ -84,7 +83,7 @@ data SurfaceExpr
   = SELit SurfaceLiteral
   | SEVar Identifier
   | SEQualifiedVar Identifier Identifier
-  | SELambda (NonEmpty SurfaceLambdaParameter) SurfaceExpr
+  | SELambda [SurfaceLambdaParameter] SurfaceExpr
   | SEOperatorValue Text
   | SEList [SurfaceExpr]
   | SETuple [SurfaceExpr]

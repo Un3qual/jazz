@@ -15,7 +15,7 @@ import qualified Data.Text as Text
 data Purity
   = Pure
   | Impure
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Show)
 
 -- | Check the only active impurity marker. The parser permits ordinary text;
 -- callers use this predicate when they need the raw spelling rule directly.

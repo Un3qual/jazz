@@ -8,33 +8,21 @@ Legacy references:
 
 Do not implement new compiler functionality in legacy directories.
 
-`jazz-next` is currently a CLI/compiler package. Its Haskell implementation is
-provided through the private `jazz-next-internal` package library solely for the
-executable and test components; there is no supported Haskell embedding API yet.
+## Current implementation slices
 
-## Current architecture
-
-- `Compiler.Parser.*` owns surface grammar and one Megaparsec error model;
-  `Parser.Lower` produces the canonical core AST.
-- `Compiler.AST` has one conditional node (`EIf`), one pattern-case node
-  (`EPatternCase`), and ordinary `EApply` for application including `$`.
-- `Compiler.Name` owns both source identifiers and structured resolved names;
-  compiler phases render names only for diagnostics and user output.
-- `Compiler.ModuleResolver` parses and lowers each source once into a
-  dependency-ordered `ResolvedProgram` of retained `CoreModule` values.
-- `Compiler.ModuleCompiler` analyzes each module against explicit dependency
-  `ModuleInterface` values; `Compiler.ModuleRuntime` evaluates modules against
-  explicit runtime exports and executes only the entry module's expressions.
-- `Compiler.TypeInference` is the public façade over focused internal type,
-  state, solver, capability, pattern, scope, and diagnostic modules.
-- `Compiler.Driver` coordinates prelude preparation, resolution, per-module
-  compilation, warning promotion, and optional runtime evaluation.
-- `jazz-next.cabal` defines the private `jazz-next-internal` implementation
-  library, the `jazz-next` executable, and the registered test suites.
-- `scripts/test-warning-config.sh` runs the compatibility and structural audit.
-
-These are implementation boundaries only. The module and import syntax exposed
-to Jazz programs is unchanged by the internal module pipeline.
+- `src/JazzNext/Compiler/AST.hs`: analyzer-facing core AST used after parser/lowering.
+- `src/JazzNext/Compiler/Warnings.hs`: warning category/severity definitions and category parsing.
+- `src/JazzNext/Compiler/WarningConfig.hs`: `-W` token parsing and precedence merge (`CLI > env > config > default`).
+- `src/JazzNext/Compiler/Diagnostics.hs`: warning payload shape and deterministic warning sorting.
+- `src/JazzNext/Compiler/Parser/Lexer.hs`: minimal tokenization for parser bootstrap.
+- `src/JazzNext/Compiler/Parser.hs`: minimal surface parser for current syntax slices.
+- `src/JazzNext/Compiler/Parser/AST.hs`: parse-surface AST contract.
+- `src/JazzNext/Compiler/Parser/Lower.hs`: parse-AST -> analyzer-AST lowering boundary.
+- `src/JazzNext/Compiler/Analyzer.hs`: scope-aware rebinding warning analysis (`W0001`) plus binding/signature coherence checks (signature adjacency + unbound variable diagnostics).
+- `src/JazzNext/Compiler/TypeInference.hs`: inference result plumbing that carries warnings and semantic errors from analysis.
+- `src/JazzNext/Compiler/Driver.hs`: warning-as-error gating plus semantic-error propagation into compile results.
+- `src/JazzNext/CLI/Main.hs`: CLI flag/env/config resolution and warning-aware compile output behavior.
+- `scripts/test-warning-config.sh`: local `jazz-next` test entrypoint.
 
 ## Test layout
 
@@ -58,13 +46,13 @@ answer.
 Compile it:
 
 ```bash
-cabal run --project-dir=jazz-next jazz-next -- first.jz
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs first.jz
 ```
 
 Successful compile output is quiet. Run it:
 
 ```bash
-cabal run --project-dir=jazz-next jazz-next -- --run first.jz
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs --run first.jz
 ```
 
 Expected output:
@@ -76,13 +64,13 @@ Expected output:
 Run source from stdin explicitly:
 
 ```bash
-printf '40 + 2.' | cabal run --project-dir=jazz-next jazz-next -- --run -
+printf '40 + 2.' | bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs --run -
 ```
 
 Show CLI help:
 
 ```bash
-cabal run --project-dir=jazz-next jazz-next -- --help
+bash jazz-next/scripts/runghc.sh -i./jazz-next/src jazz-next/src/JazzNext/CLI/Main.hs --help
 ```
 
 The help path prints usage to stdout and does not read stdin, source files,
@@ -92,8 +80,7 @@ warning config files, or Prelude files.
 
 ```bash
 # from repository root:
-cabal test --project-dir=jazz-next all
-
-# compatibility runner for the same spec programs:
 bash jazz-next/scripts/test-warning-config.sh
+# or from inside jazz-next/:
+# bash scripts/test-warning-config.sh
 ```

@@ -27,7 +27,9 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.FractionalLiteral
   ( FractionalLiteralSource
   )
-import JazzNext.Compiler.Name (Name)
+import JazzNext.Compiler.Identifier
+  ( Identifier
+  )
 
 -- | Literals currently supported by the lowered core language.
 data Literal
@@ -39,13 +41,13 @@ data Literal
 -- | Core patterns for the first active-path case-expression slice.
 data Pattern
   = PWildcard
-  | PVariable Name
+  | PVariable Identifier
   | PLiteral Literal
-  | PConstructor Name [Pattern]
+  | PConstructor Identifier [Pattern]
   | PList [Pattern]
   | PConsList Pattern Pattern
   | PTuple [Pattern]
-  | PAs Name Pattern
+  | PAs Identifier Pattern
   | POr [Pattern]
   deriving (Eq, Show)
 
@@ -57,26 +59,28 @@ data CaseArm = CaseArm Pattern (Maybe Expr) Expr
 -- declarations. Opaque payloads preserve current arity-only behavior for
 -- grouped forms until constructor type schemes own those surfaces.
 data DataConstructorArgument
-  = DataConstructorArgumentName Name
+  = DataConstructorArgumentName Identifier
   | DataConstructorArgumentOpaque
   deriving (Eq, Show)
 
 -- | Core constructor metadata lowered from parser-owned `data` declarations.
-data DataConstructor = DataConstructor Name [DataConstructorArgument]
+data DataConstructor = DataConstructor Identifier [DataConstructorArgument]
   deriving (Eq, Show)
 
 -- | Core expressions after surface syntax has been lowered into the stable
 -- analyzer/runtime representation.
 data Expr
   = ELit Literal
-  | EVar Name
-  | ELambda Name Expr
+  | EVar Identifier
+  | ELambda Identifier Expr
   | EOperatorValue Text
   | EList [Expr]
   | ETuple [Expr]
   | EApply Expr Expr
   | ETypeApplication Expr SignatureType
   | EIf Expr Expr Expr
+  -- Internal canonical branch form used after control-flow desugaring.
+  | ECase Expr Expr Expr
   | EPatternCase Expr [CaseArm]
   | EBinary Text Expr Expr
   | ESectionLeft Expr Text
@@ -94,15 +98,15 @@ data SignaturePayload
 -- | Lowered representation for constrained signatures. Type inference rejects
 -- this payload until constraint semantics are defined, but the parser/lowering
 -- pipeline owns its shape.
-data SignatureConstraint = SignatureConstraint Name [ConstraintSignatureType]
+data SignatureConstraint = SignatureConstraint Identifier [ConstraintSignatureType]
   deriving (Eq, Show)
 
 -- | Type grammar fragment allowed inside constraint argument lists. It remains
 -- separate from `SignatureType` so unsupported constrained surfaces can keep a
 -- faithful shape while the accepted monomorphic signature subset stays small.
 data ConstraintSignatureType
-  = ConstraintTypeName Name
-  | ConstraintTypeApplication Name [ConstraintSignatureType]
+  = ConstraintTypeName Identifier
+  | ConstraintTypeApplication Identifier [ConstraintSignatureType]
   | ConstraintTypeList ConstraintSignatureType
   | ConstraintTypeTuple [ConstraintSignatureType]
   | ConstraintTypeFunction ConstraintSignatureType ConstraintSignatureType
@@ -137,7 +141,7 @@ data SignatureType
 -- structurally so diagnostics can remain deterministic without preserving raw
 -- source slices.
 data SignatureToken
-  = SignatureNameToken Name
+  = SignatureNameToken Text
   | SignatureIntToken Integer
   | SignatureArrowToken
   | SignatureAtToken
@@ -153,20 +157,20 @@ data SignatureToken
   | SignatureOtherToken Text
   deriving (Eq, Show)
 
-data ClassMethodSignature = ClassMethodSignature Name SourceSpan SignaturePayload
+data ClassMethodSignature = ClassMethodSignature Identifier SourceSpan SignaturePayload
   deriving (Eq, Show)
 
-data ImplMethod = ImplMethod Name SourceSpan Expr
+data ImplMethod = ImplMethod Identifier SourceSpan Expr
   deriving (Eq, Show)
 
 -- | Dot-terminated statements that can appear either at the top level or
 -- inside block expressions.
 data Statement
-  = SLet Name SourceSpan Expr
-  | SSignature Name SourceSpan SignaturePayload
-  | SData SourceSpan Name [Name] [DataConstructor]
-  | SClass SourceSpan Name [Name] [ClassMethodSignature]
-  | SImpl SourceSpan Name [ConstraintSignatureType] [ImplMethod]
+  = SLet Identifier SourceSpan Expr
+  | SSignature Identifier SourceSpan SignaturePayload
+  | SData SourceSpan Identifier [Identifier] [DataConstructor]
+  | SClass SourceSpan Identifier [Identifier] [ClassMethodSignature]
+  | SImpl SourceSpan Identifier [ConstraintSignatureType] [ImplMethod]
   | SModule SourceSpan [Text]
   | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SExpr SourceSpan Expr

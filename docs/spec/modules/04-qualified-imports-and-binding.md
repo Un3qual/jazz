@@ -57,13 +57,6 @@ If `Lib::Math` exports `subtract`, the unqualified reference is import-visible.
 
 Bare imports do not create an alias. `Lib::Math::subtract` is not a v1 lookup form, and `Math::subtract` requires an explicit `as Math` import.
 
-Every non-aliased import contributes its visible unqualified names to one
-import-binding namespace. If imports from different module origins expose the
-same name, resolution fails with `E4008`. This includes bare/bare,
-bare/symbol-list, and symbol-list/symbol-list collisions. Repeating the same
-module import remains idempotent. Declaration order controls only which import
-span is primary versus related; it never selects a winning definition.
-
 ## Symbol-List Imports
 
 A symbol-list import exposes only the listed exports as unqualified names.
@@ -78,7 +71,7 @@ main = add.
 
 If a requested symbol is not exported by the imported module, resolution fails with `E4007`.
 
-The shared non-aliased import collision rule also applies to symbol-list imports.
+If two symbol-list imports request the same unqualified symbol, resolution fails with `E4008`.
 
 Example:
 
@@ -121,8 +114,8 @@ import Lib::Maybe as Maybe.
 main = Maybe::Just 1.
 ```
 
-Alias-qualified data constructor values preserve their source module's
-structured ADT identity across interface and runtime boundaries. A value built by `Alias::Box` does not type-unify
+Alias-qualified data constructor values preserve their source module's internal
+ADT identity during replay. A value built by `Alias::Box` does not type-unify
 with a local `Box` declaration solely because the constructor/type names match.
 
 ## Namespaces and Shadowing
@@ -144,7 +137,7 @@ Import binding diagnostics are deterministic:
 | code | condition |
 | --- | --- |
 | `E4007` | symbol-list import requests a name not exported by the imported module |
-| `E4008` | non-aliased imports from different modules expose the same unqualified name |
+| `E4008` | two symbol-list imports request the same unqualified symbol |
 | `E4009` | two alias imports declare the same alias in one importing module |
 | `E4011` | unqualified reference targets an export hidden by a symbol-list import |
 | `E4012` | unqualified reference targets an export available only through an alias import |
@@ -160,8 +153,6 @@ Diagnostics include importer module context, imported module context when applic
 | `import Lib::Math.` then `subtract` | allowed if `Lib::Math` exports `subtract` |
 | `import Lib::Math (add).` then `add` | allowed if `Lib::Math` exports `add` |
 | `import Lib::Math (subtract).` but only `add` is exported | `E4007` |
-| `import A::Ops.` and `import B::Ops.` when both export `map` | `E4008` |
-| `import A::Ops.` and `import B::Ops (map).` when `A::Ops` exports `map` | `E4008` |
 | `import A::Ops (map).` and `import B::Ops (map).` | `E4008` |
 | `import Lib::Math (add).` then `subtract` | `E4011` unless another visible binding supplies `subtract` |
 | `import Lib::Math as Math.` then `Math::subtract` | allowed if `subtract` is exported |
@@ -178,10 +169,6 @@ local binding precedence over hidden imports, alias references before alias
 declarations, local value names sharing alias identifiers, data-constructor
 imports, and the `E4007`/`E4008`/`E4009`/`E4011`/`E4012`/`E4013`/`E4014`
 diagnostic contexts and metadata exposed by the resolver.
-
-Implementation evidence (2026-07-09): `ModuleResolutionSpec.hs` additionally
-locks bare/bare and bare/symbol-list E4008 collisions in both source orders,
-while preserving repeated imports from one module as idempotent.
 
 ## Non-Goals
 

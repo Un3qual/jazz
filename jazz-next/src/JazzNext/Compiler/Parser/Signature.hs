@@ -3,7 +3,6 @@
 -- | Signature grammar helpers for the surface parser.
 module JazzNext.Compiler.Parser.Signature
   ( parseConstrainedSignatureType,
-    parseSignatureTypeParser,
     parseSignatureTypePrefix,
     parseSignaturePayload,
     splitTopLevelCommaTokens
@@ -11,8 +10,8 @@ module JazzNext.Compiler.Parser.Signature
 
 import Control.Applicative ((<|>))
 import Data.Text (Text)
-import JazzNext.Compiler.Diagnostics (Diagnostic)
-import JazzNext.Compiler.Name
+import qualified Data.Text as Text
+import JazzNext.Compiler.Identifier
   ( mkIdentifier
   )
 import JazzNext.Compiler.Parser.AST
@@ -37,22 +36,32 @@ parseSignaturePayload signatureTokens =
     Nothing -> SurfaceUnsupportedSignature (map surfaceSignatureTokenFromToken signatureTokens)
 
 parseSupportedSignaturePayload :: [Token] -> Maybe SurfaceSignaturePayload
-parseSupportedSignaturePayload tokens =
-  case TokenParser.runTokenParser "signature payload" signaturePayloadParser tokens of
-    Right signaturePayload -> Just signaturePayload
+parseSupportedSignaturePayload =
+  parseTokenStreamMaybe "signature payload" signaturePayloadParser
+
+parseConstrainedSignatureType :: [Token] -> Maybe SurfaceConstrainedSignatureType
+parseConstrainedSignatureType =
+  parseTokenStreamMaybe "constrained signature type" constrainedSignatureTypeParser
+
+parseSignatureTypePrefix :: [Token] -> Maybe (SurfaceSignatureType, [Token])
+parseSignatureTypePrefix =
+  parseTokenStreamPrefixMaybe "signature type" signatureTypeParser
+
+splitTopLevelCommaTokens :: [Token] -> Maybe [[Token]]
+splitTopLevelCommaTokens =
+  parseTokenStreamMaybe "top-level comma list" topLevelCommaTokensParser
+
+parseTokenStreamMaybe :: Text -> TokenParser.Parser a -> [Token] -> Maybe a
+parseTokenStreamMaybe label parser tokens =
+  case TokenParser.runTokenParser label parser tokens of
+    Right value -> Just value
     Left _ -> Nothing
 
-parseConstrainedSignatureType :: [Token] -> Either Diagnostic SurfaceConstrainedSignatureType
-parseConstrainedSignatureType =
-  TokenParser.runTokenParser "constrained signature type" constrainedSignatureTypeParser
-
-parseSignatureTypePrefix :: [Token] -> Either Diagnostic (SurfaceSignatureType, [Token])
-parseSignatureTypePrefix =
-  TokenParser.runTokenParserPrefix "signature type" signatureTypeParser
-
-splitTopLevelCommaTokens :: [Token] -> Either Diagnostic [[Token]]
-splitTopLevelCommaTokens =
-  TokenParser.runTokenParser "top-level comma list" topLevelCommaTokensParser
+parseTokenStreamPrefixMaybe :: Text -> TokenParser.Parser a -> [Token] -> Maybe (a, [Token])
+parseTokenStreamPrefixMaybe label parser tokens =
+  case MP.runParser ((,) <$> parser <*> MP.getInput) (Text.unpack label) tokens of
+    Right value -> Just value
+    Left _ -> Nothing
 
 signaturePayloadParser :: TokenParser.Parser SurfaceSignaturePayload
 signaturePayloadParser =
@@ -125,26 +134,19 @@ constrainedListTypeParser =
 
 constrainedParenthesizedTypeParser :: TokenParser.Parser SurfaceConstrainedSignatureType
 constrainedParenthesizedTypeParser =
-  betweenTokenKinds TLParen TRParen $
-    ( MP.lookAhead (TokenParser.parseTokenKind TRParen)
-        *> pure (SurfaceConstrainedTypeTuple [])
-    )
-      <|> do
-        firstElement <- constrainedSignatureTypeParser
-        remainingElements <- MP.many (commaParser *> constrainedSignatureTypeParser)
-        case remainingElements of
-          [] ->
-            pure firstElement
-          _ ->
-            pure (SurfaceConstrainedTypeTuple (firstElement : remainingElements))
+  betweenTokenKinds TLParen TRParen $ do
+    firstElement <- constrainedSignatureTypeParser
+    remainingElements <- MP.many (commaParser *> constrainedSignatureTypeParser)
+    case remainingElements of
+      [] ->
+        pure firstElement
+      _ ->
+        pure (SurfaceConstrainedTypeTuple (firstElement : remainingElements))
 
 signatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 signatureTypeParser = do
   argumentType <- functionOperandTypeParser
   parseFunctionResult argumentType <|> pure argumentType
-
-parseSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
-parseSignatureTypeParser = signatureTypeParser
 
 parseFunctionResult :: SurfaceSignatureType -> TokenParser.Parser SurfaceSignatureType
 parseFunctionResult argumentType = do
@@ -170,18 +172,14 @@ listSignatureTypeParser =
 
 parenthesizedSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 parenthesizedSignatureTypeParser =
-  betweenTokenKinds TLParen TRParen $
-    ( MP.lookAhead (TokenParser.parseTokenKind TRParen)
-        *> pure (SurfaceTypeTuple [])
-    )
-      <|> do
-        firstElement <- signatureTypeParser
-        remainingElements <- MP.many (commaParser *> signatureTypeParser)
-        case remainingElements of
-          [] ->
-            pure firstElement
-          _ ->
-            pure (SurfaceTypeTuple (firstElement : remainingElements))
+  betweenTokenKinds TLParen TRParen $ do
+    firstElement <- signatureTypeParser
+    remainingElements <- MP.many (commaParser *> signatureTypeParser)
+    case remainingElements of
+      [] ->
+        pure firstElement
+      _ ->
+        pure (SurfaceTypeTuple (firstElement : remainingElements))
 
 namedSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 namedSignatureTypeParser = do

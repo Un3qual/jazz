@@ -2,14 +2,16 @@
 
 -- | Declaration-level token-stream parsers for the surface parser.
 module JazzNext.Compiler.Parser.Declaration
-  ( collectImportAliasesUntilBrace,
-    collectImportAliasesUntilEnd,
+  ( ImplExpressionParser,
+    ModuleBodyParser,
+    parseCapabilityDeclarationParser,
     parseCapabilityDeclarationTokens,
     parseDataStatementParser,
     parseDataStatementTokens,
     parseImportStatementParser,
     parseImportStatementTokens,
-    parseStatementParser
+    parseModuleStatementParser,
+    parseModuleStatementTokens
   ) where
 
 import Data.Char
@@ -25,16 +27,15 @@ import Data.Text
   )
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
-  ( Diagnostic (..),
+  ( Diagnostic,
     SourceSpan,
     mkDiagnostic,
     renderSourceSpan
   )
-import JazzNext.Compiler.Name
+import JazzNext.Compiler.Identifier
   ( Identifier,
     identifierText,
-    mkIdentifier,
-    mkOperatorBindingIdentifier
+    mkIdentifier
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
@@ -43,29 +44,11 @@ import JazzNext.Compiler.Parser.AST
     SurfaceDataConstructorArgument (..),
     SurfaceExpr,
     SurfaceImplMethod (..),
-    SurfaceSignaturePayload (..),
-    SurfaceSignatureToken (..),
     SurfaceStatement (..)
-  )
-import JazzNext.Compiler.Parser.Context
-  ( ExpressionParser,
-    ParserContext (..),
-    StatementBlockParser,
-    StatementContext (..)
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
-    TokenKind (..),
-    isImmediatelyAfter
-  )
-import JazzNext.Compiler.Parser.Operator
-  ( Associativity (..),
-    OperatorInfo (..),
-    declaredOperatorInfoForPrecedence,
-    declaredOperatorInfoForTier,
-    isBuiltinOperatorSymbol,
-    isReservedOperatorSymbol,
-    isValidUserOperatorSymbol
+    TokenKind (..)
   )
 import JazzNext.Compiler.Parser.Signature
   ( parseConstrainedSignatureType,
@@ -73,10 +56,7 @@ import JazzNext.Compiler.Parser.Signature
     splitTopLevelCommaTokens
   )
 import JazzNext.Compiler.Parser.TokenParser
-  ( Parser,
-    failTokenParser,
-    parseAnyToken,
-    runTokenParserPrefix
+  ( Parser
   )
 import qualified Text.Megaparsec as MP
 
@@ -88,568 +68,61 @@ data CapabilityDeclarationBody
   = CapabilityClassBody [SurfaceClassMethodSignature]
   | CapabilityImplBody [SurfaceImplMethod]
 
-data OperatorDeclarationFixityKeyword
-  = OperatorTierKeyword
-  | OperatorPrecedenceKeyword
+parseModuleStatementTokens ::
+  ModuleBodyParser ->
+  [Token] ->
+  Either Diagnostic ([SurfaceStatement], [Token])
+parseModuleStatementTokens parseModuleBody =
+  runDeclarationParser "module declaration" (parseModuleStatementParser parseModuleBody)
 
 parseImportStatementTokens :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
-parseImportStatementTokens = parseImportStatementFromTokens
+parseImportStatementTokens =
+  runDeclarationParser "import declaration" parseImportStatementParser
 
 parseDataStatementTokens :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
-parseDataStatementTokens = parseDataStatementFromTokens
+parseDataStatementTokens =
+  runDeclarationParser "data declaration" parseDataStatementParser
 
 parseCapabilityDeclarationTokens ::
   ImplExpressionParser ->
   [Token] ->
   Either Diagnostic (SurfaceStatement, [Token])
 parseCapabilityDeclarationTokens parseImplExpression =
-  parseCapabilityDeclarationFromTokens parseImplExpression
+  runDeclarationParser "capability declaration" (parseCapabilityDeclarationParser parseImplExpression)
 
-parseImportStatementParser :: Parser SurfaceStatement
+parseModuleStatementParser :: ModuleBodyParser -> Parser (Either Diagnostic [SurfaceStatement])
+parseModuleStatementParser parseModuleBody =
+  parseDeclarationWithRemainder (parseModuleStatementFromTokens parseModuleBody)
+
+parseImportStatementParser :: Parser (Either Diagnostic SurfaceStatement)
 parseImportStatementParser =
-  parseOwnedPrefix parseImportStatementFromTokens
+  parseDeclarationWithRemainder parseImportStatementFromTokens
 
-parseDataStatementParser :: Parser SurfaceStatement
+parseDataStatementParser :: Parser (Either Diagnostic SurfaceStatement)
 parseDataStatementParser =
-  parseOwnedPrefix parseDataStatementFromTokens
+  parseDeclarationWithRemainder parseDataStatementFromTokens
 
-parseOwnedPrefix :: ([Token] -> Either Diagnostic (a, [Token])) -> Parser a
-parseOwnedPrefix parseDeclaration = do
+parseCapabilityDeclarationParser :: ImplExpressionParser -> Parser (Either Diagnostic SurfaceStatement)
+parseCapabilityDeclarationParser parseImplExpression =
+  parseDeclarationWithRemainder (parseCapabilityDeclarationFromTokens parseImplExpression)
+
+runDeclarationParser :: Text -> Parser (Either Diagnostic a) -> [Token] -> Either Diagnostic (a, [Token])
+runDeclarationParser label parser tokens =
+  case MP.runParser ((,) <$> parser <*> MP.getInput) (Text.unpack label) tokens of
+    Right (Right value, remaining) -> Right (value, remaining)
+    Right (Left diagnostic, _) -> Left diagnostic
+    Left _ -> Left (parseDiagnostic "unexpected declaration token stream parse error")
+
+parseDeclarationWithRemainder ::
+  ([Token] -> Either Diagnostic (a, [Token])) ->
+  Parser (Either Diagnostic a)
+parseDeclarationWithRemainder parseDeclaration = do
   tokens <- MP.getInput
   case parseDeclaration tokens of
-    Left diagnostic -> failTokenParser (diagnosticSummary diagnostic)
-    Right (value, remaining) ->
-      value <$ consumeParsedPrefix remaining
-
-consumeParsedPrefix :: [Token] -> Parser ()
-consumeParsedPrefix remaining =
-  case remaining of
-    [] -> () <$ MP.takeWhileP Nothing (const True)
-    nextToken : _ ->
-      () <$ MP.takeWhileP Nothing (/= nextToken)
-
--- | Parse one statement and return the context visible to the following
--- statement in the same scope. Expressions and nested blocks are supplied by
--- their owning grammars, which keeps this module responsible only for
--- declaration and statement syntax.
-parseStatementParser ::
-  ExpressionParser ->
-  StatementBlockParser ->
-  ParserContext ->
-  Parser ([SurfaceStatement], ParserContext)
-parseStatementParser parseExpression parseBlock context = do
-  tokens <- MP.getInput
-  let knownAliases = parserKnownAliases context
-      declaredOperators = parserDeclaredOperators context
-      parseExpressionTokens =
-        runTokenParserPrefix "statement expression" (parseExpression context)
-      moduleBodyContext =
-        ParserContext
-          { parserKnownAliases = Set.empty,
-            parserDeclaredOperators = [],
-            parserStatementContext = ModuleBodyContext
-          }
-      parseModuleBody =
-        runTokenParserPrefix "module body" (parseBlock moduleBodyContext)
-  case tokens of
-    operatorToken@Token {tokenKind = TIdentifier "operator"} : rest
-      | looksLikeOperatorDeclaration rest -> do
-          (operatorInfo, remaining) <-
-            liftOwnedResult
-              (parseOperatorDeclaration (parserStatementContext context) declaredOperators operatorToken rest)
-          consumeParsedPrefix remaining
-          pure
-            ( [],
-              context
-                { parserDeclaredOperators =
-                    operatorInfo : declaredOperators
-                }
-            )
-    _ -> do
-      (statements, remaining) <-
-        liftOwnedResult
-          ( parseStatementFromTokens
-              parseExpressionTokens
-              parseModuleBody
-              context
-              tokens
-          )
-      consumeParsedPrefix remaining
-      pure
-        ( statements,
-          context
-            { parserKnownAliases =
-                registerImportAliases knownAliases statements
-            }
-        )
-
-liftOwnedResult :: Either Diagnostic a -> Parser a
-liftOwnedResult result =
-  case result of
-    Left diagnostic -> failTokenParser (diagnosticSummary diagnostic)
-    Right value -> pure value
-
-parseOperatorDeclaration :: StatementContext -> [OperatorInfo] -> Token -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
-parseOperatorDeclaration context declaredOperators operatorToken tokensAfterKeyword =
-  case context of
-    NestedBlockContext ->
-      rejectNestedOperatorDeclaration operatorToken
-    TopLevelContext ->
-      parseVisibleOperatorDeclaration
-    ModuleBodyContext ->
-      parseVisibleOperatorDeclaration
-  where
-    parseVisibleOperatorDeclaration = do
-      (operatorSymbol, afterSymbol) <- parseOperatorDeclarationSymbol tokensAfterKeyword
-      validateDeclaredOperatorSymbol declaredOperators operatorToken operatorSymbol
-      (fixityKeyword, afterFixityKeyword) <- consumeOperatorFixityKeyword operatorToken afterSymbol
-      (operatorInfo, afterFixity) <-
-        parseOperatorDeclarationFixity operatorToken operatorSymbol fixityKeyword afterFixityKeyword
-      (operatorInfoWithAssociativity, afterAssociativity) <-
-        parseOptionalOperatorAssociativity operatorInfo afterFixity
-      remaining <-
-        consumeOperatorDeclarationDot
-          (operatorDeclarationFixityLabel fixityKeyword)
-          afterAssociativity
-      pure (operatorInfoWithAssociativity, remaining)
-
-parseOperatorDeclarationSymbol :: [Token] -> Either Diagnostic (Text, [Token])
-parseOperatorDeclarationSymbol tokens =
-  case tokens of
-    Token {tokenKind = TOperator operatorSymbol} : rest ->
-      Right (operatorSymbol, rest)
-    Token {tokenKind = TArrow, tokenLexeme = arrowLexeme} : rest ->
-      Right (arrowLexeme, rest)
-    token : _ ->
-      Left
-        ( parseDiagnostic
-            ( "expected operator symbol after 'operator' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
-                <> tokenLexeme token
-                <> "'"
-            )
-        )
-    [] ->
-      Left (parseDiagnostic "expected operator symbol after 'operator' before end of input")
-
-validateDeclaredOperatorSymbol :: [OperatorInfo] -> Token -> Text -> Either Diagnostic ()
-validateDeclaredOperatorSymbol declaredOperators operatorToken declaredSymbol
-  | isBuiltinOperatorSymbol declaredSymbol =
-      Left
-        ( parseDiagnostic
-            ( "cannot redeclare built-in operator '"
-                <> declaredSymbol
-                <> "' at "
-                <> renderSourceSpan (tokenSpan operatorToken)
-            )
-        )
-  | isReservedOperatorSymbol declaredSymbol =
-      Left
-        ( parseDiagnostic
-            ( "reserved operator symbol '"
-                <> declaredSymbol
-                <> "' at "
-                <> renderSourceSpan (tokenSpan operatorToken)
-            )
-        )
-  | any ((== declaredSymbol) . operatorSymbol) declaredOperators =
-      Left
-        ( parseDiagnostic
-            ( "duplicate operator declaration '"
-                <> declaredSymbol
-                <> "' at "
-                <> renderSourceSpan (tokenSpan operatorToken)
-            )
-        )
-  | isValidUserOperatorSymbol declaredSymbol = Right ()
-  | otherwise =
-      Left
-        ( parseDiagnostic
-            ( "invalid operator symbol '"
-                <> declaredSymbol
-                <> "' at "
-                <> renderSourceSpan (tokenSpan operatorToken)
-            )
-        )
-
-consumeOperatorFixityKeyword :: Token -> [Token] -> Either Diagnostic (OperatorDeclarationFixityKeyword, [Token])
-consumeOperatorFixityKeyword operatorToken tokens =
-  case tokens of
-    Token {tokenKind = TIdentifier "tier"} : rest -> Right (OperatorTierKeyword, rest)
-    Token {tokenKind = TIdentifier "precedence"} : rest -> Right (OperatorPrecedenceKeyword, rest)
-    token : _ ->
-      Left
-        ( parseDiagnostic
-            ( "expected 'tier' or 'precedence' in operator declaration at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
-                <> tokenLexeme token
-                <> "'"
-            )
-        )
-    [] ->
-      Left
-        ( parseDiagnostic
-            ( "expected 'tier' or 'precedence' before end of input in operator declaration at "
-                <> renderSourceSpan (tokenSpan operatorToken)
-            )
-        )
-
-parseOperatorDeclarationFixity :: Token -> Text -> OperatorDeclarationFixityKeyword -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
-parseOperatorDeclarationFixity operatorToken operatorSymbol fixityKeyword tokens =
-  case fixityKeyword of
-    OperatorTierKeyword -> parseOperatorDeclarationTier operatorToken operatorSymbol tokens
-    OperatorPrecedenceKeyword -> parseOperatorDeclarationPrecedence operatorToken operatorSymbol tokens
-
-parseOperatorDeclarationTier :: Token -> Text -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
-parseOperatorDeclarationTier operatorToken operatorSymbol tokens =
-  case tokens of
-    Token {tokenKind = TInt tier} : rest ->
-      case declaredOperatorInfoForTier operatorSymbol tier of
-        Just operatorInfo -> Right (operatorInfo, rest)
-        Nothing ->
-          Left
-            ( parseDiagnostic
-                ( "operator tier must be between 1 and 5 at "
-                    <> renderSourceSpan (tokenSpan operatorToken)
-                )
-            )
-    token : _ ->
-      Left
-        ( parseDiagnostic
-            ( "expected operator tier 1-5 at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
-                <> tokenLexeme token
-                <> "'"
-            )
-        )
-    [] ->
-      Left
-        ( parseDiagnostic
-            ( "expected operator tier 1-5 before end of input in operator declaration at "
-                <> renderSourceSpan (tokenSpan operatorToken)
-            )
-        )
-
-parseOperatorDeclarationPrecedence :: Token -> Text -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
-parseOperatorDeclarationPrecedence operatorToken operatorSymbol tokens =
-  case tokens of
-    Token {tokenKind = TInt precedence} : rest ->
-      case declaredOperatorInfoForPrecedence operatorSymbol precedence of
-        Just operatorInfo -> Right (operatorInfo, rest)
-        Nothing ->
-          Left
-            ( parseDiagnostic
-                ( "operator precedence must be between 1 and 99 at "
-                    <> renderSourceSpan (tokenSpan operatorToken)
-                )
-            )
-    token : _ ->
-      Left
-        ( parseDiagnostic
-            ( "expected operator precedence 1-99 at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
-                <> tokenLexeme token
-                <> "'"
-            )
-        )
-    [] ->
-      Left
-        ( parseDiagnostic
-            ( "expected operator precedence 1-99 before end of input in operator declaration at "
-                <> renderSourceSpan (tokenSpan operatorToken)
-            )
-        )
-
-parseOptionalOperatorAssociativity :: OperatorInfo -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
-parseOptionalOperatorAssociativity operatorInfo tokens =
-  case tokens of
-    Token {tokenKind = TIdentifier "left"} : rest ->
-      Right (operatorInfo {operatorAssociativity = AssocLeft}, rest)
-    Token {tokenKind = TIdentifier "right"} : rest ->
-      Right (operatorInfo {operatorAssociativity = AssocRight}, rest)
-    Token {tokenKind = TIdentifier "nonassoc"} : rest ->
-      Right (operatorInfo {operatorAssociativity = AssocNonAssoc}, rest)
-    token@Token {tokenKind = TIdentifier {}} : _ ->
-      Left
-        ( parseDiagnostic
-            ( "expected operator associativity 'left', 'right', or 'nonassoc' at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
-                <> tokenLexeme token
-                <> "'"
-            )
-        )
-    _ -> Right (operatorInfo, tokens)
-
-operatorDeclarationFixityLabel :: OperatorDeclarationFixityKeyword -> Text
-operatorDeclarationFixityLabel fixityKeyword =
-  case fixityKeyword of
-    OperatorTierKeyword -> "tier"
-    OperatorPrecedenceKeyword -> "precedence"
-
-consumeOperatorDeclarationDot :: Text -> [Token] -> Either Diagnostic [Token]
-consumeOperatorDeclarationDot fixityLabel tokens =
-  case tokens of
-    Token {tokenKind = TDot} : rest -> Right rest
-    token : _ ->
-      Left
-        ( parseDiagnostic
-            ( "expected '.' after operator declaration "
-                <> fixityLabel
-                <> " at "
-                <> renderSourceSpan (tokenSpan token)
-                <> ", found '"
-                <> tokenLexeme token
-                <> "'"
-            )
-        )
-    [] ->
-      Left
-        ( parseDiagnostic
-            ("expected '.' after operator declaration " <> fixityLabel <> " before end of input")
-        )
-
-parseStatementFromTokens ::
-  ImplExpressionParser ->
-  ModuleBodyParser ->
-  ParserContext ->
-  [Token] ->
-  Either Diagnostic ([SurfaceStatement], [Token])
-parseStatementFromTokens parseExpression parseModuleBody context tokens =
-  case tokens of
-    Token {tokenKind = TLParen} :
-      operatorToken@Token {tokenKind = TOperator {}} :
-      Token {tokenKind = TRParen} :
-      afterName@(Token {tokenKind = TColonColon} : _) ->
-        singleStatement <$> parseOperatorSignature statementContext declaredOperators operatorToken afterName
-    Token {tokenKind = TLParen} :
-      operatorToken@Token {tokenKind = TOperator {}} :
-      Token {tokenKind = TRParen} :
-      Token {tokenKind = TEquals} :
-      afterEquals ->
-        singleStatement
-          <$> parseOperatorBinding
-            parseExpression
-            statementContext
-            declaredOperators
-            operatorToken
-            afterEquals
-    abstractionToken@(Token {tokenKind = TIdentifier name}) : rest
-      | isDeclarationContext statementContext,
-        looksLikeSupportedCapabilityDeclaration name rest ->
-          singleStatement
-            <$> parseCapabilityDeclarationTokens
-              parseExpression
-              (abstractionToken : rest)
-      | isDeclarationContext statementContext,
-        looksLikeReservedAbstractionDeclaration name rest ->
-          rejectReservedAbstractionSyntax abstractionToken
-    moduleToken@Token {tokenKind = TModule} : rest ->
-      case statementContext of
-        TopLevelContext ->
-          parseModuleStatementFromTokens parseModuleBody (moduleToken : rest)
-        ModuleBodyContext -> rejectNestedModuleDeclaration moduleToken
-        NestedBlockContext -> rejectNestedModuleDeclaration moduleToken
-    importToken@Token {tokenKind = TImport} : rest ->
-      singleStatement <$> parseImportStatementTokens (importToken : rest)
-    dataToken@Token {tokenKind = TData} : rest ->
-      case statementContext of
-        TopLevelContext -> singleStatement <$> parseDataStatementTokens (dataToken : rest)
-        ModuleBodyContext -> singleStatement <$> parseDataStatementTokens (dataToken : rest)
-        NestedBlockContext -> rejectNestedDataDeclaration dataToken
-    nameToken : afterName@(Token {tokenKind = TColonColon} : _)
-      | TIdentifier name <- tokenKind nameToken,
-        isReservedLiteralName name ->
-          Left
-            ( parseDiagnostic
-                ( "reserved literal '"
-                    <> name
-                    <> "' cannot be used as a binding name at "
-                    <> renderSourceSpan (tokenSpan nameToken)
-                )
-            )
-      | TIdentifier name <- tokenKind nameToken,
-        shouldParseQualifiedAliasStatement knownAliases name nameToken afterName ->
-          singleStatement <$> parseExprStatement parseExpression tokens
-      | TIdentifier name <- tokenKind nameToken ->
-          singleStatement <$> parseSignature (mkIdentifier name) nameToken afterName
-    nameToken : afterName@(Token {tokenKind = TEquals} : _)
-      | TIdentifier name <- tokenKind nameToken,
-        isReservedLiteralName name ->
-          Left
-            ( parseDiagnostic
-                ( "reserved literal '"
-                    <> name
-                    <> "' cannot be used as a binding name at "
-                    <> renderSourceSpan (tokenSpan nameToken)
-                )
-            )
-      | TIdentifier name <- tokenKind nameToken ->
-          singleStatement <$> parseLet parseExpression (mkIdentifier name) nameToken afterName
-    _ -> singleStatement <$> parseExprStatement parseExpression tokens
-  where
-    knownAliases = parserKnownAliases context
-    declaredOperators = parserDeclaredOperators context
-    statementContext = parserStatementContext context
-    singleStatement (statement, remaining) = ([statement], remaining)
-
-parseOperatorBinding ::
-  ImplExpressionParser ->
-  StatementContext ->
-  [OperatorInfo] ->
-  Token ->
-  [Token] ->
-  Either Diagnostic (SurfaceStatement, [Token])
-parseOperatorBinding parseExpression context declaredOperators operatorToken tokensAfterEquals =
-  case context of
-    NestedBlockContext -> rejectNestedOperatorBinding operatorToken
-    TopLevelContext -> parseVisibleOperatorBinding
-    ModuleBodyContext -> parseVisibleOperatorBinding
-  where
-    parseVisibleOperatorBinding =
-      case tokenKind operatorToken of
-        TOperator bindingSymbol
-          | isBuiltinOperatorSymbol bindingSymbol ->
-              Left
-                ( parseDiagnostic
-                    ( "cannot bind built-in operator '"
-                        <> bindingSymbol
-                        <> "' at "
-                        <> renderSourceSpan (tokenSpan operatorToken)
-                    )
-                )
-          | not (operatorDeclared bindingSymbol) ->
-              Left
-                ( parseDiagnostic
-                    ( "operator '"
-                        <> bindingSymbol
-                        <> "' must be declared before binding at "
-                        <> renderSourceSpan (tokenSpan operatorToken)
-                    )
-                )
-          | otherwise -> do
-              (valueExpr, afterExpr) <- parseExpression tokensAfterEquals
-              remaining <- consumeDot afterExpr
-              pure
-                ( SSLet
-                    (mkOperatorBindingIdentifier bindingSymbol)
-                    (tokenSpan operatorToken)
-                    valueExpr,
-                  remaining
-                )
-        _ ->
-          Left
-            ( parseDiagnostic
-                ( "internal parser error at "
-                    <> renderSourceSpan (tokenSpan operatorToken)
-                    <> ": expected operator token in operator binding"
-                )
-            )
-
-    operatorDeclared bindingSymbol =
-      any ((== bindingSymbol) . operatorSymbol) declaredOperators
-
-parseOperatorSignature ::
-  StatementContext ->
-  [OperatorInfo] ->
-  Token ->
-  [Token] ->
-  Either Diagnostic (SurfaceStatement, [Token])
-parseOperatorSignature context declaredOperators operatorToken tokensAfterName =
-  case context of
-    NestedBlockContext -> rejectNestedOperatorSignature operatorToken
-    TopLevelContext -> parseVisibleOperatorSignature
-    ModuleBodyContext -> parseVisibleOperatorSignature
-  where
-    parseVisibleOperatorSignature =
-      case tokenKind operatorToken of
-        TOperator signatureSymbol
-          | isBuiltinOperatorSymbol signatureSymbol ->
-              Left
-                ( parseDiagnostic
-                    ( "cannot sign built-in operator '"
-                        <> signatureSymbol
-                        <> "' at "
-                        <> renderSourceSpan (tokenSpan operatorToken)
-                    )
-                )
-          | not (operatorDeclared signatureSymbol) ->
-              Left
-                ( parseDiagnostic
-                    ( "operator '"
-                        <> signatureSymbol
-                        <> "' must be declared before signature at "
-                        <> renderSourceSpan (tokenSpan operatorToken)
-                    )
-                )
-          | otherwise ->
-              parseSignature
-                (mkOperatorBindingIdentifier signatureSymbol)
-                operatorToken
-                tokensAfterName
-        _ ->
-          Left
-            ( parseDiagnostic
-                ( "internal parser error at "
-                    <> renderSourceSpan (tokenSpan operatorToken)
-                    <> ": expected operator token in operator signature"
-                )
-            )
-
-    operatorDeclared signatureSymbol =
-      any ((== signatureSymbol) . operatorSymbol) declaredOperators
-
-parseSignature :: Identifier -> Token -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
-parseSignature name nameToken tokensAfterName =
-  case tokensAfterName of
-    Token {tokenKind = TColonColon} : rest -> do
-      (signatureTokens, remainingAfterDot) <- collectUntilDot rest
-      pure
-        ( SSSignature name (tokenSpan nameToken) (parseSignaturePayload signatureTokens),
-          remainingAfterDot
-        )
-    _ ->
-      Left
-        ( parseDiagnostic
-            ( "internal parser error at "
-                <> renderSourceSpan (tokenSpan nameToken)
-                <> ": expected '::' after signature name"
-            )
-        )
-
-parseLet ::
-  ImplExpressionParser ->
-  Identifier ->
-  Token ->
-  [Token] ->
-  Either Diagnostic (SurfaceStatement, [Token])
-parseLet parseExpression name nameToken tokensAfterName =
-  case tokensAfterName of
-    Token {tokenKind = TEquals} : rest -> do
-      (valueExpr, afterExpr) <- parseExpression rest
-      remaining <- consumeDot afterExpr
-      pure (SSLet name (tokenSpan nameToken) valueExpr, remaining)
-    _ ->
-      Left
-        ( parseDiagnostic
-            ( "internal parser error at "
-                <> renderSourceSpan (tokenSpan nameToken)
-                <> ": expected '=' after binding name"
-            )
-        )
-
-parseExprStatement :: ImplExpressionParser -> [Token] -> Either Diagnostic (SurfaceStatement, [Token])
-parseExprStatement parseExpression tokens =
-  case tokens of
-    [] -> Left (parseDiagnostic "expected expression before end of input")
-    firstToken : _ -> do
-      (expr, afterExpr) <- parseExpression tokens
-      remaining <- consumeDot afterExpr
-      pure (SSExpr (tokenSpan firstToken) expr, remaining)
+    Left diagnostic -> pure (Left diagnostic)
+    Right (value, remaining) -> do
+      MP.setInput remaining
+      pure (Right value)
 
 parseModuleStatementFromTokens ::
   ModuleBodyParser ->
@@ -1001,8 +474,8 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
           then Right []
           else
             case splitTopLevelCommaTokens argumentTokens >>= traverse parseConstrainedSignatureType of
-              Right parsedArguments -> Right parsedArguments
-              Left _ ->
+              Just parsedArguments -> Right parsedArguments
+              Nothing ->
                 Left
                   ( parseDiagnostic
                       ( "unsupported "
@@ -1695,156 +1168,6 @@ beginsStatement tokens =
     Token {tokenKind = TIdentifier _} : Token {tokenKind = TEquals} : _ -> True
     Token {tokenKind = TIdentifier _} : Token {tokenKind = TColonColon} : _ -> True
     _ -> False
-
-isDeclarationContext :: StatementContext -> Bool
-isDeclarationContext context =
-  case context of
-    TopLevelContext -> True
-    ModuleBodyContext -> True
-    NestedBlockContext -> False
-
-looksLikeSupportedCapabilityDeclaration :: Text -> [Token] -> Bool
-looksLikeSupportedCapabilityDeclaration name tokensAfterKeyword =
-  case name of
-    "class" -> looksLikeAbstractionDeclaration tokensAfterKeyword
-    "impl" -> looksLikeAbstractionDeclaration tokensAfterKeyword
-    _ -> False
-
-registerImportAliases :: Set Text -> [SurfaceStatement] -> Set Text
-registerImportAliases =
-  foldl registerImportAlias
-  where
-    registerImportAlias knownAliases statement =
-      case statement of
-        SSImport _ _ (Just aliasName) Nothing -> Set.insert aliasName knownAliases
-        _ -> knownAliases
-
-shouldParseQualifiedAliasStatement :: Set Text -> Text -> Token -> [Token] -> Bool
-shouldParseQualifiedAliasStatement knownAliases name nameToken tokensAfterName =
-  case tokensAfterName of
-    colonToken@Token {tokenKind = TColonColon} : _ ->
-      isImmediatelyAfter nameToken colonToken
-        && ( Set.member name knownAliases
-               || not (shouldParseCompactSignature name nameToken tokensAfterName)
-           )
-    _ -> False
-
-shouldParseCompactSignature :: Text -> Token -> [Token] -> Bool
-shouldParseCompactSignature name nameToken tokensAfterName =
-  case parseSignature (mkIdentifier name) nameToken tokensAfterName of
-    Right (SSSignature _ _ signaturePayload, remaining) ->
-      isSupportedSignaturePayload signaturePayload
-        || isLikelyUnsupportedSignaturePayload signaturePayload
-        || not (isConstructorIdentifierText name)
-        || nextStatementStartsMatchingBinding name remaining
-    Left _ -> False
-
-isSupportedSignaturePayload :: SurfaceSignaturePayload -> Bool
-isSupportedSignaturePayload signaturePayload =
-  case signaturePayload of
-    SurfaceSignatureType _ -> True
-    SurfaceConstrainedSignature _ _ -> True
-    SurfaceUnsupportedSignature _ -> False
-
-isLikelyUnsupportedSignaturePayload :: SurfaceSignaturePayload -> Bool
-isLikelyUnsupportedSignaturePayload signaturePayload =
-  case signaturePayload of
-    SurfaceUnsupportedSignature [SurfaceSignatureNameToken name] ->
-      isSingleLetterTypeVariable name
-    SurfaceUnsupportedSignature tokens -> any isSignatureSyntaxToken tokens
-    _ -> False
-
-isSingleLetterTypeVariable :: Text -> Bool
-isSingleLetterTypeVariable name =
-  case Text.uncons name of
-    Just (firstChar, rest) -> Text.null rest && isLower firstChar
-    Nothing -> False
-
-isSignatureSyntaxToken :: SurfaceSignatureToken -> Bool
-isSignatureSyntaxToken signatureToken =
-  case signatureToken of
-    SurfaceSignatureArrowToken -> True
-    SurfaceSignatureAtToken -> True
-    SurfaceSignatureColonToken -> True
-    SurfaceSignatureLParenToken -> True
-    SurfaceSignatureRParenToken -> True
-    SurfaceSignatureLBraceToken -> True
-    SurfaceSignatureRBraceToken -> True
-    SurfaceSignatureLBracketToken -> True
-    SurfaceSignatureRBracketToken -> True
-    SurfaceSignatureCommaToken -> True
-    _ -> False
-
-nextStatementStartsMatchingBinding :: Text -> [Token] -> Bool
-nextStatementStartsMatchingBinding name tokens =
-  case tokens of
-    Token {tokenKind = TIdentifier nextName} : Token {tokenKind = TEquals} : _ ->
-      nextName == name
-    _ -> False
-
-collectImportAliasesUntilEnd :: [Token] -> Set Text
-collectImportAliasesUntilEnd = collectImportAliasesInStatementList False
-
-collectImportAliasesUntilBrace :: [Token] -> Set Text
-collectImportAliasesUntilBrace = collectImportAliasesInStatementList True
-
-collectImportAliasesInStatementList :: Bool -> [Token] -> Set Text
-collectImportAliasesInStatementList stopAtRightBrace = go 0 Set.empty
-  where
-    go _ aliases [] = aliases
-    go depth aliases (token : rest)
-      | stopAtRightBrace && depth == 0 && tokenKind token == TRBrace = aliases
-      | otherwise =
-          case tokenKind token of
-            TImport
-              | depth == 0 ->
-                  go depth (maybe aliases (`Set.insert` aliases) (collectImportAlias rest)) rest
-            TLBrace -> go (depth + 1) aliases rest
-            TRBrace -> go (max 0 (depth - 1)) aliases rest
-            _ -> go depth aliases rest
-
-    collectImportAlias importTail =
-      case importTail of
-        [] -> Nothing
-        Token {tokenKind = TDot} : _ -> Nothing
-        Token {tokenKind = TAs} : Token {tokenKind = TIdentifier aliasName} : _ -> Just aliasName
-        _ : rest -> collectImportAlias rest
-
-rejectNestedModuleDeclaration :: Token -> Either Diagnostic a
-rejectNestedModuleDeclaration moduleToken =
-  Left
-    ( parseDiagnostic
-        ( "module declaration must remain top-level at "
-            <> renderSourceSpan (tokenSpan moduleToken)
-        )
-    )
-
-rejectNestedDataDeclaration :: Token -> Either Diagnostic a
-rejectNestedDataDeclaration dataToken =
-  Left
-    ( parseDiagnostic
-        ( "data declaration must remain top-level at "
-            <> renderSourceSpan (tokenSpan dataToken)
-        )
-    )
-
-rejectNestedOperatorBinding :: Token -> Either Diagnostic a
-rejectNestedOperatorBinding operatorToken =
-  Left
-    ( parseDiagnostic
-        ( "operator bindings are only allowed at file scope or directly in module bodies at "
-            <> renderSourceSpan (tokenSpan operatorToken)
-        )
-    )
-
-rejectNestedOperatorSignature :: Token -> Either Diagnostic a
-rejectNestedOperatorSignature operatorToken =
-  Left
-    ( parseDiagnostic
-        ( "operator signatures are only allowed at file scope or directly in module bodies at "
-            <> renderSourceSpan (tokenSpan operatorToken)
-        )
-    )
 
 looksLikeOperatorDeclaration :: [Token] -> Bool
 looksLikeOperatorDeclaration tokensAfterKeyword =

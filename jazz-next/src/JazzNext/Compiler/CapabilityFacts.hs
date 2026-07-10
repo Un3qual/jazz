@@ -23,7 +23,6 @@ module JazzNext.Compiler.CapabilityFacts
   ) where
 
 import Data.Char (isLower)
-import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
@@ -35,12 +34,13 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.BuiltinCatalog
   ( renderNumericTypeName
   )
-import JazzNext.Compiler.Name
-  ( Name,
-    renderName
+import JazzNext.Compiler.Identifier
+  ( Identifier,
+    identifierText,
+    mkIdentifier
   )
 
-concreteImplFactKey :: Name -> [ConstraintSignatureType] -> Maybe Text
+concreteImplFactKey :: Identifier -> [ConstraintSignatureType] -> Maybe Text
 concreteImplFactKey capabilityName arguments =
   case arguments of
     [argument]
@@ -48,17 +48,17 @@ concreteImplFactKey capabilityName arguments =
           Just (constraintImplFactKey capabilityName argument)
     _ -> Nothing
 
-constraintImplFactKey :: Name -> ConstraintSignatureType -> Text
+constraintImplFactKey :: Identifier -> ConstraintSignatureType -> Text
 constraintImplFactKey constraintName argument =
-  renderName constraintName <> "(" <> renderConstraintSignatureType argument <> ")"
+  identifierText constraintName <> "(" <> renderConstraintSignatureType argument <> ")"
 
 concreteImplFactClassName :: Text -> Text
 concreteImplFactClassName implKey =
   fst (Text.breakOn "(" implKey)
 
-qualifiedMethodKey :: Name -> Name -> Text
+qualifiedMethodKey :: Identifier -> Identifier -> Text
 qualifiedMethodKey capabilityName methodName =
-  renderName capabilityName <> "::" <> renderName methodName
+  identifierText capabilityName <> "::" <> identifierText methodName
 
 splitQualifiedMethodKey :: Text -> Maybe (Text, Text)
 splitQualifiedMethodKey nameText =
@@ -106,13 +106,13 @@ signatureTypeToConstraintSignatureType :: SignatureType -> ConstraintSignatureTy
 signatureTypeToConstraintSignatureType signatureType =
   case signatureType of
     TypeInt ->
-      ConstraintTypeName "Int"
+      ConstraintTypeName (mkIdentifier "Int")
     TypeFloat ->
-      ConstraintTypeName "Float"
+      ConstraintTypeName (mkIdentifier "Float")
     TypeNumeric numericType ->
-      ConstraintTypeName (fromString (Text.unpack (renderNumericTypeName numericType)))
+      ConstraintTypeName (mkIdentifier (renderNumericTypeName numericType))
     TypeBool ->
-      ConstraintTypeName "Bool"
+      ConstraintTypeName (mkIdentifier "Bool")
     TypeList innerType ->
       ConstraintTypeList (signatureTypeToConstraintSignatureType innerType)
     TypeTuple elementTypes ->
@@ -161,7 +161,7 @@ unsupportedSignatureAtomToConstraintType :: [SignatureToken] -> Maybe Constraint
 unsupportedSignatureAtomToConstraintType tokens =
   case tokens of
     [SignatureNameToken typeName] ->
-      Just (ConstraintTypeName typeName)
+      Just (ConstraintTypeName (mkIdentifier typeName))
     SignatureLParenToken : rest ->
       case reverse rest of
         SignatureRParenToken : reversedInnerTokens ->
@@ -178,7 +178,7 @@ substituteConstraintSignatureType :: Text -> ConstraintSignatureType -> Constrai
 substituteConstraintSignatureType classParameter implTarget signatureType =
   case signatureType of
     ConstraintTypeName name
-      | renderName name == classParameter -> implTarget
+      | identifierText name == classParameter -> implTarget
       | otherwise -> signatureType
     ConstraintTypeApplication name arguments ->
       ConstraintTypeApplication name (map (substituteConstraintSignatureType classParameter implTarget) arguments)
@@ -213,17 +213,17 @@ constraintSignatureTypeContainsClassParameter classParameter signatureType =
       constraintSignatureTypeContainsClassParameter classParameter argumentType
         || constraintSignatureTypeContainsClassParameter classParameter resultType
     ConstraintTypeName typeName ->
-      renderName typeName == classParameter
+      identifierText typeName == classParameter
 
 constraintSignatureTypesCompatible :: ConstraintSignatureType -> ConstraintSignatureType -> Bool
 constraintSignatureTypesCompatible leftType rightType =
   case (leftType, rightType) of
     (ConstraintTypeName leftName, ConstraintTypeName rightName) ->
-      normalizeConstraintSignatureName (renderName leftName)
-        == normalizeConstraintSignatureName (renderName rightName)
+      normalizeConstraintSignatureName (identifierText leftName)
+        == normalizeConstraintSignatureName (identifierText rightName)
     (ConstraintTypeApplication leftName leftArguments, ConstraintTypeApplication rightName rightArguments)
-      | normalizeConstraintSignatureName (renderName leftName)
-          == normalizeConstraintSignatureName (renderName rightName),
+      | normalizeConstraintSignatureName (identifierText leftName)
+          == normalizeConstraintSignatureName (identifierText rightName),
         length leftArguments == length rightArguments ->
           and (zipWith constraintSignatureTypesCompatible leftArguments rightArguments)
     (ConstraintTypeList leftElementType, ConstraintTypeList rightElementType) ->
@@ -262,22 +262,22 @@ constraintSignatureAliasVariants signatureType =
           variantResult <- constraintSignatureAliasVariants resultType
       ]
 
-constraintSignatureAliasNames :: Name -> [Name]
+constraintSignatureAliasNames :: Identifier -> [Identifier]
 constraintSignatureAliasNames name =
-  case renderName name of
-    "Int" -> ["Int", "Int64"]
-    "Int64" -> ["Int64", "Int"]
-    "Float" -> ["Float", "Float64"]
-    "Float64" -> ["Float64", "Float"]
+  case identifierText name of
+    "Int" -> map mkIdentifier ["Int", "Int64"]
+    "Int64" -> map mkIdentifier ["Int64", "Int"]
+    "Float" -> map mkIdentifier ["Float", "Float64"]
+    "Float64" -> map mkIdentifier ["Float64", "Float"]
     _ -> [name]
 
 renderConstraintSignatureType :: ConstraintSignatureType -> Text
 renderConstraintSignatureType signatureType =
   case signatureType of
     ConstraintTypeName name ->
-      renderName name
+      identifierText name
     ConstraintTypeApplication name arguments ->
-      renderName name
+      identifierText name
         <> "("
         <> Text.intercalate ", " (map renderConstraintSignatureType arguments)
         <> ")"
@@ -304,9 +304,9 @@ renderConstraintListElementType signatureType =
     _ ->
       renderConstraintSignatureType signatureType
 
-identifierLooksLikeTypeVariable :: Name -> Bool
+identifierLooksLikeTypeVariable :: Identifier -> Bool
 identifierLooksLikeTypeVariable name =
-  case Text.uncons (renderName name) of
+  case Text.uncons (identifierText name) of
     Just (firstChar, _) -> isLower firstChar
     Nothing -> False
 
@@ -318,7 +318,7 @@ constraintSignatureTypeVariableNamesInOrder =
       case signatureType of
         ConstraintTypeName name
           | identifierLooksLikeTypeVariable name ->
-              [renderName name]
+              [identifierText name]
           | otherwise ->
               []
         ConstraintTypeApplication _ arguments ->

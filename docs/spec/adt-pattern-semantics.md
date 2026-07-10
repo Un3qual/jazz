@@ -55,9 +55,7 @@ or-patterns have landed as pattern-matching extensions.
 8. The end-to-end runtime-executed `case` subset is defined in
    `docs/spec/pattern-matching-semantics.md`.
 9. Tuple literal values, concrete tuple signature types, and fixed-arity tuple
-   case patterns are active core runtime/type features in `jazz-next`. They
-   include `()` as the zero-element Unit value, signature type, and pattern;
-   `(expression)` remains grouping rather than a one-element tuple.
+   case patterns are active core runtime/type features in `jazz-next`.
 10. Cons-like list patterns such as `[head | tail]` are active `case` patterns:
     the head subpattern matches the first list element, the tail subpattern
     matches the remaining list, and empty lists fall through to later arms.

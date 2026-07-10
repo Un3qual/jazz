@@ -3,7 +3,6 @@
 module Main (main) where
 
 import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
@@ -19,11 +18,8 @@ import JazzNext.Compiler.ModuleResolver
     ResolvedModule (..),
     modulePathToRelativeFile,
     parseModulePathText,
-    resolveModuleGraph,
-    resolveProgram
+    resolveModuleGraph
   )
-import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
-import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
@@ -39,7 +35,6 @@ main = runTestSuite "ModuleResolution" tests
 tests :: [NamedTest]
 tests =
   [ ("rejects empty entry module path before traversal", testRejectsEmptyEntryModulePath),
-    ("resolved program retains lowered modules", testResolvedProgramRetainsLoweredModules),
     ("accepts lexer-compatible continuation characters in CLI module paths", testParseModulePathContinuations),
     ("preserves exact module path segments while resolving", testPreservesExactModulePathSegments),
     ("maps module path to relative .jz file", testModulePathMapping),
@@ -51,7 +46,6 @@ tests =
     ("collapses duplicate imports to one dependency edge", testCollapsesDuplicateImports),
     ("reuses already-resolved modules across branches", testReusesAlreadyResolvedModuleAcrossBranches),
     ("deduplicates duplicate module roots before ambiguity checks", testDeduplicatesDuplicateRoots),
-    ("deduplicates lexically equivalent module roots before ambiguity checks", testDeduplicatesEquivalentRoots),
     ("reports unresolved import with importer context", testReportsUnresolvedImport),
     ("reports ambiguous module candidates across roots", testReportsAmbiguousImport),
     ("reports import cycles with minimal trace", testReportsCycle),
@@ -67,8 +61,6 @@ tests =
     ("reports non-exported import symbols with module context", testReportsMissingImportSymbol),
     ("reports unqualified references hidden by explicit symbol lists", testReportsHiddenExplicitImportValueReference),
     ("reports import symbol collisions across imported modules", testReportsImportSymbolCollision),
-    ("reports import symbol collisions across bare imports", testReportsBareImportSymbolCollision),
-    ("reports import symbol collisions across bare and symbol-list imports", testReportsMixedImportSymbolCollision),
     ("reports import alias collisions across imported modules", testReportsImportAliasCollision),
     ("reports pattern references to constructors hidden by explicit imports", testReportsHiddenExplicitImportConstructorPatternReference),
     ("reports unqualified references to bindings imported only by alias", testReportsUnqualifiedAliasImportReference),
@@ -81,36 +73,6 @@ tests =
     ("reports standalone qualified references through unknown aliases", testReportsStandaloneUnknownQualifiedAliasReference),
     ("reports qualified alias references to missing exports", testReportsMissingQualifiedAliasExport)
   ]
-
-testResolvedProgramRetainsLoweredModules :: IO ()
-testResolvedProgramRetainsLoweredModules = do
-  result <-
-    resolveProgram
-      resolverConfig
-      ResolveKernelOnly
-      Set.empty
-      Set.empty
-      lookupSource
-      ["App", "Main"]
-  assertRight "resolved program" result $ \program -> do
-    assertEqual
-      "module order"
-      [["Lib", "Value"], ["App", "Main"]]
-      (map ModuleGraph.resolvedModulePath (ModuleGraph.resolvedProgramModules program))
-    assertEqual "entry path" ["App", "Main"] (ModuleGraph.resolvedProgramEntryPath program)
-    assertEqual "module count" 2 (length (ModuleGraph.resolvedProgramModules program))
-    assertEqual
-      "unresolved core names"
-      []
-      (concatMap ModuleGraph.unresolvedResolvedModuleNames (ModuleGraph.resolvedProgramModules program))
-  where
-    resolverConfig = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
-    sources =
-      Map.fromList
-        [ ("src/App/Main.jz", "module App::Main { import Lib::Value. answer. }"),
-          ("src/Lib/Value.jz", "module Lib::Value { answer = 1. }")
-        ]
-    lookupSource path = pure (Map.lookup path sources)
 
 sharedCycleSourceFiles :: Map.Map FilePath Text
 sharedCycleSourceFiles =
@@ -385,30 +347,6 @@ testDeduplicatesDuplicateRoots =
             resolvedSourcePath = "src/App/Main.jz",
             resolvedImports = [["Lib", "Util"]]
           }
-      ]
-
-testDeduplicatesEquivalentRoots :: IO ()
-testDeduplicatesEquivalentRoots =
-  assertRight
-    "equivalent roots are not treated as ambiguity"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
-  where
-    config =
-      ModuleResolutionConfig
-        { moduleRoots = ["src", "src/."],
-          moduleExtension = ".jz"
-        }
-    sourceFiles =
-      Map.fromList
-        [ ("src/App/Main.jz", "import Lib::Util.\nutil."),
-          ("src/./App/Main.jz", "import Lib::Util.\nutil."),
-          ("src/Lib/Util.jz", "util = 1."),
-          ("src/./Lib/Util.jz", "util = 1.")
-        ]
-    expectedModules =
-      [ ResolvedModule ["Lib", "Util"] "src/Lib/Util.jz" [],
-        ResolvedModule ["App", "Main"] "src/App/Main.jz" [["Lib", "Util"]]
       ]
 
 testReportsUnresolvedImport :: IO ()
@@ -691,50 +629,6 @@ testReportsImportSymbolCollision = do
     sourceFiles =
       Map.fromList
         [ ("src/App/Main.jz", "import A::Ops (map).\nimport B::Ops (map).\nmain = map."),
-          ("src/A/Ops.jz", "map = 1."),
-          ("src/B/Ops.jz", "map = 2.")
-        ]
-
-testReportsBareImportSymbolCollision :: IO ()
-testReportsBareImportSymbolCollision = do
-  assertCollision "A then B" "import A::Ops.\nimport B::Ops.\nmain = map."
-  assertCollision "B then A" "import B::Ops.\nimport A::Ops.\nmain = map."
-  where
-    assertCollision label importerSource = do
-      let result = resolveModuleGraph config (sourceFiles importerSource) ["App", "Main"]
-      assertLeftContains (label <> " collision code") "E4008" result
-      assertLeftContains (label <> " collision symbol") "symbol 'map'" result
-      assertLeftDiagnosticMetadata
-        (label <> " collision metadata")
-        (Just (SourceSpan 2 1))
-        (Just (SourceSpan 1 1))
-        (Just "map")
-        result
-
-    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
-    sourceFiles importerSource =
-      Map.fromList
-        [ ("src/App/Main.jz", importerSource),
-          ("src/A/Ops.jz", "map = 1."),
-          ("src/B/Ops.jz", "map = 2.")
-        ]
-
-testReportsMixedImportSymbolCollision :: IO ()
-testReportsMixedImportSymbolCollision = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
-  assertLeftContains "mixed collision code" "E4008" result
-  assertLeftContains "mixed collision symbol" "symbol 'map'" result
-  assertLeftDiagnosticMetadata
-    "mixed collision metadata"
-    (Just (SourceSpan 2 1))
-    (Just (SourceSpan 1 1))
-    (Just "map")
-    result
-  where
-    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
-    sourceFiles =
-      Map.fromList
-        [ ("src/App/Main.jz", "import A::Ops.\nimport B::Ops (map).\nmain = map."),
           ("src/A/Ops.jz", "map = 1."),
           ("src/B/Ops.jz", "map = 2.")
         ]

@@ -3,7 +3,6 @@
 -- | Megaparsec adapter for parsing the lexer token stream.
 module JazzNext.Compiler.Parser.TokenParser
   ( Parser,
-    failTokenParser,
     parseAnyToken,
     parseIdentifier,
     parseOperator,
@@ -12,8 +11,7 @@ module JazzNext.Compiler.Parser.TokenParser
     parseTokenWhere,
     parseDiagnostic,
     peekToken,
-    runTokenParser,
-    runTokenParserPrefix
+    runTokenParser
   ) where
 
 import Control.Applicative
@@ -64,12 +62,6 @@ runTokenParser label parser tokens =
     Right value -> Right value
     Left bundle -> Left (parseDiagnostic (tokenParserErrorMessage bundle))
 
-runTokenParserPrefix :: Text -> Parser a -> [Token] -> Either Diagnostic (a, [Token])
-runTokenParserPrefix label parser tokens =
-  case MP.runParser ((,) <$> parser <*> MP.getInput) (Text.unpack label) tokens of
-    Right value -> Right value
-    Left bundle -> Left (parseDiagnostic (tokenParserErrorMessage bundle))
-
 parseAnyToken :: Parser Token
 parseAnyToken =
   MP.anySingle
@@ -115,11 +107,11 @@ parseTokenWhere matches expectedDescription = do
   maybeToken <- peekToken
   case maybeToken of
     Nothing ->
-      failTokenParser ("expected " <> expectedDescription <> " before end of input")
+      parserFailure ("expected " <> expectedDescription <> " before end of input")
     Just token
       | matches token -> parseAnyToken
       | otherwise ->
-          failTokenParser
+          parserFailure
             ( "expected "
                 <> expectedDescription
                 <> " at "
@@ -129,8 +121,8 @@ parseTokenWhere matches expectedDescription = do
                 <> "'"
             )
 
-failTokenParser :: Text -> Parser a
-failTokenParser message =
+parserFailure :: Text -> Parser a
+parserFailure message =
   MP.customFailure (ParserError message)
 
 tokenParserErrorMessage :: MP.ParseErrorBundle [Token] ParserError -> Text

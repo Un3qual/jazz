@@ -42,6 +42,7 @@ tests =
     ("rejects module declarations after operator declarations", testRejectsModuleAfterOperatorDeclaration),
     ("rejects undeclared percent operator", testRejectsUndeclaredPercentOperator),
     ("rejects undeclared ampersand operator", testRejectsUndeclaredAmpersandOperator),
+    ("rejects empty parenthesized expression", testRejectsEmptyParenthesizedExpression),
     ("rejects incomplete infix expression", testRejectsIncompleteInfixExpression)
   ]
 
@@ -252,6 +253,14 @@ testRejectsUndeclaredAmpersandOperator =
     "E0001"
     "operator '&&' must be declared before use"
     (parseSurfaceProgram "x = a && b.")
+
+testRejectsEmptyParenthesizedExpression :: IO ()
+testRejectsEmptyParenthesizedExpression =
+  assertLeftDiagnosticCodeAndContains
+    "empty parens"
+    "E0001"
+    "expected expression"
+    (parseSurfaceProgram "f = ().")
 
 testRejectsIncompleteInfixExpression :: IO ()
 testRejectsIncompleteInfixExpression =

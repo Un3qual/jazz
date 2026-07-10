@@ -29,10 +29,7 @@ main = runTestSuite "LambdaSemantics" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("Unit lambda signature and repeated applications run", testUnitLambdaRuntime),
-    ("Unit lambda rejects a non-Unit argument", testUnitLambdaTypeMismatch),
-    ("Unit case pattern runs", testUnitCasePatternRuntime),
-    ("single-argument identity lambda runs", testIdentityLambdaRuntime),
+  [ ("single-argument identity lambda runs", testIdentityLambdaRuntime),
     ("multi-argument const lambda runs", testConstLambdaRuntime),
     ("lambda can close over outer variable", testClosureCaptureRuntime),
     ("lambda captures defining scope before later rebinding", testClosureCaptureBeforeRebindingRuntime),
@@ -67,41 +64,6 @@ tests =
     ("lambda inequality is rejected at source type checking", testLambdaInequalityRejected),
     ("non-callable application still reports apply type error", testRejectsNonCallableApplication)
   ]
-
-testUnitLambdaRuntime :: IO ()
-testUnitLambdaRuntime = do
-  result <-
-    runSource
-      defaultWarningSettings
-      "thunk :: () -> Int. thunk = \\() -> 42. (thunk (), thunk ())."
-  assertEqual "warnings" [] (runWarnings result)
-  assertEqual "compile errors" [] (runCompileErrors result)
-  assertEqual "runtime errors" [] (runRuntimeErrors result)
-  assertEqual "runtime output" (Just "(42, 42)") (runOutput result)
-
-testUnitLambdaTypeMismatch :: IO ()
-testUnitLambdaTypeMismatch = do
-  result <- compileSource defaultWarningSettings "thunk = \\() -> 42. thunk 1."
-  assertSingleDiagnosticCode
-    "Unit lambda type mismatch code"
-    "E2006"
-    (compileErrors result)
-  case compileErrors result of
-    compileError : _ ->
-      assertContains
-        "Unit lambda type rendering"
-        "()"
-        (renderDiagnostic compileError)
-    [] ->
-      failTest "expected Unit lambda type mismatch"
-
-testUnitCasePatternRuntime :: IO ()
-testUnitCasePatternRuntime = do
-  result <- runSource defaultWarningSettings "case () { | () -> 42 }."
-  assertEqual "warnings" [] (runWarnings result)
-  assertEqual "compile errors" [] (runCompileErrors result)
-  assertEqual "runtime errors" [] (runRuntimeErrors result)
-  assertEqual "runtime output" (Just "42") (runOutput result)
 
 testIdentityLambdaRuntime :: IO ()
 testIdentityLambdaRuntime = do

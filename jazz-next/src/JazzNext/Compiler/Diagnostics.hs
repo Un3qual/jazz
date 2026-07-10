@@ -12,7 +12,6 @@ module JazzNext.Compiler.Diagnostics
     mkDiagnostic,
     mkMessageDiagnostic,
     prependDiagnosticSummary,
-    qualifySourceSpan,
     setDiagnosticCode,
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
@@ -32,19 +31,11 @@ import JazzNext.Compiler.WarningCatalog
     warningCode
   )
 
--- | 1-based source location used throughout the compiler. Standalone parsing
--- uses the compact constructor; resolved modules qualify spans with their
--- source paths before per-module semantic analysis.
-data SourceSpan
-  = SourceSpan
-      { spanLine :: Int,
-        spanColumn :: Int
-      }
-  | SourceSpanIn
-      { spanSourcePath :: FilePath,
-        spanLine :: Int,
-        spanColumn :: Int
-      }
+-- | 1-based source location used throughout the current compiler.
+data SourceSpan = SourceSpan
+  { spanLine :: Int,
+    spanColumn :: Int
+  }
   deriving (Eq, Ord, Show)
 
 -- | Structured error payload that can carry stable codes, source spans, and
@@ -165,10 +156,6 @@ appendDiagnosticNote :: Text -> Diagnostic -> Diagnostic
 appendDiagnosticNote note diagnostic =
   diagnostic {diagnosticNotes = diagnosticNotes diagnostic <> [note]}
 
-qualifySourceSpan :: FilePath -> SourceSpan -> SourceSpan
-qualifySourceSpan sourcePath spanValue =
-  SourceSpanIn sourcePath (spanLine spanValue) (spanColumn spanValue)
-
 -- | Best-effort parser for already-rendered diagnostics. This is only used in
 -- tests/helpers and intentionally recovers just the stable code/summary shape.
 diagnosticFromRendered :: Text -> Diagnostic
@@ -189,15 +176,7 @@ diagnosticFromRendered rendered =
 
 renderSourceSpan :: SourceSpan -> Text
 renderSourceSpan spanValue =
-  renderSourcePath spanValue
-    <> Text.pack (show (spanLine spanValue))
-    <> ":"
-    <> Text.pack (show (spanColumn spanValue))
-  where
-    renderSourcePath sourceSpan =
-      case sourceSpan of
-        SourceSpan {} -> ""
-        SourceSpanIn sourcePath _ _ -> Text.pack sourcePath <> ":"
+  Text.pack (show (spanLine spanValue)) <> ":" <> Text.pack (show (spanColumn spanValue))
 
 mkSameScopeRebindingWarning :: Text -> SourceSpan -> SourceSpan -> WarningRecord
 mkSameScopeRebindingWarning variableName primarySpan previousSpan =

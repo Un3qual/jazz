@@ -21,6 +21,9 @@ import JazzNext.Compiler.Parser.AST
 import JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr
   )
+import JazzNext.Compiler.Desugar
+  ( desugarExpr
+  )
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
@@ -43,7 +46,7 @@ tests =
     ("rejects True as binding name", testRejectsTrueAsBindingName),
     ("rejects False as signature name", testRejectsFalseAsSignatureName),
     ("lowers parsed if surface nodes into analyzer AST", testLowerIfExpression),
-    ("keeps lowered if nodes in canonical if form", testLoweredIfIsCanonical)
+    ("desugars lowered if nodes into canonical case form", testDesugarIfExpression)
   ]
 
 testParsesBasicIfExpression :: IO ()
@@ -145,16 +148,16 @@ testLowerIfExpression =
             (EIf (ELit (LBool True)) (ELit (LInt 1)) (ELit (LInt 2)))
         ]
 
-testLoweredIfIsCanonical :: IO ()
-testLoweredIfIsCanonical =
+testDesugarIfExpression :: IO ()
+testDesugarIfExpression =
   assertRight
-    "parse + canonical lower if"
+    "parse + lower + desugar if"
     (parseSurfaceProgram "x = if True 1 else 2.")
     ( \surfaceProgram ->
         assertEqual
-          "canonical lowered if AST"
+          "desugared if AST"
           expectedProgram
-          (lowerSurfaceExpr surfaceProgram)
+          (desugarExpr (lowerSurfaceExpr surfaceProgram))
     )
   where
     expectedProgram =
@@ -162,5 +165,5 @@ testLoweredIfIsCanonical =
         [ SLet
             "x"
             (SourceSpan 1 1)
-            (EIf (ELit (LBool True)) (ELit (LInt 1)) (ELit (LInt 2)))
+            (ECase (ELit (LBool True)) (ELit (LInt 1)) (ELit (LInt 2)))
         ]

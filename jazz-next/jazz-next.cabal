@@ -2,14 +2,8 @@ cabal-version: 3.0
 name: jazz-next
 version: 0.1.0.0
 build-type: Simple
-synopsis: Active compiler and interpreter for the Jazz language
-description: The unreleased active Jazz compiler, module loader, analyzer, interpreter, and command-line interface.
-license: GPL-3.0-only
-maintainer: un3qual
-category: Language
 
-library jazz-next-internal
-  visibility: private
+library
   hs-source-dirs: src
   default-language: Haskell2010
   exposed-modules:
@@ -19,18 +13,15 @@ library jazz-next-internal
       JazzNext.Compiler.BuiltinCatalog
       JazzNext.Compiler.BundledPrelude
       JazzNext.Compiler.CapabilityFacts
+      JazzNext.Compiler.Desugar
       JazzNext.Compiler.Diagnostics
       JazzNext.Compiler.Driver
       JazzNext.Compiler.FractionalLiteral
-      JazzNext.Compiler.ModuleGraph
-      JazzNext.Compiler.ModuleInterface
-      JazzNext.Compiler.ModuleCompiler
+      JazzNext.Compiler.Identifier
+      JazzNext.Compiler.ModuleReplay
       JazzNext.Compiler.ModuleResolver
-      JazzNext.Compiler.ModuleRuntime
-      JazzNext.Compiler.Name
       JazzNext.Compiler.Parser
       JazzNext.Compiler.Parser.AST
-      JazzNext.Compiler.Parser.Context
       JazzNext.Compiler.Parser.Declaration
       JazzNext.Compiler.Parser.Expression
       JazzNext.Compiler.Parser.Lexer
@@ -39,22 +30,13 @@ library jazz-next-internal
       JazzNext.Compiler.Parser.Pattern
       JazzNext.Compiler.Parser.Signature
       JazzNext.Compiler.Parser.TokenParser
-      JazzNext.Compiler.Pattern
       JazzNext.Compiler.PreludeContract
-      JazzNext.Compiler.Prelude
       JazzNext.Compiler.Purity
       JazzNext.Compiler.RecursiveBindings
       JazzNext.Compiler.Runtime
       JazzNext.Compiler.RuntimeHints
       JazzNext.Compiler.SourceProgram
       JazzNext.Compiler.TypeInference
-      JazzNext.Compiler.TypeInference.Capabilities
-      JazzNext.Compiler.TypeInference.Diagnostics
-      JazzNext.Compiler.TypeInference.Pattern
-      JazzNext.Compiler.TypeInference.Scope
-      JazzNext.Compiler.TypeInference.State
-      JazzNext.Compiler.TypeInference.Solver
-      JazzNext.Compiler.TypeInference.Types
       JazzNext.Compiler.WarningCatalog
       JazzNext.Compiler.WarningConfig
       JazzNext.Compiler.Warnings
@@ -65,222 +47,3 @@ library jazz-next-internal
       filepath >= 1.4 && < 1.5,
       megaparsec >= 9.0 && < 10,
       text >= 2.0 && < 2.1
-
-executable jazz-next
-  hs-source-dirs: app
-  main-is: Main.hs
-  default-language: Haskell2010
-  build-depends:
-      base >= 4.17 && < 4.18,
-      jazz-next:jazz-next-internal
-
-common test-common
-  hs-source-dirs: test
-  other-modules:
-      JazzNext.Compiler.Parser.TestSupport
-      JazzNext.TestHarness
-  default-language: Haskell2010
-  build-depends:
-      base >= 4.17 && < 4.18,
-      containers >= 0.6 && < 0.7,
-      directory >= 1.3 && < 1.4,
-      filepath >= 1.4 && < 1.5,
-      jazz-next:jazz-next-internal,
-      text >= 2.0 && < 2.1
-
-test-suite cli-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/CLI/CLISpec.hs
-
-test-suite warning-config-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Config/WarningConfigSpec.hs
-
-test-suite structured-error-diagnostics-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Diagnostics/StructuredErrorDiagnosticsSpec.hs
-
-test-suite loader-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Modules/LoaderSpec.hs
-  other-modules:
-      JazzNext.Compiler.Modules.Loader.BasicTests
-      JazzNext.Compiler.Modules.Loader.CapabilitiesTests
-      JazzNext.Compiler.Modules.Loader.DiagnosticsTests
-      JazzNext.Compiler.Modules.Loader.OperatorsTests
-      JazzNext.Compiler.Modules.Loader.Shared
-      JazzNext.Compiler.Modules.Loader.VisibilityTests
-
-test-suite module-resolution-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
-
-test-suite module-pipeline-contract-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs
-
-test-suite prelude-loading-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
-
-test-suite adt-pattern-parser-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
-  other-modules:
-      JazzNext.Compiler.Parser.AdtPattern.DeclarationsTests
-      JazzNext.Compiler.Parser.AdtPattern.InvalidSyntaxTests
-      JazzNext.Compiler.Parser.AdtPattern.PatternsTests
-      JazzNext.Compiler.Parser.AdtPattern.Shared
-
-test-suite declaration-parser-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Parser/DeclarationParserSpec.hs
-
-test-suite expression-parser-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Parser/ExpressionParserSpec.hs
-
-test-suite if-expression-parser-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Parser/IfExpressionParserSpec.hs
-
-test-suite lambda-parser-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Parser/LambdaParserSpec.hs
-
-test-suite module-import-parser-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
-
-test-suite operator-fixity-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Parser/OperatorFixitySpec.hs
-
-test-suite operator-invalid-syntax-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
-
-test-suite operator-section-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Parser/OperatorSectionSpec.hs
-
-test-suite parser-foundation-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  other-modules:
-      JazzNext.Compiler.Parser.Foundation.ExpressionsTests
-      JazzNext.Compiler.Parser.Foundation.InvalidSyntaxTests
-      JazzNext.Compiler.Parser.Foundation.ModulesTests
-      JazzNext.Compiler.Parser.Foundation.Shared
-      JazzNext.Compiler.Parser.Foundation.SignaturesTests
-
-test-suite pattern-parser-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Parser/PatternParserSpec.hs
-
-test-suite token-parser-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Parser/TokenParserSpec.hs
-
-test-suite adt-pattern-runtime-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
-
-test-suite adt-pattern-type-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
-
-test-suite binding-signature-coherence-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  other-modules:
-      JazzNext.Compiler.Semantics.BindingSignature.BasicsTests
-      JazzNext.Compiler.Semantics.BindingSignature.ConstraintsTests
-      JazzNext.Compiler.Semantics.BindingSignature.DiagnosticsTests
-      JazzNext.Compiler.Semantics.BindingSignature.GeneralizationTests
-      JazzNext.Compiler.Semantics.BindingSignature.RecursionTests
-      JazzNext.Compiler.Semantics.BindingSignature.Shared
-
-test-suite builtin-catalog-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
-
-test-suite core-normalization-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/CoreNormalizationSpec.hs
-
-test-suite if-expression-type-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/IfExpressionTypeSpec.hs
-
-test-suite lambda-semantics-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs
-
-test-suite name-semantics-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/NameSemanticsSpec.hs
-
-test-suite primitive-semantics-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
-
-test-suite pattern-semantics-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/PatternSemanticsSpec.hs
-
-test-suite purity-semantics-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/PuritySemanticsSpec.hs
-
-test-suite rebinding-warning-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
-
-test-suite recursive-bindings-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/RecursiveBindingsSpec.hs
-
-test-suite runtime-semantics-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
-  other-modules:
-      JazzNext.Compiler.Semantics.Runtime.CapabilitiesTests
-      JazzNext.Compiler.Semantics.Runtime.ControlFlowTests
-      JazzNext.Compiler.Semantics.Runtime.NumericTests
-      JazzNext.Compiler.Semantics.Runtime.RecursionTests
-      JazzNext.Compiler.Semantics.Runtime.RenderingTests
-      JazzNext.Compiler.Semantics.Runtime.Shared

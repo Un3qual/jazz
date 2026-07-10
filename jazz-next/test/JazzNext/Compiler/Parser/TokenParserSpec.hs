@@ -7,9 +7,7 @@ import JazzNext.Compiler.Diagnostics
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Parser.Lexer
-  ( Token (..),
-    TokenKind (..),
-    isImmediatelyAfter,
+  ( TokenKind (..),
     tokenize
   )
 import JazzNext.Compiler.Parser.TestSupport
@@ -19,8 +17,7 @@ import JazzNext.Compiler.Parser.TokenParser
   ( Parser,
     parseIdentifier,
     parseTokenKind,
-    runTokenParser,
-    runTokenParserPrefix
+    runTokenParser
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -36,8 +33,6 @@ main = runTestSuite "TokenParser" tests
 tests :: [NamedTest]
 tests =
   [ ("runs a Megaparsec token parser over lexer tokens", testRunTokenParser),
-    ("prefix parser returns the unconsumed token stream", testRunTokenParserPrefixReturnsRemainder),
-    ("recognizes lexically adjacent tokens", testRecognizesLexicallyAdjacentTokens),
     ("renders token parser diagnostics with token spans", testTokenParserDiagnostic),
     ("renders invalid character lexer diagnostics", testInvalidCharacterLexerDiagnostic)
   ]
@@ -53,23 +48,6 @@ testRunTokenParser = do
         ((,,,) <$> parseIdentifier <*> parseTokenKind TEquals <*> parseInteger <*> parseTokenKind TDot)
         tokens
     )
-
-testRunTokenParserPrefixReturnsRemainder :: IO ()
-testRunTokenParserPrefixReturnsRemainder = do
-  tokens <- lexSource "value."
-  assertEqual
-    "prefix result"
-    (Right ("value", [TDot]))
-    (fmap (fmap (map tokenKind)) (runTokenParserPrefix "identifier prefix" parseIdentifier tokens))
-
-testRecognizesLexicallyAdjacentTokens :: IO ()
-testRecognizesLexicallyAdjacentTokens = do
-  tokens <- lexSource "left::member right :: member"
-  case tokens of
-    left : compactColon : _ : right : spacedColon : _ -> do
-      assertEqual "compact separator adjacency" True (isImmediatelyAfter left compactColon)
-      assertEqual "spaced separator adjacency" False (isImmediatelyAfter right spacedColon)
-    _ -> failTest "expected two qualified-name token groups"
 
 testTokenParserDiagnostic :: IO ()
 testTokenParserDiagnostic = do

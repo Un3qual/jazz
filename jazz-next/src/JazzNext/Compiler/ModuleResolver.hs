@@ -10,8 +10,7 @@ module JazzNext.Compiler.ModuleResolver
     parseModulePathText,
     resolveModuleGraph,
     resolveModuleGraphWithLookup,
-    resolveModuleGraphWithLookupAndVisibleSymbols,
-    resolveProgram
+    resolveModuleGraphWithLookupAndVisibleSymbols
   ) where
 
 import Control.Monad (foldM)
@@ -21,7 +20,6 @@ import Data.Functor.Identity
     runIdentity
   )
 import Data.List (foldl', sortOn)
-import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -37,38 +35,12 @@ import JazzNext.Compiler.Diagnostics
     setDiagnosticRelatedSpan,
     setDiagnosticSubject
   )
-import JazzNext.Compiler.AST
-  ( CaseArm (..),
-    ClassMethodSignature (..),
-    ConstraintSignatureType (..),
-    DataConstructor (..),
-    DataConstructorArgument (..),
-    Expr (..),
-    ImplMethod (..),
-    Pattern (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureToken (..),
-    Statement (..)
-  )
-import JazzNext.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..),
-    lookupBuiltinSymbolInMode
-  )
-import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
-import JazzNext.Compiler.Name
-  ( Name (..),
-    NameNamespace (..),
-    ResolvedNameOrigin (..),
-    identifierText,
-    isOperatorBindingIdentifierText,
-    mkIdentifier,
-    renderName
+import JazzNext.Compiler.Identifier
+  ( identifierText
   )
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
-import JazzNext.Compiler.Parser.Lower (lowerSurfaceModule)
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceDataConstructor (..),
@@ -77,10 +49,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceStatement (..)
   )
-import System.FilePath
-  ( normalise,
-    (</>)
-  )
+import System.FilePath ((</>))
 
 -- | File-system lookup policy for module loading.
 data ModuleResolutionConfig = ModuleResolutionConfig
@@ -89,7 +58,8 @@ data ModuleResolutionConfig = ModuleResolutionConfig
   }
   deriving (Eq, Show)
 
--- | Compatibility summary returned by the resolver's inventory-only entrypoints.
+-- | Minimal resolved-module record consumed by the driver when replaying source
+-- in dependency order.
 data ResolvedModule = ResolvedModule
   { resolvedModulePath :: [Text],
     resolvedSourcePath :: FilePath,
@@ -112,13 +82,9 @@ data ParsedImport = ParsedImport
 data ParsedModule = ParsedModule
   { parsedModuleImports :: [ParsedImport],
     parsedModuleExports :: Set Text,
-    parsedModuleValueNames :: Set Text,
-    parsedModuleDataTypeNames :: Set Text,
-    parsedModuleConstructorNames :: Set Text,
     parsedModuleClassNames :: Set Text,
     parsedModuleReferences :: Set Text,
-    parsedModuleQualifiedReferences :: Set (Text, Text),
-    parsedModuleCore :: ModuleGraph.CoreModule
+    parsedModuleQualifiedReferences :: Set (Text, Text)
   }
 
 -- | Origin metadata for imported bindings/aliases used in collision
@@ -131,11 +97,7 @@ data BindingOrigin = BindingOrigin
 data ResolvedState = ResolvedState
   { resolvedSetState :: Set [Text],
     resolvedModulesRevState :: [ResolvedModule],
-    resolvedGraphModulesRevState :: [ModuleGraph.ResolvedModule],
     resolvedExportsState :: Map [Text] (Set Text),
-    resolvedValueExportsState :: Map [Text] (Set Text),
-    resolvedDataTypeExportsState :: Map [Text] (Set Text),
-    resolvedConstructorExportsState :: Map [Text] (Set Text),
     resolvedClassExportsState :: Map [Text] (Set Text)
   }
 
@@ -210,69 +172,17 @@ resolveModuleGraphWithLookupAndVisibleSymbols ::
   (FilePath -> m (Maybe Text)) ->
   [Text] ->
   m (Either Diagnostic [ResolvedModule])
-resolveModuleGraphWithLookupAndVisibleSymbols config ambientVisibleSymbols ambientVisibleClassNames loadSource entryModulePath =
-  fmap
-    (fmap (reverse . resolvedModulesRevState))
-    ( resolveStateWithLookupAndVisibleSymbols
-        config
-        ResolveKernelOnly
-        ambientVisibleSymbols
-        ambientVisibleClassNames
-        loadSource
-        entryModulePath
-    )
-
-resolveProgram ::
-  ModuleResolutionConfig ->
-  BuiltinResolutionMode ->
-  Set Name ->
-  Set Name ->
-  (FilePath -> IO (Maybe Text)) ->
-  [Text] ->
-  IO (Either Diagnostic ModuleGraph.ResolvedProgram)
-resolveProgram config builtinMode ambientValues ambientClasses loadSource entryModulePath =
-  fmap
-    ( fmap
-        ( \state ->
-            ModuleGraph.ResolvedProgram
-              { ModuleGraph.resolvedProgramEntryPath = entryModulePath,
-                ModuleGraph.resolvedProgramModules = reverse (resolvedGraphModulesRevState state)
-              }
-        )
-    )
-    ( resolveStateWithLookupAndVisibleSymbols
-        config
-        builtinMode
-        (Set.map renderName ambientValues)
-        (Set.map renderName ambientClasses)
-        loadSource
-        entryModulePath
-    )
-
-resolveStateWithLookupAndVisibleSymbols ::
-  Monad m =>
-  ModuleResolutionConfig ->
-  BuiltinResolutionMode ->
-  Set Text ->
-  Set Text ->
-  (FilePath -> m (Maybe Text)) ->
-  [Text] ->
-  m (Either Diagnostic ResolvedState)
-resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols ambientVisibleClassNames loadSource entryModulePath
+resolveModuleGraphWithLookupAndVisibleSymbols config ambientVisibleSymbols ambientVisibleClassNames loadSource entryModulePath
   | null entryModulePath =
       pure (Left (mkMessageDiagnostic "empty entry module path"))
   | otherwise =
-      visitModule [] initialState entryModulePath
+      fmap (fmap (reverse . resolveModulesRev)) (visitModule [] initialState entryModulePath)
   where
     initialState =
       ResolvedState
         { resolvedSetState = Set.empty,
           resolvedModulesRevState = [],
-          resolvedGraphModulesRevState = [],
           resolvedExportsState = Map.empty,
-          resolvedValueExportsState = Map.empty,
-          resolvedDataTypeExportsState = Map.empty,
-          resolvedConstructorExportsState = Map.empty,
           resolvedClassExportsState = Map.empty
         }
 
@@ -319,29 +229,6 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                     resolvedSourcePath = sourcePath,
                                     resolvedImports = sortedImports
                                   }
-                              resolvedCore =
-                                resolveCoreModuleNames
-                                  builtinMode
-                                  modulePath
-                                  ambientVisibleSymbols
-                                  ambientVisibleClassNames
-                                  (parsedModuleValueNames parsedModule)
-                                  (parsedModuleDataTypeNames parsedModule)
-                                  (parsedModuleConstructorNames parsedModule)
-                                  (parsedModuleClassNames parsedModule)
-                                  (resolvedValueExportsState stateAfterDeps)
-                                  (resolvedDataTypeExportsState stateAfterDeps)
-                                  (resolvedConstructorExportsState stateAfterDeps)
-                                  (resolvedClassExportsState stateAfterDeps)
-                                  (parsedModuleImports parsedModule)
-                                  (parsedModuleCore parsedModule)
-                              resolvedGraphModule =
-                                ModuleGraph.ResolvedModule
-                                  { ModuleGraph.resolvedModulePath = modulePath,
-                                    ModuleGraph.resolvedSourcePath = sourcePath,
-                                    ModuleGraph.resolvedModuleImports = ModuleGraph.coreModuleImports resolvedCore,
-                                    ModuleGraph.resolvedModuleCore = resolvedCore
-                                  }
                            in pure
                                 ( Right
                                     stateAfterDeps
@@ -349,28 +236,11 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                           Set.insert modulePath (resolvedSetState stateAfterDeps),
                                         resolvedModulesRevState =
                                           resolvedModule : resolvedModulesRevState stateAfterDeps,
-                                        resolvedGraphModulesRevState =
-                                          resolvedGraphModule : resolvedGraphModulesRevState stateAfterDeps,
                                         resolvedExportsState =
                                           Map.insert
                                             modulePath
                                             (parsedModuleExports parsedModule)
                                             (resolvedExportsState stateAfterDeps),
-                                        resolvedValueExportsState =
-                                          Map.insert
-                                            modulePath
-                                            (parsedModuleValueNames parsedModule)
-                                            (resolvedValueExportsState stateAfterDeps),
-                                        resolvedDataTypeExportsState =
-                                          Map.insert
-                                            modulePath
-                                            (parsedModuleDataTypeNames parsedModule)
-                                            (resolvedDataTypeExportsState stateAfterDeps),
-                                        resolvedConstructorExportsState =
-                                          Map.insert
-                                            modulePath
-                                            (parsedModuleConstructorNames parsedModule)
-                                            (resolvedConstructorExportsState stateAfterDeps),
                                         resolvedClassExportsState =
                                           Map.insert
                                             modulePath
@@ -378,6 +248,9 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                             (resolvedClassExportsState stateAfterDeps)
                                       }
                                 )
+
+    resolveModulesRev :: ResolvedState -> [ResolvedModule]
+    resolveModulesRev = resolvedModulesRevState
 
     visitDependency nextStack accumulator importPath =
       case accumulator of
@@ -389,7 +262,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
       let relativePath = modulePathToRelativeFileWithExt (moduleExtension config) modulePath
           candidatePaths =
             dedupePreservingOrder
-              (map (normalise . appendRelativePath relativePath) (moduleRoots config))
+              (map (appendRelativePath relativePath) (moduleRoots config))
       candidatesWithContents <-
         mapM
           (\candidatePath -> do
@@ -458,19 +331,15 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
             )
         )
     Right surfaceExpr -> do
-      coreModule <- lowerSurfaceModule sourcePath expectedModulePath surfaceExpr
+      validateModuleDeclarations sourcePath expectedModulePath surfaceExpr
       let topLevelBindings = collectTopLevelBindings surfaceExpr
       Right
         ParsedModule
           { parsedModuleImports = collectImports surfaceExpr,
             parsedModuleExports = topLevelBindings,
-            parsedModuleValueNames = collectTopLevelValueNames surfaceExpr,
-            parsedModuleDataTypeNames = collectTopLevelDataTypeNames surfaceExpr,
-            parsedModuleConstructorNames = collectTopLevelConstructorNames surfaceExpr,
             parsedModuleClassNames = collectTopLevelClassNames surfaceExpr,
             parsedModuleReferences = collectReferencedNames surfaceExpr Set.\\ topLevelBindings,
-            parsedModuleQualifiedReferences = collectQualifiedReferences surfaceExpr,
-            parsedModuleCore = coreModule
+            parsedModuleQualifiedReferences = collectQualifiedReferences surfaceExpr
           }
 
 collectImports :: SurfaceExpr -> [ParsedImport]
@@ -498,46 +367,12 @@ collectTopLevelBindings surfaceExpr =
     collectStatementBindings statement =
       case statement of
         SSLet bindingName _ _ ->
-          [ identifierText bindingName
-            | not (isOperatorBindingIdentifierText (identifierText bindingName))
-          ]
+          [identifierText bindingName]
         SSData _ _ _ constructors ->
           [ identifierText constructorName
             | SurfaceDataConstructor constructorName _ <- constructors
           ]
         _ -> []
-
-collectTopLevelValueNames :: SurfaceExpr -> Set Text
-collectTopLevelValueNames surfaceExpr =
-  case surfaceExpr of
-    SEBlock statements ->
-      Set.fromList
-        [ identifierText bindingName
-          | SSLet bindingName _ _ <- statements,
-            not (isOperatorBindingIdentifierText (identifierText bindingName))
-        ]
-    _ -> Set.empty
-
-collectTopLevelDataTypeNames :: SurfaceExpr -> Set Text
-collectTopLevelDataTypeNames surfaceExpr =
-  case surfaceExpr of
-    SEBlock statements ->
-      Set.fromList
-        [ identifierText typeName
-          | SSData _ typeName _ _ <- statements
-        ]
-    _ -> Set.empty
-
-collectTopLevelConstructorNames :: SurfaceExpr -> Set Text
-collectTopLevelConstructorNames surfaceExpr =
-  case surfaceExpr of
-    SEBlock statements ->
-      Set.fromList
-        [ identifierText constructorName
-          | SSData _ _ _ constructors <- statements,
-            SurfaceDataConstructor constructorName _ <- constructors
-        ]
-    _ -> Set.empty
 
 collectTopLevelClassNames :: SurfaceExpr -> Set Text
 collectTopLevelClassNames surfaceExpr =
@@ -549,264 +384,8 @@ collectTopLevelClassNames surfaceExpr =
         ]
     _ -> Set.empty
 
-resolveCoreModuleNames ::
-  BuiltinResolutionMode ->
-  [Text] ->
-  Set Text ->
-  Set Text ->
-  Set Text ->
-  Set Text ->
-  Set Text ->
-  Set Text ->
-  Map [Text] (Set Text) ->
-  Map [Text] (Set Text) ->
-  Map [Text] (Set Text) ->
-  Map [Text] (Set Text) ->
-  [ParsedImport] ->
-  ModuleGraph.CoreModule ->
-  ModuleGraph.CoreModule
-resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses localValues localDataTypes localConstructors localClasses valuesByModule dataTypesByModule constructorsByModule classesByModule imports coreModule =
-  coreModule {ModuleGraph.coreModuleExpr = resolveExpr (ModuleGraph.coreModuleExpr coreModule)}
-  where
-    aliasPaths =
-      Map.fromList
-        [ (aliasName, parsedImportModulePath importDecl)
-          | importDecl <- imports,
-            Just aliasName <- [parsedImportAlias importDecl]
-        ]
-
-    visibleValueOrigins =
-      Map.fromList
-        [ (name, modulePath)
-          | importDecl <- imports,
-            parsedImportAlias importDecl == Nothing,
-            let modulePath = parsedImportModulePath importDecl,
-            name <- selectedImportNames importDecl (Map.findWithDefault Set.empty modulePath valuesByModule)
-        ]
-
-    visibleConstructorOrigins =
-      Map.fromList
-        [ (name, modulePath)
-          | importDecl <- imports,
-            parsedImportAlias importDecl == Nothing,
-            let modulePath = parsedImportModulePath importDecl,
-            name <- selectedImportNames importDecl (Map.findWithDefault Set.empty modulePath constructorsByModule)
-        ]
-
-    visibleTypeOrigins =
-      Map.fromList
-        [ (name, modulePath)
-          | importDecl <- imports,
-            parsedImportAlias importDecl == Nothing,
-            let modulePath = parsedImportModulePath importDecl,
-            name <- selectedImportNames importDecl (Map.findWithDefault Set.empty modulePath dataTypesByModule)
-        ]
-
-    visibleClassOrigins =
-      Map.fromList
-        [ (name, modulePath)
-          | importDecl <- imports,
-            parsedImportAlias importDecl == Nothing,
-            let modulePath = parsedImportModulePath importDecl,
-            name <- selectedImportNames importDecl (Map.findWithDefault Set.empty modulePath classesByModule)
-        ]
-
-    selectedImportNames importDecl availableNames =
-      case parsedImportSymbols importDecl of
-        Nothing -> Set.toList availableNames
-        Just selectedNames -> filter (`Set.member` availableNames) selectedNames
-
-    resolveName namespace name =
-      case name of
-        SourceName identifier -> resolveUnqualified namespace identifier
-        QualifiedName qualifier member ->
-          let qualifierText = identifierText qualifier
-              memberText = identifierText member
-           in case Map.lookup qualifierText aliasPaths of
-                Just dependencyPath ->
-                  ResolvedName
-                    (ImportedModule dependencyPath)
-                    (importedNamespace dependencyPath memberText namespace)
-                    member
-                Nothing ->
-                  ResolvedName
-                    (classOrigin qualifierText)
-                    ValueNamespace
-                    (mkIdentifier (qualifierText <> "::" <> memberText))
-        _ -> name
-
-    resolveUnqualified namespace identifier
-      | localName namespace nameText =
-          ResolvedName CurrentModule namespace identifier
-      | Just dependencyPath <- importedOrigin namespace nameText =
-          ResolvedName (ImportedModule dependencyPath) (importedNamespace dependencyPath nameText namespace) identifier
-      | ambientName namespace nameText =
-          ResolvedName AmbientPrelude namespace identifier
-      | namespace == ValueNamespace,
-        Just _ <- lookupBuiltinSymbolInMode builtinMode nameText =
-          BuiltinName identifier
-      | otherwise =
-          ResolvedName CurrentModule namespace identifier
-      where
-        nameText = identifierText identifier
-
-    localName namespace nameText =
-      case namespace of
-        ValueNamespace -> Set.member nameText localValues
-        ConstructorNamespace -> Set.member nameText localConstructors
-        CapabilityNamespace -> Set.member nameText localClasses
-        TypeNamespace -> Set.member nameText localDataTypes
-
-    importedOrigin namespace nameText =
-      case namespace of
-        ConstructorNamespace -> Map.lookup nameText visibleConstructorOrigins
-        TypeNamespace -> Map.lookup nameText visibleTypeOrigins
-        CapabilityNamespace -> Map.lookup nameText visibleClassOrigins
-        _ -> Map.lookup nameText visibleValueOrigins
-
-    importedNamespace dependencyPath nameText fallbackNamespace
-      | fallbackNamespace /= ValueNamespace = fallbackNamespace
-      | Set.member nameText (Map.findWithDefault Set.empty dependencyPath constructorsByModule) = ConstructorNamespace
-      | Set.member nameText (Map.findWithDefault Set.empty dependencyPath classesByModule) = CapabilityNamespace
-      | otherwise = ValueNamespace
-
-    ambientName namespace nameText =
-      case namespace of
-        CapabilityNamespace -> Set.member nameText ambientClasses
-        _ -> Set.member nameText ambientValues
-
-    classOrigin className
-      | Set.member className localClasses = CurrentModule
-      | Just dependencyPath <- Map.lookup className visibleClassOrigins = ImportedModule dependencyPath
-      | Set.member className ambientClasses = AmbientPrelude
-      | otherwise = CurrentModule
-
-    resolveExpr expression =
-      case expression of
-        ELit literal -> ELit literal
-        EVar name -> EVar (resolveName (referenceNamespace name) name)
-        ELambda parameter body ->
-          ELambda (resolveBinder ValueNamespace parameter) (resolveExpr body)
-        EOperatorValue symbol -> EOperatorValue symbol
-        EList items -> EList (map resolveExpr items)
-        ETuple items -> ETuple (map resolveExpr items)
-        EApply function argument -> EApply (resolveExpr function) (resolveExpr argument)
-        ETypeApplication function signatureType -> ETypeApplication (resolveExpr function) signatureType
-        EIf condition trueBranch falseBranch ->
-          EIf (resolveExpr condition) (resolveExpr trueBranch) (resolveExpr falseBranch)
-        EPatternCase scrutinee arms -> EPatternCase (resolveExpr scrutinee) (map resolveCaseArm arms)
-        EBinary symbol left right -> EBinary symbol (resolveExpr left) (resolveExpr right)
-        ESectionLeft left symbol -> ESectionLeft (resolveExpr left) symbol
-        ESectionRight symbol right -> ESectionRight symbol (resolveExpr right)
-        EBlock statements -> EBlock (map resolveStatement statements)
-
-    referenceNamespace name =
-      case name of
-        SourceName identifier
-          | Set.member nameText localValues -> ValueNamespace
-          | Set.member nameText localConstructors -> ConstructorNamespace
-          | Map.member nameText visibleValueOrigins -> ValueNamespace
-          | Map.member nameText visibleConstructorOrigins -> ConstructorNamespace
-          where
-            nameText = identifierText identifier
-        _ -> ValueNamespace
-
-    resolveBinder namespace name =
-      case name of
-        SourceName identifier -> ResolvedName CurrentModule namespace identifier
-        _ -> name
-
-    resolveCaseArm (CaseArm patternValue guard body) =
-      CaseArm (resolvePattern patternValue) (fmap resolveExpr guard) (resolveExpr body)
-
-    resolvePattern patternValue =
-      case patternValue of
-        PWildcard -> PWildcard
-        PVariable name -> PVariable (resolveBinder ValueNamespace name)
-        PLiteral literal -> PLiteral literal
-        PConstructor name patterns ->
-          PConstructor (resolveName ConstructorNamespace name) (map resolvePattern patterns)
-        PList patterns -> PList (map resolvePattern patterns)
-        PConsList headPattern tailPattern ->
-          PConsList (resolvePattern headPattern) (resolvePattern tailPattern)
-        PTuple patterns -> PTuple (map resolvePattern patterns)
-        PAs name pattern' -> PAs (resolveBinder ValueNamespace name) (resolvePattern pattern')
-        POr patterns -> POr (map resolvePattern patterns)
-
-    resolveStatement statement =
-      case statement of
-        SLet name spanValue value ->
-          SLet (resolveBinder ValueNamespace name) spanValue (resolveExpr value)
-        SSignature name spanValue payload ->
-          SSignature (resolveBinder ValueNamespace name) spanValue (resolveSignaturePayload payload)
-        SData spanValue name parameters constructors ->
-          SData
-            spanValue
-            (resolveBinder TypeNamespace name)
-            (map (resolveBinder TypeNamespace) parameters)
-            (map resolveDataConstructor constructors)
-        SClass spanValue name parameters methods ->
-          SClass
-            spanValue
-            (resolveBinder CapabilityNamespace name)
-            (map (resolveBinder TypeNamespace) parameters)
-            (map resolveClassMethod methods)
-        SImpl spanValue name arguments methods ->
-          SImpl
-            spanValue
-            (resolveName CapabilityNamespace name)
-            (map resolveConstraintType arguments)
-            (map resolveImplMethod methods)
-        SModule spanValue path -> SModule spanValue path
-        SImport spanValue path alias symbols -> SImport spanValue path alias symbols
-        SExpr spanValue value -> SExpr spanValue (resolveExpr value)
-
-    resolveDataConstructor (DataConstructor name arguments) =
-      DataConstructor
-        (resolveBinder ConstructorNamespace name)
-        (map resolveDataConstructorArgument arguments)
-
-    resolveDataConstructorArgument argument =
-      case argument of
-        DataConstructorArgumentName name ->
-          DataConstructorArgumentName (resolveName TypeNamespace name)
-        DataConstructorArgumentOpaque -> DataConstructorArgumentOpaque
-
-    resolveClassMethod (ClassMethodSignature name spanValue payload) =
-      ClassMethodSignature (resolveBinder ValueNamespace name) spanValue (resolveSignaturePayload payload)
-
-    resolveImplMethod (ImplMethod name spanValue body) =
-      ImplMethod (resolveBinder ValueNamespace name) spanValue (resolveExpr body)
-
-    resolveSignaturePayload payload =
-      case payload of
-        SignatureType signatureType -> SignatureType signatureType
-        ConstrainedSignature constraints signatureType ->
-          ConstrainedSignature
-            (map resolveSignatureConstraint constraints)
-            (resolveConstraintType signatureType)
-        UnsupportedSignature tokens -> UnsupportedSignature (map resolveSignatureToken tokens)
-
-    resolveSignatureToken token =
-      case token of
-        SignatureNameToken name -> SignatureNameToken (resolveName TypeNamespace name)
-        _ -> token
-
-    resolveSignatureConstraint (SignatureConstraint name arguments) =
-      SignatureConstraint (resolveName CapabilityNamespace name) (map resolveConstraintType arguments)
-
-    resolveConstraintType signatureType =
-      case signatureType of
-        ConstraintTypeName name -> ConstraintTypeName (resolveName TypeNamespace name)
-        ConstraintTypeApplication name arguments ->
-          ConstraintTypeApplication (resolveName TypeNamespace name) (map resolveConstraintType arguments)
-        ConstraintTypeList innerType -> ConstraintTypeList (resolveConstraintType innerType)
-        ConstraintTypeTuple elementTypes -> ConstraintTypeTuple (map resolveConstraintType elementTypes)
-        ConstraintTypeFunction argumentType resultType ->
-          ConstraintTypeFunction (resolveConstraintType argumentType) (resolveConstraintType resultType)
-
 -- | Collect unqualified free references used to validate explicit and alias
--- import visibility before core names are resolved structurally.
+-- import visibility before driver replay rewrites names.
 collectReferencedNames :: SurfaceExpr -> Set Text
 collectReferencedNames = collectExprReferences Set.empty
 
@@ -819,13 +398,12 @@ collectExprReferences boundNames surfaceExpr =
       | otherwise -> Set.singleton (identifierText name)
     SEQualifiedVar _ _ -> Set.empty
     SELambda params body ->
-      let parameterList = NonEmpty.toList params
-       in Set.union
-            (Set.unions (map collectLambdaParameterReferences parameterList))
-            ( collectExprReferences
-                (Set.union boundNames (Set.unions (map collectLambdaParameterBinders parameterList)))
-                body
-            )
+      Set.union
+        (Set.unions (map collectLambdaParameterReferences params))
+        ( collectExprReferences
+            (Set.union boundNames (Set.unions (map collectLambdaParameterBinders params)))
+            body
+        )
     SEOperatorValue _ -> Set.empty
     SEList items ->
       Set.unions (map (collectExprReferences boundNames) items)
@@ -1019,6 +597,47 @@ collectQualifiedCaseArmReferences (SurfaceCaseArm _ guard body) =
     (maybe Set.empty collectQualifiedReferences guard)
     (collectQualifiedReferences body)
 
+validateModuleDeclarations :: FilePath -> [Text] -> SurfaceExpr -> Either Diagnostic ()
+validateModuleDeclarations sourcePath expectedModulePath surfaceExpr =
+  case collectModuleDeclarations surfaceExpr of
+    [] ->
+      Right ()
+    [declaredModulePath]
+      | declaredModulePath == expectedModulePath ->
+          Right ()
+      | otherwise ->
+          Left
+            ( mkDiagnostic
+                "E4006"
+                ( "module declaration mismatch at '"
+                    <> Text.pack sourcePath
+                    <> "': expected '"
+                    <> renderModulePath expectedModulePath
+                    <> "', found '"
+                    <> renderModulePath declaredModulePath
+                    <> "'"
+                )
+            )
+    declaredModulePaths ->
+      Left
+        ( mkDiagnostic
+            "E4005"
+            ( "multiple module declarations in '"
+                <> Text.pack sourcePath
+                <> "': "
+                <> Text.intercalate ", " (map renderModulePath declaredModulePaths)
+            )
+        )
+
+collectModuleDeclarations :: SurfaceExpr -> [[Text]]
+collectModuleDeclarations surfaceExpr =
+  case surfaceExpr of
+    SEBlock statements ->
+      [ modulePath
+        | SSModule _ modulePath <- statements
+      ]
+    _ -> []
+
 -- | Validate alias and explicit-symbol imports after dependencies have been
 -- resolved so the exporting module inventories are known.
 validateImportBindings ::
@@ -1079,10 +698,10 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 
     validateImportSymbols :: Map Text BindingOrigin -> ParsedImport -> Either Diagnostic (Map Text BindingOrigin)
     validateImportSymbols seenSymbols importDecl =
-      case parsedImportAlias importDecl of
-        Just _ ->
-          Right seenSymbols
+      case parsedImportSymbols importDecl of
         Nothing ->
+          Right seenSymbols
+        Just symbolNames ->
           case Map.lookup (parsedImportModulePath importDecl) exportsByModule of
             Nothing ->
               Left
@@ -1100,15 +719,11 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                     Map.findWithDefault Set.empty (parsedImportModulePath importDecl) classExportsByModule
                   exportedImportSymbols =
                     Set.union exportedSymbols exportedClassNames
-                  importedSymbolNames =
-                    case parsedImportSymbols importDecl of
-                      Nothing -> Set.toAscList exportedImportSymbols
-                      Just explicitSymbolNames -> explicitSymbolNames
                in
               foldM
                 (validateImportSymbol importDecl exportedImportSymbols)
                 seenSymbols
-                importedSymbolNames
+                symbolNames
 
     validateQualifiedReferences :: Set Text -> Either Diagnostic ()
     validateQualifiedReferences visibleClassNames =
@@ -1161,11 +776,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           Left (mkMissingImportSymbolError symbolName importDecl exportedSymbols)
       | otherwise =
           case Map.lookup symbolName seenSymbols of
-            Just previousOrigin
-              | bindingOriginModulePath previousOrigin == parsedImportModulePath importDecl ->
-                  Right seenSymbols
-              | otherwise ->
-                  Left (mkImportSymbolCollisionError symbolName previousOrigin importDecl)
+            Just previousOrigin ->
+              Left (mkImportSymbolCollisionError symbolName previousOrigin importDecl)
             Nothing ->
               Right
                 ( Map.insert
