@@ -78,6 +78,8 @@ capabilitiesTests =
     , ("run module graph namespaces alias-retained local capabilities", testRunModuleGraphNamespacesAliasRetainedLocalCapabilities)
     , ("run module graph rewrites hidden capability references despite value shadowing", testRunModuleGraphRewritesHiddenCapabilityReferencesDespiteValueShadowing)
     , ("run module graph exposes data referenced by imported class methods", testRunModuleGraphExposesDataReferencedByImportedClassMethods)
+    , ("run module graph preserves imported generic constructor payload dispatch", testRunModuleGraphPreservesImportedGenericConstructorPayloadDispatch)
+    , ("run module graph keeps imported ADT names in type positions", testRunModuleGraphKeepsImportedAdtNamesInTypePositions)
   ]
 
 testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules :: IO ()
@@ -896,5 +898,49 @@ testRunModuleGraphExposesDataReferencedByImportedClassMethods = do
           ( "src/Lib/Api.jz",
             "module Lib::Api {\ndata Box = Box.\nclass Make(a) {\nmake :: Box.\n}.\nimpl Make(Int) {\nmake = Box.\n}.\n}"
           )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphPreservesImportedGenericConstructorPayloadDispatch :: IO ()
+testRunModuleGraphPreservesImportedGenericConstructorPayloadDispatch = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Box.\n(Pick::pick intBox, Pick::pick byteBox).\n}"),
+          ( "src/Lib/Box.jz",
+            "module Lib::Box {\ndata Box a = Box a.\nclass Pick(a) {\npick :: a -> Bool.\n}.\nimpl Pick(Box(Int)) {\npick = \\(box) -> True.\n}.\nimpl Pick(Box(UInt8)) {\npick = \\(box) -> False.\n}.\nintBox = Box 1.\nbyteBox = Box (__kernel_toUInt8 1).\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphKeepsImportedAdtNamesInTypePositions :: IO ()
+testRunModuleGraphKeepsImportedAdtNamesInTypePositions = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Box.\nclass Pick(a) {\npick :: a -> Bool.\n}.\nimpl Pick(Box(UInt8)) {\npick = \\(box) -> True.\n}.\nbox = Box (__kernel_toUInt8 1).\nPick::pick box.\n}"
+          ),
+          ("src/Lib/Box.jz", "module Lib::Box {\ndata Box a = Box a.\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

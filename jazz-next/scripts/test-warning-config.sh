@@ -89,6 +89,11 @@ if rg -n '^library$' jazz-next/jazz-next.cabal; then
   exit 1
 fi
 
+if rg -n 'length original - length remaining' jazz-next/src/JazzNext/Compiler/Parser/Declaration.hs; then
+  echo "declaration parser still rescans token suffixes to advance owned prefixes" >&2
+  exit 1
+fi
+
 for test_file in "${TEST_FILES[@]}"; do
   "$RUNGHC" "${RUNGHC_INCLUDES[@]}" "$test_file"
 done

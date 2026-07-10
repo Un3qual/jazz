@@ -168,12 +168,14 @@ retain their existing `line:column` rendering.
 | dependency module expression is semantically invalid | compile diagnostic before runtime |
 | same file is requested more than once during graph resolution | first source lookup result is reused |
 
-Implementation evidence (2026-07-09): `ModulePipelineContractSpec.hs`,
-`LoaderSpec.hs`, and `CLISpec.hs` lock parse-once graph retention, explicit
-compile/runtime export boundaries, module-graph default roots, exclusive CLI
-source selection, dependency expression validation and runtime isolation,
-memoized source lookup, resolver diagnostics, fail-fast module parsing, and
-stable compile/run stdout suppression for diagnostics.
+Implementation evidence (2026-07-09):
+`jazz-next/test/JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs`,
+`jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`, and
+`jazz-next/test/JazzNext/CLI/CLISpec.hs` lock parse-once graph retention,
+explicit compile/runtime export boundaries, module-graph default roots,
+exclusive CLI source selection, dependency expression validation and runtime
+isolation, memoized source lookup, resolver diagnostics, fail-fast module
+parsing, and stable compile/run stdout suppression for diagnostics.
 
 ## Non-Goals
 

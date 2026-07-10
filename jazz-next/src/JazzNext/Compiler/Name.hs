@@ -146,9 +146,9 @@ qualifiedMemberName qualifier member =
       ResolvedName
         origin
         ValueNamespace
-        (fromString (Text.unpack (identifierText qualifierIdentifier <> "::" <> identifierText memberIdentifier)))
+        (mkIdentifier (identifierText qualifierIdentifier <> "::" <> identifierText memberIdentifier))
     _ ->
-      SourceName (fromString (Text.unpack (renderName qualifier <> "::" <> renderName member)))
+      SourceName (mkIdentifier (renderName qualifier <> "::" <> renderName member))
 
 resolvedLocalName :: NameNamespace -> Identifier -> Name
 resolvedLocalName = ResolvedName CurrentModule

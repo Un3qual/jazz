@@ -50,6 +50,7 @@ operatorTests =
     , ("run module graph retains local operator binding needed by explicit imported export", testRunModuleGraphRetainsLocalOperatorBindingNeededByExplicitImportedExport)
     , ("run module graph does not leak retained operator binding into importer", testRunModuleGraphDoesNotLeakRetainedOperatorBindingIntoImporter)
     , ("run module graph imported right operator section captures right operand", testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand)
+    , ("run module graph ignores hidden operator binding collisions", testRunModuleGraphIgnoresHiddenOperatorBindingCollisions)
   ]
 
 testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding :: IO ()
@@ -159,5 +160,26 @@ testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Ops (section).\nsection.\n}"),
           ("src/Lib/Ops.jz", "module Lib::Ops {\noperator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left - right.\nsection = (%% (1 / 0)).\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphIgnoresHiddenOperatorBindingCollisions :: IO ()
+testRunModuleGraphIgnoresHiddenOperatorBindingCollisions = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(3, 7)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::A.\nimport Lib::B.\n(a, b).\n}"),
+          ("src/Lib/A.jz", "module Lib::A {\noperator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\na = 1 %% 2.\n}"),
+          ("src/Lib/B.jz", "module Lib::B {\noperator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left * right.\nb = 1 %% 7.\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

@@ -5,6 +5,7 @@
 module JazzNext.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
+    isImmediatelyAfter,
     tokenize
   ) where
 
@@ -78,6 +79,12 @@ data Token = Token
     tokenSpan :: SourceSpan
   }
   deriving (Eq, Ord, Show)
+
+isImmediatelyAfter :: Token -> Token -> Bool
+isImmediatelyAfter leftToken rightToken =
+  spanLine (tokenSpan leftToken) == spanLine (tokenSpan rightToken)
+    && spanColumn (tokenSpan rightToken)
+      == spanColumn (tokenSpan leftToken) + Text.length (tokenLexeme leftToken)
 
 data LexerError = LexerError Text
   deriving (Eq, Ord, Show)

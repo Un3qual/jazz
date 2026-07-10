@@ -16,7 +16,6 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan (..),
     renderSourceSpan
   )
 import JazzNext.Compiler.Name (mkIdentifier)
@@ -27,7 +26,8 @@ import JazzNext.Compiler.Parser.AST
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
-    TokenKind (..)
+    TokenKind (..),
+    isImmediatelyAfter
   )
 import JazzNext.Compiler.Parser.TokenParser
   ( Parser,
@@ -334,8 +334,3 @@ isConstructorIdentifierText name =
 
 isReservedLiteralName :: Text -> Bool
 isReservedLiteralName name = name == "True" || name == "False"
-
-isImmediatelyAfter :: Token -> Token -> Bool
-isImmediatelyAfter leftToken rightToken =
-  spanLine (tokenSpan leftToken) == spanLine (tokenSpan rightToken)
-    && spanColumn (tokenSpan rightToken) == spanColumn (tokenSpan leftToken) + Text.length (tokenLexeme leftToken)

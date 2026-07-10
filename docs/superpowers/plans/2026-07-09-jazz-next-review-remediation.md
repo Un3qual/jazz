@@ -297,7 +297,7 @@ Expected: PASS; genuinely distinct roots still produce E4002 in `testReportsAmbi
 
 - [ ] **Step 5: Document normalization and the symlink boundary**
 
-Add this contract to both module-root/candidate sections:
+Add this contract to both module-root and candidate sections:
 
 ```markdown
 Candidate paths are lexically normalized before deduplication and lookup.

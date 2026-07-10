@@ -270,7 +270,9 @@ declaredModuleNames expression =
   where
     collect (valueNames, dataTypeNames) statement =
       case statement of
-        SLet name _ _ -> (Set.insert name valueNames, dataTypeNames)
+        SLet name _ _
+          | publicModuleValue name -> (Set.insert name valueNames, dataTypeNames)
+          | otherwise -> (valueNames, dataTypeNames)
         SData _ typeName _ constructors ->
           ( foldl'
               (\names (DataConstructor constructorName _) -> Set.insert constructorName names)
@@ -279,6 +281,11 @@ declaredModuleNames expression =
             Set.insert (renderName typeName) dataTypeNames
           )
         _ -> (valueNames, dataTypeNames)
+
+    publicModuleValue name =
+      case name of
+        GeneratedName {} -> False
+        _ -> True
 
 inferExpressionDefault :: Expr -> IO InferenceResult
 inferExpressionDefault = inferExpression defaultWarningSettings

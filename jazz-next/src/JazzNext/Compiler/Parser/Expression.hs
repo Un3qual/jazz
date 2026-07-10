@@ -14,7 +14,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Read as TextRead
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan (..),
+    SourceSpan,
     renderSourceSpan
   )
 import JazzNext.Compiler.FractionalLiteral
@@ -42,7 +42,8 @@ import JazzNext.Compiler.Parser.Context
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
-    TokenKind (..)
+    TokenKind (..),
+    isImmediatelyAfter
   )
 import JazzNext.Compiler.Parser.Operator
   ( Associativity (..),
@@ -1088,14 +1089,6 @@ startsRightParen tokens =
   case tokens of
     Token {tokenKind = TRParen} : _ -> True
     _ -> False
-
-isImmediatelyAfter :: Token -> Token -> Bool
-isImmediatelyAfter leftToken rightToken =
-  tokenLine leftToken == tokenLine rightToken
-    && tokenColumn rightToken == tokenColumn leftToken + Text.length (tokenLexeme leftToken)
-  where
-    tokenLine = spanLine . tokenSpan
-    tokenColumn = spanColumn . tokenSpan
 
 hasTopLevelArrowBeforeTerminator :: [Token] -> Bool
 hasTopLevelArrowBeforeTerminator = go 0 0 0

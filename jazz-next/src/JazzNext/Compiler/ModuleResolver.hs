@@ -61,6 +61,7 @@ import JazzNext.Compiler.Name
     NameNamespace (..),
     ResolvedNameOrigin (..),
     identifierText,
+    isOperatorBindingIdentifierText,
     mkIdentifier,
     renderName
   )
@@ -111,6 +112,8 @@ data ParsedImport = ParsedImport
 data ParsedModule = ParsedModule
   { parsedModuleImports :: [ParsedImport],
     parsedModuleExports :: Set Text,
+    parsedModuleValueNames :: Set Text,
+    parsedModuleDataTypeNames :: Set Text,
     parsedModuleConstructorNames :: Set Text,
     parsedModuleClassNames :: Set Text,
     parsedModuleReferences :: Set Text,
@@ -130,6 +133,8 @@ data ResolvedState = ResolvedState
     resolvedModulesRevState :: [ResolvedModule],
     resolvedGraphModulesRevState :: [ModuleGraph.ResolvedModule],
     resolvedExportsState :: Map [Text] (Set Text),
+    resolvedValueExportsState :: Map [Text] (Set Text),
+    resolvedDataTypeExportsState :: Map [Text] (Set Text),
     resolvedConstructorExportsState :: Map [Text] (Set Text),
     resolvedClassExportsState :: Map [Text] (Set Text)
   }
@@ -265,6 +270,8 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
           resolvedModulesRevState = [],
           resolvedGraphModulesRevState = [],
           resolvedExportsState = Map.empty,
+          resolvedValueExportsState = Map.empty,
+          resolvedDataTypeExportsState = Map.empty,
           resolvedConstructorExportsState = Map.empty,
           resolvedClassExportsState = Map.empty
         }
@@ -318,10 +325,12 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                   modulePath
                                   ambientVisibleSymbols
                                   ambientVisibleClassNames
-                                  (parsedModuleExports parsedModule)
+                                  (parsedModuleValueNames parsedModule)
+                                  (parsedModuleDataTypeNames parsedModule)
                                   (parsedModuleConstructorNames parsedModule)
                                   (parsedModuleClassNames parsedModule)
-                                  (resolvedExportsState stateAfterDeps)
+                                  (resolvedValueExportsState stateAfterDeps)
+                                  (resolvedDataTypeExportsState stateAfterDeps)
                                   (resolvedConstructorExportsState stateAfterDeps)
                                   (resolvedClassExportsState stateAfterDeps)
                                   (parsedModuleImports parsedModule)
@@ -347,6 +356,16 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                             modulePath
                                             (parsedModuleExports parsedModule)
                                             (resolvedExportsState stateAfterDeps),
+                                        resolvedValueExportsState =
+                                          Map.insert
+                                            modulePath
+                                            (parsedModuleValueNames parsedModule)
+                                            (resolvedValueExportsState stateAfterDeps),
+                                        resolvedDataTypeExportsState =
+                                          Map.insert
+                                            modulePath
+                                            (parsedModuleDataTypeNames parsedModule)
+                                            (resolvedDataTypeExportsState stateAfterDeps),
                                         resolvedConstructorExportsState =
                                           Map.insert
                                             modulePath
@@ -445,6 +464,8 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
         ParsedModule
           { parsedModuleImports = collectImports surfaceExpr,
             parsedModuleExports = topLevelBindings,
+            parsedModuleValueNames = collectTopLevelValueNames surfaceExpr,
+            parsedModuleDataTypeNames = collectTopLevelDataTypeNames surfaceExpr,
             parsedModuleConstructorNames = collectTopLevelConstructorNames surfaceExpr,
             parsedModuleClassNames = collectTopLevelClassNames surfaceExpr,
             parsedModuleReferences = collectReferencedNames surfaceExpr Set.\\ topLevelBindings,
@@ -477,12 +498,35 @@ collectTopLevelBindings surfaceExpr =
     collectStatementBindings statement =
       case statement of
         SSLet bindingName _ _ ->
-          [identifierText bindingName]
+          [ identifierText bindingName
+            | not (isOperatorBindingIdentifierText (identifierText bindingName))
+          ]
         SSData _ _ _ constructors ->
           [ identifierText constructorName
             | SurfaceDataConstructor constructorName _ <- constructors
           ]
         _ -> []
+
+collectTopLevelValueNames :: SurfaceExpr -> Set Text
+collectTopLevelValueNames surfaceExpr =
+  case surfaceExpr of
+    SEBlock statements ->
+      Set.fromList
+        [ identifierText bindingName
+          | SSLet bindingName _ _ <- statements,
+            not (isOperatorBindingIdentifierText (identifierText bindingName))
+        ]
+    _ -> Set.empty
+
+collectTopLevelDataTypeNames :: SurfaceExpr -> Set Text
+collectTopLevelDataTypeNames surfaceExpr =
+  case surfaceExpr of
+    SEBlock statements ->
+      Set.fromList
+        [ identifierText typeName
+          | SSData _ typeName _ _ <- statements
+        ]
+    _ -> Set.empty
 
 collectTopLevelConstructorNames :: SurfaceExpr -> Set Text
 collectTopLevelConstructorNames surfaceExpr =
@@ -513,13 +557,15 @@ resolveCoreModuleNames ::
   Set Text ->
   Set Text ->
   Set Text ->
+  Set Text ->
+  Map [Text] (Set Text) ->
   Map [Text] (Set Text) ->
   Map [Text] (Set Text) ->
   Map [Text] (Set Text) ->
   [ParsedImport] ->
   ModuleGraph.CoreModule ->
   ModuleGraph.CoreModule
-resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses localExports localConstructors localClasses exportsByModule constructorsByModule classesByModule imports coreModule =
+resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses localValues localDataTypes localConstructors localClasses valuesByModule dataTypesByModule constructorsByModule classesByModule imports coreModule =
   coreModule {ModuleGraph.coreModuleExpr = resolveExpr (ModuleGraph.coreModuleExpr coreModule)}
   where
     aliasPaths =
@@ -535,7 +581,7 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
           | importDecl <- imports,
             parsedImportAlias importDecl == Nothing,
             let modulePath = parsedImportModulePath importDecl,
-            name <- selectedImportNames importDecl (Map.findWithDefault Set.empty modulePath exportsByModule)
+            name <- selectedImportNames importDecl (Map.findWithDefault Set.empty modulePath valuesByModule)
         ]
 
     visibleConstructorOrigins =
@@ -545,6 +591,15 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
             parsedImportAlias importDecl == Nothing,
             let modulePath = parsedImportModulePath importDecl,
             name <- selectedImportNames importDecl (Map.findWithDefault Set.empty modulePath constructorsByModule)
+        ]
+
+    visibleTypeOrigins =
+      Map.fromList
+        [ (name, modulePath)
+          | importDecl <- imports,
+            parsedImportAlias importDecl == Nothing,
+            let modulePath = parsedImportModulePath importDecl,
+            name <- selectedImportNames importDecl (Map.findWithDefault Set.empty modulePath dataTypesByModule)
         ]
 
     visibleClassOrigins =
@@ -597,20 +652,23 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
 
     localName namespace nameText =
       case namespace of
+        ValueNamespace -> Set.member nameText localValues
         ConstructorNamespace -> Set.member nameText localConstructors
         CapabilityNamespace -> Set.member nameText localClasses
-        _ -> Set.member nameText localExports
+        TypeNamespace -> Set.member nameText localDataTypes
 
     importedOrigin namespace nameText =
       case namespace of
         ConstructorNamespace -> Map.lookup nameText visibleConstructorOrigins
+        TypeNamespace -> Map.lookup nameText visibleTypeOrigins
         CapabilityNamespace -> Map.lookup nameText visibleClassOrigins
         _ -> Map.lookup nameText visibleValueOrigins
 
     importedNamespace dependencyPath nameText fallbackNamespace
+      | fallbackNamespace /= ValueNamespace = fallbackNamespace
       | Set.member nameText (Map.findWithDefault Set.empty dependencyPath constructorsByModule) = ConstructorNamespace
       | Set.member nameText (Map.findWithDefault Set.empty dependencyPath classesByModule) = CapabilityNamespace
-      | otherwise = fallbackNamespace
+      | otherwise = ValueNamespace
 
     ambientName namespace nameText =
       case namespace of
@@ -645,8 +703,12 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
     referenceNamespace name =
       case name of
         SourceName identifier
-          | Set.member (identifierText identifier) localConstructors -> ConstructorNamespace
-          | Map.member (identifierText identifier) visibleConstructorOrigins -> ConstructorNamespace
+          | Set.member nameText localValues -> ValueNamespace
+          | Set.member nameText localConstructors -> ConstructorNamespace
+          | Map.member nameText visibleValueOrigins -> ValueNamespace
+          | Map.member nameText visibleConstructorOrigins -> ConstructorNamespace
+          where
+            nameText = identifierText identifier
         _ -> ValueNamespace
 
     resolveBinder namespace name =

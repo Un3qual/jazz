@@ -12,7 +12,6 @@ module JazzNext.Compiler.Parser.Declaration
     parseStatementParser
   ) where
 
-import Control.Monad (replicateM_)
 import Data.Char
   ( isLower,
     isUpper
@@ -27,7 +26,7 @@ import Data.Text
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic (..),
-    SourceSpan (..),
+    SourceSpan,
     mkDiagnostic,
     renderSourceSpan
   )
@@ -56,7 +55,8 @@ import JazzNext.Compiler.Parser.Context
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
-    TokenKind (..)
+    TokenKind (..),
+    isImmediatelyAfter
   )
 import JazzNext.Compiler.Parser.Operator
   ( Associativity (..),
@@ -119,11 +119,14 @@ parseOwnedPrefix parseDeclaration = do
   case parseDeclaration tokens of
     Left diagnostic -> failTokenParser (diagnosticSummary diagnostic)
     Right (value, remaining) ->
-      value <$ consumeParsedPrefix tokens remaining
+      value <$ consumeParsedPrefix remaining
 
-consumeParsedPrefix :: [Token] -> [Token] -> Parser ()
-consumeParsedPrefix original remaining =
-  replicateM_ (length original - length remaining) parseAnyToken
+consumeParsedPrefix :: [Token] -> Parser ()
+consumeParsedPrefix remaining =
+  case remaining of
+    [] -> () <$ MP.takeWhileP Nothing (const True)
+    nextToken : _ ->
+      () <$ MP.takeWhileP Nothing (/= nextToken)
 
 -- | Parse one statement and return the context visible to the following
 -- statement in the same scope. Expressions and nested blocks are supplied by
@@ -154,7 +157,7 @@ parseStatementParser parseExpression parseBlock context = do
           (operatorInfo, remaining) <-
             liftOwnedResult
               (parseOperatorDeclaration (parserStatementContext context) declaredOperators operatorToken rest)
-          consumeParsedPrefix tokens remaining
+          consumeParsedPrefix remaining
           pure
             ( [],
               context
@@ -171,7 +174,7 @@ parseStatementParser parseExpression parseBlock context = do
               context
               tokens
           )
-      consumeParsedPrefix tokens remaining
+      consumeParsedPrefix remaining
       pure
         ( statements,
           context
@@ -1778,12 +1781,6 @@ nextStatementStartsMatchingBinding name tokens =
     Token {tokenKind = TIdentifier nextName} : Token {tokenKind = TEquals} : _ ->
       nextName == name
     _ -> False
-
-isImmediatelyAfter :: Token -> Token -> Bool
-isImmediatelyAfter leftToken rightToken =
-  spanLine (tokenSpan leftToken) == spanLine (tokenSpan rightToken)
-    && spanColumn (tokenSpan rightToken)
-      == spanColumn (tokenSpan leftToken) + Text.length (tokenLexeme leftToken)
 
 collectImportAliasesUntilEnd :: [Token] -> Set Text
 collectImportAliasesUntilEnd = collectImportAliasesInStatementList False

@@ -9,6 +9,7 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
+    isImmediatelyAfter,
     tokenize
   )
 import JazzNext.Compiler.Parser.TestSupport
@@ -36,6 +37,7 @@ tests :: [NamedTest]
 tests =
   [ ("runs a Megaparsec token parser over lexer tokens", testRunTokenParser),
     ("prefix parser returns the unconsumed token stream", testRunTokenParserPrefixReturnsRemainder),
+    ("recognizes lexically adjacent tokens", testRecognizesLexicallyAdjacentTokens),
     ("renders token parser diagnostics with token spans", testTokenParserDiagnostic),
     ("renders invalid character lexer diagnostics", testInvalidCharacterLexerDiagnostic)
   ]
@@ -59,6 +61,15 @@ testRunTokenParserPrefixReturnsRemainder = do
     "prefix result"
     (Right ("value", [TDot]))
     (fmap (fmap (map tokenKind)) (runTokenParserPrefix "identifier prefix" parseIdentifier tokens))
+
+testRecognizesLexicallyAdjacentTokens :: IO ()
+testRecognizesLexicallyAdjacentTokens = do
+  tokens <- lexSource "left::member right :: member"
+  case tokens of
+    left : compactColon : _ : right : spacedColon : _ -> do
+      assertEqual "compact separator adjacency" True (isImmediatelyAfter left compactColon)
+      assertEqual "spaced separator adjacency" False (isImmediatelyAfter right spacedColon)
+    _ -> failTest "expected two qualified-name token groups"
 
 testTokenParserDiagnostic :: IO ()
 testTokenParserDiagnostic = do

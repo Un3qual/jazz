@@ -77,6 +77,7 @@ visibilityTests =
     , ("run module graph resolves qualified alias lookup", testRunModuleGraphQualifiedAliasLookup)
     , ("run module graph resolves qualified alias lookup through dependency export", testRunModuleGraphQualifiedAliasLookupUsesDependencyExport)
     , ("compile module graph accepts qualified alias use before import", testCompileModuleGraphQualifiedAliasLookupBeforeImport)
+    , ("run module graph lets ordinary bindings shadow local constructors", testRunModuleGraphOrdinaryBindingShadowsLocalConstructor)
   ]
 
 testRunModuleGraphDefaultLoadsBundledPrelude :: IO ()
@@ -723,5 +724,24 @@ testCompileModuleGraphQualifiedAliasLookupBeforeImport = do
       Map.fromList
         [ ("src/App/Main.jz", "math::subtract.\nimport Lib::Math as math."),
           ("src/Lib/Math.jz", "subtract = 2.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphOrdinaryBindingShadowsLocalConstructor :: IO ()
+testRunModuleGraphOrdinaryBindingShadowsLocalConstructor = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "1") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\ndata Maybe = Just value.\nJust = 1.\nJust.\n}")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
