@@ -59,6 +59,7 @@ import JazzNext.Compiler.BuiltinCatalog
 import JazzNext.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
+    ModuleExportSelector (moduleExportSelectorName),
     ModuleImportMode (..),
     declarationExportNames,
     exportInventory,
@@ -468,7 +469,10 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports localIn
     Nothing -> Right localInventory
     Just declaredExports ->
       let moduleSpan = ModuleGraph.declaredModuleExportsSpan declaredExports
-          exportNames = ModuleGraph.declaredModuleExportNames declaredExports
+          exportNames =
+            map
+              moduleExportSelectorName
+              (ModuleGraph.declaredModuleExportSelectors declaredExports)
        in case find (`Set.notMember` availableNames) exportNames of
             Nothing -> Right (selectExportNames (Just exportNames) localInventory)
             Just missingName ->

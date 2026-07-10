@@ -2,7 +2,8 @@
 
 -- | Shared typed inventory for source and compiled module exports.
 module JazzNext.Compiler.ModuleExports
-  ( ModuleExport (..),
+  ( ModuleExportSelector (..),
+    ModuleExport (..),
     ModuleExportInventory,
     ModuleImportMode (..),
     exportInventory,
@@ -23,6 +24,12 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import JazzNext.Compiler.Name (NameNamespace (..))
+
+data ModuleExportSelector = ModuleExportSelector
+  { moduleExportSelectorNamespace :: Maybe NameNamespace,
+    moduleExportSelectorName :: Text
+  }
+  deriving (Eq, Ord, Show)
 
 data ModuleExport = ModuleExport
   { moduleExportNamespace :: NameNamespace,

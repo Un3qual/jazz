@@ -26,7 +26,10 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics (SourceSpan)
-import JazzNext.Compiler.ModuleExports (ModuleExportInventory)
+import JazzNext.Compiler.ModuleExports
+  ( ModuleExportInventory,
+    ModuleExportSelector
+  )
 import JazzNext.Compiler.Name (Name (..))
 
 -- | A source-qualified explicit export clause retained after lowering.
@@ -34,7 +37,7 @@ import JazzNext.Compiler.Name (Name (..))
 -- empty name list represents an explicit export-none clause.
 data DeclaredModuleExports = DeclaredModuleExports
   { declaredModuleExportsSpan :: SourceSpan,
-    declaredModuleExportNames :: [Text]
+    declaredModuleExportSelectors :: [ModuleExportSelector]
   }
   deriving (Eq, Show)
 

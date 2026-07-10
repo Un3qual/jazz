@@ -32,9 +32,13 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Name
   ( Identifier,
+    NameNamespace (..),
     identifierText,
     mkIdentifier,
     mkOperatorBindingIdentifier
+  )
+import JazzNext.Compiler.ModuleExports
+  ( ModuleExportSelector (..)
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
@@ -1606,16 +1610,46 @@ parseImportSymbolList tokensAfterLeftParen =
         parseImportSymbol
         tokensAfterLeftParen
 
-parseModuleExportList :: [Token] -> Either Diagnostic ([Text], [Token])
+parseModuleExportList :: [Token] -> Either Diagnostic ([ModuleExportSelector], [Token])
 parseModuleExportList tokensAfterLeftParen =
   case tokensAfterLeftParen of
     Token {tokenKind = TRParen} : rest -> Right ([], rest)
-    _ ->
-      parseNonEmptyUniqueNameList
-        "module export"
-        "module export list"
-        parseModuleExport
-        tokensAfterLeftParen
+    _ -> do
+      (firstSelector, _, afterFirstSelector) <- parseModuleExport tokensAfterLeftParen
+      go [firstSelector] (Set.singleton firstSelector) afterFirstSelector
+  where
+    go reversedSelectors seenSelectors allTokens =
+      case allTokens of
+        Token {tokenKind = TComma} : rest -> do
+          (nextSelector, selectorSpan, afterNextSelector) <- parseModuleExport rest
+          if Set.member nextSelector seenSelectors
+            then
+              Left
+                ( parseDiagnostic
+                    ( "duplicate module export "
+                        <> renderModuleExportSelector nextSelector
+                        <> " at "
+                        <> renderSourceSpan selectorSpan
+                    )
+                )
+            else
+              go
+                (nextSelector : reversedSelectors)
+                (Set.insert nextSelector seenSelectors)
+                afterNextSelector
+        Token {tokenKind = TRParen} : rest -> Right (reverse reversedSelectors, rest)
+        [] ->
+          Left (parseDiagnostic "expected ')' before end of input in module export list")
+        token : _ ->
+          Left
+            ( parseDiagnostic
+                ( "expected ',' or ')' at "
+                    <> renderSourceSpan (tokenSpan token)
+                    <> ", found '"
+                    <> tokenLexeme token
+                    <> "'"
+                )
+            )
 
 parseNonEmptyUniqueNameList ::
   Text ->
@@ -1665,11 +1699,14 @@ parseNonEmptyUniqueNameList itemDescription listDescription parseName tokens = d
                 )
             )
 
-parseModuleExport :: [Token] -> Either Diagnostic (Text, SourceSpan, [Token])
+parseModuleExport :: [Token] -> Either Diagnostic (ModuleExportSelector, SourceSpan, [Token])
 parseModuleExport tokens =
   case tokens of
+    Token {tokenKind = TIdentifier prefix} : Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan} : rest
+      | Just namespace <- moduleExportNamespacePrefix prefix ->
+          Right (ModuleExportSelector (Just namespace) exportName, exportSpan, rest)
     Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan} : rest ->
-      Right (exportName, exportSpan, rest)
+      Right (ModuleExportSelector Nothing exportName, exportSpan, rest)
     [] -> Left (parseDiagnostic "expected module export name before end of input")
     token : _ ->
       Left
@@ -1681,6 +1718,33 @@ parseModuleExport tokens =
                 <> "'"
             )
         )
+
+moduleExportNamespacePrefix :: Text -> Maybe NameNamespace
+moduleExportNamespacePrefix prefix =
+  case prefix of
+    "value" -> Just ValueNamespace
+    "constructor" -> Just ConstructorNamespace
+    "type" -> Just TypeNamespace
+    "class" -> Just CapabilityNamespace
+    _ -> Nothing
+
+renderModuleExportSelector :: ModuleExportSelector -> Text
+renderModuleExportSelector selector =
+  case moduleExportSelectorNamespace selector of
+    Nothing -> "'" <> moduleExportSelectorName selector <> "'"
+    Just namespace ->
+      renderModuleExportNamespace namespace
+        <> " '"
+        <> moduleExportSelectorName selector
+        <> "'"
+
+renderModuleExportNamespace :: NameNamespace -> Text
+renderModuleExportNamespace namespace =
+  case namespace of
+    ValueNamespace -> "value"
+    ConstructorNamespace -> "constructor"
+    TypeNamespace -> "type"
+    CapabilityNamespace -> "class"
 
 parseImportSymbol :: [Token] -> Either Diagnostic (Text, SourceSpan, [Token])
 parseImportSymbol tokens =

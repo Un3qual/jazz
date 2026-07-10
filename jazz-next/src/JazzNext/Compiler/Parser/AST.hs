@@ -29,6 +29,9 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.FractionalLiteral
   ( FractionalLiteralSource
   )
+import JazzNext.Compiler.ModuleExports
+  ( ModuleExportSelector
+  )
 import JazzNext.Compiler.Name
   ( Identifier
   )
@@ -182,7 +185,7 @@ data SurfaceStatement
   | SSData SourceSpan Identifier [Identifier] [SurfaceDataConstructor]
   | SSClass SourceSpan Identifier [Identifier] [SurfaceClassMethodSignature]
   | SSImpl SourceSpan Identifier [SurfaceConstrainedSignatureType] [SurfaceImplMethod]
-  | SSModule SourceSpan [Text] (Maybe [Text])
+  | SSModule SourceSpan [Text] (Maybe [ModuleExportSelector])
   | SSImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SSExpr SourceSpan SurfaceExpr
   deriving (Eq, Show)
