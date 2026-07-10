@@ -20,7 +20,7 @@ import Data.Functor.Identity
   ( Identity (..),
     runIdentity
   )
-import Data.List (foldl', sortOn)
+import Data.List (find, foldl', sortOn)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -34,6 +34,7 @@ import JazzNext.Compiler.Diagnostics
     SourceSpan,
     mkDiagnostic,
     mkMessageDiagnostic,
+    qualifySourceSpan,
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
     setDiagnosticSubject
@@ -60,11 +61,13 @@ import JazzNext.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
     ModuleImportMode (..),
+    declarationExportNames,
     exportInventory,
     exportNamesInNamespace,
     exportNamesInNamespaces,
     firstExportNamespace,
     selectorEligibleNames,
+    selectExportNames,
     visibleImportInventory
   )
 import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
@@ -123,7 +126,8 @@ data ParsedImport = ParsedImport
 -- export, and reference inventories, not the lowered executable program.
 data ParsedModule = ParsedModule
   { parsedModuleImports :: [ParsedImport],
-    parsedModuleInventory :: ModuleExportInventory,
+    parsedModuleLocalInventory :: ModuleExportInventory,
+    parsedModulePublicInventory :: ModuleExportInventory,
     parsedModuleReferences :: Set Text,
     parsedModuleQualifiedReferences :: Set (Text, Text),
     parsedModuleCore :: ModuleGraph.CoreModule
@@ -304,7 +308,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                             sourcePath
                             modulePath
                             (parsedModuleImports parsedModule)
-                            (exportNamesInNamespace CapabilityNamespace (parsedModuleInventory parsedModule))
+                            (exportNamesInNamespace CapabilityNamespace (parsedModuleLocalInventory parsedModule))
                             (parsedModuleReferences parsedModule)
                             (parsedModuleQualifiedReferences parsedModule)
                             ambientVisibleSymbols
@@ -324,7 +328,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                   modulePath
                                   ambientVisibleSymbols
                                   ambientVisibleClassNames
-                                  (parsedModuleInventory parsedModule)
+                                  (parsedModuleLocalInventory parsedModule)
                                   (resolvedExportInventoriesState stateAfterDeps)
                                   (parsedModuleImports parsedModule)
                                   (parsedModuleCore parsedModule)
@@ -333,6 +337,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                   { ModuleGraph.resolvedModulePath = modulePath,
                                     ModuleGraph.resolvedSourcePath = sourcePath,
                                     ModuleGraph.resolvedModuleImports = ModuleGraph.coreModuleImports resolvedCore,
+                                    ModuleGraph.resolvedModuleExportInventory = parsedModulePublicInventory parsedModule,
                                     ModuleGraph.resolvedModuleCore = resolvedCore
                                   }
                            in pure
@@ -347,7 +352,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                                         resolvedExportInventoriesState =
                                           Map.insert
                                             modulePath
-                                            (parsedModuleInventory parsedModule)
+                                            (parsedModulePublicInventory parsedModule)
                                             (resolvedExportInventoriesState stateAfterDeps)
                                       }
                                 )
@@ -432,19 +437,77 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
         )
     Right surfaceExpr -> do
       coreModule <- lowerSurfaceModule sourcePath expectedModulePath surfaceExpr
-      let inventory = collectModuleExportInventory surfaceExpr
+      let localInventory = collectModuleExportInventory surfaceExpr
           topLevelBindings =
             Set.union
-              (exportNamesInNamespace ValueNamespace inventory)
-              (exportNamesInNamespace ConstructorNamespace inventory)
+              (exportNamesInNamespace ValueNamespace localInventory)
+              (exportNamesInNamespace ConstructorNamespace localInventory)
+      publicInventory <-
+        validatePublicExportInventory
+          sourcePath
+          expectedModulePath
+          (explicitModuleExports surfaceExpr)
+          localInventory
       Right
         ParsedModule
           { parsedModuleImports = collectImports surfaceExpr,
-            parsedModuleInventory = inventory,
+            parsedModuleLocalInventory = localInventory,
+            parsedModulePublicInventory = publicInventory,
             parsedModuleReferences = collectReferencedNames surfaceExpr Set.\\ topLevelBindings,
             parsedModuleQualifiedReferences = collectQualifiedReferences surfaceExpr,
             parsedModuleCore = coreModule
           }
+
+explicitModuleExports :: SurfaceExpr -> Maybe (SourceSpan, [Text])
+explicitModuleExports surfaceExpr =
+  case surfaceExpr of
+    SEBlock statements ->
+      case
+          [ (spanValue, exportNames)
+            | SSModule spanValue _ (Just exportNames) <- statements
+          ] of
+        [] -> Nothing
+        firstExportList : _ -> Just firstExportList
+    _ -> Nothing
+
+validatePublicExportInventory ::
+  FilePath ->
+  [Text] ->
+  Maybe (SourceSpan, [Text]) ->
+  ModuleExportInventory ->
+  Either Diagnostic ModuleExportInventory
+validatePublicExportInventory sourcePath modulePath maybeExplicitExports localInventory =
+  case maybeExplicitExports of
+    Nothing -> Right localInventory
+    Just (moduleSpan, exportNames) ->
+      case find (`Set.notMember` availableNames) exportNames of
+        Nothing -> Right (selectExportNames (Just exportNames) localInventory)
+        Just missingName ->
+          Left
+            ( setDiagnosticSubject missingName
+                ( setDiagnosticPrimarySpan
+                    (qualifySourceSpan sourcePath moduleSpan)
+                    ( mkDiagnostic
+                        "E4015"
+                        ( "module export '"
+                            <> missingName
+                            <> "' is not declared by module '"
+                            <> renderModulePath modulePath
+                            <> "' in '"
+                            <> Text.pack sourcePath
+                            <> "'; available declarations: "
+                            <> renderDeclarationNames availableNames
+                        )
+                    )
+                )
+            )
+  where
+    availableNames = declarationExportNames localInventory
+
+renderDeclarationNames :: Set Text -> Text
+renderDeclarationNames names
+  | Set.null names = "<none>"
+  | otherwise = Text.intercalate ", " (Set.toAscList names)
 
 collectImports :: SurfaceExpr -> [ParsedImport]
 collectImports surfaceExpr =

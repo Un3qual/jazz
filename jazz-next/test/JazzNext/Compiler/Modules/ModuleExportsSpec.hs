@@ -7,6 +7,7 @@ import qualified Data.Map.Strict as Map
 import JazzNext.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleImportMode (..),
+    declarationExportNames,
     exportInventory,
     exportInventoryEntries,
     firstExportNamespace,
@@ -32,6 +33,7 @@ main = runTestSuite "ModuleExports" tests
 tests :: [NamedTest]
 tests =
   [ ("preserves same-text exports across namespaces", testPreservesNamespaces),
+    ("lists every declaration namespace as module export names", testDeclarationExportNames),
     ("excludes type-only names from selector eligibility", testSelectorEligibility),
     ("selects every same-text namespace entry", testSelectsSameTextEntries),
     ("filters alias imports to values and constructors", testAliasVisibility),
@@ -48,6 +50,13 @@ sampleInventory =
       ModuleExport TypeNamespace "HiddenType",
       ModuleExport CapabilityNamespace "Eq"
     ]
+
+testDeclarationExportNames :: IO ()
+testDeclarationExportNames =
+  assertEqual
+    "declaration export names include types"
+    (Set.fromList ["answer", "Box", "HiddenType", "Eq"])
+    (declarationExportNames sampleInventory)
 
 testPreservesNamespaces :: IO ()
 testPreservesNamespaces =

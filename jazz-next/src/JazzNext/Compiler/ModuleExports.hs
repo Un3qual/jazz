@@ -9,6 +9,7 @@ module JazzNext.Compiler.ModuleExports
     exportInventoryEntries,
     exportNamesInNamespace,
     exportNamesInNamespaces,
+    declarationExportNames,
     selectorEligibleNames,
     selectExportNames,
     visibleImportInventory,
@@ -52,6 +53,11 @@ exportNamesInNamespace namespace =
 exportNamesInNamespaces :: [NameNamespace] -> ModuleExportInventory -> Set Text
 exportNamesInNamespaces namespaces inventory =
   Set.unions [exportNamesInNamespace namespace inventory | namespace <- namespaces]
+
+declarationExportNames :: ModuleExportInventory -> Set Text
+declarationExportNames =
+  exportNamesInNamespaces
+    [ValueNamespace, ConstructorNamespace, TypeNamespace, CapabilityNamespace]
 
 selectorEligibleNames :: ModuleExportInventory -> Set Text
 selectorEligibleNames =

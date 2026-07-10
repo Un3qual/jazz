@@ -25,6 +25,7 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics (SourceSpan)
+import JazzNext.Compiler.ModuleExports (ModuleExportInventory)
 import JazzNext.Compiler.Name (Name (..))
 
 data CoreModule = CoreModule
@@ -47,6 +48,7 @@ data ResolvedModule = ResolvedModule
   { resolvedModulePath :: [Text],
     resolvedSourcePath :: FilePath,
     resolvedModuleImports :: [ResolvedImport],
+    resolvedModuleExportInventory :: ModuleExportInventory,
     resolvedModuleCore :: CoreModule
   }
   deriving (Eq, Show)

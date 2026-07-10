@@ -23,7 +23,12 @@ import JazzNext.Compiler.ModuleResolver
     resolveProgram
   )
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
+import JazzNext.Compiler.ModuleExports
+  ( ModuleExport (..),
+    exportInventoryEntries
+  )
 import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
+import JazzNext.Compiler.Name (NameNamespace (ValueNamespace))
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
@@ -41,6 +46,11 @@ tests :: [NamedTest]
 tests =
   [ ("rejects empty entry module path before traversal", testRejectsEmptyEntryModulePath),
     ("resolved program retains lowered modules", testResolvedProgramRetainsLoweredModules),
+    ("resolved module carries explicit public inventory", testResolvedModuleCarriesExplicitPublicInventory),
+    ("explicit exports keep private local bindings resolvable", testExplicitExportsKeepPrivateLocalsUsable),
+    ("rejects unknown module export names", testRejectsUnknownModuleExport),
+    ("rejects imported-only module export names", testRejectsImportedOnlyModuleExport),
+    ("explicit imports reject private module bindings", testExplicitImportRejectsPrivateModuleBinding),
     ("accepts lexer-compatible continuation characters in CLI module paths", testParseModulePathContinuations),
     ("preserves exact module path segments while resolving", testPreservesExactModulePathSegments),
     ("maps module path to relative .jz file", testModulePathMapping),
@@ -114,6 +124,100 @@ testResolvedProgramRetainsLoweredModules = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Value. answer. }"),
           ("src/Lib/Value.jz", "module Lib::Value { answer = 1. }")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
+
+testResolvedModuleCarriesExplicitPublicInventory :: IO ()
+testResolvedModuleCarriesExplicitPublicInventory = do
+  result <-
+    resolveProgram
+      testResolverConfig
+      ResolveKernelOnly
+      Set.empty
+      Set.empty
+      lookupSource
+      ["App", "Main"]
+  assertRight "resolved explicit public inventory" result $ \program ->
+    case
+        [ resolvedModule
+          | resolvedModule <- ModuleGraph.resolvedProgramModules program,
+            ModuleGraph.resolvedModulePath resolvedModule == ["Lib", "Value"]
+        ] of
+      [resolvedModule] ->
+        assertEqual
+          "public inventory contains only answer"
+          (Set.singleton (ModuleExport ValueNamespace "answer"))
+          ( exportInventoryEntries
+              (ModuleGraph.resolvedModuleExportInventory resolvedModule)
+          )
+      modules -> failTest ("expected one resolved Lib::Value module, got " <> Text.pack (show (length modules)))
+  where
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value (answer).\nanswer.\n}"),
+          ("src/Lib/Value.jz", "module Lib::Value (answer) {\nhelper = 1.\nanswer = helper.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
+
+testExplicitExportsKeepPrivateLocalsUsable :: IO ()
+testExplicitExportsKeepPrivateLocalsUsable = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  assertRight "private local remains resolvable" result (const (pure ()))
+  where
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value (answer).\nanswer.\n}"),
+          ("src/Lib/Value.jz", "module Lib::Value (answer) {\nhelper = 1.\nanswer = helper.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
+
+testRejectsUnknownModuleExport :: IO ()
+testRejectsUnknownModuleExport = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["Lib", "Value"]
+  assertLeftDiagnosticCodeAndContains
+    "unknown module export"
+    "E4015"
+    "module export 'missing' is not declared by module 'Lib::Value'"
+    result
+  assertLeftDiagnosticMetadata
+    "unknown module export metadata"
+    (Just (SourceSpanIn "src/Lib/Value.jz" 1 1))
+    Nothing
+    (Just "missing")
+    result
+  where
+    sources = Map.singleton "src/Lib/Value.jz" "module Lib::Value (missing) {\nanswer = 1.\n}"
+    lookupSource path = pure (Map.lookup path sources)
+
+testRejectsImportedOnlyModuleExport :: IO ()
+testRejectsImportedOnlyModuleExport = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["Lib", "Wrapper"]
+  assertLeftDiagnosticCodeAndContains
+    "imported-only module export"
+    "E4015"
+    "module export 'answer' is not declared by module 'Lib::Wrapper'"
+    result
+  where
+    sources =
+      Map.fromList
+        [ ("src/Lib/Wrapper.jz", "module Lib::Wrapper (answer) {\nimport Lib::Origin (answer).\nwrapper = answer.\n}"),
+          ("src/Lib/Origin.jz", "module Lib::Origin {\nanswer = 1.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
+
+testExplicitImportRejectsPrivateModuleBinding :: IO ()
+testExplicitImportRejectsPrivateModuleBinding = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  assertLeftDiagnosticCodeAndContains
+    "private explicit import"
+    "E4007"
+    "import symbol 'helper' is not exported by module 'Lib::Value'"
+    result
+  where
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Value (helper).\nhelper.\n}"),
+          ("src/Lib/Value.jz", "module Lib::Value (answer) {\nhelper = 1.\nanswer = helper.\n}")
         ]
     lookupSource path = pure (Map.lookup path sources)
 
