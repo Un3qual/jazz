@@ -500,17 +500,19 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports localIn
       case moduleExportSelectorNamespace selector of
         Nothing -> renderDeclarationNames availableNames
         Just _ ->
-          Text.intercalate
-            ", "
+          renderDeclarationLabels
             [ renderModuleExportSelector
                 (ModuleExportSelector (Just (moduleExportNamespace export)) (moduleExportName export))
               | export <- Set.toAscList (exportInventoryEntries localInventory)
             ]
 
 renderDeclarationNames :: Set Text -> Text
-renderDeclarationNames names
-  | Set.null names = "<none>"
-  | otherwise = Text.intercalate ", " (Set.toAscList names)
+renderDeclarationNames = renderDeclarationLabels . Set.toAscList
+
+renderDeclarationLabels :: [Text] -> Text
+renderDeclarationLabels labels
+  | null labels = "<none>"
+  | otherwise = Text.intercalate ", " labels
 
 collectImports :: SurfaceExpr -> [ParsedImport]
 collectImports surfaceExpr =

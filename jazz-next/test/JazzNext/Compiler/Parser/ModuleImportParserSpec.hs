@@ -52,6 +52,7 @@ tests =
   [ ("parses module declaration statement", testParsesModuleDeclaration),
     ("parses populated module export list", testParsesModuleExportList),
     ("parses namespace-aware module export list", testParsesNamespaceAwareModuleExportList),
+    ("keeps namespace prefix words contextual in module export lists", testParsesNamespacePrefixWordsAsBareExports),
     ("parses empty module export list", testParsesEmptyModuleExportList),
     ("lowers module export list into core metadata", testLowersModuleExportList),
     ("parses canonical brace-bodied module declaration boundary", testParsesCanonicalModuleDeclarationBoundary),
@@ -161,6 +162,30 @@ testParsesNamespaceAwareModuleExportList =
     )
     ( parseSurfaceProgram
         "module Lib::Box (type Box, constructor Box, value Box, class Printable, legacy) {\nlegacy = 1.\n}"
+    )
+
+testParsesNamespacePrefixWordsAsBareExports :: IO ()
+testParsesNamespacePrefixWordsAsBareExports =
+  assertEqual
+    "contextual namespace prefix words"
+    ( Right
+        ( SEBlock
+            [ SSModule
+                (SourceSpan 1 1)
+                ["Lib", "Keywords"]
+                ( Just
+                    [ ModuleExportSelector Nothing "value",
+                      ModuleExportSelector Nothing "constructor",
+                      ModuleExportSelector Nothing "type",
+                      ModuleExportSelector Nothing "class"
+                    ]
+                ),
+              SSLet "answer" (SourceSpan 2 1) (SELit (SLInt 1))
+            ]
+        )
+    )
+    ( parseSurfaceProgram
+        "module Lib::Keywords (value, constructor, type, class) {\nanswer = 1.\n}"
     )
 
 testParsesEmptyModuleExportList :: IO ()

@@ -59,6 +59,7 @@ tests =
     ("runtime modules publish methods only for public classes", testRuntimeModulePublishesPublicClassMethodsOnly),
     ("module export identities distinguish shadowed values and constructors", testModuleExportIdentityPreservesNamespaces),
     ("namespace-aware runtime exports publish selected value only", testNamespaceAwareRuntimeExportPublishesValueOnly),
+    ("namespace-aware runtime exports publish selected constructor only", testNamespaceAwareRuntimeExportPublishesConstructorOnly),
     ("compiled dependency terminal expressions are skipped", testCompiledDependencyTerminalExpressionIsSkipped),
     ("alias imports stay qualified", testAliasIsolationContract),
     ("transitive imports do not leak", testTransitiveVisibilityContract),
@@ -204,6 +205,26 @@ testNamespaceAwareRuntimeExportPublishesValueOnly = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Maybe (Just). Just. }"),
           ("src/Lib/Maybe.jz", "module Lib::Maybe (value Just) { data Maybe = Just value. Just = 1. }")
+        ]
+
+testNamespaceAwareRuntimeExportPublishesConstructorOnly :: IO ()
+testNamespaceAwareRuntimeExportPublishesConstructorOnly = do
+  compiled <- compileFixtureProgram sources
+  case evaluateCompiledProgram compiled of
+    Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right runtime ->
+      case lookupRuntimeModule ["Lib", "Maybe"] runtime of
+        Nothing -> fail "missing runtime Lib::Maybe module"
+        Just runtimeModule ->
+          assertEqual
+            "namespace-selected constructor runtime export"
+            (Set.singleton (RuntimeBindingExport (ModuleExport ConstructorNamespace "Just")))
+            (Map.keysSet (runtimeModuleExports runtimeModule))
+  where
+    sources =
+      Map.fromList
+        [ ("src/App/Main.jz", "module App::Main { import Lib::Maybe (Just). Just. }"),
+          ("src/Lib/Maybe.jz", "module Lib::Maybe (constructor Just) { data Maybe = Just value. Just = 1. }")
         ]
 
 testCompiledDependencyTerminalExpressionIsSkipped :: IO ()

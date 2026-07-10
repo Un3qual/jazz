@@ -1605,9 +1605,10 @@ parseImportSymbolList tokensAfterLeftParen =
             )
         )
     _ ->
-      parseNonEmptyUniqueNameList
+      parseNonEmptyUniqueList
         "import symbol"
         "import symbol list"
+        (\name -> "'" <> name <> "'")
         parseImportSymbol
         tokensAfterLeftParen
 
@@ -1615,75 +1616,48 @@ parseModuleExportList :: [Token] -> Either Diagnostic ([ModuleExportSelector], [
 parseModuleExportList tokensAfterLeftParen =
   case tokensAfterLeftParen of
     Token {tokenKind = TRParen} : rest -> Right ([], rest)
-    _ -> do
-      (firstSelector, _, afterFirstSelector) <- parseModuleExport tokensAfterLeftParen
-      go [firstSelector] (Set.singleton firstSelector) afterFirstSelector
-  where
-    go reversedSelectors seenSelectors allTokens =
-      case allTokens of
-        Token {tokenKind = TComma} : rest -> do
-          (nextSelector, selectorSpan, afterNextSelector) <- parseModuleExport rest
-          if Set.member nextSelector seenSelectors
-            then
-              Left
-                ( parseDiagnostic
-                    ( "duplicate module export "
-                        <> renderModuleExportSelector nextSelector
-                        <> " at "
-                        <> renderSourceSpan selectorSpan
-                    )
-                )
-            else
-              go
-                (nextSelector : reversedSelectors)
-                (Set.insert nextSelector seenSelectors)
-                afterNextSelector
-        Token {tokenKind = TRParen} : rest -> Right (reverse reversedSelectors, rest)
-        [] ->
-          Left (parseDiagnostic "expected ')' before end of input in module export list")
-        token : _ ->
-          Left
-            ( parseDiagnostic
-                ( "expected ',' or ')' at "
-                    <> renderSourceSpan (tokenSpan token)
-                    <> ", found '"
-                    <> tokenLexeme token
-                    <> "'"
-                )
-            )
+    _ ->
+      parseNonEmptyUniqueList
+        "module export"
+        "module export list"
+        renderModuleExportSelector
+        parseModuleExport
+        tokensAfterLeftParen
 
-parseNonEmptyUniqueNameList ::
+parseNonEmptyUniqueList ::
+  Ord item =>
   Text ->
   Text ->
-  ([Token] -> Either Diagnostic (Text, SourceSpan, [Token])) ->
+  (item -> Text) ->
+  ([Token] -> Either Diagnostic (item, SourceSpan, [Token])) ->
   [Token] ->
-  Either Diagnostic ([Text], [Token])
-parseNonEmptyUniqueNameList itemDescription listDescription parseName tokens = do
-  (firstName, _, afterFirstName) <- parseName tokens
-  go [firstName] (Set.singleton firstName) afterFirstName
+  Either Diagnostic ([item], [Token])
+parseNonEmptyUniqueList itemDescription listDescription renderItem parseItem tokens = do
+  (firstItem, _, afterFirstItem) <- parseItem tokens
+  go [firstItem] (Set.singleton firstItem) afterFirstItem
   where
-    go reversedNames seenNames allTokens =
+    go reversedItems seenItems allTokens =
       case allTokens of
         Token {tokenKind = TComma} : rest -> do
-          (nextName, nameSpan, afterNextName) <- parseName rest
-          if Set.member nextName seenNames
+          (nextItem, itemSpan, afterNextItem) <- parseItem rest
+          if Set.member nextItem seenItems
             then
               Left
                 ( parseDiagnostic
                     ( "duplicate "
                         <> itemDescription
-                        <> " '"
-                        <> nextName
-                        <> "' at "
-                        <> renderSourceSpan nameSpan
+                        <> " "
+                        <> renderItem nextItem
+                        <> " at "
+                        <> renderSourceSpan itemSpan
                     )
                 )
             else
               go
-                (nextName : reversedNames)
-                (Set.insert nextName seenNames)
-                afterNextName
-        Token {tokenKind = TRParen} : rest -> Right (reverse reversedNames, rest)
+                (nextItem : reversedItems)
+                (Set.insert nextItem seenItems)
+                afterNextItem
+        Token {tokenKind = TRParen} : rest -> Right (reverse reversedItems, rest)
         [] ->
           Left
             ( parseDiagnostic

@@ -52,6 +52,7 @@ tests =
     ("empty export list produces empty inventory", testEmptyExportListProducesEmptyInventory),
     ("namespace-aware exports select exact public entries", testNamespaceAwareExportsSelectExactEntries),
     ("namespace-aware exports reject same-name wrong namespace", testNamespaceAwareExportsRejectWrongNamespace),
+    ("namespace-aware export diagnostics render an empty inventory", testNamespaceAwareExportDiagnosticRendersEmptyInventory),
     ("explicit exports keep private local bindings resolvable", testExplicitExportsKeepPrivateLocalsUsable),
     ("rejects unknown module export names", testRejectsUnknownModuleExport),
     ("rejects imported-only module export names", testRejectsImportedOnlyModuleExport),
@@ -247,6 +248,28 @@ testNamespaceAwareExportsRejectWrongNamespace = do
       Map.singleton
         "src/Lib/Token.jz"
         "module Lib::Token (type Token) {\ndata Box = Token.\n}"
+    lookupSource path = pure (Map.lookup path sources)
+
+testNamespaceAwareExportDiagnosticRendersEmptyInventory :: IO ()
+testNamespaceAwareExportDiagnosticRendersEmptyInventory = do
+  result <-
+    resolveProgram
+      testResolverConfig
+      ResolveKernelOnly
+      Set.empty
+      Set.empty
+      lookupSource
+      ["Lib", "Empty"]
+  assertLeftDiagnosticCodeAndContains
+    "empty namespace-aware module export inventory"
+    "E4015"
+    "available declarations: <none>"
+    result
+  where
+    sources =
+      Map.singleton
+        "src/Lib/Empty.jz"
+        "module Lib::Empty (type Missing) {\n0.\n}"
     lookupSource path = pure (Map.lookup path sources)
 
 testExplicitExportsKeepPrivateLocalsUsable :: IO ()
