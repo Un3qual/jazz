@@ -174,28 +174,35 @@ Each blocked item should answer these questions:
 
 ### JN-MODULE-REBASE-PLAN-001
 
-- Smallest unblocker: none currently. The namespace-aware export inventory
-  refactor landed as `JN-MODULE-TYPED-EXPORT-INVENTORY-001`.
-- Decision needed: none. The landed behavior keeps bare and explicit non-alias
-  imports exposing selected class capability units; alias
-  imports expose no capabilities; imported classes are not re-exported.
-- Recommended default: preserve the completed typed inventory, current syntax,
-  and `E4007`-`E4014` diagnostic contract until a separate source-backed module
-  behavior contract is accepted.
-- Candidate child: none currently.
-- Target paths: not set until a separate module behavior contract is accepted.
-- Verification: focused `ModuleExportsSpec.hs`,
-  `ModulePipelineContractSpec.hs`, `ModuleResolutionSpec.hs`, and `LoaderSpec.hs`;
+- Smallest unblocker: implement the approved explicit module export allowlist
+  contract as `JN-MODULE-EXPLICIT-EXPORT-LIST-001`.
+- Decision needed: none. The maintainer approved optional header allowlists,
+  omitted-list export-all compatibility, `()` export-nothing behavior, exact
+  text selection across owned value/constructor/type/class entries, and no
+  re-exports.
+- Recommended default: execute the ready child exactly as specified, retaining
+  a full local/compiler interface while publishing one validated public typed
+  inventory to resolver dependents, compiler imports, and runtime modules.
+- Candidate child: `JN-MODULE-EXPLICIT-EXPORT-LIST-001` is promoted in
+  `docs/execution/queue.md`; no post-child candidate is accepted.
+- Target paths: active `jazz-next` parser AST/declaration/lowering, module
+  graph/export/resolver/compiler/runtime owners, focused parser/module/loader
+  tests, and the linked module contract/status/queue documents enumerated in
+  the child plan frontmatter.
+- Verification: focused `ModuleImportParserSpec.hs`, `ParserFoundationSpec.hs`,
+  `OperatorFixitySpec.hs`, `ModuleExportsSpec.hs`,
+  `ModuleResolutionSpec.hs`, `ModulePipelineContractSpec.hs`, and `LoaderSpec.hs`;
   `bash jazz-next/scripts/test-warning-config.sh`;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.
 - Landed evidence: `ModuleExports.hs` now owns the typed inventory used by
   resolver, compiled-interface, and runtime selection; focused and full
   verification passed on `2026-07-09`.
-- Not in scope: new import or export syntax, re-exports, alias-qualified
-  classes, separate impl imports, orphan/overlap policy, default methods,
-  superclasses, new prelude/catalog API, public builtin fallback in no-prelude
-  mode, or package/module-root semantics.
+- Not in scope: re-exports, wildcard or constructor-group shorthand, body-level
+  export declarations, visibility modifiers, cross-module operators,
+  alias-qualified classes, separate impl imports, orphan/overlap policy,
+  default methods, superclasses, effects, new prelude/catalog API, public
+  builtin fallback in no-prelude mode, or package/module-root semantics.
 
 ### JN-WARNING-DEPRECATED-SYNTAX-CONTRACT-001
 
