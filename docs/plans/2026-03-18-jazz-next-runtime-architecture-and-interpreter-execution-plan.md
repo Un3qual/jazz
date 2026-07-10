@@ -53,6 +53,20 @@ selection landed as `JN-RUNTIME-CLI-STDIN-SENTINEL-001`. Additional runtime
 product work must name a later concrete CLI/runtime product delta with target
 paths and focused verification.
 
+## Accepted Module Follow-up: Typed Export Inventory
+
+On `2026-07-09`, the maintainer accepted
+`JN-MODULE-TYPED-EXPORT-INVENTORY-001` as a narrow architecture follow-up to
+the closed module/import baseline. The child replaces parallel resolver,
+compiled-interface, and runtime export selection with one namespace-aware
+inventory while preserving current bare, symbol-list, alias, class-capability,
+and diagnostic behavior.
+
+The implementation plan is
+[`2026-07-09-jazz-next-typed-module-export-inventory.md`](2026-07-09-jazz-next-typed-module-export-inventory.md).
+It does not reopen import syntax, package resolution, stdlib/catalog growth,
+re-exports, alias-qualified classes, or broader abstraction semantics.
+
 ## Plan Progress
 
 - [x] Captured the active-path runtime architecture and file ownership.
@@ -78,6 +92,8 @@ paths and focused verification.
 - [x] On `2026-06-24`, implemented explicit `--help` and `-h` usage output
       with preflight behavior before argument validation and source/config/
       prelude/module reads.
+- [ ] Execute `JN-MODULE-TYPED-EXPORT-INVENTORY-001` without changing public
+      import syntax or diagnostics.
 - [x] Milestone 2 complete: type-signature parsing and type grammar are rebased onto `jazz-next` for the active structured monomorphic subset.
 - [x] Milestone 3 complete: the runtime core covers the non-ADT language surface required by locked specs.
 - [x] Milestone 4 complete: ADT, `case`, and pattern semantics are rebased and implemented in `jazz-next`.

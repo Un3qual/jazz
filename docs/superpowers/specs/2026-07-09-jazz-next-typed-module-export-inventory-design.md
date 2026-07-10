@@ -2,15 +2,14 @@
 
 ## Status
 
-Design approved in conversation; written specification awaiting review before
-implementation planning.
+Approved by the maintainer for implementation planning on `2026-07-09`.
 
 ## Goal
 
-Replace the resolver and compiler's parallel value, constructor, type, and
-class export bookkeeping with one typed module export inventory while
-preserving the current public import syntax, visibility rules, and diagnostic
-codes.
+Replace parallel resolver, compiler-interface, and runtime export selection for
+values, constructors, types, and classes with one typed module export inventory
+while preserving the current public import syntax, visibility rules, and
+diagnostic codes.
 
 The first implementation child is
 `JN-MODULE-TYPED-EXPORT-INVENTORY-001`.
@@ -156,6 +155,11 @@ to the selected typed entries. Selecting a capability delegates matching impl
 fact and method filtering to the selected capability names, preserving the
 existing class-as-unit behavior.
 
+`ModuleRuntime.hs` uses the same selected inventory for runtime module exports.
+Ordinary runtime cells follow selected value/constructor entries; qualified
+method cells follow the selected capability names and remain non-selectable as
+independent `Class::method` import symbols.
+
 Imported data metadata remains available under qualified internal keys for
 type identity and runtime support, even when its type name is not user-visible.
 User-visible type-name resolution still obeys the selected inventory.
@@ -221,10 +225,14 @@ surfaces:
 - modify `jazz-next/src/JazzNext/Compiler/ModuleInterface.hs`;
 - modify `jazz-next/src/JazzNext/Compiler/ModuleResolver.hs`;
 - modify `jazz-next/src/JazzNext/Compiler/ModuleCompiler.hs`;
+- modify `jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs` to import the moved
+  export identity type from its single owner;
 - modify `jazz-next/jazz-next.cabal`;
 - modify `jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs`;
 - modify
   `jazz-next/test/JazzNext/Compiler/Modules/Loader/CapabilitiesTests.hs`;
+- modify
+  `jazz-next/test/JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs`;
 - modify `jazz-next/scripts/test-warning-config.sh` to include the focused
   inventory suite;
 - modify `docs/spec/modules/04-qualified-imports-and-binding.md`;
@@ -275,6 +283,7 @@ Run the focused suites first:
 
 ```sh
 jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModuleExportsSpec.hs
+jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs
 jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
 jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
 ```
