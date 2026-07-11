@@ -1,0 +1,3 @@
+module Result (type Result, constructor Err, constructor Ok) {
+data Result e a = Err e | Ok a.
+}

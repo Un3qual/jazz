@@ -3,6 +3,7 @@
 module Main (main) where
 
 import qualified Data.Text as Text
+import Data.Text (Text)
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     compileSource,
@@ -64,7 +65,8 @@ tests =
     ("compile without prelude keeps numeric conversion kernel bridges available", testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable),
     ("compile without prelude rejects public prelude aliases", testCompileWithoutPreludeRejectsPreludeAliases),
     ("compile without prelude keeps kernel bridge names available", testCompileWithoutPreludeKeepsKernelBridgeNamesAvailable),
-    ("compile without prelude keeps missing binding behavior unchanged", testCompileWithoutPreludeStillFailsMissingBinding)
+    ("compile without prelude keeps missing binding behavior unchanged", testCompileWithoutPreludeStillFailsMissingBinding),
+    ("bootstrap Maybe and Result modules stay outside the bundled prelude", testBootstrapModulesStayOutsideBundledPrelude)
   ]
 
 testCompileWithPreludeBindingVisibility :: IO ()
@@ -697,3 +699,27 @@ testCompileWithoutPreludeStillFailsMissingBinding = do
     "missing prelude binding still reports unbound variable"
     "E1001"
     (compileErrors result)
+
+testBootstrapModulesStayOutsideBundledPrelude :: IO ()
+testBootstrapModulesStayOutsideBundledPrelude =
+  mapM_ assertBundledPreludeNameUnavailable unavailableCases
+  where
+    unavailableCases =
+      [ ("Maybe", "value :: Maybe(Int).\nvalue = 1.", "E2009"),
+        ("Result", "value :: Result(Text, Int).\nvalue = 1.", "E2009"),
+        ("Nothing", "Nothing.", "E1001"),
+        ("Just", "Just 1.", "E1001"),
+        ("Err", "Err \"failure\".", "E1001"),
+        ("Ok", "Ok 1.", "E1001")
+      ]
+
+assertBundledPreludeNameUnavailable :: (Text, Text, Text) -> IO ()
+assertBundledPreludeNameUnavailable (name, source, diagnosticCode) = do
+  result <- compileSource defaultWarningSettings source
+  case compileErrors result of
+    [diagnostic] -> do
+      let rendered = renderDiagnostic diagnostic
+      assertContains (name <> " diagnostic code") diagnosticCode rendered
+      assertContains (name <> " diagnostic subject") name rendered
+    diagnostics ->
+      assertEqual (name <> " diagnostic count") 1 (length diagnostics)
