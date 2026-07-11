@@ -150,12 +150,13 @@ namedSignatureTypeParser = do
           MP.empty
     _ -> pure ()
   let typeName = identifierText typeNameIdentifier
+      typeMemberName = tokenLexeme typeNameToken
   case parseNamedSignatureType typeName of
     Just signatureType ->
       pure signatureType
     Nothing ->
       pure
-        ( if identifierStartsLower typeName
+        ( if identifierStartsLower typeMemberName
             then SurfaceTypeVariable typeNameIdentifier
             else SurfaceTypeName typeNameIdentifier
         )

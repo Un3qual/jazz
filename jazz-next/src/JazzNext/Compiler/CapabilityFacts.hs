@@ -35,7 +35,8 @@ import JazzNext.Compiler.BuiltinCatalog
     renderNumericTypeName
   )
 import JazzNext.Compiler.Name
-  ( Name,
+  ( IdentifierLike (identifierText),
+    Name (..),
     renderName
   )
 
@@ -339,9 +340,17 @@ renderConstraintListElementType signatureType =
 
 identifierLooksLikeTypeVariable :: Name -> Bool
 identifierLooksLikeTypeVariable name =
-  case Text.uncons (renderName name) of
+  case Text.uncons (terminalIdentifierText name) of
     Just (firstChar, _) -> isLower firstChar
     Nothing -> False
+  where
+    terminalIdentifierText candidate =
+      case candidate of
+        SourceName identifier -> identifierText identifier
+        QualifiedName _ member -> identifierText member
+        ResolvedName _ _ identifier -> identifierText identifier
+        BuiltinName identifier -> identifierText identifier
+        GeneratedName {} -> ""
 
 constraintSignatureTypeVariableNamesInOrder :: SignatureType -> [Text]
 constraintSignatureTypeVariableNamesInOrder =
