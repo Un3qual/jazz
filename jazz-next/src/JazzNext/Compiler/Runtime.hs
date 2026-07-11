@@ -2426,6 +2426,28 @@ evalBuiltin builtinMode bindingTypeHints builtinFunction arguments =
     -- its evaluated argument so expression pipelines remain deterministic.
     (BuiltinPrint, [value]) ->
       Right value
+    (BuiltinTextLength, [VText textValue]) ->
+      Right (VInt (fromIntegral (Text.length textValue)) untypedIntMetadata)
+    (BuiltinTextLength, [other]) ->
+      Left
+        ( runtimeDiagnostic
+            "E3028"
+            ("runtime primitive 'textLength' expects a Text argument, found " <> renderRuntimeType other)
+        )
+    (BuiltinTextUnconsRaw, [VText textValue]) ->
+      let listTypeHint = Just (TypeList (TypeTuple [TypeChar, TypeText]))
+       in
+        case Text.uncons textValue of
+          Nothing ->
+            Right (VList [] listTypeHint)
+          Just (first, rest) ->
+            Right (VList [VTuple [VChar first, VText rest]] listTypeHint)
+    (BuiltinTextUnconsRaw, [other]) ->
+      Left
+        ( runtimeDiagnostic
+            "E3029"
+            ("runtime primitive 'textUnconsRaw' expects a Text argument, found " <> renderRuntimeType other)
+        )
     _ ->
       Left
         ( runtimeDiagnostic

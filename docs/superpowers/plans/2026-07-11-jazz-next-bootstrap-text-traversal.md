@@ -174,7 +174,7 @@ parts = __kernel_textUnconsRaw "a\u{1F642}".
 ```
 
 and reject `__kernel_textLength 1` and `__kernel_textUnconsRaw True` with
-`E2004`.
+the canonical application-mismatch diagnostic `E2006`.
 
 - [ ] **Step 2: Add failing runtime tests.**
 

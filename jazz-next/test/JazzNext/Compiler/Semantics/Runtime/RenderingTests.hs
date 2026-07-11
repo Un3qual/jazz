@@ -80,6 +80,8 @@ renderingTests =
     , ("Char and Text literals evaluate and render", testCharTextLiteralRendering)
     , ("Char and Text strict equality evaluates", testCharTextStrictEquality)
     , ("Char and Text literal patterns match", testCharTextLiteralPatterns)
+    , ("private text traversal primitives evaluate Unicode scalars", testPrivateTextTraversalRuntimeSuccess)
+    , ("runtime fallback rejects non-Text traversal arguments", testRuntimeFallbackRejectsNonTextTraversalArguments)
     , ("direct self alias produces deterministic runtime diagnostic", testDirectSelfAliasRuntimeError)
     , ("wrapped direct self alias produces deterministic runtime diagnostic", testWrappedDirectSelfAliasRuntimeError)
     , ("same-name non-alias self application produces runtime unbound diagnostic", testSameNameNonAliasSelfApplicationTerminates)
@@ -152,6 +154,29 @@ testCharTextLiteralPatterns = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(1, 1)") (runOutput result)
+
+testPrivateTextTraversalRuntimeSuccess :: IO ()
+testPrivateTextTraversalRuntimeSuccess = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "(__kernel_textLength \"\", __kernel_textLength \"a🙂é\", __kernel_textUnconsRaw \"\", __kernel_textUnconsRaw \"🙂x\")."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(0, 3, [], [('🙂', \"x\")])") (runOutput result)
+
+testRuntimeFallbackRejectsNonTextTraversalArguments :: IO ()
+testRuntimeFallbackRejectsNonTextTraversalArguments = do
+  let lengthResult =
+        evaluateRuntimeExpr
+          (runtimeExpr (EApply (EVar "__kernel_textLength") (ELit (LInt 1))))
+      unconsResult =
+        evaluateRuntimeExpr
+          (runtimeExpr (EApply (EVar "__kernel_textUnconsRaw") (ELit (LInt 1))))
+  assertRuntimeErrorContains "runtime fallback textLength code" "E3028" lengthResult
+  assertRuntimeErrorContains "runtime fallback textLength actual type" "Int" lengthResult
+  assertRuntimeErrorContains "runtime fallback textUnconsRaw code" "E3029" unconsResult
+  assertRuntimeErrorContains "runtime fallback textUnconsRaw actual type" "Int" unconsResult
 
 testDirectSelfAliasRuntimeError :: IO ()
 testDirectSelfAliasRuntimeError = do

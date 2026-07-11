@@ -1512,4 +1512,13 @@ instantiateBuiltinSymbolTypeByName builtinName state =
       -- evaluated argument value unchanged so compile/runtime paths stay simple.
       let (valueType, stateAfterValueType) = freshTypeVar state
        in Just (TFunctionType valueType valueType, stateAfterValueType)
+    "textLength" ->
+      Just (TFunctionType TTextType TIntType, state)
+    "textUnconsRaw" ->
+      Just
+        ( TFunctionType
+            TTextType
+            (TListType (TTupleType [TCharType, TTextType])),
+          state
+        )
     _ -> Nothing
