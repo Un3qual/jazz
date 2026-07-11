@@ -160,7 +160,7 @@ qualifyExprSourceSpans sourcePath expr =
     EList items -> EList (map go items)
     ETuple items -> ETuple (map go items)
     EApply function argument -> EApply (go function) (go argument)
-    ETypeApplication function spanValue signatureType -> ETypeApplication (go function) spanValue signatureType
+    ETypeApplication function spanValue signatureType -> ETypeApplication (go function) (qualifySpan spanValue) signatureType
     EIf condition trueBranch falseBranch -> EIf (go condition) (go trueBranch) (go falseBranch)
     EPatternCase scrutinee arms -> EPatternCase (go scrutinee) (map qualifyCaseArm arms)
     EBinary symbol left right -> EBinary symbol (go left) (go right)

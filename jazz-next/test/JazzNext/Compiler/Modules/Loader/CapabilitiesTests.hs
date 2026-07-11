@@ -74,6 +74,7 @@ capabilitiesTests =
     , ("run module graph keeps inferred runtime hints module scoped", testRunModuleGraphKeepsInferredRuntimeHintsModuleScoped)
     , ("run module graph keeps nested inferred runtime hints module scoped", testRunModuleGraphKeepsNestedInferredRuntimeHintsModuleScoped)
     , ("run module graph keeps pre-module inferred runtime hints module scoped", testRunModuleGraphKeepsPreModuleInferredRuntimeHintsModuleScoped)
+    , ("run module graph rebases explicit generic ADT application hints", testRunModuleGraphRebasesExplicitGenericAdtApplicationHints)
     , ("run module graph retains local capabilities needed by imported signatures", testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures)
     , ("run module graph namespaces hidden retained local capabilities", testRunModuleGraphNamespacesHiddenRetainedLocalCapabilities)
     , ("run module graph namespaces alias-retained local capabilities", testRunModuleGraphNamespacesAliasRetainedLocalCapabilities)
@@ -801,6 +802,27 @@ testRunModuleGraphKeepsPreModuleInferredRuntimeHintsModuleScoped = do
           ),
           ( "src/Lib/B.jz",
             "class RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\nimpl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\npicked = {\nx = 1.\nRuntimePick::pick x.\n}."
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRebasesExplicitGenericAdtApplicationHints :: IO ()
+testRunModuleGraphRebasesExplicitGenericAdtApplicationHints = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\ndata Box a = Box a.\nclass RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\nimpl RuntimeFlag(Box([Int])) {\nflag = \\(box) -> True.\n}.\nimpl RuntimeFlag(Box([Bool])) {\nflag = \\(box) -> False.\n}.\nidentity = \\(value) -> value.\nresult = RuntimeFlag::flag (identity @Box([Int]) (Box [])).\nresult.\n}"
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

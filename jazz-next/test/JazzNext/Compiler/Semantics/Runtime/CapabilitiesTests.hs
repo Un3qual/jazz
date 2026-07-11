@@ -90,6 +90,7 @@ capabilityTests =
     , ("qualified method dispatch preserves direct explicit type application hints", testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint)
     , ("qualified method dispatch preserves inferred explicit type application tuple hints", testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint)
     , ("qualified method dispatch applies explicit type argument to matching parameter", testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter)
+    , ("qualified method dispatch preserves partially instantiated function templates", testQualifiedMethodDispatchPreservesPartiallyInstantiatedFunctionTemplate)
     , ("qualified method dispatch preserves non-literal integer signature targets", testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget)
     , ("qualified method dispatch preserves direct closure result signatures", testQualifiedMethodDispatchPreservesDirectClosureResultSignature)
     , ("qualified method dispatch preserves tuple binding signatures", testQualifiedMethodDispatchPreservesTupleBindingSignature)
@@ -111,7 +112,7 @@ capabilityTests =
     , ("qualified method dispatch preserves bound nested list runtime hints", testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint)
     , ("qualified method dispatch instantiates explicit empty list type application hints", testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint)
     , ("qualified method dispatch omits plain polymorphic empty list runtime hints", testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint)
-    , ("qualified method dispatch omits signed polymorphic function runtime hints", testQualifiedMethodDispatchOmitsSignedPolymorphicFunctionRuntimeHint)
+    , ("qualified method dispatch records signed polymorphic function runtime templates", testQualifiedMethodDispatchRecordsSignedPolymorphicFunctionRuntimeTemplate)
     , ("qualified method dispatch records concrete explicit named application hints", testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint)
     , ("qualified method dispatch rejects unhinted nested list helper exact selection", testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection)
     , ("qualified method dispatch does not exact-match untyped empty list literals", testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral)
@@ -354,6 +355,22 @@ testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "False") (runOutput result)
+
+testQualifiedMethodDispatchPreservesPartiallyInstantiatedFunctionTemplate :: IO ()
+testQualifiedMethodDispatchPreservesPartiallyInstantiatedFunctionTemplate = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int32) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "use :: @{RuntimeFlag(a)}: a -> b -> Bool.\n"
+          <> "use = \\(value) -> \\(ignored) -> RuntimeFlag::flag value.\n"
+          <> "use @Int32 1 True."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
 
 testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget :: IO ()
 testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget = do
@@ -673,8 +690,8 @@ testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint = do
   assertEqual "inference errors" [] (inferredErrors inference)
   assertEqual "plain polymorphic empty list runtime hints" Map.empty (inferredRuntimeTypeHints inference)
 
-testQualifiedMethodDispatchOmitsSignedPolymorphicFunctionRuntimeHint :: IO ()
-testQualifiedMethodDispatchOmitsSignedPolymorphicFunctionRuntimeHint = do
+testQualifiedMethodDispatchRecordsSignedPolymorphicFunctionRuntimeTemplate :: IO ()
+testQualifiedMethodDispatchRecordsSignedPolymorphicFunctionRuntimeTemplate = do
   let expr =
         EBlock
           [ SSignature "identity" (SourceSpan 1 1) (SignatureType (TypeFunction (TypeVariable "a") (TypeVariable "a"))),
@@ -683,7 +700,10 @@ testQualifiedMethodDispatchOmitsSignedPolymorphicFunctionRuntimeHint = do
           ]
   inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
   assertEqual "inference errors" [] (inferredErrors inference)
-  assertEqual "signed polymorphic function runtime hints" Map.empty (inferredRuntimeTypeHints inference)
+  assertEqual
+    "signed polymorphic function runtime template"
+    (Just (TypeFunction (TypeName "t0") (TypeName "t0")))
+    (Map.lookup (bindingRuntimeHintKey "identity" (SourceSpan 2 1)) (inferredRuntimeTypeHints inference))
 
 testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint :: IO ()
 testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint = do

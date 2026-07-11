@@ -53,6 +53,7 @@ basicTests =
     , ("compile module graph validates dependency expression statements", testCompileModuleGraphValidatesDependencyExpressions)
     , ("run module graph validates dependency expression statements before runtime", testRunModuleGraphValidatesDependencyExpressionsBeforeRuntime)
     , ("compile module graph qualifies semantic diagnostic spans with source paths", testCompileModuleGraphQualifiesSemanticDiagnosticSpans)
+    , ("compile module graph qualifies explicit type application diagnostic spans", testCompileModuleGraphQualifiesExplicitTypeApplicationDiagnosticSpans)
     , ("compile module graph reports module source parse diagnostics", testCompileModuleGraphParseFailure)
     , ("run module graph skips unused dependency bindings during module evaluation", testRunModuleGraphSkipsUnusedDependencyBindingsDuringEvaluation)
     , ("run module graph qualifies sibling data fields across modules", testRunModuleGraphQualifiesSiblingDataFieldsAcrossModules)
@@ -224,6 +225,29 @@ testCompileModuleGraphQualifiesSemanticDiagnosticSpans = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Bad (x).\nx."),
           ("src/Lib/Bad.jz", "x :: Int.\nx = True.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphQualifiesExplicitTypeApplicationDiagnosticSpans :: IO ()
+testCompileModuleGraphQualifiesExplicitTypeApplicationDiagnosticSpans = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [err] -> do
+      assertContains "explicit type application error code" "E2009" (renderDiagnostic err)
+      assertContains "explicit type application source" "src/App/Main.jz:3:" (renderDiagnostic err)
+    _ -> failTest "expected exactly one source-qualified explicit type application error"
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nid = \\(value) -> value.\nresult = id @Unknown 1.\nresult.\n}"
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

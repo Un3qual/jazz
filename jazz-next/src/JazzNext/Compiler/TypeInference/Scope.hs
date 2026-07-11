@@ -1447,16 +1447,24 @@ runtimeHintForTypeBinding state binding =
 
 typeSchemeRuntimeHint :: InferState -> TypeScheme -> Maybe SignatureType
 typeSchemeRuntimeHint state typeScheme =
-  if Set.null (schemeQuantifiedVariables typeScheme)
-    then
-      case resolvedSchemeType of
-        TFunctionType {} -> expressionTypeToRuntimeHint resolvedSchemeType
-        _ -> Nothing
-    else Nothing
+  case runtimeTemplateType of
+    TFunctionType {} -> expressionTypeToRuntimeHint runtimeTemplateType
+    _ -> Nothing
   where
     expressionType = schemeResultType typeScheme
     resolvedSchemeType =
       defaultLiteralTypes (resolveType state expressionType)
+    orderedVariables =
+      orderedSchemeVariables
+        (schemeQuantifiedOrder typeScheme)
+        (schemeQuantifiedVariables typeScheme)
+    runtimeTemplateBindings =
+      Map.fromList
+        [ (typeVar, TDataType (sourceName (mkIdentifier ("t" <> Text.pack (show position)))) [])
+          | (position, typeVar) <- zip [0 :: Int ..] orderedVariables
+        ]
+    runtimeTemplateType =
+      replaceTypeVariables runtimeTemplateBindings resolvedSchemeType
 
 runtimeHintFromExpressionType :: InferState -> ExpressionType -> Maybe SignatureType
 runtimeHintFromExpressionType state expressionType =

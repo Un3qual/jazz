@@ -55,7 +55,7 @@ invalidSyntaxTests =
     , ("rejects source-exact Float64 fractional literal overflow", testRejectsSourceExactFloat64FractionalLiteralOverflow)
     , ("rejects fractional literal case patterns", testRejectsFractionalLiteralCasePatterns)
     , ("rejects fractional literal lambda patterns", testRejectsFractionalLiteralLambdaPatterns)
-    , ("rejects empty explicit type application argument", testRejectsEmptyExplicitTypeApplicationArgument)
+    , ("rejects unsupported explicit type application argument", testRejectsUnsupportedExplicitTypeApplicationArgument)
     , ("rejects missing statement terminator", testRejectsMissingDotTerminator)
     , ("rejects unterminated block expression", testRejectsUnterminatedBlockExpression)
     , ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot)
@@ -106,10 +106,10 @@ testRejectsFractionalLiteralLambdaPatterns =
     "fractional literal patterns"
     (parseSurfaceProgram "f = \\(1.5) -> True.")
 
-testRejectsEmptyExplicitTypeApplicationArgument :: IO ()
-testRejectsEmptyExplicitTypeApplicationArgument =
+testRejectsUnsupportedExplicitTypeApplicationArgument :: IO ()
+testRejectsUnsupportedExplicitTypeApplicationArgument =
   assertLeftDiagnosticContains
-    "empty explicit type application argument"
+    "unsupported explicit type application argument"
     "unsupported explicit type application argument after '@'"
     (parseSurfaceProgram "value = id @ 1.\nvalue.")
 

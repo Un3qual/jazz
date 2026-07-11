@@ -1288,7 +1288,7 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
       runtimeValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env functionExpr
       case Map.lookup (explicitTypeApplicationRuntimeHintKeyInModule currentModulePath typeArgumentSpan) bindingTypeHints of
         Just concreteTypeHint ->
-          applyRuntimeTypeHint concreteTypeHint runtimeValue
+          applyRuntimeTypeHint (runtimeConstraintType currentModulePath concreteTypeHint) runtimeValue
         Nothing ->
           if isFunctionValue runtimeValue
             then Right (VExplicitTypeApplication typeHint runtimeValue)
