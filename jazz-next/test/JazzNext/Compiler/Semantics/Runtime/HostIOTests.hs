@@ -4,28 +4,48 @@ module JazzNext.Compiler.Semantics.Runtime.HostIOTests
   ( hostIOTests
   ) where
 
+import Control.Monad.Trans.State.Strict
+  ( State,
+    modify,
+    runState
+  )
 import Data.Functor.Identity (Identity (..))
+import Data.Text (Text)
 import JazzNext.Compiler.AST
-  ( Expr (..),
+  ( CaseArm (..),
+    Expr (..),
     Literal (..),
+    Pattern (..),
+    SignatureType (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics (SourceSpan (..))
+import JazzNext.Compiler.Name (Name)
 import JazzNext.Compiler.Runtime
-  ( evaluateRuntimeExpr,
+  ( RuntimeValue (..),
+    evaluateRuntimeExpr,
     evaluateRuntimeExprWithHost
   )
 import JazzNext.Compiler.RuntimeHost
-  ( RuntimeHost (..)
+  ( HostIOCategory (..),
+    HostIOFailure (..),
+    RuntimeHost (..),
+    hostIOCategoryToken,
+    hostIOFailureMessage
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertEqual
+    assertEqual,
+    assertLeftDiagnosticContains
   )
 
 hostIOTests :: [NamedTest]
 hostIOTests =
-  [ ("host-aware evaluator preserves pure expressions", testHostAwareEvaluatorPreservesPureExpressions)
+  [ ("host-aware evaluator preserves pure expressions", testHostAwareEvaluatorPreservesPureExpressions),
+    ("host intrinsics return raw values and preserve call order", testHostIntrinsicsReturnRawValues),
+    ("host failures normalize every category", testHostFailuresNormalizeEveryCategory),
+    ("host effects execute at selected expression depth", testHostEffectsExecuteAtSelectedExpressionDepth),
+    ("exit rejects statuses outside the portable range", testExitRejectsInvalidStatus)
   ]
 
 testHostAwareEvaluatorPreservesPureExpressions :: IO ()
@@ -57,3 +77,142 @@ deterministicHost =
       runtimeHostArguments = pure [],
       runtimeHostExit = \_ -> pure ()
     }
+
+data HostCall
+  = ReadTextCall Text
+  | WriteTextCall Text Text
+  | ReadStdinCall
+  | WriteStdoutCall Text
+  | WriteStderrCall Text
+  | ArgumentsCall
+  | ExitCall Integer
+  deriving (Eq, Show)
+
+testHostIntrinsicsReturnRawValues :: IO ()
+testHostIntrinsicsReturnRawValues = do
+  let expressions =
+        [ hostCall "__kernel_readTextRaw!" [ELit (LText "source.jz")],
+          hostCall "__kernel_writeTextRaw!" [ELit (LText "output.txt"), ELit (LText "Jazz")],
+          hostCall "__kernel_readStdinRaw!" [ETuple []],
+          hostCall "__kernel_writeStdoutRaw!" [ELit (LText "out")],
+          hostCall "__kernel_writeStderrRaw!" [ELit (LText "err")],
+          hostCall "__kernel_arguments!" [ETuple []],
+          hostCall "__kernel_exit!" [ELit (LInt 7)]
+        ]
+      (results, calls) = runState (traverse (evaluateRuntimeExprWithHost statefulHost) expressions) []
+      success payload = Right (Just (rawSuccess payload))
+  assertEqual
+    "host intrinsic raw values"
+    [ success "file text",
+      success "",
+      success "stdin text",
+      success "",
+      success "",
+      Right (Just (VList [VText "one", VText "two"] (Just (TypeList TypeText)))),
+      Right (Just (VTuple []))
+    ]
+    results
+  assertEqual
+    "host call order"
+    [ ReadTextCall "source.jz",
+      WriteTextCall "output.txt" "Jazz",
+      ReadStdinCall,
+      WriteStdoutCall "out",
+      WriteStderrCall "err",
+      ArgumentsCall,
+      ExitCall 7
+    ]
+    calls
+
+testHostFailuresNormalizeEveryCategory :: IO ()
+testHostFailuresNormalizeEveryCategory =
+  mapM_ assertCategory allCategories
+  where
+    allCategories =
+      [ HostNotFound,
+        HostPermissionDenied,
+        HostAlreadyExists,
+        HostInvalidData,
+        HostResourceExhausted,
+        HostInterrupted,
+        HostUnsupported,
+        HostOther
+      ]
+
+    assertCategory category = do
+      let host = deterministicHost {runtimeHostReadText = \_ -> pure (Left (HostIOFailure category "host-specific detail"))}
+          expression = hostCall "__kernel_readTextRaw!" [ELit (LText "missing.jz")]
+          actual = runIdentity (evaluateRuntimeExprWithHost host expression)
+          expected = Right (Just (rawFailure category))
+      assertEqual "normalized host failure category" expected actual
+
+testHostEffectsExecuteAtSelectedExpressionDepth :: IO ()
+testHostEffectsExecuteAtSelectedExpressionDepth = do
+  let expressions =
+        [ EApply
+            (ELambda "value" (hostCall "__kernel_writeStdoutRaw!" [EVar "value"]))
+            (ELit (LText "closure")),
+          EIf
+            (ELit (LBool False))
+            (hostCall "__kernel_writeStderrRaw!" [ELit (LText "skipped")])
+            (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "branch")]),
+          EPatternCase
+            (ELit (LBool True))
+            [ CaseArm (PLiteral (LBool True)) Nothing (hostCall "__kernel_writeStderrRaw!" [ELit (LText "arm")]),
+              CaseArm PWildcard Nothing (hostCall "__kernel_writeStderrRaw!" [ELit (LText "fallback")])
+            ],
+          EBlock
+            [ SExpr (SourceSpan 1 1) (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "block")])
+            ]
+        ]
+      (results, calls) = runState (traverse (evaluateRuntimeExprWithHost statefulHost) expressions) []
+  assertEqual "nested effect results" (replicate 4 (Right (Just (rawSuccess "")))) results
+  assertEqual
+    "only selected nested effects run"
+    [ WriteStdoutCall "closure",
+      WriteStdoutCall "branch",
+      WriteStderrCall "arm",
+      WriteStdoutCall "block"
+    ]
+    calls
+
+testExitRejectsInvalidStatus :: IO ()
+testExitRejectsInvalidStatus = do
+  let (result, calls) =
+        runState
+          (evaluateRuntimeExprWithHost statefulHost (hostCall "__kernel_exit!" [ELit (LInt 256)]))
+          []
+  assertLeftDiagnosticContains "invalid exit status" "E3030" result
+  assertLeftDiagnosticContains "invalid exit status range" "range 0..255" result
+  assertEqual "invalid exit does not call host" [] calls
+
+statefulHost :: RuntimeHost (State [HostCall])
+statefulHost =
+  RuntimeHost
+    { runtimeHostReadText = \path -> record (ReadTextCall path) (Right "file text"),
+      runtimeHostWriteText = \path contents -> record (WriteTextCall path contents) (Right ()),
+      runtimeHostReadStdin = record ReadStdinCall (Right "stdin text"),
+      runtimeHostWriteStdout = \contents -> record (WriteStdoutCall contents) (Right ()),
+      runtimeHostWriteStderr = \contents -> record (WriteStderrCall contents) (Right ()),
+      runtimeHostArguments = record ArgumentsCall ["one", "two"],
+      runtimeHostExit = \status -> record (ExitCall status) ()
+    }
+  where
+    record call result = do
+      modify (<> [call])
+      pure result
+
+hostCall :: Name -> [Expr] -> Expr
+hostCall name = foldl EApply (EVar name)
+
+rawSuccess :: Text -> RuntimeValue
+rawSuccess payload = VTuple [VBool True, VText payload, VText "", VText ""]
+
+rawFailure :: HostIOCategory -> RuntimeValue
+rawFailure category =
+  VTuple
+    [ VBool False,
+      VText "",
+      VText (hostIOCategoryToken category),
+      VText (hostIOFailureMessage category)
+    ]

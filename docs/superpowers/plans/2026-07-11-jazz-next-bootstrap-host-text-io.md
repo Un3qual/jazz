@@ -154,15 +154,15 @@ and repository queue/docs gates.
 - Modify: `jazz-next/src/JazzNext/Compiler/Runtime.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Semantics/Runtime/HostIOTests.hs`
 
-- [ ] Add failing deterministic-host tests for every successful operation,
+- [x] Add failing deterministic-host tests for every successful operation,
   every category, argument order, unknown-category fallback, and recorded exit.
-- [ ] Add failing placement tests for closures, `if` branches, selected pattern
+- [x] Add failing placement tests for closures, `if` branches, selected pattern
   arms, block terminals, and unselected branches.
-- [ ] Run runtime tests and verify RED because the builtins lack runtime cases.
-- [ ] Implement raw tuple/list/unit construction and runtime argument checks.
-- [ ] Validate `exit!` status against `0..255` before calling the host.
-- [ ] Run runtime and primitive suites and verify GREEN.
-- [ ] Commit as `feat: execute host IO intrinsics`.
+- [x] Run runtime tests and verify RED because the builtins lack runtime cases.
+- [x] Implement raw tuple/list/unit construction and runtime argument checks.
+- [x] Validate `exit!` status against `0..255` before calling the host.
+- [x] Run runtime and primitive suites and verify GREEN.
+- [x] Commit as `feat: execute host IO intrinsics`.
 
 ### Task 4: Thread hosts through module and source execution
 

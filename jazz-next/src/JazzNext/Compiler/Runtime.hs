@@ -25,6 +25,7 @@ import Control.Monad.Trans.Except
     runExceptT,
     throwE
   )
+import Control.Monad.Trans.Class (lift)
 import Data.Char (isControl, ord, toUpper)
 import Data.List (foldl')
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
@@ -110,7 +111,12 @@ import JazzNext.Compiler.RuntimeHints
     bindingRuntimeHintKeyInModule,
     explicitTypeApplicationRuntimeHintKeyInModule
   )
-import JazzNext.Compiler.RuntimeHost (RuntimeHost)
+import JazzNext.Compiler.RuntimeHost
+  ( HostIOFailure (..),
+    RuntimeHost (..),
+    hostIOCategoryToken,
+    hostIOFailureMessage
+  )
 import Numeric (showHex)
 
 -- | Runtime values produced by the interpreter, including partially applied
@@ -3755,6 +3761,29 @@ evalBuiltinWithHost ::
   ExceptT Diagnostic m RuntimeValue
 evalBuiltinWithHost host builtinMode bindingTypeHints builtinFunction arguments =
   case (builtinFunction, arguments) of
+    (BuiltinReadTextRaw, [VText path]) ->
+      rawHostOutcome VText <$> lift (runtimeHostReadText host path)
+    (BuiltinWriteTextRaw, [VText path, VText contents]) ->
+      rawHostOutcome (const (VText "")) <$> lift (runtimeHostWriteText host path contents)
+    (BuiltinReadStdinRaw, [VTuple []]) ->
+      rawHostOutcome VText <$> lift (runtimeHostReadStdin host)
+    (BuiltinWriteStdoutRaw, [VText contents]) ->
+      rawHostOutcome (const (VText "")) <$> lift (runtimeHostWriteStdout host contents)
+    (BuiltinWriteStderrRaw, [VText contents]) ->
+      rawHostOutcome (const (VText "")) <$> lift (runtimeHostWriteStderr host contents)
+    (BuiltinArguments, [VTuple []]) -> do
+      argumentsText <- lift (runtimeHostArguments host)
+      pure (VList (map VText argumentsText) (Just (TypeList TypeText)))
+    (BuiltinExit, [VInt status _])
+      | status >= 0 && status <= 255 -> do
+          lift (runtimeHostExit host status)
+          pure (VTuple [])
+      | otherwise ->
+          throwE
+            ( runtimeDiagnostic
+                "E3030"
+                ("runtime primitive 'exit!' expects a status in range 0..255, found " <> Text.pack (show status))
+            )
     (BuiltinMap, [mapper, VList elements maybeCollectionTypeHint])
       | isFunctionValue mapper -> do
           mappedElements <- traverse (applyRuntimeFunctionWithHost host builtinMode bindingTypeHints mapper) elements
@@ -3764,6 +3793,20 @@ evalBuiltinWithHost host builtinMode bindingTypeHints builtinFunction arguments 
       | isFunctionValue predicate ->
           (`VList` maybeTypeHint) <$> filterElementsWithHost host builtinMode bindingTypeHints predicate elements
     _ -> liftRuntimeResult (evalBuiltin builtinMode bindingTypeHints builtinFunction arguments)
+
+rawHostOutcome :: (success -> RuntimeValue) -> Either HostIOFailure success -> RuntimeValue
+rawHostOutcome renderSuccess outcome =
+  case outcome of
+    Right value ->
+      VTuple [VBool True, renderSuccess value, VText "", VText ""]
+    Left failure ->
+      let category = hostIOFailureCategory failure
+       in VTuple
+            [ VBool False,
+              VText "",
+              VText (hostIOCategoryToken category),
+              VText (hostIOFailureMessage category)
+            ]
 
 filterElementsWithHost ::
   Monad m =>
