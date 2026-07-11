@@ -156,7 +156,7 @@ mkStrictEqualityTypeError operatorSymbol leftType rightType =
 
 mkStrictEqualityUnsupportedTypeError :: Text -> ExpressionType -> Diagnostic
 mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
-  mkDiagnostic "E2004" $ "strict equality operator '" <> operatorSymbol <> "' is only supported for Bool, integral numeric, Float/Float16/Float32/Float64, lists and tuples containing equality-supported elements, and ADTs containing equality-supported constructor payloads, found " <> renderType foundType <> callableNote
+  mkDiagnostic "E2004" $ "strict equality operator '" <> operatorSymbol <> "' is only supported for Bool, Char, Text, integral numeric, Float/Float16/Float32/Float64, lists and tuples containing equality-supported elements, and ADTs containing equality-supported constructor payloads, found " <> renderType foundType <> callableNote
   where
     callableNote
       | typeContainsFunction foundType = "; callable values are not equality-supported"
@@ -323,6 +323,8 @@ renderType expressionType =
     TFloatType -> "Float"
     TNumericType numericType -> renderNumericTypeName numericType
     TBoolType -> "Bool"
+    TCharType -> "Char"
+    TTextType -> "Text"
     TListType elementType -> "[" <> renderType elementType <> "]"
     TTupleType elementTypes -> "(" <> renderTypes elementTypes <> ")"
     TDataType typeName [] -> identifierText typeName
@@ -358,6 +360,8 @@ renderSignatureType signatureType =
     TypeFloat -> "Float"
     TypeNumeric numericType -> renderNumericTypeName numericType
     TypeBool -> "Bool"
+    TypeChar -> "Char"
+    TypeText -> "Text"
     TypeList innerType -> "[" <> renderSignatureTypeAtom innerType <> "]"
     TypeTuple elementTypes -> "(" <> Text.intercalate ", " (map renderSignatureType elementTypes) <> ")"
     TypeFunction argumentType resultType -> renderSignatureTypeAtom argumentType <> " -> " <> renderSignatureType resultType

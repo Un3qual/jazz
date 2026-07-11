@@ -723,6 +723,8 @@ literalExpressionType literal =
         Just targetType -> TNumericType targetType
         Nothing -> TFloatType
     LBool _ -> TBoolType
+    LChar _ -> TCharType
+    LText _ -> TTextType
 
 checkLiteralType :: InferState -> Literal -> InferState
 checkLiteralType state literal =

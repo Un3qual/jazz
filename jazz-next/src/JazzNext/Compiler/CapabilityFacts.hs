@@ -113,6 +113,10 @@ signatureTypeToConstraintSignatureType signatureType =
       ConstraintTypeName (fromString (Text.unpack (renderNumericTypeName numericType)))
     TypeBool ->
       ConstraintTypeName "Bool"
+    TypeChar ->
+      ConstraintTypeName "Char"
+    TypeText ->
+      ConstraintTypeName "Text"
     TypeList innerType ->
       ConstraintTypeList (signatureTypeToConstraintSignatureType innerType)
     TypeTuple elementTypes ->

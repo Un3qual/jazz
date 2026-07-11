@@ -50,6 +50,10 @@ tests =
   [ ("arithmetic primitives accept Int operands", testAcceptsArithmeticIntOperands),
     ("strict equality accepts same-type Int operands", testAcceptsIntEquality),
     ("strict equality accepts same-type Bool operands", testAcceptsBoolEquality),
+    ("source pipeline accepts Char and Text equality", testSourcePipelineAcceptsCharTextEquality),
+    ("source pipeline rejects Char/Text equality mismatch", testSourcePipelineRejectsCharTextMismatch),
+    ("source pipeline accepts Char/Text equality values and sections", testSourcePipelineAcceptsCharTextEqualityValuesAndSections),
+    ("source pipeline types Char and Text literal patterns", testSourcePipelineTypesCharTextPatterns),
     ("strict equality rejects mismatched operand types", testRejectsEqualityTypeMismatch),
     ("strict inequality rejects mismatched operand types", testRejectsInequalityTypeMismatch),
     ("comparison primitives reject non-Int operands", testRejectsComparisonTypeMismatch),
@@ -165,6 +169,28 @@ testAcceptsBoolEquality :: IO ()
 testAcceptsBoolEquality = do
   result <- compileExpr defaultWarningSettings boolEqualityProgram
   assertEqual "compile errors" [] (compileErrors result)
+
+testSourcePipelineAcceptsCharTextEquality :: IO ()
+testSourcePipelineAcceptsCharTextEquality = do
+  assertCompiles "same = 'a' == 'a'. different = 'a' != 'b'."
+  assertCompiles "same = \"Jazz\" == \"Jazz\". different = \"Jazz\" != \"jazz\"."
+
+testSourcePipelineRejectsCharTextMismatch :: IO ()
+testSourcePipelineRejectsCharTextMismatch = do
+  result <- compileSource defaultWarningSettings "bad = 'a' == \"a\"."
+  assertSingleDiagnosticContains "Char/Text mismatch" "E2004" (compileErrors result)
+
+testSourcePipelineAcceptsCharTextEqualityValuesAndSections :: IO ()
+testSourcePipelineAcceptsCharTextEqualityValuesAndSections =
+  assertCompiles
+    "eq = (==). char = eq 'a' 'a'. text = (\"Jazz\" ==) \"Jazz\". other = (!= \"Jazz\") \"jazz\"."
+
+testSourcePipelineTypesCharTextPatterns :: IO ()
+testSourcePipelineTypesCharTextPatterns = do
+  assertCompiles "x = case 'a' { | 'a' -> True | _ -> False }."
+  assertCompiles "x = case \"Jazz\" { | \"Jazz\" -> True | _ -> False }."
+  result <- compileSource defaultWarningSettings "x = case 'a' { | \"a\" -> True | _ -> False }."
+  assertSingleDiagnosticContains "Char/Text pattern mismatch" "E2011" (compileErrors result)
 
 testRejectsEqualityTypeMismatch :: IO ()
 testRejectsEqualityTypeMismatch = do

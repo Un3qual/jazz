@@ -49,7 +49,7 @@ bundledPreludeSource =
     renderDefaultCapabilityImpl (className, targetType) =
       case (className, targetType) of
         ("Eq", targetType')
-          | targetType' `elem` ["Int", "Float", "Bool", "Float16", "Float32", "Float64"] ->
+          | targetType' `elem` ["Int", "Float", "Bool", "Char", "Text", "Float16", "Float32", "Float64"] ->
               renderEqImpl targetType'
         _ ->
           "impl " <> className <> "(" <> targetType <> ") { }."
@@ -103,6 +103,8 @@ defaultAliasCapabilityImplFacts =
   [ ("Eq", "Int"),
     ("Eq", "Float"),
     ("Eq", "Bool"),
+    ("Eq", "Char"),
+    ("Eq", "Text"),
     ("Ord", "Int"),
     ("Ord", "Float"),
     ("Num", "Int"),

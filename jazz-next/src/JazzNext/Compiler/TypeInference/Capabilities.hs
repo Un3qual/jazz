@@ -892,6 +892,8 @@ freeTypeVariables expressionType =
     TFloatType -> Set.empty
     TNumericType {} -> Set.empty
     TBoolType -> Set.empty
+    TCharType -> Set.empty
+    TTextType -> Set.empty
     TListType elementType ->
       freeTypeVariables elementType
     TTupleType elementTypes ->
@@ -911,6 +913,8 @@ replaceTypeVariables replacements expressionType =
     TFloatType -> TFloatType
     TNumericType numericType -> TNumericType numericType
     TBoolType -> TBoolType
+    TCharType -> TCharType
+    TTextType -> TTextType
     TListType elementType ->
       TListType (replaceTypeVariables replacements elementType)
     TTupleType elementTypes ->
@@ -1749,6 +1753,8 @@ constraintSignatureTypeToExpressionTypeWithState state signatureVariables signat
         "Int" -> Just TIntType
         "Float" -> Just TFloatType
         "Bool" -> Just TBoolType
+        "Char" -> Just TCharType
+        "Text" -> Just TTextType
         typeName ->
           case numericTypeNameToExpressionType typeName of
             Just numericType -> Just numericType
@@ -1816,6 +1822,8 @@ signatureTypeToExpressionType signatureType =
     TypeFloat -> TFloatType
     TypeNumeric numericType -> TNumericType numericType
     TypeBool -> TBoolType
+    TypeChar -> TCharType
+    TypeText -> TTextType
     TypeList innerType ->
       TListType (signatureTypeToExpressionType innerType)
     TypeTuple elementTypes ->
@@ -1840,6 +1848,8 @@ constraintSignatureTypeToExpressionTypeWithVariables signatureVariables signatur
         "Int" -> Just TIntType
         "Float" -> Just TFloatType
         "Bool" -> Just TBoolType
+        "Char" -> Just TCharType
+        "Text" -> Just TTextType
         typeName ->
           case numericTypeNameToExpressionType typeName of
             Just numericType -> Just numericType
@@ -2015,6 +2025,8 @@ expressionTypeToRuntimeHint expressionType =
     TFloatType -> Just (ConstraintTypeName "Float")
     TNumericType numericType -> Just (ConstraintTypeName (sourceName (mkIdentifier (renderNumericTypeName numericType))))
     TBoolType -> Just (ConstraintTypeName "Bool")
+    TCharType -> Just (ConstraintTypeName "Char")
+    TTextType -> Just (ConstraintTypeName "Text")
     TListType elementType ->
       ConstraintTypeList <$> expressionTypeToRuntimeHint elementType
     TTupleType elementTypes ->
@@ -2042,6 +2054,8 @@ expressionTypeToRuntimeHintWithVariables variableHints expressionType =
     TFloatType -> Just (ConstraintTypeName "Float")
     TNumericType numericType -> Just (ConstraintTypeName (sourceName (mkIdentifier (renderNumericTypeName numericType))))
     TBoolType -> Just (ConstraintTypeName "Bool")
+    TCharType -> Just (ConstraintTypeName "Char")
+    TTextType -> Just (ConstraintTypeName "Text")
     TListType elementType ->
       ConstraintTypeList <$> expressionTypeToRuntimeHintWithVariables variableHints elementType
     TTupleType elementTypes ->
