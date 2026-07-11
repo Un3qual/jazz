@@ -60,6 +60,7 @@ main = runTestSuite "ExpressionParser" tests
 tests :: [NamedTest]
 tests =
   [ ("parses Unit as the empty tuple expression", testParsesUnitExpression),
+    ("parses Char and Text expressions", testParsesCharAndTextExpressions),
     ("application binds tighter than infix precedence", testApplicationBeforeInfixPrecedence),
     ("declared operators participate in precedence climbing", testDeclaredOperatorPrecedence),
     ("parses qualified variables with list and tuple arguments", testQualifiedVariablesListsAndTuples),
@@ -77,6 +78,15 @@ testParsesUnitExpression = do
   assertExpression
     "Unit expression"
     (SETuple [])
+    [TDot]
+    (parseExpressionTokens Set.empty [] tokens)
+
+testParsesCharAndTextExpressions :: IO ()
+testParsesCharAndTextExpressions = do
+  tokens <- lexSource "pair 'a' \"Jazz\"."
+  assertExpression
+    "Char/Text application"
+    (SEApply (SEApply (SEVar "pair") (SELit (SLChar 'a'))) (SELit (SLText "Jazz")))
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
 

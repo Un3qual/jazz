@@ -78,6 +78,8 @@ applySubstitution substitution expressionType =
     TFloatType -> TFloatType
     TNumericType numericType -> TNumericType numericType
     TBoolType -> TBoolType
+    TCharType -> TCharType
+    TTextType -> TTextType
     TListType elementType -> TListType (applySubstitution substitution elementType)
     TTupleType elementTypes -> TTupleType (map (applySubstitution substitution) elementTypes)
     TDataType typeName typeArguments ->
@@ -112,6 +114,8 @@ unifyTypes leftType rightType state =
         (TNumericType leftNumericType, TNumericType rightNumericType)
           | leftNumericType == rightNumericType -> Just state
         (TBoolType, TBoolType) -> Just state
+        (TCharType, TCharType) -> Just state
+        (TTextType, TTextType) -> Just state
         (TDataType leftName leftArguments, TDataType rightName rightArguments)
           | leftName == rightName,
             length leftArguments == length rightArguments ->
@@ -194,6 +198,8 @@ occursInType typeVar expressionType =
     TFloatType -> False
     TNumericType {} -> False
     TBoolType -> False
+    TCharType -> False
+    TTextType -> False
     TListType elementType -> occursInType typeVar elementType
     TTupleType elementTypes -> any (occursInType typeVar) elementTypes
     TDataType _ typeArguments -> any (occursInType typeVar) typeArguments
@@ -334,6 +340,8 @@ supportsRuntimeEqualityTypeWith seenDataTypes state expressionType =
     TFloatType -> True
     TNumericType numericType -> numericTypeSupportsRuntimeComparison numericType
     TBoolType -> True
+    TCharType -> True
+    TTextType -> True
     TListType elementType -> supportsRuntimeEqualityTypeWith seenDataTypes state elementType
     TTupleType elementTypes -> all (supportsRuntimeEqualityTypeWith seenDataTypes state) elementTypes
     TDataType typeName typeArguments ->

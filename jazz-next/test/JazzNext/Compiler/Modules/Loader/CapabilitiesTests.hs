@@ -62,6 +62,7 @@ capabilitiesTests =
     , ("compile module graph keeps sibling capability facts isolated", testCompileModuleGraphKeepsSiblingCapabilityFactsIsolated)
     , ("compile module graph exposes capability facts through visible imports", testCompileModuleGraphExposesCapabilityFactsThroughVisibleImports)
     , ("run module graph allows bundled class-qualified method lookup", testRunModuleGraphAllowsBundledClassQualifiedMethodLookup)
+    , ("run module graph keeps Char and Text primitive impl targets unqualified", testRunModuleGraphKeepsCharAndTextPrimitiveImplTargetsUnqualified)
     , ("run module graph allows imported class-qualified method lookup", testRunModuleGraphAllowsImportedClassQualifiedMethodLookup)
     , ("compile module graph rejects alias-only imported class-qualified method lookup", testCompileModuleGraphRejectsAliasOnlyImportedClassQualifiedMethodLookup)
     , ("run module graph allows imported pre-module class-qualified method lookup", testRunModuleGraphAllowsImportedPreModuleClassQualifiedMethodLookup)
@@ -509,6 +510,27 @@ testRunModuleGraphAllowsBundledClassQualifiedMethodLookup = do
     sourceMap =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\nEq::equals 1 1.\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphKeepsCharAndTextPrimitiveImplTargetsUnqualified :: IO ()
+testRunModuleGraphKeepsCharAndTextPrimitiveImplTargetsUnqualified = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, False)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nclass RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\nimpl RuntimeEq(Char) {\nequals = \\(left) -> \\(right) -> True.\n}.\nimpl RuntimeEq(Text) {\nequals = \\(left) -> \\(right) -> False.\n}.\n(RuntimeEq::equals 'a' 'b', RuntimeEq::equals \"a\" \"b\").\n}"
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

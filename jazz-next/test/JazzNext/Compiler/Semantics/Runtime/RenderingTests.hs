@@ -76,6 +76,9 @@ import JazzNext.Compiler.Semantics.Runtime.Shared
 renderingTests :: [NamedTest]
 renderingTests =
   [ ("Unit renders and participates in structural equality", testUnitRenderingAndEquality)
+    , ("Char and Text literals evaluate and render", testCharTextLiteralRendering)
+    , ("Char and Text strict equality evaluates", testCharTextStrictEquality)
+    , ("Char and Text literal patterns match", testCharTextLiteralPatterns)
     , ("direct self alias produces deterministic runtime diagnostic", testDirectSelfAliasRuntimeError)
     , ("wrapped direct self alias produces deterministic runtime diagnostic", testWrappedDirectSelfAliasRuntimeError)
     , ("same-name non-alias self application produces runtime unbound diagnostic", testSameNameNonAliasSelfApplicationTerminates)
@@ -127,6 +130,27 @@ testUnitRenderingAndEquality = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(True, ())") (runOutput result)
+
+testCharTextLiteralRendering :: IO ()
+testCharTextLiteralRendering = do
+  result <- runSource defaultWarningSettings "('a', '\\n', \"Jazz\", \"a\\n\\\"b\")."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "('a', '\\n', \"Jazz\", \"a\\n\\\"b\")") (runOutput result)
+
+testCharTextStrictEquality :: IO ()
+testCharTextStrictEquality = do
+  result <- runSource defaultWarningSettings "('a' == 'a', 'a' != 'b', \"Jazz\" == \"Jazz\", \"Jazz\" != \"jazz\", Eq::equals 'a' 'a', Eq::equals \"Jazz\" \"Jazz\")."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, True, True, True, True, True)") (runOutput result)
+
+testCharTextLiteralPatterns :: IO ()
+testCharTextLiteralPatterns = do
+  result <- runSource defaultWarningSettings "(case 'a' { | 'a' -> 1 | _ -> 0 }, case \"Jazz\" { | \"Jazz\" -> 1 | _ -> 0 })."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(1, 1)") (runOutput result)
 
 testDirectSelfAliasRuntimeError :: IO ()
 testDirectSelfAliasRuntimeError = do

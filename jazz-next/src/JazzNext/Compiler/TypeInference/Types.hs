@@ -35,6 +35,8 @@ data ExpressionType
   | TFloatType
   | TNumericType NumericType
   | TBoolType
+  | TCharType
+  | TTextType
   | TListType ExpressionType
   | TTupleType [ExpressionType]
   | TDataType Name [ExpressionType]

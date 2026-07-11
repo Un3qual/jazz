@@ -37,6 +37,7 @@ tests :: [NamedTest]
 tests =
   [ ("parses Unit case-arm pattern tokens", testParsesUnitCaseArmPatternTokens),
     ("parses case-arm pattern tokens and preserves remainder", testParsesCaseArmPatternTokens),
+    ("parses Char and Text literal patterns", testParsesCharAndTextLiteralPatterns),
     ("parses lambda parameter tokens", testParsesLambdaParameterTokens),
     ("rejects fractional literal patterns", testRejectsFractionalLiteralPatterns)
   ]
@@ -75,6 +76,35 @@ testParsesCaseArmPatternTokens = do
             ),
           SPConstructor "Nothing" []
         ]
+
+testParsesCharAndTextLiteralPatterns :: IO ()
+testParsesCharAndTextLiteralPatterns = do
+  charTokens <- lexSource "'a' -> body"
+  assertEqual
+    "Char literal pattern"
+    (Right (SPLiteral (SLChar 'a'), [TArrow, TIdentifier "body"]))
+    (fmap (fmap tokenKinds) (parseCaseArmPatternTokens charTokens))
+  textTokens <- lexSource "\"Jazz\" -> body"
+  assertEqual
+    "Text literal pattern"
+    (Right (SPLiteral (SLText "Jazz"), [TArrow, TIdentifier "body"]))
+    (fmap (fmap tokenKinds) (parseCaseArmPatternTokens textTokens))
+
+  nestedTokens <- lexSource "Pair 'a' \"Jazz\" -> body"
+  assertEqual
+    "nested Char/Text literal patterns"
+    ( Right
+        ( SPConstructor "Pair" [SPLiteral (SLChar 'a'), SPLiteral (SLText "Jazz")],
+          [TArrow, TIdentifier "body"]
+        )
+    )
+    (fmap (fmap tokenKinds) (parseCaseArmPatternTokens nestedTokens))
+
+  lambdaTokens <- lexSource "'a', next"
+  assertEqual
+    "Char literal lambda pattern"
+    (Right (SurfaceLambdaPattern (SPLiteral (SLChar 'a')), [TComma, TIdentifier "next"]))
+    (fmap (fmap tokenKinds) (parseLambdaParameterTokens lambdaTokens))
 
 testParsesLambdaParameterTokens :: IO ()
 testParsesLambdaParameterTokens = do

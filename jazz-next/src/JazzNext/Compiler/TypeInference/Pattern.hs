@@ -611,6 +611,8 @@ literalExpressionType literal =
     LFloat _ _ maybeTargetType ->
       maybe TFloatType TNumericType maybeTargetType
     LBool _ -> TBoolType
+    LChar _ -> TCharType
+    LText _ -> TTextType
 
 instantiateConstructorBinding :: TypeBinding -> InferState -> Maybe ([ExpressionType], ExpressionType, InferState)
 instantiateConstructorBinding binding state =

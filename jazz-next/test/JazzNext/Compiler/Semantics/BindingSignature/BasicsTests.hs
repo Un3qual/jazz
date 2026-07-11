@@ -57,6 +57,7 @@ basicTests =
     , ("signature directly above matching binding is accepted", testSignatureDirectlyAboveBinding)
     , ("nested scope resolves outer bindings", testNestedScopeResolvesOuterBinding)
     , ("source pipeline accepts adjacent signature and binding", testSourceAcceptsSignatureAdjacency)
+    , ("source pipeline accepts Char and Text signatures", testSourceAcceptsCharTextSignatures)
     , ("source pipeline preserves numeric defaults through final solver phase", testSourcePreservesNumericDefaultsThroughFinalSolverPhase)
     , ("source pipeline preserves Float alias hint across numeric operator dispatch", testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch)
     , ("source pipeline uses binding signatures to contextualize RHS lambdas", testSourceUsesBindingSignaturesToContextualizeRhsLambdas)
@@ -117,6 +118,11 @@ testNestedScopeResolvesOuterBinding = do
 testSourceAcceptsSignatureAdjacency :: IO ()
 testSourceAcceptsSignatureAdjacency =
   assertSourceOk "x :: Int.\nx = 1.\nx."
+
+testSourceAcceptsCharTextSignatures :: IO ()
+testSourceAcceptsCharTextSignatures =
+  assertSourceOk
+    "character :: Char.\ncharacter = 'a'.\nmessage :: Text.\nmessage = \"Jazz\".\n(message, character)."
 
 testSourcePreservesNumericDefaultsThroughFinalSolverPhase :: IO ()
 testSourcePreservesNumericDefaultsThroughFinalSolverPhase =

@@ -1024,6 +1024,8 @@ expressionTypeVariableOrder =
         TFloatType -> []
         TNumericType {} -> []
         TBoolType -> []
+        TCharType -> []
+        TTextType -> []
         TListType elementType ->
           go elementType
         TTupleType elementTypes ->

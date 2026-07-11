@@ -270,6 +270,8 @@ lowerSurfaceLiteral literal =
     SLFloat value literalSource maybeTargetType ->
       LFloat value literalSource (fmap lowerSurfaceNumericType maybeTargetType)
     SLBool value -> LBool value
+    SLChar value -> LChar value
+    SLText value -> LText value
 
 lowerSurfacePattern :: SurfacePattern -> Pattern
 lowerSurfacePattern surfacePattern =
@@ -373,6 +375,8 @@ lowerSurfaceSignatureType surfaceSignatureType =
     SurfaceTypeFloat -> TypeFloat
     SurfaceTypeNumeric numericType -> TypeNumeric (lowerSurfaceNumericType numericType)
     SurfaceTypeBool -> TypeBool
+    SurfaceTypeChar -> TypeChar
+    SurfaceTypeText -> TypeText
     SurfaceTypeList innerType ->
       TypeList (lowerSurfaceSignatureType innerType)
     SurfaceTypeTuple elementTypes ->
