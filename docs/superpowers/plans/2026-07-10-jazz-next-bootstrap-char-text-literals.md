@@ -44,6 +44,7 @@ target_paths:
   - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/Runtime/RenderingTests.hs
   - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Modules/Loader/CapabilitiesTests.hs
   - jazz-next/test/JazzNext/Compiler/Modules/Loader/VisibilityTests.hs
 verification:
   - bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Parser/TokenParserSpec.hs

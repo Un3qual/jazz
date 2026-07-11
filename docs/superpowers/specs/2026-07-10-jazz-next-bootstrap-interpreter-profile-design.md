@@ -2,7 +2,11 @@
 
 ## Status
 
-Approved in discussion on `2026-07-10`; implementation has not started.
+Approved in discussion on `2026-07-10`. The full bootstrap interpreter profile
+is not yet implemented. Its first child, backend-independent `Char`/`Text`
+literal semantics, is complete under plan
+`JN-BOOTSTRAP-CHAR-TEXT-LITERALS-001` with `status: done`; the remaining profile
+capabilities below are still staged follow-up work.
 
 ## Goal
 
@@ -128,10 +132,11 @@ and canonical compiler-output serialization.
 
 `Char` represents one Unicode scalar value, excluding surrogate code points.
 Character literals use single quotes and support the same mandatory escapes as
-text literals. Character equality and total ordering compare scalar values.
+text literals. The active `Char`/`Text` child provides scalar-value equality;
+total ordering remains a later bootstrap-profile requirement.
 
-The kernel provides constant-time scalar classification and conversion needed
-by lexing:
+Later bootstrap-profile work must provide the constant-time scalar
+classification and conversion needed by lexing:
 
 - scalar value to and from `UInt32` with checked failure;
 - ASCII letter, digit, alphanumeric, whitespace, and newline predicates; and
@@ -146,13 +151,19 @@ surface supports escaped quote, backslash, newline, carriage return, tab, null,
 and scalar escapes. Invalid escapes and invalid scalar values are lexical
 diagnostics, not replacement characters.
 
-The Jazz-visible API must provide:
+The active `Char`/`Text` child provides literals, patterns, signatures, exact
+scalar-sequence equality, deterministic rendering, and module transport. Exact
+`Text` equality is therefore part of the active bootstrap contract; ordering,
+traversal, indexing, slicing, concatenation, builders, and search remain later
+profile work.
+
+The later Jazz-visible text API must add:
 
 - `textEmpty`, `textLength`, `textIsEmpty`;
 - `textUncons`, returning the first `Char` and remaining `Text` safely;
 - checked indexing and slicing;
 - concatenation and a multi-fragment builder path;
-- equality and lexicographic ordering;
+- lexicographic ordering;
 - prefix, suffix, and substring checks.
 
 `textLength`, checked indexing, and slicing count Unicode scalar values rather
