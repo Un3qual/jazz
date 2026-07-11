@@ -191,16 +191,16 @@ and repository queue/docs gates.
 - Modify: `jazz-next/test/JazzNext/Compiler/Semantics/Runtime/HostIOTests.hs`
 - Modify: `jazz-next/jazz-next.cabal`
 
-- [ ] Add failing temporary-file tests for multibyte round trips, missing paths,
+- [x] Add failing temporary-file tests for multibyte round trips, missing paths,
   invalid UTF-8, and normalized failures.
-- [ ] Add CLI tests proving run mode injects production while compile mode
+- [x] Add CLI tests proving run mode injects production while compile mode
   remains effect-free.
-- [ ] Add `bytestring` and implement byte-oriented input, strict decoding,
+- [x] Add `bytestring` and implement byte-oriented input, strict decoding,
   explicit UTF-8 output, arguments, exit, and reliable synchronous exception
   classification.
-- [ ] Route only CLI run paths through the production host.
-- [ ] Run runtime/CLI suites and verify GREEN.
-- [ ] Commit as `feat: run Jazz with production host IO`.
+- [x] Route only CLI run paths through the production host.
+- [x] Run runtime/CLI suites and verify GREEN.
+- [x] Commit as `feat: run Jazz with production host IO`.
 
 ### Task 6: Add Jazz-authored `IOError` and `IO` modules
 

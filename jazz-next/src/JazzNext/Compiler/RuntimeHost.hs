@@ -8,11 +8,38 @@ module JazzNext.Compiler.RuntimeHost
     HostIOFailure (..),
     RuntimeHost (..),
     disabledRuntimeHost,
+    productionRuntimeHost,
     hostIOCategoryToken,
     hostIOFailureMessage
   ) where
 
+import qualified Data.ByteString as ByteString
 import Data.Text (Text)
+import qualified Data.Text as Text
+import qualified Data.Text.Encoding as TextEncoding
+import GHC.IO.Exception
+  ( IOErrorType (Interrupted, UnsupportedOperation)
+  )
+import System.Environment (getArgs)
+import System.Exit
+  ( ExitCode (..),
+    exitWith
+  )
+import System.IO
+  ( Handle,
+    stderr,
+    stdin,
+    stdout
+  )
+import System.IO.Error
+  ( ioeGetErrorType,
+    isAlreadyExistsError,
+    isDoesNotExistError,
+    isFullError,
+    isIllegalOperation,
+    isPermissionError,
+    tryIOError
+  )
 
 data HostIOCategory
   = HostNotFound
@@ -54,6 +81,71 @@ disabledRuntimeHost =
     }
   where
     unsupported = Left (HostIOFailure HostUnsupported (hostIOFailureMessage HostUnsupported))
+
+productionRuntimeHost :: RuntimeHost IO
+productionRuntimeHost =
+  RuntimeHost
+    { runtimeHostReadText = readUtf8File,
+      runtimeHostWriteText = writeUtf8File,
+      runtimeHostReadStdin = readUtf8Handle stdin,
+      runtimeHostWriteStdout = writeUtf8Handle stdout,
+      runtimeHostWriteStderr = writeUtf8Handle stderr,
+      runtimeHostArguments = map Text.pack <$> getArgs,
+      runtimeHostExit = \status ->
+        exitWith
+          ( if status == 0
+              then ExitSuccess
+              else ExitFailure (fromInteger status)
+          )
+    }
+
+readUtf8File :: Text -> IO (Either HostIOFailure Text)
+readUtf8File path = do
+  bytesResult <- captureHostIO (ByteString.readFile (Text.unpack path))
+  pure (bytesResult >>= decodeUtf8)
+
+writeUtf8File :: Text -> Text -> IO (Either HostIOFailure ())
+writeUtf8File path contents =
+  captureHostIO
+    (ByteString.writeFile (Text.unpack path) (TextEncoding.encodeUtf8 contents))
+
+readUtf8Handle :: Handle -> IO (Either HostIOFailure Text)
+readUtf8Handle handle = do
+  bytesResult <- captureHostIO (ByteString.hGetContents handle)
+  pure (bytesResult >>= decodeUtf8)
+
+writeUtf8Handle :: Handle -> Text -> IO (Either HostIOFailure ())
+writeUtf8Handle handle contents =
+  captureHostIO (ByteString.hPut handle (TextEncoding.encodeUtf8 contents))
+
+decodeUtf8 :: ByteString.ByteString -> Either HostIOFailure Text
+decodeUtf8 bytes =
+  case TextEncoding.decodeUtf8' bytes of
+    Left _ -> Left (normalizedHostFailure HostInvalidData)
+    Right contents -> Right contents
+
+captureHostIO :: IO value -> IO (Either HostIOFailure value)
+captureHostIO action = do
+  result <- tryIOError action
+  pure $
+    case result of
+      Left ioError -> Left (normalizedHostFailure (classifyHostIOError ioError))
+      Right value -> Right value
+
+classifyHostIOError :: IOError -> HostIOCategory
+classifyHostIOError ioError
+  | isDoesNotExistError ioError = HostNotFound
+  | isPermissionError ioError = HostPermissionDenied
+  | isAlreadyExistsError ioError = HostAlreadyExists
+  | isFullError ioError = HostResourceExhausted
+  | ioeGetErrorType ioError == Interrupted = HostInterrupted
+  | isIllegalOperation ioError = HostUnsupported
+  | ioeGetErrorType ioError == UnsupportedOperation = HostUnsupported
+  | otherwise = HostOther
+
+normalizedHostFailure :: HostIOCategory -> HostIOFailure
+normalizedHostFailure category =
+  HostIOFailure category (hostIOFailureMessage category)
 
 hostIOCategoryToken :: HostIOCategory -> Text
 hostIOCategoryToken category =

@@ -9,6 +9,8 @@ import Control.Monad.Trans.State.Strict
     modify,
     runState
   )
+import Control.Exception (finally)
+import qualified Data.ByteString as ByteString
 import Data.Functor.Identity (Identity (..))
 import Data.IORef
   ( IORef,
@@ -17,6 +19,7 @@ import Data.IORef
     modifyIORef'
   )
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     Expr (..),
@@ -41,7 +44,8 @@ import JazzNext.Compiler.RuntimeHost
     HostIOFailure (..),
     RuntimeHost (..),
     hostIOCategoryToken,
-    hostIOFailureMessage
+    hostIOFailureMessage,
+    productionRuntimeHost
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -49,6 +53,15 @@ import JazzNext.TestHarness
     assertLeftDiagnosticContains
   )
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
+import System.Directory
+  ( getTemporaryDirectory,
+    removeFile
+  )
+import System.Environment (getArgs)
+import System.IO
+  ( hClose,
+    openBinaryTempFile
+  )
 
 hostIOTests :: [NamedTest]
 hostIOTests =
@@ -57,7 +70,11 @@ hostIOTests =
     ("host failures normalize every category", testHostFailuresNormalizeEveryCategory),
     ("host effects execute at selected expression depth", testHostEffectsExecuteAtSelectedExpressionDepth),
     ("exit rejects statuses outside the portable range", testExitRejectsInvalidStatus),
-    ("standalone source execution injects its runtime host", testStandaloneSourceInjectsRuntimeHost)
+    ("standalone source execution injects its runtime host", testStandaloneSourceInjectsRuntimeHost),
+    ("production host round trips multibyte UTF-8", testProductionHostRoundTripsUtf8),
+    ("production host classifies missing files", testProductionHostClassifiesMissingFile),
+    ("production host rejects invalid UTF-8", testProductionHostRejectsInvalidUtf8),
+    ("production host exposes process arguments", testProductionHostExposesArguments)
   ]
 
 testHostAwareEvaluatorPreservesPureExpressions :: IO ()
@@ -229,6 +246,53 @@ recordingIOHost callsRef =
     record call result = do
       modifyIORef' callsRef (<> [call])
       pure result
+
+testProductionHostRoundTripsUtf8 :: IO ()
+testProductionHostRoundTripsUtf8 =
+  withTemporaryPath $ \path -> do
+    writeResult <- runtimeHostWriteText productionRuntimeHost (Text.pack path) "Jazz λ 🎷"
+    readResult <- runtimeHostReadText productionRuntimeHost (Text.pack path)
+    assertEqual "production UTF-8 write" (Right ()) writeResult
+    assertEqual "production UTF-8 read" (Right "Jazz λ 🎷") readResult
+
+testProductionHostClassifiesMissingFile :: IO ()
+testProductionHostClassifiesMissingFile =
+  withTemporaryPath $ \path -> do
+    removeFile path
+    readResult <- runtimeHostReadText productionRuntimeHost (Text.pack path)
+    assertEqual
+      "production missing-file category"
+      (Left (HostIOFailure HostNotFound (hostIOFailureMessage HostNotFound)))
+      readResult
+
+testProductionHostRejectsInvalidUtf8 :: IO ()
+testProductionHostRejectsInvalidUtf8 =
+  withTemporaryPath $ \path -> do
+    ByteString.writeFile path (ByteString.pack [0xC3, 0x28])
+    readResult <- runtimeHostReadText productionRuntimeHost (Text.pack path)
+    assertEqual
+      "production invalid UTF-8 category"
+      (Left (HostIOFailure HostInvalidData (hostIOFailureMessage HostInvalidData)))
+      readResult
+
+testProductionHostExposesArguments :: IO ()
+testProductionHostExposesArguments = do
+  expected <- map Text.pack <$> getArgs
+  actual <- runtimeHostArguments productionRuntimeHost
+  assertEqual "production process arguments" expected actual
+
+withTemporaryPath :: (FilePath -> IO a) -> IO a
+withTemporaryPath action = do
+  temporaryDirectory <- getTemporaryDirectory
+  (path, handle) <- openBinaryTempFile temporaryDirectory "jazz-next-host-io"
+  hClose handle
+  action path `finally` removeIfPresent path
+  where
+    removeIfPresent path = do
+      result <- runtimeHostReadText productionRuntimeHost (Text.pack path)
+      case result of
+        Left (HostIOFailure HostNotFound _) -> pure ()
+        _ -> removeFile path
 
 statefulHost :: RuntimeHost (State [HostCall])
 statefulHost =
