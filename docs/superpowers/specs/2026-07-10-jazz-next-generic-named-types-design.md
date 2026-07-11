@@ -2,12 +2,12 @@
 
 ## Status
 
-Approved in discussion and written-spec review on `2026-07-10`; implementation
-has not started.
+Approved in discussion and written-spec review on `2026-07-10`; implemented in
+active `jazz-next` on `2026-07-10` by commit `b41a70a`.
 
 The executable child id is `JN-BOOTSTRAP-GENERIC-NAMED-TYPES-001`. This
-document defines that child; its reviewed implementation plan promotes it into
-`Ready Now` with exact target paths and verification.
+document defines the completed child. Its reviewed implementation plan records
+the exact target paths, tests, architecture guard, and closeout verification.
 
 ## Goal
 

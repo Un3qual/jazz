@@ -34,6 +34,32 @@ Each blocked item should answer these questions:
 
 ## Current Blockers
 
+### JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001
+
+- Smallest unblocker: curate `JN-BOOTSTRAP-MAYBE-RESULT-LIBRARIES-001` as a
+  separate Jazz-authored library child now that generic named signatures and
+  module transport are complete.
+- Decision needed: accept the exact module names and export lists for
+  `Maybe(a)` and `Result(e, a)`, and decide whether these files are ordinary
+  importable stdlib modules or part of the bundled-prelude closure.
+- Recommended default: create ordinary `.jz` modules under
+  `jazz-next/stdlib/`, export each type plus its constructors explicitly, and
+  keep the bundled prelude limited to existing kernel bridges until a later
+  contract demonstrates that implicit availability is required.
+- Candidate child: `JN-BOOTSTRAP-MAYBE-RESULT-LIBRARIES-001`.
+- Target paths: `jazz-next/stdlib/Maybe.jz`,
+  `jazz-next/stdlib/Result.jz`,
+  `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`,
+  `jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`, and
+  `docs/jazz-language-state.md`.
+- Verification: focused loader and prelude-loading suites;
+  `bash jazz-next/scripts/test-warning-config.sh`;
+  `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
+  `git diff --check`.
+- Not in scope: text traversal, host I/O, stack-safe evaluation, lexer/parser
+  modules, new compiler builtins, a bootstrap-only type representation,
+  backend-neutral lowered IR, LLVM lowering, linking, or the native runtime.
+
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
 - Smallest unblocker: none currently. The cross-cutting typed module export

@@ -1,6 +1,7 @@
 ---
 id: JN-BOOTSTRAP-GENERIC-NAMED-TYPES-001
-status: ready
+status: done
+completed_on: 2026-07-10
 priority: P1
 size: L
 kind: impl
@@ -128,7 +129,7 @@ deliverable: "Add full rank-1 generic named types to jazz-next signatures, const
 - Consumes: identifier tokens, `parseSignaturePayload`, `parseSignatureTypePrefix`, and existing primitive/list/tuple/function parsing.
 - Produces: the only two recursive trees, `SurfaceSignatureType` and `SignatureType`; every `SurfaceSignaturePayload`, `SignaturePayload`, constraint, impl target, and type application contains one of those trees, while expression type applications also retain the `@` token span.
 
-- [ ] **Step 1: Add parser assertions for the accepted recursive grammar**
+- [x] **Step 1: Add parser assertions for the accepted recursive grammar**
 
 Register focused cases that assert these exact normalized trees:
 
@@ -144,11 +145,11 @@ identity @Maybe(Char) value.
 
 Expected nodes include `SurfaceTypeVariable`, `SurfaceTypeName`, and `SurfaceTypeApplication`; both `List(a)` and `[a]` must contain `SurfaceTypeList (SurfaceTypeVariable (mkIdentifier "a"))`.
 
-- [ ] **Step 2: Add invalid grammar assertions**
+- [x] **Step 2: Add invalid grammar assertions**
 
 Add parser cases for `Maybe()`, `Maybe(Char,)`, and an empty explicit type argument. Expect the existing parser diagnostic family, while `f(Char)` must parse structurally so inference can issue `E2009` for a variable-headed application.
 
-- [ ] **Step 3: Run the parser suite and verify the new cases fail**
+- [x] **Step 3: Run the parser suite and verify the new cases fail**
 
 Run:
 
@@ -158,7 +159,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 
 Expected: FAIL because the retained trees do not yet contain variable, name, or application constructors and ordinary signatures reject generic syntax.
 
-- [ ] **Step 4: Define the unified surface and core types**
+- [x] **Step 4: Define the unified surface and core types**
 
 Make the payload shapes and recursive constructors exactly:
 
@@ -187,15 +188,15 @@ data Expr
 
 The shown expression constructors replace their existing arity within the full existing sum types; do not create second `SurfaceExpr` or `Expr` declarations. Add `SurfaceTypeVariable`, `SurfaceTypeName`, `SurfaceTypeApplication`, `TypeVariable`, `TypeName`, and `TypeApplication` to the retained trees. Change `SSImpl` and `SImpl` target arguments to the retained type. Remove both constrained tree declarations.
 
-- [ ] **Step 5: Collapse parsing and lowering onto one recursive path**
+- [x] **Step 5: Collapse parsing and lowering onto one recursive path**
 
 Use one right-associative parser for ordinary bodies, constrained bodies, constraint arguments, impl targets, and explicit type arguments. Parse a lower-case bare identifier as `SurfaceTypeVariable`, an upper-case bare identifier as a primitive or `SurfaceTypeName`, an identifier with nonempty parenthesized arguments as `SurfaceTypeApplication`, and normalize `List(x)` directly to `SurfaceTypeList x`. Capture `tokenSpan typeApplicationToken` in `SETypeApplication`, lower it into `ETypeApplication`, and update every expression traversal to preserve that span. Replace `lowerSurfaceConstrainedSignatureType` with recursive `lowerSurfaceSignatureType` handling every retained constructor.
 
-- [ ] **Step 6: Run the parser suite and verify it passes**
+- [x] **Step 6: Run the parser suite and verify it passes**
 
 Run the Task 1 command. Expected: PASS, including identical trees for `[a]` and `List(a)`.
 
-- [ ] **Step 7: Commit the parser and AST boundary**
+- [x] **Step 7: Commit the parser and AST boundary**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/AST.hs jazz-next/src/JazzNext/Compiler/Parser jazz-next/test/JazzNext/Compiler/Parser/Foundation
@@ -219,7 +220,7 @@ git commit -m "refactor: unify Jazz signature type syntax"
 - Consumes: `TypeNamespace`, `inferDataTypes :: InferState -> Map Text DataTypeBinding`, and `DataTypeBinding [Name] [[ConstructorArgumentType]]`.
 - Produces: recursively resolved `SignatureType` nodes and `TDataType resolvedName arguments`, or a structured named-type failure rendered as `E2009`.
 
-- [ ] **Step 1: Add semantic success and failure cases**
+- [x] **Step 1: Add semantic success and failure cases**
 
 Add success cases for a declared `Maybe(a)`, a two-parameter `Result(e, a)`, nested applications, a zero-parameter data type used bare, and two imported same-text types retaining different resolved origins. Add a declaration-order case where a signature before its local data declaration rejects and the same signature after that declaration succeeds. Add failures whose rendered diagnostics contain these exact facts:
 
@@ -234,7 +235,7 @@ type 'List' expects 1 argument(s), found 2
 
 Assert code `E2009` and the owning signature span. Add an explicit-application unknown-name case asserting the explicit type-argument span.
 
-- [ ] **Step 2: Run binding and module-resolution suites and verify failure**
+- [x] **Step 2: Run binding and module-resolution suites and verify failure**
 
 Run:
 
@@ -245,11 +246,11 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 
 Expected: FAIL because nested signature names are not resolved or validated.
 
-- [ ] **Step 3: Resolve every retained type node recursively**
+- [x] **Step 3: Resolve every retained type node recursively**
 
 Add one `resolveSignatureType` traversal in `ModuleResolver.hs`. Preserve `TypeVariable`; resolve `TypeName` and `TypeApplication` heads with `resolveName TypeNamespace`; recurse through application arguments, lists, tuples, and functions. Use it for ordinary/constrained payloads, constraints, impl targets, class methods, and `ETypeApplication`. Replace `constraintTypeNames` in `ModuleGraph.hs` with a single `signatureTypeNames` traversal.
 
-- [ ] **Step 4: Convert named types with a structured failure result**
+- [x] **Step 4: Convert named types with a structured failure result**
 
 Use one conversion boundary shaped as:
 
@@ -268,15 +269,15 @@ signatureTypeToExpressionTypeWithState ::
 
 Primitive constructors map as today. `TypeVariable` looks up its allocated entry. `TypeName` accepts only a visible zero-parameter `DataTypeBinding`; `TypeApplication` validates built-in `List` at arity one and otherwise looks up the visible `DataTypeBinding`, compares argument count to `length typeParameters`, recursively converts arguments, and returns `TDataType name arguments`. A lower-case application head returns `VariableApplicationHead`. `TypeList`, `TypeTuple`, and `TypeFunction` recurse.
 
-- [ ] **Step 5: Render each structured failure as deterministic `E2009`**
+- [x] **Step 5: Render each structured failure as deterministic `E2009`**
 
 Thread the failure from `signaturePayloadToSignatureType` to `mkInvalidSignatureTypeError` so the message distinguishes unknown name, expected/received arity, variable head, and partial application. Preserve existing mismatch, constraint, and `E2017` behavior after a type argument has resolved successfully.
 
-- [ ] **Step 6: Run both focused suites and verify they pass**
+- [x] **Step 6: Run both focused suites and verify they pass**
 
 Run the two Task 2 commands. Expected: PASS with nominal origins and exact error text asserted.
 
-- [ ] **Step 7: Commit recursive resolution and arity checking**
+- [x] **Step 7: Commit recursive resolution and arity checking**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/ModuleResolver.hs jazz-next/src/JazzNext/Compiler/ModuleGraph.hs jazz-next/src/JazzNext/Compiler/TypeInference/Capabilities.hs jazz-next/src/JazzNext/Compiler/TypeInference/Diagnostics.hs jazz-next/test/JazzNext/Compiler/Semantics/BindingSignature jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
@@ -300,15 +301,15 @@ git commit -m "feat: resolve generic named signature types"
 - Consumes: the Task 2 conversion boundary and existing `TypeScheme`, `instantiateTypeScheme`, and `orderedSchemeVariables` behavior.
 - Produces: `SignaturePayloadType` with a declared expression type and first-occurrence variable order for both ordinary and constrained signatures.
 
-- [ ] **Step 1: Add rank-1 behavior tests**
+- [x] **Step 1: Add rank-1 behavior tests**
 
 Add a signed identity used once at `Int` and once at `Text`, a signed two-variable mapper where `a` and `b` instantiate independently, repeated-variable mismatch coverage for `a -> a`, nested `Result(e, List(Maybe(a)))`, and a recursively signed generic binding. Assert the binding scheme order for `(b -> a) -> b -> a` is `b`, then `a`.
 
-- [ ] **Step 2: Run the binding-signature suite and verify failure**
+- [x] **Step 2: Run the binding-signature suite and verify failure**
 
 Run the BindingSignatureCoherence command. Expected: FAIL because ordinary signatures do not allocate or quantify `TypeVariable` nodes.
 
-- [ ] **Step 3: Allocate variables in first-occurrence order**
+- [x] **Step 3: Allocate variables in first-occurrence order**
 
 Replace constrained-only variable collectors with unified helpers:
 
@@ -319,15 +320,15 @@ signatureTypeVariableNames :: SignatureType -> Set Text
 
 Traverse application arguments, lists, tuples, and function arguments/results left to right. De-duplicate without sorting. Allocate one fresh `TVarType` per name and pass that map through the Task 2 conversion function.
 
-- [ ] **Step 4: Build a declared `TypeScheme` for any generic adjacent signature**
+- [x] **Step 4: Build a declared `TypeScheme` for any generic adjacent signature**
 
 Make both `SignatureType signatureType` and `ConstrainedSignature constraints signatureType` return `SignaturePayloadType` with `signaturePayloadVariableOrder`. During adjacent-signature checking, unify the RHS with an instantiation of the declared type, then store `SchemeTypeBinding` whose quantified set/order comes from the declared variables. Keep existing inferred constraints, primitive constraints, defining capability facts, recursion staging, and per-use `instantiateTypeScheme` behavior.
 
-- [ ] **Step 5: Run the binding-signature suite and verify it passes**
+- [x] **Step 5: Run the binding-signature suite and verify it passes**
 
 Run the Task 3 command. Expected: PASS, including incompatible concrete instantiations of the same signed generic binding in one scope.
 
-- [ ] **Step 6: Commit declared generic schemes**
+- [x] **Step 6: Commit declared generic schemes**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/TypeInference jazz-next/src/JazzNext/Compiler/TypeInference.hs jazz-next/test/JazzNext/Compiler/Semantics/BindingSignature
@@ -351,11 +352,11 @@ git commit -m "feat: infer rank-one signed generic schemes"
 - Consumes: unified `SignatureType`, rank-1 variable maps, current class arity facts, concrete impl facts, and current overlap/dispatch rules.
 - Produces: `ImplMethodType SignatureType` plus unified render, compatibility, substitution, variable collection, fact-key, and function-argument helpers.
 
-- [ ] **Step 1: Add constrained generic and impl regression tests**
+- [x] **Step 1: Add constrained generic and impl regression tests**
 
 Cover `@{Eq(a)}: List(a) -> List(a) -> Bool`, a nested concrete `Eq(Maybe(Char))` impl target, repeated variable consistency, class arity errors, duplicate constraints, constrained variables missing from the body, and unchanged concrete missing-impl diagnostics.
 
-- [ ] **Step 2: Run binding and runtime suites and verify failure**
+- [x] **Step 2: Run binding and runtime suites and verify failure**
 
 Run:
 
@@ -366,19 +367,19 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 
 Expected: FAIL while capability helpers still require the removed constrained tree.
 
-- [ ] **Step 3: Rename capability helpers around the retained type**
+- [x] **Step 3: Rename capability helpers around the retained type**
 
 Replace `constraintSignature*` helpers with `signatureType*` helpers over `SignatureType`. Preserve the existing behavior of fact keys, alias variants, concrete compatibility, class-parameter occurrence, ordered variable collection, function argument extraction, structural equality checks, and diagnostic rendering. Ensure `TypeApplication` recursively participates in every helper.
 
-- [ ] **Step 4: Migrate analyzer and inference metadata**
+- [x] **Step 4: Migrate analyzer and inference metadata**
 
 Change `ImplMethodType`, analyzer impl checks, deferred constraints, exact-evidence matching, and inferred constraint runtime selection to `SignatureType`. Delete conversions whose only purpose was translating between the former trees; keep one expression-type conversion and one expression-type-to-concrete-hint conversion.
 
-- [ ] **Step 5: Run the Task 4 suites and verify they pass**
+- [x] **Step 5: Run the Task 4 suites and verify they pass**
 
 Run both Task 4 commands. Expected: PASS with existing constraint and dispatch semantics unchanged.
 
-- [ ] **Step 6: Commit capability migration**
+- [x] **Step 6: Commit capability migration**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/Analyzer.hs jazz-next/src/JazzNext/Compiler/CapabilityFacts.hs jazz-next/src/JazzNext/Compiler/TypeInference jazz-next/test/JazzNext/Compiler/Semantics/BindingSignature
@@ -400,11 +401,11 @@ git commit -m "refactor: unify Jazz capability signature types"
 - Consumes: `ModuleInterface`, imported `TypeScheme`, data-type inventories, explicit export filtering, and `ResolvedNameOrigin`.
 - Produces: imported generic schemes and signature metadata whose nested `TDataType` and `SignatureType` names point to their defining module.
 
-- [ ] **Step 1: Add cross-module generic interface tests**
+- [x] **Step 1: Add cross-module generic interface tests**
 
 Compile a module exporting a generic data type and a generic value, import it into a consumer, and use the value at two concrete instantiations. Add same-text types in two modules and assert they do not unify. Add opaque value export coverage proving a value can expose its nominal type without implicitly exporting the type or constructors.
 
-- [ ] **Step 2: Run loader and parser module suites and verify failure**
+- [x] **Step 2: Run loader and parser module suites and verify failure**
 
 Run:
 
@@ -415,15 +416,15 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 
 Expected: FAIL because unified nested signature metadata is not yet rebased across the interface.
 
-- [ ] **Step 3: Replace parallel rebasing with one recursive traversal**
+- [x] **Step 3: Replace parallel rebasing with one recursive traversal**
 
 Implement `rebaseSignatureType :: ResolvedNameOrigin -> Set Text -> SignatureType -> SignatureType`. Rebase `TypeName` and `TypeApplication` heads only when present in the module's data-type inventory, recurse through all children, preserve `TypeVariable`, and use the traversal for payloads, constraints, class methods, impl targets, and runtime hints. Continue rebasing `TypeScheme` through its existing `ExpressionType` traversal so imported quantified variables freshen at use sites.
 
-- [ ] **Step 4: Run both Task 5 suites and verify they pass**
+- [x] **Step 4: Run both Task 5 suites and verify they pass**
 
 Run both Task 5 commands. Expected: PASS with independent nominal identities and unchanged export visibility.
 
-- [ ] **Step 5: Commit module transport**
+- [x] **Step 5: Commit module transport**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/ModuleCompiler.hs jazz-next/src/JazzNext/Compiler/ModuleInterface.hs jazz-next/src/JazzNext/Compiler/TypeInference/Types.hs jazz-next/test/JazzNext/Compiler/Modules jazz-next/test/JazzNext/Compiler/Parser/Foundation/ModulesTests.hs
@@ -453,27 +454,27 @@ git commit -m "feat: transport generic named types across modules"
 - Consumes: generalized `TypeScheme`, explicit application's quantified-variable order, and `Map BindingRuntimeHintKey SignatureType`.
 - Produces: explicit named-type instantiation and runtime values/hints that contain only concrete unified signature nodes.
 
-- [ ] **Step 1: Add explicit-application and runtime-hint tests**
+- [x] **Step 1: Add explicit-application and runtime-hint tests**
 
 Cover `identity @Maybe(Char) value`, a nested `Result(IOError, Text)` argument, monomorphic target rejection, excess argument rejection, incompatible explicit argument rejection, a polymorphic binding producing no unresolved runtime hint, and its concrete instantiation producing a nominal `TypeApplication` hint.
 
-- [ ] **Step 2: Run runtime and binding suites and verify failure**
+- [x] **Step 2: Run runtime and binding suites and verify failure**
 
 Run the RuntimeSemantics and BindingSignatureCoherence commands. Expected: FAIL because runtime metadata still uses the removed constrained type and explicit arguments cannot lower named applications.
 
-- [ ] **Step 3: Change runtime-hint storage to `SignatureType`**
+- [x] **Step 3: Change runtime-hint storage to `SignatureType`**
 
 Update inference output, module interfaces, compiled prelude data, driver results, `RuntimeValue`, and runtime helper signatures from `ConstraintSignatureType` to `SignatureType`. Make `expressionTypeToRuntimeHint` return `Nothing` if any `TVarType` remains; otherwise recurse through `TDataType name arguments` as `TypeApplication name hints`, preserving zero-argument nominal types as `TypeName name`.
 
-- [ ] **Step 4: Apply explicit named arguments through the existing scheme order**
+- [x] **Step 4: Apply explicit named arguments through the existing scheme order**
 
 Convert the resolved explicit `SignatureType` with the Task 2 boundary, bind it to the first quantified variable, freshen remaining variables, and retain current `E2017` behavior for monomorphic targets, excess applications, and incompatibility. Runtime matching must compare nominal names and application arguments recursively.
 
-- [ ] **Step 5: Run the Task 6 suites and verify they pass**
+- [x] **Step 5: Run the Task 6 suites and verify they pass**
 
 Run both Task 6 commands. Expected: PASS with primitive, numeric, list, tuple, function, ADT, and qualified dispatch regressions unchanged.
 
-- [ ] **Step 6: Commit concrete runtime hints**
+- [x] **Step 6: Commit concrete runtime hints**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/Driver.hs jazz-next/src/JazzNext/Compiler/ModuleInterface.hs jazz-next/src/JazzNext/Compiler/Runtime.hs jazz-next/src/JazzNext/Compiler/TypeInference jazz-next/src/JazzNext/Compiler/TypeInference.hs jazz-next/test/JazzNext/Compiler/Semantics/Runtime
@@ -496,7 +497,7 @@ git commit -m "refactor: use unified runtime type hints"
 - Consumes: all Task 1-6 behavior and repository queue/archive conventions.
 - Produces: an executable architecture guard, current language-status docs, and archived closure evidence for `JN-BOOTSTRAP-GENERIC-NAMED-TYPES-001`.
 
-- [ ] **Step 1: Add the architecture guard**
+- [x] **Step 1: Add the architecture guard**
 
 Add this guard after the suite matrix in the existing executable script so it fails if either removed name appears in production, tests, or Cabal metadata:
 
@@ -510,7 +511,7 @@ fi
 echo "signature type unification checks passed"
 ```
 
-- [ ] **Step 2: Run the architecture guard and verify it passes**
+- [x] **Step 2: Run the architecture guard and verify it passes**
 
 Run:
 
@@ -520,15 +521,15 @@ bash jazz-next/scripts/test-warning-config.sh
 
 Expected: the full suite matrix passes, followed by `signature type unification checks passed`, with exit 0.
 
-- [ ] **Step 3: Run the complete verification contract**
+- [x] **Step 3: Run the complete verification contract**
 
 Run every command in the frontmatter `verification` list in order. Expected: all focused suites, the full warning-config matrix, queue checker, docs checker, and diff check exit 0.
 
-- [ ] **Step 4: Update status and dispatcher documents**
+- [x] **Step 4: Update status and dispatcher documents**
 
 Mark generic named signatures, exact arity, rank-1 signed schemes, module transport, and concrete hints implemented in `docs/feature-status.md` and `docs/jazz-language-state.md`. Change this plan to `status: done`, add `completed_on: 2026-07-10`, move the queue row to `docs/execution/done-archive.md` with verification evidence, and leave `Ready Now` empty unless a separately reviewed child has been promoted. Keep Jazz-authored `Maybe`/`Result` libraries as a separate unpromoted child.
 
-- [ ] **Step 5: Re-run queue and docs gates after closeout**
+- [x] **Step 5: Re-run queue and docs gates after closeout**
 
 Run:
 
@@ -540,7 +541,7 @@ git diff --check
 
 Expected: all three commands exit 0.
 
-- [ ] **Step 6: Commit verified closeout**
+- [x] **Step 6: Commit verified closeout**
 
 ```bash
 git add jazz-next/scripts/test-warning-config.sh docs/feature-status.md docs/jazz-language-state.md docs/execution/queue.md docs/execution/done-archive.md docs/superpowers/specs/2026-07-10-jazz-next-generic-named-types-design.md docs/superpowers/plans/2026-07-10-jazz-next-generic-named-types.md
