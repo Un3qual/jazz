@@ -36,32 +36,31 @@ Each blocked item should answer these questions:
 
 ### JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001
 
-- Completed child: `JN-BOOTSTRAP-MAYBE-RESULT-LIBRARIES-001` added ordinary
-  importable `Maybe` and `Result` modules with exact type/constructor exports,
-  real module-loader execution evidence, and bundled-prelude exclusion.
-- Smallest unblocker: none currently. Curate the text/collection traversal
-  surface from the approved bootstrap-profile design before promoting another
-  implementation child.
-- Decision needed: lock the exact Jazz-visible text traversal API, including
-  safe empty/non-empty decomposition and scalar-counting behavior, then name
-  the stage-0 runtime, stdlib alias, module-loader, and focused test owners.
-- Recommended default: preserve immutable backend-independent `Text` semantics,
-  expose traversal through ordinary Jazz APIs backed by versionable stage-0
-  kernel operations, and avoid Haskell-only representations in Jazz source or
-  any LLVM-specific frontend coupling.
-- Candidate child: `JN-BOOTSTRAP-TEXT-TRAVERSAL-001`, unpromoted until the API
-  and exact target-path contract are accepted.
-- Candidate target paths: `docs/spec/runtime/text-character-semantics.md`,
-  `jazz-next/stdlib/Text.jz`, the active builtin catalog/type/runtime owners,
-  and focused catalog/primitive/runtime/module-loader suites named in the live
-  queue candidate.
+- Completed children: `JN-BOOTSTRAP-MAYBE-RESULT-LIBRARIES-001` added ordinary
+  `Maybe` and `Result` modules, and `JN-BOOTSTRAP-TEXT-TRAVERSAL-001` added the
+  explicit-import scalar traversal API with private backend-neutral adapters.
+- Smallest unblocker: none currently. Curate the approved host text-I/O surface
+  before promoting another implementation child.
+- Decision needed: lock the exact ordinary Jazz module boundary, `IOError` ADT
+  constructors and stable categories, kernel bridge inventory, stub-v1 purity
+  behavior, stage-0 runtime ownership, and focused success/failure tests.
+- Recommended default: expose recoverable host failures as
+  `Result(IOError, value)`, keep host exception names and platform error numbers
+  private, and preserve the same Jazz-visible contract for the future native
+  runtime instead of coupling frontend types to Haskell or LLVM.
+- Candidate child: `JN-BOOTSTRAP-HOST-TEXT-IO-001`, unpromoted until those
+  module, error, purity, runtime, target-path, and verification decisions are
+  accepted.
+- Candidate target paths: the live queue names the existing builtin catalog,
+  type inference, runtime, purity, module-loader, and focused-test owners; the
+  ordinary module and `IOError` paths remain intentionally unset until the
+  curation pass accepts their source boundary.
 - Verification for the curation pass: focused API/runtime evidence review;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.
-- Not in scope: text traversal, host I/O, stack-safe evaluation, lexer/parser
-  implementation, host I/O, stack-safe evaluation, lexer/parser modules,
-  backend-neutral lowered IR, LLVM lowering, linking, or the native runtime
-  until separately promoted children own those deltas.
+- Not in scope: implementing host I/O during curation, stack-safe evaluation,
+  lexer/parser modules, backend-neutral lowered IR, LLVM lowering, linking, or
+  the native runtime until separately promoted children own those deltas.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

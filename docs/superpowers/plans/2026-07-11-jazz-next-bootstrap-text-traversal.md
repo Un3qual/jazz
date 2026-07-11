@@ -1,6 +1,7 @@
 ---
 id: JN-BOOTSTRAP-TEXT-TRAVERSAL-001
-status: planned
+status: done
+completed_on: 2026-07-11
 priority: P1
 size: M
 kind: impl
@@ -120,7 +121,7 @@ exist.
 
 - [ ] **Step 3: Implement catalog symbols and ownership-aware public lookup.**
 
-Add the constructors after `BuiltinPrint`, classify both as `KernelIntrinsic`,
+Add the constructors after the numeric builtins, classify both as `KernelIntrinsic`,
 render the names `textLength` and `textUnconsRaw`, and assign arity `1`.
 Restrict `ResolveCompatibility`, `lookupBuiltinSymbol`, and
 `builtinNamesInMode ResolveCompatibility` to `PreludeTarget` symbols while
