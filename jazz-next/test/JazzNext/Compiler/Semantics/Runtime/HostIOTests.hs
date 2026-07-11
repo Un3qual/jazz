@@ -10,6 +10,12 @@ import Control.Monad.Trans.State.Strict
     runState
   )
 import Data.Functor.Identity (Identity (..))
+import Data.IORef
+  ( IORef,
+    newIORef,
+    readIORef,
+    modifyIORef'
+  )
 import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..),
@@ -20,6 +26,10 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics (SourceSpan (..))
+import JazzNext.Compiler.Driver
+  ( RunResult (..),
+    runSourceWithPreludeAndHost
+  )
 import JazzNext.Compiler.Name (Name)
 import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
@@ -38,6 +48,7 @@ import JazzNext.TestHarness
     assertEqual,
     assertLeftDiagnosticContains
   )
+import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
 
 hostIOTests :: [NamedTest]
 hostIOTests =
@@ -45,7 +56,8 @@ hostIOTests =
     ("host intrinsics return raw values and preserve call order", testHostIntrinsicsReturnRawValues),
     ("host failures normalize every category", testHostFailuresNormalizeEveryCategory),
     ("host effects execute at selected expression depth", testHostEffectsExecuteAtSelectedExpressionDepth),
-    ("exit rejects statuses outside the portable range", testExitRejectsInvalidStatus)
+    ("exit rejects statuses outside the portable range", testExitRejectsInvalidStatus),
+    ("standalone source execution injects its runtime host", testStandaloneSourceInjectsRuntimeHost)
   ]
 
 testHostAwareEvaluatorPreservesPureExpressions :: IO ()
@@ -185,6 +197,38 @@ testExitRejectsInvalidStatus = do
   assertLeftDiagnosticContains "invalid exit status" "E3030" result
   assertLeftDiagnosticContains "invalid exit status range" "range 0..255" result
   assertEqual "invalid exit does not call host" [] calls
+
+testStandaloneSourceInjectsRuntimeHost :: IO ()
+testStandaloneSourceInjectsRuntimeHost = do
+  callsRef <- newIORef []
+  let host = recordingIOHost callsRef
+  result <-
+    runSourceWithPreludeAndHost
+      host
+      defaultWarningSettings
+      Nothing
+      "__kernel_writeStdoutRaw! \"standalone\"."
+  calls <- readIORef callsRef
+  assertEqual "standalone compile errors" [] (runCompileErrors result)
+  assertEqual "standalone runtime errors" [] (runRuntimeErrors result)
+  assertEqual "standalone raw output" (Just "(True, \"\", \"\", \"\")") (runOutput result)
+  assertEqual "standalone host calls" [WriteStdoutCall "standalone"] calls
+
+recordingIOHost :: IORef [HostCall] -> RuntimeHost IO
+recordingIOHost callsRef =
+  RuntimeHost
+    { runtimeHostReadText = \path -> record (ReadTextCall path) (Right "file text"),
+      runtimeHostWriteText = \path contents -> record (WriteTextCall path contents) (Right ()),
+      runtimeHostReadStdin = record ReadStdinCall (Right "stdin text"),
+      runtimeHostWriteStdout = \contents -> record (WriteStdoutCall contents) (Right ()),
+      runtimeHostWriteStderr = \contents -> record (WriteStderrCall contents) (Right ()),
+      runtimeHostArguments = record ArgumentsCall ["one", "two"],
+      runtimeHostExit = \status -> record (ExitCall status) ()
+    }
+  where
+    record call result = do
+      modifyIORef' callsRef (<> [call])
+      pure result
 
 statefulHost :: RuntimeHost (State [HostCall])
 statefulHost =

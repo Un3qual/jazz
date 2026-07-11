@@ -15,6 +15,11 @@ module JazzNext.Compiler.Runtime
     evaluateRuntimeExprWithBuiltins,
     evaluateRuntimeExpr,
     evaluateRuntimeExprWithHost,
+    evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements,
+    evaluateModuleScopeWithHost,
+    evaluateModuleScopeWithHostAndSourceUnitStatements,
+    evaluateModuleScopeWithRequiredHost,
+    runtimeExprRequiresHost,
     runtimeValueExactlyMatchesConstraint,
     renderRuntimeValue
   ) where
@@ -27,6 +32,7 @@ import Control.Monad.Trans.Except
   )
 import Control.Monad.Trans.Class (lift)
 import Data.Char (isControl, ord, toUpper)
+import Data.Functor.Identity (runIdentity)
 import Data.List (foldl')
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import qualified Data.Map.Strict as Map
@@ -114,6 +120,7 @@ import JazzNext.Compiler.RuntimeHints
 import JazzNext.Compiler.RuntimeHost
   ( HostIOFailure (..),
     RuntimeHost (..),
+    disabledRuntimeHost,
     hostIOCategoryToken,
     hostIOFailureMessage
   )
@@ -230,8 +237,97 @@ evaluateRuntimeExpr :: Expr -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExpr = evaluateRuntimeExprWithBuiltins ResolveKernelOnly
 
 evaluateRuntimeExprWithHost :: Monad m => RuntimeHost m -> Expr -> m (Either Diagnostic (Maybe RuntimeValue))
-evaluateRuntimeExprWithHost host expr =
-  runExceptT (Just <$> evalValueWithHost host Nothing ResolveKernelOnly Map.empty Map.empty expr)
+evaluateRuntimeExprWithHost host =
+  evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements
+    host
+    Set.empty
+    ResolveKernelOnly
+    Map.empty
+
+evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements ::
+  Monad m =>
+  RuntimeHost m ->
+  Set Int ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  Expr ->
+  m (Either Diagnostic (Maybe RuntimeValue))
+evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements host preludeStatementIndices builtinMode bindingTypeHints expr =
+  if runtimeExprRequiresHost expr
+    then
+      case expr of
+        EBlock statements ->
+          fmap scopeResultValue
+            <$> evaluateModuleScopeWithHostAndSourceUnitStatements
+              host
+              preludeStatementIndices
+              Nothing
+              EvaluateEntryModule
+              builtinMode
+              bindingTypeHints
+              Map.empty
+              statements
+        _ ->
+          runExceptT
+            (Just <$> evalValueWithHost host Nothing builtinMode bindingTypeHints Map.empty expr)
+    else
+      pure
+        ( evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements
+            preludeStatementIndices
+            builtinMode
+            bindingTypeHints
+            expr
+        )
+
+runtimeExprRequiresHost :: Expr -> Bool
+runtimeExprRequiresHost expr =
+  case expr of
+    ELit _ -> False
+    EVar name -> runtimeNameRequiresHost name
+    ELambda _ bodyExpr -> runtimeExprRequiresHost bodyExpr
+    EOperatorValue _ -> False
+    EList elements -> any runtimeExprRequiresHost elements
+    ETuple elements -> any runtimeExprRequiresHost elements
+    EApply functionExpr argumentExpr ->
+      runtimeExprRequiresHost functionExpr || runtimeExprRequiresHost argumentExpr
+    ETypeApplication functionExpr _ _ -> runtimeExprRequiresHost functionExpr
+    EIf conditionExpr thenExpr elseExpr ->
+      any runtimeExprRequiresHost [conditionExpr, thenExpr, elseExpr]
+    EPatternCase scrutineeExpr caseArms ->
+      runtimeExprRequiresHost scrutineeExpr || any caseArmRequiresHost caseArms
+    EBinary _ leftExpr rightExpr ->
+      runtimeExprRequiresHost leftExpr || runtimeExprRequiresHost rightExpr
+    ESectionLeft leftExpr _ -> runtimeExprRequiresHost leftExpr
+    ESectionRight _ rightExpr -> runtimeExprRequiresHost rightExpr
+    EBlock statements -> any statementRequiresHost statements
+  where
+    caseArmRequiresHost (CaseArm _ maybeGuard bodyExpr) =
+      maybe False runtimeExprRequiresHost maybeGuard || runtimeExprRequiresHost bodyExpr
+
+    statementRequiresHost statement =
+      case statement of
+        SLet name _ (EVar referencedName)
+          | identifierText name == identifierText referencedName,
+            runtimeNameRequiresHost name ->
+              False
+        SLet _ _ valueExpr -> runtimeExprRequiresHost valueExpr
+        SImpl _ _ _ methods -> any implMethodRequiresHost methods
+        SExpr _ valueExpr -> runtimeExprRequiresHost valueExpr
+        _ -> False
+
+    implMethodRequiresHost (ImplMethod _ _ bodyExpr) = runtimeExprRequiresHost bodyExpr
+
+runtimeNameRequiresHost :: Name -> Bool
+runtimeNameRequiresHost name =
+  case lookupBuiltinSymbolInMode ResolveKernelOnly (identifierText name) of
+    Just BuiltinReadTextRaw -> True
+    Just BuiltinWriteTextRaw -> True
+    Just BuiltinReadStdinRaw -> True
+    Just BuiltinWriteStdoutRaw -> True
+    Just BuiltinWriteStderrRaw -> True
+    Just BuiltinArguments -> True
+    Just BuiltinExit -> True
+    _ -> False
 
 -- | Evaluate an expression under the builtin resolution mode chosen by the
 -- caller, returning a terminal scope value when one exists.
@@ -419,6 +515,79 @@ evaluateModuleScope ::
   Either Diagnostic ScopeResult
 evaluateModuleScope = evaluateModuleScopeWithSourceUnitStatements Set.empty
 
+evaluateModuleScopeWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  Maybe [Text] ->
+  ModuleEvaluationMode ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  [Statement] ->
+  m (Either Diagnostic ScopeResult)
+evaluateModuleScopeWithHost host =
+  evaluateModuleScopeWithHostAndSourceUnitStatements host Set.empty
+
+evaluateModuleScopeWithRequiredHost ::
+  Monad m =>
+  RuntimeHost m ->
+  Maybe [Text] ->
+  ModuleEvaluationMode ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  [Statement] ->
+  m (Either Diagnostic ScopeResult)
+evaluateModuleScopeWithRequiredHost host currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
+  runExceptT
+    ( evalScopeWithHost
+        host
+        Set.empty
+        currentModulePath
+        evaluationMode
+        builtinMode
+        bindingTypeHints
+        initialEnv
+        statements
+    )
+
+evaluateModuleScopeWithHostAndSourceUnitStatements ::
+  Monad m =>
+  RuntimeHost m ->
+  Set Int ->
+  Maybe [Text] ->
+  ModuleEvaluationMode ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  [Statement] ->
+  m (Either Diagnostic ScopeResult)
+evaluateModuleScopeWithHostAndSourceUnitStatements host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
+  if runtimeExprRequiresHost (EBlock statements)
+    then
+      runExceptT
+        ( evalScopeWithHost
+            host
+            preludeStatementIndices
+            currentModulePath
+            evaluationMode
+            builtinMode
+            bindingTypeHints
+            initialEnv
+            statements
+        )
+    else
+      pure
+        ( evaluateModuleScopePureWithSourceUnitStatements
+            preludeStatementIndices
+            currentModulePath
+            evaluationMode
+            builtinMode
+            bindingTypeHints
+            initialEnv
+            statements
+        )
+
 evaluateModuleScopeWithSourceUnitStatements ::
   Set Int ->
   Maybe [Text] ->
@@ -428,7 +597,29 @@ evaluateModuleScopeWithSourceUnitStatements ::
   RuntimeEnv ->
   [Statement] ->
   Either Diagnostic ScopeResult
-evaluateModuleScopeWithSourceUnitStatements preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements = go initialEnv Nothing indexedStatements
+evaluateModuleScopeWithSourceUnitStatements preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
+  runIdentity
+    ( evaluateModuleScopeWithHostAndSourceUnitStatements
+        disabledRuntimeHost
+        preludeStatementIndices
+        currentModulePath
+        evaluationMode
+        builtinMode
+        bindingTypeHints
+        initialEnv
+        statements
+    )
+
+evaluateModuleScopePureWithSourceUnitStatements ::
+  Set Int ->
+  Maybe [Text] ->
+  ModuleEvaluationMode ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  [Statement] ->
+  Either Diagnostic ScopeResult
+evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements = go initialEnv Nothing indexedStatements
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = Map.fromList indexedStatements
@@ -3507,8 +3698,17 @@ evalValueWithHost host currentModulePath builtinMode bindingTypeHints env expr =
           operatorValue <- lookupOperatorBindingRuntimeValueWithHost host builtinMode bindingTypeHints operatorSymbol env
           pure (declaredOperatorRightSectionClosure currentModulePath operatorValue rightValue env)
     EBlock statements -> do
-      maybeValue <- evalScopeWithHost host currentModulePath builtinMode bindingTypeHints env statements
-      case maybeValue of
+      scopeResult <-
+        evalScopeWithHost
+          host
+          Set.empty
+          currentModulePath
+          EvaluateEntryModule
+          builtinMode
+          bindingTypeHints
+          env
+          statements
+      case scopeResultValue scopeResult of
         Just value -> pure value
         Nothing -> throwE (runtimeDiagnostic "E3006" "block expression has no terminal expression result at runtime")
   where
@@ -3517,37 +3717,72 @@ evalValueWithHost host currentModulePath builtinMode bindingTypeHints env expr =
 evalScopeWithHost ::
   Monad m =>
   RuntimeHost m ->
+  Set Int ->
   Maybe [Text] ->
+  ModuleEvaluationMode ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   RuntimeEnv ->
   [Statement] ->
-  ExceptT Diagnostic m (Maybe RuntimeValue)
-evalScopeWithHost host currentModulePath builtinMode bindingTypeHints initialEnv =
-  go initialEnv Nothing
+  ExceptT Diagnostic m ScopeResult
+evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
+  go initialEnv Nothing (zip [0 ..] statements)
   where
-    go _ lastValue [] = pure lastValue
-    go env _ (statement : rest) =
+    modulePathsByStatement =
+      snd (foldl' collectModulePath (currentModulePath, Map.empty) (zip [0 ..] statements))
+
+    collectModulePath (activeModulePath, pathsByStatement) (statementIndex, statement) =
+      let nextModulePath =
+            case statement of
+              SModule _ modulePath -> Just modulePath
+              _ -> activeModulePath
+       in (nextModulePath, Map.insert statementIndex nextModulePath pathsByStatement)
+
+    modulePathForStatement statementIndex =
+      if Set.member statementIndex preludeStatementIndices
+        then Just []
+        else Map.findWithDefault currentModulePath statementIndex modulePathsByStatement
+
+    go env lastValue [] = pure (ScopeResult env lastValue)
+    go env _ ((statementIndex, statement) : rest) =
       case statement of
         SLet name _ valueExpr
           | exprContainsFunctionBranch valueExpr -> do
-              scopeResult <- liftRuntimeResult (evaluatePureStatement env statement)
+              scopeResult <- liftRuntimeResult (evaluatePureStatement statementIndex env statement)
               go (scopeResultEnvironment scopeResult) Nothing rest
           | otherwise -> do
-              value <- evalValueWithHost host currentModulePath builtinMode bindingTypeHints env valueExpr
+              value <-
+                evalValueWithHost
+                  host
+                  (modulePathForStatement statementIndex)
+                  builtinMode
+                  bindingTypeHints
+                  env
+                  valueExpr
               defaultedValue <- liftRuntimeResult (attachDefaultBindingIntegerTarget value)
               go (Map.insert name (Right defaultedValue) env) Nothing rest
-        SExpr _ valueExpr -> do
-          value <- evalValueWithHost host currentModulePath builtinMode bindingTypeHints env valueExpr
-          go env (Just value) rest
+        SExpr _ valueExpr ->
+          case evaluationMode of
+            EvaluateDependencyModule -> go env Nothing rest
+            EvaluateEntryModule -> do
+              value <-
+                evalValueWithHost
+                  host
+                  (modulePathForStatement statementIndex)
+                  builtinMode
+                  bindingTypeHints
+                  env
+                  valueExpr
+              go env (Just value) rest
         _ -> do
-          scopeResult <- liftRuntimeResult (evaluatePureStatement env statement)
+          scopeResult <- liftRuntimeResult (evaluatePureStatement statementIndex env statement)
           go (scopeResultEnvironment scopeResult) Nothing rest
 
-    evaluatePureStatement env statement =
-      evaluateModuleScope
-        currentModulePath
-        EvaluateEntryModule
+    evaluatePureStatement statementIndex env statement =
+      evaluateModuleScopePureWithSourceUnitStatements
+        Set.empty
+        (modulePathForStatement statementIndex)
+        evaluationMode
         builtinMode
         bindingTypeHints
         env

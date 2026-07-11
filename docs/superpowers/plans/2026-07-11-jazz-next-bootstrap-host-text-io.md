@@ -142,7 +142,7 @@ and repository queue/docs gates.
   category messages, and an effect-disabled host.
 - [x] Convert the evaluator's expression, callable, scope, recursive-binding,
   and builtin application path to a host-parameterized monadic error channel.
-- [ ] Retain every current `Either Diagnostic` entry point as a wrapper over
+- [x] Retain every current `Either Diagnostic` entry point as a wrapper over
   the disabled `Identity` host.
 - [x] Run runtime semantics and the warning matrix before adding effects.
 - [x] Commit as `refactor: parameterize runtime evaluation by host`.
@@ -173,13 +173,13 @@ and repository queue/docs gates.
 - Modify: `jazz-next/test/JazzNext/Compiler/Modules/ModulePipelineContractSpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Semantics/Runtime/HostIOTests.hs`
 
-- [ ] Add failing injected-host tests through standalone source and a
+- [x] Add failing injected-host tests through standalone source and a
   dependency-ordered module graph.
-- [ ] Add `evaluateCompiledProgramWithHost` without changing compile-only paths.
-- [ ] Add explicit source/module driver variants and route existing helpers
+- [x] Add `evaluateCompiledProgramWithHost` without changing compile-only paths.
+- [x] Add explicit source/module driver variants and route existing helpers
   through the disabled host.
-- [ ] Run focused module/runtime suites and verify GREEN.
-- [ ] Commit as `feat: inject runtime hosts through drivers`.
+- [x] Run focused module/runtime suites and verify GREEN.
+- [x] Commit as `feat: inject runtime hosts through drivers`.
 
 ### Task 5: Add the strict UTF-8 production host and CLI injection
 
