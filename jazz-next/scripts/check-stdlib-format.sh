@@ -5,7 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 STDLIB_DIR="${ROOT}/jazz-next/stdlib"
 status=0
 
-while IFS= read -r file; do
+for file in "$STDLIB_DIR"/*.jz; do
+  [[ -e "$file" ]] || continue
   file_name="$(basename "$file")"
   if [[ "$file_name" == "Prelude.jz" ]]; then
     continue
@@ -44,7 +45,7 @@ while IFS= read -r file; do
   ' "$file"; then
     status=1
   fi
-done < <(find "$STDLIB_DIR" -maxdepth 1 -type f -name '*.jz' -print | sort)
+done
 
 if [[ "$status" -ne 0 ]]; then
   exit "$status"
