@@ -5,7 +5,6 @@
 module JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    ConstraintSignatureType (..),
     DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
@@ -77,7 +76,7 @@ data Expr
   | EList [Expr]
   | ETuple [Expr]
   | EApply Expr Expr
-  | ETypeApplication Expr SignatureType
+  | ETypeApplication Expr SourceSpan SignatureType
   | EIf Expr Expr Expr
   | EPatternCase Expr [CaseArm]
   | EBinary Text Expr Expr
@@ -89,25 +88,14 @@ data Expr
 -- | Lowered signature payload used by analyzer/type inference.
 data SignaturePayload
   = SignatureType SignatureType
-  | ConstrainedSignature [SignatureConstraint] ConstraintSignatureType
+  | ConstrainedSignature [SignatureConstraint] SignatureType
   | UnsupportedSignature [SignatureToken]
   deriving (Eq, Show)
 
 -- | Lowered representation for constrained signatures. Type inference rejects
 -- this payload until constraint semantics are defined, but the parser/lowering
 -- pipeline owns its shape.
-data SignatureConstraint = SignatureConstraint Name [ConstraintSignatureType]
-  deriving (Eq, Show)
-
--- | Type grammar fragment allowed inside constraint argument lists. It remains
--- separate from `SignatureType` so unsupported constrained surfaces can keep a
--- faithful shape while the accepted monomorphic signature subset stays small.
-data ConstraintSignatureType
-  = ConstraintTypeName Name
-  | ConstraintTypeApplication Name [ConstraintSignatureType]
-  | ConstraintTypeList ConstraintSignatureType
-  | ConstraintTypeTuple [ConstraintSignatureType]
-  | ConstraintTypeFunction ConstraintSignatureType ConstraintSignatureType
+data SignatureConstraint = SignatureConstraint Name [SignatureType]
   deriving (Eq, Show)
 
 -- | Supported monomorphic signature types.
@@ -132,6 +120,9 @@ data SignatureType
   | TypeBool
   | TypeChar
   | TypeText
+  | TypeVariable Name
+  | TypeName Name
+  | TypeApplication Name [SignatureType]
   | TypeList SignatureType
   | TypeTuple [SignatureType]
   | TypeFunction SignatureType SignatureType
@@ -170,7 +161,7 @@ data Statement
   | SSignature Name SourceSpan SignaturePayload
   | SData SourceSpan Name [Name] [DataConstructor]
   | SClass SourceSpan Name [Name] [ClassMethodSignature]
-  | SImpl SourceSpan Name [ConstraintSignatureType] [ImplMethod]
+  | SImpl SourceSpan Name [SignatureType] [ImplMethod]
   | SModule SourceSpan [Text]
   | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SExpr SourceSpan Expr

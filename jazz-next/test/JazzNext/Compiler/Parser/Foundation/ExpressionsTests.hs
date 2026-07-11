@@ -9,7 +9,6 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
-    ConstraintSignatureType (..),
     Expr (..),
     Literal (..),
     NumericType (..),
@@ -27,7 +26,6 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
-    SurfaceConstrainedSignatureType (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfaceNumericType (..),
@@ -327,7 +325,7 @@ testParsesImplCapabilityDeclaration =
     ( Right
         ( SEBlock
             [ SSImpl (SourceSpan 1 1) "Eq"
-                [SurfaceConstrainedTypeName "Int"]
+                [SurfaceTypeInt]
                 []
             ]
         )
@@ -344,7 +342,7 @@ testLowersCapabilityDeclarations =
           "lowered capability declarations"
           ( EBlock
               [ SClass (SourceSpan 1 1) "Eq" ["a"] [],
-                SImpl (SourceSpan 2 1) "Eq" [ConstraintTypeName "Int"] []
+                SImpl (SourceSpan 2 1) "Eq" [TypeInt] []
               ]
           )
           (lowerSurfaceExpr surfaceProgram)

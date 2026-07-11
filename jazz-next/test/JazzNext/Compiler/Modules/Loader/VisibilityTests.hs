@@ -64,6 +64,12 @@ visibilityTests =
     , ("run module graph keeps alias-hidden data constructor from shadowing prelude", testRunModuleGraphAliasHiddenDataConstructorUsesPrelude)
     , ("run module graph resolves qualified alias data constructor lookup", testRunModuleGraphQualifiedAliasDataConstructorLookup)
     , ("compile module graph preserves alias-qualified generic constructor schemes", testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes)
+    , ("run module graph resolves alias-qualified types in signatures", testRunModuleGraphResolvesAliasQualifiedTypesInSignatures)
+    , ("compile module graph rejects private alias-qualified types", testCompileModuleGraphRejectsPrivateAliasQualifiedType)
+    , ("run module graph resolves zero-arity types through lowercase aliases", testRunModuleGraphResolvesLowercaseAliasZeroArityType)
+    , ("run module graph accepts impl targets through lowercase aliases", testRunModuleGraphAcceptsLowercaseAliasImplTarget)
+    , ("run module graph resolves generic types from lowercase module paths", testRunModuleGraphResolvesGenericTypeFromLowercaseModulePath)
+    , ("run module graph transports signed generic named schemes", testRunModuleGraphTransportsSignedGenericNamedSchemes)
     , ("run module graph keeps local data constructor from hidden import rewrite", testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite)
     , ("run module graph preserves alias-qualified float literal targets", testRunModuleGraphPreservesAliasQualifiedFloatLiteralTargets)
     , ("run module graph keeps hidden qualified export pattern constructors available", testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge)
@@ -461,6 +467,152 @@ testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Box as Box.\nfirst = Box::Box 1.\nsecond = Box::Box True.\nsecond."),
           ("src/Lib/Box.jz", "data Box a = Box a.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphResolvesAliasQualifiedTypesInSignatures :: IO ()
+testRunModuleGraphResolvesAliasQualifiedTypesInSignatures = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "alias-qualified type compile errors" [] (runCompileErrors result)
+  assertEqual "alias-qualified type runtime errors" [] (runRuntimeErrors result)
+  assertEqual "alias-qualified type output" (Just "Box(1)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Box as B.\nvalue :: B::Box(Int).\nvalue = B::Box 1.\nvalue.\n}"
+          ),
+          ( "src/Lib/Box.jz",
+            "module Lib::Box {\ndata Box a = Box a.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphRejectsPrivateAliasQualifiedType :: IO ()
+testCompileModuleGraphRejectsPrivateAliasQualifiedType = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [diagnostic] -> do
+      assertContains "private alias-qualified type code" "E4014" (renderDiagnostic diagnostic)
+      assertContains "private alias-qualified type name" "Secret" (renderDiagnostic diagnostic)
+    diagnostics -> failTest ("expected one E4014 diagnostic, got " <> Text.pack (show diagnostics))
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Types as T.\nclass Marker(a) { }.\nimpl Marker(T::Secret(Int)) { }.\n0.\n}"
+          ),
+          ( "src/Lib/Types.jz",
+            "module Lib::Types () {\ndata Secret a = Secret a.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphResolvesLowercaseAliasZeroArityType :: IO ()
+testRunModuleGraphResolvesLowercaseAliasZeroArityType = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "lowercase alias zero-arity compile errors" [] (runCompileErrors result)
+  assertEqual "lowercase alias zero-arity runtime errors" [] (runRuntimeErrors result)
+  assertEqual "lowercase alias zero-arity output" (Just "Token") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Token as t.\nvalue :: t::Token.\nvalue = t::Token.\nvalue.\n}"
+          ),
+          ( "src/Lib/Token.jz",
+            "module Lib::Token {\ndata Token = Token.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphAcceptsLowercaseAliasImplTarget :: IO ()
+testRunModuleGraphAcceptsLowercaseAliasImplTarget = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "lowercase alias impl compile errors" [] (runCompileErrors result)
+  assertEqual "lowercase alias impl runtime errors" [] (runRuntimeErrors result)
+  assertEqual "lowercase alias impl output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Token as t.\nclass Marker(a) {\nmark :: a -> Bool.\n}.\nimpl Marker(t::Token) {\nmark = \\(value) -> True.\n}.\nMarker::mark t::Token.\n}"
+          ),
+          ( "src/Lib/Token.jz",
+            "module Lib::Token {\ndata Token = Token.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphResolvesGenericTypeFromLowercaseModulePath :: IO ()
+testRunModuleGraphResolvesGenericTypeFromLowercaseModulePath = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "lowercase module-path generic compile errors" [] (runCompileErrors result)
+  assertEqual "lowercase module-path generic runtime errors" [] (runRuntimeErrors result)
+  assertEqual "lowercase module-path generic output" (Just "Box(1)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport lib::Types.\nvalue :: Box(Int).\nvalue = Box 1.\nvalue.\n}"
+          ),
+          ( "src/lib/Types.jz",
+            "module lib::Types {\ndata Box a = Box a.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphTransportsSignedGenericNamedSchemes :: IO ()
+testRunModuleGraphTransportsSignedGenericNamedSchemes = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "generic interface compile errors" [] (runCompileErrors result)
+  assertEqual "generic interface runtime errors" [] (runRuntimeErrors result)
+  assertEqual "generic interface output" (Just "Box(True)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Box.\nintBox = keep (Box 1).\nboolBox = keep (Box True).\nboolBox.\n}"
+          ),
+          ( "src/Lib/Box.jz",
+            "module Lib::Box {\ndata Box a = Box a.\nkeep :: Box(a) -> Box(a).\nkeep = \\(value) -> value.\n}"
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

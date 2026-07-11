@@ -15,7 +15,7 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    ConstraintSignatureType (..),
+    SignatureType (..),
     DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),

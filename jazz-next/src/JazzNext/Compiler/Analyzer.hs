@@ -26,7 +26,7 @@ import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    ConstraintSignatureType (..),
+    SignatureType (..),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
@@ -251,7 +251,7 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
         ( functionWarnings ++ argumentWarnings,
           functionErrors ++ argumentErrors ++ purityErrors
         )
-    ETypeApplication functionExpr _ ->
+    ETypeApplication functionExpr _ _ ->
       collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context functionExpr
     EIf conditionExpr thenExpr elseExpr ->
       let (conditionWarnings, conditionErrors) =
@@ -772,7 +772,7 @@ mkDuplicateClassMethodError className methodName methodSpan previousSpan =
         methodSpan
         (mkDiagnostic "E1006" ("duplicate method signature '" <> methodName <> "' in class '" <> className <> "'"))
 
-duplicateImplMethodErrors :: Name -> [ConstraintSignatureType] -> [ImplMethod] -> [Diagnostic]
+duplicateImplMethodErrors :: Name -> [SignatureType] -> [ImplMethod] -> [Diagnostic]
 duplicateImplMethodErrors capabilityName arguments methods =
   reverse errorsRev
   where
@@ -891,7 +891,7 @@ directCallCalleeName :: Expr -> Maybe Name
 directCallCalleeName expr =
   case expr of
     EVar calleeName -> Just calleeName
-    ETypeApplication functionExpr _ -> directCallCalleeName functionExpr
+    ETypeApplication functionExpr _ _ -> directCallCalleeName functionExpr
     _ -> Nothing
 
 mkImpureCallInPureContextError ::
@@ -1168,7 +1168,6 @@ lambdaVisibleBinding =
     { visibleBindingSpan = SourceSpan 0 0,
       visibleBindingIsHiddenPrelude = True
     }
-
 extendBindingsWithPattern :: Pattern -> Map Name VisibleBinding -> Map Name VisibleBinding
 extendBindingsWithPattern pattern bindings =
   Set.foldl'

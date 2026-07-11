@@ -48,6 +48,7 @@ tests :: [NamedTest]
 tests =
   [ ("rejects empty entry module path before traversal", testRejectsEmptyEntryModulePath),
     ("resolved program retains lowered modules", testResolvedProgramRetainsLoweredModules),
+    ("resolved module audit ignores generic type variables", testResolvedModuleAuditIgnoresGenericTypeVariables),
     ("resolved module carries explicit public inventory", testResolvedModuleCarriesExplicitPublicInventory),
     ("empty export list produces empty inventory", testEmptyExportListProducesEmptyInventory),
     ("namespace-aware exports select exact public entries", testNamespaceAwareExportsSelectExactEntries),
@@ -97,6 +98,7 @@ tests =
     ("accepts explicit class import symbols", testAcceptsExplicitClassImportSymbol),
     ("rejects type-only explicit import symbols", testRejectsTypeOnlyImportSymbol),
     ("reports class import collisions", testReportsClassImportCollision),
+    ("reports type import collisions", testReportsTypeImportCollision),
     ("keeps repeated class imports idempotent", testKeepsRepeatedClassImportsIdempotent),
     ("reports qualified references through unknown aliases", testReportsUnknownQualifiedAliasReference),
     ("reports standalone qualified references through unknown aliases", testReportsStandaloneUnknownQualifiedAliasReference),
@@ -130,6 +132,23 @@ testResolvedProgramRetainsLoweredModules = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Value. answer. }"),
           ("src/Lib/Value.jz", "module Lib::Value { answer = 1. }")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
+
+testResolvedModuleAuditIgnoresGenericTypeVariables :: IO ()
+testResolvedModuleAuditIgnoresGenericTypeVariables = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  assertRight "resolved generic module" result $ \program ->
+    assertEqual
+      "unresolved generic module names"
+      []
+      (concatMap ModuleGraph.unresolvedResolvedModuleNames (ModuleGraph.resolvedProgramModules program))
+  where
+    sources =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nid :: a -> a.\nid = \\(value) -> value.\nid 1.\n}"
+          )
         ]
     lookupSource path = pure (Map.lookup path sources)
 
@@ -1262,6 +1281,25 @@ testReportsClassImportCollision = do
         [ ("src/App/Main.jz", "import A::Facts.\nimport B::Facts.\nx = 1."),
           ("src/A/Facts.jz", "class Eq(a) { }."),
           ("src/B/Facts.jz", "class Eq(a) { }.")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
+
+testReportsTypeImportCollision :: IO ()
+testReportsTypeImportCollision = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  assertLeftDiagnosticCodeAndContains
+    "type import collision"
+    "E4008"
+    "import type collision for 'Box'"
+    result
+  where
+    sources =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "import A::Types.\nimport B::Types.\nvalue :: Box(Int).\nvalue = ABox 1."
+          ),
+          ("src/A/Types.jz", "data Box a = ABox a."),
+          ("src/B/Types.jz", "data Box a = BBox a.")
         ]
     lookupSource path = pure (Map.lookup path sources)
 

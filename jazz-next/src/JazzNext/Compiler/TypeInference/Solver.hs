@@ -40,6 +40,7 @@ import JazzNext.Compiler.TypeInference.State
     inferDataTypes,
     inferNextTypeVar,
     inferNumericVars,
+    inferRigidTypeVars,
     inferStrictEqualityVars,
     inferSubst
   )
@@ -130,9 +131,25 @@ unifyTypes leftType rightType state =
           ) -> do
           stateAfterInput <- unifyTypes leftInputType rightInputType state
           unifyTypes leftOutputType rightOutputType stateAfterInput
-        (TVarType leftVar, _) -> bindTypeVar leftVar resolvedRight state
-        (_, TVarType rightVar) -> bindTypeVar rightVar resolvedLeft state
+        (TVarType leftVar, TVarType rightVar)
+          | leftVar == rightVar ->
+              Just state
+          | Set.member leftVar rigidVariables,
+            Set.member rightVar rigidVariables ->
+              Nothing
+          | Set.member leftVar rigidVariables ->
+              bindTypeVar rightVar resolvedLeft state
+          | Set.member rightVar rigidVariables ->
+              bindTypeVar leftVar resolvedRight state
+        (TVarType leftVar, _)
+          | Set.member leftVar rigidVariables -> Nothing
+          | otherwise -> bindTypeVar leftVar resolvedRight state
+        (_, TVarType rightVar)
+          | Set.member rightVar rigidVariables -> Nothing
+          | otherwise -> bindTypeVar rightVar resolvedLeft state
         _ -> Nothing
+  where
+    rigidVariables = inferRigidTypeVars state
 
 unifyTypeLists :: [ExpressionType] -> [ExpressionType] -> InferState -> Maybe InferState
 unifyTypeLists leftTypes rightTypes state

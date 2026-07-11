@@ -12,6 +12,7 @@ module JazzNext.Compiler.TypeInference.State
     inferConcreteImplMethods,
     inferCurrentModuleLocalCapabilityFacts,
     inferCurrentModulePath,
+    inferRuntimeHintPath,
     inferDataTypes,
     inferDeferredExplicitConstraints,
     inferErrorCount,
@@ -21,6 +22,7 @@ module JazzNext.Compiler.TypeInference.State
     inferModuleCapabilityFacts,
     inferNextTypeVar,
     inferNumericVars,
+    inferRigidTypeVars,
     inferRuntimeTypeHints,
     inferStrictEqualityVars,
     inferSubst,
@@ -33,7 +35,7 @@ import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
-import JazzNext.Compiler.AST (ConstraintSignatureType)
+import JazzNext.Compiler.AST (SignatureType)
 import JazzNext.Compiler.Diagnostics (Diagnostic)
 import JazzNext.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import JazzNext.Compiler.TypeInference.Types
@@ -52,7 +54,8 @@ data SolverState = SolverState
   { solverNextTypeVar :: Int,
     solverSubstitution :: Map Int ExpressionType,
     solverStrictEqualityVars :: Set Int,
-    solverNumericVars :: Map Int NumericConstraint
+    solverNumericVars :: Map Int NumericConstraint,
+    solverRigidTypeVars :: Set Int
   }
   deriving (Eq, Show)
 
@@ -68,6 +71,8 @@ data DeclarationState = DeclarationState
 
 data ModuleInferenceState = ModuleInferenceState
   { inferenceModulePath :: Maybe [Text],
+    -- Standalone prelude statements use the same synthetic path as compiled preludes.
+    inferenceRuntimeHintPath :: Maybe [Text],
     inferenceLocalCapabilities :: ScopeCapabilityFacts,
     inferenceModuleCapabilities :: Map [Text] ScopeCapabilityFacts,
     inferenceVisibleTypes :: TypeEnv
@@ -75,7 +80,7 @@ data ModuleInferenceState = ModuleInferenceState
   deriving (Eq, Show)
 
 data InferenceOutput = InferenceOutput
-  { outputRuntimeHints :: Map BindingRuntimeHintKey ConstraintSignatureType,
+  { outputRuntimeHints :: Map BindingRuntimeHintKey SignatureType,
     outputDeferredConstraints :: [DeferredExplicitConstraint],
     outputInferredConstraints :: [TypeSchemeConstraint],
     outputErrorsRev :: [Diagnostic],
@@ -109,7 +114,8 @@ initialInferState =
           { solverNextTypeVar = 0,
             solverSubstitution = Map.empty,
             solverStrictEqualityVars = Set.empty,
-            solverNumericVars = Map.empty
+            solverNumericVars = Map.empty,
+            solverRigidTypeVars = Set.empty
           },
       inferDeclarations =
         DeclarationState
@@ -123,6 +129,7 @@ initialInferState =
       inferModule =
         ModuleInferenceState
           { inferenceModulePath = Nothing,
+            inferenceRuntimeHintPath = Nothing,
             inferenceLocalCapabilities = emptyScopeCapabilityFacts,
             inferenceModuleCapabilities = Map.empty,
             inferenceVisibleTypes = Map.empty
@@ -149,6 +156,9 @@ inferStrictEqualityVars = solverStrictEqualityVars . inferSolver
 inferNumericVars :: InferState -> Map Int NumericConstraint
 inferNumericVars = solverNumericVars . inferSolver
 
+inferRigidTypeVars :: InferState -> Set Int
+inferRigidTypeVars = solverRigidTypeVars . inferSolver
+
 inferDataTypes :: InferState -> Map Text DataTypeBinding
 inferDataTypes = declarationDataTypes . inferDeclarations
 
@@ -170,6 +180,9 @@ inferConcreteImplMethods = declarationConcreteImplMethods . inferDeclarations
 inferCurrentModulePath :: InferState -> Maybe [Text]
 inferCurrentModulePath = inferenceModulePath . inferModule
 
+inferRuntimeHintPath :: InferState -> Maybe [Text]
+inferRuntimeHintPath = inferenceRuntimeHintPath . inferModule
+
 inferCurrentModuleLocalCapabilityFacts :: InferState -> ScopeCapabilityFacts
 inferCurrentModuleLocalCapabilityFacts = inferenceLocalCapabilities . inferModule
 
@@ -179,7 +192,7 @@ inferModuleCapabilityFacts = inferenceModuleCapabilities . inferModule
 inferVisibleTypes :: InferState -> TypeEnv
 inferVisibleTypes = inferenceVisibleTypes . inferModule
 
-inferRuntimeTypeHints :: InferState -> Map BindingRuntimeHintKey ConstraintSignatureType
+inferRuntimeTypeHints :: InferState -> Map BindingRuntimeHintKey SignatureType
 inferRuntimeTypeHints = outputRuntimeHints . inferOutput
 
 inferDeferredExplicitConstraints :: InferState -> [DeferredExplicitConstraint]

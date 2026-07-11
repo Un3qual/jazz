@@ -14,7 +14,6 @@ import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    ConstraintSignatureType (..),
     DataConstructor (..),
     DataConstructorArgument (..),
     Expr (..),
@@ -23,6 +22,7 @@ import JazzNext.Compiler.AST
     SignatureConstraint (..),
     SignaturePayload (..),
     SignatureToken (..),
+    SignatureType (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics (SourceSpan)
@@ -93,7 +93,7 @@ exprNames expr =
     EList items -> concatMap exprNames items
     ETuple items -> concatMap exprNames items
     EApply function argument -> exprNames function <> exprNames argument
-    ETypeApplication function _ -> exprNames function
+    ETypeApplication function _ _ -> exprNames function
     EIf condition trueBranch falseBranch ->
       exprNames condition <> exprNames trueBranch <> exprNames falseBranch
     EPatternCase scrutinee arms -> exprNames scrutinee <> concatMap caseArmNames arms
@@ -129,7 +129,7 @@ statementNames statement =
     SClass _ name parameters methods ->
       name : parameters <> concatMap classMethodNames methods
     SImpl _ name arguments methods ->
-      name : concatMap constraintTypeNames arguments <> concatMap implMethodNames methods
+      name : concatMap signatureTypeNames arguments <> concatMap implMethodNames methods
     SModule {} -> []
     SImport {} -> []
     SExpr _ value -> exprNames value
@@ -154,22 +154,24 @@ implMethodNames (ImplMethod name _ body) = name : exprNames body
 signaturePayloadNames :: SignaturePayload -> [Name]
 signaturePayloadNames payload =
   case payload of
-    SignatureType _ -> []
+    SignatureType signatureType -> signatureTypeNames signatureType
     ConstrainedSignature constraints signatureType ->
-      concatMap signatureConstraintNames constraints <> constraintTypeNames signatureType
+      concatMap signatureConstraintNames constraints <> signatureTypeNames signatureType
     UnsupportedSignature tokens ->
       [name | SignatureNameToken name <- tokens]
 
 signatureConstraintNames :: SignatureConstraint -> [Name]
 signatureConstraintNames (SignatureConstraint name arguments) =
-  name : concatMap constraintTypeNames arguments
+  name : concatMap signatureTypeNames arguments
 
-constraintTypeNames :: ConstraintSignatureType -> [Name]
-constraintTypeNames signatureType =
+signatureTypeNames :: SignatureType -> [Name]
+signatureTypeNames signatureType =
   case signatureType of
-    ConstraintTypeName name -> [name]
-    ConstraintTypeApplication name arguments -> name : concatMap constraintTypeNames arguments
-    ConstraintTypeList innerType -> constraintTypeNames innerType
-    ConstraintTypeTuple elementTypes -> concatMap constraintTypeNames elementTypes
-    ConstraintTypeFunction argumentType resultType ->
-      constraintTypeNames argumentType <> constraintTypeNames resultType
+    TypeVariable {} -> []
+    TypeName name -> [name]
+    TypeApplication name arguments -> name : concatMap signatureTypeNames arguments
+    TypeList innerType -> signatureTypeNames innerType
+    TypeTuple elementTypes -> concatMap signatureTypeNames elementTypes
+    TypeFunction argumentType resultType ->
+      signatureTypeNames argumentType <> signatureTypeNames resultType
+    _ -> []

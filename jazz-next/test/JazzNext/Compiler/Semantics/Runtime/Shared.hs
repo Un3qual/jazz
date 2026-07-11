@@ -36,12 +36,13 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    ConstraintSignatureType (..),
+    SignatureType (..),
     DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
     Literal (..),
+    NumericType (..),
     Pattern (..),
     SignaturePayload (..),
     Statement (..)
@@ -128,16 +129,16 @@ qualifiedMethodStructuralEqualityExpr =
             (SourceSpan 2 1)
             ( ConstrainedSignature
                 []
-                ( ConstraintTypeFunction
-                    (ConstraintTypeName "a")
-                    (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool"))
+                ( TypeFunction
+                    (TypeVariable "a")
+                    (TypeFunction (TypeVariable "a") (TypeBool))
                 )
             )
         ],
       SImpl
         (SourceSpan 3 1)
         "RuntimeEq"
-        [ConstraintTypeName "Int"]
+        [TypeInt]
         [ ImplMethod
             "equals"
             (SourceSpan 4 1)
@@ -179,17 +180,17 @@ runtimePickStatements =
       [ ClassMethodSignature
           "pick"
           (SourceSpan 2 1)
-          (ConstrainedSignature [] (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool")))
+          (ConstrainedSignature [] (TypeFunction (TypeVariable "a") (TypeBool)))
       ],
     SImpl
       (SourceSpan 3 1)
       "RuntimePick"
-      [ConstraintTypeName "Int"]
+      [TypeInt]
       [ImplMethod "pick" (SourceSpan 4 1) (ELambda "value" (ELit (LBool True)))],
     SImpl
       (SourceSpan 5 1)
       "RuntimePick"
-      [ConstraintTypeName "UInt8"]
+      [TypeNumeric NumericUInt8]
       [ImplMethod "pick" (SourceSpan 6 1) (ELambda "value" (ELit (LBool False)))]
   ]
 
@@ -205,18 +206,18 @@ ambiguousQualifiedMethodRuntimeExpr =
             (SourceSpan 2 1)
             ( ConstrainedSignature
                 []
-                (ConstraintTypeFunction (ConstraintTypeName "Int") (ConstraintTypeName "Bool"))
+                (TypeFunction (TypeInt) (TypeBool))
             )
         ],
       SImpl
         (SourceSpan 3 1)
         "RuntimePick"
-        [ConstraintTypeName "Int"]
+        [TypeInt]
         [ImplMethod "choose" (SourceSpan 4 1) (ELambda "value" (ELit (LBool True)))],
       SImpl
         (SourceSpan 5 1)
         "RuntimePick"
-        [ConstraintTypeName "Bool"]
+        [TypeBool]
         [ImplMethod "choose" (SourceSpan 6 1) (ELambda "value" (ELit (LBool False)))],
       SExpr
         (SourceSpan 7 1)

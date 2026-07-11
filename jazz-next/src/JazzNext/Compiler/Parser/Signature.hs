@@ -10,14 +10,18 @@ module JazzNext.Compiler.Parser.Signature
   ) where
 
 import Control.Applicative ((<|>))
+import Data.Char (isLower)
 import Data.Text (Text)
+import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics (Diagnostic)
 import JazzNext.Compiler.Name
-  ( mkIdentifier
+  ( Identifier,
+    identifierText,
+    mkIdentifier,
+    mkQualifiedIdentifier
   )
 import JazzNext.Compiler.Parser.AST
-  ( SurfaceConstrainedSignatureType (..),
-    SurfaceNumericType (..),
+  ( SurfaceNumericType (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureToken (..),
@@ -25,7 +29,8 @@ import JazzNext.Compiler.Parser.AST
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
-    TokenKind (..)
+    TokenKind (..),
+    isImmediatelyAfter
   )
 import qualified JazzNext.Compiler.Parser.TokenParser as TokenParser
 import qualified Text.Megaparsec as MP
@@ -42,9 +47,9 @@ parseSupportedSignaturePayload tokens =
     Right signaturePayload -> Just signaturePayload
     Left _ -> Nothing
 
-parseConstrainedSignatureType :: [Token] -> Either Diagnostic SurfaceConstrainedSignatureType
+parseConstrainedSignatureType :: [Token] -> Either Diagnostic SurfaceSignatureType
 parseConstrainedSignatureType =
-  TokenParser.runTokenParser "constrained signature type" constrainedSignatureTypeParser
+  TokenParser.runTokenParser "constrained signature type" signatureTypeParser
 
 parseSignatureTypePrefix :: [Token] -> Either Diagnostic (SurfaceSignatureType, [Token])
 parseSignatureTypePrefix =
@@ -66,7 +71,7 @@ constrainedSignaturePayloadParser = do
   constraints <- constraintBlockParser
   _ <- TokenParser.parseTokenKind TRBrace
   _ <- TokenParser.parseTokenKind TColon
-  SurfaceConstrainedSignature constraints <$> constrainedSignatureTypeParser
+  SurfaceConstrainedSignature constraints <$> signatureTypeParser
 
 constraintBlockParser :: TokenParser.Parser [SurfaceSignatureConstraint]
 constraintBlockParser =
@@ -78,65 +83,14 @@ constraintBlockParser =
 
 signatureConstraintParser :: TokenParser.Parser SurfaceSignatureConstraint
 signatureConstraintParser = do
-  signatureType <- constrainedSignatureTypeParser
+  signatureType <- signatureTypeParser
   case signatureType of
-    SurfaceConstrainedTypeApplication constraintName arguments ->
+    SurfaceTypeApplication constraintName arguments ->
       pure (SurfaceSignatureConstraint constraintName arguments)
-    SurfaceConstrainedTypeName constraintName ->
+    SurfaceTypeName constraintName ->
       pure (SurfaceSignatureConstraint constraintName [])
     _ ->
       MP.empty
-
-constrainedSignatureTypeParser :: TokenParser.Parser SurfaceConstrainedSignatureType
-constrainedSignatureTypeParser = do
-  argumentType <- constrainedFunctionOperandTypeParser
-  parseConstrainedFunctionResult argumentType <|> pure argumentType
-
-parseConstrainedFunctionResult ::
-  SurfaceConstrainedSignatureType ->
-  TokenParser.Parser SurfaceConstrainedSignatureType
-parseConstrainedFunctionResult argumentType = do
-  _ <- TokenParser.parseTokenKind TArrow
-  SurfaceConstrainedTypeFunction argumentType <$> constrainedSignatureTypeParser
-
-constrainedFunctionOperandTypeParser :: TokenParser.Parser SurfaceConstrainedSignatureType
-constrainedFunctionOperandTypeParser =
-  MP.try constrainedTypeApplicationParser
-    <|> constrainedTypeNameParser
-    <|> constrainedListTypeParser
-    <|> constrainedParenthesizedTypeParser
-
-constrainedTypeApplicationParser :: TokenParser.Parser SurfaceConstrainedSignatureType
-constrainedTypeApplicationParser = do
-  typeName <- mkIdentifier <$> TokenParser.parseIdentifier
-  arguments <-
-    betweenTokenKinds TLParen TRParen
-      (constrainedSignatureTypeParser `MP.sepBy1` commaParser)
-  pure (SurfaceConstrainedTypeApplication typeName arguments)
-
-constrainedTypeNameParser :: TokenParser.Parser SurfaceConstrainedSignatureType
-constrainedTypeNameParser =
-  SurfaceConstrainedTypeName . mkIdentifier <$> TokenParser.parseIdentifier
-
-constrainedListTypeParser :: TokenParser.Parser SurfaceConstrainedSignatureType
-constrainedListTypeParser =
-  SurfaceConstrainedTypeList
-    <$> betweenTokenKinds TLBracket TRBracket constrainedSignatureTypeParser
-
-constrainedParenthesizedTypeParser :: TokenParser.Parser SurfaceConstrainedSignatureType
-constrainedParenthesizedTypeParser =
-  betweenTokenKinds TLParen TRParen $
-    ( MP.lookAhead (TokenParser.parseTokenKind TRParen)
-        *> pure (SurfaceConstrainedTypeTuple [])
-    )
-      <|> do
-        firstElement <- constrainedSignatureTypeParser
-        remainingElements <- MP.many (commaParser *> constrainedSignatureTypeParser)
-        case remainingElements of
-          [] ->
-            pure firstElement
-          _ ->
-            pure (SurfaceConstrainedTypeTuple (firstElement : remainingElements))
 
 signatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 signatureTypeParser = do
@@ -153,20 +107,22 @@ parseFunctionResult argumentType = do
 
 functionOperandTypeParser :: TokenParser.Parser SurfaceSignatureType
 functionOperandTypeParser =
-  namedSignatureTypeParser
+  MP.try typeApplicationParser
+    <|> namedSignatureTypeParser
     <|> listSignatureTypeParser
     <|> parenthesizedSignatureTypeParser
 
 nonFunctionSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 nonFunctionSignatureTypeParser =
-  namedSignatureTypeParser
+  MP.try typeApplicationParser
+    <|> namedSignatureTypeParser
     <|> listSignatureTypeParser
     <|> parenthesizedSignatureTypeParser
 
 listSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 listSignatureTypeParser =
   SurfaceTypeList
-    <$> betweenTokenKinds TLBracket TRBracket nonFunctionSignatureTypeParser
+    <$> betweenTokenKinds TLBracket TRBracket signatureTypeParser
 
 parenthesizedSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 parenthesizedSignatureTypeParser =
@@ -185,12 +141,70 @@ parenthesizedSignatureTypeParser =
 
 namedSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 namedSignatureTypeParser = do
-  typeName <- TokenParser.parseIdentifier
+  (typeNameToken, typeNameIdentifier) <- signatureTypeHeadParser
+  maybeNextToken <- TokenParser.peekToken
+  case maybeNextToken of
+    Just nextToken
+      | tokenKind nextToken == TLParen,
+        isImmediatelyAfter typeNameToken nextToken ->
+          MP.empty
+    _ -> pure ()
+  let typeName = identifierText typeNameIdentifier
+      typeMemberName = tokenLexeme typeNameToken
   case parseNamedSignatureType typeName of
     Just signatureType ->
       pure signatureType
     Nothing ->
-      MP.empty
+      pure
+        ( if identifierStartsLower typeMemberName
+            then SurfaceTypeVariable typeNameIdentifier
+            else SurfaceTypeName typeNameIdentifier
+        )
+
+typeApplicationParser :: TokenParser.Parser SurfaceSignatureType
+typeApplicationParser = do
+  (_, typeNameIdentifier) <- signatureTypeHeadParser
+  arguments <-
+    betweenTokenKinds TLParen TRParen
+      (signatureTypeParser `MP.sepBy1` commaParser)
+  pure
+    ( case (identifierText typeNameIdentifier, arguments) of
+        ("List", [elementType]) -> SurfaceTypeList elementType
+        _ -> SurfaceTypeApplication typeNameIdentifier arguments
+    )
+
+signatureTypeHeadParser :: TokenParser.Parser (Token, Identifier)
+signatureTypeHeadParser = do
+  firstToken <- identifierTokenParser
+  maybeQualifiedMember <-
+    MP.optional $ do
+      _ <- TokenParser.parseTokenKind TColonColon
+      memberToken <- identifierTokenParser
+      pure memberToken
+  case maybeQualifiedMember of
+    Just memberToken ->
+      pure
+        ( memberToken,
+          mkQualifiedIdentifier (tokenLexeme firstToken) (tokenLexeme memberToken)
+        )
+    Nothing ->
+      pure (firstToken, mkIdentifier (tokenLexeme firstToken))
+
+identifierTokenParser :: TokenParser.Parser Token
+identifierTokenParser =
+  TokenParser.parseTokenWhere
+    ( \token ->
+        case tokenKind token of
+          TIdentifier {} -> True
+          _ -> False
+    )
+    "identifier"
+
+identifierStartsLower :: Text -> Bool
+identifierStartsLower identifier =
+  case Text.uncons identifier of
+    Just (firstCharacter, _) -> isLower firstCharacter
+    Nothing -> False
 
 topLevelCommaTokensParser :: TokenParser.Parser [[Token]]
 topLevelCommaTokensParser = do

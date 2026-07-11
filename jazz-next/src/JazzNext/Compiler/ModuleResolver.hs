@@ -41,7 +41,7 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    ConstraintSignatureType (..),
+    SignatureType (..),
     DataConstructor (..),
     DataConstructorArgument (..),
     Expr (..),
@@ -75,13 +75,15 @@ import JazzNext.Compiler.ModuleExports
   )
 import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
 import JazzNext.Compiler.Name
-  ( Name (..),
+  ( Identifier,
+    Name (..),
     NameNamespace (..),
     ResolvedNameOrigin (..),
     identifierText,
     isOperatorBindingIdentifierText,
     mkIdentifier,
-    renderName
+    renderName,
+    splitQualifiedIdentifierText
   )
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
@@ -89,9 +91,15 @@ import JazzNext.Compiler.Parser
 import JazzNext.Compiler.Parser.Lower (lowerSurfaceModule)
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
+    SurfaceClassMethodSignature (..),
+    SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
+    SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfacePattern (..),
+    SurfaceSignatureConstraint (..),
+    SurfaceSignaturePayload (..),
+    SurfaceSignatureType (..),
     SurfaceExpr (..),
     SurfaceStatement (..)
   )
@@ -133,6 +141,7 @@ data ParsedModule = ParsedModule
     parsedModulePublicInventory :: ModuleExportInventory,
     parsedModuleReferences :: Set Text,
     parsedModuleQualifiedReferences :: Set (Text, Text),
+    parsedModuleQualifiedTypeReferences :: Set (Text, Text),
     parsedModuleCore :: ModuleGraph.CoreModule
   }
 
@@ -314,6 +323,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientVisibleSymbols
                             (exportNamesInNamespace CapabilityNamespace (parsedModuleLocalInventory parsedModule))
                             (parsedModuleReferences parsedModule)
                             (parsedModuleQualifiedReferences parsedModule)
+                            (parsedModuleQualifiedTypeReferences parsedModule)
                             ambientVisibleSymbols
                             ambientVisibleClassNames
                             (resolvedExportInventoriesState stateAfterDeps) of
@@ -458,6 +468,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
             parsedModulePublicInventory = publicInventory,
             parsedModuleReferences = collectReferencedNames surfaceExpr Set.\\ topLevelBindings,
             parsedModuleQualifiedReferences = collectQualifiedReferences surfaceExpr,
+            parsedModuleQualifiedTypeReferences = collectQualifiedTypeReferences surfaceExpr,
             parsedModuleCore = coreModule
           }
 
@@ -704,7 +715,8 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
         EList items -> EList (map resolveExpr items)
         ETuple items -> ETuple (map resolveExpr items)
         EApply function argument -> EApply (resolveExpr function) (resolveExpr argument)
-        ETypeApplication function signatureType -> ETypeApplication (resolveExpr function) signatureType
+        ETypeApplication function spanValue signatureType ->
+          ETypeApplication (resolveExpr function) spanValue (resolveSignatureType signatureType)
         EIf condition trueBranch falseBranch ->
           EIf (resolveExpr condition) (resolveExpr trueBranch) (resolveExpr falseBranch)
         EPatternCase scrutinee arms -> EPatternCase (resolveExpr scrutinee) (map resolveCaseArm arms)
@@ -768,7 +780,7 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
           SImpl
             spanValue
             (resolveName CapabilityNamespace name)
-            (map resolveConstraintType arguments)
+            (map resolveSignatureType arguments)
             (map resolveImplMethod methods)
         SModule spanValue path -> SModule spanValue path
         SImport spanValue path alias symbols -> SImport spanValue path alias symbols
@@ -793,11 +805,11 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
 
     resolveSignaturePayload payload =
       case payload of
-        SignatureType signatureType -> SignatureType signatureType
+        SignatureType signatureType -> SignatureType (resolveSignatureType signatureType)
         ConstrainedSignature constraints signatureType ->
           ConstrainedSignature
             (map resolveSignatureConstraint constraints)
-            (resolveConstraintType signatureType)
+            (resolveSignatureType signatureType)
         UnsupportedSignature tokens -> UnsupportedSignature (map resolveSignatureToken tokens)
 
     resolveSignatureToken token =
@@ -806,17 +818,19 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
         _ -> token
 
     resolveSignatureConstraint (SignatureConstraint name arguments) =
-      SignatureConstraint (resolveName CapabilityNamespace name) (map resolveConstraintType arguments)
+      SignatureConstraint (resolveName CapabilityNamespace name) (map resolveSignatureType arguments)
 
-    resolveConstraintType signatureType =
+    resolveSignatureType signatureType =
       case signatureType of
-        ConstraintTypeName name -> ConstraintTypeName (resolveName TypeNamespace name)
-        ConstraintTypeApplication name arguments ->
-          ConstraintTypeApplication (resolveName TypeNamespace name) (map resolveConstraintType arguments)
-        ConstraintTypeList innerType -> ConstraintTypeList (resolveConstraintType innerType)
-        ConstraintTypeTuple elementTypes -> ConstraintTypeTuple (map resolveConstraintType elementTypes)
-        ConstraintTypeFunction argumentType resultType ->
-          ConstraintTypeFunction (resolveConstraintType argumentType) (resolveConstraintType resultType)
+        TypeVariable name -> TypeVariable name
+        TypeName name -> TypeName (resolveName TypeNamespace name)
+        TypeApplication name arguments ->
+          TypeApplication (resolveName TypeNamespace name) (map resolveSignatureType arguments)
+        TypeList innerType -> TypeList (resolveSignatureType innerType)
+        TypeTuple elementTypes -> TypeTuple (map resolveSignatureType elementTypes)
+        TypeFunction argumentType resultType ->
+          TypeFunction (resolveSignatureType argumentType) (resolveSignatureType resultType)
+        _ -> signatureType
 
 -- | Collect unqualified free references used to validate explicit and alias
 -- import visibility before core names are resolved structurally.
@@ -848,7 +862,7 @@ collectExprReferences boundNames surfaceExpr =
       Set.union
         (collectExprReferences boundNames function)
         (collectExprReferences boundNames argument)
-    SETypeApplication function _ ->
+    SETypeApplication function _ _ ->
       collectExprReferences boundNames function
     SEIf condition trueBranch falseBranch ->
       Set.unions
@@ -989,7 +1003,7 @@ collectQualifiedReferences surfaceExpr =
       Set.union
         (collectQualifiedReferences function)
         (collectQualifiedReferences argument)
-    SETypeApplication function _ ->
+    SETypeApplication function _ _ ->
       collectQualifiedReferences function
     SEIf condition trueBranch falseBranch ->
       Set.unions
@@ -1032,6 +1046,121 @@ collectQualifiedCaseArmReferences (SurfaceCaseArm _ guard body) =
     (maybe Set.empty collectQualifiedReferences guard)
     (collectQualifiedReferences body)
 
+-- Qualified type heads use the module-alias namespace just like qualified
+-- value references, but visibility is checked against the public type
+-- inventory before core-name resolution.
+collectQualifiedTypeReferences :: SurfaceExpr -> Set (Text, Text)
+collectQualifiedTypeReferences surfaceExpr =
+  case surfaceExpr of
+    SELit _ -> Set.empty
+    SEVar _ -> Set.empty
+    SEQualifiedVar _ _ -> Set.empty
+    SELambda _ body -> collectQualifiedTypeReferences body
+    SEOperatorValue _ -> Set.empty
+    SEList items -> Set.unions (map collectQualifiedTypeReferences items)
+    SETuple items -> Set.unions (map collectQualifiedTypeReferences items)
+    SEApply function argument ->
+      Set.union
+        (collectQualifiedTypeReferences function)
+        (collectQualifiedTypeReferences argument)
+    SETypeApplication function _ signatureType ->
+      Set.union
+        (collectQualifiedTypeReferences function)
+        (collectQualifiedSignatureTypeReferences signatureType)
+    SEIf condition trueBranch falseBranch ->
+      Set.unions
+        [ collectQualifiedTypeReferences condition,
+          collectQualifiedTypeReferences trueBranch,
+          collectQualifiedTypeReferences falseBranch
+        ]
+    SECase scrutinee arms ->
+      Set.union
+        (collectQualifiedTypeReferences scrutinee)
+        (Set.unions (map collectQualifiedCaseArmTypeReferences arms))
+    SEBinary _ left right ->
+      Set.union
+        (collectQualifiedTypeReferences left)
+        (collectQualifiedTypeReferences right)
+    SESectionLeft left _ -> collectQualifiedTypeReferences left
+    SESectionRight _ right -> collectQualifiedTypeReferences right
+    SEBlock statements ->
+      Set.unions (map collectQualifiedStatementTypeReferences statements)
+
+collectQualifiedStatementTypeReferences :: SurfaceStatement -> Set (Text, Text)
+collectQualifiedStatementTypeReferences statement =
+  case statement of
+    SSLet _ _ valueExpr -> collectQualifiedTypeReferences valueExpr
+    SSSignature _ _ payload -> collectQualifiedSignaturePayloadReferences payload
+    SSData _ _ _ constructors ->
+      Set.unions (map collectQualifiedDataConstructorTypeReferences constructors)
+    SSClass _ _ _ methods ->
+      Set.unions
+        [ collectQualifiedSignaturePayloadReferences payload
+          | SurfaceClassMethodSignature _ _ payload <- methods
+        ]
+    SSImpl _ _ arguments methods ->
+      Set.union
+        (Set.unions (map collectQualifiedSignatureTypeReferences arguments))
+        ( Set.unions
+            [ collectQualifiedTypeReferences body
+              | SurfaceImplMethod _ _ body <- methods
+            ]
+        )
+    SSModule {} -> Set.empty
+    SSImport {} -> Set.empty
+    SSExpr _ expr -> collectQualifiedTypeReferences expr
+
+collectQualifiedDataConstructorTypeReferences :: SurfaceDataConstructor -> Set (Text, Text)
+collectQualifiedDataConstructorTypeReferences (SurfaceDataConstructor _ arguments) =
+  Set.unions
+    [ collectQualifiedIdentifierReference name
+      | SurfaceDataConstructorArgumentName name <- arguments
+    ]
+
+collectQualifiedCaseArmTypeReferences :: SurfaceCaseArm -> Set (Text, Text)
+collectQualifiedCaseArmTypeReferences (SurfaceCaseArm _ guard body) =
+  Set.union
+    (maybe Set.empty collectQualifiedTypeReferences guard)
+    (collectQualifiedTypeReferences body)
+
+collectQualifiedSignaturePayloadReferences :: SurfaceSignaturePayload -> Set (Text, Text)
+collectQualifiedSignaturePayloadReferences payload =
+  case payload of
+    SurfaceSignatureType signatureType ->
+      collectQualifiedSignatureTypeReferences signatureType
+    SurfaceConstrainedSignature constraints signatureType ->
+      Set.union
+        ( Set.unions
+            [ Set.unions (map collectQualifiedSignatureTypeReferences arguments)
+              | SurfaceSignatureConstraint _ arguments <- constraints
+            ]
+        )
+        (collectQualifiedSignatureTypeReferences signatureType)
+    SurfaceUnsupportedSignature _ -> Set.empty
+
+collectQualifiedSignatureTypeReferences :: SurfaceSignatureType -> Set (Text, Text)
+collectQualifiedSignatureTypeReferences signatureType =
+  case signatureType of
+    SurfaceTypeVariable name -> collectQualifiedIdentifierReference name
+    SurfaceTypeName name -> collectQualifiedIdentifierReference name
+    SurfaceTypeApplication name arguments ->
+      Set.union
+        (collectQualifiedIdentifierReference name)
+        (Set.unions (map collectQualifiedSignatureTypeReferences arguments))
+    SurfaceTypeList innerType -> collectQualifiedSignatureTypeReferences innerType
+    SurfaceTypeTuple elementTypes ->
+      Set.unions (map collectQualifiedSignatureTypeReferences elementTypes)
+    SurfaceTypeFunction argumentType resultType ->
+      Set.union
+        (collectQualifiedSignatureTypeReferences argumentType)
+        (collectQualifiedSignatureTypeReferences resultType)
+    _ -> Set.empty
+
+collectQualifiedIdentifierReference :: Identifier -> Set (Text, Text)
+collectQualifiedIdentifierReference name =
+  maybe Set.empty Set.singleton
+    (splitQualifiedIdentifierText (identifierText name))
+
 -- | Validate alias and explicit-symbol imports after dependencies have been
 -- resolved so the exporting module inventories are known.
 validateImportBindings ::
@@ -1041,15 +1170,17 @@ validateImportBindings ::
   Set Text ->
   Set Text ->
   Set (Text, Text) ->
+  Set (Text, Text) ->
   Set Text ->
   Set Text ->
   Map [Text] ModuleExportInventory ->
   Either Diagnostic ()
-validateImportBindings sourcePath importerPath imports localClassNames referencedNames qualifiedReferences ambientVisibleSymbols ambientVisibleClassNames inventoriesByModule = do
-  go Map.empty Map.empty imports
+validateImportBindings sourcePath importerPath imports localClassNames referencedNames qualifiedReferences qualifiedTypeReferences ambientVisibleSymbols ambientVisibleClassNames inventoriesByModule = do
+  go Map.empty Map.empty Map.empty imports
   visibleSymbols <- collectVisibleImportSymbols imports
   visibleClassNames <- collectVisibleImportClassNames imports
   validateQualifiedReferences (Set.unions [localClassNames, visibleClassNames, ambientVisibleClassNames])
+  validateQualifiedTypeReferences
   let visibleOrAmbientSymbols = Set.union visibleSymbols ambientVisibleSymbols
   case findHiddenExplicitImportReference visibleOrAmbientSymbols of
     Just (symbolName, importDecl) ->
@@ -1079,17 +1210,23 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
         [ValueNamespace, ConstructorNamespace]
         (visibleImportInventory QualifiedAliasImport Nothing inventory)
 
+    aliasTypeNames inventory =
+      exportNamesInNamespace
+        TypeNamespace
+        (visibleImportInventory QualifiedAliasImport Nothing inventory)
+
     valueAndConstructorNames =
       exportNamesInNamespaces [ValueNamespace, ConstructorNamespace]
 
-    go seenSymbols seenAliases remainingImports =
+    go seenSymbols seenTypes seenAliases remainingImports =
       case remainingImports of
         [] ->
           Right ()
         importDecl : rest -> do
           seenAliasesAfterImport <- validateImportAlias seenAliases importDecl
           seenSymbolsAfterImport <- validateImportSymbols seenSymbols importDecl
-          go seenSymbolsAfterImport seenAliasesAfterImport rest
+          seenTypesAfterImport <- validateImportTypes seenTypes importDecl
+          go seenSymbolsAfterImport seenTypesAfterImport seenAliasesAfterImport rest
 
     validateImportAlias :: Map Text BindingOrigin -> ParsedImport -> Either Diagnostic (Map Text BindingOrigin)
     validateImportAlias seenAliases importDecl =
@@ -1141,6 +1278,51 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                 seenSymbols
                 importedSymbolNames
 
+    validateImportTypes :: Map Text BindingOrigin -> ParsedImport -> Either Diagnostic (Map Text BindingOrigin)
+    validateImportTypes seenTypes importDecl =
+      case parsedImportAlias importDecl of
+        Just _ ->
+          Right seenTypes
+        Nothing ->
+          case dependencyInventory importDecl of
+            Nothing ->
+              Left
+                ( mkDiagnostic
+                    "E4010"
+                    ( "internal resolver error while validating type imports for '"
+                        <> renderModulePath importerPath
+                        <> "': missing exports for module '"
+                        <> renderModulePath (parsedImportModulePath importDecl)
+                        <> "'"
+                    )
+                )
+            Just inventory ->
+              foldM
+                (validateImportType importDecl)
+                seenTypes
+                ( Set.toAscList
+                    (exportNamesInNamespace TypeNamespace (visibleUnqualifiedInventory importDecl inventory))
+                )
+
+    validateImportType :: ParsedImport -> Map Text BindingOrigin -> Text -> Either Diagnostic (Map Text BindingOrigin)
+    validateImportType importDecl seenTypes typeName =
+      case Map.lookup typeName seenTypes of
+        Just previousOrigin
+          | bindingOriginModulePath previousOrigin == parsedImportModulePath importDecl ->
+              Right seenTypes
+          | otherwise ->
+              Left (mkImportTypeCollisionError typeName previousOrigin importDecl)
+        Nothing ->
+          Right
+            ( Map.insert
+                typeName
+                BindingOrigin
+                  { bindingOriginModulePath = parsedImportModulePath importDecl,
+                    bindingOriginSpan = parsedImportSpan importDecl
+                  }
+                seenTypes
+            )
+
     validateQualifiedReferences :: Set Text -> Either Diagnostic ()
     validateQualifiedReferences visibleClassNames =
       foldM
@@ -1174,6 +1356,37 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                        in if Set.member symbolName exportedSymbols
                             then Right ()
                             else Left (mkMissingQualifiedAliasSymbolError symbolName importDecl aliasName exportedSymbols)
+
+    validateQualifiedTypeReferences :: Either Diagnostic ()
+    validateQualifiedTypeReferences =
+      foldM
+        validateQualifiedTypeReference
+        ()
+        (Set.toList qualifiedTypeReferences)
+      where
+        validateQualifiedTypeReference :: () -> (Text, Text) -> Either Diagnostic ()
+        validateQualifiedTypeReference () (aliasName, typeName) =
+          case findAliasImport aliasName of
+            Nothing ->
+              Left (mkUnknownQualifiedAliasError aliasName typeName)
+            Just importDecl ->
+              case dependencyInventory importDecl of
+                Nothing ->
+                  Left
+                    ( mkDiagnostic
+                        "E4010"
+                        ( "internal resolver error while validating type imports for '"
+                            <> renderModulePath importerPath
+                            <> "': missing exports for module '"
+                            <> renderModulePath (parsedImportModulePath importDecl)
+                            <> "'"
+                        )
+                    )
+                Just inventory ->
+                  let exportedTypes = aliasTypeNames inventory
+                   in if Set.member typeName exportedTypes
+                        then Right ()
+                        else Left (mkMissingQualifiedAliasSymbolError typeName importDecl aliasName exportedTypes)
 
     findAliasImport :: Text -> Maybe ParsedImport
     findAliasImport aliasName =
@@ -1241,6 +1454,30 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                   "E4008"
                   ( "import binding collision for symbol '"
                       <> symbolName
+                      <> "' in module '"
+                      <> renderModulePath importerPath
+                      <> "' at '"
+                      <> Text.pack sourcePath
+                      <> "'; already imported from '"
+                      <> renderModulePath (bindingOriginModulePath previousOrigin)
+                      <> "', cannot re-import from '"
+                      <> renderModulePath (parsedImportModulePath importDecl)
+                      <> "'"
+                  )
+              )
+          )
+
+    mkImportTypeCollisionError :: Text -> BindingOrigin -> ParsedImport -> Diagnostic
+    mkImportTypeCollisionError typeName previousOrigin importDecl =
+      setDiagnosticSubject typeName $
+        setDiagnosticRelatedSpan
+          (bindingOriginSpan previousOrigin)
+          ( setDiagnosticPrimarySpan
+              (parsedImportSpan importDecl)
+              ( mkDiagnostic
+                  "E4008"
+                  ( "import type collision for '"
+                      <> typeName
                       <> "' in module '"
                       <> renderModulePath importerPath
                       <> "' at '"

@@ -9,13 +9,14 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
-Current executor status (`2026-07-10`): `Ready Now` is empty because the approved
-Char/Text bootstrap child landed end to end, including module transport. There
-is no source-backed next curation target and no named candidate currently. Text
-traversal, host I/O, generic named-type applications, stack-safe evaluation, the
-Jazz-authored lexer, backend-neutral lowered IR, LLVM lowering, and the native
-runtime remain separate unpromoted children; do not infer a next worker task
-from the broader profile alone.
+Current executor status (`2026-07-10`):
+`Ready Now` is empty. `JN-BOOTSTRAP-GENERIC-NAMED-TYPES-001` completed the
+permanent rank-1 generic signature boundary without adding a bootstrap-only IR
+or backend. The next curation pass should review the separate Jazz-authored
+`Maybe`/`Result` library candidate below; it is not promoted until its module
+layout, exports, and verification contract are accepted. Text traversal, host
+I/O, stack-safe evaluation, the Jazz-authored lexer, backend-neutral lowered
+IR, LLVM lowering, and the native runtime remain later unpromoted children.
 
 ## Next Curation Target
 
@@ -30,11 +31,13 @@ target and no named candidate currently.
 
 | blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| `JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001` | `JN-BOOTSTRAP-MAYBE-RESULT-LIBRARIES-001` | `impl` | [Bootstrap interpreter profile blocker contract](blocker-contracts.md#jn-bootstrap-interpreter-profile-plan-001) | Generic named signatures, constructor schemes, modules, and explicit exports can now express these foundational APIs entirely in Jazz; landing them next would dogfood the permanent compiler boundary before host I/O or lexer work. | `jazz-next/stdlib/Maybe.jz`, `jazz-next/stdlib/Result.jz`, `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`, `jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`, `docs/jazz-language-state.md` | Focused module loader/prelude suites; full `test-warning-config.sh`; queue/docs gates | Accept exact module names and export lists, decide bundled-prelude versus ordinary-module ownership, and prove no new compiler builtin or bootstrap-only type representation is required. |
 
 ## Blocked
 
 | id | title | blocked_on | reason | plan | last_verified |
 | --- | --- | --- | --- | --- | --- |
+| `JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001` | Stage the hosted Jazz bootstrap interpreter profile | `No promoted child after generic named types` | The permanent rank-1 generic named-type boundary is complete. Jazz-authored `Maybe`/`Result`, text traversal, host I/O, stack-safe execution, lexer/parser modules, backend-neutral lowered IR, LLVM lowering, and the native runtime remain separate children; only the library slice is currently named for curation. | [2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md](../superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md) | `2026-07-10` |
 | `JN-MODULE-REBASE-PLAN-001` | Rebase module/import execution plan onto active `jazz-next` owners | `No accepted module child after explicit export lists` | Active-path ownership is rebased onto the current resolver/compiler/runtime path. `JN-MODULE-TYPED-EXPORT-INVENTORY-001` and `JN-MODULE-EXPLICIT-EXPORT-LIST-001` landed the shared inventory plus header allowlists, local/public separation, deterministic `E4015`, compiler import filtering, and runtime publication. Re-exports, alias-qualified classes, package semantics, and further stdlib/catalog growth remain blocked behind separate contracts. | [2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md](../plans/2026-03-18-jazz-next-runtime-architecture-and-interpreter-execution-plan.md) | `2026-07-10` |
 | `JN-USER-DEFINED-OPERATORS-PLAN-001` | Stage user-defined operator work beyond frozen v1 operators | `No accepted operator child after custom associativity` | Stage 2 fixed-tier declarations, same-source executable function bindings, operator-specific adjacent signatures, custom numeric precedence, and explicit `left`/`right`/`nonassoc` associativity are complete for parser declaration recognition, source-unit-local metadata, fixed-tier parsing, custom `precedence 1..99` parsing, diagnostics, ordinary callable `(op) = <expr>.` bindings, infix use, bare operator values, left sections, right sections, recursive local bindings, signature-constrained hidden bindings, non-associative same-precedence chain rejection, and module replay isolation without user-visible operator imports or exports. Runtime overload dispatch, cross-module operator binding APIs, and new built-in operators remain blocked until separate executable contracts exist. | [15-operator-fixity-and-sections.md](../plans/spec-clarification/2026-03-03/syntax/15-operator-fixity-and-sections.md) | `2026-07-08` |
 | `JN-TYPE-GRAMMAR-CLOSURE-PLAN-001` | Plan type-system expansion beyond rebase closure | `No accepted type-solver child after runtime evidence` | The broad type-solver coordination contract is accepted and recorded as `JN-TYPE-SOLVER-CONTRACT-001`. Ordinary-binding schemes/per-use instantiation, solver-backed variable constrained-signature schemes, inferred class constraints from strict equality and qualified method requirements, final defaulting/ambiguity diagnostics, explicit type application, and compiler-owned runtime evidence have landed. No remaining accepted child is source-backed; the umbrella stays blocked until a new concrete type-system contract names target paths and focused verification. | [2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md](../plans/2026-03-18-jazz-next-type-grammar-and-signature-rebase-plan.md) | `2026-07-08` |

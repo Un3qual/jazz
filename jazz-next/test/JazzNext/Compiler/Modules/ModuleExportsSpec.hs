@@ -41,7 +41,7 @@ tests =
     ("selects every same-text namespace entry", testSelectsSameTextEntries),
     ("selects exact module export namespaces", testSelectsExactModuleExportNamespaces),
     ("keeps same-text entries for bare module export selectors", testBareModuleExportSelectorKeepsSameTextEntries),
-    ("filters alias imports to values and constructors", testAliasVisibility),
+    ("filters alias imports to values, constructors, and types", testAliasVisibility),
     ("keeps all namespaces for unqualified imports", testUnqualifiedVisibility),
     ("finds the first requested namespace deterministically", testFirstNamespace),
     ("derives compiled interface exports by namespace", testInterfaceInventory)
@@ -146,7 +146,9 @@ testAliasVisibility =
     "alias entries"
     ( Set.fromList
         [ ModuleExport ValueNamespace "answer",
-          ModuleExport ConstructorNamespace "Box"
+          ModuleExport ConstructorNamespace "Box",
+          ModuleExport TypeNamespace "Box",
+          ModuleExport TypeNamespace "HiddenType"
         ]
     )
     ( exportInventoryEntries

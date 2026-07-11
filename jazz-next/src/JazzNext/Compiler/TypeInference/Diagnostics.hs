@@ -18,13 +18,16 @@ module JazzNext.Compiler.TypeInference.Diagnostics
     mkDuplicatePatternBinderError,
     mkEmptyOrPatternError,
     mkExplicitConstraintArityError,
+    mkInvalidExplicitTypeApplicationArgumentError,
     mkExplicitTypeApplicationTargetError,
     mkIfBranchTypeMismatchError,
     mkIfConditionTypeError,
     mkImplMethodMissingClassMethodError,
     mkImplMethodTypeMismatchError,
+    mkInvalidImplTargetError,
     mkInvalidSignatureTypeError,
     mkInvalidQualifiedMethodSignatureError,
+    mkMethodLocalTypeVariableError,
     mkListElementTypeMismatchError,
     mkListPatternTypeMismatchError,
     mkMissingClassMethodError,
@@ -49,6 +52,7 @@ module JazzNext.Compiler.TypeInference.Diagnostics
     mkTargetedFractionalLiteralOverflowError,
     mkTuplePatternArityMismatchError,
     mkTuplePatternTypeMismatchError,
+    mkUndeclaredSignatureConstraintError,
     mkTypeSchemeNumericConstraintError,
     mkTypeSchemeStrictEqualityConstraintError,
     mkUnknownConstructorPatternError,
@@ -65,7 +69,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( ConstraintSignatureType (..),
+  ( SignatureType (..),
     Expr,
     NumericType,
     SignatureConstraint (..),
@@ -80,8 +84,7 @@ import JazzNext.Compiler.BuiltinCatalog
 import JazzNext.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
     constraintImplFactKey,
-    identifierLooksLikeTypeVariable,
-    renderConstraintSignatureType
+    identifierLooksLikeTypeVariable
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic (..),
@@ -100,6 +103,7 @@ import JazzNext.Compiler.TypeInference.State
     inferClassFacts,
     inferConcreteImplFacts
   )
+import qualified JazzNext.Compiler.TypeInference.Signature as Signature
 import JazzNext.Compiler.TypeInference.Types
   ( ExpressionType (..),
     NumericConstraint,
@@ -244,6 +248,36 @@ mkInvalidQualifiedMethodSignatureError :: Text -> SignaturePayload -> Diagnostic
 mkInvalidQualifiedMethodSignatureError key payload =
   withSubject key $ mkDiagnostic "E2015" ("invalid or unsupported class method signature for '" <> key <> "': '" <> renderSignaturePayload payload <> "'")
 
+mkMethodLocalTypeVariableError :: Text -> Text -> SourceSpan -> Diagnostic
+mkMethodLocalTypeVariableError methodKey variableName methodSpan =
+  withSubject methodKey $
+    setDiagnosticPrimarySpan methodSpan $
+      mkDiagnostic
+        "E2009"
+        ( "class method '"
+            <> methodKey
+            <> "' uses unsupported method-local type variable '"
+            <> variableName
+            <> "'; only declared class parameters may appear"
+        )
+
+mkUndeclaredSignatureConstraintError :: Text -> Bool -> Text -> ExpressionType -> SourceSpan -> Diagnostic
+mkUndeclaredSignatureConstraintError bindingName primitive constraintName argumentType signatureSpan =
+  withSubject bindingName $
+    setDiagnosticPrimarySpan signatureSpan $
+      mkDiagnostic
+        "E2009"
+        ( "signature for '"
+            <> bindingName
+            <> "' does not declare required "
+            <> (if primitive then "primitive " else "")
+            <> "constraint '"
+            <> constraintName
+            <> "("
+            <> renderType argumentType
+            <> ")'"
+        )
+
 mkImplMethodMissingClassMethodError :: Text -> SourceSpan -> Diagnostic
 mkImplMethodMissingClassMethodError key spanValue = withSubject key $ setDiagnosticPrimarySpan spanValue $ mkDiagnostic "E2015" ("class method metadata for '" <> key <> "' must be declared before impl method body")
 
@@ -343,7 +377,7 @@ renderSignaturePayload signaturePayload =
   case signaturePayload of
     SignatureType signatureType -> renderSignatureType signatureType
     ConstrainedSignature constraints signatureType ->
-      "@{" <> Text.intercalate ", " (map renderSignatureConstraint constraints) <> "}: " <> renderConstraintSignatureType signatureType
+      "@{" <> Text.intercalate ", " (map renderSignatureConstraint constraints) <> "}: " <> renderSignatureType signatureType
     UnsupportedSignature tokens -> renderUnsupportedSignatureTokens tokens
 
 renderSignatureConstraint :: SignatureConstraint -> Text
@@ -351,7 +385,7 @@ renderSignatureConstraint (SignatureConstraint name arguments) =
   identifierText name
     <> if null arguments
       then ""
-      else "(" <> Text.intercalate ", " (map renderConstraintSignatureType arguments) <> ")"
+      else "(" <> Text.intercalate ", " (map renderSignatureType arguments) <> ")"
 
 renderSignatureType :: SignatureType -> Text
 renderSignatureType signatureType =
@@ -362,6 +396,10 @@ renderSignatureType signatureType =
     TypeBool -> "Bool"
     TypeChar -> "Char"
     TypeText -> "Text"
+    TypeVariable name -> identifierText name
+    TypeName name -> identifierText name
+    TypeApplication name arguments ->
+      identifierText name <> "(" <> Text.intercalate ", " (map renderSignatureType arguments) <> ")"
     TypeList innerType -> "[" <> renderSignatureTypeAtom innerType <> "]"
     TypeTuple elementTypes -> "(" <> Text.intercalate ", " (map renderSignatureType elementTypes) <> ")"
     TypeFunction argumentType resultType -> renderSignatureTypeAtom argumentType <> " -> " <> renderSignatureType resultType
@@ -448,38 +486,92 @@ mkInvalidSignatureTypeError state symbol signatureSpan signaturePayload =
 
 invalidSignatureSummary :: InferState -> Text -> SignaturePayload -> Text
 invalidSignatureSummary state symbol signaturePayload =
-  case signaturePayload of
-    ConstrainedSignature constraints _
-      | Just duplicateName <- duplicateConstraintName constraints ->
+  case signaturePayloadNamedTypeFailure state signaturePayload of
+    Just reason ->
+      "invalid or unsupported signature for '" <> symbol <> "': " <> reason
+    Nothing ->
+      case signaturePayload of
+        ConstrainedSignature constraints _
+          | Just duplicateName <- duplicateConstraintName constraints ->
+              "invalid or unsupported signature for '"
+                <> symbol
+                <> "': duplicate constraint '"
+                <> duplicateName
+                <> "' in '"
+                <> renderSignaturePayload signaturePayload
+                <> "'"
+        ConstrainedSignature constraints signatureType
+          | constrainedSignatureHasTypeVariable constraints signatureType ->
+              "invalid or unsupported signature for '"
+                <> symbol
+                <> "': type-variable constrained signatures require every constrained variable to appear in the signature body before inference can accept '"
+                <> renderSignaturePayload signaturePayload
+                <> "'"
+        ConstrainedSignature constraints _
+          | Just reason <- concreteConstraintFailureSummary state constraints ->
+              "invalid or unsupported signature for '"
+                <> symbol
+                <> "': "
+                <> reason
+                <> " in '"
+                <> renderSignaturePayload signaturePayload
+                <> "'"
+        _ ->
           "invalid or unsupported signature for '"
             <> symbol
-            <> "': duplicate constraint '"
-            <> duplicateName
-            <> "' in '"
+            <> "': '"
             <> renderSignaturePayload signaturePayload
             <> "'"
-    ConstrainedSignature constraints signatureType
-      | constrainedSignatureHasTypeVariable constraints signatureType ->
-          "invalid or unsupported signature for '"
-            <> symbol
-            <> "': type-variable constrained signatures require every constrained variable to appear in the signature body before inference can accept '"
-            <> renderSignaturePayload signaturePayload
-            <> "'"
-    ConstrainedSignature constraints _
-      | Just reason <- concreteConstraintFailureSummary state constraints ->
-          "invalid or unsupported signature for '"
-            <> symbol
-            <> "': "
-            <> reason
-            <> " in '"
-            <> renderSignaturePayload signaturePayload
-            <> "'"
-    _ ->
-      "invalid or unsupported signature for '"
-        <> symbol
-        <> "': '"
-        <> renderSignaturePayload signaturePayload
-        <> "'"
+
+mkInvalidExplicitTypeApplicationArgumentError :: InferState -> SourceSpan -> SignatureType -> Diagnostic
+mkInvalidExplicitTypeApplicationArgumentError state spanValue signatureType =
+  setDiagnosticPrimarySpan spanValue $
+    mkDiagnostic
+      "E2009"
+      ( case signatureTypeFailureSummary state signatureType of
+          Just reason -> reason
+          Nothing -> "invalid or unsupported explicit type application argument '" <> renderSignatureType signatureType <> "'"
+      )
+
+mkInvalidImplTargetError :: InferState -> SourceSpan -> SignatureType -> Maybe Diagnostic
+mkInvalidImplTargetError state implSpan signatureType =
+  case signatureTypeFailureSummary state signatureType of
+    Just failureSummary ->
+      Just
+        ( setDiagnosticPrimarySpan implSpan
+            (mkDiagnostic "E2009" ("invalid impl target: " <> failureSummary))
+        )
+    Nothing -> Nothing
+
+signaturePayloadNamedTypeFailure :: InferState -> SignaturePayload -> Maybe Text
+signaturePayloadNamedTypeFailure state payload =
+  firstJust (map (declarationSignatureTypeFailureSummary state) payloadTypes)
+  where
+    payloadTypes =
+      case payload of
+        SignatureType signatureType -> [signatureType]
+        ConstrainedSignature constraints signatureType ->
+          signatureType : [argument | SignatureConstraint _ arguments <- constraints, argument <- arguments]
+        UnsupportedSignature {} -> []
+
+signatureTypeFailureSummary :: InferState -> SignatureType -> Maybe Text
+signatureTypeFailureSummary state signatureType =
+  case Signature.signatureTypeToExpressionType state Map.empty signatureType of
+    Left failure -> Just (Signature.renderSignatureTypeFailure failure)
+    Right _ -> Nothing
+
+declarationSignatureTypeFailureSummary :: InferState -> SignatureType -> Maybe Text
+declarationSignatureTypeFailureSummary state signatureType =
+  case Signature.validateSignatureType state signatureType of
+    Left failure -> Just (Signature.renderSignatureTypeFailure failure)
+    Right () -> Nothing
+
+firstJust :: [Maybe a] -> Maybe a
+firstJust results =
+  case results of
+    [] -> Nothing
+    Just result : _ -> Just result
+    Nothing : rest -> firstJust rest
 
 concreteConstraintFailureSummary :: InferState -> [SignatureConstraint] -> Maybe Text
 concreteConstraintFailureSummary state constraints
@@ -516,7 +608,7 @@ concreteConstraintFailureSummary state constraints
         Just result : _ -> Just result
         Nothing : rest -> firstJust rest
 
-constrainedSignatureHasTypeVariable :: [SignatureConstraint] -> ConstraintSignatureType -> Bool
+constrainedSignatureHasTypeVariable :: [SignatureConstraint] -> SignatureType -> Bool
 constrainedSignatureHasTypeVariable constraints signatureType =
   any constraintHasTypeVariable constraints
     || constraintTypeHasTypeVariable signatureType
@@ -525,19 +617,21 @@ constraintHasTypeVariable :: SignatureConstraint -> Bool
 constraintHasTypeVariable (SignatureConstraint _ arguments) =
   any constraintTypeHasTypeVariable arguments
 
-constraintTypeHasTypeVariable :: ConstraintSignatureType -> Bool
+constraintTypeHasTypeVariable :: SignatureType -> Bool
 constraintTypeHasTypeVariable signatureType =
   case signatureType of
-    ConstraintTypeName name ->
+    TypeVariable {} -> True
+    TypeName name ->
       identifierLooksLikeTypeVariable name
-    ConstraintTypeApplication name arguments ->
+    TypeApplication name arguments ->
       identifierLooksLikeTypeVariable name || any constraintTypeHasTypeVariable arguments
-    ConstraintTypeList innerType ->
+    TypeList innerType ->
       constraintTypeHasTypeVariable innerType
-    ConstraintTypeTuple elementTypes ->
+    TypeTuple elementTypes ->
       any constraintTypeHasTypeVariable elementTypes
-    ConstraintTypeFunction argumentType resultType ->
+    TypeFunction argumentType resultType ->
       constraintTypeHasTypeVariable argumentType || constraintTypeHasTypeVariable resultType
+    _ -> False
 
 duplicateConstraintName :: [SignatureConstraint] -> Maybe Text
 duplicateConstraintName constraints =

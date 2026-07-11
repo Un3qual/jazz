@@ -5,7 +5,6 @@
 module JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceClassMethodSignature (..),
-    SurfaceConstrainedSignatureType (..),
     SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
@@ -94,7 +93,7 @@ data SurfaceExpr
   | SEList [SurfaceExpr]
   | SETuple [SurfaceExpr]
   | SEApply SurfaceExpr SurfaceExpr
-  | SETypeApplication SurfaceExpr SurfaceSignatureType
+  | SETypeApplication SurfaceExpr SourceSpan SurfaceSignatureType
   | SEIf SurfaceExpr SurfaceExpr SurfaceExpr
   | SECase SurfaceExpr [SurfaceCaseArm]
   | SEBinary Text SurfaceExpr SurfaceExpr
@@ -108,25 +107,14 @@ data SurfaceExpr
 -- issuing the stable `E2009` diagnostic without storing joined raw text.
 data SurfaceSignaturePayload
   = SurfaceSignatureType SurfaceSignatureType
-  | SurfaceConstrainedSignature [SurfaceSignatureConstraint] SurfaceConstrainedSignatureType
+  | SurfaceConstrainedSignature [SurfaceSignatureConstraint] SurfaceSignatureType
   | SurfaceUnsupportedSignature [SurfaceSignatureToken]
   deriving (Eq, Show)
 
 -- | Parser-owned constraint payload for the `@{...}:` surface. It is
 -- structured before the full type-class model exists so later phases can
 -- reject or narrow it deterministically without depending on opaque raw text.
-data SurfaceSignatureConstraint = SurfaceSignatureConstraint Identifier [SurfaceConstrainedSignatureType]
-  deriving (Eq, Show)
-
--- | Type syntax that can appear inside constrained signatures. This is kept
--- separate from `SurfaceSignatureType` because constrained signatures remain
--- semantically unsupported in the current active-path type checker.
-data SurfaceConstrainedSignatureType
-  = SurfaceConstrainedTypeName Identifier
-  | SurfaceConstrainedTypeApplication Identifier [SurfaceConstrainedSignatureType]
-  | SurfaceConstrainedTypeList SurfaceConstrainedSignatureType
-  | SurfaceConstrainedTypeTuple [SurfaceConstrainedSignatureType]
-  | SurfaceConstrainedTypeFunction SurfaceConstrainedSignatureType SurfaceConstrainedSignatureType
+data SurfaceSignatureConstraint = SurfaceSignatureConstraint Identifier [SurfaceSignatureType]
   deriving (Eq, Show)
 
 -- | Monomorphic signature types supported by the active parser/type slice.
@@ -151,6 +139,9 @@ data SurfaceSignatureType
   | SurfaceTypeBool
   | SurfaceTypeChar
   | SurfaceTypeText
+  | SurfaceTypeVariable Identifier
+  | SurfaceTypeName Identifier
+  | SurfaceTypeApplication Identifier [SurfaceSignatureType]
   | SurfaceTypeList SurfaceSignatureType
   | SurfaceTypeTuple [SurfaceSignatureType]
   | SurfaceTypeFunction SurfaceSignatureType SurfaceSignatureType
@@ -188,7 +179,7 @@ data SurfaceStatement
   | SSSignature Identifier SourceSpan SurfaceSignaturePayload
   | SSData SourceSpan Identifier [Identifier] [SurfaceDataConstructor]
   | SSClass SourceSpan Identifier [Identifier] [SurfaceClassMethodSignature]
-  | SSImpl SourceSpan Identifier [SurfaceConstrainedSignatureType] [SurfaceImplMethod]
+  | SSImpl SourceSpan Identifier [SurfaceSignatureType] [SurfaceImplMethod]
   | SSModule SourceSpan [Text] (Maybe [ModuleExportSelector])
   | SSImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SSExpr SourceSpan SurfaceExpr

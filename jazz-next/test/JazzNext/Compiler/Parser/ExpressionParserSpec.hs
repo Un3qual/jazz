@@ -22,7 +22,7 @@ import JazzNext.Compiler.Parser.AST
     SurfaceNumericType (..),
     SurfacePattern (..),
     SurfaceSignaturePayload (..),
-    SurfaceSignatureToken (..),
+    SurfaceSignatureType (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Context
@@ -178,9 +178,16 @@ testKnownAliasesDisambiguateBlockStatements = do
   nonAliasTokens <- lexSource "{ Result::a. }."
   assertExpression
     "unknown alias keeps compact signature in block"
-    (SEBlock [SSSignature "Result" (SourceSpan 1 3) (SurfaceUnsupportedSignature [SurfaceSignatureNameToken "a"])])
+    (SEBlock [SSSignature "Result" (SourceSpan 1 3) (SurfaceSignatureType (SurfaceTypeVariable "a"))])
     [TDot]
     (parseExpressionTokens Set.empty [] nonAliasTokens)
+
+  qualifiedMethodTokens <- lexSource "{ Make::make. }."
+  assertExpression
+    "uppercase capability qualifier keeps multi-letter method lookup in block"
+    (SEBlock [SSExpr (SourceSpan 1 3) (SEQualifiedVar "Make" "make")])
+    [TDot]
+    (parseExpressionTokens Set.empty [] qualifiedMethodTokens)
 
 testOperatorValuesAndSections :: IO ()
 testOperatorValuesAndSections = do

@@ -16,31 +16,31 @@ module JazzNext.Compiler.CapabilityFacts
     qualifiedMethodKey,
     splitQualifiedMethodKey,
     signaturePayloadConstraintType,
-    signatureTypeToConstraintSignatureType,
     substituteClassMethodSignature,
     constraintFunctionArgumentTypes,
-    renderConstraintSignatureType
+    renderCapabilityType
   ) where
 
 import Data.Char (isLower)
-import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( ConstraintSignatureType (..),
+  ( NumericType (..),
     SignaturePayload (..),
     SignatureToken (..),
     SignatureType (..)
   )
 import JazzNext.Compiler.BuiltinCatalog
-  ( renderNumericTypeName
+  ( numericTypeFromName,
+    renderNumericTypeName
   )
 import JazzNext.Compiler.Name
-  ( Name,
+  ( IdentifierLike (identifierText),
+    Name (..),
     renderName
   )
 
-concreteImplFactKey :: Name -> [ConstraintSignatureType] -> Maybe Text
+concreteImplFactKey :: Name -> [SignatureType] -> Maybe Text
 concreteImplFactKey capabilityName arguments =
   case arguments of
     [argument]
@@ -48,9 +48,9 @@ concreteImplFactKey capabilityName arguments =
           Just (constraintImplFactKey capabilityName argument)
     _ -> Nothing
 
-constraintImplFactKey :: Name -> ConstraintSignatureType -> Text
+constraintImplFactKey :: Name -> SignatureType -> Text
 constraintImplFactKey constraintName argument =
-  renderName constraintName <> "(" <> renderConstraintSignatureType argument <> ")"
+  renderName constraintName <> "(" <> renderCapabilityType argument <> ")"
 
 concreteImplFactClassName :: Text -> Text
 concreteImplFactClassName implKey =
@@ -71,30 +71,32 @@ splitQualifiedMethodKey nameText =
         capabilityName = Text.dropEnd 2 capabilityNameWithSeparator
     _ -> Nothing
 
-concreteConstraintArgument :: ConstraintSignatureType -> Bool
+concreteConstraintArgument :: SignatureType -> Bool
 concreteConstraintArgument signatureType =
   case signatureType of
-    ConstraintTypeName name ->
+    TypeVariable {} -> False
+    TypeName name ->
       not (identifierLooksLikeTypeVariable name)
-    ConstraintTypeApplication name arguments ->
+    TypeApplication name arguments ->
       not (identifierLooksLikeTypeVariable name) && all concreteConstraintArgument arguments
-    ConstraintTypeList innerType ->
+    TypeList innerType ->
       concreteConstraintArgument innerType
-    ConstraintTypeTuple elementTypes ->
+    TypeTuple elementTypes ->
       all concreteConstraintArgument elementTypes
-    ConstraintTypeFunction {} ->
+    TypeFunction {} ->
       False
+    _ -> True
 
-substituteClassMethodSignature :: Text -> ConstraintSignatureType -> SignaturePayload -> Maybe ConstraintSignatureType
+substituteClassMethodSignature :: Text -> SignatureType -> SignaturePayload -> Maybe SignatureType
 substituteClassMethodSignature classParameter implTarget methodSignature =
-  substituteConstraintSignatureType classParameter implTarget
+  substituteSignatureType classParameter implTarget
     <$> signaturePayloadConstraintType methodSignature
 
-signaturePayloadConstraintType :: SignaturePayload -> Maybe ConstraintSignatureType
+signaturePayloadConstraintType :: SignaturePayload -> Maybe SignatureType
 signaturePayloadConstraintType methodSignature =
   case methodSignature of
     SignatureType signatureType ->
-      Just (signatureTypeToConstraintSignatureType signatureType)
+      Just signatureType
     ConstrainedSignature [] signatureType ->
       Just signatureType
     ConstrainedSignature {} ->
@@ -102,37 +104,13 @@ signaturePayloadConstraintType methodSignature =
     UnsupportedSignature signatureTokens ->
       unsupportedSignatureTokensToConstraintType signatureTokens
 
-signatureTypeToConstraintSignatureType :: SignatureType -> ConstraintSignatureType
-signatureTypeToConstraintSignatureType signatureType =
-  case signatureType of
-    TypeInt ->
-      ConstraintTypeName "Int"
-    TypeFloat ->
-      ConstraintTypeName "Float"
-    TypeNumeric numericType ->
-      ConstraintTypeName (fromString (Text.unpack (renderNumericTypeName numericType)))
-    TypeBool ->
-      ConstraintTypeName "Bool"
-    TypeChar ->
-      ConstraintTypeName "Char"
-    TypeText ->
-      ConstraintTypeName "Text"
-    TypeList innerType ->
-      ConstraintTypeList (signatureTypeToConstraintSignatureType innerType)
-    TypeTuple elementTypes ->
-      ConstraintTypeTuple (map signatureTypeToConstraintSignatureType elementTypes)
-    TypeFunction argumentType resultType ->
-      ConstraintTypeFunction
-        (signatureTypeToConstraintSignatureType argumentType)
-        (signatureTypeToConstraintSignatureType resultType)
-
-unsupportedSignatureTokensToConstraintType :: [SignatureToken] -> Maybe ConstraintSignatureType
+unsupportedSignatureTokensToConstraintType :: [SignatureToken] -> Maybe SignatureType
 unsupportedSignatureTokensToConstraintType tokens =
   case splitTopLevelArrow tokens of
     Nothing ->
       unsupportedSignatureAtomToConstraintType tokens
     Just (argumentTokens, resultTokens) ->
-      ConstraintTypeFunction
+      TypeFunction
         <$> unsupportedSignatureAtomToConstraintType argumentTokens
         <*> unsupportedSignatureTokensToConstraintType resultTokens
 
@@ -161,11 +139,11 @@ splitTopLevelArrow =
         _ ->
           go parenDepth bracketDepth braceDepth (token : argumentTokens) rest
 
-unsupportedSignatureAtomToConstraintType :: [SignatureToken] -> Maybe ConstraintSignatureType
+unsupportedSignatureAtomToConstraintType :: [SignatureToken] -> Maybe SignatureType
 unsupportedSignatureAtomToConstraintType tokens =
   case tokens of
     [SignatureNameToken typeName] ->
-      Just (ConstraintTypeName typeName)
+      Just (signatureTypeForName typeName)
     SignatureLParenToken : rest ->
       case reverse rest of
         SignatureRParenToken : reversedInnerTokens ->
@@ -174,68 +152,108 @@ unsupportedSignatureAtomToConstraintType tokens =
     SignatureLBracketToken : rest ->
       case reverse rest of
         SignatureRBracketToken : reversedInnerTokens ->
-          ConstraintTypeList <$> unsupportedSignatureTokensToConstraintType (reverse reversedInnerTokens)
+          TypeList <$> unsupportedSignatureTokensToConstraintType (reverse reversedInnerTokens)
         _ -> Nothing
     _ -> Nothing
 
-substituteConstraintSignatureType :: Text -> ConstraintSignatureType -> ConstraintSignatureType -> ConstraintSignatureType
-substituteConstraintSignatureType classParameter implTarget signatureType =
+signatureTypeForName :: Name -> SignatureType
+signatureTypeForName name =
+  case renderName name of
+    "Int" -> TypeInt
+    "Float" -> TypeFloat
+    "Bool" -> TypeBool
+    "Char" -> TypeChar
+    "Text" -> TypeText
+    typeName ->
+      case numericTypeFromName typeName of
+        Just numericType -> TypeNumeric numericType
+        Nothing
+          | identifierLooksLikeTypeVariable name -> TypeVariable name
+          | otherwise -> TypeName name
+
+substituteSignatureType :: Text -> SignatureType -> SignatureType -> SignatureType
+substituteSignatureType classParameter implTarget signatureType =
   case signatureType of
-    ConstraintTypeName name
+    TypeVariable name
       | renderName name == classParameter -> implTarget
       | otherwise -> signatureType
-    ConstraintTypeApplication name arguments ->
-      ConstraintTypeApplication name (map (substituteConstraintSignatureType classParameter implTarget) arguments)
-    ConstraintTypeList innerType ->
-      ConstraintTypeList (substituteConstraintSignatureType classParameter implTarget innerType)
-    ConstraintTypeTuple elementTypes ->
-      ConstraintTypeTuple (map (substituteConstraintSignatureType classParameter implTarget) elementTypes)
-    ConstraintTypeFunction argumentType resultType ->
-      ConstraintTypeFunction
-        (substituteConstraintSignatureType classParameter implTarget argumentType)
-        (substituteConstraintSignatureType classParameter implTarget resultType)
+    TypeName name
+      | renderName name == classParameter -> implTarget
+      | otherwise -> signatureType
+    TypeApplication name arguments ->
+      TypeApplication name (map (substituteSignatureType classParameter implTarget) arguments)
+    TypeList innerType ->
+      TypeList (substituteSignatureType classParameter implTarget innerType)
+    TypeTuple elementTypes ->
+      TypeTuple (map (substituteSignatureType classParameter implTarget) elementTypes)
+    TypeFunction argumentType resultType ->
+      TypeFunction
+        (substituteSignatureType classParameter implTarget argumentType)
+        (substituteSignatureType classParameter implTarget resultType)
+    _ -> signatureType
 
-constraintFunctionArgumentTypes :: ConstraintSignatureType -> ([ConstraintSignatureType], ConstraintSignatureType)
+constraintFunctionArgumentTypes :: SignatureType -> ([SignatureType], SignatureType)
 constraintFunctionArgumentTypes signatureType =
   case signatureType of
-    ConstraintTypeFunction argumentType resultType ->
+    TypeFunction argumentType resultType ->
       let (argumentTypes, finalResultType) = constraintFunctionArgumentTypes resultType
        in (argumentType : argumentTypes, finalResultType)
     _ ->
       ([], signatureType)
 
-constraintSignatureTypeContainsClassParameter :: Text -> ConstraintSignatureType -> Bool
+constraintSignatureTypeContainsClassParameter :: Text -> SignatureType -> Bool
 constraintSignatureTypeContainsClassParameter classParameter signatureType =
   case signatureType of
-    ConstraintTypeApplication _ arguments ->
+    TypeApplication _ arguments ->
       any (constraintSignatureTypeContainsClassParameter classParameter) arguments
-    ConstraintTypeList innerType ->
+    TypeList innerType ->
       constraintSignatureTypeContainsClassParameter classParameter innerType
-    ConstraintTypeTuple elementTypes ->
+    TypeTuple elementTypes ->
       any (constraintSignatureTypeContainsClassParameter classParameter) elementTypes
-    ConstraintTypeFunction argumentType resultType ->
+    TypeFunction argumentType resultType ->
       constraintSignatureTypeContainsClassParameter classParameter argumentType
         || constraintSignatureTypeContainsClassParameter classParameter resultType
-    ConstraintTypeName typeName ->
+    TypeVariable typeName ->
       renderName typeName == classParameter
+    TypeName typeName ->
+      renderName typeName == classParameter
+    _ -> False
 
-constraintSignatureTypesCompatible :: ConstraintSignatureType -> ConstraintSignatureType -> Bool
+constraintSignatureTypesCompatible :: SignatureType -> SignatureType -> Bool
 constraintSignatureTypesCompatible leftType rightType =
   case (leftType, rightType) of
-    (ConstraintTypeName leftName, ConstraintTypeName rightName) ->
+    _ | leftType == rightType -> True
+    (TypeInt, TypeNumeric NumericInt64) -> True
+    (TypeNumeric NumericInt64, TypeInt) -> True
+    (TypeFloat, TypeNumeric NumericFloat64) -> True
+    (TypeNumeric NumericFloat64, TypeFloat) -> True
+    (TypeInt, TypeName name) -> normalizeConstraintSignatureName (renderName name) == "Int64"
+    (TypeName name, TypeInt) -> normalizeConstraintSignatureName (renderName name) == "Int64"
+    (TypeFloat, TypeName name) -> normalizeConstraintSignatureName (renderName name) == "Float64"
+    (TypeName name, TypeFloat) -> normalizeConstraintSignatureName (renderName name) == "Float64"
+    (TypeNumeric numericType, TypeName name) -> renderNumericTypeName numericType == normalizeConstraintSignatureName (renderName name)
+    (TypeName name, TypeNumeric numericType) -> normalizeConstraintSignatureName (renderName name) == renderNumericTypeName numericType
+    (TypeBool, TypeName name) -> renderName name == "Bool"
+    (TypeName name, TypeBool) -> renderName name == "Bool"
+    (TypeChar, TypeName name) -> renderName name == "Char"
+    (TypeName name, TypeChar) -> renderName name == "Char"
+    (TypeText, TypeName name) -> renderName name == "Text"
+    (TypeName name, TypeText) -> renderName name == "Text"
+    (TypeVariable leftName, TypeVariable rightName) -> renderName leftName == renderName rightName
+    (TypeName leftName, TypeName rightName) ->
       normalizeConstraintSignatureName (renderName leftName)
         == normalizeConstraintSignatureName (renderName rightName)
-    (ConstraintTypeApplication leftName leftArguments, ConstraintTypeApplication rightName rightArguments)
+    (TypeApplication leftName leftArguments, TypeApplication rightName rightArguments)
       | normalizeConstraintSignatureName (renderName leftName)
           == normalizeConstraintSignatureName (renderName rightName),
         length leftArguments == length rightArguments ->
           and (zipWith constraintSignatureTypesCompatible leftArguments rightArguments)
-    (ConstraintTypeList leftElementType, ConstraintTypeList rightElementType) ->
+    (TypeList leftElementType, TypeList rightElementType) ->
       constraintSignatureTypesCompatible leftElementType rightElementType
-    (ConstraintTypeTuple leftElementTypes, ConstraintTypeTuple rightElementTypes)
+    (TypeTuple leftElementTypes, TypeTuple rightElementTypes)
       | length leftElementTypes == length rightElementTypes ->
           and (zipWith constraintSignatureTypesCompatible leftElementTypes rightElementTypes)
-    (ConstraintTypeFunction leftArgumentType leftResultType, ConstraintTypeFunction rightArgumentType rightResultType) ->
+    (TypeFunction leftArgumentType leftResultType, TypeFunction rightArgumentType rightResultType) ->
       constraintSignatureTypesCompatible leftArgumentType rightArgumentType
         && constraintSignatureTypesCompatible leftResultType rightResultType
     _ -> False
@@ -247,24 +265,29 @@ normalizeConstraintSignatureName typeName =
     "Float" -> "Float64"
     _ -> typeName
 
-constraintSignatureAliasVariants :: ConstraintSignatureType -> [ConstraintSignatureType]
+constraintSignatureAliasVariants :: SignatureType -> [SignatureType]
 constraintSignatureAliasVariants signatureType =
   case signatureType of
-    ConstraintTypeName name ->
-      map ConstraintTypeName (constraintSignatureAliasNames name)
-    ConstraintTypeApplication name arguments ->
-      [ ConstraintTypeApplication name variantArguments
+    TypeInt -> [TypeInt, TypeNumeric NumericInt64]
+    TypeNumeric NumericInt64 -> [TypeNumeric NumericInt64, TypeInt]
+    TypeFloat -> [TypeFloat, TypeNumeric NumericFloat64]
+    TypeNumeric NumericFloat64 -> [TypeNumeric NumericFloat64, TypeFloat]
+    TypeName name ->
+      map TypeName (constraintSignatureAliasNames name)
+    TypeApplication name arguments ->
+      [ TypeApplication name variantArguments
         | variantArguments <- traverse constraintSignatureAliasVariants arguments
       ]
-    ConstraintTypeList elementType ->
-      map ConstraintTypeList (constraintSignatureAliasVariants elementType)
-    ConstraintTypeTuple elementTypes ->
-      map ConstraintTypeTuple (traverse constraintSignatureAliasVariants elementTypes)
-    ConstraintTypeFunction argumentType resultType ->
-      [ ConstraintTypeFunction variantArgument variantResult
+    TypeList elementType ->
+      map TypeList (constraintSignatureAliasVariants elementType)
+    TypeTuple elementTypes ->
+      map TypeTuple (traverse constraintSignatureAliasVariants elementTypes)
+    TypeFunction argumentType resultType ->
+      [ TypeFunction variantArgument variantResult
         | variantArgument <- constraintSignatureAliasVariants argumentType,
           variantResult <- constraintSignatureAliasVariants resultType
       ]
+    _ -> [signatureType]
 
 constraintSignatureAliasNames :: Name -> [Name]
 constraintSignatureAliasNames name =
@@ -275,64 +298,81 @@ constraintSignatureAliasNames name =
     "Float64" -> ["Float64", "Float"]
     _ -> [name]
 
-renderConstraintSignatureType :: ConstraintSignatureType -> Text
-renderConstraintSignatureType signatureType =
+renderCapabilityType :: SignatureType -> Text
+renderCapabilityType signatureType =
   case signatureType of
-    ConstraintTypeName name ->
+    TypeInt -> "Int"
+    TypeFloat -> "Float"
+    TypeNumeric numericType -> renderNumericTypeName numericType
+    TypeBool -> "Bool"
+    TypeChar -> "Char"
+    TypeText -> "Text"
+    TypeVariable name -> renderName name
+    TypeName name ->
       renderName name
-    ConstraintTypeApplication name arguments ->
+    TypeApplication name arguments ->
       renderName name
         <> "("
-        <> Text.intercalate ", " (map renderConstraintSignatureType arguments)
+        <> Text.intercalate ", " (map renderCapabilityType arguments)
         <> ")"
-    ConstraintTypeList innerType ->
+    TypeList innerType ->
       "[" <> renderConstraintListElementType innerType <> "]"
-    ConstraintTypeTuple elementTypes ->
-      "(" <> Text.intercalate ", " (map renderConstraintSignatureType elementTypes) <> ")"
-    ConstraintTypeFunction argumentType resultType ->
-      renderConstraintFunctionArgumentType argumentType <> " -> " <> renderConstraintSignatureType resultType
+    TypeTuple elementTypes ->
+      "(" <> Text.intercalate ", " (map renderCapabilityType elementTypes) <> ")"
+    TypeFunction argumentType resultType ->
+      renderConstraintFunctionArgumentType argumentType <> " -> " <> renderCapabilityType resultType
 
-renderConstraintFunctionArgumentType :: ConstraintSignatureType -> Text
+renderConstraintFunctionArgumentType :: SignatureType -> Text
 renderConstraintFunctionArgumentType signatureType =
   case signatureType of
-    ConstraintTypeFunction {} ->
-      "(" <> renderConstraintSignatureType signatureType <> ")"
+    TypeFunction {} ->
+      "(" <> renderCapabilityType signatureType <> ")"
     _ ->
-      renderConstraintSignatureType signatureType
+      renderCapabilityType signatureType
 
-renderConstraintListElementType :: ConstraintSignatureType -> Text
+renderConstraintListElementType :: SignatureType -> Text
 renderConstraintListElementType signatureType =
   case signatureType of
-    ConstraintTypeFunction {} ->
-      "(" <> renderConstraintSignatureType signatureType <> ")"
+    TypeFunction {} ->
+      "(" <> renderCapabilityType signatureType <> ")"
     _ ->
-      renderConstraintSignatureType signatureType
+      renderCapabilityType signatureType
 
 identifierLooksLikeTypeVariable :: Name -> Bool
 identifierLooksLikeTypeVariable name =
-  case Text.uncons (renderName name) of
+  case Text.uncons (terminalIdentifierText name) of
     Just (firstChar, _) -> isLower firstChar
     Nothing -> False
+  where
+    terminalIdentifierText candidate =
+      case candidate of
+        SourceName identifier -> identifierText identifier
+        QualifiedName _ member -> identifierText member
+        ResolvedName _ _ identifier -> identifierText identifier
+        BuiltinName identifier -> identifierText identifier
+        GeneratedName {} -> ""
 
-constraintSignatureTypeVariableNamesInOrder :: ConstraintSignatureType -> [Text]
+constraintSignatureTypeVariableNamesInOrder :: SignatureType -> [Text]
 constraintSignatureTypeVariableNamesInOrder =
   dedupe . go
   where
     go signatureType =
       case signatureType of
-        ConstraintTypeName name
+        TypeVariable name -> [renderName name]
+        TypeName name
           | identifierLooksLikeTypeVariable name ->
               [renderName name]
           | otherwise ->
               []
-        ConstraintTypeApplication _ arguments ->
+        TypeApplication _ arguments ->
           concatMap go arguments
-        ConstraintTypeList innerType ->
+        TypeList innerType ->
           go innerType
-        ConstraintTypeTuple elementTypes ->
+        TypeTuple elementTypes ->
           concatMap go elementTypes
-        ConstraintTypeFunction argumentType resultType ->
+        TypeFunction argumentType resultType ->
           go argumentType ++ go resultType
+        _ -> []
 
     dedupe =
       goDedupe []

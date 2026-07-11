@@ -74,6 +74,9 @@ capabilitiesTests =
     , ("run module graph keeps inferred runtime hints module scoped", testRunModuleGraphKeepsInferredRuntimeHintsModuleScoped)
     , ("run module graph keeps nested inferred runtime hints module scoped", testRunModuleGraphKeepsNestedInferredRuntimeHintsModuleScoped)
     , ("run module graph keeps pre-module inferred runtime hints module scoped", testRunModuleGraphKeepsPreModuleInferredRuntimeHintsModuleScoped)
+    , ("run module graph rebases explicit generic ADT application hints", testRunModuleGraphRebasesExplicitGenericAdtApplicationHints)
+    , ("run module graph rebases fallback explicit generic ADT hints", testRunModuleGraphRebasesFallbackExplicitGenericAdtHints)
+    , ("run module graph rebases class method argument signatures", testRunModuleGraphRebasesClassMethodArgumentSignatures)
     , ("run module graph retains local capabilities needed by imported signatures", testRunModuleGraphRetainsLocalCapabilitiesNeededByImportedSignatures)
     , ("run module graph namespaces hidden retained local capabilities", testRunModuleGraphNamespacesHiddenRetainedLocalCapabilities)
     , ("run module graph namespaces alias-retained local capabilities", testRunModuleGraphNamespacesAliasRetainedLocalCapabilities)
@@ -801,6 +804,69 @@ testRunModuleGraphKeepsPreModuleInferredRuntimeHintsModuleScoped = do
           ),
           ( "src/Lib/B.jz",
             "class RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\nimpl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\npicked = {\nx = 1.\nRuntimePick::pick x.\n}."
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRebasesExplicitGenericAdtApplicationHints :: IO ()
+testRunModuleGraphRebasesExplicitGenericAdtApplicationHints = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\ndata Box a = Box a.\nclass RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\nimpl RuntimeFlag(Box([Int])) {\nflag = \\(box) -> True.\n}.\nimpl RuntimeFlag(Box([Bool])) {\nflag = \\(box) -> False.\n}.\nidentity = \\(value) -> value.\nresult = RuntimeFlag::flag (identity @Box([Int]) (Box [])).\nresult.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRebasesFallbackExplicitGenericAdtHints :: IO ()
+testRunModuleGraphRebasesFallbackExplicitGenericAdtHints = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "fallback explicit hint compile errors" [] (runCompileErrors result)
+  assertEqual "fallback explicit hint runtime errors" [] (runRuntimeErrors result)
+  assertEqual "fallback explicit hint output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\ndata Box a = Box a.\nclass Flag(a) {\nflag :: a -> Bool.\n}.\nimpl Flag(Box([Int])) {\nflag = \\(box) -> True.\n}.\nimpl Flag(Box([Bool])) {\nflag = \\(box) -> False.\n}.\nuse :: a -> b -> a.\nuse = \\(value) -> \\(ignored) -> value.\nresult = Flag::flag (use @Box([Int]) (Box []) True).\nresult.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphRebasesClassMethodArgumentSignatures :: IO ()
+testRunModuleGraphRebasesClassMethodArgumentSignatures = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "class method argument compile errors" [] (runCompileErrors result)
+  assertEqual "class method argument runtime errors" [] (runRuntimeErrors result)
+  assertEqual "class method argument output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\ndata Token a = Token a.\nclass Check(a) {\ncheck :: Token(Int) -> a -> Bool.\n}.\nimpl Check(Int) {\ncheck = \\(token) -> \\(value) -> True.\n}.\nresult = Check::check (Token 1) 1.\nresult.\n}"
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

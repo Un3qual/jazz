@@ -134,7 +134,7 @@ visibleImportInventory mode maybeNames inventory =
     QualifiedAliasImport ->
       ModuleExportInventory
         ( Set.filter
-            ( (`elem` [ValueNamespace, ConstructorNamespace])
+            ( (`elem` [ValueNamespace, ConstructorNamespace, TypeNamespace])
                 . moduleExportNamespace
             )
             (exportInventoryEntries selected)

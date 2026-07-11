@@ -7,6 +7,7 @@ module JazzNext.Compiler.TypeInference
   ( InferenceInputs (..),
     InferenceResult (..),
     inferExpressionWithBuiltinsAndHiddenStatements,
+    inferExpressionWithBuiltinsAndSourceUnitStatements,
     inferExpressionWithBuiltins,
     inferExpressionWithInputs,
     inferExpressionWithInputsAndHiddenStatements,
@@ -29,7 +30,7 @@ import JazzNext.Compiler.Analyzer
     analyzeProgramWithInputs
   )
 import JazzNext.Compiler.AST
-  ( ConstraintSignatureType (..),
+  ( SignatureType (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -92,6 +93,7 @@ import JazzNext.Compiler.TypeInference.State
     inferDeferredExplicitConstraints,
     inferErrorsRev,
     inferModuleCapabilityFacts,
+    inferRigidTypeVars,
     inferRuntimeTypeHints,
     inferVisibleTypes,
     initialInferState
@@ -107,6 +109,7 @@ import JazzNext.Compiler.TypeInference.Solver
     integerLiteralRangeFitsNumericType,
     resolveType,
     supportsRuntimeEqualityType,
+    typeSatisfiesNumericConstraint,
     unifyTypes
   )
 import JazzNext.Compiler.TypeInference.Types
@@ -137,7 +140,7 @@ data InferenceResult = InferenceResult
   { inferredExpr :: Expr,
     inferredWarnings :: [WarningRecord],
     inferredErrors :: [Diagnostic],
-    inferredRuntimeTypeHints :: Map BindingRuntimeHintKey ConstraintSignatureType,
+    inferredRuntimeTypeHints :: Map BindingRuntimeHintKey SignatureType,
     inferredModuleInterface :: ModuleInterface
   }
   deriving (Eq, Show)
@@ -168,23 +171,43 @@ inferExpressionWithBuiltinsAndHiddenStatements ::
   Expr ->
   IO InferenceResult
 inferExpressionWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices settings =
-  inferExpressionWithInputsAndHiddenStatements
+  inferExpressionWithBuiltinsAndSourceUnitStatements
+    builtinMode
+    hiddenStatementIndices
+    hiddenStatementIndices
+    settings
+
+inferExpressionWithBuiltinsAndSourceUnitStatements ::
+  BuiltinResolutionMode ->
+  Set Int ->
+  Set Int ->
+  WarningSettings ->
+  Expr ->
+  IO InferenceResult
+inferExpressionWithBuiltinsAndSourceUnitStatements builtinMode hiddenStatementIndices preludeStatementIndices settings =
+  inferExpressionWithInputsAndSourceUnitStatements
     (emptyInferenceInputs builtinMode settings)
     hiddenStatementIndices
+    preludeStatementIndices
 
 inferExpressionWithInputs :: InferenceInputs -> Expr -> IO InferenceResult
 inferExpressionWithInputs inputs =
   inferExpressionWithInputsAndHiddenStatements inputs Set.empty
 
 inferExpressionWithInputsAndHiddenStatements :: InferenceInputs -> Set Int -> Expr -> IO InferenceResult
-inferExpressionWithInputsAndHiddenStatements inputs hiddenStatementIndices expr = do
+inferExpressionWithInputsAndHiddenStatements inputs hiddenStatementIndices expr =
+  inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices hiddenStatementIndices expr
+
+inferExpressionWithInputsAndSourceUnitStatements :: InferenceInputs -> Set Int -> Set Int -> Expr -> IO InferenceResult
+inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices preludeStatementIndices expr = do
   AnalysisResult _ warnings errors <-
     analyzeProgramWithInputs
       (analysisInputsForInference inputs)
       hiddenStatementIndices
       expr
   let (_, finalState) =
-        inferExprType
+        inferExprTypeWithSourceUnitStatements
+          preludeStatementIndices
           (inferenceBuiltinMode inputs)
           (inferenceImportedTypes inputs)
           (initialStateForInference inputs)
@@ -240,7 +263,8 @@ initialStateForInference inputs =
             },
         inferModule =
           (inferModule initialInferState)
-            { inferenceModulePath = inferenceCurrentModulePath inputs
+            { inferenceModulePath = inferenceCurrentModulePath inputs,
+              inferenceRuntimeHintPath = inferenceCurrentModulePath inputs
             }
       }
 
@@ -322,6 +346,16 @@ inferExprType ::
   Expr ->
   (Maybe ExpressionType, InferState)
 inferExprType builtinMode env state expr =
+  inferExprTypeWithSourceUnitStatements Set.empty builtinMode env state expr
+
+inferExprTypeWithSourceUnitStatements ::
+  Set Int ->
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  Expr ->
+  (Maybe ExpressionType, InferState)
+inferExprTypeWithSourceUnitStatements preludeStatementIndices builtinMode env state expr =
   case expr of
     ELit literal -> (Just (literalExpressionType literal), checkLiteralType state literal)
     EVar name ->
@@ -372,8 +406,8 @@ inferExprType builtinMode env state expr =
           inferBuiltinOperatorApplyOrGenericApply functionExpr argumentExpr
         _ ->
           inferBuiltinOperatorApplyOrGenericApply functionExpr argumentExpr
-    ETypeApplication functionExpr typeArgument ->
-      inferExplicitTypeApplication inferExprType builtinMode env state functionExpr typeArgument
+    ETypeApplication functionExpr typeArgumentSpan typeArgument ->
+      inferExplicitTypeApplication inferExprType builtinMode env state functionExpr typeArgumentSpan typeArgument
     EIf conditionExpr thenExpr elseExpr ->
       let (conditionType, stateAfterCondition) =
             inferExprType builtinMode env state conditionExpr
@@ -456,7 +490,7 @@ inferExprType builtinMode env state expr =
             env
             state
             (declaredOperatorRightSectionExpr operatorSymbol rightExpr)
-    EBlock statements -> inferScopeType inferExprType builtinMode env state statements
+    EBlock statements -> inferScopeType preludeStatementIndices inferExprType builtinMode env state statements
   where
     inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr =
       let (binaryResult, _, _) =
@@ -871,12 +905,28 @@ applyNumericBinaryRule operatorSymbol resultRule leftExpr rightExpr leftType rig
     Just (resolvedOperandType, stateAfterFloat64LiteralOperand) ->
       constrainNumericOperand resolvedOperandType stateAfterFloat64LiteralOperand
     Nothing ->
-      case unifyTypes leftType rightType state of
-        Just stateAfterUnify ->
-          let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
-           in constrainNumericOperand resolvedOperandType stateAfterUnify
-        Nothing -> numericOperandError state
+      case rigidNumericOperand of
+        Just rigidOperandType ->
+          constrainNumericOperand rigidOperandType state
+        Nothing ->
+          case unifyTypes leftType rightType state of
+            Just stateAfterUnify ->
+              let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
+               in constrainNumericOperand resolvedOperandType stateAfterUnify
+            Nothing -> numericOperandError state
   where
+    rigidNumericOperand =
+      case (resolveType state leftType, resolveType state rightType) of
+        (rigidType@(TVarType typeVar), concreteType)
+          | Set.member typeVar (inferRigidTypeVars state),
+            typeSatisfiesNumericConstraint (numericRuleConstraint resultRule) concreteType ->
+              Just rigidType
+        (concreteType, rigidType@(TVarType typeVar))
+          | Set.member typeVar (inferRigidTypeVars state),
+            typeSatisfiesNumericConstraint (numericRuleConstraint resultRule) concreteType ->
+              Just rigidType
+        _ -> Nothing
+
     constrainNumericOperand resolvedOperandType operandState =
       case constrainNumericOperatorType (numericRuleConstraint resultRule) resolvedOperandType operandState of
         Just stateAfterNumericConstraint ->

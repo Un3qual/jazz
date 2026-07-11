@@ -9,7 +9,6 @@ import qualified Data.Set as Set
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
-    ConstraintSignatureType (..),
     Expr (..),
     ImplMethod (..),
     Literal (..),
@@ -54,6 +53,9 @@ import JazzNext.Compiler.Semantics.BindingSignature.Shared
 diagnosticTests :: [NamedTest]
 diagnosticTests =
   [ ("signature type mismatch is rejected", testSignatureTypeMismatch)
+    , ("source pipeline rejects generic signature specialization", testSourceRejectsGenericSignatureSpecialization)
+    , ("source pipeline rejects generic signature variable collapse", testSourceRejectsGenericSignatureVariableCollapse)
+    , ("source pipeline rejects generic named signature specialization", testSourceRejectsGenericNamedSignatureSpecialization)
     , ("signature separated from binding by expression is rejected", testSignatureSeparatedFromBinding)
     , ("signature must match immediate binding name", testSignatureNameMismatch)
     , ("use-before-definition is rejected", testUseBeforeDefinition)
@@ -75,6 +77,10 @@ diagnosticTests =
     , ("source pipeline rejects function constrained signature argument", testSourceRejectsFunctionConstrainedSignatureArgument)
     , ("source pipeline keeps unsupported constrained signature spans on signatures", testSourceRejectsUnsupportedConstrainedSignatureSpans)
     , ("source pipeline rejects list signature mismatch", testSourceRejectsListSignatureMismatch)
+    , ("source pipeline rejects unknown named signature type", testSourceRejectsUnknownNamedSignatureType)
+    , ("source pipeline rejects named signature type arity mismatch", testSourceRejectsNamedSignatureTypeArityMismatch)
+    , ("source pipeline rejects partial named signature type", testSourceRejectsPartialNamedSignatureType)
+    , ("source pipeline preserves local type declaration order", testSourcePreservesLocalTypeDeclarationOrder)
     , ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface)
     , ("source pipeline rejects missing use-site facts for variable constrained signatures", testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures)
     , ("source pipeline rejects ambiguous variable constrained signature use", testSourceRejectsAmbiguousVariableConstrainedSignatureUse)
@@ -83,6 +89,24 @@ diagnosticTests =
     , ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
     , ("mismatched pending signature does not monomorphize following binding", testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding)
   ]
+
+testSourceRejectsGenericSignatureSpecialization :: IO ()
+testSourceRejectsGenericSignatureSpecialization =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "bad :: a -> a.\nbad = \\(x) -> 1."
+    "declared as"
+
+testSourceRejectsGenericSignatureVariableCollapse :: IO ()
+testSourceRejectsGenericSignatureVariableCollapse =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "bad :: a -> b -> a.\nbad = \\(x) -> \\(y) -> y."
+    "declared as"
+
+testSourceRejectsGenericNamedSignatureSpecialization :: IO ()
+testSourceRejectsGenericNamedSignatureSpecialization =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "data Box a = Box a.\nbad :: Box(a) -> Box(a).\nbad = \\(x) -> Box 1."
+    "declared as Box"
 
 testSignatureTypeMismatch :: IO ()
 testSignatureTypeMismatch = do
@@ -171,6 +195,30 @@ testSourceRejectsSignatureTypeMismatch = do
     "source signature type mismatch subject"
     "x"
     (compileErrors result)
+
+testSourceRejectsUnknownNamedSignatureType :: IO ()
+testSourceRejectsUnknownNamedSignatureType =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "value :: Unknown.\nvalue = 1."
+    "unknown named type 'Unknown'"
+
+testSourceRejectsNamedSignatureTypeArityMismatch :: IO ()
+testSourceRejectsNamedSignatureTypeArityMismatch =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "data Box a = Box a.\nvalue :: Box(Int, Bool).\nvalue = Box 1."
+    "type 'Box' expects 1 argument(s), found 2"
+
+testSourceRejectsPartialNamedSignatureType :: IO ()
+testSourceRejectsPartialNamedSignatureType =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "data Box a = Box a.\nvalue :: Box.\nvalue = Box 1."
+    "type 'Box' expects 1 argument(s), found 0"
+
+testSourcePreservesLocalTypeDeclarationOrder :: IO ()
+testSourcePreservesLocalTypeDeclarationOrder =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "value :: Box(Int).\nvalue = 1.\ndata Box a = Box a."
+    "unknown named type 'Box'"
 
 testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals :: IO ()
 testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals = do
@@ -262,7 +310,7 @@ testSourceRejectsListSignatureMismatch = do
 
 testSourceRejectsUnsupportedSignatureSurface :: IO ()
 testSourceRejectsUnsupportedSignatureSurface =
-  assertSourceSingleErrorContains "x :: [a].\nx = [1]." "E2009"
+  assertSourceSingleErrorContains "x :: forall a.\nx = 1." "E2009"
 
 testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures :: IO ()
 testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures =

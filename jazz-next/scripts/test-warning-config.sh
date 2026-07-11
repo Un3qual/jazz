@@ -103,3 +103,11 @@ fi
 for test_file in "${TEST_FILES[@]}"; do
   "$RUNGHC" "${RUNGHC_INCLUDES[@]}" "$test_file"
 done
+
+if rg -n 'SurfaceConstrainedSignatureType|ConstraintSignatureType' \
+  jazz-next/src jazz-next/test jazz-next/jazz-next.cabal; then
+  echo "parallel constrained signature type representation remains" >&2
+  exit 1
+fi
+
+echo "signature type unification checks passed"

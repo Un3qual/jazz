@@ -3,7 +3,8 @@
 module JazzNext.Compiler.RuntimeHints
   ( BindingRuntimeHintKey (..),
     bindingRuntimeHintKey,
-    bindingRuntimeHintKeyInModule
+    bindingRuntimeHintKeyInModule,
+    explicitTypeApplicationRuntimeHintKeyInModule
   ) where
 
 import Data.Text (Text)
@@ -12,7 +13,9 @@ import JazzNext.Compiler.Diagnostics
   )
 import JazzNext.Compiler.Name (Name)
 
-data BindingRuntimeHintKey = BindingRuntimeHintKey (Maybe [Text]) SourceSpan Name
+data BindingRuntimeHintKey
+  = BindingRuntimeHintKey (Maybe [Text]) SourceSpan Name
+  | ExplicitTypeApplicationRuntimeHintKey (Maybe [Text]) SourceSpan
   deriving (Eq, Ord, Show)
 
 bindingRuntimeHintKey :: Name -> SourceSpan -> BindingRuntimeHintKey
@@ -22,3 +25,7 @@ bindingRuntimeHintKey bindingName bindingSpan =
 bindingRuntimeHintKeyInModule :: Maybe [Text] -> Name -> SourceSpan -> BindingRuntimeHintKey
 bindingRuntimeHintKeyInModule modulePath bindingName bindingSpan =
   BindingRuntimeHintKey modulePath bindingSpan bindingName
+
+explicitTypeApplicationRuntimeHintKeyInModule :: Maybe [Text] -> SourceSpan -> BindingRuntimeHintKey
+explicitTypeApplicationRuntimeHintKeyInModule =
+  ExplicitTypeApplicationRuntimeHintKey
