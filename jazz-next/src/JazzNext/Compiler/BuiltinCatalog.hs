@@ -75,6 +75,8 @@ data BuiltinSymbol
   | BuiltinToFloat16
   | BuiltinToFloat32
   | BuiltinToFloat64
+  | BuiltinTextLength
+  | BuiltinTextUnconsRaw
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 -- | Exhaustive builtin inventory in declaration order. Generated prelude text
@@ -91,8 +93,14 @@ builtinNamesInMode mode =
     [ case mode of
         ResolveKernelOnly -> builtinSymbolKernelName symbol
         ResolveCompatibility -> builtinSymbolName symbol
-      | symbol <- allBuiltinSymbols
+      | symbol <- symbolsForMode mode
     ]
+  where
+    symbolsForMode resolutionMode =
+      case resolutionMode of
+        ResolveKernelOnly -> allBuiltinSymbols
+        ResolveCompatibility ->
+          filter ((== PreludeTarget) . builtinSymbolOwnership) allBuiltinSymbols
 
 -- | Classify the public ownership contract for a builtin independent of the
 -- temporary runtime implementation that backs it.
@@ -117,8 +125,11 @@ builtinSymbolOwnership builtinSymbol =
     BuiltinToFloat16 -> PreludeTarget
     BuiltinToFloat32 -> PreludeTarget
     BuiltinToFloat64 -> PreludeTarget
+    BuiltinTextLength -> KernelIntrinsic
+    BuiltinTextUnconsRaw -> KernelIntrinsic
 
--- | Public compatibility/prelude spelling for a builtin symbol.
+-- | Unprefixed builtin stem. Only 'PreludeTarget' stems are public aliases;
+-- 'KernelIntrinsic' stems are used solely to derive private kernel names.
 builtinSymbolName :: BuiltinSymbol -> Text
 builtinSymbolName builtinSymbol =
   case builtinSymbol of
@@ -138,6 +149,8 @@ builtinSymbolName builtinSymbol =
     BuiltinToFloat16 -> "toFloat16"
     BuiltinToFloat32 -> "toFloat32"
     BuiltinToFloat64 -> "toFloat64"
+    BuiltinTextLength -> "textLength"
+    BuiltinTextUnconsRaw -> "textUnconsRaw"
 
 -- | Kernel bridge spelling reserved for compiler-generated prelude bindings.
 builtinSymbolKernelName :: BuiltinSymbol -> Text
@@ -164,6 +177,8 @@ builtinSymbolArity builtinSymbol =
     BuiltinToFloat16 -> 1
     BuiltinToFloat32 -> 1
     BuiltinToFloat64 -> 1
+    BuiltinTextLength -> 1
+    BuiltinTextUnconsRaw -> 1
 
 -- | Numeric conversion builtins target one explicit concrete numeric type.
 builtinSymbolNumericConversionTarget :: BuiltinSymbol -> Maybe NumericType
@@ -299,7 +314,9 @@ kernelBridgeTargetName bindingName
 -- | Resolve a public compatibility/prelude builtin spelling.
 lookupBuiltinSymbol :: Text -> Maybe BuiltinSymbol
 lookupBuiltinSymbol name =
-  lookupByRenderedName builtinSymbolName name
+  find
+    (\symbol -> builtinSymbolOwnership symbol == PreludeTarget && builtinSymbolName symbol == name)
+    allBuiltinSymbols
 
 -- | Resolve a compiler-owned kernel bridge builtin spelling.
 lookupKernelBuiltinSymbol :: Text -> Maybe BuiltinSymbol
