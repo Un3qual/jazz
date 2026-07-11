@@ -77,6 +77,12 @@ parseCasePatternParser = do
     Just token@Token {tokenKind = TInt value} -> do
       void parseAnyToken
       parseIntegralPatternLiteral token value
+    Just Token {tokenKind = TChar value} -> do
+      void parseAnyToken
+      pure (SPLiteral (SLChar value))
+    Just Token {tokenKind = TText value} -> do
+      void parseAnyToken
+      pure (SPLiteral (SLText value))
     Just Token {tokenKind = TLBracket} -> do
       void parseAnyToken
       parseListPattern
@@ -167,6 +173,12 @@ parseConstructorArgumentPattern = do
     Just token@Token {tokenKind = TInt value} -> do
       void parseAnyToken
       parseIntegralPatternLiteral token value
+    Just Token {tokenKind = TChar value} -> do
+      void parseAnyToken
+      pure (SPLiteral (SLChar value))
+    Just Token {tokenKind = TText value} -> do
+      void parseAnyToken
+      pure (SPLiteral (SLText value))
     Just Token {tokenKind = TIdentifier name} -> do
       void parseAnyToken
       case name of
@@ -239,6 +251,8 @@ startsCasePattern :: Token -> Bool
 startsCasePattern token =
   case tokenKind token of
     TInt _ -> True
+    TChar _ -> True
+    TText _ -> True
     TIdentifier _ -> True
     TLBracket -> True
     TLParen -> True
@@ -290,6 +304,10 @@ parseLambdaParameterParser = do
   maybeToken <- peekToken
   case maybeToken of
     Just Token {tokenKind = TInt _} ->
+      parsePatternLambdaParameter
+    Just Token {tokenKind = TChar _} ->
+      parsePatternLambdaParameter
+    Just Token {tokenKind = TText _} ->
       parsePatternLambdaParameter
     Just Token {tokenKind = TLParen} ->
       parsePatternLambdaParameter

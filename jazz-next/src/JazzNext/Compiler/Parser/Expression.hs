@@ -159,6 +159,8 @@ startsPrimaryExpr :: Token -> Bool
 startsPrimaryExpr token =
   case tokenKind token of
     TInt _ -> True
+    TChar _ -> True
+    TText _ -> True
     TIdentifier _ -> True
     TIf -> True
     TCase -> True
@@ -271,6 +273,10 @@ parsePrimaryExpr parseBlock context stop = do
       case tokenKind token of
         TInt value ->
           SELit <$> parseNumericSurfaceLiteral token value
+        TChar value ->
+          pure (SELit (SLChar value))
+        TText value ->
+          pure (SELit (SLText value))
         TIdentifier "True" ->
           pure (SELit (SLBool True))
         TIdentifier "False" ->

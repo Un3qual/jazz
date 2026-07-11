@@ -34,6 +34,8 @@ data Literal
   = LInt Integer
   | LFloat Double FractionalLiteralSource (Maybe NumericType)
   | LBool Bool
+  | LChar Char
+  | LText Text
   deriving (Eq, Show)
 
 -- | Core patterns for the first active-path case-expression slice.
@@ -128,6 +130,8 @@ data SignatureType
   | TypeFloat
   | TypeNumeric NumericType
   | TypeBool
+  | TypeChar
+  | TypeText
   | TypeList SignatureType
   | TypeTuple [SignatureType]
   | TypeFunction SignatureType SignatureType

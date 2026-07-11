@@ -266,6 +266,8 @@ parseNamedSignatureType typeName =
     "Int" -> Just SurfaceTypeInt
     "Float" -> Just SurfaceTypeFloat
     "Bool" -> Just SurfaceTypeBool
+    "Char" -> Just SurfaceTypeChar
+    "Text" -> Just SurfaceTypeText
     _ -> SurfaceTypeNumeric <$> parseSurfaceNumericType typeName
 
 parseSurfaceNumericType :: Text -> Maybe SurfaceNumericType

@@ -54,6 +54,7 @@ import JazzNext.Compiler.Parser.Foundation.Shared
 signatureTests :: [NamedTest]
 signatureTests =
   [ ("parses signature statement with source span", testParseSignatureSpan)
+    , ("parses Char and Text signatures", testParsesCharAndTextSignatures)
     , ("parses parenthesized function signature into structured nodes", testParseParenthesizedFunctionSignature)
     , ("parses tuple signature into structured nodes", testParseTupleSignature)
     , ("parses Unit value and signature into structured nodes", testParseUnitValueAndSignature)
@@ -93,6 +94,23 @@ testParseSignatureSpan =
         )
     )
     (parseSurfaceProgram "x :: Int.\nx = 1.")
+
+testParsesCharAndTextSignatures :: IO ()
+testParsesCharAndTextSignatures =
+  assertEqual
+    "Char/Text signatures"
+    ( Right
+        ( SEBlock
+            [ SSSignature "character" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeChar),
+              SSSignature "message" (SourceSpan 2 1) (SurfaceSignatureType SurfaceTypeText),
+              SSSignature
+                "render"
+                (SourceSpan 3 1)
+                (SurfaceSignatureType (SurfaceTypeFunction SurfaceTypeChar SurfaceTypeText))
+            ]
+        )
+    )
+    (parseSurfaceProgram "character :: Char.\nmessage :: Text.\nrender :: Char -> Text.")
 
 testParseParenthesizedFunctionSignature :: IO ()
 testParseParenthesizedFunctionSignature =

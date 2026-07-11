@@ -56,6 +56,7 @@ expressionTests =
   [ ("parses let binding and expression statement", testParseLetAndExpr)
     , ("parseSurfaceProgram accepts Text input", testParseSurfaceProgramAcceptsTextInput)
     , ("parses tuple literal into structured nodes", testParseTupleLiteral)
+    , ("lowers Char and Text literals into analyzer AST", testLowersCharAndTextLiterals)
     , ("parses fractional literal without treating decimal dot as statement terminator", testParseFractionalLiteral)
     , ("parses fractional literal suffixes as concrete float targets", testParseFractionalLiteralSuffixes)
     , ("ignores hash line comments between statements", testIgnoresHashLineComments)
@@ -117,6 +118,11 @@ testParseTupleLiteral =
         )
     )
     (parseSurfaceProgram "(1, True).")
+
+testLowersCharAndTextLiterals :: IO ()
+testLowersCharAndTextLiterals = do
+  assertEqual "lower Char" (ELit (LChar 'a')) (lowerSurfaceExpr (SELit (SLChar 'a')))
+  assertEqual "lower Text" (ELit (LText "Jazz")) (lowerSurfaceExpr (SELit (SLText "Jazz")))
 
 testParseFractionalLiteral :: IO ()
 testParseFractionalLiteral =

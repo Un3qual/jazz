@@ -41,6 +41,8 @@ data SurfaceLiteral
   = SLInt Integer
   | SLFloat Double FractionalLiteralSource (Maybe SurfaceNumericType)
   | SLBool Bool
+  | SLChar Char
+  | SLText Text
   deriving (Eq, Show)
 
 -- | Surface patterns accepted by the current parser slice for general case
@@ -147,6 +149,8 @@ data SurfaceSignatureType
   | SurfaceTypeFloat
   | SurfaceTypeNumeric SurfaceNumericType
   | SurfaceTypeBool
+  | SurfaceTypeChar
+  | SurfaceTypeText
   | SurfaceTypeList SurfaceSignatureType
   | SurfaceTypeTuple [SurfaceSignatureType]
   | SurfaceTypeFunction SurfaceSignatureType SurfaceSignatureType
