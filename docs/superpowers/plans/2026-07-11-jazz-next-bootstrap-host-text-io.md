@@ -108,19 +108,19 @@ and repository queue/docs gates.
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference.hs`
 - Modify: `jazz-next/stdlib/Prelude.jz`
 
-- [ ] Add failing catalog tests for exact symbols, names, arities,
+- [x] Add failing catalog tests for exact symbols, names, arities,
   `KernelIntrinsic` ownership, kernel lookup, self-bridges, and missing public
   aliases.
-- [ ] Add failing inference tests for exact raw tuple/list/unit types and
+- [x] Add failing inference tests for exact raw tuple/list/unit types and
   deterministic invalid-argument diagnostics.
-- [ ] Add failing purity tests proving pure bindings reject every raw `!`
+- [x] Add failing purity tests proving pure bindings reject every raw `!`
   bridge while impure bindings and top-level expressions accept them.
-- [ ] Run the three focused suites and verify RED because the symbols do not
+- [x] Run the three focused suites and verify RED because the symbols do not
   exist.
-- [ ] Add all seven catalog constructors and checked-in prelude self-bridges.
-- [ ] Add exact type-instantiation cases in `TypeInference.hs`.
-- [ ] Run the focused suites and verify GREEN.
-- [ ] Commit as `feat: define private host IO intrinsics`.
+- [x] Add all seven catalog constructors and checked-in prelude self-bridges.
+- [x] Add exact type-instantiation cases in `TypeInference.hs`.
+- [x] Run the focused suites and verify GREEN.
+- [x] Commit as `feat: define private host IO intrinsics`.
 
 ### Task 2: Introduce the typed monadic runtime-host seam
 

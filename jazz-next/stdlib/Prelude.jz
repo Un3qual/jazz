@@ -126,6 +126,13 @@ __kernel_toFloat32 = __kernel_toFloat32.
 __kernel_toFloat64 = __kernel_toFloat64.
 __kernel_textLength = __kernel_textLength.
 __kernel_textUnconsRaw = __kernel_textUnconsRaw.
+__kernel_readTextRaw! = __kernel_readTextRaw!.
+__kernel_writeTextRaw! = __kernel_writeTextRaw!.
+__kernel_readStdinRaw! = __kernel_readStdinRaw!.
+__kernel_writeStdoutRaw! = __kernel_writeStdoutRaw!.
+__kernel_writeStderrRaw! = __kernel_writeStderrRaw!.
+__kernel_arguments! = __kernel_arguments!.
+__kernel_exit! = __kernel_exit!.
 
 map = __kernel_map.
 filter = __kernel_filter.
