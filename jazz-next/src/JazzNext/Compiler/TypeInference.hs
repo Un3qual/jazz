@@ -29,7 +29,7 @@ import JazzNext.Compiler.Analyzer
     analyzeProgramWithInputs
   )
 import JazzNext.Compiler.AST
-  ( ConstraintSignatureType (..),
+  ( SignatureType (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
@@ -137,7 +137,7 @@ data InferenceResult = InferenceResult
   { inferredExpr :: Expr,
     inferredWarnings :: [WarningRecord],
     inferredErrors :: [Diagnostic],
-    inferredRuntimeTypeHints :: Map BindingRuntimeHintKey ConstraintSignatureType,
+    inferredRuntimeTypeHints :: Map BindingRuntimeHintKey SignatureType,
     inferredModuleInterface :: ModuleInterface
   }
   deriving (Eq, Show)
@@ -372,8 +372,8 @@ inferExprType builtinMode env state expr =
           inferBuiltinOperatorApplyOrGenericApply functionExpr argumentExpr
         _ ->
           inferBuiltinOperatorApplyOrGenericApply functionExpr argumentExpr
-    ETypeApplication functionExpr typeArgument ->
-      inferExplicitTypeApplication inferExprType builtinMode env state functionExpr typeArgument
+    ETypeApplication functionExpr typeArgumentSpan typeArgument ->
+      inferExplicitTypeApplication inferExprType builtinMode env state functionExpr typeArgumentSpan typeArgument
     EIf conditionExpr thenExpr elseExpr ->
       let (conditionType, stateAfterCondition) =
             inferExprType builtinMode env state conditionExpr

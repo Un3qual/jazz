@@ -43,13 +43,13 @@ import JazzNext.Compiler.ModuleExports
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
-    SurfaceConstrainedSignatureType (..),
     SurfaceDataConstructor (..),
     SurfaceDataConstructorArgument (..),
     SurfaceExpr,
     SurfaceImplMethod (..),
     SurfaceSignaturePayload (..),
     SurfaceSignatureToken (..),
+    SurfaceSignatureType (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Context
@@ -914,7 +914,7 @@ parseCapabilityDeclaration parseImplExpression declarationKind declarationToken 
     _ ->
       rejectReservedAbstractionSyntax declarationToken
 
-parseCapabilityHeaderName :: Text -> Token -> [Token] -> Either Diagnostic (Identifier, Maybe [SurfaceConstrainedSignatureType], [Token])
+parseCapabilityHeaderName :: Text -> Token -> [Token] -> Either Diagnostic (Identifier, Maybe [SurfaceSignatureType], [Token])
 parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
   case tokensAfterKeyword of
     Token {tokenKind = TIdentifier candidateName, tokenSpan = nameSpan} : rest
@@ -1215,25 +1215,27 @@ parseCapabilityDeclarationBody parseImplExpression declarationKind declarationTo
                 )
             )
 
-surfaceConcreteImplArguments :: [SurfaceConstrainedSignatureType] -> Bool
+surfaceConcreteImplArguments :: [SurfaceSignatureType] -> Bool
 surfaceConcreteImplArguments arguments =
   case arguments of
     [argument] -> surfaceConcreteConstraintArgument argument
     _ -> False
 
-surfaceConcreteConstraintArgument :: SurfaceConstrainedSignatureType -> Bool
+surfaceConcreteConstraintArgument :: SurfaceSignatureType -> Bool
 surfaceConcreteConstraintArgument signatureType =
   case signatureType of
-    SurfaceConstrainedTypeName name ->
+    SurfaceTypeVariable {} -> False
+    SurfaceTypeName name ->
       not (surfaceIdentifierLooksLikeTypeVariable name)
-    SurfaceConstrainedTypeApplication name arguments ->
+    SurfaceTypeApplication name arguments ->
       not (surfaceIdentifierLooksLikeTypeVariable name) && all surfaceConcreteConstraintArgument arguments
-    SurfaceConstrainedTypeList innerType ->
+    SurfaceTypeList innerType ->
       surfaceConcreteConstraintArgument innerType
-    SurfaceConstrainedTypeTuple elementTypes ->
+    SurfaceTypeTuple elementTypes ->
       all surfaceConcreteConstraintArgument elementTypes
-    SurfaceConstrainedTypeFunction {} ->
+    SurfaceTypeFunction {} ->
       False
+    _ -> True
 
 surfaceIdentifierLooksLikeTypeVariable :: Identifier -> Bool
 surfaceIdentifierLooksLikeTypeVariable name =
@@ -1241,7 +1243,7 @@ surfaceIdentifierLooksLikeTypeVariable name =
     Just (c, _) -> isLower c
     Nothing -> False
 
-validateClassHeaderParameters :: Token -> Maybe [SurfaceConstrainedSignatureType] -> Either Diagnostic [Identifier]
+validateClassHeaderParameters :: Token -> Maybe [SurfaceSignatureType] -> Either Diagnostic [Identifier]
 validateClassHeaderParameters declarationToken maybeHeaderArguments =
   case maybeHeaderArguments of
     Nothing ->
@@ -1283,9 +1285,8 @@ validateClassHeaderParameters declarationToken maybeHeaderArguments =
   where
     classParameterFromHeaderArgument argument =
       case argument of
-        SurfaceConstrainedTypeName parameterName
-          | surfaceIdentifierLooksLikeTypeVariable parameterName ->
-              Right parameterName
+        SurfaceTypeVariable parameterName ->
+          Right parameterName
         _ ->
           Left
             ( parseDiagnostic
@@ -1809,11 +1810,25 @@ shouldParseCompactSignature :: Text -> Token -> [Token] -> Bool
 shouldParseCompactSignature name nameToken tokensAfterName =
   case parseSignature (mkIdentifier name) nameToken tokensAfterName of
     Right (SSSignature _ _ signaturePayload, remaining) ->
-      isSupportedSignaturePayload signaturePayload
-        || isLikelyUnsupportedSignaturePayload signaturePayload
-        || not (isConstructorIdentifierText name)
-        || nextStatementStartsMatchingBinding name remaining
+      if isConstructorIdentifierText name
+        then
+          isConstructorStyleSignaturePayload signaturePayload
+            || nextStatementStartsMatchingBinding name remaining
+        else
+          isSupportedSignaturePayload signaturePayload
+            || isLikelyUnsupportedSignaturePayload signaturePayload
+            || nextStatementStartsMatchingBinding name remaining
     Left _ -> False
+
+isConstructorStyleSignaturePayload :: SurfaceSignaturePayload -> Bool
+isConstructorStyleSignaturePayload signaturePayload =
+  case signaturePayload of
+    SurfaceSignatureType (SurfaceTypeVariable variableName) ->
+      isSingleLetterTypeVariable (identifierText variableName)
+    SurfaceSignatureType _ -> True
+    SurfaceConstrainedSignature {} -> True
+    SurfaceUnsupportedSignature _ ->
+      isLikelyUnsupportedSignaturePayload signaturePayload
 
 isSupportedSignaturePayload :: SurfaceSignaturePayload -> Bool
 isSupportedSignaturePayload signaturePayload =

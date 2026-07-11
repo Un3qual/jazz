@@ -9,7 +9,6 @@ import qualified Data.Set as Set
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
-    ConstraintSignatureType (..),
     Expr (..),
     ImplMethod (..),
     Literal (..),

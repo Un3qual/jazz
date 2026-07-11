@@ -10,7 +10,6 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
-    ConstraintSignatureType (..),
     Expr (..),
     Literal (..),
     NumericType (..),
@@ -28,7 +27,6 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
-    SurfaceConstrainedSignatureType (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfaceNumericType (..),

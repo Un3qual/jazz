@@ -9,7 +9,6 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
-    ConstraintSignatureType (..),
     Expr (..),
     Literal (..),
     NumericType (..),
@@ -27,7 +26,6 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
-    SurfaceConstrainedSignatureType (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfaceNumericType (..),
@@ -57,7 +55,7 @@ invalidSyntaxTests =
     , ("rejects source-exact Float64 fractional literal overflow", testRejectsSourceExactFloat64FractionalLiteralOverflow)
     , ("rejects fractional literal case patterns", testRejectsFractionalLiteralCasePatterns)
     , ("rejects fractional literal lambda patterns", testRejectsFractionalLiteralLambdaPatterns)
-    , ("rejects unsupported explicit type application argument", testRejectsUnsupportedExplicitTypeApplicationArgument)
+    , ("rejects empty explicit type application argument", testRejectsEmptyExplicitTypeApplicationArgument)
     , ("rejects missing statement terminator", testRejectsMissingDotTerminator)
     , ("rejects unterminated block expression", testRejectsUnterminatedBlockExpression)
     , ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot)
@@ -108,12 +106,12 @@ testRejectsFractionalLiteralLambdaPatterns =
     "fractional literal patterns"
     (parseSurfaceProgram "f = \\(1.5) -> True.")
 
-testRejectsUnsupportedExplicitTypeApplicationArgument :: IO ()
-testRejectsUnsupportedExplicitTypeApplicationArgument =
+testRejectsEmptyExplicitTypeApplicationArgument :: IO ()
+testRejectsEmptyExplicitTypeApplicationArgument =
   assertLeftDiagnosticContains
-    "unsupported explicit type application argument"
+    "empty explicit type application argument"
     "unsupported explicit type application argument after '@'"
-    (parseSurfaceProgram "value = id @a 1.\nvalue.")
+    (parseSurfaceProgram "value = id @ 1.\nvalue.")
 
 testRejectsMissingDotTerminator :: IO ()
 testRejectsMissingDotTerminator =

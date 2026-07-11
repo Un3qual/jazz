@@ -13,7 +13,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( ConstraintSignatureType (..),
+  ( SignatureType (..),
     SignatureConstraint (..),
     SignaturePayload (..),
     SignatureToken (..)
@@ -381,20 +381,21 @@ rebaseClassMethod origin dataTypeNames classNames (ClassMethodType parameter pay
 
 rebaseImplMethod :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ImplMethodType -> ImplMethodType
 rebaseImplMethod origin dataTypeNames classNames (ImplMethodType target) =
-  ImplMethodType (rebaseConstraintType origin dataTypeNames classNames target)
+  ImplMethodType (rebaseSignatureType origin dataTypeNames classNames target)
 
 rebaseSignaturePayload :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SignaturePayload -> SignaturePayload
 rebaseSignaturePayload origin dataTypeNames classNames payload =
   case payload of
-    SignatureType {} -> payload
+    SignatureType signatureType ->
+      SignatureType (rebaseSignatureType origin dataTypeNames classNames signatureType)
     ConstrainedSignature constraints signatureType ->
       ConstrainedSignature
         [ SignatureConstraint
             (rebaseKnownName origin classNames capabilityName)
-            (map (rebaseConstraintType origin dataTypeNames classNames) arguments)
+            (map (rebaseSignatureType origin dataTypeNames classNames) arguments)
           | SignatureConstraint capabilityName arguments <- constraints
         ]
-        (rebaseConstraintType origin dataTypeNames classNames signatureType)
+        (rebaseSignatureType origin dataTypeNames classNames signatureType)
     UnsupportedSignature tokens ->
       UnsupportedSignature
         [ case token of
@@ -403,20 +404,22 @@ rebaseSignaturePayload origin dataTypeNames classNames payload =
           | token <- tokens
         ]
 
-rebaseConstraintType :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ConstraintSignatureType -> ConstraintSignatureType
-rebaseConstraintType origin dataTypeNames _ signatureType =
+rebaseSignatureType :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SignatureType -> SignatureType
+rebaseSignatureType origin dataTypeNames _ signatureType =
   case signatureType of
-    ConstraintTypeName typeName -> ConstraintTypeName (rebaseKnownName origin dataTypeNames typeName)
-    ConstraintTypeApplication typeName arguments ->
-      ConstraintTypeApplication
+    TypeVariable typeName -> TypeVariable typeName
+    TypeName typeName -> TypeName (rebaseKnownName origin dataTypeNames typeName)
+    TypeApplication typeName arguments ->
+      TypeApplication
         (rebaseKnownName origin dataTypeNames typeName)
-        (map (rebaseConstraintType origin dataTypeNames Set.empty) arguments)
-    ConstraintTypeList elementType -> ConstraintTypeList (rebaseConstraintType origin dataTypeNames Set.empty elementType)
-    ConstraintTypeTuple elementTypes -> ConstraintTypeTuple (map (rebaseConstraintType origin dataTypeNames Set.empty) elementTypes)
-    ConstraintTypeFunction argumentType resultType ->
-      ConstraintTypeFunction
-        (rebaseConstraintType origin dataTypeNames Set.empty argumentType)
-        (rebaseConstraintType origin dataTypeNames Set.empty resultType)
+        (map (rebaseSignatureType origin dataTypeNames Set.empty) arguments)
+    TypeList elementType -> TypeList (rebaseSignatureType origin dataTypeNames Set.empty elementType)
+    TypeTuple elementTypes -> TypeTuple (map (rebaseSignatureType origin dataTypeNames Set.empty) elementTypes)
+    TypeFunction argumentType resultType ->
+      TypeFunction
+        (rebaseSignatureType origin dataTypeNames Set.empty argumentType)
+        (rebaseSignatureType origin dataTypeNames Set.empty resultType)
+    _ -> signatureType
 
 rebaseKnownName :: ResolvedNameOrigin -> Set.Set Text -> Name -> Name
 rebaseKnownName origin knownNames name =

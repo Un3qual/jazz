@@ -9,7 +9,6 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
-    ConstraintSignatureType (..),
     Expr (..),
     Literal (..),
     NumericType (..),
@@ -27,7 +26,6 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
-    SurfaceConstrainedSignatureType (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfaceNumericType (..),
@@ -116,7 +114,7 @@ testParsesCapabilityDeclarationsInModuleBody =
         ( SEBlock
             [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
               SSClass (SourceSpan 2 1) "Eq" ["a"] [],
-              SSImpl (SourceSpan 3 1) "Eq" [SurfaceConstrainedTypeName "Int"] []
+              SSImpl (SourceSpan 3 1) "Eq" [SurfaceTypeInt] []
             ]
         )
     )

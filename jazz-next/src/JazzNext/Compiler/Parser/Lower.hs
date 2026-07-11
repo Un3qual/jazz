@@ -14,7 +14,6 @@ import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    ConstraintSignatureType (..),
     DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
@@ -31,7 +30,6 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceClassMethodSignature (..),
-    SurfaceConstrainedSignatureType (..),
     SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
@@ -162,7 +160,7 @@ qualifyExprSourceSpans sourcePath expr =
     EList items -> EList (map go items)
     ETuple items -> ETuple (map go items)
     EApply function argument -> EApply (go function) (go argument)
-    ETypeApplication function signatureType -> ETypeApplication (go function) signatureType
+    ETypeApplication function spanValue signatureType -> ETypeApplication (go function) spanValue signatureType
     EIf condition trueBranch falseBranch -> EIf (go condition) (go trueBranch) (go falseBranch)
     EPatternCase scrutinee arms -> EPatternCase (go scrutinee) (map qualifyCaseArm arms)
     EBinary symbol left right -> EBinary symbol (go left) (go right)
@@ -215,8 +213,8 @@ lowerSurfaceExpr surfaceExpr =
       ETuple (map lowerSurfaceExpr elements)
     SEApply functionExpr argumentExpr ->
       EApply (lowerSurfaceExpr functionExpr) (lowerSurfaceExpr argumentExpr)
-    SETypeApplication functionExpr signatureType ->
-      ETypeApplication (lowerSurfaceExpr functionExpr) (lowerSurfaceSignatureType signatureType)
+    SETypeApplication functionExpr spanValue signatureType ->
+      ETypeApplication (lowerSurfaceExpr functionExpr) spanValue (lowerSurfaceSignatureType signatureType)
     SEIf conditionExpr thenExpr elseExpr ->
       EIf
         (lowerSurfaceExpr conditionExpr)
@@ -315,7 +313,7 @@ lowerSurfaceStatement surfaceStatement =
       SImpl
         spanValue
         (sourceName capabilityName)
-        (map lowerSurfaceConstrainedSignatureType arguments)
+        (map lowerSurfaceSignatureType arguments)
         (map lowerSurfaceImplMethod methods)
     SSModule spanValue modulePath _ ->
       SModule spanValue modulePath
@@ -340,7 +338,7 @@ lowerSurfaceSignaturePayload surfaceSignaturePayload =
     SurfaceConstrainedSignature constraints signatureType ->
       ConstrainedSignature
         (map lowerSurfaceSignatureConstraint constraints)
-        (lowerSurfaceConstrainedSignatureType signatureType)
+        (lowerSurfaceSignatureType signatureType)
     SurfaceUnsupportedSignature signatureTokens ->
       UnsupportedSignature (map lowerSurfaceSignatureToken signatureTokens)
 
@@ -350,23 +348,7 @@ lowerSurfaceSignatureConstraint :: SurfaceSignatureConstraint -> SignatureConstr
 lowerSurfaceSignatureConstraint (SurfaceSignatureConstraint constraintName constraintArguments) =
   SignatureConstraint
     (sourceName constraintName)
-    (map lowerSurfaceConstrainedSignatureType constraintArguments)
-
-lowerSurfaceConstrainedSignatureType :: SurfaceConstrainedSignatureType -> ConstraintSignatureType
-lowerSurfaceConstrainedSignatureType signatureType =
-  case signatureType of
-    SurfaceConstrainedTypeName name ->
-      ConstraintTypeName (sourceName name)
-    SurfaceConstrainedTypeApplication name arguments ->
-      ConstraintTypeApplication (sourceName name) (map lowerSurfaceConstrainedSignatureType arguments)
-    SurfaceConstrainedTypeList innerType ->
-      ConstraintTypeList (lowerSurfaceConstrainedSignatureType innerType)
-    SurfaceConstrainedTypeTuple elementTypes ->
-      ConstraintTypeTuple (map lowerSurfaceConstrainedSignatureType elementTypes)
-    SurfaceConstrainedTypeFunction argumentType resultType ->
-      ConstraintTypeFunction
-        (lowerSurfaceConstrainedSignatureType argumentType)
-        (lowerSurfaceConstrainedSignatureType resultType)
+    (map lowerSurfaceSignatureType constraintArguments)
 
 lowerSurfaceSignatureType :: SurfaceSignatureType -> SignatureType
 lowerSurfaceSignatureType surfaceSignatureType =
@@ -377,6 +359,10 @@ lowerSurfaceSignatureType surfaceSignatureType =
     SurfaceTypeBool -> TypeBool
     SurfaceTypeChar -> TypeChar
     SurfaceTypeText -> TypeText
+    SurfaceTypeVariable name -> TypeVariable (sourceName name)
+    SurfaceTypeName name -> TypeName (sourceName name)
+    SurfaceTypeApplication name arguments ->
+      TypeApplication (sourceName name) (map lowerSurfaceSignatureType arguments)
     SurfaceTypeList innerType ->
       TypeList (lowerSurfaceSignatureType innerType)
     SurfaceTypeTuple elementTypes ->

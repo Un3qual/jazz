@@ -9,7 +9,6 @@ import qualified Data.Set as Set
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
-    ConstraintSignatureType (..),
     Expr (..),
     ImplMethod (..),
     Literal (..),
@@ -165,7 +164,7 @@ testSourceKeepsNestedCapabilityFactsScoped = do
     (compileErrors result)
   where
     spanValue = SourceSpan 1 1
-    eqInt = ConstraintTypeName "Int"
+    eqInt = TypeInt
     program =
       EBlock
         [ SLet

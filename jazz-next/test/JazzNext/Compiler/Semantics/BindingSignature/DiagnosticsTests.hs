@@ -9,7 +9,6 @@ import qualified Data.Set as Set
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
-    ConstraintSignatureType (..),
     Expr (..),
     ImplMethod (..),
     Literal (..),
@@ -75,6 +74,10 @@ diagnosticTests =
     , ("source pipeline rejects function constrained signature argument", testSourceRejectsFunctionConstrainedSignatureArgument)
     , ("source pipeline keeps unsupported constrained signature spans on signatures", testSourceRejectsUnsupportedConstrainedSignatureSpans)
     , ("source pipeline rejects list signature mismatch", testSourceRejectsListSignatureMismatch)
+    , ("source pipeline rejects unknown named signature type", testSourceRejectsUnknownNamedSignatureType)
+    , ("source pipeline rejects named signature type arity mismatch", testSourceRejectsNamedSignatureTypeArityMismatch)
+    , ("source pipeline rejects partial named signature type", testSourceRejectsPartialNamedSignatureType)
+    , ("source pipeline preserves local type declaration order", testSourcePreservesLocalTypeDeclarationOrder)
     , ("source pipeline rejects unsupported signature surface", testSourceRejectsUnsupportedSignatureSurface)
     , ("source pipeline rejects missing use-site facts for variable constrained signatures", testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures)
     , ("source pipeline rejects ambiguous variable constrained signature use", testSourceRejectsAmbiguousVariableConstrainedSignatureUse)
@@ -172,6 +175,30 @@ testSourceRejectsSignatureTypeMismatch = do
     "x"
     (compileErrors result)
 
+testSourceRejectsUnknownNamedSignatureType :: IO ()
+testSourceRejectsUnknownNamedSignatureType =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "value :: Unknown.\nvalue = 1."
+    "unknown named type 'Unknown'"
+
+testSourceRejectsNamedSignatureTypeArityMismatch :: IO ()
+testSourceRejectsNamedSignatureTypeArityMismatch =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "data Box a = Box a.\nvalue :: Box(Int, Bool).\nvalue = Box 1."
+    "type 'Box' expects 1 argument(s), found 2"
+
+testSourceRejectsPartialNamedSignatureType :: IO ()
+testSourceRejectsPartialNamedSignatureType =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "data Box a = Box a.\nvalue :: Box.\nvalue = Box 1."
+    "type 'Box' expects 1 argument(s), found 0"
+
+testSourcePreservesLocalTypeDeclarationOrder :: IO ()
+testSourcePreservesLocalTypeDeclarationOrder =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "value :: Box(Int).\nvalue = 1.\ndata Box a = Box a."
+    "unknown named type 'Box'"
+
 testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals :: IO ()
 testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals = do
   assertSourceSingleErrorContains "x :: UInt8.\nx = 300." "E2005"
@@ -262,7 +289,7 @@ testSourceRejectsListSignatureMismatch = do
 
 testSourceRejectsUnsupportedSignatureSurface :: IO ()
 testSourceRejectsUnsupportedSignatureSurface =
-  assertSourceSingleErrorContains "x :: [a].\nx = [1]." "E2009"
+  assertSourceSingleErrorContains "x :: forall a.\nx = 1." "E2009"
 
 testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures :: IO ()
 testSourceRejectsMissingUseSiteFactsForVariableConstrainedSignatures =

@@ -15,12 +15,13 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    ConstraintSignatureType (..),
+    SignatureType (..),
     DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
     Literal (..),
+    NumericType (..),
     Pattern (..),
     SignaturePayload (..),
     Statement (..)
@@ -458,8 +459,8 @@ testStructuralAdtEqualitySeesThroughRuntimeTypeHints = do
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
           ( Map.fromList
-              [ (bindingRuntimeHintKey "left" (SourceSpan 2 1), ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"]),
-                (bindingRuntimeHintKey "right" (SourceSpan 3 1), ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"])
+              [ (bindingRuntimeHintKey "left" (SourceSpan 2 1), TypeApplication "Tag" [TypeNumeric NumericUInt8]),
+                (bindingRuntimeHintKey "right" (SourceSpan 3 1), TypeApplication "Tag" [TypeNumeric NumericUInt8])
               ]
           )
           ( EBlock
@@ -477,8 +478,8 @@ testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints = do
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
           ( Map.fromList
-              [ (bindingRuntimeHintKey "left" (SourceSpan 2 1), ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"]),
-                (bindingRuntimeHintKey "right" (SourceSpan 3 1), ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt16"])
+              [ (bindingRuntimeHintKey "left" (SourceSpan 2 1), TypeApplication "Tag" [TypeNumeric NumericUInt8]),
+                (bindingRuntimeHintKey "right" (SourceSpan 3 1), TypeApplication "Tag" [TypeNumeric NumericUInt16])
               ]
           )
           ( EBlock

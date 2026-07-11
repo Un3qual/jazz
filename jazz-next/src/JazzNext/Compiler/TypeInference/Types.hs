@@ -22,7 +22,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import JazzNext.Compiler.AST
-  ( ConstraintSignatureType,
+  ( SignatureType,
     NumericType,
     SignaturePayload
   )
@@ -99,7 +99,7 @@ data DataTypeBinding = DataTypeBinding [Name] [[ConstructorArgumentType]]
 data ClassMethodType = ClassMethodType Text SignaturePayload
   deriving (Eq, Show)
 
-data ImplMethodType = ImplMethodType ConstraintSignatureType
+data ImplMethodType = ImplMethodType SignatureType
   deriving (Eq, Show)
 
 data ScopeCapabilityFacts = ScopeCapabilityFacts

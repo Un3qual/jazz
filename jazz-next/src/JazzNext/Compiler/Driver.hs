@@ -27,7 +27,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
 import JazzNext.Compiler.AST
-  ( ConstraintSignatureType (..),
+  ( SignatureType (..),
     Expr (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -383,7 +383,7 @@ buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath s
 -- | Run inference/canonicalization, collect warnings from `inferredWarnings`,
 -- promote configured warnings into errors, and return the canonicalized
 -- `inferredExpr` for downstream compile/run steps.
-analyzeWithWarnings :: Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr, Map BindingRuntimeHintKey ConstraintSignatureType)
+analyzeWithWarnings :: Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr, Map BindingRuntimeHintKey SignatureType)
 analyzeWithWarnings hiddenStatementIndices builtinMode settings expr = do
   inference <-
     inferExpressionWithBuiltinsAndHiddenStatements

@@ -24,7 +24,6 @@ import JazzNext.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfaceSignaturePayload (..),
-    SurfaceSignatureToken (..),
     SurfaceSignatureType (..),
     SurfaceStatement (..)
   )
@@ -68,7 +67,7 @@ tests =
     ("parses constructor-style signature when not an alias", testParsesConstructorStyleSignatureWhenNotAlias),
     ("parses compact signature when not an alias", testParsesCompactSignatureWhenNotAlias),
     ("parses compact signature before different binding when not an alias", testParsesCompactSignatureBeforeDifferentBindingWhenNotAlias),
-    ("parses constructor-style unsupported signature when not an alias", testParsesConstructorStyleUnsupportedSignatureWhenNotAlias),
+    ("parses constructor-style type-variable signature when not an alias", testParsesConstructorStyleTypeVariableSignatureWhenNotAlias),
     ("parses compact type-variable signature before different binding when not an alias", testParsesCompactTypeVariableSignatureBeforeDifferentBindingWhenNotAlias),
     ("parses signature for binding sharing alias name", testParsesSignatureForBindingSharingAliasName),
     ("parses lowercase signature payload for binding sharing alias name", testParsesLowercaseSignaturePayloadForBindingSharingAliasName),
@@ -391,13 +390,13 @@ testParsesCompactSignatureBeforeDifferentBindingWhenNotAlias =
     )
     (parseSurfaceProgram "value::Int.\nother = 1.")
 
-testParsesConstructorStyleUnsupportedSignatureWhenNotAlias :: IO ()
-testParsesConstructorStyleUnsupportedSignatureWhenNotAlias =
+testParsesConstructorStyleTypeVariableSignatureWhenNotAlias :: IO ()
+testParsesConstructorStyleTypeVariableSignatureWhenNotAlias =
   assertEqual
-    "constructor-style unsupported signature surface AST"
+    "constructor-style type-variable signature surface AST"
     ( Right
         ( SEBlock
-            [ SSSignature "Result" (SourceSpan 1 1) (SurfaceUnsupportedSignature [SurfaceSignatureNameToken "a"]),
+            [ SSSignature "Result" (SourceSpan 1 1) (SurfaceSignatureType (SurfaceTypeVariable "a")),
               SSLet "Result" (SourceSpan 2 1) (SELit (SLInt 1))
             ]
         )
@@ -410,7 +409,7 @@ testParsesCompactTypeVariableSignatureBeforeDifferentBindingWhenNotAlias =
     "compact type-variable signature before different binding surface AST"
     ( Right
         ( SEBlock
-            [ SSSignature "Result" (SourceSpan 1 1) (SurfaceUnsupportedSignature [SurfaceSignatureNameToken "a"]),
+            [ SSSignature "Result" (SourceSpan 1 1) (SurfaceSignatureType (SurfaceTypeVariable "a")),
               SSLet "other" (SourceSpan 2 1) (SELit (SLInt 1))
             ]
         )
@@ -438,7 +437,7 @@ testParsesLowercaseSignaturePayloadForBindingSharingAliasName =
     ( Right
         ( SEBlock
             [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "math") Nothing,
-              SSSignature "math" (SourceSpan 2 1) (SurfaceUnsupportedSignature [SurfaceSignatureNameToken "a"]),
+              SSSignature "math" (SourceSpan 2 1) (SurfaceSignatureType (SurfaceTypeVariable "a")),
               SSLet "math" (SourceSpan 3 1) (SELit (SLInt 1))
             ]
         )
@@ -451,7 +450,7 @@ testParsesLowercaseSignaturePayloadWhenNotAlias =
     "lowercase signature payload surface AST"
     ( Right
         ( SEBlock
-            [ SSSignature "value" (SourceSpan 1 1) (SurfaceUnsupportedSignature [SurfaceSignatureNameToken "a"]),
+            [ SSSignature "value" (SourceSpan 1 1) (SurfaceSignatureType (SurfaceTypeVariable "a")),
               SSLet "value" (SourceSpan 2 1) (SELit (SLInt 1))
             ]
         )

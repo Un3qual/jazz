@@ -17,7 +17,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
-    ConstraintSignatureType (..),
+    SignatureType (..),
     DataConstructor (..),
     DataConstructorArgument (..),
     Expr (..),
@@ -54,7 +54,10 @@ import JazzNext.Compiler.RecursiveBindings
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings
   )
-import JazzNext.Compiler.RuntimeHints (bindingRuntimeHintKeyInModule)
+import JazzNext.Compiler.RuntimeHints
+  ( bindingRuntimeHintKeyInModule,
+    explicitTypeApplicationRuntimeHintKeyInModule
+  )
 import JazzNext.Compiler.TypeInference.Capabilities
 import JazzNext.Compiler.TypeInference.Diagnostics
 import JazzNext.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
@@ -500,7 +503,9 @@ inferScopeType inferExpression builtinMode initialEnv initialState statements =
       PendingSignatureType ->
       Bool
     shouldGeneralizeExplicitSignatureBinding currentEnv valueExpr pendingSignature =
-      not (null (pendingSignatureExplicitConstraints pendingSignature))
+      ( not (null (pendingSignatureExplicitConstraints pendingSignature))
+          || not (null (pendingSignatureVariableOrder pendingSignature))
+      )
         && not (isDirectConstructorAlias currentEnv valueExpr)
 
     shouldGeneralizeOrdinaryBinding ::
@@ -1229,7 +1234,7 @@ constructorArgumentTypes typeParameters constructorArguments state
 
 namedConstructorPayloadType :: Name -> Maybe ExpressionType
 namedConstructorPayloadType =
-  constraintSignatureTypeToExpressionType . ConstraintTypeName
+  constraintSignatureTypeToExpressionType . TypeName
 
 -- | Instantiate non-builtin local bindings and constructors at use sites.
 -- Builtin aliases stay with the top-level dispatcher because their rules share
@@ -1294,16 +1299,21 @@ inferExplicitTypeApplication ::
   TypeEnv ->
   InferState ->
   Expr ->
+  SourceSpan ->
   SignatureType ->
   (Maybe ExpressionType, InferState)
-inferExplicitTypeApplication inferExpression builtinMode env state functionExpr typeArgument =
-  case explicitTypeApplicationScheme env functionExpr of
-    Just typeScheme ->
-      instantiateTypeSchemeWithExplicitArgument
-        typeScheme
-        (signatureTypeToExpressionType typeArgument)
-        state
-    Nothing ->
+inferExplicitTypeApplication inferExpression builtinMode env state functionExpr typeArgumentSpan typeArgument =
+  case (explicitTypeApplicationScheme env functionExpr, constraintSignatureTypeToExpressionTypeWithState state Map.empty typeArgument) of
+    (Just typeScheme, Just explicitArgumentType) ->
+      let (maybeInstantiatedType, nextState) =
+            instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state
+       in
+        ( maybeInstantiatedType,
+          recordExplicitTypeApplicationRuntimeHint typeArgumentSpan maybeInstantiatedType nextState
+        )
+    (Just _, Nothing) ->
+      (Nothing, addTypeError state (mkInvalidExplicitTypeApplicationArgumentError state typeArgumentSpan typeArgument))
+    (Nothing, _) ->
       let (maybeFunctionType, stateAfterFunction) =
             inferExpression builtinMode env state functionExpr
        in
@@ -1311,6 +1321,23 @@ inferExplicitTypeApplication inferExpression builtinMode env state functionExpr 
           Just _ ->
             (Nothing, addTypeError stateAfterFunction mkExplicitTypeApplicationTargetError)
           Nothing -> (Nothing, stateAfterFunction)
+
+recordExplicitTypeApplicationRuntimeHint :: SourceSpan -> Maybe ExpressionType -> InferState -> InferState
+recordExplicitTypeApplicationRuntimeHint typeArgumentSpan maybeExpressionType state =
+  case maybeExpressionType >>= runtimeHintFromExpressionType state of
+    Just runtimeHint ->
+      modifyInferenceOutput
+        ( \output ->
+            output
+              { outputRuntimeHints =
+                  Map.insert
+                    (explicitTypeApplicationRuntimeHintKeyInModule (inferCurrentModulePath state) typeArgumentSpan)
+                    runtimeHint
+                    (inferRuntimeTypeHints state)
+              }
+        )
+        state
+    Nothing -> state
 
 explicitTypeApplicationScheme :: TypeEnv -> Expr -> Maybe TypeScheme
 explicitTypeApplicationScheme env functionExpr =
@@ -1363,13 +1390,13 @@ instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state 
       let (freshType, nextState) = freshTypeVar stateAcc
        in (Map.insert typeVar freshType bindings, nextState)
 
-runtimeHintForBinding :: InferState -> Maybe TypeBinding -> Maybe ExpressionType -> Maybe ConstraintSignatureType
+runtimeHintForBinding :: InferState -> Maybe TypeBinding -> Maybe ExpressionType -> Maybe SignatureType
 runtimeHintForBinding state maybeBinding maybeExpressionType =
   case maybeBinding >>= runtimeHintForTypeBinding state of
     Just runtimeHint -> Just runtimeHint
     Nothing -> maybeExpressionType >>= runtimeHintFromExpressionType state
 
-runtimeHintForTypeBinding :: InferState -> TypeBinding -> Maybe ConstraintSignatureType
+runtimeHintForTypeBinding :: InferState -> TypeBinding -> Maybe SignatureType
 runtimeHintForTypeBinding state binding =
   case binding of
     PlainTypeBinding expressionType ->
@@ -1380,37 +1407,19 @@ runtimeHintForTypeBinding state binding =
       typeSchemeRuntimeHint state typeScheme
     _ -> Nothing
 
-typeSchemeRuntimeHint :: InferState -> TypeScheme -> Maybe ConstraintSignatureType
+typeSchemeRuntimeHint :: InferState -> TypeScheme -> Maybe SignatureType
 typeSchemeRuntimeHint state typeScheme =
-  case resolvedSchemeType of
-    TFunctionType {} ->
-      expressionTypeToRuntimeHintWithVariables
-        variableHints
-        resolvedSchemeType
-    _ -> Nothing
+  if Set.null (schemeQuantifiedVariables typeScheme)
+    then
+      case resolvedSchemeType of
+        TFunctionType {} -> expressionTypeToRuntimeHint resolvedSchemeType
+        _ -> Nothing
+    else Nothing
   where
-    schemeVariables = schemeQuantifiedVariables typeScheme
-    schemeVariableOrder = schemeQuantifiedOrder typeScheme
     expressionType = schemeResultType typeScheme
     resolvedSchemeType =
       defaultLiteralTypes (resolveType state expressionType)
-    orderedVariables =
-      orderedSchemeVariables schemeVariableOrder schemeVariables
-    variableHints =
-      Map.fromList
-        [ (typeVar, ConstraintTypeName (sourceName (mkIdentifier (typeSchemeRuntimeVariableName index))))
-          | (index, typeVar) <- zip [0 :: Int ..] orderedVariables
-        ]
 
-typeSchemeRuntimeVariableName :: Int -> Text
-typeSchemeRuntimeVariableName index
-  | index >= 0 && index < length variableNames =
-      Text.singleton (variableNames !! index)
-  | otherwise =
-      "t" <> Text.pack (show index)
-  where
-    variableNames = ['a' .. 'z']
-
-runtimeHintFromExpressionType :: InferState -> ExpressionType -> Maybe ConstraintSignatureType
+runtimeHintFromExpressionType :: InferState -> ExpressionType -> Maybe SignatureType
 runtimeHintFromExpressionType state expressionType =
   expressionTypeToRuntimeHint (defaultLiteralTypes (resolveType state expressionType))

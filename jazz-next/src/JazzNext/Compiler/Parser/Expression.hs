@@ -134,7 +134,7 @@ parseApplicationTailUntil parseBlock context stop functionExpr = do
             parseBlock
             context
             stop
-            (SETypeApplication functionExpr typeArgument)
+            (SETypeApplication functionExpr (tokenSpan typeApplicationToken) typeArgument)
         firstToken : _
           | startsPrimaryExpr firstToken -> do
               argumentExpr <- parsePrimaryExpr parseBlock context stop

@@ -22,7 +22,7 @@ import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
-import JazzNext.Compiler.AST (ConstraintSignatureType, Expr)
+import JazzNext.Compiler.AST (SignatureType, Expr)
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import JazzNext.Compiler.Diagnostics (Diagnostic, WarningRecord)
 import JazzNext.Compiler.ModuleGraph (ResolvedModule (resolvedModulePath))
@@ -59,7 +59,7 @@ data ModuleInterface = ModuleInterface
     interfaceConcreteImplFacts :: Set Text,
     interfaceClassMethods :: Map Text ClassMethodType,
     interfaceConcreteImplMethods :: Map Text [ImplMethodType],
-    interfaceRuntimeHints :: Map BindingRuntimeHintKey ConstraintSignatureType
+    interfaceRuntimeHints :: Map BindingRuntimeHintKey SignatureType
   }
   deriving (Eq, Show)
 
@@ -94,7 +94,7 @@ data CompiledPrelude = CompiledPrelude
     compiledPreludeWarnings :: [WarningRecord],
     compiledPreludeErrors :: [Diagnostic],
     compiledPreludeExpr :: Maybe Expr,
-    compiledPreludeRuntimeHints :: Map BindingRuntimeHintKey ConstraintSignatureType
+    compiledPreludeRuntimeHints :: Map BindingRuntimeHintKey SignatureType
   }
   deriving (Eq, Show)
 

@@ -33,7 +33,7 @@ import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
-import JazzNext.Compiler.AST (ConstraintSignatureType)
+import JazzNext.Compiler.AST (SignatureType)
 import JazzNext.Compiler.Diagnostics (Diagnostic)
 import JazzNext.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import JazzNext.Compiler.TypeInference.Types
@@ -75,7 +75,7 @@ data ModuleInferenceState = ModuleInferenceState
   deriving (Eq, Show)
 
 data InferenceOutput = InferenceOutput
-  { outputRuntimeHints :: Map BindingRuntimeHintKey ConstraintSignatureType,
+  { outputRuntimeHints :: Map BindingRuntimeHintKey SignatureType,
     outputDeferredConstraints :: [DeferredExplicitConstraint],
     outputInferredConstraints :: [TypeSchemeConstraint],
     outputErrorsRev :: [Diagnostic],
@@ -179,7 +179,7 @@ inferModuleCapabilityFacts = inferenceModuleCapabilities . inferModule
 inferVisibleTypes :: InferState -> TypeEnv
 inferVisibleTypes = inferenceVisibleTypes . inferModule
 
-inferRuntimeTypeHints :: InferState -> Map BindingRuntimeHintKey ConstraintSignatureType
+inferRuntimeTypeHints :: InferState -> Map BindingRuntimeHintKey SignatureType
 inferRuntimeTypeHints = outputRuntimeHints . inferOutput
 
 inferDeferredExplicitConstraints :: InferState -> [DeferredExplicitConstraint]

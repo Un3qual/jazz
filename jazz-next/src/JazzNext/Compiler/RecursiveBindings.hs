@@ -69,7 +69,7 @@ freeVarsExprWithBound bound expr =
       Set.union
         (freeVarsExprWithBound bound functionExpr)
         (freeVarsExprWithBound bound argumentExpr)
-    ETypeApplication functionExpr _ ->
+    ETypeApplication functionExpr _ _ ->
       freeVarsExprWithBound bound functionExpr
     EIf conditionExpr thenExpr elseExpr ->
       Set.unions
@@ -297,7 +297,7 @@ selfAliasLikeReference bindingName =
             operatorBindingName operatorSymbol == bindingName ->
               (True, False)
         EOperatorValue {} -> noSummary
-        ETypeApplication functionExpr _ ->
+        ETypeApplication functionExpr _ _ ->
           aliasSummary boundNames scopeBindings visitedBindings functionExpr
         EIf conditionExpr thenExpr elseExpr ->
           foldl'
@@ -392,7 +392,7 @@ selfAliasLikeReference bindingName =
             [ nonAliasSummary boundNames scopeBindings visitedBindings functionExpr,
               nonAliasSummary boundNames scopeBindings visitedBindings argumentExpr
             ]
-        ETypeApplication functionExpr _ ->
+        ETypeApplication functionExpr _ _ ->
           nonAliasSummary boundNames scopeBindings visitedBindings functionExpr
         EIf conditionExpr thenExpr elseExpr ->
           foldl'

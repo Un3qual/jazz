@@ -41,7 +41,7 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    ConstraintSignatureType (..),
+    SignatureType (..),
     DataConstructor (..),
     DataConstructorArgument (..),
     Expr (..),
@@ -704,7 +704,8 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
         EList items -> EList (map resolveExpr items)
         ETuple items -> ETuple (map resolveExpr items)
         EApply function argument -> EApply (resolveExpr function) (resolveExpr argument)
-        ETypeApplication function signatureType -> ETypeApplication (resolveExpr function) signatureType
+        ETypeApplication function spanValue signatureType ->
+          ETypeApplication (resolveExpr function) spanValue (resolveSignatureType signatureType)
         EIf condition trueBranch falseBranch ->
           EIf (resolveExpr condition) (resolveExpr trueBranch) (resolveExpr falseBranch)
         EPatternCase scrutinee arms -> EPatternCase (resolveExpr scrutinee) (map resolveCaseArm arms)
@@ -768,7 +769,7 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
           SImpl
             spanValue
             (resolveName CapabilityNamespace name)
-            (map resolveConstraintType arguments)
+            (map resolveSignatureType arguments)
             (map resolveImplMethod methods)
         SModule spanValue path -> SModule spanValue path
         SImport spanValue path alias symbols -> SImport spanValue path alias symbols
@@ -793,11 +794,11 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
 
     resolveSignaturePayload payload =
       case payload of
-        SignatureType signatureType -> SignatureType signatureType
+        SignatureType signatureType -> SignatureType (resolveSignatureType signatureType)
         ConstrainedSignature constraints signatureType ->
           ConstrainedSignature
             (map resolveSignatureConstraint constraints)
-            (resolveConstraintType signatureType)
+            (resolveSignatureType signatureType)
         UnsupportedSignature tokens -> UnsupportedSignature (map resolveSignatureToken tokens)
 
     resolveSignatureToken token =
@@ -806,17 +807,19 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
         _ -> token
 
     resolveSignatureConstraint (SignatureConstraint name arguments) =
-      SignatureConstraint (resolveName CapabilityNamespace name) (map resolveConstraintType arguments)
+      SignatureConstraint (resolveName CapabilityNamespace name) (map resolveSignatureType arguments)
 
-    resolveConstraintType signatureType =
+    resolveSignatureType signatureType =
       case signatureType of
-        ConstraintTypeName name -> ConstraintTypeName (resolveName TypeNamespace name)
-        ConstraintTypeApplication name arguments ->
-          ConstraintTypeApplication (resolveName TypeNamespace name) (map resolveConstraintType arguments)
-        ConstraintTypeList innerType -> ConstraintTypeList (resolveConstraintType innerType)
-        ConstraintTypeTuple elementTypes -> ConstraintTypeTuple (map resolveConstraintType elementTypes)
-        ConstraintTypeFunction argumentType resultType ->
-          ConstraintTypeFunction (resolveConstraintType argumentType) (resolveConstraintType resultType)
+        TypeVariable name -> TypeVariable name
+        TypeName name -> TypeName (resolveName TypeNamespace name)
+        TypeApplication name arguments ->
+          TypeApplication (resolveName TypeNamespace name) (map resolveSignatureType arguments)
+        TypeList innerType -> TypeList (resolveSignatureType innerType)
+        TypeTuple elementTypes -> TypeTuple (map resolveSignatureType elementTypes)
+        TypeFunction argumentType resultType ->
+          TypeFunction (resolveSignatureType argumentType) (resolveSignatureType resultType)
+        _ -> signatureType
 
 -- | Collect unqualified free references used to validate explicit and alias
 -- import visibility before core names are resolved structurally.
@@ -848,7 +851,7 @@ collectExprReferences boundNames surfaceExpr =
       Set.union
         (collectExprReferences boundNames function)
         (collectExprReferences boundNames argument)
-    SETypeApplication function _ ->
+    SETypeApplication function _ _ ->
       collectExprReferences boundNames function
     SEIf condition trueBranch falseBranch ->
       Set.unions
@@ -989,7 +992,7 @@ collectQualifiedReferences surfaceExpr =
       Set.union
         (collectQualifiedReferences function)
         (collectQualifiedReferences argument)
-    SETypeApplication function _ ->
+    SETypeApplication function _ _ ->
       collectQualifiedReferences function
     SEIf condition trueBranch falseBranch ->
       Set.unions

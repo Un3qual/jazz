@@ -30,7 +30,6 @@ import qualified Data.Set as Set
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
-    ConstraintSignatureType (..),
     Expr (..),
     ImplMethod (..),
     Literal (..),
@@ -208,16 +207,16 @@ importedQualifiedMethodFactsProgram =
             (SourceSpan 3 1)
             ( ConstrainedSignature
                 []
-                ( ConstraintTypeFunction
-                    (ConstraintTypeName "a")
-                    (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool"))
+                ( TypeFunction
+                    (TypeVariable "a")
+                    (TypeFunction (TypeVariable "a") (TypeBool))
                 )
             )
         ],
       SImpl
         (SourceSpan 4 1)
         "RemoteEq"
-        [ConstraintTypeName "Int"]
+        [TypeInt]
         [ ImplMethod
             "equals"
             (SourceSpan 5 1)
@@ -238,13 +237,13 @@ aliasOnlyImportedCapabilityFactsProgram =
   EBlock
     [ SModule (SourceSpan 1 1) ["Lib"],
       SClass (SourceSpan 2 1) "RemoteEq" ["a"] [],
-      SImpl (SourceSpan 3 1) "RemoteEq" [ConstraintTypeName "Int"] [],
+      SImpl (SourceSpan 3 1) "RemoteEq" [TypeInt] [],
       SModule (SourceSpan 4 1) ["App"],
       SImport (SourceSpan 5 1) ["Lib"] (Just "Lib") Nothing,
       SSignature
         "x"
         (SourceSpan 6 1)
-        (ConstrainedSignature [SignatureConstraint "RemoteEq" [ConstraintTypeName "Int"]] (ConstraintTypeName "Int")),
+        (ConstrainedSignature [SignatureConstraint "RemoteEq" [TypeInt]] (TypeInt)),
       SLet "x" (SourceSpan 7 1) (ELit (LInt 1))
     ]
 
@@ -253,18 +252,18 @@ speculativePreviewDeferredConstraintProgram =
   EBlock
     [ SModule (SourceSpan 1 1) ["Base"],
       SClass (SourceSpan 2 1) "Eq" ["a"] [],
-      SImpl (SourceSpan 3 1) "Eq" [ConstraintTypeName "Int"] [],
+      SImpl (SourceSpan 3 1) "Eq" [TypeInt] [],
       SModule (SourceSpan 4 1) ["Facts"],
       SImport (SourceSpan 5 1) ["Base"] Nothing Nothing,
-      SImpl (SourceSpan 6 1) "Eq" [ConstraintTypeName "Bool"] [],
+      SImpl (SourceSpan 6 1) "Eq" [TypeBool] [],
       SModule (SourceSpan 7 1) ["Main"],
       SImport (SourceSpan 8 1) ["Base"] Nothing Nothing,
       SSignature
         "id"
         (SourceSpan 9 1)
         ( ConstrainedSignature
-            [SignatureConstraint "Eq" [ConstraintTypeName "a"]]
-            (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "a"))
+            [SignatureConstraint "Eq" [TypeVariable "a"]]
+            (TypeFunction (TypeVariable "a") (TypeVariable "a"))
         ),
       SLet "id" (SourceSpan 10 1) (ELambda "x" (EVar "x")),
       SLet "value" (SourceSpan 11 1) speculativePreviewDeferredConstraintBlock,

@@ -15,12 +15,13 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    ConstraintSignatureType (..),
+    SignatureType (..),
     DataConstructorArgument (..),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
     Literal (..),
+    NumericType (..),
     Pattern (..),
     SignaturePayload (..),
     Statement (..)
@@ -50,7 +51,8 @@ import JazzNext.Compiler.Runtime
     runtimeValueExactlyMatchesConstraint
   )
 import JazzNext.Compiler.RuntimeHints
-  ( bindingRuntimeHintKey
+  ( bindingRuntimeHintKey,
+    explicitTypeApplicationRuntimeHintKeyInModule
   )
 import JazzNext.Compiler.TypeInference
   ( InferenceResult (..),
@@ -109,6 +111,8 @@ capabilityTests =
     , ("qualified method dispatch preserves bound nested list runtime hints", testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint)
     , ("qualified method dispatch instantiates explicit empty list type application hints", testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint)
     , ("qualified method dispatch omits plain polymorphic empty list runtime hints", testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint)
+    , ("qualified method dispatch omits signed polymorphic function runtime hints", testQualifiedMethodDispatchOmitsSignedPolymorphicFunctionRuntimeHint)
+    , ("qualified method dispatch records concrete explicit named application hints", testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint)
     , ("qualified method dispatch rejects unhinted nested list helper exact selection", testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection)
     , ("qualified method dispatch does not exact-match untyped empty list literals", testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral)
     , ("qualified method dispatch prefers constructor alias body for direct constructor literals", testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral)
@@ -213,16 +217,16 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
                 (SourceSpan 2 1)
                 ( ConstrainedSignature
                     []
-                    ( ConstraintTypeFunction
-                        (ConstraintTypeName "a")
-                        (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool"))
+                    ( TypeFunction
+                        (TypeVariable "a")
+                        (TypeFunction (TypeVariable "a") (TypeBool))
                     )
                 )
             ],
           SImpl
             (SourceSpan 3 1)
             "Eq"
-            [ConstraintTypeName "Int"]
+            [TypeInt]
             [ ImplMethod
                 "equals"
                 (SourceSpan 4 1)
@@ -231,7 +235,7 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
           SImpl
             (SourceSpan 5 1)
             "Eq"
-            [ConstraintTypeName "Bool"]
+            [TypeBool]
             [ ImplMethod
                 "equals"
                 (SourceSpan 6 1)
@@ -669,6 +673,39 @@ testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint = do
   assertEqual "inference errors" [] (inferredErrors inference)
   assertEqual "plain polymorphic empty list runtime hints" Map.empty (inferredRuntimeTypeHints inference)
 
+testQualifiedMethodDispatchOmitsSignedPolymorphicFunctionRuntimeHint :: IO ()
+testQualifiedMethodDispatchOmitsSignedPolymorphicFunctionRuntimeHint = do
+  let expr =
+        EBlock
+          [ SSignature "identity" (SourceSpan 1 1) (SignatureType (TypeFunction (TypeVariable "a") (TypeVariable "a"))),
+            SLet "identity" (SourceSpan 2 1) (ELambda "value" (EVar "value")),
+            SExpr (SourceSpan 3 1) (EVar "identity")
+          ]
+  inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
+  assertEqual "inference errors" [] (inferredErrors inference)
+  assertEqual "signed polymorphic function runtime hints" Map.empty (inferredRuntimeTypeHints inference)
+
+testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint :: IO ()
+testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint = do
+  let typeArgumentSpan = SourceSpan 4 12
+      boxCharType = TypeApplication "Box" [TypeChar]
+      expr =
+        EBlock
+          [ SData (SourceSpan 1 1) "Box" ["a"] [DataConstructor "Box" [DataConstructorArgumentName "a"]],
+            SSignature "identity" (SourceSpan 2 1) (SignatureType (TypeFunction (TypeVariable "a") (TypeVariable "a"))),
+            SLet "identity" (SourceSpan 3 1) (ELambda "value" (EVar "value")),
+            SExpr (SourceSpan 4 1) (ETypeApplication (EVar "identity") typeArgumentSpan boxCharType)
+          ]
+  inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
+  assertEqual "inference errors" [] (inferredErrors inference)
+  assertEqual
+    "concrete explicit named application hint"
+    (Just (TypeFunction boxCharType boxCharType))
+    ( Map.lookup
+        (explicitTypeApplicationRuntimeHintKeyInModule Nothing typeArgumentSpan)
+        (inferredRuntimeTypeHints inference)
+    )
+
 testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection :: IO ()
 testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection = do
   result <-
@@ -693,7 +730,7 @@ testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral =
   assertEqual
     "untyped empty list exact match"
     False
-    (runtimeValueExactlyMatchesConstraint (ConstraintTypeList (ConstraintTypeName "Int")) (VList [] Nothing))
+    (runtimeValueExactlyMatchesConstraint (TypeList (TypeInt)) (VList [] Nothing))
 
 testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral :: IO ()
 testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral = do
@@ -823,7 +860,7 @@ testQualifiedMethodDispatchAppliesTypedCallableArgumentHint = do
   let result =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (ConstraintTypeFunction (ConstraintTypeName "UInt8") (ConstraintTypeName "Bool")))
+          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
           (runtimeTypedCallableArgumentHintExpr (EVar (qualifiedName "RuntimePick" "pick")))
   assertEqual "typed callable argument hint runtime result" (Right (Just (VBool False))) result
 
@@ -832,7 +869,7 @@ testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar =
   let result =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (ConstraintTypeFunction (ConstraintTypeName "UInt8") (ConstraintTypeName "Bool")))
+          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
           (runtimeTypedCallableArgumentHintThroughPrefixDollarExpr (EVar (qualifiedName "RuntimePick" "pick")))
   assertEqual "typed callable argument hint through prefix dollar runtime result" (Right (Just (VBool False))) result
 
@@ -841,7 +878,7 @@ testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint = do
   let result =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (ConstraintTypeFunction (ConstraintTypeName "UInt8") (ConstraintTypeName "Bool")))
+          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
           ( runtimeTypedCallableArgumentHintExpr
               (ELambda "value" (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "value")))
           )
@@ -1130,7 +1167,7 @@ testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint = do
   let result =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "tag" (SourceSpan 6 1)) (ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"]))
+          (Map.singleton (bindingRuntimeHintKey "tag" (SourceSpan 6 1)) (TypeApplication "Tag" [TypeNumeric NumericUInt8]))
           ( EBlock
               [ SData
                   (SourceSpan 1 1)
@@ -1144,17 +1181,17 @@ testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint = do
                   [ ClassMethodSignature
                       "pick"
                       (SourceSpan 3 1)
-                      (ConstrainedSignature [] (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool")))
+                      (ConstrainedSignature [] (TypeFunction (TypeVariable "a") (TypeBool)))
                   ],
                 SImpl
                   (SourceSpan 4 1)
                   "RuntimePick"
-                  [ConstraintTypeApplication "Tag" [ConstraintTypeName "Int"]]
+                  [TypeApplication "Tag" [TypeInt]]
                   [ImplMethod "pick" (SourceSpan 5 1) (ELambda "tag" (ELit (LBool True)))],
                 SImpl
                   (SourceSpan 4 1)
                   "RuntimePick"
-                  [ConstraintTypeApplication "Tag" [ConstraintTypeName "UInt8"]]
+                  [TypeApplication "Tag" [TypeNumeric NumericUInt8]]
                   [ImplMethod "pick" (SourceSpan 5 1) (ELambda "tag" (ELit (LBool False)))],
                 SLet
                   "tag"
@@ -1170,7 +1207,7 @@ testQualifiedMethodDispatchPreservesAdtConcretePayloadHint = do
   let result =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "box" (SourceSpan 6 1)) (ConstraintTypeApplication "Box" [ConstraintTypeName "UInt8"]))
+          (Map.singleton (bindingRuntimeHintKey "box" (SourceSpan 6 1)) (TypeApplication "Box" [TypeNumeric NumericUInt8]))
           ( EBlock
               [ SData
                   (SourceSpan 1 1)
@@ -1184,12 +1221,12 @@ testQualifiedMethodDispatchPreservesAdtConcretePayloadHint = do
                   [ ClassMethodSignature
                       "pick"
                       (SourceSpan 3 1)
-                      (ConstrainedSignature [] (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool")))
+                      (ConstrainedSignature [] (TypeFunction (TypeVariable "a") (TypeBool)))
                   ],
                 SImpl
                   (SourceSpan 4 1)
                   "RuntimePick"
-                  [ConstraintTypeApplication "Box" [ConstraintTypeName "UInt8"]]
+                  [TypeApplication "Box" [TypeNumeric NumericUInt8]]
                   [ImplMethod "pick" (SourceSpan 5 1) (ELambda "box" (ELit (LBool False)))],
                 SLet
                   "box"
@@ -1208,7 +1245,7 @@ testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint = do
   let result =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "token" (SourceSpan 6 1)) (ConstraintTypeName "Token"))
+          (Map.singleton (bindingRuntimeHintKey "token" (SourceSpan 6 1)) (TypeName "Token"))
           ( EBlock
               ( [ SData
                     (SourceSpan 1 1)
@@ -1241,7 +1278,7 @@ testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName = do
   let result =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "box" (SourceSpan 6 1)) (ConstraintTypeApplication "Box" [ConstraintTypeName "UInt8"]))
+          (Map.singleton (bindingRuntimeHintKey "box" (SourceSpan 6 1)) (TypeApplication "Box" [TypeNumeric NumericUInt8]))
           ( EBlock
               [ SData
                   (SourceSpan 1 1)
@@ -1255,12 +1292,12 @@ testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName = do
                   [ ClassMethodSignature
                       "pick"
                       (SourceSpan 3 1)
-                      (ConstrainedSignature [] (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool")))
+                      (ConstrainedSignature [] (TypeFunction (TypeVariable "a") (TypeBool)))
                   ],
                 SImpl
                   (SourceSpan 4 1)
                   "RuntimePick"
-                  [ConstraintTypeApplication "Box" [ConstraintTypeName "UInt8"]]
+                  [TypeApplication "Box" [TypeNumeric NumericUInt8]]
                   [ImplMethod "pick" (SourceSpan 5 1) (ELambda "box" (ELit (LBool False)))],
                 SLet
                   "box"
@@ -1308,13 +1345,13 @@ testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do
                           (SourceSpan 3 1)
                           ( ConstrainedSignature
                               []
-                              (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "Bool"))
+                              (TypeFunction (TypeVariable "a") (TypeBool))
                           )
                       ],
                     SImpl
                       (SourceSpan 4 1)
                       "Eq"
-                      [ConstraintTypeName "Int"]
+                      [TypeInt]
                       [ImplMethod "helper" (SourceSpan 5 1) (ELambda "value" (ELit (LBool False)))],
                     SExpr
                       (SourceSpan 6 1)

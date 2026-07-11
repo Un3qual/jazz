@@ -64,6 +64,7 @@ visibilityTests =
     , ("run module graph keeps alias-hidden data constructor from shadowing prelude", testRunModuleGraphAliasHiddenDataConstructorUsesPrelude)
     , ("run module graph resolves qualified alias data constructor lookup", testRunModuleGraphQualifiedAliasDataConstructorLookup)
     , ("compile module graph preserves alias-qualified generic constructor schemes", testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes)
+    , ("run module graph transports signed generic named schemes", testRunModuleGraphTransportsSignedGenericNamedSchemes)
     , ("run module graph keeps local data constructor from hidden import rewrite", testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite)
     , ("run module graph preserves alias-qualified float literal targets", testRunModuleGraphPreservesAliasQualifiedFloatLiteralTargets)
     , ("run module graph keeps hidden qualified export pattern constructors available", testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge)
@@ -461,6 +462,30 @@ testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Box as Box.\nfirst = Box::Box 1.\nsecond = Box::Box True.\nsecond."),
           ("src/Lib/Box.jz", "data Box a = Box a.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphTransportsSignedGenericNamedSchemes :: IO ()
+testRunModuleGraphTransportsSignedGenericNamedSchemes = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "generic interface compile errors" [] (runCompileErrors result)
+  assertEqual "generic interface runtime errors" [] (runRuntimeErrors result)
+  assertEqual "generic interface output" (Just "Box(True)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Box.\nintBox = keep (Box 1).\nboolBox = keep (Box True).\nboolBox.\n}"
+          ),
+          ( "src/Lib/Box.jz",
+            "module Lib::Box {\ndata Box a = Box a.\nkeep :: Box(a) -> Box(a).\nkeep = \\(value) -> value.\n}"
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

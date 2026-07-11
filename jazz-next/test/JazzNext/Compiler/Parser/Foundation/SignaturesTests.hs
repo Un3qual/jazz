@@ -9,7 +9,6 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
-    ConstraintSignatureType (..),
     Expr (..),
     Literal (..),
     NumericType (..),
@@ -27,7 +26,6 @@ import JazzNext.Compiler.Parser
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
-    SurfaceConstrainedSignatureType (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfaceNumericType (..),
@@ -55,6 +53,8 @@ signatureTests :: [NamedTest]
 signatureTests =
   [ ("parses signature statement with source span", testParseSignatureSpan)
     , ("parses Char and Text signatures", testParsesCharAndTextSignatures)
+    , ("parses generic named signatures", testParsesGenericNamedSignatures)
+    , ("normalizes List application syntax", testNormalizesListApplicationSyntax)
     , ("parses parenthesized function signature into structured nodes", testParseParenthesizedFunctionSignature)
     , ("parses tuple signature into structured nodes", testParseTupleSignature)
     , ("parses Unit value and signature into structured nodes", testParseUnitValueAndSignature)
@@ -111,6 +111,54 @@ testParsesCharAndTextSignatures =
         )
     )
     (parseSurfaceProgram "character :: Char.\nmessage :: Text.\nrender :: Char -> Text.")
+
+testParsesGenericNamedSignatures :: IO ()
+testParsesGenericNamedSignatures =
+  assertEqual
+    "generic named signatures"
+    ( Right
+        ( SEBlock
+            [ SSSignature
+                "value"
+                (SourceSpan 1 1)
+                ( SurfaceSignatureType
+                    (SurfaceTypeApplication "Maybe" [SurfaceTypeChar])
+                ),
+              SSSignature
+                "map"
+                (SourceSpan 2 1)
+                ( SurfaceSignatureType
+                    ( SurfaceTypeFunction
+                        (SurfaceTypeFunction (SurfaceTypeVariable "a") (SurfaceTypeVariable "b"))
+                        ( SurfaceTypeFunction
+                            (SurfaceTypeList (SurfaceTypeVariable "a"))
+                            (SurfaceTypeList (SurfaceTypeVariable "b"))
+                        )
+                    )
+                )
+            ]
+        )
+    )
+    (parseSurfaceProgram "value :: Maybe(Char).\nmap :: (a -> b) -> List(a) -> [b].")
+
+testNormalizesListApplicationSyntax :: IO ()
+testNormalizesListApplicationSyntax =
+  assertEqual
+    "List(a) and [a] normalization"
+    ( Right
+        ( SEBlock
+            [ SSSignature
+                "left"
+                (SourceSpan 1 1)
+                (SurfaceSignatureType (SurfaceTypeList (SurfaceTypeVariable "a"))),
+              SSSignature
+                "right"
+                (SourceSpan 2 1)
+                (SurfaceSignatureType (SurfaceTypeList (SurfaceTypeVariable "a")))
+            ]
+        )
+    )
+    (parseSurfaceProgram "left :: List(a).\nright :: [a].")
 
 testParseParenthesizedFunctionSignature :: IO ()
 testParseParenthesizedFunctionSignature =
@@ -174,7 +222,7 @@ testParseConstrainedUnitSignature =
             [ SSSignature
                 "unit"
                 (SourceSpan 1 1)
-                (SurfaceConstrainedSignature [] (SurfaceConstrainedTypeTuple [])),
+                (SurfaceConstrainedSignature [] (SurfaceTypeTuple [])),
               SSLet "unit" (SourceSpan 2 1) (SETuple [])
             ]
         )
@@ -273,12 +321,12 @@ testParseConstrainedSignaturePayload =
                 "f"
                 (SourceSpan 1 1)
                 ( SurfaceConstrainedSignature
-                    [ SurfaceSignatureConstraint "Eq" [SurfaceConstrainedTypeName "a"],
-                      SurfaceSignatureConstraint "Ord" [SurfaceConstrainedTypeName "b"]
+                    [ SurfaceSignatureConstraint "Eq" [SurfaceTypeVariable "a"],
+                      SurfaceSignatureConstraint "Ord" [SurfaceTypeVariable "b"]
                     ]
-                    ( SurfaceConstrainedTypeFunction
-                        (SurfaceConstrainedTypeName "a")
-                        (SurfaceConstrainedTypeFunction (SurfaceConstrainedTypeName "b") (SurfaceConstrainedTypeName "c"))
+                    ( SurfaceTypeFunction
+                        (SurfaceTypeVariable "a")
+                        (SurfaceTypeFunction (SurfaceTypeVariable "b") (SurfaceTypeVariable "c"))
                     )
                 ),
               SSLet "f" (SourceSpan 2 1) (SEVar "combine")
@@ -296,7 +344,7 @@ testParseEmptyConstraintBlockSignaturePayload =
             [ SSSignature
                 "f"
                 (SourceSpan 1 1)
-                (SurfaceConstrainedSignature [] (SurfaceConstrainedTypeName "Int")),
+                (SurfaceConstrainedSignature [] SurfaceTypeInt),
               SSLet "f" (SourceSpan 2 1) (SEVar "value")
             ]
         )
@@ -314,7 +362,7 @@ testParseConstrainedTupleSignaturePayload =
                 (SourceSpan 1 1)
                 ( SurfaceConstrainedSignature
                     []
-                    (SurfaceConstrainedTypeTuple [SurfaceConstrainedTypeName "Int", SurfaceConstrainedTypeName "Bool"])
+                    (SurfaceTypeTuple [SurfaceTypeInt, SurfaceTypeBool])
                 ),
               SSLet "pair" (SourceSpan 2 1) (SETuple [SELit (SLInt 1), SELit (SLBool True)])
             ]
@@ -361,7 +409,7 @@ testLoweredExplicitTypeApplicationIsCanonical =
         [ SLet
             "value"
             (SourceSpan 1 1)
-            (EApply (ETypeApplication (EVar "id") TypeInt) (ELit (LInt 1))),
+            (EApply (ETypeApplication (EVar "id") (SourceSpan 1 12) TypeInt) (ELit (LInt 1))),
           SExpr (SourceSpan 2 1) (EVar "value")
         ]
 
@@ -506,8 +554,8 @@ testLowerConstrainedSignatureProgram =
                   "f"
                   (SourceSpan 1 1)
                   ( ConstrainedSignature
-                      [SignatureConstraint "Eq" [ConstraintTypeName "a"]]
-                      (ConstraintTypeFunction (ConstraintTypeName "a") (ConstraintTypeName "a"))
+                      [SignatureConstraint "Eq" [TypeVariable "a"]]
+                      (TypeFunction (TypeVariable "a") (TypeVariable "a"))
                   ),
                 SLet "f" (SourceSpan 2 1) (EVar "identity")
               ]
@@ -529,7 +577,7 @@ testLowerConstrainedTupleSignatureProgram =
                   (SourceSpan 1 1)
                   ( ConstrainedSignature
                       []
-                      (ConstraintTypeTuple [ConstraintTypeName "Int", ConstraintTypeName "Bool"])
+                      (TypeTuple [TypeInt, TypeBool])
                   ),
                 SLet
                   "pair"
@@ -577,21 +625,17 @@ testParsesClassMethodSignatureMetadata =
     (parseSurfaceProgram "class Eq(a) {\nequals :: a -> a -> Bool.\nnotEquals :: a -> a -> Bool.\n}.")
     ( \surfaceProgram -> do
         let surfacePayload =
-              SurfaceUnsupportedSignature
-                [ SurfaceSignatureNameToken "a",
-                  SurfaceSignatureArrowToken,
-                  SurfaceSignatureNameToken "a",
-                  SurfaceSignatureArrowToken,
-                  SurfaceSignatureNameToken "Bool"
-                ]
+              SurfaceSignatureType
+                ( SurfaceTypeFunction
+                    (SurfaceTypeVariable "a")
+                    (SurfaceTypeFunction (SurfaceTypeVariable "a") SurfaceTypeBool)
+                )
             corePayload =
-              UnsupportedSignature
-                [ SignatureNameToken "a",
-                  SignatureArrowToken,
-                  SignatureNameToken "a",
-                  SignatureArrowToken,
-                  SignatureNameToken "Bool"
-                ]
+              SignatureType
+                ( TypeFunction
+                    (TypeVariable "a")
+                    (TypeFunction (TypeVariable "a") TypeBool)
+                )
         assertEqual
           "surface class method metadata"
           ( SEBlock
