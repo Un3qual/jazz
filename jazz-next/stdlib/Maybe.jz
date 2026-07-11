@@ -1,0 +1,3 @@
+module Maybe (type Maybe, constructor Nothing, constructor Just) {
+  data Maybe a = Nothing | Just a.
+}

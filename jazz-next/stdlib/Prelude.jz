@@ -124,6 +124,8 @@ __kernel_toUInt64 = __kernel_toUInt64.
 __kernel_toFloat16 = __kernel_toFloat16.
 __kernel_toFloat32 = __kernel_toFloat32.
 __kernel_toFloat64 = __kernel_toFloat64.
+__kernel_textLength = __kernel_textLength.
+__kernel_textUnconsRaw = __kernel_textUnconsRaw.
 
 map = __kernel_map.
 filter = __kernel_filter.

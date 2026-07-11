@@ -32,7 +32,8 @@ import JazzNext.Compiler.BuiltinCatalog
     builtinSymbolName,
     kernelBridgeBindingPrefix,
     kernelBridgeTargetName,
-    lookupBuiltinSymbol
+    lookupBuiltinSymbol,
+    lookupKernelBuiltinSymbol
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -80,6 +81,7 @@ tests =
     ("default conversion aliases stay prelude-only", testDefaultConversionAliasesStayPreludeOnly),
     ("bundled prelude file stays reproducible from catalog", testBundledPreludeFileStaysReproducibleFromCatalog),
     ("bundled prelude comparison normalizes line endings", testBundledPreludeComparisonNormalizesLineEndings),
+    ("bundled prelude keeps text traversal intrinsics private", testBundledPreludeKeepsTextTraversalIntrinsicsPrivate),
     ("bundled prelude includes Eq Float64 equals method body", testBundledPreludeIncludesEqFloat64EqualsMethodBody),
     ("direct compile helper stays kernel-only", testDirectCompileHelperStaysKernelOnly),
     ("compile pipeline treats catalog builtins as bound names", testCompilePipelineTreatsCatalogBuiltinsAsBound),
@@ -106,16 +108,28 @@ expectedBuiltins =
     (BuiltinToUInt64, "toUInt64", 1, PreludeTarget),
     (BuiltinToFloat16, "toFloat16", 1, PreludeTarget),
     (BuiltinToFloat32, "toFloat32", 1, PreludeTarget),
-    (BuiltinToFloat64, "toFloat64", 1, PreludeTarget)
+    (BuiltinToFloat64, "toFloat64", 1, PreludeTarget),
+    (BuiltinTextLength, "textLength", 1, KernelIntrinsic),
+    (BuiltinTextUnconsRaw, "textUnconsRaw", 1, KernelIntrinsic)
   ]
 
 testCatalogRoundTripsBuiltinNames :: IO ()
 testCatalogRoundTripsBuiltinNames =
   mapM_ assertRoundTrip expectedBuiltins
   where
-    assertRoundTrip (symbol, name, _, _) = do
+    assertRoundTrip (symbol, name, _, ownership) = do
       assertEqual ("builtin name for " <> Text.pack (show symbol)) name (builtinSymbolName symbol)
-      assertEqual ("lookup round-trip for " <> name) (Just symbol) (lookupBuiltinSymbol name)
+      assertEqual
+        ("public lookup for " <> name)
+        ( case ownership of
+            PreludeTarget -> Just symbol
+            KernelIntrinsic -> Nothing
+        )
+        (lookupBuiltinSymbol name)
+      assertEqual
+        ("kernel lookup for " <> name)
+        (Just symbol)
+        (lookupKernelBuiltinSymbol (builtinSymbolKernelName symbol))
 
 testCatalogArityContract :: IO ()
 testCatalogArityContract = do
@@ -185,6 +199,25 @@ testBundledPreludeComparisonNormalizesLineEndings =
     bundledPreludeSource
     (normalizePreludeLineEndings (Text.replace "\n" "\r\n" bundledPreludeSource))
 
+testBundledPreludeKeepsTextTraversalIntrinsicsPrivate :: IO ()
+testBundledPreludeKeepsTextTraversalIntrinsicsPrivate = do
+  assertContains
+    "bundled prelude contains text length kernel bridge"
+    "__kernel_textLength = __kernel_textLength."
+    bundledPreludeSource
+  assertContains
+    "bundled prelude contains raw text uncons kernel bridge"
+    "__kernel_textUnconsRaw = __kernel_textUnconsRaw."
+    bundledPreludeSource
+  assertEqual
+    "bundled prelude omits public textLength alias"
+    False
+    ("textLength = __kernel_textLength." `elem` Text.lines bundledPreludeSource)
+  assertEqual
+    "bundled prelude omits public textUnconsRaw alias"
+    False
+    ("textUnconsRaw = __kernel_textUnconsRaw." `elem` Text.lines bundledPreludeSource)
+
 testBundledPreludeIncludesEqFloat64EqualsMethodBody :: IO ()
 testBundledPreludeIncludesEqFloat64EqualsMethodBody =
   assertContains
@@ -242,7 +275,7 @@ testDirectCompileHelperStaysKernelOnly = do
 
 testCompilePipelineTreatsCatalogBuiltinsAsBound :: IO ()
 testCompilePipelineTreatsCatalogBuiltinsAsBound =
-  mapM_ assertBuiltinCompiles expectedBuiltins
+  mapM_ assertBuiltinCompiles expectedPreludeTargets
   where
     assertBuiltinCompiles (_, name, _, _) = do
       result <- compileSource defaultWarningSettings ("x = " <> name <> ".")
@@ -250,7 +283,7 @@ testCompilePipelineTreatsCatalogBuiltinsAsBound =
 
 testRuntimeExposesCatalogBuiltinsAsFunctions :: IO ()
 testRuntimeExposesCatalogBuiltinsAsFunctions =
-  mapM_ assertBuiltinRuns expectedBuiltins
+  mapM_ assertBuiltinRuns expectedPreludeTargets
   where
     assertBuiltinRuns (_, name, _, _) = do
       result <- runSource defaultWarningSettings (name <> ".")
@@ -260,7 +293,7 @@ testRuntimeExposesCatalogBuiltinsAsFunctions =
 
 testNoPreludePathRejectsCanonicalAliases :: IO ()
 testNoPreludePathRejectsCanonicalAliases =
-  mapM_ assertBuiltinRejectedWithoutPrelude expectedBuiltins
+  mapM_ assertBuiltinRejectedWithoutPrelude expectedPreludeTargets
   where
     assertBuiltinRejectedWithoutPrelude (_, name, _, _) = do
       compileResult <- compileSourceWithPrelude defaultWarningSettings Nothing ("x = " <> name <> ".")
@@ -291,7 +324,7 @@ testNoPreludePathKeepsKernelBridgeNames =
 
 testRuntimeBuiltinOverApplicationFails :: IO ()
 testRuntimeBuiltinOverApplicationFails =
-  mapM_ assertOverApplicationFails expectedBuiltins
+  mapM_ assertOverApplicationFails expectedPreludeTargets
   where
     assertOverApplicationFails (_, name, _, _) = do
       let expr = overAppliedBuiltinExpr name
@@ -385,3 +418,7 @@ runtimeExpr expr =
         (SourceSpan 1 1)
         expr
     ]
+
+expectedPreludeTargets :: [(BuiltinSymbol, Text, Int, BuiltinOwnership)]
+expectedPreludeTargets =
+  filter (\(_, _, _, ownership) -> ownership == PreludeTarget) expectedBuiltins

@@ -36,29 +36,31 @@ Each blocked item should answer these questions:
 
 ### JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001
 
-- Smallest unblocker: curate `JN-BOOTSTRAP-MAYBE-RESULT-LIBRARIES-001` as a
-  separate Jazz-authored library child now that generic named signatures and
-  module transport are complete.
-- Decision needed: accept the exact module names and export lists for
-  `Maybe(a)` and `Result(e, a)`, and decide whether these files are ordinary
-  importable stdlib modules or part of the bundled-prelude closure.
-- Recommended default: create ordinary `.jz` modules under
-  `jazz-next/stdlib/`, export each type plus its constructors explicitly, and
-  keep the bundled prelude limited to existing kernel bridges until a later
-  contract demonstrates that implicit availability is required.
-- Candidate child: `JN-BOOTSTRAP-MAYBE-RESULT-LIBRARIES-001`.
-- Target paths: `jazz-next/stdlib/Maybe.jz`,
-  `jazz-next/stdlib/Result.jz`,
-  `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`,
-  `jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`, and
-  `docs/jazz-language-state.md`.
-- Verification: focused loader and prelude-loading suites;
-  `bash jazz-next/scripts/test-warning-config.sh`;
+- Completed children: `JN-BOOTSTRAP-MAYBE-RESULT-LIBRARIES-001` added ordinary
+  `Maybe` and `Result` modules, and `JN-BOOTSTRAP-TEXT-TRAVERSAL-001` added the
+  explicit-import scalar traversal API with private backend-neutral adapters.
+- Smallest unblocker: none currently. Curate the approved host text-I/O surface
+  before promoting another implementation child.
+- Decision needed: lock the exact ordinary Jazz module boundary, `IOError` ADT
+  constructors and stable categories, kernel bridge inventory, stub-v1 purity
+  behavior, stage-0 runtime ownership, and focused success/failure tests.
+- Recommended default: expose recoverable host failures as
+  `Result(IOError, value)`, keep host exception names and platform error numbers
+  private, and preserve the same Jazz-visible contract for the future native
+  runtime instead of coupling frontend types to Haskell or LLVM.
+- Candidate child: `JN-BOOTSTRAP-HOST-TEXT-IO-001`, unpromoted until those
+  module, error, purity, runtime, target-path, and verification decisions are
+  accepted.
+- Candidate target paths: the live queue names the existing builtin catalog,
+  type inference, runtime, purity, module-loader, and focused-test owners; the
+  ordinary module and `IOError` paths remain intentionally unset until the
+  curation pass accepts their source boundary.
+- Verification for the curation pass: focused API/runtime evidence review;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.
-- Not in scope: text traversal, host I/O, stack-safe evaluation, lexer/parser
-  modules, new compiler builtins, a bootstrap-only type representation,
-  backend-neutral lowered IR, LLVM lowering, linking, or the native runtime.
+- Not in scope: implementing host I/O during curation, stack-safe evaluation,
+  lexer/parser modules, backend-neutral lowered IR, LLVM lowering, linking, or
+  the native runtime until separately promoted children own those deltas.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

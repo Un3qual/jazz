@@ -1,0 +1,18 @@
+module Text (value textEmpty, value textLength, value textIsEmpty, value textUncons) {
+  import Maybe.
+
+  textEmpty :: Text.
+  textEmpty = "".
+
+  textLength :: Text -> Int.
+  textLength = __kernel_textLength.
+
+  textIsEmpty :: Text -> Bool.
+  textIsEmpty = \(text) -> text == "".
+
+  textUncons :: Text -> Maybe((Char, Text)).
+  textUncons = \(text) -> case __kernel_textUnconsRaw text {
+    | [] -> Nothing
+    | [(first, rest)] -> Just (first, rest)
+  }.
+}

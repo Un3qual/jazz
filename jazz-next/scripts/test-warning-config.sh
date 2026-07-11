@@ -5,6 +5,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 RUNGHC="${ROOT}/jazz-next/scripts/runghc.sh"
 
+bash jazz-next/scripts/test-check-stdlib-format.sh
+bash jazz-next/scripts/check-stdlib-format.sh
+
 RUNGHC_INCLUDES=(
   -i./jazz-next/src
   -i./jazz-next/test

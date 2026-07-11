@@ -56,8 +56,12 @@ Character literals use single quotes, text literals use double quotes, and the
 accepted escapes are `\\`, `\'`, `\"`, `\n`, `\r`, `\t`, `\0`, and
 `\u{HEX}` for a Unicode scalar. Both types work in adjacent rank-1 generic
 signatures, literal patterns, lists/tuples, strict equality/inequality, runtime
-rendering, and module transport. Text traversal, I/O, ordering, bytes, and
-implicit `Char`/`Text` conversion remain unimplemented.
+rendering, and module transport. The ordinary explicit-import `Text` module
+adds `textEmpty`, scalar-counting `textLength`, `textIsEmpty`, and total
+`textUncons :: Text -> Maybe((Char, Text))` through private backend-neutral
+kernel adapters. Indexing, slicing, concatenation/builders, ordering, search,
+classification, bytes, I/O, and implicit `Char`/`Text` conversion remain
+unimplemented.
 
 The Haskell interpreter is the stage-0/reference execution engine. The selected
 long-term artifact pipeline is Jazz source to canonical typed core to a
@@ -547,6 +551,8 @@ If you need a practical baseline for continuing Jazz, use this order:
    - strict primitive typing/runtime semantics for `+`, `-`, `*`, `/`, `==`, `!=`, `<`, `<=`, `>`, `>=`, plus prelude-provided public helpers `map`, `filter`, `hd`, `tl`, `print!`, target-named numeric conversions `toInt8`..`toFloat64`, backend-independent `Char`/`Text` literals and equality, default Float64 fractional literal values, direct annotated `Float16`/`Float32` fractional literal bindings, same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic with width-preserving runtime float results, same concrete `Float`/`Float16`/`Float32`/`Float64` comparison/equality, and structural list/tuple/ADT equality over equality-supported element and constructor payload types, while numeric-width planning now uses cross-platform `Int64`/`Float64` defaults, source-exact fractional literal conversion checks, context-directed literals, and explicit conversion for mixed concrete widths
    - stage-0 runtime execution via `--run` CLI mode, with standalone CLI source input selected from stdin by default or one positional `.jz` file, while successful CLI and driver compile paths are diagnostic-only: compile returns warnings/errors and no generated artifact; LLVM-generated native binaries are the selected future artifact target
    - bundled-prelude loading by default in `compileSource`, `runSource`, `compileModuleGraph`, `runModuleGraph`, and CLI paths, while explicit no-prelude entry points (`compileSourceWithPrelude Nothing`, `runSourceWithPrelude Nothing`, `compileModuleGraphWithPrelude Nothing`, `runModuleGraphWithPrelude Nothing`, `--no-prelude`, and low-level AST/runtime helpers) expose only `__kernel_*` bridge names; source and module graph harnesses now cover public alias rejection, kernel bridge availability, bundled helper visibility, default bundled capability class and impl-fact visibility, no-prelude capability-fact absence, and explicit-prelude helper visibility, and the checked-in `jazz-next/stdlib/Prelude.jz` mirror is covered against the catalog-generated bundled prelude source
+   - ordinary Jazz-authored `Maybe` and `Result` modules in `jazz-next/stdlib/`: `Maybe` declares `data Maybe a = Nothing | Just a.` and exports exactly `type Maybe`, `constructor Nothing`, and `constructor Just`; `Result` declares `data Result e a = Err e | Ok a.` and exports exactly `type Result`, `constructor Err`, and `constructor Ok`. They require explicit module imports and are not compiler builtins, kernel bridges, or bundled-prelude members. Loader coverage executes their generic signatures, constructors, and patterns from the checked-in sources; prelude-loading coverage locks their implicit absence. This source boundary is shared by the stage-0 interpreter and future compiler backends, so it adds no disposable bytecode or LLVM-specific layer.
+   - an ordinary Jazz-authored `Text` module in `jazz-next/stdlib/` that imports `Maybe` and exports exactly `textEmpty :: Text`, `textLength :: Text -> Int`, `textIsEmpty :: Text -> Bool`, and `textUncons :: Text -> Maybe((Char, Text))`. Length and uncons operate on Unicode scalar values without normalization or per-scalar I/O. Two private `KernelIntrinsic` adapters supply stage-0 execution and checked-in bundled-prelude self-bridges, but no public alias; the public functions remain unavailable without an explicit `Text` import. This boundary is intended to lower to the future native runtime rather than be replaced by a bytecode or Haskell-specific frontend layer.
 
 ## Hybrid Semantic-Change Workflow
 

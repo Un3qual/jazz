@@ -54,6 +54,8 @@ tests =
     ("source pipeline rejects Char/Text equality mismatch", testSourcePipelineRejectsCharTextMismatch),
     ("source pipeline accepts Char/Text equality values and sections", testSourcePipelineAcceptsCharTextEqualityValuesAndSections),
     ("source pipeline types Char and Text literal patterns", testSourcePipelineTypesCharTextPatterns),
+    ("source pipeline types private text traversal primitives", testSourcePipelineTypesPrivateTextTraversalPrimitives),
+    ("source pipeline rejects non-Text traversal arguments", testSourcePipelineRejectsNonTextTraversalArguments),
     ("strict equality rejects mismatched operand types", testRejectsEqualityTypeMismatch),
     ("strict inequality rejects mismatched operand types", testRejectsInequalityTypeMismatch),
     ("comparison primitives reject non-Int operands", testRejectsComparisonTypeMismatch),
@@ -191,6 +193,22 @@ testSourcePipelineTypesCharTextPatterns = do
   assertCompiles "x = case \"Jazz\" { | \"Jazz\" -> True | _ -> False }."
   result <- compileSource defaultWarningSettings "x = case 'a' { | \"a\" -> True | _ -> False }."
   assertSingleDiagnosticContains "Char/Text pattern mismatch" "E2011" (compileErrors result)
+
+testSourcePipelineTypesPrivateTextTraversalPrimitives :: IO ()
+testSourcePipelineTypesPrivateTextTraversalPrimitives =
+  assertCompiles
+    "length :: Int.\nlength = __kernel_textLength \"a\\u{1F642}\".\nparts :: [(Char, Text)].\nparts = __kernel_textUnconsRaw \"a\\u{1F642}\"."
+
+testSourcePipelineRejectsNonTextTraversalArguments :: IO ()
+testSourcePipelineRejectsNonTextTraversalArguments = do
+  assertCompileError
+    "bad = __kernel_textLength 1."
+    "textLength argument type mismatch"
+    "E2006"
+  assertCompileError
+    "bad = __kernel_textUnconsRaw True."
+    "textUnconsRaw argument type mismatch"
+    "E2006"
 
 testRejectsEqualityTypeMismatch :: IO ()
 testRejectsEqualityTypeMismatch = do

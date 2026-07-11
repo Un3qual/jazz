@@ -11,7 +11,9 @@ module JazzNext.Compiler.BundledPrelude
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.BuiltinCatalog
-  ( allBuiltinSymbols,
+  ( BuiltinOwnership (PreludeTarget),
+    allBuiltinSymbols,
+    builtinSymbolOwnership,
     builtinSymbolKernelName,
     builtinSymbolName
   )
@@ -31,7 +33,7 @@ bundledPreludeSource =
       <> [""]
       <> map renderKernelBridge allBuiltinSymbols
       <> [""]
-      <> map renderPublicAlias allBuiltinSymbols
+      <> map renderPublicAlias preludeTargetSymbols
       <> map renderDefaultConversionAlias defaultConversionAliases
   where
     renderCapabilityClass name =
@@ -73,6 +75,9 @@ bundledPreludeSource =
 
     renderDefaultConversionAlias (aliasName, targetName) =
       aliasName <> " = " <> targetName <> "."
+
+    preludeTargetSymbols =
+      filter ((== PreludeTarget) . builtinSymbolOwnership) allBuiltinSymbols
 
 defaultConversionAliases :: [(Text, Text)]
 defaultConversionAliases =
