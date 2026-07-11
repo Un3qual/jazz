@@ -1,6 +1,7 @@
 ---
 id: JN-BOOTSTRAP-HOST-TEXT-IO-001
-status: ready
+status: done
+completed_on: 2026-07-11
 priority: P1
 size: L
 kind: impl
@@ -232,12 +233,12 @@ and repository queue/docs gates.
 - Modify: `docs/execution/done-archive.md`
 - Modify: this plan
 
-- [ ] Record the public API, error protocol, purity boundary, runtime-host seam,
+- [x] Record the public API, error protocol, purity boundary, runtime-host seam,
   and native-runtime portability contract.
-- [ ] Mark this plan done, archive the queue row, and curate the next bootstrap
+- [x] Mark this plan done, archive the queue row, and curate the next bootstrap
   child without promoting an unaccepted implementation.
-- [ ] Run all focused suites listed in frontmatter.
-- [ ] Run the warning matrix and stdlib/queue/docs/diff gates.
-- [ ] Inspect the final diff for public raw aliases, ambient-I/O tests,
+- [x] Run all focused suites listed in frontmatter.
+- [x] Run the warning matrix and stdlib/queue/docs/diff gates.
+- [x] Inspect the final diff for public raw aliases, ambient-I/O tests,
   legacy-tree changes, or LLVM-coupled representations.
-- [ ] Commit as `docs: close bootstrap host text IO batch`.
+- [x] Commit as `docs: close bootstrap host text IO batch`.
