@@ -204,21 +204,24 @@ escapedScalar label spanValue = do
 
 unicodeScalarEscape :: SourceSpan -> LexerParser Char
 unicodeScalarEscape spanValue = do
-  void (char '{')
-  digits <- MP.takeWhileP (Just "Unicode scalar body") (/= '}')
-  maybeClose <- MP.optional (char '}')
-  if maybeClose == Nothing
-    then literalFailure spanValue "unterminated Unicode escape"
-    else
-      if Text.length digits < 1 || Text.length digits > 6 || not (Text.all isHexDigit digits)
-        then literalFailure spanValue "Unicode escape must contain 1-6 hexadecimal digits"
+  maybeOpen <- MP.optional (char '{')
+  case maybeOpen of
+    Nothing -> literalFailure spanValue "unterminated Unicode escape"
+    Just _ -> do
+      digits <- MP.takeWhileP (Just "Unicode scalar body") (/= '}')
+      maybeClose <- MP.optional (char '}')
+      if maybeClose == Nothing
+        then literalFailure spanValue "unterminated Unicode escape"
         else
-          case TextRead.hexadecimal digits :: Either String (Integer, Text) of
-            Right (value, trailing)
-              | Text.null trailing,
-                value <= 0x10FFFF,
-                not (value >= 0xD800 && value <= 0xDFFF) -> pure (chr (fromInteger value))
-            _ -> literalFailure spanValue "Unicode escape is not a scalar value"
+          if Text.length digits < 1 || Text.length digits > 6 || not (Text.all isHexDigit digits)
+            then literalFailure spanValue "Unicode escape must contain 1-6 hexadecimal digits"
+            else
+              case TextRead.hexadecimal digits :: Either String (Integer, Text) of
+                Right (value, trailing)
+                  | Text.null trailing,
+                    value <= 0x10FFFF,
+                    not (value >= 0xD800 && value <= 0xDFFF) -> pure (chr (fromInteger value))
+                _ -> literalFailure spanValue "Unicode escape is not a scalar value"
 
 unicodeScalar :: Char -> Bool
 unicodeScalar value =
