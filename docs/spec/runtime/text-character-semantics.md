@@ -1,6 +1,6 @@
 # Text and Character Semantics
 
-Status: active bootstrap contract; implementation pending
+Status: active bootstrap contract; literal implementation in progress
 
 ## Purpose
 

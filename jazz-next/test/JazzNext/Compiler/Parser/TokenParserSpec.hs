@@ -4,7 +4,8 @@ module Main (main) where
 
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
-  ( renderDiagnostic
+  ( SourceSpan (..),
+    renderDiagnostic
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
@@ -38,6 +39,10 @@ tests =
   [ ("runs a Megaparsec token parser over lexer tokens", testRunTokenParser),
     ("prefix parser returns the unconsumed token stream", testRunTokenParserPrefixReturnsRemainder),
     ("recognizes lexically adjacent tokens", testRecognizesLexicallyAdjacentTokens),
+    ("tokenizes Char and Text literals", testTokenizesCharAndTextLiterals),
+    ("decodes Char and Text escapes", testDecodesCharAndTextEscapes),
+    ("preserves quoted literal lexemes and spans", testPreservesQuotedLiteralLexemesAndSpans),
+    ("rejects malformed Char and Text literals", testRejectsMalformedCharAndTextLiterals),
     ("renders token parser diagnostics with token spans", testTokenParserDiagnostic),
     ("renders invalid character lexer diagnostics", testInvalidCharacterLexerDiagnostic)
   ]
@@ -70,6 +75,53 @@ testRecognizesLexicallyAdjacentTokens = do
       assertEqual "compact separator adjacency" True (isImmediatelyAfter left compactColon)
       assertEqual "spaced separator adjacency" False (isImmediatelyAfter right spacedColon)
     _ -> failTest "expected two qualified-name token groups"
+
+testTokenizesCharAndTextLiterals :: IO ()
+testTokenizesCharAndTextLiterals = do
+  tokens <- lexSource "'a' \"Jazz\"."
+  assertEqual
+    "Char/Text token kinds"
+    [TChar 'a', TText "Jazz", TDot]
+    (map tokenKind tokens)
+
+testDecodesCharAndTextEscapes :: IO ()
+testDecodesCharAndTextEscapes = do
+  tokens <- lexSource "'\\n' \"quote: \\\"; scalar: \\u{1F3B7}\"."
+  assertEqual
+    "decoded escapes"
+    [TChar '\n', TText "quote: \"; scalar: 🎷", TDot]
+    (map tokenKind tokens)
+
+testPreservesQuotedLiteralLexemesAndSpans :: IO ()
+testPreservesQuotedLiteralLexemesAndSpans = do
+  tokens <- lexSource "'\\u{41}' \"a\\n\""
+  assertEqual
+    "literal lexemes and spans"
+    [("'\\u{41}'", SourceSpan 1 1), ("\"a\\n\"", SourceSpan 1 10)]
+    [(tokenLexeme token, tokenSpan token) | token <- tokens]
+
+testRejectsMalformedCharAndTextLiterals :: IO ()
+testRejectsMalformedCharAndTextLiterals = do
+  let cases =
+        [ ("empty Char", "''", "character literal must contain exactly one Unicode scalar"),
+          ("multi-scalar Char", "'ab'", "character literal must contain exactly one Unicode scalar"),
+          ("unterminated Char", "'a", "unterminated character literal"),
+          ("unterminated Text", "\"abc", "unterminated text literal"),
+          ("invalid escape", "'\\x'", "invalid escape '\\x'"),
+          ("empty scalar escape", "'\\u{}'", "Unicode escape must contain 1-6 hexadecimal digits"),
+          ("surrogate scalar", "'\\u{D800}'", "Unicode escape is not a scalar value"),
+          ("large scalar", "'\\u{110000}'", "Unicode escape is not a scalar value"),
+          ("raw newline", "\"a\nb\"", "raw newline is not allowed in a text literal")
+        ]
+  mapM_
+    ( \(label, source, expected) ->
+        case tokenize source of
+          Left diagnostic -> do
+            assertContains (label <> " code") "E0001" (renderDiagnostic diagnostic)
+            assertContains label expected (renderDiagnostic diagnostic)
+          Right tokens -> failTest (label <> ": expected failure, got " <> Text.pack (show tokens))
+    )
+    cases
 
 testTokenParserDiagnostic :: IO ()
 testTokenParserDiagnostic = do

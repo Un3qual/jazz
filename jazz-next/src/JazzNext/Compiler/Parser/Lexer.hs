@@ -11,7 +11,7 @@ module JazzNext.Compiler.Parser.Lexer
 
 import Control.Applicative ((<|>))
 import Control.Monad (void)
-import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace)
+import Data.Char (chr, isAlpha, isAlphaNum, isDigit, isHexDigit, isSpace, ord)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -57,6 +57,8 @@ data TokenKind
   | TArrow
   | TAt
   | TInt Integer
+  | TChar Char
+  | TText Text
   | TEquals
   | TOperator Text
   | TColon
@@ -119,9 +121,110 @@ tokenParser :: LexerParser Token
 tokenParser = do
   position <- MP.getSourcePos
   let spanValue = sourcePosSpan position
-  intToken spanValue
+  charToken spanValue
+    <|> textToken spanValue
+    <|> intToken spanValue
     <|> identifierToken spanValue
     <|> symbolToken spanValue
+
+charToken :: SourceSpan -> LexerParser Token
+charToken spanValue = do
+  (raw, values) <- MP.match (quotedScalars '\'' "character" spanValue)
+  case values of
+    [value] ->
+      pure
+        Token
+          { tokenKind = TChar value,
+            tokenLexeme = raw,
+            tokenSpan = spanValue
+          }
+    _ -> literalFailure spanValue "character literal must contain exactly one Unicode scalar"
+
+textToken :: SourceSpan -> LexerParser Token
+textToken spanValue = do
+  (raw, values) <- MP.match (quotedScalars '"' "text" spanValue)
+  pure
+    Token
+      { tokenKind = TText (Text.pack values),
+        tokenLexeme = raw,
+        tokenSpan = spanValue
+      }
+
+quotedScalars :: Char -> Text -> SourceSpan -> LexerParser [Char]
+quotedScalars delimiter label spanValue = do
+  void (char delimiter)
+  go []
+  where
+    go reversedValues = do
+      atEnd <- MP.atEnd
+      if atEnd
+        then literalFailure spanValue ("unterminated " <> label <> " literal")
+        else do
+          next <- MP.lookAhead MP.anySingle
+          if next == delimiter
+            then void (char delimiter) *> pure (reverse reversedValues)
+            else do
+              value <- quotedScalar delimiter label spanValue
+              go (value : reversedValues)
+
+quotedScalar :: Char -> Text -> SourceSpan -> LexerParser Char
+quotedScalar delimiter label spanValue =
+  escapedScalar spanValue
+    <|> MP.satisfy
+      ( \value ->
+          value /= delimiter
+            && value /= '\\'
+            && value /= '\n'
+            && value /= '\r'
+            && unicodeScalar value
+      )
+    <|> do
+      value <- MP.lookAhead MP.anySingle
+      if value == '\n' || value == '\r'
+        then literalFailure spanValue ("raw newline is not allowed in a " <> label <> " literal")
+        else literalFailure spanValue ("invalid " <> label <> " literal character")
+
+escapedScalar :: SourceSpan -> LexerParser Char
+escapedScalar spanValue = do
+  void (char '\\')
+  escape <- MP.anySingle
+  case escape of
+    '\\' -> pure '\\'
+    '\'' -> pure '\''
+    '"' -> pure '"'
+    'n' -> pure '\n'
+    'r' -> pure '\r'
+    't' -> pure '\t'
+    '0' -> pure '\0'
+    'u' -> unicodeScalarEscape spanValue
+    _ -> literalFailure spanValue ("invalid escape '\\" <> Text.singleton escape <> "'")
+
+unicodeScalarEscape :: SourceSpan -> LexerParser Char
+unicodeScalarEscape spanValue = do
+  void (char '{')
+  digits <- MP.takeWhileP (Just "Unicode scalar body") (/= '}')
+  maybeClose <- MP.optional (char '}')
+  if maybeClose == Nothing
+    then literalFailure spanValue "unterminated Unicode escape"
+    else
+      if Text.length digits < 1 || Text.length digits > 6 || not (Text.all isHexDigit digits)
+        then literalFailure spanValue "Unicode escape must contain 1-6 hexadecimal digits"
+        else
+          case TextRead.hexadecimal digits :: Either String (Integer, Text) of
+            Right (value, trailing)
+              | Text.null trailing,
+                value <= 0x10FFFF,
+                not (value >= 0xD800 && value <= 0xDFFF) -> pure (chr (fromInteger value))
+            _ -> literalFailure spanValue "Unicode escape is not a scalar value"
+
+unicodeScalar :: Char -> Bool
+unicodeScalar value =
+  let scalar = ord value
+   in scalar < 0xD800 || scalar > 0xDFFF
+
+literalFailure :: SourceSpan -> Text -> LexerParser a
+literalFailure spanValue message =
+  MP.customFailure (LexerError (message <> " at " <> renderSpanValue spanValue))
 
 intToken :: SourceSpan -> LexerParser Token
 intToken spanValue = do
