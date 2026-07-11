@@ -702,7 +702,7 @@ testQualifiedMethodDispatchRecordsSignedPolymorphicFunctionRuntimeTemplate = do
   assertEqual "inference errors" [] (inferredErrors inference)
   assertEqual
     "signed polymorphic function runtime template"
-    (Just (TypeFunction (TypeName "t0") (TypeName "t0")))
+    (Just (TypeFunction (TypeVariable "t0") (TypeVariable "t0")))
     (Map.lookup (bindingRuntimeHintKey "identity" (SourceSpan 2 1)) (inferredRuntimeTypeHints inference))
 
 testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint :: IO ()

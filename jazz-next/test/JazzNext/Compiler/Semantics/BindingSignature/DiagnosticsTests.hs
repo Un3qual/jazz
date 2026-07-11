@@ -53,6 +53,9 @@ import JazzNext.Compiler.Semantics.BindingSignature.Shared
 diagnosticTests :: [NamedTest]
 diagnosticTests =
   [ ("signature type mismatch is rejected", testSignatureTypeMismatch)
+    , ("source pipeline rejects generic signature specialization", testSourceRejectsGenericSignatureSpecialization)
+    , ("source pipeline rejects generic signature variable collapse", testSourceRejectsGenericSignatureVariableCollapse)
+    , ("source pipeline rejects generic named signature specialization", testSourceRejectsGenericNamedSignatureSpecialization)
     , ("signature separated from binding by expression is rejected", testSignatureSeparatedFromBinding)
     , ("signature must match immediate binding name", testSignatureNameMismatch)
     , ("use-before-definition is rejected", testUseBeforeDefinition)
@@ -86,6 +89,24 @@ diagnosticTests =
     , ("signature mismatch keeps declared type for downstream checks", testSignatureMismatchKeepsDeclaredTypeDownstream)
     , ("mismatched pending signature does not monomorphize following binding", testMismatchedPendingSignatureDoesNotMonomorphizeFollowingBinding)
   ]
+
+testSourceRejectsGenericSignatureSpecialization :: IO ()
+testSourceRejectsGenericSignatureSpecialization =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "bad :: a -> a.\nbad = \\(x) -> 1."
+    "declared as"
+
+testSourceRejectsGenericSignatureVariableCollapse :: IO ()
+testSourceRejectsGenericSignatureVariableCollapse =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "bad :: a -> b -> a.\nbad = \\(x) -> \\(y) -> y."
+    "declared as"
+
+testSourceRejectsGenericNamedSignatureSpecialization :: IO ()
+testSourceRejectsGenericNamedSignatureSpecialization =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "data Box a = Box a.\nbad :: Box(a) -> Box(a).\nbad = \\(x) -> Box 1."
+    "declared as Box"
 
 testSignatureTypeMismatch :: IO ()
 testSignatureTypeMismatch = do

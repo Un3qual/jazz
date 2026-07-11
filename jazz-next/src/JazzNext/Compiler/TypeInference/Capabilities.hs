@@ -28,6 +28,7 @@ module JazzNext.Compiler.TypeInference.Capabilities
     instantiateTypeSchemeConstraint,
     instantiateTypeSchemePrimitiveConstraint,
     mergeCapabilityFacts,
+    newInferredClassConstraints,
     qualifiedMethodClassIsVisible,
     replaceTypeVariables,
     resolveTypeSchemeConstraint,
@@ -137,7 +138,9 @@ import JazzNext.Compiler.TypeInference.State
     inferGeneratedEqualityClassFacts,
     inferInferredClassConstraints,
     inferModuleCapabilityFacts,
+    initialInferState,
   )
+import qualified JazzNext.Compiler.TypeInference.Signature as Signature
 import JazzNext.Compiler.TypeInference.Solver
   ( addStrictEqualityTypeVarConstraint,
     constrainNumericOperatorType,
@@ -1752,45 +1755,8 @@ constraintSignatureTypeToExpressionTypeWithState ::
   SignatureType ->
   Maybe ExpressionType
 constraintSignatureTypeToExpressionTypeWithState state signatureVariables signatureType =
-  case signatureType of
-    TypeInt -> Just TIntType
-    TypeFloat -> Just TFloatType
-    TypeNumeric numericType -> Just (TNumericType numericType)
-    TypeBool -> Just TBoolType
-    TypeChar -> Just TCharType
-    TypeText -> Just TTextType
-    TypeVariable name -> Map.lookup (identifierText name) signatureVariables
-    TypeName name ->
-      case identifierText name of
-        "Int" -> Just TIntType
-        "Float" -> Just TFloatType
-        "Bool" -> Just TBoolType
-        "Char" -> Just TCharType
-        "Text" -> Just TTextType
-        typeName ->
-          case numericTypeNameToExpressionType typeName of
-            Just numericType -> Just numericType
-            Nothing ->
-              case Map.lookup typeName signatureVariables of
-                Just variableType -> Just variableType
-                Nothing ->
-                  case Map.lookup typeName (inferDataTypes state) of
-                    Just (DataTypeBinding [] _) -> Just (TDataType name [])
-                    _ -> Nothing
-    TypeApplication name arguments ->
-      case Map.lookup (identifierText name) (inferDataTypes state) of
-        Just (DataTypeBinding parameters _)
-          | length parameters == length arguments ->
-              TDataType name <$> traverse (constraintSignatureTypeToExpressionTypeWithState state signatureVariables) arguments
-        _ -> Nothing
-    TypeList innerType ->
-      TListType <$> constraintSignatureTypeToExpressionTypeWithState state signatureVariables innerType
-    TypeTuple elementTypes ->
-      TTupleType <$> traverse (constraintSignatureTypeToExpressionTypeWithState state signatureVariables) elementTypes
-    TypeFunction argumentType resultType ->
-      TFunctionType
-        <$> constraintSignatureTypeToExpressionTypeWithState state signatureVariables argumentType
-        <*> constraintSignatureTypeToExpressionTypeWithState state signatureVariables resultType
+  either (const Nothing) Just
+    (Signature.signatureTypeToExpressionType state signatureVariables signatureType)
 
 freshTypeVars :: Int -> InferState -> ([ExpressionType], InferState)
 freshTypeVars count initialState =
@@ -1846,43 +1812,9 @@ signaturePayloadFromType explicitConstraints signatureType state =
         Nothing -> (Nothing, state)
 
 constraintSignatureTypeToExpressionType :: SignatureType -> Maybe ExpressionType
-constraintSignatureTypeToExpressionType =
-  constraintSignatureTypeToExpressionTypeWithVariables Map.empty
-
-constraintSignatureTypeToExpressionTypeWithVariables ::
-  Map Text ExpressionType ->
-  SignatureType ->
-  Maybe ExpressionType
-constraintSignatureTypeToExpressionTypeWithVariables signatureVariables signatureType =
-  case signatureType of
-    TypeInt -> Just TIntType
-    TypeFloat -> Just TFloatType
-    TypeNumeric numericType -> Just (TNumericType numericType)
-    TypeBool -> Just TBoolType
-    TypeChar -> Just TCharType
-    TypeText -> Just TTextType
-    TypeVariable name -> Map.lookup (identifierText name) signatureVariables
-    TypeName name ->
-      case identifierText name of
-        "Int" -> Just TIntType
-        "Float" -> Just TFloatType
-        "Bool" -> Just TBoolType
-        "Char" -> Just TCharType
-        "Text" -> Just TTextType
-        typeName ->
-          case numericTypeNameToExpressionType typeName of
-            Just numericType -> Just numericType
-            Nothing -> Map.lookup typeName signatureVariables
-    TypeApplication {} ->
-      Nothing
-    TypeList innerType ->
-      TListType <$> constraintSignatureTypeToExpressionTypeWithVariables signatureVariables innerType
-    TypeTuple elementTypes ->
-      TTupleType <$> traverse (constraintSignatureTypeToExpressionTypeWithVariables signatureVariables) elementTypes
-    TypeFunction argumentType resultType ->
-      TFunctionType
-        <$> constraintSignatureTypeToExpressionTypeWithVariables signatureVariables argumentType
-        <*> constraintSignatureTypeToExpressionTypeWithVariables signatureVariables resultType
+constraintSignatureTypeToExpressionType signatureType =
+  either (const Nothing) Just
+    (Signature.signatureTypeToExpressionType initialInferState Map.empty signatureType)
 
 variableConstraintSignaturePayloadToExpressionType ::
   [SignatureConstraint] ->
@@ -2006,10 +1938,6 @@ constraintSignatureTypeSupportsVariableBody signatureType =
       constraintSignatureTypeSupportsVariableBody argumentType
         && constraintSignatureTypeSupportsVariableBody resultType
     _ -> True
-
-numericTypeNameToExpressionType :: Text -> Maybe ExpressionType
-numericTypeNameToExpressionType typeName =
-  TNumericType <$> numericTypeFromName typeName
 
 defaultLiteralTypes :: ExpressionType -> ExpressionType
 defaultLiteralTypes =

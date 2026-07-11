@@ -27,6 +27,7 @@ module JazzNext.Compiler.TypeInference.Diagnostics
     mkInvalidImplTargetError,
     mkInvalidSignatureTypeError,
     mkInvalidQualifiedMethodSignatureError,
+    mkMethodLocalTypeVariableError,
     mkListElementTypeMismatchError,
     mkListPatternTypeMismatchError,
     mkMissingClassMethodError,
@@ -51,6 +52,7 @@ module JazzNext.Compiler.TypeInference.Diagnostics
     mkTargetedFractionalLiteralOverflowError,
     mkTuplePatternArityMismatchError,
     mkTuplePatternTypeMismatchError,
+    mkUndeclaredSignatureConstraintError,
     mkTypeSchemeNumericConstraintError,
     mkTypeSchemeStrictEqualityConstraintError,
     mkUnknownConstructorPatternError,
@@ -99,12 +101,11 @@ import JazzNext.Compiler.TypeInference.State
     inferErrorCount,
     inferErrorsRev,
     inferClassFacts,
-    inferConcreteImplFacts,
-    inferDataTypes
+    inferConcreteImplFacts
   )
+import qualified JazzNext.Compiler.TypeInference.Signature as Signature
 import JazzNext.Compiler.TypeInference.Types
-  ( DataTypeBinding (..),
-    ExpressionType (..),
+  ( ExpressionType (..),
     NumericConstraint,
     TypeEnv
   )
@@ -246,6 +247,36 @@ mkAmbiguousQualifiedMethodBodyForArgumentsError key types = withSubject key $ mk
 mkInvalidQualifiedMethodSignatureError :: Text -> SignaturePayload -> Diagnostic
 mkInvalidQualifiedMethodSignatureError key payload =
   withSubject key $ mkDiagnostic "E2015" ("invalid or unsupported class method signature for '" <> key <> "': '" <> renderSignaturePayload payload <> "'")
+
+mkMethodLocalTypeVariableError :: Text -> Text -> SourceSpan -> Diagnostic
+mkMethodLocalTypeVariableError methodKey variableName methodSpan =
+  withSubject methodKey $
+    setDiagnosticPrimarySpan methodSpan $
+      mkDiagnostic
+        "E2009"
+        ( "class method '"
+            <> methodKey
+            <> "' uses unsupported method-local type variable '"
+            <> variableName
+            <> "'; only declared class parameters may appear"
+        )
+
+mkUndeclaredSignatureConstraintError :: Text -> Bool -> Text -> ExpressionType -> SourceSpan -> Diagnostic
+mkUndeclaredSignatureConstraintError bindingName primitive constraintName argumentType signatureSpan =
+  withSubject bindingName $
+    setDiagnosticPrimarySpan signatureSpan $
+      mkDiagnostic
+        "E2009"
+        ( "signature for '"
+            <> bindingName
+            <> "' does not declare required "
+            <> (if primitive then "primitive " else "")
+            <> "constraint '"
+            <> constraintName
+            <> "("
+            <> renderType argumentType
+            <> ")'"
+        )
 
 mkImplMethodMissingClassMethodError :: Text -> SourceSpan -> Diagnostic
 mkImplMethodMissingClassMethodError key spanValue = withSubject key $ setDiagnosticPrimarySpan spanValue $ mkDiagnostic "E2015" ("class method metadata for '" <> key <> "' must be declared before impl method body")
@@ -514,7 +545,7 @@ mkInvalidImplTargetError state implSpan signatureType =
 
 signaturePayloadNamedTypeFailure :: InferState -> SignaturePayload -> Maybe Text
 signaturePayloadNamedTypeFailure state payload =
-  firstJust (map (signatureTypeFailureSummary state) payloadTypes)
+  firstJust (map (declarationSignatureTypeFailureSummary state) payloadTypes)
   where
     payloadTypes =
       case payload of
@@ -525,49 +556,15 @@ signaturePayloadNamedTypeFailure state payload =
 
 signatureTypeFailureSummary :: InferState -> SignatureType -> Maybe Text
 signatureTypeFailureSummary state signatureType =
-  case signatureType of
-    TypeVariable {} -> Nothing
-    TypeName name -> validateNamedType name 0
-    TypeApplication name arguments
-      | identifierLooksLikeTypeVariable name ->
-          Just ("type variable '" <> identifierText name <> "' cannot be used as an application head")
-      | identifierText name == "List" ->
-          if length arguments == 1
-            then firstJust (map (signatureTypeFailureSummary state) arguments)
-            else arityFailure name 1 (length arguments)
-      | otherwise ->
-          validateApplication name arguments
-    TypeList innerType -> signatureTypeFailureSummary state innerType
-    TypeTuple elementTypes -> firstJust (map (signatureTypeFailureSummary state) elementTypes)
-    TypeFunction argumentType resultType ->
-      firstJust [signatureTypeFailureSummary state argumentType, signatureTypeFailureSummary state resultType]
-    _ -> Nothing
-  where
-    validateNamedType name receivedArity =
-      case Map.lookup (identifierText name) (inferDataTypes state) of
-        Nothing -> Just ("unknown named type '" <> identifierText name <> "'")
-        Just (DataTypeBinding parameters _) ->
-          if length parameters == receivedArity
-            then Nothing
-            else arityFailure name (length parameters) receivedArity
+  case Signature.signatureTypeToExpressionType state Map.empty signatureType of
+    Left failure -> Just (Signature.renderSignatureTypeFailure failure)
+    Right _ -> Nothing
 
-    validateApplication name arguments =
-      case Map.lookup (identifierText name) (inferDataTypes state) of
-        Nothing -> Just ("unknown named type '" <> identifierText name <> "'")
-        Just (DataTypeBinding parameters _)
-          | length parameters /= length arguments ->
-              arityFailure name (length parameters) (length arguments)
-          | otherwise -> firstJust (map (signatureTypeFailureSummary state) arguments)
-
-    arityFailure name expected received =
-      Just
-        ( "type '"
-            <> identifierText name
-            <> "' expects "
-            <> tshow expected
-            <> " argument(s), found "
-            <> tshow received
-        )
+declarationSignatureTypeFailureSummary :: InferState -> SignatureType -> Maybe Text
+declarationSignatureTypeFailureSummary state signatureType =
+  case Signature.validateSignatureType state signatureType of
+    Left failure -> Just (Signature.renderSignatureTypeFailure failure)
+    Right () -> Nothing
 
 firstJust :: [Maybe a] -> Maybe a
 firstJust results =

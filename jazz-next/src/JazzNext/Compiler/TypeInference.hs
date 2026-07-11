@@ -93,6 +93,7 @@ import JazzNext.Compiler.TypeInference.State
     inferDeferredExplicitConstraints,
     inferErrorsRev,
     inferModuleCapabilityFacts,
+    inferRigidTypeVars,
     inferRuntimeTypeHints,
     inferVisibleTypes,
     initialInferState
@@ -108,6 +109,7 @@ import JazzNext.Compiler.TypeInference.Solver
     integerLiteralRangeFitsNumericType,
     resolveType,
     supportsRuntimeEqualityType,
+    typeSatisfiesNumericConstraint,
     unifyTypes
   )
 import JazzNext.Compiler.TypeInference.Types
@@ -903,12 +905,28 @@ applyNumericBinaryRule operatorSymbol resultRule leftExpr rightExpr leftType rig
     Just (resolvedOperandType, stateAfterFloat64LiteralOperand) ->
       constrainNumericOperand resolvedOperandType stateAfterFloat64LiteralOperand
     Nothing ->
-      case unifyTypes leftType rightType state of
-        Just stateAfterUnify ->
-          let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
-           in constrainNumericOperand resolvedOperandType stateAfterUnify
-        Nothing -> numericOperandError state
+      case rigidNumericOperand of
+        Just rigidOperandType ->
+          constrainNumericOperand rigidOperandType state
+        Nothing ->
+          case unifyTypes leftType rightType state of
+            Just stateAfterUnify ->
+              let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
+               in constrainNumericOperand resolvedOperandType stateAfterUnify
+            Nothing -> numericOperandError state
   where
+    rigidNumericOperand =
+      case (resolveType state leftType, resolveType state rightType) of
+        (rigidType@(TVarType typeVar), concreteType)
+          | Set.member typeVar (inferRigidTypeVars state),
+            typeSatisfiesNumericConstraint (numericRuleConstraint resultRule) concreteType ->
+              Just rigidType
+        (concreteType, rigidType@(TVarType typeVar))
+          | Set.member typeVar (inferRigidTypeVars state),
+            typeSatisfiesNumericConstraint (numericRuleConstraint resultRule) concreteType ->
+              Just rigidType
+        _ -> Nothing
+
     constrainNumericOperand resolvedOperandType operandState =
       case constrainNumericOperatorType (numericRuleConstraint resultRule) resolvedOperandType operandState of
         Just stateAfterNumericConstraint ->

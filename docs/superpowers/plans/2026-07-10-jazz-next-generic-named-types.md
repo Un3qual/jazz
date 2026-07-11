@@ -322,7 +322,7 @@ Traverse application arguments, lists, tuples, and function arguments/results le
 
 - [x] **Step 4: Build a declared `TypeScheme` for any generic adjacent signature**
 
-Make both `SignatureType signatureType` and `ConstrainedSignature constraints signatureType` return `SignaturePayloadType` with `signaturePayloadVariableOrder`. During adjacent-signature checking, unify the RHS with an instantiation of the declared type, then store `SchemeTypeBinding` whose quantified set/order comes from the declared variables. Keep existing inferred constraints, primitive constraints, defining capability facts, recursion staging, and per-use `instantiateTypeScheme` behavior.
+Make both `SignatureType signatureType` and `ConstrainedSignature constraints signatureType` return `SignaturePayloadType` with `signaturePayloadVariableOrder`. During adjacent-signature checking, check the RHS with declared variables held rigid, reject implementation obligations not entailed by declared constraints, then store `SchemeTypeBinding` whose quantified set/order comes from the declared variables. Keep defining capability facts, recursion staging, and per-use `instantiateTypeScheme` behavior.
 
 - [x] **Step 5: Run the binding-signature suite and verify it passes**
 
@@ -465,6 +465,11 @@ Run the RuntimeSemantics and BindingSignatureCoherence commands. Expected: FAIL 
 - [x] **Step 3: Change runtime-hint storage to `SignatureType`**
 
 Update inference output, module interfaces, compiled prelude data, driver results, `RuntimeValue`, and runtime helper signatures from `ConstraintSignatureType` to `SignatureType`. Make `expressionTypeToRuntimeHint` return `Nothing` if any `TVarType` remains; otherwise recurse through `TDataType name arguments` as `TypeApplication name hints`, preserving zero-argument nominal types as `TypeName name`.
+
+Review remediation: generalized runtime templates represent quantified slots as
+`TypeVariable` nodes directly. They must never manufacture zero-arity
+`TDataType "tN" []` sentinels, because those conflate inference variables with
+nominal types and would be an invalid boundary for later native lowering.
 
 - [x] **Step 4: Apply explicit named arguments through the existing scheme order**
 

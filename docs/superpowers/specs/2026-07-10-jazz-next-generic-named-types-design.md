@@ -163,9 +163,13 @@ map :: (a -> b) -> List(a) -> List(b).
 ```
 
 An adjacent generic signature defines a real `TypeScheme`. The binding right
-hand side is checked against an instantiation of the declared scheme, and every
-later use receives a fresh instantiation. Signed generic bindings therefore do
-not become monomorphic after their first use.
+hand side is checked with the declared variables held rigid: the implementation
+cannot specialize a universally quantified variable or collapse two distinct
+declared variables. After the definition passes, every later use receives a
+fresh instantiation. Signed generic bindings therefore do not become
+monomorphic after their first use. This applies to explicitly signed direct
+constructor aliases as well; unsigned constructor aliases retain their existing
+monomorphic policy.
 
 Named applications lower to the existing inference representation:
 
@@ -201,9 +205,16 @@ Existing constraint policies remain unchanged:
   rules; and
 - qualified method requirements still use compiler-owned evidence.
 
+For an explicitly signed binding, every class or primitive obligation inferred
+from the implementation must be entailed by a matching declared constraint.
+The compiler reports `E2009` at the signature when an implementation would
+otherwise strengthen its public contract.
+
 Impl targets and class method signatures use the unified tree without gaining
 partial type constructors, higher-kinded parameters, default methods,
-superclasses, or new overlap/orphan behavior.
+superclasses, or new overlap/orphan behavior. Until method-local quantification
+is designed, a class method signature may mention only the enclosing class
+parameters; other free variables reject at the method declaration.
 
 The unification removes conversion helpers whose only purpose was copying
 between `SignatureType` and `ConstraintSignatureType`. Semantic helpers for
@@ -248,10 +259,11 @@ inventory entries.
 
 ## Runtime Hints and Dispatch
 
-Runtime hints use the unified `SignatureType`. Only fully concrete
-instantiations become runtime hints. A polymorphic scheme such as `Maybe(a)`
-does not retain an unresolved runtime variable; after instantiation,
-`Maybe(Char)` may produce a concrete nominal hint.
+Runtime hints use the unified `SignatureType`. Scheme templates preserve
+quantified positions as real `TypeVariable` nodes rather than fabricated named
+data types. Only fully concrete instantiations become dispatch evidence. A
+polymorphic scheme such as `Maybe(a)` therefore cannot masquerade as a nominal
+type; after instantiation, `Maybe(Char)` may produce a concrete nominal hint.
 
 Runtime hint substitution, rebasing, exact-match filtering, and qualified
 method dispatch recurse through named applications using the same nominal

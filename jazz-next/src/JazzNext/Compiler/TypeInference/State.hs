@@ -22,6 +22,7 @@ module JazzNext.Compiler.TypeInference.State
     inferModuleCapabilityFacts,
     inferNextTypeVar,
     inferNumericVars,
+    inferRigidTypeVars,
     inferRuntimeTypeHints,
     inferStrictEqualityVars,
     inferSubst,
@@ -53,7 +54,8 @@ data SolverState = SolverState
   { solverNextTypeVar :: Int,
     solverSubstitution :: Map Int ExpressionType,
     solverStrictEqualityVars :: Set Int,
-    solverNumericVars :: Map Int NumericConstraint
+    solverNumericVars :: Map Int NumericConstraint,
+    solverRigidTypeVars :: Set Int
   }
   deriving (Eq, Show)
 
@@ -112,7 +114,8 @@ initialInferState =
           { solverNextTypeVar = 0,
             solverSubstitution = Map.empty,
             solverStrictEqualityVars = Set.empty,
-            solverNumericVars = Map.empty
+            solverNumericVars = Map.empty,
+            solverRigidTypeVars = Set.empty
           },
       inferDeclarations =
         DeclarationState
@@ -152,6 +155,9 @@ inferStrictEqualityVars = solverStrictEqualityVars . inferSolver
 
 inferNumericVars :: InferState -> Map Int NumericConstraint
 inferNumericVars = solverNumericVars . inferSolver
+
+inferRigidTypeVars :: InferState -> Set Int
+inferRigidTypeVars = solverRigidTypeVars . inferSolver
 
 inferDataTypes :: InferState -> Map Text DataTypeBinding
 inferDataTypes = declarationDataTypes . inferDeclarations

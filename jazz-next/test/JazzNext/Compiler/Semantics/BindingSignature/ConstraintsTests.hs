@@ -54,6 +54,7 @@ constraintTests :: [NamedTest]
 constraintTests =
   [ ("source pipeline accepts inert class and impl declarations", testSourceAcceptsCapabilityDeclarations)
     , ("source pipeline accepts class method signature metadata", testSourceAcceptsClassMethodSignatureMetadata)
+    , ("source pipeline rejects method-local class signature variables", testSourceRejectsMethodLocalClassSignatureVariables)
     , ("source pipeline rejects unknown named class method signatures", testSourceRejectsUnknownNamedClassMethodSignatures)
     , ("source pipeline rejects duplicate class method signatures", testSourceRejectsDuplicateClassMethodSignatures)
     , ("analyzer rejects duplicate class method metadata", testAnalyzerRejectsDuplicateClassMethodMetadata)
@@ -75,7 +76,7 @@ constraintTests =
     , ("source pipeline rejects result-only qualified method inference", testSourceRejectsResultOnlyQualifiedMethodInference)
     , ("source pipeline rejects unpreserved higher-order qualified method inference", testSourceRejectsUnpreservedHigherOrderQualifiedMethodInference)
     , ("source pipeline preserves inferred method constraints on signed bindings", testSourcePreservesInferredMethodConstraintsOnSignedBindings)
-    , ("source pipeline preserves inferred equality constraints on signed bindings", testSourcePreservesInferredEqualityConstraintsOnSignedBindings)
+    , ("source pipeline rejects undeclared equality constraints on signed bindings", testSourceRejectsUndeclaredEqualityConstraintsOnSignedBindings)
     , ("source pipeline resolves concrete inferred method obligations before dropping them", testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem)
     , ("source pipeline resolves literal-range inferred method obligations before dropping them", testSourceResolvesLiteralRangeInferredMethodObligationsBeforeDroppingThem)
     , ("source pipeline rejects ambiguous dropped literal-range method obligations", testSourceRejectsAmbiguousDroppedLiteralRangeMethodObligations)
@@ -130,6 +131,8 @@ constraintTests =
     , ("source pipeline instantiates equality constrained signatures per use", testSourceInstantiatesEqualityConstrainedSignaturePerUse)
     , ("source pipeline accepts unconstrained variables beside explicit constraints", testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints)
     , ("source pipeline preserves primitive constraints on variable constrained signatures", testSourcePreservesPrimitiveConstraintsOnVariableConstrainedSignatures)
+    , ("source pipeline rejects undeclared primitive constraints on signed bindings", testSourceRejectsUndeclaredPrimitiveConstraintsOnSignedBindings)
+    , ("source pipeline rejects undeclared class constraints on signed bindings", testSourceRejectsUndeclaredClassConstraintsOnSignedBindings)
     , ("source pipeline preserves explicit constraints when primitive RHS has no quantified variables", testSourcePreservesExplicitConstraintsWhenPrimitiveRhsHasNoQuantifiedVariables)
     , ("source pipeline preserves explicit Eq impl checks for structural constraints", testSourcePreservesExplicitEqImplChecksForStructuralConstraints)
     , ("source pipeline resolves deferred constraints in impl method bodies", testSourceResolvesDeferredConstraintsInImplMethodBodies)
@@ -144,6 +147,12 @@ testSourceAcceptsCapabilityDeclarations =
 testSourceAcceptsClassMethodSignatureMetadata :: IO ()
 testSourceAcceptsClassMethodSignatureMetadata =
   assertSourceOkWithoutPrelude "class Eq(a) {\nequals :: a -> a -> Bool.\nnotEquals :: a -> a -> Bool.\n}.\nimpl Eq(Int) { }.\nx :: Int.\nx = 1.\nx."
+
+testSourceRejectsMethodLocalClassSignatureVariables :: IO ()
+testSourceRejectsMethodLocalClassSignatureVariables =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class C(a) { f :: b -> b. }."
+    "method-local type variable 'b'"
 
 testSourceRejectsUnknownNamedClassMethodSignatures :: IO ()
 testSourceRejectsUnknownNamedClassMethodSignatures =
@@ -304,17 +313,15 @@ testSourcePreservesInferredMethodConstraintsOnSignedBindings =
     )
     "missing impl method body 'C::m'"
 
-testSourcePreservesInferredEqualityConstraintsOnSignedBindings :: IO ()
-testSourcePreservesInferredEqualityConstraintsOnSignedBindings =
+testSourceRejectsUndeclaredEqualityConstraintsOnSignedBindings :: IO ()
+testSourceRejectsUndeclaredEqualityConstraintsOnSignedBindings =
   assertSourceSingleErrorContainsWithoutPrelude
     ( "class Eq(a) { }.\n"
         <> "class C(a) { }.\n"
-        <> "impl C(Bool) { }.\n"
         <> "same :: @{C(a)}: a -> a -> Bool.\n"
-        <> "same = \\(x) -> \\(y) -> x == y.\n"
-        <> "result = same True False."
+        <> "same = \\(x) -> \\(y) -> x == y."
     )
-    "missing impl fact 'Eq(Bool)'"
+    "does not declare required constraint 'Eq"
 
 testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem :: IO ()
 testSourceResolvesConcreteInferredMethodObligationsBeforeDroppingThem =
@@ -745,14 +752,30 @@ testSourceAcceptsUnconstrainedVariablesBesideExplicitConstraints =
 testSourcePreservesPrimitiveConstraintsOnVariableConstrainedSignatures :: IO ()
 testSourcePreservesPrimitiveConstraintsOnVariableConstrainedSignatures =
   assertSourceSingleErrorContainsWithoutPrelude
-    "class Showable(a) { }.\nimpl Showable(Bool) { }.\naddSelf :: @{Showable(a)}: a -> a.\naddSelf = \\(x) -> x + x.\nbad = addSelf True."
+    "class Num(a) { }.\nimpl Num(Bool) { }.\naddSelf :: @{Num(a)}: a -> a.\naddSelf = \\(x) -> x + x.\nbad = addSelf True."
     "cannot apply function"
+
+testSourceRejectsUndeclaredPrimitiveConstraintsOnSignedBindings :: IO ()
+testSourceRejectsUndeclaredPrimitiveConstraintsOnSignedBindings =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "bad :: a -> a.\nbad = \\(x) -> x + 1."
+    "does not declare required primitive constraint"
+
+testSourceRejectsUndeclaredClassConstraintsOnSignedBindings :: IO ()
+testSourceRejectsUndeclaredClassConstraintsOnSignedBindings =
+  assertSourceSingleErrorContainsWithoutPrelude
+    ( "class Show(a) { show :: a -> Bool. }.\n"
+        <> "impl Show(Int) { show = \\(x) -> True. }.\n"
+        <> "bad :: a -> Bool.\n"
+        <> "bad = \\(x) -> Show::show x."
+    )
+    "does not declare required constraint 'Show"
 
 testSourcePreservesExplicitConstraintsWhenPrimitiveRhsHasNoQuantifiedVariables :: IO ()
 testSourcePreservesExplicitConstraintsWhenPrimitiveRhsHasNoQuantifiedVariables =
   assertSourceSingleErrorContainsWithoutPrelude
-    "class Showable(a) { }.\naddSelf :: @{Showable(a)}: a -> a.\naddSelf = \\(x) -> x + x.\ngood = addSelf 1."
-    "missing impl fact 'Showable(Int)'"
+    "class Num(a) { }.\naddSelf :: @{Num(a)}: a -> a.\naddSelf = \\(x) -> x + x.\ngood = addSelf 1."
+    "missing impl fact 'Num(Int)'"
 
 testSourcePreservesExplicitEqImplChecksForStructuralConstraints :: IO ()
 testSourcePreservesExplicitEqImplChecksForStructuralConstraints =
