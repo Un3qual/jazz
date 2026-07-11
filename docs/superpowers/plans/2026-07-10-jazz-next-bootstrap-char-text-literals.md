@@ -1,12 +1,13 @@
 ---
 id: JN-BOOTSTRAP-CHAR-TEXT-LITERALS-001
-status: ready
+status: done
 priority: P1
 size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
 last_verified: 2026-07-10
+completed_on: 2026-07-10
 plan_section: "Implementation Batch: Bootstrap Char/Text Literals"
 target_paths:
   - docs/spec/runtime/text-character-semantics.md
@@ -113,7 +114,7 @@ deliverable: "Add backend-independent Char and Text literal semantics end to end
 - Consumes: `tokenize :: Text -> Either Diagnostic [Token]`, `Token { tokenKind, tokenLexeme, tokenSpan }`, and parser diagnostic code `E0001`.
 - Produces: `TChar Char`, `TText Text`, and tokens whose raw lexemes include their quotes while their token kinds contain decoded values.
 
-- [ ] **Step 1: Write lexer tests for simple and escaped literals**
+- [x] **Step 1: Write lexer tests for simple and escaped literals**
 
 Register these tests in `TokenParserSpec.hs`:
 
@@ -153,7 +154,7 @@ testPreservesQuotedLiteralLexemesAndSpans = do
 
 Import `SourceSpan (..)` in the test.
 
-- [ ] **Step 2: Run the lexer tests and verify they fail**
+- [x] **Step 2: Run the lexer tests and verify they fail**
 
 Run:
 
@@ -163,7 +164,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 
 Expected: compilation fails because `TChar` and `TText` do not exist.
 
-- [ ] **Step 3: Add malformed-literal tests**
+- [x] **Step 3: Add malformed-literal tests**
 
 Register:
 
@@ -197,7 +198,7 @@ testRejectsMalformedCharAndTextLiterals = do
     cases
 ```
 
-- [ ] **Step 4: Implement quote-aware lexer tokens**
+- [x] **Step 4: Implement quote-aware lexer tokens**
 
 In `Lexer.hs`, add token constructors:
 
@@ -312,7 +313,7 @@ literalFailure spanValue message =
 
 Import `chr`, `isHexDigit`, and `ord` from `Data.Char`.
 
-- [ ] **Step 5: Verify the normative semantics document against the implementation**
+- [x] **Step 5: Verify the normative semantics document against the implementation**
 
 Keep `docs/spec/runtime/text-character-semantics.md` aligned with these locked rules:
 
@@ -335,7 +336,7 @@ is non-normative; future LLVM-generated binaries implement the same semantics
 through the native runtime ABI.
 ```
 
-- [ ] **Step 6: Run focused verification and commit**
+- [x] **Step 6: Run focused verification and commit**
 
 Run:
 
@@ -373,7 +374,7 @@ git commit -m "feat: tokenize Jazz Char and Text literals"
 - Consumes: `TChar Char` and `TText Text` from Task 1.
 - Produces: surface/core literals `SLChar`/`SLText` and `LChar`/`LText`; signature constructors `SurfaceTypeChar`/`SurfaceTypeText` and `TypeChar`/`TypeText`; expression and literal-pattern parsing.
 
-- [ ] **Step 1: Add failing expression and lowering tests**
+- [x] **Step 1: Add failing expression and lowering tests**
 
 Register in `ExpressionParserSpec.hs`:
 
@@ -403,7 +404,7 @@ testLowersCharAndTextLiterals = do
   assertEqual "lower Text" (ELit (LText "Jazz")) (lowerSurfaceExpr (SELit (SLText "Jazz")))
 ```
 
-- [ ] **Step 2: Add failing literal-pattern and signature tests**
+- [x] **Step 2: Add failing literal-pattern and signature tests**
 
 In `PatternParserSpec.hs`, register and add:
 
@@ -443,7 +444,7 @@ testParsesCharAndTextSignatures =
     (parseSurfaceProgram "character :: Char.\nmessage :: Text.\nrender :: Char -> Text.")
 ```
 
-- [ ] **Step 3: Run parser suites and verify red failures**
+- [x] **Step 3: Run parser suites and verify red failures**
 
 Run:
 
@@ -455,7 +456,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 
 Expected: compilation fails on missing Char/Text surface/core constructors.
 
-- [ ] **Step 4: Add surface and core constructors**
+- [x] **Step 4: Add surface and core constructors**
 
 In `Parser/AST.hs`:
 
@@ -505,7 +506,7 @@ data SignatureType
   deriving (Eq, Show)
 ```
 
-- [ ] **Step 5: Parse expressions, literal patterns, and signature names**
+- [x] **Step 5: Parse expressions, literal patterns, and signature names**
 
 In `Expression.parsePrimaryExpr`, add before identifier cases:
 
@@ -530,7 +531,7 @@ In `Signature.parseSurfacePrimitiveType` add:
     "Text" -> Just SurfaceTypeText
 ```
 
-- [ ] **Step 6: Lower the new values and types**
+- [x] **Step 6: Lower the new values and types**
 
 Extend `lowerSurfaceLiteral`:
 
@@ -548,7 +549,7 @@ Extend `lowerSurfaceSignatureType`:
 
 The existing `SPLiteral -> PLiteral` and expression lowering paths then carry the new values without another representation.
 
-- [ ] **Step 7: Run parser verification and commit**
+- [x] **Step 7: Run parser verification and commit**
 
 Run the three parser suites from Step 3. Expected: all pass.
 
@@ -580,7 +581,7 @@ git commit -m "feat: parse and lower Jazz Char and Text literals"
 - Consumes: `LChar`, `LText`, `TypeChar`, and `TypeText` from Task 2.
 - Produces: `TCharType`, `TTextType`, signature conversion, literal-pattern typing, equality support, and deterministic `Char`/`Text` diagnostics.
 
-- [ ] **Step 1: Add failing source type/equality tests**
+- [x] **Step 1: Add failing source type/equality tests**
 
 Register and add in `PrimitiveSemanticsSpec.hs`:
 
@@ -613,7 +614,7 @@ testSourceAcceptsCharTextSignatures =
 
 Expected: no compile diagnostics.
 
-- [ ] **Step 2: Add failing pattern type tests**
+- [x] **Step 2: Add failing pattern type tests**
 
 Add source tests to `PrimitiveSemanticsSpec.hs`:
 
@@ -626,7 +627,7 @@ testSourcePipelineTypesCharTextPatterns = do
   assertSingleDiagnosticContains "Char/Text pattern mismatch" "E2011" (compileErrors result)
 ```
 
-- [ ] **Step 3: Run semantic suites and verify red failures**
+- [x] **Step 3: Run semantic suites and verify red failures**
 
 Run:
 
@@ -637,7 +638,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 
 Expected: compilation fails because `TCharType` and `TTextType` do not exist.
 
-- [ ] **Step 4: Add expression types and unification**
+- [x] **Step 4: Add expression types and unification**
 
 In `TypeInference/Types.hs`:
 
@@ -679,7 +680,7 @@ Add to `supportsRuntimeEqualityTypeWith`:
     TTextType -> True
 ```
 
-- [ ] **Step 5: Convert signatures and runtime hints**
+- [x] **Step 5: Convert signatures and runtime hints**
 
 In `TypeInference.Capabilities.signatureTypeToExpressionType` add:
 
@@ -711,7 +712,7 @@ Where `ConstraintTypeName` becomes an expression type, recognize:
 
 In `TypeInference.Scope`, `Capabilities.freeTypeVariables`, `Capabilities.replaceTypeVariables`, literal defaulting, and type-scheme traversal, treat `TCharType` and `TTextType` as closed nonnumeric types exactly as `TBoolType`, without adding numeric or class constraints.
 
-- [ ] **Step 6: Render deterministic type names and diagnostics**
+- [x] **Step 6: Render deterministic type names and diagnostics**
 
 In `TypeInference.Diagnostics` add:
 
@@ -729,7 +730,7 @@ and:
 
 Update the `E2004` unsupported-equality message to list `Char` and `Text` among supported primitive types.
 
-- [ ] **Step 7: Guard exhaustiveness mechanically**
+- [x] **Step 7: Guard exhaustiveness mechanically**
 
 Run:
 
@@ -739,7 +740,7 @@ rg -n "TBoolType|TypeBool|LBool" jazz-next/src/JazzNext/Compiler/TypeInference.h
 
 For every closed primitive-type case, add `Char`/`Text` branches. Do not add them to numeric constraints, numeric defaulting, conversion, or arithmetic cases.
 
-- [ ] **Step 8: Run semantic verification and commit**
+- [x] **Step 8: Run semantic verification and commit**
 
 Run the two suites from Step 3. Expected: all pass.
 
@@ -763,7 +764,7 @@ git commit -m "feat: type Jazz Char and Text values"
 - Consumes: typed `LChar`/`LText` core literals and `ConstraintTypeName "Char"`/`"Text"` hints.
 - Produces: `VChar Char`, `VText Text`, source-style rendering, strict equality/inequality, literal-pattern matching, and runtime type diagnostics.
 
-- [ ] **Step 1: Add failing runtime value and rendering tests**
+- [x] **Step 1: Add failing runtime value and rendering tests**
 
 Register in `Runtime/RenderingTests.hs`:
 
@@ -798,7 +799,7 @@ testCharTextLiteralPatterns = do
   assertEqual "runtime output" (Just "(1, 1)") (runOutput result)
 ```
 
-- [ ] **Step 2: Run runtime tests and verify red failures**
+- [x] **Step 2: Run runtime tests and verify red failures**
 
 Run:
 
@@ -808,7 +809,7 @@ bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/
 
 Expected: compilation fails because `VChar` and `VText` do not exist.
 
-- [ ] **Step 3: Add runtime values and source escaping**
+- [x] **Step 3: Add runtime values and source escaping**
 
 Add constructors:
 
@@ -863,7 +864,7 @@ Use it in `renderRuntimeValue`:
     VText value -> "\"" <> Text.concatMap renderQuotedScalar value <> "\""
 ```
 
-- [ ] **Step 4: Implement strict equality and pattern equality**
+- [x] **Step 4: Implement strict equality and pattern equality**
 
 In `evalBinary` add:
 
@@ -883,7 +884,7 @@ In `runtimeStructuralEquality` add:
 
 The existing `PLiteral` matcher calls `literalRuntimeValue`, so these branches also make literal patterns executable.
 
-- [ ] **Step 5: Support runtime type hints and diagnostics**
+- [x] **Step 5: Support runtime type hints and diagnostics**
 
 In `runtimeValueCanAcceptTypeHint` and `applyRuntimeTypeHint`, accept only exact pairs:
 
@@ -903,7 +904,7 @@ In `renderRuntimeType` add:
 
 Do not accept numeric conversions, implicit `Char -> Text`, or text ordering.
 
-- [ ] **Step 6: Guard runtime exhaustiveness mechanically**
+- [x] **Step 6: Guard runtime exhaustiveness mechanically**
 
 Run:
 
@@ -913,7 +914,7 @@ rg -n "VBool|LBool" jazz-next/src/JazzNext/Compiler/Runtime.hs
 
 Add terminal `VChar`/`VText` cases to closed value traversals such as default-literal attachment and function detection. They must remain unchanged values and must never be treated as callable, numeric, structural containers, or targeted numeric values.
 
-- [ ] **Step 7: Run runtime verification and commit**
+- [x] **Step 7: Run runtime verification and commit**
 
 Run the runtime suite from Step 2. Expected: all tests pass.
 
@@ -942,7 +943,7 @@ git commit -m "feat: execute Jazz Char and Text values"
 - Consumes: end-to-end Char/Text behavior from Tasks 1-4.
 - Produces: cross-module evidence, current documentation, archived closure evidence, and an empty or correctly advanced dispatcher.
 
-- [ ] **Step 1: Add a failing module transport regression**
+- [x] **Step 1: Add a failing module transport regression**
 
 Register and add to `Loader/VisibilityTests.hs`:
 
@@ -971,7 +972,7 @@ testRunModuleGraphTransportsCharTextValues = do
     lookupSource path = pure (Map.lookup path sourceMap)
 ```
 
-- [ ] **Step 2: Run the loader suite**
+- [x] **Step 2: Run the loader suite**
 
 Run:
 
@@ -983,7 +984,7 @@ Expected: the registered module transport test passes using the implementation
 from Tasks 1-4. Any required fix stays within module interface/runtime hint
 transport for `Char`/`Text`; import syntax remains unchanged.
 
-- [ ] **Step 3: Update authoritative status docs**
+- [x] **Step 3: Update authoritative status docs**
 
 Update `primitive-semantics.md` with strict Char/Text equality and the explicit ordering deferral.
 
@@ -997,11 +998,11 @@ Update `jazz-language-state.md` to list:
 - Haskell representation as stage-0-only; and
 - traversal, I/O, ordering, bytes, lowered IR, and LLVM generation as later bootstrap/backend children.
 
-- [ ] **Step 4: Run the full verification matrix**
+- [x] **Step 4: Run the full verification matrix**
 
 Run every frontmatter verification command in order. Expected: each exits 0. Record focused suite pass counts and the full script result in the done-archive evidence.
 
-- [ ] **Step 5: Close queue and plan metadata**
+- [x] **Step 5: Close queue and plan metadata**
 
 After verification succeeds:
 
@@ -1011,7 +1012,7 @@ After verification succeeds:
 4. leave `Next Curation Target` empty unless a separately accepted plan for text traversal/classification has been written; and
 5. make the queue executor status say the Char/Text child landed and that no later bootstrap child is promoted unless one actually exists.
 
-- [ ] **Step 6: Verify metadata and commit closeout**
+- [x] **Step 6: Verify metadata and commit closeout**
 
 Run:
 

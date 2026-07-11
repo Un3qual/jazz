@@ -1,6 +1,6 @@
 # Primitive Semantics
 
-Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, default Float64 fractional literal values parse/evaluate, explicitly annotated `Float16`/`Float32` fractional literal bindings are accepted, lowercase `f16`/`f32`/`f64` fractional literal suffixes parse and resolve directly to `Float16`/`Float32`/`Float64`, same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic type-checks and evaluates with width-preserving runtime float results, direct binary Float64-domain arithmetic can target exactly one uncommitted integer literal to the peer `Float`/`Float64` type, direct binary arithmetic/comparison/equality can promote exactly one concrete integral operand to the peer `Float`/`Float64` type, same concrete `Float`/`Float16`/`Float32`/`Float64` comparison/equality type-check and evaluate, and structural list/tuple/ADT equality type-checks and evaluates when every nested element or declared constructor payload type is equality-supported)
+Status: active (phase 1 partial implementation in `jazz-next`; width-specific numeric signature names and `Int`/`Float` aliases are parser/core/type-owned, explicit target-named numeric conversions are implemented through the prelude/catalog/runtime boundary, default Float64 fractional literal values parse/evaluate, explicitly annotated `Float16`/`Float32` fractional literal bindings are accepted, lowercase `f16`/`f32`/`f64` fractional literal suffixes parse and resolve directly to `Float16`/`Float32`/`Float64`, same concrete `Float`/`Float16`/`Float32`/`Float64` arithmetic type-checks and evaluates with width-preserving runtime float results, direct binary Float64-domain arithmetic can target exactly one uncommitted integer literal to the peer `Float`/`Float64` type, direct binary arithmetic/comparison/equality can promote exactly one concrete integral operand to the peer `Float`/`Float64` type, same concrete `Float`/`Float16`/`Float32`/`Float64` comparison/equality type-check and evaluate, `Char`/`Text` literals and strict equality execute end to end, and structural list/tuple/ADT equality type-checks and evaluates when every nested element or declared constructor payload type is equality-supported)
 Locked decisions: 2026-03-03
 Primary plan: `docs/plans/spec-clarification/2026-03-03/runtime/16-primitive-semantics-contract.md`
 
@@ -26,7 +26,7 @@ Define backend-independent language semantics for primitive operations and value
 | `-` | `Num a => a -> a -> a` | Numeric subtraction in selected numeric domain. | Compile-time type error on mismatched/non-numeric operands. |
 | `*` | `Num a => a -> a -> a` | Numeric multiplication in selected numeric domain. | Compile-time type error on mismatched/non-numeric operands. |
 | `/` | `Num a => a -> a -> a` | Numeric division in selected numeric domain. | Compile-time type error on mismatched/non-numeric operands. |
-| `==`, `!=` | `Eq a => a -> a -> Bool` | Strict, type-directed equality/inequality for supported runtime equality families, including recursively equality-supported lists, tuples, and declared ADTs. Direct binary concrete-integral vs peer `Float`/`Float64` operands use the numeric promotion exception below. | Compile-time type error when operand types do not match outside the explicit `Float`/`Float64` promotion exception or the family has no equality runtime support. |
+| `==`, `!=` | `Eq a => a -> a -> Bool` | Strict, type-directed equality/inequality for supported runtime equality families, including `Char`, `Text`, and recursively equality-supported lists, tuples, and declared ADTs. Direct binary concrete-integral vs peer `Float`/`Float64` operands use the numeric promotion exception below. | Compile-time type error when operand types do not match outside the explicit `Float`/`Float64` promotion exception or the family has no equality runtime support. |
 | `<`, `<=`, `>`, `>=` | `Ord a => a -> a -> Bool` | Numeric ordering for supported same-concrete numeric operands. | Compile-time type error on mismatched/non-comparable operands. |
 | `map` | `(a -> b) -> [a] -> [b]` | Applies function to each element in order. | Compile-time type error when function/input list types mismatch. |
 | `filter` | `(a -> Bool) -> [a] -> [a]` | Keeps list elements whose predicate evaluates to `True`. | Compile-time type error when predicate/list types mismatch; fatal runtime diagnostic if predicate result is non-`Bool`. |
@@ -41,7 +41,8 @@ Define backend-independent language semantics for primitive operations and value
    only implicit promotion exception is the direct binary concrete-integral vs
    peer `Float`/`Float64` rule described in the numeric section below.
 3. Equality only compares operands of the same supported type family, except for
-   that direct binary `Float`/`Float64` promotion exception: `Bool`, integral
+   that direct binary `Float`/`Float64` promotion exception: `Bool`, `Char`,
+   `Text`, integral
    numeric types, same concrete `Float`/`Float16`/`Float32`/`Float64`,
    list/tuple structures whose nested element types are themselves
    equality-supported, and declared ADT values whose complete constructor
@@ -52,6 +53,8 @@ Valid examples:
 ```jz
 1 == 1
 True == False
+'a' == 'a'
+"Jazz" != "jazz"
 1.5 == 1.5
 2.0 != 3.0
 [1, 2] == [1, 2]
@@ -69,6 +72,21 @@ f = \(x) -> x.
 data Box a = Box a.
 Box f == Box f
 ```
+
+## Character And Text Behavior
+
+- `Char` is one Unicode scalar value; `Text` is an immutable sequence of
+  Unicode scalar values. Their stage-0 Haskell representations are
+  non-normative.
+- Single-line character and text literals, validated escapes, monomorphic
+  `Char`/`Text` signatures, literal patterns, `==`, and `!=` are implemented.
+- Character comparison is scalar equality. Text comparison is exact sequence
+  equality without normalization or locale-sensitive behavior.
+- `<`, `<=`, `>`, and `>=` are intentionally not available for `Char` or
+  `Text` yet. Ordering, traversal, indexing, slicing, concatenation, builders,
+  bytes, and I/O require later bootstrap contracts.
+- The complete literal and rendering contract is
+  [`text-character-semantics.md`](text-character-semantics.md).
 
 ## Numeric Behavior and Defaulting
 

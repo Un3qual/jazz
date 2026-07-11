@@ -46,6 +46,7 @@ import JazzNext.Compiler.Modules.Loader.Shared
 visibilityTests :: [NamedTest]
 visibilityTests =
   [ ("run module graph default helper executes bundled prelude aliases across files", testRunModuleGraphDefaultLoadsBundledPrelude)
+    , ("run module graph transports Char/Text values", testRunModuleGraphTransportsCharTextValues)
     , ("compile module graph without prelude rejects public aliases across files", testCompileModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles)
     , ("run module graph without prelude rejects public aliases across files", testRunModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles)
     , ("compile module graph without prelude keeps kernel bridge aliases across files", testCompileModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles)
@@ -102,6 +103,25 @@ testRunModuleGraphDefaultLoadsBundledPrelude = do
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main {\nimport Lib::Data.\nmap hd values.\n}"),
           ("src/Lib/Data.jz", "module Lib::Data {\nvalues = [[1, 2], [3], [4, 5]].\n}")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphTransportsCharTextValues :: IO ()
+testRunModuleGraphTransportsCharTextValues = do
+  result <-
+    runModuleGraph
+      defaultWarningSettings
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, True)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/Lib/TextValues.jz", "module Lib::TextValues (value letter, value message) { letter :: Char. letter = 'J'. message :: Text. message = \"Jazz\". }"),
+          ("src/App/Main.jz", "module App::Main { import Lib::TextValues (letter, message). (letter == 'J', message == \"Jazz\"). }")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
