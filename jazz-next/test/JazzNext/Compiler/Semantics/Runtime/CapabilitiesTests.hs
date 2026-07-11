@@ -10,6 +10,7 @@ import Control.Exception
     try
   )
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
@@ -52,11 +53,13 @@ import JazzNext.Compiler.Runtime
   )
 import JazzNext.Compiler.RuntimeHints
   ( bindingRuntimeHintKey,
+    bindingRuntimeHintKeyInModule,
     explicitTypeApplicationRuntimeHintKeyInModule
   )
 import JazzNext.Compiler.TypeInference
   ( InferenceResult (..),
-    inferExpressionWithBuiltins
+    inferExpressionWithBuiltins,
+    inferExpressionWithBuiltinsAndSourceUnitStatements
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -150,6 +153,7 @@ capabilityTests =
     , ("qualified method dispatch preserves monomorphic ADT concrete payload hints", testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint)
     , ("qualified method dispatch ignores unknown constructor field hint names", testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName)
     , ("qualified method dispatch keeps nested inferred hints scoped", testQualifiedMethodDispatchKeepsNestedInferredHintsScoped)
+    , ("nested binding hints retain their enclosing source unit", testNestedBindingHintsRetainEnclosingSourceUnit)
     , ("qualified method dispatch prefers alias binding over method sentinel at runtime", testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime)
     , ("qualified zero-argument method dispatch returns value", testQualifiedZeroArgumentMethodDispatchReturnsValue)
     , ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias)
@@ -1348,6 +1352,43 @@ testQualifiedMethodDispatchKeepsNestedInferredHintsScoped = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
+
+testNestedBindingHintsRetainEnclosingSourceUnit :: IO ()
+testNestedBindingHintsRetainEnclosingSourceUnit = do
+  let bindingSpan = SourceSpan 5 3
+      expr =
+        EBlock
+          [ SLet "seed" (SourceSpan 1 1) (ELit (LInt 0)),
+            SExpr
+              (SourceSpan 2 1)
+              ( EBlock
+                  [ SLet "value" bindingSpan (ELit (LInt 1)),
+                    SExpr (SourceSpan 6 3) (EVar "value")
+                  ]
+              )
+          ]
+  inference <-
+    inferExpressionWithBuiltinsAndSourceUnitStatements
+      ResolveKernelOnly
+      Set.empty
+      (Set.singleton 0)
+      defaultWarningSettings
+      expr
+  assertEqual "inference errors" [] (inferredErrors inference)
+  assertEqual
+    "nested binding hint source-unit path"
+    (Just (TypeNumeric NumericInt64))
+    ( Map.lookup
+        (bindingRuntimeHintKeyInModule Nothing "value" bindingSpan)
+        (inferredRuntimeTypeHints inference)
+    )
+  assertEqual
+    "nested binding hint does not reuse the prelude path"
+    Nothing
+    ( Map.lookup
+        (bindingRuntimeHintKeyInModule (Just []) "value" bindingSpan)
+        (inferredRuntimeTypeHints inference)
+    )
 
 testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime :: IO ()
 testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do

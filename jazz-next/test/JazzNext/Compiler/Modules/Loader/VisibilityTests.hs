@@ -67,6 +67,7 @@ visibilityTests =
     , ("run module graph resolves alias-qualified types in signatures", testRunModuleGraphResolvesAliasQualifiedTypesInSignatures)
     , ("compile module graph rejects private alias-qualified types", testCompileModuleGraphRejectsPrivateAliasQualifiedType)
     , ("run module graph resolves zero-arity types through lowercase aliases", testRunModuleGraphResolvesLowercaseAliasZeroArityType)
+    , ("run module graph accepts impl targets through lowercase aliases", testRunModuleGraphAcceptsLowercaseAliasImplTarget)
     , ("run module graph resolves generic types from lowercase module paths", testRunModuleGraphResolvesGenericTypeFromLowercaseModulePath)
     , ("run module graph transports signed generic named schemes", testRunModuleGraphTransportsSignedGenericNamedSchemes)
     , ("run module graph keeps local data constructor from hidden import rewrite", testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite)
@@ -536,6 +537,30 @@ testRunModuleGraphResolvesLowercaseAliasZeroArityType = do
       Map.fromList
         [ ( "src/App/Main.jz",
             "module App::Main {\nimport Lib::Token as t.\nvalue :: t::Token.\nvalue = t::Token.\nvalue.\n}"
+          ),
+          ( "src/Lib/Token.jz",
+            "module Lib::Token {\ndata Token = Token.\n}"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphAcceptsLowercaseAliasImplTarget :: IO ()
+testRunModuleGraphAcceptsLowercaseAliasImplTarget = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "lowercase alias impl compile errors" [] (runCompileErrors result)
+  assertEqual "lowercase alias impl runtime errors" [] (runRuntimeErrors result)
+  assertEqual "lowercase alias impl output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Token as t.\nclass Marker(a) {\nmark :: a -> Bool.\n}.\nimpl Marker(t::Token) {\nmark = \\(value) -> True.\n}.\nMarker::mark t::Token.\n}"
           ),
           ( "src/Lib/Token.jz",
             "module Lib::Token {\ndata Token = Token.\n}"

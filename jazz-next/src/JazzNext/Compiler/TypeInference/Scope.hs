@@ -24,6 +24,7 @@ import JazzNext.Compiler.AST
     Expr (..),
     Literal (..),
     NumericType (..),
+    SignaturePayload (ConstrainedSignature),
     SignatureType,
     Statement (..)
   )
@@ -39,7 +40,8 @@ import JazzNext.Compiler.CapabilityFacts
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic (..),
-    SourceSpan
+    SourceSpan,
+    setDiagnosticPrimarySpan
   )
 import JazzNext.Compiler.FractionalLiteral
   ( FractionalLiteralSource,
@@ -181,20 +183,27 @@ firstInvalidClassMethodSignature state capabilityName parameters =
               methodVariables =
                 maybe [] constraintSignatureTypeVariableNamesInOrder (signaturePayloadConstraintType methodPayload)
               methodLocalVariables = filter (`Set.notMember` classParameterNames) methodVariables
-           in case methodLocalVariables of
-                variableName : _ ->
-                  Just (mkMethodLocalTypeVariableError methodKey variableName methodSpan)
-                [] ->
-                  case signaturePayloadToSignatureType methodPayload state of
-                    (Just _, _) -> go rest
-                    (Nothing, _) ->
-                      Just
-                        ( mkInvalidSignatureTypeError
-                            state
-                            methodKey
-                            methodSpan
-                            methodPayload
-                        )
+              invalidMethodSignature =
+                mkInvalidSignatureTypeError
+                  state
+                  methodKey
+                  methodSpan
+                  methodPayload
+           in case methodPayload of
+                ConstrainedSignature (_ : _) _ ->
+                  Just
+                    ( setDiagnosticPrimarySpan
+                        methodSpan
+                        (mkInvalidQualifiedMethodSignatureError methodKey methodPayload)
+                    )
+                _ ->
+                  case methodLocalVariables of
+                    variableName : _ ->
+                      Just (mkMethodLocalTypeVariableError methodKey variableName methodSpan)
+                    [] ->
+                      case signaturePayloadToSignatureType methodPayload state of
+                        (Just _, _) -> go rest
+                        (Nothing, _) -> Just invalidMethodSignature
 
 publishVisibleTypes :: TypeEnv -> InferState -> InferState
 publishVisibleTypes env state =

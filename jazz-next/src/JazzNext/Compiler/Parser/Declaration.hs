@@ -35,7 +35,8 @@ import JazzNext.Compiler.Name
     NameNamespace (..),
     identifierText,
     mkIdentifier,
-    mkOperatorBindingIdentifier
+    mkOperatorBindingIdentifier,
+    splitQualifiedIdentifierText
   )
 import JazzNext.Compiler.ModuleExports
   ( ModuleExportSelector (..),
@@ -1239,9 +1240,12 @@ surfaceConcreteConstraintArgument signatureType =
 
 surfaceIdentifierLooksLikeTypeVariable :: Identifier -> Bool
 surfaceIdentifierLooksLikeTypeVariable name =
-  case Text.uncons (identifierText name) of
+  case Text.uncons memberName of
     Just (c, _) -> isLower c
     Nothing -> False
+  where
+    fullName = identifierText name
+    memberName = maybe fullName snd (splitQualifiedIdentifierText fullName)
 
 validateClassHeaderParameters :: Token -> Maybe [SurfaceSignatureType] -> Either Diagnostic [Identifier]
 validateClassHeaderParameters declarationToken maybeHeaderArguments =

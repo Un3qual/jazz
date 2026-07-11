@@ -55,6 +55,7 @@ constraintTests =
   [ ("source pipeline accepts inert class and impl declarations", testSourceAcceptsCapabilityDeclarations)
     , ("source pipeline accepts class method signature metadata", testSourceAcceptsClassMethodSignatureMetadata)
     , ("source pipeline rejects method-local class signature variables", testSourceRejectsMethodLocalClassSignatureVariables)
+    , ("source pipeline rejects constrained class method signatures", testSourceRejectsConstrainedClassMethodSignatures)
     , ("source pipeline rejects unknown named class method signatures", testSourceRejectsUnknownNamedClassMethodSignatures)
     , ("source pipeline rejects duplicate class method signatures", testSourceRejectsDuplicateClassMethodSignatures)
     , ("analyzer rejects duplicate class method metadata", testAnalyzerRejectsDuplicateClassMethodMetadata)
@@ -153,6 +154,12 @@ testSourceRejectsMethodLocalClassSignatureVariables =
   assertSourceSingleErrorContainsWithoutPrelude
     "class C(a) { f :: b -> b. }."
     "method-local type variable 'b'"
+
+testSourceRejectsConstrainedClassMethodSignatures :: IO ()
+testSourceRejectsConstrainedClassMethodSignatures =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Need(a) { }.\nclass C(a) { m :: @{Need(a)}: a -> Bool. }.\n0."
+    "invalid or unsupported class method signature for 'C::m'"
 
 testSourceRejectsUnknownNamedClassMethodSignatures :: IO ()
 testSourceRejectsUnknownNamedClassMethodSignatures =
