@@ -324,6 +324,7 @@ enterModuleCapabilityScope baselineFacts modulePath state =
     ( \moduleState ->
         moduleState
           { inferenceModulePath = Just modulePath,
+            inferenceRuntimeHintPath = Just modulePath,
             inferenceLocalCapabilities = emptyScopeCapabilityFacts
           }
     )

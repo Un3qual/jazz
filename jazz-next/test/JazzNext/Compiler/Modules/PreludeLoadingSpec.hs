@@ -37,6 +37,7 @@ tests :: [NamedTest]
 tests =
   [ ("compile source can reference prelude-defined bindings", testCompileWithPreludeBindingVisibility),
     ("run source can apply prelude-defined section functions", testRunWithPreludeSectionFunction),
+    ("explicit type application hints stay source-unit scoped", testExplicitTypeApplicationHintsStaySourceUnitScoped),
     ("bundled default prelude preserves user diagnostic spans", testBundledPreludePreservesUserDiagnosticSpans),
     ("invalid prelude source produces prelude parse diagnostic", testPreludeParseDiagnostic),
     ("prelude bridge with unknown kernel symbol fails conformance checks", testPreludeUnknownBridgeSymbolDiagnostic),
@@ -77,6 +78,27 @@ testRunWithPreludeSectionFunction = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
+
+testExplicitTypeApplicationHintsStaySourceUnitScoped :: IO ()
+testExplicitTypeApplicationHintsStaySourceUnitScoped = do
+  result <-
+    runSourceWithPrelude
+      defaultWarningSettings
+      ( Just
+          ( "class RuntimeFlag(a) { flag :: [a] -> Bool. }.\n"
+              <> "impl RuntimeFlag(Int) { flag = \\(values) -> True. }.\n"
+              <> "impl RuntimeFlag(Bool) { flag = \\(values) -> False. }.\n"
+              <> "empty = [].\n"
+              <> "fromPrelude = RuntimeFlag::flag (empty @Int)."
+          )
+      )
+      ( "# pad\n# pad\n# pad\n# pad\n"
+          <> "fromProgram = RuntimeFlag::flag (empty @Bool).\n"
+          <> "(fromPrelude, fromProgram)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "source-unit-specific explicit hints" (Just "(True, False)") (runOutput result)
 
 testBundledPreludePreservesUserDiagnosticSpans :: IO ()
 testBundledPreludePreservesUserDiagnosticSpans = do

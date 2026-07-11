@@ -59,6 +59,8 @@ constraintTests =
     , ("source pipeline analyzes impl method binding metadata", testSourceAnalyzesImplMethodBindingMetadata)
     , ("source pipeline rejects variable-target impl method bindings", testSourceRejectsVariableTargetImplMethodBindings)
     , ("source pipeline rejects variable-target empty impl declarations", testSourceRejectsVariableTargetEmptyImplDeclarations)
+    , ("source pipeline rejects unknown named impl targets", testSourceRejectsUnknownNamedImplTargets)
+    , ("source pipeline rejects wrong-arity named impl targets", testSourceRejectsWrongArityNamedImplTargets)
     , ("source pipeline instantiates unconstrained variables beside numeric constraints per use", testSourceInstantiatesUnconstrainedNumericBindingVariablesPerUse)
     , ("source pipeline instantiates unconstrained variables beside equality constraints per use", testSourceInstantiatesUnconstrainedEqualityBindingVariablesPerUse)
     , ("source pipeline infers equality class constraints for ordinary binding schemes", testSourceInfersEqualityClassConstraintsForOrdinaryBindingSchemes)
@@ -185,6 +187,18 @@ testSourceRejectsVariableTargetImplMethodBindings =
 testSourceRejectsVariableTargetEmptyImplDeclarations :: IO ()
 testSourceRejectsVariableTargetEmptyImplDeclarations =
   assertSourceSingleErrorContainsWithoutPrelude "class Eq(a) { }.\nimpl Eq(a) { }.\nx = 1." "concrete impl target"
+
+testSourceRejectsUnknownNamedImplTargets :: IO ()
+testSourceRejectsUnknownNamedImplTargets =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class Eq(a) { }.\nimpl Eq(Unknown(Char)) { }.\nx = 1."
+    "unknown named type 'Unknown'"
+
+testSourceRejectsWrongArityNamedImplTargets :: IO ()
+testSourceRejectsWrongArityNamedImplTargets =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "data Box a = Box a.\nclass Eq(a) { }.\nimpl Eq(Box(Int, Bool)) { }.\nx = 1."
+    "type 'Box' expects 1 argument(s), found 2"
 
 testSourceInstantiatesUnconstrainedNumericBindingVariablesPerUse :: IO ()
 testSourceInstantiatesUnconstrainedNumericBindingVariablesPerUse =

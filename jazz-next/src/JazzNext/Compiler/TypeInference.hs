@@ -7,6 +7,7 @@ module JazzNext.Compiler.TypeInference
   ( InferenceInputs (..),
     InferenceResult (..),
     inferExpressionWithBuiltinsAndHiddenStatements,
+    inferExpressionWithBuiltinsAndSourceUnitStatements,
     inferExpressionWithBuiltins,
     inferExpressionWithInputs,
     inferExpressionWithInputsAndHiddenStatements,
@@ -168,23 +169,43 @@ inferExpressionWithBuiltinsAndHiddenStatements ::
   Expr ->
   IO InferenceResult
 inferExpressionWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices settings =
-  inferExpressionWithInputsAndHiddenStatements
+  inferExpressionWithBuiltinsAndSourceUnitStatements
+    builtinMode
+    hiddenStatementIndices
+    hiddenStatementIndices
+    settings
+
+inferExpressionWithBuiltinsAndSourceUnitStatements ::
+  BuiltinResolutionMode ->
+  Set Int ->
+  Set Int ->
+  WarningSettings ->
+  Expr ->
+  IO InferenceResult
+inferExpressionWithBuiltinsAndSourceUnitStatements builtinMode hiddenStatementIndices preludeStatementIndices settings =
+  inferExpressionWithInputsAndSourceUnitStatements
     (emptyInferenceInputs builtinMode settings)
     hiddenStatementIndices
+    preludeStatementIndices
 
 inferExpressionWithInputs :: InferenceInputs -> Expr -> IO InferenceResult
 inferExpressionWithInputs inputs =
   inferExpressionWithInputsAndHiddenStatements inputs Set.empty
 
 inferExpressionWithInputsAndHiddenStatements :: InferenceInputs -> Set Int -> Expr -> IO InferenceResult
-inferExpressionWithInputsAndHiddenStatements inputs hiddenStatementIndices expr = do
+inferExpressionWithInputsAndHiddenStatements inputs hiddenStatementIndices expr =
+  inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices hiddenStatementIndices expr
+
+inferExpressionWithInputsAndSourceUnitStatements :: InferenceInputs -> Set Int -> Set Int -> Expr -> IO InferenceResult
+inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices preludeStatementIndices expr = do
   AnalysisResult _ warnings errors <-
     analyzeProgramWithInputs
       (analysisInputsForInference inputs)
       hiddenStatementIndices
       expr
   let (_, finalState) =
-        inferExprType
+        inferExprTypeWithSourceUnitStatements
+          preludeStatementIndices
           (inferenceBuiltinMode inputs)
           (inferenceImportedTypes inputs)
           (initialStateForInference inputs)
@@ -240,7 +261,8 @@ initialStateForInference inputs =
             },
         inferModule =
           (inferModule initialInferState)
-            { inferenceModulePath = inferenceCurrentModulePath inputs
+            { inferenceModulePath = inferenceCurrentModulePath inputs,
+              inferenceRuntimeHintPath = inferenceCurrentModulePath inputs
             }
       }
 
@@ -322,6 +344,16 @@ inferExprType ::
   Expr ->
   (Maybe ExpressionType, InferState)
 inferExprType builtinMode env state expr =
+  inferExprTypeWithSourceUnitStatements Set.empty builtinMode env state expr
+
+inferExprTypeWithSourceUnitStatements ::
+  Set Int ->
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  Expr ->
+  (Maybe ExpressionType, InferState)
+inferExprTypeWithSourceUnitStatements preludeStatementIndices builtinMode env state expr =
   case expr of
     ELit literal -> (Just (literalExpressionType literal), checkLiteralType state literal)
     EVar name ->
@@ -456,7 +488,7 @@ inferExprType builtinMode env state expr =
             env
             state
             (declaredOperatorRightSectionExpr operatorSymbol rightExpr)
-    EBlock statements -> inferScopeType inferExprType builtinMode env state statements
+    EBlock statements -> inferScopeType preludeStatementIndices inferExprType builtinMode env state statements
   where
     inferBuiltinBinaryOperatorType operatorSymbol leftExpr rightExpr =
       let (binaryResult, _, _) =

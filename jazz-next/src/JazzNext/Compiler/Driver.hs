@@ -64,7 +64,7 @@ import JazzNext.Compiler.Prelude
     resolvedExplicitPrelude
   )
 import JazzNext.Compiler.Runtime
-  ( evaluateRuntimeExprWithBuiltinsAndBindingHints,
+  ( evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements,
     renderRuntimeValue
   )
 import JazzNext.Compiler.RuntimeHints
@@ -76,7 +76,7 @@ import JazzNext.Compiler.SourceProgram
   )
 import JazzNext.Compiler.TypeInference
   ( InferenceResult (..),
-    inferExpressionWithBuiltinsAndHiddenStatements
+    inferExpressionWithBuiltinsAndSourceUnitStatements
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -115,8 +115,18 @@ compileExprWithBuiltinsAndHiddenStatements ::
   WarningSettings ->
   Expr ->
   IO CompileResult
-compileExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr = do
-  (warnings, errors, _, _) <- analyzeWithWarnings hiddenStatementIndices builtinMode settings expr
+compileExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr =
+  compileExprWithBuiltinsAndSourceUnitStatements hiddenStatementIndices hiddenStatementIndices builtinMode settings expr
+
+compileExprWithBuiltinsAndSourceUnitStatements ::
+  Set Int ->
+  Set Int ->
+  BuiltinResolutionMode ->
+  WarningSettings ->
+  Expr ->
+  IO CompileResult
+compileExprWithBuiltinsAndSourceUnitStatements hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
+  (warnings, errors, _, _) <- analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode settings expr
   pure
     CompileResult
       { compileWarnings = warnings,
@@ -142,8 +152,9 @@ compileSourceWithResolvedPrelude settings resolvedPrelude source =
             compileErrors = [parseErrorCode]
           }
     Right loweredProgram ->
-      compileExprWithBuiltinsAndHiddenStatements
+      compileExprWithBuiltinsAndSourceUnitStatements
         (parsedHiddenStatementIndices loweredProgram)
+        (parsedPreludeStatementIndices loweredProgram)
         (parsedBuiltinMode loweredProgram)
         settings
         (parsedExpr loweredProgram)
@@ -216,9 +227,19 @@ runExprWithBuiltinsAndHiddenStatements ::
   WarningSettings ->
   Expr ->
   IO RunResult
-runExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr = do
+runExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr =
+  runExprWithBuiltinsAndSourceUnitStatements hiddenStatementIndices hiddenStatementIndices builtinMode settings expr
+
+runExprWithBuiltinsAndSourceUnitStatements ::
+  Set Int ->
+  Set Int ->
+  BuiltinResolutionMode ->
+  WarningSettings ->
+  Expr ->
+  IO RunResult
+runExprWithBuiltinsAndSourceUnitStatements hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
   (warnings, compileErrors, canonicalExpr, runtimeTypeHints) <-
-    analyzeWithWarnings hiddenStatementIndices builtinMode settings expr
+    analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode settings expr
   if not (null compileErrors)
     then
       pure
@@ -229,7 +250,7 @@ runExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settin
             runOutput = Nothing
           }
     else
-      case evaluateRuntimeExprWithBuiltinsAndBindingHints builtinMode runtimeTypeHints canonicalExpr of
+      case evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements preludeStatementIndices builtinMode runtimeTypeHints canonicalExpr of
         Left runtimeError ->
           pure
             RunResult
@@ -268,8 +289,9 @@ runSourceWithResolvedPrelude settings resolvedPrelude source =
             runOutput = Nothing
           }
     Right loweredProgram ->
-      runExprWithBuiltinsAndHiddenStatements
+      runExprWithBuiltinsAndSourceUnitStatements
         (parsedHiddenStatementIndices loweredProgram)
+        (parsedPreludeStatementIndices loweredProgram)
         (parsedBuiltinMode loweredProgram)
         settings
         (parsedExpr loweredProgram)
@@ -383,12 +405,13 @@ buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath s
 -- | Run inference/canonicalization, collect warnings from `inferredWarnings`,
 -- promote configured warnings into errors, and return the canonicalized
 -- `inferredExpr` for downstream compile/run steps.
-analyzeWithWarnings :: Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr, Map BindingRuntimeHintKey SignatureType)
-analyzeWithWarnings hiddenStatementIndices builtinMode settings expr = do
+analyzeWithWarnings :: Set Int -> Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([WarningRecord], [Diagnostic], Expr, Map BindingRuntimeHintKey SignatureType)
+analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
   inference <-
-    inferExpressionWithBuiltinsAndHiddenStatements
+    inferExpressionWithBuiltinsAndSourceUnitStatements
       builtinMode
       hiddenStatementIndices
+      preludeStatementIndices
       settings
       expr
   let warnings = filterWarningsForPromotion settings (inferredWarnings inference)
@@ -422,15 +445,18 @@ mergePreparedPrelude preparedPrelude loweredSource =
       ParsedProgram
         { parsedExpr = loweredSource,
           parsedHiddenStatementIndices = Set.empty,
+          parsedPreludeStatementIndices = Set.empty,
           parsedBuiltinMode = preparedPreludeBuiltinMode preparedPrelude
         }
     Just loweredPrelude ->
       let preludeStatements = scopeStatements loweredPrelude
           combinedExpr =
             EBlock (preludeStatements ++ scopeStatements loweredSource)
+          preludeStatementIndices = Set.fromList [0 .. length preludeStatements - 1]
        in ParsedProgram
             { parsedExpr = combinedExpr,
               parsedHiddenStatementIndices = preparedPreludeHiddenStatementIndices preparedPrelude,
+              parsedPreludeStatementIndices = preludeStatementIndices,
               parsedBuiltinMode = preparedPreludeBuiltinMode preparedPrelude
             }
 
@@ -439,5 +465,6 @@ mergePreparedPrelude preparedPrelude loweredSource =
 data ParsedProgram = ParsedProgram
   { parsedExpr :: Expr,
     parsedHiddenStatementIndices :: Set Int,
+    parsedPreludeStatementIndices :: Set Int,
     parsedBuiltinMode :: BuiltinResolutionMode
   }

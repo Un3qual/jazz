@@ -12,6 +12,7 @@ module JazzNext.Compiler.TypeInference.State
     inferConcreteImplMethods,
     inferCurrentModuleLocalCapabilityFacts,
     inferCurrentModulePath,
+    inferRuntimeHintPath,
     inferDataTypes,
     inferDeferredExplicitConstraints,
     inferErrorCount,
@@ -68,6 +69,8 @@ data DeclarationState = DeclarationState
 
 data ModuleInferenceState = ModuleInferenceState
   { inferenceModulePath :: Maybe [Text],
+    -- Standalone prelude statements use the same synthetic path as compiled preludes.
+    inferenceRuntimeHintPath :: Maybe [Text],
     inferenceLocalCapabilities :: ScopeCapabilityFacts,
     inferenceModuleCapabilities :: Map [Text] ScopeCapabilityFacts,
     inferenceVisibleTypes :: TypeEnv
@@ -123,6 +126,7 @@ initialInferState =
       inferModule =
         ModuleInferenceState
           { inferenceModulePath = Nothing,
+            inferenceRuntimeHintPath = Nothing,
             inferenceLocalCapabilities = emptyScopeCapabilityFacts,
             inferenceModuleCapabilities = Map.empty,
             inferenceVisibleTypes = Map.empty
@@ -169,6 +173,9 @@ inferConcreteImplMethods = declarationConcreteImplMethods . inferDeclarations
 
 inferCurrentModulePath :: InferState -> Maybe [Text]
 inferCurrentModulePath = inferenceModulePath . inferModule
+
+inferRuntimeHintPath :: InferState -> Maybe [Text]
+inferRuntimeHintPath = inferenceRuntimeHintPath . inferModule
 
 inferCurrentModuleLocalCapabilityFacts :: InferState -> ScopeCapabilityFacts
 inferCurrentModuleLocalCapabilityFacts = inferenceLocalCapabilities . inferModule

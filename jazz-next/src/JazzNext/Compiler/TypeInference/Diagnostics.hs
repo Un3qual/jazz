@@ -24,6 +24,7 @@ module JazzNext.Compiler.TypeInference.Diagnostics
     mkIfConditionTypeError,
     mkImplMethodMissingClassMethodError,
     mkImplMethodTypeMismatchError,
+    mkInvalidImplTargetError,
     mkInvalidSignatureTypeError,
     mkInvalidQualifiedMethodSignatureError,
     mkListElementTypeMismatchError,
@@ -500,6 +501,16 @@ mkInvalidExplicitTypeApplicationArgumentError state spanValue signatureType =
           Just reason -> reason
           Nothing -> "invalid or unsupported explicit type application argument '" <> renderSignatureType signatureType <> "'"
       )
+
+mkInvalidImplTargetError :: InferState -> SourceSpan -> SignatureType -> Maybe Diagnostic
+mkInvalidImplTargetError state implSpan signatureType =
+  case signatureTypeFailureSummary state signatureType of
+    Just failureSummary ->
+      Just
+        ( setDiagnosticPrimarySpan implSpan
+            (mkDiagnostic "E2009" ("invalid impl target: " <> failureSummary))
+        )
+    Nothing -> Nothing
 
 signaturePayloadNamedTypeFailure :: InferState -> SignaturePayload -> Maybe Text
 signaturePayloadNamedTypeFailure state payload =

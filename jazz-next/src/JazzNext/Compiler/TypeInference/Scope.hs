@@ -78,6 +78,7 @@ import JazzNext.Compiler.TypeInference.State
     inferInferredClassConstraints,
     inferNumericVars,
     inferRuntimeTypeHints,
+    inferRuntimeHintPath,
     inferStrictEqualityVars
   )
 import JazzNext.Compiler.TypeInference.Types
@@ -125,6 +126,38 @@ modifyInferenceOutput :: (InferenceOutput -> InferenceOutput) -> InferState -> I
 modifyInferenceOutput update state =
   state {inferOutput = update (inferOutput state)}
 
+modifyModuleInferenceState :: (ModuleInferenceState -> ModuleInferenceState) -> InferState -> InferState
+modifyModuleInferenceState update state =
+  state {inferModule = update (inferModule state)}
+
+setStatementRuntimeHintPath :: Set Int -> Int -> InferState -> InferState
+setStatementRuntimeHintPath preludeStatementIndices statementIndex state =
+  modifyModuleInferenceState
+    ( \moduleState ->
+        moduleState
+          { inferenceRuntimeHintPath =
+              if Set.member statementIndex preludeStatementIndices
+                then Just []
+                else
+                  if Set.null preludeStatementIndices
+                    then inferenceRuntimeHintPath moduleState
+                    else inferenceModulePath moduleState
+          }
+    )
+    state
+
+firstInvalidImplTarget :: InferState -> SourceSpan -> [SignatureType] -> Maybe Diagnostic
+firstInvalidImplTarget state implSpan =
+  go
+  where
+    go signatureTypes =
+      case signatureTypes of
+        [] -> Nothing
+        signatureType : rest ->
+          case mkInvalidImplTargetError state implSpan signatureType of
+            Just diagnostic -> Just diagnostic
+            Nothing -> go rest
+
 publishVisibleTypes :: TypeEnv -> InferState -> InferState
 publishVisibleTypes env state =
   state
@@ -132,8 +165,8 @@ publishVisibleTypes env state =
         (inferModule state) {inferenceVisibleTypes = env}
     }
 
-inferScopeType :: InferExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
-inferScopeType inferExpression builtinMode initialEnv initialState statements =
+inferScopeType :: Set Int -> InferExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
+inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv initialState statements =
   let (scopeType, finalState) =
         go initialEnv Nothing Nothing Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
       stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
@@ -161,7 +194,8 @@ inferScopeType inferExpression builtinMode initialEnv initialState statements =
       case remainingStatements of
         [] -> (lastExprType, publishVisibleTypes env state)
         (statementIndex, statement) : rest ->
-          case statement of
+          let stateForSource = setStatementRuntimeHintPath preludeStatementIndices statementIndex state
+           in case statement of
             SModule _ modulePath ->
               go env lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
             SImport _ modulePath maybeAlias maybeSymbolNames ->
@@ -171,10 +205,14 @@ inferScopeType inferExpression builtinMode initialEnv initialState statements =
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                in go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
-            SImpl _ capabilityName arguments methods ->
-              let seededState = seedStatementCapabilityFact state statement
+            SImpl implSpan capabilityName arguments methods ->
+              let maybeInvalidTarget = firstInvalidImplTarget stateForSource implSpan arguments
                   nextState =
-                    checkImplMethodBodies inferExpression builtinMode env seededState capabilityName arguments methods
+                    case maybeInvalidTarget of
+                      Just diagnostic -> addTypeError stateForSource diagnostic
+                      Nothing ->
+                        let seededState = seedStatementCapabilityFact stateForSource statement
+                         in checkImplMethodBodies inferExpression builtinMode env seededState capabilityName arguments methods
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                in go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
@@ -207,7 +245,7 @@ inferScopeType inferExpression builtinMode initialEnv initialState statements =
             SLet name bindingSpan valueExpr ->
               let nameText = identifierText name
                   (envForStatement, stateForStatement) =
-                    exposeVisibleRecursiveGroupSchemes statementIndex env state
+                    exposeVisibleRecursiveGroupSchemes statementIndex env stateForSource
                   recursiveGroupStartStatesForStatement =
                     rememberRecursiveGroupStart statementIndex stateForStatement recursiveGroupStartStates
                   matchingPendingSignature =
@@ -351,7 +389,7 @@ inferScopeType inferExpression builtinMode initialEnv initialState statements =
                                 output
                                   { outputRuntimeHints =
                                       Map.insert
-                                        (bindingRuntimeHintKeyInModule (inferCurrentModulePath stateAfterDroppedInferredMethodCheck) name bindingSpan)
+                                        (bindingRuntimeHintKeyInModule (inferRuntimeHintPath stateAfterDroppedInferredMethodCheck) name bindingSpan)
                                         runtimeHint
                                         (inferRuntimeTypeHints stateAfterDroppedInferredMethodCheck)
                                   }
@@ -382,7 +420,7 @@ inferScopeType inferExpression builtinMode initialEnv initialState statements =
                in go nextEnv lastExprType Nothing nextPendingSignaturesByStatement recursiveGroupStartStatesForStatement moduleBaselineFacts stateAfterRecursiveGroupPrune rest
             SExpr exprSpan expr ->
               let (envForStatement, stateForStatement) =
-                    exposeVisibleRecursiveGroupSchemes statementIndex env state
+                    exposeVisibleRecursiveGroupSchemes statementIndex env stateForSource
                   (exprType, rawStateAfterExpr) = inferExpression builtinMode envForStatement stateForStatement expr
                   stateAfterExpr =
                     annotateNewErrorsWithPrimarySpan exprSpan stateForStatement rawStateAfterExpr
@@ -1331,7 +1369,7 @@ recordExplicitTypeApplicationRuntimeHint typeArgumentSpan maybeExpressionType st
             output
               { outputRuntimeHints =
                   Map.insert
-                    (explicitTypeApplicationRuntimeHintKeyInModule (inferCurrentModulePath state) typeArgumentSpan)
+                    (explicitTypeApplicationRuntimeHintKeyInModule (inferRuntimeHintPath state) typeArgumentSpan)
                     runtimeHint
                     (inferRuntimeTypeHints state)
               }

@@ -11,6 +11,7 @@ module JazzNext.Compiler.Runtime
     ScopeResult (..),
     evaluateModuleScope,
     evaluateRuntimeExprWithBuiltinsAndBindingHints,
+    evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements,
     evaluateRuntimeExprWithBuiltins,
     evaluateRuntimeExpr,
     runtimeValueExactlyMatchesConstraint,
@@ -227,8 +228,26 @@ evaluateRuntimeExprWithBuiltinsAndBindingHints ::
   Expr ->
   Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExprWithBuiltinsAndBindingHints builtinMode bindingTypeHints expr =
+  evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements Set.empty builtinMode bindingTypeHints expr
+
+evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements ::
+  Set Int ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  Expr ->
+  Either Diagnostic (Maybe RuntimeValue)
+evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements preludeStatementIndices builtinMode bindingTypeHints expr =
   case expr of
-    EBlock statements -> evalScope builtinMode bindingTypeHints Map.empty statements
+    EBlock statements ->
+      scopeResultValue
+        <$> evaluateModuleScopeWithSourceUnitStatements
+          preludeStatementIndices
+          Nothing
+          EvaluateEntryModule
+          builtinMode
+          bindingTypeHints
+          Map.empty
+          statements
     _ -> Just <$> evalValue builtinMode bindingTypeHints Map.empty expr
 
 renderRuntimeValue :: RuntimeValue -> Text
@@ -381,7 +400,18 @@ evaluateModuleScope ::
   RuntimeEnv ->
   [Statement] ->
   Either Diagnostic ScopeResult
-evaluateModuleScope currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements = go initialEnv Nothing indexedStatements
+evaluateModuleScope = evaluateModuleScopeWithSourceUnitStatements Set.empty
+
+evaluateModuleScopeWithSourceUnitStatements ::
+  Set Int ->
+  Maybe [Text] ->
+  ModuleEvaluationMode ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  [Statement] ->
+  Either Diagnostic ScopeResult
+evaluateModuleScopeWithSourceUnitStatements preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements = go initialEnv Nothing indexedStatements
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = Map.fromList indexedStatements
@@ -431,7 +461,9 @@ evaluateModuleScope currentModulePath evaluationMode builtinMode bindingTypeHint
 
     modulePathForStatement :: Int -> Maybe [Text]
     modulePathForStatement statementIndex =
-      Map.findWithDefault currentModulePath statementIndex modulePathsByStatement
+      if Set.member statementIndex preludeStatementIndices
+        then Just []
+        else Map.findWithDefault currentModulePath statementIndex modulePathsByStatement
 
     evalValueAt :: Int -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
     evalValueAt statementIndex =
