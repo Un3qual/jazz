@@ -18,6 +18,7 @@ module JazzNext.Compiler.Runtime
   ) where
 
 import Control.Monad (foldM, zipWithM)
+import Data.Char (isControl, ord, toUpper)
 import Data.List (foldl')
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import qualified Data.Map.Strict as Map
@@ -103,6 +104,7 @@ import JazzNext.Compiler.RuntimeHints
   ( BindingRuntimeHintKey,
     bindingRuntimeHintKeyInModule
   )
+import Numeric (showHex)
 
 -- | Runtime values produced by the interpreter, including partially applied
 -- builtins/operators.
@@ -129,6 +131,8 @@ data RuntimeValue
   = VInt Integer RuntimeIntMetadata
   | VFloat Double RuntimeFloatMetadata
   | VBool Bool
+  | VChar Char
+  | VText Text
   | VList [RuntimeValue] (Maybe ConstraintSignatureType)
   | VTuple [RuntimeValue]
   | VClosure RuntimeEnv Name Expr (Maybe ConstraintSignatureType) (Maybe [Text])
@@ -154,6 +158,8 @@ instance Eq RuntimeValue where
       (VInt leftInt _, VInt rightInt _) -> leftInt == rightInt
       (VFloat leftFloat _, VFloat rightFloat _) -> leftFloat == rightFloat
       (VBool leftBool, VBool rightBool) -> leftBool == rightBool
+      (VChar leftChar, VChar rightChar) -> leftChar == rightChar
+      (VText leftText, VText rightText) -> leftText == rightText
       (VList leftElements _, VList rightElements _) -> leftElements == rightElements
       (VTuple leftElements, VTuple rightElements) -> leftElements == rightElements
       ( VConstructor leftTypeName leftTypeParameters leftName leftConstructorArguments leftArgs,
@@ -178,6 +184,8 @@ instance Show RuntimeValue where
       VInt intValue _ -> "VInt " <> show intValue
       VFloat floatValue _ -> "VFloat " <> show floatValue
       VBool boolValue -> "VBool " <> show boolValue
+      VChar charValue -> "VChar " <> show charValue
+      VText textValue -> "VText " <> show textValue
       VList elements maybeTypeHint -> "VList " <> show elements <> " " <> show maybeTypeHint
       VTuple elements -> "VTuple " <> show elements
       VClosure _ parameterName bodyExpr maybeTypeHint modulePath ->
@@ -233,6 +241,10 @@ renderRuntimeValue value =
       if boolValue
         then "True"
         else "False"
+    VChar charValue ->
+      "'" <> renderQuotedScalar charValue <> "'"
+    VText textValue ->
+      "\"" <> Text.concatMap renderQuotedScalar textValue <> "\""
     VList elements _ ->
       "[" <> Text.intercalate ", " (map renderRuntimeValue elements) <> "]"
     VTuple elements ->
@@ -251,6 +263,21 @@ renderRuntimeValue value =
     VTyped _ innerValue -> renderRuntimeValue innerValue
     VExplicitTypeApplication _ innerValue -> renderRuntimeValue innerValue
     VExplicitResultHint _ innerValue -> renderRuntimeValue innerValue
+
+renderQuotedScalar :: Char -> Text
+renderQuotedScalar value =
+  case value of
+    '\\' -> "\\\\"
+    '\'' -> "\\'"
+    '"' -> "\\\""
+    '\n' -> "\\n"
+    '\r' -> "\\r"
+    '\t' -> "\\t"
+    '\0' -> "\\0"
+    _
+      | isControl value ->
+          "\\u{" <> Text.pack (map toUpper (showHex (ord value) "")) <> "}"
+    _ -> Text.singleton value
 
 renderConstructorValue :: Name -> [RuntimeValue] -> Text
 renderConstructorValue constructorName arguments =
@@ -1334,6 +1361,8 @@ literalRuntimeValue literal =
         Nothing ->
           VFloat value (untypedFloatMetadata (Just literalSource))
     LBool value -> VBool value
+    LChar value -> VChar value
+    LText value -> VText value
 
 attachRuntimeTypeHint :: Maybe ConstraintSignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
 attachRuntimeTypeHint maybeTypeHint runtimeValue =
@@ -1360,6 +1389,12 @@ applyRuntimeTypeHint typeHint runtimeValue =
               if identifierText typeName == "Int" || identifierText typeName == "Float"
                 then Right (VTyped typeHint convertedValue)
                 else Right convertedValue
+        (ConstraintTypeName typeName, VChar {})
+          | identifierText typeName == "Char" ->
+              Right runtimeValue
+        (ConstraintTypeName typeName, VText {})
+          | identifierText typeName == "Text" ->
+              Right runtimeValue
         (ConstraintTypeName hintedTypeName, VConstructor typeName typeParameters constructorName constructorArguments capturedArgs)
           | identifierText hintedTypeName == identifierText typeName,
             constructorIsSaturated constructorArguments capturedArgs -> do
@@ -1719,6 +1754,10 @@ runtimeValueCanAcceptTypeHint typeHint runtimeValue =
           identifierText typeName == "Float" || isJust (constraintTypeNameNumericTarget typeName)
         (ConstraintTypeName typeName, VBool {}) ->
           identifierText typeName == "Bool"
+        (ConstraintTypeName typeName, VChar {}) ->
+          identifierText typeName == "Char"
+        (ConstraintTypeName typeName, VText {}) ->
+          identifierText typeName == "Text"
         (ConstraintTypeName typeName, VConstructor constructorTypeName _ _ constructorArguments capturedArgs) ->
           identifierText typeName == identifierText constructorTypeName
             && constructorIsSaturated constructorArguments capturedArgs
@@ -1919,6 +1958,14 @@ runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
         ConstraintTypeName typeName ->
           runtimeFloatExactlyMatchesTypeName (identifierText typeName) metadata
         _ -> False
+    VChar {} ->
+      case signatureType of
+        ConstraintTypeName typeName -> identifierText typeName == "Char"
+        _ -> False
+    VText {} ->
+      case signatureType of
+        ConstraintTypeName typeName -> identifierText typeName == "Text"
+        _ -> False
     VList _ (Just typeHint) ->
       typeHint == signatureType
     VList elements Nothing ->
@@ -2027,6 +2074,8 @@ runtimeValueMatchesTypeName typeName runtimeValue =
     "Float32" -> runtimeFloatHasTarget NumericFloat32 runtimeValue
     "Float64" -> runtimeFloatHasTarget NumericFloat64 runtimeValue
     "Bool" -> isRuntimeBool runtimeValue
+    "Char" -> isRuntimeChar runtimeValue
+    "Text" -> isRuntimeText runtimeValue
     _ -> runtimeValueMatchesDataTypeName typeName runtimeValue
 
 runtimeValueMatchesDataTypeName :: Text -> RuntimeValue -> Bool
@@ -2149,6 +2198,18 @@ isRuntimeBool :: RuntimeValue -> Bool
 isRuntimeBool runtimeValue =
   case runtimeValue of
     VBool {} -> True
+    _ -> False
+
+isRuntimeChar :: RuntimeValue -> Bool
+isRuntimeChar runtimeValue =
+  case runtimeValue of
+    VChar {} -> True
+    _ -> False
+
+isRuntimeText :: RuntimeValue -> Bool
+isRuntimeText runtimeValue =
+  case runtimeValue of
+    VText {} -> True
     _ -> False
 
 applyOperator :: BuiltinResolutionMode -> Map BindingRuntimeHintKey ConstraintSignatureType -> Text -> [RuntimeValue] -> Either Diagnostic RuntimeValue
@@ -2725,6 +2786,8 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
       | runtimeIntFloat64ComparisonPromotionAccepted rightMetadata leftMetadata ->
           evalFloat64IntegerEquality "==" leftFloat rightInt
     ("==", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool == rightBool))
+    ("==", VChar leftChar, VChar rightChar) -> Right (VBool (leftChar == rightChar))
+    ("==", VText leftText, VText rightText) -> Right (VBool (leftText == rightText))
     ("==", VList {}, VList {}) -> evalStructuralEquality "==" leftValue rightValue
     ("==", VTuple {}, VTuple {}) -> evalStructuralEquality "==" leftValue rightValue
     ("==", VConstructor {}, VConstructor {}) -> evalStructuralEquality "==" leftValue rightValue
@@ -2739,6 +2802,8 @@ evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue
       | runtimeIntFloat64ComparisonPromotionAccepted rightMetadata leftMetadata ->
           evalFloat64IntegerEquality "!=" leftFloat rightInt
     ("!=", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool /= rightBool))
+    ("!=", VChar leftChar, VChar rightChar) -> Right (VBool (leftChar /= rightChar))
+    ("!=", VText leftText, VText rightText) -> Right (VBool (leftText /= rightText))
     ("!=", VList {}, VList {}) -> evalStructuralEquality "!=" leftValue rightValue
     ("!=", VTuple {}, VTuple {}) -> evalStructuralEquality "!=" leftValue rightValue
     ("!=", VConstructor {}, VConstructor {}) -> evalStructuralEquality "!=" leftValue rightValue
@@ -3100,6 +3165,8 @@ runtimeStructuralEquality leftValue rightValue =
     (VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
       runtimeFloatStructuralEquality leftFloat leftMetadata rightFloat rightMetadata
     (VBool leftBool, VBool rightBool) -> Just (leftBool == rightBool)
+    (VChar leftChar, VChar rightChar) -> Just (leftChar == rightChar)
+    (VText leftText, VText rightText) -> Just (leftText == rightText)
     (VList leftElements _, VList rightElements _) ->
       structuralElementEquality leftElements rightElements
     (VTuple leftElements, VTuple rightElements) ->
@@ -3240,6 +3307,8 @@ renderRuntimeType value =
         Nothing -> "Int"
     VFloat {} -> "Float"
     VBool {} -> "Bool"
+    VChar {} -> "Char"
+    VText {} -> "Text"
     VList {} -> "List"
     VTuple {} -> "Tuple"
     VSectionLeft {} -> "Function"
