@@ -710,7 +710,11 @@ testBootstrapModulesStayOutsideBundledPrelude =
         ("Nothing", "Nothing.", "E1001"),
         ("Just", "Just 1.", "E1001"),
         ("Err", "Err \"failure\".", "E1001"),
-        ("Ok", "Ok 1.", "E1001")
+        ("Ok", "Ok 1.", "E1001"),
+        ("textEmpty", "textEmpty.", "E1001"),
+        ("textLength", "textLength \"Jazz\".", "E1001"),
+        ("textIsEmpty", "textIsEmpty \"\".", "E1001"),
+        ("textUncons", "textUncons \"Jazz\".", "E1001")
       ]
 
 assertBundledPreludeNameUnavailable :: (Text, Text, Text) -> IO ()

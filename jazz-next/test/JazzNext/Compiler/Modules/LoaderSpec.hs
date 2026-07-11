@@ -29,6 +29,9 @@ tests :: [NamedTest]
 tests =
   [ ( "checked-in Maybe and Result modules transport generic ADTs through the loader",
       testBootstrapMaybeAndResultModules
+    ),
+    ( "checked-in Text module traverses Unicode through Maybe",
+      testBootstrapTextModule
     )
   ]
     ++ basicTests
@@ -65,6 +68,36 @@ testBootstrapMaybeAndResultModules = do
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
     lookupSource "src/Maybe.jz" = readStdlibSource "Maybe.jz"
     lookupSource "src/Result.jz" = readStdlibSource "Result.jz"
+    lookupSource _ = pure Nothing
+
+testBootstrapTextModule :: IO ()
+testBootstrapTextModule = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "(True, 3, True, '🙂', 'x', True)") (runOutput result)
+  where
+    entrySource =
+      "module App::Main {\n"
+        <> "import Text.\n"
+        <> "import Maybe.\n"
+        <> "case textUncons \"🙂x\" {\n"
+        <> "| Nothing -> (textIsEmpty textEmpty, textLength \"a🙂é\", textUncons \"\" == Nothing, '?', '?', False)\n"
+        <> "| Just (first, rest) -> case textUncons rest {\n"
+        <> "| Nothing -> (textIsEmpty textEmpty, textLength \"a🙂é\", textUncons \"\" == Nothing, first, '?', False)\n"
+        <> "| Just (second, tail) -> (textIsEmpty textEmpty, textLength \"a🙂é\", textUncons \"\" == Nothing, first, second, textIsEmpty tail)\n"
+        <> "}\n"
+        <> "}.\n"
+        <> "}"
+    lookupSource "src/App/Main.jz" = pure (Just entrySource)
+    lookupSource "src/Maybe.jz" = readStdlibSource "Maybe.jz"
+    lookupSource "src/Text.jz" = readStdlibSource "Text.jz"
     lookupSource _ = pure Nothing
 
 readStdlibSource :: FilePath -> IO (Maybe Text)
