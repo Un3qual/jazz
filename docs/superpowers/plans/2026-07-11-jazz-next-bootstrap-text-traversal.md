@@ -86,7 +86,7 @@ deliverable: "Add an ordinary Jazz-authored Text module with scalar-counting len
 - Consumes: existing `BuiltinOwnership`, kernel-name resolution, and generated bundled-prelude ordering.
 - Produces: `BuiltinTextLength`, `BuiltinTextUnconsRaw`, their kernel names, arity and ownership, kernel-only lookup behavior, and reproducible self-bridges.
 
-- [ ] **Step 1: Add failing catalog and prelude-ownership tests.**
+- [x] **Step 1: Add failing catalog and prelude-ownership tests.**
 
 Extend `expectedBuiltins` with:
 
@@ -108,7 +108,7 @@ __kernel_textUnconsRaw = __kernel_textUnconsRaw.
 and does not contain either `textLength = __kernel_textLength.` or
 `textUnconsRaw = __kernel_textUnconsRaw.`.
 
-- [ ] **Step 2: Run the focused suite and verify RED.**
+- [x] **Step 2: Run the focused suite and verify RED.**
 
 Run:
 
@@ -119,7 +119,7 @@ cd jazz-next && cabal test builtin-catalog-spec --test-show-details=failures
 Expected: compilation fails because the two `BuiltinSymbol` constructors do not
 exist.
 
-- [ ] **Step 3: Implement catalog symbols and ownership-aware public lookup.**
+- [x] **Step 3: Implement catalog symbols and ownership-aware public lookup.**
 
 Add the constructors after the numeric builtins, classify both as `KernelIntrinsic`,
 render the names `textLength` and `textUnconsRaw`, and assign arity `1`.
@@ -137,12 +137,12 @@ builtinSymbolOwnership symbol == PreludeTarget
 Add the two generated self-bridge lines to `stdlib/Prelude.jz` immediately after
 the existing numeric kernel bridges and before public aliases.
 
-- [ ] **Step 4: Run the focused suite and verify GREEN.**
+- [x] **Step 4: Run the focused suite and verify GREEN.**
 
 Run the command from Step 2. Expected: all BuiltinCatalog tests pass, including
 checked-in prelude reproducibility.
 
-- [ ] **Step 5: Commit the catalog boundary.**
+- [x] **Step 5: Commit the catalog boundary.**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs jazz-next/src/JazzNext/Compiler/BundledPrelude.hs jazz-next/stdlib/Prelude.jz jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
@@ -163,7 +163,7 @@ git commit -m "feat: add private text traversal intrinsics"
 - Consumes: `BuiltinTextLength` and `BuiltinTextUnconsRaw` from Task 1.
 - Produces: `Text -> Int` and `Text -> [(Char, Text)]` inference plus stage-0 scalar length and zero-or-one decomposition semantics.
 
-- [ ] **Step 1: Add failing inference tests.**
+- [x] **Step 1: Add failing inference tests.**
 
 Add source-pipeline cases that accept:
 
@@ -177,7 +177,7 @@ parts = __kernel_textUnconsRaw "a\u{1F642}".
 and reject `__kernel_textLength 1` and `__kernel_textUnconsRaw True` with
 the canonical application-mismatch diagnostic `E2006`.
 
-- [ ] **Step 2: Add failing runtime tests.**
+- [x] **Step 2: Add failing runtime tests.**
 
 Add a source runtime case expecting:
 
@@ -190,7 +190,7 @@ decomposition of `"🙂x"`. Add low-level `evaluateRuntimeExpr` cases that apply
 each kernel primitive to `1` and expect deterministic `E3028` and `E3029`
 diagnostics respectively.
 
-- [ ] **Step 3: Run focused suites and verify RED.**
+- [x] **Step 3: Run focused suites and verify RED.**
 
 ```bash
 cd jazz-next && cabal test primitive-semantics-spec runtime-semantics-spec --test-show-details=failures
@@ -199,7 +199,7 @@ cd jazz-next && cabal test primitive-semantics-spec runtime-semantics-spec --tes
 Expected: the new kernel symbols are catalogued but have no type-instantiation
 or runtime evaluation rules.
 
-- [ ] **Step 4: Implement exact inference types.**
+- [x] **Step 4: Implement exact inference types.**
 
 Extend `instantiateBuiltinSymbolTypeByName` with:
 
@@ -215,7 +215,7 @@ Extend `instantiateBuiltinSymbolTypeByName` with:
     )
 ```
 
-- [ ] **Step 5: Implement stage-0 runtime behavior.**
+- [x] **Step 5: Implement stage-0 runtime behavior.**
 
 Use `Text.length` and `Text.uncons`. Length returns
 `VInt (fromIntegral scalarCount) untypedIntMetadata`. Raw uncons returns:
@@ -228,11 +228,11 @@ for empty input, or a singleton `VTuple [VChar first, VText rest]` with the
 same list type hint for non-empty input. Non-`Text` values report `E3028` for
 length and `E3029` for raw uncons and include the actual runtime type.
 
-- [ ] **Step 6: Run focused suites and verify GREEN.**
+- [x] **Step 6: Run focused suites and verify GREEN.**
 
 Run the command from Step 3. Expected: both suites pass.
 
-- [ ] **Step 7: Commit primitive type/runtime behavior.**
+- [x] **Step 7: Commit primitive type/runtime behavior.**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/TypeInference.hs jazz-next/src/JazzNext/Compiler/Runtime.hs jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs jazz-next/test/JazzNext/Compiler/Semantics/Runtime/RenderingTests.hs
@@ -256,7 +256,7 @@ git commit -m "feat: execute Unicode text traversal primitives"
 - Consumes: kernel primitives from Tasks 1-2 and the ordinary `Maybe` module.
 - Produces: the exact four-value `Text` module API plus a repository guard for two-space stdlib module indentation.
 
-- [ ] **Step 1: Add the failing real-loader behavior test.**
+- [x] **Step 1: Add the failing real-loader behavior test.**
 
 Teach the loader lookup to serve `src/Text.jz` from checked-in
 `stdlib/Text.jz`. The entry module imports `Text` and `Maybe`, then verifies
@@ -267,13 +267,13 @@ decomposition, and a second `textUncons` over the remainder. Expected output:
 (True, 3, True, '🙂', 'x', True)
 ```
 
-- [ ] **Step 2: Add the failing prelude-isolation cases.**
+- [x] **Step 2: Add the failing prelude-isolation cases.**
 
 Extend the unavailable-name table with `textEmpty`, `textLength`,
 `textIsEmpty`, and `textUncons`, each expecting `E1001` under bundled-prelude
 standalone compilation.
 
-- [ ] **Step 3: Add and run the formatting guard to verify RED.**
+- [x] **Step 3: Add and run the formatting guard to verify RED.**
 
 Create `check-stdlib-format.sh` to inspect every module-form `.jz` file under
 `jazz-next/stdlib/` except `Prelude.jz`. It must require an unindented module
@@ -286,7 +286,7 @@ bash jazz-next/scripts/check-stdlib-format.sh
 
 Expected: failure on the unindented `Maybe.jz` and `Result.jz` bodies.
 
-- [ ] **Step 4: Run loader/prelude tests and verify RED.**
+- [x] **Step 4: Run loader/prelude tests and verify RED.**
 
 ```bash
 cd jazz-next && cabal test loader-spec prelude-loading-spec --test-show-details=failures
@@ -295,7 +295,7 @@ cd jazz-next && cabal test loader-spec prelude-loading-spec --test-show-details=
 Expected: loader failure because `Text.jz` is absent; prelude-isolation cases
 pass because the public names are not global.
 
-- [ ] **Step 5: Add the canonical Jazz module and fix indentation.**
+- [x] **Step 5: Add the canonical Jazz module and fix indentation.**
 
 Create exactly:
 
@@ -323,12 +323,12 @@ module Text (value textEmpty, value textLength, value textIsEmpty, value textUnc
 Indent the `data` declaration inside both `Maybe.jz` and `Result.jz` by two
 spaces. Invoke the format guard near the start of `test-warning-config.sh`.
 
-- [ ] **Step 6: Run format and focused tests and verify GREEN.**
+- [x] **Step 6: Run format and focused tests and verify GREEN.**
 
 Run both commands from Steps 3-4. Expected: the format guard and both suites
 pass.
 
-- [ ] **Step 7: Commit the public Jazz module.**
+- [x] **Step 7: Commit the public Jazz module.**
 
 ```bash
 git add jazz-next/stdlib/Maybe.jz jazz-next/stdlib/Result.jz jazz-next/stdlib/Text.jz jazz-next/scripts/check-stdlib-format.sh jazz-next/scripts/test-warning-config.sh jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
@@ -352,7 +352,7 @@ git commit -m "feat: add Jazz Text traversal module"
 - Consumes: verified compiler/runtime/module behavior from Tasks 1-3.
 - Produces: completed child evidence and an unpromoted host-text-I/O curation handoff.
 
-- [ ] **Step 1: Update normative and status documentation.**
+- [x] **Step 1: Update normative and status documentation.**
 
 Record the four public signatures, scalar-counting semantics, total
 decomposition, private raw adapter, explicit-import requirement, and future
@@ -360,7 +360,7 @@ native-runtime equivalence. Remove text length/traversal from staged follow-ups
 while leaving indexing, slicing, concatenation, builders, ordering, search,
 classification, bytes, I/O, and backend work pending.
 
-- [ ] **Step 2: Close the live queue child.**
+- [x] **Step 2: Close the live queue child.**
 
 Move `JN-BOOTSTRAP-TEXT-TRAVERSAL-001` to `done-archive.md`, mark this plan
 `status: done` with `completed_on: 2026-07-11`, and update the bootstrap blocker.
@@ -369,7 +369,7 @@ approved profile, requiring a later promotion pass to lock its Jazz module,
 `IOError` representation, kernel bridges, purity, runtime, and verification
 contract.
 
-- [ ] **Step 3: Run documentation/queue gates.**
+- [x] **Step 3: Run documentation/queue gates.**
 
 ```bash
 bash scripts/check-execution-queue.sh
@@ -379,7 +379,7 @@ git diff --check
 
 Expected: all commands exit `0`.
 
-- [ ] **Step 4: Commit closeout metadata.**
+- [x] **Step 4: Commit closeout metadata.**
 
 ```bash
 git add docs/spec/runtime/text-character-semantics.md docs/feature-status.md docs/jazz-language-state.md docs/execution/blocker-contracts.md docs/execution/queue.md docs/execution/done-archive.md docs/superpowers/plans/2026-07-11-jazz-next-bootstrap-text-traversal.md
@@ -392,20 +392,20 @@ git commit -m "docs: close bootstrap text traversal"
 
 - Verify all files changed by Tasks 1-4.
 
-- [ ] **Step 1: Run focused Cabal components.**
+- [x] **Step 1: Run focused Cabal components.**
 
 ```bash
 cd jazz-next && cabal test builtin-catalog-spec primitive-semantics-spec runtime-semantics-spec loader-spec prelude-loading-spec --test-show-details=failures
 ```
 
-- [ ] **Step 2: Run formatting and full warning matrix.**
+- [x] **Step 2: Run formatting and full warning matrix.**
 
 ```bash
 bash jazz-next/scripts/check-stdlib-format.sh
 bash jazz-next/scripts/test-warning-config.sh
 ```
 
-- [ ] **Step 3: Run repository gates.**
+- [x] **Step 3: Run repository gates.**
 
 ```bash
 bash scripts/check-execution-queue.sh
@@ -413,7 +413,7 @@ bash scripts/check-docs.sh
 git diff --check
 ```
 
-- [ ] **Step 4: Review branch scope.**
+- [x] **Step 4: Review branch scope.**
 
 Confirm `git diff origin/main...HEAD --name-only` contains no `jazz-hs/` or
 `jazz2/` paths, no bytecode/LLVM implementation, and only the approved
