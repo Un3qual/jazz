@@ -22,6 +22,7 @@ target_paths:
   - jazz-next/src/JazzNext/Compiler/Driver.hs
   - jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs
   - jazz-next/src/JazzNext/Compiler/Runtime.hs
+  - jazz-next/src/JazzNext/Compiler/RuntimeHost.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/stdlib/Prelude.jz
   - jazz-next/test/JazzNext/CLI/CLISpec.hs
@@ -30,6 +31,7 @@ target_paths:
   - jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/PuritySemanticsSpec.hs
+  - jazz-next/test/JazzNext/Compiler/Semantics/Runtime/HostIOTests.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
 verification:
   - cabal test builtin-catalog-spec primitive-semantics-spec purity-semantics-spec runtime-semantics-spec loader-spec prelude-loading-spec cli-spec --test-show-details=failures
@@ -132,18 +134,18 @@ and repository queue/docs gates.
 - Modify: `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`
 - Modify: `jazz-next/jazz-next.cabal`
 
-- [ ] Add failing tests that instantiate a deterministic host and prove
+- [x] Add failing tests that instantiate a deterministic host and prove
   existing pure evaluation remains unchanged.
-- [ ] Run `runtime-semantics-spec` and verify RED because host entry points are
+- [x] Run `runtime-semantics-spec` and verify RED because host entry points are
   absent.
-- [ ] Add `HostIOCategory`, `HostIOFailure`, `RuntimeHost m`, normalized
+- [x] Add `HostIOCategory`, `HostIOFailure`, `RuntimeHost m`, normalized
   category messages, and an effect-disabled host.
-- [ ] Convert the evaluator's expression, callable, scope, recursive-binding,
+- [x] Convert the evaluator's expression, callable, scope, recursive-binding,
   and builtin application path to a host-parameterized monadic error channel.
 - [ ] Retain every current `Either Diagnostic` entry point as a wrapper over
   the disabled `Identity` host.
-- [ ] Run runtime semantics and the warning matrix before adding effects.
-- [ ] Commit as `refactor: parameterize runtime evaluation by host`.
+- [x] Run runtime semantics and the warning matrix before adding effects.
+- [x] Commit as `refactor: parameterize runtime evaluation by host`.
 
 ### Task 3: Execute private host intrinsics at expression depth
 

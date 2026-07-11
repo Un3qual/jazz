@@ -14,11 +14,17 @@ module JazzNext.Compiler.Runtime
     evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements,
     evaluateRuntimeExprWithBuiltins,
     evaluateRuntimeExpr,
+    evaluateRuntimeExprWithHost,
     runtimeValueExactlyMatchesConstraint,
     renderRuntimeValue
   ) where
 
 import Control.Monad (foldM, zipWithM)
+import Control.Monad.Trans.Except
+  ( ExceptT (..),
+    runExceptT,
+    throwE
+  )
 import Data.Char (isControl, ord, toUpper)
 import Data.List (foldl')
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
@@ -104,6 +110,7 @@ import JazzNext.Compiler.RuntimeHints
     bindingRuntimeHintKeyInModule,
     explicitTypeApplicationRuntimeHintKeyInModule
   )
+import JazzNext.Compiler.RuntimeHost (RuntimeHost)
 import Numeric (showHex)
 
 -- | Runtime values produced by the interpreter, including partially applied
@@ -215,6 +222,10 @@ instance Show RuntimeMethodCandidate where
 
 evaluateRuntimeExpr :: Expr -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExpr = evaluateRuntimeExprWithBuiltins ResolveKernelOnly
+
+evaluateRuntimeExprWithHost :: Monad m => RuntimeHost m -> Expr -> m (Either Diagnostic (Maybe RuntimeValue))
+evaluateRuntimeExprWithHost host expr =
+  runExceptT (Just <$> evalValueWithHost host Nothing ResolveKernelOnly Map.empty Map.empty expr)
 
 -- | Evaluate an expression under the builtin resolution mode chosen by the
 -- caller, returning a terminal scope value when one exists.
@@ -3397,6 +3408,405 @@ runtimeFloatMetadataCompatible leftMetadata rightMetadata =
       True
     _ ->
       False
+
+liftRuntimeResult :: Monad m => Either Diagnostic value -> ExceptT Diagnostic m value
+liftRuntimeResult result =
+  case result of
+    Left diagnostic -> throwE diagnostic
+    Right value -> pure value
+
+evalValueWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  Maybe [Text] ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  Expr ->
+  ExceptT Diagnostic m RuntimeValue
+evalValueWithHost host currentModulePath builtinMode bindingTypeHints env expr =
+  case expr of
+    ELit literal -> pure (literalRuntimeValue literal)
+    EVar name ->
+      case Map.lookup name env of
+        Just value ->
+          liftRuntimeResult value
+            >>= forceQualifiedMethodValueWithHost host builtinMode bindingTypeHints
+        Nothing ->
+          case lookupBuiltinSymbolInMode builtinMode (identifierText name) of
+            Just builtinFunction -> pure (VBuiltin builtinFunction [])
+            Nothing ->
+              throwE
+                (runtimeDiagnostic "E3002" ("runtime unbound variable '" <> identifierText name <> "'"))
+    ELambda parameterName bodyExpr ->
+      pure (VClosure env parameterName bodyExpr Nothing currentModulePath)
+    EOperatorValue operatorSymbol
+      | isBuiltinOperatorSymbol operatorSymbol -> pure (VOperator operatorSymbol [])
+      | otherwise ->
+          lookupOperatorBindingRuntimeValueWithHost host builtinMode bindingTypeHints operatorSymbol env
+    EList elements ->
+      (`VList` Nothing) <$> traverse evaluateElement elements
+    ETuple elements ->
+      VTuple <$> traverse evaluateElement elements
+    EApply functionExpr argumentExpr -> do
+      functionValue <- evaluateElement functionExpr
+      argumentValue <- evaluateElement argumentExpr
+      applyRuntimeFunctionWithHost host builtinMode bindingTypeHints functionValue argumentValue
+    ETypeApplication functionExpr typeArgumentSpan signatureType -> do
+      let typeHint = runtimeConstraintType currentModulePath signatureType
+      runtimeValue <- evaluateElement functionExpr
+      case Map.lookup (explicitTypeApplicationRuntimeHintKeyInModule currentModulePath typeArgumentSpan) bindingTypeHints of
+        Just concreteTypeHint ->
+          liftRuntimeResult (applyRuntimeTypeHint (runtimeConstraintType currentModulePath concreteTypeHint) runtimeValue)
+        Nothing ->
+          if isFunctionValue runtimeValue
+            then pure (VExplicitTypeApplication typeHint runtimeValue)
+            else
+              liftRuntimeResult
+                (applyRuntimeTypeHint (fromMaybe typeHint (explicitTypeApplicationRuntimeValueHint typeHint runtimeValue)) runtimeValue)
+    EIf conditionExpr thenExpr elseExpr -> do
+      conditionValue <- evaluateElement conditionExpr
+      case conditionValue of
+        VBool True -> evaluateElement thenExpr
+        VBool False -> evaluateElement elseExpr
+        other ->
+          throwE
+            (runtimeDiagnostic "E3003" ("runtime branch condition must be Bool, found " <> renderRuntimeType other))
+    EPatternCase scrutineeExpr caseArms -> do
+      scrutineeValue <- evaluateElement scrutineeExpr
+      evalPatternCaseWithHost host currentModulePath builtinMode bindingTypeHints env scrutineeValue caseArms
+    EBinary operatorSymbol leftExpr rightExpr
+      | isBuiltinOperatorSymbol operatorSymbol -> do
+          leftValue <- evaluateElement leftExpr
+          rightValue <- evaluateElement rightExpr
+          evalBinaryWithHost host builtinMode bindingTypeHints operatorSymbol leftValue rightValue
+      | otherwise -> do
+          operatorValue <- lookupOperatorBindingRuntimeValueWithHost host builtinMode bindingTypeHints operatorSymbol env
+          leftValue <- evaluateElement leftExpr
+          partialValue <- applyRuntimeFunctionWithHost host builtinMode bindingTypeHints operatorValue leftValue
+          rightValue <- evaluateElement rightExpr
+          applyRuntimeFunctionWithHost host builtinMode bindingTypeHints partialValue rightValue
+    ESectionLeft leftExpr operatorSymbol -> do
+      leftValue <- evaluateElement leftExpr
+      if isBuiltinOperatorSymbol operatorSymbol
+        then pure (VSectionLeft operatorSymbol leftValue)
+        else do
+          operatorValue <- lookupOperatorBindingRuntimeValueWithHost host builtinMode bindingTypeHints operatorSymbol env
+          applyRuntimeFunctionWithHost host builtinMode bindingTypeHints operatorValue leftValue
+    ESectionRight operatorSymbol rightExpr -> do
+      rightValue <- evaluateElement rightExpr
+      if isBuiltinOperatorSymbol operatorSymbol
+        then pure (VSectionRight operatorSymbol rightValue)
+        else do
+          operatorValue <- lookupOperatorBindingRuntimeValueWithHost host builtinMode bindingTypeHints operatorSymbol env
+          pure (declaredOperatorRightSectionClosure currentModulePath operatorValue rightValue env)
+    EBlock statements -> do
+      maybeValue <- evalScopeWithHost host currentModulePath builtinMode bindingTypeHints env statements
+      case maybeValue of
+        Just value -> pure value
+        Nothing -> throwE (runtimeDiagnostic "E3006" "block expression has no terminal expression result at runtime")
+  where
+    evaluateElement = evalValueWithHost host currentModulePath builtinMode bindingTypeHints env
+
+evalScopeWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  Maybe [Text] ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  [Statement] ->
+  ExceptT Diagnostic m (Maybe RuntimeValue)
+evalScopeWithHost host currentModulePath builtinMode bindingTypeHints initialEnv =
+  go initialEnv Nothing
+  where
+    go _ lastValue [] = pure lastValue
+    go env _ (statement : rest) =
+      case statement of
+        SLet name _ valueExpr
+          | exprContainsFunctionBranch valueExpr -> do
+              scopeResult <- liftRuntimeResult (evaluatePureStatement env statement)
+              go (scopeResultEnvironment scopeResult) Nothing rest
+          | otherwise -> do
+              value <- evalValueWithHost host currentModulePath builtinMode bindingTypeHints env valueExpr
+              defaultedValue <- liftRuntimeResult (attachDefaultBindingIntegerTarget value)
+              go (Map.insert name (Right defaultedValue) env) Nothing rest
+        SExpr _ valueExpr -> do
+          value <- evalValueWithHost host currentModulePath builtinMode bindingTypeHints env valueExpr
+          go env (Just value) rest
+        _ -> do
+          scopeResult <- liftRuntimeResult (evaluatePureStatement env statement)
+          go (scopeResultEnvironment scopeResult) Nothing rest
+
+    evaluatePureStatement env statement =
+      evaluateModuleScope
+        currentModulePath
+        EvaluateEntryModule
+        builtinMode
+        bindingTypeHints
+        env
+        [statement]
+
+forceQualifiedMethodValueWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeValue ->
+  ExceptT Diagnostic m RuntimeValue
+forceQualifiedMethodValueWithHost host builtinMode bindingTypeHints runtimeValue =
+  case runtimeValue of
+    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs ->
+      applyQualifiedMethodWithHost host builtinMode bindingTypeHints methodKey classParameter methodSignature candidates capturedArgs
+    _ -> pure runtimeValue
+
+lookupOperatorBindingRuntimeValueWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  Text ->
+  RuntimeEnv ->
+  ExceptT Diagnostic m RuntimeValue
+lookupOperatorBindingRuntimeValueWithHost host builtinMode bindingTypeHints operatorSymbol env =
+  case Map.lookup (operatorBindingName operatorSymbol) env of
+    Just value ->
+      liftRuntimeResult value
+        >>= forceQualifiedMethodValueWithHost host builtinMode bindingTypeHints
+    Nothing ->
+      throwE
+        (runtimeDiagnostic "E3002" ("runtime unbound operator binding '(" <> operatorSymbol <> ")'"))
+
+evalPatternCaseWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  Maybe [Text] ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  RuntimeValue ->
+  [CaseArm] ->
+  ExceptT Diagnostic m RuntimeValue
+evalPatternCaseWithHost host currentModulePath builtinMode bindingTypeHints env scrutineeValue caseArms = do
+  selectedArm <- selectMatchingCaseArmWithHost host currentModulePath builtinMode bindingTypeHints env scrutineeValue caseArms
+  case selectedArm of
+    Just (armEnv, bodyExpr) ->
+      evalValueWithHost host currentModulePath builtinMode bindingTypeHints armEnv bodyExpr
+    Nothing -> throwE (runtimeDiagnostic "E3022" "pattern case matched no arms")
+
+selectMatchingCaseArmWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  Maybe [Text] ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  RuntimeValue ->
+  [CaseArm] ->
+  ExceptT Diagnostic m (Maybe (RuntimeEnv, Expr))
+selectMatchingCaseArmWithHost host currentModulePath builtinMode bindingTypeHints env scrutineeValue = go
+  where
+    go remainingArms =
+      case remainingArms of
+        [] -> pure Nothing
+        caseArm : rest ->
+          case matchCaseArm currentModulePath env scrutineeValue caseArm of
+            Nothing -> go rest
+            Just (armEnv, Nothing, bodyExpr) -> pure (Just (armEnv, bodyExpr))
+            Just (armEnv, Just conditionExpr, bodyExpr) -> do
+              guardValue <- evalValueWithHost host currentModulePath builtinMode bindingTypeHints armEnv conditionExpr
+              case guardValue of
+                VBool True -> pure (Just (armEnv, bodyExpr))
+                VBool False -> go rest
+                other ->
+                  throwE
+                    (runtimeDiagnostic "E3003" ("runtime case guard must be Bool, found " <> renderRuntimeType other))
+
+applyRuntimeFunctionWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeValue ->
+  RuntimeValue ->
+  ExceptT Diagnostic m RuntimeValue
+applyRuntimeFunctionWithHost host builtinMode bindingTypeHints functionValue argumentValue =
+  case functionValue of
+    VExplicitTypeApplication typeHint innerFunctionValue ->
+      case explicitTypeApplicationRuntimeFunctionHint typeHint innerFunctionValue of
+        Just instantiatedFunctionHint ->
+          applyRuntimeFunctionWithHost host builtinMode bindingTypeHints (VTyped instantiatedFunctionHint innerFunctionValue) argumentValue
+        Nothing -> do
+          resultValue <- applyRuntimeFunctionWithHost host builtinMode bindingTypeHints innerFunctionValue argumentValue
+          liftRuntimeResult (applyExplicitTypeApplicationResultHint typeHint resultValue)
+    VExplicitResultHint typeHint innerFunctionValue -> do
+      resultValue <- applyRuntimeFunctionWithHost host builtinMode bindingTypeHints innerFunctionValue argumentValue
+      liftRuntimeResult (applyExplicitTypeApplicationResultHint typeHint resultValue)
+    VTyped typeHint innerFunctionValue -> do
+      hintedArgumentValue <- liftRuntimeResult (applyRuntimeFunctionArgumentHint typeHint argumentValue)
+      resultValue <- applyRuntimeFunctionWithHost host builtinMode bindingTypeHints innerFunctionValue hintedArgumentValue
+      liftRuntimeResult (applyRuntimeFunctionResultHint typeHint resultValue)
+    VSectionLeft operatorSymbol leftValue ->
+      evalBinaryWithHost host builtinMode bindingTypeHints operatorSymbol leftValue argumentValue
+    VSectionRight operatorSymbol rightValue ->
+      evalBinaryWithHost host builtinMode bindingTypeHints operatorSymbol argumentValue rightValue
+    VClosure capturedEnv parameterName bodyExpr maybeTypeHint closureModulePath -> do
+      hintedArgumentValue <-
+        case maybeTypeHint of
+          Just typeHint -> liftRuntimeResult (applyRuntimeFunctionArgumentHint typeHint argumentValue)
+          Nothing -> pure argumentValue
+      resultValue <-
+        evalValueWithHost
+          host
+          closureModulePath
+          builtinMode
+          bindingTypeHints
+          (Map.insert parameterName (Right hintedArgumentValue) capturedEnv)
+          bodyExpr
+      case maybeTypeHint of
+        Just typeHint -> liftRuntimeResult (applyRuntimeFunctionResultHint typeHint resultValue)
+        Nothing -> liftRuntimeResult (attachDefaultBindingIntegerTarget resultValue)
+    VBuiltin builtinFunction capturedArgs ->
+      applyBuiltinWithHost host builtinMode bindingTypeHints builtinFunction (capturedArgs <> [argumentValue])
+    VOperator operatorSymbol capturedArgs ->
+      applyOperatorWithHost host builtinMode bindingTypeHints operatorSymbol (capturedArgs <> [argumentValue])
+    VConstructor typeName typeParameters constructorName constructorArguments capturedArgs ->
+      liftRuntimeResult
+        (applyConstructor typeName typeParameters constructorName constructorArguments (capturedArgs <> [argumentValue]))
+    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs ->
+      applyQualifiedMethodWithHost host builtinMode bindingTypeHints methodKey classParameter methodSignature candidates (capturedArgs <> [argumentValue])
+    _ ->
+      throwE
+        (runtimeDiagnostic "E3008" ("runtime cannot apply non-function value of type " <> renderRuntimeType functionValue))
+
+applyQualifiedMethodWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  Text ->
+  Text ->
+  SignaturePayload ->
+  [RuntimeMethodCandidate] ->
+  [RuntimeValue] ->
+  ExceptT Diagnostic m RuntimeValue
+applyQualifiedMethodWithHost host builtinMode bindingTypeHints methodKey classParameter methodSignature candidates arguments =
+  case preferredCandidates of
+    [] -> throwE (runtimeDiagnostic "E3026" ("no matching qualified method body '" <> methodKey <> "'"))
+    [RuntimeMethodCandidate _ methodCell] -> do
+      methodValue <- liftRuntimeResult methodCell
+      foldM (applyRuntimeFunctionWithHost host builtinMode bindingTypeHints) methodValue arguments
+    _
+      | runtimeQualifiedMethodIsFullyApplied classParameter methodSignature arguments preferredCandidates ->
+          throwE (runtimeDiagnostic "E3026" ("ambiguous qualified method body '" <> methodKey <> "'"))
+      | otherwise ->
+          pure (VQualifiedMethod methodKey classParameter methodSignature preferredCandidates arguments)
+  where
+    preferredCandidates =
+      case exactMatchingCandidates of
+        [] -> matchingCandidates
+        exactMatches -> exactMatches
+    exactMatchingCandidates =
+      filter (runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments) matchingCandidates
+    matchingCandidates =
+      filter (runtimeMethodCandidateMatches classParameter methodSignature arguments) candidates
+
+applyOperatorWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  Text ->
+  [RuntimeValue] ->
+  ExceptT Diagnostic m RuntimeValue
+applyOperatorWithHost host builtinMode bindingTypeHints operatorSymbol arguments =
+  case arguments of
+    [leftValue] -> pure (VOperator operatorSymbol [leftValue])
+    [leftValue, rightValue] ->
+      evalBinaryWithHost host builtinMode bindingTypeHints operatorSymbol leftValue rightValue
+    _ ->
+      throwE
+        (runtimeDiagnostic "E3016" ("runtime primitive '" <> operatorSymbol <> "' received invalid arguments"))
+
+applyBuiltinWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  BuiltinSymbol ->
+  [RuntimeValue] ->
+  ExceptT Diagnostic m RuntimeValue
+applyBuiltinWithHost host builtinMode bindingTypeHints builtinFunction arguments
+  | length arguments < builtinSymbolArity builtinFunction =
+      pure (VBuiltin builtinFunction arguments)
+  | length arguments == builtinSymbolArity builtinFunction =
+      evalBuiltinWithHost host builtinMode bindingTypeHints builtinFunction arguments
+  | otherwise =
+      throwE
+        (runtimeDiagnostic "E3014" ("runtime primitive '" <> builtinSymbolName builtinFunction <> "' received too many arguments"))
+
+evalBuiltinWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  BuiltinSymbol ->
+  [RuntimeValue] ->
+  ExceptT Diagnostic m RuntimeValue
+evalBuiltinWithHost host builtinMode bindingTypeHints builtinFunction arguments =
+  case (builtinFunction, arguments) of
+    (BuiltinMap, [mapper, VList elements maybeCollectionTypeHint])
+      | isFunctionValue mapper -> do
+          mappedElements <- traverse (applyRuntimeFunctionWithHost host builtinMode bindingTypeHints mapper) elements
+          let maybeMappedTypeHint = TypeList <$> runtimeMapResultElementType mapper maybeCollectionTypeHint
+          pure (VList mappedElements maybeMappedTypeHint)
+    (BuiltinFilter, [predicate, VList elements maybeTypeHint])
+      | isFunctionValue predicate ->
+          (`VList` maybeTypeHint) <$> filterElementsWithHost host builtinMode bindingTypeHints predicate elements
+    _ -> liftRuntimeResult (evalBuiltin builtinMode bindingTypeHints builtinFunction arguments)
+
+filterElementsWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeValue ->
+  [RuntimeValue] ->
+  ExceptT Diagnostic m [RuntimeValue]
+filterElementsWithHost host builtinMode bindingTypeHints predicate values = do
+  results <- traverse applyPredicate values
+  pure [value | (value, True) <- results]
+  where
+    applyPredicate value = do
+      predicateResult <- applyRuntimeFunctionWithHost host builtinMode bindingTypeHints predicate value
+      case predicateResult of
+        VBool shouldKeep -> pure (value, shouldKeep)
+        other ->
+          throwE
+            (runtimeDiagnostic "E3019" ("runtime primitive 'filter' predicate must return Bool, found " <> renderRuntimeType other))
+
+evalBinaryWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  Text ->
+  RuntimeValue ->
+  RuntimeValue ->
+  ExceptT Diagnostic m RuntimeValue
+evalBinaryWithHost host builtinMode bindingTypeHints operatorSymbol leftValue rightValue =
+  case (operatorSymbol, leftValue, rightValue) of
+    ("$", functionValue, argumentValue) ->
+      applyRuntimeFunctionWithHost host builtinMode bindingTypeHints functionValue argumentValue
+    (_, VTyped leftTypeHint leftInnerValue, _)
+      | not (isStrictEqualityOperator operatorSymbol) -> do
+          result <- evalBinaryWithHost host builtinMode bindingTypeHints operatorSymbol leftInnerValue rightValue
+          liftRuntimeResult (preserveLeftTypedNumericOperatorResult operatorSymbol leftTypeHint result)
+    (_, _, VTyped rightTypeHint rightInnerValue)
+      | not (isStrictEqualityOperator operatorSymbol) -> do
+          result <- evalBinaryWithHost host builtinMode bindingTypeHints operatorSymbol leftValue rightInnerValue
+          liftRuntimeResult (preserveRightTypedNumericOperatorResult operatorSymbol leftValue rightTypeHint result)
+    _ -> liftRuntimeResult (evalBinary builtinMode bindingTypeHints operatorSymbol leftValue rightValue)
 
 -- | Runtime-specific wrapper for mkDiagnostic.
 -- This alias exists solely to improve readability and make it clear that

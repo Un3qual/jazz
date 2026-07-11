@@ -46,6 +46,7 @@ library jazz-next-internal
       JazzNext.Compiler.Purity
       JazzNext.Compiler.RecursiveBindings
       JazzNext.Compiler.Runtime
+      JazzNext.Compiler.RuntimeHost
       JazzNext.Compiler.RuntimeHints
       JazzNext.Compiler.SourceProgram
       JazzNext.Compiler.TypeInference
@@ -66,7 +67,8 @@ library jazz-next-internal
       directory >= 1.3 && < 1.4,
       filepath >= 1.4 && < 1.5,
       megaparsec >= 9.0 && < 10,
-      text >= 2.0 && < 2.1
+      text >= 2.0 && < 2.1,
+      transformers >= 0.5 && < 0.7
 
 executable jazz-next
   hs-source-dirs: app
@@ -287,6 +289,7 @@ test-suite runtime-semantics-spec
   other-modules:
       JazzNext.Compiler.Semantics.Runtime.CapabilitiesTests
       JazzNext.Compiler.Semantics.Runtime.ControlFlowTests
+      JazzNext.Compiler.Semantics.Runtime.HostIOTests
       JazzNext.Compiler.Semantics.Runtime.NumericTests
       JazzNext.Compiler.Semantics.Runtime.RecursionTests
       JazzNext.Compiler.Semantics.Runtime.RenderingTests
