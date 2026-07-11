@@ -2,12 +2,12 @@
 
 ## Status
 
-Approved in discussion on `2026-07-10`; implementation has not started.
+Approved in discussion and written-spec review on `2026-07-10`; implementation
+has not started.
 
 The executable child id is `JN-BOOTSTRAP-GENERIC-NAMED-TYPES-001`. This
-document defines that child but does not promote it into `Ready Now`; queue
-promotion follows written-spec review and an implementation plan with exact
-target paths and verification.
+document defines that child; its reviewed implementation plan promotes it into
+`Ready Now` with exact target paths and verification.
 
 ## Goal
 
@@ -91,7 +91,7 @@ Named type application uses the already-approved comma-parenthesized form:
 ```text
 type-variable      := lower-identifier
 named-type         := upper-identifier
-type-application   := upper-identifier "(" type ("," type)* ")"
+type-application   := identifier "(" type ("," type)* ")"
 type               := primitive
                     | type-variable
                     | named-type
@@ -106,8 +106,8 @@ association. `()` remains Unit, represented as the empty tuple type.
 
 `List(a)` is an accepted built-in arity-one spelling and normalizes to the same
 list node as `[a]`. It does not declare a second nominal type and does not create
-a second runtime representation. `List()` and `List(a, b)` reject as arity
-errors.
+a second runtime representation. `List()` is invalid empty-application syntax;
+`List(a, b)` rejects as an arity error.
 
 Application heads must be named constructors. Variable-headed forms such as
 `f(a)` do not introduce higher-kinded variables. Empty application argument
