@@ -46,12 +46,15 @@ import JazzNext.Compiler.Parser.AST
   )
 import JazzNext.Compiler.Name
   ( GeneratedNameKind (..),
+    Identifier,
+    Name,
     generatedName,
     identifierText,
     isOperatorBindingIdentifierText,
     mkIdentifier,
     operatorBindingNameFromIdentifier,
     qualifiedName,
+    splitQualifiedIdentifierText,
     sourceName
   )
 import JazzNext.Compiler.Diagnostics
@@ -347,7 +350,7 @@ lowerSurfaceSignaturePayload surfaceSignaturePayload =
 lowerSurfaceSignatureConstraint :: SurfaceSignatureConstraint -> SignatureConstraint
 lowerSurfaceSignatureConstraint (SurfaceSignatureConstraint constraintName constraintArguments) =
   SignatureConstraint
-    (sourceName constraintName)
+    (lowerSurfaceSignatureName constraintName)
     (map lowerSurfaceSignatureType constraintArguments)
 
 lowerSurfaceSignatureType :: SurfaceSignatureType -> SignatureType
@@ -360,9 +363,9 @@ lowerSurfaceSignatureType surfaceSignatureType =
     SurfaceTypeChar -> TypeChar
     SurfaceTypeText -> TypeText
     SurfaceTypeVariable name -> TypeVariable (sourceName name)
-    SurfaceTypeName name -> TypeName (sourceName name)
+    SurfaceTypeName name -> TypeName (lowerSurfaceSignatureName name)
     SurfaceTypeApplication name arguments ->
-      TypeApplication (sourceName name) (map lowerSurfaceSignatureType arguments)
+      TypeApplication (lowerSurfaceSignatureName name) (map lowerSurfaceSignatureType arguments)
     SurfaceTypeList innerType ->
       TypeList (lowerSurfaceSignatureType innerType)
     SurfaceTypeTuple elementTypes ->
@@ -371,6 +374,13 @@ lowerSurfaceSignatureType surfaceSignatureType =
       TypeFunction
         (lowerSurfaceSignatureType argumentType)
         (lowerSurfaceSignatureType resultType)
+
+lowerSurfaceSignatureName :: Identifier -> Name
+lowerSurfaceSignatureName name =
+  case splitQualifiedIdentifierText (identifierText name) of
+    Just (qualifier, member) ->
+      qualifiedName (mkIdentifier qualifier) (mkIdentifier member)
+    Nothing -> sourceName name
 
 lowerSurfaceNumericType :: SurfaceNumericType -> NumericType
 lowerSurfaceNumericType surfaceNumericType =

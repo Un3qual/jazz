@@ -90,8 +90,9 @@ Named type application uses the already-approved comma-parenthesized form:
 
 ```text
 type-variable      := lower-identifier
-named-type         := upper-identifier
-type-application   := identifier "(" type ("," type)* ")"
+type-head          := identifier | identifier "::" identifier
+named-type         := type-head
+type-application   := type-head "(" type ("," type)* ")"
 type               := primitive
                     | type-variable
                     | named-type
@@ -138,7 +139,9 @@ imports.
 
 Resolved user-defined type names carry their nominal `Name`, including module
 origin. Two same-text types from different modules remain distinct. Alias-only
-imports remain alias-qualified rather than becoming unqualified type names.
+imports remain alias-qualified rather than becoming unqualified type names;
+their type heads are written as `Alias::Type` in signatures and explicit type
+applications.
 
 Every named constructor application has exact arity:
 

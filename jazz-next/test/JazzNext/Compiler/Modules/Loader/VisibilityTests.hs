@@ -64,6 +64,7 @@ visibilityTests =
     , ("run module graph keeps alias-hidden data constructor from shadowing prelude", testRunModuleGraphAliasHiddenDataConstructorUsesPrelude)
     , ("run module graph resolves qualified alias data constructor lookup", testRunModuleGraphQualifiedAliasDataConstructorLookup)
     , ("compile module graph preserves alias-qualified generic constructor schemes", testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes)
+    , ("run module graph resolves alias-qualified types in signatures", testRunModuleGraphResolvesAliasQualifiedTypesInSignatures)
     , ("run module graph transports signed generic named schemes", testRunModuleGraphTransportsSignedGenericNamedSchemes)
     , ("run module graph keeps local data constructor from hidden import rewrite", testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite)
     , ("run module graph preserves alias-qualified float literal targets", testRunModuleGraphPreservesAliasQualifiedFloatLiteralTargets)
@@ -462,6 +463,30 @@ testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes = do
       Map.fromList
         [ ("src/App/Main.jz", "import Lib::Box as Box.\nfirst = Box::Box 1.\nsecond = Box::Box True.\nsecond."),
           ("src/Lib/Box.jz", "data Box a = Box a.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphResolvesAliasQualifiedTypesInSignatures :: IO ()
+testRunModuleGraphResolvesAliasQualifiedTypesInSignatures = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "alias-qualified type compile errors" [] (runCompileErrors result)
+  assertEqual "alias-qualified type runtime errors" [] (runRuntimeErrors result)
+  assertEqual "alias-qualified type output" (Just "Box(1)") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\nimport Lib::Box as B.\nvalue :: B::Box(Int).\nvalue = B::Box 1.\nvalue.\n}"
+          ),
+          ( "src/Lib/Box.jz",
+            "module Lib::Box {\ndata Box a = Box a.\n}"
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 

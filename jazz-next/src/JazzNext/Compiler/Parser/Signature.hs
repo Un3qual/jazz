@@ -15,7 +15,10 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics (Diagnostic)
 import JazzNext.Compiler.Name
-  ( mkIdentifier
+  ( Identifier,
+    identifierText,
+    mkIdentifier,
+    mkQualifiedIdentifier
   )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceNumericType (..),
@@ -138,14 +141,7 @@ parenthesizedSignatureTypeParser =
 
 namedSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 namedSignatureTypeParser = do
-  typeNameToken <-
-    TokenParser.parseTokenWhere
-      ( \token ->
-          case tokenKind token of
-            TIdentifier {} -> True
-            _ -> False
-      )
-      "identifier"
+  (typeNameToken, typeNameIdentifier) <- signatureTypeHeadParser
   maybeNextToken <- TokenParser.peekToken
   case maybeNextToken of
     Just nextToken
@@ -153,28 +149,55 @@ namedSignatureTypeParser = do
         isImmediatelyAfter typeNameToken nextToken ->
           MP.empty
     _ -> pure ()
-  let typeName = tokenLexeme typeNameToken
+  let typeName = identifierText typeNameIdentifier
   case parseNamedSignatureType typeName of
     Just signatureType ->
       pure signatureType
     Nothing ->
       pure
         ( if identifierStartsLower typeName
-            then SurfaceTypeVariable (mkIdentifier typeName)
-            else SurfaceTypeName (mkIdentifier typeName)
+            then SurfaceTypeVariable typeNameIdentifier
+            else SurfaceTypeName typeNameIdentifier
         )
 
 typeApplicationParser :: TokenParser.Parser SurfaceSignatureType
 typeApplicationParser = do
-  typeName <- TokenParser.parseIdentifier
+  (_, typeNameIdentifier) <- signatureTypeHeadParser
   arguments <-
     betweenTokenKinds TLParen TRParen
       (signatureTypeParser `MP.sepBy1` commaParser)
   pure
-    ( case (typeName, arguments) of
+    ( case (identifierText typeNameIdentifier, arguments) of
         ("List", [elementType]) -> SurfaceTypeList elementType
-        _ -> SurfaceTypeApplication (mkIdentifier typeName) arguments
+        _ -> SurfaceTypeApplication typeNameIdentifier arguments
     )
+
+signatureTypeHeadParser :: TokenParser.Parser (Token, Identifier)
+signatureTypeHeadParser = do
+  firstToken <- identifierTokenParser
+  maybeQualifiedMember <-
+    MP.optional $ do
+      _ <- TokenParser.parseTokenKind TColonColon
+      memberToken <- identifierTokenParser
+      pure memberToken
+  case maybeQualifiedMember of
+    Just memberToken ->
+      pure
+        ( memberToken,
+          mkQualifiedIdentifier (tokenLexeme firstToken) (tokenLexeme memberToken)
+        )
+    Nothing ->
+      pure (firstToken, mkIdentifier (tokenLexeme firstToken))
+
+identifierTokenParser :: TokenParser.Parser Token
+identifierTokenParser =
+  TokenParser.parseTokenWhere
+    ( \token ->
+        case tokenKind token of
+          TIdentifier {} -> True
+          _ -> False
+    )
+    "identifier"
 
 identifierStartsLower :: Text -> Bool
 identifierStartsLower identifier =

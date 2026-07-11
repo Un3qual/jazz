@@ -21,10 +21,12 @@
 ### Task 1: Make signed definitions honor universal signatures
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference/{State,Solver,Scope,Diagnostics}.hs`
 - Test: `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignature/{DiagnosticsTests,ConstraintsTests}.hs`
 
 **Interfaces:**
+
 - Consumes: `PendingSignatureType.pendingSignatureVariableOrder` and declared `TypeSchemeConstraint` values.
 - Produces: rigid definition-site checking and an `E2009` diagnostic for implementation constraints not declared by the signature.
 
@@ -38,10 +40,12 @@
 ### Task 2: Generalize explicitly signed constructor aliases
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference/Scope.hs`
 - Test: `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignature/GeneralizationTests.hs`
 
 **Interfaces:**
+
 - Consumes: an adjacent explicit generic signature and a direct constructor alias RHS.
 - Produces: a `SchemeTypeBinding` instantiated freshly per use.
 
@@ -52,10 +56,12 @@
 ### Task 3: Reject unsupported method-local variables at declaration time
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference/{Scope,Diagnostics}.hs`
 - Test: `jazz-next/test/JazzNext/Compiler/Semantics/BindingSignature/ConstraintsTests.hs`
 
 **Interfaces:**
+
 - Consumes: class parameters and every variable in each method signature payload.
 - Produces: declaration-site `E2009` when a method mentions variables outside the class parameter set.
 
@@ -66,12 +72,14 @@
 ### Task 4: Centralize signature conversion and simplify runtime templates
 
 **Files:**
+
 - Create: `jazz-next/src/JazzNext/Compiler/TypeInference/Signature.hs`
 - Modify: `jazz-next/jazz-next.cabal`
 - Modify: `jazz-next/src/JazzNext/Compiler/{CapabilityFacts,Runtime}.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/TypeInference/{Capabilities,Diagnostics,Scope}.hs`
 
 **Interfaces:**
+
 - Produces: `SignatureTypeFailure`, one recursive validation/conversion boundary, deterministic failure rendering, variable collection, and direct `TypeVariable` runtime templates.
 
 - [x] Centralize named-type validation, arity checking, and conversion in the new module with `Either SignatureTypeFailure ExpressionType`, reusing the canonical variable collector.
@@ -82,6 +90,7 @@
 ### Task 5: Align docs and verify the complete branch
 
 **Files:**
+
 - Modify: `docs/superpowers/specs/2026-07-10-jazz-next-generic-named-types-design.md`
 - Modify: `docs/superpowers/plans/2026-07-10-jazz-next-generic-named-types.md`
 

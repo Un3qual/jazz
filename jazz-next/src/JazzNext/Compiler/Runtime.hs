@@ -1284,7 +1284,7 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
       argumentValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env argumentExpr
       applyRuntimeFunction builtinMode bindingTypeHints functionValue argumentValue
     ETypeApplication functionExpr typeArgumentSpan signatureType -> do
-      let typeHint = signatureType
+      let typeHint = runtimeConstraintType currentModulePath signatureType
       runtimeValue <- evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env functionExpr
       case Map.lookup (explicitTypeApplicationRuntimeHintKeyInModule currentModulePath typeArgumentSpan) bindingTypeHints of
         Just concreteTypeHint ->
