@@ -211,15 +211,15 @@ and repository queue/docs gates.
 - Modify: `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs`
 
-- [ ] Add failing loader tests for exact exports, all successes, every error
+- [x] Add failing loader tests for exact exports, all successes, every error
   category, path `Just`/`Nothing`, normalized messages, arguments, and exit.
-- [ ] Add failing prelude-isolation tests for every public name.
-- [ ] Run loader/prelude suites and verify RED because the modules are absent.
-- [ ] Add two-space-indented `IOError.jz` with the exact approved ADTs.
-- [ ] Add two-space-indented `IO.jz`, decode every token, default unknown tokens
+- [x] Add failing prelude-isolation tests for every public name.
+- [x] Run loader/prelude suites and verify RED because the modules are absent.
+- [x] Add two-space-indented `IOError.jz` with the exact approved ADTs.
+- [x] Add two-space-indented `IO.jz`, decode every token, default unknown tokens
   to `Other`, and attach paths only for file operations.
-- [ ] Run loader/prelude/runtime suites and the stdlib format check.
-- [ ] Commit as `feat: add Jazz host text IO modules`.
+- [x] Run loader/prelude/runtime suites and the stdlib format check.
+- [x] Commit as `feat: add Jazz host text IO modules`.
 
 ### Task 7: Close documentation and live dispatch state
 

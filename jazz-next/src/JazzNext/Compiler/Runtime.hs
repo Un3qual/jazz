@@ -4009,11 +4009,12 @@ evalBuiltinWithHost host builtinMode bindingTypeHints builtinFunction arguments 
     (BuiltinArguments, [VTuple []]) -> do
       argumentsText <- lift (runtimeHostArguments host)
       pure (VList (map VText argumentsText) (Just (TypeList TypeText)))
-    (BuiltinExit, [VInt status _])
-      | status >= 0 && status <= 255 -> do
+    (BuiltinExit, [statusValue])
+      | Just status <- runtimeHostExitStatus statusValue,
+        status >= 0 && status <= 255 -> do
           lift (runtimeHostExit host status)
           pure (VTuple [])
-      | otherwise ->
+      | Just status <- runtimeHostExitStatus statusValue ->
           throwE
             ( runtimeDiagnostic
                 "E3030"
@@ -4042,6 +4043,15 @@ rawHostOutcome renderSuccess outcome =
               VText (hostIOCategoryToken category),
               VText (hostIOFailureMessage category)
             ]
+
+runtimeHostExitStatus :: RuntimeValue -> Maybe Integer
+runtimeHostExitStatus runtimeValue =
+  case runtimeValue of
+    VInt status _ -> Just status
+    VTyped _ innerValue -> runtimeHostExitStatus innerValue
+    VExplicitTypeApplication _ innerValue -> runtimeHostExitStatus innerValue
+    VExplicitResultHint _ innerValue -> runtimeHostExitStatus innerValue
+    _ -> Nothing
 
 filterElementsWithHost ::
   Monad m =>
