@@ -107,6 +107,8 @@ testRejectsMalformedCharAndTextLiterals = do
           ("multi-scalar Char", "'ab'", "character literal must contain exactly one Unicode scalar"),
           ("unterminated Char", "'a", "unterminated character literal"),
           ("unterminated Text", "\"abc", "unterminated text literal"),
+          ("unterminated Char escape", Text.pack ['\'', '\\'], "unterminated character literal at 1:1"),
+          ("unterminated Text escape", Text.pack ['\"', '\\'], "unterminated text literal at 1:1"),
           ("invalid escape", "'\\x'", "invalid escape '\\x'"),
           ("empty scalar escape", "'\\u{}'", "Unicode escape must contain 1-6 hexadecimal digits"),
           ("surrogate scalar", "'\\u{D800}'", "Unicode escape is not a scalar value"),

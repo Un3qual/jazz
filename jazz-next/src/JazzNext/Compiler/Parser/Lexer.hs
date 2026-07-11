@@ -169,7 +169,7 @@ quotedScalars delimiter label spanValue = do
 
 quotedScalar :: Char -> Text -> SourceSpan -> LexerParser Char
 quotedScalar delimiter label spanValue =
-  escapedScalar spanValue
+  escapedScalar label spanValue
     <|> MP.satisfy
       ( \value ->
           value /= delimiter
@@ -184,20 +184,23 @@ quotedScalar delimiter label spanValue =
         then literalFailure spanValue ("raw newline is not allowed in a " <> label <> " literal")
         else literalFailure spanValue ("invalid " <> label <> " literal character")
 
-escapedScalar :: SourceSpan -> LexerParser Char
-escapedScalar spanValue = do
+escapedScalar :: Text -> SourceSpan -> LexerParser Char
+escapedScalar label spanValue = do
   void (char '\\')
-  escape <- MP.anySingle
-  case escape of
-    '\\' -> pure '\\'
-    '\'' -> pure '\''
-    '"' -> pure '"'
-    'n' -> pure '\n'
-    'r' -> pure '\r'
-    't' -> pure '\t'
-    '0' -> pure '\0'
-    'u' -> unicodeScalarEscape spanValue
-    _ -> literalFailure spanValue ("invalid escape '\\" <> Text.singleton escape <> "'")
+  maybeEscape <- MP.optional MP.anySingle
+  case maybeEscape of
+    Nothing -> literalFailure spanValue ("unterminated " <> label <> " literal")
+    Just escape ->
+      case escape of
+        '\\' -> pure '\\'
+        '\'' -> pure '\''
+        '"' -> pure '"'
+        'n' -> pure '\n'
+        'r' -> pure '\r'
+        't' -> pure '\t'
+        '0' -> pure '\0'
+        'u' -> unicodeScalarEscape spanValue
+        _ -> literalFailure spanValue ("invalid escape '\\" <> Text.singleton escape <> "'")
 
 unicodeScalarEscape :: SourceSpan -> LexerParser Char
 unicodeScalarEscape spanValue = do

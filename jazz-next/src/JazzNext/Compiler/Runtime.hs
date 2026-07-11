@@ -326,7 +326,7 @@ runtimeConstraintType maybeModulePath signatureType =
 
 runtimeConstraintTypeName :: Maybe [Text] -> Name -> Name
 runtimeConstraintTypeName maybeModulePath name
-  | identifierText name `elem` ["Int", "Float", "Bool"] = name
+  | identifierText name `elem` ["Int", "Float", "Bool", "Char", "Text"] = name
   | Just _ <- numericTypeFromName (identifierText name) = name
   | identifierLooksLikeTypeVariable name = name
   | otherwise = runtimeDefinitionName maybeModulePath name
