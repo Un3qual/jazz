@@ -26,7 +26,8 @@ import JazzNext.Compiler.Parser.AST
   )
 import JazzNext.Compiler.Parser.Lexer
   ( Token (..),
-    TokenKind (..)
+    TokenKind (..),
+    isImmediatelyAfter
   )
 import qualified JazzNext.Compiler.Parser.TokenParser as TokenParser
 import qualified Text.Megaparsec as MP
@@ -137,7 +138,22 @@ parenthesizedSignatureTypeParser =
 
 namedSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 namedSignatureTypeParser = do
-  typeName <- TokenParser.parseIdentifier
+  typeNameToken <-
+    TokenParser.parseTokenWhere
+      ( \token ->
+          case tokenKind token of
+            TIdentifier {} -> True
+            _ -> False
+      )
+      "identifier"
+  maybeNextToken <- TokenParser.peekToken
+  case maybeNextToken of
+    Just nextToken
+      | tokenKind nextToken == TLParen,
+        isImmediatelyAfter typeNameToken nextToken ->
+          MP.empty
+    _ -> pure ()
+  let typeName = tokenLexeme typeNameToken
   case parseNamedSignatureType typeName of
     Just signatureType ->
       pure signatureType

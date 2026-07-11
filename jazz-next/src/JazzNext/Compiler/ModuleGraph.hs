@@ -167,7 +167,7 @@ signatureConstraintNames (SignatureConstraint name arguments) =
 signatureTypeNames :: SignatureType -> [Name]
 signatureTypeNames signatureType =
   case signatureType of
-    TypeVariable name -> [name]
+    TypeVariable {} -> []
     TypeName name -> [name]
     TypeApplication name arguments -> name : concatMap signatureTypeNames arguments
     TypeList innerType -> signatureTypeNames innerType

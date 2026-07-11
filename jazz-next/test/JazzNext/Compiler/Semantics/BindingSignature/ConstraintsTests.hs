@@ -54,6 +54,7 @@ constraintTests :: [NamedTest]
 constraintTests =
   [ ("source pipeline accepts inert class and impl declarations", testSourceAcceptsCapabilityDeclarations)
     , ("source pipeline accepts class method signature metadata", testSourceAcceptsClassMethodSignatureMetadata)
+    , ("source pipeline rejects unknown named class method signatures", testSourceRejectsUnknownNamedClassMethodSignatures)
     , ("source pipeline rejects duplicate class method signatures", testSourceRejectsDuplicateClassMethodSignatures)
     , ("analyzer rejects duplicate class method metadata", testAnalyzerRejectsDuplicateClassMethodMetadata)
     , ("source pipeline analyzes impl method binding metadata", testSourceAnalyzesImplMethodBindingMetadata)
@@ -143,6 +144,12 @@ testSourceAcceptsCapabilityDeclarations =
 testSourceAcceptsClassMethodSignatureMetadata :: IO ()
 testSourceAcceptsClassMethodSignatureMetadata =
   assertSourceOkWithoutPrelude "class Eq(a) {\nequals :: a -> a -> Bool.\nnotEquals :: a -> a -> Bool.\n}.\nimpl Eq(Int) { }.\nx :: Int.\nx = 1.\nx."
+
+testSourceRejectsUnknownNamedClassMethodSignatures :: IO ()
+testSourceRejectsUnknownNamedClassMethodSignatures =
+  assertSourceSingleErrorContainsWithoutPrelude
+    "class C(a) { f :: Unknown -> a. }.\nx = 1."
+    "unknown named type 'Unknown'"
 
 testSourceRejectsDuplicateClassMethodSignatures :: IO ()
 testSourceRejectsDuplicateClassMethodSignatures =

@@ -56,6 +56,7 @@ invalidSyntaxTests =
     , ("rejects fractional literal case patterns", testRejectsFractionalLiteralCasePatterns)
     , ("rejects fractional literal lambda patterns", testRejectsFractionalLiteralLambdaPatterns)
     , ("rejects unsupported explicit type application argument", testRejectsUnsupportedExplicitTypeApplicationArgument)
+    , ("rejects empty named explicit type application arguments", testRejectsEmptyNamedExplicitTypeApplicationArguments)
     , ("rejects missing statement terminator", testRejectsMissingDotTerminator)
     , ("rejects unterminated block expression", testRejectsUnterminatedBlockExpression)
     , ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot)
@@ -112,6 +113,13 @@ testRejectsUnsupportedExplicitTypeApplicationArgument =
     "unsupported explicit type application argument"
     "unsupported explicit type application argument after '@'"
     (parseSurfaceProgram "value = id @ 1.\nvalue.")
+
+testRejectsEmptyNamedExplicitTypeApplicationArguments :: IO ()
+testRejectsEmptyNamedExplicitTypeApplicationArguments =
+  assertLeftDiagnosticContains
+    "empty named explicit type application arguments"
+    "unsupported explicit type application argument after '@'"
+    (parseSurfaceProgram "value = id @Maybe().\nvalue.")
 
 testRejectsMissingDotTerminator :: IO ()
 testRejectsMissingDotTerminator =

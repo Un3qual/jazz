@@ -17,6 +17,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    ClassMethodSignature (..),
     SignatureType (..),
     DataConstructor (..),
     DataConstructorArgument (..),
@@ -158,6 +159,25 @@ firstInvalidImplTarget state implSpan =
             Just diagnostic -> Just diagnostic
             Nothing -> go rest
 
+firstInvalidClassMethodSignature :: InferState -> Name -> [ClassMethodSignature] -> Maybe Diagnostic
+firstInvalidClassMethodSignature state capabilityName =
+  go
+  where
+    go methods =
+      case methods of
+        [] -> Nothing
+        ClassMethodSignature methodName methodSpan methodPayload : rest ->
+          case signaturePayloadToSignatureType methodPayload state of
+            (Just _, _) -> go rest
+            (Nothing, _) ->
+              Just
+                ( mkInvalidSignatureTypeError
+                    state
+                    (identifierText capabilityName <> "::" <> identifierText methodName)
+                    methodSpan
+                    methodPayload
+                )
+
 publishVisibleTypes :: TypeEnv -> InferState -> InferState
 publishVisibleTypes env state =
   state
@@ -200,8 +220,17 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
               go env lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
             SImport _ modulePath maybeAlias maybeSymbolNames ->
               go env lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
-            SClass {} ->
-              let nextState = seedStatementCapabilityFact state statement
+            SClass classSpan capabilityName parameters methods ->
+              let validationState =
+                    seedStatementCapabilityFact
+                      stateForSource
+                      (SClass classSpan capabilityName parameters [])
+                  maybeInvalidMethod =
+                    firstInvalidClassMethodSignature validationState capabilityName methods
+                  nextState =
+                    case maybeInvalidMethod of
+                      Just diagnostic -> addTypeError stateForSource diagnostic
+                      Nothing -> seedStatementCapabilityFact stateForSource statement
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                in go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest

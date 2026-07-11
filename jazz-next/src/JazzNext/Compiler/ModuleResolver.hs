@@ -1049,7 +1049,7 @@ validateImportBindings ::
   Map [Text] ModuleExportInventory ->
   Either Diagnostic ()
 validateImportBindings sourcePath importerPath imports localClassNames referencedNames qualifiedReferences ambientVisibleSymbols ambientVisibleClassNames inventoriesByModule = do
-  go Map.empty Map.empty imports
+  go Map.empty Map.empty Map.empty imports
   visibleSymbols <- collectVisibleImportSymbols imports
   visibleClassNames <- collectVisibleImportClassNames imports
   validateQualifiedReferences (Set.unions [localClassNames, visibleClassNames, ambientVisibleClassNames])
@@ -1085,14 +1085,15 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
     valueAndConstructorNames =
       exportNamesInNamespaces [ValueNamespace, ConstructorNamespace]
 
-    go seenSymbols seenAliases remainingImports =
+    go seenSymbols seenTypes seenAliases remainingImports =
       case remainingImports of
         [] ->
           Right ()
         importDecl : rest -> do
           seenAliasesAfterImport <- validateImportAlias seenAliases importDecl
           seenSymbolsAfterImport <- validateImportSymbols seenSymbols importDecl
-          go seenSymbolsAfterImport seenAliasesAfterImport rest
+          seenTypesAfterImport <- validateImportTypes seenTypes importDecl
+          go seenSymbolsAfterImport seenTypesAfterImport seenAliasesAfterImport rest
 
     validateImportAlias :: Map Text BindingOrigin -> ParsedImport -> Either Diagnostic (Map Text BindingOrigin)
     validateImportAlias seenAliases importDecl =
@@ -1143,6 +1144,51 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                 (validateImportSymbol importDecl exportedImportSymbols)
                 seenSymbols
                 importedSymbolNames
+
+    validateImportTypes :: Map Text BindingOrigin -> ParsedImport -> Either Diagnostic (Map Text BindingOrigin)
+    validateImportTypes seenTypes importDecl =
+      case parsedImportAlias importDecl of
+        Just _ ->
+          Right seenTypes
+        Nothing ->
+          case dependencyInventory importDecl of
+            Nothing ->
+              Left
+                ( mkDiagnostic
+                    "E4010"
+                    ( "internal resolver error while validating type imports for '"
+                        <> renderModulePath importerPath
+                        <> "': missing exports for module '"
+                        <> renderModulePath (parsedImportModulePath importDecl)
+                        <> "'"
+                    )
+                )
+            Just inventory ->
+              foldM
+                (validateImportType importDecl)
+                seenTypes
+                ( Set.toAscList
+                    (exportNamesInNamespace TypeNamespace (visibleUnqualifiedInventory importDecl inventory))
+                )
+
+    validateImportType :: ParsedImport -> Map Text BindingOrigin -> Text -> Either Diagnostic (Map Text BindingOrigin)
+    validateImportType importDecl seenTypes typeName =
+      case Map.lookup typeName seenTypes of
+        Just previousOrigin
+          | bindingOriginModulePath previousOrigin == parsedImportModulePath importDecl ->
+              Right seenTypes
+          | otherwise ->
+              Left (mkImportTypeCollisionError typeName previousOrigin importDecl)
+        Nothing ->
+          Right
+            ( Map.insert
+                typeName
+                BindingOrigin
+                  { bindingOriginModulePath = parsedImportModulePath importDecl,
+                    bindingOriginSpan = parsedImportSpan importDecl
+                  }
+                seenTypes
+            )
 
     validateQualifiedReferences :: Set Text -> Either Diagnostic ()
     validateQualifiedReferences visibleClassNames =
@@ -1244,6 +1290,30 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                   "E4008"
                   ( "import binding collision for symbol '"
                       <> symbolName
+                      <> "' in module '"
+                      <> renderModulePath importerPath
+                      <> "' at '"
+                      <> Text.pack sourcePath
+                      <> "'; already imported from '"
+                      <> renderModulePath (bindingOriginModulePath previousOrigin)
+                      <> "', cannot re-import from '"
+                      <> renderModulePath (parsedImportModulePath importDecl)
+                      <> "'"
+                  )
+              )
+          )
+
+    mkImportTypeCollisionError :: Text -> BindingOrigin -> ParsedImport -> Diagnostic
+    mkImportTypeCollisionError typeName previousOrigin importDecl =
+      setDiagnosticSubject typeName $
+        setDiagnosticRelatedSpan
+          (bindingOriginSpan previousOrigin)
+          ( setDiagnosticPrimarySpan
+              (parsedImportSpan importDecl)
+              ( mkDiagnostic
+                  "E4008"
+                  ( "import type collision for '"
+                      <> typeName
                       <> "' in module '"
                       <> renderModulePath importerPath
                       <> "' at '"
