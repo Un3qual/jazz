@@ -8,12 +8,12 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `JN-BOOTSTRAP-CANONICAL-COMPARISON-001` | Build the canonical lexer comparison contract and reference harness | `P1` | `L` | `impl` | `yes` | `JN-BOOTSTRAP-STACK-SAFE-EVALUATION-001` | [2026-07-12-jazz-next-bootstrap-canonical-comparison.md](../superpowers/plans/2026-07-12-jazz-next-bootstrap-canonical-comparison.md) | `Implementation Batch: Canonical Lexer Comparison` | `docs/execution/blocker-contracts.md`, `docs/execution/done-archive.md`, `docs/execution/queue.md`, `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md`, `docs/superpowers/specs/2026-07-11-jazz-next-bootstrap-canonical-comparison-design.md`, `docs/superpowers/plans/2026-07-12-jazz-next-bootstrap-canonical-comparison.md`, `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs`, `jazz-next/stdlib/LexerTypes.jz`, `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparison.hs`, `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs`, `jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs`, `jazz-next/jazz-next.cabal` | Preserve structured stage-0 lexical failures, define the Jazz-owned canonical lexer result ADTs, adapt Haskell tokens and failures into ordinary `RuntimeValue` trees, normalize logical fixture paths, and establish a deterministic explicit accepted/rejected parser corpus for the stacked Jazz-authored lexer child. | `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs`; `cabal test --project-dir=jazz-next all --test-show-details=failures`; `bash jazz-next/scripts/check-stdlib-format.sh`; `bash jazz-next/scripts/test-warning-config.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; `git diff --check` | `2026-07-12` |
 
 Current executor status (`2026-07-12`):
-`Ready Now` is empty after `JN-BOOTSTRAP-STACK-SAFE-EVALUATION-001` completed.
-The canonical lexer comparison design is accepted. The next source-backed
-action is to plan and promote its reference adapter and parity-harness child;
-the Jazz-authored lexer remains ordered immediately behind that contract.
+`JN-BOOTSTRAP-CANONICAL-COMPARISON-001` is promoted as the only active child.
+It establishes the fixed reference adapter and parity harness consumed by the
+stacked Jazz-authored lexer child.
 
 ## Next Curation Target
 
@@ -28,7 +28,6 @@ target and no named candidate currently.
 
 | blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001` | `JN-BOOTSTRAP-CANONICAL-COMPARISON-001` | `impl` | [blocker-contracts.md](blocker-contracts.md#jn-bootstrap-interpreter-profile-plan-001) | The accepted schema now permits a bounded reference adapter and parity harness. This child must preserve structured stage-0 lexical reasons, define the Jazz canonical ADTs, adapt every token/failure into ordinary runtime values, normalize logical paths, and establish the explicit accepted/rejected parser fixture manifest. It must land before the Jazz-authored lexer so the second stacked pull request consumes a fixed contract. | `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs`, `jazz-next/stdlib/LexerTypes.jz`, `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs`, `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparison.hs`, `jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs`, `jazz-next/jazz-next.cabal`, `docs/execution/blocker-contracts.md`, `docs/execution/queue.md`, `docs/superpowers/plans/2026-07-12-jazz-next-bootstrap-canonical-comparison.md` | `bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs`; `cabal test --project-dir=jazz-next all`; `bash jazz-next/scripts/test-warning-config.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; `git diff --check` | Write and accept the child plan from the accepted comparison design with metadata matching this candidate, then promote only this child to `Ready Now`; keep `JN-BOOTSTRAP-JAZZ-LEXER-001` ordered behind it. |
 
 ## Blocked
 

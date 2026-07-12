@@ -50,18 +50,17 @@ Each blocked item should answer these questions:
   `2026-07-11-jazz-next-bootstrap-canonical-comparison-design.md`. Both sides
   use the generic runtime-value renderer; the schema has no version field until
   coexistence evidence requires one.
-- Smallest unblocker: plan and promote
-  `JN-BOOTSTRAP-CANONICAL-COMPARISON-001`, the reference adapter and parity
-  harness.
-- Decision needed: none for the canonical schema. The child plan must only lock
-  exact file ownership and TDD steps against the accepted contract.
+- Smallest unblocker: execute the promoted
+  `JN-BOOTSTRAP-CANONICAL-COMPARISON-001` reference adapter and parity harness.
+- Decision needed: none; the accepted child plan locks exact file ownership and
+  TDD steps against the canonical schema.
 - Recommended default: preserve structured stage-0 lexical reasons before
   diagnostic rendering, keep the Haskell adapter test-only, normalize logical
   relative `/` paths, and centralize the accepted/rejected parser fixture
   manifest without parsing test source files.
-- Candidate child: `JN-BOOTSTRAP-CANONICAL-COMPARISON-001`, the implementation
-  candidate listed under `Next Curation Target`. After it closes, promote
-  `JN-BOOTSTRAP-JAZZ-LEXER-001` as the second stacked pull request.
+- Active child: `JN-BOOTSTRAP-CANONICAL-COMPARISON-001`, the sole `Ready Now`
+  entry. After it closes, promote `JN-BOOTSTRAP-JAZZ-LEXER-001` as the second
+  stacked pull request.
 - Target paths: `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs`,
   `jazz-next/stdlib/LexerTypes.jz`,
   `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs`,

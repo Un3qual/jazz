@@ -101,6 +101,7 @@ CanonicalLexError
 
 CanonicalLexErrorReason
   = UnexpectedCharacter(Char value)
+  | UnexpectedEndOfInput
   | InvalidCharacterLength(Int actualScalars)
   | UnterminatedLiteral(CanonicalLiteralKind)
   | RawNewline(CanonicalLiteralKind)

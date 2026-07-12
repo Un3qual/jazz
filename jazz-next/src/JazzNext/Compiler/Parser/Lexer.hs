@@ -3,10 +3,14 @@
 -- | Bootstrap lexer for the current surface syntax. It keeps the token set
 -- intentionally small while preserving spans for diagnostics.
 module JazzNext.Compiler.Parser.Lexer
-  ( Token (..),
+  ( LexicalFailure (..),
+    LexicalFailureReason (..),
+    LexicalLiteralKind (..),
+    Token (..),
     TokenKind (..),
     isImmediatelyAfter,
-    tokenize
+    tokenize,
+    tokenizeDetailed
   ) where
 
 import Control.Applicative ((<|>))
@@ -21,7 +25,8 @@ import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan (..),
     mkDiagnostic,
-    renderSourceSpan
+    renderSourceSpan,
+    setDiagnosticPrimarySpan
   )
 import JazzNext.Compiler.Parser.Operator
   ( isStage2OperatorSymbolChar
@@ -36,8 +41,7 @@ import Text.Megaparsec.Char
 import Text.Megaparsec.Error
   ( ErrorFancy (..),
     ParseError (..),
-    ShowErrorComponent (..),
-    errorBundlePretty
+    ShowErrorComponent (..)
   )
 import Text.Megaparsec.Pos
   ( unPos
@@ -82,17 +86,42 @@ data Token = Token
   }
   deriving (Eq, Ord, Show)
 
+data LexicalLiteralKind
+  = CharacterLiteral
+  | TextLiteral
+  deriving (Eq, Ord, Show)
+
+data LexicalFailureReason
+  = UnexpectedCharacter Char
+  | UnexpectedEndOfInput
+  | InvalidCharacterLength Int
+  | UnterminatedLiteral LexicalLiteralKind
+  | RawNewline LexicalLiteralKind
+  | InvalidEscape Char
+  | UnterminatedUnicodeEscape
+  | MalformedUnicodeEscape Text
+  | NonScalarUnicodeEscape Text
+  | InvalidLiteralCharacter LexicalLiteralKind Char
+  | InvalidIntegerLiteral Text
+  deriving (Eq, Ord, Show)
+
+data LexicalFailure = LexicalFailure
+  { lexicalFailureReason :: LexicalFailureReason,
+    lexicalFailureSpan :: SourceSpan
+  }
+  deriving (Eq, Ord, Show)
+
 isImmediatelyAfter :: Token -> Token -> Bool
 isImmediatelyAfter leftToken rightToken =
   spanLine (tokenSpan leftToken) == spanLine (tokenSpan rightToken)
     && spanColumn (tokenSpan rightToken)
       == spanColumn (tokenSpan leftToken) + Text.length (tokenLexeme leftToken)
 
-data LexerError = LexerError Text
+newtype LexerError = LexerError LexicalFailure
   deriving (Eq, Ord, Show)
 
 instance ShowErrorComponent LexerError where
-  showErrorComponent (LexerError message) = Text.unpack message
+  showErrorComponent (LexerError failure) = Text.unpack (renderLexicalFailure failure)
 
 type LexerParser = Parsec LexerError Text
 
@@ -100,9 +129,15 @@ type LexerParser = Parsec LexerError Text
 -- line/column spans for diagnostics.
 tokenize :: Text -> Either Diagnostic [Token]
 tokenize source =
+  case tokenizeDetailed source of
+    Right tokens -> Right tokens
+    Left failure -> Left (lexicalFailureDiagnostic failure)
+
+tokenizeDetailed :: Text -> Either LexicalFailure [Token]
+tokenizeDetailed source =
   case MP.runParser (skipIgnored *> lexerTokens <* MP.eof) "jazz-next source" source of
     Right tokens -> Right tokens
-    Left bundle -> Left (parseDiagnostic (lexerErrorMessage bundle))
+    Left bundle -> Left (lexerFailureFromBundle source bundle)
 
 lexerTokens :: LexerParser [Token]
 lexerTokens =
@@ -129,7 +164,7 @@ tokenParser = do
 
 charToken :: SourceSpan -> LexerParser Token
 charToken spanValue = do
-  (raw, values) <- MP.match (quotedScalars '\'' "character" spanValue)
+  (raw, values) <- MP.match (quotedScalars '\'' CharacterLiteral spanValue)
   case values of
     [value] ->
       pure
@@ -138,11 +173,11 @@ charToken spanValue = do
             tokenLexeme = raw,
             tokenSpan = spanValue
           }
-    _ -> literalFailure spanValue "character literal must contain exactly one Unicode scalar"
+    _ -> literalFailure spanValue (InvalidCharacterLength (length values))
 
 textToken :: SourceSpan -> LexerParser Token
 textToken spanValue = do
-  (raw, values) <- MP.match (quotedScalars '"' "text" spanValue)
+  (raw, values) <- MP.match (quotedScalars '"' TextLiteral spanValue)
   pure
     Token
       { tokenKind = TText (Text.pack values),
@@ -150,26 +185,26 @@ textToken spanValue = do
         tokenSpan = spanValue
       }
 
-quotedScalars :: Char -> Text -> SourceSpan -> LexerParser [Char]
-quotedScalars delimiter label spanValue = do
+quotedScalars :: Char -> LexicalLiteralKind -> SourceSpan -> LexerParser [Char]
+quotedScalars delimiter literalKind spanValue = do
   void (char delimiter)
   go []
   where
     go reversedValues = do
       atEnd <- MP.atEnd
       if atEnd
-        then literalFailure spanValue ("unterminated " <> label <> " literal")
+        then literalFailure spanValue (UnterminatedLiteral literalKind)
         else do
           next <- MP.lookAhead MP.anySingle
           if next == delimiter
             then void (char delimiter) *> pure (reverse reversedValues)
             else do
-              value <- quotedScalar delimiter label spanValue
+              value <- quotedScalar delimiter literalKind spanValue
               go (value : reversedValues)
 
-quotedScalar :: Char -> Text -> SourceSpan -> LexerParser Char
-quotedScalar delimiter label spanValue =
-  escapedScalar label spanValue
+quotedScalar :: Char -> LexicalLiteralKind -> SourceSpan -> LexerParser Char
+quotedScalar delimiter literalKind spanValue =
+  escapedScalar literalKind spanValue
     <|> MP.satisfy
       ( \value ->
           value /= delimiter
@@ -181,15 +216,15 @@ quotedScalar delimiter label spanValue =
     <|> do
       value <- MP.lookAhead MP.anySingle
       if value == '\n' || value == '\r'
-        then literalFailure spanValue ("raw newline is not allowed in a " <> label <> " literal")
-        else literalFailure spanValue ("invalid " <> label <> " literal character")
+        then literalFailure spanValue (RawNewline literalKind)
+        else literalFailure spanValue (InvalidLiteralCharacter literalKind value)
 
-escapedScalar :: Text -> SourceSpan -> LexerParser Char
-escapedScalar label spanValue = do
+escapedScalar :: LexicalLiteralKind -> SourceSpan -> LexerParser Char
+escapedScalar literalKind spanValue = do
   void (char '\\')
   maybeEscape <- MP.optional MP.anySingle
   case maybeEscape of
-    Nothing -> literalFailure spanValue ("unterminated " <> label <> " literal")
+    Nothing -> literalFailure spanValue (UnterminatedLiteral literalKind)
     Just escape ->
       case escape of
         '\\' -> pure '\\'
@@ -200,37 +235,37 @@ escapedScalar label spanValue = do
         't' -> pure '\t'
         '0' -> pure '\0'
         'u' -> unicodeScalarEscape spanValue
-        _ -> literalFailure spanValue ("invalid escape '\\" <> Text.singleton escape <> "'")
+        _ -> literalFailure spanValue (InvalidEscape escape)
 
 unicodeScalarEscape :: SourceSpan -> LexerParser Char
 unicodeScalarEscape spanValue = do
   maybeOpen <- MP.optional (char '{')
   case maybeOpen of
-    Nothing -> literalFailure spanValue "unterminated Unicode escape"
+    Nothing -> literalFailure spanValue UnterminatedUnicodeEscape
     Just _ -> do
       digits <- MP.takeWhileP (Just "Unicode scalar body") (/= '}')
       maybeClose <- MP.optional (char '}')
       if maybeClose == Nothing
-        then literalFailure spanValue "unterminated Unicode escape"
+        then literalFailure spanValue UnterminatedUnicodeEscape
         else
           if Text.length digits < 1 || Text.length digits > 6 || not (Text.all isHexDigit digits)
-            then literalFailure spanValue "Unicode escape must contain 1-6 hexadecimal digits"
+            then literalFailure spanValue (MalformedUnicodeEscape digits)
             else
               case TextRead.hexadecimal digits :: Either String (Integer, Text) of
                 Right (value, trailing)
                   | Text.null trailing,
                     value <= 0x10FFFF,
                     not (value >= 0xD800 && value <= 0xDFFF) -> pure (chr (fromInteger value))
-                _ -> literalFailure spanValue "Unicode escape is not a scalar value"
+                _ -> literalFailure spanValue (NonScalarUnicodeEscape digits)
 
 unicodeScalar :: Char -> Bool
 unicodeScalar value =
   let scalar = ord value
    in scalar < 0xD800 || scalar > 0xDFFF
 
-literalFailure :: SourceSpan -> Text -> LexerParser a
-literalFailure spanValue message =
-  MP.customFailure (LexerError (message <> " at " <> renderSpanValue spanValue))
+literalFailure :: SourceSpan -> LexicalFailureReason -> LexerParser a
+literalFailure spanValue reason =
+  MP.customFailure (LexerError (LexicalFailure reason spanValue))
 
 intToken :: SourceSpan -> LexerParser Token
 intToken spanValue = do
@@ -339,14 +374,7 @@ operatorOrArrowRunToken spanValue = do
 
 unexpectedCharacter :: SourceSpan -> Char -> LexerParser a
 unexpectedCharacter spanValue charValue =
-  MP.customFailure
-    ( LexerError
-        ( "unexpected character '"
-            <> Text.singleton charValue
-            <> "' at "
-            <> renderSpanValue spanValue
-        )
-    )
+  literalFailure spanValue (UnexpectedCharacter charValue)
 
 identifierKind :: Text -> TokenKind
 identifierKind ident =
@@ -373,22 +401,22 @@ sourcePosSpan sourcePosition =
     (unPos (MP.sourceLine sourcePosition))
     (unPos (MP.sourceColumn sourcePosition))
 
-lexerErrorMessage :: MP.ParseErrorBundle Text LexerError -> Text
-lexerErrorMessage bundle =
-  case firstCustomLexerError bundle of
-    Just message -> message
-    Nothing -> Text.pack (errorBundlePretty bundle)
+lexerFailureFromBundle :: Text -> MP.ParseErrorBundle Text LexerError -> LexicalFailure
+lexerFailureFromBundle source bundle =
+  case firstCustomLexerFailure bundle of
+    Just failure -> failure
+    Nothing -> fallbackLexerFailure source bundle
 
-firstCustomLexerError :: MP.ParseErrorBundle Text LexerError -> Maybe Text
-firstCustomLexerError bundle =
+firstCustomLexerFailure :: MP.ParseErrorBundle Text LexerError -> Maybe LexicalFailure
+firstCustomLexerFailure bundle =
   firstJust (map customErrorMessage (NonEmpty.toList (MP.bundleErrors bundle)))
   where
     customErrorMessage parseError =
       case parseError of
         FancyError _ fancyErrors ->
           firstJust
-            [ Just message
-              | ErrorCustom (LexerError message) <- Set.toList fancyErrors
+            [ Just failure
+              | ErrorCustom (LexerError failure) <- Set.toList fancyErrors
             ]
         TrivialError {} -> Nothing
 
@@ -398,10 +426,27 @@ firstCustomLexerError bundle =
         Just value : _ -> Just value
         Nothing : rest -> firstJust rest
 
--- | Render a compact source position for lexer diagnostics before full span
--- rendering is available at this phase.
-renderSpanValue :: SourceSpan -> Text
-renderSpanValue = renderSourceSpan
+fallbackLexerFailure :: Text -> MP.ParseErrorBundle Text LexerError -> LexicalFailure
+fallbackLexerFailure source bundle =
+  let offset = MP.errorOffset (NonEmpty.head (MP.bundleErrors bundle))
+      spanValue = sourceSpanAtOffset offset source
+   in case Text.uncons (Text.drop offset source) of
+        Just (value, _) -> LexicalFailure (UnexpectedCharacter value) spanValue
+        Nothing -> LexicalFailure UnexpectedEndOfInput spanValue
+
+sourceSpanAtOffset :: Int -> Text -> SourceSpan
+sourceSpanAtOffset offset source =
+  let (lineNumber, columnNumber) =
+        Text.foldl' advance (1, 1) (Text.take offset source)
+   in SourceSpan lineNumber columnNumber
+  where
+    advance (lineNumber, columnNumber) value =
+      case value of
+        '\n' -> (lineNumber + 1, 1)
+        '\t' ->
+          let nextColumn = columnNumber + (8 - ((columnNumber - 1) `mod` 8))
+           in (lineNumber, nextColumn)
+        _ -> (lineNumber, columnNumber + 1)
 
 parseIntegerLiteral :: SourceSpan -> Text -> LexerParser Integer
 parseIntegerLiteral spanValue digits =
@@ -413,15 +458,37 @@ parseIntegerLiteral spanValue digits =
 
 invalidIntegerLiteral :: Text -> SourceSpan -> LexerParser a
 invalidIntegerLiteral digits spanValue =
-  MP.customFailure
-    ( LexerError
-        ( "invalid integer literal '"
-            <> digits
-            <> "' at "
-            <> renderSpanValue spanValue
-        )
-    )
+  literalFailure spanValue (InvalidIntegerLiteral digits)
 
--- | Parser/lexer diagnostics currently share the `E0001` parse-error code.
-parseDiagnostic :: Text -> Diagnostic
-parseDiagnostic = mkDiagnostic "E0001"
+lexicalFailureDiagnostic :: LexicalFailure -> Diagnostic
+lexicalFailureDiagnostic failure =
+  setDiagnosticPrimarySpan
+    (lexicalFailureSpan failure)
+    (mkDiagnostic "E0001" (renderLexicalFailure failure))
+
+renderLexicalFailure :: LexicalFailure -> Text
+renderLexicalFailure failure =
+  renderLexicalFailureReason (lexicalFailureReason failure)
+    <> " at "
+    <> renderSourceSpan (lexicalFailureSpan failure)
+
+renderLexicalFailureReason :: LexicalFailureReason -> Text
+renderLexicalFailureReason reason =
+  case reason of
+    UnexpectedCharacter value -> "unexpected character '" <> Text.singleton value <> "'"
+    UnexpectedEndOfInput -> "unexpected end of input"
+    InvalidCharacterLength _ -> "character literal must contain exactly one Unicode scalar"
+    UnterminatedLiteral literalKind -> "unterminated " <> literalKindLabel literalKind <> " literal"
+    RawNewline literalKind -> "raw newline is not allowed in a " <> literalKindLabel literalKind <> " literal"
+    InvalidEscape value -> "invalid escape '\\" <> Text.singleton value <> "'"
+    UnterminatedUnicodeEscape -> "unterminated Unicode escape"
+    MalformedUnicodeEscape _ -> "Unicode escape must contain 1-6 hexadecimal digits"
+    NonScalarUnicodeEscape _ -> "Unicode escape is not a scalar value"
+    InvalidLiteralCharacter literalKind _ -> "invalid " <> literalKindLabel literalKind <> " literal character"
+    InvalidIntegerLiteral digits -> "invalid integer literal '" <> digits <> "'"
+
+literalKindLabel :: LexicalLiteralKind -> Text
+literalKindLabel literalKind =
+  case literalKind of
+    CharacterLiteral -> "character"
+    TextLiteral -> "text"
