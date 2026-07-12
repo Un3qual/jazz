@@ -64,7 +64,8 @@ import JazzNext.Compiler.RuntimeHost
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
-    assertLeftDiagnosticContains
+    assertLeftDiagnosticContains,
+    failTest
   )
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
 import System.Directory
@@ -76,10 +77,12 @@ import System.IO
   ( hClose,
     openBinaryTempFile
   )
+import System.Timeout (timeout)
 
 hostIOTests :: [NamedTest]
 hostIOTests =
   [ ("host-aware evaluator preserves pure expressions", testHostAwareEvaluatorPreservesPureExpressions),
+    ("host-backed tail recursion is stack safe and preserves effect order", testHostTailRecursionIsStackSafe),
     ("host intrinsics return raw values and preserve call order", testHostIntrinsicsReturnRawValues),
     ("host failures normalize every category", testHostFailuresNormalizeEveryCategory),
     ("host effects execute at selected expression depth", testHostEffectsExecuteAtSelectedExpressionDepth),
@@ -102,6 +105,41 @@ hostIOTests =
     ("production host rejects invalid UTF-8", testProductionHostRejectsInvalidUtf8),
     ("production host exposes process arguments", testProductionHostExposesArguments)
   ]
+
+testHostTailRecursionIsStackSafe :: IO ()
+testHostTailRecursionIsStackSafe = do
+  callsRef <- newIORef []
+  let isZero = EBinary "==" (EVar "remaining") (ELit (LInt 0))
+      decrement =
+        EApply
+          (EVar "countDown!")
+          (EBinary "-" (EVar "remaining") (ELit (LInt 1)))
+      expression =
+        EBlock
+          [ SLet
+              "countDown!"
+              (SourceSpan 1 1)
+              (ELambda "remaining" (EIf isZero (ELit (LInt 0)) decrement)),
+            SExpr
+              (SourceSpan 2 1)
+              (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "before")]),
+            SExpr
+              (SourceSpan 3 1)
+              (EApply (EVar "countDown!") (ELit (LInt 20000)))
+          ]
+  maybeOutcome <-
+    timeout
+      30000000
+      (evaluateRuntimeExprWithHost (recordingIOHost callsRef) expression)
+  case maybeOutcome of
+    Nothing -> failTest "20,000-call host-path tail recursion timed out"
+    Just result -> do
+      calls <- readIORef callsRef
+      assertEqual
+        "host-path tail result"
+        (Right (Just "0"))
+        (fmap (fmap renderRuntimeValue) result)
+      assertEqual "host-path effects execute once" [WriteStdoutCall "before"] calls
 
 testHostAwareEvaluatorPreservesPureExpressions :: IO ()
 testHostAwareEvaluatorPreservesPureExpressions = do

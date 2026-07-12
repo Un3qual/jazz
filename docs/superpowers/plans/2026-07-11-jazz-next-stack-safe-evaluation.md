@@ -99,6 +99,7 @@ boundaries, not planned edits. The existing runtime suite already imports
 - Modify: `jazz-next/test/JazzNext/Compiler/Semantics/Runtime/RecursionTests.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Semantics/Runtime/HostIOTests.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`
+- Modify: `jazz-next/jazz-next.cabal`
 
 **Interfaces:**
 
@@ -283,11 +284,10 @@ Run:
 cabal test --project-dir=jazz-next runtime-semantics-spec loader-spec --test-show-details=failures
 ```
 
-Expected: each new deep regression either times out, leaks a Haskell stack
-overflow, or terminates abnormally in the current recursive evaluator. Existing
-tests must remain green up to the first failing deep regression. Record the
-actual failing test names and failure mode in the plan's execution notes; do
-not weaken depths or timeouts to manufacture RED.
+Expected: at least one deep regression fails under the current evaluator.
+Existing tests must remain green up to the first failing deep regression.
+Record the actual failing test names and failure mode in the plan's execution
+notes; do not weaken depths or timeouts to manufacture RED.
 
 Do not commit while the suite is red. Continue directly to Task 2.
 
@@ -815,6 +815,15 @@ git commit -m "docs: close stack-safe evaluation batch"
 
 ## Execution Notes
 
-- RED evidence: not run yet.
-- GREEN evidence: not run yet.
+- RED evidence: before the machine change, the 50,000-call pure closure,
+  10,000-call case-arm closure, 10,000-call typed closure, and 20,000-call
+  imported closure completed under the optimized evaluator, while the
+  20,000-call host-backed closure failed deterministically with `E3002` for its
+  missing `countDown!` self-binding. The host scope did not stitch a lone
+  self-recursive function into its deferred closure environment.
+- GREEN evidence: `cabal test --project-dir=jazz-next runtime-semantics-spec
+  loader-spec --test-show-details=failures` passed after the shared machine and
+  host self-cell construction were installed, including exact-once host output,
+  all accepted recursion floors, imported closure transfer, and rendered
+  pure/host diagnostic parity.
 - Full verification: not run yet.

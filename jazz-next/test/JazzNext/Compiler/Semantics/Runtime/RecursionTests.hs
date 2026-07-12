@@ -4,10 +4,13 @@ module JazzNext.Compiler.Semantics.Runtime.RecursionTests
   ( recursionTests
   ) where
 
-
 import Control.Exception
   ( SomeException,
     try
+  )
+import Data.Functor.Identity
+  ( Identity,
+    runIdentity
   )
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
@@ -46,8 +49,12 @@ import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
     evaluateRuntimeExprWithBuiltinsAndBindingHints,
+    evaluateRuntimeExprWithHost,
     renderRuntimeValue,
     runtimeValueExactlyMatchesConstraint
+  )
+import JazzNext.Compiler.RuntimeHost
+  ( RuntimeHost (..)
   )
 import JazzNext.Compiler.RuntimeHints
   ( bindingRuntimeHintKey
@@ -75,7 +82,11 @@ import JazzNext.Compiler.Semantics.Runtime.Shared
 
 recursionTests :: [NamedTest]
 recursionTests =
-  [ ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError)
+  [ ("tail-recursive closure is stack safe at bootstrap depth", testTailRecursiveClosureIsStackSafe)
+    , ("tail-recursive case arm is stack safe", testTailRecursiveCaseArmIsStackSafe)
+    , ("typed tail-recursive closure preserves result hints", testTypedTailRecursiveClosureIsStackSafe)
+    , ("pure and host evaluators preserve diagnostic parity", testPureAndHostDiagnosticsMatch)
+    , ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError)
     , ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError)
     , ("mixed wrapped alias cycle still produces deterministic runtime diagnostic", testMixedWrappedAliasCycleRuntimeError)
     , ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError)
@@ -92,6 +103,106 @@ recursionTests =
     , ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals)
     , ("qualified method dispatch rejects mutual method alias cycle", testQualifiedMethodDispatchRejectsMutualMethodAliasCycle)
   ]
+
+testTailRecursiveClosureIsStackSafe :: IO ()
+testTailRecursiveClosureIsStackSafe =
+  assertStackSafeRunResult
+    "50,000-call pure tail recursion"
+    ( runSource
+        defaultWarningSettings
+        ( "countDown = \\(remaining) -> "
+            <> "if remaining == 0 0 else { "
+            <> "next = remaining - 1. countDown next. }. "
+            <> "countDown 50000."
+        )
+    )
+    (Just "0")
+
+testTailRecursiveCaseArmIsStackSafe :: IO ()
+testTailRecursiveCaseArmIsStackSafe =
+  assertStackSafeRunResult
+    "10,000-call case-arm tail recursion"
+    ( runSource
+        defaultWarningSettings
+        ( "countDown = \\(remaining) -> case remaining { "
+            <> "| 0 -> 0 | _ -> countDown (remaining - 1) }. "
+            <> "countDown 10000."
+        )
+    )
+    (Just "0")
+
+testTypedTailRecursiveClosureIsStackSafe :: IO ()
+testTypedTailRecursiveClosureIsStackSafe =
+  assertStackSafeRunResult
+    "10,000-call typed tail recursion"
+    ( runSource
+        defaultWarningSettings
+        ( "countDown :: Int -> Int. "
+            <> "countDown = \\(remaining) -> "
+            <> "if remaining == 0 0 else countDown (remaining - 1). "
+            <> "countDown 10000."
+        )
+    )
+    (Just "0")
+
+assertStackSafeRunResult :: Text -> IO RunResult -> Maybe Text -> IO ()
+assertStackSafeRunResult label action expectedOutput = do
+  maybeOutcome <-
+    timeout
+      30000000
+      (try action :: IO (Either SomeException RunResult))
+  case maybeOutcome of
+    Nothing ->
+      failTest (label <> " timed out")
+    Just (Left err) ->
+      failTest (label <> " leaked host exception: " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual (label <> " compile errors") [] (runCompileErrors result)
+      assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
+      assertEqual (label <> " output") expectedOutput (runOutput result)
+
+diagnosticParityExpressions :: [Expr]
+diagnosticParityExpressions =
+  [ EVar "missing",
+    EIf (ELit (LInt 1)) (ELit (LInt 2)) (ELit (LInt 3)),
+    EApply (ELit (LInt 1)) (ELit (LInt 2)),
+    EPatternCase (ELit (LInt 1)) []
+  ]
+
+diagnosticParityHost :: RuntimeHost Identity
+diagnosticParityHost =
+  RuntimeHost
+    { runtimeHostReadText = \_ -> pure (Right ""),
+      runtimeHostWriteText = \_ _ -> pure (Right ()),
+      runtimeHostReadStdin = pure (Right ""),
+      runtimeHostWriteStdout = \_ -> pure (Right ()),
+      runtimeHostWriteStderr = \_ -> pure (Right ()),
+      runtimeHostArguments = pure [],
+      runtimeHostExit = \_ -> pure (Right ())
+    }
+
+testPureAndHostDiagnosticsMatch :: IO ()
+testPureAndHostDiagnosticsMatch =
+  mapM_ assertParity diagnosticParityExpressions
+  where
+    assertParity expression =
+      case
+          ( evaluateRuntimeExpr expression,
+            runIdentity (evaluateRuntimeExprWithHost diagnosticParityHost expression)
+          )
+        of
+          (Left pureDiagnostic, Left hostDiagnostic) ->
+            assertEqual
+              "pure/host rendered diagnostic"
+              (renderDiagnostic pureDiagnostic)
+              (renderDiagnostic hostDiagnostic)
+          (pureResult, hostResult) ->
+            failTest
+              ( "expected matching diagnostic failures, found "
+                  <> Text.pack (show pureResult)
+                  <> " and "
+                  <> Text.pack (show hostResult)
+              )
 
 testAliasOnlyRecursiveCycleRuntimeError :: IO ()
 testAliasOnlyRecursiveCycleRuntimeError = do

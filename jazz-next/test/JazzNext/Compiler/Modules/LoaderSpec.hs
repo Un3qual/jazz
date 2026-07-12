@@ -2,6 +2,10 @@
 
 module Main (main) where
 
+import Control.Exception
+  ( SomeException,
+    try
+  )
 import Data.IORef
   ( IORef,
     modifyIORef',
@@ -33,8 +37,9 @@ import JazzNext.Compiler.Modules.Loader.VisibilityTests (visibilityTests)
 import JazzNext.Compiler.Modules.Loader.CapabilitiesTests (capabilitiesTests)
 import JazzNext.Compiler.Modules.Loader.OperatorsTests (operatorTests)
 import JazzNext.Compiler.Modules.Loader.DiagnosticsTests (diagnosticTests)
-import JazzNext.TestHarness (NamedTest, assertEqual, runTestSuite)
+import JazzNext.TestHarness (NamedTest, assertEqual, failTest, runTestSuite)
 import System.Directory (doesFileExist)
+import System.Timeout (timeout)
 
 main :: IO ()
 main = runTestSuite "Loader" tests
@@ -52,6 +57,9 @@ tests =
     ),
     ( "checked-in IO modules decode every host error category",
       testBootstrapIOErrors
+    ),
+    ( "imported tail-recursive closures are stack safe at bootstrap depth",
+      testImportedTailRecursiveClosureIsStackSafe
     )
   ]
     ++ basicTests
@@ -59,6 +67,46 @@ tests =
     ++ capabilitiesTests
     ++ operatorTests
     ++ diagnosticTests
+
+testImportedTailRecursiveClosureIsStackSafe :: IO ()
+testImportedTailRecursiveClosureIsStackSafe = do
+  maybeResult <-
+    timeout
+      30000000
+      ( try
+          ( runModuleGraphWithPrelude
+              defaultWarningSettings
+              Nothing
+              resolverConfig
+              ["App", "Main"]
+              lookupSource
+          )
+          :: IO (Either SomeException RunResult)
+      )
+  case maybeResult of
+    Nothing -> failTest "20,000-call imported tail recursion timed out"
+    Just (Left err) ->
+      failTest ("imported tail recursion leaked host exception: " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual "imported tail compile errors" [] (runCompileErrors result)
+      assertEqual "imported tail runtime errors" [] (runRuntimeErrors result)
+      assertEqual "imported tail output" (Just "0") (runOutput result)
+  where
+    counterSource =
+      "module Library::Counter (countDown) {\n"
+        <> "countDown = \\(remaining) -> case remaining {\n"
+        <> "| 0 -> 0\n"
+        <> "| _ -> countDown (remaining - 1)\n"
+        <> "}.\n"
+        <> "}"
+    entrySource =
+      "module App::Main {\n"
+        <> "import Library::Counter.\n"
+        <> "countDown 20000.\n"
+        <> "}"
+    lookupSource "src/Library/Counter.jz" = pure (Just counterSource)
+    lookupSource "src/App/Main.jz" = pure (Just entrySource)
+    lookupSource _ = pure Nothing
 
 testBootstrapMaybeAndResultModules :: IO ()
 testBootstrapMaybeAndResultModules = do
