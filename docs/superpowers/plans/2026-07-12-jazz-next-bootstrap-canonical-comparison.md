@@ -288,7 +288,7 @@ git commit -m "feat: add canonical lexer comparison values"
 - Consumes: `parseSurfaceProgram`, `tokenizeDetailed`, and the canonical Haskell
   adapter.
 
-- [ ] **Step 1: Add failing corpus invariant tests.**
+- [x] **Step 1: Add failing corpus invariant tests.**
 
 Require nonempty unique names, valid normalized paths, stable manifest order,
 both parser classifications, all token constructors, every lexical failure
@@ -297,11 +297,11 @@ integer above `Int64`, and the current parser source inventory. For each entry,
 assert the recorded classification equals `isRight (parseSurfaceProgram
 source)` and assert stage-0 adaptation renders deterministically.
 
-- [ ] **Step 2: Run the focused suite and verify RED.**
+- [x] **Step 2: Run the focused suite and verify RED.**
 
 Expected: compilation fails because `FixtureCorpus` does not exist.
 
-- [ ] **Step 3: Build the static corpus from actually exercised parser inputs.**
+- [x] **Step 3: Build the static corpus from actually exercised parser inputs.**
 
 Inventory the parser suites by executing them with a temporary development-only
 observer, deduplicate exact source text, classify each source with
@@ -315,18 +315,18 @@ lexical reason, leading zeros, and arbitrary-precision integers. Keep the
 manifest static Haskell data; do not parse Haskell test source files at test
 runtime.
 
-- [ ] **Step 4: Register the Cabal test component.**
+- [x] **Step 4: Register the Cabal test component.**
 
 Add `canonical-lexer-comparison-spec` with the common test stanza and register
 `CanonicalLexerComparison` and `FixtureCorpus` as its `other-modules`.
 
-- [ ] **Step 5: Run focused and all parser suites GREEN.**
+- [x] **Step 5: Run focused and all parser suites GREEN.**
 
 ```bash
 cabal test --project-dir=jazz-next canonical-lexer-comparison-spec adt-pattern-parser-spec declaration-parser-spec expression-parser-spec if-expression-parser-spec lambda-parser-spec module-import-parser-spec operator-fixity-spec operator-invalid-syntax-spec operator-section-spec parser-foundation-spec pattern-parser-spec token-parser-spec --test-show-details=failures
 ```
 
-- [ ] **Step 6: Commit the explicit corpus and harness component.**
+- [x] **Step 6: Commit the explicit corpus and harness component.**
 
 ```bash
 git add jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs jazz-next/jazz-next.cabal

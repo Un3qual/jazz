@@ -31,6 +31,12 @@ import JazzNext.Compiler.Parser.Lexer
     tokenize,
     tokenizeDetailed
   )
+import JazzNext.Compiler.Parser.FixtureCorpus
+  ( ParserFixture (..),
+    ParserFixtureExpectation (..),
+    parserFixtureCorpus
+  )
+import JazzNext.Compiler.Parser (parseSurfaceProgram)
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
@@ -40,6 +46,8 @@ import JazzNext.TestHarness
   )
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
 import System.Directory (doesFileExist)
+import qualified Data.Set as Set
+import Data.Either (isRight)
 
 main :: IO ()
 main = runTestSuite "CanonicalLexerComparison" tests
@@ -61,7 +69,10 @@ tests =
     ("maps every token constructor", testMapsEveryTokenConstructor),
     ("maps every lexical failure constructor", testMapsEveryLexicalFailureConstructor),
     ("uses runtime escaping for decoded values", testUsesRuntimeEscaping),
-    ("renders the same canonical value from Jazz", testJazzCanonicalRendering)
+    ("renders the same canonical value from Jazz", testJazzCanonicalRendering),
+    ("keeps the parser fixture corpus well formed", testParserFixtureCorpusWellFormed),
+    ("keeps parser classifications current", testParserFixtureClassifications),
+    ("adapts the parser corpus deterministically", testParserFixtureDeterminism)
   ]
 
 testUnexpectedCharacter :: IO ()
@@ -302,6 +313,75 @@ readFirstExisting candidates =
     candidate : rest -> do
       exists <- doesFileExist candidate
       if exists then TextIO.readFile candidate else readFirstExisting rest
+
+testParserFixtureCorpusWellFormed :: IO ()
+testParserFixtureCorpusWellFormed = do
+  let names = map parserFixtureName parserFixtureCorpus
+      focusedNames =
+        [ "lexer-leading-zero-integer",
+          "lexer-crlf-spans",
+          "lexer-unicode-and-escape-values",
+          "lexer-arbitrary-precision-integer",
+          "lexer-all-token-constructors",
+          "lexer-comments-spaces-and-tabs",
+          "lexer-lf-spans",
+          "lexer-all-supported-escapes",
+          "lexer-operator-runs",
+          "lexer-empty-character",
+          "lexer-multi-scalar-character",
+          "lexer-unterminated-character",
+          "lexer-unterminated-text",
+          "lexer-raw-newline",
+          "lexer-invalid-escape",
+          "lexer-unterminated-unicode-escape",
+          "lexer-empty-unicode-escape",
+          "lexer-nonhex-unicode-escape",
+          "lexer-overlong-unicode-escape",
+          "lexer-nonscalar-unicode-escape",
+          "lexer-unexpected-character"
+        ]
+      observedNames =
+        [ "parser-corpus-" <> Text.justifyRight 4 '0' (showText index)
+          | index <- [1 :: Int .. 312]
+        ]
+  assertEqual "corpus is nonempty" False (null parserFixtureCorpus)
+  assertEqual "fixture names are unique" (length names) (Set.size (Set.fromList names))
+  assertEqual "fixture manifest order" (focusedNames <> observedNames) names
+  assertEqual
+    "fixture paths normalize"
+    (replicate (length parserFixtureCorpus) True)
+    [isRight (normalizeCanonicalSourcePath (parserFixturePath fixture)) | fixture <- parserFixtureCorpus]
+  assertEqual
+    "corpus includes accepted parser sources"
+    True
+    (ParserAccepted `elem` map parserFixtureExpectation parserFixtureCorpus)
+  assertEqual
+    "corpus includes rejected parser sources"
+    True
+    (ParserRejected `elem` map parserFixtureExpectation parserFixtureCorpus)
+
+testParserFixtureClassifications :: IO ()
+testParserFixtureClassifications =
+  mapM_
+    ( \fixture ->
+        assertEqual
+          ("parser classification " <> parserFixtureName fixture)
+          (parserFixtureExpectation fixture == ParserAccepted)
+          (isRight (parseSurfaceProgram (parserFixtureSource fixture)))
+    )
+    parserFixtureCorpus
+
+testParserFixtureDeterminism :: IO ()
+testParserFixtureDeterminism =
+  mapM_
+    ( \fixture -> do
+        path <- normalizedPath (parserFixturePath fixture)
+        let canonical = canonicalizeLexResult path (tokenizeDetailed (parserFixtureSource fixture))
+            first = renderCanonicalLexResult canonical
+            second = renderCanonicalLexResult canonical
+        assertEqual ("deterministic fixture " <> parserFixtureName fixture) first second
+    )
+    parserFixtureCorpus
 
 showText :: Show a => a -> Text.Text
 showText = Text.pack . show

@@ -142,6 +142,14 @@ test-suite prelude-loading-spec
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
 
+test-suite canonical-lexer-comparison-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Parser.FixtureCorpus
+
 test-suite adt-pattern-parser-spec
   import: test-common
   type: exitcode-stdio-1.0
