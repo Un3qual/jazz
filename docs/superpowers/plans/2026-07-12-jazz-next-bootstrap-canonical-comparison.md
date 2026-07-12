@@ -198,7 +198,7 @@ git commit -m "refactor: preserve structured lexical failures"
   `renderCanonicalLexResult :: CanonicalLexResult -> Text`.
 - Consumes: `Token`, `TokenKind`, `LexicalFailure`, and `renderRuntimeValue`.
 
-- [ ] **Step 1: Add failing canonical mapping tests.**
+- [x] **Step 1: Add failing canonical mapping tests.**
 
 Add tests for:
 
@@ -216,18 +216,18 @@ operators, leading-zero integers, an integer above `Int64`, escaped character
 and text payloads, spans, and every structured error reason. Assert a path with
 backslashes is rejected rather than platform-normalized.
 
-- [ ] **Step 2: Run focused tests and verify RED.**
+- [x] **Step 2: Run focused tests and verify RED.**
 
 Run the focused command from Task 1. Expected: compilation fails because the
 canonical comparison module and Jazz schema do not exist.
 
-- [ ] **Step 3: Add `LexerTypes.jz` with two-space indentation.**
+- [x] **Step 3: Add `LexerTypes.jz` with two-space indentation.**
 
 Declare and explicitly export the approved canonical ADTs. Use constructor
 payloads exactly as documented, including `IntegerKind Text`; do not add
 rendering functions or a schema version.
 
-- [ ] **Step 4: Implement the test-only Haskell mirror and total adapters.**
+- [x] **Step 4: Implement the test-only Haskell mirror and total adapters.**
 
 Mirror the Jazz constructor names with Haskell ADTs. Map every `TokenKind` and
 `LexicalFailureReason` by exhaustive pattern matching. Build constructor values
@@ -249,21 +249,21 @@ evaluating `ELit (LInt value)` through `evaluateRuntimeExpr`; do not export or
 duplicate the runtime's private integer metadata. Call only
 `renderRuntimeValue` for textual evidence.
 
-- [ ] **Step 5: Prove Jazz and Haskell construct identical values.**
+- [x] **Step 5: Prove Jazz and Haskell construct identical values.**
 
 Run a small module graph whose entry imports `LexerTypes` and returns a
 representative `CanonicalLexSuccess`. Compare its `runOutput` with
 `renderCanonicalLexResult` for the equivalent Haskell value. Execute the Jazz
 graph twice and require identical output.
 
-- [ ] **Step 6: Run focused tests and stdlib formatting GREEN.**
+- [x] **Step 6: Run focused tests and stdlib formatting GREEN.**
 
 ```bash
 bash jazz-next/scripts/runghc.sh -i./jazz-next/src -i./jazz-next/test jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs
 bash jazz-next/scripts/check-stdlib-format.sh
 ```
 
-- [ ] **Step 7: Commit the canonical value contract.**
+- [x] **Step 7: Commit the canonical value contract.**
 
 ```bash
 git add jazz-next/stdlib/LexerTypes.jz jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparison.hs jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs

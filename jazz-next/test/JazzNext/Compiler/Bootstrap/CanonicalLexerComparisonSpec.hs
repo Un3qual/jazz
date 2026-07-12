@@ -3,16 +3,31 @@
 module Main (main) where
 
 import qualified Data.Text as Text
+import qualified Data.Text.IO as TextIO
+import JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+  ( CanonicalSourcePath (..),
+    canonicalizeLexResult,
+    normalizeCanonicalSourcePath,
+    renderCanonicalLexResult
+  )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
     diagnosticCode,
     diagnosticPrimarySpan,
     renderDiagnostic
   )
+import JazzNext.Compiler.Driver
+  ( RunResult (..),
+    runModuleGraphWithPrelude
+  )
+import JazzNext.Compiler.ModuleResolver
+  ( ModuleResolutionConfig (..)
+  )
 import JazzNext.Compiler.Parser.Lexer
   ( LexicalFailure (..),
     LexicalFailureReason (..),
     LexicalLiteralKind (..),
+    Token,
     tokenize,
     tokenizeDetailed
   )
@@ -23,6 +38,8 @@ import JazzNext.TestHarness
     failTest,
     runTestSuite
   )
+import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
+import System.Directory (doesFileExist)
 
 main :: IO ()
 main = runTestSuite "CanonicalLexerComparison" tests
@@ -36,7 +53,15 @@ tests =
     ("preserves unterminated literals structurally", testUnterminatedLiterals),
     ("preserves raw newlines structurally", testRawNewline),
     ("preserves malformed Unicode escapes structurally", testMalformedUnicodeEscapes),
-    ("keeps the legacy diagnostic wrapper", testLegacyDiagnosticWrapper)
+    ("keeps the legacy diagnostic wrapper", testLegacyDiagnosticWrapper),
+    ("normalizes logical source paths", testNormalizesLogicalPaths),
+    ("rejects non-logical source paths", testRejectsNonLogicalPaths),
+    ("renders canonical tokens through the runtime renderer", testRendersCanonicalTokens),
+    ("preserves arbitrary-precision integer payloads", testPreservesArbitraryPrecisionIntegers),
+    ("maps every token constructor", testMapsEveryTokenConstructor),
+    ("maps every lexical failure constructor", testMapsEveryLexicalFailureConstructor),
+    ("uses runtime escaping for decoded values", testUsesRuntimeEscaping),
+    ("renders the same canonical value from Jazz", testJazzCanonicalRendering)
   ]
 
 testUnexpectedCharacter :: IO ()
@@ -113,9 +138,183 @@ testLegacyDiagnosticWrapper =
       assertContains "legacy summary" "unexpected character '`' at 1:7" (renderDiagnostic diagnostic)
     Right tokens -> failTest ("expected lexical failure, got " <> showText tokens)
 
+testNormalizesLogicalPaths :: IO ()
+testNormalizesLogicalPaths =
+  assertEqual
+    "normalized logical path"
+    (Right (CanonicalSourcePath "fixtures/parser/basic.jz"))
+    (normalizeCanonicalSourcePath "fixtures/./parser//basic.jz")
+
+testRejectsNonLogicalPaths :: IO ()
+testRejectsNonLogicalPaths = do
+  assertEqual
+    "absolute path"
+    (Left "canonical source path must be relative")
+    (normalizeCanonicalSourcePath "/tmp/basic.jz")
+  assertEqual
+    "parent path"
+    (Left "canonical source path must not contain '..'")
+    (normalizeCanonicalSourcePath "fixtures/../basic.jz")
+  assertEqual
+    "backslash path"
+    (Left "canonical source path must use '/' separators")
+    (normalizeCanonicalSourcePath "fixtures\\basic.jz")
+
+testRendersCanonicalTokens :: IO ()
+testRendersCanonicalTokens = do
+  path <- normalizedPath "fixtures/parser/basic.jz"
+  result <- detailedResult "module value = 00042."
+  assertEqual
+    "canonical token rendering"
+    ( "CanonicalLexSuccess(CanonicalSourcePath(\"fixtures/parser/basic.jz\"), "
+        <> "[CanonicalToken(KeywordKind(ModuleKeyword), \"module\", CanonicalSpan(1, 1)), "
+        <> "CanonicalToken(IdentifierKind(\"value\"), \"value\", CanonicalSpan(1, 8)), "
+        <> "CanonicalToken(PunctuationKind(EqualsPunctuation), \"=\", CanonicalSpan(1, 14)), "
+        <> "CanonicalToken(IntegerKind(\"42\"), \"00042\", CanonicalSpan(1, 16)), "
+        <> "CanonicalToken(PunctuationKind(DotPunctuation), \".\", CanonicalSpan(1, 21))])"
+    )
+    (renderCanonicalLexResult (canonicalizeLexResult path result))
+
+testPreservesArbitraryPrecisionIntegers :: IO ()
+testPreservesArbitraryPrecisionIntegers = do
+  path <- normalizedPath "fixtures/parser/huge-integer.jz"
+  result <- detailedResult "9223372036854775808."
+  assertContains
+    "arbitrary integer canonical decimal"
+    "IntegerKind(\"9223372036854775808\")"
+    (renderCanonicalLexResult (canonicalizeLexResult path result))
+
+testMapsEveryTokenConstructor :: IO ()
+testMapsEveryTokenConstructor = do
+  path <- normalizedPath "fixtures/parser/all-tokens.jz"
+  result <-
+    detailedResult
+      "module import as data if else case -> @ = : :: . { } ( ) [ ] , \\ + name 0 'a' \"x\""
+  let rendered = renderCanonicalLexResult (canonicalizeLexResult path result)
+      expectedKinds =
+        [ "KeywordKind(ModuleKeyword)",
+          "KeywordKind(ImportKeyword)",
+          "KeywordKind(AsKeyword)",
+          "KeywordKind(DataKeyword)",
+          "KeywordKind(IfKeyword)",
+          "KeywordKind(ElseKeyword)",
+          "KeywordKind(CaseKeyword)",
+          "PunctuationKind(ArrowPunctuation)",
+          "PunctuationKind(AtPunctuation)",
+          "PunctuationKind(EqualsPunctuation)",
+          "PunctuationKind(ColonPunctuation)",
+          "PunctuationKind(DoubleColonPunctuation)",
+          "PunctuationKind(DotPunctuation)",
+          "PunctuationKind(LeftBracePunctuation)",
+          "PunctuationKind(RightBracePunctuation)",
+          "PunctuationKind(LeftParenPunctuation)",
+          "PunctuationKind(RightParenPunctuation)",
+          "PunctuationKind(LeftBracketPunctuation)",
+          "PunctuationKind(RightBracketPunctuation)",
+          "PunctuationKind(CommaPunctuation)",
+          "PunctuationKind(LambdaPunctuation)",
+          "OperatorKind(\"+\")",
+          "IdentifierKind(\"name\")",
+          "IntegerKind(\"0\")",
+          "CharacterKind('a')",
+          "TextKind(\"x\")"
+        ]
+  mapM_ (\expected -> assertContains expected expected rendered) expectedKinds
+
+testMapsEveryLexicalFailureConstructor :: IO ()
+testMapsEveryLexicalFailureConstructor = do
+  path <- normalizedPath "fixtures/parser/all-errors.jz"
+  let spanValue = SourceSpan 2 9
+      cases =
+        [ (LexicalFailure (UnexpectedCharacter '`') spanValue, "UnexpectedCharacter('`')"),
+          (LexicalFailure UnexpectedEndOfInput spanValue, "UnexpectedEndOfInput"),
+          (LexicalFailure (InvalidCharacterLength 2) spanValue, "InvalidCharacterLength(2)"),
+          (LexicalFailure (UnterminatedLiteral CharacterLiteral) spanValue, "UnterminatedLiteral(CharacterLiteral)"),
+          (LexicalFailure (RawNewline TextLiteral) spanValue, "RawNewline(TextLiteral)"),
+          (LexicalFailure (InvalidEscape 'x') spanValue, "InvalidEscape('x')"),
+          (LexicalFailure UnterminatedUnicodeEscape spanValue, "UnterminatedUnicodeEscape"),
+          (LexicalFailure (MalformedUnicodeEscape "xyz") spanValue, "MalformedUnicodeEscape(\"xyz\")"),
+          (LexicalFailure (NonScalarUnicodeEscape "D800") spanValue, "NonScalarUnicodeEscape(\"D800\")"),
+          (LexicalFailure (InvalidLiteralCharacter TextLiteral '`') spanValue, "InvalidLiteralCharacter(TextLiteral, '`')"),
+          (LexicalFailure (InvalidIntegerLiteral "00x") spanValue, "InvalidIntegerLiteral(\"00x\")")
+        ]
+  mapM_
+    ( \(failure, expected) ->
+        assertContains
+          expected
+          expected
+          (renderCanonicalLexResult (canonicalizeLexResult path (Left failure)))
+    )
+    cases
+
+testUsesRuntimeEscaping :: IO ()
+testUsesRuntimeEscaping = do
+  path <- normalizedPath "fixtures/parser/escapes.jz"
+  result <- detailedResult "'\\n' \"quote: \\\"; tab: \\t\""
+  let rendered = renderCanonicalLexResult (canonicalizeLexResult path result)
+  assertContains "character escape" "CharacterKind('\\n')" rendered
+  assertContains "text escape" "TextKind(\"quote: \\\"; tab: \\t\")" rendered
+
+testJazzCanonicalRendering :: IO ()
+testJazzCanonicalRendering = do
+  lexerTypesSource <- readLexerTypesSource
+  first <- runJazzCanonicalFixture lexerTypesSource
+  second <- runJazzCanonicalFixture lexerTypesSource
+  path <- normalizedPath "fixtures/parser/basic.jz"
+  result <- detailedResult "module"
+  let expected = renderCanonicalLexResult (canonicalizeLexResult path result)
+  assertEqual "Jazz canonical output" (Just expected) (runOutput first)
+  assertEqual "Jazz canonical determinism" (runOutput first) (runOutput second)
+
+runJazzCanonicalFixture :: Text.Text -> IO RunResult
+runJazzCanonicalFixture lexerTypesSource =
+  runModuleGraphWithPrelude
+    defaultWarningSettings
+    Nothing
+    ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    ["App", "Main"]
+    lookupSource
+  where
+    lookupSource sourcePath =
+      pure
+        ( case sourcePath of
+            "src/App/Main.jz" -> Just jazzCanonicalFixtureSource
+            "src/LexerTypes.jz" -> Just lexerTypesSource
+            _ -> Nothing
+        )
+
+jazzCanonicalFixtureSource :: Text.Text
+jazzCanonicalFixtureSource =
+  Text.unlines
+    [ "module App::Main {",
+      "  import LexerTypes (CanonicalLexSuccess, CanonicalSourcePath, CanonicalToken, KeywordKind, ModuleKeyword, CanonicalSpan).",
+      "  CanonicalLexSuccess (CanonicalSourcePath \"fixtures/parser/basic.jz\") [CanonicalToken (KeywordKind ModuleKeyword) \"module\" (CanonicalSpan 1 1)].",
+      "}"
+    ]
+
+readLexerTypesSource :: IO Text.Text
+readLexerTypesSource = readFirstExisting ["jazz-next/stdlib/LexerTypes.jz", "stdlib/LexerTypes.jz"]
+
+readFirstExisting :: [FilePath] -> IO Text.Text
+readFirstExisting candidates =
+  case candidates of
+    [] -> failTest "could not locate LexerTypes.jz"
+    candidate : rest -> do
+      exists <- doesFileExist candidate
+      if exists then TextIO.readFile candidate else readFirstExisting rest
+
 showText :: Show a => a -> Text.Text
 showText = Text.pack . show
 
 assertDetailedFailure :: Text.Text -> LexicalFailure -> Text.Text -> IO ()
 assertDetailedFailure label expected source =
   assertEqual label (Left expected) (tokenizeDetailed source)
+
+normalizedPath :: FilePath -> IO CanonicalSourcePath
+normalizedPath path =
+  case normalizeCanonicalSourcePath path of
+    Left err -> failTest ("expected valid logical path: " <> err)
+    Right normalized -> pure normalized
+
+detailedResult :: Text.Text -> IO (Either LexicalFailure [Token])
+detailedResult source = pure (tokenizeDetailed source)

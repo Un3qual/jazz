@@ -1,1 +1,21 @@
-module LexerTypes () { }
+module LexerTypes (type CanonicalKeyword, constructor ModuleKeyword, constructor ImportKeyword, constructor AsKeyword, constructor DataKeyword, constructor IfKeyword, constructor ElseKeyword, constructor CaseKeyword, type CanonicalPunctuation, constructor ArrowPunctuation, constructor AtPunctuation, constructor EqualsPunctuation, constructor ColonPunctuation, constructor DoubleColonPunctuation, constructor DotPunctuation, constructor LeftBracePunctuation, constructor RightBracePunctuation, constructor LeftParenPunctuation, constructor RightParenPunctuation, constructor LeftBracketPunctuation, constructor RightBracketPunctuation, constructor CommaPunctuation, constructor LambdaPunctuation, type CanonicalLiteralKind, constructor CharacterLiteral, constructor TextLiteral, type CanonicalLexErrorReason, constructor UnexpectedCharacter, constructor UnexpectedEndOfInput, constructor InvalidCharacterLength, constructor UnterminatedLiteral, constructor RawNewline, constructor InvalidEscape, constructor UnterminatedUnicodeEscape, constructor MalformedUnicodeEscape, constructor NonScalarUnicodeEscape, constructor InvalidLiteralCharacter, constructor InvalidIntegerLiteral, type CanonicalSourcePath, constructor CanonicalSourcePath, type CanonicalSpan, constructor CanonicalSpan, type CanonicalTokenKind, constructor IdentifierKind, constructor KeywordKind, constructor IntegerKind, constructor CharacterKind, constructor TextKind, constructor OperatorKind, constructor PunctuationKind, type CanonicalToken, constructor CanonicalToken, type CanonicalLexError, constructor CanonicalLexError, type CanonicalLexResult, constructor CanonicalLexSuccess, constructor CanonicalLexFailure) {
+  data CanonicalKeyword = ModuleKeyword | ImportKeyword | AsKeyword | DataKeyword | IfKeyword | ElseKeyword | CaseKeyword.
+
+  data CanonicalPunctuation = ArrowPunctuation | AtPunctuation | EqualsPunctuation | ColonPunctuation | DoubleColonPunctuation | DotPunctuation | LeftBracePunctuation | RightBracePunctuation | LeftParenPunctuation | RightParenPunctuation | LeftBracketPunctuation | RightBracketPunctuation | CommaPunctuation | LambdaPunctuation.
+
+  data CanonicalLiteralKind = CharacterLiteral | TextLiteral.
+
+  data CanonicalLexErrorReason = UnexpectedCharacter Char | UnexpectedEndOfInput | InvalidCharacterLength Int | UnterminatedLiteral CanonicalLiteralKind | RawNewline CanonicalLiteralKind | InvalidEscape Char | UnterminatedUnicodeEscape | MalformedUnicodeEscape Text | NonScalarUnicodeEscape Text | InvalidLiteralCharacter CanonicalLiteralKind Char | InvalidIntegerLiteral Text.
+
+  data CanonicalSourcePath = CanonicalSourcePath Text.
+
+  data CanonicalSpan = CanonicalSpan Int Int.
+
+  data CanonicalTokenKind = IdentifierKind Text | KeywordKind CanonicalKeyword | IntegerKind Text | CharacterKind Char | TextKind Text | OperatorKind Text | PunctuationKind CanonicalPunctuation.
+
+  data CanonicalToken = CanonicalToken CanonicalTokenKind Text CanonicalSpan.
+
+  data CanonicalLexError = CanonicalLexError Text CanonicalLexErrorReason CanonicalSpan.
+
+  data CanonicalLexResult = CanonicalLexSuccess CanonicalSourcePath [CanonicalToken] | CanonicalLexFailure CanonicalSourcePath CanonicalLexError.
+}
