@@ -802,10 +802,10 @@ testSourceDiscardsFailedApplicationArgumentConstraints = do
     compileSourceWithPrelude
       defaultWarningSettings
       Nothing
-      "class Need(a) { }.\nimpl Need(Int) { }.\nuse :: @{Need(a)}: a -> a.\nuse = \\(x) -> x.\nbad = 1 (use True)."
-  assertSingleDiagnosticContains
-    "failed application only reports apply error"
-    "cannot apply function of type Int to argument of type Bool"
+      "class Need(a) { need :: a -> a. }.\nbad = 1 (\\(x) -> Need::need x)."
+  assertSingleDiagnosticCode
+    "failed application only reports E2006"
+    "E2006"
     (compileErrors result)
 
 testSourceRejectsUnusedVariableConstraintWithBidirectionalContract :: IO ()

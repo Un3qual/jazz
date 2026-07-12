@@ -16,6 +16,7 @@ library jazz-next-internal
       JazzNext.CLI.Main
       JazzNext.Compiler.AST
       JazzNext.Compiler.Analyzer
+      JazzNext.Compiler.Analyzer.UnusedBindings
       JazzNext.Compiler.BuiltinCatalog
       JazzNext.Compiler.BundledPrelude
       JazzNext.Compiler.CapabilityFacts

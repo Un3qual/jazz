@@ -92,6 +92,7 @@ import JazzNext.Compiler.TypeInference.State
     inferDataTypes,
     inferDeferredExplicitConstraints,
     inferErrorsRev,
+    inferInferredClassConstraints,
     inferModuleCapabilityFacts,
     inferRigidTypeVars,
     inferRuntimeTypeHints,
@@ -599,7 +600,7 @@ inferGenericApplyType builtinMode env state functionExpr argumentExpr =
             Nothing ->
               ( Nothing,
                 addTypeError
-                  (discardFailedFunctionApplicationConstraints state stateAfterFunction stateWithResultVar)
+                  (discardFailedFunctionApplicationConstraints state stateWithResultVar)
                   ( mkApplyTypeError
                       (resolveType stateWithResultVar inferredFunctionType)
                       (resolveType stateWithResultVar inferredArgumentType)
@@ -607,13 +608,15 @@ inferGenericApplyType builtinMode env state functionExpr argumentExpr =
               )
         _ -> (Nothing, stateWithResultVar)
 
-discardFailedFunctionApplicationConstraints :: InferState -> InferState -> InferState -> InferState
-discardFailedFunctionApplicationConstraints stateBeforeFunction _ stateAfterApplication =
+discardFailedFunctionApplicationConstraints :: InferState -> InferState -> InferState
+discardFailedFunctionApplicationConstraints stateBeforeFunction stateAfterApplication =
   modifyInferenceOutput
     ( \output ->
         output
           { outputDeferredConstraints =
-              inferDeferredExplicitConstraints stateBeforeFunction
+              inferDeferredExplicitConstraints stateBeforeFunction,
+            outputInferredConstraints =
+              inferInferredClassConstraints stateBeforeFunction
           }
     )
     stateAfterApplication
