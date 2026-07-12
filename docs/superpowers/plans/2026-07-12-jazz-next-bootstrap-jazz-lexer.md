@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-JAZZ-LEXER-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-CANONICAL-COMPARISON-001
 last_verified: 2026-07-12
+completed_on: 2026-07-12
 plan_section: "Implementation Batch: Jazz-Authored Lexer"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -127,10 +128,10 @@ paths/source text to both lexers and compares only ordinary runtime rendering.
 
 ### Task 5: Close the hosted lexer milestone
 
-- [ ] Run the full Cabal, stdlib-format, and warning/config gates.
-- [ ] Mark this plan done, archive exact evidence, clear its queue row, and
+- [x] Run the full Cabal, stdlib-format, and warning/config gates.
+- [x] Mark this plan done, archive exact evidence, clear its queue row, and
   update the bootstrap parent to record the hosted lexer milestone as complete.
-- [ ] Leave backend-neutral lowered IR, LLVM lowering, native runtime, parser
+- [x] Leave backend-neutral lowered IR, LLVM lowering, native runtime, parser
   porting, object emission, and linking as separate later children.
-- [ ] Run queue/docs validation and `git diff --check`.
-- [ ] Commit with `docs: close Jazz-authored lexer child`.
+- [x] Run queue/docs validation and `git diff --check`.
+- [x] Commit with `docs: close Jazz-authored lexer child`.

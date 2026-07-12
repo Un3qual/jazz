@@ -48,38 +48,40 @@ Each blocked item should answer these questions:
   `JN-BOOTSTRAP-CANONICAL-COMPARISON-001` preserved structured stage-0 lexical
   failures, added the ordinary Jazz-owned canonical ADTs and test-only Haskell
   adapter, and established the explicit accepted/rejected parser corpus.
+  `JN-BOOTSTRAP-JAZZ-LEXER-001` added permanent generic list construction and
+  Unicode scalar/text services, ordinary `List`/`Char`/`Text` modules, and the
+  two-space-indented Jazz lexer; it matches all 333 canonical cases
+  deterministically and completes 20,000-character and 10,000-token traversal
+  floors without host stack growth.
 - Accepted decision: the canonical comparison contract is the ordinary
   Jazz-owned ADT schema in
   `2026-07-11-jazz-next-bootstrap-canonical-comparison-design.md`. Both sides
   use the generic runtime-value renderer; the schema has no version field until
   coexistence evidence requires one.
-- Smallest unblocker: plan and execute `JN-BOOTSTRAP-JAZZ-LEXER-001` as the
-  second stacked pull request.
-- Decision needed: none; the accepted canonical comparison design fixes the
-  schema, corpus, parity rules, permanent support-API boundary, and non-goals.
-- Recommended default: add only reusable backend-neutral `Char`/`Text` support,
-  implement the state machine in two-space-indented Jazz modules, compare
-  complete rendered values over the fixed corpus, and prove large traversal on
-  the shared stack-safe evaluator.
-- Active child: `JN-BOOTSTRAP-JAZZ-LEXER-001`, the sole `Ready Now` row, with
-  its implementation plan on the stacked branch.
-- Target paths: `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`,
-  `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`,
-  `jazz-next/src/JazzNext/Compiler/Runtime.hs`,
-  `jazz-next/src/JazzNext/Compiler/TypeInference.hs`,
-  `jazz-next/stdlib/Char.jz`, `jazz-next/stdlib/List.jz`, `jazz-next/stdlib/Text.jz`,
-  `jazz-next/stdlib/Lexer.jz`, `jazz-next/stdlib/LexerTypes.jz`,
-  `jazz-next/stdlib/Prelude.jz`, the focused
-  parity and primitive/catalog tests, `jazz-next/jazz-next.cabal`, the child
-  plan, and queue/blocker metadata.
-- Verification: the focused Jazz lexer parity suite;
-  `cabal test --project-dir=jazz-next all`;
-  `bash jazz-next/scripts/check-stdlib-format.sh`;
-  `bash jazz-next/scripts/test-warning-config.sh`;
-  `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
-  `git diff --check`.
-- Not in scope: a Jazz parser, bytecode, a VM, backend-neutral lowered IR, LLVM
-  lowering, object emission, linking, or the native runtime.
+- Smallest unblocker: curate and accept
+  `JN-BOOTSTRAP-JAZZ-PARSER-DESIGN-001` before promoting parser implementation.
+- Decision needed: fix the canonical Jazz parser result/AST and diagnostic
+  comparison schema, recovery/parity rules, module boundaries, and the minimum
+  permanent collection/text APIs needed by the parser.
+- Recommended default: port the parser as the next compiler component in
+  reviewable grammar slices, compare ordinary Jazz-owned AST/diagnostic ADTs,
+  and add only reusable APIs that remain valid for the native runtime. Preserve
+  canonical typed core as the frontend boundary and the accepted
+  backend-neutral lowered-IR-to-LLVM pipeline after it.
+- Candidate child: `JN-BOOTSTRAP-JAZZ-PARSER-DESIGN-001`, the sole ordered
+  `Next Curation Target`; it is coordination work, not parser implementation.
+- Target paths: `docs/execution/blocker-contracts.md`,
+  `docs/execution/queue.md`,
+  `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md`,
+  and the proposed
+  `docs/superpowers/specs/2026-07-12-jazz-next-bootstrap-jazz-parser-design.md`.
+- Verification: `bash scripts/check-execution-queue.sh`;
+  `bash scripts/check-docs.sh`; `git diff --check`.
+- Not in scope: parser implementation before the contract is accepted; Haskell
+  parser callbacks; lexer-specific or parser-specific host intrinsics; bytecode
+  or a VM; collapsing canonical core into LLVM; lowered IR, LLVM emission,
+  object generation, linking, or native-runtime implementation in the parser
+  design child.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

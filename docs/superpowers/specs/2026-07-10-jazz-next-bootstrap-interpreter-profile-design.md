@@ -2,13 +2,15 @@
 
 ## Status
 
-Approved in discussion on `2026-07-10`. The full bootstrap interpreter profile
-is not yet implemented. Backend-independent `Char`/`Text` literals, generic
-named types, ordinary Jazz-authored `Maybe`/`Result`, scalar `Text` traversal,
-backend-neutral host text I/O, and the shared stack-safe evaluator are complete.
-The canonical token/diagnostic comparison design was approved on `2026-07-12`;
-its reference adapter/parity harness is complete. The Jazz-authored lexer is the
-remaining implementation child for the first hosted bootstrap milestone.
+Approved in discussion on `2026-07-10`. The first hosted bootstrap milestone is
+complete as of `2026-07-12`: backend-independent `Char`/`Text` literals,
+generic named types, ordinary Jazz-authored `Maybe`/`Result`, scalar `Text`
+traversal, backend-neutral host text I/O, the shared stack-safe evaluator, the
+canonical comparison contract, and the Jazz-authored lexer all execute in the
+active `jazz-next` path. The lexer matches the complete fixed stage-0 corpus
+deterministically and traverses large source/token inputs without host stack
+growth. Parser porting and the later canonical-core, backend-neutral lowered
+IR, LLVM, object/link, and native-runtime stages remain separate milestones.
 
 ## Goal
 
@@ -363,7 +365,8 @@ The design decomposes into independently reviewable children:
 6. stack-safe tail-position runtime evaluation (complete on `2026-07-11`);
 7. canonical token/diagnostic comparison format and reference harness (complete
    on `2026-07-12`); and
-8. Jazz-authored lexer with differential parity coverage.
+8. Jazz-authored lexer with differential parity coverage (complete on
+   `2026-07-12`).
 
 Only one child should be promoted to `Ready Now` at a time, with exact target
 paths and verification recorded in the queue and child plan.
