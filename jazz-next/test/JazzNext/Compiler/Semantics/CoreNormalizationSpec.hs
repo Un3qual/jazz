@@ -31,7 +31,7 @@ tests =
 
 testIfRemainsCanonicalIf :: IO ()
 testIfRemainsCanonicalIf =
-  assertRight "parse if" (parseSurfaceProgram "if True 1 else 2.") $ \surface -> do
+  assertRight "parse if" (parseSurfaceProgram "if True then 1 else 2.") $ \surface -> do
     let lowered = lowerSurfaceExpr surface
     inference <- inferExpressionDefault lowered
     assertEqual "lowered equals inferred" lowered (inferredExpr inference)

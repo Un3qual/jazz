@@ -776,7 +776,7 @@ testRunModuleGraphKeepsNestedInferredRuntimeHintsModuleScoped = do
             "module App::Main {\nimport Lib::Pick (picked).\npicked.\n}"
           ),
           ( "src/Lib/Pick.jz",
-            "module Lib::Pick {\nclass RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\nimpl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\npicked = {\nx = if True 1 else __kernel_toUInt8 2.\nRuntimePick::pick x.\n}.\n}"
+            "module Lib::Pick {\nclass RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\nimpl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\npicked = {\nx = if True then 1 else __kernel_toUInt8 2.\nRuntimePick::pick x.\n}.\n}"
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -800,7 +800,7 @@ testRunModuleGraphKeepsPreModuleInferredRuntimeHintsModuleScoped = do
             "module App::Main {\nimport Lib::A as A.\nimport Lib::B as B.\n(A::picked, B::picked).\n}"
           ),
           ( "src/Lib/A.jz",
-            "class RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\nimpl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\npicked = {\nx = if True 1 else __kernel_toUInt8 2.\nRuntimePick::pick x.\n}."
+            "class RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\nimpl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\npicked = {\nx = if True then 1 else __kernel_toUInt8 2.\nRuntimePick::pick x.\n}."
           ),
           ( "src/Lib/B.jz",
             "class RuntimePick(a) {\npick :: a -> Bool.\n}.\nimpl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\nimpl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\npicked = {\nx = 1.\nRuntimePick::pick x.\n}."

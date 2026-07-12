@@ -769,7 +769,7 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0102",
         parserFixturePath = "fixtures/parser/parser-corpus-0102.jz",
-        parserFixtureSource = Text.pack "if True 1 else 2.",
+        parserFixtureSource = Text.pack "if True then 1 else 2.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1687,7 +1687,7 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0255",
         parserFixturePath = "fixtures/parser/parser-corpus-0255.jz",
-        parserFixtureSource = Text.pack "x = case m { | item if item == 0 | Just if ok 1 else 2 -> item | _ -> m }.",
+        parserFixtureSource = Text.pack "x = case m { | item if item == 0 | Just if ok then 1 else 2 -> item | _ -> m }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1753,7 +1753,7 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0266",
         parserFixturePath = "fixtures/parser/parser-corpus-0266.jz",
-        parserFixtureSource = Text.pack "x = case n { | 0 -> if True 1 else 2 | _ -> 3 }.",
+        parserFixtureSource = Text.pack "x = case n { | 0 -> if True then 1 else 2 | _ -> 3 }.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1963,31 +1963,31 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0301",
         parserFixturePath = "fixtures/parser/parser-corpus-0301.jz",
-        parserFixtureSource = Text.pack "x = if True 1 else 2.",
+        parserFixtureSource = Text.pack "x = if True then 1 else 2.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0302",
         parserFixturePath = "fixtures/parser/parser-corpus-0302.jz",
-        parserFixtureSource = Text.pack "x = if cond if inner a else b else c.",
+        parserFixtureSource = Text.pack "x = if cond then if inner then a else b else c.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0303",
         parserFixturePath = "fixtures/parser/parser-corpus-0303.jz",
-        parserFixtureSource = Text.pack "x = if cond x else y else z.",
+        parserFixtureSource = Text.pack "x = if cond then x else y else z.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0304",
         parserFixturePath = "fixtures/parser/parser-corpus-0304.jz",
-        parserFixtureSource = Text.pack "x = if cond x.",
+        parserFixtureSource = Text.pack "x = if cond then x.",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0305",
         parserFixturePath = "fixtures/parser/parser-corpus-0305.jz",
-        parserFixtureSource = Text.pack "x = if x > 0 1 else 2.",
+        parserFixtureSource = Text.pack "x = if x > 0 then 1 else 2.",
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture

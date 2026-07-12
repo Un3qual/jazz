@@ -258,7 +258,7 @@ testDirectSelfAliasRuntimeError = do
 
 testWrappedDirectSelfAliasRuntimeError :: IO ()
 testWrappedDirectSelfAliasRuntimeError = do
-  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True f else 0. f.") :: IO (Either SomeException RunResult))
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True then f else 0. f.") :: IO (Either SomeException RunResult))
   case maybeResult of
     Nothing ->
       failTest "expected wrapped direct self alias to terminate with a runtime diagnostic, but evaluation timed out"
