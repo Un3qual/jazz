@@ -53,11 +53,13 @@ module Lexer (value lexSource) {
           KeywordKind DataKeyword
           else if name == "if"
             KeywordKind IfKeyword
-            else if name == "else"
-              KeywordKind ElseKeyword
-              else if name == "case"
-                KeywordKind CaseKeyword
-                else IdentifierKind name.
+            else if name == "then"
+              KeywordKind ThenKeyword
+              else if name == "else"
+                KeywordKind ElseKeyword
+                else if name == "case"
+                  KeywordKind CaseKeyword
+                  else IdentifierKind name.
 
   canonicalInteger :: Text -> Text.
   canonicalInteger = \(digits) -> case textUncons digits {

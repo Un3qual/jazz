@@ -54,7 +54,7 @@ focusedLexerFixtures =
     ParserFixture
       { parserFixtureName = "lexer-all-token-constructors",
         parserFixturePath = "fixtures/lexer/all-token-constructors.jz",
-        parserFixtureSource = "module import as data if else case -> @ = : :: . { } ( ) [ ] , \\ + name 0 'a' \"x\"",
+        parserFixtureSource = "module import as data if then else case -> @ = : :: . { } ( ) [ ] , \\ + name 0 'a' \"x\"",
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture

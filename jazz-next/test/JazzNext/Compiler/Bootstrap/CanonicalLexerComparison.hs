@@ -49,6 +49,7 @@ data CanonicalKeyword
   | AsKeyword
   | DataKeyword
   | IfKeyword
+  | ThenKeyword
   | ElseKeyword
   | CaseKeyword
   deriving (Eq, Show)
@@ -157,6 +158,7 @@ canonicalizeTokenKind tokenKindValue =
     TAs -> KeywordKind AsKeyword
     TData -> KeywordKind DataKeyword
     TIf -> KeywordKind IfKeyword
+    TThen -> KeywordKind ThenKeyword
     TElse -> KeywordKind ElseKeyword
     TCase -> KeywordKind CaseKeyword
     TInt value -> IntegerKind (Text.pack (show value))
