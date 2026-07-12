@@ -87,15 +87,15 @@ paths/source text to both lexers and compares only ordinary runtime rendering.
 
 ### Task 2: Expose ordinary Jazz `List`, `Char`, and `Text` APIs
 
-- [ ] Add RED real-loader tests for checked-in module import isolation, generic
+- [x] Add RED real-loader tests for checked-in module import isolation, generic
   list prepend/reverse/length, checked scalar conversion, classification, and
   text construction.
-- [ ] Create `List.jz` and `Char.jz`, extend `Text.jz`, and export only ordinary
+- [x] Create `List.jz` and `Char.jz`, extend `Text.jz`, and export only ordinary
   APIs. Raw bridge names remain private implementation details.
-- [ ] Implement `listReverse` and `listLength` as tail-recursive Jazz functions;
+- [x] Implement `listReverse` and `listLength` as tail-recursive Jazz functions;
   wrap zero-or-one scalar conversion in the existing `Maybe` ADT.
-- [ ] Run loader, stdlib-format, catalog, primitive, and runtime suites GREEN.
-- [ ] Commit with `feat: add bootstrap list char and text modules`.
+- [x] Run loader, stdlib-format, catalog, primitive, and runtime suites GREEN.
+- [x] Commit with `feat: add bootstrap list char and text modules`.
 
 ### Task 3: Implement the Jazz-authored lexer state machine
 
