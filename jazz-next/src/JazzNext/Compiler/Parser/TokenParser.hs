@@ -3,6 +3,7 @@
 -- | Megaparsec adapter for parsing the lexer token stream.
 module JazzNext.Compiler.Parser.TokenParser
   ( Parser,
+    failDiagnosticTokenParser,
     failTokenParser,
     parseAnyToken,
     parseIdentifier,
@@ -23,16 +24,13 @@ import Data.List.NonEmpty
   ( NonEmpty
   )
 import qualified Data.List.NonEmpty as NonEmpty
-import Data.Set
-  ( Set
-  )
 import qualified Data.Set as Set
 import Data.Text
   ( Text
   )
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
-  ( Diagnostic,
+  ( Diagnostic (..),
     renderSourceSpan
   )
 import qualified JazzNext.Compiler.Diagnostics as Diagnostics
@@ -50,11 +48,24 @@ import Text.Megaparsec.Error
     ShowErrorComponent (..)
   )
 
-data ParserError = ParserError Text
-  deriving (Eq, Ord, Show)
+data ParserError = ParserError Diagnostic
+  deriving (Eq, Show)
+
+instance Ord ParserError where
+  compare (ParserError left) (ParserError right) =
+    compare (diagnosticKey left) (diagnosticKey right)
+    where
+      diagnosticKey diagnostic =
+        ( diagnosticCode diagnostic,
+          diagnosticSummary diagnostic,
+          diagnosticPrimarySpan diagnostic,
+          diagnosticRelatedSpan diagnostic,
+          diagnosticSubject diagnostic,
+          diagnosticNotes diagnostic
+        )
 
 instance ShowErrorComponent ParserError where
-  showErrorComponent (ParserError message) = Text.unpack message
+  showErrorComponent (ParserError diagnostic) = Text.unpack (diagnosticSummary diagnostic)
 
 type Parser = Parsec ParserError [Token]
 
@@ -62,13 +73,13 @@ runTokenParser :: Text -> Parser a -> [Token] -> Either Diagnostic a
 runTokenParser label parser tokens =
   case MP.runParser (parser <* MP.eof) (Text.unpack label) tokens of
     Right value -> Right value
-    Left bundle -> Left (parseDiagnostic (tokenParserErrorMessage bundle))
+    Left bundle -> Left (tokenParserDiagnostic bundle)
 
 runTokenParserPrefix :: Text -> Parser a -> [Token] -> Either Diagnostic (a, [Token])
 runTokenParserPrefix label parser tokens =
   case MP.runParser ((,) <$> parser <*> MP.getInput) (Text.unpack label) tokens of
     Right value -> Right value
-    Left bundle -> Left (parseDiagnostic (tokenParserErrorMessage bundle))
+    Left bundle -> Left (tokenParserDiagnostic bundle)
 
 parseAnyToken :: Parser Token
 parseAnyToken =
@@ -131,15 +142,19 @@ parseTokenWhere matches expectedDescription = do
 
 failTokenParser :: Text -> Parser a
 failTokenParser message =
-  MP.customFailure (ParserError message)
+  failDiagnosticTokenParser (parseDiagnostic message)
 
-tokenParserErrorMessage :: MP.ParseErrorBundle [Token] ParserError -> Text
-tokenParserErrorMessage bundle =
+failDiagnosticTokenParser :: Diagnostic -> Parser a
+failDiagnosticTokenParser diagnostic =
+  MP.customFailure (ParserError diagnostic)
+
+tokenParserDiagnostic :: MP.ParseErrorBundle [Token] ParserError -> Diagnostic
+tokenParserDiagnostic bundle =
   case firstCustomParserError (MP.bundleErrors bundle) of
-    Just message -> message
-    Nothing -> "unexpected token stream parse error"
+    Just diagnostic -> diagnostic
+    Nothing -> parseDiagnostic "unexpected token stream parse error"
 
-firstCustomParserError :: NonEmpty (ParseError [Token] ParserError) -> Maybe Text
+firstCustomParserError :: NonEmpty (ParseError [Token] ParserError) -> Maybe Diagnostic
 firstCustomParserError errors =
   firstJust (map customErrorMessage (NonEmpty.toList errors))
   where
@@ -147,8 +162,8 @@ firstCustomParserError errors =
       case parseError of
         FancyError _ fancyErrors ->
           firstJust
-            [ Just message
-              | ErrorCustom (ParserError message) <- Set.toList fancyErrors
+            [ Just diagnostic
+              | ErrorCustom (ParserError diagnostic) <- Set.toList fancyErrors
             ]
         TrivialError {} -> Nothing
 

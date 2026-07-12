@@ -34,6 +34,9 @@ import JazzNext.Compiler.Diagnostics
     SourceSpan,
     mkDiagnostic,
     mkMessageDiagnostic,
+    prependDiagnosticSummary,
+    qualifySourceSpan,
+    setDiagnosticCode,
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
     setDiagnosticSubject
@@ -440,12 +443,10 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
   case parseSurfaceProgram sourceText of
     Left parseError ->
       Left
-        ( mkDiagnostic
-            "E4004"
-            ( "module parse error at '"
-                <> Text.pack sourcePath
-                <> "': "
-                <> diagnosticSummary parseError
+        ( setDiagnosticCode "E4004"
+            ( prependDiagnosticSummary
+                ("module parse error at '" <> Text.pack sourcePath <> "': ")
+                (qualifyDiagnosticSpans sourcePath parseError)
             )
         )
     Right surfaceExpr -> do
@@ -471,6 +472,13 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
             parsedModuleQualifiedTypeReferences = collectQualifiedTypeReferences surfaceExpr,
             parsedModuleCore = coreModule
           }
+
+qualifyDiagnosticSpans :: FilePath -> Diagnostic -> Diagnostic
+qualifyDiagnosticSpans sourcePath diagnostic =
+  diagnostic
+    { diagnosticPrimarySpan = qualifySourceSpan sourcePath <$> diagnosticPrimarySpan diagnostic,
+      diagnosticRelatedSpan = qualifySourceSpan sourcePath <$> diagnosticRelatedSpan diagnostic
+    }
 
 validatePublicExportInventory ::
   FilePath ->
@@ -573,7 +581,7 @@ resolveCoreModuleNames ::
   ModuleGraph.CoreModule ->
   ModuleGraph.CoreModule
 resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses localInventory inventoriesByModule imports coreModule =
-  coreModule {ModuleGraph.coreModuleExpr = resolveExpr (ModuleGraph.coreModuleExpr coreModule)}
+  coreModule {ModuleGraph.coreModuleExpr = resolveExpr Set.empty (ModuleGraph.coreModuleExpr coreModule)}
   where
     localValues = exportNamesInNamespace ValueNamespace localInventory
     localDataTypes = exportNamesInNamespace TypeNamespace localInventory
@@ -632,9 +640,9 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
             (parsedImportSymbols importDecl)
             inventory
 
-    resolveName namespace name =
+    resolveName boundValues namespace name =
       case name of
-        SourceName identifier -> resolveUnqualified namespace identifier
+        SourceName identifier -> resolveUnqualified boundValues namespace identifier
         QualifiedName qualifier member ->
           let qualifierText = identifierText qualifier
               memberText = identifierText member
@@ -651,7 +659,10 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
                     (mkIdentifier (qualifierText <> "::" <> memberText))
         _ -> name
 
-    resolveUnqualified namespace identifier
+    resolveUnqualified boundValues namespace identifier
+      | namespace == ValueNamespace,
+        Set.member nameText boundValues =
+          ResolvedName CurrentModule ValueNamespace identifier
       | localName namespace nameText =
           ResolvedName CurrentModule namespace identifier
       | Just dependencyPath <- importedOrigin namespace nameText =
@@ -705,29 +716,34 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
       | Set.member className ambientClasses = AmbientPrelude
       | otherwise = CurrentModule
 
-    resolveExpr expression =
+    resolveExpr boundValues expression =
       case expression of
         ELit literal -> ELit literal
-        EVar name -> EVar (resolveName (referenceNamespace name) name)
+        EVar name -> EVar (resolveName boundValues (referenceNamespace boundValues name) name)
         ELambda parameter body ->
-          ELambda (resolveBinder ValueNamespace parameter) (resolveExpr body)
+          let lambdaBoundValues = maybe boundValues (`Set.insert` boundValues) (sourceNameText parameter)
+           in ELambda (resolveBinder ValueNamespace parameter) (resolveExpr lambdaBoundValues body)
         EOperatorValue symbol -> EOperatorValue symbol
-        EList items -> EList (map resolveExpr items)
-        ETuple items -> ETuple (map resolveExpr items)
-        EApply function argument -> EApply (resolveExpr function) (resolveExpr argument)
+        EList items -> EList (map (resolveExpr boundValues) items)
+        ETuple items -> ETuple (map (resolveExpr boundValues) items)
+        EApply function argument -> EApply (resolveExpr boundValues function) (resolveExpr boundValues argument)
         ETypeApplication function spanValue signatureType ->
-          ETypeApplication (resolveExpr function) spanValue (resolveSignatureType signatureType)
+          ETypeApplication (resolveExpr boundValues function) spanValue (resolveSignatureType signatureType)
         EIf condition trueBranch falseBranch ->
-          EIf (resolveExpr condition) (resolveExpr trueBranch) (resolveExpr falseBranch)
-        EPatternCase scrutinee arms -> EPatternCase (resolveExpr scrutinee) (map resolveCaseArm arms)
-        EBinary symbol left right -> EBinary symbol (resolveExpr left) (resolveExpr right)
-        ESectionLeft left symbol -> ESectionLeft (resolveExpr left) symbol
-        ESectionRight symbol right -> ESectionRight symbol (resolveExpr right)
-        EBlock statements -> EBlock (map resolveStatement statements)
+          EIf (resolveExpr boundValues condition) (resolveExpr boundValues trueBranch) (resolveExpr boundValues falseBranch)
+        EPatternCase scrutinee arms ->
+          EPatternCase (resolveExpr boundValues scrutinee) (map (resolveCaseArm boundValues) arms)
+        EBinary symbol left right -> EBinary symbol (resolveExpr boundValues left) (resolveExpr boundValues right)
+        ESectionLeft left symbol -> ESectionLeft (resolveExpr boundValues left) symbol
+        ESectionRight symbol right -> ESectionRight symbol (resolveExpr boundValues right)
+        EBlock statements ->
+          let blockBoundValues = Set.union boundValues (coreBlockBinders statements)
+           in EBlock (map (resolveStatement blockBoundValues) statements)
 
-    referenceNamespace name =
+    referenceNamespace boundValues name =
       case name of
         SourceName identifier
+          | Set.member nameText boundValues -> ValueNamespace
           | Set.member nameText localValues -> ValueNamespace
           | Set.member nameText localConstructors -> ConstructorNamespace
           | Map.member nameText visibleValueOrigins -> ValueNamespace
@@ -741,8 +757,12 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
         SourceName identifier -> ResolvedName CurrentModule namespace identifier
         _ -> name
 
-    resolveCaseArm (CaseArm patternValue guard body) =
-      CaseArm (resolvePattern patternValue) (fmap resolveExpr guard) (resolveExpr body)
+    resolveCaseArm boundValues (CaseArm patternValue guard body) =
+      let armBoundValues = Set.union boundValues (corePatternBinders patternValue)
+       in CaseArm
+            (resolvePattern patternValue)
+            (fmap (resolveExpr armBoundValues) guard)
+            (resolveExpr armBoundValues body)
 
     resolvePattern patternValue =
       case patternValue of
@@ -750,7 +770,7 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
         PVariable name -> PVariable (resolveBinder ValueNamespace name)
         PLiteral literal -> PLiteral literal
         PConstructor name patterns ->
-          PConstructor (resolveName ConstructorNamespace name) (map resolvePattern patterns)
+          PConstructor (resolveName Set.empty ConstructorNamespace name) (map resolvePattern patterns)
         PList patterns -> PList (map resolvePattern patterns)
         PConsList headPattern tailPattern ->
           PConsList (resolvePattern headPattern) (resolvePattern tailPattern)
@@ -758,10 +778,10 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
         PAs name pattern' -> PAs (resolveBinder ValueNamespace name) (resolvePattern pattern')
         POr patterns -> POr (map resolvePattern patterns)
 
-    resolveStatement statement =
+    resolveStatement boundValues statement =
       case statement of
         SLet name spanValue value ->
-          SLet (resolveBinder ValueNamespace name) spanValue (resolveExpr value)
+          SLet (resolveBinder ValueNamespace name) spanValue (resolveExpr boundValues value)
         SSignature name spanValue payload ->
           SSignature (resolveBinder ValueNamespace name) spanValue (resolveSignaturePayload payload)
         SData spanValue name parameters constructors ->
@@ -779,12 +799,12 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
         SImpl spanValue name arguments methods ->
           SImpl
             spanValue
-            (resolveName CapabilityNamespace name)
+            (resolveName Set.empty CapabilityNamespace name)
             (map resolveSignatureType arguments)
-            (map resolveImplMethod methods)
+            (map (resolveImplMethod boundValues) methods)
         SModule spanValue path -> SModule spanValue path
         SImport spanValue path alias symbols -> SImport spanValue path alias symbols
-        SExpr spanValue value -> SExpr spanValue (resolveExpr value)
+        SExpr spanValue value -> SExpr spanValue (resolveExpr boundValues value)
 
     resolveDataConstructor (DataConstructor name arguments) =
       DataConstructor
@@ -794,14 +814,14 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
     resolveDataConstructorArgument argument =
       case argument of
         DataConstructorArgumentName name ->
-          DataConstructorArgumentName (resolveName TypeNamespace name)
+          DataConstructorArgumentName (resolveName Set.empty TypeNamespace name)
         DataConstructorArgumentOpaque -> DataConstructorArgumentOpaque
 
     resolveClassMethod (ClassMethodSignature name spanValue payload) =
       ClassMethodSignature (resolveBinder ValueNamespace name) spanValue (resolveSignaturePayload payload)
 
-    resolveImplMethod (ImplMethod name spanValue body) =
-      ImplMethod (resolveBinder ValueNamespace name) spanValue (resolveExpr body)
+    resolveImplMethod boundValues (ImplMethod name spanValue body) =
+      ImplMethod (resolveBinder ValueNamespace name) spanValue (resolveExpr boundValues body)
 
     resolveSignaturePayload payload =
       case payload of
@@ -814,23 +834,53 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
 
     resolveSignatureToken token =
       case token of
-        SignatureNameToken name -> SignatureNameToken (resolveName TypeNamespace name)
+        SignatureNameToken name -> SignatureNameToken (resolveName Set.empty TypeNamespace name)
         _ -> token
 
     resolveSignatureConstraint (SignatureConstraint name arguments) =
-      SignatureConstraint (resolveName CapabilityNamespace name) (map resolveSignatureType arguments)
+      SignatureConstraint (resolveName Set.empty CapabilityNamespace name) (map resolveSignatureType arguments)
 
     resolveSignatureType signatureType =
       case signatureType of
         TypeVariable name -> TypeVariable name
-        TypeName name -> TypeName (resolveName TypeNamespace name)
+        TypeName name -> TypeName (resolveName Set.empty TypeNamespace name)
         TypeApplication name arguments ->
-          TypeApplication (resolveName TypeNamespace name) (map resolveSignatureType arguments)
+          TypeApplication (resolveName Set.empty TypeNamespace name) (map resolveSignatureType arguments)
         TypeList innerType -> TypeList (resolveSignatureType innerType)
         TypeTuple elementTypes -> TypeTuple (map resolveSignatureType elementTypes)
         TypeFunction argumentType resultType ->
           TypeFunction (resolveSignatureType argumentType) (resolveSignatureType resultType)
         _ -> signatureType
+
+    sourceNameText name =
+      case name of
+        SourceName identifier -> Just (identifierText identifier)
+        _ -> Nothing
+
+    coreBlockBinders statements =
+      Set.fromList
+        [ nameText
+          | SLet name _ _ <- statements,
+            Just nameText <- [sourceNameText name]
+        ]
+
+    corePatternBinders patternValue =
+      case patternValue of
+        PWildcard -> Set.empty
+        PVariable name -> maybe Set.empty Set.singleton (sourceNameText name)
+        PLiteral _ -> Set.empty
+        PConstructor _ patterns -> Set.unions (map corePatternBinders patterns)
+        PList patterns -> Set.unions (map corePatternBinders patterns)
+        PConsList headPattern tailPattern ->
+          Set.union (corePatternBinders headPattern) (corePatternBinders tailPattern)
+        PTuple patterns -> Set.unions (map corePatternBinders patterns)
+        PAs name nestedPattern ->
+          maybe id Set.insert (sourceNameText name) (corePatternBinders nestedPattern)
+        POr alternatives ->
+          case alternatives of
+            [] -> Set.empty
+            firstAlternative : rest ->
+              foldl' Set.intersection (corePatternBinders firstAlternative) (map corePatternBinders rest)
 
 -- | Collect unqualified free references used to validate explicit and alias
 -- import visibility before core names are resolved structurally.
@@ -909,7 +959,11 @@ collectBlockReferences boundNames statements =
         SSSignature {} -> Set.empty
         SSData {} -> Set.empty
         SSClass {} -> Set.empty
-        SSImpl {} -> Set.empty
+        SSImpl _ _ _ methods ->
+          Set.unions
+            [ collectExprReferences blockBoundNames body
+              | SurfaceImplMethod _ _ body <- methods
+            ]
         SSModule {} -> Set.empty
         SSImport {} -> Set.empty
 
@@ -1036,7 +1090,11 @@ collectQualifiedStatementReferences statement =
     SSSignature {} -> Set.empty
     SSData {} -> Set.empty
     SSClass {} -> Set.empty
-    SSImpl {} -> Set.empty
+    SSImpl _ _ _ methods ->
+      Set.unions
+        [ collectQualifiedReferences body
+          | SurfaceImplMethod _ _ body <- methods
+        ]
     SSModule {} -> Set.empty
     SSImport {} -> Set.empty
 

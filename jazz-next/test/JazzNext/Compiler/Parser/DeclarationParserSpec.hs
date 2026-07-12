@@ -5,6 +5,9 @@ module Main (main) where
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan (..),
+    diagnosticCode,
+    diagnosticPrimarySpan,
+    diagnosticSummary
   )
 import JazzNext.Compiler.Name
   ( mkIdentifier
@@ -19,6 +22,7 @@ import JazzNext.Compiler.Parser.Declaration
   ( parseDataStatementParser,
     parseImportStatementParser
   )
+import JazzNext.Compiler.Parser (parseSurfaceProgram)
 import JazzNext.Compiler.Parser.TestSupport
   ( lexSource
   )
@@ -27,6 +31,7 @@ import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
     assertLeftDiagnosticContains,
+    failTest,
     runTestSuite
   )
 
@@ -37,7 +42,12 @@ tests :: [NamedTest]
 tests =
   [ ("rejects import alias followed by symbol list", testRejectsImportAliasWithSymbolList),
     ("rejects import symbol list followed by alias", testRejectsImportSymbolListWithAlias),
-    ("parses data constructors with named and grouped payloads", testParsesDataConstructors)
+    ("parses data constructors with named and grouped payloads", testParsesDataConstructors),
+    ("rejects crossed parenthesis then bracket constructor payload", testRejectsCrossedParenBracketPayload),
+    ("rejects crossed bracket then parenthesis constructor payload", testRejectsCrossedBracketParenPayload),
+    ("accepts correctly nested opaque constructor payloads", testAcceptsNestedOpaquePayloads),
+    ("rejects imports in nested expression blocks at the import span", testRejectsNestedImport),
+    ("accepts imports directly in module bodies", testAcceptsModuleBodyImport)
   ]
 
 testRejectsImportAliasWithSymbolList :: IO ()
@@ -80,6 +90,43 @@ testParsesDataConstructors = do
         )
     )
     (parseDataStatementTokens tokens)
+
+testRejectsCrossedParenBracketPayload :: IO ()
+testRejectsCrossedParenBracketPayload = do
+  tokens <- lexSource "data Box = Box ([)]."
+  assertLeftDiagnosticContains
+    "crossed parenthesis then bracket payload"
+    "unexpected ')'"
+    (parseDataStatementTokens tokens)
+
+testRejectsCrossedBracketParenPayload :: IO ()
+testRejectsCrossedBracketParenPayload = do
+  tokens <- lexSource "data Box = Box [(])."
+  assertLeftDiagnosticContains
+    "crossed bracket then parenthesis payload"
+    "unexpected ']'"
+    (parseDataStatementTokens tokens)
+
+testAcceptsNestedOpaquePayloads :: IO ()
+testAcceptsNestedOpaquePayloads = do
+  tokens <- lexSource "data Box = Box ([()]) [(())]."
+  case parseDataStatementTokens tokens of
+    Right _ -> pure ()
+    Left diagnostic -> failTest ("expected nested opaque payloads to parse, got " <> diagnosticSummary diagnostic)
+
+testRejectsNestedImport :: IO ()
+testRejectsNestedImport =
+  case parseSurfaceProgram "main = {\n  import Lib::Value.\n  value.\n}." of
+    Left diagnostic -> do
+      assertEqual "nested import code" "E0001" (diagnosticCode diagnostic)
+      assertEqual "nested import span" (Just (SourceSpan 2 3)) (diagnosticPrimarySpan diagnostic)
+    Right _ -> failTest "expected nested import to fail"
+
+testAcceptsModuleBodyImport :: IO ()
+testAcceptsModuleBodyImport =
+  case parseSurfaceProgram "module App::Main {\n  import Lib::Value.\n  value.\n}" of
+    Right _ -> pure ()
+    Left diagnostic -> failTest ("expected module-body import to parse, got " <> diagnosticSummary diagnostic)
 
 parseImportStatementTokens :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseImportStatementTokens =

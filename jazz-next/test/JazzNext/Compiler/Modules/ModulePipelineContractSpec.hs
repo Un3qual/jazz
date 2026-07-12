@@ -74,8 +74,28 @@ tests =
     ("module graph execution carries one host through dependency exports", testModuleGraphInjectsRuntimeHost),
     ("alias imports stay qualified", testAliasIsolationContract),
     ("transitive imports do not leak", testTransitiveVisibilityContract),
-    ("module diagnostics retain source paths", testSourcePathContract)
+    ("module diagnostics retain source paths", testSourcePathContract),
+    ("lexical binders shadow imported and builtin names", testLexicalBindersShadowImportedAndBuiltinNames)
   ]
+
+testLexicalBindersShadowImportedAndBuiltinNames :: IO ()
+testLexicalBindersShadowImportedAndBuiltinNames = do
+  compiled <- compileFixtureProgram sources
+  case evaluateCompiledProgram compiled of
+    Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right runtime ->
+      assertEqual
+        "lexical shadowing output"
+        (Just "(1, 2, 3, 4)")
+        (renderRuntimeValue <$> runtimeProgramOutput runtime)
+  where
+    sources =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\n  import Lib::Value.\n  ((\\(x) -> x) 1, case 2 { | x -> x }, { x = 3. x. }, (\\(map) -> map) 4).\n}"
+          ),
+          ("src/Lib/Value.jz", "module Lib::Value {\n  x = 99.\n}")
+        ]
 
 testRuntimeModulePublishesDeclaredExports :: IO ()
 testRuntimeModulePublishesDeclaredExports = do

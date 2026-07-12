@@ -9,6 +9,7 @@ import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan (..),
+    diagnosticCode,
     diagnosticPrimarySpan,
     diagnosticRelatedSpan,
     diagnosticSubject,
@@ -102,7 +103,10 @@ tests =
     ("keeps repeated class imports idempotent", testKeepsRepeatedClassImportsIdempotent),
     ("reports qualified references through unknown aliases", testReportsUnknownQualifiedAliasReference),
     ("reports standalone qualified references through unknown aliases", testReportsStandaloneUnknownQualifiedAliasReference),
-    ("reports qualified alias references to missing exports", testReportsMissingQualifiedAliasExport)
+    ("reports qualified alias references to missing exports", testReportsMissingQualifiedAliasExport),
+    ("implementation methods inventory hidden unqualified references", testImplMethodRejectsHiddenUnqualifiedReference),
+    ("implementation methods inventory hidden qualified references", testImplMethodRejectsHiddenQualifiedReference),
+    ("module lexer failures retain source-qualified structured detail", testModuleLexerFailureRetainsStructuredDetail)
   ]
 
 testResolvedProgramRetainsLoweredModules :: IO ()
@@ -715,6 +719,62 @@ testReportsImportedModuleParseFailure = do
         [ ("src/App/Main.jz", "import Lib::Util.\nmain = util."),
           ("src/Lib/Util.jz", "broken = .")
         ]
+
+testModuleLexerFailureRetainsStructuredDetail :: IO ()
+testModuleLexerFailureRetainsStructuredDetail = do
+  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  case result of
+    Left diagnostic -> do
+      assertEqual "module lexer failure code" "E4004" (diagnosticCode diagnostic)
+      assertEqual
+        "module lexer failure qualified primary span"
+        (Just (SourceSpanIn "src/Lib/Bad.jz" 1 10))
+        (diagnosticPrimarySpan diagnostic)
+      assertLeftContains "module lexer original detail" "unterminated text literal" result
+    Right modules -> failTest ("expected module lexer failure, got " <> Text.pack (show modules))
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ("src/App/Main.jz", "import Lib::Bad.\nmain = 1."),
+          ("src/Lib/Bad.jz", "broken = \"unterminated")
+        ]
+
+testImplMethodRejectsHiddenUnqualifiedReference :: IO ()
+testImplMethodRejectsHiddenUnqualifiedReference = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  assertLeftDiagnosticCodeAndContains
+    "implementation method hidden unqualified reference"
+    "E4011"
+    "helper"
+    result
+  where
+    sources =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "import Lib::Value (answer).\nclass Use(a) { use :: a -> Int. }.\nimpl Use(Int) { use = \\(value) -> helper. }.\nmain = answer."
+          ),
+          ("src/Lib/Value.jz", "module Lib::Value { helper = 41. answer = 1. }")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
+
+testImplMethodRejectsHiddenQualifiedReference :: IO ()
+testImplMethodRejectsHiddenQualifiedReference = do
+  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  assertLeftDiagnosticCodeAndContains
+    "implementation method hidden qualified reference"
+    "E4014"
+    "helper"
+    result
+  where
+    sources =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "import Lib::Value as Value.\nclass Use(a) { use :: a -> Int. }.\nimpl Use(Int) { use = \\(value) -> Value::helper. }.\nmain = 1."
+          ),
+          ("src/Lib/Value.jz", "module Lib::Value (answer) { helper = 41. answer = 1. }")
+        ]
+    lookupSource path = pure (Map.lookup path sources)
 
 testReportsModuleDeclarationMismatch :: IO ()
 testReportsModuleDeclarationMismatch = do

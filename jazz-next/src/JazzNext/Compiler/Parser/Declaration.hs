@@ -28,7 +28,8 @@ import JazzNext.Compiler.Diagnostics
   ( Diagnostic (..),
     SourceSpan,
     mkDiagnostic,
-    renderSourceSpan
+    renderSourceSpan,
+    setDiagnosticPrimarySpan
   )
 import JazzNext.Compiler.Name
   ( Identifier,
@@ -80,6 +81,7 @@ import JazzNext.Compiler.Parser.Signature
   )
 import JazzNext.Compiler.Parser.TokenParser
   ( Parser,
+    failDiagnosticTokenParser,
     failTokenParser,
     parseAnyToken,
     runTokenParserPrefix
@@ -123,7 +125,7 @@ parseOwnedPrefix :: ([Token] -> Either Diagnostic (a, [Token])) -> Parser a
 parseOwnedPrefix parseDeclaration = do
   tokens <- MP.getInput
   case parseDeclaration tokens of
-    Left diagnostic -> failTokenParser (diagnosticSummary diagnostic)
+    Left diagnostic -> failDiagnosticTokenParser diagnostic
     Right (value, remaining) ->
       value <$ consumeParsedPrefix remaining
 
@@ -192,7 +194,7 @@ parseStatementParser parseExpression parseBlock context = do
 liftOwnedResult :: Either Diagnostic a -> Parser a
 liftOwnedResult result =
   case result of
-    Left diagnostic -> failTokenParser (diagnosticSummary diagnostic)
+    Left diagnostic -> failDiagnosticTokenParser diagnostic
     Right value -> pure value
 
 parseOperatorDeclaration :: StatementContext -> [OperatorInfo] -> Token -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
@@ -461,7 +463,10 @@ parseStatementFromTokens parseExpression parseModuleBody context tokens =
         ModuleBodyContext -> rejectNestedModuleDeclaration moduleToken
         NestedBlockContext -> rejectNestedModuleDeclaration moduleToken
     importToken@Token {tokenKind = TImport} : rest ->
-      singleStatement <$> parseImportStatementTokens (importToken : rest)
+      case statementContext of
+        NestedBlockContext -> rejectNestedImportDeclaration importToken
+        TopLevelContext -> singleStatement <$> parseImportStatementTokens (importToken : rest)
+        ModuleBodyContext -> singleStatement <$> parseImportStatementTokens (importToken : rest)
     dataToken@Token {tokenKind = TData} : rest ->
       case statementContext of
         TopLevelContext -> singleStatement <$> parseDataStatementTokens (dataToken : rest)
@@ -1488,9 +1493,9 @@ parseDataConstructorArgument typeName typeParameterNames tokens =
       | otherwise ->
           Right (SurfaceDataConstructorArgumentName (mkIdentifier argumentName), rest)
     Token {tokenKind = TLParen} : rest ->
-      fmap ((,) SurfaceDataConstructorArgumentOpaque) (consumeBalancedDataConstructorGroup 1 0 rest)
+      fmap ((,) SurfaceDataConstructorArgumentOpaque) (consumeBalancedDataConstructorGroup [TRParen] rest)
     Token {tokenKind = TLBracket} : rest ->
-      fmap ((,) SurfaceDataConstructorArgumentOpaque) (consumeBalancedDataConstructorGroup 0 1 rest)
+      fmap ((,) SurfaceDataConstructorArgumentOpaque) (consumeBalancedDataConstructorGroup [TRBracket] rest)
     [] ->
       Left (parseDiagnostic "expected constructor argument before end of input in data declaration")
     token : _ ->
@@ -1504,49 +1509,39 @@ parseDataConstructorArgument typeName typeParameterNames tokens =
             )
         )
 
-consumeBalancedDataConstructorGroup :: Int -> Int -> [Token] -> Either Diagnostic [Token]
-consumeBalancedDataConstructorGroup parenDepth bracketDepth tokens =
+consumeBalancedDataConstructorGroup :: [TokenKind] -> [Token] -> Either Diagnostic [Token]
+consumeBalancedDataConstructorGroup expectedClosers tokens =
   case tokens of
     [] ->
       Left (parseDiagnostic "expected constructor argument to close before end of input in data declaration")
     token : rest ->
       case tokenKind token of
         TLParen ->
-          consumeBalancedDataConstructorGroup (parenDepth + 1) bracketDepth rest
-        TRParen
-          | parenDepth > 0 ->
-              let nextParenDepth = parenDepth - 1
-               in
-                if nextParenDepth == 0 && bracketDepth == 0
-                  then Right rest
-                  else consumeBalancedDataConstructorGroup nextParenDepth bracketDepth rest
-          | otherwise ->
-              Left
-                ( parseDiagnostic
-                    ( "unexpected ')' at "
-                        <> renderSourceSpan (tokenSpan token)
-                        <> " in constructor argument"
-                    )
-                )
+          consumeBalancedDataConstructorGroup (TRParen : expectedClosers) rest
         TLBracket ->
-          consumeBalancedDataConstructorGroup parenDepth (bracketDepth + 1) rest
-        TRBracket
-          | bracketDepth > 0 ->
-              let nextBracketDepth = bracketDepth - 1
-               in
-                if parenDepth == 0 && nextBracketDepth == 0
-                  then Right rest
-                  else consumeBalancedDataConstructorGroup parenDepth nextBracketDepth rest
-          | otherwise ->
-              Left
-                ( parseDiagnostic
-                    ( "unexpected ']' at "
-                        <> renderSourceSpan (tokenSpan token)
-                        <> " in constructor argument"
-                    )
-                )
+          consumeBalancedDataConstructorGroup (TRBracket : expectedClosers) rest
+        closer@TRParen -> consumeDataConstructorCloser closer token rest
+        closer@TRBracket -> consumeDataConstructorCloser closer token rest
         _ ->
-          consumeBalancedDataConstructorGroup parenDepth bracketDepth rest
+          consumeBalancedDataConstructorGroup expectedClosers rest
+  where
+    consumeDataConstructorCloser closer token rest =
+      case expectedClosers of
+        expected : remainingClosers
+          | closer == expected ->
+              if null remainingClosers
+                then Right rest
+                else consumeBalancedDataConstructorGroup remainingClosers rest
+        _ ->
+          Left
+            ( parseDiagnostic
+                ( "unexpected '"
+                    <> tokenLexeme token
+                    <> "' at "
+                    <> renderSourceSpan (tokenSpan token)
+                    <> " in constructor argument"
+                )
+            )
 
 parseModulePath :: [Token] -> Either Diagnostic ([Text], [Token])
 parseModulePath tokens =
@@ -1911,6 +1906,18 @@ rejectNestedModuleDeclaration moduleToken =
     ( parseDiagnostic
         ( "module declaration must remain top-level at "
             <> renderSourceSpan (tokenSpan moduleToken)
+        )
+    )
+
+rejectNestedImportDeclaration :: Token -> Either Diagnostic a
+rejectNestedImportDeclaration importToken =
+  Left
+    ( setDiagnosticPrimarySpan
+        (tokenSpan importToken)
+        ( parseDiagnostic
+            ( "import declaration must remain at file scope or directly in a module body at "
+                <> renderSourceSpan (tokenSpan importToken)
+            )
         )
     )
 
