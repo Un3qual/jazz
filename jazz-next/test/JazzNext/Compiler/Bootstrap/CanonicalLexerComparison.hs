@@ -21,9 +21,7 @@ import Data.Char (isAlpha)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( DataConstructorArgument (DataConstructorArgumentOpaque),
-    Expr (ELit),
-    Literal (LInt)
+  ( DataConstructorArgument (DataConstructorArgumentOpaque)
   )
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)
@@ -41,8 +39,8 @@ import JazzNext.Compiler.Parser.Lexer
   )
 import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
-    evaluateRuntimeExpr,
-    renderRuntimeValue
+    renderRuntimeValue,
+    untypedIntMetadata
   )
 
 data CanonicalKeyword
@@ -308,8 +306,4 @@ canonicalConstructor name arguments =
     arguments
 
 runtimeIntValue :: Int -> RuntimeValue
-runtimeIntValue value =
-  case evaluateRuntimeExpr (ELit (LInt (fromIntegral value))) of
-    Right (Just runtimeValue) -> runtimeValue
-    Left diagnostic -> error ("canonical Int construction failed: " <> show diagnostic)
-    Right Nothing -> error "canonical Int construction produced no value"
+runtimeIntValue value = VInt (fromIntegral value) untypedIntMetadata
