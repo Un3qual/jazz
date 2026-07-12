@@ -200,7 +200,7 @@ testMapsEveryTokenConstructor = do
   path <- normalizedPath "fixtures/parser/all-tokens.jz"
   result <-
     detailedResult
-      "module import as data if else case -> @ = : :: . { } ( ) [ ] , \\ + name 0 'a' \"x\""
+      "module import as data if then else case -> @ = : :: . { } ( ) [ ] , \\ + name 0 'a' \"x\""
   let rendered = renderCanonicalLexResult (canonicalizeLexResult path result)
       expectedKinds =
         [ "KeywordKind(ModuleKeyword)",
@@ -208,6 +208,7 @@ testMapsEveryTokenConstructor = do
           "KeywordKind(AsKeyword)",
           "KeywordKind(DataKeyword)",
           "KeywordKind(IfKeyword)",
+          "KeywordKind(ThenKeyword)",
           "KeywordKind(ElseKeyword)",
           "KeywordKind(CaseKeyword)",
           "PunctuationKind(ArrowPunctuation)",

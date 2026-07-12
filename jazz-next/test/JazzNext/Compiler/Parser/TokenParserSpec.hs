@@ -39,6 +39,7 @@ tests =
   [ ("runs a Megaparsec token parser over lexer tokens", testRunTokenParser),
     ("prefix parser returns the unconsumed token stream", testRunTokenParserPrefixReturnsRemainder),
     ("recognizes lexically adjacent tokens", testRecognizesLexicallyAdjacentTokens),
+    ("tokenizes then as a reserved keyword", testTokenizesThenKeyword),
     ("tokenizes Char and Text literals", testTokenizesCharAndTextLiterals),
     ("decodes Char and Text escapes", testDecodesCharAndTextEscapes),
     ("preserves quoted literal lexemes and spans", testPreservesQuotedLiteralLexemesAndSpans),
@@ -75,6 +76,14 @@ testRecognizesLexicallyAdjacentTokens = do
       assertEqual "compact separator adjacency" True (isImmediatelyAfter left compactColon)
       assertEqual "spaced separator adjacency" False (isImmediatelyAfter right spacedColon)
     _ -> failTest "expected two qualified-name token groups"
+
+testTokenizesThenKeyword :: IO ()
+testTokenizesThenKeyword = do
+  tokens <- lexSource "if condition then yes else no"
+  assertEqual
+    "conditional keyword token kinds"
+    [TIf, TIdentifier "condition", TThen, TIdentifier "yes", TElse, TIdentifier "no"]
+    (map tokenKind tokens)
 
 testTokenizesCharAndTextLiterals :: IO ()
 testTokenizesCharAndTextLiterals = do

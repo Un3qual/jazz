@@ -167,6 +167,7 @@ renderExpectedTokenKind expectedKind =
     TAs -> "'as'"
     TData -> "'data'"
     TIf -> "'if'"
+    TThen -> "'then'"
     TElse -> "'else'"
     TCase -> "'case'"
     TLambda -> "'\\'"
