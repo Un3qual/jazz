@@ -151,7 +151,16 @@ if [[ -n "${FAKE_CABAL_PROBE_STATUS-}" ]]; then
 fi
 
 case " $* " in
-  *" command -v runghc "*) printf '%s\n' '__jazz_next_runghc_probe__:available'; exit 0 ;;
+  *" command -v runghc "*)
+    case "${FAKE_CABAL_PROBE_MODE-default}" in
+      default) printf '%s\n' '__jazz_next_runghc_probe__:available' ;;
+      noisy) printf '%s\n' 'Resolving dependencies...' '__jazz_next_runghc_probe__:available' ;;
+      ambiguous) printf '%s\n' '__jazz_next_runghc_probe__:available' '__jazz_next_runghc_probe__:missing' ;;
+      missing) printf '%s\n' 'Resolving dependencies...' ;;
+      *) exit 3 ;;
+    esac
+    exit 0
+    ;;
 esac
 
 for argument in "$@"; do
@@ -193,6 +202,63 @@ if [[ "$fake_runghc_count" -ne 1 ]]; then
 fi
 
 echo "PASS: runghc wrapper preserves a launched child's status 127 without retrying"
+
+: >"$fake_runghc_counter"
+set +e
+env -u JAZZ_NEXT_RUNGHC_IN_CABAL \
+  -u JAZZ_NEXT_RUNGHC_NO_CABAL \
+  PATH="${fake_cabal_bin}:${PATH}" \
+  FAKE_CABAL_BIN="$fake_cabal_bin" \
+  FAKE_CABAL_PROBE_MODE=noisy \
+  FAKE_RUNGHC_COUNTER="$fake_runghc_counter" \
+  "$RUNGHC" "${tmpdir}/noisy-probe.hs"
+noisy_probe_status=$?
+set -e
+
+if [[ "$noisy_probe_status" -ne 127 ]]; then
+  echo "FAIL: runghc wrapper returned ${noisy_probe_status}, expected launched-child status 127 after noisy probe" >&2
+  exit 1
+fi
+
+noisy_probe_launch_count="$(awk 'END { print NR + 0 }' "$fake_runghc_counter")"
+if [[ "$noisy_probe_launch_count" -ne 1 ]]; then
+  echo "FAIL: runghc wrapper launched the child ${noisy_probe_launch_count} times after noisy probe" >&2
+  exit 1
+fi
+
+echo "PASS: runghc wrapper accepts harmless Cabal output around one probe marker"
+
+for invalid_probe_mode in ambiguous missing; do
+  : >"$fake_runghc_counter"
+  invalid_probe_stderr="${tmpdir}/${invalid_probe_mode}-probe-stderr.txt"
+  set +e
+  env -u JAZZ_NEXT_RUNGHC_IN_CABAL \
+    -u JAZZ_NEXT_RUNGHC_NO_CABAL \
+    PATH="${fake_cabal_bin}:${PATH}" \
+    FAKE_CABAL_BIN="$fake_cabal_bin" \
+    FAKE_CABAL_PROBE_MODE="$invalid_probe_mode" \
+    FAKE_RUNGHC_COUNTER="$fake_runghc_counter" \
+    "$RUNGHC" "${tmpdir}/${invalid_probe_mode}-probe.hs" \
+    >/dev/null 2>"$invalid_probe_stderr"
+  invalid_probe_status=$?
+  set -e
+
+  if [[ "$invalid_probe_status" -ne 1 ]]; then
+    echo "FAIL: ${invalid_probe_mode} Cabal probe returned ${invalid_probe_status}, expected status 1" >&2
+    exit 1
+  fi
+  if ! grep -q 'unexpected Cabal runghc probe output' "$invalid_probe_stderr"; then
+    echo "FAIL: ${invalid_probe_mode} Cabal probe should produce a clear diagnostic" >&2
+    exit 1
+  fi
+  invalid_probe_launch_count="$(awk 'END { print NR + 0 }' "$fake_runghc_counter")"
+  if [[ "$invalid_probe_launch_count" -ne 0 ]]; then
+    echo "FAIL: runghc wrapper launched a child after ${invalid_probe_mode} Cabal probe" >&2
+    exit 1
+  fi
+done
+
+echo "PASS: runghc wrapper rejects missing and ambiguous Cabal probe markers"
 
 : >"$fake_runghc_counter"
 set +e
