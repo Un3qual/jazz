@@ -218,7 +218,7 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
             compileErrors = [diagnostic]
           }
     Right compiledProgram ->
-      let warnings = filterWarningsForPromotion settings (compiledProgramWarnings compiledProgram)
+      let warnings = compiledProgramWarnings compiledProgram
           promotedWarningErrors = map warningToError (filter (isPromoted settings) warnings)
        in pure
             CompileResult
@@ -232,20 +232,8 @@ runExpr = runExprWithHost disabledRuntimeHost
 runExprWithHost :: RuntimeHost IO -> WarningSettings -> Expr -> IO RunResult
 runExprWithHost host = runExprWithBuiltinsAndHost host ResolveKernelOnly
 
-runExprWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO RunResult
-runExprWithBuiltins = runExprWithBuiltinsAndHost disabledRuntimeHost
-
 runExprWithBuiltinsAndHost :: RuntimeHost IO -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO RunResult
 runExprWithBuiltinsAndHost host = runExprWithBuiltinsAndHiddenStatementsAndHost host Set.empty
-
-runExprWithBuiltinsAndHiddenStatements ::
-  Set Int ->
-  BuiltinResolutionMode ->
-  WarningSettings ->
-  Expr ->
-  IO RunResult
-runExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr =
-  runExprWithBuiltinsAndHiddenStatementsAndHost disabledRuntimeHost hiddenStatementIndices builtinMode settings expr
 
 runExprWithBuiltinsAndHiddenStatementsAndHost ::
   RuntimeHost IO ->
@@ -263,22 +251,6 @@ runExprWithBuiltinsAndHiddenStatementsAndHost host hiddenStatementIndices builti
     settings
     expr
 
-runExprWithBuiltinsAndSourceUnitStatements ::
-  Set Int ->
-  Set Int ->
-  BuiltinResolutionMode ->
-  WarningSettings ->
-  Expr ->
-  IO RunResult
-runExprWithBuiltinsAndSourceUnitStatements hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
-  runExprWithBuiltinsAndSourceUnitStatementsAndHost
-    disabledRuntimeHost
-    hiddenStatementIndices
-    preludeStatementIndices
-    builtinMode
-    settings
-    expr
-
 runExprWithBuiltinsAndSourceUnitStatementsAndHost ::
   RuntimeHost IO ->
   Set Int ->
@@ -288,14 +260,14 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHost ::
   Expr ->
   IO RunResult
 runExprWithBuiltinsAndSourceUnitStatementsAndHost host hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
-  (warnings, compileErrors, canonicalExpr, runtimeTypeHints) <-
+  (warnings, analysisErrors, canonicalExpr, runtimeTypeHints) <-
     analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode settings expr
-  if not (null compileErrors)
+  if not (null analysisErrors)
     then
       pure
         RunResult
           { runWarnings = warnings,
-            runCompileErrors = compileErrors,
+            runCompileErrors = analysisErrors,
             runRuntimeErrors = [],
             runOutput = Nothing
           }
@@ -457,15 +429,15 @@ runModuleGraphWithResolvedPreludeAndHost host settings resolvedPrelude resolutio
             runOutput = Nothing
           }
     Right compiledProgram ->
-      let warnings = filterWarningsForPromotion settings (compiledProgramWarnings compiledProgram)
+      let warnings = compiledProgramWarnings compiledProgram
           promotedWarningErrors = map warningToError (filter (isPromoted settings) warnings)
-          compileErrors = compiledProgramErrors compiledProgram <> promotedWarningErrors
-       in if not (null compileErrors)
+          promotedCompileErrors = compiledProgramErrors compiledProgram <> promotedWarningErrors
+       in if not (null promotedCompileErrors)
             then
               pure
                 RunResult
                   { runWarnings = warnings,
-                    runCompileErrors = compileErrors,
+                    runCompileErrors = promotedCompileErrors,
                     runRuntimeErrors = [],
                     runOutput = Nothing
                   }
@@ -526,15 +498,11 @@ analyzeWithWarnings hiddenStatementIndices preludeStatementIndices builtinMode s
       preludeStatementIndices
       settings
       expr
-  let warnings = filterWarningsForPromotion settings (inferredWarnings inference)
+  let warnings = inferredWarnings inference
       promotedWarnings = filter (isPromoted settings) warnings
       promotedWarningErrors = map warningToError promotedWarnings
       errors = inferredErrors inference ++ promotedWarningErrors
   pure (warnings, errors, inferredExpr inference, inferredRuntimeTypeHints inference)
-
-filterWarningsForPromotion :: WarningSettings -> [WarningRecord] -> [WarningRecord]
--- Placeholder hook for future category-level filtering.
-filterWarningsForPromotion _ = id
 
 isPromoted :: WarningSettings -> WarningRecord -> Bool
 isPromoted settings warning = isWarningError settings (warningCategory warning)

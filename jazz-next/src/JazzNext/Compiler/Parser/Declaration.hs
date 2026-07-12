@@ -82,8 +82,6 @@ import JazzNext.Compiler.Parser.Signature
 import JazzNext.Compiler.Parser.TokenParser
   ( Parser,
     failDiagnosticTokenParser,
-    failTokenParser,
-    parseAnyToken,
     runTokenParserPrefix
   )
 import qualified Text.Megaparsec as MP
@@ -208,11 +206,11 @@ parseOperatorDeclaration context declaredOperators operatorToken tokensAfterKeyw
       parseVisibleOperatorDeclaration
   where
     parseVisibleOperatorDeclaration = do
-      (operatorSymbol, afterSymbol) <- parseOperatorDeclarationSymbol tokensAfterKeyword
-      validateDeclaredOperatorSymbol declaredOperators operatorToken operatorSymbol
+      (declaredSymbol, afterSymbol) <- parseOperatorDeclarationSymbol tokensAfterKeyword
+      validateDeclaredOperatorSymbol declaredOperators operatorToken declaredSymbol
       (fixityKeyword, afterFixityKeyword) <- consumeOperatorFixityKeyword operatorToken afterSymbol
       (operatorInfo, afterFixity) <-
-        parseOperatorDeclarationFixity operatorToken operatorSymbol fixityKeyword afterFixityKeyword
+        parseOperatorDeclarationFixity operatorToken declaredSymbol fixityKeyword afterFixityKeyword
       (operatorInfoWithAssociativity, afterAssociativity) <-
         parseOptionalOperatorAssociativity operatorInfo afterFixity
       remaining <-
@@ -224,8 +222,8 @@ parseOperatorDeclaration context declaredOperators operatorToken tokensAfterKeyw
 parseOperatorDeclarationSymbol :: [Token] -> Either Diagnostic (Text, [Token])
 parseOperatorDeclarationSymbol tokens =
   case tokens of
-    Token {tokenKind = TOperator operatorSymbol} : rest ->
-      Right (operatorSymbol, rest)
+    Token {tokenKind = TOperator declaredSymbol} : rest ->
+      Right (declaredSymbol, rest)
     Token {tokenKind = TArrow, tokenLexeme = arrowLexeme} : rest ->
       Right (arrowLexeme, rest)
     token : _ ->
@@ -305,16 +303,16 @@ consumeOperatorFixityKeyword operatorToken tokens =
         )
 
 parseOperatorDeclarationFixity :: Token -> Text -> OperatorDeclarationFixityKeyword -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
-parseOperatorDeclarationFixity operatorToken operatorSymbol fixityKeyword tokens =
+parseOperatorDeclarationFixity operatorToken declaredSymbol fixityKeyword tokens =
   case fixityKeyword of
-    OperatorTierKeyword -> parseOperatorDeclarationTier operatorToken operatorSymbol tokens
-    OperatorPrecedenceKeyword -> parseOperatorDeclarationPrecedence operatorToken operatorSymbol tokens
+    OperatorTierKeyword -> parseOperatorDeclarationTier operatorToken declaredSymbol tokens
+    OperatorPrecedenceKeyword -> parseOperatorDeclarationPrecedence operatorToken declaredSymbol tokens
 
 parseOperatorDeclarationTier :: Token -> Text -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
-parseOperatorDeclarationTier operatorToken operatorSymbol tokens =
+parseOperatorDeclarationTier operatorToken declaredSymbol tokens =
   case tokens of
     Token {tokenKind = TInt tier} : rest ->
-      case declaredOperatorInfoForTier operatorSymbol tier of
+      case declaredOperatorInfoForTier declaredSymbol tier of
         Just operatorInfo -> Right (operatorInfo, rest)
         Nothing ->
           Left
@@ -342,10 +340,10 @@ parseOperatorDeclarationTier operatorToken operatorSymbol tokens =
         )
 
 parseOperatorDeclarationPrecedence :: Token -> Text -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
-parseOperatorDeclarationPrecedence operatorToken operatorSymbol tokens =
+parseOperatorDeclarationPrecedence operatorToken declaredSymbol tokens =
   case tokens of
     Token {tokenKind = TInt precedence} : rest ->
-      case declaredOperatorInfoForPrecedence operatorSymbol precedence of
+      case declaredOperatorInfoForPrecedence declaredSymbol precedence of
         Just operatorInfo -> Right (operatorInfo, rest)
         Nothing ->
           Left
@@ -1035,7 +1033,7 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
       Right (headerArguments, remaining)
 
     collectParenthesizedCapabilityHeader tokens =
-      go 1 [] tokens
+      go (1 :: Int) [] tokens
       where
         go depth acc remaining =
           case remaining of
@@ -1201,7 +1199,7 @@ parseCapabilityDeclarationBody parseImplExpression declarationKind declarationTo
                   (Set.insert methodName seenMethodNames)
                   (method : reversedMethods)
                   afterMethod
-        methodToken@Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} : Token {tokenKind = TColonColon} : _ ->
+        Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} : Token {tokenKind = TColonColon} : _ ->
           Left
             ( parseDiagnostic
                 ( "expected ordinary method binding for '"
@@ -1724,7 +1722,7 @@ parseImportSymbol tokens =
 collectUntilDot :: [Token] -> Either Diagnostic ([Token], [Token])
 collectUntilDot = go []
   where
-    go acc [] = Left (parseDiagnostic "expected '.' before end of input")
+    go _ [] = Left (parseDiagnostic "expected '.' before end of input")
     go acc allTokens@(token : rest) =
       case tokenKind token of
         TDot
@@ -1817,6 +1815,7 @@ shouldParseCompactSignature name nameToken tokensAfterName =
           isSupportedSignaturePayload signaturePayload
             || isLikelyUnsupportedSignaturePayload signaturePayload
             || nextStatementStartsMatchingBinding name remaining
+    Right _ -> False
     Left _ -> False
 
 isConstructorStyleSignaturePayload :: SurfaceSignaturePayload -> Bool
@@ -1879,7 +1878,7 @@ collectImportAliasesUntilBrace :: [Token] -> Set Text
 collectImportAliasesUntilBrace = collectImportAliasesInStatementList True
 
 collectImportAliasesInStatementList :: Bool -> [Token] -> Set Text
-collectImportAliasesInStatementList stopAtRightBrace = go 0 Set.empty
+collectImportAliasesInStatementList stopAtRightBrace = go (0 :: Int) Set.empty
   where
     go _ aliases [] = aliases
     go depth aliases (token : rest)

@@ -55,8 +55,7 @@ import JazzNext.Compiler.AST
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode,
     numericTypeFromName,
-    numericTypeIsIntegral,
-    renderNumericTypeName
+    numericTypeIsIntegral
   )
 import JazzNext.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
@@ -81,8 +80,7 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.Name
   ( Name,
     identifierText,
-    qualifiedMemberName,
-    renderName
+    qualifiedMemberName
   )
 import JazzNext.Compiler.TypeInference.Diagnostics
   ( InferExprFn,
@@ -116,7 +114,6 @@ import JazzNext.Compiler.TypeInference.State
     inferConcreteImplMethods,
     inferCurrentModuleLocalCapabilityFacts,
     inferCurrentModulePath,
-    inferDataTypes,
     inferDeferredExplicitConstraints,
     inferErrorCount,
     inferGeneratedEqualityClassFacts,
@@ -145,7 +142,6 @@ import JazzNext.Compiler.TypeInference.Solver
 import JazzNext.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ConstructorArgumentType (..),
-    DataTypeBinding (..),
     ExpressionType (..),
     ImplMethodType (..),
     ScopeCapabilityFacts (..),
@@ -355,16 +351,16 @@ filterImportedCapabilityFacts maybeAlias maybeSymbolNames facts =
                   (scopeConcreteImplFacts facts),
               scopeClassMethodSignatures =
                 Map.filterWithKey
-                  (\methodKey _ -> qualifiedMethodClassIsVisible methodKey)
+                  (\methodKey _ -> importedMethodClassIsVisible methodKey)
                   (scopeClassMethodSignatures facts),
               scopeConcreteImplMethods =
                 Map.filterWithKey
-                  (\methodKey _ -> qualifiedMethodClassIsVisible methodKey)
+                  (\methodKey _ -> importedMethodClassIsVisible methodKey)
                   (scopeConcreteImplMethods facts)
             }
           where
             visibleSymbols = Set.fromList symbolNames
-            qualifiedMethodClassIsVisible methodKey =
+            importedMethodClassIsVisible methodKey =
               case splitQualifiedMethodKey methodKey of
                 Just (className, _) -> Set.member className visibleSymbols
                 Nothing -> False
@@ -1406,7 +1402,7 @@ constraintSignatureBlockRuntimeHint ::
 constraintSignatureBlockRuntimeHint env initialLocalHints statements =
   go initialLocalHints Map.empty statements
   where
-    go localHints _ [] =
+    go _ _ [] =
       Nothing
     go localHints _ [SExpr _ expr] =
       constraintSignatureExpressionRuntimeHintWithLocalHints env localHints expr

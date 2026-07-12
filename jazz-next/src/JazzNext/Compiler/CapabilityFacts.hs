@@ -118,6 +118,7 @@ splitTopLevelArrow :: [SignatureToken] -> Maybe ([SignatureToken], [SignatureTok
 splitTopLevelArrow =
   go 0 0 0 []
   where
+    go :: Int -> Int -> Int -> [SignatureToken] -> [SignatureToken] -> Maybe ([SignatureToken], [SignatureToken])
     go _ _ _ _ [] = Nothing
     go parenDepth bracketDepth braceDepth argumentTokens (token : rest) =
       case token of

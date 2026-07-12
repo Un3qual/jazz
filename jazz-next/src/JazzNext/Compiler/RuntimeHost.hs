@@ -129,18 +129,18 @@ captureHostIO action = do
   result <- tryIOError action
   pure $
     case result of
-      Left ioError -> Left (normalizedHostFailure (classifyHostIOError ioError))
+      Left hostError -> Left (normalizedHostFailure (classifyHostIOError hostError))
       Right value -> Right value
 
 classifyHostIOError :: IOError -> HostIOCategory
-classifyHostIOError ioError
-  | isDoesNotExistError ioError = HostNotFound
-  | isPermissionError ioError = HostPermissionDenied
-  | isAlreadyExistsError ioError = HostAlreadyExists
-  | isFullError ioError = HostResourceExhausted
-  | ioeGetErrorType ioError == Interrupted = HostInterrupted
-  | isIllegalOperation ioError = HostUnsupported
-  | ioeGetErrorType ioError == UnsupportedOperation = HostUnsupported
+classifyHostIOError hostError
+  | isDoesNotExistError hostError = HostNotFound
+  | isPermissionError hostError = HostPermissionDenied
+  | isAlreadyExistsError hostError = HostAlreadyExists
+  | isFullError hostError = HostResourceExhausted
+  | ioeGetErrorType hostError == Interrupted = HostInterrupted
+  | isIllegalOperation hostError = HostUnsupported
+  | ioeGetErrorType hostError == UnsupportedOperation = HostUnsupported
   | otherwise = HostOther
 
 normalizedHostFailure :: HostIOCategory -> HostIOFailure

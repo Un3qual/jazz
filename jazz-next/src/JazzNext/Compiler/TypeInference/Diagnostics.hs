@@ -599,12 +599,6 @@ concreteConstraintFailureSummary state constraints
         constraintNameText = identifierText constraintName
         maybeClassArity = Map.lookup constraintNameText (inferClassFacts state)
 
-    firstJust results =
-      case results of
-        [] -> Nothing
-        Just result : _ -> Just result
-        Nothing : rest -> firstJust rest
-
 constrainedSignatureHasTypeVariable :: [SignatureConstraint] -> SignatureType -> Bool
 constrainedSignatureHasTypeVariable constraints signatureType =
   any constraintHasTypeVariable constraints

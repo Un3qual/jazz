@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
--- | Small interpreter/runtime for the currently-supported core language. It is
--- intentionally simple and mirrors the same builtin/operator contracts enforced
--- by analysis and type inference.
+-- | Interpreter/runtime for the currently-supported core language. Its explicit
+-- evaluation machine mirrors the builtin/operator contracts enforced by analysis
+-- and type inference while keeping Jazz recursion off the Haskell call stack.
 module JazzNext.Compiler.Runtime
   ( ModuleEvaluationMode (..),
     RuntimeCell,
@@ -398,10 +398,8 @@ data EvaluationFrame
   | ApplyTypeApplicationHint EvaluationContext SourceSpan SignatureType
   | ApplyRemainingArguments [RuntimeValue]
 
-data EvaluationContinuation = EvaluationContinuation
-  { continuationReturnPolicy :: RuntimeReturnPolicy,
-    continuationFrame :: EvaluationFrame
-  }
+data EvaluationContinuation =
+  EvaluationContinuation RuntimeReturnPolicy EvaluationFrame
 
 data EvaluationMachine = EvaluationMachine
   { evaluationControl :: EvaluationControl,
@@ -902,9 +900,9 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
       [CaseArm] ->
       Either Diagnostic (Maybe (Set Name, RuntimeEnv, Expr))
     selectMatchingCaseArmForAlias patternModulePath evalGuard env scrutineeValue =
-      go
+      chooseRemainingArm
       where
-        go remainingArms =
+        chooseRemainingArm remainingArms =
           case remainingArms of
             [] -> Right Nothing
             caseArm : rest ->
@@ -934,7 +932,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
                             )
                         )
                     VBool False ->
-                      go rest
+                      chooseRemainingArm rest
                     other ->
                       Left
                         ( runtimeDiagnostic
@@ -942,7 +940,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
                             ("runtime case guard must be Bool, found " <> renderRuntimeType other)
                         )
             Nothing ->
-              go rest
+              chooseRemainingArm rest
 
     caseArmBoundNames :: CaseArm -> Set Name
     caseArmBoundNames (CaseArm casePattern _ _) =
@@ -957,8 +955,8 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
         _ -> expr
 
     terminalBlockLocalAliasExpr :: [Statement] -> Maybe ([Statement], Expr)
-    terminalBlockLocalAliasExpr statements =
-      case reverse statements of
+    terminalBlockLocalAliasExpr blockStatements =
+      case reverse blockStatements of
         SExpr _ (EVar aliasName) : precedingStatements ->
           let prefixStatements = reverse precedingStatements
            in fmap
@@ -1155,7 +1153,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
                         )
                 )
                 methods
-            methodCandidateCell implTarget methodName methodKey methodExpr =
+            methodCandidateCell candidateImplTarget methodName methodKey methodExpr =
               case selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey Set.empty methodEnv methodKey methodExpr of
                 Left diagnostic ->
                   Left diagnostic
@@ -1167,7 +1165,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
                     )
                 Right False ->
                   evalValueWithModulePath methodModulePath builtinMode bindingTypeHints methodEnv methodExpr
-                    >>= attachRuntimeMethodSignature methodModulePath methodEnv implTarget methodName
+                    >>= attachRuntimeMethodSignature methodModulePath methodEnv candidateImplTarget methodName
             insertCandidate envAcc (methodName, _, methodCandidate) =
               Map.adjust (addMethodCandidate methodCandidate) methodName envAcc
         _ -> env
@@ -1223,8 +1221,8 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
                   selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys armEnv methodKey bodyExpr
                 Nothing ->
                   Right False
-            EBlock statements ->
-              case terminalBlockLocalAliasExpr statements of
+            EBlock blockStatements ->
+              case terminalBlockLocalAliasExpr blockStatements of
                 Just (prefixStatements, aliasExpr) ->
                   selectedQualifiedMethodAliasTarget
                     methodModulePath
@@ -1950,15 +1948,15 @@ dischargeRuntimeReturnPolicy ::
 dischargeRuntimeReturnPolicy (RuntimeReturnPolicy obligations) runtimeValue =
   foldM applyObligation runtimeValue obligations
   where
-    applyObligation runtimeValue obligation =
+    applyObligation currentValue obligation =
       liftRuntimeResult
         ( case obligation of
             ApplyFunctionResultHint typeHint ->
-              applyRuntimeFunctionResultHint typeHint runtimeValue
+              applyRuntimeFunctionResultHint typeHint currentValue
             ApplyExplicitResultHint typeHint ->
-              applyExplicitTypeApplicationResultHint typeHint runtimeValue
+              applyExplicitTypeApplicationResultHint typeHint currentValue
             AttachDefaultIntegerResult ->
-              attachDefaultBindingIntegerTarget runtimeValue
+              attachDefaultBindingIntegerTarget currentValue
         )
 
 lookupDeclaredOperatorCell :: Text -> RuntimeEnv -> Either Diagnostic RuntimeValue
@@ -2211,11 +2209,11 @@ evalScopeWithHostInstance scopeId host preludeStatementIndices currentModulePath
                   Right (VQualifiedMethod methodKey classParameter methodSignature (candidates <> [methodCandidate]) capturedArgs)
                 _ -> methodCell
 
-            methodRuntimeTypeHint implTarget methodName =
+            methodRuntimeTypeHint candidateImplTarget methodName =
               case Map.lookup methodName methodEnv of
                 Just (Right (VQualifiedMethod _ classParameter methodSignature _ _)) ->
                   runtimeConstraintType signatureModulePath
-                    <$> substituteClassMethodSignature classParameter implTarget methodSignature
+                    <$> substituteClassMethodSignature classParameter candidateImplTarget methodSignature
                 _ -> Nothing
               where
                 signatureModulePath =

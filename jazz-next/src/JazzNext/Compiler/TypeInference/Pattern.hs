@@ -218,9 +218,9 @@ inferPatternType env scrutineeType pattern state =
       inferConsListPatternType env scrutineeType headPattern tailPattern state
     PTuple patterns ->
       inferTuplePatternType env scrutineeType patterns state
-    PAs name pattern ->
+    PAs name nestedPattern ->
       let (typing, stateAfterPattern) =
-            inferPatternType env scrutineeType pattern state
+            inferPatternType env scrutineeType nestedPattern state
        in
         if patternSkipsBranchType typing
           then (typing, stateAfterPattern)

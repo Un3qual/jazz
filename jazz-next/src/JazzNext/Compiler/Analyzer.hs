@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Semantic analysis for the current compiler slice. This pass keeps the core
--- AST shape intact while enforcing scope visibility, signature adjacency, and
--- stub-v1 purity/rebinding rules.
+-- AST shape intact while enforcing scope visibility, signature adjacency,
+-- capability constraints, purity, and rebinding rules.
 module JazzNext.Compiler.Analyzer
   ( AnalysisBinding (..),
     AnalysisInputs (..),

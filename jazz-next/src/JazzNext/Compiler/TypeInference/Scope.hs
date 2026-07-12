@@ -80,7 +80,6 @@ import JazzNext.Compiler.TypeInference.State
     InferenceOutput (..),
     ModuleInferenceState (..),
     SolverState (..),
-    inferCurrentModulePath,
     inferDataTypes,
     inferDeferredExplicitConstraints,
     inferErrorCount,
@@ -266,8 +265,8 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
                     case maybeInvalidTarget of
                       Just diagnostic -> addTypeError stateForSource diagnostic
                       Nothing ->
-                        let seededState = seedStatementCapabilityFact stateForSource statement
-                         in checkImplMethodBodies inferExpression builtinMode env seededState capabilityName arguments methods
+                        let implSeededState = seedStatementCapabilityFact stateForSource statement
+                         in checkImplMethodBodies inferExpression builtinMode env implSeededState capabilityName arguments methods
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                in go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
@@ -445,7 +444,6 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
                   maybeNextBinding =
                     nextBindingForValue
                       statementIndex
-                      name
                       envForStatement
                       valueExpr
                       nextBindingType
@@ -541,14 +539,13 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
 
     nextBindingForValue ::
       Int ->
-      Name ->
       TypeEnv ->
       Expr ->
       Maybe ExpressionType ->
       Maybe PendingSignatureType ->
       InferState ->
       Maybe TypeBinding
-    nextBindingForValue statementIndex bindingName currentEnv valueExpr maybeInferredType maybePendingSignature state =
+    nextBindingForValue statementIndex currentEnv valueExpr maybeInferredType maybePendingSignature state =
       let monomorphicBinding =
             if Set.member statementIndex (Map.keysSet recursiveGroupsByStatement)
               then PlainTypeBinding <$> maybeInferredType
@@ -864,7 +861,7 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
     generalizeRecursiveGroupMember :: Map Int PendingSignatureType -> TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
     generalizeRecursiveGroupMember pendingSignatures envOutsideGroup state currentEnv memberIndex =
       case (Map.lookup memberIndex statementsByIndex, Map.lookup memberIndex bindingNamesByStatement) of
-        (Just (SLet _ _ valueExpr), Just bindingName)
+        (Just (SLet _ _ _), Just bindingName)
           | Just pendingSignature <- Map.lookup memberIndex pendingSignatures,
             shouldGeneralizeExplicitSignatureBinding pendingSignature ->
               Map.insert
