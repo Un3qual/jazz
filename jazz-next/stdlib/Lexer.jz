@@ -1,1 +1,335 @@
+module Lexer (value lexSource) {
+  import List.
+  import Char.
+  import Text.
+  import Maybe.
+  import LexerTypes.
 
+  data ScanResult = Scanned CanonicalToken Text Int Int | ScanFailed CanonicalLexError.
+
+  data TextRun = TextRun Text Text.
+
+  data QuoteMode = QuoteNormal | QuoteEscape | QuoteUnicodeOpen | QuoteUnicodeDigits Text.
+
+  zeroUInt32 :: UInt32.
+  zeroUInt32 = 0.
+
+  nextTabStop :: Int -> Int -> Int.
+  nextTabStop = \(stop) -> \(column) -> if stop > column stop else nextTabStop (stop + 8) column.
+
+  advanceLine :: Char -> Int -> Int.
+  advanceLine = \(value) -> \(line) -> if value == '\n' line + 1 else line.
+
+  advanceColumn :: Char -> Int -> Int.
+  advanceColumn = \(value) -> \(column) -> if value == '\n'
+    1
+    else if value == '\t'
+      nextTabStop 1 column
+      else column + 1.
+
+  isIdentifierStart :: Char -> Bool.
+  isIdentifierStart = \(value) -> if (charIsAlpha value) True else value == '_'.
+
+  isIdentifierContinuation :: Char -> Bool.
+  isIdentifierContinuation = \(value) -> if (charIsAlphaNum value)
+    True
+    else if value == '_'
+      True
+      else if value == '\''
+        True
+        else value == '!'.
+
+  identifierKind :: Text -> CanonicalTokenKind.
+  identifierKind = \(name) -> if name == "module"
+    KeywordKind ModuleKeyword
+    else if name == "import"
+      KeywordKind ImportKeyword
+      else if name == "as"
+        KeywordKind AsKeyword
+        else if name == "data"
+          KeywordKind DataKeyword
+          else if name == "if"
+            KeywordKind IfKeyword
+            else if name == "else"
+              KeywordKind ElseKeyword
+              else if name == "case"
+                KeywordKind CaseKeyword
+                else IdentifierKind name.
+
+  canonicalInteger :: Text -> Text.
+  canonicalInteger = \(digits) -> case textUncons digits {
+    | Nothing -> "0"
+    | Just (first, rest) -> if first == '0' canonicalInteger rest else digits
+  }.
+
+  isOperatorSymbol :: Char -> Bool.
+  isOperatorSymbol = \(value) -> if value == '!'
+    True
+    else if value == '%'
+      True
+      else if value == '&'
+        True
+        else if value == '*'
+          True
+          else if value == '+'
+            True
+            else if value == '-'
+              True
+              else if value == '/'
+                True
+                else if value == '<'
+                  True
+                  else if value == '>'
+                    True
+                    else if value == '?'
+                      True
+                      else if value == '^'
+                        True
+                        else if value == '|'
+                          True
+                          else value == '~'.
+
+  allHexDigits :: Text -> Bool.
+  allHexDigits = \(digits) -> case textUncons digits {
+    | Nothing -> True
+    | Just (first, rest) -> if (charIsHexDigit first) allHexDigits rest else False
+  }.
+
+  validUnicodeDigits :: Text -> Bool.
+  validUnicodeDigits = \(digits) -> if (textLength digits) < 1
+    False
+    else if (textLength digits) > 6
+      False
+      else allHexDigits digits.
+
+  hexDigitValue :: Char -> UInt32.
+  hexDigitValue = \(digit) -> if (charToUInt32 digit) <= (charToUInt32 '9')
+    (charToUInt32 digit) - (charToUInt32 '0')
+    else if (charToUInt32 digit) <= (charToUInt32 'F')
+      (charToUInt32 digit) - (charToUInt32 'A') + 10
+      else (charToUInt32 digit) - (charToUInt32 'a') + 10.
+
+  parseHex :: Text -> UInt32 -> UInt32.
+  parseHex = \(digits) -> \(value) -> case textUncons digits {
+    | Nothing -> value
+    | Just (first, rest) -> parseHex rest (value * 16 + (hexDigitValue first))
+  }.
+
+  lexicalFailure :: CanonicalLexErrorReason -> Int -> Int -> ScanResult.
+  lexicalFailure = \(reason) -> \(line) -> \(column) -> ScanFailed (CanonicalLexError "E0001" reason (CanonicalSpan line column)).
+
+  singleToken :: CanonicalTokenKind -> Text -> Text -> Int -> Int -> ScanResult.
+  singleToken = \(kind) -> \(raw) -> \(remaining) -> \(line) -> \(column) ->
+    Scanned (CanonicalToken kind raw (CanonicalSpan line column)) remaining line (column + (textLength raw)).
+
+  scanTextRun :: (Char -> Bool) -> Text -> Text -> TextRun.
+  scanTextRun = \(accepts) -> \(remaining) -> \(accumulated) -> case textUncons remaining {
+    | Nothing -> TextRun accumulated remaining
+    | Just (current, rest) -> if (accepts current)
+      scanTextRun accepts rest (textAppendChar accumulated current)
+      else TextRun accumulated remaining
+  }.
+
+  scanIdentifier :: Text -> Int -> Int -> ScanResult.
+  scanIdentifier = \(source) -> \(line) -> \(column) -> case scanTextRun isIdentifierContinuation source "" {
+    | TextRun raw remaining -> Scanned (CanonicalToken (identifierKind raw) raw (CanonicalSpan line column)) remaining line (column + (textLength raw))
+  }.
+
+  scanInteger :: Text -> Int -> Int -> ScanResult.
+  scanInteger = \(source) -> \(line) -> \(column) -> case scanTextRun charIsDigit source "" {
+    | TextRun raw remaining -> Scanned (CanonicalToken (IntegerKind (canonicalInteger raw)) raw (CanonicalSpan line column)) remaining line (column + (textLength raw))
+  }.
+
+  scanColon :: Text -> Int -> Int -> ScanResult.
+  scanColon = \(remaining) -> \(line) -> \(column) -> case textUncons remaining {
+    | Just (next, rest) -> if next == ':'
+      singleToken (PunctuationKind DoubleColonPunctuation) "::" rest line column
+      else singleToken (PunctuationKind ColonPunctuation) ":" remaining line column
+    | Nothing -> singleToken (PunctuationKind ColonPunctuation) ":" remaining line column
+  }.
+
+  scanEquals :: Text -> Int -> Int -> ScanResult.
+  scanEquals = \(remaining) -> \(line) -> \(column) -> case textUncons remaining {
+    | Just (next, rest) -> if next == '='
+      singleToken (OperatorKind "==") "==" rest line column
+      else if next == '>'
+        singleToken (OperatorKind "=>") "=>" rest line column
+        else singleToken (PunctuationKind EqualsPunctuation) "=" remaining line column
+    | Nothing -> singleToken (PunctuationKind EqualsPunctuation) "=" remaining line column
+  }.
+
+  scanOperatorRun :: Text -> Int -> Int -> ScanResult.
+  scanOperatorRun = \(source) -> \(line) -> \(column) -> case scanTextRun isOperatorSymbol source "" {
+    | TextRun raw remaining -> if raw == "->"
+      singleToken (PunctuationKind ArrowPunctuation) raw remaining line column
+      else singleToken (OperatorKind raw) raw remaining line column
+  }.
+
+  scanBang :: Text -> Text -> Int -> Int -> ScanResult.
+  scanBang = \(remaining) -> \(source) -> \(line) -> \(column) -> case textUncons remaining {
+    | Just (next, rest) -> if next == '='
+      singleToken (OperatorKind "!=") "!=" rest line column
+      else scanOperatorRun source line column
+    | Nothing -> scanOperatorRun source line column
+  }.
+
+  scanLess :: Text -> Text -> Int -> Int -> ScanResult.
+  scanLess = \(remaining) -> \(source) -> \(line) -> \(column) -> case textUncons remaining {
+    | Just (next, rest) -> if next == '='
+      singleToken (OperatorKind "<=") "<=" rest line column
+      else scanOperatorRun source line column
+    | Nothing -> scanOperatorRun source line column
+  }.
+
+  scanGreater :: Text -> Text -> Int -> Int -> ScanResult.
+  scanGreater = \(remaining) -> \(source) -> \(line) -> \(column) -> case textUncons remaining {
+    | Just (next, rest) -> if next == '='
+      singleToken (OperatorKind ">=") ">=" rest line column
+      else scanOperatorRun source line column
+    | Nothing -> scanOperatorRun source line column
+  }.
+
+  scanSymbol :: Text -> Int -> Int -> ScanResult.
+  scanSymbol = \(source) -> \(line) -> \(column) -> case textUncons source {
+    | Nothing -> lexicalFailure UnexpectedEndOfInput line column
+    | Just (current, rest) -> if current == ':'
+      scanColon rest line column
+      else if current == '='
+        scanEquals rest line column
+        else if current == '!'
+          scanBang rest source line column
+          else if current == '<'
+            scanLess rest source line column
+            else if current == '>'
+              scanGreater rest source line column
+              else if (isOperatorSymbol current)
+                scanOperatorRun source line column
+                else if current == '$'
+                  singleToken (OperatorKind "$") "$" rest line column
+                  else if current == '@'
+                    singleToken (PunctuationKind AtPunctuation) "@" rest line column
+                    else if current == '\\'
+                      singleToken (PunctuationKind LambdaPunctuation) "\\" rest line column
+                      else if current == '.'
+                        singleToken (PunctuationKind DotPunctuation) "." rest line column
+                        else if current == '{'
+                          singleToken (PunctuationKind LeftBracePunctuation) "{" rest line column
+                          else if current == '}'
+                            singleToken (PunctuationKind RightBracePunctuation) "}" rest line column
+                            else if current == '('
+                              singleToken (PunctuationKind LeftParenPunctuation) "(" rest line column
+                              else if current == ')'
+                                singleToken (PunctuationKind RightParenPunctuation) ")" rest line column
+                                else if current == '['
+                                  singleToken (PunctuationKind LeftBracketPunctuation) "[" rest line column
+                                  else if current == ']'
+                                    singleToken (PunctuationKind RightBracketPunctuation) "]" rest line column
+                                    else if current == ','
+                                      singleToken (PunctuationKind CommaPunctuation) "," rest line column
+                                      else lexicalFailure (UnexpectedCharacter current) line column
+  }.
+
+  finishQuoted :: CanonicalLiteralKind -> Text -> Text -> Int -> Text -> Int -> Int -> Int -> ScanResult.
+  finishQuoted = \(literalKind) -> \(raw) -> \(decoded) -> \(count) -> \(remaining) -> \(line) -> \(startColumn) -> \(nextColumn) -> case literalKind {
+    | CharacterLiteral -> if count == 1
+      case textUncons decoded {
+        | Just (value, _) -> Scanned (CanonicalToken (CharacterKind value) raw (CanonicalSpan line startColumn)) remaining line nextColumn
+        | Nothing -> lexicalFailure (InvalidCharacterLength count) line startColumn
+      }
+      else lexicalFailure (InvalidCharacterLength count) line startColumn
+    | TextLiteral -> Scanned (CanonicalToken (TextKind decoded) raw (CanonicalSpan line startColumn)) remaining line nextColumn
+  }.
+
+  scanQuoted :: QuoteMode -> CanonicalLiteralKind -> Char -> Text -> Text -> Text -> Int -> Int -> Int -> Int -> ScanResult.
+  scanQuoted = \(mode) -> \(literalKind) -> \(delimiter) -> \(remaining) -> \(raw) -> \(decoded) -> \(count) -> \(line) -> \(startColumn) -> \(currentColumn) -> case textUncons remaining {
+    | Nothing -> case mode {
+      | QuoteNormal -> lexicalFailure (UnterminatedLiteral literalKind) line startColumn
+      | QuoteEscape -> lexicalFailure (UnterminatedLiteral literalKind) line startColumn
+      | QuoteUnicodeOpen -> lexicalFailure UnterminatedUnicodeEscape line startColumn
+      | QuoteUnicodeDigits _ -> lexicalFailure UnterminatedUnicodeEscape line startColumn
+    }
+    | Just (current, rest) -> case mode {
+      | QuoteNormal -> if current == delimiter
+        finishQuoted literalKind (textAppendChar raw current) decoded count rest line startColumn (currentColumn + 1)
+        else if current == '\\'
+          scanQuoted QuoteEscape literalKind delimiter rest (textAppendChar raw current) decoded count line startColumn (currentColumn + 1)
+          else if (charIsNewline current)
+            lexicalFailure (RawNewline literalKind) line startColumn
+            else scanQuoted QuoteNormal literalKind delimiter rest (textAppendChar raw current) (textAppendChar decoded current) (count + 1) line startColumn (advanceColumn current currentColumn)
+      | QuoteEscape -> if current == '\\'
+        scanQuoted QuoteNormal literalKind delimiter rest (textAppendChar raw current) (textAppendChar decoded '\\') (count + 1) line startColumn (currentColumn + 1)
+        else if current == '\''
+          scanQuoted QuoteNormal literalKind delimiter rest (textAppendChar raw current) (textAppendChar decoded '\'') (count + 1) line startColumn (currentColumn + 1)
+          else if current == '"'
+            scanQuoted QuoteNormal literalKind delimiter rest (textAppendChar raw current) (textAppendChar decoded '"') (count + 1) line startColumn (currentColumn + 1)
+            else if current == 'n'
+              scanQuoted QuoteNormal literalKind delimiter rest (textAppendChar raw current) (textAppendChar decoded '\n') (count + 1) line startColumn (currentColumn + 1)
+              else if current == 'r'
+                scanQuoted QuoteNormal literalKind delimiter rest (textAppendChar raw current) (textAppendChar decoded '\r') (count + 1) line startColumn (currentColumn + 1)
+                else if current == 't'
+                  scanQuoted QuoteNormal literalKind delimiter rest (textAppendChar raw current) (textAppendChar decoded '\t') (count + 1) line startColumn (currentColumn + 1)
+                  else if current == '0'
+                    scanQuoted QuoteNormal literalKind delimiter rest (textAppendChar raw current) (textAppendChar decoded '\0') (count + 1) line startColumn (currentColumn + 1)
+                    else if current == 'u'
+                      scanQuoted QuoteUnicodeOpen literalKind delimiter rest (textAppendChar raw current) decoded count line startColumn (currentColumn + 1)
+                      else lexicalFailure (InvalidEscape current) line startColumn
+      | QuoteUnicodeOpen -> if current == '{'
+        scanQuoted (QuoteUnicodeDigits "") literalKind delimiter rest (textAppendChar raw current) decoded count line startColumn (currentColumn + 1)
+        else lexicalFailure UnterminatedUnicodeEscape line startColumn
+      | QuoteUnicodeDigits digits -> if current == '}'
+        if (validUnicodeDigits digits)
+          case charFromUInt32 (parseHex digits zeroUInt32) {
+            | Nothing -> lexicalFailure (NonScalarUnicodeEscape digits) line startColumn
+            | Just value -> scanQuoted QuoteNormal literalKind delimiter rest (textAppendChar raw current) (textAppendChar decoded value) (count + 1) line startColumn (currentColumn + 1)
+          }
+          else lexicalFailure (MalformedUnicodeEscape digits) line startColumn
+        else scanQuoted (QuoteUnicodeDigits (textAppendChar digits current)) literalKind delimiter rest (textAppendChar raw current) decoded count line startColumn (currentColumn + 1)
+    }
+  }.
+
+  scanCharacter :: Text -> Int -> Int -> ScanResult.
+  scanCharacter = \(source) -> \(line) -> \(column) -> case textUncons source {
+    | Nothing -> lexicalFailure UnexpectedEndOfInput line column
+    | Just (_, rest) -> scanQuoted QuoteNormal CharacterLiteral '\'' rest "'" "" 0 line column (column + 1)
+  }.
+
+  scanText :: Text -> Int -> Int -> ScanResult.
+  scanText = \(source) -> \(line) -> \(column) -> case textUncons source {
+    | Nothing -> lexicalFailure UnexpectedEndOfInput line column
+    | Just (_, rest) -> scanQuoted QuoteNormal TextLiteral '"' rest "\"" "" 0 line column (column + 1)
+  }.
+
+  scanToken :: Text -> Int -> Int -> ScanResult.
+  scanToken = \(source) -> \(line) -> \(column) -> case textUncons source {
+    | Nothing -> lexicalFailure UnexpectedEndOfInput line column
+    | Just (current, _) -> if current == '\''
+      scanCharacter source line column
+      else if current == '"'
+        scanText source line column
+        else if (charIsDigit current)
+          scanInteger source line column
+          else if (isIdentifierStart current)
+            scanIdentifier source line column
+            else scanSymbol source line column
+  }.
+
+  lexLoop :: CanonicalSourcePath -> Text -> Int -> Int -> [CanonicalToken] -> Bool -> CanonicalLexResult.
+  lexLoop = \(path) -> \(remaining) -> \(line) -> \(column) -> \(reversedTokens) -> \(inComment) -> case textUncons remaining {
+    | Nothing -> CanonicalLexSuccess path (listReverse reversedTokens)
+    | Just (current, rest) -> if inComment
+      if current == '\n'
+        lexLoop path rest (line + 1) 1 reversedTokens False
+        else lexLoop path rest line (advanceColumn current column) reversedTokens True
+      else if (charIsSpace current)
+        lexLoop path rest (advanceLine current line) (advanceColumn current column) reversedTokens False
+        else if current == '#'
+          lexLoop path rest line (column + 1) reversedTokens True
+          else case scanToken remaining line column {
+            | ScanFailed error -> CanonicalLexFailure path error
+            | Scanned token next nextLine nextColumn -> lexLoop path next nextLine nextColumn (listPrepend token reversedTokens) False
+          }
+  }.
+
+  lexSource :: CanonicalSourcePath -> Text -> CanonicalLexResult.
+  lexSource = \(path) -> \(source) -> lexLoop path source 1 1 [] False.
+}

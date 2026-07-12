@@ -99,18 +99,18 @@ paths/source text to both lexers and compares only ordinary runtime rendering.
 
 ### Task 3: Implement the Jazz-authored lexer state machine
 
-- [ ] Add a RED focused parity suite that loads checked-in `List`, `Char`,
+- [x] Add a RED focused parity suite that loads checked-in `List`, `Char`,
   `Text`, `Maybe`, `LexerTypes`, and `Lexer` through the real module graph.
-- [ ] Implement `Lexer.jz` with explicit scanner result/state ADTs, ignored
+- [x] Implement `Lexer.jz` with explicit scanner result/state ADTs, ignored
   whitespace/comments, identifiers/keywords, arbitrary-size integer spelling,
   punctuation/operator runs, quoted literals, all escapes, Unicode decoding,
   exact spans, and structured failures.
-- [ ] Accumulate tokens through `List.listPrepend` and finish with the
+- [x] Accumulate tokens through `List.listPrepend` and finish with the
   tail-recursive `listReverse`; use no Haskell-side token construction for the
   Jazz result.
-- [ ] Cover every token constructor and lexical boundary family in focused
+- [x] Cover every token constructor and lexical boundary family in focused
   exact-rendering tests, then run stdlib formatting GREEN.
-- [ ] Commit with `feat: implement lexer in Jazz`.
+- [x] Commit with `feat: implement lexer in Jazz`.
 
 ### Task 4: Prove full differential parity and stack safety
 
