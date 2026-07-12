@@ -56,9 +56,13 @@ Each blocked item should answer these questions:
 - Candidate child: `JN-BOOTSTRAP-STACK-SAFE-EVALUATION-CONTRACT-001`, a
   curation-only target until those runtime, module, diagnostic, and verification
   decisions are accepted.
-- Candidate target paths: inspect `Runtime.hs`, `ModuleRuntime.hs`, `Driver.hs`,
-  the runtime and loader suites, and the approved bootstrap-profile design; a
-  later accepted child plan must name the exact implementation paths.
+- Candidate target paths: inspect `jazz-next/src/JazzNext/Compiler/Runtime.hs`,
+  `jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs`,
+  `jazz-next/src/JazzNext/Compiler/Driver.hs`,
+  `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`,
+  `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`, and the approved
+  bootstrap-profile design; a later accepted child plan must name the exact
+  implementation paths.
 - Verification for the curation pass: focused evaluator/module evidence review;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.

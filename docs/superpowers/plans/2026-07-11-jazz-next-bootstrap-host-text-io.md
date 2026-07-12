@@ -26,6 +26,8 @@ target_paths:
   - jazz-next/src/JazzNext/Compiler/RuntimeHost.hs
   - jazz-next/src/JazzNext/Compiler/TypeInference.hs
   - jazz-next/stdlib/Prelude.jz
+  - jazz-next/stdlib/IOError.jz
+  - jazz-next/stdlib/IO.jz
   - jazz-next/test/JazzNext/CLI/CLISpec.hs
   - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
   - jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
