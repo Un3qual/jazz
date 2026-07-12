@@ -129,7 +129,7 @@ testQualifiedVariablesListsAndTuples = do
 
 testControlFlowAndBlockExpressionStarters :: IO ()
 testControlFlowAndBlockExpressionStarters = do
-  ifTokens <- lexSource "if True 1 else 2."
+  ifTokens <- lexSource "if True then 1 else 2."
   assertExpression
     "if expression starter"
     (SEIf (SELit (SLBool True)) (SELit (SLInt 1)) (SELit (SLInt 2)))

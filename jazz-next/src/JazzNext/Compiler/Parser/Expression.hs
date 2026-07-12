@@ -91,21 +91,6 @@ parseExprWithMinPrecedenceUntil parseBlock context stop minPrecedence = do
     minPrecedence
     leftExpr
 
-parseExprWithoutApplicationUntil ::
-  StatementBlockParser ->
-  ParserContext ->
-  Stop ->
-  Int ->
-  Parser SurfaceExpr
-parseExprWithoutApplicationUntil parseBlock context stop minPrecedence = do
-  leftExpr <- parsePrimaryExpr parseBlock context stop
-  parseInfixTailWithUntil
-    context
-    stop
-    (parseExprWithoutApplicationUntil parseBlock context)
-    minPrecedence
-    leftExpr
-
 parseApplicationExprUntil ::
   StatementBlockParser ->
   ParserContext ->
@@ -154,6 +139,13 @@ parseTypeApplicationArgument typeApplicationToken = do
 
 neverStop :: Stop
 neverStop _ = False
+
+thenStarts :: Stop -> Stop
+thenStarts stop tokens =
+  stop tokens
+    || case tokens of
+      Token {tokenKind = TThen} : _ -> True
+      _ -> False
 
 startsPrimaryExpr :: Token -> Bool
 startsPrimaryExpr token =
@@ -508,7 +500,23 @@ parseIfExpr ::
   Token ->
   Parser SurfaceExpr
 parseIfExpr parseBlock context stop ifToken = do
-  conditionExpr <- parseExprWithoutApplicationUntil parseBlock context stop 1
+  conditionExpr <- parseExprWithMinPrecedenceUntil parseBlock context (thenStarts stop) 1
+  maybeThen <- peekToken
+  case maybeThen of
+    Just Token {tokenKind = TThen} -> void parseAnyToken
+    Nothing ->
+      failTokenParser
+        ( "expected 'then' before end of input after 'if' at "
+            <> renderSourceSpan (tokenSpan ifToken)
+        )
+    Just token ->
+      failTokenParser
+        ( "expected 'then' at "
+            <> renderSourceSpan (tokenSpan token)
+            <> ", found '"
+            <> tokenLexeme token
+            <> "'"
+        )
   thenExpr <- parseExprWithMinPrecedenceUntil parseBlock context stop 1
   maybeElse <- peekToken
   case maybeElse of
