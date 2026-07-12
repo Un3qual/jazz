@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-STACK-SAFE-EVALUATION-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-HOST-TEXT-IO-001
 last_verified: 2026-07-11
+completed_on: 2026-07-11
 plan_section: "Implementation Batch: Stack-Safe Evaluation"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -109,7 +110,7 @@ boundaries, not planned edits. The existing runtime suite already imports
 - Produces: three behavioral regression floors and helpers that classify
   success, timeout, leaked Haskell exception, and Jazz failure separately.
 
-- [ ] **Step 1: Add a reusable result classifier to `RecursionTests.hs`.**
+- [x] **Step 1: Add a reusable result classifier to `RecursionTests.hs`.**
 
 Add `assertStackSafeRunResult` with this exact contract:
 
@@ -182,7 +183,7 @@ The third prevents result-hint handling from turning typed tail recursion back
 into a continuation chain or applying the `Int` result policy at the wrong
 boundary.
 
-- [ ] **Step 2: Add the host-path regression to `HostIOTests.hs`.**
+- [x] **Step 2: Add the host-path regression to `HostIOTests.hs`.**
 
 Register `testHostTailRecursionIsStackSafe`. Reuse `statefulHost`, build the
 AST directly, and require one effect before the recursive result:
@@ -227,7 +228,7 @@ testHostTailRecursionIsStackSafe = do
 Reuse the existing `recordingIOHost`, `newIORef`, and `readIORef` definitions.
 Add `failTest` and `timeout` to this module's imports.
 
-- [ ] **Step 3: Add the imported-module regression to `LoaderSpec.hs`.**
+- [x] **Step 3: Add the imported-module regression to `LoaderSpec.hs`.**
 
 Register `testImportedTailRecursiveClosureIsStackSafe` and use this exact
 module graph:
@@ -276,7 +277,7 @@ testImportedTailRecursiveClosureIsStackSafe = do
 
 Add `SomeException`, `try`, `failTest`, and `timeout` imports.
 
-- [ ] **Step 4: Run the focused suite and capture RED evidence.**
+- [x] **Step 4: Run the focused suite and capture RED evidence.**
 
 Run:
 
@@ -307,7 +308,7 @@ Do not commit while the suite is red. Continue directly to Task 2.
   `RuntimeReturnPolicy`, and `runEvaluationMachine`. Existing exported
   functions keep their signatures.
 
-- [ ] **Step 1: Add the private machine types next to the runtime environment.**
+- [x] **Step 1: Add the private machine types next to the runtime environment.**
 
 Use these concrete responsibilities and field types:
 
@@ -367,7 +368,7 @@ Do not add a generic callback/function-valued frame; frames must remain
 inspectable data. The listed frames cover every current `Expr` constructor and
 qualified-method argument replay.
 
-- [ ] **Step 2: Implement the loop and value-return protocol.**
+- [x] **Step 2: Implement the loop and value-return protocol.**
 
 Add:
 
@@ -409,7 +410,7 @@ This boundary rule is required for typed non-tail calls such as `f value + 1`:
 `f`'s result hint must be applied before binary evaluation resumes, while the
 outer function's return policy remains pending.
 
-- [ ] **Step 3: Migrate every expression constructor to machine transitions.**
+- [x] **Step 3: Migrate every expression constructor to machine transitions.**
 
 Implement the exhaustive mapping below. Each row is required; the compiler's
 exhaustiveness check is not a substitute for preserving the stated order.
@@ -457,7 +458,7 @@ operator to the returned left value while
 callable; after the partial callable returns, evaluate `rightExpr` and use
 `ApplyEvaluatedFunction` for the final tail application.
 
-- [ ] **Step 4: Route both public expression paths through the machine.**
+- [x] **Step 4: Route both public expression paths through the machine.**
 
 Keep the exported signatures unchanged. Make `evalValueWithHost` a thin call
 to `runEvaluationMachine` with an `EvaluationContext`. Make the pure
@@ -480,7 +481,7 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expre
 Do not leave the old pure expression `case` as a fallback. There must be one
 expression transition table.
 
-- [ ] **Step 5: Compile before migrating callable application.**
+- [x] **Step 5: Compile before migrating callable application.**
 
 Run:
 
@@ -507,7 +508,7 @@ re-enters evaluation; do not claim GREEN yet.
 - Produces: stack-safe closure-body transfer for ordinary, operator,
   qualified-method, prelude, and imported closures.
 
-- [ ] **Step 1: Replace recursive callable application with transitions.**
+- [x] **Step 1: Replace recursive callable application with transitions.**
 
 Implement `ApplyCallable` cases with this exact policy:
 
@@ -528,7 +529,7 @@ Append obligations in semantic return order. Normalize adjacent duplicate
 runtime hint helpers. Do not normalize explicit-result obligations, infer
 compatibility between distinct hints, or reorder distinct obligations.
 
-- [ ] **Step 2: Remove the old recursive application implementations.**
+- [x] **Step 2: Remove the old recursive application implementations.**
 
 Delete the expression-evaluating branches from `applyRuntimeFunction` and
 `applyRuntimeFunctionWithHost`. Retain pure primitive helpers that do not call
@@ -545,7 +546,7 @@ Expected: occurrences are entry wrappers, scope entry points, deferred binding
 evaluation, or comments only. Neither callable application function may invoke
 an evaluator recursively.
 
-- [ ] **Step 3: Run the pure regression and runtime suite.**
+- [x] **Step 3: Run the pure regression and runtime suite.**
 
 Run:
 
@@ -557,7 +558,7 @@ Expected: PASS, including the 50,000-call ordinary recursion, 10,000-call
 case-arm regression, and 10,000-call typed recursion. Confirm the RED failure
 mode recorded in Task 1 is absent.
 
-- [ ] **Step 4: Commit the shared pure machine milestone.**
+- [x] **Step 4: Commit the shared pure machine milestone.**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/Runtime.hs jazz-next/test/JazzNext/Compiler/Semantics/Runtime/RecursionTests.hs
@@ -578,7 +579,7 @@ git commit -m "feat: add stack-safe runtime evaluation machine"
 - Produces: the same evaluator transitions under a configured host with exact
   effect order and no duplicate effect execution.
 
-- [ ] **Step 1: Audit every host operation boundary against the shared loop.**
+- [x] **Step 1: Audit every host operation boundary against the shared loop.**
 
 Keep host calls only in `evalBuiltinWithHost` and deferred-cell forcing. Verify
 the shared machine reaches them after evaluating arguments in source order.
@@ -597,7 +598,7 @@ assertEqual
   calls
 ```
 
-- [ ] **Step 2: Make terminal block transfer reuse the current host state.**
+- [x] **Step 2: Make terminal block transfer reuse the current host state.**
 
 When an `EBlock` prefix creates `VDeferredHostBinding` cells, evaluate its
 terminal expression in the same `RuntimeHostEvaluationT` run. Do not call
@@ -605,7 +606,7 @@ terminal expression in the same `RuntimeHostEvaluationT` run. Do not call
 the scope ID and memoization cache used by
 `testHostBindingCacheSeparatesDynamicScopeInvocations`.
 
-- [ ] **Step 3: Run the host-path regression and complete suite.**
+- [x] **Step 3: Run the host-path regression and complete suite.**
 
 Run:
 
@@ -617,7 +618,7 @@ Expected: PASS, including 20,000 host-path calls, one `WriteStdoutCall
 "before"`, selected-branch ordering, hostful mutual recursion, and dynamic
 scope cache separation.
 
-- [ ] **Step 4: Commit host-path parity.**
+- [x] **Step 4: Commit host-path parity.**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/Runtime.hs jazz-next/test/JazzNext/Compiler/Semantics/Runtime/HostIOTests.hs
@@ -641,7 +642,7 @@ git commit -m "fix: preserve host ordering in tail evaluation"
 - Produces: 20,000-call imported closure proof and representative pure/host
   diagnostic equivalence.
 
-- [ ] **Step 1: Run the imported-module depth test.**
+- [x] **Step 1: Run the imported-module depth test.**
 
 Run:
 
@@ -653,7 +654,7 @@ Expected: PASS with output `0`. If it fails, fix closure transfer by using the
 `VClosure`'s captured module path and environment in `EvaluationContext`; do
 not modify `ModuleRuntime` or copy imports into the caller environment.
 
-- [ ] **Step 2: Add pure/host diagnostic parity coverage.**
+- [x] **Step 2: Add pure/host diagnostic parity coverage.**
 
 In `RecursionTests.hs`, evaluate representative failing expressions through
 both `evaluateRuntimeExpr` and `evaluateRuntimeExprWithHost`, and compare
@@ -709,7 +710,7 @@ Add `Identity`, `runIdentity`, `RuntimeHost (..)`,
 imports. The test asserts exact rendered diagnostics, not only error codes, and
 performs no ambient I/O.
 
-- [ ] **Step 3: Run focused runtime and loader verification.**
+- [x] **Step 3: Run focused runtime and loader verification.**
 
 Run:
 
@@ -719,7 +720,7 @@ cabal test --project-dir=jazz-next runtime-semantics-spec loader-spec --test-sho
 
 Expected: PASS with all three regression floors and exact diagnostic parity.
 
-- [ ] **Step 4: Commit module and diagnostic evidence.**
+- [x] **Step 4: Commit module and diagnostic evidence.**
 
 ```bash
 git add jazz-next/src/JazzNext/Compiler/Runtime.hs jazz-next/test/JazzNext/Compiler/Semantics/Runtime/RecursionTests.hs jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
@@ -744,7 +745,7 @@ git commit -m "test: prove stack-safe module tail calls"
 - Produces: one expression evaluator, completed plan metadata, archived closure
   evidence, and the bootstrap umbrella's next evidence-backed curation state.
 
-- [ ] **Step 1: Run duplication and boundary searches.**
+- [x] **Step 1: Run duplication and boundary searches.**
 
 Run:
 
@@ -763,7 +764,7 @@ Expected:
 
 Delete dead recursive evaluator branches and imports revealed by the searches.
 
-- [ ] **Step 2: Run formatter and focused verification.**
+- [x] **Step 2: Run formatter and focused verification.**
 
 Run:
 
@@ -775,7 +776,7 @@ cabal test --project-dir=jazz-next runtime-semantics-spec loader-spec --test-sho
 Expected: PASS. Revert any no-op Cabal formatting churn if the Cabal file did
 not require a semantic edit.
 
-- [ ] **Step 3: Run the full repository verification gate.**
+- [x] **Step 3: Run the full repository verification gate.**
 
 Run:
 
@@ -789,7 +790,7 @@ git diff --check
 Expected: all commands PASS. `check-docs.sh` may report the known warning that
 Prettier was found outside the Nix shell; that warning is non-fatal.
 
-- [ ] **Step 4: Record closeout metadata.**
+- [x] **Step 4: Record closeout metadata.**
 
 After GREEN evidence:
 
@@ -806,7 +807,7 @@ After GREEN evidence:
   and
 - keep `Ready Now` and `Next Curation Target` consistent with that decision.
 
-- [ ] **Step 5: Commit closeout.**
+- [x] **Step 5: Commit closeout.**
 
 ```bash
 git add docs jazz-next/src/JazzNext/Compiler/Runtime.hs
@@ -826,4 +827,9 @@ git commit -m "docs: close stack-safe evaluation batch"
   host self-cell construction were installed, including exact-once host output,
   all accepted recursion floors, imported closure transfer, and rendered
   pure/host diagnostic parity.
-- Full verification: not run yet.
+- Full verification: `bash jazz-next/scripts/test-warning-config.sh` passed the
+  complete repository matrix; the evaluator boundary searches found only
+  stable entry wrappers and primitive helpers, no machine ownership escaped
+  into `ModuleRuntime.hs` or `Driver.hs`, and no bytecode, opcode, or LLVM
+  execution concept entered `Runtime.hs`. Queue/docs validation and
+  `git diff --check` passed during closeout.

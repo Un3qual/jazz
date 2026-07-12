@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-11
 
-**Status:** Approved on 2026-07-11; implementation plan promoted
+**Status:** Implemented on 2026-07-11
 
 **Parent:**
 [`JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001`](2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md)
@@ -245,6 +245,15 @@ git diff --check
 Before implementation, the plan must record RED evidence for the three depth
 regressions against the recursive evaluator and GREEN evidence after the shared
 machine lands.
+
+Implementation verification completed on `2026-07-11`. The shared machine
+passes 50,000 pure closure calls, 10,000 selected case-arm calls, 10,000 typed
+closure calls, 20,000 host-backed calls with its pre-recursion effect executed
+exactly once, and 20,000 calls through an imported closure. Rendered pure/host
+diagnostics match for representative failures. The focused runtime and loader
+suites and the full `jazz-next/scripts/test-warning-config.sh` matrix pass, and
+boundary searches confirm that machine types remain private to `Runtime.hs`
+with no bytecode, opcode, lowered-IR, or LLVM execution coupling.
 
 ## Non-Goals
 

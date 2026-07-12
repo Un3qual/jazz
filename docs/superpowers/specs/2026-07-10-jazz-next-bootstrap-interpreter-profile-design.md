@@ -3,10 +3,11 @@
 ## Status
 
 Approved in discussion on `2026-07-10`. The full bootstrap interpreter profile
-is not yet implemented. Its first child, backend-independent `Char`/`Text`
-literal semantics, is complete under plan
-`JN-BOOTSTRAP-CHAR-TEXT-LITERALS-001` with `status: done`; the remaining profile
-capabilities below are still staged follow-up work.
+is not yet implemented. Backend-independent `Char`/`Text` literals, generic
+named types, ordinary Jazz-authored `Maybe`/`Result`, scalar `Text` traversal,
+backend-neutral host text I/O, and the shared stack-safe evaluator are complete.
+The canonical token/diagnostic comparison format and Jazz-authored lexer remain
+staged follow-up work.
 
 ## Goal
 
@@ -227,6 +228,12 @@ host-backed evaluation. `ModuleRuntime.hs` retains dependency/export ownership,
 and `Driver.hs` remains a public façade. These controls are permanent reference
 interpreter machinery, not bytecode or input to future LLVM lowering.
 
+This slice was implemented on `2026-07-11` under
+`JN-BOOTSTRAP-STACK-SAFE-EVALUATION-001`. Verification covers 50,000 pure tail
+calls, 20,000 host-backed tail calls with exact-once effect ordering, 20,000
+tail calls through an imported closure, selected case and terminal-block
+transfer, typed-result hints, and exact rendered pure/host diagnostic parity.
+
 Compiler traversals must not consume one Haskell call frame per Jazz tail call.
 The runtime introduces an explicit evaluation loop or trampoline for tail
 positions, including:
@@ -352,7 +359,7 @@ The design decomposes into independently reviewable children:
 3. generic named-type applications in source signatures and module interfaces;
 4. Jazz `Maybe`/`Result` plus collection traversal modules;
 5. host text-I/O kernel bridges and prelude aliases;
-6. stack-safe tail-position runtime evaluation;
+6. stack-safe tail-position runtime evaluation (complete on `2026-07-11`);
 7. canonical token/diagnostic comparison format; and
 8. Jazz-authored lexer with differential parity coverage.
 
