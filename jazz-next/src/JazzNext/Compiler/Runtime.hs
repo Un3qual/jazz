@@ -773,7 +773,9 @@ evaluateModuleScopeWithEvaluationHostAndSourceUnitStatements ::
   [Statement] ->
   RuntimeHostEvaluationT m (Either Diagnostic ScopeResult)
 evaluateModuleScopeWithEvaluationHostAndSourceUnitStatements host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
-  if runtimeExprRequiresHost (EBlock statements)
+  if
+      runtimeExprRequiresHost (EBlock statements)
+        || opaqueRuntimeEnvironmentMayReachHostCells initialEnv
     then
       runExceptT
         ( evalScopeWithHost

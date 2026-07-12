@@ -46,6 +46,7 @@ import JazzNext.Compiler.Runtime
   ( ModuleEvaluationMode (..),
     RuntimeValue (..),
     ScopeResult (..),
+    evaluateModuleScopeWithHost,
     evaluateModuleScopeWithRequiredHost,
     evaluateRuntimeExpr,
     evaluateRuntimeExprWithHost,
@@ -93,6 +94,7 @@ hostIOTests =
     ("host scopes preserve binding signature hints", testHostScopePreservesBindingSignatureHints),
     ("host dependency scopes keep unused bindings lazy", testHostDependencyScopeKeepsUnusedBindingLazy),
     ("host dependency bindings are shared when forced", testHostDependencyBindingIsShared),
+    ("public host scopes keep imported deferred cells on the active host", testPublicHostScopeKeepsImportedDeferredCellOnActiveHost),
     ("host dependency scopes keep deferred cells on the active host", testHostDependencyScopeKeepsDeferredCellsOnActiveHost),
     ("host dependency bindings retain their runtime hints", testHostDependencyBindingRetainsRuntimeHints),
     ("stacked result obligations preserve recursive unwind order", testStackedResultObligationsPreserveRecursiveUnwindOrder),
@@ -464,6 +466,46 @@ testHostDependencyBindingIsShared = do
       (result, calls) = runState action []
   assertEqual "shared dependency binding result" True (isRight result)
   assertEqual "shared dependency host call" [ReadStdinCall] calls
+
+testPublicHostScopeKeepsImportedDeferredCellOnActiveHost :: IO ()
+testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
+  let dependencyStatements =
+        [ SLet
+            "token!"
+            (SourceSpan 1 1)
+            (hostCall "__kernel_readStdinRaw!" [ETuple []])
+        ]
+      entryStatements = [SExpr (SourceSpan 2 1) (EVar "token!")]
+      action = do
+        dependencyResult <-
+          evaluateModuleScopeWithRequiredHost
+            statefulHost
+            (Just ["Dependency"])
+            EvaluateDependencyModule
+            ResolveKernelOnly
+            Map.empty
+            Map.empty
+            dependencyStatements
+        case dependencyResult of
+          Left diagnostic -> pure (Left diagnostic)
+          Right dependencyScope ->
+            evaluateModuleScopeWithHost
+              statefulHost
+              (Just ["Main"])
+              EvaluateEntryModule
+              ResolveKernelOnly
+              Map.empty
+              (scopeResultEnvironment dependencyScope)
+              entryStatements
+      (result, calls) = runState action []
+  case result of
+    Right scopeResult ->
+      assertEqual
+        "public host scope imported binding result"
+        (Just (rawSuccess "stdin text"))
+        (scopeResultValue scopeResult)
+    Left _ -> assertEqual "public host scope imported binding evaluates" True False
+  assertEqual "public host scope imported binding call" [ReadStdinCall] calls
 
 testHostDependencyScopeKeepsDeferredCellsOnActiveHost :: IO ()
 testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
