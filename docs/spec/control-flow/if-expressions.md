@@ -1,7 +1,7 @@
 # If Expressions
 
-Status: active (phase A0 contract lock)
-Locked decisions: 2026-03-03
+Status: active
+Locked decisions: 2026-03-03; required `then` boundary: 2026-07-12
 Primary plan: `docs/plans/spec-clarification/2026-03-03/control-flow/14-if-expression-surface-and-semantics.md`
 
 ## Purpose
@@ -18,21 +18,21 @@ Define `if` as a canonical surface construct with explicit parsing, typing, eval
 Canonical expression form:
 
 ```jz
-if <condition> <thenExpr> else <elseExpr>
+if <condition> then <thenExpr> else <elseExpr>
 ```
 
 Key parsing rules:
 
-1. `if` and `else` are keywords and are not valid as identifiers.
+1. `if`, `then`, and `else` are keywords and are not valid as identifiers.
 2. `condition`, `thenExpr`, and `elseExpr` are full expressions.
-3. `else` is mandatory.
+3. `then` and `else` are mandatory.
 4. Nested `if` expressions associate with the nearest `else`.
 5. `if` parses into `EIf` before desugaring.
 
 ## Precedence and Grouping
 
 1. `if` is expression-level control flow, not a statement form.
-2. The condition is parsed as one expression up to the start of the then-branch.
+2. The condition is parsed as a full expression up to the `then` keyword.
 3. Branch expressions each parse as full expressions.
 4. Parentheses are required when disambiguation is needed with surrounding infix/application structure.
 
@@ -41,7 +41,7 @@ Key parsing rules:
 `if` is lowered in a dedicated control-flow desugar pass:
 
 ```jz
-if cond thenExpr else elseExpr
+if cond then thenExpr else elseExpr
 ```
 
 becomes
@@ -76,33 +76,33 @@ Desugaring invariants:
 ## Valid Examples
 
 ```jz
-if isReady value else fallback
+if isReady then value else fallback
 ```
 
 ```jz
-if (x > 0) x else (0 - x)
+if (x > 0) then x else (0 - x)
 ```
 
 ```jz
-if cond (if inner a else b) else c
+if cond then (if inner then a else b) else c
 ```
 
 ## Invalid Examples
 
 ```jz
-if cond x
+if cond then x
 ```
 
 Reason: missing `else` branch.
 
 ```jz
-if cond x else y else z
+if cond then x else y else z
 ```
 
 Reason: extra `else` branch.
 
 ```jz
-if 1 x else y
+if 1 then x else y
 ```
 
 Reason: condition is not `Bool`.

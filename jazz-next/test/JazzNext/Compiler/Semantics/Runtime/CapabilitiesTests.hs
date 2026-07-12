@@ -1015,7 +1015,7 @@ testQualifiedMethodDispatchPreservesAdtReturningApplicationSignature = do
           <> "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
           <> "impl RuntimeFlag(Box([[Int]])) {\nflag = \\(box) -> True.\n}.\n"
           <> "impl RuntimeFlag(Box([[Int64]])) {\nflag = \\(box) -> False.\n}.\n"
-          <> "make = \\(enabled) -> if enabled (Box [[toInt64 1], []]) else (Box [[toInt64 2], []]).\n"
+          <> "make = \\(enabled) -> if enabled then (Box [[toInt64 1], []]) else (Box [[toInt64 2], []]).\n"
           <> "(RuntimeFlag::flag) (make True)."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -1031,7 +1031,7 @@ testQualifiedMethodDispatchPreservesBranchResultSignature = do
           <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
           <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
           <> "make64 :: Bool -> [[Int64]].\nmake64 = \\(enabled) -> [[1], []].\n"
-          <> "(RuntimeFlag::flag) (if True (make64 True) else (make64 False))."
+          <> "(RuntimeFlag::flag) (if True then (make64 True) else (make64 False))."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1200,7 +1200,7 @@ testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding = do
       ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
           <> "impl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\n"
           <> "impl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\n"
-          <> "value = if True 1 else toUInt8 2.\n"
+          <> "value = if True then 1 else toUInt8 2.\n"
           <> "RuntimePick::pick value."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -1216,7 +1216,7 @@ testQualifiedMethodDispatchPreservesAdtApplicationBindingHint = do
           <> "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
           <> "impl RuntimePick(Box(Int)) {\npick = \\(box) -> True.\n}.\n"
           <> "impl RuntimePick(Box(UInt8)) {\npick = \\(box) -> False.\n}.\n"
-          <> "box = if True (Box 1) else (Box (toUInt8 2)).\n"
+          <> "box = if True then (Box 1) else (Box (toUInt8 2)).\n"
           <> "RuntimePick::pick box."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -1513,7 +1513,7 @@ testQualifiedMethodDispatchRejectsWrappedSelfAlias = do
           ( runSource
               defaultWarningSettings
               ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-                  <> "impl RuntimeEq(Int) {\nequals = if True RuntimeEq::equals else \\(left) -> \\(right) -> left == right.\n}.\n"
+                  <> "impl RuntimeEq(Int) {\nequals = if True then RuntimeEq::equals else \\(left) -> \\(right) -> left == right.\n}.\n"
                   <> "RuntimeEq::equals 1 1."
               )
           ) ::
@@ -1574,7 +1574,7 @@ testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalBindings = do
     runSource
       defaultWarningSettings
       ( "class RuntimeFlag(a) {\nenabled :: Bool.\non :: Bool.\noff :: Bool.\n}.\n"
-          <> "impl RuntimeFlag(Int) {\nenabled = { flag = True.\ntarget = if flag RuntimeFlag::on else RuntimeFlag::off.\ntarget.\n}.\non = True.\noff = False.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nenabled = { flag = True.\ntarget = if flag then RuntimeFlag::on else RuntimeFlag::off.\ntarget.\n}.\non = True.\noff = False.\n}.\n"
           <> "RuntimeFlag::enabled."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
@@ -1591,7 +1591,7 @@ testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalSignatureHints
           <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> True.\n}.\n"
           <> "class RuntimeChoice(a) {\nenabled :: Bool.\non :: Bool.\noff :: Bool.\n}.\n"
           <> "impl RuntimeChoice(Int) {\n"
-          <> "enabled = { value :: [[Int64]].\nvalue = [[1], []].\ntarget = if ((RuntimeFlag::flag) value) RuntimeChoice::on else RuntimeChoice::off.\ntarget.\n}.\n"
+          <> "enabled = { value :: [[Int64]].\nvalue = [[1], []].\ntarget = if ((RuntimeFlag::flag) value) then RuntimeChoice::on else RuntimeChoice::off.\ntarget.\n}.\n"
           <> "on = True.\n"
           <> "off = False.\n"
           <> "}.\n"

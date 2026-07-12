@@ -126,12 +126,12 @@ binaryTypeMismatchProgram =
 
 testSourcePipelineAcceptsWellTypedIf :: IO ()
 testSourcePipelineAcceptsWellTypedIf = do
-  result <- compileSource defaultWarningSettings "x = if True 1 else 2."
+  result <- compileSource defaultWarningSettings "x = if True then 1 else 2."
   assertEqual "compile errors" [] (compileErrors result)
 
 testSourcePipelineRejectsNonBoolCondition :: IO ()
 testSourcePipelineRejectsNonBoolCondition = do
-  result <- compileSource defaultWarningSettings "x = if 1 2 else 3."
+  result <- compileSource defaultWarningSettings "x = if 1 then 2 else 3."
   assertSingleDiagnosticPrimarySpan
     "source condition type error primary span"
     (SourceSpan 1 1)

@@ -999,7 +999,7 @@ signatureNameMismatchSource :: Text
 signatureNameMismatchSource = "x :: Int.\ny = 1."
 
 runtimeSuccessSource :: Text
-runtimeSuccessSource = "if True 1 else 2."
+runtimeSuccessSource = "if True then 1 else 2."
 
 runtimeSectionSource :: Text
 runtimeSectionSource = "(+ 1) 2."

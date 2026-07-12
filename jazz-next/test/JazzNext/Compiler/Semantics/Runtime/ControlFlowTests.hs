@@ -84,21 +84,21 @@ controlFlowTests =
 
 testIfFalseSkipsThenRuntimeFailure :: IO ()
 testIfFalseSkipsThenRuntimeFailure = do
-  result <- runSource defaultWarningSettings "if False (1 / 0) else 2."
+  result <- runSource defaultWarningSettings "if False then (1 / 0) else 2."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "2") (runOutput result)
 
 testIfTrueSkipsElseRuntimeFailure :: IO ()
 testIfTrueSkipsElseRuntimeFailure = do
-  result <- runSource defaultWarningSettings "if True 1 else (1 / 0)."
+  result <- runSource defaultWarningSettings "if True then 1 else (1 / 0)."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "1") (runOutput result)
 
 testMixedWrapperWithSelectedNonAliasSelfUseTerminates :: IO ()
 testMixedWrapperWithSelectedNonAliasSelfUseTerminates = do
-  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True (f + 1) else f. 0.") :: IO (Either SomeException RunResult))
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True then (f + 1) else f. 0.") :: IO (Either SomeException RunResult))
   case maybeResult of
     Nothing ->
       failTest "expected mixed wrapper with eager selected self use to terminate with a runtime diagnostic, but evaluation timed out"

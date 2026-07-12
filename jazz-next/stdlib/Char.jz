@@ -26,5 +26,5 @@ module Char (value charToUInt32, value charFromUInt32, value charIsAlpha, value 
   charIsHexDigit = __kernel_charIsHexDigit.
 
   charIsNewline :: Char -> Bool.
-  charIsNewline = \(value) -> if value == '\n' True else value == '\r'.
+  charIsNewline = \(value) -> if value == '\n' then True else value == '\r'.
 }
