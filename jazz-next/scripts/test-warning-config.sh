@@ -4,6 +4,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 RUNGHC="${ROOT}/jazz-next/scripts/runghc.sh"
+CABAL_MANIFEST="${JAZZ_NEXT_CABAL_MANIFEST-${ROOT}/jazz-next/jazz-next.cabal}"
+
+tmpdir="$(mktemp -d)"
+cleanup() {
+  rm -rf "$tmpdir"
+}
+trap cleanup EXIT
 
 bash jazz-next/scripts/test-check-stdlib-format.sh
 bash jazz-next/scripts/check-stdlib-format.sh
@@ -13,44 +20,68 @@ RUNGHC_INCLUDES=(
   -i./jazz-next/test
 )
 
-TEST_FILES=(
-  jazz-next/test/JazzNext/Compiler/Config/WarningConfigSpec.hs
-  jazz-next/test/JazzNext/Compiler/Semantics/RebindingWarningSpec.hs
-  jazz-next/test/JazzNext/Compiler/Diagnostics/StructuredErrorDiagnosticsSpec.hs
-  jazz-next/test/JazzNext/CLI/CLISpec.hs
-  jazz-next/test/JazzNext/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  jazz-next/test/JazzNext/Compiler/Semantics/RecursiveBindingsSpec.hs
-  jazz-next/test/JazzNext/Compiler/Semantics/PuritySemanticsSpec.hs
-  jazz-next/test/JazzNext/Compiler/Parser/TokenParserSpec.hs
-  jazz-next/test/JazzNext/Compiler/Parser/PatternParserSpec.hs
-  jazz-next/test/JazzNext/Compiler/Parser/ExpressionParserSpec.hs
-  jazz-next/test/JazzNext/Compiler/Parser/DeclarationParserSpec.hs
-  jazz-next/test/JazzNext/Compiler/Parser/ParserFoundationSpec.hs
-  jazz-next/test/JazzNext/Compiler/Parser/LambdaParserSpec.hs
-  jazz-next/test/JazzNext/Compiler/Parser/IfExpressionParserSpec.hs
-  jazz-next/test/JazzNext/Compiler/Parser/AdtPatternParserSpec.hs
-  jazz-next/test/JazzNext/Compiler/Semantics/IfExpressionTypeSpec.hs
-  jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternTypeSpec.hs
-  jazz-next/test/JazzNext/Compiler/Semantics/AdtPatternRuntimeSpec.hs
-  jazz-next/test/JazzNext/Compiler/Semantics/LambdaSemanticsSpec.hs
-  jazz-next/test/JazzNext/Compiler/Parser/ModuleImportParserSpec.hs
-  jazz-next/test/JazzNext/Compiler/Modules/ModuleExportsSpec.hs
-  jazz-next/test/JazzNext/Compiler/Modules/ModuleResolutionSpec.hs
-  jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
-  jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
-  jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs
-  jazz-next/test/JazzNext/Compiler/Modules/PreludeLoadingSpec.hs
-  jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
-  jazz-next/test/JazzNext/Compiler/Parser/OperatorFixitySpec.hs
-  jazz-next/test/JazzNext/Compiler/Parser/OperatorSectionSpec.hs
-  jazz-next/test/JazzNext/Compiler/Parser/OperatorInvalidSyntaxSpec.hs
-)
+inventory_file="${tmpdir}/test-suite-main-is.txt"
+if ! awk '
+    function finish_test_suite() {
+      if (!in_test_suite) {
+        return
+      }
+      suite_count++
+      if (main_count != 1) {
+        printf "malformed test-suite %s: expected exactly one main-is field, found %d\n", suite_name, main_count > "/dev/stderr"
+        malformed = 1
+      }
+    }
 
-tmpdir="$(mktemp -d)"
-cleanup() {
-  rm -rf "$tmpdir"
-}
-trap cleanup EXIT
+    /^[^[:space:]#]/ {
+      finish_test_suite()
+      in_test_suite = ($1 == "test-suite")
+      suite_name = in_test_suite ? $2 : ""
+      main_count = 0
+      next
+    }
+
+    in_test_suite && /^[[:space:]]*main-is[[:space:]]*:/ {
+      main_path = $0
+      sub(/^[[:space:]]*main-is[[:space:]]*:[[:space:]]*/, "", main_path)
+      sub(/[[:space:]]*$/, "", main_path)
+      main_count++
+      print main_path
+    }
+
+    END {
+      finish_test_suite()
+      if (suite_count == 0) {
+        print "test-suite inventory is empty" > "/dev/stderr"
+        malformed = 1
+      }
+      if (malformed) {
+        exit 2
+      }
+    }
+  ' "$CABAL_MANIFEST" >"$inventory_file"; then
+  echo "FAIL: malformed test-suite inventory in ${CABAL_MANIFEST}" >&2
+  exit 1
+fi
+
+TEST_FILES=()
+while IFS= read -r test_main; do
+  TEST_FILES+=("jazz-next/test/${test_main}")
+done <"$inventory_file"
+
+if [[ "${#TEST_FILES[@]}" -eq 0 ]]; then
+  echo "FAIL: no test-suite main-is files discovered from ${CABAL_MANIFEST}" >&2
+  exit 1
+fi
+
+for test_file in "${TEST_FILES[@]}"; do
+  if [[ ! -f "$test_file" ]]; then
+    echo "FAIL: discovered test-suite file does not exist: ${test_file}" >&2
+    exit 1
+  fi
+done
+
+echo "discovered ${#TEST_FILES[@]} Cabal test suites"
 
 bash_bin="$(command -v bash)"
 empty_path_dir="${tmpdir}/empty-path"
@@ -72,6 +103,56 @@ if ! grep -q "runghc not found on PATH" "$runghc_stderr"; then
 fi
 
 echo "PASS: runghc wrapper handles missing HOME without unbound-variable crash"
+
+fake_cabal_bin="${tmpdir}/fake-cabal-bin"
+mkdir -p "$fake_cabal_bin"
+fake_runghc_counter="${tmpdir}/fake-runghc-counter"
+
+cat >"${fake_cabal_bin}/cabal" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case " $* " in
+  *" command -v runghc "*) exit 0 ;;
+esac
+
+for argument in "$@"; do
+  if [[ "$argument" == "runghc" ]]; then
+    exec "${FAKE_CABAL_BIN}/runghc"
+  fi
+done
+
+exit 2
+EOF
+
+cat >"${fake_cabal_bin}/runghc" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'run\n' >>"${FAKE_RUNGHC_COUNTER}"
+exit 127
+EOF
+chmod +x "${fake_cabal_bin}/cabal" "${fake_cabal_bin}/runghc"
+
+set +e
+PATH="${fake_cabal_bin}:${PATH}" \
+  FAKE_CABAL_BIN="$fake_cabal_bin" \
+  FAKE_RUNGHC_COUNTER="$fake_runghc_counter" \
+  "$RUNGHC" "${tmpdir}/legitimate-127.hs"
+fake_runghc_status=$?
+set -e
+
+if [[ "$fake_runghc_status" -ne 127 ]]; then
+  echo "FAIL: runghc wrapper returned ${fake_runghc_status}, expected launched-child status 127" >&2
+  exit 1
+fi
+
+fake_runghc_count="$(awk 'END { print NR + 0 }' "$fake_runghc_counter")"
+if [[ "$fake_runghc_count" -ne 1 ]]; then
+  echo "FAIL: runghc wrapper launched the child ${fake_runghc_count} times after status 127" >&2
+  exit 1
+fi
+
+echo "PASS: runghc wrapper preserves a launched child's status 127 without retrying"
 
 if rg -n '^data (ExpressionType|InferState|TypeScheme)\b' jazz-next/src/JazzNext/Compiler/TypeInference.hs; then
   echo "TypeInference facade still owns internal model types" >&2

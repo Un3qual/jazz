@@ -6,8 +6,8 @@ JAZZ_NEXT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 if [[ -z "${JAZZ_NEXT_RUNGHC_IN_CABAL-}" && "${JAZZ_NEXT_RUNGHC_NO_CABAL-}" != "1" && -f "${JAZZ_NEXT_DIR}/jazz-next.cabal" ]] && command -v cabal >/dev/null 2>&1; then
   export JAZZ_NEXT_RUNGHC_IN_CABAL=1
-  if cabal exec --project-dir="${JAZZ_NEXT_DIR}" -- runghc "$@"; then
-    exit 0
+  if cabal exec --project-dir="${JAZZ_NEXT_DIR}" -- sh -c 'command -v runghc >/dev/null 2>&1 || exit 127'; then
+    exec cabal exec --project-dir="${JAZZ_NEXT_DIR}" -- runghc "$@"
   else
     status=$?
     if [[ "${status}" -ne 127 ]]; then
