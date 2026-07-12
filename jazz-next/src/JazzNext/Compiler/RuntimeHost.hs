@@ -65,7 +65,7 @@ data RuntimeHost m = RuntimeHost
     runtimeHostWriteStdout :: Text -> m (Either HostIOFailure ()),
     runtimeHostWriteStderr :: Text -> m (Either HostIOFailure ()),
     runtimeHostArguments :: m [Text],
-    runtimeHostExit :: Integer -> m ()
+    runtimeHostExit :: Integer -> m (Either HostIOFailure ())
   }
 
 disabledRuntimeHost :: Applicative m => RuntimeHost m
@@ -77,7 +77,7 @@ disabledRuntimeHost =
       runtimeHostWriteStdout = \_ -> pure unsupported,
       runtimeHostWriteStderr = \_ -> pure unsupported,
       runtimeHostArguments = pure [],
-      runtimeHostExit = \_ -> pure ()
+      runtimeHostExit = \_ -> pure unsupported
     }
   where
     unsupported = Left (HostIOFailure HostUnsupported (hostIOFailureMessage HostUnsupported))

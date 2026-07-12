@@ -32,8 +32,9 @@ Focused tests install deterministic hosts.
 
 Existing pure evaluator entry points remain available as compatibility wrappers
 over an effect-disabled host. The disabled host reports `Unsupported` through
-the ordinary raw outcome protocol if a new host intrinsic is invoked; programs
-that do not use host effects preserve their current behavior.
+the ordinary raw outcome protocol for recoverable operations and through a
+runtime diagnostic for `exit!`; programs that do not use host effects preserve
+their current behavior.
 
 This design rejects two alternatives:
 
@@ -122,8 +123,8 @@ bytes or raising a fatal runtime diagnostic. `writeText!`, `writeStdout!`, and
 
 `arguments! ()` returns process arguments excluding the executable name.
 `exit! status` requests immediate process termination in the production host.
-A deterministic test host may record the status and return `()` so evaluator
-tests can inspect control flow.
+A deterministic test host may record the status and return `Right ()` so
+evaluator tests can inspect control flow.
 
 ## Private Kernel Protocol
 
@@ -187,13 +188,15 @@ data RuntimeHost m = RuntimeHost
   , runtimeHostWriteStdout :: Text -> m (Either HostIOFailure ())
   , runtimeHostWriteStderr :: Text -> m (Either HostIOFailure ())
   , runtimeHostArguments :: m [Text]
-  , runtimeHostExit :: Integer -> m ()
+  , runtimeHostExit :: Integer -> m (Either HostIOFailure ())
   }
 ```
 
 `HostIOCategory` mirrors the private tokens, not the Jazz constructors. Runtime
-application converts a host result into the structural tuple before returning
-to Jazz code.
+application converts recoverable I/O results into the structural tuple before
+returning to Jazz code. Because a successful exit never returns in production,
+an exit failure is instead promoted to a deterministic runtime diagnostic; this
+lets the disabled host reject exit requests rather than silently succeeding.
 
 The evaluator exposes host-parameterized entry points whose outer shape is
 `m (Either Diagnostic result)`. Internally, `ExceptT Diagnostic m` or an

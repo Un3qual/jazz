@@ -91,7 +91,10 @@ hostIOTests =
     ("host dependency scopes keep unused bindings lazy", testHostDependencyScopeKeepsUnusedBindingLazy),
     ("host dependency bindings are shared when forced", testHostDependencyBindingIsShared),
     ("host dependency bindings retain their runtime hints", testHostDependencyBindingRetainsRuntimeHints),
+    ("host binding cache separates dynamic scope invocations", testHostBindingCacheSeparatesDynamicScopeInvocations),
+    ("host scopes force zero-argument impl methods", testHostZeroArgumentImplMethod),
     ("direct runtime wrappers normalize disabled host calls", testDirectRuntimeWrapperUsesDisabledHost),
+    ("direct runtime wrappers reject disabled host exits", testDirectRuntimeWrapperRejectsDisabledExit),
     ("exit rejects statuses outside the portable range", testExitRejectsInvalidStatus),
     ("standalone source execution injects its runtime host", testStandaloneSourceInjectsRuntimeHost),
     ("production host round trips multibyte UTF-8", testProductionHostRoundTripsUtf8),
@@ -127,7 +130,7 @@ deterministicHost =
       runtimeHostWriteStdout = \_ -> pure (Right ()),
       runtimeHostWriteStderr = \_ -> pure (Right ()),
       runtimeHostArguments = pure [],
-      runtimeHostExit = \_ -> pure ()
+      runtimeHostExit = \_ -> pure (Right ())
     }
 
 data HostCall
@@ -481,6 +484,90 @@ testDirectRuntimeWrapperUsesDisabledHost =
     (Right (Just (rawFailure HostUnsupported)))
     (evaluateRuntimeExpr (hostCall "__kernel_readTextRaw!" [ELit (LText "disabled.jz")]))
 
+testHostBindingCacheSeparatesDynamicScopeInvocations :: IO ()
+testHostBindingCacheSeparatesDynamicScopeInvocations = do
+  let expression =
+        EBlock
+          [ SLet
+              "capture!"
+              (SourceSpan 1 1)
+              ( ELambda
+                  "value"
+                  ( EBlock
+                      [ SLet
+                          "local!"
+                          (SourceSpan 2 1)
+                          ( EBlock
+                              [ SExpr
+                                  (SourceSpan 3 1)
+                                  (hostCall "__kernel_writeStdoutRaw!" [EVar "value"]),
+                                SExpr (SourceSpan 4 1) (EVar "value")
+                              ]
+                          ),
+                        SExpr (SourceSpan 5 1) (EVar "local!")
+                      ]
+                  )
+              ),
+            SExpr
+              (SourceSpan 6 1)
+              ( ETuple
+                  [ EApply (EVar "capture!") (ELit (LText "first")),
+                    EApply (EVar "capture!") (ELit (LText "second"))
+                  ]
+              )
+          ]
+      (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+  assertEqual
+    "dynamic host binding values"
+    (Right (Just (VTuple [VText "first", VText "second"])))
+    result
+  assertEqual
+    "dynamic host binding calls"
+    [WriteStdoutCall "first", WriteStdoutCall "second"]
+    calls
+
+testHostZeroArgumentImplMethod :: IO ()
+testHostZeroArgumentImplMethod = do
+  let expression =
+        EBlock
+          [ SClass
+              (SourceSpan 1 1)
+              "RuntimeFlag"
+              ["a"]
+              [ ClassMethodSignature
+                  "enabled!"
+                  (SourceSpan 2 1)
+                  (ConstrainedSignature [] TypeBool)
+              ],
+            SImpl
+              (SourceSpan 3 1)
+              "RuntimeFlag"
+              [TypeInt]
+              [ ImplMethod
+                  "enabled!"
+                  (SourceSpan 4 1)
+                  ( EBlock
+                      [ SExpr
+                          (SourceSpan 5 1)
+                          (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "enabled")]),
+                        SExpr (SourceSpan 6 1) (ELit (LBool True))
+                      ]
+                  )
+              ],
+            SExpr
+              (SourceSpan 7 1)
+              (EVar (qualifiedName "RuntimeFlag" "enabled!"))
+          ]
+      (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+  assertEqual "zero-argument host method result" (Right (Just (VBool True))) result
+  assertEqual "zero-argument host method call" [WriteStdoutCall "enabled"] calls
+
+testDirectRuntimeWrapperRejectsDisabledExit :: IO ()
+testDirectRuntimeWrapperRejectsDisabledExit = do
+  let result = evaluateRuntimeExpr (hostCall "__kernel_exit!" [ELit (LInt 7)])
+  assertLeftDiagnosticContains "disabled exit code" "E3031" result
+  assertLeftDiagnosticContains "disabled exit message" "operation unsupported" result
+
 testExitRejectsInvalidStatus :: IO ()
 testExitRejectsInvalidStatus = do
   let (result, calls) =
@@ -516,7 +603,7 @@ recordingIOHost callsRef =
       runtimeHostWriteStdout = \contents -> record (WriteStdoutCall contents) (Right ()),
       runtimeHostWriteStderr = \contents -> record (WriteStderrCall contents) (Right ()),
       runtimeHostArguments = record ArgumentsCall ["one", "two"],
-      runtimeHostExit = \status -> record (ExitCall status) ()
+      runtimeHostExit = \status -> record (ExitCall status) (Right ())
     }
   where
     record call result = do
@@ -579,7 +666,7 @@ statefulHost =
       runtimeHostWriteStdout = \contents -> record (WriteStdoutCall contents) (Right ()),
       runtimeHostWriteStderr = \contents -> record (WriteStderrCall contents) (Right ()),
       runtimeHostArguments = record ArgumentsCall ["one", "two"],
-      runtimeHostExit = \status -> record (ExitCall status) ()
+      runtimeHostExit = \status -> record (ExitCall status) (Right ())
     }
   where
     record call result = do

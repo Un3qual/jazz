@@ -207,7 +207,7 @@ successfulIOHost callsRef =
       runtimeHostWriteStdout = \contents -> record ("stdout:" <> contents) (Right ()),
       runtimeHostWriteStderr = \contents -> record ("stderr:" <> contents) (Right ()),
       runtimeHostArguments = record "arguments" ["one", "two"],
-      runtimeHostExit = \status -> record ("exit:" <> Text.pack (show status)) ()
+      runtimeHostExit = \status -> record ("exit:" <> Text.pack (show status)) (Right ())
     }
   where
     record call value = do
@@ -223,7 +223,7 @@ failingIOHost =
       runtimeHostWriteStdout = \_ -> pure (Left (failure HostOther)),
       runtimeHostWriteStderr = \_ -> pure (Left (failure HostOther)),
       runtimeHostArguments = pure [],
-      runtimeHostExit = \_ -> pure ()
+      runtimeHostExit = \_ -> pure (Right ())
     }
   where
     failureForToken token =

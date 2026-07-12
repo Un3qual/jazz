@@ -38,7 +38,8 @@ import Control.Monad.Trans.State.Strict
   ( StateT,
     evalStateT,
     get,
-    modify'
+    modify',
+    put
   )
 import Data.Char (isControl, ord, toUpper)
 import Data.Functor.Identity (runIdentity)
@@ -157,16 +158,22 @@ runtimeEvidenceTarget (RuntimeEvidence _ implTarget _) = implTarget
 
 data RuntimeMethodCandidate = RuntimeMethodCandidate RuntimeEvidence (Either Diagnostic RuntimeValue)
 
-data DeferredHostBindingKey = DeferredHostBindingKey (Maybe [Text]) SourceSpan Name
+newtype DeferredHostScopeId = DeferredHostScopeId Int
+  deriving (Eq, Ord, Show)
+
+data DeferredHostBindingKey = DeferredHostBindingKey DeferredHostScopeId (Maybe [Text]) SourceSpan Name
   deriving (Eq, Ord, Show)
 
 data DeferredHostBindingState
   = DeferredHostBindingEvaluating
   | DeferredHostBindingEvaluated (Either Diagnostic RuntimeValue)
 
-type DeferredHostBindingCache = Map DeferredHostBindingKey DeferredHostBindingState
+data RuntimeHostEvaluationState = RuntimeHostEvaluationState
+  { runtimeHostEvaluationBindingCache :: Map DeferredHostBindingKey DeferredHostBindingState,
+    runtimeHostEvaluationNextScopeId :: Int
+  }
 
-type RuntimeHostEvaluationT m = StateT DeferredHostBindingCache m
+type RuntimeHostEvaluationT m = StateT RuntimeHostEvaluationState m
 
 data RuntimeValue
   = VInt Integer RuntimeIntMetadata
@@ -269,7 +276,35 @@ runRuntimeHostEvaluation ::
   (RuntimeHost (RuntimeHostEvaluationT m) -> RuntimeHostEvaluationT m value) ->
   m value
 runRuntimeHostEvaluation host action =
-  evalStateT (action (liftRuntimeHost host)) Map.empty
+  evalStateT
+    (action (liftRuntimeHost host))
+    RuntimeHostEvaluationState
+      { runtimeHostEvaluationBindingCache = Map.empty,
+        runtimeHostEvaluationNextScopeId = 0
+      }
+
+freshDeferredHostScopeId :: Monad m => RuntimeHostEvaluationT m DeferredHostScopeId
+freshDeferredHostScopeId = do
+  evaluationState <- get
+  let scopeId = runtimeHostEvaluationNextScopeId evaluationState
+  put
+    evaluationState
+      { runtimeHostEvaluationNextScopeId = scopeId + 1
+      }
+  pure (DeferredHostScopeId scopeId)
+
+modifyDeferredHostBindingCache ::
+  Monad m =>
+  (Map DeferredHostBindingKey DeferredHostBindingState -> Map DeferredHostBindingKey DeferredHostBindingState) ->
+  RuntimeHostEvaluationT m ()
+modifyDeferredHostBindingCache updateCache =
+  modify'
+    ( \evaluationState ->
+        evaluationState
+          { runtimeHostEvaluationBindingCache =
+              updateCache (runtimeHostEvaluationBindingCache evaluationState)
+          }
+    )
 
 liftRuntimeHost :: Monad m => RuntimeHost m -> RuntimeHost (RuntimeHostEvaluationT m)
 liftRuntimeHost host =
@@ -3854,7 +3889,32 @@ evalScopeWithHost ::
   RuntimeEnv ->
   [Statement] ->
   ExceptT Diagnostic (RuntimeHostEvaluationT m) ScopeResult
-evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
+evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements = do
+  scopeId <- lift freshDeferredHostScopeId
+  evalScopeWithHostInstance
+    scopeId
+    host
+    preludeStatementIndices
+    currentModulePath
+    evaluationMode
+    builtinMode
+    bindingTypeHints
+    initialEnv
+    statements
+
+evalScopeWithHostInstance ::
+  Monad m =>
+  DeferredHostScopeId ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
+  Set Int ->
+  Maybe [Text] ->
+  ModuleEvaluationMode ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  [Statement] ->
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) ScopeResult
+evalScopeWithHostInstance scopeId host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
   go initialEnv Nothing indexedStatements
   where
     indexedStatements = zip [0 ..] statements
@@ -3986,7 +4046,7 @@ evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode 
         Just (SLet bindingName bindingSpan valueExpr) ->
           Right
             ( VDeferredHostBinding
-                (DeferredHostBindingKey (modulePathForStatement statementIndex) bindingSpan bindingName)
+                (DeferredHostBindingKey scopeId (modulePathForStatement statementIndex) bindingSpan bindingName)
                 (modulePathForStatement statementIndex)
                 valueExpr
                 capturedEnv
@@ -4020,7 +4080,7 @@ evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode 
                             evidence
                             ( Right
                                 ( VDeferredHostBinding
-                                    (DeferredHostBindingKey methodModulePath methodSpan qualifiedMethodName)
+                                    (DeferredHostBindingKey scopeId methodModulePath methodSpan qualifiedMethodName)
                                     methodModulePath
                                     methodExpr
                                     methodEnv
@@ -4166,7 +4226,7 @@ forceRuntimeValueWithHost ::
 forceRuntimeValueWithHost host builtinMode bindingTypeHints runtimeValue =
   case runtimeValue of
     VDeferredHostBinding bindingKey currentModulePath valueExpr env capturedBindingTypeHints maybeNumericTarget maybeTypeHint -> do
-      cache <- lift get
+      cache <- runtimeHostEvaluationBindingCache <$> lift get
       case Map.lookup bindingKey cache of
         Just (DeferredHostBindingEvaluated result) ->
           liftRuntimeResult result
@@ -4174,7 +4234,10 @@ forceRuntimeValueWithHost host builtinMode bindingTypeHints runtimeValue =
           throwE
             (runtimeDiagnostic "E3021" "runtime recursive host binding has no concrete value")
         Nothing -> do
-          lift (modify' (Map.insert bindingKey DeferredHostBindingEvaluating))
+          lift
+            ( modifyDeferredHostBindingCache
+                (Map.insert bindingKey DeferredHostBindingEvaluating)
+            )
           result <-
             lift
               ( runExceptT
@@ -4190,7 +4253,7 @@ forceRuntimeValueWithHost host builtinMode bindingTypeHints runtimeValue =
                   )
               )
           lift
-            ( modify'
+            ( modifyDeferredHostBindingCache
                 (Map.insert bindingKey (DeferredHostBindingEvaluated result))
             )
           liftRuntimeResult result
@@ -4346,7 +4409,9 @@ applyQualifiedMethodWithHost host builtinMode bindingTypeHints methodKey classPa
   case preferredCandidates of
     [] -> throwE (runtimeDiagnostic "E3026" ("no matching qualified method body '" <> methodKey <> "'"))
     [RuntimeMethodCandidate _ methodCell] -> do
-      methodValue <- liftRuntimeResult methodCell
+      methodValue <-
+        liftRuntimeResult methodCell
+          >>= forceRuntimeValueWithHost host builtinMode bindingTypeHints
       foldM (applyRuntimeFunctionWithHost host builtinMode bindingTypeHints) methodValue arguments
     _
       | runtimeQualifiedMethodIsFullyApplied classParameter methodSignature arguments preferredCandidates ->
@@ -4423,8 +4488,17 @@ evalBuiltinWithHost host builtinMode bindingTypeHints builtinFunction arguments 
     (BuiltinExit, [statusValue])
       | Just status <- runtimeHostExitStatus statusValue,
         status >= 0 && status <= 255 -> do
-          lift (runtimeHostExit host status)
-          pure (VTuple [])
+          exitResult <- lift (runtimeHostExit host status)
+          case exitResult of
+            Right () -> pure (VTuple [])
+            Left failure ->
+              throwE
+                ( runtimeDiagnostic
+                    "E3031"
+                    ( "runtime host operation 'exit!' failed: "
+                        <> hostIOFailureMessage (hostIOFailureCategory failure)
+                    )
+                )
       | Just status <- runtimeHostExitStatus statusValue ->
           throwE
             ( runtimeDiagnostic

@@ -287,7 +287,7 @@ recordingHost callsRef =
         pure (Right ()),
       runtimeHostWriteStderr = \_ -> pure (error "unexpected writeStderr host call"),
       runtimeHostArguments = pure [],
-      runtimeHostExit = \_ -> pure ()
+      runtimeHostExit = \_ -> pure (Right ())
     }
 
 compileFixtureProgram :: Map.Map FilePath Text -> IO CompiledProgram
