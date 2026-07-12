@@ -6,16 +6,9 @@ module JazzNext.Compiler.ModuleRuntime
     RuntimeModule (..),
     RuntimeProgram (..),
     evaluateCompiledProgram,
-    evaluateCompiledProgramWithHost,
     lookupRuntimeModule
   ) where
 
-import Control.Monad.Trans.Except
-  ( ExceptT (..),
-    runExceptT,
-    throwE
-  )
-import Data.Functor.Identity (runIdentity)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -59,17 +52,9 @@ import JazzNext.Compiler.Runtime
   ( ModuleEvaluationMode (..),
     RuntimeCell,
     RuntimeEnv,
-    RuntimeHostEvaluationT,
     RuntimeValue,
     ScopeResult (..),
-    evaluateModuleScope,
-    evaluateModuleScopeWithRequiredEvaluationHost,
-    runRuntimeHostEvaluation,
-    runtimeExprRequiresHost
-  )
-import JazzNext.Compiler.RuntimeHost
-  ( RuntimeHost,
-    disabledRuntimeHost
+    evaluateModuleScope
   )
 
 -- | Runtime-facing exports keep capability methods structurally distinct from
@@ -105,10 +90,6 @@ lookupRuntimeModule modulePath =
 
 evaluateCompiledProgram :: CompiledProgram -> Either Diagnostic RuntimeProgram
 evaluateCompiledProgram compiledProgram =
-  runIdentity (evaluateCompiledProgramWithHost disabledRuntimeHost compiledProgram)
-
-evaluateCompiledProgramPure :: CompiledProgram -> Either Diagnostic RuntimeProgram
-evaluateCompiledProgramPure compiledProgram =
   case compiledProgramErrors compiledProgram of
     firstError : _ -> Left firstError
     [] -> do
@@ -181,105 +162,6 @@ evaluatePrelude compiledPrelude =
             (compiledPreludeInterface compiledPrelude)
             (scopeResultEnvironment scopeResult)
         )
-
-evaluateCompiledProgramWithHost ::
-  Monad m =>
-  RuntimeHost m ->
-  CompiledProgram ->
-  m (Either Diagnostic RuntimeProgram)
-evaluateCompiledProgramWithHost host compiledProgram =
-  if compiledProgramRequiresHost compiledProgram
-    then runRuntimeHostEvaluation host $ \evaluationHost ->
-      runExceptT $
-        case compiledProgramErrors compiledProgram of
-          firstError : _ -> throwE firstError
-          [] -> do
-            ambientEnv <- ExceptT (evaluatePreludeWithEvaluationHost evaluationHost (compiledProgramPrelude compiledProgram))
-            evaluateModules evaluationHost ambientEnv [] Nothing (compiledProgramModules compiledProgram)
-    else pure (evaluateCompiledProgramPure compiledProgram)
-  where
-    entryPath = compiledProgramEntryPath compiledProgram
-
-    evaluateModules evaluationHost ambientEnv runtimeModules output remainingModules =
-      case remainingModules of
-        [] ->
-          pure
-            RuntimeProgram
-              { runtimeProgramModules = runtimeModules,
-                runtimeProgramOutput = output
-              }
-        compiledModule : rest -> do
-          let resolvedModule = compiledResolvedModule compiledModule
-              modulePath = resolvedModulePath resolvedModule
-              evaluationMode =
-                if modulePath == entryPath
-                  then EvaluateEntryModule
-                  else EvaluateDependencyModule
-              importedEnv =
-                foldr
-                  (importRuntimeModule compiledProgram runtimeModules)
-                  ambientEnv
-                  (resolvedModuleImports resolvedModule)
-          scopeResult <-
-            ExceptT
-              ( evaluateModuleScopeWithRequiredEvaluationHost
-                  evaluationHost
-                  (Just modulePath)
-                  evaluationMode
-                  (compiledPreludeBuiltinMode (compiledProgramPrelude compiledProgram))
-                  (interfaceRuntimeHints (compiledModuleInterface compiledModule))
-                  importedEnv
-                  (scopeStatements (compiledModuleExpr compiledModule))
-              )
-          let runtimeModule =
-                RuntimeModule
-                  { runtimeModulePath = modulePath,
-                    runtimeModuleExports =
-                      publishExports
-                        CurrentModule
-                        (resolvedModuleExportInventory resolvedModule)
-                        (compiledModuleInterface compiledModule)
-                        (scopeResultEnvironment scopeResult)
-                  }
-              nextOutput =
-                if modulePath == entryPath
-                  then scopeResultValue scopeResult
-                  else output
-          evaluateModules evaluationHost ambientEnv (runtimeModules <> [runtimeModule]) nextOutput rest
-
-compiledProgramRequiresHost :: CompiledProgram -> Bool
-compiledProgramRequiresHost compiledProgram =
-  maybe False runtimeExprRequiresHost (compiledPreludeExpr (compiledProgramPrelude compiledProgram))
-    || any (runtimeExprRequiresHost . compiledModuleExpr) (compiledProgramModules compiledProgram)
-
-evaluatePreludeWithEvaluationHost ::
-  Monad m =>
-  RuntimeHost (RuntimeHostEvaluationT m) ->
-  CompiledPrelude ->
-  RuntimeHostEvaluationT m (Either Diagnostic RuntimeEnv)
-evaluatePreludeWithEvaluationHost host compiledPrelude =
-  case compiledPreludeExpr compiledPrelude of
-    Nothing -> pure (Right Map.empty)
-    Just expression -> do
-      scopeResult <-
-        evaluateModuleScopeWithRequiredEvaluationHost
-          host
-          (Just [])
-          EvaluateDependencyModule
-          (compiledPreludeBuiltinMode compiledPrelude)
-          (compiledPreludeRuntimeHints compiledPrelude)
-          Map.empty
-          (scopeStatements expression)
-      pure $
-        fmap
-          ( \result ->
-              publishEnvironment
-                AmbientPrelude
-                (moduleInterfaceExportInventory (compiledPreludeInterface compiledPrelude))
-                (compiledPreludeInterface compiledPrelude)
-                (scopeResultEnvironment result)
-          )
-          scopeResult
 
 importRuntimeModule :: CompiledProgram -> [RuntimeModule] -> ResolvedImport -> RuntimeEnv -> RuntimeEnv
 importRuntimeModule compiledProgram runtimeModules importDecl env =

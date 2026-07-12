@@ -82,7 +82,6 @@ tests =
     ("bundled prelude file stays reproducible from catalog", testBundledPreludeFileStaysReproducibleFromCatalog),
     ("bundled prelude comparison normalizes line endings", testBundledPreludeComparisonNormalizesLineEndings),
     ("bundled prelude keeps text traversal intrinsics private", testBundledPreludeKeepsTextTraversalIntrinsicsPrivate),
-    ("bundled prelude keeps host IO intrinsics private", testBundledPreludeKeepsHostIOIntrinsicsPrivate),
     ("bundled prelude includes Eq Float64 equals method body", testBundledPreludeIncludesEqFloat64EqualsMethodBody),
     ("direct compile helper stays kernel-only", testDirectCompileHelperStaysKernelOnly),
     ("compile pipeline treats catalog builtins as bound names", testCompilePipelineTreatsCatalogBuiltinsAsBound),
@@ -111,14 +110,7 @@ expectedBuiltins =
     (BuiltinToFloat32, "toFloat32", 1, PreludeTarget),
     (BuiltinToFloat64, "toFloat64", 1, PreludeTarget),
     (BuiltinTextLength, "textLength", 1, KernelIntrinsic),
-    (BuiltinTextUnconsRaw, "textUnconsRaw", 1, KernelIntrinsic),
-    (BuiltinReadTextRaw, "readTextRaw!", 1, KernelIntrinsic),
-    (BuiltinWriteTextRaw, "writeTextRaw!", 2, KernelIntrinsic),
-    (BuiltinReadStdinRaw, "readStdinRaw!", 1, KernelIntrinsic),
-    (BuiltinWriteStdoutRaw, "writeStdoutRaw!", 1, KernelIntrinsic),
-    (BuiltinWriteStderrRaw, "writeStderrRaw!", 1, KernelIntrinsic),
-    (BuiltinArguments, "arguments!", 1, KernelIntrinsic),
-    (BuiltinExit, "exit!", 1, KernelIntrinsic)
+    (BuiltinTextUnconsRaw, "textUnconsRaw", 1, KernelIntrinsic)
   ]
 
 testCatalogRoundTripsBuiltinNames :: IO ()
@@ -225,31 +217,6 @@ testBundledPreludeKeepsTextTraversalIntrinsicsPrivate = do
     "bundled prelude omits public textUnconsRaw alias"
     False
     ("textUnconsRaw = __kernel_textUnconsRaw." `elem` Text.lines bundledPreludeSource)
-
-testBundledPreludeKeepsHostIOIntrinsicsPrivate :: IO ()
-testBundledPreludeKeepsHostIOIntrinsicsPrivate =
-  mapM_ assertPrivateHostIntrinsic hostIntrinsicNames
-  where
-    hostIntrinsicNames =
-      [ "readTextRaw!",
-        "writeTextRaw!",
-        "readStdinRaw!",
-        "writeStdoutRaw!",
-        "writeStderrRaw!",
-        "arguments!",
-        "exit!"
-      ]
-
-    assertPrivateHostIntrinsic name = do
-      let kernelName = kernelBridgeBindingPrefix <> name
-      assertContains
-        ("bundled prelude contains host kernel bridge " <> kernelName)
-        (kernelName <> " = " <> kernelName <> ".")
-        bundledPreludeSource
-      assertEqual
-        ("bundled prelude omits public host alias " <> name)
-        False
-        ((name <> " = " <> kernelName <> ".") `elem` Text.lines bundledPreludeSource)
 
 testBundledPreludeIncludesEqFloat64EqualsMethodBody :: IO ()
 testBundledPreludeIncludesEqFloat64EqualsMethodBody =

@@ -39,34 +39,26 @@ Each blocked item should answer these questions:
 - Completed children: `JN-BOOTSTRAP-MAYBE-RESULT-LIBRARIES-001` added ordinary
   `Maybe` and `Result` modules, and `JN-BOOTSTRAP-TEXT-TRAVERSAL-001` added the
   explicit-import scalar traversal API with private backend-neutral adapters.
-  `JN-BOOTSTRAP-HOST-TEXT-IO-001` added explicit-import `IO`/`IOError`, seven
-  private host bridges, the typed monadic runtime-host seam, strict UTF-8
-  production operations, arguments, and exit without coupling the public
-  contract to Haskell or LLVM.
-- Smallest unblocker: curate the stack-safe tail-position runtime-evaluation
-  contract before promoting another implementation child.
-- Decision needed: identify the exact tail positions across calls, cases,
-  conditionals, blocks, and module-export closures; choose the explicit
-  evaluation-loop/trampoline ownership; preserve diagnostics and runtime-host
-  sequencing; and lock large-input regression limits and target paths.
-- Recommended default: make the evaluator loop consume backend-neutral runtime
-  continuations while retaining the current public driver/module APIs and
-  `RuntimeHost` ordering. Do not introduce bytecode or encode LLVM operations in
-  the interpreter.
-- Candidate child: `JN-BOOTSTRAP-STACK-SAFE-EVALUATION-CONTRACT-001`, a
-  curation-only target until those runtime, module, diagnostic, and verification
-  decisions are accepted.
-- Candidate target paths: inspect `jazz-next/src/JazzNext/Compiler/Runtime.hs`,
-  `jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs`,
-  `jazz-next/src/JazzNext/Compiler/Driver.hs`,
-  `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`,
-  `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`, and the approved
-  bootstrap-profile design; a later accepted child plan must name the exact
-  implementation paths.
-- Verification for the curation pass: focused evaluator/module evidence review;
+- Smallest unblocker: none currently. Curate the approved host text-I/O surface
+  before promoting another implementation child.
+- Decision needed: lock the exact ordinary Jazz module boundary, `IOError` ADT
+  constructors and stable categories, kernel bridge inventory, stub-v1 purity
+  behavior, stage-0 runtime ownership, and focused success/failure tests.
+- Recommended default: expose recoverable host failures as
+  `Result(IOError, value)`, keep host exception names and platform error numbers
+  private, and preserve the same Jazz-visible contract for the future native
+  runtime instead of coupling frontend types to Haskell or LLVM.
+- Candidate child: `JN-BOOTSTRAP-HOST-TEXT-IO-001`, unpromoted until those
+  module, error, purity, runtime, target-path, and verification decisions are
+  accepted.
+- Candidate target paths: the live queue names the existing builtin catalog,
+  type inference, runtime, purity, module-loader, and focused-test owners; the
+  ordinary module and `IOError` paths remain intentionally unset until the
+  curation pass accepts their source boundary.
+- Verification for the curation pass: focused API/runtime evidence review;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.
-- Not in scope: implementing stack-safe evaluation during curation,
+- Not in scope: implementing host I/O during curation, stack-safe evaluation,
   lexer/parser modules, backend-neutral lowered IR, LLVM lowering, linking, or
   the native runtime until separately promoted children own those deltas.
 

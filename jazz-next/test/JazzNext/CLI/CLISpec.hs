@@ -2,7 +2,6 @@
 
 module Main (main) where
 
-import Control.Exception (finally)
 import Data.IORef
   ( IORef,
     newIORef,
@@ -13,13 +12,11 @@ import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Text.IO as TextIO
 import JazzNext.CLI.Main
   ( CliOptions (..),
     CliOutput (..),
     parseCliOptions,
-    runCliWith,
-    runCliWithHost
+    runCliWith
   )
 import JazzNext.Compiler.Diagnostics
   ( renderDiagnostic
@@ -27,23 +24,12 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.BundledPrelude
   ( bundledPreludeSource
   )
-import JazzNext.Compiler.RuntimeHost
-  ( productionRuntimeHost
-  )
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
     failTest,
     runTestSuite
-  )
-import System.Directory
-  ( getTemporaryDirectory,
-    removeFile
-  )
-import System.IO
-  ( hClose,
-    openTempFile
   )
 
 main :: IO ()
@@ -66,7 +52,6 @@ tests =
     ("cli compile prints warnings to stderr while keeping stdout empty", testCliWarningOnlyBehavior),
     ("cli run returns non-zero and suppresses stdout when warning promoted", testCliPromotedWarningBehavior),
     ("cli --run prints evaluated runtime output", testCliRunModeSuccess),
-    ("cli injects host capabilities only in run mode", testCliInjectsHostOnlyInRunMode),
     ("cli --help prints usage without reading inputs", testCliHelpOutput),
     ("cli -h prints usage without reading inputs", testCliShortHelpOutput),
     ("cli help flag preempts other args and input reads", testCliHelpPreemptsOtherArgs),
@@ -261,34 +246,6 @@ testCliRunModeSuccess = do
   where
     envLookup _ = pure Nothing
     configLookup _ = pure Nothing
-
-testCliInjectsHostOnlyInRunMode :: IO ()
-testCliInjectsHostOnlyInRunMode =
-  withTemporaryPath $ \path -> do
-    TextIO.writeFile path "before"
-    let source =
-          "__kernel_writeTextRaw! \""
-            <> Text.pack path
-            <> "\" \"Jazz λ\"."
-        envLookup _ = pure Nothing
-        fileLookup _ = pure Nothing
-    compileOutput <-
-      runCliWithHost productionRuntimeHost ["--no-prelude"] envLookup fileLookup (pure source)
-    afterCompile <- TextIO.readFile path
-    runOutput <-
-      runCliWithHost productionRuntimeHost ["--run", "--no-prelude"] envLookup fileLookup (pure source)
-    afterRun <- TextIO.readFile path
-    assertEqual "compile-only file contents" "before" afterCompile
-    assertEqual "compile-only exit" 0 (cliExitCode compileOutput)
-    assertEqual "run file contents" "Jazz λ" afterRun
-    assertEqual "run host exit" 0 (cliExitCode runOutput)
-
-withTemporaryPath :: (FilePath -> IO a) -> IO a
-withTemporaryPath action = do
-  temporaryDirectory <- getTemporaryDirectory
-  (path, handle) <- openTempFile temporaryDirectory "jazz-next-cli-host"
-  hClose handle
-  action path `finally` removeFile path
 
 testCliHelpOutput :: IO ()
 testCliHelpOutput = do

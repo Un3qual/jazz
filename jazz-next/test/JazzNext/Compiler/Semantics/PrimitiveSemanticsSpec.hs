@@ -56,8 +56,6 @@ tests =
     ("source pipeline types Char and Text literal patterns", testSourcePipelineTypesCharTextPatterns),
     ("source pipeline types private text traversal primitives", testSourcePipelineTypesPrivateTextTraversalPrimitives),
     ("source pipeline rejects non-Text traversal arguments", testSourcePipelineRejectsNonTextTraversalArguments),
-    ("source pipeline types private host IO primitives", testSourcePipelineTypesPrivateHostIOPrimitives),
-    ("source pipeline rejects invalid host IO arguments", testSourcePipelineRejectsInvalidHostIOArguments),
     ("strict equality rejects mismatched operand types", testRejectsEqualityTypeMismatch),
     ("strict inequality rejects mismatched operand types", testRejectsInequalityTypeMismatch),
     ("comparison primitives reject non-Int operands", testRejectsComparisonTypeMismatch),
@@ -211,45 +209,6 @@ testSourcePipelineRejectsNonTextTraversalArguments = do
     "bad = __kernel_textUnconsRaw True."
     "textUnconsRaw argument type mismatch"
     "E2006"
-
-testSourcePipelineTypesPrivateHostIOPrimitives :: IO ()
-testSourcePipelineTypesPrivateHostIOPrimitives =
-  assertCompiles
-    ( "read! :: (Bool, Text, Text, Text).\n"
-        <> "read! = __kernel_readTextRaw! \"source.jz\".\n"
-        <> "write! :: (Bool, Text, Text, Text).\n"
-        <> "write! = __kernel_writeTextRaw! \"output.txt\" \"Jazz\".\n"
-        <> "stdin! :: (Bool, Text, Text, Text).\n"
-        <> "stdin! = __kernel_readStdinRaw! ().\n"
-        <> "stdout! :: (Bool, Text, Text, Text).\n"
-        <> "stdout! = __kernel_writeStdoutRaw! \"out\".\n"
-        <> "stderr! :: (Bool, Text, Text, Text).\n"
-        <> "stderr! = __kernel_writeStderrRaw! \"err\".\n"
-        <> "args! :: [Text].\n"
-        <> "args! = __kernel_arguments! ().\n"
-        <> "terminated! :: ().\n"
-        <> "terminated! = __kernel_exit! 0."
-    )
-
-testSourcePipelineRejectsInvalidHostIOArguments :: IO ()
-testSourcePipelineRejectsInvalidHostIOArguments =
-  mapM_ assertInvalidArgument invalidCalls
-  where
-    invalidCalls =
-      [ ("__kernel_readTextRaw! 1", "readTextRaw!"),
-        ("__kernel_writeTextRaw! \"path\" True", "writeTextRaw!"),
-        ("__kernel_readStdinRaw! True", "readStdinRaw!"),
-        ("__kernel_writeStdoutRaw! 1", "writeStdoutRaw!"),
-        ("__kernel_writeStderrRaw! False", "writeStderrRaw!"),
-        ("__kernel_arguments! 1", "arguments!"),
-        ("__kernel_exit! \"zero\"", "exit!")
-      ]
-
-    assertInvalidArgument (call, name) =
-      assertCompileError
-        ("bad! = " <> call <> ".")
-        (name <> " argument type mismatch")
-        "E2006"
 
 testRejectsEqualityTypeMismatch :: IO ()
 testRejectsEqualityTypeMismatch = do

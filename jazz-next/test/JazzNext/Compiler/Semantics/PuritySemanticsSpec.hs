@@ -54,9 +54,6 @@ tests =
     ("mkIdentifier marks bang-suffixed names impure", testMkIdentifierMarksBangSuffixedNamesImpure),
     ("mkIdentifier marks plain names pure", testMkIdentifierMarksPlainNamesPure),
     ("top-level expression may call impure builtin", testTopLevelExpressionCanCallImpureBuiltin),
-    ("pure bindings reject private host IO primitives", testPureBindingsRejectPrivateHostIOPrimitives),
-    ("impure bindings accept private host IO primitives", testImpureBindingsAcceptPrivateHostIOPrimitives),
-    ("top-level expressions accept private host IO primitives", testTopLevelExpressionsAcceptPrivateHostIOPrimitives),
     ("top-level expression may call impure callee", testTopLevelExpressionCanCallImpureCallee)
   ]
 
@@ -184,44 +181,6 @@ testTopLevelExpressionCanCallImpureBuiltin :: IO ()
 testTopLevelExpressionCanCallImpureBuiltin = do
   result <- compileWithBundledPrelude "print! 1."
   assertEqual "compile errors" [] (compileErrors result)
-
-testPureBindingsRejectPrivateHostIOPrimitives :: IO ()
-testPureBindingsRejectPrivateHostIOPrimitives =
-  mapM_ assertRejected privateHostIOCalls
-  where
-    assertRejected call = do
-      result <- compileSource defaultWarningSettings ("result = " <> call <> ".")
-      assertSingleErrorContains
-        ("pure binding rejects " <> call)
-        "E1010"
-        (compileErrors result)
-
-testImpureBindingsAcceptPrivateHostIOPrimitives :: IO ()
-testImpureBindingsAcceptPrivateHostIOPrimitives =
-  mapM_ assertAccepted privateHostIOCalls
-  where
-    assertAccepted call = do
-      result <- compileSource defaultWarningSettings ("result! = " <> call <> ".")
-      assertEqual ("impure binding accepts " <> call) [] (compileErrors result)
-
-testTopLevelExpressionsAcceptPrivateHostIOPrimitives :: IO ()
-testTopLevelExpressionsAcceptPrivateHostIOPrimitives =
-  mapM_ assertAccepted privateHostIOCalls
-  where
-    assertAccepted call = do
-      result <- compileSource defaultWarningSettings (call <> ".")
-      assertEqual ("top-level expression accepts " <> call) [] (compileErrors result)
-
-privateHostIOCalls :: [Text]
-privateHostIOCalls =
-  [ "__kernel_readTextRaw! \"source.jz\"",
-    "__kernel_writeTextRaw! \"output.txt\" \"Jazz\"",
-    "__kernel_readStdinRaw! ()",
-    "__kernel_writeStdoutRaw! \"out\"",
-    "__kernel_writeStderrRaw! \"err\"",
-    "__kernel_arguments! ()",
-    "__kernel_exit! 0"
-  ]
 
 compileWithBundledPrelude :: Text -> IO CompileResult
 compileWithBundledPrelude =

@@ -1521,29 +1521,4 @@ instantiateBuiltinSymbolTypeByName builtinName state =
             (TListType (TTupleType [TCharType, TTextType])),
           state
         )
-    "readTextRaw!" ->
-      Just (TFunctionType TTextType hostIOOutcomeType, state)
-    "writeTextRaw!" ->
-      Just
-        ( TFunctionType
-            TTextType
-            (TFunctionType TTextType hostIOOutcomeType),
-          state
-        )
-    "readStdinRaw!" ->
-      Just (TFunctionType unitType hostIOOutcomeType, state)
-    "writeStdoutRaw!" ->
-      Just (TFunctionType TTextType hostIOOutcomeType, state)
-    "writeStderrRaw!" ->
-      Just (TFunctionType TTextType hostIOOutcomeType, state)
-    "arguments!" ->
-      Just (TFunctionType unitType (TListType TTextType), state)
-    "exit!" ->
-      Just (TFunctionType TIntType unitType, state)
     _ -> Nothing
-
-hostIOOutcomeType :: ExpressionType
-hostIOOutcomeType = TTupleType [TBoolType, TTextType, TTextType, TTextType]
-
-unitType :: ExpressionType
-unitType = TTupleType []
