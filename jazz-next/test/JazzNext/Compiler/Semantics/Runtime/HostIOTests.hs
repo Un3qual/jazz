@@ -93,7 +93,9 @@ hostIOTests =
     ("host scopes preserve binding signature hints", testHostScopePreservesBindingSignatureHints),
     ("host dependency scopes keep unused bindings lazy", testHostDependencyScopeKeepsUnusedBindingLazy),
     ("host dependency bindings are shared when forced", testHostDependencyBindingIsShared),
+    ("host dependency scopes keep deferred cells on the active host", testHostDependencyScopeKeepsDeferredCellsOnActiveHost),
     ("host dependency bindings retain their runtime hints", testHostDependencyBindingRetainsRuntimeHints),
+    ("stacked result obligations preserve recursive unwind order", testStackedResultObligationsPreserveRecursiveUnwindOrder),
     ("host binding cache separates dynamic scope invocations", testHostBindingCacheSeparatesDynamicScopeInvocations),
     ("host scopes force zero-argument impl methods", testHostZeroArgumentImplMethod),
     ("direct runtime wrappers normalize disabled host calls", testDirectRuntimeWrapperUsesDisabledHost),
@@ -462,6 +464,94 @@ testHostDependencyBindingIsShared = do
       (result, calls) = runState action []
   assertEqual "shared dependency binding result" True (isRight result)
   assertEqual "shared dependency host call" [ReadStdinCall] calls
+
+testHostDependencyScopeKeepsDeferredCellsOnActiveHost :: IO ()
+testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
+  let dependencyStatements =
+        [ SLet
+            "token!"
+            (SourceSpan 1 1)
+            (hostCall "__kernel_readStdinRaw!" [ETuple []]),
+          SLet
+            "selected"
+            (SourceSpan 2 1)
+            (EIf (ELit (LBool True)) (EVar "token!") (EVar "peer")),
+          SLet
+            "peer"
+            (SourceSpan 3 1)
+            (EVar "selected")
+        ]
+      entryStatements = [SExpr (SourceSpan 4 1) (EVar "selected")]
+      action = do
+        dependencyResult <-
+          evaluateModuleScopeWithRequiredHost
+            statefulHost
+            (Just ["Dependency"])
+            EvaluateDependencyModule
+            ResolveKernelOnly
+            Map.empty
+            Map.empty
+            dependencyStatements
+        case dependencyResult of
+          Left diagnostic -> pure (Left diagnostic)
+          Right dependencyScope ->
+            evaluateModuleScopeWithRequiredHost
+              statefulHost
+              (Just ["Main"])
+              EvaluateEntryModule
+              ResolveKernelOnly
+              Map.empty
+              (scopeResultEnvironment dependencyScope)
+              entryStatements
+      (result, calls) = runState action []
+  case result of
+    Right scopeResult ->
+      assertEqual
+        "mixed host/pure dependency result"
+        (Just (rawSuccess "stdin text"))
+        (scopeResultValue scopeResult)
+    Left _ -> assertEqual "mixed host/pure dependency evaluation succeeds" True False
+  assertEqual "mixed host/pure dependency call" [ReadStdinCall] calls
+
+testStackedResultObligationsPreserveRecursiveUnwindOrder :: IO ()
+testStackedResultObligationsPreserveRecursiveUnwindOrder = do
+  let identityClosure = VClosure Map.empty "value" (EVar "value") Nothing Nothing
+      stackedFunction =
+        VTyped
+          (TypeFunction TypeInt TypeInt)
+          (VExplicitResultHint (TypeNumeric NumericUInt8) identityClosure)
+      statements =
+        [ SExpr
+            (SourceSpan 1 1)
+            (EApply (EVar "convert") (ELit (LInt 200)))
+        ]
+      (result, calls) =
+        runState
+          ( evaluateModuleScopeWithRequiredHost
+              statefulHost
+              Nothing
+              EvaluateEntryModule
+              ResolveKernelOnly
+              Map.empty
+              (Map.singleton "convert" (Right stackedFunction))
+              statements
+          )
+          []
+  assertEqual "stacked result obligation host calls" [] calls
+  case result of
+    Right scopeResult ->
+      case scopeResultValue scopeResult of
+        Just value -> do
+          assertEqual
+            "outer result hint applies after inner result hint"
+            True
+            (runtimeValueExactlyMatchesConstraint TypeInt value)
+          assertEqual
+            "inner result hint does not escape the outer result hint"
+            False
+            (runtimeValueExactlyMatchesConstraint (TypeNumeric NumericUInt8) value)
+        Nothing -> assertEqual "stacked result obligations produce a value" True False
+    Left _ -> assertEqual "stacked result obligations evaluate" True False
 
 testHostDependencyBindingRetainsRuntimeHints :: IO ()
 testHostDependencyBindingRetainsRuntimeHints = do

@@ -4261,7 +4261,7 @@ evalScopeWithHostInstance ::
   [Statement] ->
   ExceptT Diagnostic (RuntimeHostEvaluationT m) ScopeResult
 evalScopeWithHostInstance scopeId host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
-  go initialEnv Nothing indexedStatements
+  go False initialEnv Nothing indexedStatements
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = Map.fromList indexedStatements
@@ -4294,12 +4294,12 @@ evalScopeWithHostInstance scopeId host preludeStatementIndices currentModulePath
         then Just []
         else Map.findWithDefault currentModulePath statementIndex modulePathsByStatement
 
-    go env lastValue [] = pure (ScopeResult env lastValue)
-    go env _ remaining@((statementIndex, statement) : rest)
-      | not (statementNeedsDirectHostEvaluation statementIndex statement) = do
+    go _ env lastValue [] = pure (ScopeResult env lastValue)
+    go hostCellsMayBeReachable env _ remaining@((statementIndex, statement) : rest)
+      | not (statementNeedsDirectHostEvaluation hostCellsMayBeReachable statementIndex statement) = do
           let (pureChunk, remainingAfterChunk) =
                 span
-                  (\(index, chunkStatement) -> not (statementNeedsDirectHostEvaluation index chunkStatement))
+                  (\(index, chunkStatement) -> not (statementNeedsDirectHostEvaluation hostCellsMayBeReachable index chunkStatement))
                   remaining
               chunkPreludeStatementIndices =
                 Set.fromList
@@ -4319,6 +4319,7 @@ evalScopeWithHostInstance scopeId host preludeStatementIndices currentModulePath
                   (map snd pureChunk)
               )
           go
+            hostCellsMayBeReachable
             (scopeResultEnvironment scopeResult)
             (scopeResultValue scopeResult)
             remainingAfterChunk
@@ -4329,20 +4330,22 @@ evalScopeWithHostInstance scopeId host preludeStatementIndices currentModulePath
                in case evaluationMode of
                     EvaluateDependencyModule ->
                       go
+                        True
                         (Map.insert name bindingCell env)
                         Nothing
                         rest
                     EvaluateEntryModule -> do
                       value <- forceRuntimeCellWithHost bindingCell
-                      go (Map.insert name (Right value) env) Nothing rest
+                      go True (Map.insert name (Right value) env) Nothing rest
             SImpl _ capabilityName arguments methods ->
               go
+                True
                 (insertImplMethodsWithHost (modulePathForStatement statementIndex) capabilityName arguments methods env)
                 Nothing
                 rest
             SExpr _ valueExpr ->
               case evaluationMode of
-                EvaluateDependencyModule -> go env Nothing rest
+                EvaluateDependencyModule -> go hostCellsMayBeReachable env Nothing rest
                 EvaluateEntryModule -> do
                   value <-
                     evalValueWithHost
@@ -4352,18 +4355,23 @@ evalScopeWithHostInstance scopeId host preludeStatementIndices currentModulePath
                       bindingTypeHints
                       env
                       valueExpr
-                  go env (Just value) rest
+                  go hostCellsMayBeReachable env (Just value) rest
             _ ->
               throwE
                 (runtimeDiagnostic "E3020" "internal runtime error: unsupported direct host statement")
 
-    statementNeedsDirectHostEvaluation statementIndex statement =
+    -- Once direct host evaluation has introduced a deferred cell (or a value
+    -- that can capture one), later bindings must stay on the same host lane.
+    -- Sending them through the pure scope evaluator would install the disabled
+    -- host inside their lazy cells and split cache/effect state when forced.
+    statementNeedsDirectHostEvaluation hostCellsMayBeReachable statementIndex statement =
       case statement of
         SLet _ _ valueExpr ->
-          runtimeExprRequiresHost valueExpr
+          hostCellsMayBeReachable
+            || runtimeExprRequiresHost valueExpr
             || Set.member statementIndex hostRecursiveStatementIndices
             || Map.notMember statementIndex recursiveGroups
-        SImpl _ _ _ methods -> any implMethodRequiresHost methods
+        SImpl _ _ _ methods -> hostCellsMayBeReachable || any implMethodRequiresHost methods
         SExpr {} -> True
         _ -> False
 
