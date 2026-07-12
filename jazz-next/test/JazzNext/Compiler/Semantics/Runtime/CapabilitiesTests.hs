@@ -108,6 +108,7 @@ capabilityTests =
     , ("qualified method dispatch executes Float32 equality body", testQualifiedMethodDispatchExecutesFloat32EqualityBody)
     , ("qualified method dispatch executes Float64 equality body", testQualifiedMethodDispatchExecutesFloat64EqualityBody)
     , ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias)
+    , ("qualified method dispatch re-hints Int aliases for Int64 parameters", testQualifiedMethodDispatchRehintsIntAliasForInt64Parameter)
     , ("qualified method dispatch prefers Int alias body for typed Int values", testQualifiedMethodDispatchPrefersIntAliasBody)
     , ("qualified method dispatch prefers Int alias body for direct integer literals", testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral)
     , ("qualified method dispatch prefers list alias body for typed list values", testQualifiedMethodDispatchPrefersListAliasBody)
@@ -594,6 +595,22 @@ testQualifiedMethodDispatchTreatsIntAsInt64Alias = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
+
+testQualifiedMethodDispatchRehintsIntAliasForInt64Parameter :: IO ()
+testQualifiedMethodDispatchRehintsIntAliasForInt64Parameter = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "asInt :: Int.\nasInt = 1.\n"
+          <> "asInt64 :: Int64 -> Int64.\nasInt64 = \\(value) -> value.\n"
+          <> "(RuntimeFlag::flag) (asInt64 asInt)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
 
 testQualifiedMethodDispatchPrefersIntAliasBody :: IO ()
 testQualifiedMethodDispatchPrefersIntAliasBody = do

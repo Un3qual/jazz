@@ -1811,7 +1811,7 @@ applyRuntimeTypeHint typeHint runtimeValue =
 -- traversing persistent values at polymorphic function boundaries.
 runtimeTypeHintAtLeastAsSpecific :: SignatureType -> SignatureType -> Bool
 runtimeTypeHintAtLeastAsSpecific existingHint requestedHint
-  | constraintSignatureTypesCompatible existingHint requestedHint = True
+  | existingHint == requestedHint = True
 runtimeTypeHintAtLeastAsSpecific _ (TypeVariable _) = True
 runtimeTypeHintAtLeastAsSpecific _ (TypeName name)
   | identifierLooksLikeTypeVariable name = True

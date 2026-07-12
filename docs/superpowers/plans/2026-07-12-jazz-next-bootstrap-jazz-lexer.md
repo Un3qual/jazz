@@ -100,7 +100,7 @@ paths/source text to both lexers and compares only ordinary runtime rendering.
 
 ### Task 3: Implement the Jazz-authored lexer state machine
 
-- [x] Add a RED focused parity suite that loads checked-in `List`, `Char`,
+- [x] Add a RED-focused parity suite that loads checked-in `List`, `Char`,
   `Text`, `Maybe`, `LexerTypes`, and `Lexer` through the real module graph.
 - [x] Implement `Lexer.jz` with explicit scanner result/state ADTs, ignored
   whitespace/comments, identifiers/keywords, arbitrary-size integer spelling,

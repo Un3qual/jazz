@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -43,7 +44,8 @@ tests =
     ("Jazz lexer renders exact structured failures", testExactStructuredFailure),
     ("Jazz lexer covers every focused boundary family", testFocusedBoundaryCorpus),
     ("Jazz lexer matches the complete canonical corpus deterministically", testCompleteCorpusParity),
-    ("Jazz lexer traverses large whitespace and token inputs stack safely", testLargeTraversal)
+    ("Jazz lexer traverses large whitespace and token inputs stack safely", testLargeTraversal),
+    ("Jazz lexer timeout wrapper preserves timeout classification", testTimeoutClassification)
   ]
 
 testExactCanonicalTokens :: IO ()
@@ -72,19 +74,27 @@ testLargeTraversal = do
   assertLargeTokenCount "large whitespace" (Text.replicate 20000 " ") 0
   assertLargeTokenCount "large token list" (Text.replicate 10000 "x ") 10000
 
+testTimeoutClassification :: IO ()
+testTimeoutClassification = do
+  result <- tryWithin 1000 (threadDelay 1000000)
+  case result of
+    Right Nothing -> pure ()
+    Left err -> failTest ("timeout leaked host exception: " <> Text.pack (show err))
+    Right (Just ()) -> failTest "timeout action unexpectedly completed"
+
 assertLargeTokenCount :: Text -> Text -> Int -> IO ()
 assertLargeTokenCount label source expectedCount = do
-  maybeResult <-
-    timeout
-      60000000
-      (try (runJazzLexerCount source) :: IO (Either SomeException RunResult))
-  case maybeResult of
-    Nothing -> failTest (label <> " timed out")
-    Just (Left err) -> failTest (label <> " leaked host exception: " <> Text.pack (show err))
-    Just (Right result) -> do
+  timedResult <- tryWithin 60000000 (runJazzLexerCount source)
+  case timedResult of
+    Right Nothing -> failTest (label <> " timed out")
+    Left err -> failTest (label <> " leaked host exception: " <> Text.pack (show err))
+    Right (Just result) -> do
       assertEqual (label <> " compile errors") [] (runCompileErrors result)
       assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
       assertEqual (label <> " token count") (Just (Text.pack (show expectedCount))) (runOutput result)
+
+tryWithin :: Int -> IO a -> IO (Either SomeException (Maybe a))
+tryWithin microseconds action = try (timeout microseconds action)
 
 assertJazzParity :: FilePath -> Text -> IO ()
 assertJazzParity logicalPath source = do
