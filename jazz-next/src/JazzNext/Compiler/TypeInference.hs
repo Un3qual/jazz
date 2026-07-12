@@ -596,7 +596,7 @@ inferGenericApplyType builtinMode env state functionExpr argumentExpr =
                       (resolveType stateWithResultVar inferredArgumentType)
                   )
               )
-        _ -> (Nothing, stateWithResultVar)
+        _ -> (Nothing, discardFailedFunctionApplicationConstraints state stateWithResultVar)
 
 discardFailedFunctionApplicationConstraints :: InferState -> InferState -> InferState
 discardFailedFunctionApplicationConstraints stateBeforeFunction stateAfterApplication =

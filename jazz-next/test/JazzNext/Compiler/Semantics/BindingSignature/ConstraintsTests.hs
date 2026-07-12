@@ -121,6 +121,7 @@ constraintTests =
     , ("source pipeline preserves explicit Eq impl checks for structural constraints", testSourcePreservesExplicitEqImplChecksForStructuralConstraints)
     , ("source pipeline resolves deferred constraints in impl method bodies", testSourceResolvesDeferredConstraintsInImplMethodBodies)
     , ("source pipeline discards failed application argument constraints", testSourceDiscardsFailedApplicationArgumentConstraints)
+    , ("source pipeline discards failed application function constraints", testSourceDiscardsFailedApplicationFunctionConstraints)
     , ("source pipeline rejects unused variable constraint with bidirectional contract", testSourceRejectsUnusedVariableConstraintWithBidirectionalContract)
   ]
 
@@ -788,6 +789,18 @@ testSourceDiscardsFailedApplicationArgumentConstraints = do
       "class Need(a) { need :: a -> a. }.\nbad = 1 (\\(x) -> Need::need x)."
   assertSingleDiagnosticCode
     "failed application only reports E2006"
+    "E2006"
+    (compileErrors result)
+
+testSourceDiscardsFailedApplicationFunctionConstraints :: IO ()
+testSourceDiscardsFailedApplicationFunctionConstraints = do
+  result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      "class Need(a) { need :: a -> a. }.\nbad = (\\(x) -> Need::need x) (1 True)."
+  assertSingleDiagnosticCode
+    "failed function operand only reports E2006"
     "E2006"
     (compileErrors result)
 
