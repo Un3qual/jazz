@@ -471,17 +471,19 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
         [ SLet
             "token!"
             (SourceSpan 1 1)
-            (hostCall "__kernel_readStdinRaw!" [ETuple []]),
-          SLet
+            (hostCall "__kernel_readStdinRaw!" [ETuple []])
+        ]
+      entryStatements =
+        [ SLet
             "selected"
             (SourceSpan 2 1)
             (EIf (ELit (LBool True)) (EVar "token!") (EVar "peer")),
           SLet
             "peer"
             (SourceSpan 3 1)
-            (EVar "selected")
+            (EVar "selected"),
+          SExpr (SourceSpan 4 1) (EVar "selected")
         ]
-      entryStatements = [SExpr (SourceSpan 4 1) (EVar "selected")]
       action = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
@@ -515,7 +517,7 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
 
 testStackedResultObligationsPreserveRecursiveUnwindOrder :: IO ()
 testStackedResultObligationsPreserveRecursiveUnwindOrder = do
-  let identityClosure = VClosure Map.empty "value" (EVar "value") Nothing Nothing
+  let identityClosure = VClosure Map.empty False "value" (EVar "value") Nothing Nothing
       stackedFunction =
         VTyped
           (TypeFunction TypeInt TypeInt)

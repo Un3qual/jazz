@@ -85,6 +85,7 @@ recursionTests =
   [ ("tail-recursive closure is stack safe at bootstrap depth", testTailRecursiveClosureIsStackSafe)
     , ("tail-recursive case arm is stack safe", testTailRecursiveCaseArmIsStackSafe)
     , ("typed tail-recursive closure preserves result hints", testTypedTailRecursiveClosureIsStackSafe)
+    , ("explicitly hinted tail recursion coalesces result obligations", testExplicitlyHintedTailRecursionCoalescesResultObligations)
     , ("pure and host evaluators preserve diagnostic parity", testPureAndHostDiagnosticsMatch)
     , ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError)
     , ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError)
@@ -144,6 +145,40 @@ testTypedTailRecursiveClosureIsStackSafe =
         )
     )
     (Just "0")
+
+testExplicitlyHintedTailRecursionCoalescesResultObligations :: IO ()
+testExplicitlyHintedTailRecursionCoalescesResultObligations = do
+  let recursionDepth = 1000
+      isZero = EBinary "==" (EVar "remaining") (ELit (LInt 0))
+      recurse =
+        EApply
+          (ETypeApplication (EVar "collect") (SourceSpan 2 20) TypeInt)
+          (EBinary "-" (EVar "remaining") (ELit (LInt 1)))
+      expression =
+        EBlock
+          [ SLet
+              "collect"
+              (SourceSpan 1 1)
+              (ELambda "remaining" (EIf isZero (ELambda "value" (EVar "value")) recurse)),
+            SExpr
+              (SourceSpan 3 1)
+              (EApply (EVar "collect") (ELit (LInt recursionDepth)))
+          ]
+  case evaluateRuntimeExpr expression of
+    Right (Just runtimeValue) ->
+      assertEqual
+        "repeated explicit tail hint wrapper depth"
+        1
+        (explicitResultHintDepth runtimeValue)
+    Left diagnostic ->
+      failTest ("explicitly hinted tail recursion failed: " <> renderDiagnostic diagnostic)
+    Right Nothing ->
+      failTest "explicitly hinted tail recursion produced no result"
+  where
+    explicitResultHintDepth runtimeValue =
+      case runtimeValue of
+        VExplicitResultHint TypeInt innerValue -> 1 + explicitResultHintDepth innerValue
+        _ -> 0
 
 assertStackSafeRunResult :: Text -> IO RunResult -> Maybe Text -> IO ()
 assertStackSafeRunResult label action expectedOutput = do

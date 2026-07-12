@@ -183,7 +183,7 @@ data RuntimeValue
   | VText Text
   | VList [RuntimeValue] (Maybe SignatureType)
   | VTuple [RuntimeValue]
-  | VClosure RuntimeEnv Name Expr (Maybe SignatureType) (Maybe [Text])
+  | VClosure RuntimeEnv Bool Name Expr (Maybe SignatureType) (Maybe [Text])
   | VBuiltin BuiltinSymbol [RuntimeValue]
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
@@ -244,7 +244,7 @@ instance Show RuntimeValue where
       VText textValue -> "VText " <> show textValue
       VList elements maybeTypeHint -> "VList " <> show elements <> " " <> show maybeTypeHint
       VTuple elements -> "VTuple " <> show elements
-      VClosure _ parameterName bodyExpr maybeTypeHint modulePath ->
+      VClosure _ _ parameterName bodyExpr maybeTypeHint modulePath ->
         "VClosure <env> " <> show parameterName <> " " <> show bodyExpr <> " " <> show maybeTypeHint <> " " <> show modulePath
       VBuiltin builtinSymbol capturedArgs ->
         "VBuiltin " <> show builtinSymbol <> " " <> show capturedArgs
@@ -371,7 +371,7 @@ evaluateRuntimeExprWithEvaluationHostAndBuiltinsAndBindingHintsAndSourceUnitStat
               statements
         _ ->
           runExceptT
-            (Just <$> evalValueWithHost host Nothing builtinMode bindingTypeHints Map.empty expr)
+            (Just <$> evalValueWithHost host Nothing builtinMode bindingTypeHints Map.empty False expr)
     else
       pure
         ( evaluateRuntimeExprPureWithBuiltinsAndBindingHintsAndSourceUnitStatements
@@ -590,6 +590,12 @@ type RuntimeCell = Either Diagnostic RuntimeValue
 
 type RuntimeEnv = Map Name RuntimeCell
 
+-- Public scope entry points receive an opaque map whose lazy cells may include
+-- recursive blackholes. They cannot safely recover provenance by inspecting
+-- values, so only the empty map is known not to contain imported host cells.
+opaqueRuntimeEnvironmentMayReachHostCells :: RuntimeEnv -> Bool
+opaqueRuntimeEnvironmentMayReachHostCells = not . Map.null
+
 -- | Immutable expression-local inputs for the shared evaluator. Callable
 -- transfer replaces only the captured environment and module path; builtin
 -- resolution and runtime hints remain stable for the whole machine run.
@@ -597,7 +603,8 @@ data EvaluationContext = EvaluationContext
   { evaluationModulePath :: Maybe [Text],
     evaluationBuiltinMode :: BuiltinResolutionMode,
     evaluationBindingTypeHints :: Map BindingRuntimeHintKey SignatureType,
-    evaluationEnvironment :: RuntimeEnv
+    evaluationEnvironment :: RuntimeEnv,
+    evaluationEnvironmentMayReachHostCells :: Bool
   }
 
 data RuntimeResultObligation
@@ -654,7 +661,8 @@ data EvaluationProgress
 
 data ScopeResult = ScopeResult
   { scopeResultEnvironment :: RuntimeEnv,
-    scopeResultValue :: Maybe RuntimeValue
+    scopeResultValue :: Maybe RuntimeValue,
+    scopeResultEnvironmentMayReachHostCells :: Bool
   }
 
 data ModuleEvaluationMode
@@ -725,6 +733,7 @@ evaluateModuleScopeWithRequiredEvaluationHost host currentModulePath evaluationM
         evaluationMode
         builtinMode
         bindingTypeHints
+        (opaqueRuntimeEnvironmentMayReachHostCells initialEnv)
         initialEnv
         statements
     )
@@ -774,6 +783,7 @@ evaluateModuleScopeWithEvaluationHostAndSourceUnitStatements host preludeStateme
             evaluationMode
             builtinMode
             bindingTypeHints
+            (opaqueRuntimeEnvironmentMayReachHostCells initialEnv)
             initialEnv
             statements
         )
@@ -839,7 +849,7 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
       case remainingStatements of
         [] ->
           -- Declaration-only scopes intentionally remain `Nothing` until a terminal `SExpr` sets a value.
-          Right (ScopeResult env lastExprValue)
+          Right (ScopeResult env lastExprValue False)
         (statementIndex, statement) : rest ->
           case statement of
             SSignature {} ->
@@ -1088,9 +1098,10 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
     attachSelfRecursiveBinding statementIndex bindingName runtimeValue
       | recursiveFunctionNeedsSelf statementIndex bindingName =
           case runtimeValue of
-            VClosure capturedEnv parameterName bodyExpr maybeTypeHint closureModulePath ->
+            VClosure capturedEnv capturedEnvMayReachHostCells parameterName bodyExpr maybeTypeHint closureModulePath ->
               VClosure
                 (Map.insert bindingName (bindingCellAt statementIndex) capturedEnv)
+                capturedEnvMayReachHostCells
                 parameterName
                 bodyExpr
                 maybeTypeHint
@@ -1666,15 +1677,16 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
         runExceptT
           ( runEvaluationMachine
               host
-              (EvaluationContext currentModulePath builtinMode bindingTypeHints env)
+              (EvaluationContext currentModulePath builtinMode bindingTypeHints env False)
               expr
           )
     )
 
-declaredOperatorRightSectionClosure :: Maybe [Text] -> RuntimeValue -> RuntimeValue -> RuntimeEnv -> RuntimeValue
-declaredOperatorRightSectionClosure currentModulePath operatorValue rightValue env =
+declaredOperatorRightSectionClosure :: Maybe [Text] -> RuntimeValue -> RuntimeValue -> RuntimeEnv -> Bool -> RuntimeValue
+declaredOperatorRightSectionClosure currentModulePath operatorValue rightValue env envMayReachHostCells =
   VClosure
     capturedEnv
+    envMayReachHostCells
     leftParameter
     (EApply (EApply (EVar functionName) (EVar leftParameter)) (EVar rightParameter))
     Nothing
@@ -1760,8 +1772,8 @@ applyRuntimeTypeHint typeHint runtimeValue =
         (TypeTuple elementTypes, VTuple elements)
           | length elementTypes == length elements ->
               VTuple <$> zipWithM applyRuntimeTypeHint elementTypes elements
-        (TypeFunction {}, VClosure capturedEnv parameterName bodyExpr _ closureModulePath) ->
-          Right (VClosure capturedEnv parameterName bodyExpr (Just typeHint) closureModulePath)
+        (TypeFunction {}, VClosure capturedEnv capturedEnvMayReachHostCells parameterName bodyExpr _ closureModulePath) ->
+          Right (VClosure capturedEnv capturedEnvMayReachHostCells parameterName bodyExpr (Just typeHint) closureModulePath)
         (TypeFunction {}, _)
           | isFunctionValue runtimeValue ->
               Right (VTyped typeHint runtimeValue)
@@ -2074,7 +2086,7 @@ runtimeValueSignatureHint runtimeValue =
       runtimeValueSignatureHint innerValue
     VExplicitResultHint _ innerValue ->
       runtimeValueSignatureHint innerValue
-    VClosure _ _ _ maybeTypeHint _ ->
+    VClosure _ _ _ _ maybeTypeHint _ ->
       maybeTypeHint
     VList _ (Just typeHint) ->
       Just typeHint
@@ -2162,7 +2174,7 @@ runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
       runtimeValueExactlyMatchesConstraint signatureType innerValue
     VTyped typeHint _ ->
       typeHint == signatureType
-    VClosure _ _ _ (Just typeHint) _ ->
+    VClosure _ _ _ _ (Just typeHint) _ ->
       typeHint == signatureType
     VInt _ metadata ->
       case signatureType of
@@ -2288,7 +2300,7 @@ runtimeValueMatchesConstraint signatureType runtimeValue =
             _ -> False
         TypeFunction {} ->
           case runtimeValue of
-            VClosure _ _ _ (Just typeHint) _ -> constraintSignatureTypesCompatible typeHint signatureType
+            VClosure _ _ _ _ (Just typeHint) _ -> constraintSignatureTypesCompatible typeHint signatureType
             _ -> isFunctionValue runtimeValue
 
 runtimeValueMatchesTypeName :: Text -> RuntimeValue -> Bool
@@ -2809,7 +2821,7 @@ runtimeFunctionResultType runtimeValue =
       runtimeFunctionResultType innerValue
     VTyped (TypeFunction _ resultType) _ ->
       Just resultType
-    VClosure _ _ _ (Just (TypeFunction _ resultType)) _ ->
+    VClosure _ _ _ _ (Just (TypeFunction _ resultType)) _ ->
       Just resultType
     _ ->
       Nothing
@@ -2827,7 +2839,7 @@ runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint =
   case (mapper, maybeCollectionTypeHint) of
     (VBuiltin BuiltinHd [], Just (TypeList (TypeList elementType))) ->
       Just elementType
-    (VClosure _ parameterName (EVar resultName) Nothing _, Just (TypeList elementType))
+    (VClosure _ _ parameterName (EVar resultName) Nothing _, Just (TypeList elementType))
       | resultName == parameterName ->
           Just elementType
     _ ->
@@ -3629,6 +3641,7 @@ stepEvaluationMachine host builtinMode bindingTypeHints machine =
             ( ReturnRuntimeValue
                 ( VClosure
                     (evaluationEnvironment context)
+                    (evaluationEnvironmentMayReachHostCells context)
                     parameterName
                     bodyExpr
                     Nothing
@@ -3717,6 +3730,7 @@ stepEvaluationMachine host builtinMode bindingTypeHints machine =
               EvaluateEntryModule
               builtinMode
               bindingTypeHints
+              (evaluationEnvironmentMayReachHostCells context)
               (evaluationEnvironment context)
               prefixStatements
           let terminalContext =
@@ -3725,7 +3739,9 @@ stepEvaluationMachine host builtinMode bindingTypeHints machine =
                       modulePathAfterStatements
                         (evaluationModulePath context)
                         prefixStatements,
-                    evaluationEnvironment = scopeResultEnvironment scopeResult
+                    evaluationEnvironment = scopeResultEnvironment scopeResult,
+                    evaluationEnvironmentMayReachHostCells =
+                        scopeResultEnvironmentMayReachHostCells scopeResult
                   }
           continueWith (EvaluateExpression terminalContext terminalExpr) machine
         _ -> do
@@ -3737,6 +3753,7 @@ stepEvaluationMachine host builtinMode bindingTypeHints machine =
               EvaluateEntryModule
               builtinMode
               bindingTypeHints
+              (evaluationEnvironmentMayReachHostCells context)
               (evaluationEnvironment context)
               statements
           throwE
@@ -3782,7 +3799,7 @@ stepEvaluationMachine host builtinMode bindingTypeHints machine =
               resultValue <-
                 evalBinaryWithHost host builtinMode bindingTypeHints operatorSymbol argumentValue rightValue
               continueWith (ReturnRuntimeValue resultValue) machine
-        VClosure capturedEnv parameterName bodyExpr maybeTypeHint closureModulePath -> do
+        VClosure capturedEnv capturedEnvMayReachHostCells parameterName bodyExpr maybeTypeHint closureModulePath -> do
           hintedArgumentValue <-
             case maybeTypeHint of
               Just typeHint ->
@@ -3798,7 +3815,8 @@ stepEvaluationMachine host builtinMode bindingTypeHints machine =
                     evaluationBuiltinMode = builtinMode,
                     evaluationBindingTypeHints = bindingTypeHints,
                     evaluationEnvironment =
-                      Map.insert parameterName (Right hintedArgumentValue) capturedEnv
+                      Map.insert parameterName (Right hintedArgumentValue) capturedEnv,
+                    evaluationEnvironmentMayReachHostCells = capturedEnvMayReachHostCells
                   }
           continueWith
             (EvaluateExpression closureContext bodyExpr)
@@ -4016,6 +4034,7 @@ resumeEvaluationFrame host builtinMode bindingTypeHints machine frame runtimeVal
                 runtimeValue
                 rightValue
                 (evaluationEnvironment context)
+                (evaluationEnvironmentMayReachHostCells context)
             )
         )
         machine
@@ -4137,16 +4156,28 @@ appendRuntimeResultObligation obligation machine =
 
 prependRuntimeResultObligation :: RuntimeResultObligation -> RuntimeReturnPolicy -> RuntimeReturnPolicy
 prependRuntimeResultObligation obligation policy@(RuntimeReturnPolicy obligations) =
+  if redundantRuntimeResultObligation obligation obligations
+    then policy
+    else RuntimeReturnPolicy (obligation : obligations)
+
+redundantRuntimeResultObligation :: RuntimeResultObligation -> [RuntimeResultObligation] -> Bool
+redundantRuntimeResultObligation obligation obligations =
   case obligations of
-    existing : _
-      | equivalentIdempotentObligation obligation existing -> policy
-    _ -> RuntimeReturnPolicy (obligation : obligations)
+    [] -> False
+    existing : rest
+      | equivalentIdempotentObligation obligation existing -> True
+      | ApplyExplicitResultHint {} <- obligation,
+        AttachDefaultIntegerResult <- existing ->
+          redundantRuntimeResultObligation obligation rest
+      | otherwise -> False
 
 equivalentIdempotentObligation :: RuntimeResultObligation -> RuntimeResultObligation -> Bool
 equivalentIdempotentObligation leftObligation rightObligation =
   case (leftObligation, rightObligation) of
     (AttachDefaultIntegerResult, AttachDefaultIntegerResult) -> True
     (ApplyFunctionResultHint leftHint, ApplyFunctionResultHint rightHint) ->
+      leftHint == rightHint
+    (ApplyExplicitResultHint leftHint, ApplyExplicitResultHint rightHint) ->
       leftHint == rightHint
     _ -> False
 
@@ -4216,12 +4247,13 @@ evalValueWithHost ::
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   RuntimeEnv ->
+  Bool ->
   Expr ->
   ExceptT Diagnostic (RuntimeHostEvaluationT m) RuntimeValue
-evalValueWithHost host currentModulePath builtinMode bindingTypeHints env expr =
+evalValueWithHost host currentModulePath builtinMode bindingTypeHints env envMayReachHostCells expr =
   runEvaluationMachine
     host
-    (EvaluationContext currentModulePath builtinMode bindingTypeHints env)
+    (EvaluationContext currentModulePath builtinMode bindingTypeHints env envMayReachHostCells)
     expr
 
 evalScopeWithHost ::
@@ -4232,10 +4264,11 @@ evalScopeWithHost ::
   ModuleEvaluationMode ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
+  Bool ->
   RuntimeEnv ->
   [Statement] ->
   ExceptT Diagnostic (RuntimeHostEvaluationT m) ScopeResult
-evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements = do
+evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnvMayReachHostCells initialEnv statements = do
   scopeId <- lift freshDeferredHostScopeId
   evalScopeWithHostInstance
     scopeId
@@ -4245,6 +4278,7 @@ evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode 
     evaluationMode
     builtinMode
     bindingTypeHints
+    initialEnvMayReachHostCells
     initialEnv
     statements
 
@@ -4257,11 +4291,12 @@ evalScopeWithHostInstance ::
   ModuleEvaluationMode ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
+  Bool ->
   RuntimeEnv ->
   [Statement] ->
   ExceptT Diagnostic (RuntimeHostEvaluationT m) ScopeResult
-evalScopeWithHostInstance scopeId host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
-  go False initialEnv Nothing indexedStatements
+evalScopeWithHostInstance scopeId host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnvMayReachHostCells initialEnv statements =
+  go initialEnvMayReachHostCells initialEnv Nothing indexedStatements
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = Map.fromList indexedStatements
@@ -4294,7 +4329,8 @@ evalScopeWithHostInstance scopeId host preludeStatementIndices currentModulePath
         then Just []
         else Map.findWithDefault currentModulePath statementIndex modulePathsByStatement
 
-    go _ env lastValue [] = pure (ScopeResult env lastValue)
+    go hostCellsMayBeReachable env lastValue [] =
+      pure (ScopeResult env lastValue hostCellsMayBeReachable)
     go hostCellsMayBeReachable env _ remaining@((statementIndex, statement) : rest)
       | not (statementNeedsDirectHostEvaluation hostCellsMayBeReachable statementIndex statement) = do
           let (pureChunk, remainingAfterChunk) =
@@ -4354,6 +4390,7 @@ evalScopeWithHostInstance scopeId host preludeStatementIndices currentModulePath
                       builtinMode
                       bindingTypeHints
                       env
+                      hostCellsMayBeReachable
                       valueExpr
                   go hostCellsMayBeReachable env (Just value) rest
             _ ->
@@ -4547,7 +4584,7 @@ evalHostBindingValue host currentModulePath builtinMode bindingTypeHints env val
       Just targetType ->
         evalHostNumericSignatureBinding targetType
       Nothing ->
-        evalValueWithHost host currentModulePath builtinMode bindingTypeHints env valueExpr
+        evalValueWithHost host currentModulePath builtinMode bindingTypeHints env True valueExpr
   liftRuntimeResult
     ( attachRuntimeTypeHint maybeTypeHint value
         >>= attachDefaultBindingIntegerTarget
@@ -4563,7 +4600,7 @@ evalHostBindingValue host currentModulePath builtinMode bindingTypeHints env val
             (convertFloatToNumericTarget conversionBuiltin targetType literalValue (Just literalSource))
         _ -> do
           runtimeValue <-
-            evalValueWithHost host currentModulePath builtinMode bindingTypeHints env valueExpr
+            evalValueWithHost host currentModulePath builtinMode bindingTypeHints env True valueExpr
           liftRuntimeResult (evalNumericConversion conversionBuiltin targetType runtimeValue)
       where
         conversionBuiltin = numericConversionBuiltinForTarget targetType
