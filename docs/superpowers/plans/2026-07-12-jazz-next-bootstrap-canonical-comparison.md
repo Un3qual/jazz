@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-CANONICAL-COMPARISON-001
-status: ready
+status: done
 priority: P1
 size: L
 kind: impl
@@ -8,6 +8,7 @@ autonomous_ready: yes
 depends_on:
   - JN-BOOTSTRAP-STACK-SAFE-EVALUATION-001
 last_verified: 2026-07-12
+completed_on: 2026-07-12
 plan_section: "Implementation Batch: Canonical Lexer Comparison"
 target_paths:
   - docs/execution/blocker-contracts.md
@@ -348,7 +349,7 @@ git commit -m "test: establish canonical lexer fixture corpus"
 - Produces: completed Child 1 evidence and one source-backed next candidate,
   `JN-BOOTSTRAP-JAZZ-LEXER-001`.
 
-- [ ] **Step 1: Run full implementation verification.**
+- [x] **Step 1: Run full implementation verification.**
 
 ```bash
 cabal test --project-dir=jazz-next all --test-show-details=failures
@@ -358,7 +359,7 @@ bash jazz-next/scripts/test-warning-config.sh
 
 Expected: all commands exit `0`.
 
-- [ ] **Step 2: Close queue metadata.**
+- [x] **Step 2: Close queue metadata.**
 
 Mark this plan `done`, set `completed_on` and `last_verified` to `2026-07-12`,
 move the queue entry to `done-archive.md` with exact verification evidence, and
@@ -366,7 +367,7 @@ make `JN-BOOTSTRAP-JAZZ-LEXER-001` the sole `Next Curation Target`. Its target
 paths must name the Jazz lexer modules, permanent `Char`/`Text` support APIs,
 focused differential suite, Cabal file, child plan, and queue metadata.
 
-- [ ] **Step 3: Run closeout checks.**
+- [x] **Step 3: Run closeout checks.**
 
 ```bash
 bash scripts/check-execution-queue.sh
@@ -374,7 +375,7 @@ bash scripts/check-docs.sh
 git diff --check
 ```
 
-- [ ] **Step 4: Commit Child 1 closeout.**
+- [x] **Step 4: Commit Child 1 closeout.**
 
 ```bash
 git add docs/execution docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md docs/superpowers/plans/2026-07-12-jazz-next-bootstrap-canonical-comparison.md

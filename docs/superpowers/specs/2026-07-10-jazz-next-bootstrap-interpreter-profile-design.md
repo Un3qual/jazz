@@ -7,8 +7,8 @@ is not yet implemented. Backend-independent `Char`/`Text` literals, generic
 named types, ordinary Jazz-authored `Maybe`/`Result`, scalar `Text` traversal,
 backend-neutral host text I/O, and the shared stack-safe evaluator are complete.
 The canonical token/diagnostic comparison design was approved on `2026-07-12`;
-its reference adapter/parity harness and the Jazz-authored lexer remain the next
-two staged implementation children.
+its reference adapter/parity harness is complete. The Jazz-authored lexer is the
+remaining implementation child for the first hosted bootstrap milestone.
 
 ## Goal
 
@@ -361,13 +361,12 @@ The design decomposes into independently reviewable children:
 4. Jazz `Maybe`/`Result` plus collection traversal modules;
 5. host text-I/O kernel bridges and prelude aliases;
 6. stack-safe tail-position runtime evaluation (complete on `2026-07-11`);
-7. canonical token/diagnostic comparison format (design complete on
-   `2026-07-12`); and
+7. canonical token/diagnostic comparison format and reference harness (complete
+   on `2026-07-12`); and
 8. Jazz-authored lexer with differential parity coverage.
 
 Only one child should be promoted to `Ready Now` at a time, with exact target
-paths and verification recorded in the queue and child plan. The current empty
-queue is not changed by this design document.
+paths and verification recorded in the queue and child plan.
 
 ## Non-Goals
 

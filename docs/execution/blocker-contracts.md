@@ -45,38 +45,40 @@ Each blocked item should answer these questions:
   contract to Haskell or LLVM. `JN-BOOTSTRAP-STACK-SAFE-EVALUATION-001` added
   the shared explicit evaluator machine and proved pure, host-backed, and
   imported closure depth floors without introducing bytecode or LLVM coupling.
+  `JN-BOOTSTRAP-CANONICAL-COMPARISON-001` preserved structured stage-0 lexical
+  failures, added the ordinary Jazz-owned canonical ADTs and test-only Haskell
+  adapter, and established the explicit accepted/rejected parser corpus.
 - Accepted decision: the canonical comparison contract is the ordinary
   Jazz-owned ADT schema in
   `2026-07-11-jazz-next-bootstrap-canonical-comparison-design.md`. Both sides
   use the generic runtime-value renderer; the schema has no version field until
   coexistence evidence requires one.
-- Smallest unblocker: execute the promoted
-  `JN-BOOTSTRAP-CANONICAL-COMPARISON-001` reference adapter and parity harness.
-- Decision needed: none; the accepted child plan locks exact file ownership and
-  TDD steps against the canonical schema.
-- Recommended default: preserve structured stage-0 lexical reasons before
-  diagnostic rendering, keep the Haskell adapter test-only, normalize logical
-  relative `/` paths, and centralize the accepted/rejected parser fixture
-  manifest without parsing test source files.
-- Active child: `JN-BOOTSTRAP-CANONICAL-COMPARISON-001`, the sole `Ready Now`
-  entry. After it closes, promote `JN-BOOTSTRAP-JAZZ-LEXER-001` as the second
-  stacked pull request.
-- Target paths: `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs`,
-  `jazz-next/stdlib/LexerTypes.jz`,
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs`,
-  `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparison.hs`,
-  `jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs`,
-  `jazz-next/jazz-next.cabal`, the accepted comparison design, its child plan,
-  and queue/blocker metadata.
-- Verification: the focused canonical comparison suite;
+- Smallest unblocker: plan and execute `JN-BOOTSTRAP-JAZZ-LEXER-001` as the
+  second stacked pull request.
+- Decision needed: none; the accepted canonical comparison design fixes the
+  schema, corpus, parity rules, permanent support-API boundary, and non-goals.
+- Recommended default: add only reusable backend-neutral `Char`/`Text` support,
+  implement the state machine in two-space-indented Jazz modules, compare
+  complete rendered values over the fixed corpus, and prove large traversal on
+  the shared stack-safe evaluator.
+- Candidate child: `JN-BOOTSTRAP-JAZZ-LEXER-001`, the sole `Next Curation
+  Target`; promote it with its child plan on the stacked branch.
+- Target paths: `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`,
+  `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`,
+  `jazz-next/src/JazzNext/Compiler/Runtime.hs`,
+  `jazz-next/src/JazzNext/Compiler/TypeInference.hs`,
+  `jazz-next/stdlib/Char.jz`, `jazz-next/stdlib/Text.jz`,
+  `jazz-next/stdlib/Lexer.jz`, `jazz-next/stdlib/LexerTypes.jz`, the focused
+  parity and primitive/catalog tests, `jazz-next/jazz-next.cabal`, the child
+  plan, and queue/blocker metadata.
+- Verification: the focused Jazz lexer parity suite;
   `cabal test --project-dir=jazz-next all`;
+  `bash jazz-next/scripts/check-stdlib-format.sh`;
   `bash jazz-next/scripts/test-warning-config.sh`;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.
-- Not in scope for the first child: implementing the Jazz lexer, adding runtime
-  primitives, bytecode, a VM, backend-neutral lowered IR, LLVM lowering, object
-  emission, linking, or the native runtime. The second child may add only the
-  permanent backend-neutral `Char`/`Text` APIs required by Jazz-authored lexing.
+- Not in scope: a Jazz parser, bytecode, a VM, backend-neutral lowered IR, LLVM
+  lowering, object emission, linking, or the native runtime.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
