@@ -1,11 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JazzNext.Compiler.Semantics.PrimitiveSemantics.Shared
-  ( assertCallableEqualityRejected,
-    assertCallableEqualityRejectedWithBundledPrelude,
-    assertCompileError,
+  ( assertCompileError,
     assertCompileErrorWithBundledPrelude,
-    assertCompileErrorWithPrelude,
     assertCompiles,
     assertCompilesWithBundledPrelude,
     mkProgram
@@ -60,35 +57,6 @@ assertCompileErrorWithBundledPrelude source failureLabel errorCode = do
   assertSingleDiagnosticContains
     (Text.pack failureLabel)
     (Text.pack errorCode)
-    (compileErrors result)
-
-assertCompileErrorWithPrelude :: String -> String -> String -> String -> IO ()
-assertCompileErrorWithPrelude preludeSource source failureLabel errorCode = do
-  result <- compileSourceWithPrelude defaultWarningSettings (Just (Text.pack preludeSource)) (Text.pack source)
-  assertSingleDiagnosticContains
-    (Text.pack failureLabel)
-    (Text.pack errorCode)
-    (compileErrors result)
-
-assertCallableEqualityRejected :: String -> Text.Text -> IO ()
-assertCallableEqualityRejected failureLabel source = do
-  result <- compileSource defaultWarningSettings source
-  assertCallableEqualityDiagnostic failureLabel result
-
-assertCallableEqualityRejectedWithBundledPrelude :: String -> Text.Text -> IO ()
-assertCallableEqualityRejectedWithBundledPrelude failureLabel source = do
-  result <- compileSourceWithPrelude defaultWarningSettings (Just bundledPreludeSource) source
-  assertCallableEqualityDiagnostic failureLabel result
-
-assertCallableEqualityDiagnostic :: String -> CompileResult -> IO ()
-assertCallableEqualityDiagnostic failureLabel result = do
-  assertSingleDiagnosticContains
-    (Text.pack (failureLabel <> " code"))
-    "E2004"
-    (compileErrors result)
-  assertSingleDiagnosticContains
-    (Text.pack (failureLabel <> " callable text"))
-    "callable values are not equality-supported"
     (compileErrors result)
 
 mkProgram :: Expr -> Expr

@@ -13,18 +13,20 @@ import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..)
   )
+import JazzNext.Compiler.BundledPrelude
+  ( bundledPreludeSource
+  )
 import JazzNext.Compiler.Diagnostics
   ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     compileExpr,
-    compileSource
+    compileSource,
+    compileSourceWithPrelude
   )
 import JazzNext.Compiler.Semantics.PrimitiveSemantics.Shared
-  ( assertCallableEqualityRejected,
-    assertCallableEqualityRejectedWithBundledPrelude,
-    assertCompileError,
+  ( assertCompileError,
     assertCompileErrorWithBundledPrelude,
     assertCompiles,
     assertCompilesWithBundledPrelude,
@@ -99,6 +101,27 @@ operatorTests =
     ("source pipeline rejects declared user operator without binding", testSourcePipelineRejectsDeclaredUserOperatorWithoutBinding),
     ("source pipeline rejects non-callable declared user operator binding", testSourcePipelineRejectsNonCallableDeclaredUserOperatorBinding)
   ]
+
+assertCallableEqualityRejected :: String -> Text.Text -> IO ()
+assertCallableEqualityRejected failureLabel source = do
+  result <- compileSource defaultWarningSettings source
+  assertCallableEqualityDiagnostic failureLabel result
+
+assertCallableEqualityRejectedWithBundledPrelude :: String -> Text.Text -> IO ()
+assertCallableEqualityRejectedWithBundledPrelude failureLabel source = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just bundledPreludeSource) source
+  assertCallableEqualityDiagnostic failureLabel result
+
+assertCallableEqualityDiagnostic :: String -> CompileResult -> IO ()
+assertCallableEqualityDiagnostic failureLabel result = do
+  assertSingleDiagnosticContains
+    (Text.pack (failureLabel <> " code"))
+    "E2004"
+    (compileErrors result)
+  assertSingleDiagnosticContains
+    (Text.pack (failureLabel <> " callable text"))
+    "callable values are not equality-supported"
+    (compileErrors result)
 
 testAcceptsIntEquality :: IO ()
 testAcceptsIntEquality = do

@@ -6,6 +6,7 @@ module JazzNext.Compiler.Semantics.PrimitiveSemantics.NumericConversions
   )
 where
 
+import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..),
@@ -20,7 +21,8 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     compileExpr,
-    compileSource
+    compileSource,
+    compileSourceWithPrelude
   )
 import JazzNext.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource
@@ -28,7 +30,6 @@ import JazzNext.Compiler.FractionalLiteral
 import JazzNext.Compiler.Semantics.PrimitiveSemantics.Shared
   ( assertCompileError,
     assertCompileErrorWithBundledPrelude,
-    assertCompileErrorWithPrelude,
     assertCompiles,
     assertCompilesWithBundledPrelude,
     mkProgram
@@ -101,6 +102,14 @@ numericConversionTests =
     ("source pipeline keeps locally shadowed kernel aliases ordinary", testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary),
     ("source pipeline rejects non-numeric conversion source", testSourcePipelineRejectsNonNumericConversionSource)
   ]
+
+assertCompileErrorWithPrelude :: String -> String -> String -> String -> IO ()
+assertCompileErrorWithPrelude preludeSource source failureLabel errorCode = do
+  result <- compileSourceWithPrelude defaultWarningSettings (Just (Text.pack preludeSource)) (Text.pack source)
+  assertSingleDiagnosticContains
+    (Text.pack failureLabel)
+    (Text.pack errorCode)
+    (compileErrors result)
 
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral :: IO ()
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral =
