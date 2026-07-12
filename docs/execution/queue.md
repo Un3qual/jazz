@@ -8,12 +8,12 @@ Read this file before scanning the rest of `docs/`. It is the dispatch source of
 
 | id | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `JN-BOOTSTRAP-JAZZ-LEXER-001` | Implement and differentially verify the first Jazz-authored compiler component | `P1` | `L` | `impl` | `yes` | `JN-BOOTSTRAP-CANONICAL-COMPARISON-001` | [2026-07-12-jazz-next-bootstrap-jazz-lexer.md](../superpowers/plans/2026-07-12-jazz-next-bootstrap-jazz-lexer.md) | `Implementation Batch: Jazz-Authored Lexer` | `docs/execution/blocker-contracts.md`, `docs/execution/done-archive.md`, `docs/execution/queue.md`, `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md`, `docs/superpowers/plans/2026-07-12-jazz-next-bootstrap-jazz-lexer.md`, `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`, `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`, `jazz-next/src/JazzNext/Compiler/Runtime.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/stdlib/Char.jz`, `jazz-next/stdlib/List.jz`, `jazz-next/stdlib/Text.jz`, `jazz-next/stdlib/Lexer.jz`, `jazz-next/stdlib/LexerTypes.jz`, `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLexerParitySpec.hs`, `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`, `jazz-next/jazz-next.cabal` | Add permanent generic list construction plus Unicode Char/Text services, implement the lexer state machine in two-space-indented Jazz, and prove exact deterministic parity over the fixed complete corpus and large tail-recursive traversal cases. | `cabal test --project-dir=jazz-next jazz-lexer-parity-spec builtin-catalog-spec primitive-semantics-spec runtime-semantics-spec loader-spec --test-show-details=failures`; `cabal test --project-dir=jazz-next all --test-show-details=failures`; `bash jazz-next/scripts/check-stdlib-format.sh`; `bash jazz-next/scripts/test-warning-config.sh`; `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`; `git diff --check` | `2026-07-12` |
 
 Current executor status (`2026-07-12`):
-No implementation row is active while the completed canonical comparison child
-is published. `JN-BOOTSTRAP-JAZZ-LEXER-001` is the sole source-backed next
-candidate and will be promoted with its implementation plan on the stacked
-branch.
+`JN-BOOTSTRAP-JAZZ-LEXER-001` is the only active child. It consumes the fixed
+canonical schema/corpus and delivers the first compiler component authored in
+Jazz as the second pull request in the stack.
 
 ## Next Curation Target
 
@@ -28,7 +28,6 @@ target and no named candidate currently.
 
 | blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001` | `JN-BOOTSTRAP-JAZZ-LEXER-001` | `impl` | [Bootstrap interpreter blocker contract](blocker-contracts.md#jn-bootstrap-interpreter-profile-plan-001) | The fixed Jazz-owned result schema, structured stage-0 adapter, and complete parser corpus are now available; the dependent child can add the first Jazz-authored compiler component without revising that contract. | `docs/execution/blocker-contracts.md`, `docs/execution/done-archive.md`, `docs/execution/queue.md`, `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md`, `docs/superpowers/plans/2026-07-12-jazz-next-bootstrap-jazz-lexer.md`, `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`, `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`, `jazz-next/src/JazzNext/Compiler/Runtime.hs`, `jazz-next/src/JazzNext/Compiler/TypeInference.hs`, `jazz-next/stdlib/Char.jz`, `jazz-next/stdlib/Text.jz`, `jazz-next/stdlib/Lexer.jz`, `jazz-next/stdlib/LexerTypes.jz`, `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLexerParitySpec.hs`, `jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs`, `jazz-next/test/JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs`, `jazz-next/jazz-next.cabal` | Focused Jazz lexer parity suite; `cabal test --project-dir=jazz-next all --test-show-details=failures`; `bash jazz-next/scripts/check-stdlib-format.sh`; `bash jazz-next/scripts/test-warning-config.sh`; queue/docs gates; `git diff --check`. | Write the child plan with exact permanent `Char`/`Text` APIs, promote exactly one matching `Ready Now` row, and keep bytecode, VM, LLVM lowering, object emission, linking, and parser work out of scope. |
 
 ## Blocked
 

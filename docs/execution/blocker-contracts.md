@@ -61,13 +61,13 @@ Each blocked item should answer these questions:
   implement the state machine in two-space-indented Jazz modules, compare
   complete rendered values over the fixed corpus, and prove large traversal on
   the shared stack-safe evaluator.
-- Candidate child: `JN-BOOTSTRAP-JAZZ-LEXER-001`, the sole `Next Curation
-  Target`; promote it with its child plan on the stacked branch.
+- Active child: `JN-BOOTSTRAP-JAZZ-LEXER-001`, the sole `Ready Now` row, with
+  its implementation plan on the stacked branch.
 - Target paths: `jazz-next/src/JazzNext/Compiler/BuiltinCatalog.hs`,
   `jazz-next/src/JazzNext/Compiler/BundledPrelude.hs`,
   `jazz-next/src/JazzNext/Compiler/Runtime.hs`,
   `jazz-next/src/JazzNext/Compiler/TypeInference.hs`,
-  `jazz-next/stdlib/Char.jz`, `jazz-next/stdlib/Text.jz`,
+  `jazz-next/stdlib/Char.jz`, `jazz-next/stdlib/List.jz`, `jazz-next/stdlib/Text.jz`,
   `jazz-next/stdlib/Lexer.jz`, `jazz-next/stdlib/LexerTypes.jz`, the focused
   parity and primitive/catalog tests, `jazz-next/jazz-next.cabal`, the child
   plan, and queue/blocker metadata.
