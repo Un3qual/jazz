@@ -714,7 +714,25 @@ testBootstrapModulesStayOutsideBundledPrelude =
         ("textEmpty", "textEmpty.", "E1001"),
         ("textLength", "textLength \"Jazz\".", "E1001"),
         ("textIsEmpty", "textIsEmpty \"\".", "E1001"),
-        ("textUncons", "textUncons \"Jazz\".", "E1001")
+        ("textUncons", "textUncons \"Jazz\".", "E1001"),
+        ("IOErrorCategory", "value :: IOErrorCategory.\nvalue = 1.", "E2009"),
+        ("IOError", "value :: IOError.\nvalue = 1.", "E2009"),
+        ("NotFound", "NotFound.", "E1001"),
+        ("PermissionDenied", "PermissionDenied.", "E1001"),
+        ("AlreadyExists", "AlreadyExists.", "E1001"),
+        ("InvalidData", "InvalidData.", "E1001"),
+        ("ResourceExhausted", "ResourceExhausted.", "E1001"),
+        ("Interrupted", "Interrupted.", "E1001"),
+        ("Unsupported", "Unsupported.", "E1001"),
+        ("Other", "Other.", "E1001"),
+        ("IOError", "IOError.", "E1001"),
+        ("readText!", "readText! \"path\".", "E1001"),
+        ("writeText!", "writeText! \"path\" \"value\".", "E1001"),
+        ("readStdin!", "readStdin! ().", "E1001"),
+        ("writeStdout!", "writeStdout! \"value\".", "E1001"),
+        ("writeStderr!", "writeStderr! \"value\".", "E1001"),
+        ("arguments!", "arguments! ().", "E1001"),
+        ("exit!", "exit! 0.", "E1001")
       ]
 
 assertBundledPreludeNameUnavailable :: (Text, Text, Text) -> IO ()

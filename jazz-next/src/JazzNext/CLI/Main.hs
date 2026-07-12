@@ -7,6 +7,7 @@ module JazzNext.CLI.Main
     CliOutput (..),
     parseCliOptions,
     runCliWith,
+    runCliWithHost,
     main
   ) where
 
@@ -35,12 +36,17 @@ import JazzNext.Compiler.Driver
     RunResult (..),
     compileModuleGraphWithResolvedPrelude,
     compileSourceWithResolvedPrelude,
-    runModuleGraphWithResolvedPrelude,
-    runSourceWithResolvedPrelude
+    runModuleGraphWithResolvedPreludeAndHost,
+    runSourceWithResolvedPreludeAndHost
   )
 import JazzNext.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
     parseModulePathText
+  )
+import JazzNext.Compiler.RuntimeHost
+  ( RuntimeHost,
+    disabledRuntimeHost,
+    productionRuntimeHost
   )
 import JazzNext.Compiler.WarningConfig
   ( WarningSettings,
@@ -180,7 +186,16 @@ runCliWith ::
   (FilePath -> IO (Maybe Text)) ->
   IO Text ->
   IO CliOutput
-runCliWith args envLookup fileLookup loadSource
+runCliWith = runCliWithHost disabledRuntimeHost
+
+runCliWithHost ::
+  RuntimeHost IO ->
+  [String] ->
+  (String -> IO (Maybe String)) ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO Text ->
+  IO CliOutput
+runCliWithHost host args envLookup fileLookup loadSource
   | any isHelpArg args =
       pure
         CliOutput
@@ -221,7 +236,7 @@ runCliWith args envLookup fileLookup loadSource
                   case cliEntryModule options of
                     Just entryModulePath ->
                       if cliRunMode options
-                        then runExecuteModuleGraph settings options preludeSource entryModulePath fileLookup
+                        then runExecuteModuleGraph host settings options preludeSource entryModulePath fileLookup
                         else runCompileModuleGraph settings options preludeSource entryModulePath fileLookup
                     Nothing -> do
                       sourceResult <- loadCliSource options fileLookup loadSource
@@ -235,13 +250,13 @@ runCliWith args envLookup fileLookup loadSource
                               }
                         Right source ->
                           if cliRunMode options
-                            then runExecute settings preludeSource source
+                            then runExecute host settings preludeSource source
                             else runCompile settings preludeSource source
 
 main :: IO ()
 main = do
   args <- getArgs
-  output <- runCliWith args lookupEnv readConfigMaybe TextIO.getContents
+  output <- runCliWithHost productionRuntimeHost args lookupEnv readConfigMaybe TextIO.getContents
   TextIO.hPutStr stdout (cliStdout output)
   TextIO.hPutStr stderr (cliStderr output)
   exitWith (toExitCode (cliExitCode output))
@@ -360,9 +375,9 @@ runCompile settings resolvedPrelude source = do
         cliStderr = stderrOutput
       }
 
-runExecute :: WarningSettings -> ResolvedPrelude -> Text -> IO CliOutput
-runExecute settings resolvedPrelude source = do
-  result <- runSourceWithResolvedPrelude settings resolvedPrelude source
+runExecute :: RuntimeHost IO -> WarningSettings -> ResolvedPrelude -> Text -> IO CliOutput
+runExecute host settings resolvedPrelude source = do
+  result <- runSourceWithResolvedPreludeAndHost host settings resolvedPrelude source
   let warningLines = map formatWarningLine (runWarnings result)
       compileErrorLines = map (("error: " <>) . renderDiagnostic) (runCompileErrors result)
       runtimeErrorLines = map (("error: " <>) . renderDiagnostic) (runRuntimeErrors result)
@@ -417,15 +432,17 @@ runCompileModuleGraph settings options resolvedPrelude entryModulePath sourceLoo
       }
 
 runExecuteModuleGraph ::
+  RuntimeHost IO ->
   WarningSettings ->
   CliOptions ->
   ResolvedPrelude ->
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
   IO CliOutput
-runExecuteModuleGraph settings options resolvedPrelude entryModulePath sourceLookup = do
+runExecuteModuleGraph host settings options resolvedPrelude entryModulePath sourceLookup = do
   result <-
-    runModuleGraphWithResolvedPrelude
+    runModuleGraphWithResolvedPreludeAndHost
+      host
       settings
       resolvedPrelude
       (cliModuleConfig options)

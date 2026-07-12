@@ -1,0 +1,54 @@
+module IO (value readText!, value writeText!, value readStdin!, value writeStdout!, value writeStderr!, value arguments!, value exit!) {
+  import Maybe.
+  import Result.
+  import IOError.
+
+  decodeIOErrorCategory :: Text -> IOErrorCategory.
+  decodeIOErrorCategory = \(token) -> case token {
+    | "not-found" -> NotFound
+    | "permission-denied" -> PermissionDenied
+    | "already-exists" -> AlreadyExists
+    | "invalid-data" -> InvalidData
+    | "resource-exhausted" -> ResourceExhausted
+    | "interrupted" -> Interrupted
+    | "unsupported" -> Unsupported
+    | "other" -> Other
+    | _ -> Other
+  }.
+
+  readText! :: Text -> Result(IOError, Text).
+  readText! = \(path) -> case __kernel_readTextRaw! path {
+    | (True, payload, _, _) -> Ok payload
+    | (False, _, category, message) -> Err (IOError (decodeIOErrorCategory category) (Just path) message)
+  }.
+
+  writeText! :: Text -> Text -> Result(IOError, ()).
+  writeText! = \(path) -> \(contents) -> case __kernel_writeTextRaw! path contents {
+    | (True, _, _, _) -> Ok ()
+    | (False, _, category, message) -> Err (IOError (decodeIOErrorCategory category) (Just path) message)
+  }.
+
+  readStdin! :: () -> Result(IOError, Text).
+  readStdin! = \(unit) -> case __kernel_readStdinRaw! unit {
+    | (True, payload, _, _) -> Ok payload
+    | (False, _, category, message) -> Err (IOError (decodeIOErrorCategory category) Nothing message)
+  }.
+
+  writeStdout! :: Text -> Result(IOError, ()).
+  writeStdout! = \(contents) -> case __kernel_writeStdoutRaw! contents {
+    | (True, _, _, _) -> Ok ()
+    | (False, _, category, message) -> Err (IOError (decodeIOErrorCategory category) Nothing message)
+  }.
+
+  writeStderr! :: Text -> Result(IOError, ()).
+  writeStderr! = \(contents) -> case __kernel_writeStderrRaw! contents {
+    | (True, _, _, _) -> Ok ()
+    | (False, _, category, message) -> Err (IOError (decodeIOErrorCategory category) Nothing message)
+  }.
+
+  arguments! :: () -> List(Text).
+  arguments! = \(unit) -> __kernel_arguments! unit.
+
+  exit! :: Int -> ().
+  exit! = \(status) -> __kernel_exit! status.
+}

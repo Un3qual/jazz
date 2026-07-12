@@ -2,6 +2,12 @@
 
 module Main (main) where
 
+import Data.IORef
+  ( IORef,
+    modifyIORef',
+    newIORef,
+    readIORef
+  )
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -11,7 +17,8 @@ import JazzNext.Compiler.Driver
   ( CompileResult (..),
     RunResult (..),
     compileModuleGraphWithPrelude,
-    runModuleGraphWithPrelude
+    runModuleGraphWithPrelude,
+    runModuleGraphWithPreludeAndHost
   )
 import JazzNext.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import JazzNext.Compiler.ModuleResolver (resolveProgram)
@@ -24,6 +31,9 @@ import JazzNext.Compiler.ModuleRuntime
     lookupRuntimeModule
   )
 import JazzNext.Compiler.Runtime (renderRuntimeValue)
+import JazzNext.Compiler.RuntimeHost
+  ( RuntimeHost (..)
+  )
 import JazzNext.Compiler.ModuleInterface
   ( CompiledModule (compiledModuleInterface, compiledResolvedModule),
     CompiledProgram (compiledProgramErrors),
@@ -61,6 +71,7 @@ tests =
     ("namespace-aware runtime exports publish selected value only", testNamespaceAwareRuntimeExportPublishesValueOnly),
     ("namespace-aware runtime exports publish selected constructor only", testNamespaceAwareRuntimeExportPublishesConstructorOnly),
     ("compiled dependency terminal expressions are skipped", testCompiledDependencyTerminalExpressionIsSkipped),
+    ("module graph execution carries one host through dependency exports", testModuleGraphInjectsRuntimeHost),
     ("alias imports stay qualified", testAliasIsolationContract),
     ("transitive imports do not leak", testTransitiveVisibilityContract),
     ("module diagnostics retain source paths", testSourcePathContract)
@@ -237,6 +248,47 @@ testCompiledDependencyTerminalExpressionIsSkipped = do
         "entry output"
         (Just "1")
         (renderRuntimeValue <$> runtimeProgramOutput runtime)
+
+testModuleGraphInjectsRuntimeHost :: IO ()
+testModuleGraphInjectsRuntimeHost = do
+  callsRef <- newIORef []
+  result <-
+    runModuleGraphWithPreludeAndHost
+      (recordingHost callsRef)
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      (\path -> pure (Map.lookup path sources))
+  calls <- readIORef callsRef
+  assertEqual "host module compile errors" [] (runCompileErrors result)
+  assertEqual "host module runtime errors" [] (runRuntimeErrors result)
+  assertEqual "host module output" (Just "(True, \"\", \"\", \"\")") (runOutput result)
+  assertEqual "host module call order" ["entry"] calls
+  where
+    sources =
+      Map.fromList
+          [ ( "src/App/Main.jz",
+            "module App::Main { import Lib::Emit (emit!). emit! \"entry\". }"
+          ),
+          ( "src/Lib/Emit.jz",
+            "module Lib::Emit (emit!) { emit! = \\(contents) -> __kernel_writeStdoutRaw! contents. }"
+          )
+        ]
+
+recordingHost :: IORef [Text] -> RuntimeHost IO
+recordingHost callsRef =
+  RuntimeHost
+    { runtimeHostReadText = \_ -> pure (error "unexpected readText host call"),
+      runtimeHostWriteText = \_ _ -> pure (error "unexpected writeText host call"),
+      runtimeHostReadStdin = pure (error "unexpected readStdin host call"),
+      runtimeHostWriteStdout = \contents -> do
+        modifyIORef' callsRef (<> [contents])
+        pure (Right ()),
+      runtimeHostWriteStderr = \_ -> pure (error "unexpected writeStderr host call"),
+      runtimeHostArguments = pure [],
+      runtimeHostExit = \_ -> pure (Right ())
+    }
 
 compileFixtureProgram :: Map.Map FilePath Text -> IO CompiledProgram
 compileFixtureProgram sources = do

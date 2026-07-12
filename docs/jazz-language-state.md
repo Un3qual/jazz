@@ -60,8 +60,24 @@ rendering, and module transport. The ordinary explicit-import `Text` module
 adds `textEmpty`, scalar-counting `textLength`, `textIsEmpty`, and total
 `textUncons :: Text -> Maybe((Char, Text))` through private backend-neutral
 kernel adapters. Indexing, slicing, concatenation/builders, ordering, search,
-classification, bytes, I/O, and implicit `Char`/`Text` conversion remain
+classification, bytes, and implicit `Char`/`Text` conversion remain
 unimplemented.
+
+Host text I/O is available through ordinary explicit imports of `IO` and
+`IOError`; neither module is part of the bundled prelude. `IO` exports exactly
+`readText!`, `writeText!`, `readStdin!`, `writeStdout!`, `writeStderr!`,
+`arguments!`, and `exit!`. Recoverable file and stream operations return
+`Result(IOError, value)`. `IOError` records one of `NotFound`,
+`PermissionDenied`, `AlreadyExists`, `InvalidData`, `ResourceExhausted`,
+`Interrupted`, `Unsupported`, or `Other`, an optional path used only by file
+operations, and a normalized message. Seven private kernel bridges cross a
+typed monadic `RuntimeHost` seam: deterministic hosts drive tests, pure legacy
+entry points use a disabled host, module evaluation propagates an explicitly
+injected host, and CLI run mode alone installs the production strict-UTF-8
+host. The Jazz API owns the durable semantic boundary; Haskell exceptions and
+platform error numbers remain stage-0 details, and the future native runtime
+must implement the same contract without exposing LLVM types through the
+frontend.
 
 The Haskell interpreter is the stage-0/reference execution engine. The selected
 long-term artifact pipeline is Jazz source to canonical typed core to a

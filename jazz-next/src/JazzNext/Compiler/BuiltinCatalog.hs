@@ -77,6 +77,13 @@ data BuiltinSymbol
   | BuiltinToFloat64
   | BuiltinTextLength
   | BuiltinTextUnconsRaw
+  | BuiltinReadTextRaw
+  | BuiltinWriteTextRaw
+  | BuiltinReadStdinRaw
+  | BuiltinWriteStdoutRaw
+  | BuiltinWriteStderrRaw
+  | BuiltinArguments
+  | BuiltinExit
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 -- | Exhaustive builtin inventory in declaration order. Generated prelude text
@@ -127,6 +134,13 @@ builtinSymbolOwnership builtinSymbol =
     BuiltinToFloat64 -> PreludeTarget
     BuiltinTextLength -> KernelIntrinsic
     BuiltinTextUnconsRaw -> KernelIntrinsic
+    BuiltinReadTextRaw -> KernelIntrinsic
+    BuiltinWriteTextRaw -> KernelIntrinsic
+    BuiltinReadStdinRaw -> KernelIntrinsic
+    BuiltinWriteStdoutRaw -> KernelIntrinsic
+    BuiltinWriteStderrRaw -> KernelIntrinsic
+    BuiltinArguments -> KernelIntrinsic
+    BuiltinExit -> KernelIntrinsic
 
 -- | Unprefixed builtin stem. Only 'PreludeTarget' stems are public aliases;
 -- 'KernelIntrinsic' stems are used solely to derive private kernel names.
@@ -151,6 +165,13 @@ builtinSymbolName builtinSymbol =
     BuiltinToFloat64 -> "toFloat64"
     BuiltinTextLength -> "textLength"
     BuiltinTextUnconsRaw -> "textUnconsRaw"
+    BuiltinReadTextRaw -> "readTextRaw!"
+    BuiltinWriteTextRaw -> "writeTextRaw!"
+    BuiltinReadStdinRaw -> "readStdinRaw!"
+    BuiltinWriteStdoutRaw -> "writeStdoutRaw!"
+    BuiltinWriteStderrRaw -> "writeStderrRaw!"
+    BuiltinArguments -> "arguments!"
+    BuiltinExit -> "exit!"
 
 -- | Kernel bridge spelling reserved for compiler-generated prelude bindings.
 builtinSymbolKernelName :: BuiltinSymbol -> Text
@@ -179,6 +200,13 @@ builtinSymbolArity builtinSymbol =
     BuiltinToFloat64 -> 1
     BuiltinTextLength -> 1
     BuiltinTextUnconsRaw -> 1
+    BuiltinReadTextRaw -> 1
+    BuiltinWriteTextRaw -> 2
+    BuiltinReadStdinRaw -> 1
+    BuiltinWriteStdoutRaw -> 1
+    BuiltinWriteStderrRaw -> 1
+    BuiltinArguments -> 1
+    BuiltinExit -> 1
 
 -- | Numeric conversion builtins target one explicit concrete numeric type.
 builtinSymbolNumericConversionTarget :: BuiltinSymbol -> Maybe NumericType
