@@ -175,13 +175,13 @@ parseInfixTailWithUntil context stop parseRhs minPrecedence leftExpr = do
     then pure leftExpr
     else
       case tokens of
-        operatorToken@Token {tokenKind = TOperator operatorSymbol} : tokensAfterOperator
+        operatorToken@Token {tokenKind = TOperator symbol} : tokensAfterOperator
           | startsRightParen tokensAfterOperator ->
               pure leftExpr
           | otherwise ->
-              case lookupOperatorInfoIn (parserDeclaredOperators context) operatorSymbol of
+              case lookupOperatorInfoIn (parserDeclaredOperators context) symbol of
                 Nothing ->
-                  failUndeclaredOperator operatorToken operatorSymbol
+                  failUndeclaredOperator operatorToken symbol
                 Just operatorInfo
                   | operatorPrecedence operatorInfo < minPrecedence ->
                       pure leftExpr
@@ -199,7 +199,7 @@ parseInfixTailWithUntil context stop parseRhs minPrecedence leftExpr = do
                         stop
                         parseRhs
                         minPrecedence
-                        (SEBinary operatorSymbol leftExpr rightExpr)
+                        (SEBinary symbol leftExpr rightExpr)
         _ -> pure leftExpr
 
 operatorNextMinPrecedence :: OperatorInfo -> Int
@@ -397,10 +397,10 @@ invalidFloatLiteralMessage literalSpan literalText =
 requireOperatorVisible :: ParserContext -> Token -> Parser ()
 requireOperatorVisible context operatorToken =
   case tokenKind operatorToken of
-    TOperator operatorSymbol ->
-      case lookupOperatorInfoIn (parserDeclaredOperators context) operatorSymbol of
+    TOperator symbol ->
+      case lookupOperatorInfoIn (parserDeclaredOperators context) symbol of
         Just _ -> pure ()
-        Nothing -> failUndeclaredOperator operatorToken operatorSymbol
+        Nothing -> failUndeclaredOperator operatorToken symbol
     _ ->
       failTokenParser
         ( "internal parser error at "
@@ -409,10 +409,10 @@ requireOperatorVisible context operatorToken =
         )
 
 failUndeclaredOperator :: Token -> Text -> Parser a
-failUndeclaredOperator operatorToken operatorSymbol =
+failUndeclaredOperator operatorToken symbol =
   failTokenParser
     ( "operator '"
-        <> operatorSymbol
+        <> symbol
         <> "' must be declared before use at "
         <> renderSourceSpan (tokenSpan operatorToken)
     )
@@ -424,17 +424,17 @@ parseParenExpr parseBlock context = do
     Token {tokenKind = TRParen} : _ -> do
       void parseAnyToken
       pure (SETuple [])
-    operatorToken@Token {tokenKind = TOperator operatorSymbol} : rest -> do
+    operatorToken@Token {tokenKind = TOperator symbol} : rest -> do
       void parseAnyToken
       requireOperatorVisible context operatorToken
       case rest of
         Token {tokenKind = TRParen} : _ -> do
           void parseAnyToken
-          pure (SEOperatorValue operatorSymbol)
+          pure (SEOperatorValue symbol)
         _ -> do
           rightExpr <- parseExpressionParser parseBlock context
           void (parseToken TRParen)
-          pure (SESectionRight operatorSymbol rightExpr)
+          pure (SESectionRight symbol rightExpr)
     _ -> do
       innerExpr <- parseExpressionParser parseBlock context
       afterInner <- MP.getInput
@@ -444,11 +444,11 @@ parseParenExpr parseBlock context = do
           tupleElements <- parseTupleElements parseBlock context [innerExpr]
           void (parseToken TRParen)
           pure (SETuple tupleElements)
-        operatorToken@Token {tokenKind = TOperator operatorSymbol} : Token {tokenKind = TRParen} : _ -> do
+        operatorToken@Token {tokenKind = TOperator symbol} : Token {tokenKind = TRParen} : _ -> do
           void parseAnyToken
           void parseAnyToken
           requireOperatorVisible context operatorToken
-          pure (SESectionLeft innerExpr operatorSymbol)
+          pure (SESectionLeft innerExpr symbol)
         _ -> do
           void (parseToken TRParen)
           pure innerExpr
@@ -667,14 +667,14 @@ parseCaseArmBodyInfixTail parseBlock context rhsStop parentOperator minPrecedenc
     then pure leftExpr
     else
       case tokens of
-        operatorToken@Token {tokenKind = TOperator operatorSymbol} : tokensAfterOperator
+        operatorToken@Token {tokenKind = TOperator symbol} : tokensAfterOperator
           | startsRightParen tokensAfterOperator -> pure leftExpr
-          | operatorSymbol == "|",
+          | symbol == "|",
             caseArmPipeStartsBoundary context parentOperator minPrecedence leftExpr tokensAfterOperator ->
               pure leftExpr
           | otherwise ->
-              case lookupOperatorInfoIn (parserDeclaredOperators context) operatorSymbol of
-                Nothing -> failUndeclaredOperator operatorToken operatorSymbol
+              case lookupOperatorInfoIn (parserDeclaredOperators context) symbol of
+                Nothing -> failUndeclaredOperator operatorToken symbol
                 Just operatorInfo
                   | operatorPrecedence operatorInfo < minPrecedence -> pure leftExpr
                   | otherwise -> do
@@ -689,7 +689,7 @@ parseCaseArmBodyInfixTail parseBlock context rhsStop parentOperator minPrecedenc
                           parseBlock
                           context
                           nextStop
-                          (Just operatorSymbol)
+                          (Just symbol)
                           (operatorNextMinPrecedence operatorInfo)
                       rejectNonAssociativeContinuation context operatorInfo operatorToken
                       parseCaseArmBodyInfixTail
@@ -698,7 +698,7 @@ parseCaseArmBodyInfixTail parseBlock context rhsStop parentOperator minPrecedenc
                         rhsStop
                         parentOperator
                         minPrecedence
-                        (SEBinary operatorSymbol leftExpr rightExpr)
+                        (SEBinary symbol leftExpr rightExpr)
         _ -> pure leftExpr
 
 parseCaseGuardInfixTail ::
@@ -715,14 +715,14 @@ parseCaseGuardInfixTail parseBlock context rhsStop parentOperator minPrecedence 
     then pure leftExpr
     else
       case tokens of
-        operatorToken@Token {tokenKind = TOperator operatorSymbol} : tokensAfterOperator
+        operatorToken@Token {tokenKind = TOperator symbol} : tokensAfterOperator
           | startsRightParen tokensAfterOperator -> pure leftExpr
-          | operatorSymbol == "|",
+          | symbol == "|",
             caseGuardPipeStartsBoundary context parentOperator minPrecedence leftExpr tokensAfterOperator ->
               pure leftExpr
           | otherwise ->
-              case lookupOperatorInfoIn (parserDeclaredOperators context) operatorSymbol of
-                Nothing -> failUndeclaredOperator operatorToken operatorSymbol
+              case lookupOperatorInfoIn (parserDeclaredOperators context) symbol of
+                Nothing -> failUndeclaredOperator operatorToken symbol
                 Just operatorInfo
                   | operatorPrecedence operatorInfo < minPrecedence -> pure leftExpr
                   | otherwise -> do
@@ -737,7 +737,7 @@ parseCaseGuardInfixTail parseBlock context rhsStop parentOperator minPrecedence 
                           parseBlock
                           context
                           nextStop
-                          (Just operatorSymbol)
+                          (Just symbol)
                           (operatorNextMinPrecedence operatorInfo)
                       rejectNonAssociativeContinuation context operatorInfo operatorToken
                       parseCaseGuardInfixTail
@@ -746,7 +746,7 @@ parseCaseGuardInfixTail parseBlock context rhsStop parentOperator minPrecedence 
                         rhsStop
                         parentOperator
                         minPrecedence
-                        (SEBinary operatorSymbol leftExpr rightExpr)
+                        (SEBinary symbol leftExpr rightExpr)
         _ -> pure leftExpr
 
 stopsBeforeCaseArmTerminator :: Stop
@@ -1117,6 +1117,7 @@ hasTopLevelArrowBeforeCaseArmBoundary =
 hasTopLevelTokenBefore :: (TokenKind -> Bool) -> (TokenKind -> Bool) -> [Token] -> Bool
 hasTopLevelTokenBefore isTarget isTerminator = go 0 0 0
   where
+    go :: Int -> Int -> Int -> [Token] -> Bool
     go parenDepth braceDepth bracketDepth tokens =
       case tokens of
         [] -> False
