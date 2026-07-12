@@ -45,6 +45,7 @@ tests =
     ("preserves quoted literal lexemes and spans", testPreservesQuotedLiteralLexemesAndSpans),
     ("rejects malformed Char and Text literals", testRejectsMalformedCharAndTextLiterals),
     ("renders token parser diagnostics with token spans", testTokenParserDiagnostic),
+    ("renders expected Char and Text tokens in diagnostics", testLiteralTokenParserDiagnostics),
     ("renders invalid character lexer diagnostics", testInvalidCharacterLexerDiagnostic)
   ]
 
@@ -145,6 +146,23 @@ testTokenParserDiagnostic = do
       assertContains "diagnostic" "expected '='" (renderDiagnostic diagnostic)
     Right value ->
       fail ("expected diagnostic, got " <> show value)
+
+testLiteralTokenParserDiagnostics :: IO ()
+testLiteralTokenParserDiagnostics = do
+  tokens <- lexSource "42."
+  let cases =
+        [ ("Char", TChar 'a', "expected 'a'"),
+          ("Text", TText "Jazz", "expected \"Jazz\"")
+        ]
+  mapM_
+    ( \(label, expectedKind, expectedMessage) ->
+        case runTokenParser "literal token diagnostic" (parseTokenKind expectedKind) tokens of
+          Left diagnostic ->
+            assertContains label expectedMessage (renderDiagnostic diagnostic)
+          Right value ->
+            failTest (label <> ": expected diagnostic, got " <> Text.pack (show value))
+    )
+    cases
 
 testInvalidCharacterLexerDiagnostic :: IO ()
 testInvalidCharacterLexerDiagnostic =

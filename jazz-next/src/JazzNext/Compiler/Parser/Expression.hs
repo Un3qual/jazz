@@ -879,26 +879,11 @@ guardTokensEndAtArrow _ tokens =
 -- expression on the left of the pipe. Treating the constructor-shaped prefix
 -- as a guarded arm would split that valid expression too early.
 hasTopLevelElseBeforeArrow :: [Token] -> Bool
-hasTopLevelElseBeforeArrow = go 0 0 0
+hasTopLevelElseBeforeArrow =
+  hasTopLevelTokenBefore isElse isArrow
   where
-    go parenDepth braceDepth bracketDepth tokens =
-      case tokens of
-        [] -> False
-        Token {tokenKind = TArrow} : _
-          | atTopLevel -> False
-        Token {tokenKind = TElse} : _
-          | atTopLevel -> True
-        Token {tokenKind = TLParen} : rest -> go (parenDepth + 1) braceDepth bracketDepth rest
-        Token {tokenKind = TRParen} : rest -> go (decrement parenDepth) braceDepth bracketDepth rest
-        Token {tokenKind = TLBrace} : rest -> go parenDepth (braceDepth + 1) bracketDepth rest
-        Token {tokenKind = TRBrace} : rest -> go parenDepth (decrement braceDepth) bracketDepth rest
-        Token {tokenKind = TLBracket} : rest -> go parenDepth braceDepth (bracketDepth + 1) rest
-        Token {tokenKind = TRBracket} : rest -> go parenDepth braceDepth (decrement bracketDepth) rest
-        _ : rest -> go parenDepth braceDepth bracketDepth rest
-      where
-        atTopLevel = parenDepth == 0 && braceDepth == 0 && bracketDepth == 0
-
-    decrement depth = max 0 (depth - 1)
+    isElse tokenKind' = tokenKind' == TElse
+    isArrow tokenKind' = tokenKind' == TArrow
 
 guardBoundaryPatternIsDefinite :: SurfacePattern -> Bool
 guardBoundaryPatternIsDefinite casePattern =
@@ -1105,52 +1090,49 @@ startsRightParen tokens =
     _ -> False
 
 hasTopLevelArrowBeforeTerminator :: [Token] -> Bool
-hasTopLevelArrowBeforeTerminator = go 0 0 0
+hasTopLevelArrowBeforeTerminator =
+  hasTopLevelTokenBefore isArrow isTerminator
   where
-    go parenDepth braceDepth bracketDepth tokens =
-      case tokens of
-        [] -> False
-        Token {tokenKind = TArrow} : _
-          | atTopLevel -> True
-        Token {tokenKind = TDot} : _
-          | atTopLevel -> False
-        Token {tokenKind = TRBrace} : _
-          | atTopLevel -> False
-        Token {tokenKind = TLParen} : rest -> go (parenDepth + 1) braceDepth bracketDepth rest
-        Token {tokenKind = TRParen} : rest -> go (decrement parenDepth) braceDepth bracketDepth rest
-        Token {tokenKind = TLBrace} : rest -> go parenDepth (braceDepth + 1) bracketDepth rest
-        Token {tokenKind = TRBrace} : rest -> go parenDepth (decrement braceDepth) bracketDepth rest
-        Token {tokenKind = TLBracket} : rest -> go parenDepth braceDepth (bracketDepth + 1) rest
-        Token {tokenKind = TRBracket} : rest -> go parenDepth braceDepth (decrement bracketDepth) rest
-        _ : rest -> go parenDepth braceDepth bracketDepth rest
-      where
-        atTopLevel = parenDepth == 0 && braceDepth == 0 && bracketDepth == 0
-
-    decrement depth = max 0 (depth - 1)
+    isArrow tokenKind' = tokenKind' == TArrow
+    isTerminator tokenKind' =
+      case tokenKind' of
+        TDot -> True
+        TRBrace -> True
+        _ -> False
 
 hasTopLevelGuardArrow :: [Token] -> Bool
 hasTopLevelGuardArrow = hasTopLevelArrowBeforeTerminator
 
 hasTopLevelArrowBeforeCaseArmBoundary :: [Token] -> Bool
-hasTopLevelArrowBeforeCaseArmBoundary = go 0 0 0
+hasTopLevelArrowBeforeCaseArmBoundary =
+  hasTopLevelTokenBefore isArrow isCaseArmBoundary
+  where
+    isArrow tokenKind' = tokenKind' == TArrow
+    isCaseArmBoundary tokenKind' =
+      case tokenKind' of
+        TOperator "|" -> True
+        TRBrace -> True
+        _ -> False
+
+hasTopLevelTokenBefore :: (TokenKind -> Bool) -> (TokenKind -> Bool) -> [Token] -> Bool
+hasTopLevelTokenBefore isTarget isTerminator = go 0 0 0
   where
     go parenDepth braceDepth bracketDepth tokens =
       case tokens of
         [] -> False
-        Token {tokenKind = TArrow} : _
-          | atTopLevel -> True
-        Token {tokenKind = TOperator "|"} : _
-          | atTopLevel -> False
-        Token {tokenKind = TRBrace} : _
-          | atTopLevel -> False
-        Token {tokenKind = TLParen} : rest -> go (parenDepth + 1) braceDepth bracketDepth rest
-        Token {tokenKind = TRParen} : rest -> go (decrement parenDepth) braceDepth bracketDepth rest
-        Token {tokenKind = TLBrace} : rest -> go parenDepth (braceDepth + 1) bracketDepth rest
-        Token {tokenKind = TRBrace} : rest -> go parenDepth (decrement braceDepth) bracketDepth rest
-        Token {tokenKind = TLBracket} : rest -> go parenDepth braceDepth (bracketDepth + 1) rest
-        Token {tokenKind = TRBracket} : rest -> go parenDepth braceDepth (decrement bracketDepth) rest
-        _ : rest -> go parenDepth braceDepth bracketDepth rest
-      where
-        atTopLevel = parenDepth == 0 && braceDepth == 0 && bracketDepth == 0
+        Token {tokenKind = tokenKind'} : rest
+          | atTopLevel && isTarget tokenKind' -> True
+          | atTopLevel && isTerminator tokenKind' -> False
+          | otherwise ->
+              case tokenKind' of
+                TLParen -> go (parenDepth + 1) braceDepth bracketDepth rest
+                TRParen -> go (decrement parenDepth) braceDepth bracketDepth rest
+                TLBrace -> go parenDepth (braceDepth + 1) bracketDepth rest
+                TRBrace -> go parenDepth (decrement braceDepth) bracketDepth rest
+                TLBracket -> go parenDepth braceDepth (bracketDepth + 1) rest
+                TRBracket -> go parenDepth braceDepth (decrement bracketDepth) rest
+                _ -> go parenDepth braceDepth bracketDepth rest
+          where
+            atTopLevel = parenDepth == 0 && braceDepth == 0 && bracketDepth == 0
 
     decrement depth = max 0 (depth - 1)

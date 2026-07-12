@@ -189,6 +189,8 @@ renderExpectedTokenKind expectedKind =
     TArrow -> "'->'"
     TAt -> "'@'"
     TInt value -> Text.pack (show value)
+    TChar value -> Text.pack (show value)
+    TText value -> Text.pack (show value)
     TEquals -> "'='"
     TOperator symbol -> "'" <> symbol <> "'"
     TColon -> "':'"
