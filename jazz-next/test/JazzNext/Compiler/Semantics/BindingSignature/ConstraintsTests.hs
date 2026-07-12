@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Semantics.BindingSignature.ConstraintsTests
   ( constraintTests
-) where
+  ) where
 
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),

@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Semantics.BindingSignature.GeneralizationTests
   ( generalizationTests
-) where
+  ) where
 
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics

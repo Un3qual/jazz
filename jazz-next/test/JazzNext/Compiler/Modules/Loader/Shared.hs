@@ -4,7 +4,7 @@ module JazzNext.Compiler.Modules.Loader.Shared
   ( moduleGraphProjectedSources,
     lookupSourceIn,
     resolverConfig
-) where
+  ) where
 
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)

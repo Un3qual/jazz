@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Parser.Foundation.SignaturesTests
   ( signatureTests
-) where
+  ) where
 
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST

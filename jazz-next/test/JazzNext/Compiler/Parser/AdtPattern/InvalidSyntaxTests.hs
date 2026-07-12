@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Parser.AdtPattern.InvalidSyntaxTests
   ( invalidSyntaxTests
-) where
+  ) where
 
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram

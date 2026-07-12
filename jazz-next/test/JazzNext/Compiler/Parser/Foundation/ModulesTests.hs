@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Parser.Foundation.ModulesTests
   ( moduleTests
-) where
+  ) where
 
 import JazzNext.Compiler.AST
   ( Expr (..),

@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Modules.Loader.OperatorsTests
   ( operatorTests
-) where
+  ) where
 
 import qualified Data.Map.Strict as Map
 import JazzNext.Compiler.Diagnostics

@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Semantics.Runtime.RenderingTests
   ( renderingTests
-) where
+  ) where
 
 import Control.Exception
   ( SomeException,

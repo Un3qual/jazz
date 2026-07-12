@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Modules.Loader.BasicTests
   ( basicTests
-) where
+  ) where
 
 import qualified Data.Map.Strict as Map
 import Data.IORef

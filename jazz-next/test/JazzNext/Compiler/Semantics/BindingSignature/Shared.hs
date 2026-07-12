@@ -23,7 +23,7 @@ module JazzNext.Compiler.Semantics.BindingSignature.Shared
     aliasOnlyImportedCapabilityFactsProgram,
     speculativePreviewDeferredConstraintProgram,
     speculativePreviewDeferredConstraintBlock
-) where
+  ) where
 
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST

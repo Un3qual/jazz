@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Parser.AdtPattern.PatternsTests
   ( patternTests
-) where
+  ) where
 
 import Data.List.NonEmpty (NonEmpty (..))
 import JazzNext.Compiler.AST

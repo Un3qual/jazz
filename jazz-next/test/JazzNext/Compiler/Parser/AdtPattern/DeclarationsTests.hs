@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Parser.AdtPattern.DeclarationsTests
   ( declarationTests
-) where
+  ) where
 
 import JazzNext.Compiler.AST
   ( CaseArm (..),

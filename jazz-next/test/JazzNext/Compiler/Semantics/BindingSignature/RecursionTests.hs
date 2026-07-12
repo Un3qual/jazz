@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Semantics.BindingSignature.RecursionTests
   ( recursionTests
-) where
+  ) where
 
 import JazzNext.Compiler.Driver
   ( CompileResult (..),

@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Semantics.BindingSignature.BasicsTests
   ( basicTests
-) where
+  ) where
 
 import qualified Data.Set as Set
 import JazzNext.Compiler.AST

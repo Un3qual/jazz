@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Parser.Foundation.InvalidSyntaxTests
   ( invalidSyntaxTests
-) where
+  ) where
 
 import qualified Data.Text as Text
 import JazzNext.Compiler.Parser

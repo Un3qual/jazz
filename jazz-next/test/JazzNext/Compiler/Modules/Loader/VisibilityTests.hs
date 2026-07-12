@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Modules.Loader.VisibilityTests
   ( visibilityTests
-) where
+  ) where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text

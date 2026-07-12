@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Semantics.BindingSignature.DiagnosticsTests
   ( diagnosticTests
-) where
+  ) where
 
 import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..)

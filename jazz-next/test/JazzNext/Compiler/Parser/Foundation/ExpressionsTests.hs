@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Parser.Foundation.ExpressionsTests
   ( expressionTests
-) where
+  ) where
 
 import Data.Text (Text)
 import qualified Data.Text as Text

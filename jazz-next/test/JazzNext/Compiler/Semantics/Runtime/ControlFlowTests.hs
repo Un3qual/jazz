@@ -2,7 +2,7 @@
 
 module JazzNext.Compiler.Semantics.Runtime.ControlFlowTests
   ( controlFlowTests
-) where
+  ) where
 
 import Control.Exception
   ( SomeException,

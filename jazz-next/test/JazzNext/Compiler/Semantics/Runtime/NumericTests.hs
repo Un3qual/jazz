@@ -2,18 +2,18 @@
 
 module JazzNext.Compiler.Semantics.Runtime.NumericTests
   ( numericTests
-) where
+  ) where
 
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( Expr (..),
     Literal (..)
   )
+import JazzNext.Compiler.Diagnostics (renderDiagnostic)
 import JazzNext.Compiler.Driver
   ( RunResult (..),
     runSource
   )
-import JazzNext.Compiler.Diagnostics (renderDiagnostic)
 import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr
