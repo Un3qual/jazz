@@ -100,6 +100,10 @@ import JazzNext.Compiler.TypeInference.State
     initialInferState,
     modifyInferenceOutput
   )
+import JazzNext.Compiler.TypeInference.TypeOps
+  ( instantiateTypeSchemeConstraint,
+    instantiateTypeSchemePrimitiveConstraint
+  )
 import JazzNext.Compiler.TypeInference.Solver
   ( addNumericTypeVarConstraint,
     addStrictEqualityTypeVarConstraint,

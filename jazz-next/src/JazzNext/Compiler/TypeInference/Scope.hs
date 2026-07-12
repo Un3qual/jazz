@@ -95,6 +95,14 @@ import JazzNext.Compiler.TypeInference.State
     modifyInferenceOutput,
     modifyModuleInferenceState
   )
+import JazzNext.Compiler.TypeInference.TypeOps
+  ( dedupeTypeSchemeConstraints,
+    freeTypeVariables,
+    freeTypeVariablesInTypeSchemeConstraints,
+    instantiateTypeSchemeConstraint,
+    instantiateTypeSchemePrimitiveConstraint,
+    replaceTypeVariables
+  )
 import JazzNext.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),

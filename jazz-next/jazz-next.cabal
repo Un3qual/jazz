@@ -62,6 +62,7 @@ library jazz-next-internal
       JazzNext.Compiler.TypeInference.Signature
       JazzNext.Compiler.TypeInference.State
       JazzNext.Compiler.TypeInference.Solver
+      JazzNext.Compiler.TypeInference.TypeOps
       JazzNext.Compiler.TypeInference.Types
       JazzNext.Compiler.WarningCatalog
       JazzNext.Compiler.WarningConfig

@@ -5,6 +5,7 @@ module JazzNext.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
   ) where
 
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import JazzNext.Compiler.AST
   ( SignatureConstraint (..),
     SignatureType (..)
@@ -34,9 +35,21 @@ import JazzNext.Compiler.TypeInference.State
     modifyInferenceOutput,
     modifyModuleInferenceState
   )
+import JazzNext.Compiler.TypeInference.TypeOps
+  ( dedupeTypeSchemeConstraints,
+    freeTypeVariables,
+    freeTypeVariablesInTypeSchemeConstraints,
+    freeTypeVariablesInTypeSchemePrimitiveConstraints,
+    instantiateTypeSchemeConstraint,
+    instantiateTypeSchemePrimitiveConstraint,
+    replaceTypeVariables
+  )
 import JazzNext.Compiler.TypeInference.Types
   ( ExpressionType (..),
-    IntegerLiteralRange (..)
+    IntegerLiteralRange (..),
+    NumericConstraint (..),
+    TypeSchemeConstraint (..),
+    TypeSchemePrimitiveConstraint (..)
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -52,7 +65,12 @@ inferenceOwnershipTests =
     ("runtime hint child failures propagate through lists and functions", testRuntimeHintChildFailuresPropagate),
     ("runtime template child failures propagate through lists and functions", testRuntimeTemplateChildFailuresPropagate),
     ("duplicate constraints report the first repeated name", testDuplicateConstraintsReportFirstRepeatedName),
-    ("state record modifiers update only their owned partitions", testStateRecordModifiers)
+    ("state record modifiers update only their owned partitions", testStateRecordModifiers),
+    ("scheme constraint deduplication preserves last-occurrence order", testSchemeConstraintDeduplicationOrder),
+    ("type operations collect recursive free variables", testTypeOpsCollectRecursiveFreeVariables),
+    ("type operations collect constraint free variables", testTypeOpsCollectConstraintFreeVariables),
+    ("type operations replace recursive type variables", testTypeOpsReplaceRecursiveTypeVariables),
+    ("type operations instantiate class and primitive constraints", testTypeOpsInstantiateConstraints)
   ]
 
 testRuntimeHintsAcceptInt64FittingIntegerRanges :: IO ()
@@ -153,3 +171,69 @@ testStateRecordModifiers = do
                 initialInferState
             )
         )
+
+testSchemeConstraintDeduplicationOrder :: IO ()
+testSchemeConstraintDeduplicationOrder =
+  assertEqual
+    "stable-last constraint order"
+    [middleConstraint, repeatedConstraint]
+    (dedupeTypeSchemeConstraints [repeatedConstraint, middleConstraint, repeatedConstraint])
+  where
+    repeatedConstraint = TypeSchemeConstraint "Eq" (TVarType 0)
+    middleConstraint = TypeSchemeInferredConstraint "Ord" (TVarType 1)
+
+testTypeOpsCollectRecursiveFreeVariables :: IO ()
+testTypeOpsCollectRecursiveFreeVariables =
+  assertEqual
+    "recursive free variables"
+    (Set.fromList [1, 2, 3])
+    ( freeTypeVariables
+        (TFunctionType (TListType (TVarType 1)) (TTupleType [TVarType 2, TListType (TVarType 3)]))
+    )
+
+testTypeOpsCollectConstraintFreeVariables :: IO ()
+testTypeOpsCollectConstraintFreeVariables = do
+  assertEqual
+    "class constraint free variables"
+    (Set.fromList [1, 2])
+    ( freeTypeVariablesInTypeSchemeConstraints
+        [ TypeSchemeConstraint "Eq" (TListType (TVarType 1)),
+          TypeSchemeMethodConstraint "Show" "Show::show" (TVarType 2)
+        ]
+    )
+  assertEqual
+    "primitive constraint free variables"
+    (Set.fromList [3, 4])
+    ( freeTypeVariablesInTypeSchemePrimitiveConstraints
+        [ TypeSchemeNumericConstraint AnyNumericConstraint (TVarType 3),
+          TypeSchemeStrictEqualityConstraint (TListType (TVarType 4))
+        ]
+    )
+
+testTypeOpsReplaceRecursiveTypeVariables :: IO ()
+testTypeOpsReplaceRecursiveTypeVariables =
+  assertEqual
+    "recursive replacement"
+    (TFunctionType (TListType TIntType) (TTupleType [TVarType 2, TBoolType]))
+    ( replaceTypeVariables
+        (Map.fromList [(1, TIntType), (3, TBoolType)])
+        (TFunctionType (TListType (TVarType 1)) (TTupleType [TVarType 2, TVarType 3]))
+    )
+
+testTypeOpsInstantiateConstraints :: IO ()
+testTypeOpsInstantiateConstraints = do
+  let replacements = Map.singleton 1 TTextType
+  assertEqual
+    "class constraint instantiation"
+    (TypeSchemeMethodConstraint "Show" "Show::show" (TListType TTextType))
+    ( instantiateTypeSchemeConstraint
+        replacements
+        (TypeSchemeMethodConstraint "Show" "Show::show" (TListType (TVarType 1)))
+    )
+  assertEqual
+    "primitive constraint instantiation"
+    (TypeSchemeStrictEqualityConstraint (TFunctionType TTextType (TVarType 2)))
+    ( instantiateTypeSchemePrimitiveConstraint
+        replacements
+        (TypeSchemeStrictEqualityConstraint (TFunctionType (TVarType 1) (TVarType 2)))
+    )
