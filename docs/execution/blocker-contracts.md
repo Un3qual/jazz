@@ -68,7 +68,8 @@ Each blocked item should answer these questions:
   `jazz-next/src/JazzNext/Compiler/Runtime.hs`,
   `jazz-next/src/JazzNext/Compiler/TypeInference.hs`,
   `jazz-next/stdlib/Char.jz`, `jazz-next/stdlib/List.jz`, `jazz-next/stdlib/Text.jz`,
-  `jazz-next/stdlib/Lexer.jz`, `jazz-next/stdlib/LexerTypes.jz`, the focused
+  `jazz-next/stdlib/Lexer.jz`, `jazz-next/stdlib/LexerTypes.jz`,
+  `jazz-next/stdlib/Prelude.jz`, the focused
   parity and primitive/catalog tests, `jazz-next/jazz-next.cabal`, the child
   plan, and queue/blocker metadata.
 - Verification: the focused Jazz lexer parity suite;

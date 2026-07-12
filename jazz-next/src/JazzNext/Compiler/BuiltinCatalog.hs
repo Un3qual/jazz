@@ -75,8 +75,18 @@ data BuiltinSymbol
   | BuiltinToFloat16
   | BuiltinToFloat32
   | BuiltinToFloat64
+  | BuiltinListPrependRaw
+  | BuiltinCharToUInt32
+  | BuiltinCharFromUInt32Raw
+  | BuiltinCharIsAlpha
+  | BuiltinCharIsAlphaNum
+  | BuiltinCharIsDigit
+  | BuiltinCharIsSpace
+  | BuiltinCharIsHexDigit
   | BuiltinTextLength
   | BuiltinTextUnconsRaw
+  | BuiltinTextAppend
+  | BuiltinTextAppendChar
   | BuiltinReadTextRaw
   | BuiltinWriteTextRaw
   | BuiltinReadStdinRaw
@@ -132,8 +142,18 @@ builtinSymbolOwnership builtinSymbol =
     BuiltinToFloat16 -> PreludeTarget
     BuiltinToFloat32 -> PreludeTarget
     BuiltinToFloat64 -> PreludeTarget
+    BuiltinListPrependRaw -> KernelIntrinsic
+    BuiltinCharToUInt32 -> KernelIntrinsic
+    BuiltinCharFromUInt32Raw -> KernelIntrinsic
+    BuiltinCharIsAlpha -> KernelIntrinsic
+    BuiltinCharIsAlphaNum -> KernelIntrinsic
+    BuiltinCharIsDigit -> KernelIntrinsic
+    BuiltinCharIsSpace -> KernelIntrinsic
+    BuiltinCharIsHexDigit -> KernelIntrinsic
     BuiltinTextLength -> KernelIntrinsic
     BuiltinTextUnconsRaw -> KernelIntrinsic
+    BuiltinTextAppend -> KernelIntrinsic
+    BuiltinTextAppendChar -> KernelIntrinsic
     BuiltinReadTextRaw -> KernelIntrinsic
     BuiltinWriteTextRaw -> KernelIntrinsic
     BuiltinReadStdinRaw -> KernelIntrinsic
@@ -163,8 +183,18 @@ builtinSymbolName builtinSymbol =
     BuiltinToFloat16 -> "toFloat16"
     BuiltinToFloat32 -> "toFloat32"
     BuiltinToFloat64 -> "toFloat64"
+    BuiltinListPrependRaw -> "listPrependRaw"
+    BuiltinCharToUInt32 -> "charToUInt32"
+    BuiltinCharFromUInt32Raw -> "charFromUInt32Raw"
+    BuiltinCharIsAlpha -> "charIsAlpha"
+    BuiltinCharIsAlphaNum -> "charIsAlphaNum"
+    BuiltinCharIsDigit -> "charIsDigit"
+    BuiltinCharIsSpace -> "charIsSpace"
+    BuiltinCharIsHexDigit -> "charIsHexDigit"
     BuiltinTextLength -> "textLength"
     BuiltinTextUnconsRaw -> "textUnconsRaw"
+    BuiltinTextAppend -> "textAppend"
+    BuiltinTextAppendChar -> "textAppendChar"
     BuiltinReadTextRaw -> "readTextRaw!"
     BuiltinWriteTextRaw -> "writeTextRaw!"
     BuiltinReadStdinRaw -> "readStdinRaw!"
@@ -198,8 +228,18 @@ builtinSymbolArity builtinSymbol =
     BuiltinToFloat16 -> 1
     BuiltinToFloat32 -> 1
     BuiltinToFloat64 -> 1
+    BuiltinListPrependRaw -> 2
+    BuiltinCharToUInt32 -> 1
+    BuiltinCharFromUInt32Raw -> 1
+    BuiltinCharIsAlpha -> 1
+    BuiltinCharIsAlphaNum -> 1
+    BuiltinCharIsDigit -> 1
+    BuiltinCharIsSpace -> 1
+    BuiltinCharIsHexDigit -> 1
     BuiltinTextLength -> 1
     BuiltinTextUnconsRaw -> 1
+    BuiltinTextAppend -> 2
+    BuiltinTextAppendChar -> 2
     BuiltinReadTextRaw -> 1
     BuiltinWriteTextRaw -> 2
     BuiltinReadStdinRaw -> 1

@@ -42,7 +42,7 @@ import Control.Monad.Trans.State.Strict
     modify',
     put
   )
-import Data.Char (isControl, ord, toUpper)
+import Data.Char (chr, isAlpha, isAlphaNum, isControl, isDigit, isHexDigit, isSpace, ord, toUpper)
 import Data.Functor.Identity (runIdentity)
 import Data.List (foldl')
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
@@ -2562,6 +2562,45 @@ evalBuiltin builtinMode bindingTypeHints builtinFunction arguments =
     -- its evaluated argument so expression pipelines remain deterministic.
     (BuiltinPrint, [value]) ->
       Right value
+    (BuiltinListPrependRaw, [value, VList elements maybeTypeHint]) ->
+      Right (VList (value : elements) maybeTypeHint)
+    (BuiltinListPrependRaw, [_, other]) ->
+      Left
+        ( runtimeDiagnostic
+            "E3032"
+            ("runtime primitive 'listPrependRaw' expects a list as its second argument, found " <> renderRuntimeType other)
+        )
+    (BuiltinCharToUInt32, [VChar value]) ->
+      Right (VInt (fromIntegral (ord value)) (targetedIntMetadata NumericUInt32))
+    (BuiltinCharToUInt32, [other]) ->
+      Left
+        ( runtimeDiagnostic
+            "E3033"
+            ("runtime primitive 'charToUInt32' expects a Char argument, found " <> renderRuntimeType other)
+        )
+    (BuiltinCharFromUInt32Raw, [value@(VInt scalar _)])
+      | runtimeIntMatchesTarget NumericUInt32 value ->
+          let listTypeHint = Just (TypeList TypeChar)
+           in
+            if scalar <= 0x10FFFF && not (scalar >= 0xD800 && scalar <= 0xDFFF)
+              then Right (VList [VChar (chr (fromInteger scalar))] listTypeHint)
+              else Right (VList [] listTypeHint)
+    (BuiltinCharFromUInt32Raw, [other]) ->
+      Left
+        ( runtimeDiagnostic
+            "E3034"
+            ("runtime primitive 'charFromUInt32Raw' expects a UInt32 argument, found " <> renderRuntimeType other)
+        )
+    (BuiltinCharIsAlpha, [VChar value]) -> Right (VBool (isAlpha value))
+    (BuiltinCharIsAlphaNum, [VChar value]) -> Right (VBool (isAlphaNum value))
+    (BuiltinCharIsDigit, [VChar value]) -> Right (VBool (isDigit value))
+    (BuiltinCharIsSpace, [VChar value]) -> Right (VBool (isSpace value))
+    (BuiltinCharIsHexDigit, [VChar value]) -> Right (VBool (isHexDigit value))
+    (builtin@BuiltinCharIsAlpha, [other]) -> invalidCharPredicate builtin other
+    (builtin@BuiltinCharIsAlphaNum, [other]) -> invalidCharPredicate builtin other
+    (builtin@BuiltinCharIsDigit, [other]) -> invalidCharPredicate builtin other
+    (builtin@BuiltinCharIsSpace, [other]) -> invalidCharPredicate builtin other
+    (builtin@BuiltinCharIsHexDigit, [other]) -> invalidCharPredicate builtin other
     (BuiltinTextLength, [VText textValue]) ->
       Right (VInt (fromIntegral (Text.length textValue)) untypedIntMetadata)
     (BuiltinTextLength, [other]) ->
@@ -2584,12 +2623,48 @@ evalBuiltin builtinMode bindingTypeHints builtinFunction arguments =
             "E3029"
             ("runtime primitive 'textUnconsRaw' expects a Text argument, found " <> renderRuntimeType other)
         )
+    (BuiltinTextAppend, [VText left, VText right]) ->
+      Right (VText (left <> right))
+    (BuiltinTextAppend, [left, right]) ->
+      Left
+        ( runtimeDiagnostic
+            "E3036"
+            ( "runtime primitive 'textAppend' expects Text arguments, found "
+                <> renderRuntimeType left
+                <> " and "
+                <> renderRuntimeType right
+            )
+        )
+    (BuiltinTextAppendChar, [VText textValue, VChar charValue]) ->
+      Right (VText (Text.snoc textValue charValue))
+    (BuiltinTextAppendChar, [textValue, charValue]) ->
+      Left
+        ( runtimeDiagnostic
+            "E3037"
+            ( "runtime primitive 'textAppendChar' expects Text then Char, found "
+                <> renderRuntimeType textValue
+                <> " and "
+                <> renderRuntimeType charValue
+            )
+        )
     _ ->
       Left
         ( runtimeDiagnostic
             "E3016"
             ("runtime primitive '" <> builtinSymbolName builtinFunction <> "' received invalid arguments")
         )
+
+invalidCharPredicate :: BuiltinSymbol -> RuntimeValue -> Either Diagnostic RuntimeValue
+invalidCharPredicate builtin other =
+  Left
+    ( runtimeDiagnostic
+        "E3035"
+        ( "runtime primitive '"
+            <> builtinSymbolName builtin
+            <> "' expects a Char argument, found "
+            <> renderRuntimeType other
+        )
+    )
 
 evalNumericConversion :: BuiltinSymbol -> NumericType -> RuntimeValue -> Either Diagnostic RuntimeValue
 evalNumericConversion builtinFunction targetType value =

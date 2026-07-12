@@ -82,6 +82,9 @@ renderingTests =
     , ("Char and Text literal patterns match", testCharTextLiteralPatterns)
     , ("private text traversal primitives evaluate Unicode scalars", testPrivateTextTraversalRuntimeSuccess)
     , ("runtime fallback rejects non-Text traversal arguments", testRuntimeFallbackRejectsNonTextTraversalArguments)
+    , ("bootstrap collection and scalar primitives evaluate", testBootstrapCollectionScalarRuntimeSuccess)
+    , ("checked scalar conversion rejects non-scalars", testCheckedScalarConversionRejectsNonScalars)
+    , ("runtime fallback rejects invalid bootstrap primitive arguments", testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments)
     , ("direct self alias produces deterministic runtime diagnostic", testDirectSelfAliasRuntimeError)
     , ("wrapped direct self alias produces deterministic runtime diagnostic", testWrappedDirectSelfAliasRuntimeError)
     , ("same-name non-alias self application produces runtime unbound diagnostic", testSameNameNonAliasSelfApplicationTerminates)
@@ -177,6 +180,61 @@ testRuntimeFallbackRejectsNonTextTraversalArguments = do
   assertRuntimeErrorContains "runtime fallback textLength actual type" "Int" lengthResult
   assertRuntimeErrorContains "runtime fallback textUnconsRaw code" "E3029" unconsResult
   assertRuntimeErrorContains "runtime fallback textUnconsRaw actual type" "Int" unconsResult
+
+testBootstrapCollectionScalarRuntimeSuccess :: IO ()
+testBootstrapCollectionScalarRuntimeSuccess = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "(__kernel_listPrependRaw \"first\" [\"second\"], "
+          <> "__kernel_charToUInt32 '\\u{1F642}', "
+          <> "__kernel_charFromUInt32Raw (toUInt32 128578), "
+          <> "(__kernel_charIsAlpha 'é', __kernel_charIsAlphaNum '9', __kernel_charIsDigit '9', __kernel_charIsSpace '\\t', __kernel_charIsHexDigit 'F'), "
+          <> "__kernel_textAppendChar (__kernel_textAppend \"Ja\" \"z\") 'z')."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual
+    "bootstrap primitive output"
+    (Just "([\"first\", \"second\"], 128578, ['🙂'], (True, True, True, True, True), \"Jazz\")")
+    (runOutput result)
+
+testCheckedScalarConversionRejectsNonScalars :: IO ()
+testCheckedScalarConversionRejectsNonScalars = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "(__kernel_charFromUInt32Raw (toUInt32 55296), __kernel_charFromUInt32Raw (toUInt32 1114112))."
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "non-scalar conversion" (Just "([], [])") (runOutput result)
+
+testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments :: IO ()
+testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments = do
+  let prependResult =
+        evaluateRuntimeExpr
+          (runtimeExpr (EApply (EApply (EVar "__kernel_listPrependRaw") (ELit (LInt 1))) (ELit (LInt 2))))
+      charToResult =
+        evaluateRuntimeExpr
+          (runtimeExpr (EApply (EVar "__kernel_charToUInt32") (ELit (LText "a"))))
+      charFromResult =
+        evaluateRuntimeExpr
+          (runtimeExpr (EApply (EVar "__kernel_charFromUInt32Raw") (ELit (LInt (-1)))))
+      predicateResult =
+        evaluateRuntimeExpr
+          (runtimeExpr (EApply (EVar "__kernel_charIsAlpha") (ELit (LText "a"))))
+      appendResult =
+        evaluateRuntimeExpr
+          (runtimeExpr (EApply (EApply (EVar "__kernel_textAppend") (ELit (LText "a"))) (ELit (LBool True))))
+      appendCharResult =
+        evaluateRuntimeExpr
+          (runtimeExpr (EApply (EApply (EVar "__kernel_textAppendChar") (ELit (LText "a"))) (ELit (LInt 1))))
+  assertRuntimeErrorContains "list prepend argument" "E3032" prependResult
+  assertRuntimeErrorContains "char to scalar argument" "E3033" charToResult
+  assertRuntimeErrorContains "scalar to char argument" "E3034" charFromResult
+  assertRuntimeErrorContains "char predicate argument" "E3035" predicateResult
+  assertRuntimeErrorContains "text append argument" "E3036" appendResult
+  assertRuntimeErrorContains "text append char argument" "E3037" appendCharResult
 
 testDirectSelfAliasRuntimeError :: IO ()
 testDirectSelfAliasRuntimeError = do

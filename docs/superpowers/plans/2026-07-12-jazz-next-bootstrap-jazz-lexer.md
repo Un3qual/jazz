@@ -24,6 +24,7 @@ target_paths:
   - jazz-next/stdlib/Text.jz
   - jazz-next/stdlib/Lexer.jz
   - jazz-next/stdlib/LexerTypes.jz
+  - jazz-next/stdlib/Prelude.jz
   - jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLexerParitySpec.hs
   - jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs
   - jazz-next/test/JazzNext/Compiler/Semantics/BuiltinCatalogSpec.hs
@@ -73,16 +74,16 @@ paths/source text to both lexers and compares only ordinary runtime rendering.
 
 ### Task 1: Add permanent collection and scalar/text kernel services
 
-- [ ] Add RED catalog, type, runtime, invalid-input, Unicode-classification,
+- [x] Add RED catalog, type, runtime, invalid-input, Unicode-classification,
   scalar-rejection, list-hint, and text-construction tests.
-- [ ] Add one generic `listPrependRaw` intrinsic; `charToUInt32`, checked
+- [x] Add one generic `listPrependRaw` intrinsic; `charToUInt32`, checked
   zero-or-one `charFromUInt32Raw`, alpha/alphanumeric/digit/space/hex predicates;
   and immutable `textAppend`/`textAppendChar` intrinsics.
-- [ ] Keep every symbol `KernelIntrinsic`, add exact polymorphic or concrete
+- [x] Keep every symbol `KernelIntrinsic`, add exact polymorphic or concrete
   inference types, preserve runtime type hints, and produce deterministic
   diagnostics for invalid direct-runtime arguments.
-- [ ] Run focused catalog, primitive, and runtime suites GREEN.
-- [ ] Commit with `feat: add bootstrap collection and scalar services`.
+- [x] Run focused catalog, primitive, and runtime suites GREEN.
+- [x] Commit with `feat: add bootstrap collection and scalar services`.
 
 ### Task 2: Expose ordinary Jazz `List`, `Char`, and `Text` APIs
 
