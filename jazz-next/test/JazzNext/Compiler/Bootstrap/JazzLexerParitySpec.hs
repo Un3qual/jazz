@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Control.Exception (SomeException, try)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
@@ -31,6 +32,7 @@ import JazzNext.TestHarness
     runTestSuite
   )
 import System.Directory (doesFileExist)
+import System.Timeout (timeout)
 
 main :: IO ()
 main = runTestSuite "JazzLexerParity" tests
@@ -39,7 +41,9 @@ tests :: [NamedTest]
 tests =
   [ ("Jazz lexer renders exact canonical tokens", testExactCanonicalTokens),
     ("Jazz lexer renders exact structured failures", testExactStructuredFailure),
-    ("Jazz lexer covers every focused boundary family", testFocusedBoundaryCorpus)
+    ("Jazz lexer covers every focused boundary family", testFocusedBoundaryCorpus),
+    ("Jazz lexer matches the complete canonical corpus deterministically", testCompleteCorpusParity),
+    ("Jazz lexer traverses large whitespace and token inputs stack safely", testLargeTraversal)
   ]
 
 testExactCanonicalTokens :: IO ()
@@ -50,6 +54,37 @@ testExactStructuredFailure = assertJazzParity "fixtures/lexer/error.jz" "value `
 
 testFocusedBoundaryCorpus :: IO ()
 testFocusedBoundaryCorpus = assertJazzCorpusParity (take 21 parserFixtureCorpus)
+
+testCompleteCorpusParity :: IO ()
+testCompleteCorpusParity = do
+  expected <- expectedCorpusRendering parserFixtureCorpus
+  first <- runJazzLexerBatch parserFixtureCorpus
+  second <- runJazzLexerBatch parserFixtureCorpus
+  assertEqual "complete corpus first compile errors" [] (runCompileErrors first)
+  assertEqual "complete corpus first runtime errors" [] (runRuntimeErrors first)
+  assertEqual "complete corpus second compile errors" [] (runCompileErrors second)
+  assertEqual "complete corpus second runtime errors" [] (runRuntimeErrors second)
+  assertEqual "complete corpus deterministic rendering" (runOutput first) (runOutput second)
+  assertEqual "complete corpus stage-0 parity" (Just expected) (runOutput first)
+
+testLargeTraversal :: IO ()
+testLargeTraversal = do
+  assertLargeTokenCount "large whitespace" (Text.replicate 20000 " ") 0
+  assertLargeTokenCount "large token list" (Text.replicate 10000 "x ") 10000
+
+assertLargeTokenCount :: Text -> Text -> Int -> IO ()
+assertLargeTokenCount label source expectedCount = do
+  maybeResult <-
+    timeout
+      60000000
+      (try (runJazzLexerCount source) :: IO (Either SomeException RunResult))
+  case maybeResult of
+    Nothing -> failTest (label <> " timed out")
+    Just (Left err) -> failTest (label <> " leaked host exception: " <> Text.pack (show err))
+    Just (Right result) -> do
+      assertEqual (label <> " compile errors") [] (runCompileErrors result)
+      assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
+      assertEqual (label <> " token count") (Just (Text.pack (show expectedCount))) (runOutput result)
 
 assertJazzParity :: FilePath -> Text -> IO ()
 assertJazzParity logicalPath source = do
@@ -67,14 +102,19 @@ assertJazzParity logicalPath source = do
 
 assertJazzCorpusParity :: [ParserFixture] -> IO ()
 assertJazzCorpusParity fixtures = do
-  expected <- mapM expectedFixture fixtures
+  expected <- expectedCorpusRendering fixtures
   result <- runJazzLexerBatch fixtures
   assertEqual "Jazz corpus compile errors" [] (runCompileErrors result)
   assertEqual "Jazz corpus runtime errors" [] (runRuntimeErrors result)
   assertEqual
     "canonical corpus rendering"
-    (Just ("[" <> Text.intercalate ", " expected <> "]"))
+    (Just expected)
     (runOutput result)
+
+expectedCorpusRendering :: [ParserFixture] -> IO Text
+expectedCorpusRendering fixtures = do
+  expected <- mapM expectedFixture fixtures
+  pure ("[" <> Text.intercalate ", " expected <> "]")
   where
     expectedFixture fixture = do
       path <-
@@ -135,6 +175,38 @@ runJazzLexerBatch fixtures =
         <> renderRuntimeValue (VText (fromString (parserFixturePath fixture)))
         <> ") "
         <> renderRuntimeValue (VText (parserFixtureSource fixture))
+    lookupSource path =
+      case path of
+        "src/App/Main.jz" -> pure (Just entrySource)
+        "src/Lexer.jz" -> readStdlibSource "Lexer.jz"
+        "src/LexerTypes.jz" -> readStdlibSource "LexerTypes.jz"
+        "src/List.jz" -> readStdlibSource "List.jz"
+        "src/Char.jz" -> readStdlibSource "Char.jz"
+        "src/Text.jz" -> readStdlibSource "Text.jz"
+        "src/Maybe.jz" -> readStdlibSource "Maybe.jz"
+        _ -> pure Nothing
+
+runJazzLexerCount :: Text -> IO RunResult
+runJazzLexerCount source =
+  runModuleGraphWithPrelude
+    defaultWarningSettings
+    Nothing
+    resolverConfig
+    ["App", "Main"]
+    lookupSource
+  where
+    entrySource =
+      "module App::Main {\n"
+        <> "  import Lexer.\n"
+        <> "  import LexerTypes.\n"
+        <> "  import List.\n"
+        <> "  case lexSource (CanonicalSourcePath \"fixtures/lexer/large.jz\") "
+        <> renderRuntimeValue (VText source)
+        <> " {\n"
+        <> "    | CanonicalLexFailure _ _ -> 999999\n"
+        <> "    | CanonicalLexSuccess _ tokens -> listLength tokens\n"
+        <> "  }.\n"
+        <> "}"
     lookupSource path =
       case path of
         "src/App/Main.jz" -> pure (Just entrySource)

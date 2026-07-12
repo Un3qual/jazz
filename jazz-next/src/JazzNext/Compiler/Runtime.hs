@@ -1729,6 +1729,9 @@ attachRuntimeTypeHint maybeTypeHint runtimeValue =
 applyRuntimeTypeHint :: SignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyRuntimeTypeHint typeHint runtimeValue =
   case runtimeValue of
+    VTyped existingTypeHint _
+      | runtimeTypeHintAtLeastAsSpecific existingTypeHint typeHint ->
+          Right runtimeValue
     VTyped _ innerValue ->
       applyRuntimeTypeHint typeHint innerValue
     VExplicitTypeApplication _ innerValue ->
@@ -1768,7 +1771,14 @@ applyRuntimeTypeHint typeHint runtimeValue =
                   (applyConstructorArgumentRuntimeHint Map.empty)
                   constructorArguments
                   capturedArgs
-              Right (VConstructor typeName typeParameters constructorName constructorArguments hintedCapturedArgs)
+              Right
+                ( VTyped
+                    typeHint
+                    (VConstructor typeName typeParameters constructorName constructorArguments hintedCapturedArgs)
+                )
+        (TypeList _, VList _ (Just existingTypeHint))
+          | runtimeTypeHintAtLeastAsSpecific existingTypeHint typeHint ->
+              Right runtimeValue
         (TypeList elementType, VList elements _) -> do
           hintedElements <- mapM (applyRuntimeTypeHint elementType) elements
           Right (VList hintedElements (Just typeHint))
@@ -1793,6 +1803,35 @@ applyRuntimeTypeHint typeHint runtimeValue =
               Right (VTyped typeHint (VConstructor typeName typeParameters constructorName constructorArguments hintedCapturedArgs))
         _ ->
           Right runtimeValue
+
+-- Runtime hints form an information order rather than a replacement order.
+-- A concrete value already carrying, for example, @[CanonicalToken]@ also
+-- satisfies a later polymorphic @[a]@ result hint. Preserving the stronger
+-- evidence avoids both losing concrete dispatch information and repeatedly
+-- traversing persistent values at polymorphic function boundaries.
+runtimeTypeHintAtLeastAsSpecific :: SignatureType -> SignatureType -> Bool
+runtimeTypeHintAtLeastAsSpecific existingHint requestedHint
+  | constraintSignatureTypesCompatible existingHint requestedHint = True
+runtimeTypeHintAtLeastAsSpecific _ (TypeVariable _) = True
+runtimeTypeHintAtLeastAsSpecific _ (TypeName name)
+  | identifierLooksLikeTypeVariable name = True
+runtimeTypeHintAtLeastAsSpecific
+  (TypeApplication existingName existingArguments)
+  (TypeApplication requestedName requestedArguments) =
+    existingName == requestedName
+    && length existingArguments == length requestedArguments
+    && and (zipWith runtimeTypeHintAtLeastAsSpecific existingArguments requestedArguments)
+runtimeTypeHintAtLeastAsSpecific (TypeList existingElement) (TypeList requestedElement) =
+  runtimeTypeHintAtLeastAsSpecific existingElement requestedElement
+runtimeTypeHintAtLeastAsSpecific (TypeTuple existingElements) (TypeTuple requestedElements) =
+  length existingElements == length requestedElements
+    && and (zipWith runtimeTypeHintAtLeastAsSpecific existingElements requestedElements)
+runtimeTypeHintAtLeastAsSpecific
+  (TypeFunction existingArgument existingResult)
+  (TypeFunction requestedArgument requestedResult) =
+    runtimeTypeHintAtLeastAsSpecific existingArgument requestedArgument
+      && runtimeTypeHintAtLeastAsSpecific existingResult requestedResult
+runtimeTypeHintAtLeastAsSpecific _ _ = False
 
 applyConstructorArgumentRuntimeHint ::
   Map Text SignatureType ->

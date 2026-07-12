@@ -150,6 +150,14 @@ test-suite canonical-lexer-comparison-spec
       JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
       JazzNext.Compiler.Parser.FixtureCorpus
 
+test-suite jazz-lexer-parity-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Compiler/Bootstrap/JazzLexerParitySpec.hs
+  other-modules:
+      JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
+      JazzNext.Compiler.Parser.FixtureCorpus
+
 test-suite adt-pattern-parser-spec
   import: test-common
   type: exitcode-stdio-1.0

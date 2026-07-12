@@ -114,16 +114,16 @@ paths/source text to both lexers and compares only ordinary runtime rendering.
 
 ### Task 4: Prove full differential parity and stack safety
 
-- [ ] Compare the Jazz and Haskell rendered canonical results over all manifest
+- [x] Compare the Jazz and Haskell rendered canonical results over all manifest
   entries in stable order, including parser-rejected inputs and lexical errors.
-- [ ] Evaluate the complete Jazz corpus twice and require byte-identical output
+- [x] Evaluate the complete Jazz corpus twice and require byte-identical output
   before comparing it with stage 0.
-- [ ] Add large whitespace traversal and large token-list cases that return
+- [x] Add large whitespace traversal and large token-list cases that return
   compact counts while proving the shared explicit evaluator does not consume
   one Haskell stack frame per Jazz tail call.
-- [ ] Register `jazz-lexer-parity-spec` in Cabal and run the focused lexer,
+- [x] Register `jazz-lexer-parity-spec` in Cabal and run the focused lexer,
   catalog, primitive, runtime, and loader suites GREEN.
-- [ ] Commit with `test: prove Jazz lexer differential parity`.
+- [x] Commit with `test: prove Jazz lexer differential parity`.
 
 ### Task 5: Close the hosted lexer milestone
 
