@@ -2,35 +2,15 @@
 
 module JazzNext.Compiler.Semantics.BindingSignature.GeneralizationTests
   ( generalizationTests
-  ) where
+) where
 
-
-import qualified Data.Set as Set
 import qualified Data.Text as Text
-import JazzNext.Compiler.AST
-  ( ClassMethodSignature (..),
-    Expr (..),
-    ImplMethod (..),
-    Literal (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureType (..),
-    Statement (..)
-  )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
-    renderDiagnostic
-  )
-import JazzNext.Compiler.TypeInference.Types
-  ( ExpressionType (..),
-    TypeScheme (..),
-    emptyScopeCapabilityFacts
+  ( renderDiagnostic
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     RunResult (..),
-    compileExpr,
-    compileSource,
     compileSourceWithPrelude,
     runSourceWithPrelude
   )
@@ -40,13 +20,7 @@ import JazzNext.Compiler.WarningConfig
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
-    assertEqual,
-    assertSingleDiagnosticCode,
-    assertSingleDiagnosticContains,
-    assertSingleDiagnosticPrimarySpan,
-    assertSingleDiagnosticRelatedSpan,
-    assertSingleDiagnosticSubject,
-    runTestSuite
+    assertEqual
   )
 import JazzNext.Compiler.Semantics.BindingSignature.Shared
 

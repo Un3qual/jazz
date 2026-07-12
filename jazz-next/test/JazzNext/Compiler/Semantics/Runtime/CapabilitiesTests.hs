@@ -2,8 +2,7 @@
 
 module JazzNext.Compiler.Semantics.Runtime.CapabilitiesTests
   ( capabilityTests
-  ) where
-
+) where
 
 import Control.Exception
   ( SomeException,
@@ -11,7 +10,6 @@ import Control.Exception
   )
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( CaseArm (..),
@@ -28,8 +26,7 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
-  ( Diagnostic,
-    SourceSpan (..),
+  ( SourceSpan (..),
     renderDiagnostic
   )
 import JazzNext.Compiler.BuiltinCatalog
@@ -43,7 +40,7 @@ import JazzNext.Compiler.Driver
 import JazzNext.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource
   )
-import JazzNext.Compiler.Name (Name, qualifiedName)
+import JazzNext.Compiler.Name (qualifiedName)
 import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
@@ -67,11 +64,9 @@ import JazzNext.Compiler.WarningConfig
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
-    assertLeftDiagnosticCodeAndContains,
     assertEqual,
     assertSingleDiagnosticContains,
-    failTest,
-    runTestSuite
+    failTest
   )
 import System.Timeout
   ( timeout

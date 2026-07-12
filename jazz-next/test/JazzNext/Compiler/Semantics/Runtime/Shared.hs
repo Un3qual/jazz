@@ -23,14 +23,8 @@ module JazzNext.Compiler.Semantics.Runtime.Shared
     assertRuntimeBool,
     assertCallableRuntimeEqualityRejected,
     assertRuntimeErrorContains
-  ) where
+) where
 
-
-import Control.Exception
-  ( SomeException,
-    try
-  )
-import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
@@ -52,46 +46,18 @@ import JazzNext.Compiler.Diagnostics
     SourceSpan (..),
     renderDiagnostic
   )
-import JazzNext.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..)
-  )
-import JazzNext.Compiler.Driver
-  ( RunResult (..),
-    runSource,
-    runSourceWithPrelude
-  )
 import JazzNext.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource
   )
 import JazzNext.Compiler.Name (Name, qualifiedName)
 import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
-    evaluateRuntimeExpr,
-    evaluateRuntimeExprWithBuiltinsAndBindingHints,
-    renderRuntimeValue,
-    runtimeValueExactlyMatchesConstraint
-  )
-import JazzNext.Compiler.RuntimeHints
-  ( bindingRuntimeHintKey
-  )
-import JazzNext.Compiler.TypeInference
-  ( InferenceResult (..),
-    inferExpressionWithBuiltins
-  )
-import JazzNext.Compiler.WarningConfig
-  ( defaultWarningSettings
+    evaluateRuntimeExpr
   )
 import JazzNext.TestHarness
-  ( NamedTest,
-    assertContains,
-    assertLeftDiagnosticCodeAndContains,
+  ( assertContains,
     assertEqual,
-    assertSingleDiagnosticContains,
-    failTest,
-    runTestSuite
-  )
-import System.Timeout
-  ( timeout
+    failTest
   )
 
 patternCaseNoMatchExpr :: Expr

@@ -22,7 +22,6 @@ import Data.IORef
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),

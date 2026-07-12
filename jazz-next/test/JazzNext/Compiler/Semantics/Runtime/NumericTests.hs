@@ -2,59 +2,21 @@
 
 module JazzNext.Compiler.Semantics.Runtime.NumericTests
   ( numericTests
-  ) where
+) where
 
-
-import Control.Exception
-  ( SomeException,
-    try
-  )
-import qualified Data.Map.Strict as Map
-import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( CaseArm (..),
-    ClassMethodSignature (..),
-    SignatureType (..),
-    DataConstructorArgument (..),
-    DataConstructor (..),
-    Expr (..),
-    ImplMethod (..),
-    Literal (..),
-    Pattern (..),
-    SignaturePayload (..),
-    Statement (..)
-  )
-import JazzNext.Compiler.Diagnostics
-  ( Diagnostic,
-    SourceSpan (..),
-    renderDiagnostic
-  )
-import JazzNext.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..)
+  ( Expr (..),
+    Literal (..)
   )
 import JazzNext.Compiler.Driver
   ( RunResult (..),
-    runSource,
-    runSourceWithPrelude
+    runSource
   )
-import JazzNext.Compiler.FractionalLiteral
-  ( mkFractionalLiteralSource
-  )
-import JazzNext.Compiler.Name (Name, qualifiedName)
+import JazzNext.Compiler.Diagnostics (renderDiagnostic)
 import JazzNext.Compiler.Runtime
   ( RuntimeValue (..),
-    evaluateRuntimeExpr,
-    evaluateRuntimeExprWithBuiltinsAndBindingHints,
-    renderRuntimeValue,
-    runtimeValueExactlyMatchesConstraint
-  )
-import JazzNext.Compiler.RuntimeHints
-  ( bindingRuntimeHintKey
-  )
-import JazzNext.Compiler.TypeInference
-  ( InferenceResult (..),
-    inferExpressionWithBuiltins
+    evaluateRuntimeExpr
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -62,14 +24,9 @@ import JazzNext.Compiler.WarningConfig
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
-    assertLeftDiagnosticCodeAndContains,
     assertEqual,
     assertSingleDiagnosticContains,
-    failTest,
-    runTestSuite
-  )
-import System.Timeout
-  ( timeout
+    failTest
   )
 import JazzNext.Compiler.Semantics.Runtime.Shared
 

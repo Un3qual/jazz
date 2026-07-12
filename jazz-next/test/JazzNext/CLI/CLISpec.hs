@@ -10,7 +10,6 @@ import Data.IORef
     writeIORef
   )
 import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO

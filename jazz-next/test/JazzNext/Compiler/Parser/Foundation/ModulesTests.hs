@@ -2,20 +2,11 @@
 
 module JazzNext.Compiler.Parser.Foundation.ModulesTests
   ( moduleTests
-  ) where
+) where
 
-
-import Data.Text (Text)
-import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( ClassMethodSignature (..),
-    Expr (..),
+  ( Expr (..),
     Literal (..),
-    NumericType (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureToken (..),
-    SignatureType (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
@@ -25,13 +16,8 @@ import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
 import JazzNext.Compiler.Parser.AST
-  ( SurfaceClassMethodSignature (..),
-    SurfaceExpr (..),
+  ( SurfaceExpr (..),
     SurfaceLiteral (..),
-    SurfaceNumericType (..),
-    SurfaceSignatureConstraint (..),
-    SurfaceSignaturePayload (..),
-    SurfaceSignatureToken (..),
     SurfaceSignatureType (..),
     SurfaceStatement (..)
   )
@@ -41,13 +27,9 @@ import JazzNext.Compiler.Parser.Lower
 import JazzNext.Compiler.Name (qualifiedName)
 import JazzNext.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
-    assertLeftDiagnosticContains,
-    assertRight,
-    runTestSuite
+    assertRight
   )
-import JazzNext.Compiler.Parser.Foundation.Shared
 
 moduleTests :: [NamedTest]
 moduleTests =

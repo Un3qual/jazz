@@ -2,51 +2,34 @@
 
 module JazzNext.Compiler.Semantics.BindingSignature.ConstraintsTests
   ( constraintTests
-  ) where
+) where
 
-
-import qualified Data.Set as Set
-import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
     Expr (..),
-    ImplMethod (..),
     Literal (..),
-    SignatureConstraint (..),
     SignaturePayload (..),
     SignatureType (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
-    renderDiagnostic
-  )
-import JazzNext.Compiler.TypeInference.Types
-  ( ExpressionType (..),
-    TypeScheme (..),
-    emptyScopeCapabilityFacts
+  ( SourceSpan (..)
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
-    RunResult (..),
     compileExpr,
     compileSource,
-    compileSourceWithPrelude,
-    runSourceWithPrelude
+    compileSourceWithPrelude
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
-    assertSingleDiagnosticPrimarySpan,
-    assertSingleDiagnosticRelatedSpan,
-    assertSingleDiagnosticSubject,
-    runTestSuite
+    assertSingleDiagnosticPrimarySpan
   )
 import JazzNext.Compiler.Semantics.BindingSignature.Shared
 

@@ -2,10 +2,8 @@
 
 module JazzNext.Compiler.Parser.AdtPattern.DeclarationsTests
   ( declarationTests
-  ) where
+) where
 
-
-import Data.List.NonEmpty (NonEmpty (..))
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     DataConstructorArgument (..),
@@ -26,7 +24,6 @@ import JazzNext.Compiler.Parser.AST
     SurfaceDataConstructorArgument (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
-    SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
     SurfaceStatement (..)
@@ -37,11 +34,8 @@ import JazzNext.Compiler.Parser.Lower
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
-    assertLeftDiagnosticContains,
-    assertRight,
-    runTestSuite
+    assertRight
   )
-import JazzNext.Compiler.Parser.AdtPattern.Shared
 
 declarationTests :: [NamedTest]
 declarationTests =

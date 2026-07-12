@@ -358,16 +358,16 @@ testCompiledModuleKeepsPrivateInterfaceWithPublicInventory = do
   compiled <- compileFixtureProgram explicitExportSources
   case lookupCompiledModule ["Lib", "Value"] compiled of
     Nothing -> fail "missing compiled Lib::Value module"
-    Just compiledModule -> do
+    Just valueModule -> do
       assertEqual
         "full compiled interface"
         (Set.fromList [ModuleExport ValueNamespace "answer", ModuleExport ValueNamespace "helper"])
-        (Map.keysSet (interfaceValueTypes (compiledModuleInterface compiledModule)))
+        (Map.keysSet (interfaceValueTypes (compiledModuleInterface valueModule)))
       assertEqual
         "public compiled inventory"
         (Set.singleton (ModuleExport ValueNamespace "answer"))
         ( exportInventoryEntries
-            (ModuleGraph.resolvedModuleExportInventory (compiledResolvedModule compiledModule))
+            (ModuleGraph.resolvedModuleExportInventory (compiledResolvedModule valueModule))
         )
 
 testRuntimeModulePublishesExplicitExportsOnly :: IO ()
@@ -419,14 +419,14 @@ testModuleExportIdentityPreservesNamespaces = do
   compiled <- compileFixtureProgram shadowingSources
   case lookupCompiledModule ["Lib", "Maybe"] compiled of
     Nothing -> fail "missing compiled Lib::Maybe module"
-    Just compiledModule ->
+    Just maybeModule ->
       assertEqual
         "compiled shadowed export identities"
         expectedExports
         ( Map.keysSet
             ( Map.filterWithKey
                 (\moduleExport _ -> moduleExportName moduleExport == "Just")
-                (interfaceValueTypes (compiledModuleInterface compiledModule))
+                (interfaceValueTypes (compiledModuleInterface maybeModule))
             )
         )
   case evaluateCompiledProgram compiled of
@@ -596,11 +596,11 @@ testCompiledInterfacesExposeOnlyDeclaredExports = do
       compiled <- compileResolvedProgram (emptyCompileInputs defaultWarningSettings) resolved
       case lookupCompiledModule ["Lib", "Value"] compiled of
         Nothing -> fail "missing compiled Lib::Value module"
-        Just compiledModule ->
+        Just valueModule ->
           assertEqual
             "exported values"
             (Set.fromList [ModuleExport ValueNamespace "answer"])
-            (Map.keysSet (interfaceValueTypes (compiledModuleInterface compiledModule)))
+            (Map.keysSet (interfaceValueTypes (compiledModuleInterface valueModule)))
       assertEqual "no compile errors" [] (compiledProgramErrors compiled)
   where
     sources =
@@ -612,12 +612,12 @@ testCompiledInterfacesExposeOnlyDeclaredExports = do
 
 testDependencyExpressionContract :: IO ()
 testDependencyExpressionContract = do
-  result <- runGraph dependencyExpressionSources
+  result <- runGraph localDependencyExpressionSources
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "entry output" (Just "1") (runOutput result)
   where
-    dependencyExpressionSources =
+    localDependencyExpressionSources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Value. value. }"),
           ("src/Lib/Value.jz", "module Lib::Value { value = 1. 1 / 0. }")

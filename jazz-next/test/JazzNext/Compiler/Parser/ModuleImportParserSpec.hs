@@ -4,7 +4,6 @@ module Main (main) where
 
 import JazzNext.Compiler.AST
   ( Expr (..),
-    Literal (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics

@@ -2,51 +2,19 @@
 
 module JazzNext.Compiler.Semantics.BindingSignature.RecursionTests
   ( recursionTests
-  ) where
+) where
 
-
-import qualified Data.Set as Set
-import qualified Data.Text as Text
-import JazzNext.Compiler.AST
-  ( ClassMethodSignature (..),
-    Expr (..),
-    ImplMethod (..),
-    Literal (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureType (..),
-    Statement (..)
-  )
-import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
-    renderDiagnostic
-  )
-import JazzNext.Compiler.TypeInference.Types
-  ( ExpressionType (..),
-    TypeScheme (..),
-    emptyScopeCapabilityFacts
-  )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
-    RunResult (..),
-    compileExpr,
-    compileSource,
-    compileSourceWithPrelude,
-    runSourceWithPrelude
+    compileExpr
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
-    assertSingleDiagnosticCode,
-    assertSingleDiagnosticContains,
-    assertSingleDiagnosticPrimarySpan,
-    assertSingleDiagnosticRelatedSpan,
-    assertSingleDiagnosticSubject,
-    runTestSuite
+    assertSingleDiagnosticContains
   )
 import JazzNext.Compiler.Semantics.BindingSignature.Shared
 

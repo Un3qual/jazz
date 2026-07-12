@@ -2,8 +2,7 @@
 
 module JazzNext.Compiler.Parser.AdtPattern.PatternsTests
   ( patternTests
-  ) where
-
+) where
 
 import Data.List.NonEmpty (NonEmpty (..))
 import JazzNext.Compiler.AST
@@ -37,11 +36,8 @@ import JazzNext.Compiler.Parser.Lower
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
-    assertLeftDiagnosticContains,
-    assertRight,
-    runTestSuite
+    assertRight
   )
-import JazzNext.Compiler.Parser.AdtPattern.Shared
 
 patternTests :: [NamedTest]
 patternTests =

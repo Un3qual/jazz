@@ -23,10 +23,8 @@ module JazzNext.Compiler.Semantics.BindingSignature.Shared
     aliasOnlyImportedCapabilityFactsProgram,
     speculativePreviewDeferredConstraintProgram,
     speculativePreviewDeferredConstraintBlock
-  ) where
+) where
 
-
-import qualified Data.Set as Set
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
@@ -42,32 +40,20 @@ import JazzNext.Compiler.Diagnostics
   ( SourceSpan (..),
     renderDiagnostic
   )
-import JazzNext.Compiler.TypeInference.Types
-  ( ExpressionType (..),
-    TypeScheme (..),
-    emptyScopeCapabilityFacts
-  )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
-    RunResult (..),
-    compileExpr,
     compileSource,
-    compileSourceWithPrelude,
-    runSourceWithPrelude
+    compileSourceWithPrelude
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
   )
 import JazzNext.TestHarness
-  ( NamedTest,
-    assertContains,
+  ( assertContains,
     assertEqual,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
-    assertSingleDiagnosticPrimarySpan,
-    assertSingleDiagnosticRelatedSpan,
-    assertSingleDiagnosticSubject,
-    runTestSuite
+    assertSingleDiagnosticPrimarySpan
   )
 
 validSignatureProgram :: Expr
