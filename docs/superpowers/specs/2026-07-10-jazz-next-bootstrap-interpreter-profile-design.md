@@ -220,6 +220,13 @@ numbers are outside this profile.
 
 ## Stack-Safe Evaluation
 
+The detailed contract is accepted in
+[`2026-07-11-jazz-next-stack-safe-evaluation-design.md`](2026-07-11-jazz-next-stack-safe-evaluation-design.md).
+`Runtime.hs` owns one interpreter-private explicit machine shared by pure and
+host-backed evaluation. `ModuleRuntime.hs` retains dependency/export ownership,
+and `Driver.hs` remains a public façade. These controls are permanent reference
+interpreter machinery, not bytecode or input to future LLVM lowering.
+
 Compiler traversals must not consume one Haskell call frame per Jazz tail call.
 The runtime introduces an explicit evaluation loop or trampoline for tail
 positions, including:

@@ -43,32 +43,36 @@ Each blocked item should answer these questions:
   private host bridges, the typed monadic runtime-host seam, strict UTF-8
   production operations, arguments, and exit without coupling the public
   contract to Haskell or LLVM.
-- Smallest unblocker: curate the stack-safe tail-position runtime-evaluation
-  contract before promoting another implementation child.
-- Decision needed: identify the exact tail positions across calls, cases,
-  conditionals, blocks, and module-export closures; choose the explicit
-  evaluation-loop/trampoline ownership; preserve diagnostics and runtime-host
-  sequencing; and lock large-input regression limits and target paths.
-- Recommended default: make the evaluator loop consume backend-neutral runtime
-  continuations while retaining the current public driver/module APIs and
-  `RuntimeHost` ordering. Do not introduce bytecode or encode LLVM operations in
+- Smallest unblocker: implement the accepted shared stack-safe expression
+  machine under `JN-BOOTSTRAP-STACK-SAFE-EVALUATION-001`.
+- Decision needed: accepted on `2026-07-11`. `Runtime.hs` owns one private
+  CEK-style control loop shared by pure and host-backed entry points. Closure
+  bodies, selected `if` branches, selected case bodies, terminal block
+  expressions, final qualified-method applications, and imported closures
+  inherit the caller continuation after eager prerequisites complete.
+- Recommended default: preserve current public runtime/module/driver APIs,
+  left-to-right call-by-value semantics, exact diagnostics, runtime hints,
+  captured module paths, and `RuntimeHost` ordering. Keep the evaluator controls
+  interpreter-private; do not introduce bytecode or encode LLVM operations in
   the interpreter.
-- Candidate child: `JN-BOOTSTRAP-STACK-SAFE-EVALUATION-CONTRACT-001`, a
-  curation-only target until those runtime, module, diagnostic, and verification
-  decisions are accepted.
-- Candidate target paths: inspect `jazz-next/src/JazzNext/Compiler/Runtime.hs`,
-  `jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs`,
-  `jazz-next/src/JazzNext/Compiler/Driver.hs`,
-  `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`,
-  `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`, and the approved
-  bootstrap-profile design; a later accepted child plan must name the exact
-  implementation paths.
-- Verification for the curation pass: focused evaluator/module evidence review;
+- Candidate child: `JN-BOOTSTRAP-STACK-SAFE-EVALUATION-001`, the implementation
+  row linked from `Ready Now`.
+- Target paths: `jazz-next/src/JazzNext/Compiler/Runtime.hs`,
+  `jazz-next/test/JazzNext/Compiler/Semantics/Runtime/RecursionTests.hs`,
+  `jazz-next/test/JazzNext/Compiler/Semantics/Runtime/HostIOTests.hs`, and
+  `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`, plus the accepted
+  design, implementation plan, and queue metadata. `ModuleRuntime.hs`,
+  `Driver.hs`, and `RuntimeSemanticsSpec.hs` are verification boundaries rather
+  than planned edits.
+- Verification: 50,000 pure, 20,000 host-path, and 20,000 imported-module tail
+  calls; exact effect-order and diagnostic-parity tests;
+  `cabal test --project-dir=jazz-next runtime-semantics-spec loader-spec --test-show-details=failures`;
+  `bash jazz-next/scripts/test-warning-config.sh`;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.
-- Not in scope: implementing stack-safe evaluation during curation,
-  lexer/parser modules, backend-neutral lowered IR, LLVM lowering, linking, or
-  the native runtime until separately promoted children own those deltas.
+- Not in scope: lexer/parser implementation, bytecode, a VM, backend-neutral
+  lowered IR, LLVM lowering, object emission, linking, or the native runtime
+  until separately promoted children own those deltas.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

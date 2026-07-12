@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-11
 
-**Status:** Approved direction; implementation plan pending document review
+**Status:** Approved on 2026-07-11; implementation plan promoted
 
 **Parent:**
 [`JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001`](2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md)
