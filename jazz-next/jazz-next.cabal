@@ -313,4 +313,5 @@ test-suite runtime-semantics-spec
       JazzNext.Compiler.Semantics.Runtime.NumericTests
       JazzNext.Compiler.Semantics.Runtime.RecursionTests
       JazzNext.Compiler.Semantics.Runtime.RenderingTests
+      JazzNext.Compiler.Semantics.Runtime.ScopeTests
       JazzNext.Compiler.Semantics.Runtime.Shared

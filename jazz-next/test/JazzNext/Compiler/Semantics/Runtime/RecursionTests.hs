@@ -6,6 +6,7 @@ module JazzNext.Compiler.Semantics.Runtime.RecursionTests
 
 import Control.Exception
   ( SomeException,
+    evaluate,
     try
   )
 import Data.Functor.Identity
@@ -24,6 +25,7 @@ import JazzNext.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Literal (..),
+    NumericType (..),
     Pattern (..),
     SignaturePayload (..),
     Statement (..)
@@ -86,6 +88,8 @@ recursionTests =
     , ("tail-recursive case arm is stack safe", testTailRecursiveCaseArmIsStackSafe)
     , ("typed tail-recursive closure preserves result hints", testTypedTailRecursiveClosureIsStackSafe)
     , ("explicitly hinted tail recursion preserves result obligations", testExplicitlyHintedTailRecursionPreservesResultObligations)
+    , ("100,000 explicit result hints render and apply stack safely", testExplicitResultHintsRenderAndApplyStackSafely)
+    , ("mixed explicit result hints preserve order and multiplicity", testMixedExplicitResultHintsPreserveOrderAndMultiplicity)
     , ("pure and host evaluators preserve diagnostic parity", testPureAndHostDiagnosticsMatch)
     , ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError)
     , ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError)
@@ -148,7 +152,8 @@ testTypedTailRecursiveClosureIsStackSafe =
 
 testExplicitlyHintedTailRecursionPreservesResultObligations :: IO ()
 testExplicitlyHintedTailRecursionPreservesResultObligations = do
-  let recursionDepth = 1000
+  let recursionDepth :: Int
+      recursionDepth = 1000
       isZero = EBinary "==" (EVar "remaining") (ELit (LInt 0))
       recurse =
         EApply
@@ -162,23 +167,119 @@ testExplicitlyHintedTailRecursionPreservesResultObligations = do
               (ELambda "remaining" (EIf isZero (ELambda "value" (EVar "value")) recurse)),
             SExpr
               (SourceSpan 3 1)
-              (EApply (EVar "collect") (ELit (LInt recursionDepth)))
+              (EApply (EVar "collect") (ELit (LInt (fromIntegral recursionDepth))))
           ]
   case evaluateRuntimeExpr expression of
     Right (Just runtimeValue) ->
       assertEqual
-        "repeated explicit tail hint wrapper depth"
-        recursionDepth
-        (explicitResultHintDepth runtimeValue)
+        "repeated explicit tail hints in outermost-to-innermost order"
+        (replicate recursionDepth TypeInt)
+        (explicitResultHintTypes runtimeValue)
     Left diagnostic ->
       failTest ("explicitly hinted tail recursion failed: " <> renderDiagnostic diagnostic)
     Right Nothing ->
       failTest "explicitly hinted tail recursion produced no result"
-  where
-    explicitResultHintDepth runtimeValue =
-      case runtimeValue of
-        VExplicitResultHint TypeInt innerValue -> 1 + explicitResultHintDepth innerValue
-        _ -> 0
+
+testExplicitResultHintsRenderAndApplyStackSafely :: IO ()
+testExplicitResultHintsRenderAndApplyStackSafely = do
+  let recursionDepth = 100000
+      callableExpression = explicitlyHintedCallable recursionDepth
+      appliedExpression = EApply callableExpression (ELit (LInt 7))
+  outcome <-
+    try
+      ( timeout
+          30000000
+          ( do
+              callableValue <- requireRuntimeValue "100,000-hint callable" callableExpression
+              let renderedCallable = renderRuntimeValue callableValue
+                  observedHints = explicitResultHintTypes callableValue
+              _ <- evaluate (Text.length renderedCallable)
+              observedCount <- evaluate (length observedHints)
+              allHintsMatch <- evaluate (all (== TypeInt) observedHints)
+              appliedValue <- requireRuntimeValue "100,000-hint application" appliedExpression
+              let renderedAppliedValue = renderRuntimeValue appliedValue
+              _ <- evaluate (Text.length renderedAppliedValue)
+              pure (renderedCallable, observedCount, allHintsMatch, renderedAppliedValue)
+          )
+      )
+      :: IO (Either SomeException (Maybe (Text, Int, Bool, Text)))
+  case outcome of
+    Right Nothing ->
+      failTest "100,000 explicit result hints timed out while rendering or applying"
+    Left err ->
+      failTest ("100,000 explicit result hints leaked host exception: " <> Text.pack (show err))
+    Right (Just (renderedCallable, observedCount, allHintsMatch, renderedAppliedValue)) -> do
+      assertEqual "hinted callable rendering" "<function>" renderedCallable
+      assertEqual "explicit result hint multiplicity" recursionDepth observedCount
+      assertEqual "explicit result hint identity" True allHintsMatch
+      assertEqual "hinted callable application" "7" renderedAppliedValue
+
+testMixedExplicitResultHintsPreserveOrderAndMultiplicity :: IO ()
+testMixedExplicitResultHintsPreserveOrderAndMultiplicity = do
+  let uint8 = TypeNumeric NumericUInt8
+      expression = mixedExplicitlyHintedCallable 6
+  runtimeValue <- requireRuntimeValue "mixed explicit result hints" expression
+  assertEqual
+    "mixed hints remain outermost-to-innermost without deduplication"
+    [uint8, TypeInt, TypeBool, uint8, TypeInt, TypeBool]
+    (explicitResultHintTypes runtimeValue)
+
+mixedExplicitlyHintedCallable :: Int -> Expr
+mixedExplicitlyHintedCallable recursionDepth =
+  let uint8 = TypeNumeric NumericUInt8
+      isZero = EBinary "==" (EVar "remaining") (ELit (LInt 0))
+      decrement = EBinary "-" (EVar "remaining") (ELit (LInt 1))
+      hintedCall functionName line typeHint =
+        EApply
+          (ETypeApplication (EVar functionName) (SourceSpan line 20) typeHint)
+          decrement
+      collect functionName line nextFunctionName typeHint =
+        SLet
+          functionName
+          (SourceSpan line 1)
+          (ELambda "remaining" (EIf isZero (ELambda "value" (EVar "value")) (hintedCall nextFunctionName line typeHint)))
+   in EBlock
+        [ collect "collectUInt8" 1 "collectInt" uint8,
+          collect "collectInt" 2 "collectBool" TypeInt,
+          collect "collectBool" 3 "collectUInt8" TypeBool,
+          SExpr
+            (SourceSpan 4 1)
+            (EApply (EVar "collectUInt8") (ELit (LInt (fromIntegral recursionDepth))))
+        ]
+
+explicitlyHintedCallable :: Int -> Expr
+explicitlyHintedCallable recursionDepth =
+  let isZero = EBinary "==" (EVar "remaining") (ELit (LInt 0))
+      recurse =
+        EApply
+          (ETypeApplication (EVar "collect") (SourceSpan 2 20) TypeInt)
+          (EBinary "-" (EVar "remaining") (ELit (LInt 1)))
+   in EBlock
+        [ SLet
+            "collect"
+            (SourceSpan 1 1)
+            (ELambda "remaining" (EIf isZero (ELambda "value" (EVar "value")) recurse)),
+          SExpr
+            (SourceSpan 3 1)
+            (EApply (EVar "collect") (ELit (LInt (fromIntegral recursionDepth))))
+        ]
+
+requireRuntimeValue :: Text -> Expr -> IO RuntimeValue
+requireRuntimeValue label expression =
+  case evaluateRuntimeExpr expression of
+    Left diagnostic ->
+      failTest (label <> " failed: " <> renderDiagnostic diagnostic)
+    Right Nothing ->
+      failTest (label <> " produced no result")
+    Right (Just runtimeValue) ->
+      pure runtimeValue
+
+explicitResultHintTypes :: RuntimeValue -> [SignatureType]
+explicitResultHintTypes runtimeValue =
+  case runtimeValue of
+    VExplicitResultHint typeHint innerValue ->
+      typeHint : explicitResultHintTypes innerValue
+    _ -> []
 
 assertStackSafeRunResult :: Text -> IO RunResult -> Maybe Text -> IO ()
 assertStackSafeRunResult label action expectedOutput = do
