@@ -165,6 +165,12 @@ data RuntimeValue
   | VTyped SignatureType RuntimeValue
   | VExplicitTypeApplication SignatureType RuntimeValue
   | VExplicitResultHint SignatureType RuntimeValue
+  | VDeferredHostBinding
+      (Maybe [Text])
+      Expr
+      RuntimeEnv
+      (Maybe NumericType)
+      (Maybe SignatureType)
 
 instance Eq RuntimeValue where
   leftValue == rightValue =
@@ -228,6 +234,7 @@ instance Show RuntimeValue where
         "VExplicitTypeApplication " <> show typeHint <> " " <> show innerValue
       VExplicitResultHint typeHint innerValue ->
         "VExplicitResultHint " <> show typeHint <> " " <> show innerValue
+      VDeferredHostBinding {} -> "VDeferredHostBinding <thunk>"
 
 instance Show RuntimeMethodCandidate where
   show (RuntimeMethodCandidate evidence _) =
@@ -272,7 +279,7 @@ evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements hos
             (Just <$> evalValueWithHost host Nothing builtinMode bindingTypeHints Map.empty expr)
     else
       pure
-        ( evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements
+        ( evaluateRuntimeExprPureWithBuiltinsAndBindingHintsAndSourceUnitStatements
             preludeStatementIndices
             builtinMode
             bindingTypeHints
@@ -299,22 +306,23 @@ runtimeExprRequiresHost expr =
       runtimeExprRequiresHost leftExpr || runtimeExprRequiresHost rightExpr
     ESectionLeft leftExpr _ -> runtimeExprRequiresHost leftExpr
     ESectionRight _ rightExpr -> runtimeExprRequiresHost rightExpr
-    EBlock statements -> any statementRequiresHost statements
+    EBlock statements -> any runtimeStatementRequiresHost statements
   where
     caseArmRequiresHost (CaseArm _ maybeGuard bodyExpr) =
       maybe False runtimeExprRequiresHost maybeGuard || runtimeExprRequiresHost bodyExpr
 
-    statementRequiresHost statement =
-      case statement of
-        SLet name _ (EVar referencedName)
-          | identifierText name == identifierText referencedName,
-            runtimeNameRequiresHost name ->
-              False
-        SLet _ _ valueExpr -> runtimeExprRequiresHost valueExpr
-        SImpl _ _ _ methods -> any implMethodRequiresHost methods
-        SExpr _ valueExpr -> runtimeExprRequiresHost valueExpr
-        _ -> False
-
+runtimeStatementRequiresHost :: Statement -> Bool
+runtimeStatementRequiresHost statement =
+  case statement of
+    SLet name _ (EVar referencedName)
+      | identifierText name == identifierText referencedName,
+        runtimeNameRequiresHost name ->
+          False
+    SLet _ _ valueExpr -> runtimeExprRequiresHost valueExpr
+    SImpl _ _ _ methods -> any implMethodRequiresHost methods
+    SExpr _ valueExpr -> runtimeExprRequiresHost valueExpr
+    _ -> False
+  where
     implMethodRequiresHost (ImplMethod _ _ bodyExpr) = runtimeExprRequiresHost bodyExpr
 
 runtimeNameRequiresHost :: Name -> Bool
@@ -350,6 +358,22 @@ evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements ::
   Expr ->
   Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements preludeStatementIndices builtinMode bindingTypeHints expr =
+  runIdentity
+    ( evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements
+        disabledRuntimeHost
+        preludeStatementIndices
+        builtinMode
+        bindingTypeHints
+        expr
+    )
+
+evaluateRuntimeExprPureWithBuiltinsAndBindingHintsAndSourceUnitStatements ::
+  Set Int ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  Expr ->
+  Either Diagnostic (Maybe RuntimeValue)
+evaluateRuntimeExprPureWithBuiltinsAndBindingHintsAndSourceUnitStatements preludeStatementIndices builtinMode bindingTypeHints expr =
   case expr of
     EBlock statements ->
       scopeResultValue
@@ -394,6 +418,7 @@ renderRuntimeValue value =
     VTyped _ innerValue -> renderRuntimeValue innerValue
     VExplicitTypeApplication _ innerValue -> renderRuntimeValue innerValue
     VExplicitResultHint _ innerValue -> renderRuntimeValue innerValue
+    VDeferredHostBinding {} -> "<deferred-host-binding>"
 
 renderQuotedScalar :: Char -> Text
 renderQuotedScalar value =
@@ -3628,7 +3653,7 @@ evalValueWithHost host currentModulePath builtinMode bindingTypeHints env expr =
       case Map.lookup name env of
         Just value ->
           liftRuntimeResult value
-            >>= forceQualifiedMethodValueWithHost host builtinMode bindingTypeHints
+            >>= forceRuntimeValueWithHost host builtinMode bindingTypeHints
         Nothing ->
           case lookupBuiltinSymbolInMode builtinMode (identifierText name) of
             Just builtinFunction -> pure (VBuiltin builtinFunction [])
@@ -3726,8 +3751,14 @@ evalScopeWithHost ::
   [Statement] ->
   ExceptT Diagnostic m ScopeResult
 evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
-  go initialEnv Nothing (zip [0 ..] statements)
+  go initialEnv Nothing indexedStatements
   where
+    indexedStatements = zip [0 ..] statements
+    statementsByIndex = Map.fromList indexedStatements
+    recursiveGroups =
+      inferRecursiveGroupsOrdered
+        (Set.union (Map.keysSet initialEnv) (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode)))
+        indexedStatements
     modulePathsByStatement =
       snd (foldl' collectModulePath (currentModulePath, Map.empty) (zip [0 ..] statements))
 
@@ -3744,49 +3775,181 @@ evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode 
         else Map.findWithDefault currentModulePath statementIndex modulePathsByStatement
 
     go env lastValue [] = pure (ScopeResult env lastValue)
-    go env _ ((statementIndex, statement) : rest) =
-      case statement of
-        SLet name _ valueExpr
-          | exprContainsFunctionBranch valueExpr -> do
-              scopeResult <- liftRuntimeResult (evaluatePureStatement statementIndex env statement)
-              go (scopeResultEnvironment scopeResult) Nothing rest
-          | otherwise -> do
-              value <-
-                evalValueWithHost
-                  host
+    go env _ remaining@((statementIndex, statement) : rest)
+      | not (statementNeedsDirectHostEvaluation statementIndex statement) = do
+          let (pureChunk, remainingAfterChunk) =
+                span
+                  (\(index, chunkStatement) -> not (statementNeedsDirectHostEvaluation index chunkStatement))
+                  remaining
+              chunkPreludeStatementIndices =
+                Set.fromList
+                  [ localIndex
+                    | (localIndex, (globalIndex, _)) <- zip [0 ..] pureChunk,
+                      Set.member globalIndex preludeStatementIndices
+                  ]
+          scopeResult <-
+            liftRuntimeResult
+              ( evaluateModuleScopePureWithSourceUnitStatements
+                  chunkPreludeStatementIndices
                   (modulePathForStatement statementIndex)
+                  evaluationMode
                   builtinMode
                   bindingTypeHints
                   env
-                  valueExpr
-              defaultedValue <- liftRuntimeResult (attachDefaultBindingIntegerTarget value)
-              go (Map.insert name (Right defaultedValue) env) Nothing rest
-        SExpr _ valueExpr ->
-          case evaluationMode of
-            EvaluateDependencyModule -> go env Nothing rest
-            EvaluateEntryModule -> do
-              value <-
-                evalValueWithHost
-                  host
-                  (modulePathForStatement statementIndex)
-                  builtinMode
-                  bindingTypeHints
-                  env
-                  valueExpr
-              go env (Just value) rest
-        _ -> do
-          scopeResult <- liftRuntimeResult (evaluatePureStatement statementIndex env statement)
-          go (scopeResultEnvironment scopeResult) Nothing rest
+                  (map snd pureChunk)
+              )
+          go
+            (scopeResultEnvironment scopeResult)
+            (scopeResultValue scopeResult)
+            remainingAfterChunk
+      | otherwise =
+          case statement of
+            SLet name _ valueExpr ->
+              let bindingModulePath = modulePathForStatement statementIndex
+                  numericTarget = previousSignatureNumericTarget statementIndex name
+                  typeHint = bindingRuntimeTypeHint statementIndex name
+               in case evaluationMode of
+                    EvaluateDependencyModule ->
+                      go
+                        ( Map.insert
+                            name
+                            ( Right
+                                ( VDeferredHostBinding
+                                    bindingModulePath
+                                    valueExpr
+                                    env
+                                    numericTarget
+                                    typeHint
+                                )
+                            )
+                            env
+                        )
+                        Nothing
+                        rest
+                    EvaluateEntryModule -> do
+                      value <-
+                        evalHostBindingValue
+                          host
+                          bindingModulePath
+                          builtinMode
+                          bindingTypeHints
+                          env
+                          valueExpr
+                          numericTarget
+                          typeHint
+                      go (Map.insert name (Right value) env) Nothing rest
+            SExpr _ valueExpr ->
+              case evaluationMode of
+                EvaluateDependencyModule -> go env Nothing rest
+                EvaluateEntryModule -> do
+                  value <-
+                    evalValueWithHost
+                      host
+                      (modulePathForStatement statementIndex)
+                      builtinMode
+                      bindingTypeHints
+                      env
+                      valueExpr
+                  go env (Just value) rest
+            _ ->
+              throwE
+                (runtimeDiagnostic "E3020" "internal runtime error: unsupported direct host statement")
 
-    evaluatePureStatement statementIndex env statement =
-      evaluateModuleScopePureWithSourceUnitStatements
-        Set.empty
-        (modulePathForStatement statementIndex)
-        evaluationMode
-        builtinMode
-        bindingTypeHints
-        env
-        [statement]
+    statementNeedsDirectHostEvaluation statementIndex statement =
+      case statement of
+        SLet _ _ valueExpr ->
+          runtimeExprRequiresHost valueExpr
+            || Map.notMember statementIndex recursiveGroups
+        SExpr {} -> True
+        _ -> False
+
+    previousSignatureNumericTarget statementIndex bindingName =
+      case Map.lookup (statementIndex - 1) statementsByIndex of
+        Just (SSignature signatureName _ signaturePayload)
+          | identifierText signatureName == identifierText bindingName ->
+              hostSignatureNumericTarget signaturePayload
+        _ -> Nothing
+
+    previousSignatureRuntimeTypeHint statementIndex bindingName =
+      case Map.lookup (statementIndex - 1) statementsByIndex of
+        Just (SSignature signatureName _ signaturePayload)
+          | identifierText signatureName == identifierText bindingName ->
+              signaturePayloadConstraintType signaturePayload
+        _ -> Nothing
+
+    bindingRuntimeTypeHint statementIndex bindingName =
+      runtimeConstraintType (modulePathForStatement statementIndex) <$> rawHint
+      where
+        rawHint =
+          case previousSignatureRuntimeTypeHint statementIndex bindingName of
+            Just signatureHint -> Just signatureHint
+            Nothing ->
+              case Map.lookup statementIndex statementsByIndex of
+                Just (SLet _ bindingSpan _) ->
+                  Map.lookup
+                    (bindingRuntimeHintKeyInModule (modulePathForStatement statementIndex) bindingName bindingSpan)
+                    bindingTypeHints
+                _ -> Nothing
+
+hostSignatureNumericTarget :: SignaturePayload -> Maybe NumericType
+hostSignatureNumericTarget signaturePayload =
+  case signaturePayload of
+    SignatureType TypeInt -> Just NumericInt64
+    SignatureType TypeFloat -> Just NumericFloat64
+    SignatureType (TypeNumeric targetType) -> Just targetType
+    ConstrainedSignature _ signatureType -> hostConstraintSignatureNumericTarget signatureType
+    _ -> Nothing
+
+hostConstraintSignatureNumericTarget :: SignatureType -> Maybe NumericType
+hostConstraintSignatureNumericTarget signatureType =
+  case signatureType of
+    TypeInt -> Just NumericInt64
+    TypeFloat -> Just NumericFloat64
+    TypeNumeric numericType -> Just numericType
+    TypeName typeName ->
+      case identifierText typeName of
+        "Int" -> Just NumericInt64
+        "Float" -> Just NumericFloat64
+        typeNameText -> numericTypeFromName typeNameText
+    _ -> Nothing
+
+evalHostBindingValue ::
+  Monad m =>
+  RuntimeHost m ->
+  Maybe [Text] ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  Expr ->
+  Maybe NumericType ->
+  Maybe SignatureType ->
+  ExceptT Diagnostic m RuntimeValue
+evalHostBindingValue host currentModulePath builtinMode bindingTypeHints env valueExpr maybeNumericTarget maybeTypeHint = do
+  value <-
+    case maybeNumericTarget of
+      Just targetType ->
+        evalHostNumericSignatureBinding targetType
+      Nothing ->
+        evalValueWithHost host currentModulePath builtinMode bindingTypeHints env valueExpr
+  liftRuntimeResult
+    ( attachRuntimeTypeHint maybeTypeHint value
+        >>= attachDefaultBindingIntegerTarget
+    )
+  where
+    evalHostNumericSignatureBinding targetType =
+      case valueExpr of
+        ELit (LInt literalValue) ->
+          liftRuntimeResult
+            (convertIntegerToNumericTarget conversionBuiltin targetType literalValue)
+        ELit (LFloat literalValue literalSource _) ->
+          liftRuntimeResult
+            (convertFloatToNumericTarget conversionBuiltin targetType literalValue (Just literalSource))
+        _ -> do
+          runtimeValue <-
+            evalValueWithHost host currentModulePath builtinMode bindingTypeHints env valueExpr
+          liftRuntimeResult (evalNumericConversion conversionBuiltin targetType runtimeValue)
+      where
+        conversionBuiltin = numericConversionBuiltinForTarget targetType
 
 forceQualifiedMethodValueWithHost ::
   Monad m =>
@@ -3801,6 +3964,34 @@ forceQualifiedMethodValueWithHost host builtinMode bindingTypeHints runtimeValue
       applyQualifiedMethodWithHost host builtinMode bindingTypeHints methodKey classParameter methodSignature candidates capturedArgs
     _ -> pure runtimeValue
 
+forceRuntimeValueWithHost ::
+  Monad m =>
+  RuntimeHost m ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeValue ->
+  ExceptT Diagnostic m RuntimeValue
+forceRuntimeValueWithHost host builtinMode bindingTypeHints runtimeValue =
+  case runtimeValue of
+    VDeferredHostBinding currentModulePath valueExpr env maybeNumericTarget maybeTypeHint ->
+      evalHostBindingValue
+        host
+        currentModulePath
+        builtinMode
+        bindingTypeHints
+        env
+        valueExpr
+        maybeNumericTarget
+        maybeTypeHint
+    VTyped typeHint innerValue ->
+      VTyped typeHint <$> forceRuntimeValueWithHost host builtinMode bindingTypeHints innerValue
+    VExplicitTypeApplication typeHint innerValue ->
+      VExplicitTypeApplication typeHint <$> forceRuntimeValueWithHost host builtinMode bindingTypeHints innerValue
+    VExplicitResultHint typeHint innerValue ->
+      VExplicitResultHint typeHint <$> forceRuntimeValueWithHost host builtinMode bindingTypeHints innerValue
+    _ ->
+      forceQualifiedMethodValueWithHost host builtinMode bindingTypeHints runtimeValue
+
 lookupOperatorBindingRuntimeValueWithHost ::
   Monad m =>
   RuntimeHost m ->
@@ -3813,7 +4004,7 @@ lookupOperatorBindingRuntimeValueWithHost host builtinMode bindingTypeHints oper
   case Map.lookup (operatorBindingName operatorSymbol) env of
     Just value ->
       liftRuntimeResult value
-        >>= forceQualifiedMethodValueWithHost host builtinMode bindingTypeHints
+        >>= forceRuntimeValueWithHost host builtinMode bindingTypeHints
     Nothing ->
       throwE
         (runtimeDiagnostic "E3002" ("runtime unbound operator binding '(" <> operatorSymbol <> ")'"))
@@ -3873,6 +4064,15 @@ applyRuntimeFunctionWithHost ::
   ExceptT Diagnostic m RuntimeValue
 applyRuntimeFunctionWithHost host builtinMode bindingTypeHints functionValue argumentValue =
   case functionValue of
+    VDeferredHostBinding {} -> do
+      forcedFunctionValue <-
+        forceRuntimeValueWithHost host builtinMode bindingTypeHints functionValue
+      applyRuntimeFunctionWithHost
+        host
+        builtinMode
+        bindingTypeHints
+        forcedFunctionValue
+        argumentValue
     VExplicitTypeApplication typeHint innerFunctionValue ->
       case explicitTypeApplicationRuntimeFunctionHint typeHint innerFunctionValue of
         Just instantiatedFunctionHint ->
@@ -4129,6 +4329,7 @@ renderRuntimeType value =
     VTyped _ innerValue -> renderRuntimeType innerValue
     VExplicitTypeApplication _ innerValue -> renderRuntimeType innerValue
     VExplicitResultHint _ innerValue -> renderRuntimeType innerValue
+    VDeferredHostBinding {} -> "Deferred"
 
 constructorIsSaturated :: [DataConstructorArgument] -> [RuntimeValue] -> Bool
 constructorIsSaturated constructorArguments capturedArgs =

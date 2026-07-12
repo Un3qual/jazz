@@ -12,6 +12,7 @@ import Control.Monad.Trans.State.Strict
 import Control.Exception (finally)
 import qualified Data.ByteString as ByteString
 import Data.Functor.Identity (Identity (..))
+import Data.Either (isRight)
 import Data.IORef
   ( IORef,
     newIORef,
@@ -20,14 +21,19 @@ import Data.IORef
   )
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import JazzNext.Compiler.AST
   ( CaseArm (..),
     Expr (..),
     Literal (..),
+    NumericType (..),
     Pattern (..),
+    SignaturePayload (..),
     SignatureType (..),
     Statement (..)
   )
+import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (..))
 import JazzNext.Compiler.Diagnostics (SourceSpan (..))
 import JazzNext.Compiler.Driver
   ( RunResult (..),
@@ -35,9 +41,13 @@ import JazzNext.Compiler.Driver
   )
 import JazzNext.Compiler.Name (Name)
 import JazzNext.Compiler.Runtime
-  ( RuntimeValue (..),
+  ( ModuleEvaluationMode (..),
+    RuntimeValue (..),
+    evaluateModuleScopeWithRequiredHost,
     evaluateRuntimeExpr,
-    evaluateRuntimeExprWithHost
+    evaluateRuntimeExprWithHost,
+    renderRuntimeValue,
+    runtimeValueExactlyMatchesConstraint
   )
 import JazzNext.Compiler.RuntimeHost
   ( HostIOCategory (..),
@@ -69,6 +79,11 @@ hostIOTests =
     ("host intrinsics return raw values and preserve call order", testHostIntrinsicsReturnRawValues),
     ("host failures normalize every category", testHostFailuresNormalizeEveryCategory),
     ("host effects execute at selected expression depth", testHostEffectsExecuteAtSelectedExpressionDepth),
+    ("host-dependent function selectors use the injected host", testHostDependentFunctionSelector),
+    ("host scopes preserve mutually recursive functions", testHostScopePreservesMutualRecursion),
+    ("host scopes preserve binding signature hints", testHostScopePreservesBindingSignatureHints),
+    ("host dependency scopes keep unused bindings lazy", testHostDependencyScopeKeepsUnusedBindingLazy),
+    ("direct runtime wrappers normalize disabled host calls", testDirectRuntimeWrapperUsesDisabledHost),
     ("exit rejects statuses outside the portable range", testExitRejectsInvalidStatus),
     ("standalone source execution injects its runtime host", testStandaloneSourceInjectsRuntimeHost),
     ("production host round trips multibyte UTF-8", testProductionHostRoundTripsUtf8),
@@ -204,6 +219,99 @@ testHostEffectsExecuteAtSelectedExpressionDepth = do
       WriteStdoutCall "block"
     ]
     calls
+
+testHostDependentFunctionSelector :: IO ()
+testHostDependentFunctionSelector = do
+  let selector =
+        EBinary
+          "=="
+          (hostCall "__kernel_arguments!" [ETuple []])
+          (EList [ELit (LText "one"), ELit (LText "two")])
+      expression =
+        EBlock
+          [ SLet
+              "choose!"
+              (SourceSpan 1 1)
+              ( EIf
+                  selector
+                  (ELambda "ignored" (ELit (LInt 1)))
+                  (ELambda "ignored" (ELit (LInt 2)))
+              ),
+            SExpr (SourceSpan 2 1) (EApply (EVar "choose!") (ETuple []))
+          ]
+      (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+  assertEqual "host-selected closure result" (Right (Just "1")) (fmap (fmap renderRuntimeValue) result)
+  assertEqual "host selector call" [ArgumentsCall] calls
+
+testHostScopePreservesMutualRecursion :: IO ()
+testHostScopePreservesMutualRecursion = do
+  let decrement name = EApply (EVar name) (EBinary "-" (EVar "value") (ELit (LInt 1)))
+      isZero = EBinary "==" (EVar "value") (ELit (LInt 0))
+      expression =
+        EBlock
+          [ SLet
+              "even"
+              (SourceSpan 1 1)
+              (ELambda "value" (EIf isZero (ELit (LBool True)) (decrement "odd"))),
+            SLet
+              "odd"
+              (SourceSpan 2 1)
+              (ELambda "value" (EIf isZero (ELit (LBool False)) (decrement "even"))),
+            SExpr (SourceSpan 3 1) (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "once")]),
+            SExpr (SourceSpan 4 1) (EApply (EVar "even") (ELit (LInt 4)))
+          ]
+      (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+  assertEqual "mutually recursive result" (Right (Just (VBool True))) result
+  assertEqual "unrelated host call" [WriteStdoutCall "once"] calls
+
+testHostScopePreservesBindingSignatureHints :: IO ()
+testHostScopePreservesBindingSignatureHints = do
+  let expression =
+        EBlock
+          [ SSignature "value" (SourceSpan 1 1) (SignatureType (TypeNumeric NumericInt8)),
+            SLet "value" (SourceSpan 2 1) (ELit (LInt 1)),
+            SExpr (SourceSpan 3 1) (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "once")]),
+            SExpr (SourceSpan 4 1) (EVar "value")
+          ]
+      (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+  assertEqual "signature host call" [WriteStdoutCall "once"] calls
+  case result of
+    Right (Just value) ->
+      assertEqual
+        "host scope keeps Int8 runtime hint"
+        True
+        (runtimeValueExactlyMatchesConstraint (TypeNumeric NumericInt8) value)
+    _ -> assertEqual "host scope produces signed value" True False
+
+testHostDependencyScopeKeepsUnusedBindingLazy :: IO ()
+testHostDependencyScopeKeepsUnusedBindingLazy = do
+  let statements =
+        [ SLet
+            "unused!"
+            (SourceSpan 1 1)
+            (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "unused")])
+        ]
+      (result, calls) =
+        runState
+          ( evaluateModuleScopeWithRequiredHost
+              statefulHost
+              Nothing
+              EvaluateDependencyModule
+              ResolveKernelOnly
+              Map.empty
+              Map.empty
+              statements
+          )
+          []
+  assertEqual "dependency scope result" True (isRight result)
+  assertEqual "unused dependency host calls" [] calls
+
+testDirectRuntimeWrapperUsesDisabledHost :: IO ()
+testDirectRuntimeWrapperUsesDisabledHost =
+  assertEqual
+    "disabled host raw failure"
+    (Right (Just (rawFailure HostUnsupported)))
+    (evaluateRuntimeExpr (hostCall "__kernel_readTextRaw!" [ELit (LText "disabled.jz")]))
 
 testExitRejectsInvalidStatus :: IO ()
 testExitRejectsInvalidStatus = do
