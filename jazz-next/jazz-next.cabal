@@ -253,6 +253,7 @@ test-suite binding-signature-coherence-spec
       JazzNext.Compiler.Semantics.BindingSignature.ConstraintsTests
       JazzNext.Compiler.Semantics.BindingSignature.DiagnosticsTests
       JazzNext.Compiler.Semantics.BindingSignature.GeneralizationTests
+      JazzNext.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
       JazzNext.Compiler.Semantics.BindingSignature.RecursionTests
       JazzNext.Compiler.Semantics.BindingSignature.Shared
 

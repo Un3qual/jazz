@@ -7,10 +7,11 @@ import JazzNext.Compiler.Semantics.BindingSignature.GeneralizationTests (general
 import JazzNext.Compiler.Semantics.BindingSignature.ConstraintsTests (constraintTests)
 import JazzNext.Compiler.Semantics.BindingSignature.RecursionTests (recursionTests)
 import JazzNext.Compiler.Semantics.BindingSignature.DiagnosticsTests (diagnosticTests)
+import JazzNext.Compiler.Semantics.BindingSignature.InferenceOwnershipTests (inferenceOwnershipTests)
 import JazzNext.TestHarness (NamedTest, runTestSuite)
 
 main :: IO ()
 main = runTestSuite "BindingSignatureCoherence" tests
 
 tests :: [NamedTest]
-tests = basicTests ++ generalizationTests ++ constraintTests ++ recursionTests ++ diagnosticTests
+tests = basicTests ++ generalizationTests ++ constraintTests ++ recursionTests ++ diagnosticTests ++ inferenceOwnershipTests
