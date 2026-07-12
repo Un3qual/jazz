@@ -90,7 +90,10 @@ import JazzNext.Compiler.TypeInference.State
     inferRigidTypeVars,
     inferRuntimeTypeHints,
     inferRuntimeHintPath,
-    inferStrictEqualityVars
+    inferStrictEqualityVars,
+    modifyDeclarationState,
+    modifyInferenceOutput,
+    modifyModuleInferenceState
   )
 import JazzNext.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
@@ -128,18 +131,6 @@ inferExprTypeWithExpected inferExpression builtinMode env state expectedType exp
               )
             Nothing -> (Nothing, stateAfterBody)
     _ -> inferExpression builtinMode env state expr
-
-modifyDeclarationState :: (DeclarationState -> DeclarationState) -> InferState -> InferState
-modifyDeclarationState update state =
-  state {inferDeclarations = update (inferDeclarations state)}
-
-modifyInferenceOutput :: (InferenceOutput -> InferenceOutput) -> InferState -> InferState
-modifyInferenceOutput update state =
-  state {inferOutput = update (inferOutput state)}
-
-modifyModuleInferenceState :: (ModuleInferenceState -> ModuleInferenceState) -> InferState -> InferState
-modifyModuleInferenceState update state =
-  state {inferModule = update (inferModule state)}
 
 setStatementRuntimeHintPath :: Set Int -> Int -> InferState -> InferState
 setStatementRuntimeHintPath preludeStatementIndices statementIndex state =

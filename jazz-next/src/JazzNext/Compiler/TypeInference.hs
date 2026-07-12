@@ -97,7 +97,8 @@ import JazzNext.Compiler.TypeInference.State
     inferRigidTypeVars,
     inferRuntimeTypeHints,
     inferVisibleTypes,
-    initialInferState
+    initialInferState,
+    modifyInferenceOutput
   )
 import JazzNext.Compiler.TypeInference.Solver
   ( addNumericTypeVarConstraint,
@@ -320,10 +321,6 @@ declaredModuleNames expression =
 
 inferExpressionDefault :: Expr -> IO InferenceResult
 inferExpressionDefault = inferExpression defaultWarningSettings
-
-modifyInferenceOutput :: (InferenceOutput -> InferenceOutput) -> InferState -> InferState
-modifyInferenceOutput update state =
-  state {inferOutput = update (inferOutput state)}
 
 instantiateEnvBinding :: TypeBinding -> InferState -> (Maybe ExpressionType, InferState)
 instantiateEnvBinding binding state =

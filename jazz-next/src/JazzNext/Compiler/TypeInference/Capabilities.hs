@@ -139,6 +139,9 @@ import JazzNext.Compiler.TypeInference.State
     inferInferredClassConstraints,
     inferModuleCapabilityFacts,
     initialInferState,
+    modifyDeclarationState,
+    modifyInferenceOutput,
+    modifyModuleInferenceState
   )
 import qualified JazzNext.Compiler.TypeInference.Signature as Signature
 import JazzNext.Compiler.TypeInference.Solver
@@ -466,18 +469,6 @@ seedImplMethodFacts capabilityName arguments methods facts =
             acc
     _ -> facts
 
-
-modifyDeclarationState :: (DeclarationState -> DeclarationState) -> InferState -> InferState
-modifyDeclarationState update state =
-  state {inferDeclarations = update (inferDeclarations state)}
-
-modifyModuleInferenceState :: (ModuleInferenceState -> ModuleInferenceState) -> InferState -> InferState
-modifyModuleInferenceState update state =
-  state {inferModule = update (inferModule state)}
-
-modifyInferenceOutput :: (InferenceOutput -> InferenceOutput) -> InferState -> InferState
-modifyInferenceOutput update state =
-  state {inferOutput = update (inferOutput state)}
 
 builtinDollarOperatorExpr :: TypeEnv -> Expr -> Bool
 builtinDollarOperatorExpr env expr =

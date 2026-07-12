@@ -22,7 +22,7 @@ import JazzNext.Compiler.TypeInference.Diagnostics
 import JazzNext.Compiler.TypeInference.Solver
   ( combineIntegerLiteralRanges, freshTypeVar, integerLiteralRangeFitsNumericType, resolveType, unifyTypes )
 import JazzNext.Compiler.TypeInference.State
-  ( InferState (..), InferenceOutput (..), inferErrorCount, inferErrorsRev )
+  ( InferState (..), InferenceOutput (..), inferErrorCount, inferErrorsRev, modifyInferenceOutput )
 import JazzNext.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..), ExpressionType (..), IntegerLiteralRange (..), TypeBinding (..), TypeEnv )
 
@@ -707,7 +707,3 @@ mergeIntegerLiteralRanges leftType rightType =
         (mergeIntegerLiteralRanges leftInputType rightInputType)
         (mergeIntegerLiteralRanges leftOutputType rightOutputType)
     _ -> leftType
-
-modifyInferenceOutput :: (InferenceOutput -> InferenceOutput) -> InferState -> InferState
-modifyInferenceOutput update state =
-  state {inferOutput = update (inferOutput state)}

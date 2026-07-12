@@ -101,7 +101,8 @@ import JazzNext.Compiler.TypeInference.State
     inferErrorCount,
     inferErrorsRev,
     inferClassFacts,
-    inferConcreteImplFacts
+    inferConcreteImplFacts,
+    modifyInferenceOutput
   )
 import qualified JazzNext.Compiler.TypeInference.Signature as Signature
 import JazzNext.Compiler.TypeInference.Types
@@ -143,9 +144,6 @@ annotateNewErrorsWithPrimarySpan spanValue previousState nextState =
         Nothing -> setDiagnosticPrimarySpan spanValue diagnostic
 
     diagnosticPrimary = diagnosticPrimarySpan
-
-modifyInferenceOutput :: (InferenceOutput -> InferenceOutput) -> InferState -> InferState
-modifyInferenceOutput update state = state {inferOutput = update (inferOutput state)}
 
 mkNumericBinaryTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
 mkNumericBinaryTypeError = mkBinaryTypeError
