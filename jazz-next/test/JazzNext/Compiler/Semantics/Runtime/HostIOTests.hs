@@ -50,6 +50,7 @@ import JazzNext.Compiler.Runtime
     evaluateModuleScopeWithRequiredHost,
     evaluateRuntimeExpr,
     evaluateRuntimeExprWithHost,
+    prependRuntimeExplicitResultHint,
     renderRuntimeValue,
     runtimeValueExactlyMatchesConstraint
   )
@@ -563,7 +564,7 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
       stackedFunction =
         VTyped
           (TypeFunction TypeInt TypeInt)
-          (VExplicitResultHint (TypeNumeric NumericUInt8) identityClosure)
+          (prependRuntimeExplicitResultHint (TypeNumeric NumericUInt8) identityClosure)
       statements =
         [ SExpr
             (SourceSpan 1 1)

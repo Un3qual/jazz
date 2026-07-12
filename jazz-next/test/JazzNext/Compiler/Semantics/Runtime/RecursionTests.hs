@@ -53,6 +53,7 @@ import JazzNext.Compiler.Runtime
     evaluateRuntimeExprWithBuiltinsAndBindingHints,
     evaluateRuntimeExprWithHost,
     renderRuntimeValue,
+    runtimeExplicitResultHintsInOrder,
     runtimeValueExactlyMatchesConstraint
   )
 import JazzNext.Compiler.RuntimeHost
@@ -174,7 +175,7 @@ testExplicitlyHintedTailRecursionPreservesResultObligations = do
       assertEqual
         "repeated explicit tail hints in outermost-to-innermost order"
         (replicate recursionDepth TypeInt)
-        (explicitResultHintTypes runtimeValue)
+        (runtimeExplicitResultHintsInOrder runtimeValue)
     Left diagnostic ->
       failTest ("explicitly hinted tail recursion failed: " <> renderDiagnostic diagnostic)
     Right Nothing ->
@@ -192,7 +193,7 @@ testExplicitResultHintsRenderAndApplyStackSafely = do
           ( do
               callableValue <- requireRuntimeValue "100,000-hint callable" callableExpression
               let renderedCallable = renderRuntimeValue callableValue
-                  observedHints = explicitResultHintTypes callableValue
+                  observedHints = runtimeExplicitResultHintsInOrder callableValue
               _ <- evaluate (Text.length renderedCallable)
               observedCount <- evaluate (length observedHints)
               allHintsMatch <- evaluate (all (== TypeInt) observedHints)
@@ -222,7 +223,7 @@ testMixedExplicitResultHintsPreserveOrderAndMultiplicity = do
   assertEqual
     "mixed hints remain outermost-to-innermost without deduplication"
     [uint8, TypeInt, TypeBool, uint8, TypeInt, TypeBool]
-    (explicitResultHintTypes runtimeValue)
+    (runtimeExplicitResultHintsInOrder runtimeValue)
 
 mixedExplicitlyHintedCallable :: Int -> Expr
 mixedExplicitlyHintedCallable recursionDepth =
@@ -273,13 +274,6 @@ requireRuntimeValue label expression =
       failTest (label <> " produced no result")
     Right (Just runtimeValue) ->
       pure runtimeValue
-
-explicitResultHintTypes :: RuntimeValue -> [SignatureType]
-explicitResultHintTypes runtimeValue =
-  case runtimeValue of
-    VExplicitResultHint typeHint innerValue ->
-      typeHint : explicitResultHintTypes innerValue
-    _ -> []
 
 assertStackSafeRunResult :: Text -> IO RunResult -> Maybe Text -> IO ()
 assertStackSafeRunResult label action expectedOutput = do

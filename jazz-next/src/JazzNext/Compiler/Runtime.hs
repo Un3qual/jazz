@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Small interpreter/runtime for the currently-supported core language. It is
 -- intentionally simple and mirrors the same builtin/operator contracts enforced
@@ -9,6 +10,10 @@ module JazzNext.Compiler.Runtime
     RuntimeEnv,
     RuntimeHostEvaluationT,
     RuntimeValue (..),
+    RuntimeExplicitResultHints,
+    pattern VExplicitResultHints,
+    prependRuntimeExplicitResultHint,
+    runtimeExplicitResultHintsInOrder,
     ScopeResult (..),
     evaluateModuleScope,
     evaluateRuntimeExprWithBuiltinsAndBindingHints,
@@ -147,8 +152,14 @@ import JazzNext.Compiler.Runtime.Types
     RuntimeHostEvaluationT,
     RuntimeIntMetadata (..),
     RuntimeMethodCandidate (..),
+    RuntimeExplicitResultHints,
     RuntimeValue (..),
     ScopeResult (..),
+    attachRuntimeExplicitResultHints,
+    foldRuntimeExplicitResultHints,
+    pattern VExplicitResultHints,
+    prependRuntimeExplicitResultHint,
+    runtimeExplicitResultHintsInOrder,
     runtimeEvidenceTarget
   )
 import JazzNext.Compiler.RuntimeHints
@@ -356,7 +367,7 @@ renderRuntimeValue value =
     VQualifiedMethod {} -> "<function>"
     VTyped _ innerValue -> renderRuntimeValue innerValue
     VExplicitTypeApplication _ innerValue -> renderRuntimeValue innerValue
-    VExplicitResultHint _ innerValue -> renderRuntimeValue innerValue
+    VExplicitResultHints _ innerValue -> renderRuntimeValue innerValue
     VDeferredHostBinding {} -> "<deferred-host-binding>"
 
 renderQuotedScalar :: Char -> Text
@@ -1029,8 +1040,8 @@ evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentM
               go rest
 
     caseArmBoundNames :: CaseArm -> Set Name
-    caseArmBoundNames (CaseArm pattern _ _) =
-      patternBinderNames pattern
+    caseArmBoundNames (CaseArm casePattern _ _) =
+      patternBinderNames casePattern
 
     -- Single-expression blocks are semantically transparent here, so peel
     -- them before following recursive alias edges and cycle detection.
@@ -1413,7 +1424,7 @@ applyRuntimeTypeHint typeHint runtimeValue =
       applyRuntimeTypeHint typeHint innerValue
     VExplicitTypeApplication _ innerValue ->
       applyRuntimeTypeHint typeHint innerValue
-    VExplicitResultHint _ innerValue ->
+    VExplicitResultHints _ innerValue ->
       applyRuntimeTypeHint typeHint innerValue
     _ ->
       case (typeHint, runtimeValue) of
@@ -1596,15 +1607,15 @@ matchCaseArm ::
   RuntimeValue ->
   CaseArm ->
   Maybe (RuntimeEnv, Maybe Expr, Expr)
-matchCaseArm currentModulePath env scrutineeValue (CaseArm pattern guardExpr bodyExpr) =
-  case matchPattern currentModulePath scrutineeValue pattern of
+matchCaseArm currentModulePath env scrutineeValue (CaseArm casePattern guardExpr bodyExpr) =
+  case matchPattern currentModulePath scrutineeValue casePattern of
     Just patternBindings ->
       Just (Map.union patternBindings env, guardExpr, bodyExpr)
     Nothing -> Nothing
 
 matchPattern :: Maybe [Text] -> RuntimeValue -> Pattern -> Maybe RuntimeEnv
-matchPattern currentModulePath scrutineeValue pattern =
-  case pattern of
+matchPattern currentModulePath scrutineeValue casePattern =
+  case casePattern of
     PWildcard -> Just Map.empty
     PVariable name ->
       Just
@@ -1641,8 +1652,8 @@ matchPattern currentModulePath scrutineeValue pattern =
           | length elements == length patterns ->
               matchPatternList currentModulePath elements patterns
         _ -> Nothing
-    PAs name pattern -> do
-      patternBindings <- matchPattern currentModulePath scrutineeValue pattern
+    PAs name nestedPattern -> do
+      patternBindings <- matchPattern currentModulePath scrutineeValue nestedPattern
       Just (Map.insert name (Right scrutineeValue) patternBindings)
     POr alternatives ->
       matchFirstAlternative currentModulePath scrutineeValue alternatives
@@ -1660,8 +1671,8 @@ matchPatternList :: Maybe [Text] -> [RuntimeValue] -> [Pattern] -> Maybe Runtime
 matchPatternList currentModulePath values patterns =
   foldM step Map.empty (zip values patterns)
   where
-    step bindings (value, pattern) =
-      case matchPattern currentModulePath value pattern of
+    step bindings (value, elementPattern) =
+      case matchPattern currentModulePath value elementPattern of
         Just patternBindings -> Just (patternBindings `Map.union` bindings)
         Nothing -> Nothing
 
@@ -1670,7 +1681,7 @@ constructorPatternScrutinee runtimeValue =
   case runtimeValue of
     VTyped _ innerValue -> constructorPatternScrutinee innerValue
     VExplicitTypeApplication _ innerValue -> constructorPatternScrutinee innerValue
-    VExplicitResultHint _ innerValue -> constructorPatternScrutinee innerValue
+    VExplicitResultHints _ innerValue -> constructorPatternScrutinee innerValue
     _ -> runtimeValue
 
 -- | Apply any callable runtime value, including sections, builtin primitives,
@@ -1713,7 +1724,7 @@ applyRuntimeFunctionArgumentHint typeHint runtimeValue =
 applyExplicitTypeApplicationResultHint :: SignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyExplicitTypeApplicationResultHint typeHint runtimeValue
   | isFunctionValue runtimeValue =
-      Right (VExplicitResultHint typeHint runtimeValue)
+      Right (prependRuntimeExplicitResultHint typeHint runtimeValue)
   | runtimeValueCanAcceptTypeHint typeHint runtimeValue =
       applyRuntimeTypeHint typeHint runtimeValue
   | otherwise =
@@ -1726,7 +1737,7 @@ runtimeValueCanAcceptTypeHint typeHint runtimeValue =
       runtimeValueCanAcceptTypeHint typeHint innerValue
     VExplicitTypeApplication _ innerValue ->
       runtimeValueCanAcceptTypeHint typeHint innerValue
-    VExplicitResultHint _ innerValue ->
+    VExplicitResultHints _ innerValue ->
       runtimeValueCanAcceptTypeHint typeHint innerValue
     _ ->
       case (typeHint, runtimeValue) of
@@ -1786,7 +1797,7 @@ explicitTypeApplicationRuntimeShapeHint typeHint runtimeValue =
       explicitTypeApplicationRuntimeShapeHint typeHint innerValue
     VExplicitTypeApplication _ innerValue ->
       explicitTypeApplicationRuntimeShapeHint typeHint innerValue
-    VExplicitResultHint _ innerValue ->
+    VExplicitResultHints _ innerValue ->
       explicitTypeApplicationRuntimeShapeHint typeHint innerValue
     VList {} ->
       Just (TypeList typeHint)
@@ -1803,7 +1814,7 @@ runtimeValueSignatureHint runtimeValue =
       Just typeHint
     VExplicitTypeApplication _ innerValue ->
       runtimeValueSignatureHint innerValue
-    VExplicitResultHint _ innerValue ->
+    VExplicitResultHints _ innerValue ->
       runtimeValueSignatureHint innerValue
     VClosure _ _ _ _ maybeTypeHint _ ->
       maybeTypeHint
@@ -1889,7 +1900,7 @@ runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
   case runtimeValue of
     VExplicitTypeApplication _ innerValue ->
       runtimeValueExactlyMatchesConstraint signatureType innerValue
-    VExplicitResultHint _ innerValue ->
+    VExplicitResultHints _ innerValue ->
       runtimeValueExactlyMatchesConstraint signatureType innerValue
     VTyped typeHint _ ->
       typeHint == signatureType
@@ -1987,7 +1998,7 @@ runtimeValueMatchesConstraint signatureType runtimeValue =
   case runtimeValue of
     VExplicitTypeApplication _ innerValue ->
       runtimeValueMatchesConstraint signatureType innerValue
-    VExplicitResultHint _ innerValue ->
+    VExplicitResultHints _ innerValue ->
       runtimeValueMatchesConstraint signatureType innerValue
     VTyped typeHint _ ->
       constraintSignatureTypesCompatible typeHint signatureType
@@ -2387,7 +2398,7 @@ evalNumericConversion builtinFunction targetType value =
   case value of
     VExplicitTypeApplication _ innerValue ->
       evalNumericConversion builtinFunction targetType innerValue
-    VExplicitResultHint _ innerValue ->
+    VExplicitResultHints _ innerValue ->
       evalNumericConversion builtinFunction targetType innerValue
     VTyped _ innerValue ->
       evalNumericConversion builtinFunction targetType innerValue
@@ -2611,7 +2622,7 @@ runtimeFunctionResultType runtimeValue =
   case runtimeValue of
     VExplicitTypeApplication _ innerValue ->
       runtimeFunctionResultType innerValue
-    VExplicitResultHint _ innerValue ->
+    VExplicitResultHints _ innerValue ->
       runtimeFunctionResultType innerValue
     VTyped (TypeFunction _ resultType) _ ->
       Just resultType
@@ -2671,8 +2682,8 @@ attachDefaultBindingIntegerTarget runtimeValue =
           VTyped typeHint <$> attachDefaultBindingIntegerTarget innerValue
     VExplicitTypeApplication typeHint innerValue ->
       VExplicitTypeApplication typeHint <$> attachDefaultBindingIntegerTarget innerValue
-    VExplicitResultHint typeHint innerValue ->
-      VExplicitResultHint typeHint <$> attachDefaultBindingIntegerTarget innerValue
+    VExplicitResultHints hints innerValue ->
+      attachRuntimeExplicitResultHints hints <$> attachDefaultBindingIntegerTarget innerValue
     _ ->
       Right runtimeValue
 
@@ -2680,7 +2691,7 @@ isFunctionValue :: RuntimeValue -> Bool
 isFunctionValue value =
   case value of
     VExplicitTypeApplication _ innerValue -> isFunctionValue innerValue
-    VExplicitResultHint _ innerValue -> isFunctionValue innerValue
+    VExplicitResultHints _ innerValue -> isFunctionValue innerValue
     VTyped _ innerValue -> isFunctionValue innerValue
     VSectionLeft {} -> True
     VSectionRight {} -> True
@@ -3170,7 +3181,7 @@ runtimeValueContainsFunction value =
           runtimeValueContainsFunction innerValue
         VExplicitTypeApplication _ innerValue ->
           runtimeValueContainsFunction innerValue
-        VExplicitResultHint _ innerValue ->
+        VExplicitResultHints _ innerValue ->
           runtimeValueContainsFunction innerValue
         _ ->
           False
@@ -3182,9 +3193,9 @@ runtimeStructuralEquality leftValue rightValue =
       runtimeStructuralEquality leftInnerValue rightValue
     (_, VExplicitTypeApplication _ rightInnerValue) ->
       runtimeStructuralEquality leftValue rightInnerValue
-    (VExplicitResultHint _ leftInnerValue, _) ->
+    (VExplicitResultHints _ leftInnerValue, _) ->
       runtimeStructuralEquality leftInnerValue rightValue
-    (_, VExplicitResultHint _ rightInnerValue) ->
+    (_, VExplicitResultHints _ rightInnerValue) ->
       runtimeStructuralEquality leftValue rightInnerValue
     (VTyped leftTypeHint leftInnerValue, VTyped rightTypeHint rightInnerValue)
       | constraintSignatureTypesCompatible leftTypeHint rightTypeHint ->
@@ -3569,10 +3580,18 @@ stepEvaluationMachine host builtinMode bindingTypeHints machine =
               continueWith
                 (ApplyCallable innerFunctionValue argumentValue)
                 (appendRuntimeResultObligation (ApplyExplicitResultHint typeHint) machine)
-        VExplicitResultHint typeHint innerFunctionValue ->
+        VExplicitResultHints hints innerFunctionValue ->
           continueWith
             (ApplyCallable innerFunctionValue argumentValue)
-            (appendRuntimeResultObligation (ApplyExplicitResultHint typeHint) machine)
+            ( foldRuntimeExplicitResultHints
+                (\hintedMachine typeHint ->
+                    appendRuntimeResultObligation
+                      (ApplyExplicitResultHint typeHint)
+                      hintedMachine
+                )
+                machine
+                hints
+            )
         VTyped typeHint innerFunctionValue -> do
           hintedArgumentValue <-
             liftRuntimeResult (applyRuntimeFunctionArgumentHint typeHint argumentValue)
@@ -4382,8 +4401,9 @@ forceRuntimeValueWithHost host builtinMode bindingTypeHints runtimeValue =
       VTyped typeHint <$> forceRuntimeValueWithHost host builtinMode bindingTypeHints innerValue
     VExplicitTypeApplication typeHint innerValue ->
       VExplicitTypeApplication typeHint <$> forceRuntimeValueWithHost host builtinMode bindingTypeHints innerValue
-    VExplicitResultHint typeHint innerValue ->
-      VExplicitResultHint typeHint <$> forceRuntimeValueWithHost host builtinMode bindingTypeHints innerValue
+    VExplicitResultHints hints innerValue ->
+      attachRuntimeExplicitResultHints hints
+        <$> forceRuntimeValueWithHost host builtinMode bindingTypeHints innerValue
     _ ->
       forceQualifiedMethodValueWithHost host builtinMode bindingTypeHints runtimeValue
 
@@ -4525,7 +4545,7 @@ runtimeHostExitStatus runtimeValue =
     VInt status _ -> Just status
     VTyped _ innerValue -> runtimeHostExitStatus innerValue
     VExplicitTypeApplication _ innerValue -> runtimeHostExitStatus innerValue
-    VExplicitResultHint _ innerValue -> runtimeHostExitStatus innerValue
+    VExplicitResultHints _ innerValue -> runtimeHostExitStatus innerValue
     _ -> Nothing
 
 filterElementsWithHost ::
@@ -4603,7 +4623,7 @@ renderRuntimeType value =
     VQualifiedMethod {} -> "Function"
     VTyped _ innerValue -> renderRuntimeType innerValue
     VExplicitTypeApplication _ innerValue -> renderRuntimeType innerValue
-    VExplicitResultHint _ innerValue -> renderRuntimeType innerValue
+    VExplicitResultHints _ innerValue -> renderRuntimeType innerValue
     VDeferredHostBinding {} -> "Deferred"
 
 constructorIsSaturated :: [DataConstructorArgument] -> [RuntimeValue] -> Bool

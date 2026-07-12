@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Cycle-breaking runtime data shared by the evaluator and pure semantics.
 module JazzNext.Compiler.Runtime.Types
@@ -12,7 +13,32 @@ module JazzNext.Compiler.Runtime.Types
     DeferredHostBindingState (..),
     RuntimeHostEvaluationState (..),
     RuntimeHostEvaluationT,
-    RuntimeValue (..),
+    RuntimeExplicitResultHints,
+    RuntimeValue
+      ( VInt,
+        VFloat,
+        VBool,
+        VChar,
+        VText,
+        VList,
+        VTuple,
+        VClosure,
+        VBuiltin,
+        VOperator,
+        VSectionLeft,
+        VSectionRight,
+        VConstructor,
+        VQualifiedMethod,
+        VTyped,
+        VExplicitTypeApplication,
+        VDeferredHostBinding
+      ),
+    pattern VExplicitResultHints,
+    prependRuntimeExplicitResultHint,
+    attachRuntimeExplicitResultHints,
+    runtimeExplicitResultHintsView,
+    runtimeExplicitResultHintsInOrder,
+    foldRuntimeExplicitResultHints,
     RuntimeCell,
     RuntimeEnv,
     ScopeResult (..),
@@ -20,7 +46,10 @@ module JazzNext.Compiler.Runtime.Types
   ) where
 
 import Control.Monad.Trans.State.Strict (StateT)
+import qualified Data.Foldable as Foldable
 import Data.Map.Strict (Map)
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import JazzNext.Compiler.AST
   ( DataConstructorArgument,
@@ -57,6 +86,12 @@ runtimeEvidenceTarget (RuntimeEvidence _ implTarget _) = implTarget
 
 data RuntimeMethodCandidate = RuntimeMethodCandidate RuntimeEvidence (Either Diagnostic RuntimeValue)
 
+-- | Ordered explicit result obligations attached to one runtime value. The
+-- constructor stays private so callers cannot reintroduce nested hint wrappers.
+-- Hints are stored outermost-to-innermost, matching source evaluation order.
+newtype RuntimeExplicitResultHints = RuntimeExplicitResultHints (Seq SignatureType)
+  deriving (Eq, Show)
+
 newtype DeferredHostScopeId = DeferredHostScopeId Int
   deriving (Eq, Ord, Show)
 
@@ -91,7 +126,7 @@ data RuntimeValue
   | VQualifiedMethod Text Text SignaturePayload [RuntimeMethodCandidate] [RuntimeValue]
   | VTyped SignatureType RuntimeValue
   | VExplicitTypeApplication SignatureType RuntimeValue
-  | VExplicitResultHint SignatureType RuntimeValue
+  | VRuntimeExplicitResultHints RuntimeExplicitResultHints RuntimeValue
   | VDeferredHostBinding
       DeferredHostBindingKey
       (Maybe [Text])
@@ -108,8 +143,8 @@ instance Eq RuntimeValue where
       (leftInner, VTyped _ rightInner) -> leftInner == rightInner
       (VExplicitTypeApplication _ leftInner, rightInner) -> leftInner == rightInner
       (leftInner, VExplicitTypeApplication _ rightInner) -> leftInner == rightInner
-      (VExplicitResultHint _ leftInner, rightInner) -> leftInner == rightInner
-      (leftInner, VExplicitResultHint _ rightInner) -> leftInner == rightInner
+      (VRuntimeExplicitResultHints _ leftInner, rightInner) -> leftInner == rightInner
+      (leftInner, VRuntimeExplicitResultHints _ rightInner) -> leftInner == rightInner
       (VInt leftInt _, VInt rightInt _) -> leftInt == rightInt
       (VFloat leftFloat _, VFloat rightFloat _) -> leftFloat == rightFloat
       (VBool leftBool, VBool rightBool) -> leftBool == rightBool
@@ -161,9 +196,58 @@ instance Show RuntimeValue where
         "VTyped " <> show typeHint <> " " <> show innerValue
       VExplicitTypeApplication typeHint innerValue ->
         "VExplicitTypeApplication " <> show typeHint <> " " <> show innerValue
-      VExplicitResultHint typeHint innerValue ->
-        "VExplicitResultHint " <> show typeHint <> " " <> show innerValue
+      VRuntimeExplicitResultHints hints innerValue ->
+        "VExplicitResultHints " <> show hints <> " " <> show innerValue
       VDeferredHostBinding {} -> "VDeferredHostBinding <thunk>"
+
+-- | Match an explicit-result-hint wrapper without exposing a constructor that
+-- could be used to build nested wrappers.
+pattern VExplicitResultHints :: RuntimeExplicitResultHints -> RuntimeValue -> RuntimeValue
+pattern VExplicitResultHints hints innerValue <- VRuntimeExplicitResultHints hints innerValue
+
+prependRuntimeExplicitResultHint :: SignatureType -> RuntimeValue -> RuntimeValue
+prependRuntimeExplicitResultHint typeHint runtimeValue =
+  case runtimeValue of
+    VRuntimeExplicitResultHints (RuntimeExplicitResultHints innerHints) innerValue ->
+      VRuntimeExplicitResultHints
+        (RuntimeExplicitResultHints (typeHint Seq.<| innerHints))
+        innerValue
+    _ ->
+      VRuntimeExplicitResultHints
+        (RuntimeExplicitResultHints (Seq.singleton typeHint))
+        runtimeValue
+
+attachRuntimeExplicitResultHints :: RuntimeExplicitResultHints -> RuntimeValue -> RuntimeValue
+attachRuntimeExplicitResultHints (RuntimeExplicitResultHints outerHints) runtimeValue =
+  case runtimeValue of
+    VRuntimeExplicitResultHints (RuntimeExplicitResultHints innerHints) innerValue ->
+      VRuntimeExplicitResultHints
+        (RuntimeExplicitResultHints (outerHints Seq.>< innerHints))
+        innerValue
+    _ ->
+      VRuntimeExplicitResultHints
+        (RuntimeExplicitResultHints outerHints)
+        runtimeValue
+
+runtimeExplicitResultHintsView :: RuntimeValue -> Maybe (RuntimeExplicitResultHints, RuntimeValue)
+runtimeExplicitResultHintsView runtimeValue =
+  case runtimeValue of
+    VRuntimeExplicitResultHints hints innerValue -> Just (hints, innerValue)
+    _ -> Nothing
+
+runtimeExplicitResultHintsInOrder :: RuntimeValue -> [SignatureType]
+runtimeExplicitResultHintsInOrder runtimeValue =
+  case runtimeExplicitResultHintsView runtimeValue of
+    Just (RuntimeExplicitResultHints hints, _) -> Foldable.toList hints
+    Nothing -> []
+
+foldRuntimeExplicitResultHints ::
+  (accumulator -> SignatureType -> accumulator) ->
+  accumulator ->
+  RuntimeExplicitResultHints ->
+  accumulator
+foldRuntimeExplicitResultHints step initial (RuntimeExplicitResultHints hints) =
+  Foldable.foldl' step initial hints
 
 instance Show RuntimeMethodCandidate where
   show (RuntimeMethodCandidate evidence _) =
