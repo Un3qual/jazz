@@ -45,29 +45,39 @@ Each blocked item should answer these questions:
   contract to Haskell or LLVM. `JN-BOOTSTRAP-STACK-SAFE-EVALUATION-001` added
   the shared explicit evaluator machine and proved pure, host-backed, and
   imported closure depth floors without introducing bytecode or LLVM coupling.
-- Smallest unblocker: curate and accept the canonical lexer token/diagnostic
-  comparison contract under
-  `JN-BOOTSTRAP-CANONICAL-COMPARISON-DESIGN-001`.
-- Decision needed: define one deterministic Jazz-renderable schema for token
-  kind, lexeme, source span, lexical failure, text escaping, and normalized
-  paths, along with the exact Haskell-reference adapter and accepted/rejected
-  fixture parity boundary.
-- Recommended default: make the schema language- and backend-neutral, versioned
-  only if evidence requires it, and expressible with the completed ordinary
-  Jazz ADTs and `Text` facilities. Preserve exact Unicode scalar data and source
-  coordinates; exclude ambient absolute paths and Haskell constructor names.
-- Candidate child: `JN-BOOTSTRAP-CANONICAL-COMPARISON-DESIGN-001`, the
-  coordination candidate listed under `Next Curation Target`.
-- Target paths: `docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md`,
-  `docs/superpowers/specs/2026-07-11-jazz-next-bootstrap-canonical-comparison-design.md`,
-  `docs/execution/blocker-contracts.md`, and `docs/execution/queue.md`. The
-  current Haskell lexer/token/diagnostic modules and parser fixtures are
-  inspected evidence, not implementation targets until the design is accepted.
-- Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`; `git diff --check`.
-- Not in scope: implementing the Jazz lexer/parser, adding public runtime
+- Accepted decision: the canonical comparison contract is the ordinary
+  Jazz-owned ADT schema in
+  `2026-07-11-jazz-next-bootstrap-canonical-comparison-design.md`. Both sides
+  use the generic runtime-value renderer; the schema has no version field until
+  coexistence evidence requires one.
+- Smallest unblocker: plan and promote
+  `JN-BOOTSTRAP-CANONICAL-COMPARISON-001`, the reference adapter and parity
+  harness.
+- Decision needed: none for the canonical schema. The child plan must only lock
+  exact file ownership and TDD steps against the accepted contract.
+- Recommended default: preserve structured stage-0 lexical reasons before
+  diagnostic rendering, keep the Haskell adapter test-only, normalize logical
+  relative `/` paths, and centralize the accepted/rejected parser fixture
+  manifest without parsing test source files.
+- Candidate child: `JN-BOOTSTRAP-CANONICAL-COMPARISON-001`, the implementation
+  candidate listed under `Next Curation Target`. After it closes, promote
+  `JN-BOOTSTRAP-JAZZ-LEXER-001` as the second stacked pull request.
+- Target paths: `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs`,
+  `jazz-next/stdlib/LexerTypes.jz`,
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs`,
+  `jazz-next/test/JazzNext/Compiler/Bootstrap/CanonicalLexerComparison.hs`,
+  `jazz-next/test/JazzNext/Compiler/Parser/FixtureCorpus.hs`,
+  `jazz-next/jazz-next.cabal`, the accepted comparison design, its child plan,
+  and queue/blocker metadata.
+- Verification: the focused canonical comparison suite;
+  `cabal test --project-dir=jazz-next all`;
+  `bash jazz-next/scripts/test-warning-config.sh`;
+  `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
+  `git diff --check`.
+- Not in scope for the first child: implementing the Jazz lexer, adding runtime
   primitives, bytecode, a VM, backend-neutral lowered IR, LLVM lowering, object
-  emission, linking, or the native runtime.
+  emission, linking, or the native runtime. The second child may add only the
+  permanent backend-neutral `Char`/`Text` APIs required by Jazz-authored lexing.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

@@ -6,8 +6,9 @@ Approved in discussion on `2026-07-10`. The full bootstrap interpreter profile
 is not yet implemented. Backend-independent `Char`/`Text` literals, generic
 named types, ordinary Jazz-authored `Maybe`/`Result`, scalar `Text` traversal,
 backend-neutral host text I/O, and the shared stack-safe evaluator are complete.
-The canonical token/diagnostic comparison format and Jazz-authored lexer remain
-staged follow-up work.
+The canonical token/diagnostic comparison design was approved on `2026-07-12`;
+its reference adapter/parity harness and the Jazz-authored lexer remain the next
+two staged implementation children.
 
 ## Goal
 
@@ -360,7 +361,8 @@ The design decomposes into independently reviewable children:
 4. Jazz `Maybe`/`Result` plus collection traversal modules;
 5. host text-I/O kernel bridges and prelude aliases;
 6. stack-safe tail-position runtime evaluation (complete on `2026-07-11`);
-7. canonical token/diagnostic comparison format; and
+7. canonical token/diagnostic comparison format (design complete on
+   `2026-07-12`); and
 8. Jazz-authored lexer with differential parity coverage.
 
 Only one child should be promoted to `Ready Now` at a time, with exact target
