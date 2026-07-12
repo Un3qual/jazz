@@ -218,12 +218,23 @@ testExplicitResultHintsRenderAndApplyStackSafely = do
 testMixedExplicitResultHintsPreserveOrderAndMultiplicity :: IO ()
 testMixedExplicitResultHintsPreserveOrderAndMultiplicity = do
   let uint8 = TypeNumeric NumericUInt8
-      expression = mixedExplicitlyHintedCallable 6
-  runtimeValue <- requireRuntimeValue "mixed explicit result hints" expression
+      callableExpression = mixedExplicitlyHintedCallable 6
+      appliedExpression = EApply callableExpression (ELit (LInt 7))
+  runtimeValue <- requireRuntimeValue "mixed explicit result hints" callableExpression
   assertEqual
     "mixed hints remain outermost-to-innermost without deduplication"
     [uint8, TypeInt, TypeBool, uint8, TypeInt, TypeBool]
     (runtimeExplicitResultHintsInOrder runtimeValue)
+  appliedValue <- requireRuntimeValue "mixed explicit result hint application" appliedExpression
+  assertEqual "mixed explicit result hint application renders" "7" (renderRuntimeValue appliedValue)
+  assertEqual
+    "mixed explicit result hint application retains final UInt8 result"
+    True
+    (runtimeValueExactlyMatchesConstraint uint8 appliedValue)
+  assertEqual
+    "mixed explicit result hint application does not retain intermediate Int result"
+    False
+    (runtimeValueExactlyMatchesConstraint TypeInt appliedValue)
 
 mixedExplicitlyHintedCallable :: Int -> Expr
 mixedExplicitlyHintedCallable recursionDepth =

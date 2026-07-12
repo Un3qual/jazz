@@ -48,10 +48,12 @@ import JazzNext.Compiler.Runtime
     ScopeResult (..),
     evaluateModuleScopeWithHost,
     evaluateModuleScopeWithRequiredHost,
+    evaluateModuleScopeWithRequiredEvaluationHost,
     evaluateRuntimeExpr,
     evaluateRuntimeExprWithHost,
     prependRuntimeExplicitResultHint,
     renderRuntimeValue,
+    runRuntimeHostEvaluation,
     runtimeValueExactlyMatchesConstraint
   )
 import JazzNext.Compiler.RuntimeHints (explicitTypeApplicationRuntimeHintKeyInModule)
@@ -95,6 +97,7 @@ hostIOTests =
     ("host scopes preserve binding signature hints", testHostScopePreservesBindingSignatureHints),
     ("host dependency scopes keep unused bindings lazy", testHostDependencyScopeKeepsUnusedBindingLazy),
     ("host dependency bindings are shared when forced", testHostDependencyBindingIsShared),
+    ("host map callbacks preserve the active host cache and effect order", testHostMapCallbackPreservesActiveHostCacheAndEffectOrder),
     ("public host scopes keep imported deferred cells on the active host", testPublicHostScopeKeepsImportedDeferredCellOnActiveHost),
     ("host dependency scopes keep deferred cells on the active host", testHostDependencyScopeKeepsDeferredCellsOnActiveHost),
     ("host dependency bindings retain their runtime hints", testHostDependencyBindingRetainsRuntimeHints),
@@ -467,6 +470,67 @@ testHostDependencyBindingIsShared = do
       (result, calls) = runState action []
   assertEqual "shared dependency binding result" True (isRight result)
   assertEqual "shared dependency host call" [ReadStdinCall] calls
+
+testHostMapCallbackPreservesActiveHostCacheAndEffectOrder :: IO ()
+testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
+  let mapper =
+        ELambda
+          "label"
+          ( EBlock
+              [ SExpr
+                  (SourceSpan 2 1)
+                  (hostCall "__kernel_writeStdoutRaw!" [EVar "label"]),
+                SExpr (SourceSpan 3 1) (EVar "token!")
+              ]
+          )
+      dependencyStatements =
+        [ SLet
+            "token!"
+            (SourceSpan 1 1)
+            (hostCall "__kernel_readStdinRaw!" [ETuple []])
+          ]
+      entryStatements =
+        [ SExpr
+            (SourceSpan 4 1)
+            ( EApply
+                (EApply (EVar "__kernel_map") mapper)
+                (EList [ELit (LText "first"), ELit (LText "second")])
+            )
+        ]
+      action =
+        runRuntimeHostEvaluation statefulHost $ \evaluationHost -> do
+          dependencyResult <-
+            evaluateModuleScopeWithRequiredEvaluationHost
+              evaluationHost
+              (Just ["Dependency"])
+              EvaluateDependencyModule
+              ResolveKernelOnly
+              Map.empty
+              Map.empty
+              dependencyStatements
+          case dependencyResult of
+            Left diagnostic -> pure (Left diagnostic)
+            Right dependencyScope ->
+              evaluateModuleScopeWithRequiredEvaluationHost
+                evaluationHost
+                (Just ["Main"])
+                EvaluateEntryModule
+                ResolveKernelOnly
+                Map.empty
+                (scopeResultEnvironment dependencyScope)
+                entryStatements
+      (result, calls) = runState action []
+  case result of
+    Right scopeResult ->
+      assertEqual
+        "host map callback returns the shared raw stdin result for each element"
+        (Just (VList [rawSuccess "stdin text", rawSuccess "stdin text"] Nothing))
+        (scopeResultValue scopeResult)
+    Left _ -> assertEqual "host map callback evaluates" True False
+  assertEqual
+    "host map callback keeps effects ordered and caches the deferred stdin read"
+    [WriteStdoutCall "first", ReadStdinCall, WriteStdoutCall "second"]
+    calls
 
 testPublicHostScopeKeepsImportedDeferredCellOnActiveHost :: IO ()
 testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
