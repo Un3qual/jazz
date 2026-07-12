@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 RUNGHC="${ROOT}/jazz-next/scripts/runghc.sh"
-CABAL_MANIFEST="${JAZZ_NEXT_CABAL_MANIFEST-${ROOT}/jazz-next/jazz-next.cabal}"
+CABAL_MANIFEST="${ROOT}/jazz-next/jazz-next.cabal"
 
 tmpdir="$(mktemp -d)"
 cleanup() {
@@ -20,8 +20,10 @@ RUNGHC_INCLUDES=(
   -i./jazz-next/test
 )
 
-inventory_file="${tmpdir}/test-suite-main-is.txt"
-if ! awk '
+discover_test_suite_main_files() {
+  manifest_path="$1"
+  output_path="$2"
+  awk '
     function finish_test_suite() {
       if (!in_test_suite) {
         return
@@ -59,10 +61,42 @@ if ! awk '
         exit 2
       }
     }
-  ' "$CABAL_MANIFEST" >"$inventory_file"; then
+  ' "$manifest_path" >"$output_path"
+}
+
+inventory_file="${tmpdir}/test-suite-main-is.txt"
+if ! discover_test_suite_main_files "$CABAL_MANIFEST" "$inventory_file"; then
   echo "FAIL: malformed test-suite inventory in ${CABAL_MANIFEST}" >&2
   exit 1
 fi
+
+empty_manifest="${tmpdir}/empty.cabal"
+empty_inventory="${tmpdir}/empty-inventory.txt"
+empty_inventory_stderr="${tmpdir}/empty-inventory-stderr.txt"
+printf 'executable jazz-next\n  main-is: Main.hs\n' >"$empty_manifest"
+if discover_test_suite_main_files "$empty_manifest" "$empty_inventory" 2>"$empty_inventory_stderr"; then
+  echo "FAIL: empty test-suite inventory should be rejected" >&2
+  exit 1
+fi
+if ! grep -q 'test-suite inventory is empty' "$empty_inventory_stderr"; then
+  echo "FAIL: empty test-suite inventory should produce a clear diagnostic" >&2
+  exit 1
+fi
+
+malformed_manifest="${tmpdir}/malformed.cabal"
+malformed_inventory="${tmpdir}/malformed-inventory.txt"
+malformed_inventory_stderr="${tmpdir}/malformed-inventory-stderr.txt"
+printf 'test-suite missing-main\n  type: exitcode-stdio-1.0\n' >"$malformed_manifest"
+if discover_test_suite_main_files "$malformed_manifest" "$malformed_inventory" 2>"$malformed_inventory_stderr"; then
+  echo "FAIL: malformed test-suite inventory should be rejected" >&2
+  exit 1
+fi
+if ! grep -q 'malformed test-suite missing-main' "$malformed_inventory_stderr"; then
+  echo "FAIL: malformed test-suite inventory should produce a clear diagnostic" >&2
+  exit 1
+fi
+
+echo "PASS: Cabal inventory discovery rejects empty and malformed test-suite stanzas"
 
 TEST_FILES=()
 while IFS= read -r test_main; do
@@ -112,8 +146,12 @@ cat >"${fake_cabal_bin}/cabal" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ -n "${FAKE_CABAL_PROBE_STATUS-}" ]]; then
+  exit "$FAKE_CABAL_PROBE_STATUS"
+fi
+
 case " $* " in
-  *" command -v runghc "*) exit 0 ;;
+  *" command -v runghc "*) printf '%s\n' '__jazz_next_runghc_probe__:available'; exit 0 ;;
 esac
 
 for argument in "$@"; do
@@ -134,7 +172,9 @@ EOF
 chmod +x "${fake_cabal_bin}/cabal" "${fake_cabal_bin}/runghc"
 
 set +e
-PATH="${fake_cabal_bin}:${PATH}" \
+env -u JAZZ_NEXT_RUNGHC_IN_CABAL \
+  -u JAZZ_NEXT_RUNGHC_NO_CABAL \
+  PATH="${fake_cabal_bin}:${PATH}" \
   FAKE_CABAL_BIN="$fake_cabal_bin" \
   FAKE_RUNGHC_COUNTER="$fake_runghc_counter" \
   "$RUNGHC" "${tmpdir}/legitimate-127.hs"
@@ -153,6 +193,31 @@ if [[ "$fake_runghc_count" -ne 1 ]]; then
 fi
 
 echo "PASS: runghc wrapper preserves a launched child's status 127 without retrying"
+
+: >"$fake_runghc_counter"
+set +e
+env -u JAZZ_NEXT_RUNGHC_IN_CABAL \
+  -u JAZZ_NEXT_RUNGHC_NO_CABAL \
+  PATH="${fake_cabal_bin}:${PATH}" \
+  FAKE_CABAL_BIN="$fake_cabal_bin" \
+  FAKE_CABAL_PROBE_STATUS=127 \
+  FAKE_RUNGHC_COUNTER="$fake_runghc_counter" \
+  "$RUNGHC" "${tmpdir}/cabal-probe-failed.hs"
+fake_cabal_probe_status=$?
+set -e
+
+if [[ "$fake_cabal_probe_status" -ne 127 ]]; then
+  echo "FAIL: runghc wrapper returned ${fake_cabal_probe_status}, expected Cabal probe status 127" >&2
+  exit 1
+fi
+
+fake_probe_fallback_count="$(awk 'END { print NR + 0 }' "$fake_runghc_counter")"
+if [[ "$fake_probe_fallback_count" -ne 0 ]]; then
+  echo "FAIL: runghc wrapper launched fallback after Cabal probe itself returned 127" >&2
+  exit 1
+fi
+
+echo "PASS: runghc wrapper propagates Cabal probe status 127 without fallback"
 
 if rg -n '^data (ExpressionType|InferState|TypeScheme)\b' jazz-next/src/JazzNext/Compiler/TypeInference.hs; then
   echo "TypeInference facade still owns internal model types" >&2

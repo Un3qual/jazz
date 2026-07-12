@@ -314,7 +314,8 @@ accumulateRuntimeModule runtimeModule runtimeModules =
   RuntimeModuleAccumulator
     { accumulatedRuntimeModulesReversed = runtimeModule : accumulatedRuntimeModulesReversed runtimeModules,
       accumulatedRuntimeModulesByPath =
-        Map.insert
+        Map.insertWith
+          (\_ firstRuntimeModule -> firstRuntimeModule)
           (runtimeModulePath runtimeModule)
           runtimeModule
           (accumulatedRuntimeModulesByPath runtimeModules)
@@ -329,7 +330,7 @@ finishRuntimeProgram runtimeModules output =
 
 buildCompiledModulePathIndex :: CompiledProgram -> Map [Text] CompiledModule
 buildCompiledModulePathIndex =
-  Map.fromList
+  Map.fromListWith (\_ firstCompiledModule -> firstCompiledModule)
     . map
       (\compiledModule -> (resolvedModulePath (compiledResolvedModule compiledModule), compiledModule))
     . compiledProgramModules

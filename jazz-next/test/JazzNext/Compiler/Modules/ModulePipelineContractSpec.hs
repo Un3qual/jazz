@@ -103,11 +103,89 @@ tests =
     ("module graph execution carries one host through dependency exports", testModuleGraphInjectsRuntimeHost),
     ("long compiled dependency chains preserve pure runtime behavior", testLongCompiledDependencyChainPure),
     ("long compiled dependency chains preserve host runtime behavior", testLongCompiledDependencyChainHost),
+    ("duplicate compiled module paths preserve first-match imports and lookup", testDuplicateCompiledModulePathsPreserveFirstMatch),
     ("alias imports stay qualified", testAliasIsolationContract),
     ("transitive imports do not leak", testTransitiveVisibilityContract),
     ("module diagnostics retain source paths", testSourcePathContract),
     ("lexical binders shadow imported and builtin names", testLexicalBindersShadowImportedAndBuiltinNames)
   ]
+
+testDuplicateCompiledModulePathsPreserveFirstMatch :: IO ()
+testDuplicateCompiledModulePathsPreserveFirstMatch =
+  case evaluateCompiledProgram duplicatePathProgram of
+    Left diagnostic -> fail ("duplicate-path program failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right runtime -> do
+      assertEqual
+        "duplicate-path entry output"
+        (Just "(\"first\", \"first\")")
+        (renderRuntimeValue <$> runtimeProgramOutput runtime)
+      assertEqual
+        "duplicate-path module order"
+        [duplicatePath, middlePath, duplicatePath, ["App", "Main"]]
+        (map runtimeModulePath (runtimeProgramModules runtime))
+      case lookupRuntimeModule duplicatePath runtime of
+        Nothing -> fail "missing first duplicate runtime module"
+        Just runtimeModule ->
+          assertEqual
+            "public lookup keeps first duplicate"
+            (Set.singleton (RuntimeBindingExport firstExport))
+            (Map.keysSet (runtimeModuleExports runtimeModule))
+  where
+    duplicatePath = ["Lib", "Duplicate"]
+    middlePath = ["Middle"]
+    firstExport = ModuleExport ValueNamespace "value"
+    middleExport = ModuleExport ValueNamespace "middle"
+    secondExport = ModuleExport ValueNamespace "other"
+    firstModule =
+      compiledTextBindingModule duplicatePath [] firstExport (ELit (LText "first"))
+    middleModule =
+      compiledTextBindingModule
+        middlePath
+        [chainImport duplicatePath]
+        middleExport
+        (EVar (resolvedImportedName duplicatePath ValueNamespace (mkIdentifier "value")))
+    secondModule =
+      compiledTextBindingModule duplicatePath [] secondExport (ELit (LText "second"))
+    entryStatements =
+      [ SExpr
+          (SourceSpan 1 1)
+          ( ETuple
+              [ EVar (resolvedImportedName duplicatePath ValueNamespace (mkIdentifier "value")),
+                EVar (resolvedImportedName middlePath ValueNamespace (mkIdentifier "middle"))
+              ]
+          )
+      ]
+    entryModule =
+      compiledModule
+        ["App", "Main"]
+        [chainImport duplicatePath, chainImport middlePath]
+        entryStatements
+        (exportInventory [])
+        emptyModuleInterface
+    duplicatePathProgram =
+      CompiledProgram
+        { compiledProgramPrelude = emptyCompiledPrelude,
+          compiledProgramEntryPath = ["App", "Main"],
+          compiledProgramModules = [firstModule, middleModule, secondModule, entryModule],
+          compiledProgramWarnings = [],
+          compiledProgramErrors = []
+        }
+
+compiledTextBindingModule :: [Text] -> [ResolvedImport] -> ModuleExport -> Expr -> CompiledModule
+compiledTextBindingModule path imports moduleExport valueExpr =
+  compiledModule
+    path
+    imports
+    [ SLet
+        (resolvedLocalName ValueNamespace (mkIdentifier (moduleExportName moduleExport)))
+        (SourceSpan 1 1)
+        valueExpr
+    ]
+    (exportInventory [moduleExport])
+    ( emptyModuleInterface
+        { interfaceValueTypes = Map.singleton moduleExport (PlainTypeBinding TTextType)
+        }
+    )
 
 testLongCompiledDependencyChainPure :: IO ()
 testLongCompiledDependencyChainPure = do
