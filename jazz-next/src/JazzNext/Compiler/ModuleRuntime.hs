@@ -92,6 +92,11 @@ data RuntimeProgram = RuntimeProgram
     runtimeProgramOutput :: Maybe RuntimeValue
   }
 
+data RuntimeModuleAccumulator = RuntimeModuleAccumulator
+  { accumulatedRuntimeModulesReversed :: ![RuntimeModule],
+    accumulatedRuntimeModulesByPath :: !(Map [Text] RuntimeModule)
+  }
+
 lookupRuntimeModule :: [Text] -> RuntimeProgram -> Maybe RuntimeModule
 lookupRuntimeModule modulePath =
   go . runtimeProgramModules
@@ -113,18 +118,16 @@ evaluateCompiledProgramPure compiledProgram =
     firstError : _ -> Left firstError
     [] -> do
       ambientEnv <- evaluatePrelude (compiledProgramPrelude compiledProgram)
-      evaluateModules ambientEnv [] Nothing (compiledProgramModules compiledProgram)
+      evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
   where
     entryPath = compiledProgramEntryPath compiledProgram
+    compiledModulesByPath = buildCompiledModulePathIndex compiledProgram
 
-    evaluateModules ambientEnv runtimeModules output remainingModules =
+    evaluateModules compiledModules ambientEnv runtimeModules output remainingModules =
       case remainingModules of
         [] ->
           Right
-            RuntimeProgram
-              { runtimeProgramModules = runtimeModules,
-                runtimeProgramOutput = output
-              }
+            (finishRuntimeProgram runtimeModules output)
         compiledModule : rest -> do
           let resolvedModule = compiledResolvedModule compiledModule
               modulePath = resolvedModulePath resolvedModule
@@ -134,7 +137,7 @@ evaluateCompiledProgramPure compiledProgram =
                   else EvaluateDependencyModule
               importedEnv =
                 foldr
-                  (importRuntimeModule compiledProgram runtimeModules)
+                  (importRuntimeModule compiledModules (accumulatedRuntimeModulesByPath runtimeModules))
                   ambientEnv
                   (resolvedModuleImports resolvedModule)
           scopeResult <-
@@ -159,7 +162,7 @@ evaluateCompiledProgramPure compiledProgram =
                 if modulePath == entryPath
                   then scopeResultValue scopeResult
                   else output
-          evaluateModules ambientEnv (runtimeModules <> [runtimeModule]) nextOutput rest
+          evaluateModules compiledModules ambientEnv (accumulateRuntimeModule runtimeModule runtimeModules) nextOutput rest
 
 evaluatePrelude :: CompiledPrelude -> Either Diagnostic RuntimeEnv
 evaluatePrelude compiledPrelude =
@@ -195,19 +198,17 @@ evaluateCompiledProgramWithHost host compiledProgram =
           firstError : _ -> throwE firstError
           [] -> do
             ambientEnv <- ExceptT (evaluatePreludeWithEvaluationHost evaluationHost (compiledProgramPrelude compiledProgram))
-            evaluateModules evaluationHost ambientEnv [] Nothing (compiledProgramModules compiledProgram)
+            evaluateModules evaluationHost compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
     else pure (evaluateCompiledProgramPure compiledProgram)
   where
     entryPath = compiledProgramEntryPath compiledProgram
+    compiledModulesByPath = buildCompiledModulePathIndex compiledProgram
 
-    evaluateModules evaluationHost ambientEnv runtimeModules output remainingModules =
+    evaluateModules evaluationHost compiledModules ambientEnv runtimeModules output remainingModules =
       case remainingModules of
         [] ->
           pure
-            RuntimeProgram
-              { runtimeProgramModules = runtimeModules,
-                runtimeProgramOutput = output
-              }
+            (finishRuntimeProgram runtimeModules output)
         compiledModule : rest -> do
           let resolvedModule = compiledResolvedModule compiledModule
               modulePath = resolvedModulePath resolvedModule
@@ -217,7 +218,7 @@ evaluateCompiledProgramWithHost host compiledProgram =
                   else EvaluateDependencyModule
               importedEnv =
                 foldr
-                  (importRuntimeModule compiledProgram runtimeModules)
+                  (importRuntimeModule compiledModules (accumulatedRuntimeModulesByPath runtimeModules))
                   ambientEnv
                   (resolvedModuleImports resolvedModule)
           scopeResult <-
@@ -245,7 +246,7 @@ evaluateCompiledProgramWithHost host compiledProgram =
                 if modulePath == entryPath
                   then scopeResultValue scopeResult
                   else output
-          evaluateModules evaluationHost ambientEnv (runtimeModules <> [runtimeModule]) nextOutput rest
+          evaluateModules evaluationHost compiledModules ambientEnv (accumulateRuntimeModule runtimeModule runtimeModules) nextOutput rest
 
 compiledProgramRequiresHost :: CompiledProgram -> Bool
 compiledProgramRequiresHost compiledProgram =
@@ -281,9 +282,9 @@ evaluatePreludeWithEvaluationHost host compiledPrelude =
           )
           scopeResult
 
-importRuntimeModule :: CompiledProgram -> [RuntimeModule] -> ResolvedImport -> RuntimeEnv -> RuntimeEnv
-importRuntimeModule compiledProgram runtimeModules importDecl env =
-  case (lookupCompiled dependencyPath, lookupRuntime dependencyPath) of
+importRuntimeModule :: Map [Text] CompiledModule -> Map [Text] RuntimeModule -> ResolvedImport -> RuntimeEnv -> RuntimeEnv
+importRuntimeModule compiledModules runtimeModules importDecl env =
+  case (Map.lookup dependencyPath compiledModules, Map.lookup dependencyPath runtimeModules) of
     (Just compiledDependency, Just runtimeDependency) ->
       let publicInventory =
             resolvedModuleExportInventory (compiledResolvedModule compiledDependency)
@@ -304,9 +305,34 @@ importRuntimeModule compiledProgram runtimeModules importDecl env =
     _ -> env
   where
     dependencyPath = resolvedImportPath importDecl
-    lookupCompiled path =
-      findByPath (resolvedModulePath . compiledResolvedModule) path (compiledProgramModules compiledProgram)
-    lookupRuntime path = findByPath runtimeModulePath path runtimeModules
+
+emptyRuntimeModuleAccumulator :: RuntimeModuleAccumulator
+emptyRuntimeModuleAccumulator = RuntimeModuleAccumulator [] Map.empty
+
+accumulateRuntimeModule :: RuntimeModule -> RuntimeModuleAccumulator -> RuntimeModuleAccumulator
+accumulateRuntimeModule runtimeModule runtimeModules =
+  RuntimeModuleAccumulator
+    { accumulatedRuntimeModulesReversed = runtimeModule : accumulatedRuntimeModulesReversed runtimeModules,
+      accumulatedRuntimeModulesByPath =
+        Map.insert
+          (runtimeModulePath runtimeModule)
+          runtimeModule
+          (accumulatedRuntimeModulesByPath runtimeModules)
+    }
+
+finishRuntimeProgram :: RuntimeModuleAccumulator -> Maybe RuntimeValue -> RuntimeProgram
+finishRuntimeProgram runtimeModules output =
+  RuntimeProgram
+    { runtimeProgramModules = reverse (accumulatedRuntimeModulesReversed runtimeModules),
+      runtimeProgramOutput = output
+    }
+
+buildCompiledModulePathIndex :: CompiledProgram -> Map [Text] CompiledModule
+buildCompiledModulePathIndex =
+  Map.fromList
+    . map
+      (\compiledModule -> (resolvedModulePath (compiledResolvedModule compiledModule), compiledModule))
+    . compiledProgramModules
 
 publishEnvironment :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> RuntimeEnv
 publishEnvironment origin publicInventory moduleInterface env =
@@ -415,9 +441,3 @@ scopeStatements expression =
   case expression of
     EBlock statements -> statements
     _ -> []
-
-findByPath :: (a -> [Text]) -> [Text] -> [a] -> Maybe a
-findByPath _ _ [] = Nothing
-findByPath getPath target (item : rest)
-  | getPath item == target = Just item
-  | otherwise = findByPath getPath target rest
