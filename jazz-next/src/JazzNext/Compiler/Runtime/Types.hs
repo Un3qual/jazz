@@ -39,6 +39,7 @@ module JazzNext.Compiler.Runtime.Types
     runtimeExplicitResultHintsView,
     runtimeExplicitResultHintsInOrder,
     foldRuntimeExplicitResultHints,
+    constructorIsSaturated,
     RuntimeCell,
     RuntimeEnv,
     ScopeResult (..),
@@ -204,6 +205,27 @@ instance Show RuntimeValue where
 -- could be used to build nested wrappers.
 pattern VExplicitResultHints :: RuntimeExplicitResultHints -> RuntimeValue -> RuntimeValue
 pattern VExplicitResultHints hints innerValue <- VRuntimeExplicitResultHints hints innerValue
+
+{-# COMPLETE
+  VInt,
+  VFloat,
+  VBool,
+  VChar,
+  VText,
+  VList,
+  VTuple,
+  VClosure,
+  VBuiltin,
+  VOperator,
+  VSectionLeft,
+  VSectionRight,
+  VConstructor,
+  VQualifiedMethod,
+  VTyped,
+  VExplicitTypeApplication,
+  VExplicitResultHints,
+  VDeferredHostBinding
+  #-}
 
 prependRuntimeExplicitResultHint :: SignatureType -> RuntimeValue -> RuntimeValue
 prependRuntimeExplicitResultHint typeHint runtimeValue =

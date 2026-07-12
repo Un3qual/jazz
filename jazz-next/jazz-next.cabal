@@ -47,7 +47,9 @@ library jazz-next-internal
       JazzNext.Compiler.Purity
       JazzNext.Compiler.RecursiveBindings
       JazzNext.Compiler.Runtime
+      JazzNext.Compiler.Runtime.Primitives
       JazzNext.Compiler.Runtime.ScopePlan
+      JazzNext.Compiler.Runtime.Semantics
       JazzNext.Compiler.Runtime.Types
       JazzNext.Compiler.RuntimeHost
       JazzNext.Compiler.RuntimeHints
