@@ -22,6 +22,10 @@ import JazzNext.Compiler.TypeInference.Signature
     expressionTypeToRuntimeTemplate,
     signaturePayloadToSignatureType
   )
+import JazzNext.Compiler.TypeInference.Operator
+  ( builtinSectionOperatorSymbol,
+    hasOperatorRule
+  )
 import JazzNext.Compiler.TypeInference.State
   ( DeclarationState (..),
     InferenceOutput (..),
@@ -73,7 +77,8 @@ inferenceOwnershipTests =
     ("type operations replace recursive type variables", testTypeOpsReplaceRecursiveTypeVariables),
     ("type operations instantiate class and primitive constraints", testTypeOpsInstantiateConstraints),
     ("signature payload normalization allocates ordered variables", testSignaturePayloadNormalizationAllocatesOrderedVariables),
-    ("failed signature payload normalization rolls back state", testFailedSignaturePayloadNormalizationRollsBackState)
+    ("failed signature payload normalization rolls back state", testFailedSignaturePayloadNormalizationRollsBackState),
+    ("operator rule presence remains distinct from section support", testOperatorRulePresenceAndSectionSupport)
   ]
 
 testRuntimeHintsAcceptInt64FittingIntegerRanges :: IO ()
@@ -264,3 +269,16 @@ testFailedSignaturePayloadNormalizationRollsBackState =
     (Just _, _) -> failTest "expected signature payload normalization failure"
   where
     payload = SignatureType (TypeName (sourceName (mkIdentifier "Missing")))
+
+testOperatorRulePresenceAndSectionSupport :: IO ()
+testOperatorRulePresenceAndSectionSupport = do
+  mapM_
+    (assertEqual "operator rule" True . hasOperatorRule)
+    ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!=", "$"]
+  mapM_ (assertEqual "missing operator rule" False . hasOperatorRule) ["|", "%%"]
+  mapM_
+    (assertEqual "section support" True . builtinSectionOperatorSymbol)
+    ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!="]
+  mapM_
+    (assertEqual "unsupported section" False . builtinSectionOperatorSymbol)
+    ["$", "|", "%%"]
