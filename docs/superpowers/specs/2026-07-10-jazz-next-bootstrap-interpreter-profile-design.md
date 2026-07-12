@@ -223,9 +223,9 @@ numbers are outside this profile.
 
 The detailed contract is accepted in
 [`2026-07-11-jazz-next-stack-safe-evaluation-design.md`](2026-07-11-jazz-next-stack-safe-evaluation-design.md).
-`Runtime.hs` owns one interpreter-private explicit machine shared by pure and
-host-backed evaluation. `ModuleRuntime.hs` retains dependency/export ownership,
-and `Driver.hs` remains a public façade. These controls are permanent reference
+`jazz-next/src/JazzNext/Compiler/Runtime.hs` owns one interpreter-private explicit machine shared by pure and
+host-backed evaluation. `jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs` retains dependency/export ownership,
+and `jazz-next/src/JazzNext/Compiler/Driver.hs` remains a public façade. These controls are permanent reference
 interpreter machinery, not bytecode or input to future LLVM lowering.
 
 This slice was implemented on `2026-07-11` under

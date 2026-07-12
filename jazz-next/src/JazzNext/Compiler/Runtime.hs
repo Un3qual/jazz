@@ -4156,28 +4156,16 @@ appendRuntimeResultObligation obligation machine =
 
 prependRuntimeResultObligation :: RuntimeResultObligation -> RuntimeReturnPolicy -> RuntimeReturnPolicy
 prependRuntimeResultObligation obligation policy@(RuntimeReturnPolicy obligations) =
-  if redundantRuntimeResultObligation obligation obligations
-    then policy
-    else RuntimeReturnPolicy (obligation : obligations)
-
-redundantRuntimeResultObligation :: RuntimeResultObligation -> [RuntimeResultObligation] -> Bool
-redundantRuntimeResultObligation obligation obligations =
   case obligations of
-    [] -> False
-    existing : rest
-      | equivalentIdempotentObligation obligation existing -> True
-      | ApplyExplicitResultHint {} <- obligation,
-        AttachDefaultIntegerResult <- existing ->
-          redundantRuntimeResultObligation obligation rest
-      | otherwise -> False
+    existing : _
+      | equivalentIdempotentObligation obligation existing -> policy
+    _ -> RuntimeReturnPolicy (obligation : obligations)
 
 equivalentIdempotentObligation :: RuntimeResultObligation -> RuntimeResultObligation -> Bool
 equivalentIdempotentObligation leftObligation rightObligation =
   case (leftObligation, rightObligation) of
     (AttachDefaultIntegerResult, AttachDefaultIntegerResult) -> True
     (ApplyFunctionResultHint leftHint, ApplyFunctionResultHint rightHint) ->
-      leftHint == rightHint
-    (ApplyExplicitResultHint leftHint, ApplyExplicitResultHint rightHint) ->
       leftHint == rightHint
     _ -> False
 

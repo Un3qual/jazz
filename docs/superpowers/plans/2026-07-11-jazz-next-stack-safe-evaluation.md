@@ -12,6 +12,7 @@ completed_on: 2026-07-11
 plan_section: "Implementation Batch: Stack-Safe Evaluation"
 target_paths:
   - docs/execution/blocker-contracts.md
+  - docs/execution/done-archive.md
   - docs/execution/queue.md
   - docs/superpowers/specs/2026-07-10-jazz-next-bootstrap-interpreter-profile-design.md
   - docs/superpowers/specs/2026-07-11-jazz-next-stack-safe-evaluation-design.md
@@ -42,7 +43,7 @@ execution layer.
 
 **Architecture:** Keep the public `Runtime`, `ModuleRuntime`, and `Driver` APIs
 stable. Replace the mutually recursive pure and host expression/application
-paths inside `Runtime.hs` with an interpreter-private CEK-style control loop;
+paths inside `jazz-next/src/JazzNext/Compiler/Runtime.hs` with an interpreter-private CEK-style control loop;
 pure wrappers install the disabled host through `Identity`, while host wrappers
 reuse their current `RuntimeHostEvaluationT` state. Scope construction remains
 responsible for recursive cells and deferred-host caching, but terminal block
@@ -57,11 +58,11 @@ Cabal component suites.
 - Modify only `jazz-next/` and active documentation; `jazz-hs/` and `jazz2/`
   remain read-only.
 - Follow the approved stack-safe evaluation design exactly.
-- Keep `Runtime.hs` as the sole owner of evaluator controls, continuations,
+- Keep `jazz-next/src/JazzNext/Compiler/Runtime.hs` as the sole owner of evaluator controls, continuations,
   callable application, result policies, and expression-level host dispatch.
-- Keep `ModuleRuntime.hs` responsible only for dependency order, imported
+- Keep `jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs` responsible only for dependency order, imported
   environments, export publication, and entry output.
-- Keep `Driver.hs` free of continuations, recursion limits, and host scheduling.
+- Keep `jazz-next/src/JazzNext/Compiler/Driver.hs` free of continuations, recursion limits, and host scheduling.
 - Preserve call-by-value, left-to-right evaluation and exact existing runtime
   diagnostics, numeric defaulting, runtime hints, lexical environments, module
   paths, capability evidence, and deferred-host cache identity.
@@ -85,7 +86,7 @@ Cabal component suites.
 | `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs` | Dependency-export closure regression at 20,000 calls with the real module graph. |
 | Active docs listed in frontmatter | Accepted ownership, queue metadata, implementation evidence, and closeout state. |
 
-`ModuleRuntime.hs`, `Driver.hs`, and `RuntimeSemanticsSpec.hs` are verification
+`jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs`, `jazz-next/src/JazzNext/Compiler/Driver.hs`, and `RuntimeSemanticsSpec.hs` are verification
 boundaries, not planned edits. The existing runtime suite already imports
 `RecursionTests` and `HostIOTests`.
 
@@ -759,8 +760,8 @@ Expected:
 
 - pure and host names remain only as stable wrappers or non-recursive primitive
   helpers;
-- no evaluator machine type appears in `ModuleRuntime.hs` or `Driver.hs`; and
-- no bytecode/opcode/LLVM execution concept appears in `Runtime.hs`.
+- no evaluator machine type appears in `jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs` or `jazz-next/src/JazzNext/Compiler/Driver.hs`; and
+- no bytecode/opcode/LLVM execution concept appears in `jazz-next/src/JazzNext/Compiler/Runtime.hs`.
 
 Delete dead recursive evaluator branches and imports revealed by the searches.
 
@@ -830,6 +831,6 @@ git commit -m "docs: close stack-safe evaluation batch"
 - Full verification: `bash jazz-next/scripts/test-warning-config.sh` passed the
   complete repository matrix; the evaluator boundary searches found only
   stable entry wrappers and primitive helpers, no machine ownership escaped
-  into `ModuleRuntime.hs` or `Driver.hs`, and no bytecode, opcode, or LLVM
-  execution concept entered `Runtime.hs`. Queue/docs validation and
+  into `jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs` or `jazz-next/src/JazzNext/Compiler/Driver.hs`, and no bytecode, opcode, or LLVM
+  execution concept entered `jazz-next/src/JazzNext/Compiler/Runtime.hs`. Queue/docs validation and
   `git diff --check` passed during closeout.

@@ -20,7 +20,7 @@ interpreter machinery and never cross that backend boundary.
 
 ## Current Failure Mode
 
-`Runtime.hs` currently has two mutually recursive expression-evaluation paths:
+`jazz-next/src/JazzNext/Compiler/Runtime.hs` currently has two mutually recursive expression-evaluation paths:
 
 - the pure path calls `evalValueWithModulePath`, `applyRuntimeFunction`,
   `evalPatternCase`, and block-scope evaluation recursively; and
@@ -35,13 +35,13 @@ still re-enter the recursive evaluator. Fixing only one entry path would leave
 host-backed bootstrap programs or pure programs vulnerable and would allow the
 two semantic implementations to drift further.
 
-`ModuleRuntime.hs` already owns dependency-order program evaluation, and
-`Driver.hs` already owns compile/run presentation. Neither module should gain
+`jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs` already owns dependency-order program evaluation, and
+`jazz-next/src/JazzNext/Compiler/Driver.hs` already owns compile/run presentation. Neither module should gain
 an evaluator or recursion protocol.
 
 ## Decision
 
-`Runtime.hs` will own one explicit expression-evaluation machine shared by pure
+`jazz-next/src/JazzNext/Compiler/Runtime.hs` will own one explicit expression-evaluation machine shared by pure
 and host-backed entry points.
 
 The machine has two conceptual controls:
@@ -54,7 +54,7 @@ Continuation frames record only work that must happen after a nested,
 non-tail evaluation: an application argument, an already-evaluated function,
 the remaining elements of a list or tuple, a binary operand, a condition or
 case decision, a type/result-hint obligation, or a block/scope continuation.
-The concrete constructors remain private to `Runtime.hs`.
+The concrete constructors remain private to `jazz-next/src/JazzNext/Compiler/Runtime.hs`.
 
 The machine advances one control transition at a time in
 `ExceptT Diagnostic (RuntimeHostEvaluationT m)`. Pure public helpers run the
@@ -127,7 +127,7 @@ existing runtime behavior.
 
 ## Scope and Module Ownership
 
-`Runtime.hs` owns:
+`jazz-next/src/JazzNext/Compiler/Runtime.hs` owns:
 
 - evaluation controls and continuation frames;
 - the transition loop;
@@ -136,7 +136,7 @@ existing runtime behavior.
 - result-hint return policy; and
 - expression-level integration with `RuntimeHost`.
 
-`ModuleRuntime.hs` continues to own:
+`jazz-next/src/JazzNext/Compiler/ModuleRuntime.hs` continues to own:
 
 - dependency-order module evaluation;
 - construction of imported runtime environments;
@@ -148,7 +148,7 @@ Applying it transfers the machine control to that captured context without
 adding a module-specific recursion layer. Module dependency traversal itself
 is finite loader work and is not redefined as user-level tail recursion.
 
-`Driver.hs` remains an unchanged public façade unless implementation evidence
+`jazz-next/src/JazzNext/Compiler/Driver.hs` remains an unchanged public façade unless implementation evidence
 reveals an adapter-only change is required. It must not own stack limits,
 continuations, or host-operation scheduling.
 
@@ -169,7 +169,7 @@ Stack-safe evaluation must preserve all of these guarantees:
 
 Tail transfer occurs only after all eager prerequisite work and host effects
 for that call site have completed. The evaluator must not defer effects to
-`Driver.hs` or batch them around the loop.
+`jazz-next/src/JazzNext/Compiler/Driver.hs` or batch them around the loop.
 
 ## Diagnostics and Resource Behavior
 
@@ -226,7 +226,7 @@ The focused implementation targets are:
 - `jazz-next/test/JazzNext/Compiler/Semantics/RuntimeSemanticsSpec.hs`; and
 - `jazz-next/test/JazzNext/Compiler/Modules/LoaderSpec.hs`.
 
-`Driver.hs` is an inspected boundary, not a planned implementation target.
+`jazz-next/src/JazzNext/Compiler/Driver.hs` is an inspected boundary, not a planned implementation target.
 
 ## Verification
 
@@ -252,7 +252,7 @@ closure calls, 20,000 host-backed calls with its pre-recursion effect executed
 exactly once, and 20,000 calls through an imported closure. Rendered pure/host
 diagnostics match for representative failures. The focused runtime and loader
 suites and the full `jazz-next/scripts/test-warning-config.sh` matrix pass, and
-boundary searches confirm that machine types remain private to `Runtime.hs`
+boundary searches confirm that machine types remain private to `jazz-next/src/JazzNext/Compiler/Runtime.hs`
 with no bytecode, opcode, lowered-IR, or LLVM execution coupling.
 
 ## Non-Goals
