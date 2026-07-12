@@ -200,7 +200,7 @@ firstInvalidClassMethodSignature state capabilityName parameters =
                     variableName : _ ->
                       Just (mkMethodLocalTypeVariableError methodKey variableName methodSpan)
                     [] ->
-                      case signaturePayloadToSignatureType methodPayload state of
+                      case Signature.signaturePayloadToSignatureType methodPayload state of
                         (Just _, _) -> go rest
                         (Nothing, _) -> Just invalidMethodSignature
 
@@ -277,15 +277,15 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
                in go nextEnv lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
-                    case signaturePayloadToSignatureType signaturePayload signatureState of
+                    case Signature.signaturePayloadToSignatureType signaturePayload signatureState of
                       (Just signatureType, stateAfterSignature) ->
                         ( Just
                             ( PendingSignatureType
                                 (identifierText name)
                                 signatureSpan
-                                (signaturePayloadDeclaredType signatureType)
-                                (signaturePayloadExplicitConstraints signatureType)
-                                (signaturePayloadVariableOrder signatureType)
+                                (Signature.signaturePayloadDeclaredType signatureType)
+                                (Signature.signaturePayloadExplicitConstraints signatureType)
+                                (Signature.signaturePayloadVariableOrder signatureType)
                             ),
                           restoreCapabilityFacts state stateAfterSignature
                         )
@@ -1423,7 +1423,7 @@ constructorArgumentTypes typeParameters constructorArguments state
 
 namedConstructorPayloadType :: Name -> Maybe ExpressionType
 namedConstructorPayloadType =
-  constraintSignatureTypeToExpressionType . TypeName
+  Signature.constraintSignatureTypeToExpressionType . TypeName
 
 -- | Instantiate non-builtin local bindings and constructors at use sites.
 -- Builtin aliases stay with the top-level dispatcher because their rules share
@@ -1492,7 +1492,7 @@ inferExplicitTypeApplication ::
   SignatureType ->
   (Maybe ExpressionType, InferState)
 inferExplicitTypeApplication inferExpression builtinMode env state functionExpr typeArgumentSpan typeArgument =
-  case (explicitTypeApplicationScheme env functionExpr, constraintSignatureTypeToExpressionTypeWithState state Map.empty typeArgument) of
+  case (explicitTypeApplicationScheme env functionExpr, Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty typeArgument) of
     (Just typeScheme, Just explicitArgumentType) ->
       let (maybeInstantiatedType, nextState) =
             instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state
@@ -1618,4 +1618,4 @@ typeSchemeRuntimeHint state typeScheme =
 
 runtimeHintFromExpressionType :: InferState -> ExpressionType -> Maybe SignatureType
 runtimeHintFromExpressionType state expressionType =
-  expressionTypeToRuntimeHint (defaultLiteralTypes (resolveType state expressionType))
+  Signature.expressionTypeToRuntimeHint (defaultLiteralTypes (resolveType state expressionType))

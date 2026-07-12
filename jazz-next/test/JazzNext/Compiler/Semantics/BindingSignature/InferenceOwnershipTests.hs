@@ -8,20 +8,19 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import JazzNext.Compiler.AST
   ( SignatureConstraint (..),
+    SignaturePayload (..),
     SignatureType (..)
   )
 import JazzNext.Compiler.Name
   ( mkIdentifier,
     sourceName
   )
-import JazzNext.Compiler.TypeInference.Capabilities
-  ( expressionTypeToRuntimeHint
-  )
-import JazzNext.Compiler.TypeInference.Diagnostics
-  ( duplicateConstraintName
-  )
 import JazzNext.Compiler.TypeInference.Signature
-  ( expressionTypeToRuntimeTemplate
+  ( SignaturePayloadType (..),
+    duplicateConstraintName,
+    expressionTypeToRuntimeHint,
+    expressionTypeToRuntimeTemplate,
+    signaturePayloadToSignatureType
   )
 import JazzNext.Compiler.TypeInference.State
   ( DeclarationState (..),
@@ -30,6 +29,7 @@ import JazzNext.Compiler.TypeInference.State
     inferClassFacts,
     inferCurrentModulePath,
     inferErrorCount,
+    inferNextTypeVar,
     initialInferState,
     modifyDeclarationState,
     modifyInferenceOutput,
@@ -53,7 +53,8 @@ import JazzNext.Compiler.TypeInference.Types
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertEqual
+    assertEqual,
+    failTest
   )
 
 inferenceOwnershipTests :: [NamedTest]
@@ -70,7 +71,9 @@ inferenceOwnershipTests =
     ("type operations collect recursive free variables", testTypeOpsCollectRecursiveFreeVariables),
     ("type operations collect constraint free variables", testTypeOpsCollectConstraintFreeVariables),
     ("type operations replace recursive type variables", testTypeOpsReplaceRecursiveTypeVariables),
-    ("type operations instantiate class and primitive constraints", testTypeOpsInstantiateConstraints)
+    ("type operations instantiate class and primitive constraints", testTypeOpsInstantiateConstraints),
+    ("signature payload normalization allocates ordered variables", testSignaturePayloadNormalizationAllocatesOrderedVariables),
+    ("failed signature payload normalization rolls back state", testFailedSignaturePayloadNormalizationRollsBackState)
   ]
 
 testRuntimeHintsAcceptInt64FittingIntegerRanges :: IO ()
@@ -237,3 +240,27 @@ testTypeOpsInstantiateConstraints = do
         replacements
         (TypeSchemeStrictEqualityConstraint (TFunctionType (TVarType 1) (TVarType 2)))
     )
+
+testSignaturePayloadNormalizationAllocatesOrderedVariables :: IO ()
+testSignaturePayloadNormalizationAllocatesOrderedVariables =
+  case signaturePayloadToSignatureType payload initialInferState of
+    (Nothing, _) -> failTest "expected signature payload normalization"
+    (Just normalized, nextState) -> do
+      assertEqual
+        "normalized signature type"
+        (TFunctionType (TVarType 0) (TListType (TVarType 0)))
+        (signaturePayloadDeclaredType normalized)
+      assertEqual "normalized constraints" [] (signaturePayloadExplicitConstraints normalized)
+      assertEqual "variable order" [0] (signaturePayloadVariableOrder normalized)
+      assertEqual "next type variable" 1 (inferNextTypeVar nextState)
+  where
+    variableName = sourceName (mkIdentifier "a")
+    payload = SignatureType (TypeFunction (TypeVariable variableName) (TypeList (TypeVariable variableName)))
+
+testFailedSignaturePayloadNormalizationRollsBackState :: IO ()
+testFailedSignaturePayloadNormalizationRollsBackState =
+  case signaturePayloadToSignatureType payload initialInferState of
+    (Nothing, nextState) -> assertEqual "rollback state" initialInferState nextState
+    (Just _, _) -> failTest "expected signature payload normalization failure"
+  where
+    payload = SignatureType (TypeName (sourceName (mkIdentifier "Missing")))

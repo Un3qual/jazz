@@ -5,7 +5,6 @@ module JazzNext.Compiler.TypeInference.Diagnostics
   ( InferExprFn,
     addTypeError,
     annotateNewErrorsWithPrimarySpan,
-    duplicateConstraintName,
     mkAmbiguousDeferredConstraintError,
     mkAmbiguousQualifiedMethodBodyError,
     mkAmbiguousQualifiedMethodBodyForArgumentsError,
@@ -490,7 +489,7 @@ invalidSignatureSummary state symbol signaturePayload =
     Nothing ->
       case signaturePayload of
         ConstrainedSignature constraints _
-          | Just duplicateName <- duplicateConstraintName constraints ->
+          | Just duplicateName <- Signature.duplicateConstraintName constraints ->
               "invalid or unsupported signature for '"
                 <> symbol
                 <> "': duplicate constraint '"
@@ -630,16 +629,3 @@ constraintTypeHasTypeVariable signatureType =
     TypeFunction argumentType resultType ->
       constraintTypeHasTypeVariable argumentType || constraintTypeHasTypeVariable resultType
     _ -> False
-
-duplicateConstraintName :: [SignatureConstraint] -> Maybe Text
-duplicateConstraintName constraints =
-  go Set.empty constraints
-  where
-    go seen remainingConstraints =
-      case remainingConstraints of
-        [] -> Nothing
-        SignatureConstraint constraintName _ : rest ->
-          let constraintNameText = identifierText constraintName
-           in if Set.member constraintNameText seen
-                then Just constraintNameText
-                else go (Set.insert constraintNameText seen) rest
