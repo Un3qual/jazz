@@ -25,7 +25,9 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import JazzNext.Compiler.AST
   ( CaseArm (..),
+    ClassMethodSignature (..),
     Expr (..),
+    ImplMethod (..),
     Literal (..),
     NumericType (..),
     Pattern (..),
@@ -39,16 +41,18 @@ import JazzNext.Compiler.Driver
   ( RunResult (..),
     runSourceWithPreludeAndHost
   )
-import JazzNext.Compiler.Name (Name)
+import JazzNext.Compiler.Name (Name, qualifiedName)
 import JazzNext.Compiler.Runtime
   ( ModuleEvaluationMode (..),
     RuntimeValue (..),
+    ScopeResult (..),
     evaluateModuleScopeWithRequiredHost,
     evaluateRuntimeExpr,
     evaluateRuntimeExprWithHost,
     renderRuntimeValue,
     runtimeValueExactlyMatchesConstraint
   )
+import JazzNext.Compiler.RuntimeHints (explicitTypeApplicationRuntimeHintKeyInModule)
 import JazzNext.Compiler.RuntimeHost
   ( HostIOCategory (..),
     HostIOFailure (..),
@@ -81,8 +85,12 @@ hostIOTests =
     ("host effects execute at selected expression depth", testHostEffectsExecuteAtSelectedExpressionDepth),
     ("host-dependent function selectors use the injected host", testHostDependentFunctionSelector),
     ("host scopes preserve mutually recursive functions", testHostScopePreservesMutualRecursion),
+    ("host scopes preserve hostful recursive peers", testHostScopePreservesHostfulRecursivePeers),
+    ("host scopes evaluate impl method selectors with the injected host", testHostImplMethodSelector),
     ("host scopes preserve binding signature hints", testHostScopePreservesBindingSignatureHints),
     ("host dependency scopes keep unused bindings lazy", testHostDependencyScopeKeepsUnusedBindingLazy),
+    ("host dependency bindings are shared when forced", testHostDependencyBindingIsShared),
+    ("host dependency bindings retain their runtime hints", testHostDependencyBindingRetainsRuntimeHints),
     ("direct runtime wrappers normalize disabled host calls", testDirectRuntimeWrapperUsesDisabledHost),
     ("exit rejects statuses outside the portable range", testExitRejectsInvalidStatus),
     ("standalone source execution injects its runtime host", testStandaloneSourceInjectsRuntimeHost),
@@ -264,6 +272,76 @@ testHostScopePreservesMutualRecursion = do
   assertEqual "mutually recursive result" (Right (Just (VBool True))) result
   assertEqual "unrelated host call" [WriteStdoutCall "once"] calls
 
+testHostScopePreservesHostfulRecursivePeers :: IO ()
+testHostScopePreservesHostfulRecursivePeers = do
+  let decrement name = EApply (EVar name) (EBinary "-" (EVar "value") (ELit (LInt 1)))
+      isZero = EBinary "==" (EVar "value") (ELit (LInt 0))
+      expression =
+        EBlock
+          [ SLet
+              "even!"
+              (SourceSpan 1 1)
+              ( ELambda
+                  "value"
+                  ( EIf
+                      isZero
+                      (ELit (LBool True))
+                      ( EBlock
+                          [ SExpr (SourceSpan 2 1) (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "even")]),
+                            SExpr (SourceSpan 3 1) (decrement "odd!")
+                          ]
+                      )
+                  )
+              ),
+            SLet
+              "odd!"
+              (SourceSpan 4 1)
+              (ELambda "value" (EIf isZero (ELit (LBool False)) (decrement "even!"))),
+            SExpr (SourceSpan 5 1) (EApply (EVar "even!") (ELit (LInt 2)))
+          ]
+      (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+  assertEqual "hostful mutually recursive result" (Right (Just (VBool True))) result
+  assertEqual "hostful recursive call" [WriteStdoutCall "even"] calls
+
+testHostImplMethodSelector :: IO ()
+testHostImplMethodSelector = do
+  let selector =
+        EBinary
+          "=="
+          (hostCall "__kernel_arguments!" [ETuple []])
+          (EList [ELit (LText "one"), ELit (LText "two")])
+      expression =
+        EBlock
+          [ SClass
+              (SourceSpan 1 1)
+              "RuntimePick"
+              ["a"]
+              [ ClassMethodSignature
+                  "pick"
+                  (SourceSpan 2 1)
+                  (ConstrainedSignature [] (TypeFunction (TypeVariable "a") TypeBool))
+              ],
+            SImpl
+              (SourceSpan 3 1)
+              "RuntimePick"
+              [TypeInt]
+              [ ImplMethod
+                  "pick"
+                  (SourceSpan 4 1)
+                  ( EIf
+                      selector
+                      (ELambda "ignored" (ELit (LBool True)))
+                      (ELambda "ignored" (ELit (LBool False)))
+                  )
+              ],
+            SExpr
+              (SourceSpan 5 1)
+              (EApply (EVar (qualifiedName "RuntimePick" "pick")) (ELit (LInt 1)))
+          ]
+      (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+  assertEqual "host-selected impl method result" (Right (Just (VBool True))) result
+  assertEqual "host-selected impl method call" [ArgumentsCall] calls
+
 testHostScopePreservesBindingSignatureHints :: IO ()
 testHostScopePreservesBindingSignatureHints = do
   let expression =
@@ -305,6 +383,96 @@ testHostDependencyScopeKeepsUnusedBindingLazy = do
           []
   assertEqual "dependency scope result" True (isRight result)
   assertEqual "unused dependency host calls" [] calls
+
+testHostDependencyBindingIsShared :: IO ()
+testHostDependencyBindingIsShared = do
+  let dependencyStatements =
+        [ SLet
+            "token!"
+            (SourceSpan 1 1)
+            (hostCall "__kernel_readStdinRaw!" [ETuple []])
+        ]
+      entryStatements =
+        [ SExpr
+            (SourceSpan 2 1)
+            (ETuple [EVar "token!", EVar "token!"])
+        ]
+      action = do
+        dependencyResult <-
+          evaluateModuleScopeWithRequiredHost
+            statefulHost
+            (Just ["Dependency"])
+            EvaluateDependencyModule
+            ResolveKernelOnly
+            Map.empty
+            Map.empty
+            dependencyStatements
+        case dependencyResult of
+          Left diagnostic -> pure (Left diagnostic)
+          Right dependencyScope ->
+            evaluateModuleScopeWithRequiredHost
+              statefulHost
+              (Just ["Main"])
+              EvaluateEntryModule
+              ResolveKernelOnly
+              Map.empty
+              (scopeResultEnvironment dependencyScope)
+              entryStatements
+      (result, calls) = runState action []
+  assertEqual "shared dependency binding result" True (isRight result)
+  assertEqual "shared dependency host call" [ReadStdinCall] calls
+
+testHostDependencyBindingRetainsRuntimeHints :: IO ()
+testHostDependencyBindingRetainsRuntimeHints = do
+  let typeArgumentSpan = SourceSpan 2 18
+      dependencyHints =
+        Map.singleton
+          (explicitTypeApplicationRuntimeHintKeyInModule (Just ["Dependency"]) typeArgumentSpan)
+          (TypeFunction (TypeNumeric NumericUInt8) (TypeNumeric NumericUInt8))
+      dependencyStatements =
+        [ SLet "identity" (SourceSpan 1 1) (ELambda "value" (EVar "value")),
+          SLet
+            "token!"
+            (SourceSpan 2 1)
+            ( EApply
+                (ETypeApplication (EVar "identity") typeArgumentSpan TypeInt)
+                (ELit (LInt 1))
+            )
+        ]
+      entryStatements = [SExpr (SourceSpan 3 1) (EVar "token!")]
+      action = do
+        dependencyResult <-
+          evaluateModuleScopeWithRequiredHost
+            statefulHost
+            (Just ["Dependency"])
+            EvaluateDependencyModule
+            ResolveKernelOnly
+            dependencyHints
+            Map.empty
+            dependencyStatements
+        case dependencyResult of
+          Left diagnostic -> pure (Left diagnostic)
+          Right dependencyScope ->
+            evaluateModuleScopeWithRequiredHost
+              statefulHost
+              (Just ["Main"])
+              EvaluateEntryModule
+              ResolveKernelOnly
+              Map.empty
+              (scopeResultEnvironment dependencyScope)
+              entryStatements
+      (result, calls) = runState action []
+  assertEqual "hinted dependency host calls" [] calls
+  case result of
+    Right scopeResult ->
+      case scopeResultValue scopeResult of
+        Just value ->
+          assertEqual
+            "dependency keeps UInt8 runtime hint"
+            True
+            (runtimeValueExactlyMatchesConstraint (TypeNumeric NumericUInt8) value)
+        Nothing -> assertEqual "dependency produces a hinted value" True False
+    Left _ -> assertEqual "dependency hint evaluation succeeds" True False
 
 testDirectRuntimeWrapperUsesDisabledHost :: IO ()
 testDirectRuntimeWrapperUsesDisabledHost =

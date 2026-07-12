@@ -59,10 +59,12 @@ import JazzNext.Compiler.Runtime
   ( ModuleEvaluationMode (..),
     RuntimeCell,
     RuntimeEnv,
+    RuntimeHostEvaluationT,
     RuntimeValue,
     ScopeResult (..),
     evaluateModuleScope,
-    evaluateModuleScopeWithRequiredHost,
+    evaluateModuleScopeWithRequiredEvaluationHost,
+    runRuntimeHostEvaluation,
     runtimeExprRequiresHost
   )
 import JazzNext.Compiler.RuntimeHost
@@ -187,18 +189,18 @@ evaluateCompiledProgramWithHost ::
   m (Either Diagnostic RuntimeProgram)
 evaluateCompiledProgramWithHost host compiledProgram =
   if compiledProgramRequiresHost compiledProgram
-    then
+    then runRuntimeHostEvaluation host $ \evaluationHost ->
       runExceptT $
         case compiledProgramErrors compiledProgram of
           firstError : _ -> throwE firstError
           [] -> do
-            ambientEnv <- ExceptT (evaluatePreludeWithHost host (compiledProgramPrelude compiledProgram))
-            evaluateModules ambientEnv [] Nothing (compiledProgramModules compiledProgram)
+            ambientEnv <- ExceptT (evaluatePreludeWithEvaluationHost evaluationHost (compiledProgramPrelude compiledProgram))
+            evaluateModules evaluationHost ambientEnv [] Nothing (compiledProgramModules compiledProgram)
     else pure (evaluateCompiledProgramPure compiledProgram)
   where
     entryPath = compiledProgramEntryPath compiledProgram
 
-    evaluateModules ambientEnv runtimeModules output remainingModules =
+    evaluateModules evaluationHost ambientEnv runtimeModules output remainingModules =
       case remainingModules of
         [] ->
           pure
@@ -220,8 +222,8 @@ evaluateCompiledProgramWithHost host compiledProgram =
                   (resolvedModuleImports resolvedModule)
           scopeResult <-
             ExceptT
-              ( evaluateModuleScopeWithRequiredHost
-                  host
+              ( evaluateModuleScopeWithRequiredEvaluationHost
+                  evaluationHost
                   (Just modulePath)
                   evaluationMode
                   (compiledPreludeBuiltinMode (compiledProgramPrelude compiledProgram))
@@ -243,24 +245,24 @@ evaluateCompiledProgramWithHost host compiledProgram =
                 if modulePath == entryPath
                   then scopeResultValue scopeResult
                   else output
-          evaluateModules ambientEnv (runtimeModules <> [runtimeModule]) nextOutput rest
+          evaluateModules evaluationHost ambientEnv (runtimeModules <> [runtimeModule]) nextOutput rest
 
 compiledProgramRequiresHost :: CompiledProgram -> Bool
 compiledProgramRequiresHost compiledProgram =
   maybe False runtimeExprRequiresHost (compiledPreludeExpr (compiledProgramPrelude compiledProgram))
     || any (runtimeExprRequiresHost . compiledModuleExpr) (compiledProgramModules compiledProgram)
 
-evaluatePreludeWithHost ::
+evaluatePreludeWithEvaluationHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   CompiledPrelude ->
-  m (Either Diagnostic RuntimeEnv)
-evaluatePreludeWithHost host compiledPrelude =
+  RuntimeHostEvaluationT m (Either Diagnostic RuntimeEnv)
+evaluatePreludeWithEvaluationHost host compiledPrelude =
   case compiledPreludeExpr compiledPrelude of
     Nothing -> pure (Right Map.empty)
     Just expression -> do
       scopeResult <-
-        evaluateModuleScopeWithRequiredHost
+        evaluateModuleScopeWithRequiredEvaluationHost
           host
           (Just [])
           EvaluateDependencyModule

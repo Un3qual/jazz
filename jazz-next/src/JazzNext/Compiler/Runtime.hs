@@ -7,6 +7,7 @@ module JazzNext.Compiler.Runtime
   ( ModuleEvaluationMode (..),
     RuntimeCell,
     RuntimeEnv,
+    RuntimeHostEvaluationT,
     RuntimeValue (..),
     ScopeResult (..),
     evaluateModuleScope,
@@ -19,6 +20,8 @@ module JazzNext.Compiler.Runtime
     evaluateModuleScopeWithHost,
     evaluateModuleScopeWithHostAndSourceUnitStatements,
     evaluateModuleScopeWithRequiredHost,
+    evaluateModuleScopeWithRequiredEvaluationHost,
+    runRuntimeHostEvaluation,
     runtimeExprRequiresHost,
     runtimeValueExactlyMatchesConstraint,
     renderRuntimeValue
@@ -31,6 +34,12 @@ import Control.Monad.Trans.Except
     throwE
   )
 import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict
+  ( StateT,
+    evalStateT,
+    get,
+    modify'
+  )
 import Data.Char (isControl, ord, toUpper)
 import Data.Functor.Identity (runIdentity)
 import Data.List (foldl')
@@ -57,6 +66,7 @@ import JazzNext.Compiler.AST
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
+    SourceSpan,
     mkDiagnostic
   )
 import JazzNext.Compiler.FractionalLiteral
@@ -147,6 +157,17 @@ runtimeEvidenceTarget (RuntimeEvidence _ implTarget _) = implTarget
 
 data RuntimeMethodCandidate = RuntimeMethodCandidate RuntimeEvidence (Either Diagnostic RuntimeValue)
 
+data DeferredHostBindingKey = DeferredHostBindingKey (Maybe [Text]) SourceSpan Name
+  deriving (Eq, Ord, Show)
+
+data DeferredHostBindingState
+  = DeferredHostBindingEvaluating
+  | DeferredHostBindingEvaluated (Either Diagnostic RuntimeValue)
+
+type DeferredHostBindingCache = Map DeferredHostBindingKey DeferredHostBindingState
+
+type RuntimeHostEvaluationT m = StateT DeferredHostBindingCache m
+
 data RuntimeValue
   = VInt Integer RuntimeIntMetadata
   | VFloat Double RuntimeFloatMetadata
@@ -166,9 +187,11 @@ data RuntimeValue
   | VExplicitTypeApplication SignatureType RuntimeValue
   | VExplicitResultHint SignatureType RuntimeValue
   | VDeferredHostBinding
+      DeferredHostBindingKey
       (Maybe [Text])
       Expr
       RuntimeEnv
+      (Map BindingRuntimeHintKey SignatureType)
       (Maybe NumericType)
       (Maybe SignatureType)
 
@@ -240,6 +263,26 @@ instance Show RuntimeMethodCandidate where
   show (RuntimeMethodCandidate evidence _) =
     "RuntimeMethodCandidate " <> show evidence
 
+runRuntimeHostEvaluation ::
+  Monad m =>
+  RuntimeHost m ->
+  (RuntimeHost (RuntimeHostEvaluationT m) -> RuntimeHostEvaluationT m value) ->
+  m value
+runRuntimeHostEvaluation host action =
+  evalStateT (action (liftRuntimeHost host)) Map.empty
+
+liftRuntimeHost :: Monad m => RuntimeHost m -> RuntimeHost (RuntimeHostEvaluationT m)
+liftRuntimeHost host =
+  RuntimeHost
+    { runtimeHostReadText = lift . runtimeHostReadText host,
+      runtimeHostWriteText = \path contents -> lift (runtimeHostWriteText host path contents),
+      runtimeHostReadStdin = lift (runtimeHostReadStdin host),
+      runtimeHostWriteStdout = lift . runtimeHostWriteStdout host,
+      runtimeHostWriteStderr = lift . runtimeHostWriteStderr host,
+      runtimeHostArguments = lift (runtimeHostArguments host),
+      runtimeHostExit = lift . runtimeHostExit host
+    }
+
 evaluateRuntimeExpr :: Expr -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExpr = evaluateRuntimeExprWithBuiltins ResolveKernelOnly
 
@@ -260,12 +303,29 @@ evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements ::
   Expr ->
   m (Either Diagnostic (Maybe RuntimeValue))
 evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements host preludeStatementIndices builtinMode bindingTypeHints expr =
+  runRuntimeHostEvaluation host $ \evaluationHost ->
+    evaluateRuntimeExprWithEvaluationHostAndBuiltinsAndBindingHintsAndSourceUnitStatements
+      evaluationHost
+      preludeStatementIndices
+      builtinMode
+      bindingTypeHints
+      expr
+
+evaluateRuntimeExprWithEvaluationHostAndBuiltinsAndBindingHintsAndSourceUnitStatements ::
+  Monad m =>
+  RuntimeHost (RuntimeHostEvaluationT m) ->
+  Set Int ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  Expr ->
+  RuntimeHostEvaluationT m (Either Diagnostic (Maybe RuntimeValue))
+evaluateRuntimeExprWithEvaluationHostAndBuiltinsAndBindingHintsAndSourceUnitStatements host preludeStatementIndices builtinMode bindingTypeHints expr =
   if runtimeExprRequiresHost expr
     then
       case expr of
         EBlock statements ->
           fmap scopeResultValue
-            <$> evaluateModuleScopeWithHostAndSourceUnitStatements
+            <$> evaluateModuleScopeWithEvaluationHostAndSourceUnitStatements
               host
               preludeStatementIndices
               Nothing
@@ -564,6 +624,27 @@ evaluateModuleScopeWithRequiredHost ::
   [Statement] ->
   m (Either Diagnostic ScopeResult)
 evaluateModuleScopeWithRequiredHost host currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
+  runRuntimeHostEvaluation host $ \evaluationHost ->
+    evaluateModuleScopeWithRequiredEvaluationHost
+      evaluationHost
+      currentModulePath
+      evaluationMode
+      builtinMode
+      bindingTypeHints
+      initialEnv
+      statements
+
+evaluateModuleScopeWithRequiredEvaluationHost ::
+  Monad m =>
+  RuntimeHost (RuntimeHostEvaluationT m) ->
+  Maybe [Text] ->
+  ModuleEvaluationMode ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  [Statement] ->
+  RuntimeHostEvaluationT m (Either Diagnostic ScopeResult)
+evaluateModuleScopeWithRequiredEvaluationHost host currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
   runExceptT
     ( evalScopeWithHost
         host
@@ -588,6 +669,29 @@ evaluateModuleScopeWithHostAndSourceUnitStatements ::
   [Statement] ->
   m (Either Diagnostic ScopeResult)
 evaluateModuleScopeWithHostAndSourceUnitStatements host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
+  runRuntimeHostEvaluation host $ \evaluationHost ->
+    evaluateModuleScopeWithEvaluationHostAndSourceUnitStatements
+      evaluationHost
+      preludeStatementIndices
+      currentModulePath
+      evaluationMode
+      builtinMode
+      bindingTypeHints
+      initialEnv
+      statements
+
+evaluateModuleScopeWithEvaluationHostAndSourceUnitStatements ::
+  Monad m =>
+  RuntimeHost (RuntimeHostEvaluationT m) ->
+  Set Int ->
+  Maybe [Text] ->
+  ModuleEvaluationMode ->
+  BuiltinResolutionMode ->
+  Map BindingRuntimeHintKey SignatureType ->
+  RuntimeEnv ->
+  [Statement] ->
+  RuntimeHostEvaluationT m (Either Diagnostic ScopeResult)
+evaluateModuleScopeWithEvaluationHostAndSourceUnitStatements host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
   if runtimeExprRequiresHost (EBlock statements)
     then
       runExceptT
@@ -3639,13 +3743,13 @@ liftRuntimeResult result =
 
 evalValueWithHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   Maybe [Text] ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   RuntimeEnv ->
   Expr ->
-  ExceptT Diagnostic m RuntimeValue
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) RuntimeValue
 evalValueWithHost host currentModulePath builtinMode bindingTypeHints env expr =
   case expr of
     ELit literal -> pure (literalRuntimeValue literal)
@@ -3741,7 +3845,7 @@ evalValueWithHost host currentModulePath builtinMode bindingTypeHints env expr =
 
 evalScopeWithHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   Set Int ->
   Maybe [Text] ->
   ModuleEvaluationMode ->
@@ -3749,7 +3853,7 @@ evalScopeWithHost ::
   Map BindingRuntimeHintKey SignatureType ->
   RuntimeEnv ->
   [Statement] ->
-  ExceptT Diagnostic m ScopeResult
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) ScopeResult
 evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
   go initialEnv Nothing indexedStatements
   where
@@ -3759,6 +3863,14 @@ evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode 
       inferRecursiveGroupsOrdered
         (Set.union (Map.keysSet initialEnv) (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode)))
         indexedStatements
+    bindingNamesByStatement = collectBindingNames indexedStatements
+    hostRecursiveStatementIndices =
+      Set.fromList
+        [ groupIndex
+          | groupMembers <- Map.elems recursiveGroups,
+            any bindingRequiresHost groupMembers,
+            groupIndex <- groupMembers
+        ]
     modulePathsByStatement =
       snd (foldl' collectModulePath (currentModulePath, Map.empty) (zip [0 ..] statements))
 
@@ -3804,40 +3916,22 @@ evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode 
             remainingAfterChunk
       | otherwise =
           case statement of
-            SLet name _ valueExpr ->
-              let bindingModulePath = modulePathForStatement statementIndex
-                  numericTarget = previousSignatureNumericTarget statementIndex name
-                  typeHint = bindingRuntimeTypeHint statementIndex name
+            SLet name _ _ ->
+              let bindingCell = hostBindingCell statementIndex env
                in case evaluationMode of
                     EvaluateDependencyModule ->
                       go
-                        ( Map.insert
-                            name
-                            ( Right
-                                ( VDeferredHostBinding
-                                    bindingModulePath
-                                    valueExpr
-                                    env
-                                    numericTarget
-                                    typeHint
-                                )
-                            )
-                            env
-                        )
+                        (Map.insert name bindingCell env)
                         Nothing
                         rest
                     EvaluateEntryModule -> do
-                      value <-
-                        evalHostBindingValue
-                          host
-                          bindingModulePath
-                          builtinMode
-                          bindingTypeHints
-                          env
-                          valueExpr
-                          numericTarget
-                          typeHint
+                      value <- forceRuntimeCellWithHost bindingCell
                       go (Map.insert name (Right value) env) Nothing rest
+            SImpl _ capabilityName arguments methods ->
+              go
+                (insertImplMethodsWithHost (modulePathForStatement statementIndex) capabilityName arguments methods env)
+                Nothing
+                rest
             SExpr _ valueExpr ->
               case evaluationMode of
                 EvaluateDependencyModule -> go env Nothing rest
@@ -3859,9 +3953,107 @@ evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode 
       case statement of
         SLet _ _ valueExpr ->
           runtimeExprRequiresHost valueExpr
+            || Set.member statementIndex hostRecursiveStatementIndices
             || Map.notMember statementIndex recursiveGroups
+        SImpl _ _ _ methods -> any implMethodRequiresHost methods
         SExpr {} -> True
         _ -> False
+
+    bindingRequiresHost statementIndex =
+      case Map.lookup statementIndex statementsByIndex of
+        Just (SLet _ _ valueExpr) -> runtimeExprRequiresHost valueExpr
+        _ -> False
+
+    implMethodRequiresHost (ImplMethod _ _ methodExpr) = runtimeExprRequiresHost methodExpr
+
+    hostBindingCell statementIndex baseEnv =
+      case Map.lookup statementIndex recursiveGroups of
+        Just groupMembers ->
+          makeHostBindingCell statementIndex recursiveEnv
+          where
+            recursiveEnv = foldl' insertGroupMember baseEnv groupMembers
+
+            insertGroupMember envAcc groupIndex =
+              case Map.lookup groupIndex bindingNamesByStatement of
+                Just groupName
+                  | Map.notMember groupName baseEnv ->
+                      Map.insert groupName (makeHostBindingCell groupIndex recursiveEnv) envAcc
+                _ -> envAcc
+        Nothing -> makeHostBindingCell statementIndex baseEnv
+
+    makeHostBindingCell statementIndex capturedEnv =
+      case Map.lookup statementIndex statementsByIndex of
+        Just (SLet bindingName bindingSpan valueExpr) ->
+          Right
+            ( VDeferredHostBinding
+                (DeferredHostBindingKey (modulePathForStatement statementIndex) bindingSpan bindingName)
+                (modulePathForStatement statementIndex)
+                valueExpr
+                capturedEnv
+                bindingTypeHints
+                (previousSignatureNumericTarget statementIndex bindingName)
+                (bindingRuntimeTypeHint statementIndex bindingName)
+            )
+        _ ->
+          Left
+            (runtimeDiagnostic "E3020" "internal runtime error: expected host binding statement")
+
+    forceRuntimeCellWithHost bindingCell =
+      liftRuntimeResult bindingCell
+        >>= forceRuntimeValueWithHost host builtinMode bindingTypeHints
+
+    insertImplMethodsWithHost methodModulePath capabilityName arguments methods env =
+      case arguments of
+        [implTarget]
+          | concreteConstraintArgument implTarget -> methodEnv
+          where
+            runtimeImplTarget = runtimeConstraintType methodModulePath implTarget
+            methodEnv = foldl' insertCandidate env methodCandidates
+            methodCandidates =
+              map
+                ( \(ImplMethod methodName methodSpan methodExpr) ->
+                    let methodKey = qualifiedMethodKey capabilityName methodName
+                        qualifiedMethodName = qualifiedMemberName capabilityName methodName
+                        evidence = RuntimeEvidence (identifierText capabilityName) runtimeImplTarget (Just methodKey)
+                     in ( qualifiedMethodName,
+                          RuntimeMethodCandidate
+                            evidence
+                            ( Right
+                                ( VDeferredHostBinding
+                                    (DeferredHostBindingKey methodModulePath methodSpan qualifiedMethodName)
+                                    methodModulePath
+                                    methodExpr
+                                    methodEnv
+                                    bindingTypeHints
+                                    Nothing
+                                    (methodRuntimeTypeHint runtimeImplTarget qualifiedMethodName)
+                                )
+                            )
+                        )
+                )
+                methods
+
+            insertCandidate envAcc (methodName, methodCandidate) =
+              Map.adjust (addMethodCandidate methodCandidate) methodName envAcc
+
+            addMethodCandidate methodCandidate methodCell =
+              case methodCell of
+                Right (VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs) ->
+                  Right (VQualifiedMethod methodKey classParameter methodSignature (candidates <> [methodCandidate]) capturedArgs)
+                _ -> methodCell
+
+            methodRuntimeTypeHint implTarget methodName =
+              case Map.lookup methodName methodEnv of
+                Just (Right (VQualifiedMethod _ classParameter methodSignature _ _)) ->
+                  runtimeConstraintType signatureModulePath
+                    <$> substituteClassMethodSignature classParameter implTarget methodSignature
+                _ -> Nothing
+              where
+                signatureModulePath =
+                  case methodName of
+                    ResolvedName (ImportedModule classModulePath) _ _ -> Just classModulePath
+                    _ -> methodModulePath
+        _ -> env
 
     previousSignatureNumericTarget statementIndex bindingName =
       case Map.lookup (statementIndex - 1) statementsByIndex of
@@ -3915,7 +4107,7 @@ hostConstraintSignatureNumericTarget signatureType =
 
 evalHostBindingValue ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   Maybe [Text] ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
@@ -3923,7 +4115,7 @@ evalHostBindingValue ::
   Expr ->
   Maybe NumericType ->
   Maybe SignatureType ->
-  ExceptT Diagnostic m RuntimeValue
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) RuntimeValue
 evalHostBindingValue host currentModulePath builtinMode bindingTypeHints env valueExpr maybeNumericTarget maybeTypeHint = do
   value <-
     case maybeNumericTarget of
@@ -3953,11 +4145,11 @@ evalHostBindingValue host currentModulePath builtinMode bindingTypeHints env val
 
 forceQualifiedMethodValueWithHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   RuntimeValue ->
-  ExceptT Diagnostic m RuntimeValue
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) RuntimeValue
 forceQualifiedMethodValueWithHost host builtinMode bindingTypeHints runtimeValue =
   case runtimeValue of
     VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs ->
@@ -3966,23 +4158,42 @@ forceQualifiedMethodValueWithHost host builtinMode bindingTypeHints runtimeValue
 
 forceRuntimeValueWithHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   RuntimeValue ->
-  ExceptT Diagnostic m RuntimeValue
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) RuntimeValue
 forceRuntimeValueWithHost host builtinMode bindingTypeHints runtimeValue =
   case runtimeValue of
-    VDeferredHostBinding currentModulePath valueExpr env maybeNumericTarget maybeTypeHint ->
-      evalHostBindingValue
-        host
-        currentModulePath
-        builtinMode
-        bindingTypeHints
-        env
-        valueExpr
-        maybeNumericTarget
-        maybeTypeHint
+    VDeferredHostBinding bindingKey currentModulePath valueExpr env capturedBindingTypeHints maybeNumericTarget maybeTypeHint -> do
+      cache <- lift get
+      case Map.lookup bindingKey cache of
+        Just (DeferredHostBindingEvaluated result) ->
+          liftRuntimeResult result
+        Just DeferredHostBindingEvaluating ->
+          throwE
+            (runtimeDiagnostic "E3021" "runtime recursive host binding has no concrete value")
+        Nothing -> do
+          lift (modify' (Map.insert bindingKey DeferredHostBindingEvaluating))
+          result <-
+            lift
+              ( runExceptT
+                  ( evalHostBindingValue
+                      host
+                      currentModulePath
+                      builtinMode
+                      capturedBindingTypeHints
+                      env
+                      valueExpr
+                      maybeNumericTarget
+                      maybeTypeHint
+                  )
+              )
+          lift
+            ( modify'
+                (Map.insert bindingKey (DeferredHostBindingEvaluated result))
+            )
+          liftRuntimeResult result
     VTyped typeHint innerValue ->
       VTyped typeHint <$> forceRuntimeValueWithHost host builtinMode bindingTypeHints innerValue
     VExplicitTypeApplication typeHint innerValue ->
@@ -3994,12 +4205,12 @@ forceRuntimeValueWithHost host builtinMode bindingTypeHints runtimeValue =
 
 lookupOperatorBindingRuntimeValueWithHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   Text ->
   RuntimeEnv ->
-  ExceptT Diagnostic m RuntimeValue
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) RuntimeValue
 lookupOperatorBindingRuntimeValueWithHost host builtinMode bindingTypeHints operatorSymbol env =
   case Map.lookup (operatorBindingName operatorSymbol) env of
     Just value ->
@@ -4011,14 +4222,14 @@ lookupOperatorBindingRuntimeValueWithHost host builtinMode bindingTypeHints oper
 
 evalPatternCaseWithHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   Maybe [Text] ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   RuntimeEnv ->
   RuntimeValue ->
   [CaseArm] ->
-  ExceptT Diagnostic m RuntimeValue
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) RuntimeValue
 evalPatternCaseWithHost host currentModulePath builtinMode bindingTypeHints env scrutineeValue caseArms = do
   selectedArm <- selectMatchingCaseArmWithHost host currentModulePath builtinMode bindingTypeHints env scrutineeValue caseArms
   case selectedArm of
@@ -4028,14 +4239,14 @@ evalPatternCaseWithHost host currentModulePath builtinMode bindingTypeHints env 
 
 selectMatchingCaseArmWithHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   Maybe [Text] ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   RuntimeEnv ->
   RuntimeValue ->
   [CaseArm] ->
-  ExceptT Diagnostic m (Maybe (RuntimeEnv, Expr))
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) (Maybe (RuntimeEnv, Expr))
 selectMatchingCaseArmWithHost host currentModulePath builtinMode bindingTypeHints env scrutineeValue = go
   where
     go remainingArms =
@@ -4056,12 +4267,12 @@ selectMatchingCaseArmWithHost host currentModulePath builtinMode bindingTypeHint
 
 applyRuntimeFunctionWithHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   RuntimeValue ->
   RuntimeValue ->
-  ExceptT Diagnostic m RuntimeValue
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) RuntimeValue
 applyRuntimeFunctionWithHost host builtinMode bindingTypeHints functionValue argumentValue =
   case functionValue of
     VDeferredHostBinding {} -> do
@@ -4122,7 +4333,7 @@ applyRuntimeFunctionWithHost host builtinMode bindingTypeHints functionValue arg
 
 applyQualifiedMethodWithHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   Text ->
@@ -4130,7 +4341,7 @@ applyQualifiedMethodWithHost ::
   SignaturePayload ->
   [RuntimeMethodCandidate] ->
   [RuntimeValue] ->
-  ExceptT Diagnostic m RuntimeValue
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) RuntimeValue
 applyQualifiedMethodWithHost host builtinMode bindingTypeHints methodKey classParameter methodSignature candidates arguments =
   case preferredCandidates of
     [] -> throwE (runtimeDiagnostic "E3026" ("no matching qualified method body '" <> methodKey <> "'"))
@@ -4154,12 +4365,12 @@ applyQualifiedMethodWithHost host builtinMode bindingTypeHints methodKey classPa
 
 applyOperatorWithHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   Text ->
   [RuntimeValue] ->
-  ExceptT Diagnostic m RuntimeValue
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) RuntimeValue
 applyOperatorWithHost host builtinMode bindingTypeHints operatorSymbol arguments =
   case arguments of
     [leftValue] -> pure (VOperator operatorSymbol [leftValue])
@@ -4171,12 +4382,12 @@ applyOperatorWithHost host builtinMode bindingTypeHints operatorSymbol arguments
 
 applyBuiltinWithHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   BuiltinSymbol ->
   [RuntimeValue] ->
-  ExceptT Diagnostic m RuntimeValue
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) RuntimeValue
 applyBuiltinWithHost host builtinMode bindingTypeHints builtinFunction arguments
   | length arguments < builtinSymbolArity builtinFunction =
       pure (VBuiltin builtinFunction arguments)
@@ -4188,12 +4399,12 @@ applyBuiltinWithHost host builtinMode bindingTypeHints builtinFunction arguments
 
 evalBuiltinWithHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   BuiltinSymbol ->
   [RuntimeValue] ->
-  ExceptT Diagnostic m RuntimeValue
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) RuntimeValue
 evalBuiltinWithHost host builtinMode bindingTypeHints builtinFunction arguments =
   case (builtinFunction, arguments) of
     (BuiltinReadTextRaw, [VText path]) ->
@@ -4255,12 +4466,12 @@ runtimeHostExitStatus runtimeValue =
 
 filterElementsWithHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   RuntimeValue ->
   [RuntimeValue] ->
-  ExceptT Diagnostic m [RuntimeValue]
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) [RuntimeValue]
 filterElementsWithHost host builtinMode bindingTypeHints predicate values = do
   results <- traverse applyPredicate values
   pure [value | (value, True) <- results]
@@ -4275,13 +4486,13 @@ filterElementsWithHost host builtinMode bindingTypeHints predicate values = do
 
 evalBinaryWithHost ::
   Monad m =>
-  RuntimeHost m ->
+  RuntimeHost (RuntimeHostEvaluationT m) ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey SignatureType ->
   Text ->
   RuntimeValue ->
   RuntimeValue ->
-  ExceptT Diagnostic m RuntimeValue
+  ExceptT Diagnostic (RuntimeHostEvaluationT m) RuntimeValue
 evalBinaryWithHost host builtinMode bindingTypeHints operatorSymbol leftValue rightValue =
   case (operatorSymbol, leftValue, rightValue) of
     ("$", functionValue, argumentValue) ->
