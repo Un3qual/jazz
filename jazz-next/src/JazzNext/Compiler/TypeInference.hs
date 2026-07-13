@@ -1512,6 +1512,32 @@ instantiateBuiltinSymbolTypeByName builtinName state =
       -- evaluated argument value unchanged so compile/runtime paths stay simple.
       let (valueType, stateAfterValueType) = freshTypeVar state
        in Just (TFunctionType valueType valueType, stateAfterValueType)
+    "listPrependRaw" ->
+      let (elementType, stateAfterElement) = freshTypeVar state
+       in
+        Just
+          ( TFunctionType
+              elementType
+              (TFunctionType (TListType elementType) (TListType elementType)),
+            stateAfterElement
+          )
+    "listReverseRaw" ->
+      let (elementType, stateAfterElement) = freshTypeVar state
+       in Just (TFunctionType (TListType elementType) (TListType elementType), stateAfterElement)
+    "charToUInt32" ->
+      Just (TFunctionType TCharType (TNumericType NumericUInt32), state)
+    "charFromUInt32Raw" ->
+      Just (TFunctionType (TNumericType NumericUInt32) (TListType TCharType), state)
+    "charIsAlpha" ->
+      Just (TFunctionType TCharType TBoolType, state)
+    "charIsAlphaNum" ->
+      Just (TFunctionType TCharType TBoolType, state)
+    "charIsDigit" ->
+      Just (TFunctionType TCharType TBoolType, state)
+    "charIsSpace" ->
+      Just (TFunctionType TCharType TBoolType, state)
+    "charIsHexDigit" ->
+      Just (TFunctionType TCharType TBoolType, state)
     "textLength" ->
       Just (TFunctionType TTextType TIntType, state)
     "textUnconsRaw" ->
@@ -1521,6 +1547,12 @@ instantiateBuiltinSymbolTypeByName builtinName state =
             (TListType (TTupleType [TCharType, TTextType])),
           state
         )
+    "textAppend" ->
+      Just (TFunctionType TTextType (TFunctionType TTextType TTextType), state)
+    "textAppendChar" ->
+      Just (TFunctionType TTextType (TFunctionType TCharType TTextType), state)
+    "textFromChars" ->
+      Just (TFunctionType (TListType TCharType) TTextType, state)
     "readTextRaw!" ->
       Just (TFunctionType TTextType hostIOOutcomeType, state)
     "writeTextRaw!" ->

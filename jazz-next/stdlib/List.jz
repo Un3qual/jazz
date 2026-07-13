@@ -1,0 +1,16 @@
+module List (value listPrepend, value listReverse, value listLength) {
+  listPrepend :: a -> [a] -> [a].
+  listPrepend = __kernel_listPrependRaw.
+
+  listReverse :: [a] -> [a].
+  listReverse = __kernel_listReverseRaw.
+
+  listLengthFrom :: [a] -> Int -> Int.
+  listLengthFrom = \(items) -> \(length) -> case items {
+    | [] -> length
+    | [_ | rest] -> listLengthFrom rest (length + 1)
+  }.
+
+  listLength :: [a] -> Int.
+  listLength = \(items) -> listLengthFrom items 0.
+}

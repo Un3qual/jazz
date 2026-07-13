@@ -1,0 +1,30 @@
+module Char (value charToUInt32, value charFromUInt32, value charIsAlpha, value charIsAlphaNum, value charIsDigit, value charIsSpace, value charIsHexDigit, value charIsNewline) {
+  import Maybe.
+
+  charToUInt32 :: Char -> UInt32.
+  charToUInt32 = __kernel_charToUInt32.
+
+  charFromUInt32 :: UInt32 -> Maybe(Char).
+  charFromUInt32 = \(scalar) -> case __kernel_charFromUInt32Raw scalar {
+    | [] -> Nothing
+    | [value] -> Just value
+  }.
+
+  charIsAlpha :: Char -> Bool.
+  charIsAlpha = __kernel_charIsAlpha.
+
+  charIsAlphaNum :: Char -> Bool.
+  charIsAlphaNum = __kernel_charIsAlphaNum.
+
+  charIsDigit :: Char -> Bool.
+  charIsDigit = __kernel_charIsDigit.
+
+  charIsSpace :: Char -> Bool.
+  charIsSpace = __kernel_charIsSpace.
+
+  charIsHexDigit :: Char -> Bool.
+  charIsHexDigit = __kernel_charIsHexDigit.
+
+  charIsNewline :: Char -> Bool.
+  charIsNewline = \(value) -> if value == '\n' True else value == '\r'.
+}

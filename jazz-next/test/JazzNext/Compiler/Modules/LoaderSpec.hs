@@ -52,6 +52,12 @@ tests =
     ( "checked-in Text module traverses Unicode through Maybe",
       testBootstrapTextModule
     ),
+    ( "checked-in List Char and Text modules expose bootstrap construction APIs",
+      testBootstrapCollectionScalarModules
+    ),
+    ( "checked-in List reverse preserves concrete hints for non-empty and empty lists",
+      testBootstrapListReversePreservesConcreteHints
+    ),
     ( "checked-in IO modules transport successful host operations",
       testBootstrapIOSuccesses
     ),
@@ -166,6 +172,68 @@ testBootstrapTextModule = do
     lookupSource "src/App/Main.jz" = pure (Just entrySource)
     lookupSource "src/Maybe.jz" = readStdlibSource "Maybe.jz"
     lookupSource "src/Text.jz" = readStdlibSource "Text.jz"
+    lookupSource _ = pure Nothing
+
+testBootstrapCollectionScalarModules :: IO ()
+testBootstrapCollectionScalarModules = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual
+    "runtime output"
+    (Just "([\"second\", \"first\"], 2, Just('🙂'), Nothing, (True, True, True, True, True, True), \"Jazz\")")
+    (runOutput result)
+  where
+    entrySource =
+      "module App::Main {\n"
+        <> "import List.\n"
+        <> "import Char.\n"
+        <> "import Text.\n"
+        <> "items = listPrepend \"first\" [\"second\"].\n"
+        <> "surrogate :: UInt32.\n"
+        <> "surrogate = 55296.\n"
+        <> "(listReverse items, listLength items, charFromUInt32 (charToUInt32 '🙂'), charFromUInt32 surrogate, (charIsAlpha 'é', charIsAlphaNum '9', charIsDigit '9', charIsSpace '\\t', charIsHexDigit 'F', charIsNewline '\\n'), textAppendChar (textAppend \"Ja\" \"z\") 'z').\n"
+        <> "}"
+    lookupSource "src/App/Main.jz" = pure (Just entrySource)
+    lookupSource "src/List.jz" = readStdlibSource "List.jz"
+    lookupSource "src/Char.jz" = readStdlibSource "Char.jz"
+    lookupSource "src/Text.jz" = readStdlibSource "Text.jz"
+    lookupSource "src/Maybe.jz" = readStdlibSource "Maybe.jz"
+    lookupSource _ = pure Nothing
+
+testBootstrapListReversePreservesConcreteHints :: IO ()
+testBootstrapListReversePreservesConcreteHints = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "list reverse hint compile errors" [] (runCompileErrors result)
+  assertEqual "list reverse hint runtime errors" [] (runRuntimeErrors result)
+  assertEqual "list reverse hint output" (Just "(False, False)") (runOutput result)
+  where
+    entrySource =
+      "module App::Main {\n"
+        <> "import List.\n"
+        <> "class RuntimePick(a) { pick :: [a] -> Bool. }.\n"
+        <> "impl RuntimePick(Bool) { pick = \\(values) -> True. }.\n"
+        <> "impl RuntimePick(Int64) { pick = \\(values) -> False. }.\n"
+        <> "values :: [Int64].\n"
+        <> "values = [1].\n"
+        <> "emptyValues :: [Int64].\n"
+        <> "emptyValues = [].\n"
+        <> "(RuntimePick::pick (listReverse values), RuntimePick::pick (listReverse emptyValues)).\n"
+        <> "}"
+    lookupSource "src/App/Main.jz" = pure (Just entrySource)
+    lookupSource "src/List.jz" = readStdlibSource "List.jz"
     lookupSource _ = pure Nothing
 
 testBootstrapIOSuccesses :: IO ()

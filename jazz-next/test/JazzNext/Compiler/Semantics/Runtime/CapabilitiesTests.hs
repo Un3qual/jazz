@@ -108,10 +108,12 @@ capabilityTests =
     , ("qualified method dispatch executes Float32 equality body", testQualifiedMethodDispatchExecutesFloat32EqualityBody)
     , ("qualified method dispatch executes Float64 equality body", testQualifiedMethodDispatchExecutesFloat64EqualityBody)
     , ("qualified method dispatch treats Int as Int64 alias at runtime", testQualifiedMethodDispatchTreatsIntAsInt64Alias)
+    , ("qualified method dispatch re-hints Int aliases for Int64 parameters", testQualifiedMethodDispatchRehintsIntAliasForInt64Parameter)
     , ("qualified method dispatch prefers Int alias body for typed Int values", testQualifiedMethodDispatchPrefersIntAliasBody)
     , ("qualified method dispatch prefers Int alias body for direct integer literals", testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral)
     , ("qualified method dispatch prefers list alias body for typed list values", testQualifiedMethodDispatchPrefersListAliasBody)
     , ("qualified method dispatch prefers list alias body for direct list literals", testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral)
+    , ("raw list prepend re-hints the head to the concrete tail element type", testRawListPrependRehintsHeadToConcreteTailElementType)
     , ("qualified method dispatch preserves bound nested list runtime hints", testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint)
     , ("qualified method dispatch instantiates explicit empty list type application hints", testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint)
     , ("qualified method dispatch omits plain polymorphic empty list runtime hints", testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint)
@@ -595,6 +597,22 @@ testQualifiedMethodDispatchTreatsIntAsInt64Alias = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
+testQualifiedMethodDispatchRehintsIntAliasForInt64Parameter :: IO ()
+testQualifiedMethodDispatchRehintsIntAliasForInt64Parameter = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "asInt :: Int.\nasInt = 1.\n"
+          <> "asInt64 :: Int64 -> Int64.\nasInt64 = \\(value) -> value.\n"
+          <> "(RuntimeFlag::flag) (asInt64 asInt)."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
+
 testQualifiedMethodDispatchPrefersIntAliasBody :: IO ()
 testQualifiedMethodDispatchPrefersIntAliasBody = do
   result <-
@@ -652,6 +670,25 @@ testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
+
+testRawListPrependRehintsHeadToConcreteTailElementType :: IO ()
+testRawListPrependRehintsHeadToConcreteTailElementType = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "headValue :: Int.\nheadValue = 1.\n"
+          <> "tailValues :: [Int64].\ntailValues = [2].\n"
+          <> "case __kernel_listPrependRaw headValue tailValues {\n"
+          <> "| [] -> True\n"
+          <> "| [first | _] -> RuntimeFlag::flag first\n"
+          <> "}."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
 
 testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint :: IO ()
 testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint = do

@@ -56,6 +56,8 @@ tests =
     ("source pipeline types Char and Text literal patterns", testSourcePipelineTypesCharTextPatterns),
     ("source pipeline types private text traversal primitives", testSourcePipelineTypesPrivateTextTraversalPrimitives),
     ("source pipeline rejects non-Text traversal arguments", testSourcePipelineRejectsNonTextTraversalArguments),
+    ("source pipeline types bootstrap collection and scalar primitives", testSourcePipelineTypesBootstrapCollectionScalarPrimitives),
+    ("source pipeline rejects invalid bootstrap scalar arguments", testSourcePipelineRejectsInvalidBootstrapScalarArguments),
     ("source pipeline types private host IO primitives", testSourcePipelineTypesPrivateHostIOPrimitives),
     ("source pipeline rejects invalid host IO arguments", testSourcePipelineRejectsInvalidHostIOArguments),
     ("strict equality rejects mismatched operand types", testRejectsEqualityTypeMismatch),
@@ -211,6 +213,36 @@ testSourcePipelineRejectsNonTextTraversalArguments = do
     "bad = __kernel_textUnconsRaw True."
     "textUnconsRaw argument type mismatch"
     "E2006"
+
+testSourcePipelineTypesBootstrapCollectionScalarPrimitives :: IO ()
+testSourcePipelineTypesBootstrapCollectionScalarPrimitives =
+  assertCompiles
+    ( "items :: [Text].\n"
+        <> "items = __kernel_listPrependRaw \"first\" [\"second\"].\n"
+        <> "reversed :: [Text].\n"
+        <> "reversed = __kernel_listReverseRaw items.\n"
+        <> "scalar :: UInt32.\n"
+        <> "scalar = __kernel_charToUInt32 '\\u{1F642}'.\n"
+        <> "decoded :: [Char].\n"
+        <> "decoded = __kernel_charFromUInt32Raw scalar.\n"
+        <> "classes :: (Bool, Bool, Bool, Bool, Bool).\n"
+        <> "classes = (__kernel_charIsAlpha 'é', __kernel_charIsAlphaNum '9', __kernel_charIsDigit '9', __kernel_charIsSpace '\\t', __kernel_charIsHexDigit 'F').\n"
+        <> "built :: Text.\n"
+        <> "built = __kernel_textAppendChar (__kernel_textAppend \"Ja\" \"z\") 'z'.\n"
+        <> "fromChars :: Text.\n"
+        <> "fromChars = __kernel_textFromChars ['J', 'a', 'z', 'z']."
+    )
+
+testSourcePipelineRejectsInvalidBootstrapScalarArguments :: IO ()
+testSourcePipelineRejectsInvalidBootstrapScalarArguments = do
+  assertCompileError "bad = __kernel_charToUInt32 1." "charToUInt32 argument type mismatch" "E2006"
+  assertCompileError "bad = __kernel_charFromUInt32Raw 'a'." "charFromUInt32Raw argument type mismatch" "E2006"
+  assertCompileError "bad = __kernel_charIsAlpha \"a\"." "charIsAlpha argument type mismatch" "E2006"
+  assertCompileError "bad = __kernel_textAppend \"a\" True." "textAppend argument type mismatch" "E2006"
+  assertCompileError "bad = __kernel_textAppendChar \"a\" 1." "textAppendChar argument type mismatch" "E2006"
+  assertCompileError "bad = __kernel_listReverseRaw 1." "listReverseRaw argument type mismatch" "E2006"
+  assertCompileError "bad = __kernel_textFromChars \"Jazz\"." "textFromChars argument type mismatch" "E2006"
+  assertCompileError "bad = __kernel_textFromChars [1]." "textFromChars argument type mismatch" "E2006"
 
 testSourcePipelineTypesPrivateHostIOPrimitives :: IO ()
 testSourcePipelineTypesPrivateHostIOPrimitives =
