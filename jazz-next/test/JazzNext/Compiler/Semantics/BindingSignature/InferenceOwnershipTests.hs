@@ -7,9 +7,17 @@ module JazzNext.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import JazzNext.Compiler.AST
-  ( SignatureConstraint (..),
+  ( Expr (..),
+    SignatureConstraint (..),
     SignaturePayload (..),
-    SignatureType (..)
+    SignatureType (..),
+    Statement (..)
+  )
+import JazzNext.Compiler.BuiltinCatalog
+  ( BuiltinResolutionMode (ResolveKernelOnly)
+  )
+import JazzNext.Compiler.Diagnostics
+  ( SourceSpan (..)
   )
 import JazzNext.Compiler.Name
   ( mkIdentifier,
@@ -26,10 +34,18 @@ import JazzNext.Compiler.TypeInference.Operator
   ( builtinSectionOperatorSymbol,
     hasOperatorRule
   )
+import JazzNext.Compiler.TypeInference.Diagnostics
+  ( InferExprFn
+  )
+import JazzNext.Compiler.TypeInference.Scope
+  ( inferScopeType
+  )
 import JazzNext.Compiler.TypeInference.State
   ( DeclarationState (..),
+    InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
+    SolverState (..),
     inferClassFacts,
     inferCurrentModulePath,
     inferErrorCount,
@@ -78,6 +94,7 @@ inferenceOwnershipTests =
     ("type operations instantiate class and primitive constraints", testTypeOpsInstantiateConstraints),
     ("signature payload normalization allocates ordered variables", testSignaturePayloadNormalizationAllocatesOrderedVariables),
     ("failed signature payload normalization rolls back state", testFailedSignaturePayloadNormalizationRollsBackState),
+    ("recursive previews do not expose speculative solver state to intervening bindings", testRecursivePreviewSolverStateIsTransactional),
     ("operator rule presence remains distinct from section support", testOperatorRulePresenceAndSectionSupport)
   ]
 
@@ -269,6 +286,49 @@ testFailedSignaturePayloadNormalizationRollsBackState =
     (Just _, _) -> failTest "expected signature payload normalization failure"
   where
     payload = SignatureType (TypeName (sourceName (mkIdentifier "Missing")))
+
+testRecursivePreviewSolverStateIsTransactional :: IO ()
+testRecursivePreviewSolverStateIsTransactional =
+  assertEqual
+    "intervening binding error count"
+    0
+    (inferErrorCount finalState)
+  where
+    (_, finalState) =
+      inferScopeType
+        Set.empty
+        syntheticPreviewInfer
+        ResolveKernelOnly
+        Map.empty
+        initialInferState
+        [ SLet "left" (SourceSpan 1 1) (EVar "right"),
+          SLet "early" (SourceSpan 2 1) (EVar "probe"),
+          SLet "right" (SourceSpan 3 1) (EVar "left")
+        ]
+
+    syntheticPreviewInfer :: InferExprFn
+    syntheticPreviewInfer _ _ state expression =
+      case expression of
+        EVar "left" ->
+          ( Just TBoolType,
+            state
+              { inferSolver =
+                  (inferSolver state)
+                    { solverSubstitution =
+                        Map.insert previewSentinel TIntType (solverSubstitution (inferSolver state))
+                    }
+              }
+          )
+        EVar "probe"
+          | Map.member previewSentinel (solverSubstitution (inferSolver state)) ->
+              ( Just TBoolType,
+                modifyInferenceOutput
+                  (\output -> output {outputErrorCount = outputErrorCount output + 1})
+                  state
+              )
+        _ -> (Just TBoolType, state)
+
+    previewSentinel = 1000000
 
 testOperatorRulePresenceAndSectionSupport :: IO ()
 testOperatorRulePresenceAndSectionSupport = do

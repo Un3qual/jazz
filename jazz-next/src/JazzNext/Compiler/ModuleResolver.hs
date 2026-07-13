@@ -57,6 +57,7 @@ import JazzNext.Compiler.AST
   )
 import JazzNext.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
+    builtinNamesInMode,
     lookupBuiltinSymbolInMode
   )
 import JazzNext.Compiler.ModuleExports
@@ -749,10 +750,17 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
         indexedStatements = zip [0 ..] statements
         bindingNamesByStatement = collectBindingNames indexedStatements
         outerBindingNames =
-          Set.fromList
-            [ SourceName (mkIdentifier nameText)
-              | nameText <- Set.toList initialBoundValues
-            ]
+          Set.map
+            (SourceName . mkIdentifier)
+            ( Set.unions
+                [ initialBoundValues,
+                  localConstructors,
+                  ambientValues,
+                  Map.keysSet visibleValueOrigins,
+                  Map.keysSet visibleConstructorOrigins,
+                  builtinNamesInMode builtinMode
+                ]
+            )
         recursiveGroupsByStatement = inferRecursiveGroupsOrdered outerBindingNames indexedStatements
         (_, resolvedStatementsRev) = foldl' resolveBlockStatement (initialBoundValues, []) indexedStatements
 

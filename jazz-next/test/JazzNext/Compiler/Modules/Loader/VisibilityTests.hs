@@ -79,6 +79,7 @@ visibilityTests =
     , ("run module graph imports exported constructor without type name", testRunModuleGraphImportsExportedConstructorWithoutTypeName)
     , ("run module graph keeps private entry bindings usable", testRunModuleGraphKeepsPrivateEntryBindingsUsable)
     , ("run module graph keeps earlier imported values visible before later block binders", testRunModuleGraphKeepsEarlierImportedValueBeforeLaterBlockBinder)
+    , ("run module graph keeps imported values outside later recursive-looking block cycles", testRunModuleGraphKeepsImportedValueOutsideLaterBlockCycle)
     , ("run module graph keeps earlier imported constructors visible before later block binders", testRunModuleGraphKeepsEarlierImportedConstructorBeforeLaterBlockBinder)
     , ("run module graph preserves nested mutual recursion while resolving block binders sequentially", testRunModuleGraphPreservesNestedMutualRecursionDuringSequentialResolution)
   ]
@@ -101,6 +102,28 @@ testRunModuleGraphKeepsEarlierImportedValueBeforeLaterBlockBinder = do
         [ ("src/Lib/Values.jz", "module Lib::Values { importedValue = 41. }"),
           ( "src/App/Main.jz",
             "module App::Main { import Lib::Values. { result = importedValue. importedValue = 2. result. }. }"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphKeepsImportedValueOutsideLaterBlockCycle :: IO ()
+testRunModuleGraphKeepsImportedValueOutsideLaterBlockCycle = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "recursive-looking import compile errors" [] (runCompileErrors result)
+  assertEqual "recursive-looking import runtime errors" [] (runRuntimeErrors result)
+  assertEqual "recursive-looking import output" (Just "41") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/Lib/Values.jz", "module Lib::Values { importedValue = 41. }"),
+          ( "src/App/Main.jz",
+            "module App::Main { import Lib::Values. { result = importedValue. importedValue = result. result. }. }"
           )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

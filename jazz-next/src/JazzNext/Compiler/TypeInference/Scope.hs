@@ -731,7 +731,8 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
                           (exposeRecursiveGroupMember statementIndex envOutsideGroup previewState)
                           envAcc
                           processedMembers
-                   in (nextEnv, previewState)
+                      nextState = rollbackPreviewState stateAcc previewState
+                   in (nextEnv, nextState)
           where
             processedMembers = filter (< statementIndex) groupMembers
 
@@ -832,6 +833,18 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
 
         previewIntroducedDiagnostics originalState previewState =
           length (inferErrorsRev previewState) /= length (inferErrorsRev originalState)
+
+    -- Preview inference is a transaction: its resolved types may be used to
+    -- expose a temporary scheme, but none of its semantic state belongs to
+    -- the real traversal. Keep only the allocation watermark so type-variable
+    -- identifiers embedded in that temporary scheme cannot be reused.
+    rollbackPreviewState originalState previewState =
+      originalState
+        { inferSolver =
+            (inferSolver originalState)
+              { solverNextTypeVar = solverNextTypeVar (inferSolver previewState)
+              }
+        }
 
     shouldSeedSelfRecursiveFunction :: Int -> Name -> TypeEnv -> Bool
     shouldSeedSelfRecursiveFunction statementIndex bindingName visibleEnv =
