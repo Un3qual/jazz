@@ -24,7 +24,8 @@ module JazzNext.Compiler.Runtime
     runRuntimeHostEvaluation,
     runtimeExprRequiresHost,
     runtimeValueExactlyMatchesConstraint,
-    renderRuntimeValue
+    renderRuntimeValue,
+    untypedIntMetadata
   ) where
 
 import Control.Monad (foldM, zipWithM)
