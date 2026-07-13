@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Unused-binding reference accounting for one lexical block.
@@ -82,7 +83,7 @@ collectUnusedBindingUseState hiddenStatementIndices recursiveGroupsByStatement i
   where
     step
       bindingDeclarationsByStatement
-      (activeBindings, activeRebindingNames, usedStatementIndices, rebindingStatementIndices)
+      (!activeBindings, !activeRebindingNames, !usedStatementIndices, !rebindingStatementIndices)
       (statementIndex, statement)
         | statementIndex `Set.member` hiddenStatementIndices =
             (activeBindings, activeRebindingNames, usedStatementIndices, rebindingStatementIndices)

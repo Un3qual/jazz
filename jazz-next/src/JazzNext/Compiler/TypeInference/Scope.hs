@@ -777,7 +777,7 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
       let previewState = foldl' previewMember state (filter (> statementIndex) groupMembers)
        in if previewIntroducedDiagnostics state previewState
             then Nothing
-            else Just (discardPreviewDiagnostics state previewState)
+            else Just (discardPreviewOutput state previewState)
       where
         previewMember stateAcc memberIndex =
           case Map.lookup memberIndex statementsByIndex of
@@ -818,13 +818,14 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
                     _ -> stateAfterValue
             _ -> stateAcc
 
-        discardPreviewDiagnostics originalState previewState =
+        discardPreviewOutput originalState previewState =
           modifyInferenceOutput
             ( \output ->
                 output
                   { outputErrorsRev = inferErrorsRev originalState,
                     outputRuntimeHints = inferRuntimeTypeHints originalState,
-                    outputDeferredConstraints = inferDeferredExplicitConstraints originalState
+                    outputDeferredConstraints = inferDeferredExplicitConstraints originalState,
+                    outputInferredConstraints = inferInferredClassConstraints originalState
                   }
             )
             previewState

@@ -21,8 +21,8 @@ RUNGHC_INCLUDES=(
 )
 
 discover_test_suite_main_files() {
-  manifest_path="$1"
-  output_path="$2"
+  local manifest_path="$1"
+  local output_path="$2"
   awk '
     function finish_test_suite() {
       if (!in_test_suite) {
@@ -65,7 +65,23 @@ discover_test_suite_main_files() {
 }
 
 inventory_file="${tmpdir}/test-suite-main-is.txt"
-if ! discover_test_suite_main_files "$CABAL_MANIFEST" "$inventory_file"; then
+assert_discovery_preserves_caller_scope() {
+  local manifest_path="caller-manifest-sentinel"
+  local output_path="caller-output-sentinel"
+
+  discover_test_suite_main_files "$CABAL_MANIFEST" "$inventory_file"
+
+  [[ "$manifest_path" == "caller-manifest-sentinel" ]] || {
+    echo "FAIL: discovery overwrote caller manifest_path" >&2
+    return 1
+  }
+  [[ "$output_path" == "caller-output-sentinel" ]] || {
+    echo "FAIL: discovery overwrote caller output_path" >&2
+    return 1
+  }
+}
+
+if ! assert_discovery_preserves_caller_scope; then
   echo "FAIL: malformed test-suite inventory in ${CABAL_MANIFEST}" >&2
   exit 1
 fi

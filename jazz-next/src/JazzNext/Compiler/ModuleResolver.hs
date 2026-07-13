@@ -92,6 +92,10 @@ import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
 import JazzNext.Compiler.Parser.Lower (lowerSurfaceModule)
+import JazzNext.Compiler.RecursiveBindings
+  ( collectBindingNames,
+    inferRecursiveGroupsOrdered
+  )
 import JazzNext.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceClassMethodSignature (..),
@@ -737,8 +741,46 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
         ESectionLeft left symbol -> ESectionLeft (resolveExpr boundValues left) symbol
         ESectionRight symbol right -> ESectionRight symbol (resolveExpr boundValues right)
         EBlock statements ->
-          let blockBoundValues = Set.union boundValues (coreBlockBinders statements)
-           in EBlock (map (resolveStatement blockBoundValues) statements)
+          EBlock (resolveBlockStatements boundValues statements)
+
+    resolveBlockStatements initialBoundValues statements =
+      reverse resolvedStatementsRev
+      where
+        indexedStatements = zip [0 ..] statements
+        bindingNamesByStatement = collectBindingNames indexedStatements
+        outerBindingNames =
+          Set.fromList
+            [ SourceName (mkIdentifier nameText)
+              | nameText <- Set.toList initialBoundValues
+            ]
+        recursiveGroupsByStatement = inferRecursiveGroupsOrdered outerBindingNames indexedStatements
+        (_, resolvedStatementsRev) = foldl' resolveBlockStatement (initialBoundValues, []) indexedStatements
+
+        resolveBlockStatement (visibleBoundValues, resolvedRev) (statementIndex, statement) =
+          let statementBoundValues =
+                case statement of
+                  SLet bindingName _ _ ->
+                    Set.unions
+                      [ visibleBoundValues,
+                        maybe Set.empty Set.singleton (sourceNameText bindingName),
+                        recursivePeerBoundValues statementIndex
+                      ]
+                  _ -> visibleBoundValues
+              resolvedStatement = resolveStatement statementBoundValues statement
+              nextVisibleBoundValues =
+                case statement of
+                  SLet bindingName _ _ ->
+                    maybe visibleBoundValues (`Set.insert` visibleBoundValues) (sourceNameText bindingName)
+                  _ -> visibleBoundValues
+           in (nextVisibleBoundValues, resolvedStatement : resolvedRev)
+
+        recursivePeerBoundValues statementIndex =
+          Set.fromList
+            [ peerNameText
+              | peerIndex <- Map.findWithDefault [] statementIndex recursiveGroupsByStatement,
+                Just peerName <- [Map.lookup peerIndex bindingNamesByStatement],
+                Just peerNameText <- [sourceNameText peerName]
+            ]
 
     referenceNamespace boundValues name =
       case name of
@@ -856,13 +898,6 @@ resolveCoreModuleNames builtinMode _modulePath ambientValues ambientClasses loca
       case name of
         SourceName identifier -> Just (identifierText identifier)
         _ -> Nothing
-
-    coreBlockBinders statements =
-      Set.fromList
-        [ nameText
-          | SLet name _ _ <- statements,
-            Just nameText <- [sourceNameText name]
-        ]
 
     corePatternBinders patternValue =
       case patternValue of

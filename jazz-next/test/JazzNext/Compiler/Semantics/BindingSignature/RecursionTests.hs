@@ -40,6 +40,7 @@ recursionTests =
     , ("source pipeline accepts mutual recursion group", testSourceAcceptsMutualRecursionGroup)
     , ("source pipeline instantiates recursive constrained signatures per use", testSourceInstantiatesRecursiveConstrainedSignaturePerUse)
     , ("source pipeline discards speculative deferred constraints from recursive previews", testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews)
+    , ("source pipeline does not duplicate inferred constraints from recursive previews", testSourceDoesNotDuplicateInferredConstraintsFromRecursivePreviews)
     , ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError)
   ]
 
@@ -153,6 +154,11 @@ testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews :: IO ()
 testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews = do
   result <- compileExpr defaultWarningSettings speculativePreviewDeferredConstraintProgram
   assertEqual "compile errors" [] (compileErrors result)
+
+testSourceDoesNotDuplicateInferredConstraintsFromRecursivePreviews :: IO ()
+testSourceDoesNotDuplicateInferredConstraintsFromRecursivePreviews = do
+  result <- compileExpr defaultWarningSettings speculativePreviewInferredConstraintProgram
+  assertSingleDiagnosticContains "compile errors" "missing impl fact 'C(Bool)'" (compileErrors result)
 
 testSourceReportsSignedRecursiveRhsTypeError :: IO ()
 testSourceReportsSignedRecursiveRhsTypeError =

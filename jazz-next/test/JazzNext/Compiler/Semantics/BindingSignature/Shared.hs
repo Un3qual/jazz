@@ -22,7 +22,8 @@ module JazzNext.Compiler.Semantics.BindingSignature.Shared
     importedQualifiedMethodFactsProgram,
     aliasOnlyImportedCapabilityFactsProgram,
     speculativePreviewDeferredConstraintProgram,
-    speculativePreviewDeferredConstraintBlock
+    speculativePreviewDeferredConstraintBlock,
+    speculativePreviewInferredConstraintProgram
   ) where
 
 import qualified Data.Text as Text
@@ -278,4 +279,48 @@ speculativePreviewDeferredConstraintBlock =
             (EApply (EVar "id") (ELit (LBool True)))
         ),
       SExpr (SourceSpan 16 1) (EVar "early")
+    ]
+
+speculativePreviewInferredConstraintProgram :: Expr
+speculativePreviewInferredConstraintProgram =
+  EBlock
+    [ SModule (SourceSpan 1 1) ["Base"],
+      SClass
+        (SourceSpan 2 1)
+        "C"
+        ["a"]
+        [ ClassMethodSignature
+            "m"
+            (SourceSpan 3 1)
+            (SignatureType (TypeFunction (TypeVariable "a") TypeBool))
+        ],
+      SModule (SourceSpan 4 1) ["Facts"],
+      SImport (SourceSpan 5 1) ["Base"] Nothing Nothing,
+      SImpl
+        (SourceSpan 6 1)
+        "C"
+        [TypeBool]
+        [ImplMethod "m" (SourceSpan 7 1) (ELambda "value" (ELit (LBool True)))],
+      SModule (SourceSpan 8 1) ["Main"],
+      SImport (SourceSpan 9 1) ["Base"] Nothing Nothing,
+      SExpr
+        (SourceSpan 10 1)
+        ( EBlock
+            [ SLet
+                "left"
+                (SourceSpan 11 1)
+                (EIf (ELit (LBool True)) (ELambda "x" (EVar "x")) (EVar "right")),
+              SLet "early" (SourceSpan 12 1) (EApply (EVar "left") (ELit (LBool True))),
+              SImport (SourceSpan 13 1) ["Facts"] Nothing Nothing,
+              SLet
+                "right"
+                (SourceSpan 14 1)
+                ( EIf
+                    (ELit (LBool False))
+                    (ELambda "x" (EApply (EVar "C::m") (EVar "x")))
+                    (EVar "left")
+                ),
+              SExpr (SourceSpan 15 1) (EVar "early")
+            ]
+        )
     ]
