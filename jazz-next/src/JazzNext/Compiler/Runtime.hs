@@ -2602,12 +2602,25 @@ evalBuiltin builtinMode bindingTypeHints builtinFunction arguments =
     (BuiltinPrint, [value]) ->
       Right value
     (BuiltinListPrependRaw, [value, VList elements maybeTypeHint]) ->
-      Right (VList (value : elements) maybeTypeHint)
+      case maybeTypeHint of
+        Just (TypeList elementType) -> do
+          hintedValue <- applyRuntimeTypeHint elementType value
+          Right (VList (hintedValue : elements) maybeTypeHint)
+        _ ->
+          Right (VList (value : elements) maybeTypeHint)
     (BuiltinListPrependRaw, [_, other]) ->
       Left
         ( runtimeDiagnostic
             "E3032"
             ("runtime primitive 'listPrependRaw' expects a list as its second argument, found " <> renderRuntimeType other)
+        )
+    (BuiltinListReverseRaw, [VList elements maybeTypeHint]) ->
+      Right (VList (reverse elements) maybeTypeHint)
+    (BuiltinListReverseRaw, [other]) ->
+      Left
+        ( runtimeDiagnostic
+            "E3038"
+            ("runtime primitive 'listReverseRaw' expects a list argument, found " <> renderRuntimeType other)
         )
     (BuiltinCharToUInt32, [VChar value]) ->
       Right (VInt (fromIntegral (ord value)) (targetedIntMetadata NumericUInt32))
@@ -2686,12 +2699,36 @@ evalBuiltin builtinMode bindingTypeHints builtinFunction arguments =
                 <> renderRuntimeType charValue
             )
         )
+    (BuiltinTextFromChars, [VList elements _]) ->
+      case traverse runtimeChar elements of
+        Just chars -> Right (VText (Text.pack chars))
+        Nothing ->
+          Left
+            ( runtimeDiagnostic
+                "E3039"
+                "runtime primitive 'textFromChars' expects a list containing only Char values"
+            )
+    (BuiltinTextFromChars, [other]) ->
+      Left
+        ( runtimeDiagnostic
+            "E3039"
+            ("runtime primitive 'textFromChars' expects a list of Char, found " <> renderRuntimeType other)
+        )
     _ ->
       Left
         ( runtimeDiagnostic
             "E3016"
             ("runtime primitive '" <> builtinSymbolName builtinFunction <> "' received invalid arguments")
         )
+
+runtimeChar :: RuntimeValue -> Maybe Char
+runtimeChar runtimeValue =
+  case runtimeValue of
+    VChar value -> Just value
+    VTyped _ innerValue -> runtimeChar innerValue
+    VExplicitTypeApplication _ innerValue -> runtimeChar innerValue
+    VExplicitResultHint _ innerValue -> runtimeChar innerValue
+    _ -> Nothing
 
 invalidCharPredicate :: BuiltinSymbol -> RuntimeValue -> Either Diagnostic RuntimeValue
 invalidCharPredicate builtin other =

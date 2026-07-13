@@ -55,6 +55,9 @@ tests =
     ( "checked-in List Char and Text modules expose bootstrap construction APIs",
       testBootstrapCollectionScalarModules
     ),
+    ( "checked-in List reverse preserves concrete hints for non-empty and empty lists",
+      testBootstrapListReversePreservesConcreteHints
+    ),
     ( "checked-in IO modules transport successful host operations",
       testBootstrapIOSuccesses
     ),
@@ -202,6 +205,35 @@ testBootstrapCollectionScalarModules = do
     lookupSource "src/Char.jz" = readStdlibSource "Char.jz"
     lookupSource "src/Text.jz" = readStdlibSource "Text.jz"
     lookupSource "src/Maybe.jz" = readStdlibSource "Maybe.jz"
+    lookupSource _ = pure Nothing
+
+testBootstrapListReversePreservesConcreteHints :: IO ()
+testBootstrapListReversePreservesConcreteHints = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "list reverse hint compile errors" [] (runCompileErrors result)
+  assertEqual "list reverse hint runtime errors" [] (runRuntimeErrors result)
+  assertEqual "list reverse hint output" (Just "(False, False)") (runOutput result)
+  where
+    entrySource =
+      "module App::Main {\n"
+        <> "import List.\n"
+        <> "class RuntimePick(a) { pick :: [a] -> Bool. }.\n"
+        <> "impl RuntimePick(Bool) { pick = \\(values) -> True. }.\n"
+        <> "impl RuntimePick(Int64) { pick = \\(values) -> False. }.\n"
+        <> "values :: [Int64].\n"
+        <> "values = [1].\n"
+        <> "emptyValues :: [Int64].\n"
+        <> "emptyValues = [].\n"
+        <> "(RuntimePick::pick (listReverse values), RuntimePick::pick (listReverse emptyValues)).\n"
+        <> "}"
+    lookupSource "src/App/Main.jz" = pure (Just entrySource)
+    lookupSource "src/List.jz" = readStdlibSource "List.jz"
     lookupSource _ = pure Nothing
 
 testBootstrapIOSuccesses :: IO ()

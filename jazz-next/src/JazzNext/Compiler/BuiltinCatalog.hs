@@ -76,6 +76,7 @@ data BuiltinSymbol
   | BuiltinToFloat32
   | BuiltinToFloat64
   | BuiltinListPrependRaw
+  | BuiltinListReverseRaw
   | BuiltinCharToUInt32
   | BuiltinCharFromUInt32Raw
   | BuiltinCharIsAlpha
@@ -87,6 +88,7 @@ data BuiltinSymbol
   | BuiltinTextUnconsRaw
   | BuiltinTextAppend
   | BuiltinTextAppendChar
+  | BuiltinTextFromChars
   | BuiltinReadTextRaw
   | BuiltinWriteTextRaw
   | BuiltinReadStdinRaw
@@ -143,6 +145,7 @@ builtinSymbolOwnership builtinSymbol =
     BuiltinToFloat32 -> PreludeTarget
     BuiltinToFloat64 -> PreludeTarget
     BuiltinListPrependRaw -> KernelIntrinsic
+    BuiltinListReverseRaw -> KernelIntrinsic
     BuiltinCharToUInt32 -> KernelIntrinsic
     BuiltinCharFromUInt32Raw -> KernelIntrinsic
     BuiltinCharIsAlpha -> KernelIntrinsic
@@ -154,6 +157,7 @@ builtinSymbolOwnership builtinSymbol =
     BuiltinTextUnconsRaw -> KernelIntrinsic
     BuiltinTextAppend -> KernelIntrinsic
     BuiltinTextAppendChar -> KernelIntrinsic
+    BuiltinTextFromChars -> KernelIntrinsic
     BuiltinReadTextRaw -> KernelIntrinsic
     BuiltinWriteTextRaw -> KernelIntrinsic
     BuiltinReadStdinRaw -> KernelIntrinsic
@@ -184,6 +188,7 @@ builtinSymbolName builtinSymbol =
     BuiltinToFloat32 -> "toFloat32"
     BuiltinToFloat64 -> "toFloat64"
     BuiltinListPrependRaw -> "listPrependRaw"
+    BuiltinListReverseRaw -> "listReverseRaw"
     BuiltinCharToUInt32 -> "charToUInt32"
     BuiltinCharFromUInt32Raw -> "charFromUInt32Raw"
     BuiltinCharIsAlpha -> "charIsAlpha"
@@ -195,6 +200,7 @@ builtinSymbolName builtinSymbol =
     BuiltinTextUnconsRaw -> "textUnconsRaw"
     BuiltinTextAppend -> "textAppend"
     BuiltinTextAppendChar -> "textAppendChar"
+    BuiltinTextFromChars -> "textFromChars"
     BuiltinReadTextRaw -> "readTextRaw!"
     BuiltinWriteTextRaw -> "writeTextRaw!"
     BuiltinReadStdinRaw -> "readStdinRaw!"
@@ -229,6 +235,7 @@ builtinSymbolArity builtinSymbol =
     BuiltinToFloat32 -> 1
     BuiltinToFloat64 -> 1
     BuiltinListPrependRaw -> 2
+    BuiltinListReverseRaw -> 1
     BuiltinCharToUInt32 -> 1
     BuiltinCharFromUInt32Raw -> 1
     BuiltinCharIsAlpha -> 1
@@ -240,6 +247,7 @@ builtinSymbolArity builtinSymbol =
     BuiltinTextUnconsRaw -> 1
     BuiltinTextAppend -> 2
     BuiltinTextAppendChar -> 2
+    BuiltinTextFromChars -> 1
     BuiltinReadTextRaw -> 1
     BuiltinWriteTextRaw -> 2
     BuiltinReadStdinRaw -> 1
