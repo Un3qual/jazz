@@ -55,6 +55,7 @@ data TokenKind
   | TAs
   | TData
   | TIf
+  | TThen
   | TElse
   | TCase
   | TLambda
@@ -384,6 +385,7 @@ identifierKind ident =
     "as" -> TAs
     "data" -> TData
     "if" -> TIf
+    "then" -> TThen
     "else" -> TElse
     "case" -> TCase
     _ -> TIdentifier ident

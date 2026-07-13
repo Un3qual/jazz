@@ -536,7 +536,7 @@ testSourceRejectsControlFlowNestedEmptyListExactQualifiedMethodSelection =
     ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
         <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
         <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
-        <> "(RuntimeFlag::flag) (if True [[1], []] else [[1], []])."
+        <> "(RuntimeFlag::flag) (if True then [[1], []] else [[1], []])."
     )
     "ambiguous qualified method body 'RuntimeFlag::flag'"
 

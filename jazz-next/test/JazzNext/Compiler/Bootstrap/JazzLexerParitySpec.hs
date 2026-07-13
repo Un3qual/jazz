@@ -41,6 +41,7 @@ main = runTestSuite "JazzLexerParity" tests
 tests :: [NamedTest]
 tests =
   [ ("Jazz lexer renders exact canonical tokens", testExactCanonicalTokens),
+    ("Jazz lexer renders then as a canonical keyword", testExactThenKeyword),
     ("Jazz lexer renders exact structured failures", testExactStructuredFailure),
     ("Jazz lexer covers every focused boundary family", testFocusedBoundaryCorpus),
     ("Jazz lexer matches the complete canonical corpus deterministically", testCompleteCorpusParity),
@@ -51,6 +52,12 @@ tests =
 
 testExactCanonicalTokens :: IO ()
 testExactCanonicalTokens = assertJazzParity "fixtures/lexer/basic.jz" "module value = 00042."
+
+testExactThenKeyword :: IO ()
+testExactThenKeyword =
+  assertJazzParity
+    "fixtures/lexer/then-keyword.jz"
+    "if condition then yes else no"
 
 testExactStructuredFailure :: IO ()
 testExactStructuredFailure = assertJazzParity "fixtures/lexer/error.jz" "value ` 42."

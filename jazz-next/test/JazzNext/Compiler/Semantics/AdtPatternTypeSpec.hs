@@ -393,7 +393,7 @@ testSourcePipelineLinksRepeatedGenericConstructorPayloadParameters = do
 
 testSourcePipelineInstantiatesGenericConstructorValuesIndependently :: IO ()
 testSourcePipelineInstantiatesGenericConstructorValuesIndependently = do
-  result <- compileSource defaultWarningSettings "data Box a = Box a. makeInt = if True Box else Box. makeBool = if False Box else Box. first = makeInt 1. second = makeBool True."
+  result <- compileSource defaultWarningSettings "data Box a = Box a. makeInt = if True then Box else Box. makeBool = if False then Box else Box. first = makeInt 1. second = makeBool True."
   assertCompiles "generic constructor values" result
 
 testSourcePipelineInstantiatesOrdinaryBindingsReturningGenericConstructors :: IO ()

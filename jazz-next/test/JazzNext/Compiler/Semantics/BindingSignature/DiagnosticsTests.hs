@@ -229,10 +229,10 @@ testSourceRejectsOutOfRangeWidthSpecificIntegerLiterals = do
 
 testSourceRejectsOutOfRangeWidthSpecificBranchLiterals :: IO ()
 testSourceRejectsOutOfRangeWidthSpecificBranchLiterals = do
-  assertSourceSingleErrorContains "x :: UInt8.\nx = if True 1 else 300." "E2005"
+  assertSourceSingleErrorContains "x :: UInt8.\nx = if True then 1 else 300." "E2005"
   assertSourceSingleErrorContains "x :: UInt8.\nx = case 0 { | 0 -> 1 | _ -> 300 }." "E2005"
-  assertSourceSingleErrorContains "x :: (UInt8, UInt8).\nx = if True (1, 1) else (2, 300)." "E2005"
-  assertSourceSingleErrorContains "f :: UInt8 -> UInt8.\nf = if True (\\(x) -> 1) else (\\(x) -> 300)." "E2005"
+  assertSourceSingleErrorContains "x :: (UInt8, UInt8).\nx = if True then (1, 1) else (2, 300)." "E2005"
+  assertSourceSingleErrorContains "f :: UInt8 -> UInt8.\nf = if True then (\\(x) -> 1) else (\\(x) -> 300)." "E2005"
 
 testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic :: IO ()
 testSourceRejectsOutOfRangeWidthSpecificLiteralArithmetic = do

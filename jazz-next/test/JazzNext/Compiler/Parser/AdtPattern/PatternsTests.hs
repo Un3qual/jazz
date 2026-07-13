@@ -534,7 +534,7 @@ testKeepsConstructorIfExpressionPipeRhsBeforeArmArrow :: IO ()
 testKeepsConstructorIfExpressionPipeRhsBeforeArmArrow =
   assertRight
     "constructor if-expression pipe RHS before arm arrow"
-    (parseSurfaceProgram "x = case m { | item if item == 0 | Just if ok 1 else 2 -> item | _ -> m }.")
+    (parseSurfaceProgram "x = case m { | item if item == 0 | Just if ok then 1 else 2 -> item | _ -> m }.")
     (\surfaceProgram -> assertEqual "constructor if-expression pipe RHS surface AST" expectedSurfaceProgram surfaceProgram)
   where
     expectedSurfaceProgram =
@@ -882,7 +882,7 @@ testParsesIfExpressionInsideCaseArmBody :: IO ()
 testParsesIfExpressionInsideCaseArmBody =
   assertRight
     "if expression remains within first case arm"
-    (parseSurfaceProgram "x = case n { | 0 -> if True 1 else 2 | _ -> 3 }.")
+    (parseSurfaceProgram "x = case n { | 0 -> if True then 1 else 2 | _ -> 3 }.")
     (\surfaceProgram -> assertEqual "if-in-arm lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =

@@ -137,7 +137,7 @@ testClosureCaptureBeforeRebindingRuntime = do
 
 testSelfRecursiveLambdaRuntime :: IO ()
 testSelfRecursiveLambdaRuntime = do
-  result <- runSource defaultWarningSettings "countdown = \\(n) -> if n == 0 0 else countdown (n - 1). countdown 2."
+  result <- runSource defaultWarningSettings "countdown = \\(n) -> if n == 0 then 0 else countdown (n - 1). countdown 2."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -145,7 +145,7 @@ testSelfRecursiveLambdaRuntime = do
 
 testWrappedSelfRecursiveLambdaRuntime :: IO ()
 testWrappedSelfRecursiveLambdaRuntime = do
-  result <- runSource defaultWarningSettings "countdown = if True \\(n) -> if n == 0 0 else countdown (n - 1) else \\(n) -> n. countdown 2."
+  result <- runSource defaultWarningSettings "countdown = if True then \\(n) -> if n == 0 then 0 else countdown (n - 1) else \\(n) -> n. countdown 2."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -153,7 +153,7 @@ testWrappedSelfRecursiveLambdaRuntime = do
 
 testWrappedSelfRecursiveLambdaWithFunctionVariableBranchRuntime :: IO ()
 testWrappedSelfRecursiveLambdaWithFunctionVariableBranchRuntime = do
-  result <- runSource defaultWarningSettings "g = \\(n) -> n. countdown = if True \\(n) -> if n == 0 0 else countdown (n - 1) else g. countdown 2."
+  result <- runSource defaultWarningSettings "g = \\(n) -> n. countdown = if True then \\(n) -> if n == 0 then 0 else countdown (n - 1) else g. countdown 2."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -161,7 +161,7 @@ testWrappedSelfRecursiveLambdaWithFunctionVariableBranchRuntime = do
 
 testWrappedSelfRecursiveLambdaWithSectionBranchRuntime :: IO ()
 testWrappedSelfRecursiveLambdaWithSectionBranchRuntime = do
-  result <- runSource defaultWarningSettings "countdown = if True \\(n) -> if n == 0 0 else countdown (n - 1) else (1 +). countdown 2."
+  result <- runSource defaultWarningSettings "countdown = if True then \\(n) -> if n == 0 then 0 else countdown (n - 1) else (1 +). countdown 2."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -169,7 +169,7 @@ testWrappedSelfRecursiveLambdaWithSectionBranchRuntime = do
 
 testPatternCaseGuardedSelfRecursiveLambdaBodyRuntime :: IO ()
 testPatternCaseGuardedSelfRecursiveLambdaBodyRuntime = do
-  result <- runSource defaultWarningSettings "countdown = case 0 { | 0 if True -> \\(n) -> if n == 0 0 else countdown (n - 1) | _ -> \\(n) -> n }. countdown 2."
+  result <- runSource defaultWarningSettings "countdown = case 0 { | 0 if True -> \\(n) -> if n == 0 then 0 else countdown (n - 1) | _ -> \\(n) -> n }. countdown 2."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -177,7 +177,7 @@ testPatternCaseGuardedSelfRecursiveLambdaBodyRuntime = do
 
 testBlockWrappedSelfRecursiveLambdaRuntime :: IO ()
 testBlockWrappedSelfRecursiveLambdaRuntime = do
-  result <- runSource defaultWarningSettings "countdown = { \\(n) -> if n == 0 0 else countdown (n - 1). }. countdown 2."
+  result <- runSource defaultWarningSettings "countdown = { \\(n) -> if n == 0 then 0 else countdown (n - 1). }. countdown 2."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -185,7 +185,7 @@ testBlockWrappedSelfRecursiveLambdaRuntime = do
 
 testBlockReturnedLambdaAliasRuntime :: IO ()
 testBlockReturnedLambdaAliasRuntime = do
-  result <- runSource defaultWarningSettings "countdown = { go = \\(n) -> if n == 0 0 else countdown (n - 1). go. }. countdown 2."
+  result <- runSource defaultWarningSettings "countdown = { go = \\(n) -> if n == 0 then 0 else countdown (n - 1). go. }. countdown 2."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -193,7 +193,7 @@ testBlockReturnedLambdaAliasRuntime = do
 
 testMutualRecursiveLambdaRuntime :: IO ()
 testMutualRecursiveLambdaRuntime = do
-  result <- runSource defaultWarningSettings "even = \\(n) -> if n == 0 True else odd (n - 1). odd = \\(n) -> if n == 0 False else even (n - 1). even 4."
+  result <- runSource defaultWarningSettings "even = \\(n) -> if n == 0 then True else odd (n - 1). odd = \\(n) -> if n == 0 then False else even (n - 1). even 4."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -201,7 +201,7 @@ testMutualRecursiveLambdaRuntime = do
 
 testMutualRecursiveCaptureAfterRebindingRuntime :: IO ()
 testMutualRecursiveCaptureAfterRebindingRuntime = do
-  result <- runSource defaultWarningSettings "x = 1. f = \\(n) -> if n == 0 0 else g (n - 1). x = 2. g = \\(n) -> if n == 0 x else f (n - 1). f 1."
+  result <- runSource defaultWarningSettings "x = 1. f = \\(n) -> if n == 0 then 0 else g (n - 1). x = 2. g = \\(n) -> if n == 0 then x else f (n - 1). f 1."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -209,7 +209,7 @@ testMutualRecursiveCaptureAfterRebindingRuntime = do
 
 testMutualRecursiveAliasBridgeRuntime :: IO ()
 testMutualRecursiveAliasBridgeRuntime = do
-  result <- runSource defaultWarningSettings "f = \\(n) -> if n == 0 0 else h (n - 1). h = g. g = \\(n) -> if n == 0 1 else f (n - 1). f 1."
+  result <- runSource defaultWarningSettings "f = \\(n) -> if n == 0 then 0 else h (n - 1). h = g. g = \\(n) -> if n == 0 then 1 else f (n - 1). f 1."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -217,7 +217,7 @@ testMutualRecursiveAliasBridgeRuntime = do
 
 testRecursiveTypeSeedingPreservesOuterBindingRuntime :: IO ()
 testRecursiveTypeSeedingPreservesOuterBindingRuntime = do
-  result <- runSource defaultWarningSettings "x = 1. f = \\(n) -> if n == 0 x + 1 else g (n - 1). x = f. g = x. f 0."
+  result <- runSource defaultWarningSettings "x = 1. f = \\(n) -> if n == 0 then x + 1 else g (n - 1). x = f. g = x. f 0."
   assertEqual "warnings" [] (runWarnings result)
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -335,7 +335,7 @@ testRecursiveBindingMismatchDiagnostic = do
 
 testWrappedRecursiveLambdaTypeMismatch :: IO ()
 testWrappedRecursiveLambdaTypeMismatch = do
-  result <- compileSource defaultWarningSettings "f = if True \\(x) -> f True else \\(x) -> x. f 1."
+  result <- compileSource defaultWarningSettings "f = if True then \\(x) -> f True else \\(x) -> x. f 1."
   assertSingleDiagnosticCode
     "wrapped recursive lambda type mismatch code"
     "E2006"
@@ -343,7 +343,7 @@ testWrappedRecursiveLambdaTypeMismatch = do
 
 testMixedWrappedRecursiveLambdaTypeMismatch :: IO ()
 testMixedWrappedRecursiveLambdaTypeMismatch = do
-  result <- compileSource defaultWarningSettings "f = if True \\(x) -> f x else 0. f 1."
+  result <- compileSource defaultWarningSettings "f = if True then \\(x) -> f x else 0. f 1."
   case compileErrors result of
     [] ->
       failTest "expected mixed wrapped recursive lambda to fail compilation"

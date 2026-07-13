@@ -112,7 +112,7 @@ testTailRecursiveClosureIsStackSafe =
     ( runSource
         defaultWarningSettings
         ( "countDown = \\(remaining) -> "
-            <> "if remaining == 0 0 else { "
+            <> "if remaining == 0 then 0 else { "
             <> "next = remaining - 1. countDown next. }. "
             <> "countDown 50000."
         )
@@ -140,7 +140,7 @@ testTypedTailRecursiveClosureIsStackSafe =
         defaultWarningSettings
         ( "countDown :: Int -> Int. "
             <> "countDown = \\(remaining) -> "
-            <> "if remaining == 0 0 else countDown (remaining - 1). "
+            <> "if remaining == 0 then 0 else countDown (remaining - 1). "
             <> "countDown 10000."
         )
     )
@@ -261,7 +261,7 @@ testAliasOnlyRecursiveCycleRuntimeError = do
 
 testWrappedAliasOnlyRecursiveCycleRuntimeError :: IO ()
 testWrappedAliasOnlyRecursiveCycleRuntimeError = do
-  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True g else g. g = f. f.") :: IO (Either SomeException RunResult))
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True then g else g. g = f. f.") :: IO (Either SomeException RunResult))
   case maybeResult of
     Nothing ->
       failTest "expected wrapped alias-only recursive cycle to terminate with a runtime diagnostic, but evaluation timed out"
@@ -281,7 +281,7 @@ testWrappedAliasOnlyRecursiveCycleRuntimeError = do
 
 testMixedWrappedAliasCycleRuntimeError :: IO ()
 testMixedWrappedAliasCycleRuntimeError = do
-  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True g else \\(x) -> x. g = f. f 1.") :: IO (Either SomeException RunResult))
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if True then g else \\(x) -> x. g = f. f 1.") :: IO (Either SomeException RunResult))
   case maybeResult of
     Nothing ->
       failTest "expected mixed wrapped alias cycle to terminate with a runtime diagnostic, but evaluation timed out"
@@ -301,7 +301,7 @@ testMixedWrappedAliasCycleRuntimeError = do
 
 testWrappedAliasCycleConditionRuntimeError :: IO ()
 testWrappedAliasCycleConditionRuntimeError = do
-  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if (1 / 0 == 0) g else g. g = f. f.") :: IO (Either SomeException RunResult))
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "f = if (1 / 0 == 0) then g else g. g = f. f.") :: IO (Either SomeException RunResult))
   case maybeResult of
     Nothing ->
       failTest "expected wrapped alias cycle condition failure to terminate with a runtime diagnostic, but evaluation timed out"
@@ -451,7 +451,7 @@ testRecursiveDeclaredUserOperatorRuntimeSuccess = do
   result <-
     runSource
       defaultWarningSettings
-      "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> if left == 0 right else (left - 1) %% right.\nx = 2 %% 3.\nx."
+      "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> if left == 0 then right else (left - 1) %% right.\nx = 2 %% 3.\nx."
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)

@@ -36,7 +36,9 @@ tests :: [NamedTest]
 tests =
   [ ("parses basic if expression", testParsesBasicIfExpression),
     ("parses nested if with nearest else binding", testParsesNestedIfNearestElse),
-    ("parses if with infix condition without swallowing then branch", testParsesIfInfixConditionBoundary),
+    ("parses if with infix condition up to then", testParsesIfInfixConditionBoundary),
+    ("parses application in an if condition up to then", testParsesIfApplicationConditionBoundary),
+    ("rejects the old if syntax without then", testRejectsMissingThen),
     ("rejects missing else branch", testRejectsMissingElse),
     ("rejects extra else branch", testRejectsExtraElse),
     ("treats if and else as reserved keywords", testRejectsKeywordAsBindingName),
@@ -59,7 +61,7 @@ testParsesBasicIfExpression =
             ]
         )
     )
-    (parseSurfaceProgram "x = if True 1 else 2.")
+    (parseSurfaceProgram "x = if True then 1 else 2.")
 
 testParsesNestedIfNearestElse :: IO ()
 testParsesNestedIfNearestElse =
@@ -78,7 +80,7 @@ testParsesNestedIfNearestElse =
             ]
         )
     )
-    (parseSurfaceProgram "x = if cond if inner a else b else c.")
+    (parseSurfaceProgram "x = if cond then if inner then a else b else c.")
 
 testParsesIfInfixConditionBoundary :: IO ()
 testParsesIfInfixConditionBoundary =
@@ -93,21 +95,43 @@ testParsesIfInfixConditionBoundary =
             ]
         )
     )
-    (parseSurfaceProgram "x = if x > 0 1 else 2.")
+    (parseSurfaceProgram "x = if x > 0 then 1 else 2.")
+
+testParsesIfApplicationConditionBoundary :: IO ()
+testParsesIfApplicationConditionBoundary =
+  assertEqual
+    "if application condition boundary"
+    ( Right
+        ( SEBlock
+            [ SSLet
+                "x"
+                (SourceSpan 1 1)
+                (SEIf (SEApply (SEVar "predicate") (SEVar "value")) (SEVar "yes") (SEVar "no"))
+            ]
+        )
+    )
+    (parseSurfaceProgram "x = if predicate value then yes else no.")
+
+testRejectsMissingThen :: IO ()
+testRejectsMissingThen =
+  assertLeftDiagnosticContains
+    "missing then keyword"
+    "expected 'then'"
+    (parseSurfaceProgram "x = if cond yes else no.")
 
 testRejectsMissingElse :: IO ()
 testRejectsMissingElse =
   assertLeftDiagnosticContains
     "missing else branch"
     "expected 'else'"
-    (parseSurfaceProgram "x = if cond x.")
+    (parseSurfaceProgram "x = if cond then x.")
 
 testRejectsExtraElse :: IO ()
 testRejectsExtraElse =
   assertLeftDiagnosticContains
     "extra else branch"
     "expected '.'"
-    (parseSurfaceProgram "x = if cond x else y else z.")
+    (parseSurfaceProgram "x = if cond then x else y else z.")
 
 testRejectsKeywordAsBindingName :: IO ()
 testRejectsKeywordAsBindingName =
@@ -134,7 +158,7 @@ testLowerIfExpression :: IO ()
 testLowerIfExpression =
   assertRight
     "parse + lower if"
-    (parseSurfaceProgram "x = if True 1 else 2.")
+    (parseSurfaceProgram "x = if True then 1 else 2.")
     (\surfaceProgram -> assertEqual "lowered if AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -149,7 +173,7 @@ testLoweredIfIsCanonical :: IO ()
 testLoweredIfIsCanonical =
   assertRight
     "parse + canonical lower if"
-    (parseSurfaceProgram "x = if True 1 else 2.")
+    (parseSurfaceProgram "x = if True then 1 else 2.")
     ( \surfaceProgram ->
         assertEqual
           "canonical lowered if AST"
