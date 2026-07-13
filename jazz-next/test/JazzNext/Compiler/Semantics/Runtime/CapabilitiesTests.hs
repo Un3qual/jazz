@@ -108,6 +108,7 @@ capabilityTests =
     , ("qualified method dispatch prefers Int alias body for direct integer literals", testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral)
     , ("qualified method dispatch prefers list alias body for typed list values", testQualifiedMethodDispatchPrefersListAliasBody)
     , ("qualified method dispatch prefers list alias body for direct list literals", testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral)
+    , ("raw list prepend re-hints the head to the concrete tail element type", testRawListPrependRehintsHeadToConcreteTailElementType)
     , ("qualified method dispatch preserves bound nested list runtime hints", testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint)
     , ("qualified method dispatch instantiates explicit empty list type application hints", testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint)
     , ("qualified method dispatch omits plain polymorphic empty list runtime hints", testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint)
@@ -664,6 +665,25 @@ testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
+
+testRawListPrependRehintsHeadToConcreteTailElementType :: IO ()
+testRawListPrependRehintsHeadToConcreteTailElementType = do
+  result <-
+    runSource
+      defaultWarningSettings
+      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
+          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
+          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
+          <> "headValue :: Int.\nheadValue = 1.\n"
+          <> "tailValues :: [Int64].\ntailValues = [2].\n"
+          <> "case __kernel_listPrependRaw headValue tailValues {\n"
+          <> "| [] -> True\n"
+          <> "| [first | _] -> RuntimeFlag::flag first\n"
+          <> "}."
+      )
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "False") (runOutput result)
 
 testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint :: IO ()
 testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint = do

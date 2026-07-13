@@ -98,6 +98,8 @@ testSourcePipelineTypesBootstrapCollectionScalarPrimitives =
   assertCompiles
     ( "items :: [Text].\n"
         <> "items = __kernel_listPrependRaw \"first\" [\"second\"].\n"
+        <> "reversed :: [Text].\n"
+        <> "reversed = __kernel_listReverseRaw items.\n"
         <> "scalar :: UInt32.\n"
         <> "scalar = __kernel_charToUInt32 '\\u{1F642}'.\n"
         <> "decoded :: [Char].\n"
@@ -105,7 +107,9 @@ testSourcePipelineTypesBootstrapCollectionScalarPrimitives =
         <> "classes :: (Bool, Bool, Bool, Bool, Bool).\n"
         <> "classes = (__kernel_charIsAlpha 'é', __kernel_charIsAlphaNum '9', __kernel_charIsDigit '9', __kernel_charIsSpace '\\t', __kernel_charIsHexDigit 'F').\n"
         <> "built :: Text.\n"
-        <> "built = __kernel_textAppendChar (__kernel_textAppend \"Ja\" \"z\") 'z'."
+        <> "built = __kernel_textAppendChar (__kernel_textAppend \"Ja\" \"z\") 'z'.\n"
+        <> "fromChars :: Text.\n"
+        <> "fromChars = __kernel_textFromChars ['J', 'a', 'z', 'z']."
     )
 
 testSourcePipelineRejectsInvalidBootstrapScalarArguments :: IO ()
@@ -115,6 +119,9 @@ testSourcePipelineRejectsInvalidBootstrapScalarArguments = do
   assertCompileError "bad = __kernel_charIsAlpha \"a\"." "charIsAlpha argument type mismatch" "E2006"
   assertCompileError "bad = __kernel_textAppend \"a\" True." "textAppend argument type mismatch" "E2006"
   assertCompileError "bad = __kernel_textAppendChar \"a\" 1." "textAppendChar argument type mismatch" "E2006"
+  assertCompileError "bad = __kernel_listReverseRaw 1." "listReverseRaw argument type mismatch" "E2006"
+  assertCompileError "bad = __kernel_textFromChars \"Jazz\"." "textFromChars argument type mismatch" "E2006"
+  assertCompileError "bad = __kernel_textFromChars [1]." "textFromChars argument type mismatch" "E2006"
 
 testSourcePipelineTypesPrivateHostIOPrimitives :: IO ()
 testSourcePipelineTypesPrivateHostIOPrimitives =

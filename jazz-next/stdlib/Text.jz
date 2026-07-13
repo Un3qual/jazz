@@ -1,4 +1,4 @@
-module Text (value textEmpty, value textLength, value textIsEmpty, value textUncons, value textAppend, value textAppendChar) {
+module Text (value textEmpty, value textLength, value textIsEmpty, value textUncons, value textAppend, value textAppendChar, value textFromChars) {
   import Maybe.
 
   textEmpty :: Text.
@@ -21,4 +21,7 @@ module Text (value textEmpty, value textLength, value textIsEmpty, value textUnc
 
   textAppendChar :: Text -> Char -> Text.
   textAppendChar = __kernel_textAppendChar.
+
+  textFromChars :: [Char] -> Text.
+  textFromChars = __kernel_textFromChars.
 }

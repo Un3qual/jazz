@@ -167,16 +167,18 @@ testBootstrapCollectionScalarRuntimeSuccess = do
     runSource
       defaultWarningSettings
       ( "(__kernel_listPrependRaw \"first\" [\"second\"], "
+          <> "__kernel_listReverseRaw [\"first\", \"second\"], "
           <> "__kernel_charToUInt32 '\\u{1F642}', "
           <> "__kernel_charFromUInt32Raw (toUInt32 128578), "
           <> "(__kernel_charIsAlpha 'é', __kernel_charIsAlphaNum '9', __kernel_charIsDigit '9', __kernel_charIsSpace '\\t', __kernel_charIsHexDigit 'F'), "
-          <> "__kernel_textAppendChar (__kernel_textAppend \"Ja\" \"z\") 'z')."
+          <> "__kernel_textAppendChar (__kernel_textAppend \"Ja\" \"z\") 'z', "
+          <> "__kernel_textFromChars ['J', '🙂', 'z'])."
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual
     "bootstrap primitive output"
-    (Just "([\"first\", \"second\"], 128578, ['🙂'], (True, True, True, True, True), \"Jazz\")")
+    (Just "([\"first\", \"second\"], [\"second\", \"first\"], 128578, ['🙂'], (True, True, True, True, True), \"Jazz\", \"J🙂z\")")
     (runOutput result)
 
 testCheckedScalarConversionRejectsNonScalars :: IO ()
@@ -209,12 +211,24 @@ testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments = do
       appendCharResult =
         evaluateRuntimeExpr
           (runtimeExpr (EApply (EApply (EVar "__kernel_textAppendChar") (ELit (LText "a"))) (ELit (LInt 1))))
+      reverseResult =
+        evaluateRuntimeExpr
+          (runtimeExpr (EApply (EVar "__kernel_listReverseRaw") (ELit (LInt 1))))
+      textFromCharsListResult =
+        evaluateRuntimeExpr
+          (runtimeExpr (EApply (EVar "__kernel_textFromChars") (ELit (LText "Jazz"))))
+      textFromCharsElementResult =
+        evaluateRuntimeExpr
+          (runtimeExpr (EApply (EVar "__kernel_textFromChars") (EList [ELit (LInt 1)])))
   assertRuntimeErrorContains "list prepend argument" "E3032" prependResult
   assertRuntimeErrorContains "char to scalar argument" "E3033" charToResult
   assertRuntimeErrorContains "scalar to char argument" "E3034" charFromResult
   assertRuntimeErrorContains "char predicate argument" "E3035" predicateResult
   assertRuntimeErrorContains "text append argument" "E3036" appendResult
   assertRuntimeErrorContains "text append char argument" "E3037" appendCharResult
+  assertRuntimeErrorContains "list reverse argument" "E3038" reverseResult
+  assertRuntimeErrorContains "text from chars list argument" "E3039" textFromCharsListResult
+  assertRuntimeErrorContains "text from chars element argument" "E3039" textFromCharsElementResult
 
 testDirectSelfAliasRuntimeError :: IO ()
 testDirectSelfAliasRuntimeError = do

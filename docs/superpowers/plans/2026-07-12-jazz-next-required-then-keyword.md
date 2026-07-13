@@ -21,6 +21,7 @@
 ### Task 1: Reserve `then` in both canonical lexers
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/Lexer.hs`
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/TokenParser.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Parser/TokenParserSpec.hs`
@@ -32,6 +33,7 @@
 - Modify: `jazz-next/test/JazzNext/Compiler/Bootstrap/JazzLexerParitySpec.hs`
 
 **Interfaces:**
+
 - Consumes: `TokenKind`, `CanonicalKeyword`, `CanonicalTokenKind`, and `identifierKind` in both lexer implementations.
 - Produces: Haskell `TThen` and bootstrap `ThenKeyword`, with identical lexeme and source-span behavior.
 
@@ -80,11 +82,13 @@ git commit -m "feat: reserve then in Jazz lexers"
 ### Task 2: Require the explicit parser boundary
 
 **Files:**
+
 - Modify: `jazz-next/src/JazzNext/Compiler/Parser/Expression.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Parser/IfExpressionParserSpec.hs`
 - Modify: `jazz-next/test/JazzNext/Compiler/Parser/ExpressionParserSpec.hs`
 
 **Interfaces:**
+
 - Consumes: `TThen` from Task 1 and the existing `Stop = [Token] -> Bool` expression boundary.
 - Produces: `parseIfExpr` accepting only the canonical form while still returning `SEIf`.
 
@@ -138,6 +142,7 @@ git commit -m "feat: require then in Jazz conditionals"
 ### Task 3: Migrate active Jazz source and specification evidence
 
 **Files:**
+
 - Modify: `docs/spec/control-flow/if-expressions.md`
 - Modify: `jazz-next/stdlib/Char.jz`
 - Modify: `jazz-next/stdlib/Lexer.jz`
@@ -158,6 +163,7 @@ git commit -m "feat: require then in Jazz conditionals"
 - Modify: `jazz-next/test/JazzNext/Compiler/Semantics/Runtime/RenderingTests.hs`
 
 **Interfaces:**
+
 - Consumes: canonical grammar from Task 2.
 - Produces: an active compiler tree with no old-form conditionals and documentation matching executable behavior.
 

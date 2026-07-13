@@ -959,6 +959,9 @@ instantiateBuiltinSymbolTypeByName builtinName state =
               (TFunctionType (TListType elementType) (TListType elementType)),
             stateAfterElement
           )
+    "listReverseRaw" ->
+      let (elementType, stateAfterElement) = freshTypeVar state
+       in Just (TFunctionType (TListType elementType) (TListType elementType), stateAfterElement)
     "charToUInt32" ->
       Just (TFunctionType TCharType (TNumericType NumericUInt32), state)
     "charFromUInt32Raw" ->
@@ -986,6 +989,8 @@ instantiateBuiltinSymbolTypeByName builtinName state =
       Just (TFunctionType TTextType (TFunctionType TTextType TTextType), state)
     "textAppendChar" ->
       Just (TFunctionType TTextType (TFunctionType TCharType TTextType), state)
+    "textFromChars" ->
+      Just (TFunctionType (TListType TCharType) TTextType, state)
     "readTextRaw!" ->
       Just (TFunctionType TTextType hostIOOutcomeType, state)
     "writeTextRaw!" ->
