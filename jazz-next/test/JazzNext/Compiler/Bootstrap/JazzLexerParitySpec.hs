@@ -33,6 +33,7 @@ import JazzNext.TestHarness
     runTestSuite
   )
 import System.Directory (doesFileExist)
+import System.Environment (lookupEnv)
 import System.Timeout (timeout)
 
 main :: IO ()
@@ -84,8 +85,10 @@ testLargeTraversal = do
 
 testLongRuns :: IO ()
 testLongRuns = do
-  assertLongRunParity "long identifier" (Text.replicate 200000 "x")
-  assertLongRunParity "long quoted text" ("\"" <> Text.replicate 200000 "x" <> "\"")
+  interpretedRun <- lookupEnv "JAZZ_NEXT_RUNGHC_IN_CABAL"
+  let runLength = maybe 200000 (const 20000) interpretedRun
+  assertLongRunParity "long identifier" (Text.replicate runLength "x")
+  assertLongRunParity "long quoted text" ("\"" <> Text.replicate runLength "x" <> "\"")
 
 testTimeoutClassification :: IO ()
 testTimeoutClassification = do
