@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Semantic analysis for the current compiler slice. This pass keeps the core
--- AST shape intact while enforcing scope visibility, signature adjacency, and
--- stub-v1 purity/rebinding rules.
+-- AST shape intact while enforcing scope visibility, signature adjacency,
+-- capability constraints, purity, and rebinding rules.
 module JazzNext.Compiler.Analyzer
   ( AnalysisBinding (..),
     AnalysisInputs (..),
@@ -38,6 +38,9 @@ import JazzNext.Compiler.BuiltinCatalog
     builtinNamesInMode,
     isBuiltinSymbolNameInMode
   )
+import JazzNext.Compiler.Analyzer.UnusedBindings
+  ( collectUnusedBindingWarnings
+  )
 import JazzNext.Compiler.CapabilityFacts
   ( concreteImplFactKey,
     splitQualifiedMethodKey
@@ -64,8 +67,7 @@ import JazzNext.Compiler.Pattern
   ( patternBinderNames
   )
 import JazzNext.Compiler.RecursiveBindings
-  ( freeVarsExprWithBound,
-    inferRecursiveGroupsOrdered
+  ( inferRecursiveGroupsOrdered
   )
 import JazzNext.Compiler.Purity
   ( Purity (..)
@@ -365,6 +367,7 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope o
       collectUnusedBindingWarnings
         settings
         hiddenStatementIndices
+        recursiveGroupsByStatement
         indexedStatements
 
     -- Internal accumulators are built in reverse for O(1) append.
@@ -1002,107 +1005,6 @@ collectDataConstructorRebindingWarnings
           warning ++ warningsAcc
         )
 
-collectUnusedBindingWarnings ::
-  WarningSettings ->
-  Set Int ->
-  [(Int, Statement)] ->
-  Map Int [WarningRecord]
-collectUnusedBindingWarnings settings hiddenStatementIndices indexedStatements
-  | not (isWarningEnabled settings UnusedBinding) = Map.empty
-  | otherwise =
-      Map.fromList
-        [ (statementIndex, [mkUnusedBindingWarning bindingNameText bindingSpan])
-          | (statementIndex, SLet bindingName bindingSpan _) <- indexedStatements,
-            statementIndex `Set.notMember` hiddenStatementIndices,
-            let bindingNameText = identifierText bindingName,
-            not (isBindingUsedByOtherStatements statementIndex),
-            not (shouldSuppressRebindingDuplicate statementIndex)
-        ]
-  where
-    (usedBindingStatementIndices, rebindingStatementIndices) =
-      collectUnusedBindingUseState hiddenStatementIndices indexedStatements
-
-    isBindingUsedByOtherStatements bindingStatementIndex =
-      Set.member bindingStatementIndex usedBindingStatementIndices
-
-    shouldSuppressRebindingDuplicate statementIndex =
-      isWarningEnabled settings SameScopeRebinding
-        && Set.member statementIndex rebindingStatementIndices
-
-collectUnusedBindingUseState ::
-  Set Int ->
-  [(Int, Statement)] ->
-  (Set Int, Set Int)
-collectUnusedBindingUseState hiddenStatementIndices indexedStatements =
-  let (_, _, usedStatementIndices, rebindingStatementIndices) =
-        foldl' step (Map.empty, Set.empty, Set.empty, Set.empty) indexedStatements
-   in (usedStatementIndices, rebindingStatementIndices)
-  where
-    step
-      (activeBindings, activeRebindingNames, usedStatementIndices, rebindingStatementIndices)
-      (statementIndex, statement)
-      | statementIndex `Set.member` hiddenStatementIndices =
-          (activeBindings, activeRebindingNames, usedStatementIndices, rebindingStatementIndices)
-      | otherwise =
-          let referenceNames = statementReferenceNames statement
-              usedWithStatementReferences =
-                Set.foldl'
-                  (markReferencedBinding activeBindings)
-                  usedStatementIndices
-                  referenceNames
-           in
-            case statement of
-              SLet bindingName _ _ ->
-                let rebindingStatementIndices' =
-                      if Set.member bindingName activeRebindingNames
-                        then Set.insert statementIndex rebindingStatementIndices
-                        else rebindingStatementIndices
-                 in
-                  ( Map.insert bindingName statementIndex activeBindings,
-                    Set.insert bindingName activeRebindingNames,
-                    usedWithStatementReferences,
-                    rebindingStatementIndices'
-                  )
-              SData _ _ _ constructors ->
-                ( foldl' removeConstructor activeBindings constructors,
-                  foldl' registerConstructor activeRebindingNames constructors,
-                  usedWithStatementReferences,
-                  rebindingStatementIndices
-                )
-              _ ->
-                ( activeBindings,
-                  activeRebindingNames,
-                  usedWithStatementReferences,
-                  rebindingStatementIndices
-                )
-
-    statementReferenceNames statement =
-      case statement of
-        SLet bindingName _ valueExpr ->
-          Set.delete
-            bindingName
-            (freeVarsExprWithBound Set.empty valueExpr)
-        SExpr _ expr ->
-          freeVarsExprWithBound Set.empty expr
-        SImpl _ _ _ methods ->
-          Set.unions
-            [ freeVarsExprWithBound Set.empty methodExpr
-              | ImplMethod _ _ methodExpr <- methods
-            ]
-        _ -> Set.empty
-
-    markReferencedBinding activeBindings usedStatementIndices referenceName =
-      case Map.lookup referenceName activeBindings of
-        Nothing -> usedStatementIndices
-        Just bindingStatementIndex ->
-          Set.insert bindingStatementIndex usedStatementIndices
-
-    removeConstructor activeBindings (DataConstructor constructorName _) =
-      Map.delete constructorName activeBindings
-
-    registerConstructor activeRebindingNames (DataConstructor constructorName _) =
-      Set.insert constructorName activeRebindingNames
-
 visibleBindingDiagnosticSpan :: VisibleBinding -> Maybe SourceSpan
 visibleBindingDiagnosticSpan visibleBinding =
   if visibleBindingIsHiddenPrelude visibleBinding
@@ -1140,20 +1042,6 @@ mkOuterScopeShadowingWarning variableName primarySpan previousSpan =
         "outer-scope shadowing: '"
           <> variableName
           <> "' shadows a visible binding from an outer scope"
-    }
-
-mkUnusedBindingWarning :: Text -> SourceSpan -> WarningRecord
-mkUnusedBindingWarning variableName primarySpan =
-  WarningRecord
-    { warningCategory = UnusedBinding,
-      warningCodeText = warningCode UnusedBinding,
-      warningVariableName = variableName,
-      warningPrimarySpan = primarySpan,
-      warningPreviousSpan = Nothing,
-      warningMessage =
-        "unused binding: '"
-          <> variableName
-          <> "' is never referenced in this lexical block"
     }
 
 lambdaShadowingSpan :: AnalysisContext -> Maybe SourceSpan

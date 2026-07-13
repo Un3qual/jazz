@@ -4,49 +4,17 @@ module JazzNext.Compiler.Semantics.BindingSignature.RecursionTests
   ( recursionTests
   ) where
 
-
-import qualified Data.Set as Set
-import qualified Data.Text as Text
-import JazzNext.Compiler.AST
-  ( ClassMethodSignature (..),
-    Expr (..),
-    ImplMethod (..),
-    Literal (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureType (..),
-    Statement (..)
-  )
-import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
-    renderDiagnostic
-  )
-import JazzNext.Compiler.TypeInference.Types
-  ( ExpressionType (..),
-    TypeScheme (..),
-    emptyScopeCapabilityFacts
-  )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
-    RunResult (..),
-    compileExpr,
-    compileSource,
-    compileSourceWithPrelude,
-    runSourceWithPrelude
+    compileExpr
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
-    assertSingleDiagnosticCode,
-    assertSingleDiagnosticContains,
-    assertSingleDiagnosticPrimarySpan,
-    assertSingleDiagnosticRelatedSpan,
-    assertSingleDiagnosticSubject,
-    runTestSuite
+    assertSingleDiagnosticContains
   )
 import JazzNext.Compiler.Semantics.BindingSignature.Shared
 
@@ -72,6 +40,7 @@ recursionTests =
     , ("source pipeline accepts mutual recursion group", testSourceAcceptsMutualRecursionGroup)
     , ("source pipeline instantiates recursive constrained signatures per use", testSourceInstantiatesRecursiveConstrainedSignaturePerUse)
     , ("source pipeline discards speculative deferred constraints from recursive previews", testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews)
+    , ("source pipeline does not duplicate inferred constraints from recursive previews", testSourceDoesNotDuplicateInferredConstraintsFromRecursivePreviews)
     , ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError)
   ]
 
@@ -185,6 +154,11 @@ testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews :: IO ()
 testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews = do
   result <- compileExpr defaultWarningSettings speculativePreviewDeferredConstraintProgram
   assertEqual "compile errors" [] (compileErrors result)
+
+testSourceDoesNotDuplicateInferredConstraintsFromRecursivePreviews :: IO ()
+testSourceDoesNotDuplicateInferredConstraintsFromRecursivePreviews = do
+  result <- compileExpr defaultWarningSettings speculativePreviewInferredConstraintProgram
+  assertSingleDiagnosticContains "compile errors" "missing impl fact 'C(Bool)'" (compileErrors result)
 
 testSourceReportsSignedRecursiveRhsTypeError :: IO ()
 testSourceReportsSignedRecursiveRhsTypeError =

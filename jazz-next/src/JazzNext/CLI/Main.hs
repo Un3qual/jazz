@@ -22,7 +22,6 @@ import JazzNext.Compiler.BundledPrelude
   )
 import JazzNext.Compiler.Diagnostics
   ( Diagnostic,
-    RenderDiagnostic (..),
     SourceSpan (..),
     WarningRecord (..),
     mkDiagnostic,

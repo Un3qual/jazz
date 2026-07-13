@@ -427,6 +427,7 @@ lowerSurfaceDataConstructorArgument surfaceArgument =
     SurfaceDataConstructorArgumentOpaque ->
       DataConstructorArgumentOpaque
 
+lowerBindingName :: Identifier -> Name
 lowerBindingName name
   | isOperatorBindingIdentifierText (identifierText name) =
       operatorBindingNameFromIdentifier name

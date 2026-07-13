@@ -8,7 +8,24 @@ license: GPL-3.0-only
 maintainer: un3qual
 category: Language
 
+flag development
+  description: Treat compiler warnings as build failures in the repository workspace.
+  default: False
+  manual: True
+
+common warning-settings
+  ghc-options:
+      -Wall
+      -Wcompat
+      -Widentities
+      -Wincomplete-record-updates
+      -Wincomplete-uni-patterns
+      -Wredundant-constraints
+  if flag(development)
+    ghc-options: -Werror
+
 library jazz-next-internal
+  import: warning-settings
   visibility: private
   hs-source-dirs: src
   default-language: Haskell2010
@@ -16,6 +33,7 @@ library jazz-next-internal
       JazzNext.CLI.Main
       JazzNext.Compiler.AST
       JazzNext.Compiler.Analyzer
+      JazzNext.Compiler.Analyzer.UnusedBindings
       JazzNext.Compiler.BuiltinCatalog
       JazzNext.Compiler.BundledPrelude
       JazzNext.Compiler.CapabilityFacts
@@ -46,17 +64,23 @@ library jazz-next-internal
       JazzNext.Compiler.Purity
       JazzNext.Compiler.RecursiveBindings
       JazzNext.Compiler.Runtime
+      JazzNext.Compiler.Runtime.Primitives
+      JazzNext.Compiler.Runtime.ScopePlan
+      JazzNext.Compiler.Runtime.Semantics
+      JazzNext.Compiler.Runtime.Types
       JazzNext.Compiler.RuntimeHost
       JazzNext.Compiler.RuntimeHints
       JazzNext.Compiler.SourceProgram
       JazzNext.Compiler.TypeInference
       JazzNext.Compiler.TypeInference.Capabilities
       JazzNext.Compiler.TypeInference.Diagnostics
+      JazzNext.Compiler.TypeInference.Operator
       JazzNext.Compiler.TypeInference.Pattern
       JazzNext.Compiler.TypeInference.Scope
       JazzNext.Compiler.TypeInference.Signature
       JazzNext.Compiler.TypeInference.State
       JazzNext.Compiler.TypeInference.Solver
+      JazzNext.Compiler.TypeInference.TypeOps
       JazzNext.Compiler.TypeInference.Types
       JazzNext.Compiler.WarningCatalog
       JazzNext.Compiler.WarningConfig
@@ -72,6 +96,7 @@ library jazz-next-internal
       transformers >= 0.5 && < 0.7
 
 executable jazz-next
+  import: warning-settings
   hs-source-dirs: app
   main-is: Main.hs
   default-language: Haskell2010
@@ -80,6 +105,7 @@ executable jazz-next
       jazz-next:jazz-next-internal
 
 common test-common
+  import: warning-settings
   hs-source-dirs: test
   other-modules:
       JazzNext.Compiler.Parser.TestSupport
@@ -248,6 +274,7 @@ test-suite binding-signature-coherence-spec
       JazzNext.Compiler.Semantics.BindingSignature.ConstraintsTests
       JazzNext.Compiler.Semantics.BindingSignature.DiagnosticsTests
       JazzNext.Compiler.Semantics.BindingSignature.GeneralizationTests
+      JazzNext.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
       JazzNext.Compiler.Semantics.BindingSignature.RecursionTests
       JazzNext.Compiler.Semantics.BindingSignature.Shared
 
@@ -280,6 +307,11 @@ test-suite primitive-semantics-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Semantics/PrimitiveSemanticsSpec.hs
+  other-modules:
+      JazzNext.Compiler.Semantics.PrimitiveSemantics.EqualityOperator
+      JazzNext.Compiler.Semantics.PrimitiveSemantics.NumericConversions
+      JazzNext.Compiler.Semantics.PrimitiveSemantics.ScalarCollection
+      JazzNext.Compiler.Semantics.PrimitiveSemantics.Shared
 
 test-suite pattern-semantics-spec
   import: test-common
@@ -312,4 +344,5 @@ test-suite runtime-semantics-spec
       JazzNext.Compiler.Semantics.Runtime.NumericTests
       JazzNext.Compiler.Semantics.Runtime.RecursionTests
       JazzNext.Compiler.Semantics.Runtime.RenderingTests
+      JazzNext.Compiler.Semantics.Runtime.ScopeTests
       JazzNext.Compiler.Semantics.Runtime.Shared

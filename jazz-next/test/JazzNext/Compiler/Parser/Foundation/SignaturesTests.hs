@@ -4,8 +4,6 @@ module JazzNext.Compiler.Parser.Foundation.SignaturesTests
   ( signatureTests
   ) where
 
-
-import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
@@ -14,7 +12,6 @@ import JazzNext.Compiler.AST
     NumericType (..),
     SignatureConstraint (..),
     SignaturePayload (..),
-    SignatureToken (..),
     SignatureType (..),
     Statement (..)
   )
@@ -31,23 +28,18 @@ import JazzNext.Compiler.Parser.AST
     SurfaceNumericType (..),
     SurfaceSignatureConstraint (..),
     SurfaceSignaturePayload (..),
-    SurfaceSignatureToken (..),
     SurfaceSignatureType (..),
     SurfaceStatement (..)
   )
 import JazzNext.Compiler.Parser.Lower
   ( lowerSurfaceExpr
   )
-import JazzNext.Compiler.Name (qualifiedName)
 import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
-    assertLeftDiagnosticContains,
-    assertRight,
-    runTestSuite
+    assertRight
   )
-import JazzNext.Compiler.Parser.Foundation.Shared
 
 signatureTests :: [NamedTest]
 signatureTests =

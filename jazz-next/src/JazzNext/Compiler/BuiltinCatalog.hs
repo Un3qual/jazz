@@ -296,8 +296,13 @@ numericTypeIntegerBounds numericType =
     NumericFloat32 -> Nothing
     NumericFloat64 -> Nothing
   where
+    signedLower :: Int -> Integer
     signedLower bits = negate (2 ^ (bits - 1))
+
+    signedUpper :: Int -> Integer
     signedUpper bits = (2 ^ (bits - 1)) - 1
+
+    unsignedUpper :: Int -> Integer
     unsignedUpper bits = (2 ^ bits) - 1
 
 numericTypeFloatIntegerBounds :: NumericType -> Maybe (Integer, Integer)

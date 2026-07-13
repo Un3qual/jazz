@@ -27,7 +27,10 @@ module JazzNext.Compiler.TypeInference.State
     inferStrictEqualityVars,
     inferSubst,
     inferVisibleTypes,
-    initialInferState
+    initialInferState,
+    modifyDeclarationState,
+    modifyInferenceOutput,
+    modifyModuleInferenceState
   ) where
 
 import Data.Map.Strict (Map)
@@ -105,6 +108,18 @@ data DeferredExplicitConstraint = DeferredExplicitConstraint
     deferredStructuralFacts :: ScopeCapabilityFacts
   }
   deriving (Eq, Show)
+
+modifyDeclarationState :: (DeclarationState -> DeclarationState) -> InferState -> InferState
+modifyDeclarationState update state =
+  state {inferDeclarations = update (inferDeclarations state)}
+
+modifyInferenceOutput :: (InferenceOutput -> InferenceOutput) -> InferState -> InferState
+modifyInferenceOutput update state =
+  state {inferOutput = update (inferOutput state)}
+
+modifyModuleInferenceState :: (ModuleInferenceState -> ModuleInferenceState) -> InferState -> InferState
+modifyModuleInferenceState update state =
+  state {inferModule = update (inferModule state)}
 
 initialInferState :: InferState
 initialInferState =

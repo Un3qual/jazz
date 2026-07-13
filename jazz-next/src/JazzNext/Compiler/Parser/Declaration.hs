@@ -28,7 +28,8 @@ import JazzNext.Compiler.Diagnostics
   ( Diagnostic (..),
     SourceSpan,
     mkDiagnostic,
-    renderSourceSpan
+    renderSourceSpan,
+    setDiagnosticPrimarySpan
   )
 import JazzNext.Compiler.Name
   ( Identifier,
@@ -80,8 +81,7 @@ import JazzNext.Compiler.Parser.Signature
   )
 import JazzNext.Compiler.Parser.TokenParser
   ( Parser,
-    failTokenParser,
-    parseAnyToken,
+    failDiagnosticTokenParser,
     runTokenParserPrefix
   )
 import qualified Text.Megaparsec as MP
@@ -123,7 +123,7 @@ parseOwnedPrefix :: ([Token] -> Either Diagnostic (a, [Token])) -> Parser a
 parseOwnedPrefix parseDeclaration = do
   tokens <- MP.getInput
   case parseDeclaration tokens of
-    Left diagnostic -> failTokenParser (diagnosticSummary diagnostic)
+    Left diagnostic -> failDiagnosticTokenParser diagnostic
     Right (value, remaining) ->
       value <$ consumeParsedPrefix remaining
 
@@ -192,7 +192,7 @@ parseStatementParser parseExpression parseBlock context = do
 liftOwnedResult :: Either Diagnostic a -> Parser a
 liftOwnedResult result =
   case result of
-    Left diagnostic -> failTokenParser (diagnosticSummary diagnostic)
+    Left diagnostic -> failDiagnosticTokenParser diagnostic
     Right value -> pure value
 
 parseOperatorDeclaration :: StatementContext -> [OperatorInfo] -> Token -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
@@ -206,11 +206,11 @@ parseOperatorDeclaration context declaredOperators operatorToken tokensAfterKeyw
       parseVisibleOperatorDeclaration
   where
     parseVisibleOperatorDeclaration = do
-      (operatorSymbol, afterSymbol) <- parseOperatorDeclarationSymbol tokensAfterKeyword
-      validateDeclaredOperatorSymbol declaredOperators operatorToken operatorSymbol
+      (declaredSymbol, afterSymbol) <- parseOperatorDeclarationSymbol tokensAfterKeyword
+      validateDeclaredOperatorSymbol declaredOperators operatorToken declaredSymbol
       (fixityKeyword, afterFixityKeyword) <- consumeOperatorFixityKeyword operatorToken afterSymbol
       (operatorInfo, afterFixity) <-
-        parseOperatorDeclarationFixity operatorToken operatorSymbol fixityKeyword afterFixityKeyword
+        parseOperatorDeclarationFixity operatorToken declaredSymbol fixityKeyword afterFixityKeyword
       (operatorInfoWithAssociativity, afterAssociativity) <-
         parseOptionalOperatorAssociativity operatorInfo afterFixity
       remaining <-
@@ -222,8 +222,8 @@ parseOperatorDeclaration context declaredOperators operatorToken tokensAfterKeyw
 parseOperatorDeclarationSymbol :: [Token] -> Either Diagnostic (Text, [Token])
 parseOperatorDeclarationSymbol tokens =
   case tokens of
-    Token {tokenKind = TOperator operatorSymbol} : rest ->
-      Right (operatorSymbol, rest)
+    Token {tokenKind = TOperator declaredSymbol} : rest ->
+      Right (declaredSymbol, rest)
     Token {tokenKind = TArrow, tokenLexeme = arrowLexeme} : rest ->
       Right (arrowLexeme, rest)
     token : _ ->
@@ -303,16 +303,16 @@ consumeOperatorFixityKeyword operatorToken tokens =
         )
 
 parseOperatorDeclarationFixity :: Token -> Text -> OperatorDeclarationFixityKeyword -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
-parseOperatorDeclarationFixity operatorToken operatorSymbol fixityKeyword tokens =
+parseOperatorDeclarationFixity operatorToken declaredSymbol fixityKeyword tokens =
   case fixityKeyword of
-    OperatorTierKeyword -> parseOperatorDeclarationTier operatorToken operatorSymbol tokens
-    OperatorPrecedenceKeyword -> parseOperatorDeclarationPrecedence operatorToken operatorSymbol tokens
+    OperatorTierKeyword -> parseOperatorDeclarationTier operatorToken declaredSymbol tokens
+    OperatorPrecedenceKeyword -> parseOperatorDeclarationPrecedence operatorToken declaredSymbol tokens
 
 parseOperatorDeclarationTier :: Token -> Text -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
-parseOperatorDeclarationTier operatorToken operatorSymbol tokens =
+parseOperatorDeclarationTier operatorToken declaredSymbol tokens =
   case tokens of
     Token {tokenKind = TInt tier} : rest ->
-      case declaredOperatorInfoForTier operatorSymbol tier of
+      case declaredOperatorInfoForTier declaredSymbol tier of
         Just operatorInfo -> Right (operatorInfo, rest)
         Nothing ->
           Left
@@ -340,10 +340,10 @@ parseOperatorDeclarationTier operatorToken operatorSymbol tokens =
         )
 
 parseOperatorDeclarationPrecedence :: Token -> Text -> [Token] -> Either Diagnostic (OperatorInfo, [Token])
-parseOperatorDeclarationPrecedence operatorToken operatorSymbol tokens =
+parseOperatorDeclarationPrecedence operatorToken declaredSymbol tokens =
   case tokens of
     Token {tokenKind = TInt precedence} : rest ->
-      case declaredOperatorInfoForPrecedence operatorSymbol precedence of
+      case declaredOperatorInfoForPrecedence declaredSymbol precedence of
         Just operatorInfo -> Right (operatorInfo, rest)
         Nothing ->
           Left
@@ -461,7 +461,10 @@ parseStatementFromTokens parseExpression parseModuleBody context tokens =
         ModuleBodyContext -> rejectNestedModuleDeclaration moduleToken
         NestedBlockContext -> rejectNestedModuleDeclaration moduleToken
     importToken@Token {tokenKind = TImport} : rest ->
-      singleStatement <$> parseImportStatementTokens (importToken : rest)
+      case statementContext of
+        NestedBlockContext -> rejectNestedImportDeclaration importToken
+        TopLevelContext -> singleStatement <$> parseImportStatementTokens (importToken : rest)
+        ModuleBodyContext -> singleStatement <$> parseImportStatementTokens (importToken : rest)
     dataToken@Token {tokenKind = TData} : rest ->
       case statementContext of
         TopLevelContext -> singleStatement <$> parseDataStatementTokens (dataToken : rest)
@@ -1030,7 +1033,7 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
       Right (headerArguments, remaining)
 
     collectParenthesizedCapabilityHeader tokens =
-      go 1 [] tokens
+      go (1 :: Int) [] tokens
       where
         go depth acc remaining =
           case remaining of
@@ -1196,7 +1199,7 @@ parseCapabilityDeclarationBody parseImplExpression declarationKind declarationTo
                   (Set.insert methodName seenMethodNames)
                   (method : reversedMethods)
                   afterMethod
-        methodToken@Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} : Token {tokenKind = TColonColon} : _ ->
+        Token {tokenKind = TIdentifier methodName, tokenSpan = methodSpan} : Token {tokenKind = TColonColon} : _ ->
           Left
             ( parseDiagnostic
                 ( "expected ordinary method binding for '"
@@ -1488,9 +1491,9 @@ parseDataConstructorArgument typeName typeParameterNames tokens =
       | otherwise ->
           Right (SurfaceDataConstructorArgumentName (mkIdentifier argumentName), rest)
     Token {tokenKind = TLParen} : rest ->
-      fmap ((,) SurfaceDataConstructorArgumentOpaque) (consumeBalancedDataConstructorGroup 1 0 rest)
+      fmap ((,) SurfaceDataConstructorArgumentOpaque) (consumeBalancedDataConstructorGroup [TRParen] rest)
     Token {tokenKind = TLBracket} : rest ->
-      fmap ((,) SurfaceDataConstructorArgumentOpaque) (consumeBalancedDataConstructorGroup 0 1 rest)
+      fmap ((,) SurfaceDataConstructorArgumentOpaque) (consumeBalancedDataConstructorGroup [TRBracket] rest)
     [] ->
       Left (parseDiagnostic "expected constructor argument before end of input in data declaration")
     token : _ ->
@@ -1504,49 +1507,39 @@ parseDataConstructorArgument typeName typeParameterNames tokens =
             )
         )
 
-consumeBalancedDataConstructorGroup :: Int -> Int -> [Token] -> Either Diagnostic [Token]
-consumeBalancedDataConstructorGroup parenDepth bracketDepth tokens =
+consumeBalancedDataConstructorGroup :: [TokenKind] -> [Token] -> Either Diagnostic [Token]
+consumeBalancedDataConstructorGroup expectedClosers tokens =
   case tokens of
     [] ->
       Left (parseDiagnostic "expected constructor argument to close before end of input in data declaration")
     token : rest ->
       case tokenKind token of
         TLParen ->
-          consumeBalancedDataConstructorGroup (parenDepth + 1) bracketDepth rest
-        TRParen
-          | parenDepth > 0 ->
-              let nextParenDepth = parenDepth - 1
-               in
-                if nextParenDepth == 0 && bracketDepth == 0
-                  then Right rest
-                  else consumeBalancedDataConstructorGroup nextParenDepth bracketDepth rest
-          | otherwise ->
-              Left
-                ( parseDiagnostic
-                    ( "unexpected ')' at "
-                        <> renderSourceSpan (tokenSpan token)
-                        <> " in constructor argument"
-                    )
-                )
+          consumeBalancedDataConstructorGroup (TRParen : expectedClosers) rest
         TLBracket ->
-          consumeBalancedDataConstructorGroup parenDepth (bracketDepth + 1) rest
-        TRBracket
-          | bracketDepth > 0 ->
-              let nextBracketDepth = bracketDepth - 1
-               in
-                if parenDepth == 0 && nextBracketDepth == 0
-                  then Right rest
-                  else consumeBalancedDataConstructorGroup parenDepth nextBracketDepth rest
-          | otherwise ->
-              Left
-                ( parseDiagnostic
-                    ( "unexpected ']' at "
-                        <> renderSourceSpan (tokenSpan token)
-                        <> " in constructor argument"
-                    )
-                )
+          consumeBalancedDataConstructorGroup (TRBracket : expectedClosers) rest
+        closer@TRParen -> consumeDataConstructorCloser closer token rest
+        closer@TRBracket -> consumeDataConstructorCloser closer token rest
         _ ->
-          consumeBalancedDataConstructorGroup parenDepth bracketDepth rest
+          consumeBalancedDataConstructorGroup expectedClosers rest
+  where
+    consumeDataConstructorCloser closer token rest =
+      case expectedClosers of
+        expected : remainingClosers
+          | closer == expected ->
+              if null remainingClosers
+                then Right rest
+                else consumeBalancedDataConstructorGroup remainingClosers rest
+        _ ->
+          Left
+            ( parseDiagnostic
+                ( "unexpected '"
+                    <> tokenLexeme token
+                    <> "' at "
+                    <> renderSourceSpan (tokenSpan token)
+                    <> " in constructor argument"
+                )
+            )
 
 parseModulePath :: [Token] -> Either Diagnostic ([Text], [Token])
 parseModulePath tokens =
@@ -1729,7 +1722,7 @@ parseImportSymbol tokens =
 collectUntilDot :: [Token] -> Either Diagnostic ([Token], [Token])
 collectUntilDot = go []
   where
-    go acc [] = Left (parseDiagnostic "expected '.' before end of input")
+    go _ [] = Left (parseDiagnostic "expected '.' before end of input")
     go acc allTokens@(token : rest) =
       case tokenKind token of
         TDot
@@ -1822,6 +1815,7 @@ shouldParseCompactSignature name nameToken tokensAfterName =
           isSupportedSignaturePayload signaturePayload
             || isLikelyUnsupportedSignaturePayload signaturePayload
             || nextStatementStartsMatchingBinding name remaining
+    Right _ -> False
     Left _ -> False
 
 isConstructorStyleSignaturePayload :: SurfaceSignaturePayload -> Bool
@@ -1884,7 +1878,7 @@ collectImportAliasesUntilBrace :: [Token] -> Set Text
 collectImportAliasesUntilBrace = collectImportAliasesInStatementList True
 
 collectImportAliasesInStatementList :: Bool -> [Token] -> Set Text
-collectImportAliasesInStatementList stopAtRightBrace = go 0 Set.empty
+collectImportAliasesInStatementList stopAtRightBrace = go (0 :: Int) Set.empty
   where
     go _ aliases [] = aliases
     go depth aliases (token : rest)
@@ -1911,6 +1905,18 @@ rejectNestedModuleDeclaration moduleToken =
     ( parseDiagnostic
         ( "module declaration must remain top-level at "
             <> renderSourceSpan (tokenSpan moduleToken)
+        )
+    )
+
+rejectNestedImportDeclaration :: Token -> Either Diagnostic a
+rejectNestedImportDeclaration importToken =
+  Left
+    ( setDiagnosticPrimarySpan
+        (tokenSpan importToken)
+        ( parseDiagnostic
+            ( "import declaration must remain at file scope or directly in a module body at "
+                <> renderSourceSpan (tokenSpan importToken)
+            )
         )
     )
 

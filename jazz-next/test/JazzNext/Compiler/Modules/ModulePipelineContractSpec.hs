@@ -12,7 +12,15 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import JazzNext.Compiler.Diagnostics (renderDiagnostic)
+import JazzNext.Compiler.AST
+  ( Expr (..),
+    Literal (..),
+    Statement (..)
+  )
+import JazzNext.Compiler.Diagnostics
+  ( SourceSpan (..),
+    renderDiagnostic
+  )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
     RunResult (..),
@@ -25,9 +33,10 @@ import JazzNext.Compiler.ModuleResolver (resolveProgram)
 import JazzNext.Compiler.ModuleCompiler (compileResolvedProgram)
 import JazzNext.Compiler.ModuleRuntime
   ( RuntimeExport (..),
-    RuntimeModule (runtimeModuleExports),
-    RuntimeProgram (runtimeProgramOutput),
+    RuntimeModule (runtimeModuleExports, runtimeModulePath),
+    RuntimeProgram (runtimeProgramModules, runtimeProgramOutput),
     evaluateCompiledProgram,
+    evaluateCompiledProgramWithHost,
     lookupRuntimeModule
   )
 import JazzNext.Compiler.Runtime (renderRuntimeValue)
@@ -35,19 +44,38 @@ import JazzNext.Compiler.RuntimeHost
   ( RuntimeHost (..)
   )
 import JazzNext.Compiler.ModuleInterface
-  ( CompiledModule (compiledModuleInterface, compiledResolvedModule),
-    CompiledProgram (compiledProgramErrors),
-    ModuleInterface (interfaceValueTypes),
+  ( CompiledModule (..),
+    CompiledProgram (..),
+    ModuleInterface (..),
+    emptyCompiledPrelude,
     emptyCompileInputs,
+    emptyModuleInterface,
     lookupCompiledModule
   )
 import JazzNext.Compiler.ModuleExports
   ( ModuleExport (..),
+    ModuleExportInventory,
+    exportInventory,
     exportInventoryEntries
   )
 import qualified JazzNext.Compiler.ModuleGraph as ModuleGraph
+import JazzNext.Compiler.ModuleGraph
+  ( CoreModule (..),
+    ResolvedImport (..),
+    ResolvedModule (..)
+  )
 import JazzNext.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
-import JazzNext.Compiler.Name (NameNamespace (ConstructorNamespace, ValueNamespace))
+import JazzNext.Compiler.Name
+  ( NameNamespace (ConstructorNamespace, ValueNamespace),
+    builtinName,
+    mkIdentifier,
+    resolvedImportedName,
+    resolvedLocalName
+  )
+import JazzNext.Compiler.TypeInference.Types
+  ( ExpressionType (TTextType),
+    TypeBinding (PlainTypeBinding)
+  )
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
 import JazzNext.TestHarness
   ( NamedTest,
@@ -55,6 +83,7 @@ import JazzNext.TestHarness
     assertEqual,
     runTestSuite
   )
+import System.Timeout (timeout)
 
 main :: IO ()
 main = runTestSuite "ModulePipelineContract" tests
@@ -72,10 +101,243 @@ tests =
     ("namespace-aware runtime exports publish selected constructor only", testNamespaceAwareRuntimeExportPublishesConstructorOnly),
     ("compiled dependency terminal expressions are skipped", testCompiledDependencyTerminalExpressionIsSkipped),
     ("module graph execution carries one host through dependency exports", testModuleGraphInjectsRuntimeHost),
+    ("long compiled dependency chains preserve pure runtime behavior", testLongCompiledDependencyChainPure),
+    ("long compiled dependency chains preserve host runtime behavior", testLongCompiledDependencyChainHost),
+    ("duplicate compiled module paths preserve first-match imports and lookup", testDuplicateCompiledModulePathsPreserveFirstMatch),
     ("alias imports stay qualified", testAliasIsolationContract),
     ("transitive imports do not leak", testTransitiveVisibilityContract),
-    ("module diagnostics retain source paths", testSourcePathContract)
+    ("module diagnostics retain source paths", testSourcePathContract),
+    ("lexical binders shadow imported and builtin names", testLexicalBindersShadowImportedAndBuiltinNames)
   ]
+
+testDuplicateCompiledModulePathsPreserveFirstMatch :: IO ()
+testDuplicateCompiledModulePathsPreserveFirstMatch =
+  case evaluateCompiledProgram duplicatePathProgram of
+    Left diagnostic -> fail ("duplicate-path program failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right runtime -> do
+      assertEqual
+        "duplicate-path entry output"
+        (Just "(\"first\", \"first\")")
+        (renderRuntimeValue <$> runtimeProgramOutput runtime)
+      assertEqual
+        "duplicate-path module order"
+        [duplicatePath, middlePath, duplicatePath, ["App", "Main"]]
+        (map runtimeModulePath (runtimeProgramModules runtime))
+      case lookupRuntimeModule duplicatePath runtime of
+        Nothing -> fail "missing first duplicate runtime module"
+        Just runtimeModule ->
+          assertEqual
+            "public lookup keeps first duplicate"
+            (Set.singleton (RuntimeBindingExport firstExport))
+            (Map.keysSet (runtimeModuleExports runtimeModule))
+  where
+    duplicatePath = ["Lib", "Duplicate"]
+    middlePath = ["Middle"]
+    firstExport = ModuleExport ValueNamespace "value"
+    middleExport = ModuleExport ValueNamespace "middle"
+    secondExport = ModuleExport ValueNamespace "other"
+    firstModule =
+      compiledTextBindingModule duplicatePath [] firstExport (ELit (LText "first"))
+    middleModule =
+      compiledTextBindingModule
+        middlePath
+        [chainImport duplicatePath]
+        middleExport
+        (EVar (resolvedImportedName duplicatePath ValueNamespace (mkIdentifier "value")))
+    secondModule =
+      compiledTextBindingModule duplicatePath [] secondExport (ELit (LText "second"))
+    entryStatements =
+      [ SExpr
+          (SourceSpan 1 1)
+          ( ETuple
+              [ EVar (resolvedImportedName duplicatePath ValueNamespace (mkIdentifier "value")),
+                EVar (resolvedImportedName middlePath ValueNamespace (mkIdentifier "middle"))
+              ]
+          )
+      ]
+    entryModule =
+      compiledModule
+        ["App", "Main"]
+        [chainImport duplicatePath, chainImport middlePath]
+        entryStatements
+        (exportInventory [])
+        emptyModuleInterface
+    duplicatePathProgram =
+      CompiledProgram
+        { compiledProgramPrelude = emptyCompiledPrelude,
+          compiledProgramEntryPath = ["App", "Main"],
+          compiledProgramModules = [firstModule, middleModule, secondModule, entryModule],
+          compiledProgramWarnings = [],
+          compiledProgramErrors = []
+        }
+
+compiledTextBindingModule :: [Text] -> [ResolvedImport] -> ModuleExport -> Expr -> CompiledModule
+compiledTextBindingModule path imports moduleExport valueExpr =
+  compiledModule
+    path
+    imports
+    [ SLet
+        (resolvedLocalName ValueNamespace (mkIdentifier (moduleExportName moduleExport)))
+        (SourceSpan 1 1)
+        valueExpr
+    ]
+    (exportInventory [moduleExport])
+    ( emptyModuleInterface
+        { interfaceValueTypes = Map.singleton moduleExport (PlainTypeBinding TTextType)
+        }
+    )
+
+testLongCompiledDependencyChainPure :: IO ()
+testLongCompiledDependencyChainPure = do
+  let moduleCount = 12000
+      compiled = compiledChainProgram moduleCount False
+  outcome <- timeout 15000000 (evaluatePureChain compiled moduleCount)
+  case outcome of
+    Nothing -> fail "pure compiled dependency chain timed out"
+    Just () -> pure ()
+
+testLongCompiledDependencyChainHost :: IO ()
+testLongCompiledDependencyChainHost = do
+  callsRef <- newIORef []
+  let moduleCount = 6000
+      compiled = compiledChainProgram moduleCount True
+      host = (recordingHost callsRef) {runtimeHostArguments = modifyIORef' callsRef (<> ["arguments"]) >> pure []}
+  outcome <- timeout 15000000 (evaluateHostChain host compiled moduleCount)
+  case outcome of
+    Nothing -> fail "host compiled dependency chain timed out"
+    Just () -> pure ()
+  calls <- readIORef callsRef
+  assertEqual "host chain calls" ["arguments"] calls
+
+evaluatePureChain :: CompiledProgram -> Int -> IO ()
+evaluatePureChain compiled moduleCount =
+  case evaluateCompiledProgram compiled of
+    Left diagnostic -> fail ("pure chain failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right runtime -> assertChainRuntime runtime moduleCount
+
+evaluateHostChain :: RuntimeHost IO -> CompiledProgram -> Int -> IO ()
+evaluateHostChain host compiled moduleCount = do
+  result <- evaluateCompiledProgramWithHost host compiled
+  case result of
+    Left diagnostic -> fail ("host chain failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right runtime -> assertChainRuntime runtime moduleCount
+
+assertChainRuntime :: RuntimeProgram -> Int -> IO ()
+assertChainRuntime runtime moduleCount = do
+  assertEqual
+    "dependency order"
+    (map chainPath [0 .. moduleCount - 1] <> [["App", "Main"]])
+    (map runtimeModulePath (runtimeProgramModules runtime))
+  assertEqual "entry output" (Just "\"chain-value\"") (renderRuntimeValue <$> runtimeProgramOutput runtime)
+  case lookupRuntimeModule (chainPath (moduleCount `div` 2)) runtime of
+    Nothing -> fail "missing middle runtime dependency"
+    Just runtimeModule ->
+      assertEqual
+        "middle dependency export"
+        (Set.singleton (RuntimeBindingExport chainExport))
+        (Map.keysSet (runtimeModuleExports runtimeModule))
+
+compiledChainProgram :: Int -> Bool -> CompiledProgram
+compiledChainProgram moduleCount requiresHost =
+  CompiledProgram
+    { compiledProgramPrelude = emptyCompiledPrelude,
+      compiledProgramEntryPath = ["App", "Main"],
+      compiledProgramModules = map chainDependency [0 .. moduleCount - 1] <> [chainEntry requiresHost moduleCount],
+      compiledProgramWarnings = [],
+      compiledProgramErrors = []
+    }
+
+chainDependency :: Int -> CompiledModule
+chainDependency index =
+  compiledModule path imports statements chainInventory chainInterface
+  where
+    path = chainPath index
+    imports = if index == 0 then [] else [chainImport (chainPath (index - 1))]
+    valueExpr =
+      if index == 0
+        then ELit (LText "chain-value")
+        else EVar (resolvedImportedName (chainPath (index - 1)) ValueNamespace (mkIdentifier "value"))
+    statements = [SLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) valueExpr]
+
+chainEntry :: Bool -> Int -> CompiledModule
+chainEntry requiresHost moduleCount =
+  compiledModule ["App", "Main"] [chainImport dependencyPath] statements (exportInventory []) emptyModuleInterface
+  where
+    dependencyPath = chainPath (moduleCount - 1)
+    importedValue = EVar (resolvedImportedName dependencyPath ValueNamespace (mkIdentifier "value"))
+    hostResultName = resolvedLocalName ValueNamespace (mkIdentifier "host-result")
+    hostStatements =
+      [ SLet
+          hostResultName
+          (SourceSpan 1 1)
+          ( EApply
+              (EVar (builtinName (mkIdentifier "__kernel_arguments!")))
+              (ETuple [])
+          )
+      | requiresHost
+      ]
+    entryValue =
+      if requiresHost
+        then
+          EApply
+            (ELambda (resolvedLocalName ValueNamespace (mkIdentifier "ignored-host-result")) importedValue)
+            (EVar hostResultName)
+        else importedValue
+    statements = hostStatements <> [SExpr (SourceSpan 2 1) entryValue]
+
+compiledModule :: [Text] -> [ResolvedImport] -> [Statement] -> ModuleExportInventory -> ModuleInterface -> CompiledModule
+compiledModule path imports statements inventory moduleInterface =
+  CompiledModule
+    { compiledResolvedModule =
+        ResolvedModule
+          { resolvedModulePath = path,
+            resolvedSourcePath = "<runtime-chain>",
+            resolvedModuleImports = imports,
+            resolvedModuleExportInventory = inventory,
+            resolvedModuleCore = CoreModule (Just path) Nothing imports (EBlock statements)
+          },
+      compiledModuleInterface = moduleInterface,
+      compiledModuleWarnings = [],
+      compiledModuleErrors = [],
+      compiledModuleExpr = EBlock statements
+    }
+
+chainImport :: [Text] -> ResolvedImport
+chainImport path = ResolvedImport (SourceSpan 1 1) path Nothing Nothing
+
+chainPath :: Int -> [Text]
+chainPath index = ["Chain", Text.pack (show index)]
+
+chainExport :: ModuleExport
+chainExport = ModuleExport ValueNamespace "value"
+
+chainInventory :: ModuleExportInventory
+chainInventory = exportInventory [chainExport]
+
+chainInterface :: ModuleInterface
+chainInterface =
+  emptyModuleInterface
+    { interfaceValueTypes = Map.singleton chainExport (PlainTypeBinding TTextType)
+    }
+
+testLexicalBindersShadowImportedAndBuiltinNames :: IO ()
+testLexicalBindersShadowImportedAndBuiltinNames = do
+  compiled <- compileFixtureProgram sources
+  case evaluateCompiledProgram compiled of
+    Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right runtime ->
+      assertEqual
+        "lexical shadowing output"
+        (Just "(1, 2, 3, 4)")
+        (renderRuntimeValue <$> runtimeProgramOutput runtime)
+  where
+    sources =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main {\n  import Lib::Value.\n  ((\\(x) -> x) 1, case 2 { | x -> x }, { x = 3. x. }, (\\(map) -> map) 4).\n}"
+          ),
+          ("src/Lib/Value.jz", "module Lib::Value {\n  x = 99.\n}")
+        ]
 
 testRuntimeModulePublishesDeclaredExports :: IO ()
 testRuntimeModulePublishesDeclaredExports = do
@@ -96,16 +358,16 @@ testCompiledModuleKeepsPrivateInterfaceWithPublicInventory = do
   compiled <- compileFixtureProgram explicitExportSources
   case lookupCompiledModule ["Lib", "Value"] compiled of
     Nothing -> fail "missing compiled Lib::Value module"
-    Just compiledModule -> do
+    Just valueModule -> do
       assertEqual
         "full compiled interface"
         (Set.fromList [ModuleExport ValueNamespace "answer", ModuleExport ValueNamespace "helper"])
-        (Map.keysSet (interfaceValueTypes (compiledModuleInterface compiledModule)))
+        (Map.keysSet (interfaceValueTypes (compiledModuleInterface valueModule)))
       assertEqual
         "public compiled inventory"
         (Set.singleton (ModuleExport ValueNamespace "answer"))
         ( exportInventoryEntries
-            (ModuleGraph.resolvedModuleExportInventory (compiledResolvedModule compiledModule))
+            (ModuleGraph.resolvedModuleExportInventory (compiledResolvedModule valueModule))
         )
 
 testRuntimeModulePublishesExplicitExportsOnly :: IO ()
@@ -157,14 +419,14 @@ testModuleExportIdentityPreservesNamespaces = do
   compiled <- compileFixtureProgram shadowingSources
   case lookupCompiledModule ["Lib", "Maybe"] compiled of
     Nothing -> fail "missing compiled Lib::Maybe module"
-    Just compiledModule ->
+    Just maybeModule ->
       assertEqual
         "compiled shadowed export identities"
         expectedExports
         ( Map.keysSet
             ( Map.filterWithKey
                 (\moduleExport _ -> moduleExportName moduleExport == "Just")
-                (interfaceValueTypes (compiledModuleInterface compiledModule))
+                (interfaceValueTypes (compiledModuleInterface maybeModule))
             )
         )
   case evaluateCompiledProgram compiled of
@@ -334,11 +596,11 @@ testCompiledInterfacesExposeOnlyDeclaredExports = do
       compiled <- compileResolvedProgram (emptyCompileInputs defaultWarningSettings) resolved
       case lookupCompiledModule ["Lib", "Value"] compiled of
         Nothing -> fail "missing compiled Lib::Value module"
-        Just compiledModule ->
+        Just valueModule ->
           assertEqual
             "exported values"
             (Set.fromList [ModuleExport ValueNamespace "answer"])
-            (Map.keysSet (interfaceValueTypes (compiledModuleInterface compiledModule)))
+            (Map.keysSet (interfaceValueTypes (compiledModuleInterface valueModule)))
       assertEqual "no compile errors" [] (compiledProgramErrors compiled)
   where
     sources =
@@ -350,12 +612,12 @@ testCompiledInterfacesExposeOnlyDeclaredExports = do
 
 testDependencyExpressionContract :: IO ()
 testDependencyExpressionContract = do
-  result <- runGraph dependencyExpressionSources
+  result <- runGraph localDependencyExpressionSources
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "entry output" (Just "1") (runOutput result)
   where
-    dependencyExpressionSources =
+    localDependencyExpressionSources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Value. value. }"),
           ("src/Lib/Value.jz", "module Lib::Value { value = 1. 1 / 0. }")

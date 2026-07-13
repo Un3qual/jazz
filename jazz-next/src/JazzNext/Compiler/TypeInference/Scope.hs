@@ -80,7 +80,6 @@ import JazzNext.Compiler.TypeInference.State
     InferenceOutput (..),
     ModuleInferenceState (..),
     SolverState (..),
-    inferCurrentModulePath,
     inferDataTypes,
     inferDeferredExplicitConstraints,
     inferErrorCount,
@@ -90,7 +89,18 @@ import JazzNext.Compiler.TypeInference.State
     inferRigidTypeVars,
     inferRuntimeTypeHints,
     inferRuntimeHintPath,
-    inferStrictEqualityVars
+    inferStrictEqualityVars,
+    modifyDeclarationState,
+    modifyInferenceOutput,
+    modifyModuleInferenceState
+  )
+import JazzNext.Compiler.TypeInference.TypeOps
+  ( dedupeTypeSchemeConstraints,
+    freeTypeVariables,
+    freeTypeVariablesInTypeSchemeConstraints,
+    instantiateTypeSchemeConstraint,
+    instantiateTypeSchemePrimitiveConstraint,
+    replaceTypeVariables
   )
 import JazzNext.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
@@ -128,18 +138,6 @@ inferExprTypeWithExpected inferExpression builtinMode env state expectedType exp
               )
             Nothing -> (Nothing, stateAfterBody)
     _ -> inferExpression builtinMode env state expr
-
-modifyDeclarationState :: (DeclarationState -> DeclarationState) -> InferState -> InferState
-modifyDeclarationState update state =
-  state {inferDeclarations = update (inferDeclarations state)}
-
-modifyInferenceOutput :: (InferenceOutput -> InferenceOutput) -> InferState -> InferState
-modifyInferenceOutput update state =
-  state {inferOutput = update (inferOutput state)}
-
-modifyModuleInferenceState :: (ModuleInferenceState -> ModuleInferenceState) -> InferState -> InferState
-modifyModuleInferenceState update state =
-  state {inferModule = update (inferModule state)}
 
 setStatementRuntimeHintPath :: Set Int -> Int -> InferState -> InferState
 setStatementRuntimeHintPath preludeStatementIndices statementIndex state =
@@ -201,7 +199,7 @@ firstInvalidClassMethodSignature state capabilityName parameters =
                     variableName : _ ->
                       Just (mkMethodLocalTypeVariableError methodKey variableName methodSpan)
                     [] ->
-                      case signaturePayloadToSignatureType methodPayload state of
+                      case Signature.signaturePayloadToSignatureType methodPayload state of
                         (Just _, _) -> go rest
                         (Nothing, _) -> Just invalidMethodSignature
 
@@ -267,8 +265,8 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
                     case maybeInvalidTarget of
                       Just diagnostic -> addTypeError stateForSource diagnostic
                       Nothing ->
-                        let seededState = seedStatementCapabilityFact stateForSource statement
-                         in checkImplMethodBodies inferExpression builtinMode env seededState capabilityName arguments methods
+                        let implSeededState = seedStatementCapabilityFact stateForSource statement
+                         in checkImplMethodBodies inferExpression builtinMode env implSeededState capabilityName arguments methods
                   nextModuleBaselineFacts =
                     updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                in go env lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates nextModuleBaselineFacts nextState rest
@@ -278,15 +276,15 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
                in go nextEnv lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates moduleBaselineFacts nextState rest
             SSignature name signatureSpan signaturePayload ->
               let (nextPendingSignature, nextState) =
-                    case signaturePayloadToSignatureType signaturePayload signatureState of
+                    case Signature.signaturePayloadToSignatureType signaturePayload signatureState of
                       (Just signatureType, stateAfterSignature) ->
                         ( Just
                             ( PendingSignatureType
                                 (identifierText name)
                                 signatureSpan
-                                (signaturePayloadDeclaredType signatureType)
-                                (signaturePayloadExplicitConstraints signatureType)
-                                (signaturePayloadVariableOrder signatureType)
+                                (Signature.signaturePayloadDeclaredType signatureType)
+                                (Signature.signaturePayloadExplicitConstraints signatureType)
+                                (Signature.signaturePayloadVariableOrder signatureType)
                             ),
                           restoreCapabilityFacts state stateAfterSignature
                         )
@@ -446,7 +444,6 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
                   maybeNextBinding =
                     nextBindingForValue
                       statementIndex
-                      name
                       envForStatement
                       valueExpr
                       nextBindingType
@@ -542,14 +539,13 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
 
     nextBindingForValue ::
       Int ->
-      Name ->
       TypeEnv ->
       Expr ->
       Maybe ExpressionType ->
       Maybe PendingSignatureType ->
       InferState ->
       Maybe TypeBinding
-    nextBindingForValue statementIndex bindingName currentEnv valueExpr maybeInferredType maybePendingSignature state =
+    nextBindingForValue statementIndex currentEnv valueExpr maybeInferredType maybePendingSignature state =
       let monomorphicBinding =
             if Set.member statementIndex (Map.keysSet recursiveGroupsByStatement)
               then PlainTypeBinding <$> maybeInferredType
@@ -735,7 +731,8 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
                           (exposeRecursiveGroupMember statementIndex envOutsideGroup previewState)
                           envAcc
                           processedMembers
-                   in (nextEnv, previewState)
+                      nextState = rollbackPreviewState stateAcc previewState
+                   in (nextEnv, nextState)
           where
             processedMembers = filter (< statementIndex) groupMembers
 
@@ -781,7 +778,7 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
       let previewState = foldl' previewMember state (filter (> statementIndex) groupMembers)
        in if previewIntroducedDiagnostics state previewState
             then Nothing
-            else Just (discardPreviewDiagnostics state previewState)
+            else Just (discardPreviewOutput state previewState)
       where
         previewMember stateAcc memberIndex =
           case Map.lookup memberIndex statementsByIndex of
@@ -822,19 +819,32 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
                     _ -> stateAfterValue
             _ -> stateAcc
 
-        discardPreviewDiagnostics originalState previewState =
+        discardPreviewOutput originalState previewState =
           modifyInferenceOutput
             ( \output ->
                 output
                   { outputErrorsRev = inferErrorsRev originalState,
                     outputRuntimeHints = inferRuntimeTypeHints originalState,
-                    outputDeferredConstraints = inferDeferredExplicitConstraints originalState
+                    outputDeferredConstraints = inferDeferredExplicitConstraints originalState,
+                    outputInferredConstraints = inferInferredClassConstraints originalState
                   }
             )
             previewState
 
         previewIntroducedDiagnostics originalState previewState =
           length (inferErrorsRev previewState) /= length (inferErrorsRev originalState)
+
+    -- Preview inference is a transaction: its resolved types may be used to
+    -- expose a temporary scheme, but none of its semantic state belongs to
+    -- the real traversal. Keep only the allocation watermark so type-variable
+    -- identifiers embedded in that temporary scheme cannot be reused.
+    rollbackPreviewState originalState previewState =
+      originalState
+        { inferSolver =
+            (inferSolver originalState)
+              { solverNextTypeVar = solverNextTypeVar (inferSolver previewState)
+              }
+        }
 
     shouldSeedSelfRecursiveFunction :: Int -> Name -> TypeEnv -> Bool
     shouldSeedSelfRecursiveFunction statementIndex bindingName visibleEnv =
@@ -865,7 +875,7 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
     generalizeRecursiveGroupMember :: Map Int PendingSignatureType -> TypeEnv -> InferState -> TypeEnv -> Int -> TypeEnv
     generalizeRecursiveGroupMember pendingSignatures envOutsideGroup state currentEnv memberIndex =
       case (Map.lookup memberIndex statementsByIndex, Map.lookup memberIndex bindingNamesByStatement) of
-        (Just (SLet _ _ valueExpr), Just bindingName)
+        (Just (SLet _ _ _), Just bindingName)
           | Just pendingSignature <- Map.lookup memberIndex pendingSignatures,
             shouldGeneralizeExplicitSignatureBinding pendingSignature ->
               Map.insert
@@ -1424,7 +1434,7 @@ constructorArgumentTypes typeParameters constructorArguments state
 
 namedConstructorPayloadType :: Name -> Maybe ExpressionType
 namedConstructorPayloadType =
-  constraintSignatureTypeToExpressionType . TypeName
+  Signature.constraintSignatureTypeToExpressionType . TypeName
 
 -- | Instantiate non-builtin local bindings and constructors at use sites.
 -- Builtin aliases stay with the top-level dispatcher because their rules share
@@ -1493,7 +1503,7 @@ inferExplicitTypeApplication ::
   SignatureType ->
   (Maybe ExpressionType, InferState)
 inferExplicitTypeApplication inferExpression builtinMode env state functionExpr typeArgumentSpan typeArgument =
-  case (explicitTypeApplicationScheme env functionExpr, constraintSignatureTypeToExpressionTypeWithState state Map.empty typeArgument) of
+  case (explicitTypeApplicationScheme env functionExpr, Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty typeArgument) of
     (Just typeScheme, Just explicitArgumentType) ->
       let (maybeInstantiatedType, nextState) =
             instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state
@@ -1619,4 +1629,4 @@ typeSchemeRuntimeHint state typeScheme =
 
 runtimeHintFromExpressionType :: InferState -> ExpressionType -> Maybe SignatureType
 runtimeHintFromExpressionType state expressionType =
-  expressionTypeToRuntimeHint (defaultLiteralTypes (resolveType state expressionType))
+  Signature.expressionTypeToRuntimeHint (defaultLiteralTypes (resolveType state expressionType))

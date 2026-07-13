@@ -25,8 +25,7 @@ import JazzNext.Compiler.ModuleGraph
     ResolvedProgram (..)
   )
 import JazzNext.Compiler.ModuleExports
-  ( ModuleExport (..),
-    ModuleExportInventory,
+  ( ModuleExportInventory,
     ModuleImportMode (..),
     exportNamesInNamespace,
     inventoryHasExport,
@@ -179,9 +178,6 @@ data ImportedInterface = ImportedInterface
     importedCapabilities :: ScopeCapabilityFacts,
     importedClassNames :: Set.Set Text
   }
-
-emptyImportedInterface :: ImportedInterface
-emptyImportedInterface = ImportedInterface Map.empty Map.empty emptyScopeCapabilityFacts Set.empty
 
 interfaceTypeEnv :: ImportedInterface -> TypeEnv
 interfaceTypeEnv = importedTypes

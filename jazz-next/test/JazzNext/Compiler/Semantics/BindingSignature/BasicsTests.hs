@@ -4,13 +4,9 @@ module JazzNext.Compiler.Semantics.BindingSignature.BasicsTests
   ( basicTests
   ) where
 
-
 import qualified Data.Set as Set
-import qualified Data.Text as Text
 import JazzNext.Compiler.AST
-  ( ClassMethodSignature (..),
-    Expr (..),
-    ImplMethod (..),
+  ( Expr (..),
     Literal (..),
     SignatureConstraint (..),
     SignaturePayload (..),
@@ -18,8 +14,7 @@ import JazzNext.Compiler.AST
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
-    renderDiagnostic
+  ( SourceSpan (..)
   )
 import JazzNext.Compiler.TypeInference.Types
   ( ExpressionType (..),
@@ -31,7 +26,6 @@ import JazzNext.Compiler.Driver
     RunResult (..),
     compileExpr,
     compileSource,
-    compileSourceWithPrelude,
     runSourceWithPrelude
   )
 import JazzNext.Compiler.WarningConfig
@@ -39,14 +33,9 @@ import JazzNext.Compiler.WarningConfig
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
     assertSingleDiagnosticCode,
-    assertSingleDiagnosticContains,
-    assertSingleDiagnosticPrimarySpan,
-    assertSingleDiagnosticRelatedSpan,
-    assertSingleDiagnosticSubject,
-    runTestSuite
+    assertSingleDiagnosticContains
   )
 import JazzNext.Compiler.Semantics.BindingSignature.Shared
 

@@ -6,13 +6,38 @@ JAZZ_NEXT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 if [[ -z "${JAZZ_NEXT_RUNGHC_IN_CABAL-}" && "${JAZZ_NEXT_RUNGHC_NO_CABAL-}" != "1" && -f "${JAZZ_NEXT_DIR}/jazz-next.cabal" ]] && command -v cabal >/dev/null 2>&1; then
   export JAZZ_NEXT_RUNGHC_IN_CABAL=1
-  if cabal exec --project-dir="${JAZZ_NEXT_DIR}" -- runghc "$@"; then
-    exit 0
+  if probe_output="$(cabal exec --project-dir="${JAZZ_NEXT_DIR}" -- sh -c 'if command -v runghc >/dev/null 2>&1; then printf "%s\n" "__jazz_next_runghc_probe__:available"; else printf "%s\n" "__jazz_next_runghc_probe__:missing"; fi')"; then
+    if ! probe_marker="$(printf '%s\n' "$probe_output" | awk '
+      /^__jazz_next_runghc_probe__:(available|missing)$/ {
+        marker = $0
+        marker_count++
+      }
+
+      END {
+        if (marker_count != 1) {
+          exit 1
+        }
+        print marker
+      }
+    ')"; then
+      echo "unexpected Cabal runghc probe output: ${probe_output}" >&2
+      exit 1
+    fi
+
+    case "$probe_marker" in
+      "__jazz_next_runghc_probe__:available")
+        exec cabal exec --project-dir="${JAZZ_NEXT_DIR}" -- runghc "$@"
+        ;;
+      "__jazz_next_runghc_probe__:missing")
+        ;;
+      *)
+        echo "unexpected Cabal runghc probe output: ${probe_output}" >&2
+        exit 1
+        ;;
+    esac
   else
     status=$?
-    if [[ "${status}" -ne 127 ]]; then
-      exit "${status}"
-    fi
+    exit "${status}"
   fi
 fi
 

@@ -4,15 +4,7 @@ module JazzNext.Compiler.Modules.Loader.VisibilityTests
   ( visibilityTests
   ) where
 
-
 import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
-import Data.IORef
-  ( newIORef,
-    readIORef,
-    writeIORef
-  )
-import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Compiler.Diagnostics
   ( renderDiagnostic
@@ -21,15 +13,11 @@ import JazzNext.Compiler.Driver
   ( CompileResult (..),
     ResolvedPrelude (..),
     RunResult (..),
-    compileModuleGraph,
     compileModuleGraphWithResolvedPrelude,
     compileModuleGraphWithPrelude,
     runModuleGraph,
     runModuleGraphWithResolvedPrelude,
     runModuleGraphWithPrelude
-  )
-import JazzNext.Compiler.ModuleResolver
-  ( ModuleResolutionConfig (..)
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
@@ -38,8 +26,7 @@ import JazzNext.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
-    failTest,
-    runTestSuite
+    failTest
   )
 import JazzNext.Compiler.Modules.Loader.Shared
 
@@ -91,7 +78,98 @@ visibilityTests =
     , ("compile module graph supports opaque exported type", testCompileModuleGraphSupportsOpaqueExportedType)
     , ("run module graph imports exported constructor without type name", testRunModuleGraphImportsExportedConstructorWithoutTypeName)
     , ("run module graph keeps private entry bindings usable", testRunModuleGraphKeepsPrivateEntryBindingsUsable)
+    , ("run module graph keeps earlier imported values visible before later block binders", testRunModuleGraphKeepsEarlierImportedValueBeforeLaterBlockBinder)
+    , ("run module graph keeps imported values outside later recursive-looking block cycles", testRunModuleGraphKeepsImportedValueOutsideLaterBlockCycle)
+    , ("run module graph keeps earlier imported constructors visible before later block binders", testRunModuleGraphKeepsEarlierImportedConstructorBeforeLaterBlockBinder)
+    , ("run module graph preserves nested mutual recursion while resolving block binders sequentially", testRunModuleGraphPreservesNestedMutualRecursionDuringSequentialResolution)
   ]
+
+testRunModuleGraphKeepsEarlierImportedValueBeforeLaterBlockBinder :: IO ()
+testRunModuleGraphKeepsEarlierImportedValueBeforeLaterBlockBinder = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "earlier imported value compile errors" [] (runCompileErrors result)
+  assertEqual "earlier imported value runtime errors" [] (runRuntimeErrors result)
+  assertEqual "earlier imported value output" (Just "41") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/Lib/Values.jz", "module Lib::Values { importedValue = 41. }"),
+          ( "src/App/Main.jz",
+            "module App::Main { import Lib::Values. { result = importedValue. importedValue = 2. result. }. }"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphKeepsImportedValueOutsideLaterBlockCycle :: IO ()
+testRunModuleGraphKeepsImportedValueOutsideLaterBlockCycle = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "recursive-looking import compile errors" [] (runCompileErrors result)
+  assertEqual "recursive-looking import runtime errors" [] (runRuntimeErrors result)
+  assertEqual "recursive-looking import output" (Just "41") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/Lib/Values.jz", "module Lib::Values { importedValue = 41. }"),
+          ( "src/App/Main.jz",
+            "module App::Main { import Lib::Values. { result = importedValue. importedValue = result. result. }. }"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphKeepsEarlierImportedConstructorBeforeLaterBlockBinder :: IO ()
+testRunModuleGraphKeepsEarlierImportedConstructorBeforeLaterBlockBinder = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "earlier imported constructor compile errors" [] (runCompileErrors result)
+  assertEqual "earlier imported constructor runtime errors" [] (runRuntimeErrors result)
+  assertEqual "earlier imported constructor output" (Just "Nothing") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/Lib/MaybeValue.jz", "module Lib::MaybeValue { data MaybeValue = Nothing. }"),
+          ( "src/App/Main.jz",
+            "module App::Main { import Lib::MaybeValue. { result = Nothing. Nothing = 1. result. }. }"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testRunModuleGraphPreservesNestedMutualRecursionDuringSequentialResolution :: IO ()
+testRunModuleGraphPreservesNestedMutualRecursionDuringSequentialResolution = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "nested mutual recursion compile errors" [] (runCompileErrors result)
+  assertEqual "nested mutual recursion runtime errors" [] (runRuntimeErrors result)
+  assertEqual "nested mutual recursion output" (Just "True") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            "module App::Main { { even = \\(n) -> if n == 0 then True else odd (n - 1). odd = \\(n) -> if n == 0 then False else even (n - 1). even 4. }. }"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
 
 testRunModuleGraphDefaultLoadsBundledPrelude :: IO ()
 testRunModuleGraphDefaultLoadsBundledPrelude = do

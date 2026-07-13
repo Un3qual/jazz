@@ -5,7 +5,6 @@ module JazzNext.Compiler.TypeInference.Diagnostics
   ( InferExprFn,
     addTypeError,
     annotateNewErrorsWithPrimarySpan,
-    duplicateConstraintName,
     mkAmbiguousDeferredConstraintError,
     mkAmbiguousQualifiedMethodBodyError,
     mkAmbiguousQualifiedMethodBodyForArgumentsError,
@@ -101,7 +100,8 @@ import JazzNext.Compiler.TypeInference.State
     inferErrorCount,
     inferErrorsRev,
     inferClassFacts,
-    inferConcreteImplFacts
+    inferConcreteImplFacts,
+    modifyInferenceOutput
   )
 import qualified JazzNext.Compiler.TypeInference.Signature as Signature
 import JazzNext.Compiler.TypeInference.Types
@@ -143,9 +143,6 @@ annotateNewErrorsWithPrimarySpan spanValue previousState nextState =
         Nothing -> setDiagnosticPrimarySpan spanValue diagnostic
 
     diagnosticPrimary = diagnosticPrimarySpan
-
-modifyInferenceOutput :: (InferenceOutput -> InferenceOutput) -> InferState -> InferState
-modifyInferenceOutput update state = state {inferOutput = update (inferOutput state)}
 
 mkNumericBinaryTypeError :: Text -> ExpressionType -> ExpressionType -> Diagnostic
 mkNumericBinaryTypeError = mkBinaryTypeError
@@ -492,7 +489,7 @@ invalidSignatureSummary state symbol signaturePayload =
     Nothing ->
       case signaturePayload of
         ConstrainedSignature constraints _
-          | Just duplicateName <- duplicateConstraintName constraints ->
+          | Just duplicateName <- Signature.duplicateConstraintName constraints ->
               "invalid or unsupported signature for '"
                 <> symbol
                 <> "': duplicate constraint '"
@@ -602,12 +599,6 @@ concreteConstraintFailureSummary state constraints
         constraintNameText = identifierText constraintName
         maybeClassArity = Map.lookup constraintNameText (inferClassFacts state)
 
-    firstJust results =
-      case results of
-        [] -> Nothing
-        Just result : _ -> Just result
-        Nothing : rest -> firstJust rest
-
 constrainedSignatureHasTypeVariable :: [SignatureConstraint] -> SignatureType -> Bool
 constrainedSignatureHasTypeVariable constraints signatureType =
   any constraintHasTypeVariable constraints
@@ -632,16 +623,3 @@ constraintTypeHasTypeVariable signatureType =
     TypeFunction argumentType resultType ->
       constraintTypeHasTypeVariable argumentType || constraintTypeHasTypeVariable resultType
     _ -> False
-
-duplicateConstraintName :: [SignatureConstraint] -> Maybe Text
-duplicateConstraintName constraints =
-  go Set.empty constraints
-  where
-    go seen remainingConstraints =
-      case remainingConstraints of
-        [] -> Nothing
-        SignatureConstraint constraintName _ : rest ->
-          let constraintNameText = identifierText constraintName
-           in if Set.member constraintNameText seen
-                then Just constraintNameText
-                else go (Set.insert constraintNameText seen) rest

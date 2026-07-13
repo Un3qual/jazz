@@ -4,48 +4,13 @@ module JazzNext.Compiler.Parser.Foundation.InvalidSyntaxTests
   ( invalidSyntaxTests
   ) where
 
-
-import Data.Text (Text)
 import qualified Data.Text as Text
-import JazzNext.Compiler.AST
-  ( ClassMethodSignature (..),
-    Expr (..),
-    Literal (..),
-    NumericType (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureToken (..),
-    SignatureType (..),
-    Statement (..)
-  )
-import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..)
-  )
 import JazzNext.Compiler.Parser
   ( parseSurfaceProgram
   )
-import JazzNext.Compiler.Parser.AST
-  ( SurfaceClassMethodSignature (..),
-    SurfaceExpr (..),
-    SurfaceLiteral (..),
-    SurfaceNumericType (..),
-    SurfaceSignatureConstraint (..),
-    SurfaceSignaturePayload (..),
-    SurfaceSignatureToken (..),
-    SurfaceSignatureType (..),
-    SurfaceStatement (..)
-  )
-import JazzNext.Compiler.Parser.Lower
-  ( lowerSurfaceExpr
-  )
-import JazzNext.Compiler.Name (qualifiedName)
 import JazzNext.TestHarness
   ( NamedTest,
-    assertContains,
-    assertEqual,
-    assertLeftDiagnosticContains,
-    assertRight,
-    runTestSuite
+    assertLeftDiagnosticContains
   )
 import JazzNext.Compiler.Parser.Foundation.Shared
 

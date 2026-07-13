@@ -4,49 +4,32 @@ module JazzNext.Compiler.Semantics.BindingSignature.ConstraintsTests
   ( constraintTests
   ) where
 
-
-import qualified Data.Set as Set
-import qualified Data.Text as Text
 import JazzNext.Compiler.AST
   ( ClassMethodSignature (..),
     Expr (..),
-    ImplMethod (..),
     Literal (..),
-    SignatureConstraint (..),
     SignaturePayload (..),
     SignatureType (..),
     Statement (..)
   )
 import JazzNext.Compiler.Diagnostics
-  ( SourceSpan (..),
-    renderDiagnostic
-  )
-import JazzNext.Compiler.TypeInference.Types
-  ( ExpressionType (..),
-    TypeScheme (..),
-    emptyScopeCapabilityFacts
+  ( SourceSpan (..)
   )
 import JazzNext.Compiler.Driver
   ( CompileResult (..),
-    RunResult (..),
     compileExpr,
     compileSource,
-    compileSourceWithPrelude,
-    runSourceWithPrelude
+    compileSourceWithPrelude
   )
 import JazzNext.Compiler.WarningConfig
   ( defaultWarningSettings
   )
 import JazzNext.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
-    assertSingleDiagnosticPrimarySpan,
-    assertSingleDiagnosticRelatedSpan,
-    assertSingleDiagnosticSubject,
-    runTestSuite
+    assertSingleDiagnosticPrimarySpan
   )
 import JazzNext.Compiler.Semantics.BindingSignature.Shared
 
@@ -138,6 +121,7 @@ constraintTests =
     , ("source pipeline preserves explicit Eq impl checks for structural constraints", testSourcePreservesExplicitEqImplChecksForStructuralConstraints)
     , ("source pipeline resolves deferred constraints in impl method bodies", testSourceResolvesDeferredConstraintsInImplMethodBodies)
     , ("source pipeline discards failed application argument constraints", testSourceDiscardsFailedApplicationArgumentConstraints)
+    , ("source pipeline discards failed application function constraints", testSourceDiscardsFailedApplicationFunctionConstraints)
     , ("source pipeline rejects unused variable constraint with bidirectional contract", testSourceRejectsUnusedVariableConstraintWithBidirectionalContract)
   ]
 
@@ -802,10 +786,22 @@ testSourceDiscardsFailedApplicationArgumentConstraints = do
     compileSourceWithPrelude
       defaultWarningSettings
       Nothing
-      "class Need(a) { }.\nimpl Need(Int) { }.\nuse :: @{Need(a)}: a -> a.\nuse = \\(x) -> x.\nbad = 1 (use True)."
-  assertSingleDiagnosticContains
-    "failed application only reports apply error"
-    "cannot apply function of type Int to argument of type Bool"
+      "class Need(a) { need :: a -> a. }.\nbad = 1 (\\(x) -> Need::need x)."
+  assertSingleDiagnosticCode
+    "failed application only reports E2006"
+    "E2006"
+    (compileErrors result)
+
+testSourceDiscardsFailedApplicationFunctionConstraints :: IO ()
+testSourceDiscardsFailedApplicationFunctionConstraints = do
+  result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      "class Need(a) { need :: a -> a. }.\nbad = (\\(x) -> Need::need x) (1 True)."
+  assertSingleDiagnosticCode
+    "failed function operand only reports E2006"
+    "E2006"
     (compileErrors result)
 
 testSourceRejectsUnusedVariableConstraintWithBidirectionalContract :: IO ()

@@ -455,6 +455,6 @@ selfAliasLikeReference bindingName =
       where
         collect scopeBindings statement =
           case statement of
-            SLet bindingName _ valueExpr ->
-              Map.insert bindingName valueExpr scopeBindings
+            SLet localBindingName _ valueExpr ->
+              Map.insert localBindingName valueExpr scopeBindings
             _ -> scopeBindings

@@ -112,13 +112,6 @@ functionOperandTypeParser =
     <|> listSignatureTypeParser
     <|> parenthesizedSignatureTypeParser
 
-nonFunctionSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
-nonFunctionSignatureTypeParser =
-  MP.try typeApplicationParser
-    <|> namedSignatureTypeParser
-    <|> listSignatureTypeParser
-    <|> parenthesizedSignatureTypeParser
-
 listSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 listSignatureTypeParser =
   SurfaceTypeList

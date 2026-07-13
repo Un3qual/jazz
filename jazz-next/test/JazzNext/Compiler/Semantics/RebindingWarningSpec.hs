@@ -65,6 +65,7 @@ tests =
     ("pre-declaration references do not count as unused-binding use", testPreDeclarationReferenceDoesNotCountAsUse),
     ("same-name rebinding does not count later use for earlier binding", testSameNameRebindingKeepsEarlierBindingUnused),
     ("self-referential right hand side does not count as unused-binding use", testSelfReferentialRhsStillUnused),
+    ("forward-referencing recursive peers count as binding uses under promotion", testRecursiveForwardReferenceCountsAsUseUnderPromotion),
     ("unused-binding suppresses rebinding-site duplicate when W0001 also emits", testUnusedBindingSuppressesRebindingSiteDuplicate),
     ("unused-binding suppresses constructor-rebinding duplicate when W0001 also emits", testUnusedBindingSuppressesConstructorRebindingSiteDuplicate),
     ("unused-binding promotion reports compile errors", testPromotedUnusedBindingReportsCompileErrors),
@@ -241,6 +242,16 @@ testSelfReferentialRhsStillUnused = do
       assertEqual "warning variable" "loop" (warningVariableName warning)
       assertEqual "warning span" (SourceSpan 1 1) (warningPrimarySpan warning)
     _ -> failTest "expected self-referential binding to remain unused"
+
+testRecursiveForwardReferenceCountsAsUseUnderPromotion :: IO ()
+testRecursiveForwardReferenceCountsAsUseUnderPromotion = do
+  settings <- unusedBindingPromotedSettings
+  result <-
+    compileSource
+      settings
+      "left = if True then \\(x) -> x else right.\nright = if False then \\(x) -> x else left.\nleft 1."
+  assertEqual "recursive pair compile errors" [] (compileErrors result)
+  assertEqual "recursive pair warnings" [] (compileWarnings result)
 
 testUnusedBindingSuppressesRebindingSiteDuplicate :: IO ()
 testUnusedBindingSuppressesRebindingSiteDuplicate = do
