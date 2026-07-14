@@ -28,6 +28,10 @@ validateStdlibModule path source
       case numberedLines of
         [] -> Nothing
         (_, line) : _ -> Just line
+    finalLine =
+      case reverse numberedLines of
+        [] -> Nothing
+        line : _ -> Just line
     nonBlankLines = filter (not . Text.all isSpace . snd) numberedLines
     finalNonBlankLine =
       case reverse nonBlankLines of
@@ -40,7 +44,7 @@ validateStdlibModule path source
             "{" `Text.isSuffixOf` line -> []
         _ -> [InvalidModuleHeader path]
     closingViolations =
-      case finalNonBlankLine of
+      case finalLine of
         Just (_, "}") -> []
         _ -> [MissingFinalClosingBrace path]
     indentationViolations =
@@ -66,7 +70,7 @@ renderStdlibFormatViolation violation =
     InvalidModuleHeader path ->
       Text.pack path <> ":1: must be an unindented module header ending in {"
     MissingFinalClosingBrace path ->
-      Text.pack path <> ": final non-blank line must be }"
+      Text.pack path <> ": final line must be }"
     InvalidBodyIndentation path lineNumber ->
       Text.pack path
         <> ":"

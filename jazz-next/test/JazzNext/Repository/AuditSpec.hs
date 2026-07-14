@@ -35,6 +35,7 @@ tests =
   [ ("accepts a valid stdlib module", testValidStdlibModule),
     ("rejects a missing module header", testMissingModuleHeader),
     ("rejects a missing final closing brace", testMissingClosingBrace),
+    ("rejects blank lines after the final closing brace", testTrailingBlankLines),
     ("rejects odd or shallow body indentation", testBodyIndentation),
     ("exempts the bundled Prelude source", testPreludeExemption),
     ("accepts only the named private Cabal library", testPrivatePackagePolicy),
@@ -89,6 +90,14 @@ testMissingClosingBrace =
           value = 1.
         """
     )
+
+testTrailingBlankLines :: IO ()
+testTrailingBlankLines =
+  -- Explicit escapes are intentional: this case directly tests trailing whitespace.
+  assertEqual
+    "trailing blank lines"
+    [MissingFinalClosingBrace "stdlib/Bad.jz"]
+    (validateStdlibModule "stdlib/Bad.jz" "module Bad {\n  value = 1.\n}\n\n")
 
 testBodyIndentation :: IO ()
 testBodyIndentation =
