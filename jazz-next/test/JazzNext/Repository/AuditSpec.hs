@@ -19,13 +19,14 @@ import JazzNext.Repository.SourceLayout
   ( JazzSourceModule,
     JazzSourceRole (..),
     SourceLayoutViolation (..),
+    renderSourceLayoutViolation,
     sourceModuleFromSurface,
     validateSourceLayering,
   )
-import JazzNext.Repository.StdlibFormat
-  ( StdlibFormatViolation (..),
-    renderStdlibFormatViolation,
-    validateStdlibModule,
+import JazzNext.Repository.JazzSourceFormat
+  ( JazzSourceFormatViolation (..),
+    renderJazzSourceFormatViolation,
+    validateJazzModule,
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -34,14 +35,14 @@ import JazzNext.TestHarness
     runTestSuite,
   )
 import System.Directory (doesDirectoryExist, listDirectory)
-import System.FilePath (takeExtension, (</>))
+import System.FilePath (makeRelative, takeExtension, (</>))
 
 main :: IO ()
 main = runTestSuite "RepositoryAudit" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("accepts a valid stdlib module", testValidStdlibModule),
+  [ ("accepts a valid Jazz source module", testValidJazzModule),
     ("rejects a missing module header", testMissingModuleHeader),
     ("rejects a missing final closing brace", testMissingClosingBrace),
     ("rejects blank lines after the final closing brace", testTrailingBlankLines),
@@ -55,12 +56,12 @@ tests =
     ("accepts compiler imports of stdlib modules", testAcceptsCompilerStdlibImport),
     ("uses the locked checked-in Jazz source tree", testCheckedInJazzSourceTree),
     ("locates the active jazz-next package root", testPackageRoot),
-    ("validates all checked-in stdlib modules", testCheckedInStdlib),
+    ("validates all checked-in Jazz source modules", testCheckedInJazzSources),
     ("validates the checked-in Cabal package policy", testCheckedInPackagePolicy)
   ]
 
-validStdlibSource :: Text
-validStdlibSource =
+validJazzSource :: Text
+validJazzSource =
   """
   module Good {
     value = 1.
@@ -74,17 +75,20 @@ validPrivatePackage =
     visibility: private
   """
 
-testValidStdlibModule :: IO ()
-testValidStdlibModule =
-  assertEqual "valid stdlib violations" [] (validateStdlibModule "stdlib/Good.jz" validStdlibSource)
+testValidJazzModule :: IO ()
+testValidJazzModule =
+  assertEqual
+    "valid Jazz source violations"
+    []
+    (validateJazzModule "jazz/stdlib/Good.jz" validJazzSource)
 
 testMissingModuleHeader :: IO ()
 testMissingModuleHeader =
   assertEqual
     "missing module header"
-    [InvalidModuleHeader "stdlib/Bad.jz"]
-    ( validateStdlibModule
-        "stdlib/Bad.jz"
+    [InvalidModuleHeader "jazz/stdlib/Bad.jz"]
+    ( validateJazzModule
+        "jazz/stdlib/Bad.jz"
         """
         value = 1.
         }
@@ -95,9 +99,9 @@ testMissingClosingBrace :: IO ()
 testMissingClosingBrace =
   assertEqual
     "missing final closing brace"
-    [MissingFinalClosingBrace "stdlib/Bad.jz"]
-    ( validateStdlibModule
-        "stdlib/Bad.jz"
+    [MissingFinalClosingBrace "jazz/stdlib/Bad.jz"]
+    ( validateJazzModule
+        "jazz/stdlib/Bad.jz"
         """
         module Bad {
           value = 1.
@@ -109,18 +113,18 @@ testTrailingBlankLines =
   -- Explicit escapes are intentional: this case directly tests trailing whitespace.
   assertEqual
     "trailing blank lines"
-    [MissingFinalClosingBrace "stdlib/Bad.jz"]
-    (validateStdlibModule "stdlib/Bad.jz" "module Bad {\n  value = 1.\n}\n\n")
+    [MissingFinalClosingBrace "jazz/stdlib/Bad.jz"]
+    (validateJazzModule "jazz/stdlib/Bad.jz" "module Bad {\n  value = 1.\n}\n\n")
 
 testBodyIndentation :: IO ()
 testBodyIndentation =
   assertEqual
     "invalid body indentation"
-    [ InvalidBodyIndentation "stdlib/Bad.jz" 2,
-      InvalidBodyIndentation "stdlib/Bad.jz" 3
+    [ InvalidBodyIndentation "jazz/stdlib/Bad.jz" 2,
+      InvalidBodyIndentation "jazz/stdlib/Bad.jz" 3
     ]
-    ( validateStdlibModule
-        "stdlib/Bad.jz"
+    ( validateJazzModule
+        "jazz/stdlib/Bad.jz"
         """
         module Bad {
          shallow = 1.
@@ -134,7 +138,7 @@ testPreludeExemption =
   assertEqual
     "Prelude exemption"
     []
-    (validateStdlibModule "stdlib/Prelude.jz" "class Eq(a) { }.")
+    (validateJazzModule "jazz/stdlib/Prelude.jz" "class Eq(a) { }.")
 
 testPrivatePackagePolicy :: IO ()
 testPrivatePackagePolicy =
@@ -242,21 +246,71 @@ testPackageRoot =
     unless ("name: jazz-next" `Text.isInfixOf` packageSource) $ do
       failTest "located package root does not contain the jazz-next package"
 
-testCheckedInStdlib :: IO ()
-testCheckedInStdlib =
+testCheckedInJazzSources :: IO ()
+testCheckedInJazzSources =
   withPackageRoot $ \packageRoot -> do
-    let stdlibDirectory = packageRoot </> "stdlib"
-    stdlibExists <- doesDirectoryExist stdlibDirectory
-    unless stdlibExists (failTest "stdlib audit could not find the stdlib directory")
-    stdlibEntries <- sort <$> listDirectory stdlibDirectory
-    let jazzFiles = filter ((== ".jz") . takeExtension) stdlibEntries
-    when (null jazzFiles) (failTest "stdlib audit found no .jz files")
-    sources <- forM jazzFiles $ \entry -> do
-      source <- TextIO.readFile (stdlibDirectory </> entry)
-      pure ("stdlib" </> entry, source)
-    let violations = concatMap (uncurry validateStdlibModule) sources
-    unless (null violations) $ do
-      failTest (Text.intercalate "\n" (map renderStdlibFormatViolation violations))
+    (stdlibFormatViolations, stdlibModules) <-
+      readSourceRole
+        packageRoot
+        StandardLibrarySource
+        ("jazz" </> "stdlib")
+    (compilerFormatViolations, compilerModules) <-
+      readSourceRole
+        packageRoot
+        CompilerSource
+        ("jazz" </> "compiler")
+    let formatViolations =
+          stdlibFormatViolations <> compilerFormatViolations
+        layoutViolations =
+          validateSourceLayering (stdlibModules <> compilerModules)
+        renderedViolations =
+          map renderJazzSourceFormatViolation formatViolations
+            <> map renderSourceLayoutViolation layoutViolations
+    unless (null renderedViolations) $ do
+      failTest (Text.intercalate "\n" renderedViolations)
+
+readSourceRole ::
+  FilePath ->
+  JazzSourceRole ->
+  FilePath ->
+  IO ([JazzSourceFormatViolation], [JazzSourceModule])
+readSourceRole packageRoot role relativeDirectory = do
+  let sourceRoot = packageRoot </> relativeDirectory
+  exists <- doesDirectoryExist sourceRoot
+  unless exists $ do
+    failTest (Text.pack relativeDirectory <> ": source directory does not exist")
+  paths <- listJazzFiles sourceRoot
+  when (null paths) $ do
+    failTest (Text.pack relativeDirectory <> ": contains no .jz files")
+  results <- forM paths $ \path -> do
+    source <- TextIO.readFile path
+    let relativePath = makeRelative packageRoot path
+        formatViolations = validateJazzModule relativePath source
+    sourceModule <-
+      case parseSurfaceProgram source of
+        Left diagnostic ->
+          failTest
+            ( Text.pack relativePath
+                <> ": failed to parse: "
+                <> renderDiagnostic diagnostic
+            )
+        Right surfaceProgram ->
+          pure (sourceModuleFromSurface role relativePath surfaceProgram)
+    pure (formatViolations, sourceModule)
+  pure (concatMap fst results, map snd results)
+
+listJazzFiles :: FilePath -> IO [FilePath]
+listJazzFiles root = sort <$> go root
+  where
+    go directory = do
+      entries <- sort <$> listDirectory directory
+      paths <- forM entries $ \entry -> do
+        let path = directory </> entry
+        isDirectory <- doesDirectoryExist path
+        if isDirectory
+          then go path
+          else pure [path | takeExtension path == ".jz"]
+      pure (concat paths)
 
 testCheckedInPackagePolicy :: IO ()
 testCheckedInPackagePolicy =

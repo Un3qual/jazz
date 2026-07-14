@@ -3,7 +3,6 @@
 module Main (main) where
 
 import qualified Data.Text as Text
-import qualified Data.Text.IO as TextIO
 import JazzNext.Compiler.Bootstrap.CanonicalLexerComparison
   ( CanonicalSourcePath (..),
     canonicalizeLexResult,
@@ -44,8 +43,11 @@ import JazzNext.TestHarness
     failTest,
     runTestSuite
   )
+import JazzNext.TestSource
+  ( JazzSourceRole (CompilerSource),
+    readCheckedInJazzSource,
+  )
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
-import System.Directory (doesFileExist)
 import qualified Data.Set as Set
 import Data.Either (isRight)
 
@@ -307,15 +309,8 @@ jazzCanonicalFixtureSource =
   """
 
 readLexerTypesSource :: IO Text.Text
-readLexerTypesSource = readFirstExisting ["jazz-next/stdlib/LexerTypes.jz", "stdlib/LexerTypes.jz"]
-
-readFirstExisting :: [FilePath] -> IO Text.Text
-readFirstExisting candidates =
-  case candidates of
-    [] -> failTest "could not locate LexerTypes.jz"
-    candidate : rest -> do
-      exists <- doesFileExist candidate
-      if exists then TextIO.readFile candidate else readFirstExisting rest
+readLexerTypesSource =
+  readCheckedInJazzSource CompilerSource "LexerTypes.jz"
 
 testParserFixtureCorpusWellFormed :: IO ()
 testParserFixtureCorpusWellFormed = do

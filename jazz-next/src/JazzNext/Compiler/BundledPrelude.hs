@@ -20,7 +20,7 @@ import JazzNext.Compiler.BuiltinCatalog
 
 -- | Repository-relative location of the checked-in bundled prelude mirror.
 bundledPreludePath :: FilePath
-bundledPreludePath = "jazz-next/stdlib/Prelude.jz"
+bundledPreludePath = "jazz-next/jazz/stdlib/Prelude.jz"
 
 -- | Pre-generated prelude text that exposes all builtin kernel bridges and
 -- their public aliases in a deterministic order.

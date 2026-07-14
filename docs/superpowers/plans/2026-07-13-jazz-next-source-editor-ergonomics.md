@@ -437,7 +437,7 @@ package-relative `stdlib`.
 
 ```sh
 nix --extra-experimental-features 'nix-command flakes' develop -c \
-  cabal sdist --project-dir=jazz-next
+  cabal sdist --project-dir=jazz-next all
 tar -tf jazz-next/dist-newstyle/sdist/jazz-next-0.1.0.0.tar.gz | \
   rg '(^|/)jazz/(stdlib|compiler)/.*\.jz$|(^|/)stdlib/.*\.jz$'
 ```
@@ -811,7 +811,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c \
   cabal test --project-dir=jazz-next repository-audit-spec \
     parser-foundation-spec --test-show-details=failures
 nix --extra-experimental-features 'nix-command flakes' develop -c \
-  cabal sdist --project-dir=jazz-next
+  cabal sdist --project-dir=jazz-next all
 tar -tf jazz-next/dist-newstyle/sdist/jazz-next-0.1.0.0.tar.gz | \
   rg 'editors/vscode-jazz/(README|package|language-configuration|syntaxes|fixtures)'
 ```
@@ -897,7 +897,7 @@ nix --extra-experimental-features 'nix-command flakes' develop -c \
 nix --extra-experimental-features 'nix-command flakes' develop -c \
   cabal test --project-dir=jazz-next all --test-show-details=failures
 nix --extra-experimental-features 'nix-command flakes' develop -c \
-  cabal sdist --project-dir=jazz-next
+  cabal sdist --project-dir=jazz-next all
 ```
 
 Expected: all components build, all 37 suites pass, and `sdist` succeeds.
