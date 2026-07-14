@@ -3,7 +3,9 @@
 module Main (main) where
 
 import Control.Exception (bracket)
+import Control.Monad (forM, forM_)
 import Data.List (sort, sortOn)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
@@ -20,8 +22,12 @@ import JazzNext.ProgramCorpus.Runner
   )
 import JazzNext.ProgramCorpus.Types
   ( ProgramCase (..),
+    ProgramCorpus (..),
     ProgramCorpusViolation (..),
     ProgramPathField (..),
+    BenchmarkGroup,
+    FeatureTag,
+    WorkloadClass,
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -34,10 +40,12 @@ import System.Directory
     createDirectoryIfMissing,
     createFileLink,
     getTemporaryDirectory,
+    doesDirectoryExist,
+    listDirectory,
     removeFile,
     removePathForcibly,
   )
-import System.FilePath ((</>))
+import System.FilePath (takeExtension, (</>))
 import System.IO (hClose, openTempFile)
 
 main :: IO ()
@@ -49,7 +57,9 @@ tests =
     ("reports malformed manifest JSON", testMalformedManifest),
     ("reports every missing corpus path", testMissingCorpusPaths),
     ("rejects a source symlink that escapes the corpus root", testSymlinkEscape),
-    ("loads and runs the checked-in identifier classifier", testIdentifierClassifier)
+    ("loads and runs the checked-in identifier classifier", testIdentifierClassifier),
+    ("covers the production-shaped corpus contract", testCheckedInCorpusCoverage),
+    ("runs every checked-in corpus case", testEveryCheckedInCase)
   ]
 
 testAggregateManifestViolations :: IO ()
@@ -133,15 +143,7 @@ testSymlinkEscape =
 
 testIdentifierClassifier :: IO ()
 testIdentifierClassifier = do
-  corpusResult <- loadProgramCorpus
-  corpus <-
-    case corpusResult of
-      Left violations ->
-        failTest
-          ( "could not load checked-in corpus:\n"
-              <> Text.unlines (map renderProgramCorpusViolation violations)
-          )
-      Right value -> pure value
+  corpus <- loadCheckedInCorpus
   programCase <-
     case programCaseById "identifier-classifier" corpus of
       Nothing -> failTest "checked-in corpus is missing identifier-classifier"
@@ -159,6 +161,89 @@ testIdentifierClassifier = do
     "identifier-classifier diagnostics"
     []
     (map renderDiagnostic (programCaseResultDiagnostics result))
+  assertEqual
+    "identifier-classifier warnings"
+    []
+    (programCaseResultWarnings result)
+
+testCheckedInCorpusCoverage :: IO ()
+testCheckedInCorpusCoverage = do
+  corpus <- loadCheckedInCorpus
+  let cases = programCorpusCases corpus
+  assertEqual
+    "stable corpus case identifiers"
+    ( Set.fromList
+        [ "identifier-classifier",
+          "expression-evaluator",
+          "tree-transformations",
+          "dependency-planner",
+          "capability-workflow",
+          "mini-frontend"
+        ]
+    )
+    (Set.fromList (map programCaseIdentifier cases))
+  assertEqual
+    "feature tag coverage"
+    (Set.fromList ([minBound .. maxBound] :: [FeatureTag]))
+    (Set.fromList (concatMap programCaseFeatures cases))
+  assertEqual
+    "workload class coverage"
+    (Set.fromList ([minBound .. maxBound] :: [WorkloadClass]))
+    (Set.fromList (map programCaseWorkload cases))
+  assertEqual
+    "benchmark group coverage"
+    (Set.fromList ([minBound .. maxBound] :: [BenchmarkGroup]))
+    (Set.fromList (concatMap programCaseBenchmarks cases))
+  sourceCounts <- mapM countJazzSources cases
+  if any (> 1) sourceCounts
+    then pure ()
+    else failTest "expected at least one multi-module corpus case"
+
+testEveryCheckedInCase :: IO ()
+testEveryCheckedInCase = do
+  corpus <- loadCheckedInCorpus
+  forM_ (programCorpusCases corpus) $ \programCase -> do
+    result <- runProgramCase programCase
+    assertEqual
+      (programCaseIdentifier programCase <> " termination")
+      (programCaseExpectedTermination programCase)
+      (programCaseResultTermination result)
+    assertEqual
+      (programCaseIdentifier programCase <> " stdout")
+      (programCaseExpectedStdout programCase)
+      (programCaseResultStdout result)
+    assertEqual
+      (programCaseIdentifier programCase <> " diagnostics")
+      []
+      (map renderDiagnostic (programCaseResultDiagnostics result))
+    assertEqual
+      (programCaseIdentifier programCase <> " warnings")
+      []
+      (programCaseResultWarnings result)
+
+loadCheckedInCorpus :: IO ProgramCorpus
+loadCheckedInCorpus = do
+  corpusResult <- loadProgramCorpus
+  case corpusResult of
+    Left violations ->
+      failTest
+        ( "could not load checked-in corpus:\n"
+            <> Text.unlines (map renderProgramCorpusViolation violations)
+        )
+    Right value -> pure value
+
+countJazzSources :: ProgramCase -> IO Int
+countJazzSources programCase = do
+  paths <- listFilesRecursively (programCaseDirectory programCase)
+  pure (length (filter ((== ".jz") . takeExtension) paths))
+
+listFilesRecursively :: FilePath -> IO [FilePath]
+listFilesRecursively directory = do
+  entries <- listDirectory directory
+  fmap concat $ forM entries $ \entry -> do
+    let path = directory </> entry
+    isDirectory <- doesDirectoryExist path
+    if isDirectory then listFilesRecursively path else pure [path]
 
 writeManifest :: FilePath -> Text -> IO ()
 writeManifest root = TextIO.writeFile (root </> "corpus.json")

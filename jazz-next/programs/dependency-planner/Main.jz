@@ -1,0 +1,15 @@
+module Main {
+  import Graph.
+
+  graph :: [(Text, [Text])].
+  graph = [
+    ("app", ["parser", "runtime"]),
+    ("parser", ["lexer", "ast"]),
+    ("runtime", ["core"]),
+    ("core", ["ast"]),
+    ("lexer", []),
+    ("ast", [])
+  ].
+
+  dependencyPlan "app" graph.
+}

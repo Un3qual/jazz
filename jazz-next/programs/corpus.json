@@ -16,6 +16,86 @@
         "applications": 10000,
         "maxContinuationDepth": 1000
       }
+    },
+    {
+      "id": "expression-evaluator",
+      "directory": "expression-evaluator",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "fast",
+      "features": ["modules", "patterns", "recursion", "inference", "text", "lists", "deterministic-runtime"],
+      "benchmarks": ["analysis", "runtime", "whole-program"],
+      "budgets": {
+        "steps": 100000,
+        "applications": 10000,
+        "maxContinuationDepth": 1000
+      }
+    },
+    {
+      "id": "tree-transformations",
+      "directory": "tree-transformations",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "full",
+      "features": ["modules", "generic-adts", "patterns", "recursion", "inference", "deterministic-runtime"],
+      "benchmarks": ["analysis", "module-preparation", "runtime", "whole-program"],
+      "budgets": {
+        "steps": 1000000,
+        "applications": 100000,
+        "maxContinuationDepth": 10000
+      }
+    },
+    {
+      "id": "dependency-planner",
+      "directory": "dependency-planner",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "fast",
+      "features": ["modules", "patterns", "recursion", "inference", "text", "lists", "deterministic-runtime"],
+      "benchmarks": ["parse-lower", "analysis", "runtime", "whole-program"],
+      "budgets": {
+        "steps": 200000,
+        "applications": 20000,
+        "maxContinuationDepth": 2000
+      }
+    },
+    {
+      "id": "capability-workflow",
+      "directory": "capability-workflow",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "fast",
+      "features": ["modules", "patterns", "recursion", "inference", "capabilities", "text", "lists", "deterministic-runtime"],
+      "benchmarks": ["analysis", "module-preparation", "runtime", "whole-program"],
+      "budgets": {
+        "steps": 200000,
+        "applications": 20000,
+        "maxContinuationDepth": 2000
+      }
+    },
+    {
+      "id": "mini-frontend",
+      "directory": "mini-frontend",
+      "entrySource": "Main.jz",
+      "moduleRoot": ".",
+      "expectedTermination": "success",
+      "expectedStdout": "expected.stdout",
+      "workload": "full",
+      "features": ["modules", "generic-adts", "patterns", "recursion", "inference", "text", "lists", "deterministic-runtime"],
+      "benchmarks": ["parse-lower", "analysis", "module-preparation", "runtime", "whole-program"],
+      "budgets": {
+        "steps": 1000000,
+        "applications": 100000,
+        "maxContinuationDepth": 10000
+      }
     }
   ]
 }

@@ -1,0 +1,37 @@
+module Graph {
+  import List.
+
+  data PlanState = PlanState [Text] [Text].
+
+  containsText :: Text -> [Text] -> Bool.
+  containsText = \(target, values) -> case values {
+    | [] -> False
+    | [value | rest] -> if value == target then True else containsText target rest
+  }.
+
+  dependenciesFor :: Text -> [(Text, [Text])] -> [Text].
+  dependenciesFor = \(target, graph) -> case graph {
+    | [] -> []
+    | [(name, dependencies) | rest] -> if name == target then dependencies else dependenciesFor target rest
+  }.
+
+  planMany :: [Text] -> [(Text, [Text])] -> [Text] -> [Text] -> PlanState.
+  planMany = \(nodes, graph, visited, reversedOrder) -> case nodes {
+    | [] -> PlanState visited reversedOrder
+    | [node | rest] -> case planNode node graph visited reversedOrder {
+      | PlanState nextVisited nextOrder -> planMany rest graph nextVisited nextOrder
+    }
+  }.
+
+  planNode :: Text -> [(Text, [Text])] -> [Text] -> [Text] -> PlanState.
+  planNode = \(node, graph, visited, reversedOrder) -> if (containsText node visited) then
+    PlanState visited reversedOrder
+    else case planMany (dependenciesFor node graph) graph (listPrepend node visited) reversedOrder {
+      | PlanState nextVisited nextOrder -> PlanState nextVisited (listPrepend node nextOrder)
+    }.
+
+  dependencyPlan :: Text -> [(Text, [Text])] -> [Text].
+  dependencyPlan = \(entry, graph) -> case planNode entry graph [] [] {
+    | PlanState visited reversedOrder -> listReverse reversedOrder
+  }.
+}

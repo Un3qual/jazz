@@ -8,7 +8,7 @@ where
 
 import Data.Text (Text)
 import qualified Data.Text.IO as TextIO
-import JazzNext.Compiler.Diagnostics (Diagnostic)
+import JazzNext.Compiler.Diagnostics (Diagnostic, WarningRecord)
 import JazzNext.Compiler.Driver
   ( RunResult (..),
     runModuleGraph,
@@ -25,7 +25,8 @@ import System.FilePath ((</>))
 data ProgramCaseResult = ProgramCaseResult
   { programCaseResultTermination :: ProgramTermination,
     programCaseResultStdout :: Text,
-    programCaseResultDiagnostics :: [Diagnostic]
+    programCaseResultDiagnostics :: [Diagnostic],
+    programCaseResultWarnings :: [WarningRecord]
   }
   deriving (Eq, Show)
 
@@ -55,17 +56,20 @@ caseResult result
       ProgramCaseResult
         { programCaseResultTermination = CompileFailedProgram,
           programCaseResultStdout = "",
-          programCaseResultDiagnostics = runCompileErrors result
+          programCaseResultDiagnostics = runCompileErrors result,
+          programCaseResultWarnings = runWarnings result
         }
   | not (null (runRuntimeErrors result)) =
       ProgramCaseResult
         { programCaseResultTermination = RuntimeFailedProgram,
           programCaseResultStdout = "",
-          programCaseResultDiagnostics = runRuntimeErrors result
+          programCaseResultDiagnostics = runRuntimeErrors result,
+          programCaseResultWarnings = runWarnings result
         }
   | otherwise =
       ProgramCaseResult
         { programCaseResultTermination = SuccessfulProgram,
           programCaseResultStdout = maybe "" (<> "\n") (runOutput result),
-          programCaseResultDiagnostics = []
+          programCaseResultDiagnostics = [],
+          programCaseResultWarnings = runWarnings result
         }

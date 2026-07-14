@@ -1,0 +1,38 @@
+module Expression {
+  import List.
+
+  data Expression = Literal Int | Add Expression Expression | Multiply Expression Expression | Negate Expression | Variable Text | Let Text Expression Expression.
+
+  data EvaluationResult = Evaluated Int | UnknownVariable Text.
+
+  lookupVariable :: Text -> [(Text, Int)] -> EvaluationResult.
+  lookupVariable = \(name, environment) -> case environment {
+    | [] -> UnknownVariable name
+    | [(candidate, value) | rest] -> if candidate == name then Evaluated value else lookupVariable name rest
+  }.
+
+  evaluateBinary :: (Int -> Int -> Int) -> [(Text, Int)] -> Expression -> Expression -> EvaluationResult.
+  evaluateBinary = \(combine, environment, left, right) -> case evaluate environment left {
+    | UnknownVariable name -> UnknownVariable name
+    | Evaluated leftValue -> case evaluate environment right {
+      | UnknownVariable name -> UnknownVariable name
+      | Evaluated rightValue -> Evaluated (combine leftValue rightValue)
+    }
+  }.
+
+  evaluate :: [(Text, Int)] -> Expression -> EvaluationResult.
+  evaluate = \(environment, expression) -> case expression {
+    | Literal value -> Evaluated value
+    | Add left right -> evaluateBinary (\(leftValue, rightValue) -> leftValue + rightValue) environment left right
+    | Multiply left right -> evaluateBinary (\(leftValue, rightValue) -> leftValue * rightValue) environment left right
+    | Negate value -> case evaluate environment value {
+      | UnknownVariable name -> UnknownVariable name
+      | Evaluated result -> Evaluated (0 - result)
+    }
+    | Variable name -> lookupVariable name environment
+    | Let name value body -> case evaluate environment value {
+      | UnknownVariable missing -> UnknownVariable missing
+      | Evaluated result -> evaluate (listPrepend (name, result) environment) body
+    }
+  }.
+}

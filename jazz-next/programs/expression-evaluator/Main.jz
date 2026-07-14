@@ -1,0 +1,8 @@
+module Main {
+  import Expression.
+
+  program :: Expression.
+  program = Let "side" (Add (Variable "input") (Literal 3)) (Multiply (Variable "side") (Variable "side")).
+
+  evaluate [("input", 5)] program.
+}
