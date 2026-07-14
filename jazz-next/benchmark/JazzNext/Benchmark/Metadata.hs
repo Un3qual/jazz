@@ -41,6 +41,7 @@ import Data.Char (isAlphaNum, isAscii)
 import Data.List (sort)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.IO as TextIO
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Data.Version (showVersion)
@@ -488,11 +489,11 @@ captureLinuxCpuIdentity = do
   if not exists
     then pure (UnavailableEnvironmentFact "/proc/cpuinfo is unavailable")
     else do
-      cpuInfoResult <- try (readFile cpuInfoPath)
+      cpuInfoResult <- try (TextIO.readFile cpuInfoPath)
       case cpuInfoResult of
         Left exception -> pure (UnavailableEnvironmentFact (Text.pack (show (exception :: IOException))))
         Right cpuInfo ->
-          case [value | line <- Text.lines (Text.pack cpuInfo), Just value <- [linuxCpuModelName line]] of
+          case [value | line <- Text.lines cpuInfo, Just value <- [linuxCpuModelName line]] of
             value : _ | not (Text.null value) -> pure (AvailableEnvironmentFact value)
             _ -> pure (UnavailableEnvironmentFact "model name is absent from /proc/cpuinfo")
 

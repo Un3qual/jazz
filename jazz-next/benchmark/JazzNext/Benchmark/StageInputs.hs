@@ -14,6 +14,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import JazzNext.Benchmark.Force
   ( forceCompiledModule,
+    forceCompiledModules,
     forceCompiledProgram,
     forceCompiledProgramResult,
     forceExpr,
@@ -73,7 +74,7 @@ instance NFData PreparedBenchmark where
         programCaseIdentifier programCase `seq`
           forceCompiledProgram compiledProgram `seq`
             inputs `seq`
-              dependencies `seq`
+              forceCompiledModules dependencies `seq`
                 resolvedModule `seq`
                   ()
       PreparedModulePreparation programCase -> programCaseIdentifier programCase `seq` ()

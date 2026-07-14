@@ -240,10 +240,12 @@ setup, output rendering, or a later benchmark. Broad `NFData` instances are
 not added to compiler types solely for benchmarking when a narrower forcing
 boundary expresses the completed stage more accurately.
 
-The harness has a smoke mode that executes every registered case/group once
-without attempting statistically meaningful timing. This catches stale
-registrations and stage failures quickly. Normal benchmark runs remain
-single-threaded unless a future benchmark explicitly measures parallel work.
+The harness has a smoke mode that executes one registered `fast` case per group
+without attempting statistically meaningful timing. This checks every stage
+boundary quickly; the corpus correctness suite covers every case, and normal
+benchmark discovery exposes every registered case/group pair. Normal benchmark
+runs remain single-threaded unless a future benchmark explicitly measures
+parallel work.
 
 ### Results and metadata
 

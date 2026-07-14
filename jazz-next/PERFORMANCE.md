@@ -56,6 +56,10 @@ for every group once without collecting meaningful timing:
 cabal bench jazz-next-bench --benchmark-options='--jazz-smoke'
 ```
 
+Analysis setup compiles the program once to materialize validated dependency
+interfaces; the timed action then re-analyzes the entry module against those
+interfaces.
+
 List the registered tree or select cases and a Tasty pattern:
 
 ```bash

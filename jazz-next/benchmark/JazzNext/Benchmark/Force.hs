@@ -1,6 +1,7 @@
 module JazzNext.Benchmark.Force
   ( forceCompiledProgram,
     forceCompiledModule,
+    forceCompiledModules,
     forceCompiledProgramResult,
     forceExpr,
     forceInferenceResult,
@@ -456,6 +457,9 @@ forceCompiledModule compiledModule =
       forceListWith forceWarning (compiledModuleWarnings compiledModule) `seq`
         forceListWith forceDiagnostic (compiledModuleErrors compiledModule) `seq`
           forceExpr (compiledModuleExpr compiledModule)
+
+forceCompiledModules :: [CompiledModule] -> ()
+forceCompiledModules = forceListWith forceCompiledModule
 
 forceRuntimeModule :: RuntimeModule -> ()
 forceRuntimeModule runtimeModule =

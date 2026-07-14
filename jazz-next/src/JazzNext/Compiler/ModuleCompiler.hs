@@ -98,7 +98,7 @@ compileResolvedProgram :: CompileInputs -> ResolvedProgram -> IO CompiledProgram
 compileResolvedProgram inputs resolvedProgram =
   {-# SCC "jazz-stage:runtime-preparation" #-}
   do
-  compiledModules <- foldModules [] (resolvedProgramModules resolvedProgram)
+  compiledModules <- reverse <$> foldModules [] (resolvedProgramModules resolvedProgram)
   let compiledPrelude = compileInputPrelude inputs
       moduleWarnings = concatMap compiledModuleWarnings compiledModules
       moduleErrors = concatMap compiledModuleErrors compiledModules
@@ -111,12 +111,12 @@ compileResolvedProgram inputs resolvedProgram =
         compiledProgramErrors = compiledPreludeErrors compiledPrelude <> moduleErrors
       }
   where
-    foldModules compiled remaining =
+    foldModules compiledReversed remaining =
       case remaining of
-        [] -> pure compiled
+        [] -> pure compiledReversed
         resolvedModule : rest -> do
-          compiledModule <- compileResolvedModule inputs compiled resolvedModule
-          foldModules (compiled <> [compiledModule]) rest
+          compiledModule <- compileResolvedModule inputs compiledReversed resolvedModule
+          foldModules (compiledModule : compiledReversed) rest
 
 compileResolvedModule :: CompileInputs -> [CompiledModule] -> ResolvedModule -> IO CompiledModule
 compileResolvedModule inputs compiledDependencies resolvedModule = do
