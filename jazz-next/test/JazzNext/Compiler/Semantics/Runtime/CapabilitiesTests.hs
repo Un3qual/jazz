@@ -174,14 +174,22 @@ testRuntimeFallbackRejectsQualifiedMethodStructuralEquality = do
 
 testCapabilityDeclarationOnlyScopeHasNoOutput :: IO ()
 testCapabilityDeclarationOnlyScopeHasNoOutput = do
-  result <- runSource defaultWarningSettings "class RuntimeOnly(a) { }.\nimpl RuntimeOnly(Int) { }."
+  result <- runSource defaultWarningSettings """
+  class RuntimeOnly(a) { }.
+  impl RuntimeOnly(Int) { }.
+  """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "declaration-only capability scope produces no output" Nothing (runOutput result)
 
 testCapabilityDeclarationsRuntimeInert :: IO ()
 testCapabilityDeclarationsRuntimeInert = do
-  result <- runSource defaultWarningSettings "class RuntimeOnly(a) { }.\nimpl RuntimeOnly(Int) { }.\nx = 1.\nx."
+  result <- runSource defaultWarningSettings """
+  class RuntimeOnly(a) { }.
+  impl RuntimeOnly(Int) { }.
+  x = 1.
+  x.
+  """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "capability declarations do not affect runtime output" (Just "1") (runOutput result)
@@ -255,14 +263,30 @@ testQualifiedMethodDispatchExecutesImplBody = do
 
 testLetBoundQualifiedMethodDispatchExecutesImplBody :: IO ()
 testLetBoundQualifiedMethodDispatchExecutesImplBody = do
-  result <- runSource defaultWarningSettings (runtimeEqSource <> "result = RuntimeEq::equals 1 1.\nresult.")
+  result <-
+    runSource defaultWarningSettings
+      ( runtimeEqSource
+          <> """
+          result = RuntimeEq::equals 1 1.
+          result.
+          """
+      )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
 testQualifiedMethodDispatchSelectsRuntimeBodyByArgumentTypes :: IO ()
 testQualifiedMethodDispatchSelectsRuntimeBodyByArgumentTypes = do
-  result <- runSource defaultWarningSettings (runtimeEqSource <> "impl RuntimeEq(Bool) {\nequals = \\(left) -> \\(right) -> left != right.\n}.\n(RuntimeEq::equals 1 2, RuntimeEq::equals True False).")
+  result <-
+    runSource defaultWarningSettings
+      ( runtimeEqSource
+          <> """
+          impl RuntimeEq(Bool) {
+          equals = \\(left) -> \\(right) -> left != right.
+          }.
+          (RuntimeEq::equals 1 2, RuntimeEq::equals True False).
+          """
+      )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(False, True)") (runOutput result)
@@ -272,9 +296,17 @@ testQualifiedMethodDispatchExecutesSameImplQualifiedMethodCall = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\nnotEquals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> left == right.\nnotEquals = \\(left) -> \\(right) -> RuntimeEq::equals left right != True.\n}.\n"
-          <> "RuntimeEq::notEquals 1 2."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      notEquals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq(Int) {
+      equals = \\(left) -> \\(right) -> left == right.
+      notEquals = \\(left) -> \\(right) -> RuntimeEq::equals left right != True.
+      }.
+      RuntimeEq::notEquals 1 2.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -285,12 +317,22 @@ testQualifiedMethodDispatchSelectsWidthSpecificIntegerBody = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Int8) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
-          <> "impl RuntimeEq(Int16) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
-          <> "left :: Int8.\nleft = 1.\n"
-          <> "right :: Int8.\nright = 2.\n"
-          <> "RuntimeEq::equals left right."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq(Int8) {
+      equals = \\(left) -> \\(right) -> True.
+      }.
+      impl RuntimeEq(Int16) {
+      equals = \\(left) -> \\(right) -> False.
+      }.
+      left :: Int8.
+      left = 1.
+      right :: Int8.
+      right = 2.
+      RuntimeEq::equals left right.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -301,11 +343,20 @@ testQualifiedMethodDispatchSelectsWidthSpecificIntegerBodyForDirectLiterals = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Int8) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
-          <> "impl RuntimeEq(Int16) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
-          <> "right :: Int8.\nright = 2.\n"
-          <> "RuntimeEq::equals 1 right."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq(Int8) {
+      equals = \\(left) -> \\(right) -> True.
+      }.
+      impl RuntimeEq(Int16) {
+      equals = \\(left) -> \\(right) -> False.
+      }.
+      right :: Int8.
+      right = 2.
+      RuntimeEq::equals 1 right.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -316,11 +367,21 @@ testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
-          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
-          <> "id :: @{RuntimeEq(a)}: a -> a.\nid = \\(value) -> value.\n"
-          <> "result = RuntimeEq::equals (id @UInt8 1) (id @UInt8 2).\nresult."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq(Int) {
+      equals = \\(left) -> \\(right) -> True.
+      }.
+      impl RuntimeEq(UInt8) {
+      equals = \\(left) -> \\(right) -> False.
+      }.
+      id :: @{RuntimeEq(a)}: a -> a.
+      id = \\(value) -> value.
+      result = RuntimeEq::equals (id @UInt8 1) (id @UInt8 2).
+      result.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -331,11 +392,20 @@ testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint = d
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq((Int, Bool)) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
-          <> "impl RuntimeEq((UInt8, Bool)) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
-          <> "pair = \\(value) -> (value, True).\n"
-          <> "result = RuntimeEq::equals (pair @UInt8 1) (pair @UInt8 2).\nresult."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq((Int, Bool)) {
+      equals = \\(left) -> \\(right) -> True.
+      }.
+      impl RuntimeEq((UInt8, Bool)) {
+      equals = \\(left) -> \\(right) -> False.
+      }.
+      pair = \\(value) -> (value, True).
+      result = RuntimeEq::equals (pair @UInt8 1) (pair @UInt8 2).
+      result.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -346,12 +416,21 @@ testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
-          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
-          <> "select :: @{RuntimeEq(b)}: Int16 -> b -> b.\n"
-          <> "select = \\(width) -> \\(value) -> value.\n"
-          <> "result = RuntimeEq::equals (select @UInt8 300 1) (select @UInt8 300 2).\nresult."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq(Int) {
+      equals = \\(left) -> \\(right) -> True.
+      }.
+      impl RuntimeEq(UInt8) {
+      equals = \\(left) -> \\(right) -> False.
+      }.
+      select :: @{RuntimeEq(b)}: Int16 -> b -> b.
+      select = \\(width) -> \\(value) -> value.
+      result = RuntimeEq::equals (select @UInt8 300 1) (select @UInt8 300 2).
+      result.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -362,12 +441,20 @@ testQualifiedMethodDispatchPreservesPartiallyInstantiatedFunctionTemplate = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Int32) {\nflag = \\(value) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
-          <> "use :: @{RuntimeFlag(a)}: a -> b -> Bool.\n"
-          <> "use = \\(value) -> \\(ignored) -> RuntimeFlag::flag value.\n"
-          <> "use @Int32 1 True."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Int32) {
+      flag = \\(value) -> True.
+      }.
+      impl RuntimeFlag(Int64) {
+      flag = \\(value) -> False.
+      }.
+      use :: @{RuntimeFlag(a)}: a -> b -> Bool.
+      use = \\(value) -> \\(ignored) -> RuntimeFlag::flag value.
+      use @Int32 1 True.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -378,13 +465,24 @@ testQualifiedMethodDispatchPreservesNonLiteralIntegerSignatureTarget = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
-          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
-          <> "id8 :: UInt8 -> UInt8.\nid8 = \\(value) -> value.\n"
-          <> "left :: UInt8.\nleft = id8 1.\n"
-          <> "right :: UInt8.\nright = id8 2.\n"
-          <> "RuntimeEq::equals left right."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq(Int) {
+      equals = \\(left) -> \\(right) -> True.
+      }.
+      impl RuntimeEq(UInt8) {
+      equals = \\(left) -> \\(right) -> False.
+      }.
+      id8 :: UInt8 -> UInt8.
+      id8 = \\(value) -> value.
+      left :: UInt8.
+      left = id8 1.
+      right :: UInt8.
+      right = id8 2.
+      RuntimeEq::equals left right.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -395,13 +493,22 @@ testQualifiedMethodDispatchPreservesDirectClosureResultSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
-          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
-          <> "id8 :: UInt8 -> UInt8.\nid8 = \\(value) -> value.\n"
-          <> "left = id8 1.\n"
-          <> "right = id8 2.\n"
-          <> "RuntimeEq::equals left right."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq(Int) {
+      equals = \\(left) -> \\(right) -> True.
+      }.
+      impl RuntimeEq(UInt8) {
+      equals = \\(left) -> \\(right) -> False.
+      }.
+      id8 :: UInt8 -> UInt8.
+      id8 = \\(value) -> value.
+      left = id8 1.
+      right = id8 2.
+      RuntimeEq::equals left right.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -412,11 +519,20 @@ testQualifiedMethodDispatchPreservesTupleBindingSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
-          <> "impl RuntimePick((Int, Int)) {\npick = \\(value) -> True.\n}.\n"
-          <> "impl RuntimePick((UInt8, UInt8)) {\npick = \\(value) -> False.\n}.\n"
-          <> "pair :: (UInt8, UInt8).\npair = (1, 2).\n"
-          <> "RuntimePick::pick pair."
+      ( """
+      class RuntimePick(a) {
+      pick :: a -> Bool.
+      }.
+      impl RuntimePick((Int, Int)) {
+      pick = \\(value) -> True.
+      }.
+      impl RuntimePick((UInt8, UInt8)) {
+      pick = \\(value) -> False.
+      }.
+      pair :: (UInt8, UInt8).
+      pair = (1, 2).
+      RuntimePick::pick pair.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -427,11 +543,20 @@ testQualifiedMethodDispatchPreservesTupleExactSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
-          <> "impl RuntimePick((Int, Int)) {\npick = \\(value) -> True.\n}.\n"
-          <> "impl RuntimePick((Int64, Int64)) {\npick = \\(value) -> False.\n}.\n"
-          <> "pair :: (Int64, Int64).\npair = (1, 2).\n"
-          <> "RuntimePick::pick pair."
+      ( """
+      class RuntimePick(a) {
+      pick :: a -> Bool.
+      }.
+      impl RuntimePick((Int, Int)) {
+      pick = \\(value) -> True.
+      }.
+      impl RuntimePick((Int64, Int64)) {
+      pick = \\(value) -> False.
+      }.
+      pair :: (Int64, Int64).
+      pair = (1, 2).
+      RuntimePick::pick pair.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -442,11 +567,20 @@ testQualifiedMethodDispatchPreservesSectionBindingSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
-          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
-          <> "impl RuntimeApply(UInt8) {\napply = \\(fn) -> False.\n}.\n"
-          <> "inc8 :: UInt8 -> UInt8.\ninc8 = (+ 1).\n"
-          <> "RuntimeApply::apply inc8."
+      ( """
+      class RuntimeApply(a) {
+      apply :: (a -> a) -> Bool.
+      }.
+      impl RuntimeApply(Int) {
+      apply = \\(fn) -> True.
+      }.
+      impl RuntimeApply(UInt8) {
+      apply = \\(fn) -> False.
+      }.
+      inc8 :: UInt8 -> UInt8.
+      inc8 = (+ 1).
+      RuntimeApply::apply inc8.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -457,11 +591,19 @@ testQualifiedMethodDispatchTreatsFloatAsFloat64Alias = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Float) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
-          <> "left :: Float64.\nleft = toFloat64 1.\n"
-          <> "right :: Float64.\nright = toFloat64 1.\n"
-          <> "RuntimeEq::equals left right."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq(Float) {
+      equals = \\(left) -> \\(right) -> True.
+      }.
+      left :: Float64.
+      left = toFloat64 1.
+      right :: Float64.
+      right = toFloat64 1.
+      RuntimeEq::equals left right.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -472,11 +614,20 @@ testQualifiedMethodDispatchPrefersFloatAliasBody = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Float) {\nflag = \\(value) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Float64) {\nflag = \\(value) -> False.\n}.\n"
-          <> "value :: Float.\nvalue = 1.5.\n"
-          <> "RuntimeFlag::flag value."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Float) {
+      flag = \\(value) -> True.
+      }.
+      impl RuntimeFlag(Float64) {
+      flag = \\(value) -> False.
+      }.
+      value :: Float.
+      value = 1.5.
+      RuntimeFlag::flag value.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -487,12 +638,22 @@ testQualifiedMethodDispatchPreservesConcreteLeftFloat64OverRightFloatAlias = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Float) {\nflag = \\(value) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Float64) {\nflag = \\(value) -> False.\n}.\n"
-          <> "left :: Float64.\nleft = toFloat64 1.\n"
-          <> "right :: Float.\nright = 2.5.\n"
-          <> "(RuntimeFlag::flag) (left + right)."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Float) {
+      flag = \\(value) -> True.
+      }.
+      impl RuntimeFlag(Float64) {
+      flag = \\(value) -> False.
+      }.
+      left :: Float64.
+      left = toFloat64 1.
+      right :: Float.
+      right = 2.5.
+      (RuntimeFlag::flag) (left + right).
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -503,11 +664,20 @@ testQualifiedMethodDispatchMirrorsRuntimeFloat64DomainArithmetic = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Float) {\nflag = \\(value) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Float64) {\nflag = \\(value) -> False.\n}.\n"
-          <> "floating :: Float64.\nfloating = toFloat64 2.\n"
-          <> "(RuntimeFlag::flag) (1.5 + floating)."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Float) {
+      flag = \\(value) -> True.
+      }.
+      impl RuntimeFlag(Float64) {
+      flag = \\(value) -> False.
+      }.
+      floating :: Float64.
+      floating = toFloat64 2.
+      (RuntimeFlag::flag) (1.5 + floating).
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -518,12 +688,21 @@ testQualifiedMethodDispatchExecutesFloatEqualityBody = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Float) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
-          <> "left :: Float.\nleft = 1.5.\n"
-          <> "same :: Float.\nsame = 1.5.\n"
-          <> "different :: Float.\ndifferent = 2.25.\n"
-          <> "(RuntimeEq::equals left same, RuntimeEq::equals left different)."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq(Float) {
+      equals = \\(left) -> \\(right) -> left == right.
+      }.
+      left :: Float.
+      left = 1.5.
+      same :: Float.
+      same = 1.5.
+      different :: Float.
+      different = 2.25.
+      (RuntimeEq::equals left same, RuntimeEq::equals left different).
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -534,12 +713,21 @@ testQualifiedMethodDispatchExecutesFloat16EqualityBody = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Float16) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
-          <> "left :: Float16.\nleft = 1.5.\n"
-          <> "same :: Float16.\nsame = 1.5.\n"
-          <> "different :: Float16.\ndifferent = 2.25.\n"
-          <> "(RuntimeEq::equals left same, RuntimeEq::equals left different)."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq(Float16) {
+      equals = \\(left) -> \\(right) -> left == right.
+      }.
+      left :: Float16.
+      left = 1.5.
+      same :: Float16.
+      same = 1.5.
+      different :: Float16.
+      different = 2.25.
+      (RuntimeEq::equals left same, RuntimeEq::equals left different).
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -550,12 +738,21 @@ testQualifiedMethodDispatchExecutesFloat32EqualityBody = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Float32) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
-          <> "left :: Float32.\nleft = 1.5.\n"
-          <> "same :: Float32.\nsame = 1.5.\n"
-          <> "different :: Float32.\ndifferent = 2.25.\n"
-          <> "(RuntimeEq::equals left same, RuntimeEq::equals left different)."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq(Float32) {
+      equals = \\(left) -> \\(right) -> left == right.
+      }.
+      left :: Float32.
+      left = 1.5.
+      same :: Float32.
+      same = 1.5.
+      different :: Float32.
+      different = 2.25.
+      (RuntimeEq::equals left same, RuntimeEq::equals left different).
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -566,11 +763,19 @@ testQualifiedMethodDispatchExecutesFloat64EqualityBody = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Float64) {\nequals = \\(left) -> \\(right) -> left == right.\n}.\n"
-          <> "left :: Float64.\nleft = toFloat64 1.\n"
-          <> "right :: Float64.\nright = toFloat64 1.\n"
-          <> "RuntimeEq::equals left right."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq(Float64) {
+      equals = \\(left) -> \\(right) -> left == right.
+      }.
+      left :: Float64.
+      left = toFloat64 1.
+      right :: Float64.
+      right = toFloat64 1.
+      RuntimeEq::equals left right.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -581,12 +786,22 @@ testQualifiedMethodDispatchTreatsIntAsInt64Alias = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
-          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
-          <> "left :: Int.\nleft = 1.\n"
-          <> "right :: Int.\nright = 2.\n"
-          <> "RuntimeEq::equals left right."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq(Int) {
+      equals = \\(left) -> \\(right) -> True.
+      }.
+      impl RuntimeEq(UInt8) {
+      equals = \\(left) -> \\(right) -> False.
+      }.
+      left :: Int.
+      left = 1.
+      right :: Int.
+      right = 2.
+      RuntimeEq::equals left right.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -597,12 +812,22 @@ testQualifiedMethodDispatchRehintsIntAliasForInt64Parameter = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
-          <> "asInt :: Int.\nasInt = 1.\n"
-          <> "asInt64 :: Int64 -> Int64.\nasInt64 = \\(value) -> value.\n"
-          <> "(RuntimeFlag::flag) (asInt64 asInt)."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Int) {
+      flag = \\(value) -> True.
+      }.
+      impl RuntimeFlag(Int64) {
+      flag = \\(value) -> False.
+      }.
+      asInt :: Int.
+      asInt = 1.
+      asInt64 :: Int64 -> Int64.
+      asInt64 = \\(value) -> value.
+      (RuntimeFlag::flag) (asInt64 asInt).
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -613,11 +838,20 @@ testQualifiedMethodDispatchPrefersIntAliasBody = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
-          <> "value :: Int.\nvalue = 1.\n"
-          <> "RuntimeFlag::flag value."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Int) {
+      flag = \\(value) -> True.
+      }.
+      impl RuntimeFlag(Int64) {
+      flag = \\(value) -> False.
+      }.
+      value :: Int.
+      value = 1.
+      RuntimeFlag::flag value.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -628,10 +862,18 @@ testQualifiedMethodDispatchPrefersIntAliasBodyForDirectLiteral = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
-          <> "RuntimeFlag::flag 1."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Int) {
+      flag = \\(value) -> True.
+      }.
+      impl RuntimeFlag(Int64) {
+      flag = \\(value) -> False.
+      }.
+      RuntimeFlag::flag 1.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -642,11 +884,20 @@ testQualifiedMethodDispatchPrefersListAliasBody = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag([Int]) {\nflag = \\(values) -> True.\n}.\n"
-          <> "impl RuntimeFlag([Int64]) {\nflag = \\(values) -> False.\n}.\n"
-          <> "values :: [Int].\nvalues = [1, 2].\n"
-          <> "RuntimeFlag::flag values."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag([Int]) {
+      flag = \\(values) -> True.
+      }.
+      impl RuntimeFlag([Int64]) {
+      flag = \\(values) -> False.
+      }.
+      values :: [Int].
+      values = [1, 2].
+      RuntimeFlag::flag values.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -657,10 +908,18 @@ testQualifiedMethodDispatchPrefersListAliasBodyForDirectLiteral = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag([Int]) {\nflag = \\(values) -> True.\n}.\n"
-          <> "impl RuntimeFlag([Int64]) {\nflag = \\(values) -> False.\n}.\n"
-          <> "(RuntimeFlag::flag) [1]."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag([Int]) {
+      flag = \\(values) -> True.
+      }.
+      impl RuntimeFlag([Int64]) {
+      flag = \\(values) -> False.
+      }.
+      (RuntimeFlag::flag) [1].
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -671,15 +930,25 @@ testRawListPrependRehintsHeadToConcreteTailElementType = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
-          <> "headValue :: Int.\nheadValue = 1.\n"
-          <> "tailValues :: [Int64].\ntailValues = [2].\n"
-          <> "case __kernel_listPrependRaw headValue tailValues {\n"
-          <> "| [] -> True\n"
-          <> "| [first | _] -> RuntimeFlag::flag first\n"
-          <> "}."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Int) {
+      flag = \\(value) -> True.
+      }.
+      impl RuntimeFlag(Int64) {
+      flag = \\(value) -> False.
+      }.
+      headValue :: Int.
+      headValue = 1.
+      tailValues :: [Int64].
+      tailValues = [2].
+      case __kernel_listPrependRaw headValue tailValues {
+      | [] -> True
+      | [first | _] -> RuntimeFlag::flag first
+      }.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -690,11 +959,19 @@ testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
-          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
-          <> "values = [[1], []].\n"
-          <> "(RuntimeFlag::flag) values."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag([[Int]]) {
+      flag = \\(values) -> True.
+      }.
+      impl RuntimeFlag([[Int64]]) {
+      flag = \\(values) -> False.
+      }.
+      values = [[1], []].
+      (RuntimeFlag::flag) values.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -705,11 +982,19 @@ testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag([Int]) {\nflag = \\(values) -> True.\n}.\n"
-          <> "impl RuntimeFlag([Bool]) {\nflag = \\(values) -> False.\n}.\n"
-          <> "empty = [].\n"
-          <> "(RuntimeFlag::flag) (empty @Int)."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag([Int]) {
+      flag = \\(values) -> True.
+      }.
+      impl RuntimeFlag([Bool]) {
+      flag = \\(values) -> False.
+      }.
+      empty = [].
+      (RuntimeFlag::flag) (empty @Int).
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -767,12 +1052,20 @@ testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
-          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
-          <> "f = \\(x) -> RuntimeFlag::flag x.\n"
-          <> "result = f [[1], []].\n"
-          <> "result."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag([[Int]]) {
+      flag = \\(values) -> True.
+      }.
+      impl RuntimeFlag([[Int64]]) {
+      flag = \\(values) -> False.
+      }.
+      f = \\(x) -> RuntimeFlag::flag x.
+      result = f [[1], []].
+      result.
+      """
       )
   assertSingleDiagnosticContains
     "unhinted nested list helper exact selection"
@@ -793,11 +1086,19 @@ testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral = do
   result <-
     runSource
       defaultWarningSettings
-      ( "data Box a = Box a.\n"
-          <> "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Box(Int)) {\nflag = \\(box) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Box(Int64)) {\nflag = \\(box) -> False.\n}.\n"
-          <> "(RuntimeFlag::flag) (Box 1)."
+      ( """
+      data Box a = Box a.
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Box(Int)) {
+      flag = \\(box) -> True.
+      }.
+      impl RuntimeFlag(Box(Int64)) {
+      flag = \\(box) -> False.
+      }.
+      (RuntimeFlag::flag) (Box 1).
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -808,11 +1109,19 @@ testQualifiedMethodDispatchIgnoresMonomorphicConstructorPayloadForExactSelection
   result <-
     runSource
       defaultWarningSettings
-      ( "data Wrap a = Wrap Int64 a.\n"
-          <> "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Wrap(Int)) {\nflag = \\(wrap) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Wrap(Int64)) {\nflag = \\(wrap) -> False.\n}.\n"
-          <> "(RuntimeFlag::flag) (Wrap 1 1)."
+      ( """
+      data Wrap a = Wrap Int64 a.
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Wrap(Int)) {
+      flag = \\(wrap) -> True.
+      }.
+      impl RuntimeFlag(Wrap(Int64)) {
+      flag = \\(wrap) -> False.
+      }.
+      (RuntimeFlag::flag) (Wrap 1 1).
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -823,10 +1132,18 @@ testQualifiedMethodDispatchTreatsNonLiteralIntegerResultsAsInt64 = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
-          <> "(RuntimeFlag::flag) ((\\(x) -> x) 1)."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Int) {
+      flag = \\(value) -> True.
+      }.
+      impl RuntimeFlag(Int64) {
+      flag = \\(value) -> False.
+      }.
+      (RuntimeFlag::flag) ((\\(x) -> x) 1).
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -837,11 +1154,20 @@ testQualifiedMethodDispatchPreservesHigherOrderBindingSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
-          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
-          <> "impl RuntimeApply(Bool) {\napply = \\(fn) -> False.\n}.\n"
-          <> "idInt :: Int -> Int.\nidInt = \\(value) -> value.\n"
-          <> "RuntimeApply::apply idInt."
+      ( """
+      class RuntimeApply(a) {
+      apply :: (a -> a) -> Bool.
+      }.
+      impl RuntimeApply(Int) {
+      apply = \\(fn) -> True.
+      }.
+      impl RuntimeApply(Bool) {
+      apply = \\(fn) -> False.
+      }.
+      idInt :: Int -> Int.
+      idInt = \\(value) -> value.
+      RuntimeApply::apply idInt.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -852,11 +1178,20 @@ testQualifiedMethodDispatchPreservesHigherOrderExactSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
-          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
-          <> "impl RuntimeApply(Int64) {\napply = \\(fn) -> False.\n}.\n"
-          <> "id64 :: Int64 -> Int64.\nid64 = \\(value) -> value.\n"
-          <> "RuntimeApply::apply id64."
+      ( """
+      class RuntimeApply(a) {
+      apply :: (a -> a) -> Bool.
+      }.
+      impl RuntimeApply(Int) {
+      apply = \\(fn) -> True.
+      }.
+      impl RuntimeApply(Int64) {
+      apply = \\(fn) -> False.
+      }.
+      id64 :: Int64 -> Int64.
+      id64 = \\(value) -> value.
+      RuntimeApply::apply id64.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -867,10 +1202,18 @@ testQualifiedMethodDispatchRejectsUnhintedFunctionArgumentExactSelection = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
-          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
-          <> "impl RuntimeApply(Int64) {\napply = \\(fn) -> False.\n}.\n"
-          <> "(RuntimeApply::apply) (\\(value) -> value + 1)."
+      ( """
+      class RuntimeApply(a) {
+      apply :: (a -> a) -> Bool.
+      }.
+      impl RuntimeApply(Int) {
+      apply = \\(fn) -> True.
+      }.
+      impl RuntimeApply(Int64) {
+      apply = \\(fn) -> False.
+      }.
+      (RuntimeApply::apply) (\\(value) -> value + 1).
+      """
       )
   assertSingleDiagnosticContains
     "unhinted function argument exact selection"
@@ -884,12 +1227,21 @@ testQualifiedMethodDispatchDefersExactFilteringUntilTargetArgument = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimePick(a) {\npick :: Int -> a -> Bool.\n}.\n"
-          <> "impl RuntimePick(Int) {\npick = \\(index) -> \\(value) -> False.\n}.\n"
-          <> "impl RuntimePick(Bool) {\npick = \\(index) -> \\(value) -> True.\n}.\n"
-          <> "one :: Int.\none = 1.\n"
-          <> "pickOne = RuntimePick::pick one.\n"
-          <> "pickOne True."
+      ( """
+      class RuntimePick(a) {
+      pick :: Int -> a -> Bool.
+      }.
+      impl RuntimePick(Int) {
+      pick = \\(index) -> \\(value) -> False.
+      }.
+      impl RuntimePick(Bool) {
+      pick = \\(index) -> \\(value) -> True.
+      }.
+      one :: Int.
+      one = 1.
+      pickOne = RuntimePick::pick one.
+      pickOne True.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -900,12 +1252,24 @@ testQualifiedMethodDispatchPreservesSelectedMethodSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class Id(a) {\nid :: a -> a.\n}.\n"
-          <> "impl Id(Int) {\nid = \\(value) -> value.\n}.\n"
-          <> "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
-          <> "impl RuntimeApply(Int) {\napply = \\(fn) -> True.\n}.\n"
-          <> "impl RuntimeApply(Bool) {\napply = \\(fn) -> False.\n}.\n"
-          <> "RuntimeApply::apply Id::id."
+      ( """
+      class Id(a) {
+      id :: a -> a.
+      }.
+      impl Id(Int) {
+      id = \\(value) -> value.
+      }.
+      class RuntimeApply(a) {
+      apply :: (a -> a) -> Bool.
+      }.
+      impl RuntimeApply(Int) {
+      apply = \\(fn) -> True.
+      }.
+      impl RuntimeApply(Bool) {
+      apply = \\(fn) -> False.
+      }.
+      RuntimeApply::apply Id::id.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -945,12 +1309,20 @@ testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
-          <> "impl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\n"
-          <> "impl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\n"
-          <> "f = \\(value) -> 1.\n"
-          <> "result = RuntimePick::pick (f True).\n"
-          <> "result."
+      ( """
+      class RuntimePick(a) {
+      pick :: a -> Bool.
+      }.
+      impl RuntimePick(Int) {
+      pick = \\(value) -> True.
+      }.
+      impl RuntimePick(UInt8) {
+      pick = \\(value) -> False.
+      }.
+      f = \\(value) -> 1.
+      result = RuntimePick::pick (f True).
+      result.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -961,11 +1333,20 @@ testQualifiedMethodDispatchPreservesEmptyListBindingSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
-          <> "impl RuntimePick(Int) {\npick = \\(values) -> True.\n}.\n"
-          <> "impl RuntimePick(Bool) {\npick = \\(values) -> False.\n}.\n"
-          <> "values :: [Int].\nvalues = [].\n"
-          <> "RuntimePick::pick values."
+      ( """
+      class RuntimePick(a) {
+      pick :: [a] -> Bool.
+      }.
+      impl RuntimePick(Int) {
+      pick = \\(values) -> True.
+      }.
+      impl RuntimePick(Bool) {
+      pick = \\(values) -> False.
+      }.
+      values :: [Int].
+      values = [].
+      RuntimePick::pick values.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -976,11 +1357,20 @@ testQualifiedMethodDispatchPreservesListReturningApplicationSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
-          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
-          <> "make :: Bool -> [[Int64]].\nmake = \\(enabled) -> [[1], []].\n"
-          <> "(RuntimeFlag::flag) (make True)."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag([[Int]]) {
+      flag = \\(values) -> True.
+      }.
+      impl RuntimeFlag([[Int64]]) {
+      flag = \\(values) -> False.
+      }.
+      make :: Bool -> [[Int64]].
+      make = \\(enabled) -> [[1], []].
+      (RuntimeFlag::flag) (make True).
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -991,11 +1381,20 @@ testQualifiedMethodDispatchPreservesDollarAppliedListReturningSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
-          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
-          <> "make :: Bool -> [[Int64]].\nmake = \\(enabled) -> [[1], []].\n"
-          <> "(RuntimeFlag::flag) (($) make True)."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag([[Int]]) {
+      flag = \\(values) -> True.
+      }.
+      impl RuntimeFlag([[Int64]]) {
+      flag = \\(values) -> False.
+      }.
+      make :: Bool -> [[Int64]].
+      make = \\(enabled) -> [[1], []].
+      (RuntimeFlag::flag) (($) make True).
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1006,12 +1405,20 @@ testQualifiedMethodDispatchPreservesAdtReturningApplicationSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "data Box a = Box a.\n"
-          <> "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Box([[Int]])) {\nflag = \\(box) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Box([[Int64]])) {\nflag = \\(box) -> False.\n}.\n"
-          <> "make = \\(enabled) -> if enabled then (Box [[toInt64 1], []]) else (Box [[toInt64 2], []]).\n"
-          <> "(RuntimeFlag::flag) (make True)."
+      ( """
+      data Box a = Box a.
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Box([[Int]])) {
+      flag = \\(box) -> True.
+      }.
+      impl RuntimeFlag(Box([[Int64]])) {
+      flag = \\(box) -> False.
+      }.
+      make = \\(enabled) -> if enabled then (Box [[toInt64 1], []]) else (Box [[toInt64 2], []]).
+      (RuntimeFlag::flag) (make True).
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1022,11 +1429,20 @@ testQualifiedMethodDispatchPreservesBranchResultSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
-          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
-          <> "make64 :: Bool -> [[Int64]].\nmake64 = \\(enabled) -> [[1], []].\n"
-          <> "(RuntimeFlag::flag) (if True then (make64 True) else (make64 False))."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag([[Int]]) {
+      flag = \\(values) -> True.
+      }.
+      impl RuntimeFlag([[Int64]]) {
+      flag = \\(values) -> False.
+      }.
+      make64 :: Bool -> [[Int64]].
+      make64 = \\(enabled) -> [[1], []].
+      (RuntimeFlag::flag) (if True then (make64 True) else (make64 False)).
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1037,10 +1453,22 @@ testQualifiedMethodDispatchPreservesBlockResultSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> True.\n}.\n"
-          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> False.\n}.\n"
-          <> "(RuntimeFlag::flag) {\nvalues :: [[Int64]].\nvalues = [[1], []].\nvalues.\n}."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag([[Int]]) {
+      flag = \\(values) -> True.
+      }.
+      impl RuntimeFlag([[Int64]]) {
+      flag = \\(values) -> False.
+      }.
+      (RuntimeFlag::flag) {
+      values :: [[Int64]].
+      values = [[1], []].
+      values.
+      }.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1051,13 +1479,23 @@ testQualifiedMethodDispatchPreservesMappedEmptyListResultSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
-          <> "impl RuntimePick(Int) {\npick = \\(values) -> True.\n}.\n"
-          <> "impl RuntimePick(UInt8) {\npick = \\(values) -> False.\n}.\n"
-          <> "id8 :: UInt8 -> UInt8.\nid8 = \\(value) -> value.\n"
-          <> "values :: [UInt8].\nvalues = [].\n"
-          <> "mapped = map id8 values.\n"
-          <> "RuntimePick::pick mapped."
+      ( """
+      class RuntimePick(a) {
+      pick :: [a] -> Bool.
+      }.
+      impl RuntimePick(Int) {
+      pick = \\(values) -> True.
+      }.
+      impl RuntimePick(UInt8) {
+      pick = \\(values) -> False.
+      }.
+      id8 :: UInt8 -> UInt8.
+      id8 = \\(value) -> value.
+      values :: [UInt8].
+      values = [].
+      mapped = map id8 values.
+      RuntimePick::pick mapped.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1068,12 +1506,21 @@ testQualifiedMethodDispatchPreservesIdentityMappedEmptyListResultSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
-          <> "impl RuntimePick(Int) {\npick = \\(values) -> True.\n}.\n"
-          <> "impl RuntimePick(UInt8) {\npick = \\(values) -> False.\n}.\n"
-          <> "values :: [UInt8].\nvalues = [].\n"
-          <> "mapped = map (\\(value) -> value) values.\n"
-          <> "RuntimePick::pick mapped."
+      ( """
+      class RuntimePick(a) {
+      pick :: [a] -> Bool.
+      }.
+      impl RuntimePick(Int) {
+      pick = \\(values) -> True.
+      }.
+      impl RuntimePick(UInt8) {
+      pick = \\(values) -> False.
+      }.
+      values :: [UInt8].
+      values = [].
+      mapped = map (\\(value) -> value) values.
+      RuntimePick::pick mapped.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1084,12 +1531,21 @@ testQualifiedMethodDispatchPreservesMappedHdEmptyNestedListResultSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
-          <> "impl RuntimePick(Int) {\npick = \\(values) -> True.\n}.\n"
-          <> "impl RuntimePick(UInt8) {\npick = \\(values) -> False.\n}.\n"
-          <> "values :: [[UInt8]].\nvalues = [].\n"
-          <> "mapped = map hd values.\n"
-          <> "RuntimePick::pick mapped."
+      ( """
+      class RuntimePick(a) {
+      pick :: [a] -> Bool.
+      }.
+      impl RuntimePick(Int) {
+      pick = \\(values) -> True.
+      }.
+      impl RuntimePick(UInt8) {
+      pick = \\(values) -> False.
+      }.
+      values :: [[UInt8]].
+      values = [].
+      mapped = map hd values.
+      RuntimePick::pick mapped.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1100,13 +1556,22 @@ testQualifiedMethodDispatchPreservesHdElementSignature = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-          <> "impl RuntimeEq(Int) {\nequals = \\(left) -> \\(right) -> True.\n}.\n"
-          <> "impl RuntimeEq(UInt8) {\nequals = \\(left) -> \\(right) -> False.\n}.\n"
-          <> "values :: [UInt8].\nvalues = [1].\n"
-          <> "left = hd values.\n"
-          <> "right = hd values.\n"
-          <> "RuntimeEq::equals left right."
+      ( """
+      class RuntimeEq(a) {
+      equals :: a -> a -> Bool.
+      }.
+      impl RuntimeEq(Int) {
+      equals = \\(left) -> \\(right) -> True.
+      }.
+      impl RuntimeEq(UInt8) {
+      equals = \\(left) -> \\(right) -> False.
+      }.
+      values :: [UInt8].
+      values = [1].
+      left = hd values.
+      right = hd values.
+      RuntimeEq::equals left right.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1117,11 +1582,20 @@ testQualifiedMethodDispatchNormalizesHintedListAliases = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimePick(a) {\npick :: [a] -> Bool.\n}.\n"
-          <> "impl RuntimePick(Int64) {\npick = \\(values) -> True.\n}.\n"
-          <> "impl RuntimePick(Bool) {\npick = \\(values) -> False.\n}.\n"
-          <> "values :: [Int].\nvalues = [].\n"
-          <> "RuntimePick::pick values."
+      ( """
+      class RuntimePick(a) {
+      pick :: [a] -> Bool.
+      }.
+      impl RuntimePick(Int64) {
+      pick = \\(values) -> True.
+      }.
+      impl RuntimePick(Bool) {
+      pick = \\(values) -> False.
+      }.
+      values :: [Int].
+      values = [].
+      RuntimePick::pick values.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1132,11 +1606,20 @@ testQualifiedMethodDispatchNormalizesHintedFunctionAliases = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeApply(a) {\napply :: (a -> a) -> Bool.\n}.\n"
-          <> "impl RuntimeApply(Int64) {\napply = \\(fn) -> True.\n}.\n"
-          <> "impl RuntimeApply(Bool) {\napply = \\(fn) -> False.\n}.\n"
-          <> "idInt :: Int -> Int.\nidInt = \\(value) -> value.\n"
-          <> "RuntimeApply::apply idInt."
+      ( """
+      class RuntimeApply(a) {
+      apply :: (a -> a) -> Bool.
+      }.
+      impl RuntimeApply(Int64) {
+      apply = \\(fn) -> True.
+      }.
+      impl RuntimeApply(Bool) {
+      apply = \\(fn) -> False.
+      }.
+      idInt :: Int -> Int.
+      idInt = \\(value) -> value.
+      RuntimeApply::apply idInt.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1147,11 +1630,19 @@ testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64 = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
-          <> "impl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\n"
-          <> "impl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\n"
-          <> "value = 1.\n"
-          <> "RuntimePick::pick value."
+      ( """
+      class RuntimePick(a) {
+      pick :: a -> Bool.
+      }.
+      impl RuntimePick(Int) {
+      pick = \\(value) -> True.
+      }.
+      impl RuntimePick(UInt8) {
+      pick = \\(value) -> False.
+      }.
+      value = 1.
+      RuntimePick::pick value.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1162,11 +1653,19 @@ testQualifiedMethodDispatchTreatsPlainIntegerBindingAsInt64WithExactCandidates =
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
-          <> "value = 1.\n"
-          <> "RuntimeFlag::flag value."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Int) {
+      flag = \\(value) -> True.
+      }.
+      impl RuntimeFlag(Int64) {
+      flag = \\(value) -> False.
+      }.
+      value = 1.
+      RuntimeFlag::flag value.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1177,11 +1676,19 @@ testQualifiedMethodDispatchTreatsInferredDirectIntegerLiteralAsExactInt = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Int) {\nflag = \\(value) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Int64) {\nflag = \\(value) -> False.\n}.\n"
-          <> "result = (\\(value) -> RuntimeFlag::flag value) 1.\n"
-          <> "result."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Int) {
+      flag = \\(value) -> True.
+      }.
+      impl RuntimeFlag(Int64) {
+      flag = \\(value) -> False.
+      }.
+      result = (\\(value) -> RuntimeFlag::flag value) 1.
+      result.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1192,11 +1699,19 @@ testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
-          <> "impl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\n"
-          <> "impl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\n"
-          <> "value = if True then 1 else toUInt8 2.\n"
-          <> "RuntimePick::pick value."
+      ( """
+      class RuntimePick(a) {
+      pick :: a -> Bool.
+      }.
+      impl RuntimePick(Int) {
+      pick = \\(value) -> True.
+      }.
+      impl RuntimePick(UInt8) {
+      pick = \\(value) -> False.
+      }.
+      value = if True then 1 else toUInt8 2.
+      RuntimePick::pick value.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1207,12 +1722,20 @@ testQualifiedMethodDispatchPreservesAdtApplicationBindingHint = do
   result <-
     runSource
       defaultWarningSettings
-      ( "data Box a = Box a.\n"
-          <> "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
-          <> "impl RuntimePick(Box(Int)) {\npick = \\(box) -> True.\n}.\n"
-          <> "impl RuntimePick(Box(UInt8)) {\npick = \\(box) -> False.\n}.\n"
-          <> "box = if True then (Box 1) else (Box (toUInt8 2)).\n"
-          <> "RuntimePick::pick box."
+      ( """
+      data Box a = Box a.
+      class RuntimePick(a) {
+      pick :: a -> Bool.
+      }.
+      impl RuntimePick(Box(Int)) {
+      pick = \\(box) -> True.
+      }.
+      impl RuntimePick(Box(UInt8)) {
+      pick = \\(box) -> False.
+      }.
+      box = if True then (Box 1) else (Box (toUInt8 2)).
+      RuntimePick::pick box.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1373,13 +1896,23 @@ testQualifiedMethodDispatchKeepsNestedInferredHintsScoped = do
     runSourceWithPrelude
       defaultWarningSettings
       Nothing
-      ( "dummy = 0.\n"
-          <> "z = 1.\n"
-          <> "x = { y :: UInt8.\ny = 1.\ny. }.\n"
-          <> "class RuntimePick(a) {\npick :: a -> Bool.\n}.\n"
-          <> "impl RuntimePick(Int) {\npick = \\(value) -> True.\n}.\n"
-          <> "impl RuntimePick(UInt8) {\npick = \\(value) -> False.\n}.\n"
-          <> "RuntimePick::pick z."
+      ( """
+      dummy = 0.
+      z = 1.
+      x = { y :: UInt8.
+      y = 1.
+      y. }.
+      class RuntimePick(a) {
+      pick :: a -> Bool.
+      }.
+      impl RuntimePick(Int) {
+      pick = \\(value) -> True.
+      }.
+      impl RuntimePick(UInt8) {
+      pick = \\(value) -> False.
+      }.
+      RuntimePick::pick z.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1459,9 +1992,15 @@ testQualifiedZeroArgumentMethodDispatchReturnsValue = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nenabled :: Bool.\n}.\n"
-          <> "impl RuntimeFlag(Int) {\nenabled = True.\n}.\n"
-          <> "RuntimeFlag::enabled."
+      ( """
+      class RuntimeFlag(a) {
+      enabled :: Bool.
+      }.
+      impl RuntimeFlag(Int) {
+      enabled = True.
+      }.
+      RuntimeFlag::enabled.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1475,9 +2014,15 @@ testQualifiedMethodDispatchRejectsDirectSelfAlias = do
       ( try
           ( runSource
               defaultWarningSettings
-              ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-                  <> "impl RuntimeEq(Int) {\nequals = RuntimeEq::equals.\n}.\n"
-                  <> "RuntimeEq::equals 1 1."
+              ( """
+              class RuntimeEq(a) {
+              equals :: a -> a -> Bool.
+              }.
+              impl RuntimeEq(Int) {
+              equals = RuntimeEq::equals.
+              }.
+              RuntimeEq::equals 1 1.
+              """
               )
           ) ::
           IO (Either SomeException RunResult)
@@ -1507,9 +2052,15 @@ testQualifiedMethodDispatchRejectsWrappedSelfAlias = do
       ( try
           ( runSource
               defaultWarningSettings
-              ( "class RuntimeEq(a) {\nequals :: a -> a -> Bool.\n}.\n"
-                  <> "impl RuntimeEq(Int) {\nequals = if True then RuntimeEq::equals else \\(left) -> \\(right) -> left == right.\n}.\n"
-                  <> "RuntimeEq::equals 1 1."
+              ( """
+              class RuntimeEq(a) {
+              equals :: a -> a -> Bool.
+              }.
+              impl RuntimeEq(Int) {
+              equals = if True then RuntimeEq::equals else \\(left) -> \\(right) -> left == right.
+              }.
+              RuntimeEq::equals 1 1.
+              """
               )
           ) ::
           IO (Either SomeException RunResult)
@@ -1539,9 +2090,16 @@ testQualifiedMethodDispatchRejectsBlockLocalSelfAlias = do
       ( try
           ( runSource
               defaultWarningSettings
-              ( "class RuntimeFlag(a) {\nenabled :: Bool.\n}.\n"
-                  <> "impl RuntimeFlag(Int) {\nenabled = { helper = RuntimeFlag::enabled.\nhelper. }.\n}.\n"
-                  <> "RuntimeFlag::enabled."
+              ( """
+              class RuntimeFlag(a) {
+              enabled :: Bool.
+              }.
+              impl RuntimeFlag(Int) {
+              enabled = { helper = RuntimeFlag::enabled.
+              helper. }.
+              }.
+              RuntimeFlag::enabled.
+              """
               )
           ) ::
           IO (Either SomeException RunResult)
@@ -1568,9 +2126,22 @@ testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalBindings = do
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nenabled :: Bool.\non :: Bool.\noff :: Bool.\n}.\n"
-          <> "impl RuntimeFlag(Int) {\nenabled = { flag = True.\ntarget = if flag then RuntimeFlag::on else RuntimeFlag::off.\ntarget.\n}.\non = True.\noff = False.\n}.\n"
-          <> "RuntimeFlag::enabled."
+      ( """
+      class RuntimeFlag(a) {
+      enabled :: Bool.
+      on :: Bool.
+      off :: Bool.
+      }.
+      impl RuntimeFlag(Int) {
+      enabled = { flag = True.
+      target = if flag then RuntimeFlag::on else RuntimeFlag::off.
+      target.
+      }.
+      on = True.
+      off = False.
+      }.
+      RuntimeFlag::enabled.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1581,16 +2152,32 @@ testQualifiedMethodDispatchFollowsBlockLocalAliasBranchesWithLocalSignatureHints
   result <-
     runSource
       defaultWarningSettings
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag([[Int]]) {\nflag = \\(values) -> False.\n}.\n"
-          <> "impl RuntimeFlag([[Int64]]) {\nflag = \\(values) -> True.\n}.\n"
-          <> "class RuntimeChoice(a) {\nenabled :: Bool.\non :: Bool.\noff :: Bool.\n}.\n"
-          <> "impl RuntimeChoice(Int) {\n"
-          <> "enabled = { value :: [[Int64]].\nvalue = [[1], []].\ntarget = if ((RuntimeFlag::flag) value) then RuntimeChoice::on else RuntimeChoice::off.\ntarget.\n}.\n"
-          <> "on = True.\n"
-          <> "off = False.\n"
-          <> "}.\n"
-          <> "RuntimeChoice::enabled."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag([[Int]]) {
+      flag = \\(values) -> False.
+      }.
+      impl RuntimeFlag([[Int64]]) {
+      flag = \\(values) -> True.
+      }.
+      class RuntimeChoice(a) {
+      enabled :: Bool.
+      on :: Bool.
+      off :: Bool.
+      }.
+      impl RuntimeChoice(Int) {
+      enabled = { value :: [[Int64]].
+      value = [[1], []].
+      target = if ((RuntimeFlag::flag) value) then RuntimeChoice::on else RuntimeChoice::off.
+      target.
+      }.
+      on = True.
+      off = False.
+      }.
+      RuntimeChoice::enabled.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -1605,14 +2192,36 @@ testQualifiedMethodDispatchRejectsFullArityRuntimeAmbiguity =
 
 testQualifiedMethodDispatchExecutesLocalAdtImplBody :: IO ()
 testQualifiedMethodDispatchExecutesLocalAdtImplBody = do
-  result <- runSource defaultWarningSettings (runtimeEqSource <> "data Token = Token Int.\ndata Box a = Box a.\nimpl RuntimeEq(Token) {\nequals = \\(left) -> \\(right) -> True.\n}.\nimpl RuntimeEq(Box(Int)) {\nequals = \\(left) -> \\(right) -> True.\n}.\nresult = (RuntimeEq::equals (Token 1) (Token 2), RuntimeEq::equals (Box 1) (Box 2)).\nresult.")
+  result <-
+    runSource defaultWarningSettings
+      ( runtimeEqSource
+          <> """
+          data Token = Token Int.
+          data Box a = Box a.
+          impl RuntimeEq(Token) {
+          equals = \\(left) -> \\(right) -> True.
+          }.
+          impl RuntimeEq(Box(Int)) {
+          equals = \\(left) -> \\(right) -> True.
+          }.
+          result = (RuntimeEq::equals (Token 1) (Token 2), RuntimeEq::equals (Box 1) (Box 2)).
+          result.
+          """
+      )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(True, True)") (runOutput result)
 
 testMethodBearingCapabilityDeclarationsRuntimeInert :: IO ()
 testMethodBearingCapabilityDeclarationsRuntimeInert = do
-  result <- runSource defaultWarningSettings (runtimeEqSource <> "x = 1.\nx.")
+  result <-
+    runSource defaultWarningSettings
+      ( runtimeEqSource
+          <> """
+          x = 1.
+          x.
+          """
+      )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "method-bearing capability declarations do not affect runtime output" (Just "1") (runOutput result)

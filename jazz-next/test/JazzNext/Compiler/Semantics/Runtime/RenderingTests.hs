@@ -356,42 +356,67 @@ testRightOperatorSectionRuntimeSuccess = do
 
 testDeclaredUserOperatorInfixRuntimeSuccess :: IO ()
 testDeclaredUserOperatorInfixRuntimeSuccess = do
-  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\n1 %% 2."
+  result <- runSource defaultWarningSettings """
+  operator %% tier 2.
+  (%%) = \\(left) -> \\(right) -> left + right.
+  1 %% 2.
+  """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
 
 testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess :: IO ()
 testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess = do
-  result <- runSource defaultWarningSettings "operator %% precedence 99.\n(%%) = \\(left) -> \\(right) -> left - right.\n20 + 10 %% 3 * 2."
+  result <- runSource defaultWarningSettings """
+  operator %% precedence 99.
+  (%%) = \\(left) -> \\(right) -> left - right.
+  20 + 10 %% 3 * 2.
+  """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "34") (runOutput result)
 
 testDeclaredUserOperatorSignatureRuntimeSuccess :: IO ()
 testDeclaredUserOperatorSignatureRuntimeSuccess = do
-  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) :: Int -> Int -> Int.\n(%%) = \\(left) -> \\(right) -> left + right.\n1 %% 2."
+  result <- runSource defaultWarningSettings """
+  operator %% tier 2.
+  (%%) :: Int -> Int -> Int.
+  (%%) = \\(left) -> \\(right) -> left + right.
+  1 %% 2.
+  """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
 
 testDeclaredUserOperatorValueRuntimeSuccess :: IO ()
 testDeclaredUserOperatorValueRuntimeSuccess = do
-  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\n(%%) 1 2."
+  result <- runSource defaultWarningSettings """
+  operator %% tier 2.
+  (%%) = \\(left) -> \\(right) -> left + right.
+  (%%) 1 2.
+  """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
 
 testDeclaredUserLeftOperatorSectionRuntimeSuccess :: IO ()
 testDeclaredUserLeftOperatorSectionRuntimeSuccess = do
-  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left - right.\n(2 %%) 10."
+  result <- runSource defaultWarningSettings """
+  operator %% tier 2.
+  (%%) = \\(left) -> \\(right) -> left - right.
+  (2 %%) 10.
+  """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "-8") (runOutput result)
 
 testDeclaredUserRightOperatorSectionRuntimeSuccess :: IO ()
 testDeclaredUserRightOperatorSectionRuntimeSuccess = do
-  result <- runSource defaultWarningSettings "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left - right.\n(%% 2) 10."
+  result <- runSource defaultWarningSettings """
+  operator %% tier 2.
+  (%%) = \\(left) -> \\(right) -> left - right.
+  (%% 2) 10.
+  """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "8") (runOutput result)
@@ -511,21 +536,38 @@ testPrintBuiltinReturnsArgument = do
 
 testStructuralListEqualityRuntimeSuccess :: IO ()
 testStructuralListEqualityRuntimeSuccess = do
-  result <- runSource defaultWarningSettings "same = [1, 2] == [1, 2].\ndifferent = [1, 2] != [1, 3].\nshorter = [1] == [1, 2].\nnested = [[True], [False]] == [[True], [False]].\n[same, different, shorter, nested]."
+  result <- runSource defaultWarningSettings """
+  same = [1, 2] == [1, 2].
+  different = [1, 2] != [1, 3].
+  shorter = [1] == [1, 2].
+  nested = [[True], [False]] == [[True], [False]].
+  [same, different, shorter, nested].
+  """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True, False, True]") (runOutput result)
 
 testStructuralTupleEqualityRuntimeSuccess :: IO ()
 testStructuralTupleEqualityRuntimeSuccess = do
-  result <- runSource defaultWarningSettings "same = (1, True) == (1, True).\ndifferent = (1, (True, 2)) != (1, (True, 3)).\n[same, different]."
+  result <- runSource defaultWarningSettings """
+  same = (1, True) == (1, True).
+  different = (1, (True, 2)) != (1, (True, 3)).
+  [same, different].
+  """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True]") (runOutput result)
 
 testStructuralAdtEqualityRuntimeSuccess :: IO ()
 testStructuralAdtEqualityRuntimeSuccess = do
-  result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a.\nsame = Just 1 == Just 1.\ndifferentPayload = Just 1 != Just 2.\ndifferentCtor = Just 1 == Nothing.\nnested = Just [True] == Just [True].\n[same, differentPayload, differentCtor, nested]."
+  result <- runSource defaultWarningSettings """
+  data Maybe a = Nothing | Just a.
+  same = Just 1 == Just 1.
+  differentPayload = Just 1 != Just 2.
+  differentCtor = Just 1 == Nothing.
+  nested = Just [True] == Just [True].
+  [same, differentPayload, differentCtor, nested].
+  """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True, False, True]") (runOutput result)

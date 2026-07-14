@@ -62,7 +62,10 @@ tests =
 
 testPureBindingCannotCallImpureBuiltin :: IO ()
 testPureBindingCannotCallImpureBuiltin = do
-  result <- compileWithBundledPrelude "x = print! 1.\nx."
+  result <- compileWithBundledPrelude """
+  x = print! 1.
+  x.
+  """
   assertSingleErrorContains
     "pure binding calling impure builtin"
     "E1010"
@@ -70,7 +73,10 @@ testPureBindingCannotCallImpureBuiltin = do
 
 testPureBindingCannotCallImpureBuiltinThroughDollarApplication :: IO ()
 testPureBindingCannotCallImpureBuiltinThroughDollarApplication = do
-  result <- compileSource defaultWarningSettings "x = print! $ 1.\nx."
+  result <- compileSource defaultWarningSettings """
+  x = print! $ 1.
+  x.
+  """
   assertSingleErrorContains
     "pure binding calling impure builtin through dollar application"
     "E1010"
@@ -81,7 +87,16 @@ testPureBindingCannotCallImpureQualifiedMethod = do
   result <-
     compileSource
       defaultWarningSettings
-      "class Effect(a) {\nrun! :: a -> a.\n}.\nimpl Effect(Int) {\nrun! = \\(value) -> value.\n}.\nx = Effect::run! 1.\nx."
+      """
+      class Effect(a) {
+      run! :: a -> a.
+      }.
+      impl Effect(Int) {
+      run! = \\(value) -> value.
+      }.
+      x = Effect::run! 1.
+      x.
+      """
   assertSingleErrorContains
     "pure binding calling impure qualified method"
     "E1010"
@@ -92,7 +107,14 @@ testPureBindingCannotCallImpureCalleeThroughExplicitTypeApplication = do
   result <-
     compileSource
       defaultWarningSettings
-      "class Need(a) { }.\nimpl Need(Int) { }.\nf! :: @{Need(a)}: a -> a.\nf! = \\(value) -> value.\nx = f! @Int 1.\nx."
+      """
+      class Need(a) { }.
+      impl Need(Int) { }.
+      f! :: @{Need(a)}: a -> a.
+      f! = \\(value) -> value.
+      x = f! @Int 1.
+      x.
+      """
   assertSingleErrorContains
     "pure binding calling impure callee through explicit type application"
     "E1010"
@@ -103,7 +125,16 @@ testPureImplMethodCannotCallImpureCallee = do
   result <-
     compileSource
       defaultWarningSettings
-      "class Runner(a) {\nrun :: a -> a.\n}.\ninc! = (+ 1).\nimpl Runner(Int) {\nrun = \\(value) -> inc! value.\n}.\nRunner::run 1."
+      """
+      class Runner(a) {
+      run :: a -> a.
+      }.
+      inc! = (+ 1).
+      impl Runner(Int) {
+      run = \\(value) -> inc! value.
+      }.
+      Runner::run 1.
+      """
   assertSingleErrorContains
     "pure impl method calling impure callee code"
     "E1010"
@@ -122,17 +153,33 @@ testImpureImplMethodCanCallImpureCallee = do
   result <-
     compileSource
       defaultWarningSettings
-      "class Runner(a) {\nrun! :: a -> a.\n}.\ninc! = (+ 1).\nimpl Runner(Int) {\nrun! = \\(value) -> inc! value.\n}.\nRunner::run! 1."
+      """
+      class Runner(a) {
+      run! :: a -> a.
+      }.
+      inc! = (+ 1).
+      impl Runner(Int) {
+      run! = \\(value) -> inc! value.
+      }.
+      Runner::run! 1.
+      """
   assertEqual "compile errors" [] (compileErrors result)
 
 testImpureBindingCanCallImpureBuiltin :: IO ()
 testImpureBindingCanCallImpureBuiltin = do
-  result <- compileWithBundledPrelude "x! = print! 1.\nx!."
+  result <- compileWithBundledPrelude """
+  x! = print! 1.
+  x!.
+  """
   assertEqual "compile errors" [] (compileErrors result)
 
 testPureBindingCannotCallImpureCallee :: IO ()
 testPureBindingCannotCallImpureCallee = do
-  result <- compileSource defaultWarningSettings "inc! = (+ 1).\nx = inc! 1.\nx."
+  result <- compileSource defaultWarningSettings """
+  inc! = (+ 1).
+  x = inc! 1.
+  x.
+  """
   assertSingleErrorContains
     "pure binding calling impure callee"
     "E1010"
@@ -152,12 +199,20 @@ testPureBindingCannotCallImpureCallee = do
 
 testImpureBindingCanCallImpureCallee :: IO ()
 testImpureBindingCanCallImpureCallee = do
-  result <- compileSource defaultWarningSettings "inc! = (+ 1).\nx! = inc! 1.\nx!."
+  result <- compileSource defaultWarningSettings """
+  inc! = (+ 1).
+  x! = inc! 1.
+  x!.
+  """
   assertEqual "compile errors" [] (compileErrors result)
 
 testPureBindingCanCallPureCallee :: IO ()
 testPureBindingCanCallPureCallee = do
-  result <- compileSource defaultWarningSettings "inc = (+ 1).\nx = inc 1.\nx."
+  result <- compileSource defaultWarningSettings """
+  inc = (+ 1).
+  x = inc 1.
+  x.
+  """
   assertEqual "compile errors" [] (compileErrors result)
 
 testMkIdentifierKeepsSourceText :: IO ()
@@ -177,7 +232,10 @@ testMkIdentifierMarksPlainNamesPure = do
 
 testTopLevelExpressionCanCallImpureCallee :: IO ()
 testTopLevelExpressionCanCallImpureCallee = do
-  result <- compileSource defaultWarningSettings "inc! = (+ 1).\ninc! 1."
+  result <- compileSource defaultWarningSettings """
+  inc! = (+ 1).
+  inc! 1.
+  """
   assertEqual "compile errors" [] (compileErrors result)
 
 testTopLevelExpressionCanCallImpureBuiltin :: IO ()

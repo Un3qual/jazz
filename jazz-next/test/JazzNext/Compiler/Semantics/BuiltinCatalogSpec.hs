@@ -267,11 +267,12 @@ testBundledPreludeIncludesEqFloat64EqualsMethodBody :: IO ()
 testBundledPreludeIncludesEqFloat64EqualsMethodBody =
   assertContains
     "bundled prelude renders Eq(Float64).equals body"
-    ( Text.unlines
-        [ "impl Eq(Float64) {",
-          "equals = \\(left) -> \\(right) -> left == right.",
-          "}."
-        ]
+    ( """
+    impl Eq(Float64) {
+    equals = \\(left) -> \\(right) -> left == right.
+    }.
+
+    """
     )
     bundledPreludeSource
 

@@ -78,77 +78,153 @@ testRebindingDoesNotCreateRetroactiveRecursion = do
 testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion :: IO ()
 testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion =
   assertSourceOkWithoutPrelude
-    ( "class C(a) {\nm :: a -> Bool.\n}.\n"
-        <> "impl C(Int) {\nm = \\(x) -> True.\n}.\n"
-        <> "impl C(Bool) {\nm = \\(x) -> False.\n}.\n"
-        <> "left = if True then \\(x) -> C::m x else right.\n"
-        <> "right = if False then \\(x) -> C::m x else left.\n"
-        <> "intResult = left 1.\n"
-        <> "boolResult = right True."
+    ( """
+    class C(a) {
+    m :: a -> Bool.
+    }.
+    impl C(Int) {
+    m = \\(x) -> True.
+    }.
+    impl C(Bool) {
+    m = \\(x) -> False.
+    }.
+    left = if True then \\(x) -> C::m x else right.
+    right = if False then \\(x) -> C::m x else left.
+    intResult = left 1.
+    boolResult = right True.
+    """
     )
 
 testSourceKeepsNestedRecursiveHelperInferredMethodObligationsScoped :: IO ()
 testSourceKeepsNestedRecursiveHelperInferredMethodObligationsScoped =
   assertSourceOkWithoutPrelude
-    ( "class C(a) {\nm :: a -> Bool.\n}.\n"
-        <> "impl C(Int) {\nm = \\(x) -> True.\n}.\n"
-        <> "outer = { f = if True then \\(x) -> g x else g. g = if False then \\(y) -> C::m y else f. 1. }.\n"
-        <> "outer."
+    ( """
+    class C(a) {
+    m :: a -> Bool.
+    }.
+    impl C(Int) {
+    m = \\(x) -> True.
+    }.
+    outer = { f = if True then \\(x) -> g x else g. g = if False then \\(y) -> C::m y else f. 1. }.
+    outer.
+    """
     )
 
 testSourceInstantiatesRecursiveBindingSchemesPerUse :: IO ()
 testSourceInstantiatesRecursiveBindingSchemesPerUse =
-  assertSourceOk "choose = if True then \\(x) -> x else choose.\nintValue = choose 1.\nboolValue = choose True."
+  assertSourceOk """
+  choose = if True then \\(x) -> x else choose.
+  intValue = choose 1.
+  boolValue = choose True.
+  """
 
 testSourceInstantiatesMutualRecursiveBindingSchemesPerUse :: IO ()
 testSourceInstantiatesMutualRecursiveBindingSchemesPerUse =
-  assertSourceOk "left = if True then \\(x) -> x else right.\nright = if False then \\(x) -> x else left.\nintValue = left 1.\nboolValue = right True."
+  assertSourceOk """
+  left = if True then \\(x) -> x else right.
+  right = if False then \\(x) -> x else left.
+  intValue = left 1.
+  boolValue = right True.
+  """
 
 testSourceInstantiatesInterleavedMutualRecursiveBindingSchemesPerUse :: IO ()
 testSourceInstantiatesInterleavedMutualRecursiveBindingSchemesPerUse =
-  assertSourceOk "left = if True then \\(x) -> x else right.\nintValue = left 1.\nright = if False then \\(x) -> x else left.\nboolValue = right True."
+  assertSourceOk """
+  left = if True then \\(x) -> x else right.
+  intValue = left 1.
+  right = if False then \\(x) -> x else left.
+  boolValue = right True.
+  """
 
 testSourceKeepsLaterRebindingOverRecursiveScheme :: IO ()
 testSourceKeepsLaterRebindingOverRecursiveScheme =
   assertSourceSingleErrorContains
-    "left = if True then \\(x) -> x else right.\nright = if False then \\(x) -> x else left.\nleft = \\(x) -> x + 1.\nbad = left True."
+    """
+    left = if True then \\(x) -> x else right.
+    right = if False then \\(x) -> x else left.
+    left = \\(x) -> x + 1.
+    bad = left True.
+    """
     "cannot apply function of type Int64 -> Int64 to argument of type Bool"
 
 testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember :: IO ()
 testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember =
   assertSourceSingleErrorContains
-    "left = if True then \\(x) -> x else right.\nbad = left True.\nright = \\(x) -> left (x + 1)."
+    """
+    left = if True then \\(x) -> x else right.
+    bad = left True.
+    right = \\(x) -> left (x + 1).
+    """
     "cannot apply function of type Int64 -> Int64 to argument of type Bool"
 
 testSourceTypesRecursiveGuardsAgainstPriorRebinding :: IO ()
 testSourceTypesRecursiveGuardsAgainstPriorRebinding =
-  assertSourceOk "f = \\(x) -> x.\nf = case 0 { | 0 if f True -> \\(y) -> y | _ -> \\(y) -> y }.\nvalue = f 1.\nvalue."
+  assertSourceOk """
+  f = \\(x) -> x.
+  f = case 0 { | 0 if f True -> \\(y) -> y | _ -> \\(y) -> y }.
+  value = f 1.
+  value.
+  """
 
 testSourceDefersPartialRecursivePreviewsPastInterveningDependencies :: IO ()
 testSourceDefersPartialRecursivePreviewsPastInterveningDependencies =
   assertSourceErrorContains
-    "left = if True then \\(x) -> x else right.\nearly = left True.\nhelper = \\(x) -> x + 1.\nright = \\(x) -> left (helper x).\nearly."
+    """
+    left = if True then \\(x) -> x else right.
+    early = left True.
+    helper = \\(x) -> x + 1.
+    right = \\(x) -> left (helper x).
+    early.
+    """
     "cannot apply function"
 
 testSourcePreviewsThroughInterveningRecursiveGroupMembers :: IO ()
 testSourcePreviewsThroughInterveningRecursiveGroupMembers =
-  assertSourceOk "left = if True then \\(x) -> x else right.\nearly = left True.\nmiddle = if True then \\(x) -> x else left.\nright = if False then middle else left.\nlate = left 1.\nlate."
+  assertSourceOk """
+  left = if True then \\(x) -> x else right.
+  early = left True.
+  middle = if True then \\(x) -> x else left.
+  right = if False then middle else left.
+  late = left 1.
+  late.
+  """
 
 testSourceRejectsNonRecursiveForwardReference :: IO ()
 testSourceRejectsNonRecursiveForwardReference =
-  assertSourceErrorContains "x = y.\ny = 1.\nx." "E1001"
+  assertSourceErrorContains """
+  x = y.
+  y = 1.
+  x.
+  """ "E1001"
 
 testSourceRejectsRetroactiveRebindingRecursion :: IO ()
 testSourceRejectsRetroactiveRebindingRecursion =
-  assertSourceErrorContains "x = y.\ny = 1.\ny = x.\nx." "E1001"
+  assertSourceErrorContains """
+  x = y.
+  y = 1.
+  y = x.
+  x.
+  """ "E1001"
 
 testSourceAcceptsMutualRecursionGroup :: IO ()
 testSourceAcceptsMutualRecursionGroup =
-  assertSourceOk "even = odd.\nodd = even.\neven."
+  assertSourceOk """
+  even = odd.
+  odd = even.
+  even.
+  """
 
 testSourceInstantiatesRecursiveConstrainedSignaturePerUse :: IO ()
 testSourceInstantiatesRecursiveConstrainedSignaturePerUse =
-  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Bool) { }.\nchoose :: @{Eq(a)}: a -> a.\nchoose = if True then \\(x) -> x else choose.\nintValue = choose 1.\nboolValue = choose True."
+  assertSourceOkWithoutPrelude """
+  class Eq(a) { }.
+  impl Eq(Int) { }.
+  impl Eq(Bool) { }.
+  choose :: @{Eq(a)}: a -> a.
+  choose = if True then \\(x) -> x else choose.
+  intValue = choose 1.
+  boolValue = choose True.
+  """
 
 testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews :: IO ()
 testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews = do
@@ -162,4 +238,7 @@ testSourceDoesNotDuplicateInferredConstraintsFromRecursivePreviews = do
 
 testSourceReportsSignedRecursiveRhsTypeError :: IO ()
 testSourceReportsSignedRecursiveRhsTypeError =
-  assertSourceSingleErrorContains "x :: Bool.\nx = x + 1." "E2003"
+  assertSourceSingleErrorContains """
+  x :: Bool.
+  x = x + 1.
+  """ "E2003"

@@ -105,16 +105,30 @@ testNestedScopeResolvesOuterBinding = do
 
 testSourceAcceptsSignatureAdjacency :: IO ()
 testSourceAcceptsSignatureAdjacency =
-  assertSourceOk "x :: Int.\nx = 1.\nx."
+  assertSourceOk """
+  x :: Int.
+  x = 1.
+  x.
+  """
 
 testSourceAcceptsCharTextSignatures :: IO ()
 testSourceAcceptsCharTextSignatures =
   assertSourceOk
-    "character :: Char.\ncharacter = 'a'.\nmessage :: Text.\nmessage = \"Jazz\".\n(message, character)."
+    """
+    character :: Char.
+    character = 'a'.
+    message :: Text.
+    message = \"Jazz\".
+    (message, character).
+    """
 
 testSourcePreservesNumericDefaultsThroughFinalSolverPhase :: IO ()
 testSourcePreservesNumericDefaultsThroughFinalSolverPhase =
-  assertSourceOk "numeric = \\(x) -> x + 1.\nresult = numeric 2.\nresult."
+  assertSourceOk """
+  numeric = \\(x) -> x + 1.
+  result = numeric 2.
+  result.
+  """
 
 testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch :: IO ()
 testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch = do
@@ -122,12 +136,24 @@ testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch = do
     runSourceWithPrelude
       defaultWarningSettings
       Nothing
-      ( "class RuntimeFlag(a) {\nflag :: a -> Bool.\n}.\n"
-          <> "impl RuntimeFlag(Float) {\nflag = \\(value) -> True.\n}.\n"
-          <> "impl RuntimeFlag(Float64) {\nflag = \\(value) -> False.\n}.\n"
-          <> "left :: Float.\nleft = 1.5.\n"
-          <> "right :: Float.\nright = 2.25.\n"
-          <> "result :: Bool.\nresult = RuntimeFlag::flag (left + right).\nresult."
+      ( """
+      class RuntimeFlag(a) {
+      flag :: a -> Bool.
+      }.
+      impl RuntimeFlag(Float) {
+      flag = \\(value) -> True.
+      }.
+      impl RuntimeFlag(Float64) {
+      flag = \\(value) -> False.
+      }.
+      left :: Float.
+      left = 1.5.
+      right :: Float.
+      right = 2.25.
+      result :: Bool.
+      result = RuntimeFlag::flag (left + right).
+      result.
+      """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -136,12 +162,22 @@ testSourcePreservesFloatAliasHintAcrossNumericOperatorDispatch = do
 testSourceUsesBindingSignaturesToContextualizeRhsLambdas :: IO ()
 testSourceUsesBindingSignaturesToContextualizeRhsLambdas =
   assertSourceOkWithoutPrelude
-    ( "class D(a) {\nn :: a -> Bool.\n}.\n"
-        <> "impl D(Int) {\nn = \\(value) -> True.\n}.\n"
-        <> "impl D(Bool) {\nn = \\(value) -> False.\n}.\n"
-        <> "f :: Int -> Bool.\n"
-        <> "f = \\(x) -> D::n x.\n"
-        <> "result :: Bool.\nresult = f 1.\nresult."
+    ( """
+    class D(a) {
+    n :: a -> Bool.
+    }.
+    impl D(Int) {
+    n = \\(value) -> True.
+    }.
+    impl D(Bool) {
+    n = \\(value) -> False.
+    }.
+    f :: Int -> Bool.
+    f = \\(x) -> D::n x.
+    result :: Bool.
+    result = f 1.
+    result.
+    """
     )
 
 testSourceKeepsNestedCapabilityFactsScoped :: IO ()
@@ -179,111 +215,266 @@ testCompilerHidesAliasOnlyImportedCapabilityFactsInSignatures = do
 
 testSourceAcceptsConcreteListSignature :: IO ()
 testSourceAcceptsConcreteListSignature =
-  assertSourceOk "x :: [Int].\nx = [1]."
+  assertSourceOk """
+  x :: [Int].
+  x = [1].
+  """
 
 testSourceAcceptsNestedConcreteListSignature :: IO ()
 testSourceAcceptsNestedConcreteListSignature =
-  assertSourceOk "x :: [[Bool]].\nx = [[True], [False]]."
+  assertSourceOk """
+  x :: [[Bool]].
+  x = [[True], [False]].
+  """
 
 testSourceAcceptsConcreteTupleSignature :: IO ()
 testSourceAcceptsConcreteTupleSignature =
-  assertSourceOk "pair :: (Int, Bool).\npair = (1, True).\npair."
+  assertSourceOk """
+  pair :: (Int, Bool).
+  pair = (1, True).
+  pair.
+  """
 
 testSourceAcceptsWidthSpecificIntegerSignatures :: IO ()
 testSourceAcceptsWidthSpecificIntegerSignatures = do
-  assertSourceOk "x :: Int8.\nx = 1."
-  assertSourceOk "x :: Int8.\nx = 127."
-  assertSourceOk "x :: UInt8.\nx = 255."
-  assertSourceOk "x :: UInt64.\nx = 1."
-  assertSourceOk "x :: UInt64.\nx = 18446744073709551615."
-  assertSourceOk "xs :: [Int32].\nxs = [1, 2, 3]."
-  assertSourceOkWithoutPrelude "class Num(a) { }.\nimpl Num(UInt16) { }.\nx :: @{Num(UInt16)}: UInt16.\nx = 1."
+  assertSourceOk """
+  x :: Int8.
+  x = 1.
+  """
+  assertSourceOk """
+  x :: Int8.
+  x = 127.
+  """
+  assertSourceOk """
+  x :: UInt8.
+  x = 255.
+  """
+  assertSourceOk """
+  x :: UInt64.
+  x = 1.
+  """
+  assertSourceOk """
+  x :: UInt64.
+  x = 18446744073709551615.
+  """
+  assertSourceOk """
+  xs :: [Int32].
+  xs = [1, 2, 3].
+  """
+  assertSourceOkWithoutPrelude """
+  class Num(a) { }.
+  impl Num(UInt16) { }.
+  x :: @{Num(UInt16)}: UInt16.
+  x = 1.
+  """
 
 testSourceAcceptsSameWidthIntegralOperatorSignatures :: IO ()
 testSourceAcceptsSameWidthIntegralOperatorSignatures = do
-  assertSourceOk "add :: Int8 -> Int8 -> Int8.\nadd = (+)."
-  assertSourceOk "lt :: UInt32 -> UInt32 -> Bool.\nlt = (<)."
+  assertSourceOk """
+  add :: Int8 -> Int8 -> Int8.
+  add = (+).
+  """
+  assertSourceOk """
+  lt :: UInt32 -> UInt32 -> Bool.
+  lt = (<).
+  """
 
 testSourceAcceptsSameWidthFloatNumericOperatorSignatures :: IO ()
 testSourceAcceptsSameWidthFloatNumericOperatorSignatures = do
-  assertSourceOk "fadd :: Float -> Float -> Float.\nfadd = (+)."
-  assertSourceOk "fadd64 :: Float64 -> Float64 -> Float64.\nfadd64 = (+)."
+  assertSourceOk """
+  fadd :: Float -> Float -> Float.
+  fadd = (+).
+  """
+  assertSourceOk """
+  fadd64 :: Float64 -> Float64 -> Float64.
+  fadd64 = (+).
+  """
 
 testSourceAcceptsFloatFractionalLiteralSignatures :: IO ()
 testSourceAcceptsFloatFractionalLiteralSignatures = do
-  assertSourceOk "x :: Float.\nx = 1.5."
-  assertSourceOk "x :: Float16.\nx = 1.5."
-  assertSourceOk "x :: Float32.\nx = 1.5."
-  assertSourceOk "x :: Float64.\nx = 1.5."
-  assertSourceOk "xs :: [Float64].\nxs = [1.5, 2.25]."
+  assertSourceOk """
+  x :: Float.
+  x = 1.5.
+  """
+  assertSourceOk """
+  x :: Float16.
+  x = 1.5.
+  """
+  assertSourceOk """
+  x :: Float32.
+  x = 1.5.
+  """
+  assertSourceOk """
+  x :: Float64.
+  x = 1.5.
+  """
+  assertSourceOk """
+  xs :: [Float64].
+  xs = [1.5, 2.25].
+  """
 
 testSourceAcceptsListToListFunctionSignature :: IO ()
 testSourceAcceptsListToListFunctionSignature =
-  assertSourceOk "f :: [Int] -> [Int].\nf = filter (> 1)."
+  assertSourceOk """
+  f :: [Int] -> [Int].
+  f = filter (> 1).
+  """
 
 testSourceAcceptsParenthesizedFunctionSignature :: IO ()
 testSourceAcceptsParenthesizedFunctionSignature =
-  assertSourceOk "f :: ([Int]) -> ([Int]).\nf = filter (> 1)."
+  assertSourceOk """
+  f :: ([Int]) -> ([Int]).
+  f = filter (> 1).
+  """
 
 testSourceAcceptsChainedFunctionSignature :: IO ()
 testSourceAcceptsChainedFunctionSignature =
-  assertSourceOk "f :: Int -> Int -> Int.\nf = (+)."
+  assertSourceOk """
+  f :: Int -> Int -> Int.
+  f = (+).
+  """
 
 testSourceAcceptsParenthesizedFunctionOverrideSignature :: IO ()
 testSourceAcceptsParenthesizedFunctionOverrideSignature =
-  assertSourceOk "applyToOne :: (Int -> Int) -> Int.\napplyToOne = \\(f) -> f 1."
+  assertSourceOk """
+  applyToOne :: (Int -> Int) -> Int.
+  applyToOne = \\(f) -> f 1.
+  """
 
 testSourceAcceptsFunctionListSignature :: IO ()
 testSourceAcceptsFunctionListSignature =
-  assertSourceOk "fns :: [(Int -> Int)].\nfns = [(+ 1)]."
+  assertSourceOk """
+  fns :: [(Int -> Int)].
+  fns = [(+ 1)].
+  """
 
 testSourceAcceptsEmptyConstrainedSignature :: IO ()
 testSourceAcceptsEmptyConstrainedSignature =
-  assertSourceOk "applyToOne :: @{}: (Int -> Int) -> Int.\napplyToOne = \\(f) -> f 1."
+  assertSourceOk """
+  applyToOne :: @{}: (Int -> Int) -> Int.
+  applyToOne = \\(f) -> f 1.
+  """
 
 testSourceAcceptsEmptyConstrainedTupleSignature :: IO ()
 testSourceAcceptsEmptyConstrainedTupleSignature =
-  assertSourceOk "pair :: @{}: (Int, Bool).\npair = (1, True).\npair."
+  assertSourceOk """
+  pair :: @{}: (Int, Bool).
+  pair = (1, True).
+  pair.
+  """
 
 testSourceAcceptsConcreteConstrainedSignature :: IO ()
 testSourceAcceptsConcreteConstrainedSignature =
-  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nx :: @{Eq(Int)}: Int.\nx = 1."
+  assertSourceOkWithoutPrelude """
+  class Eq(a) { }.
+  impl Eq(Int) { }.
+  x :: @{Eq(Int)}: Int.
+  x = 1.
+  """
 
 testSourceAcceptsBundledConcreteConstrainedSignatureFacts :: IO ()
 testSourceAcceptsBundledConcreteConstrainedSignatureFacts =
-  assertSourceOk "x :: @{Eq(Int)}: Int.\nx = 1."
+  assertSourceOk """
+  x :: @{Eq(Int)}: Int.
+  x = 1.
+  """
 
 testSourceAcceptsBundledWidthSpecificNumericConstrainedSignatureFacts :: IO ()
 testSourceAcceptsBundledWidthSpecificNumericConstrainedSignatureFacts = do
-  assertSourceOk "x :: @{Num(UInt16)}: UInt16.\nx = 1."
-  assertSourceOk "x :: @{Integral(Int32)}: Int32.\nx = 1."
-  assertSourceOk "x :: @{Fractional(Float32)}: Float32.\nx = toFloat32 1."
-  assertSourceOk "x :: @{Showable(Float64)}: Float64.\nx = toFloat64 1."
+  assertSourceOk """
+  x :: @{Num(UInt16)}: UInt16.
+  x = 1.
+  """
+  assertSourceOk """
+  x :: @{Integral(Int32)}: Int32.
+  x = 1.
+  """
+  assertSourceOk """
+  x :: @{Fractional(Float32)}: Float32.
+  x = toFloat32 1.
+  """
+  assertSourceOk """
+  x :: @{Showable(Float64)}: Float64.
+  x = toFloat64 1.
+  """
 
 testSourceAcceptsAdditionalConcreteConstrainedSignatures :: IO ()
 testSourceAcceptsAdditionalConcreteConstrainedSignatures = do
-  assertSourceOkWithoutPrelude "class Default(a) { }.\nimpl Default(Bool) { }.\nx :: @{Default(Bool)}: Bool.\nx = True."
-  assertSourceOkWithoutPrelude "class Fractional(a) { }.\nimpl Fractional(Int) { }.\nx :: @{Fractional(Int)}: Int.\nx = 1."
-  assertSourceOkWithoutPrelude "class Integral(a) { }.\nimpl Integral(Int) { }.\nx :: @{Integral(Int)}: Int.\nx = 1."
-  assertSourceOkWithoutPrelude "class Num(a) { }.\nimpl Num(Int) { }.\nx :: @{Num(Int)}: Int.\nx = 1."
-  assertSourceOkWithoutPrelude "class Ord(a) { }.\nimpl Ord(Int) { }.\nx :: @{Ord(Int)}: Int.\nx = 1."
-  assertSourceOkWithoutPrelude "class Showable(a) { }.\nimpl Showable([[Bool]]) { }.\nx :: @{Showable([[Bool]])}: [[Bool]].\nx = [[True], [False]]."
+  assertSourceOkWithoutPrelude """
+  class Default(a) { }.
+  impl Default(Bool) { }.
+  x :: @{Default(Bool)}: Bool.
+  x = True.
+  """
+  assertSourceOkWithoutPrelude """
+  class Fractional(a) { }.
+  impl Fractional(Int) { }.
+  x :: @{Fractional(Int)}: Int.
+  x = 1.
+  """
+  assertSourceOkWithoutPrelude """
+  class Integral(a) { }.
+  impl Integral(Int) { }.
+  x :: @{Integral(Int)}: Int.
+  x = 1.
+  """
+  assertSourceOkWithoutPrelude """
+  class Num(a) { }.
+  impl Num(Int) { }.
+  x :: @{Num(Int)}: Int.
+  x = 1.
+  """
+  assertSourceOkWithoutPrelude """
+  class Ord(a) { }.
+  impl Ord(Int) { }.
+  x :: @{Ord(Int)}: Int.
+  x = 1.
+  """
+  assertSourceOkWithoutPrelude """
+  class Showable(a) { }.
+  impl Showable([[Bool]]) { }.
+  x :: @{Showable([[Bool]])}: [[Bool]].
+  x = [[True], [False]].
+  """
 
 testSourceAcceptsConcreteTupleConstrainedSignatureArgument :: IO ()
 testSourceAcceptsConcreteTupleConstrainedSignatureArgument =
-  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq((Int, Bool)) { }.\npair :: @{Eq((Int, Bool))}: (Int, Bool).\npair = (1, True)."
+  assertSourceOkWithoutPrelude """
+  class Eq(a) { }.
+  impl Eq((Int, Bool)) { }.
+  pair :: @{Eq((Int, Bool))}: (Int, Bool).
+  pair = (1, True).
+  """
 
 testSourceAcceptsAdtApplicationConstrainedSignatureArgument :: IO ()
 testSourceAcceptsAdtApplicationConstrainedSignatureArgument =
-  assertSourceOkWithoutPrelude "data Box a = Box a.\nclass Eq(a) { }.\nimpl Eq(Box(Int)) { }.\nx :: @{Eq(Box(Int))}: Int.\nx = 1."
+  assertSourceOkWithoutPrelude """
+  data Box a = Box a.
+  class Eq(a) { }.
+  impl Eq(Box(Int)) { }.
+  x :: @{Eq(Box(Int))}: Int.
+  x = 1.
+  """
 
 testSourceAcceptsVariableConstrainedSignatureAsMonomorphic :: IO ()
 testSourceAcceptsVariableConstrainedSignatureAsMonomorphic =
-  assertSourceOk "id :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nid 1."
+  assertSourceOk """
+  id :: @{Eq(a)}: a -> a.
+  id = \\(x) -> x.
+  id 1.
+  """
 
 testSourceHonorsVisibleFactsForVariableConstrainedSignatures :: IO ()
 testSourceHonorsVisibleFactsForVariableConstrainedSignatures =
-  assertSourceOkWithoutPrelude "class Eq(a) { }.\nimpl Eq(Int) { }.\nimpl Eq(Bool) { }.\nid :: @{Eq(a)}: a -> a.\nid = \\(x) -> x.\nx = id 1.\ny = id True."
+  assertSourceOkWithoutPrelude """
+  class Eq(a) { }.
+  impl Eq(Int) { }.
+  impl Eq(Bool) { }.
+  id :: @{Eq(a)}: a -> a.
+  id = \\(x) -> x.
+  x = id 1.
+  y = id True.
+  """
 
 testSourceKeepsGenericConstructorAliasesMonomorphic :: IO ()
 testSourceKeepsGenericConstructorAliasesMonomorphic = do

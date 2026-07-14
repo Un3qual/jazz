@@ -113,15 +113,33 @@ assertCompileErrorWithPrelude preludeSource source failureLabel errorCode = do
 
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral :: IO ()
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral =
-  assertCompiles "y :: UInt8.\ny = 2.\nx = 1 + y.\nz :: UInt8.\nz = x."
+  assertCompiles """
+  y :: UInt8.
+  y = 2.
+  x = 1 + y.
+  z :: UInt8.
+  z = x.
+  """
 
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteralSection :: IO ()
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteralSection =
-  assertCompiles "y :: UInt8.\ny = 2.\nf = (1 +).\nz :: UInt8.\nz = f y."
+  assertCompiles """
+  y :: UInt8.
+  y = 2.
+  f = (1 +).
+  z :: UInt8.
+  z = f y.
+  """
 
 testSourcePipelinePreservesNumericWidthWithRightIntegerLiteralSection :: IO ()
 testSourcePipelinePreservesNumericWidthWithRightIntegerLiteralSection =
-  assertCompiles "y :: UInt8.\ny = 2.\nf = (+ 1).\nz :: UInt8.\nz = f y."
+  assertCompiles """
+  y :: UInt8.
+  y = 2.
+  f = (+ 1).
+  z :: UInt8.
+  z = f y.
+  """
 
 testSourcePipelineRejectsLeftArithmeticSectionTypeMismatch :: IO ()
 testSourcePipelineRejectsLeftArithmeticSectionTypeMismatch = do
@@ -149,225 +167,615 @@ testSourcePipelineRejectsRightArithmeticSectionTypeMismatch = do
 
 testSourcePipelineAcceptsTargetNamedIntegerConversions :: IO ()
 testSourcePipelineAcceptsTargetNamedIntegerConversions =
-  assertCompilesWithBundledPrelude "x :: UInt8.\nx = toUInt8 255.\ny :: Int16.\ny = toInt16 x."
+  assertCompilesWithBundledPrelude """
+  x :: UInt8.
+  x = toUInt8 255.
+  y :: Int16.
+  y = toInt16 x.
+  """
 
 testSourcePipelineAcceptsTargetNamedFloatConversions :: IO ()
 testSourcePipelineAcceptsTargetNamedFloatConversions =
-  assertCompilesWithBundledPrelude "x :: Float64.\nx = toFloat64 1."
+  assertCompilesWithBundledPrelude """
+  x :: Float64.
+  x = toFloat64 1.
+  """
 
 testSourcePipelineAcceptsFloat64FractionalLiteralDefaults :: IO ()
 testSourcePipelineAcceptsFloat64FractionalLiteralDefaults =
-  assertCompiles "x = 1.5.\ny :: Float64.\ny = x."
+  assertCompiles """
+  x = 1.5.
+  y :: Float64.
+  y = x.
+  """
 
 testSourcePipelineAcceptsTargetedFloat16Float32FractionalLiterals :: IO ()
 testSourcePipelineAcceptsTargetedFloat16Float32FractionalLiterals =
   assertCompiles
-    "x16 :: Float16.\nx16 = 1.5.\ny16 :: Float16.\ny16 = x16.\nx32 :: Float32.\nx32 = 2.25.\ny32 :: Float32.\ny32 = x32."
+    """
+    x16 :: Float16.
+    x16 = 1.5.
+    y16 :: Float16.
+    y16 = x16.
+    x32 :: Float32.
+    x32 = 2.25.
+    y32 :: Float32.
+    y32 = x32.
+    """
 
 testSourcePipelineAcceptsSuffixedFractionalLiteralArithmetic :: IO ()
 testSourcePipelineAcceptsSuffixedFractionalLiteralArithmetic =
   assertCompiles
-    "x16 = 1.5f16 + 2.5f16.\nx32 = 1.5f32 + 2.5f32.\nx64 = 1.5f64 + 2.5f64."
+    """
+    x16 = 1.5f16 + 2.5f16.
+    x32 = 1.5f32 + 2.5f32.
+    x64 = 1.5f64 + 2.5f64.
+    """
 
 testSourcePipelineAcceptsSameWidthFloat64Arithmetic :: IO ()
 testSourcePipelineAcceptsSameWidthFloat64Arithmetic =
   assertCompilesWithBundledPrelude
-    "x :: Float64.\nx = ((1.5 + 2.25) - toFloat64 1) * (6.0 / 2.0)."
+    """
+    x :: Float64.
+    x = ((1.5 + 2.25) - toFloat64 1) * (6.0 / 2.0).
+    """
 
 testSourcePipelineAcceptsFloat64DomainIntegerLiteralArithmetic :: IO ()
 testSourcePipelineAcceptsFloat64DomainIntegerLiteralArithmetic =
   assertCompilesWithBundledPrelude
-    "defaultLeft :: Float.\ndefaultLeft = 1 + 1.5.\ndefaultRight :: Float.\ndefaultRight = 1.5 + 2.\ndefaultSub :: Float.\ndefaultSub = 5 - 2.5.\ndefaultMul :: Float.\ndefaultMul = 2 * 1.5.\ndefaultDiv :: Float.\ndefaultDiv = 6 / 2.0.\nexplicitLeft :: Float64.\nexplicitLeft = 1 + toFloat64 1.\nexplicitRight :: Float64.\nexplicitRight = toFloat64 1 + 2.\nexplicitSub :: Float64.\nexplicitSub = 5 - toFloat64 2.\nexplicitMul :: Float64.\nexplicitMul = toFloat64 2 * 3.\nexplicitDiv :: Float64.\nexplicitDiv = 6 / toFloat64 2."
+    """
+    defaultLeft :: Float.
+    defaultLeft = 1 + 1.5.
+    defaultRight :: Float.
+    defaultRight = 1.5 + 2.
+    defaultSub :: Float.
+    defaultSub = 5 - 2.5.
+    defaultMul :: Float.
+    defaultMul = 2 * 1.5.
+    defaultDiv :: Float.
+    defaultDiv = 6 / 2.0.
+    explicitLeft :: Float64.
+    explicitLeft = 1 + toFloat64 1.
+    explicitRight :: Float64.
+    explicitRight = toFloat64 1 + 2.
+    explicitSub :: Float64.
+    explicitSub = 5 - toFloat64 2.
+    explicitMul :: Float64.
+    explicitMul = toFloat64 2 * 3.
+    explicitDiv :: Float64.
+    explicitDiv = 6 / toFloat64 2.
+    """
 
 testSourcePipelineAcceptsDirectTypedIntegerFloat64Arithmetic :: IO ()
 testSourcePipelineAcceptsDirectTypedIntegerFloat64Arithmetic =
   assertCompilesWithBundledPrelude
-    "defaultInt :: Int.\ndefaultInt = 4.\nwideInt :: Int64.\nwideInt = toInt64 6.\nnarrowInt :: Int8.\nnarrowInt = toInt8 3.\ndefaultFloat :: Float.\ndefaultFloat = 1.5.\nexplicitFloat :: Float64.\nexplicitFloat = toFloat64 2.\naddDefault :: Float.\naddDefault = defaultInt + defaultFloat.\naddExplicit :: Float64.\naddExplicit = explicitFloat + wideInt.\nsubDefault :: Float.\nsubDefault = defaultInt - defaultFloat.\nsubExplicit :: Float64.\nsubExplicit = explicitFloat - narrowInt.\nmulDefault :: Float.\nmulDefault = narrowInt * defaultFloat.\nmulExplicit :: Float64.\nmulExplicit = wideInt * explicitFloat.\ndivDefault :: Float.\ndivDefault = defaultInt / defaultFloat.\ndivExplicit :: Float64.\ndivExplicit = explicitFloat / wideInt."
+    """
+    defaultInt :: Int.
+    defaultInt = 4.
+    wideInt :: Int64.
+    wideInt = toInt64 6.
+    narrowInt :: Int8.
+    narrowInt = toInt8 3.
+    defaultFloat :: Float.
+    defaultFloat = 1.5.
+    explicitFloat :: Float64.
+    explicitFloat = toFloat64 2.
+    addDefault :: Float.
+    addDefault = defaultInt + defaultFloat.
+    addExplicit :: Float64.
+    addExplicit = explicitFloat + wideInt.
+    subDefault :: Float.
+    subDefault = defaultInt - defaultFloat.
+    subExplicit :: Float64.
+    subExplicit = explicitFloat - narrowInt.
+    mulDefault :: Float.
+    mulDefault = narrowInt * defaultFloat.
+    mulExplicit :: Float64.
+    mulExplicit = wideInt * explicitFloat.
+    divDefault :: Float.
+    divDefault = defaultInt / defaultFloat.
+    divExplicit :: Float64.
+    divExplicit = explicitFloat / wideInt.
+    """
 
 testSourcePipelineAcceptsSameWidthFloat64OperatorValues :: IO ()
 testSourcePipelineAcceptsSameWidthFloat64OperatorValues =
   assertCompilesWithBundledPrelude
-    "x :: Float64.\nx = (+) (toFloat64 1) (toFloat64 2)."
+    """
+    x :: Float64.
+    x = (+) (toFloat64 1) (toFloat64 2).
+    """
 
 testSourcePipelineAcceptsDirectTypedIntegerFloat64OperatorValuesSections :: IO ()
 testSourcePipelineAcceptsDirectTypedIntegerFloat64OperatorValuesSections =
   assertCompilesWithBundledPrelude
-    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\ndirect :: Float64.\ndirect = (+) integer floating.\nliteralDirect :: Float.\nliteralDirect = (+) 1 1.5.\ndollarDirect :: Float64.\ndollarDirect = ($) (+) integer floating.\nadd = (+).\naliased :: Float64.\naliased = add integer floating.\nleftSection :: Float64.\nleftSection = (integer +) floating.\nrightSection :: Float64.\nrightSection = (+ floating) integer.\nliteralLeft :: Float.\nliteralLeft = (1 +) 1.5.\nliteralRight :: Float.\nliteralRight = (+ 1.5) 1."
+    """
+    integer :: Int64.
+    integer = toInt64 1.
+    floating :: Float64.
+    floating = toFloat64 2.
+    direct :: Float64.
+    direct = (+) integer floating.
+    literalDirect :: Float.
+    literalDirect = (+) 1 1.5.
+    dollarDirect :: Float64.
+    dollarDirect = ($) (+) integer floating.
+    add = (+).
+    aliased :: Float64.
+    aliased = add integer floating.
+    leftSection :: Float64.
+    leftSection = (integer +) floating.
+    rightSection :: Float64.
+    rightSection = (+ floating) integer.
+    literalLeft :: Float.
+    literalLeft = (1 +) 1.5.
+    literalRight :: Float.
+    literalRight = (+ 1.5) 1.
+    """
 
 testSourcePipelineAcceptsDollarAliasTypedIntegerFloat64OperatorValues :: IO ()
 testSourcePipelineAcceptsDollarAliasTypedIntegerFloat64OperatorValues =
   assertCompilesWithBundledPrelude
-    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\napply = ($).\nresult :: Float64.\nresult = apply (+) integer floating."
+    """
+    integer :: Int64.
+    integer = toInt64 1.
+    floating :: Float64.
+    floating = toFloat64 2.
+    apply = ($).
+    result :: Float64.
+    result = apply (+) integer floating.
+    """
 
 testSourcePipelinePreservesDollarProducedOperatorAliases :: IO ()
 testSourcePipelinePreservesDollarProducedOperatorAliases =
   assertCompilesWithBundledPrelude
-    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\napply = ($).\nop = apply (+).\nresult :: Float64.\nresult = op integer floating."
+    """
+    integer :: Int64.
+    integer = toInt64 1.
+    floating :: Float64.
+    floating = toFloat64 2.
+    apply = ($).
+    op = apply (+).
+    result :: Float64.
+    result = op integer floating.
+    """
 
 testSourcePipelineAcceptsDollarAppliedTypedIntegerFloat64Sections :: IO ()
 testSourcePipelineAcceptsDollarAppliedTypedIntegerFloat64Sections =
   assertCompilesWithBundledPrelude
-    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\nleftSection :: Float64.\nleftSection = ($) (integer +) floating.\nrightSection :: Float64.\nrightSection = ($) (+ floating) integer."
+    """
+    integer :: Int64.
+    integer = toInt64 1.
+    floating :: Float64.
+    floating = toFloat64 2.
+    leftSection :: Float64.
+    leftSection = ($) (integer +) floating.
+    rightSection :: Float64.
+    rightSection = ($) (+ floating) integer.
+    """
 
 testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic :: IO ()
 testSourcePipelineAcceptsSameWidthFloat16Float32Arithmetic =
   assertCompilesWithBundledPrelude
-    "a16 :: Float16.\na16 = toFloat16 8.\nb16 :: Float16.\nb16 = toFloat16 2.\nadd16 :: Float16.\nadd16 = a16 + b16.\nsub16 :: Float16.\nsub16 = a16 - b16.\nmul16 :: Float16.\nmul16 = a16 * b16.\ndiv16 :: Float16.\ndiv16 = a16 / b16.\na32 :: Float32.\na32 = toFloat32 8.\nb32 :: Float32.\nb32 = toFloat32 2.\nadd32 :: Float32.\nadd32 = a32 + b32.\nsub32 :: Float32.\nsub32 = a32 - b32.\nmul32 :: Float32.\nmul32 = a32 * b32.\ndiv32 :: Float32.\ndiv32 = a32 / b32."
+    """
+    a16 :: Float16.
+    a16 = toFloat16 8.
+    b16 :: Float16.
+    b16 = toFloat16 2.
+    add16 :: Float16.
+    add16 = a16 + b16.
+    sub16 :: Float16.
+    sub16 = a16 - b16.
+    mul16 :: Float16.
+    mul16 = a16 * b16.
+    div16 :: Float16.
+    div16 = a16 / b16.
+    a32 :: Float32.
+    a32 = toFloat32 8.
+    b32 :: Float32.
+    b32 = toFloat32 2.
+    add32 :: Float32.
+    add32 = a32 + b32.
+    sub32 :: Float32.
+    sub32 = a32 - b32.
+    mul32 :: Float32.
+    mul32 = a32 * b32.
+    div32 :: Float32.
+    div32 = a32 / b32.
+    """
 
 testSourcePipelineAcceptsTargetedFloat16Float32Arithmetic :: IO ()
 testSourcePipelineAcceptsTargetedFloat16Float32Arithmetic =
   assertCompiles
-    "a16 :: Float16.\na16 = 8.0.\nb16 :: Float16.\nb16 = 2.0.\nadd16 :: Float16.\nadd16 = a16 + b16.\nsub16 :: Float16.\nsub16 = a16 - b16.\nmul16 :: Float16.\nmul16 = a16 * b16.\ndiv16 :: Float16.\ndiv16 = a16 / b16.\na32 :: Float32.\na32 = 8.0.\nb32 :: Float32.\nb32 = 2.0.\nadd32 :: Float32.\nadd32 = a32 + b32.\nsub32 :: Float32.\nsub32 = a32 - b32.\nmul32 :: Float32.\nmul32 = a32 * b32.\ndiv32 :: Float32.\ndiv32 = a32 / b32."
+    """
+    a16 :: Float16.
+    a16 = 8.0.
+    b16 :: Float16.
+    b16 = 2.0.
+    add16 :: Float16.
+    add16 = a16 + b16.
+    sub16 :: Float16.
+    sub16 = a16 - b16.
+    mul16 :: Float16.
+    mul16 = a16 * b16.
+    div16 :: Float16.
+    div16 = a16 / b16.
+    a32 :: Float32.
+    a32 = 8.0.
+    b32 :: Float32.
+    b32 = 2.0.
+    add32 :: Float32.
+    add32 = a32 + b32.
+    sub32 :: Float32.
+    sub32 = a32 - b32.
+    mul32 :: Float32.
+    mul32 = a32 * b32.
+    div32 :: Float32.
+    div32 = a32 / b32.
+    """
 
 testSourcePipelineAcceptsFloat16Float32ArithmeticBoundaryValues :: IO ()
 testSourcePipelineAcceptsFloat16Float32ArithmeticBoundaryValues =
   assertCompilesWithBundledPrelude
-    "max16 :: Float16.\nmax16 = toFloat16 65504.\nzero16 :: Float16.\nzero16 = toFloat16 0.\nstaysMax16 :: Float16.\nstaysMax16 = max16 + zero16.\nminSub16 :: Float16.\nminSub16 = toFloat16 0.000000059604644775390625.\nscaled16 :: Float16.\nscaled16 = minSub16 * toFloat16 2.\nedge32 :: Float32.\nedge32 = toFloat32 65504.\nzero32 :: Float32.\nzero32 = toFloat32 0.\nstaysEdge32 :: Float32.\nstaysEdge32 = edge32 + zero32."
+    """
+    max16 :: Float16.
+    max16 = toFloat16 65504.
+    zero16 :: Float16.
+    zero16 = toFloat16 0.
+    staysMax16 :: Float16.
+    staysMax16 = max16 + zero16.
+    minSub16 :: Float16.
+    minSub16 = toFloat16 0.000000059604644775390625.
+    scaled16 :: Float16.
+    scaled16 = minSub16 * toFloat16 2.
+    edge32 :: Float32.
+    edge32 = toFloat32 65504.
+    zero32 :: Float32.
+    zero32 = toFloat32 0.
+    staysEdge32 :: Float32.
+    staysEdge32 = edge32 + zero32.
+    """
 
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality :: IO ()
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEquality =
   assertCompiles
-    "lt = 1.5 < 2.0.\nle = 2.0 <= 2.0.\ngt = 3.0 > 2.0.\nge = 3.0 >= 3.0.\neq = 2.0 == 2.0.\nne = 2.0 != 3.0."
+    """
+    lt = 1.5 < 2.0.
+    le = 2.0 <= 2.0.
+    gt = 3.0 > 2.0.
+    ge = 3.0 >= 3.0.
+    eq = 2.0 == 2.0.
+    ne = 2.0 != 3.0.
+    """
 
 testSourcePipelineAcceptsFloat64DomainIntegerLiteralComparisonEquality :: IO ()
 testSourcePipelineAcceptsFloat64DomainIntegerLiteralComparisonEquality =
   assertCompilesWithBundledPrelude
-    "literalLeft = 1 < 1.5.\nliteralEquality = 1 == 1.0.\nleftFloat :: Float64.\nleftFloat = toFloat64 1.\nrightFloat :: Float64.\nrightFloat = toFloat64 2.\nexplicitLeft = 1 < rightFloat.\nexplicitRight = leftFloat < 2.\nexplicitEqualityLeft = 1 == rightFloat.\nexplicitEqualityRight = leftFloat == 1.\nconvertedEquality = toFloat64 1 == 1."
+    """
+    literalLeft = 1 < 1.5.
+    literalEquality = 1 == 1.0.
+    leftFloat :: Float64.
+    leftFloat = toFloat64 1.
+    rightFloat :: Float64.
+    rightFloat = toFloat64 2.
+    explicitLeft = 1 < rightFloat.
+    explicitRight = leftFloat < 2.
+    explicitEqualityLeft = 1 == rightFloat.
+    explicitEqualityRight = leftFloat == 1.
+    convertedEquality = toFloat64 1 == 1.
+    """
 
 testSourcePipelineAcceptsDirectTypedIntegerFloat64ComparisonEquality :: IO ()
 testSourcePipelineAcceptsDirectTypedIntegerFloat64ComparisonEquality =
   assertCompilesWithBundledPrelude
-    "defaultInt :: Int.\ndefaultInt = 2.\nwideInt :: Int64.\nwideInt = toInt64 3.\nnarrowInt :: Int8.\nnarrowInt = toInt8 1.\ndefaultFloat :: Float.\ndefaultFloat = 2.0.\nexplicitFloat :: Float64.\nexplicitFloat = toFloat64 3.\nltDefault = narrowInt < defaultFloat.\nleExplicit = wideInt <= explicitFloat.\ngtDefault = defaultFloat > narrowInt.\ngeExplicit = explicitFloat >= wideInt.\neqDefault = defaultInt == defaultFloat.\nneExplicit = explicitFloat != narrowInt."
+    """
+    defaultInt :: Int.
+    defaultInt = 2.
+    wideInt :: Int64.
+    wideInt = toInt64 3.
+    narrowInt :: Int8.
+    narrowInt = toInt8 1.
+    defaultFloat :: Float.
+    defaultFloat = 2.0.
+    explicitFloat :: Float64.
+    explicitFloat = toFloat64 3.
+    ltDefault = narrowInt < defaultFloat.
+    leExplicit = wideInt <= explicitFloat.
+    gtDefault = defaultFloat > narrowInt.
+    geExplicit = explicitFloat >= wideInt.
+    eqDefault = defaultInt == defaultFloat.
+    neExplicit = explicitFloat != narrowInt.
+    """
 
 testSourcePipelineAcceptsDirectTypedIntegerFloat64ComparisonEqualityOperatorAliases :: IO ()
 testSourcePipelineAcceptsDirectTypedIntegerFloat64ComparisonEqualityOperatorAliases =
   assertCompilesWithBundledPrelude
-    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 1.\neqAlias = (==).\nneAlias = (!=).\neqMixed = eqAlias integer floating.\nneMixed = neAlias floating integer."
+    """
+    integer :: Int64.
+    integer = toInt64 1.
+    floating :: Float64.
+    floating = toFloat64 1.
+    eqAlias = (==).
+    neAlias = (!=).
+    eqMixed = eqAlias integer floating.
+    neMixed = neAlias floating integer.
+    """
 
 testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality :: IO ()
 testSourcePipelineAcceptsSameWidthFloat16Float32ComparisonEquality =
   assertCompilesWithBundledPrelude
-    "a16 :: Float16.\na16 = toFloat16 1.\nb16 :: Float16.\nb16 = toFloat16 2.\nlt16 = a16 < b16.\nle16 = a16 <= a16.\ngt16 = b16 > a16.\nge16 = b16 >= b16.\neq16 = a16 == a16.\nne16 = a16 != b16.\na32 :: Float32.\na32 = toFloat32 1.\nb32 :: Float32.\nb32 = toFloat32 2.\nlt32 = a32 < b32.\nle32 = a32 <= a32.\ngt32 = b32 > a32.\nge32 = b32 >= b32.\neq32 = a32 == a32.\nne32 = a32 != b32."
+    """
+    a16 :: Float16.
+    a16 = toFloat16 1.
+    b16 :: Float16.
+    b16 = toFloat16 2.
+    lt16 = a16 < b16.
+    le16 = a16 <= a16.
+    gt16 = b16 > a16.
+    ge16 = b16 >= b16.
+    eq16 = a16 == a16.
+    ne16 = a16 != b16.
+    a32 :: Float32.
+    a32 = toFloat32 1.
+    b32 :: Float32.
+    b32 = toFloat32 2.
+    lt32 = a32 < b32.
+    le32 = a32 <= a32.
+    gt32 = b32 > a32.
+    ge32 = b32 >= b32.
+    eq32 = a32 == a32.
+    ne32 = a32 != b32.
+    """
 
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues :: IO ()
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualityOperatorValues =
   assertCompiles
-    "lt = (<) 1.5 2.0.\nle = (<=) 2.0 2.0.\ngt = (>) 3.0 2.0.\nge = (>=) 3.0 3.0.\neq = (==) 2.0 2.0.\nne = (!=) 2.0 3.0."
+    """
+    lt = (<) 1.5 2.0.
+    le = (<=) 2.0 2.0.
+    gt = (>) 3.0 2.0.
+    ge = (>=) 3.0 3.0.
+    eq = (==) 2.0 2.0.
+    ne = (!=) 2.0 3.0.
+    """
 
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualitySections :: IO ()
 testSourcePipelineAcceptsSameWidthFloat64ComparisonEqualitySections =
   assertCompiles
-    "lt = (1.5 <) 2.0.\nle = (2.0 <=) 2.0.\ngt = (> 2.0) 3.0.\nge = (>= 3.0) 3.0.\neq = (2.0 ==) 2.0.\nne = (!= 3.0) 2.0."
+    """
+    lt = (1.5 <) 2.0.
+    le = (2.0 <=) 2.0.
+    gt = (> 2.0) 3.0.
+    ge = (>= 3.0) 3.0.
+    eq = (2.0 ==) 2.0.
+    ne = (!= 3.0) 2.0.
+    """
 
 testSourcePipelineRejectsMixedWidthFloatComparisonEquality :: IO ()
 testSourcePipelineRejectsMixedWidthFloatComparisonEquality = do
   assertCompileErrorWithBundledPrelude
-    "left :: Float16.\nleft = toFloat16 1.\nright :: Float32.\nright = toFloat32 1.\nx = left == right."
+    """
+    left :: Float16.
+    left = toFloat16 1.
+    right :: Float32.
+    right = toFloat32 1.
+    x = left == right.
+    """
     "mixed Float16/Float32 equality"
     "E2004"
   assertCompileErrorWithBundledPrelude
-    "left :: Float16.\nleft = toFloat16 1.\nright :: Float32.\nright = toFloat32 2.\nx = left < right."
+    """
+    left :: Float16.
+    left = toFloat16 1.
+    right :: Float32.
+    right = toFloat32 2.
+    x = left < right.
+    """
     "mixed Float16/Float32 comparison"
     "E2003"
   assertCompileErrorWithBundledPrelude
-    "left :: Float16.\nleft = toFloat16 1.\nright :: Float64.\nright = toFloat64 1.\nx = left < right."
+    """
+    left :: Float16.
+    left = toFloat16 1.
+    right :: Float64.
+    right = toFloat64 1.
+    x = left < right.
+    """
     "mixed Float16/Float64 comparison"
     "E2003"
   assertCompileErrorWithBundledPrelude
-    "left :: Float32.\nleft = toFloat32 1.\nright :: Float64.\nright = toFloat64 1.\nx = left == right."
+    """
+    left :: Float32.
+    left = toFloat32 1.
+    right :: Float64.
+    right = toFloat64 1.
+    x = left == right.
+    """
     "mixed Float32/Float64 equality"
     "E2004"
 
 testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality :: IO ()
 testSourcePipelineRejectsImplicitFloat16Float32ComparisonEquality = do
   assertCompileErrorWithBundledPrelude
-    "left :: Float16.\nleft = toFloat16 1.\nx = left < 1."
+    """
+    left :: Float16.
+    left = toFloat16 1.
+    x = left < 1.
+    """
     "implicit integer-to-Float16 comparison"
     "E2003"
   assertCompileErrorWithBundledPrelude
-    "left :: Float32.\nleft = toFloat32 1.\nx = left == 1."
+    """
+    left :: Float32.
+    left = toFloat32 1.
+    x = left == 1.
+    """
     "implicit integer-to-Float32 equality"
     "E2004"
 
 testSourcePipelineRejectsTypedIntegerNarrowFloatPromotion :: IO ()
 testSourcePipelineRejectsTypedIntegerNarrowFloatPromotion = do
   assertCompileErrorWithBundledPrelude
-    "integer :: Int.\ninteger = 1.\nfloat16 :: Float16.\nfloat16 = toFloat16 1.\nx = integer + float16."
+    """
+    integer :: Int.
+    integer = 1.
+    float16 :: Float16.
+    float16 = toFloat16 1.
+    x = integer + float16.
+    """
     "typed Int mixed with Float16 arithmetic"
     "E2003"
   assertCompileErrorWithBundledPrelude
-    "integer :: Int64.\ninteger = toInt64 1.\nfloat32 :: Float32.\nfloat32 = toFloat32 1.\nx = float32 * integer."
+    """
+    integer :: Int64.
+    integer = toInt64 1.
+    float32 :: Float32.
+    float32 = toFloat32 1.
+    x = float32 * integer.
+    """
     "typed Int64 mixed with Float32 arithmetic"
     "E2003"
   assertCompileErrorWithBundledPrelude
-    "integer :: Int8.\ninteger = toInt8 1.\nfloat16 :: Float16.\nfloat16 = toFloat16 1.\nx = integer < float16."
+    """
+    integer :: Int8.
+    integer = toInt8 1.
+    float16 :: Float16.
+    float16 = toFloat16 1.
+    x = integer < float16.
+    """
     "typed Int8 mixed with Float16 comparison"
     "E2003"
   assertCompileErrorWithBundledPrelude
-    "integer :: Int16.\ninteger = toInt16 1.\nfloat32 :: Float32.\nfloat32 = toFloat32 1.\nx = float32 == integer."
+    """
+    integer :: Int16.
+    integer = toInt16 1.
+    float32 :: Float32.
+    float32 = toFloat32 1.
+    x = float32 == integer.
+    """
     "typed Int16 mixed with Float32 equality"
     "E2004"
 
 testSourcePipelineRejectsNonLiteralIntegerResultFloat64DomainArithmetic :: IO ()
 testSourcePipelineRejectsNonLiteralIntegerResultFloat64DomainArithmetic =
   assertCompileError
-    "id = \\(x) -> x.\nx = id 2 + 1.5."
+    """
+    id = \\(x) -> x.
+    x = id 2 + 1.5.
+    """
     "non-literal integer result Float64-domain arithmetic"
     "E2003"
 
 testSourcePipelineRejectsFirstClassIntegerFloat64DomainSections :: IO ()
 testSourcePipelineRejectsFirstClassIntegerFloat64DomainSections = do
   assertCompileError
-    "section = (1 +).\nx = section 1.5."
+    """
+    section = (1 +).
+    x = section 1.5.
+    """
     "integer literal Float64-domain left section binding"
     "E2006"
   assertCompileError
-    "section = (+ 1.5).\nx = section 1."
+    """
+    section = (+ 1.5).
+    x = section 1.
+    """
     "integer literal Float64-domain right section binding"
     "E2006"
   assertCompileErrorWithBundledPrelude
-    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\nsection = (integer +).\nx = section floating."
+    """
+    integer :: Int64.
+    integer = toInt64 1.
+    floating :: Float64.
+    floating = toFloat64 2.
+    section = (integer +).
+    x = section floating.
+    """
     "typed integer Float64-domain left section binding"
     "E2006"
   assertCompileErrorWithBundledPrelude
-    "integer :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\nsection = (+ floating).\nx = section integer."
+    """
+    integer :: Int64.
+    integer = toInt64 1.
+    floating :: Float64.
+    floating = toFloat64 2.
+    section = (+ floating).
+    x = section integer.
+    """
     "typed integer Float64-domain right section binding"
     "E2006"
 
 testSourcePipelineRejectsUserDefinedOperatorIntegerFloat64Promotion :: IO ()
 testSourcePipelineRejectsUserDefinedOperatorIntegerFloat64Promotion =
   assertCompileErrorWithBundledPrelude
-    "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\ninteger :: Int64.\ninteger = toInt64 1.\nfloating :: Float64.\nfloating = toFloat64 2.\nx = integer %% floating."
+    """
+    operator %% tier 2.
+    (%%) = \\(left) -> \\(right) -> left + right.
+    integer :: Int64.
+    integer = toInt64 1.
+    floating :: Float64.
+    floating = toFloat64 2.
+    x = integer %% floating.
+    """
     "user-defined operator integer Float64-domain application"
     "E2006"
 
 testSourcePipelineRejectsMixedWidthFloatArithmetic :: IO ()
 testSourcePipelineRejectsMixedWidthFloatArithmetic =
   assertCompileErrorWithBundledPrelude
-    "left :: Float16.\nleft = toFloat16 1.\nx :: Float64.\nx = left + 2.0."
+    """
+    left :: Float16.
+    left = toFloat16 1.
+    x :: Float64.
+    x = left + 2.0.
+    """
     "mixed-width float arithmetic"
     "E2003"
 
 testSourcePipelineRejectsMixedWidthAndImplicitFloat16Float32Arithmetic :: IO ()
 testSourcePipelineRejectsMixedWidthAndImplicitFloat16Float32Arithmetic = do
   assertCompileErrorWithBundledPrelude
-    "left :: Float16.\nleft = toFloat16 1.\nright :: Float32.\nright = toFloat32 2.\nx = left + right."
+    """
+    left :: Float16.
+    left = toFloat16 1.
+    right :: Float32.
+    right = toFloat32 2.
+    x = left + right.
+    """
     "mixed Float16/Float32 arithmetic"
     "E2003"
   assertCompileError
-    "left :: Float16.\nleft = 1.5.\nright :: Float32.\nright = 2.25.\nx = left + right."
+    """
+    left :: Float16.
+    left = 1.5.
+    right :: Float32.
+    right = 2.25.
+    x = left + right.
+    """
     "mixed targeted Float16/Float32 arithmetic"
     "E2003"
   assertCompileError
-    "left :: Float16.\nleft = 1.5.\nx = left + 1.25."
+    """
+    left :: Float16.
+    left = 1.5.
+    x = left + 1.25.
+    """
     "implicit fractional literal-to-Float16 arithmetic"
     "E2003"
   assertCompileErrorWithBundledPrelude
-    "left :: Float16.\nleft = toFloat16 1.\nx = left + 1."
+    """
+    left :: Float16.
+    left = toFloat16 1.
+    x = left + 1.
+    """
     "implicit integer-to-Float16 arithmetic"
     "E2003"
   assertCompileErrorWithBundledPrelude
-    "left :: Float32.\nleft = toFloat32 1.\nx = left + 1."
+    """
+    left :: Float32.
+    left = toFloat32 1.
+    x = left + 1.
+    """
     "implicit integer-to-Float32 arithmetic"
     "E2003"
 
@@ -406,12 +814,20 @@ testSourcePipelineRejectsRoundedNonIntegralFractionalLiteralConversions =
 testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions :: IO ()
 testSourcePipelineAcceptsIntegralBoundaryFractionalLiteralConversions =
   assertCompilesWithBundledPrelude
-    "x = toInt64 9223372036854775807.0.\ny = toUInt64 18446744073709551615.0."
+    """
+    x = toInt64 9223372036854775807.0.
+    y = toUInt64 18446744073709551615.0.
+    """
 
 testSourcePipelineAcceptsDefaultPreludeConversionAliases :: IO ()
 testSourcePipelineAcceptsDefaultPreludeConversionAliases =
   assertCompilesWithBundledPrelude
-    "integer :: Int64.\ninteger = toInt 9223372036854775807.0.\nfloating :: Float64.\nfloating = toFloat 1."
+    """
+    integer :: Int64.
+    integer = toInt 9223372036854775807.0.
+    floating :: Float64.
+    floating = toFloat 1.
+    """
 
 testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions :: IO ()
 testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions = do
@@ -420,11 +836,17 @@ testSourcePipelineRejectsOutOfRangeFloatTargetLiteralConversions = do
     "out-of-range float-target literal conversion"
     "E2006"
   assertCompileError
-    "x :: Float16.\nx = 70000.0."
+    """
+    x :: Float16.
+    x = 70000.0.
+    """
     "out-of-range Float16 literal target"
     "E2006"
   assertCompileError
-    "x :: Float32.\nx = 1000000000000000000000000000000000000000.0."
+    """
+    x :: Float32.
+    x = 1000000000000000000000000000000000000000.0.
+    """
     "out-of-range Float32 literal target"
     "E2006"
 
@@ -435,7 +857,10 @@ testSourcePipelineRejectsSourceExactFloatTargetLiteralOverflow = do
     "source-exact float-target literal overflow"
     "E2006"
   assertCompileError
-    "x :: Float16.\nx = 65504.000000000000000001."
+    """
+    x :: Float16.
+    x = 65504.000000000000000001.
+    """
     "source-exact Float16 literal target overflow"
     "E2006"
 
@@ -476,29 +901,53 @@ testSourcePipelineRejectsDollarAppliedFractionalLiteralConversions = do
 testSourcePipelineRejectsTypedPreludeAliasLiteralOverflow :: IO ()
 testSourcePipelineRejectsTypedPreludeAliasLiteralOverflow =
   assertCompileErrorWithPrelude
-    "toFloat16 :: Float -> Float16.\ntoFloat16 = __kernel_toFloat16."
+    """
+    toFloat16 :: Float -> Float16.
+    toFloat16 = __kernel_toFloat16.
+    """
     "x = toFloat16 65504.000000000000000001."
     "typed prelude alias source-exact literal overflow"
     "E2006"
 
 testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames :: IO ()
 testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames =
-  assertCompiles "toUInt8 = \\(x) -> x.\nx = toUInt8 256."
+  assertCompiles """
+  toUInt8 = \\(x) -> x.
+  x = toUInt8 256.
+  """
 
 testSourcePipelineFreshensPreludeConversionAliases :: IO ()
 testSourcePipelineFreshensPreludeConversionAliases =
   assertCompilesWithBundledPrelude
-    "a :: Int16.\na = toInt16 1.\nb :: UInt8.\nb = toUInt8 a.\nc :: UInt16.\nc = toUInt16 2.\nd :: UInt8.\nd = toUInt8 c."
+    """
+    a :: Int16.
+    a = toInt16 1.
+    b :: UInt8.
+    b = toUInt8 a.
+    c :: UInt16.
+    c = toUInt16 2.
+    d :: UInt8.
+    d = toUInt8 c.
+    """
 
 testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary :: IO ()
 testSourcePipelineKeepsLocallyShadowedKernelAliasesOrdinary =
   assertCompilesWithBundledPrelude
-    "x = {\n__kernel_toUInt8 = \\(value) -> value.\nalias = __kernel_toUInt8.\nalias 256.\n}."
+    """
+    x = {
+    __kernel_toUInt8 = \\(value) -> value.
+    alias = __kernel_toUInt8.
+    alias 256.
+    }.
+    """
 
 testSourcePipelineRejectsNonNumericConversionSource :: IO ()
 testSourcePipelineRejectsNonNumericConversionSource =
   assertCompileErrorWithBundledPrelude
-    "flag = True.\nx = toInt8 flag."
+    """
+    flag = True.
+    x = toInt8 flag.
+    """
     "non-numeric conversion argument"
     "E2006"
 

@@ -80,7 +80,12 @@ testAcceptsArithmeticIntOperands = do
 testSourcePipelineTypesPrivateTextTraversalPrimitives :: IO ()
 testSourcePipelineTypesPrivateTextTraversalPrimitives =
   assertCompiles
-    "length :: Int.\nlength = __kernel_textLength \"a\\u{1F642}\".\nparts :: [(Char, Text)].\nparts = __kernel_textUnconsRaw \"a\\u{1F642}\"."
+    """
+    length :: Int.
+    length = __kernel_textLength \"a\\u{1F642}\".
+    parts :: [(Char, Text)].
+    parts = __kernel_textUnconsRaw \"a\\u{1F642}\".
+    """
 
 testSourcePipelineRejectsNonTextTraversalArguments :: IO ()
 testSourcePipelineRejectsNonTextTraversalArguments = do
@@ -96,20 +101,22 @@ testSourcePipelineRejectsNonTextTraversalArguments = do
 testSourcePipelineTypesBootstrapCollectionScalarPrimitives :: IO ()
 testSourcePipelineTypesBootstrapCollectionScalarPrimitives =
   assertCompiles
-    ( "items :: [Text].\n"
-        <> "items = __kernel_listPrependRaw \"first\" [\"second\"].\n"
-        <> "reversed :: [Text].\n"
-        <> "reversed = __kernel_listReverseRaw items.\n"
-        <> "scalar :: UInt32.\n"
-        <> "scalar = __kernel_charToUInt32 '\\u{1F642}'.\n"
-        <> "decoded :: [Char].\n"
-        <> "decoded = __kernel_charFromUInt32Raw scalar.\n"
-        <> "classes :: (Bool, Bool, Bool, Bool, Bool).\n"
-        <> "classes = (__kernel_charIsAlpha 'é', __kernel_charIsAlphaNum '9', __kernel_charIsDigit '9', __kernel_charIsSpace '\\t', __kernel_charIsHexDigit 'F').\n"
-        <> "built :: Text.\n"
-        <> "built = __kernel_textAppendChar (__kernel_textAppend \"Ja\" \"z\") 'z'.\n"
-        <> "fromChars :: Text.\n"
-        <> "fromChars = __kernel_textFromChars ['J', 'a', 'z', 'z']."
+    ( """
+    items :: [Text].
+    items = __kernel_listPrependRaw \"first\" [\"second\"].
+    reversed :: [Text].
+    reversed = __kernel_listReverseRaw items.
+    scalar :: UInt32.
+    scalar = __kernel_charToUInt32 '\\u{1F642}'.
+    decoded :: [Char].
+    decoded = __kernel_charFromUInt32Raw scalar.
+    classes :: (Bool, Bool, Bool, Bool, Bool).
+    classes = (__kernel_charIsAlpha 'é', __kernel_charIsAlphaNum '9', __kernel_charIsDigit '9', __kernel_charIsSpace '\\t', __kernel_charIsHexDigit 'F').
+    built :: Text.
+    built = __kernel_textAppendChar (__kernel_textAppend \"Ja\" \"z\") 'z'.
+    fromChars :: Text.
+    fromChars = __kernel_textFromChars ['J', 'a', 'z', 'z'].
+    """
     )
 
 testSourcePipelineRejectsInvalidBootstrapScalarArguments :: IO ()
@@ -126,20 +133,22 @@ testSourcePipelineRejectsInvalidBootstrapScalarArguments = do
 testSourcePipelineTypesPrivateHostIOPrimitives :: IO ()
 testSourcePipelineTypesPrivateHostIOPrimitives =
   assertCompiles
-    ( "read! :: (Bool, Text, Text, Text).\n"
-        <> "read! = __kernel_readTextRaw! \"source.jz\".\n"
-        <> "write! :: (Bool, Text, Text, Text).\n"
-        <> "write! = __kernel_writeTextRaw! \"output.txt\" \"Jazz\".\n"
-        <> "stdin! :: (Bool, Text, Text, Text).\n"
-        <> "stdin! = __kernel_readStdinRaw! ().\n"
-        <> "stdout! :: (Bool, Text, Text, Text).\n"
-        <> "stdout! = __kernel_writeStdoutRaw! \"out\".\n"
-        <> "stderr! :: (Bool, Text, Text, Text).\n"
-        <> "stderr! = __kernel_writeStderrRaw! \"err\".\n"
-        <> "args! :: [Text].\n"
-        <> "args! = __kernel_arguments! ().\n"
-        <> "terminated! :: ().\n"
-        <> "terminated! = __kernel_exit! 0."
+    ( """
+    read! :: (Bool, Text, Text, Text).
+    read! = __kernel_readTextRaw! \"source.jz\".
+    write! :: (Bool, Text, Text, Text).
+    write! = __kernel_writeTextRaw! \"output.txt\" \"Jazz\".
+    stdin! :: (Bool, Text, Text, Text).
+    stdin! = __kernel_readStdinRaw! ().
+    stdout! :: (Bool, Text, Text, Text).
+    stdout! = __kernel_writeStdoutRaw! \"out\".
+    stderr! :: (Bool, Text, Text, Text).
+    stderr! = __kernel_writeStderrRaw! \"err\".
+    args! :: [Text].
+    args! = __kernel_arguments! ().
+    terminated! :: ().
+    terminated! = __kernel_exit! 0.
+    """
     )
 
 testSourcePipelineRejectsInvalidHostIOArguments :: IO ()

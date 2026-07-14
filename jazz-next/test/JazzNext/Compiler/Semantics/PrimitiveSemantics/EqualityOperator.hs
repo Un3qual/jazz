@@ -194,19 +194,40 @@ testSourcePipelineAcceptsDeferredRightEqualitySection =
 testSourcePipelineAcceptsStructuralListEquality :: IO ()
 testSourcePipelineAcceptsStructuralListEquality =
   assertCompiles
-    "same = [1, 2] == [1, 2].\nnested = [[True], [False]] != [[True], [True]]."
+    """
+    same = [1, 2] == [1, 2].
+    nested = [[True], [False]] != [[True], [True]].
+    """
 
 testSourcePipelineAcceptsStructuralTupleEquality :: IO ()
 testSourcePipelineAcceptsStructuralTupleEquality =
   assertCompiles
-    "same = (1, True) == (1, True).\nnested = (1, (True, 2)) != (1, (True, 3))."
+    """
+    same = (1, True) == (1, True).
+    nested = (1, (True, 2)) != (1, (True, 3)).
+    """
 
 testSourcePipelineAcceptsStructuralAdtEquality :: IO ()
 testSourcePipelineAcceptsStructuralAdtEquality = do
   assertCompiles
-    "data Maybe = Nothing | Just value.\nleft = Just 1.\nright = Just 1.\nsame = left == right.\ndifferent = left != Nothing.\neqOp = (==).\nsameViaOp = eqOp left right.\nsameViaLeftSection = (left ==) right.\nsameViaRightSection = (== right) left."
+    """
+    data Maybe = Nothing | Just value.
+    left = Just 1.
+    right = Just 1.
+    same = left == right.
+    different = left != Nothing.
+    eqOp = (==).
+    sameViaOp = eqOp left right.
+    sameViaLeftSection = (left ==) right.
+    sameViaRightSection = (== right) left.
+    """
   assertCompiles
-    "data Box a = Box a.\nleft = Box [1, 2].\nright = Box [1, 2].\nsame = left == right."
+    """
+    data Box a = Box a.
+    left = Box [1, 2].
+    right = Box [1, 2].
+    same = left == right.
+    """
 
 testSourcePipelineAcceptsSelfReferentialStructuralAdtEquality :: IO ()
 testSourcePipelineAcceptsSelfReferentialStructuralAdtEquality = do
@@ -215,7 +236,12 @@ testSourcePipelineAcceptsSelfReferentialStructuralAdtEquality = do
       2000000
       ( compileSource
           defaultWarningSettings
-          "data IntList = Nil | Cons value rest.\nleft = Cons 1 Nil.\nright = Cons 1 Nil.\nsame = left == right."
+          """
+          data IntList = Nil | Cons value rest.
+          left = Cons 1 Nil.
+          right = Cons 1 Nil.
+          same = left == right.
+          """
       )
   case maybeResult of
     Nothing ->
@@ -226,11 +252,17 @@ testSourcePipelineAcceptsSelfReferentialStructuralAdtEquality = do
 testSourcePipelineAcceptsStructuralEqualitySections :: IO ()
 testSourcePipelineAcceptsStructuralEqualitySections =
   assertCompiles
-    "listEq = (== [1, 2]) [1, 2].\ntupleNe = ((1, True) !=) (1, False)."
+    """
+    listEq = (== [1, 2]) [1, 2].
+    tupleNe = ((1, True) !=) (1, False).
+    """
 
 testSourcePipelineRejectsStructuralFunctionEquality :: IO ()
 testSourcePipelineRejectsStructuralFunctionEquality = do
-  result <- compileSource defaultWarningSettings "f = \\(x) -> x.\nx = [f] == [f]."
+  result <- compileSource defaultWarningSettings """
+  f = \\(x) -> x.
+  x = [f] == [f].
+  """
   assertSingleDiagnosticContains
     "function-valued structural equality code"
     "E2004"
@@ -242,7 +274,13 @@ testSourcePipelineRejectsStructuralFunctionEquality = do
 
 testSourcePipelineRejectsStructuralAdtFunctionEquality :: IO ()
 testSourcePipelineRejectsStructuralAdtFunctionEquality = do
-  result <- compileSource defaultWarningSettings "data Box a = Box a.\nf = \\(x) -> x.\nleft = Box f.\nright = Box f.\nx = left == right."
+  result <- compileSource defaultWarningSettings """
+  data Box a = Box a.
+  f = \\(x) -> x.
+  left = Box f.
+  right = Box f.
+  x = left == right.
+  """
   assertSingleDiagnosticContains
     "function-valued ADT equality code"
     "E2004"
@@ -257,7 +295,13 @@ testSourcePipelineRejectsDuplicateAdtDeclarationBeforeStructuralEquality = do
   result <-
     compileSource
       defaultWarningSettings
-      "data Box a = Box a.\ndata Box a = Empty.\nf = Box (\\(x) -> x).\ng = Box (\\(x) -> x).\nok = f == g."
+      """
+      data Box a = Box a.
+      data Box a = Empty.
+      f = Box (\\(x) -> x).
+      g = Box (\\(x) -> x).
+      ok = f == g.
+      """
   assertContains
     "duplicate ADT declaration before equality metadata overwrite"
     "E2014"
@@ -266,14 +310,21 @@ testSourcePipelineRejectsDuplicateAdtDeclarationBeforeStructuralEquality = do
 testSourcePipelineRejectsStructuralAdtPartialConstructorEquality :: IO ()
 testSourcePipelineRejectsStructuralAdtPartialConstructorEquality =
   assertCompileError
-    "data Box a = Box a.\nx = Box == Box."
+    """
+    data Box a = Box a.
+    x = Box == Box.
+    """
     "partial constructor equality"
     "E2004"
 
 testSourcePipelineRejectsStructuralAdtTypeMismatch :: IO ()
 testSourcePipelineRejectsStructuralAdtTypeMismatch =
   assertCompileError
-    "data Lefty = Lefty.\ndata Righty = Righty.\nx = Lefty == Righty."
+    """
+    data Lefty = Lefty.
+    data Righty = Righty.
+    x = Lefty == Righty.
+    """
     "different ADT type equality"
     "E2004"
 
@@ -281,10 +332,18 @@ testSourcePipelineRejectsOperatorSectionCallableEquality :: IO ()
 testSourcePipelineRejectsOperatorSectionCallableEquality = do
   assertCallableEqualityRejected
     "left operator section equality"
-    "left = (1 +).\nright = (1 +).\nsame = left == right."
+    """
+    left = (1 +).
+    right = (1 +).
+    same = left == right.
+    """
   assertCallableEqualityRejected
     "right operator section inequality"
-    "left = (+ 1).\nright = (+ 1).\ndifferent = left != right."
+    """
+    left = (+ 1).
+    right = (+ 1).
+    different = left != right.
+    """
 
 testSourcePipelineRejectsBareOperatorCallableEquality :: IO ()
 testSourcePipelineRejectsBareOperatorCallableEquality = do
@@ -321,7 +380,12 @@ testSourcePipelineRejectsDeferredEqualitySectionUnresolvedListConstraint =
 testSourcePipelineAcceptsDeferredDirectEquality :: IO ()
 testSourcePipelineAcceptsDeferredDirectEquality =
   assertCompilesWithBundledPrelude
-    "value = hd [].\nsame = value == value.\nsum = value + 1.\nsum."
+    """
+    value = hd [].
+    same = value == value.
+    sum = value + 1.
+    sum.
+    """
 
 testSourcePipelineRejectsUnsupportedSectionOperator :: IO ()
 testSourcePipelineRejectsUnsupportedSectionOperator =
@@ -358,35 +422,62 @@ testSourcePipelineKeepsBuiltinPipeOffDeclaredOperatorBindingPath = do
 testSourcePipelineAcceptsDeclaredUserOperatorInfixBinding :: IO ()
 testSourcePipelineAcceptsDeclaredUserOperatorInfixBinding =
   assertCompiles
-    "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left + right.\nx = 1 %% 2."
+    """
+    operator %% tier 2.
+    (%%) = \\(left) -> \\(right) -> left + right.
+    x = 1 %% 2.
+    """
 
 testSourcePipelineAcceptsDeclaredUserOperatorSignature :: IO ()
 testSourcePipelineAcceptsDeclaredUserOperatorSignature =
   assertCompiles
-    "operator %% tier 2.\n(%%) :: Int -> Int -> Int.\n(%%) = \\(left) -> \\(right) -> left + right.\nx = 1 %% 2."
+    """
+    operator %% tier 2.
+    (%%) :: Int -> Int -> Int.
+    (%%) = \\(left) -> \\(right) -> left + right.
+    x = 1 %% 2.
+    """
 
 testSourcePipelineRejectsDeclaredUserOperatorSignatureMismatch :: IO ()
 testSourcePipelineRejectsDeclaredUserOperatorSignatureMismatch =
   assertCompileError
-    "operator %% tier 2.\n(%%) :: Int -> Int -> Bool.\n(%%) = \\(left) -> \\(right) -> left + right.\nx = 1 %% 2."
+    """
+    operator %% tier 2.
+    (%%) :: Int -> Int -> Bool.
+    (%%) = \\(left) -> \\(right) -> left + right.
+    x = 1 %% 2.
+    """
     "declared user operator signature mismatch"
     "E2005"
 
 testSourcePipelineRejectsNonAdjacentDeclaredUserOperatorSignature :: IO ()
 testSourcePipelineRejectsNonAdjacentDeclaredUserOperatorSignature =
   assertCompileError
-    "operator %% tier 2.\n(%%) :: Int -> Int -> Int.\ngap = 0.\n(%%) = \\(left) -> \\(right) -> toFloat64 1.\nx = 1 %% 2."
+    """
+    operator %% tier 2.
+    (%%) :: Int -> Int -> Int.
+    gap = 0.
+    (%%) = \\(left) -> \\(right) -> toFloat64 1.
+    x = 1 %% 2.
+    """
     "declared user operator signature adjacency"
     "must annotate the next binding with the same name"
 
 testSourcePipelineAcceptsDeclaredUserOperatorValueApplication :: IO ()
 testSourcePipelineAcceptsDeclaredUserOperatorValueApplication =
   assertCompiles
-    "operator %% tier 2.\n(%%) = \\(left) -> \\(right) -> left == right.\nx = (%%) 1 1."
+    """
+    operator %% tier 2.
+    (%%) = \\(left) -> \\(right) -> left == right.
+    x = (%%) 1 1.
+    """
 
 testSourcePipelineRejectsDeclaredUserOperatorWithoutBinding :: IO ()
 testSourcePipelineRejectsDeclaredUserOperatorWithoutBinding = do
-  result <- compileSource defaultWarningSettings "operator %% tier 2.\nx = 1 %% 2."
+  result <- compileSource defaultWarningSettings """
+  operator %% tier 2.
+  x = 1 %% 2.
+  """
   assertSingleDiagnosticContains
     "declared user operator missing binding code"
     "E2010"
@@ -398,7 +489,11 @@ testSourcePipelineRejectsDeclaredUserOperatorWithoutBinding = do
 
 testSourcePipelineRejectsNonCallableDeclaredUserOperatorBinding :: IO ()
 testSourcePipelineRejectsNonCallableDeclaredUserOperatorBinding = do
-  result <- compileSource defaultWarningSettings "operator %% tier 2.\n(%%) = 1.\nx = 1 %% 2."
+  result <- compileSource defaultWarningSettings """
+  operator %% tier 2.
+  (%%) = 1.
+  x = 1 %% 2.
+  """
   assertSingleDiagnosticContains
     "declared user operator non-callable binding code"
     "E2006"
