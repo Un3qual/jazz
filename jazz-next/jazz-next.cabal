@@ -347,3 +347,12 @@ test-suite runtime-semantics-spec
       JazzNext.Compiler.Semantics.Runtime.RenderingTests
       JazzNext.Compiler.Semantics.Runtime.ScopeTests
       JazzNext.Compiler.Semantics.Runtime.Shared
+
+test-suite repository-audit-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: JazzNext/Repository/AuditSpec.hs
+  other-modules:
+      JazzNext.Repository.PackagePolicy
+      JazzNext.Repository.Root
+      JazzNext.Repository.StdlibFormat
