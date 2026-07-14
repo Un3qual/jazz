@@ -158,17 +158,44 @@ benchmark jazz-next-bench
   main-is: Main.hs
   other-modules:
       JazzNext.Benchmark.Force
+      JazzNext.Benchmark.Metadata
       JazzNext.Benchmark.Stages
+      Paths_jazz_next
+  autogen-modules: Paths_jazz_next
   default-language: Haskell2010
   ghc-options: -fproc-alignment=64
   build-depends:
+      aeson >= 2.2 && < 2.3,
       base >= 4.22 && < 4.23,
+      bytestring >= 0.12 && < 0.13,
       containers >= 0.8 && < 0.9,
       directory >= 1.3 && < 1.4,
       filepath >= 1.5 && < 1.6,
       jazz-next:jazz-next-internal,
+      process >= 1.6 && < 1.7,
+      tasty >= 1.5 && < 1.6,
       tasty-bench >= 0.5 && < 0.6,
-      text >= 2.1 && < 2.2
+      text >= 2.1 && < 2.2,
+      time >= 1.15 && < 1.16
+
+test-suite benchmark-metadata-spec
+  import: test-common, program-support
+  type: exitcode-stdio-1.0
+  hs-source-dirs: benchmark
+  main-is: JazzNext/Benchmark/MetadataSpec.hs
+  other-modules:
+      JazzNext.Benchmark.Force
+      JazzNext.Benchmark.Metadata
+      JazzNext.Benchmark.Stages
+      Paths_jazz_next
+  autogen-modules: Paths_jazz_next
+  build-depends:
+      aeson >= 2.2 && < 2.3,
+      bytestring >= 0.12 && < 0.13,
+      process >= 1.6 && < 1.7,
+      tasty >= 1.5 && < 1.6,
+      tasty-bench >= 0.5 && < 0.6,
+      time >= 1.15 && < 1.16
 
 test-suite cli-spec
   import: test-common
