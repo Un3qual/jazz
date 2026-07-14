@@ -11,6 +11,7 @@ import JazzNext.Benchmark.Metadata
   ( BenchmarkArtifactPaths (benchmarkArtifactDirectory),
     BenchmarkBuildMode (..),
     BenchmarkEnvironment (..),
+    BenchmarkEnvironmentCapture (..),
     BenchmarkTimeMode (..),
     CompatibilityDecision (..),
     CompatibilityField (..),
@@ -22,7 +23,7 @@ import JazzNext.Benchmark.Metadata
     compatibilityMismatchField,
     validateEnvironmentLabel,
   )
-import JazzNext.Benchmark.Stages (runBenchmarkMainWithArguments)
+import JazzNext.Benchmark.Stages (runBenchmarkMainWithEnvironmentCapture)
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
@@ -180,7 +181,8 @@ testRecordedArtifactSmoke =
 
 runRecordedArtifactSmokeChild :: FilePath -> IO ()
 runRecordedArtifactSmokeChild resultRoot =
-  runBenchmarkMainWithArguments
+  runBenchmarkMainWithEnvironmentCapture
+    (pure . capturedFixtureEnvironment)
     [ "--environment-label=artifact-smoke",
       "--result-root=" <> resultRoot,
       "--jazz-case=identifier-classifier",
@@ -189,6 +191,19 @@ runRecordedArtifactSmokeChild resultRoot =
       "--timeout=1s",
       "--color=never"
     ]
+
+capturedFixtureEnvironment :: BenchmarkEnvironmentCapture -> BenchmarkEnvironment
+capturedFixtureEnvironment capture =
+  fixtureEnvironment
+    { environmentRunIdentifier = captureRunIdentifier capture,
+      environmentLabel = captureEnvironmentLabel capture,
+      environmentCorpusSchemaVersion = captureCorpusSchemaVersion capture,
+      environmentSelectedCases = captureSelectedCases capture,
+      environmentBuildMode = captureBuildMode capture,
+      environmentBenchmarkArguments = map Text.pack (captureBenchmarkArguments capture),
+      environmentTimeMode = captureTimeMode capture,
+      environmentRunTimestamp = captureRunTimestamp capture
+    }
 
 fixtureEnvironment :: BenchmarkEnvironment
 fixtureEnvironment =

@@ -2,6 +2,7 @@
 
 module JazzNext.Benchmark.Stages
   ( runBenchmarkMain,
+    runBenchmarkMainWithEnvironmentCapture,
     runBenchmarkMainWithArguments,
   )
 where
@@ -101,7 +102,14 @@ runBenchmarkMain :: IO ()
 runBenchmarkMain = getArgs >>= runBenchmarkMainWithArguments
 
 runBenchmarkMainWithArguments :: [String] -> IO ()
-runBenchmarkMainWithArguments arguments = do
+runBenchmarkMainWithArguments =
+  runBenchmarkMainWithEnvironmentCapture captureBenchmarkEnvironment
+
+runBenchmarkMainWithEnvironmentCapture ::
+  (BenchmarkEnvironmentCapture -> IO BenchmarkEnvironment) ->
+  [String] ->
+  IO ()
+runBenchmarkMainWithEnvironmentCapture captureEnvironment arguments = do
   benchmarkCommand <- fromEitherText (parseBenchmarkCommand arguments)
   (corpus, preparedCases) <- loadPreparedCases
   selectedCases <-
@@ -116,6 +124,7 @@ runBenchmarkMainWithArguments arguments = do
           (defaultMain (benchmarkTree selectedCases))
       Just environmentLabel ->
         runRecordedBenchmarks
+          captureEnvironment
           benchmarkCommand
           environmentLabel
           (programCorpusSchemaVersion corpus)
@@ -262,8 +271,14 @@ requireExpectedResult programCase result
             )
         )
 
-runRecordedBenchmarks :: BenchmarkCommand -> Text -> Int -> [PreparedCase] -> IO ()
-runRecordedBenchmarks benchmarkCommand environmentLabel corpusSchemaVersion preparedCases = do
+runRecordedBenchmarks ::
+  (BenchmarkEnvironmentCapture -> IO BenchmarkEnvironment) ->
+  BenchmarkCommand ->
+  Text ->
+  Int ->
+  [PreparedCase] ->
+  IO ()
+runRecordedBenchmarks captureEnvironment benchmarkCommand environmentLabel corpusSchemaVersion preparedCases = do
   preparedCase <-
     case preparedCases of
       [] -> ioError (userError "no corpus cases were selected for the recorded benchmark")
@@ -282,7 +297,7 @@ runRecordedBenchmarks benchmarkCommand environmentLabel corpusSchemaVersion prep
   artifactPaths <-
     fromEitherText (benchmarkArtifactPaths resultRoot environmentLabel runIdentifier)
   environment <-
-    captureBenchmarkEnvironment
+    captureEnvironment
       BenchmarkEnvironmentCapture
         { capturePackageRoot = packageRoot,
           captureRunIdentifier = runIdentifier,

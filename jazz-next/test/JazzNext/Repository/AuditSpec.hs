@@ -14,6 +14,11 @@ import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import JazzNext.Compiler.Diagnostics (renderDiagnostic)
 import JazzNext.Compiler.Parser (parseSurfaceProgram)
+import JazzNext.Repository.JazzSourceFormat
+  ( JazzSourceFormatViolation (..),
+    renderJazzSourceFormatViolation,
+    validateJazzModule,
+  )
 import JazzNext.Repository.PackagePolicy
   ( PackagePolicyViolation (..),
     renderPackagePolicyViolation,
@@ -27,11 +32,6 @@ import JazzNext.Repository.SourceLayout
     renderSourceLayoutViolation,
     sourceModuleFromSurface,
     validateSourceLayering,
-  )
-import JazzNext.Repository.JazzSourceFormat
-  ( JazzSourceFormatViolation (..),
-    renderJazzSourceFormatViolation,
-    validateJazzModule,
   )
 import JazzNext.TestHarness
   ( NamedTest,
@@ -64,7 +64,8 @@ tests =
     ("parses the representative editor fixture", testEditorFixtureParses),
     ("locates the active jazz-next package root", testPackageRoot),
     ("validates all checked-in Jazz source modules", testCheckedInJazzSources),
-    ("validates the checked-in Cabal package policy", testCheckedInPackagePolicy)
+    ("validates the checked-in Cabal package policy", testCheckedInPackagePolicy),
+    ("documents the shared program corpus and performance workflows", testPerformanceDocumentation)
   ]
 
 validJazzSource :: Text
@@ -263,8 +264,8 @@ testEditorPackageMetadata =
         rootGrammarPatterns = maybe [] jsonArray (jsonPath ["patterns"] grammar)
         rootGrammarIncludes =
           [ includeName
-            | patternValue <- rootGrammarPatterns,
-              Just (String includeName) <- [jsonPath ["include"] patternValue]
+          | patternValue <- rootGrammarPatterns,
+            Just (String includeName) <- [jsonPath ["include"] patternValue]
           ]
         dataDeclarationPatterns =
           maybe
@@ -313,9 +314,10 @@ testEditorPackageMetadata =
     assertEqual
       "operator grammar includes the Jazz bang operator symbol"
       True
-      (case operatorMatch of
-        Just (String patternText) -> ":=@!]" `Text.isInfixOf` patternText
-        _ -> False)
+      ( case operatorMatch of
+          Just (String patternText) -> ":=@!]" `Text.isInfixOf` patternText
+          _ -> False
+      )
 
 testEditorFixtureParses :: IO ()
 testEditorFixtureParses =
@@ -485,6 +487,21 @@ testCheckedInPackagePolicy =
     let violations = validatePackagePolicy packageSource
     unless (null violations) $ do
       failTest (Text.intercalate "\n" (map renderPackagePolicyViolation violations))
+
+testPerformanceDocumentation :: IO ()
+testPerformanceDocumentation =
+  withPackageRoot $ \packageRoot ->
+    forM_
+      [ "PERFORMANCE.md",
+        "programs" </> "README.md",
+        "programs" </> "corpus.json"
+      ]
+      (assertPackageFileExists packageRoot)
+
+assertPackageFileExists :: FilePath -> FilePath -> IO ()
+assertPackageFileExists packageRoot relativePath = do
+  exists <- doesFileExist (packageRoot </> relativePath)
+  assertEqual (Text.pack relativePath <> " exists") True exists
 
 withPackageRoot :: (FilePath -> IO ()) -> IO ()
 withPackageRoot action = do

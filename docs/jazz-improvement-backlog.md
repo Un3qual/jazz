@@ -2,7 +2,7 @@
 
 Status: durable discussion backlog; not an execution queue or implementation plan
 
-Last updated: 2026-07-13
+Last updated: 2026-07-14
 
 This document preserves the sixteen improvements agreed during the July 2026
 Jazz design discussion. It records intent, important constraints, and proposed
@@ -42,6 +42,10 @@ Items: 10, 1, and 9.
   exists, so fixtures and examples can come from their permanent locations.
 
 ### Batch 3: Program corpus, benchmarks, and observability
+
+Status: completed on 2026-07-14. See the
+[`jazz-next` performance guide](../jazz-next/PERFORMANCE.md) and
+[`programs` corpus guide](../jazz-next/programs/README.md).
 
 Items: 2, 3, and 4.
 
@@ -137,9 +141,11 @@ captured environments, list/tuple/ADT constructions, pattern attempts, builtin
 calls, host operations, and caches. Emit human-readable or JSON reports to
 stderr so program output remains unchanged.
 
-The Haskell interpreter can report logical Jazz allocations, but physical byte
-allocation and garbage-collector statistics belong to a future native runtime
-that owns its allocator.
+The Haskell interpreter reports logical Jazz allocations. GHC profiling reports
+physical byte allocation, heap, and garbage-collector behavior of the current
+Haskell implementation. A future native runtime must add allocator-owned
+physical statistics for native Jazz execution rather than reusing either
+measurement as a substitute.
 
 Also retain GHC profiling as a separate but complementary facility for the
 Haskell-written compiler and interpreter. Support time and allocation profiles,
@@ -229,8 +235,9 @@ contains the Jazz-authored lexer, parser, compiler data structures, and future
 bootstrap implementation. Compiler modules may depend on the stdlib; the stdlib
 must not depend on compiler implementation modules.
 
-Test fixtures and benchmark inputs remain owned by their respective test and
-benchmark trees rather than being moved under the shipped-source root.
+Production-shaped correctness and benchmark inputs share the
+`jazz-next/programs/` corpus rather than being moved under the shipped-source
+root. Small, focused fixtures remain under `jazz-next/test/`.
 
 ### 11. Remove or justify trivial Haskell aliases
 
