@@ -3,7 +3,7 @@
 module JazzNext.Repository.PackagePolicy
   ( PackagePolicyViolation (..),
     renderPackagePolicyViolation,
-    validatePackagePolicy
+    validatePackagePolicy,
   )
 where
 
@@ -25,12 +25,13 @@ validatePackagePolicy source =
   where
     sourceLines = Text.lines source
     privateLibraryHeader = "library jazz-next-internal"
+    libraryStanzas = filter (isLibraryHeader . fst) (topLevelStanzas sourceLines)
     hasPublicLibrary =
-      any (\line -> isTopLevelLine line && Text.stripEnd line == "library") sourceLines
+      any isPublicLibraryStanza libraryStanzas
     privateLibraryBody =
-      case filter (\line -> isTopLevelLine line && Text.stripEnd line == privateLibraryHeader) sourceLines of
+      case [body | (header, body) <- libraryStanzas, header == privateLibraryHeader] of
         [] -> Nothing
-        _ : _ -> Just (stanzaBody privateLibraryHeader sourceLines)
+        body : _ -> Just body
     publicLibraryViolations =
       [PublicLibraryStanza | hasPublicLibrary]
     missingPrivateLibraryViolations =
@@ -48,7 +49,7 @@ renderPackagePolicyViolation :: PackagePolicyViolation -> Text
 renderPackagePolicyViolation violation =
   case violation of
     PublicLibraryStanza ->
-      "jazz-next.cabal must not declare an unnamed public library stanza"
+      "jazz-next.cabal must not declare public library stanzas"
     MissingPrivateLibraryStanza ->
       "jazz-next.cabal must declare library jazz-next-internal"
     MissingPrivateLibraryVisibility ->
@@ -62,9 +63,22 @@ isTopLevelLine line =
       not (Text.null (Text.strip line))
         && not (isSpace firstCharacter)
 
-stanzaBody :: Text -> [Text] -> [Text]
-stanzaBody header linesValue =
-  case dropWhile ((/= header) . Text.stripEnd) linesValue of
-    [] -> []
-    _ : remaining ->
-      takeWhile (\line -> Text.null (Text.strip line) || not (isTopLevelLine line)) remaining
+topLevelStanzas :: [Text] -> [(Text, [Text])]
+topLevelStanzas [] = []
+topLevelStanzas (line : remaining)
+  | not (isTopLevelLine line) = topLevelStanzas remaining
+  | otherwise =
+      let (body, rest) =
+            span (\bodyLine -> Text.null (Text.strip bodyLine) || not (isTopLevelLine bodyLine)) remaining
+       in (Text.stripEnd line, body) : topLevelStanzas rest
+
+isLibraryHeader :: Text -> Bool
+isLibraryHeader header =
+  case Text.words header of
+    "library" : _ -> True
+    _ -> False
+
+isPublicLibraryStanza :: (Text, [Text]) -> Bool
+isPublicLibraryStanza (header, body) =
+  header == "library"
+    || any ((== "visibility: public") . Text.strip) body

@@ -14,7 +14,9 @@
         toolPkgs = import nixpkgs-tools { inherit system; };
         ghc = pkgs.haskell.compiler.ghc9141;
         hsPkgs = pkgs.haskell.packages.ghc9141;
-        jazzNext = hsPkgs.callCabal2nix "jazz-next" ./jazz-next { };
+        jazzNext = pkgs.haskell.lib.enableCabalFlag
+          (hsPkgs.callCabal2nix "jazz-next" ./jazz-next { })
+          "development";
       in {
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [

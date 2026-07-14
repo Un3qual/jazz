@@ -10,22 +10,22 @@ import qualified Data.Text.IO as TextIO
 import JazzNext.Repository.PackagePolicy
   ( PackagePolicyViolation (..),
     renderPackagePolicyViolation,
-    validatePackagePolicy
+    validatePackagePolicy,
   )
 import JazzNext.Repository.Root (findJazzNextPackageRoot)
 import JazzNext.Repository.StdlibFormat
   ( StdlibFormatViolation (..),
     renderStdlibFormatViolation,
-    validateStdlibModule
+    validateStdlibModule,
   )
 import JazzNext.TestHarness
   ( NamedTest,
     assertEqual,
     failTest,
-    runTestSuite
+    runTestSuite,
   )
 import System.Directory (doesDirectoryExist, listDirectory)
-import System.FilePath ((</>), takeExtension)
+import System.FilePath (takeExtension, (</>))
 
 main :: IO ()
 main = runTestSuite "RepositoryAudit" tests
@@ -40,6 +40,7 @@ tests =
     ("exempts the bundled Prelude source", testPreludeExemption),
     ("accepts only the named private Cabal library", testPrivatePackagePolicy),
     ("rejects an unnamed public Cabal library", testPublicLibraryPolicy),
+    ("rejects a named public Cabal library", testNamedPublicLibraryPolicy),
     ("rejects a private library without private visibility", testMissingPrivateVisibility),
     ("locates the active jazz-next package root", testPackageRoot),
     ("validates all checked-in stdlib modules", testCheckedInStdlib),
@@ -136,6 +137,21 @@ testPublicLibraryPolicy =
         """
         library
           exposed-modules: Public
+        """
+    )
+
+testNamedPublicLibraryPolicy :: IO ()
+testNamedPublicLibraryPolicy =
+  assertEqual
+    "named public library policy"
+    [PublicLibraryStanza]
+    ( validatePackagePolicy
+        """
+        library jazz-next-internal
+          visibility: private
+
+        library jazz-next-api
+          visibility: public
         """
     )
 
