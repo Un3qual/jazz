@@ -41,7 +41,8 @@ import JazzNext.Compiler.ModuleRuntime
     RuntimeProgram (..),
   )
 import JazzNext.Compiler.Runtime.Types
-  ( RuntimeMethodCandidate (..),
+  ( RuntimeClosure (..),
+    RuntimeMethodCandidate (..),
     RuntimeValue (..),
     foldRuntimeExplicitResultHints,
     runtimeExplicitResultHintsView,
@@ -290,8 +291,15 @@ forceRuntimeValueWithoutExplicitResultHints runtimeValue =
     VText value -> value `seq` ()
     VList values signatureType -> forceListWith forceRuntimeValue values `seq` signatureType `seq` ()
     VTuple values -> forceListWith forceRuntimeValue values
-    VClosure _ isEffectful name body signatureType modulePath ->
-      isEffectful `seq` name `seq` forceExpr body `seq` signatureType `seq` modulePath `seq` ()
+    VClosure closure ->
+      Map.size (runtimeClosureEnvironment closure) `seq`
+        runtimeClosureEnvironmentMayReachHostCells closure `seq`
+          runtimeClosureParameter closure `seq`
+            forceExpr (runtimeClosureBody closure) `seq`
+              runtimeClosureTypeHint closure `seq`
+                runtimeClosureModulePath closure `seq`
+                  runtimeClosureCallableIdentity closure `seq`
+                    ()
     VBuiltin builtin arguments -> builtin `seq` forceListWith forceRuntimeValue arguments
     VOperator operator arguments -> operator `seq` forceListWith forceRuntimeValue arguments
     VSectionLeft operator value -> operator `seq` forceRuntimeValue value

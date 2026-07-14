@@ -100,6 +100,7 @@ import JazzNext.Compiler.Name
   )
 import JazzNext.Compiler.Runtime.Types
   ( RuntimeEnv,
+    RuntimeClosure (..),
     RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
     RuntimeMethodCandidate (..),
@@ -297,8 +298,13 @@ applyRuntimeTypeHint typeHint runtimeValue =
         (TypeTuple elementTypes, VTuple elements)
           | length elementTypes == length elements ->
               VTuple <$> zipWithM applyRuntimeTypeHint elementTypes elements
-        (TypeFunction {}, VClosure capturedEnv capturedEnvMayReachHostCells parameterName bodyExpr _ closureModulePath) ->
-          Right (VClosure capturedEnv capturedEnvMayReachHostCells parameterName bodyExpr (Just typeHint) closureModulePath)
+        (TypeFunction {}, VClosure closure) ->
+          Right
+            ( VClosure
+                closure
+                  { runtimeClosureTypeHint = Just typeHint
+                  }
+            )
         (TypeFunction {}, _)
           | isFunctionValue runtimeValue ->
               Right (VTyped typeHint runtimeValue)
@@ -619,8 +625,8 @@ runtimeValueSignatureHint runtimeValue =
       runtimeValueSignatureHint innerValue
     VExplicitResultHints _ innerValue ->
       runtimeValueSignatureHint innerValue
-    VClosure _ _ _ _ maybeTypeHint _ ->
-      maybeTypeHint
+    VClosure closure ->
+      runtimeClosureTypeHint closure
     VList _ (Just typeHint) ->
       Just typeHint
     _ -> Nothing
@@ -707,8 +713,8 @@ runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
       runtimeValueExactlyMatchesConstraint signatureType innerValue
     VTyped typeHint _ ->
       typeHint == signatureType
-    VClosure _ _ _ _ (Just typeHint) _ ->
-      typeHint == signatureType
+    VClosure closure ->
+      runtimeClosureTypeHint closure == Just signatureType
     VInt _ metadata ->
       case signatureType of
         TypeInt -> runtimeIntTargetType metadata == Nothing
@@ -833,7 +839,10 @@ runtimeValueMatchesConstraint signatureType runtimeValue =
             _ -> False
         TypeFunction {} ->
           case runtimeValue of
-            VClosure _ _ _ _ (Just typeHint) _ -> constraintSignatureTypesCompatible typeHint signatureType
+            VClosure closure ->
+              case runtimeClosureTypeHint closure of
+                Just typeHint -> constraintSignatureTypesCompatible typeHint signatureType
+                Nothing -> True
             _ -> isFunctionValue runtimeValue
 
 runtimeValueMatchesTypeName :: Text -> RuntimeValue -> Bool

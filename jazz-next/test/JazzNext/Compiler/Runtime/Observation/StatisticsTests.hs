@@ -409,7 +409,8 @@ zeroReport :: RuntimeObservationReport
 zeroReport =
   RuntimeObservationReport
     { runtimeObservationTermination = RuntimeSucceeded,
-      runtimeObservationStatistics = emptyRuntimeStatistics
+      runtimeObservationStatistics = emptyRuntimeStatistics,
+      runtimeObservationProfile = Nothing
     }
 
 assertTextContains :: Text -> Text -> Text -> IO ()

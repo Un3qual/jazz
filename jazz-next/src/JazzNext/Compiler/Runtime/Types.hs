@@ -15,6 +15,7 @@ module JazzNext.Compiler.Runtime.Types
     RuntimeHostEvaluationState (..),
     RuntimeHostEvaluationT,
     RuntimeExplicitResultHints,
+    RuntimeClosure (..),
     RuntimeValue
       ( VInt,
         VFloat,
@@ -68,7 +69,10 @@ import JazzNext.Compiler.Diagnostics
 import JazzNext.Compiler.FractionalLiteral (FractionalLiteralSource)
 import JazzNext.Compiler.Name (Name)
 import JazzNext.Compiler.RuntimeHints (BindingRuntimeHintKey)
-import JazzNext.Compiler.Runtime.Observation (RuntimeObservationState)
+import JazzNext.Compiler.Runtime.Observation
+  ( RuntimeCallableIdentity,
+    RuntimeObservationState,
+  )
 
 data RuntimeFloatMetadata = RuntimeFloatMetadata
   { runtimeFloatLiteralSource :: Maybe FractionalLiteralSource,
@@ -113,6 +117,16 @@ data RuntimeHostEvaluationState = RuntimeHostEvaluationState
 
 type RuntimeHostEvaluationT m = StateT RuntimeHostEvaluationState m
 
+data RuntimeClosure = RuntimeClosure
+  { runtimeClosureEnvironment :: RuntimeEnv,
+    runtimeClosureEnvironmentMayReachHostCells :: Bool,
+    runtimeClosureParameter :: Name,
+    runtimeClosureBody :: Expr,
+    runtimeClosureTypeHint :: Maybe SignatureType,
+    runtimeClosureModulePath :: Maybe [Text],
+    runtimeClosureCallableIdentity :: RuntimeCallableIdentity
+  }
+
 data RuntimeValue
   = VInt Integer RuntimeIntMetadata
   | VFloat Double RuntimeFloatMetadata
@@ -121,7 +135,7 @@ data RuntimeValue
   | VText Text
   | VList [RuntimeValue] (Maybe SignatureType)
   | VTuple [RuntimeValue]
-  | VClosure RuntimeEnv Bool Name Expr (Maybe SignatureType) (Maybe [Text])
+  | VClosure RuntimeClosure
   | VBuiltin BuiltinSymbol [RuntimeValue]
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
@@ -182,8 +196,15 @@ instance Show RuntimeValue where
       VText textValue -> "VText " <> show textValue
       VList elements maybeTypeHint -> "VList " <> show elements <> " " <> show maybeTypeHint
       VTuple elements -> "VTuple " <> show elements
-      VClosure _ _ parameterName bodyExpr maybeTypeHint modulePath ->
-        "VClosure <env> " <> show parameterName <> " " <> show bodyExpr <> " " <> show maybeTypeHint <> " " <> show modulePath
+      VClosure closure ->
+        "VClosure <env> "
+          <> show (runtimeClosureParameter closure)
+          <> " "
+          <> show (runtimeClosureBody closure)
+          <> " "
+          <> show (runtimeClosureTypeHint closure)
+          <> " "
+          <> show (runtimeClosureModulePath closure)
       VBuiltin builtinSymbol capturedArgs ->
         "VBuiltin " <> show builtinSymbol <> " " <> show capturedArgs
       VOperator operatorSymbol capturedArgs ->

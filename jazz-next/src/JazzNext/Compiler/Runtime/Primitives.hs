@@ -64,7 +64,8 @@ import JazzNext.Compiler.Runtime.Semantics
     untypedIntMetadata
   )
 import JazzNext.Compiler.Runtime.Types
-  ( RuntimeFloatMetadata (..),
+  ( RuntimeClosure (..),
+    RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
     RuntimeValue (..),
     constructorIsSaturated,
@@ -337,8 +338,9 @@ runtimeFunctionResultType runtimeValue =
       runtimeFunctionResultType innerValue
     VTyped (TypeFunction _ resultType) _ ->
       Just resultType
-    VClosure _ _ _ _ (Just (TypeFunction _ resultType)) _ ->
-      Just resultType
+    VClosure closure
+      | Just (TypeFunction _ resultType) <- runtimeClosureTypeHint closure ->
+          Just resultType
     _ ->
       Nothing
 
@@ -355,8 +357,10 @@ runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint =
   case (mapper, maybeCollectionTypeHint) of
     (VBuiltin BuiltinHd [], Just (TypeList (TypeList elementType))) ->
       Just elementType
-    (VClosure _ _ parameterName (EVar resultName) Nothing _, Just (TypeList elementType))
-      | resultName == parameterName ->
+    (VClosure closure, Just (TypeList elementType))
+      | EVar resultName <- runtimeClosureBody closure,
+        Nothing <- runtimeClosureTypeHint closure,
+        resultName == runtimeClosureParameter closure ->
           Just elementType
     _ ->
       Nothing

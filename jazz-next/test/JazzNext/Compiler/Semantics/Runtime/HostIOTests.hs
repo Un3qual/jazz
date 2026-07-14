@@ -55,6 +55,10 @@ import JazzNext.Compiler.Runtime
     runRuntimeHostEvaluation,
     runtimeValueExactlyMatchesConstraint
   )
+import JazzNext.Compiler.Runtime.Observation
+  ( RuntimeCallableIdentity (ClosureCallable)
+  )
+import JazzNext.Compiler.Runtime.Types (RuntimeClosure (..))
 import JazzNext.Compiler.RuntimeHints (explicitTypeApplicationRuntimeHintKeyInModule)
 import JazzNext.Compiler.RuntimeHost
   ( HostIOCategory (..),
@@ -623,7 +627,17 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
 
 testStackedResultObligationsPreserveRecursiveUnwindOrder :: IO ()
 testStackedResultObligationsPreserveRecursiveUnwindOrder = do
-  let identityClosure = VClosure Map.empty False "value" (EVar "value") Nothing Nothing
+  let identityClosure =
+        VClosure
+          RuntimeClosure
+            { runtimeClosureEnvironment = Map.empty,
+              runtimeClosureEnvironmentMayReachHostCells = False,
+              runtimeClosureParameter = "value",
+              runtimeClosureBody = EVar "value",
+              runtimeClosureTypeHint = Nothing,
+              runtimeClosureModulePath = Nothing,
+              runtimeClosureCallableIdentity = ClosureCallable "<test>" 1 "value"
+            }
       stackedFunction =
         VTyped
           (TypeFunction TypeInt TypeInt)

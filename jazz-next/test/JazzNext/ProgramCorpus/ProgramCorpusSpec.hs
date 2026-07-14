@@ -370,7 +370,8 @@ successfulReport :: RuntimeStatistics -> RuntimeObservationReport
 successfulReport statistics =
   RuntimeObservationReport
     { runtimeObservationTermination = RuntimeSucceeded,
-      runtimeObservationStatistics = statistics
+      runtimeObservationStatistics = statistics,
+      runtimeObservationProfile = Nothing
     }
 
 requireProgramReport :: ProgramCase -> ProgramCaseResult -> IO RuntimeObservationReport

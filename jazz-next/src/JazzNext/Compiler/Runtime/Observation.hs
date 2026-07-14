@@ -1,12 +1,18 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JazzNext.Compiler.Runtime.Observation
   ( RuntimeApplicationKind (..),
     RuntimeBuiltinKind (..),
+    RuntimeCallableIdentity (..),
     RuntimeConstructionKind (..),
     RuntimeDeferredCacheKind (..),
     RuntimeHostOperationKind (..),
     RuntimeObservationReport (..),
     RuntimeObservationRequest (..),
     RuntimeObservationResult (..),
+    RuntimeProfileEvent (..),
+    RuntimeProfileFrame (..),
+    RuntimeSemanticProfile (..),
     RuntimeObservationState,
     RuntimeStatistics (..),
     RuntimeTermination (..),
@@ -22,12 +28,24 @@ module JazzNext.Compiler.Runtime.Observation
     recordRuntimeHostOperation,
     recordRuntimePatternAttempt,
     recordRuntimePatternMatch,
+    recordRuntimeProfileClose,
+    recordRuntimeProfileOpen,
     recordRuntimeTransition,
     runtimeObservationEnabled,
+    runtimeObservationProfileEnabled,
     runtimeObservationStatisticsEnabled,
+    runtimeCallableDisplayName,
   )
 where
 
+import qualified Data.Foldable as Foldable
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
+import Data.Text (Text)
+import qualified Data.Text as Text
 import Data.Word (Word64)
 import JazzNext.Compiler.Diagnostics (Diagnostic)
 
@@ -83,6 +101,36 @@ data RuntimeDeferredCacheKind
   | DeferredCacheRecursiveEvaluation
   deriving (Bounded, Enum, Eq, Ord, Show)
 
+data RuntimeCallableIdentity
+  = RootCallable
+  | ClosureCallable Text Int Text
+  | BuiltinCallable Text
+  | OperatorCallable Text
+  | ConstructorCallable Text
+  | MethodCallable Text
+  | GeneratedCallable Text
+  | HostCallable Text
+  deriving (Eq, Ord, Show)
+
+newtype RuntimeProfileFrame = RuntimeProfileFrame
+  { runtimeProfileFrameIdentity :: RuntimeCallableIdentity
+  }
+  deriving (Eq, Ord, Show)
+
+data RuntimeProfileEvent
+  = RuntimeProfileOpen Int Word64
+  | RuntimeProfileClose Int Word64
+  deriving (Eq, Ord, Show)
+
+data RuntimeSemanticProfile = RuntimeSemanticProfile
+  { runtimeSemanticProfileTermination :: RuntimeTermination,
+    runtimeSemanticProfileIncomplete :: Bool,
+    runtimeSemanticProfileEndValue :: Word64,
+    runtimeSemanticProfileFrames :: [RuntimeProfileFrame],
+    runtimeSemanticProfileEvents :: [RuntimeProfileEvent]
+  }
+  deriving (Eq, Show)
+
 -- | Deterministic counts of semantic Jazz work, not Haskell allocations.
 --
 -- An evaluator transition is one execution of the machine's current control;
@@ -132,7 +180,8 @@ data RuntimeStatistics = RuntimeStatistics
 
 data RuntimeObservationReport = RuntimeObservationReport
   { runtimeObservationTermination :: RuntimeTermination,
-    runtimeObservationStatistics :: RuntimeStatistics
+    runtimeObservationStatistics :: RuntimeStatistics,
+    runtimeObservationProfile :: Maybe RuntimeSemanticProfile
   }
   deriving (Eq, Show)
 
@@ -144,7 +193,15 @@ data RuntimeObservationResult value = RuntimeObservationResult
 
 data RuntimeObservationState = RuntimeObservationState
   { observationRequest :: !RuntimeObservationRequest,
-    observationStatistics :: !RuntimeStatistics
+    observationStatistics :: !RuntimeStatistics,
+    observationProfile :: !(Maybe RuntimeProfileState)
+  }
+
+data RuntimeProfileState = RuntimeProfileState
+  { profileFrameIndices :: !(Map RuntimeCallableIdentity Int),
+    profileFrames :: !(Seq RuntimeProfileFrame),
+    profileEventsReversed :: ![RuntimeProfileEvent],
+    profileOpenFrames :: ![Int]
   }
 
 emptyRuntimeStatistics :: RuntimeStatistics
@@ -180,11 +237,18 @@ initialRuntimeObservationState :: RuntimeObservationRequest -> RuntimeObservatio
 initialRuntimeObservationState request =
   RuntimeObservationState
     { observationRequest = request,
-      observationStatistics = emptyRuntimeStatistics
+      observationStatistics = emptyRuntimeStatistics,
+      observationProfile =
+        if requestProfiles request
+          then Just initialRuntimeProfileState
+          else Nothing
     }
 
 runtimeObservationEnabled :: RuntimeObservationState -> Bool
 runtimeObservationEnabled = (/= RuntimeObservationDisabled) . observationRequest
+
+runtimeObservationProfileEnabled :: RuntimeObservationState -> Bool
+runtimeObservationProfileEnabled = isJust . observationProfile
 
 recordRuntimeTransition :: Int -> RuntimeObservationState -> RuntimeObservationState
 recordRuntimeTransition continuationDepth observationState
@@ -313,6 +377,44 @@ recordRuntimeDeferredCacheOutcome cacheKind observationState
   where
     statistics = observationStatistics observationState
 
+recordRuntimeProfileOpen :: RuntimeCallableIdentity -> RuntimeObservationState -> RuntimeObservationState
+recordRuntimeProfileOpen callableIdentity observationState =
+  case observationProfile observationState of
+    Nothing -> observationState
+    Just profileState ->
+      let (frameIndex, profileStateWithFrame) = internProfileFrame callableIdentity profileState
+          logicalTime = runtimeEvaluatorTransitions (observationStatistics observationState)
+       in observationState
+            { observationProfile =
+                Just
+                  profileStateWithFrame
+                    { profileEventsReversed =
+                        RuntimeProfileOpen frameIndex logicalTime
+                          : profileEventsReversed profileStateWithFrame,
+                      profileOpenFrames = frameIndex : profileOpenFrames profileStateWithFrame
+                    }
+            }
+
+recordRuntimeProfileClose :: RuntimeObservationState -> RuntimeObservationState
+recordRuntimeProfileClose observationState =
+  case observationProfile observationState of
+    Just profileState ->
+      case profileOpenFrames profileState of
+        frameIndex : remaining@(_ : _) ->
+          let logicalTime = runtimeEvaluatorTransitions (observationStatistics observationState)
+           in observationState
+                { observationProfile =
+                    Just
+                      profileState
+                        { profileEventsReversed =
+                            RuntimeProfileClose frameIndex logicalTime
+                              : profileEventsReversed profileState,
+                          profileOpenFrames = remaining
+                        }
+                }
+        _ -> observationState
+    Nothing -> observationState
+
 finishRuntimeObservationResult ::
   Either Diagnostic value ->
   RuntimeObservationState ->
@@ -325,17 +427,23 @@ finishRuntimeObservationResult outcome observationState =
           then
             Just
               RuntimeObservationReport
-                { runtimeObservationTermination =
-                    case outcome of
-                      Left _ -> RuntimeFailed
-                      Right _ -> RuntimeSucceeded,
-                  runtimeObservationStatistics =
-                    (observationStatistics observationState)
-                      { runtimeCurrentContinuationDepth = 0
-                      }
+                { runtimeObservationTermination = termination,
+                  runtimeObservationStatistics = finalStatistics,
+                  runtimeObservationProfile =
+                    finalizeRuntimeProfile termination finalStatistics
+                      <$> observationProfile observationState
                 }
           else Nothing
     }
+  where
+    termination =
+      case outcome of
+        Left _ -> RuntimeFailed
+        Right _ -> RuntimeSucceeded
+    finalStatistics =
+      (observationStatistics observationState)
+        { runtimeCurrentContinuationDepth = 0
+        }
 
 runtimeObservationStatisticsEnabled :: RuntimeObservationState -> Bool
 runtimeObservationStatisticsEnabled observationState =
@@ -344,6 +452,71 @@ runtimeObservationStatisticsEnabled observationState =
     RuntimeObservationStatisticsAndProfile -> True
     RuntimeObservationDisabled -> False
     RuntimeObservationProfile -> False
+
+runtimeCallableDisplayName :: RuntimeCallableIdentity -> Text
+runtimeCallableDisplayName callableIdentity =
+  case callableIdentity of
+    RootCallable -> "root Jazz runtime"
+    ClosureCallable baseName stage parameterName ->
+      "function "
+        <> baseName
+        <> " [stage "
+        <> Text.pack (show stage)
+        <> ", parameter "
+        <> parameterName
+        <> "]"
+    BuiltinCallable name -> "builtin " <> name
+    OperatorCallable symbol -> "operator " <> symbol
+    ConstructorCallable name -> "constructor " <> name
+    MethodCallable name -> "method " <> name
+    GeneratedCallable name -> "generated " <> name
+    HostCallable name -> "host " <> name
+
+requestProfiles :: RuntimeObservationRequest -> Bool
+requestProfiles request =
+  case request of
+    RuntimeObservationProfile -> True
+    RuntimeObservationStatisticsAndProfile -> True
+    RuntimeObservationDisabled -> False
+    RuntimeObservationStatistics -> False
+
+initialRuntimeProfileState :: RuntimeProfileState
+initialRuntimeProfileState =
+  RuntimeProfileState
+    { profileFrameIndices = Map.singleton RootCallable 0,
+      profileFrames = Seq.singleton (RuntimeProfileFrame RootCallable),
+      profileEventsReversed = [RuntimeProfileOpen 0 0],
+      profileOpenFrames = [0]
+    }
+
+internProfileFrame :: RuntimeCallableIdentity -> RuntimeProfileState -> (Int, RuntimeProfileState)
+internProfileFrame callableIdentity profileState =
+  case Map.lookup callableIdentity (profileFrameIndices profileState) of
+    Just frameIndex -> (frameIndex, profileState)
+    Nothing ->
+      let frameIndex = Seq.length (profileFrames profileState)
+       in ( frameIndex,
+            profileState
+              { profileFrameIndices =
+                  Map.insert callableIdentity frameIndex (profileFrameIndices profileState),
+                profileFrames =
+                  profileFrames profileState Seq.|> RuntimeProfileFrame callableIdentity
+              }
+          )
+
+finalizeRuntimeProfile :: RuntimeTermination -> RuntimeStatistics -> RuntimeProfileState -> RuntimeSemanticProfile
+finalizeRuntimeProfile termination statistics profileState =
+  RuntimeSemanticProfile
+    { runtimeSemanticProfileTermination = termination,
+      runtimeSemanticProfileIncomplete = termination == RuntimeFailed,
+      runtimeSemanticProfileEndValue = logicalTime,
+      runtimeSemanticProfileFrames = Foldable.toList (profileFrames profileState),
+      runtimeSemanticProfileEvents =
+        reverse (profileEventsReversed profileState)
+          <> map (`RuntimeProfileClose` logicalTime) (profileOpenFrames profileState)
+    }
+  where
+    logicalTime = runtimeEvaluatorTransitions statistics
 
 incrementApplicationKind :: RuntimeApplicationKind -> RuntimeStatistics -> RuntimeStatistics
 incrementApplicationKind applicationKind statistics =

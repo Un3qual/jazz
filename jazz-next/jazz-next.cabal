@@ -19,6 +19,7 @@ extra-source-files:
     test/fixtures/runtime-observation/*.jz
     test/fixtures/runtime-observation/module-success/src/App/*.jz
     test/fixtures/runtime-observation/module-cache/src/App/*.jz
+    test/fixtures/runtime-observation/module-profile/src/App/*.jz
 
 flag development
   description: Treat compiler warnings as build failures in the repository workspace.
@@ -78,6 +79,7 @@ library jazz-next-internal
       JazzNext.Compiler.RecursiveBindings
       JazzNext.Compiler.Runtime
       JazzNext.Compiler.Runtime.Observation
+      JazzNext.Compiler.Runtime.Observation.Profile
       JazzNext.Compiler.Runtime.Observation.Render
       JazzNext.Compiler.Runtime.Primitives
       JazzNext.Compiler.Runtime.ScopePlan
@@ -208,7 +210,10 @@ test-suite runtime-observation-spec
   type: exitcode-stdio-1.0
   main-is: JazzNext/Compiler/Runtime/ObservationSpec.hs
   other-modules:
+      JazzNext.Compiler.Runtime.Observation.ProfileTests
       JazzNext.Compiler.Runtime.Observation.StatisticsTests
+  build-depends:
+      aeson >= 2.2 && < 2.3
 
 test-suite cli-spec
   import: test-common

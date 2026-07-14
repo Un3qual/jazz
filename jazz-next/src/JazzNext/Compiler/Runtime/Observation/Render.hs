@@ -99,6 +99,7 @@ parseReport = withObject "runtime observation report" $ \object -> do
       RuntimeObservationReport
         <$> (object .: "termination" >>= parseTermination)
         <*> (object .: "statistics" >>= parseStatistics)
+        <*> pure Nothing
 
 parseTermination :: Text -> Parser RuntimeTermination
 parseTermination name =
