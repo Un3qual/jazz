@@ -14,12 +14,14 @@ import Data.Aeson
     eitherDecodeStrict',
     withObject,
     (.:),
+    (.:?),
   )
 import Data.Aeson.Types (Parser, parseEither)
 import qualified Data.ByteString as ByteString
 import Data.Either (partitionEithers)
 import Data.List (group, sort, sortOn)
-import Data.Maybe (mapMaybe)
+import qualified Data.Map.Strict as Map
+import Data.Maybe (catMaybes, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
@@ -69,11 +71,42 @@ parseCase = withObject "program corpus case" $ \object ->
       <*> parseBudgets budgetValue
 
 parseBudgets :: Value -> Parser ProgramBudgets
-parseBudgets = withObject "program budgets" $ \object ->
+parseBudgets = withObject "program budgets" $ \object -> do
+  optionalLimits <-
+    Map.fromList . catMaybes
+      <$> sequence
+        [ optionalBudget ForcedValuesBudget <$> object .:? "forcedValues",
+          optionalBudget ClosureApplicationsBudget <$> object .:? "closureApplications",
+          optionalBudget BuiltinApplicationsBudget <$> object .:? "builtinApplications",
+          optionalBudget OperatorApplicationsBudget <$> object .:? "operatorApplications",
+          optionalBudget ConstructorApplicationsBudget <$> object .:? "constructorApplications",
+          optionalBudget MethodApplicationsBudget <$> object .:? "methodApplications",
+          optionalBudget ClosuresCreatedBudget <$> object .:? "closuresCreated",
+          optionalBudget BindingsCapturedBudget <$> object .:? "bindingsCaptured",
+          optionalBudget MaximumCaptureWidthBudget <$> object .:? "maximumCaptureWidth",
+          optionalBudget ListCellsConstructedBudget <$> object .:? "listCellsConstructed",
+          optionalBudget TuplesConstructedBudget <$> object .:? "tuplesConstructed",
+          optionalBudget SaturatedAdtValuesConstructedBudget <$> object .:? "saturatedAdtValuesConstructed",
+          optionalBudget PatternAttemptsBudget <$> object .:? "patternAttempts",
+          optionalBudget PatternMatchesBudget <$> object .:? "patternMatches",
+          optionalBudget PatternBindingsBudget <$> object .:? "patternBindings",
+          optionalBudget BuiltinCallsBudget <$> object .:? "builtinCalls",
+          optionalBudget HostOperationsBudget <$> object .:? "hostOperations",
+          optionalBudget DeferredCacheHitsBudget <$> object .:? "deferredCacheHits",
+          optionalBudget DeferredCacheMissesBudget <$> object .:? "deferredCacheMisses",
+          optionalBudget DeferredCacheRecursiveEvaluationsBudget <$> object .:? "deferredCacheRecursiveEvaluations"
+        ]
   ProgramBudgets
     <$> object .: "steps"
     <*> object .: "applications"
     <*> object .: "maxContinuationDepth"
+    <*> pure optionalLimits
+
+optionalBudget :: ProgramBudgetMetric -> Maybe limit -> Maybe (ProgramBudgetMetric, limit)
+optionalBudget metric maybeLimit =
+  case maybeLimit of
+    Nothing -> Nothing
+    Just limit -> Just (metric, limit)
 
 loadProgramCorpus :: IO (Either [ProgramCorpusViolation] ProgramCorpus)
 loadProgramCorpus = do

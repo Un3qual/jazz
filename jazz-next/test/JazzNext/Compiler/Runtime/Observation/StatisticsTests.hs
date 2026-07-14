@@ -5,24 +5,30 @@ module JazzNext.Compiler.Runtime.Observation.StatisticsTests
   )
 where
 
+import qualified Data.ByteString.Lazy.Char8 as LazyByteString
+import Data.List (isInfixOf)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import JazzNext.Compiler.AST
-  ( DataConstructor (..),
+  ( CaseArm (..),
+    DataConstructor (..),
     DataConstructorArgument (..),
     Expr (..),
     Literal (..),
+    Pattern (..),
     Statement (..),
   )
 import JazzNext.Compiler.BuiltinCatalog
-  ( BuiltinSymbol (BuiltinTextLength),
+  ( BuiltinSymbol (BuiltinArguments, BuiltinTextLength, BuiltinTextUnconsRaw),
     builtinSymbolKernelName,
   )
 import JazzNext.Compiler.Diagnostics (SourceSpan (..))
 import JazzNext.Compiler.Driver
-  ( RunResult (..),
+  ( ResolvedPrelude (PreludeAbsent),
+    RunResult (..),
     runModuleGraphObserved,
+    runModuleGraphWithResolvedPreludeAndHostObserved,
     runSource,
     runSourceObserved,
   )
@@ -39,7 +45,14 @@ import JazzNext.Compiler.Runtime.Observation
     RuntimeObservationResult (..),
     RuntimeStatistics (..),
     RuntimeTermination (..),
+    emptyRuntimeStatistics,
   )
+import JazzNext.Compiler.Runtime.Observation.Render
+  ( decodeRuntimeObservationJson,
+    encodeRuntimeObservationJson,
+    renderRuntimeObservationHuman,
+  )
+import JazzNext.Compiler.RuntimeHost (disabledRuntimeHost)
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
 import JazzNext.TestHarness
   ( NamedTest,
@@ -57,7 +70,17 @@ tests =
     ("literal evaluation has an exact minimal transition count", testLiteralTransitions),
     ("closure application records forcing and continuation depth", testClosureApplication),
     ("builtin application is classified independently", testBuiltinApplication),
+    ("infix operator evaluation is classified independently", testOperatorApplication),
     ("constructor application is classified independently", testConstructorApplication),
+    ("closure creation records zero, one, and multiple captured bindings", testClosureCaptureWidths),
+    ("source values record each logical construction category", testSourceConstructions),
+    ("builtin results record their logical constructions", testBuiltinConstructions),
+    ("case evaluation records attempts, matches, and introduced bindings", testPatternStatistics),
+    ("builtin calls and host operations remain distinct", testBuiltinAndHostStatistics),
+    ("deferred binding caches distinguish misses and hits", testDeferredCacheHitAndMiss),
+    ("recursive deferred evaluation records its own cache outcome", testDeferredCacheRecursion),
+    ("human statistics use stable meaningful labels", testHumanRenderer),
+    ("JSON statistics are deterministic, explicit, and round trip", testJsonRenderer),
     ("runtime failure retains a partial report", testRuntimeFailureReport),
     ("compile failure has no runtime report", testCompileFailureHasNoReport)
   ]
@@ -145,6 +168,13 @@ testBuiltinApplication = do
   assertEqual "closure applications" 0 (runtimeClosureApplications statistics)
   assertEqual "total applications" 1 (runtimeApplications statistics)
 
+testOperatorApplication :: IO ()
+testOperatorApplication = do
+  statistics <- statisticsFor (EBinary "+" (ELit (LInt 1)) (ELit (LInt 2)))
+  assertEqual "operator applications" 1 (runtimeOperatorApplications statistics)
+  assertEqual "operator total applications" 1 (runtimeApplications statistics)
+  assertEqual "operator builtin calls" 0 (runtimeBuiltinCalls statistics)
+
 testConstructorApplication :: IO ()
 testConstructorApplication = do
   let expression =
@@ -163,6 +193,162 @@ testConstructorApplication = do
   let statistics = runtimeObservationStatistics report
   assertEqual "constructor applications" 1 (runtimeConstructorApplications statistics)
   assertEqual "total applications" 1 (runtimeApplications statistics)
+
+testClosureCaptureWidths :: IO ()
+testClosureCaptureWidths = do
+  zero <- statisticsFor (ELambda "value" (EVar "value"))
+  one <-
+    statisticsFor
+      ( EBlock
+          [ SLet "first" (SourceSpan 1 1) (ELit (LInt 1)),
+            SExpr (SourceSpan 2 1) (ELambda "value" (EVar "first"))
+          ]
+      )
+  multiple <-
+    statisticsFor
+      ( EBlock
+          [ SLet "first" (SourceSpan 1 1) (ELit (LInt 1)),
+            SLet "second" (SourceSpan 2 1) (ELit (LInt 2)),
+            SExpr (SourceSpan 3 1) (ELambda "value" (ETuple [EVar "first", EVar "second"]))
+          ]
+      )
+  assertEqual "zero-capture closures" 1 (runtimeClosuresCreated zero)
+  assertEqual "zero captured bindings" 0 (runtimeBindingsCaptured zero)
+  assertEqual "zero maximum capture width" 0 (runtimeMaximumCaptureWidth zero)
+  assertEqual "one-capture closures" 1 (runtimeClosuresCreated one)
+  assertEqual "one captured binding" 1 (runtimeBindingsCaptured one)
+  assertEqual "one maximum capture width" 1 (runtimeMaximumCaptureWidth one)
+  assertEqual "multiple-capture closures" 1 (runtimeClosuresCreated multiple)
+  assertEqual "multiple captured bindings" 2 (runtimeBindingsCaptured multiple)
+  assertEqual "multiple maximum capture width" 2 (runtimeMaximumCaptureWidth multiple)
+
+testSourceConstructions :: IO ()
+testSourceConstructions = do
+  statistics <-
+    statisticsFor
+      ( EBlock
+          [ SData
+              (SourceSpan 1 1)
+              "Box"
+              []
+              [DataConstructor "Box" [DataConstructorArgumentName "value"]],
+            SExpr
+              (SourceSpan 2 1)
+              ( ETuple
+                  [ EList [ELit (LInt 1), ELit (LInt 2)],
+                    EApply (EVar "Box") (ELit (LInt 3))
+                  ]
+              )
+          ]
+      )
+  assertEqual "list cells" 2 (runtimeListCellsConstructed statistics)
+  assertEqual "tuples" 1 (runtimeTuplesConstructed statistics)
+  assertEqual "saturated ADT values" 1 (runtimeSaturatedAdtValuesConstructed statistics)
+
+testBuiltinConstructions :: IO ()
+testBuiltinConstructions = do
+  statistics <-
+    statisticsFor
+      ( EApply
+          (kernelBuiltin BuiltinTextUnconsRaw)
+          (ELit (LText "Jazz"))
+      )
+  assertEqual "builtin list cells" 1 (runtimeListCellsConstructed statistics)
+  assertEqual "builtin tuples" 1 (runtimeTuplesConstructed statistics)
+
+testPatternStatistics :: IO ()
+testPatternStatistics = do
+  statistics <-
+    statisticsFor
+      ( EPatternCase
+          (ETuple [ELit (LInt 1), ELit (LInt 2)])
+          [ CaseArm (PLiteral (LInt 0)) Nothing (ELit (LInt 0)),
+            CaseArm (PTuple [PVariable "left", PVariable "right"]) Nothing (EVar "left")
+          ]
+      )
+  assertEqual "pattern attempts" 2 (runtimePatternAttempts statistics)
+  assertEqual "pattern matches" 1 (runtimePatternMatches statistics)
+  assertEqual "pattern bindings" 2 (runtimePatternBindings statistics)
+
+testBuiltinAndHostStatistics :: IO ()
+testBuiltinAndHostStatistics = do
+  pureBuiltin <-
+    statisticsFor
+      ( EApply
+          (kernelBuiltin BuiltinTextLength)
+          (ELit (LText "Jazz"))
+      )
+  hostBuiltin <-
+    statisticsFor
+      ( EApply
+          (kernelBuiltin BuiltinArguments)
+          (ETuple [])
+      )
+  assertEqual "pure builtin calls" 1 (runtimeBuiltinCalls pureBuiltin)
+  assertEqual "pure builtin host operations" 0 (runtimeHostOperations pureBuiltin)
+  assertEqual "host builtin calls" 1 (runtimeBuiltinCalls hostBuiltin)
+  assertEqual "host builtin host operations" 1 (runtimeHostOperations hostBuiltin)
+
+testDeferredCacheHitAndMiss :: IO ()
+testDeferredCacheHitAndMiss = do
+  let fixtureRoot = "test/fixtures/runtime-observation/module-cache"
+      resolutionConfig =
+        ModuleResolutionConfig
+          { moduleRoots = [fixtureRoot </> "src"],
+            moduleExtension = ".jz"
+          }
+      lookupSource path = do
+        exists <- doesFileExist path
+        if exists then Just <$> TextIO.readFile path else pure Nothing
+  result <-
+    runModuleGraphWithResolvedPreludeAndHostObserved
+      RuntimeObservationStatistics
+      disabledRuntimeHost
+      defaultWarningSettings
+      PreludeAbsent
+      resolutionConfig
+      ["App", "Main"]
+      lookupSource
+  report <- requireReport result
+  let statistics = runtimeObservationStatistics report
+  assertEqual "cache misses" 1 (runtimeDeferredCacheMisses statistics)
+  assertEqual "cache hits" 1 (runtimeDeferredCacheHits statistics)
+  assertEqual "recursive cache evaluations" 0 (runtimeDeferredCacheRecursiveEvaluations statistics)
+
+testDeferredCacheRecursion :: IO ()
+testDeferredCacheRecursion = do
+  let observed =
+        evaluateRuntimeExprObserved
+          RuntimeObservationStatistics
+          ( EBlock
+              [ SLet "loop" (SourceSpan 1 1) (EVar "loop"),
+                SExpr (SourceSpan 2 1) (EVar "loop")
+              ]
+          )
+  case runtimeObservationOutcome observed of
+    Left _ -> pure ()
+    Right value -> failTest ("expected recursive evaluation failure, got " <> Text.pack (show value))
+  report <- requireObservedReport observed
+  let statistics = runtimeObservationStatistics report
+  assertEqual "recursive cache misses" 1 (runtimeDeferredCacheMisses statistics)
+  assertEqual "recursive cache evaluations" 1 (runtimeDeferredCacheRecursiveEvaluations statistics)
+
+testHumanRenderer :: IO ()
+testHumanRenderer = do
+  let rendered = renderRuntimeObservationHuman zeroReport
+  assertTextContains "human termination" "termination: succeeded" rendered
+  assertTextContains "human transition label" "evaluator transitions: 0" rendered
+  assertTextContains "human cache label" "deferred cache recursive evaluations: 0" rendered
+
+testJsonRenderer :: IO ()
+testJsonRenderer = do
+  let first = encodeRuntimeObservationJson zeroReport
+      second = encodeRuntimeObservationJson zeroReport
+  assertEqual "deterministic JSON bytes" first second
+  assertEqual "JSON round trip" (Right zeroReport) (decodeRuntimeObservationJson first)
+  assertLazyBytesContain "JSON schema version" "\"schemaVersion\":1" first
+  assertLazyBytesContain "JSON explicit zero" "\"closuresCreated\":0" first
+  assertEqual "compact JSON" False (LazyByteString.elem '\n' first)
 
 testRuntimeFailureReport :: IO ()
 testRuntimeFailureReport = do
@@ -210,6 +396,33 @@ assertPositive label value =
   if value > 0
     then pure ()
     else failTest (label <> ": expected a positive value, got " <> Text.pack (show value))
+
+statisticsFor :: Expr -> IO RuntimeStatistics
+statisticsFor expression = do
+  report <- requireObservedSuccess (evaluateRuntimeExprObserved RuntimeObservationStatistics expression)
+  pure (runtimeObservationStatistics report)
+
+kernelBuiltin :: BuiltinSymbol -> Expr
+kernelBuiltin = EVar . BuiltinName . mkIdentifier . builtinSymbolKernelName
+
+zeroReport :: RuntimeObservationReport
+zeroReport =
+  RuntimeObservationReport
+    { runtimeObservationTermination = RuntimeSucceeded,
+      runtimeObservationStatistics = emptyRuntimeStatistics
+    }
+
+assertTextContains :: Text -> Text -> Text -> IO ()
+assertTextContains label expected actual =
+  if expected `Text.isInfixOf` actual
+    then pure ()
+    else failTest (label <> ": expected " <> Text.pack (show expected) <> " in " <> Text.pack (show actual))
+
+assertLazyBytesContain :: Text -> LazyByteString.ByteString -> LazyByteString.ByteString -> IO ()
+assertLazyBytesContain label expected actual =
+  if LazyByteString.unpack expected `isInfixOf` LazyByteString.unpack actual
+    then pure ()
+    else failTest (label <> ": expected " <> Text.pack (show expected) <> " in " <> Text.pack (show actual))
 
 readFixture :: FilePath -> IO Text
 readFixture name = TextIO.readFile ("test/fixtures/runtime-observation/" <> name)

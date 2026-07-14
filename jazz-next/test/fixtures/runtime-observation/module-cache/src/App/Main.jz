@@ -1,0 +1,5 @@
+module App::Main {
+  import App::Values.
+
+  (answer, answer).
+}

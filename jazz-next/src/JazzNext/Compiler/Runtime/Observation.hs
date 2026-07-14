@@ -1,6 +1,9 @@
 module JazzNext.Compiler.Runtime.Observation
   ( RuntimeApplicationKind (..),
+    RuntimeBuiltinKind (..),
     RuntimeConstructionKind (..),
+    RuntimeDeferredCacheKind (..),
+    RuntimeHostOperationKind (..),
     RuntimeObservationReport (..),
     RuntimeObservationRequest (..),
     RuntimeObservationResult (..),
@@ -11,7 +14,14 @@ module JazzNext.Compiler.Runtime.Observation
     finishRuntimeObservationResult,
     initialRuntimeObservationState,
     recordRuntimeApplication,
+    recordRuntimeBuiltinCall,
+    recordRuntimeClosureCreation,
+    recordRuntimeConstruction,
+    recordRuntimeDeferredCacheOutcome,
     recordRuntimeForcedValue,
+    recordRuntimeHostOperation,
+    recordRuntimePatternAttempt,
+    recordRuntimePatternMatch,
     recordRuntimeTransition,
     runtimeObservationEnabled,
     runtimeObservationStatisticsEnabled,
@@ -48,6 +58,50 @@ data RuntimeConstructionKind
   | SaturatedAdtConstruction
   deriving (Bounded, Enum, Eq, Ord, Show)
 
+data RuntimeBuiltinKind
+  = CollectionBuiltinCall
+  | NumericBuiltinCall
+  | CharacterBuiltinCall
+  | TextBuiltinCall
+  | HostBuiltinCall
+  | OtherBuiltinCall
+  deriving (Bounded, Enum, Eq, Ord, Show)
+
+data RuntimeHostOperationKind
+  = ReadTextHostOperation
+  | WriteTextHostOperation
+  | ReadStdinHostOperation
+  | WriteStdoutHostOperation
+  | WriteStderrHostOperation
+  | ArgumentsHostOperation
+  | ExitHostOperation
+  deriving (Bounded, Enum, Eq, Ord, Show)
+
+data RuntimeDeferredCacheKind
+  = DeferredCacheHit
+  | DeferredCacheMiss
+  | DeferredCacheRecursiveEvaluation
+  deriving (Bounded, Enum, Eq, Ord, Show)
+
+-- | Deterministic counts of semantic Jazz work, not Haskell allocations.
+--
+-- An evaluator transition is one execution of the machine's current control;
+-- forcing and application totals count the corresponding machine controls.
+-- Application-kind totals include partial applications, while builtin calls
+-- increment only when a builtin reaches its declared arity. Closure capture
+-- width is the size of the environment stored in a newly materialized closure.
+--
+-- List cells and tuples increment when source syntax or an allocating builtin
+-- completes the corresponding Jazz value; operations that return an existing
+-- list tail do not construct cells. Saturated ADT values increment when a
+-- constructor application reaches its arity. Nullary constructors are shared
+-- constants and do not represent per-use construction work.
+--
+-- A pattern attempt is one case arm considered. A match is a structurally
+-- successful pattern even when its guard later rejects the arm, and bindings
+-- count the names introduced by that pattern. Host operations increment only
+-- when a validated builtin dispatch invokes the host. Deferred-cache outcomes
+-- are recorded at the cache lookup that returns, begins, or rejects evaluation.
 data RuntimeStatistics = RuntimeStatistics
   { runtimeEvaluatorTransitions :: !Word64,
     runtimeForcedValues :: !Word64,
@@ -176,6 +230,89 @@ recordRuntimeApplication applicationKind observationState
   where
     statistics = observationStatistics observationState
 
+recordRuntimeClosureCreation :: Int -> RuntimeObservationState -> RuntimeObservationState
+recordRuntimeClosureCreation captureWidth observationState
+  | not (runtimeObservationStatisticsEnabled observationState) = observationState
+  | otherwise =
+      observationState
+        { observationStatistics =
+            statistics
+              { runtimeClosuresCreated = runtimeClosuresCreated statistics + 1,
+                runtimeBindingsCaptured = runtimeBindingsCaptured statistics + width,
+                runtimeMaximumCaptureWidth = max width (runtimeMaximumCaptureWidth statistics)
+              }
+        }
+  where
+    statistics = observationStatistics observationState
+    width = fromIntegral (max 0 captureWidth)
+
+recordRuntimeConstruction :: RuntimeConstructionKind -> Word64 -> RuntimeObservationState -> RuntimeObservationState
+recordRuntimeConstruction constructionKind amount observationState
+  | not (runtimeObservationStatisticsEnabled observationState) = observationState
+  | otherwise =
+      observationState
+        { observationStatistics = incrementConstruction constructionKind amount statistics
+        }
+  where
+    statistics = observationStatistics observationState
+
+recordRuntimePatternAttempt :: RuntimeObservationState -> RuntimeObservationState
+recordRuntimePatternAttempt observationState
+  | not (runtimeObservationStatisticsEnabled observationState) = observationState
+  | otherwise =
+      observationState
+        { observationStatistics =
+            statistics {runtimePatternAttempts = runtimePatternAttempts statistics + 1}
+        }
+  where
+    statistics = observationStatistics observationState
+
+recordRuntimePatternMatch :: Int -> RuntimeObservationState -> RuntimeObservationState
+recordRuntimePatternMatch bindingCount observationState
+  | not (runtimeObservationStatisticsEnabled observationState) = observationState
+  | otherwise =
+      observationState
+        { observationStatistics =
+            statistics
+              { runtimePatternMatches = runtimePatternMatches statistics + 1,
+                runtimePatternBindings = runtimePatternBindings statistics + fromIntegral (max 0 bindingCount)
+              }
+        }
+  where
+    statistics = observationStatistics observationState
+
+recordRuntimeBuiltinCall :: RuntimeBuiltinKind -> RuntimeObservationState -> RuntimeObservationState
+recordRuntimeBuiltinCall _ observationState
+  | not (runtimeObservationStatisticsEnabled observationState) = observationState
+  | otherwise =
+      observationState
+        { observationStatistics =
+            statistics {runtimeBuiltinCalls = runtimeBuiltinCalls statistics + 1}
+        }
+  where
+    statistics = observationStatistics observationState
+
+recordRuntimeHostOperation :: RuntimeHostOperationKind -> RuntimeObservationState -> RuntimeObservationState
+recordRuntimeHostOperation _ observationState
+  | not (runtimeObservationStatisticsEnabled observationState) = observationState
+  | otherwise =
+      observationState
+        { observationStatistics =
+            statistics {runtimeHostOperations = runtimeHostOperations statistics + 1}
+        }
+  where
+    statistics = observationStatistics observationState
+
+recordRuntimeDeferredCacheOutcome :: RuntimeDeferredCacheKind -> RuntimeObservationState -> RuntimeObservationState
+recordRuntimeDeferredCacheOutcome cacheKind observationState
+  | not (runtimeObservationStatisticsEnabled observationState) = observationState
+  | otherwise =
+      observationState
+        { observationStatistics = incrementDeferredCacheKind cacheKind statistics
+        }
+  where
+    statistics = observationStatistics observationState
+
 finishRuntimeObservationResult ::
   Either Diagnostic value ->
   RuntimeObservationState ->
@@ -221,3 +358,28 @@ incrementApplicationKind applicationKind statistics =
       statistics {runtimeConstructorApplications = runtimeConstructorApplications statistics + 1}
     MethodApplication ->
       statistics {runtimeMethodApplications = runtimeMethodApplications statistics + 1}
+
+incrementConstruction :: RuntimeConstructionKind -> Word64 -> RuntimeStatistics -> RuntimeStatistics
+incrementConstruction constructionKind amount statistics =
+  case constructionKind of
+    ClosureConstruction ->
+      statistics {runtimeClosuresCreated = runtimeClosuresCreated statistics + amount}
+    ListCellConstruction ->
+      statistics {runtimeListCellsConstructed = runtimeListCellsConstructed statistics + amount}
+    TupleConstruction ->
+      statistics {runtimeTuplesConstructed = runtimeTuplesConstructed statistics + amount}
+    SaturatedAdtConstruction ->
+      statistics {runtimeSaturatedAdtValuesConstructed = runtimeSaturatedAdtValuesConstructed statistics + amount}
+
+incrementDeferredCacheKind :: RuntimeDeferredCacheKind -> RuntimeStatistics -> RuntimeStatistics
+incrementDeferredCacheKind cacheKind statistics =
+  case cacheKind of
+    DeferredCacheHit ->
+      statistics {runtimeDeferredCacheHits = runtimeDeferredCacheHits statistics + 1}
+    DeferredCacheMiss ->
+      statistics {runtimeDeferredCacheMisses = runtimeDeferredCacheMisses statistics + 1}
+    DeferredCacheRecursiveEvaluation ->
+      statistics
+        { runtimeDeferredCacheRecursiveEvaluations =
+            runtimeDeferredCacheRecursiveEvaluations statistics + 1
+        }

@@ -9,12 +9,37 @@
       "expectedTermination": "success",
       "expectedStdout": "expected.stdout",
       "workload": "fast",
-      "features": ["modules", "patterns", "recursion", "inference", "text", "lists", "deterministic-runtime"],
-      "benchmarks": ["parse-lower", "analysis", "module-preparation", "runtime", "whole-program"],
+      "features": [
+        "modules",
+        "patterns",
+        "recursion",
+        "inference",
+        "text",
+        "lists",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "parse-lower",
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
       "budgets": {
-        "steps": 100000,
-        "applications": 10000,
-        "maxContinuationDepth": 1000
+        "steps": 3500,
+        "applications": 350,
+        "maxContinuationDepth": 6,
+        "forcedValues": 650,
+        "operatorApplications": 70,
+        "closuresCreated": 10,
+        "bindingsCaptured": 700,
+        "maximumCaptureWidth": 100,
+        "listCellsConstructed": 60,
+        "tuplesConstructed": 80,
+        "saturatedAdtValuesConstructed": 50,
+        "patternAttempts": 160,
+        "builtinCalls": 100,
+        "deferredCacheMisses": 25
       }
     },
     {
@@ -25,12 +50,31 @@
       "expectedTermination": "success",
       "expectedStdout": "expected.stdout",
       "workload": "fast",
-      "features": ["modules", "patterns", "recursion", "inference", "text", "lists", "deterministic-runtime"],
+      "features": [
+        "modules",
+        "patterns",
+        "recursion",
+        "inference",
+        "text",
+        "lists",
+        "deterministic-runtime"
+      ],
       "benchmarks": ["analysis", "runtime", "whole-program"],
       "budgets": {
-        "steps": 100000,
-        "applications": 10000,
-        "maxContinuationDepth": 1000
+        "steps": 600,
+        "applications": 70,
+        "maxContinuationDepth": 8,
+        "forcedValues": 110,
+        "operatorApplications": 10,
+        "closuresCreated": 30,
+        "bindingsCaptured": 2100,
+        "maximumCaptureWidth": 100,
+        "listCellsConstructed": 5,
+        "tuplesConstructed": 5,
+        "saturatedAdtValuesConstructed": 20,
+        "patternAttempts": 60,
+        "builtinCalls": 5,
+        "deferredCacheMisses": 10
       }
     },
     {
@@ -41,12 +85,35 @@
       "expectedTermination": "success",
       "expectedStdout": "expected.stdout",
       "workload": "full",
-      "features": ["modules", "generic-adts", "patterns", "recursion", "inference", "deterministic-runtime"],
-      "benchmarks": ["analysis", "module-preparation", "runtime", "whole-program"],
+      "features": [
+        "modules",
+        "generic-adts",
+        "patterns",
+        "recursion",
+        "inference",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
       "budgets": {
-        "steps": 1000000,
-        "applications": 100000,
-        "maxContinuationDepth": 10000
+        "steps": 50000,
+        "applications": 7000,
+        "maxContinuationDepth": 25,
+        "forcedValues": 9000,
+        "operatorApplications": 1300,
+        "closuresCreated": 2300,
+        "bindingsCaptured": 140000,
+        "maximumCaptureWidth": 90,
+        "listCellsConstructed": 0,
+        "tuplesConstructed": 2,
+        "saturatedAdtValuesConstructed": 650,
+        "patternAttempts": 1500,
+        "builtinCalls": 0,
+        "deferredCacheMisses": 10
       }
     },
     {
@@ -57,12 +124,31 @@
       "expectedTermination": "success",
       "expectedStdout": "expected.stdout",
       "workload": "fast",
-      "features": ["modules", "patterns", "recursion", "inference", "text", "lists", "deterministic-runtime"],
+      "features": [
+        "modules",
+        "patterns",
+        "recursion",
+        "inference",
+        "text",
+        "lists",
+        "deterministic-runtime"
+      ],
       "benchmarks": ["parse-lower", "analysis", "runtime", "whole-program"],
       "budgets": {
-        "steps": 200000,
-        "applications": 20000,
-        "maxContinuationDepth": 2000
+        "steps": 3000,
+        "applications": 350,
+        "maxContinuationDepth": 16,
+        "forcedValues": 550,
+        "operatorApplications": 50,
+        "closuresCreated": 140,
+        "bindingsCaptured": 9000,
+        "maximumCaptureWidth": 90,
+        "listCellsConstructed": 40,
+        "tuplesConstructed": 10,
+        "saturatedAdtValuesConstructed": 20,
+        "patternAttempts": 150,
+        "builtinCalls": 20,
+        "deferredCacheMisses": 15
       }
     },
     {
@@ -73,12 +159,37 @@
       "expectedTermination": "success",
       "expectedStdout": "expected.stdout",
       "workload": "fast",
-      "features": ["modules", "patterns", "recursion", "inference", "capabilities", "text", "lists", "deterministic-runtime"],
-      "benchmarks": ["analysis", "module-preparation", "runtime", "whole-program"],
+      "features": [
+        "modules",
+        "patterns",
+        "recursion",
+        "inference",
+        "capabilities",
+        "text",
+        "lists",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
       "budgets": {
-        "steps": 200000,
-        "applications": 20000,
-        "maxContinuationDepth": 2000
+        "steps": 600,
+        "applications": 70,
+        "maxContinuationDepth": 8,
+        "forcedValues": 100,
+        "operatorApplications": 0,
+        "closuresCreated": 15,
+        "bindingsCaptured": 1000,
+        "maximumCaptureWidth": 100,
+        "listCellsConstructed": 20,
+        "tuplesConstructed": 0,
+        "saturatedAdtValuesConstructed": 8,
+        "patternAttempts": 30,
+        "builtinCalls": 15,
+        "deferredCacheMisses": 15
       }
     },
     {
@@ -89,12 +200,38 @@
       "expectedTermination": "success",
       "expectedStdout": "expected.stdout",
       "workload": "full",
-      "features": ["modules", "generic-adts", "patterns", "recursion", "inference", "text", "lists", "deterministic-runtime"],
-      "benchmarks": ["parse-lower", "analysis", "module-preparation", "runtime", "whole-program"],
+      "features": [
+        "modules",
+        "generic-adts",
+        "patterns",
+        "recursion",
+        "inference",
+        "text",
+        "lists",
+        "deterministic-runtime"
+      ],
+      "benchmarks": [
+        "parse-lower",
+        "analysis",
+        "module-preparation",
+        "runtime",
+        "whole-program"
+      ],
       "budgets": {
-        "steps": 1000000,
-        "applications": 100000,
-        "maxContinuationDepth": 10000
+        "steps": 1500,
+        "applications": 170,
+        "maxContinuationDepth": 12,
+        "forcedValues": 250,
+        "operatorApplications": 40,
+        "closuresCreated": 40,
+        "bindingsCaptured": 2600,
+        "maximumCaptureWidth": 90,
+        "listCellsConstructed": 30,
+        "tuplesConstructed": 4,
+        "saturatedAdtValuesConstructed": 25,
+        "patternAttempts": 90,
+        "builtinCalls": 15,
+        "deferredCacheMisses": 20
       }
     }
   ]

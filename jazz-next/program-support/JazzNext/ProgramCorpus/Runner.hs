@@ -4,14 +4,18 @@ module JazzNext.ProgramCorpus.Runner
   ( ProgramCaseResult (..),
     loadProgramCaseEntrySource,
     prepareProgramCase,
+    programCaseBudgetViolations,
     programCaseResolutionConfig,
     readProgramCaseSource,
     runProgramCase,
+    runProgramCaseObserved,
   )
 where
 
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text.IO as TextIO
+import Data.Word (Word64)
 import JazzNext.Compiler.BundledPrelude (bundledPreludeSource)
 import JazzNext.Compiler.Diagnostics (Diagnostic, WarningRecord)
 import JazzNext.Compiler.Driver
@@ -19,12 +23,21 @@ import JazzNext.Compiler.Driver
     RunResult (..),
     buildCompiledProgram,
     runModuleGraph,
+    runModuleGraphObserved,
   )
 import JazzNext.Compiler.ModuleInterface (CompiledProgram)
 import JazzNext.Compiler.ModuleResolver (ModuleResolutionConfig (..))
+import JazzNext.Compiler.Runtime.Observation
+  ( RuntimeObservationReport (..),
+    RuntimeObservationRequest,
+    RuntimeStatistics (..),
+  )
 import JazzNext.Compiler.WarningConfig (defaultWarningSettings)
 import JazzNext.ProgramCorpus.Types
-  ( ProgramCase (..),
+  ( ProgramBudgetMetric (..),
+    ProgramBudgetViolation (..),
+    ProgramBudgets (..),
+    ProgramCase (..),
     ProgramTermination (..),
   )
 import System.Directory (doesFileExist)
@@ -34,7 +47,8 @@ data ProgramCaseResult = ProgramCaseResult
   { programCaseResultTermination :: ProgramTermination,
     programCaseResultStdout :: Text,
     programCaseResultDiagnostics :: [Diagnostic],
-    programCaseResultWarnings :: [WarningRecord]
+    programCaseResultWarnings :: [WarningRecord],
+    programCaseResultObservation :: Maybe RuntimeObservationReport
   }
   deriving (Eq, Show)
 
@@ -47,6 +61,34 @@ runProgramCase programCase = do
       (programCaseEntryModulePath programCase)
       readProgramCaseSource
   pure (caseResult runResult)
+
+runProgramCaseObserved :: RuntimeObservationRequest -> ProgramCase -> IO ProgramCaseResult
+runProgramCaseObserved observationRequest programCase = do
+  runResult <-
+    runModuleGraphObserved
+      observationRequest
+      defaultWarningSettings
+      (programCaseResolutionConfig programCase)
+      (programCaseEntryModulePath programCase)
+      readProgramCaseSource
+  pure (caseResult runResult)
+
+programCaseBudgetViolations :: ProgramCase -> RuntimeObservationReport -> [ProgramBudgetViolation]
+programCaseBudgetViolations programCase report =
+  [ budgetViolation metric limit actual
+  | (metric, limit) <- programBudgetLimits (programCaseBudgets programCase),
+    let actual = runtimeMetricValue metric (runtimeObservationStatistics report),
+    actual > limit
+  ]
+  where
+    budgetViolation metric limit actual =
+      ProgramBudgetViolation
+        { programBudgetViolationCase = programCaseIdentifier programCase,
+          programBudgetViolationMetric = metric,
+          programBudgetViolationLimit = limit,
+          programBudgetViolationActual = actual,
+          programBudgetViolationPercentageIncrease = percentageIncrease limit actual
+        }
 
 loadProgramCaseEntrySource :: ProgramCase -> IO Text
 loadProgramCaseEntrySource = TextIO.readFile . programCaseEntrySource
@@ -82,19 +124,72 @@ caseResult result
         { programCaseResultTermination = CompileFailedProgram,
           programCaseResultStdout = "",
           programCaseResultDiagnostics = runCompileErrors result,
-          programCaseResultWarnings = runWarnings result
+          programCaseResultWarnings = runWarnings result,
+          programCaseResultObservation = runRuntimeObservation result
         }
   | not (null (runRuntimeErrors result)) =
       ProgramCaseResult
         { programCaseResultTermination = RuntimeFailedProgram,
           programCaseResultStdout = "",
           programCaseResultDiagnostics = runRuntimeErrors result,
-          programCaseResultWarnings = runWarnings result
+          programCaseResultWarnings = runWarnings result,
+          programCaseResultObservation = runRuntimeObservation result
         }
   | otherwise =
       ProgramCaseResult
         { programCaseResultTermination = SuccessfulProgram,
           programCaseResultStdout = maybe "" (<> "\n") (runOutput result),
           programCaseResultDiagnostics = [],
-          programCaseResultWarnings = runWarnings result
+          programCaseResultWarnings = runWarnings result,
+          programCaseResultObservation = runRuntimeObservation result
         }
+
+programBudgetLimits :: ProgramBudgets -> [(ProgramBudgetMetric, Word64)]
+programBudgetLimits budgets =
+  [ (EvaluatorTransitionsBudget, programBudgetSteps budgets),
+    (ApplicationsBudget, programBudgetApplications budgets),
+    (MaximumContinuationDepthBudget, programBudgetMaxContinuationDepth budgets)
+  ]
+    <> Map.toAscList
+      ( foldr
+          Map.delete
+          (programBudgetOptionalLimits budgets)
+          [EvaluatorTransitionsBudget, ApplicationsBudget, MaximumContinuationDepthBudget]
+      )
+
+runtimeMetricValue :: ProgramBudgetMetric -> RuntimeStatistics -> Word64
+runtimeMetricValue metric statistics =
+  case metric of
+    EvaluatorTransitionsBudget -> runtimeEvaluatorTransitions statistics
+    ApplicationsBudget -> runtimeApplications statistics
+    MaximumContinuationDepthBudget -> runtimeMaximumContinuationDepth statistics
+    ForcedValuesBudget -> runtimeForcedValues statistics
+    ClosureApplicationsBudget -> runtimeClosureApplications statistics
+    BuiltinApplicationsBudget -> runtimeBuiltinApplications statistics
+    OperatorApplicationsBudget -> runtimeOperatorApplications statistics
+    ConstructorApplicationsBudget -> runtimeConstructorApplications statistics
+    MethodApplicationsBudget -> runtimeMethodApplications statistics
+    ClosuresCreatedBudget -> runtimeClosuresCreated statistics
+    BindingsCapturedBudget -> runtimeBindingsCaptured statistics
+    MaximumCaptureWidthBudget -> runtimeMaximumCaptureWidth statistics
+    ListCellsConstructedBudget -> runtimeListCellsConstructed statistics
+    TuplesConstructedBudget -> runtimeTuplesConstructed statistics
+    SaturatedAdtValuesConstructedBudget -> runtimeSaturatedAdtValuesConstructed statistics
+    PatternAttemptsBudget -> runtimePatternAttempts statistics
+    PatternMatchesBudget -> runtimePatternMatches statistics
+    PatternBindingsBudget -> runtimePatternBindings statistics
+    BuiltinCallsBudget -> runtimeBuiltinCalls statistics
+    HostOperationsBudget -> runtimeHostOperations statistics
+    DeferredCacheHitsBudget -> runtimeDeferredCacheHits statistics
+    DeferredCacheMissesBudget -> runtimeDeferredCacheMisses statistics
+    DeferredCacheRecursiveEvaluationsBudget -> runtimeDeferredCacheRecursiveEvaluations statistics
+
+percentageIncrease :: Word64 -> Word64 -> Maybe Rational
+percentageIncrease limit actual
+  | limit == 0 = Nothing
+  | otherwise =
+      Just
+        ( fromIntegral (actual - limit)
+            * 100
+            / fromIntegral limit
+        )

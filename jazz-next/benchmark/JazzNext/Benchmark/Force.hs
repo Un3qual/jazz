@@ -102,7 +102,9 @@ forceProgramCaseResult result =
   programCaseResultTermination result `seq`
     programCaseResultStdout result `seq`
       forceListWith forceDiagnostic (programCaseResultDiagnostics result) `seq`
-        forceListWith forceWarning (programCaseResultWarnings result)
+        forceListWith forceWarning (programCaseResultWarnings result) `seq`
+          programCaseResultObservation result `seq`
+            ()
 
 forceLiteral :: Literal -> ()
 forceLiteral literal =

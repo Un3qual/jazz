@@ -3,6 +3,8 @@
 module JazzNext.ProgramCorpus.Types
   ( BenchmarkGroup (..),
     FeatureTag (..),
+    ProgramBudgetMetric (..),
+    ProgramBudgetViolation (..),
     ProgramBudgets (..),
     ProgramCase (..),
     ProgramCaseDocument (..),
@@ -18,12 +20,15 @@ module JazzNext.ProgramCorpus.Types
     parseFeatureTag,
     parseProgramTermination,
     parseWorkloadClass,
+    programBudgetMetricName,
     programTerminationName,
     workloadClassName,
   )
 where
 
+import Data.Map.Strict (Map)
 import Data.Text (Text)
+import Data.Word (Word64)
 import JazzNext.Compiler.Profiling
   ( BenchmarkGroup (..),
     benchmarkGroupName,
@@ -53,9 +58,45 @@ data ProgramTermination
   deriving (Bounded, Enum, Eq, Ord, Show)
 
 data ProgramBudgets = ProgramBudgets
-  { programBudgetSteps :: Integer,
-    programBudgetApplications :: Integer,
-    programBudgetMaxContinuationDepth :: Integer
+  { programBudgetSteps :: Word64,
+    programBudgetApplications :: Word64,
+    programBudgetMaxContinuationDepth :: Word64,
+    programBudgetOptionalLimits :: Map ProgramBudgetMetric Word64
+  }
+  deriving (Eq, Ord, Show)
+
+data ProgramBudgetMetric
+  = EvaluatorTransitionsBudget
+  | ApplicationsBudget
+  | MaximumContinuationDepthBudget
+  | ForcedValuesBudget
+  | ClosureApplicationsBudget
+  | BuiltinApplicationsBudget
+  | OperatorApplicationsBudget
+  | ConstructorApplicationsBudget
+  | MethodApplicationsBudget
+  | ClosuresCreatedBudget
+  | BindingsCapturedBudget
+  | MaximumCaptureWidthBudget
+  | ListCellsConstructedBudget
+  | TuplesConstructedBudget
+  | SaturatedAdtValuesConstructedBudget
+  | PatternAttemptsBudget
+  | PatternMatchesBudget
+  | PatternBindingsBudget
+  | BuiltinCallsBudget
+  | HostOperationsBudget
+  | DeferredCacheHitsBudget
+  | DeferredCacheMissesBudget
+  | DeferredCacheRecursiveEvaluationsBudget
+  deriving (Bounded, Enum, Eq, Ord, Show)
+
+data ProgramBudgetViolation = ProgramBudgetViolation
+  { programBudgetViolationCase :: Text,
+    programBudgetViolationMetric :: ProgramBudgetMetric,
+    programBudgetViolationLimit :: Word64,
+    programBudgetViolationActual :: Word64,
+    programBudgetViolationPercentageIncrease :: Maybe Rational
   }
   deriving (Eq, Ord, Show)
 
@@ -165,6 +206,33 @@ programTerminationName termination =
 
 parseProgramTermination :: Text -> Maybe ProgramTermination
 parseProgramTermination = lookupByName programTerminationName
+
+programBudgetMetricName :: ProgramBudgetMetric -> Text
+programBudgetMetricName metric =
+  case metric of
+    EvaluatorTransitionsBudget -> "steps"
+    ApplicationsBudget -> "applications"
+    MaximumContinuationDepthBudget -> "maxContinuationDepth"
+    ForcedValuesBudget -> "forcedValues"
+    ClosureApplicationsBudget -> "closureApplications"
+    BuiltinApplicationsBudget -> "builtinApplications"
+    OperatorApplicationsBudget -> "operatorApplications"
+    ConstructorApplicationsBudget -> "constructorApplications"
+    MethodApplicationsBudget -> "methodApplications"
+    ClosuresCreatedBudget -> "closuresCreated"
+    BindingsCapturedBudget -> "bindingsCaptured"
+    MaximumCaptureWidthBudget -> "maximumCaptureWidth"
+    ListCellsConstructedBudget -> "listCellsConstructed"
+    TuplesConstructedBudget -> "tuplesConstructed"
+    SaturatedAdtValuesConstructedBudget -> "saturatedAdtValuesConstructed"
+    PatternAttemptsBudget -> "patternAttempts"
+    PatternMatchesBudget -> "patternMatches"
+    PatternBindingsBudget -> "patternBindings"
+    BuiltinCallsBudget -> "builtinCalls"
+    HostOperationsBudget -> "hostOperations"
+    DeferredCacheHitsBudget -> "deferredCacheHits"
+    DeferredCacheMissesBudget -> "deferredCacheMisses"
+    DeferredCacheRecursiveEvaluationsBudget -> "deferredCacheRecursiveEvaluations"
 
 lookupByName :: (Bounded value, Enum value) => (value -> Text) -> Text -> Maybe value
 lookupByName renderName requested =

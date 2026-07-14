@@ -5,11 +5,19 @@ module Main (main) where
 import Control.Exception (bracket)
 import Control.Monad (forM, forM_)
 import Data.List (sort, sortOn)
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import JazzNext.Compiler.Diagnostics (renderDiagnostic)
+import JazzNext.Compiler.Runtime.Observation
+  ( RuntimeObservationReport (..),
+    RuntimeObservationRequest (RuntimeObservationStatistics),
+    RuntimeStatistics (..),
+    RuntimeTermination (RuntimeSucceeded),
+    emptyRuntimeStatistics,
+  )
 import JazzNext.ProgramCorpus.Manifest
   ( loadProgramCorpus,
     loadProgramCorpusAt,
@@ -18,15 +26,20 @@ import JazzNext.ProgramCorpus.Manifest
   )
 import JazzNext.ProgramCorpus.Runner
   ( ProgramCaseResult (..),
+    programCaseBudgetViolations,
     runProgramCase,
+    runProgramCaseObserved,
   )
 import JazzNext.ProgramCorpus.Types
-  ( ProgramCase (..),
+  ( BenchmarkGroup,
+    FeatureTag,
+    ProgramBudgetMetric (..),
+    ProgramBudgetViolation (..),
+    ProgramBudgets (..),
+    ProgramCase (..),
     ProgramCorpus (..),
     ProgramCorpusViolation (..),
     ProgramPathField (..),
-    BenchmarkGroup,
-    FeatureTag,
     WorkloadClass,
   )
 import JazzNext.TestHarness
@@ -39,8 +52,8 @@ import System.Directory
   ( createDirectory,
     createDirectoryIfMissing,
     createFileLink,
-    getTemporaryDirectory,
     doesDirectoryExist,
+    getTemporaryDirectory,
     listDirectory,
     removeFile,
     removePathForcibly,
@@ -59,7 +72,11 @@ tests =
     ("rejects a source symlink that escapes the corpus root", testSymlinkEscape),
     ("loads and runs the checked-in identifier classifier", testIdentifierClassifier),
     ("covers the production-shaped corpus contract", testCheckedInCorpusCoverage),
-    ("runs every checked-in corpus case", testEveryCheckedInCase)
+    ("budget upper limits accept equal and lower work", testBudgetUpperLimits),
+    ("optional budgets are enforced and violations are stably accumulated", testOptionalBudgetViolations),
+    ("an in-memory checked-in budget override reports a useful violation", testCheckedInBudgetOverride),
+    ("runtime statistics are deterministic for a checked-in case", testDeterministicRuntimeStatistics),
+    ("runs every checked-in corpus case within its budgets", testEveryCheckedInCase)
   ]
 
 testAggregateManifestViolations :: IO ()
@@ -203,7 +220,7 @@ testEveryCheckedInCase :: IO ()
 testEveryCheckedInCase = do
   corpus <- loadCheckedInCorpus
   forM_ (programCorpusCases corpus) $ \programCase -> do
-    result <- runProgramCase programCase
+    result <- runProgramCaseObserved RuntimeObservationStatistics programCase
     assertEqual
       (programCaseIdentifier programCase <> " termination")
       (programCaseExpectedTermination programCase)
@@ -220,6 +237,147 @@ testEveryCheckedInCase = do
       (programCaseIdentifier programCase <> " warnings")
       []
       (programCaseResultWarnings result)
+    report <- requireProgramReport programCase result
+    assertEqual
+      (programCaseIdentifier programCase <> " budget violations")
+      []
+      (programCaseBudgetViolations programCase report)
+
+testBudgetUpperLimits :: IO ()
+testBudgetUpperLimits = do
+  programCase <- firstCheckedInCase
+  let budgetedCase =
+        programCase
+          { programCaseBudgets =
+              ProgramBudgets
+                { programBudgetSteps = 10,
+                  programBudgetApplications = 5,
+                  programBudgetMaxContinuationDepth = 3,
+                  programBudgetOptionalLimits = Map.empty
+                }
+          }
+      equalStatistics =
+        emptyRuntimeStatistics
+          { runtimeEvaluatorTransitions = 10,
+            runtimeApplications = 5,
+            runtimeMaximumContinuationDepth = 3
+          }
+      lowerStatistics =
+        equalStatistics
+          { runtimeEvaluatorTransitions = 9,
+            runtimeApplications = 4,
+            runtimeMaximumContinuationDepth = 2
+          }
+  assertEqual "equal work passes" [] (programCaseBudgetViolations budgetedCase (successfulReport equalStatistics))
+  assertEqual "lower work passes" [] (programCaseBudgetViolations budgetedCase (successfulReport lowerStatistics))
+
+testOptionalBudgetViolations :: IO ()
+testOptionalBudgetViolations = do
+  programCase <- firstCheckedInCase
+  let budgetedCase =
+        programCase
+          { programCaseBudgets =
+              ProgramBudgets
+                { programBudgetSteps = 10,
+                  programBudgetApplications = 5,
+                  programBudgetMaxContinuationDepth = 3,
+                  programBudgetOptionalLimits =
+                    Map.fromList
+                      [ (ClosuresCreatedBudget, 1),
+                        (ListCellsConstructedBudget, 2)
+                      ]
+                }
+          }
+      statistics =
+        emptyRuntimeStatistics
+          { runtimeEvaluatorTransitions = 11,
+            runtimeApplications = 5,
+            runtimeMaximumContinuationDepth = 3,
+            runtimeClosuresCreated = 2,
+            runtimeListCellsConstructed = 4
+          }
+      expected =
+        [ ProgramBudgetViolation
+            { programBudgetViolationCase = programCaseIdentifier programCase,
+              programBudgetViolationMetric = EvaluatorTransitionsBudget,
+              programBudgetViolationLimit = 10,
+              programBudgetViolationActual = 11,
+              programBudgetViolationPercentageIncrease = Just 10
+            },
+          ProgramBudgetViolation
+            { programBudgetViolationCase = programCaseIdentifier programCase,
+              programBudgetViolationMetric = ClosuresCreatedBudget,
+              programBudgetViolationLimit = 1,
+              programBudgetViolationActual = 2,
+              programBudgetViolationPercentageIncrease = Just 100
+            },
+          ProgramBudgetViolation
+            { programBudgetViolationCase = programCaseIdentifier programCase,
+              programBudgetViolationMetric = ListCellsConstructedBudget,
+              programBudgetViolationLimit = 2,
+              programBudgetViolationActual = 4,
+              programBudgetViolationPercentageIncrease = Just 100
+            }
+        ]
+  assertEqual
+    "stable accumulated violations"
+    expected
+    (programCaseBudgetViolations budgetedCase (successfulReport statistics))
+
+testCheckedInBudgetOverride :: IO ()
+testCheckedInBudgetOverride = do
+  programCase <- firstCheckedInCase
+  result <- runProgramCaseObserved RuntimeObservationStatistics programCase
+  report <- requireProgramReport programCase result
+  let statistics = runtimeObservationStatistics report
+      actualSteps = runtimeEvaluatorTransitions statistics
+      overBudgetCase =
+        programCase
+          { programCaseBudgets =
+              (programCaseBudgets programCase)
+                { programBudgetSteps = actualSteps - 1
+                }
+          }
+      violations = programCaseBudgetViolations overBudgetCase report
+  case violations of
+    violation : _ -> do
+      assertEqual "override case" (programCaseIdentifier programCase) (programBudgetViolationCase violation)
+      assertEqual "override metric" EvaluatorTransitionsBudget (programBudgetViolationMetric violation)
+      assertEqual "override actual" actualSteps (programBudgetViolationActual violation)
+    [] -> failTest "expected the in-memory budget override to fail"
+
+testDeterministicRuntimeStatistics :: IO ()
+testDeterministicRuntimeStatistics = do
+  programCase <- firstCheckedInCase
+  firstResult <- runProgramCaseObserved RuntimeObservationStatistics programCase
+  secondResult <- runProgramCaseObserved RuntimeObservationStatistics programCase
+  firstReport <- requireProgramReport programCase firstResult
+  secondReport <- requireProgramReport programCase secondResult
+  assertEqual "repeat runtime reports" firstReport secondReport
+  assertEqual
+    "repeat budget results"
+    (programCaseBudgetViolations programCase firstReport)
+    (programCaseBudgetViolations programCase secondReport)
+
+firstCheckedInCase :: IO ProgramCase
+firstCheckedInCase = do
+  corpus <- loadCheckedInCorpus
+  case programCorpusCases corpus of
+    programCase : _ -> pure programCase
+    [] -> failTest "checked-in corpus is empty"
+
+successfulReport :: RuntimeStatistics -> RuntimeObservationReport
+successfulReport statistics =
+  RuntimeObservationReport
+    { runtimeObservationTermination = RuntimeSucceeded,
+      runtimeObservationStatistics = statistics
+    }
+
+requireProgramReport :: ProgramCase -> ProgramCaseResult -> IO RuntimeObservationReport
+requireProgramReport programCase result =
+  case programCaseResultObservation result of
+    Just report -> pure report
+    Nothing -> failTest (programCaseIdentifier programCase <> " did not produce runtime statistics")
 
 loadCheckedInCorpus :: IO ProgramCorpus
 loadCheckedInCorpus = do
